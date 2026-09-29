@@ -22,6 +22,9 @@ export const routes = {
   members: (key: string) => `/api/projects/${key}/members`,
   member: (key: string, handle: string) => `/api/projects/${key}/members/${handle}`,
 
+  roles: (key: string) => `/api/projects/${key}/roles`,
+  role: (key: string, roleId: string) => `/api/projects/${key}/roles/${roleId}`,
+
   session: (key: string, sessionId: string) => `/api/projects/${key}/sessions/${sessionId}`,
   sessionMessages: (key: string, sessionId: string) => `/api/projects/${key}/sessions/${sessionId}/messages`,
   stopSession: (key: string, sessionId: string) => `/api/projects/${key}/sessions/${sessionId}/stop`,
@@ -54,7 +57,9 @@ export const routeMethods = {
   task: 'GET | PATCH',
   startTask: 'POST',
   members: 'GET | POST',
-  member: 'DELETE',
+  member: 'PATCH | DELETE',
+  roles: 'GET | POST',
+  role: 'PUT | DELETE',
   session: 'GET',
   sessionMessages: 'POST',
   stopSession: 'POST',

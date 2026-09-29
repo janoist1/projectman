@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { HireMemberRequest, RetireMemberRequest, routes } from '@projectman/shared';
+import { HireMemberRequest, RetireMemberRequest, routes, UpdateMemberRequest } from '@projectman/shared';
 import type { MemberView } from '@projectman/shared';
 import type { Domain } from '../domain';
 import { actorOf, authorOf, requireAccess, sponsorFor } from './context';
@@ -14,7 +14,7 @@ export function registerMemberRoutes(app: FastifyInstance, domain: Domain): void
     return domain.members.roster(request.params.key);
   });
 
-  /** Hires an AI member; the requesting human sponsors it (runs on their subscription). */
+  /** Hires an AI member for a role an AI may hold; the requesting human sponsors it (runs on their subscription). */
   app.post<ProjectParams>(routes.members(':key'), async (request, reply) => {
     const key = request.params.key;
     const access = await requireAccess(domain, request, key, { minimum: 'admin' });
@@ -26,6 +26,14 @@ export function registerMemberRoutes(app: FastifyInstance, domain: Domain): void
     });
     const view = (await domain.members.roster(key)).find((m) => m.handle === hired.handle);
     return reply.code(201).send(view);
+  });
+
+  /** Changes a member: display name; a human's roles; an AI member's specialty, model and schedule. */
+  app.patch<MemberParams>(routes.member(':key', ':handle'), async (request): Promise<MemberView> => {
+    const { key, handle } = request.params;
+    const access = await requireAccess(domain, request, key, { minimum: 'admin' });
+    const body = parseBody(UpdateMemberRequest, request.body);
+    return domain.members.update(key, handle, body, { actor: actorOf(access), author: authorOf(request) });
   });
 
   /** Retires an AI member, handing its tasks over. */

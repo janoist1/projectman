@@ -4,6 +4,7 @@ import { registerConfigRoutes } from './config';
 import { registerInboxRoutes } from './inbox';
 import { registerMemberRoutes } from './members';
 import { registerProjectRoutes } from './projects';
+import { registerRoleRoutes } from './roles';
 import { registerSessionRoutes } from './sessions';
 import { registerTaskRoutes } from './tasks';
 
@@ -15,6 +16,7 @@ export function registerApiRoutes(app: FastifyInstance, domain: Domain): void {
   registerProjectRoutes(app, domain);
   registerTaskRoutes(app, domain);
   registerMemberRoutes(app, domain);
+  registerRoleRoutes(app, domain);
   registerSessionRoutes(app, domain);
   registerInboxRoutes(app, domain);
   registerConfigRoutes(app, domain);

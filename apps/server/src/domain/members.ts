@@ -6,6 +6,7 @@ import type {
   MemberView,
   ProjectConfig,
   SessionState,
+  UpdateMemberRequest,
 } from '@projectman/shared';
 import { aiMemberDefaults } from '@projectman/templates';
 import { findHumanByEmail } from './access';
@@ -189,6 +190,61 @@ export class MemberService {
       data: { handle: member.handle, role: member.role, temp: member.temp, sponsor: member.sponsor },
     });
     return member;
+  }
+
+  /**
+   * Changes a member (a configuration commit): the display name of anyone, the roles a human
+   * holds, and an AI member's specialty, model and schedule. An AI member's one role stays.
+   */
+  async update(
+    projectKey: string,
+    handle: string,
+    req: UpdateMemberRequest,
+    by: { actor: Actor; author: Author },
+  ): Promise<MemberView> {
+    await this.projects.update(projectKey, by, (draft) => {
+      const member = draft.team.members.find((m) => m.handle === handle);
+      if (!member) throw notFound('member', handle);
+      const fields: string[] = [];
+      if (member.kind === 'human') {
+        if (req.specialty !== undefined || req.model !== undefined || req.schedule !== undefined) {
+          throw invalid('not_ai_member', 'specialty, model and schedule apply to AI members only');
+        }
+        if (req.roles !== undefined) {
+          const roles = [...new Set(req.roles)];
+          for (const role of roles) assertRoleFor(draft, role, 'human');
+          member.roles = roles;
+          fields.push('roles');
+        }
+      } else {
+        if (req.roles !== undefined) {
+          throw invalid('not_human_member', 'an AI member holds exactly one role; roles apply to humans');
+        }
+        if (req.specialty !== undefined) {
+          const specialty = req.specialty.trim();
+          if (specialty) member.specialty = specialty;
+          else delete member.specialty;
+          fields.push('specialty');
+        }
+        if (req.model !== undefined) {
+          member.model = req.model;
+          fields.push('model');
+        }
+        if (req.schedule !== undefined) {
+          if (req.schedule) member.schedule = req.schedule;
+          else delete member.schedule;
+          fields.push('schedule');
+        }
+      }
+      if (req.displayName !== undefined) {
+        member.displayName = req.displayName;
+        fields.push('display name');
+      }
+      return `Update ${handle}${fields.length > 0 ? `: ${fields.join(', ')}` : ''}`;
+    });
+    const view = (await this.roster(projectKey)).find((m) => m.handle === handle);
+    if (!view) throw notFound('member', handle);
+    return view;
   }
 
   /**

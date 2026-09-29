@@ -241,7 +241,7 @@ export class SessionOrchestrator {
     let chat: ChatItem[] = [];
     if (session.transcriptPath) {
       try {
-        chat = await this.deps.transcripts.read(session.transcriptPath);
+        chat = await this.deps.transcripts.read(session.transcriptPath, { self: session.member });
       } catch (err) {
         this.ctx.logger.warn({ err, sessionId }, 'could not read the transcript');
       }
@@ -419,6 +419,7 @@ export class SessionOrchestrator {
         claudeSessionId: session.claudeSessionId,
         resume,
         cwd,
+        member: member.handle,
         displayName: `${member.displayName} · ${workItemLabel(workItem, member)}`,
         model: member.model,
         permissionMode: member.permissionMode,

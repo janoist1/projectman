@@ -1,0 +1,8 @@
+.full {
+  min-height: 100%;
+}
+
+.notFound {
+  padding: 32px 24px;
+  max-width: 640px;
+}

@@ -1,0 +1,187 @@
+.wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.projectTrigger {
+  height: 40px;
+  box-sizing: border-box;
+  padding: 0 10px 0 7px;
+  border-radius: 11px;
+  border: 1px solid var(--c-line-strong);
+  background: var(--c-surface);
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--c-ink);
+  max-width: 220px;
+}
+
+.projectTrigger:hover {
+  background: var(--c-subtle);
+}
+
+.projectTriggerCompact {
+  height: 34px;
+  padding: 0 10px 0 5px;
+  border-radius: 10px;
+  gap: 7px;
+}
+
+.projectMark {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: var(--c-ok);
+  color: var(--c-on-ok);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.projectMarkCompact {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  font-size: 13px;
+}
+
+.projectMarkSmall {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 7px;
+  background: var(--c-ok);
+  color: var(--c-on-ok);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.projectName {
+  font-weight: 800;
+  font-size: 14.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 50;
+  min-width: 240px;
+  padding: 6px;
+  border-radius: 14px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-line-strong);
+  box-shadow: var(--shadow-pop);
+  display: flex;
+  flex-direction: column;
+  animation: pm-fade-in 120ms ease-out;
+}
+
+.panelRight {
+  top: auto;
+  bottom: 0;
+  left: calc(100% + 10px);
+}
+
+.panelBelow {
+  left: auto;
+  right: 0;
+}
+
+.panelHeading {
+  padding: 6px 8px 4px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--c-ink-4);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.item {
+  width: 100%;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--c-ink);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.item:hover {
+  background: var(--c-muted);
+  color: var(--c-ink);
+}
+
+.item[aria-current='page'] {
+  background: var(--c-accent-soft);
+}
+
+.itemText {
+  flex-grow: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.itemMeta {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--c-ink-4);
+}
+
+.separator {
+  height: 1px;
+  margin: 6px 4px;
+  background: var(--c-line-soft);
+}
+
+.avatarButton {
+  border: 0;
+  padding: 2px;
+  border-radius: 50%;
+  background: transparent;
+  display: inline-flex;
+}
+
+.account {
+  padding: 8px 10px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.accountName {
+  font-weight: 800;
+  font-size: 14px;
+}
+
+.accountEmail {
+  font-size: 12.5px;
+  color: var(--c-ink-4);
+}

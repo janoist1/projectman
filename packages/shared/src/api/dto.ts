@@ -180,8 +180,16 @@ export const UpdateTaskRequest = z.object({
   stageId: StageId.optional(),
   labels: z.array(z.string()).optional(),
   visibility: Visibility.optional(),
+  /** Owner/admin only; null clears the assignee. Starting work is a separate call. */
+  assignee: MemberHandle.nullable().optional(),
 });
 export type UpdateTaskRequest = z.infer<typeof UpdateTaskRequest>;
+
+export const CancelTaskRequest = z.object({ reason: z.string().optional() });
+export type CancelTaskRequest = z.infer<typeof CancelTaskRequest>;
+
+export const ReopenTaskRequest = z.object({});
+export type ReopenTaskRequest = z.infer<typeof ReopenTaskRequest>;
 
 export const StartTaskRequest = z.object({
   /** Developer to assign; omitted = the scheduler picks a free developer (or a temp worker). */

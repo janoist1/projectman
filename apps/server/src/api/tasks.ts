@@ -1,5 +1,12 @@
 import type { FastifyInstance } from 'fastify';
-import { CreateTaskRequest, routes, StartTaskRequest, UpdateTaskRequest } from '@projectman/shared';
+import {
+  CancelTaskRequest,
+  CreateTaskRequest,
+  ReopenTaskRequest,
+  routes,
+  StartTaskRequest,
+  UpdateTaskRequest,
+} from '@projectman/shared';
 import type { Task, TaskDetail } from '@projectman/shared';
 import type { Domain } from '../domain';
 import { notFound } from '../domain';
@@ -35,7 +42,22 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
     const { key, taskKey } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'developer' });
     const body = parseBody(UpdateTaskRequest, request.body);
+    if (body.assignee !== undefined) await requireAccess(domain, request, key, { minimum: 'admin' });
     return domain.tasks.update(key, taskKey, body, actorOf(access));
+  });
+
+  app.post<TaskParams>(routes.cancelTask(':key', ':taskKey'), async (request): Promise<Task> => {
+    const { key, taskKey } = request.params;
+    const access = await requireAccess(domain, request, key, { minimum: 'admin' });
+    const body = parseBody(CancelTaskRequest, request.body);
+    return domain.tasks.cancel(key, taskKey, body, actorOf(access));
+  });
+
+  app.post<TaskParams>(routes.reopenTask(':key', ':taskKey'), async (request): Promise<Task> => {
+    const { key, taskKey } = request.params;
+    const access = await requireAccess(domain, request, key, { minimum: 'admin' });
+    parseBody(ReopenTaskRequest, request.body);
+    return domain.tasks.reopen(key, taskKey, actorOf(access));
   });
 
   /** Assigns a developer (explicit, current, free or a temp worker), moves to work and starts the session. */

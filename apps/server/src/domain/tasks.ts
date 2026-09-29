@@ -1,5 +1,6 @@
 import type {
   Actor,
+  CancelTaskRequest,
   CheckName,
   CheckState,
   CreateTaskRequest,
@@ -13,12 +14,14 @@ import type {
 } from '@projectman/shared';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
-import { conflict, invalid, notFound } from './errors';
+import { conflict, forbidden, invalid, notFound } from './errors';
+import { hasAccess } from './access';
 import { evaluateGates, stagesEntered } from './gates';
 import type { ApprovalRequirement, GateEvaluation } from './gates';
 import { DECISION_OPTIONS } from './inbox';
 import type { InboxService } from './inbox';
 import type { ProjectService } from './projects';
+import { LIVE_SESSION_STATES } from './sessions';
 import type { TimelineService } from './timeline';
 import { actorHandle, humanActor, newId, SYSTEM_ACTOR, unique } from './util';
 
@@ -89,6 +92,7 @@ export class TaskService {
   private readonly projects: ProjectService;
   private readonly inbox: InboxService;
   private readonly stageListeners: StageChangeListener[] = [];
+  private readonly cancelListeners: Array<(task: Task) => Promise<void>> = [];
 
   constructor(deps: {
     ctx: DomainContext;
@@ -104,6 +108,10 @@ export class TaskService {
 
   onStageChanged(listener: StageChangeListener): void {
     this.stageListeners.push(listener);
+  }
+
+  onCancelled(listener: (task: Task) => Promise<void>): void {
+    this.cancelListeners.push(listener);
   }
 
   list(projectKey: string): Task[] {
@@ -199,6 +207,19 @@ export class TaskService {
     actor: Actor,
     opts: { sessionId?: string | null } = {},
   ): Promise<Task> {
+    if (req.assignee !== undefined) {
+      const config = await this.requireLifecycleAccess(projectKey, actor);
+      this.get(projectKey, taskKey);
+      if (req.assignee !== null && !config.team.members.some((m) => m.handle === req.assignee)) {
+        throw invalid('unknown_member', `unknown member: ${req.assignee}`);
+      }
+      const live = this.ctx.repos.sessions
+        .list(projectKey, { taskKey })
+        .find((s) => LIVE_SESSION_STATES.includes(s.state));
+      if (live) {
+        throw conflict('task_session_live', `task ${taskKey} has a live session`, { sessionId: live.id });
+      }
+    }
     let task = this.get(projectKey, taskKey);
     if (req.stageId !== undefined && req.stageId !== task.stageId) {
       const result = await this.moveToStage(projectKey, taskKey, req.stageId, actor);
@@ -224,19 +245,96 @@ export class TaskService {
       next.visibility = req.visibility;
       fields.push('visibility');
     }
-    if (fields.length === 0) return task;
+    const assignmentChanged = req.assignee !== undefined && req.assignee !== task.assignee;
+    if (req.assignee !== undefined) next.assignee = req.assignee;
+    if (fields.length === 0 && !assignmentChanged) return task;
     next.updatedAt = isoNow(this.ctx);
+    this.ctx.repos.tasks.update(next);
+    if (fields.length > 0) {
+      this.timeline.append({
+        projectKey,
+        taskKey,
+        sessionId: opts.sessionId ?? null,
+        actor,
+        type: 'task_updated',
+        data: { fields },
+      });
+    }
+    if (assignmentChanged) {
+      this.timeline.append({
+        projectKey,
+        taskKey,
+        actor,
+        type: 'task_assigned',
+        data: { assignee: next.assignee, previous: task.assignee },
+      });
+    }
+    this.publish(next);
+    return next;
+  }
+
+  /** Closes the task and stops its sessions while preserving assignment, stage and files. */
+  async cancel(projectKey: string, taskKey: string, req: CancelTaskRequest, actor: Actor): Promise<Task> {
+    await this.requireLifecycleAccess(projectKey, actor);
+    const task = this.get(projectKey, taskKey);
+    if (!isOpenTask(task)) throw conflict('task_closed', `task ${taskKey} is ${task.status}`);
+    const at = isoNow(this.ctx);
+    const next: Task = { ...task, status: 'cancelled', closedAt: at, updatedAt: at };
     this.ctx.repos.tasks.update(next);
     this.timeline.append({
       projectKey,
       taskKey,
-      sessionId: opts.sessionId ?? null,
       actor,
       type: 'task_updated',
-      data: { fields },
+      data: {
+        fields: ['status', 'closedAt'],
+        action: 'cancelled',
+        previousStatus: task.status,
+        ...(req.reason !== undefined ? { reason: req.reason } : {}),
+      },
+    });
+    this.publish(next);
+    for (const listener of this.cancelListeners) await listener(next);
+    return next;
+  }
+
+  /** Reopens in the same stage, with no assignee; starting work remains explicit. */
+  async reopen(projectKey: string, taskKey: string, actor: Actor): Promise<Task> {
+    await this.requireLifecycleAccess(projectKey, actor);
+    const task = this.get(projectKey, taskKey);
+    if (task.status !== 'cancelled') {
+      throw conflict('task_not_cancelled', `task ${taskKey} is not cancelled`);
+    }
+    const next: Task = {
+      ...task,
+      status: 'active',
+      closedAt: null,
+      assignee: null,
+      updatedAt: isoNow(this.ctx),
+    };
+    this.ctx.repos.tasks.update(next);
+    this.timeline.append({
+      projectKey,
+      taskKey,
+      actor,
+      type: 'task_updated',
+      data: {
+        fields: ['status', 'closedAt', 'assignee'],
+        action: 'reopened',
+        previousAssignee: task.assignee,
+      },
     });
     this.publish(next);
     return next;
+  }
+
+  private async requireLifecycleAccess(projectKey: string, actor: Actor): Promise<ProjectConfig> {
+    const config = await this.projects.config(projectKey);
+    const member = config.team.members.find((m) => m.handle === actor.handle);
+    if (actor.kind !== 'human' || member?.kind !== 'human' || !hasAccess(member.access, 'admin')) {
+      throw forbidden('insufficient_access', 'requires admin access');
+    }
+    return config;
   }
 
   /**

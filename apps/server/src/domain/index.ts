@@ -147,6 +147,7 @@ export function createDomain(opts: DomainOptions) {
   // Human decisions.
   inbox.onResolved('decision', (item) => tasks.handleDecisionResolved(item));
   inbox.onResolved('question', (item) => teamTools.deliverAnswer(item));
+  tasks.onCancelled((task) => sessions.stopTask(task.projectKey, task.key));
   // Done tasks: temp workers leave; sessions stop and clean worktrees go away.
   tasks.onStageChanged((change) => scheduler.retireFinishedTempWorker(change));
   tasks.onStageChanged((change) => {

@@ -28,7 +28,6 @@ import type { MemberService } from './members';
 import type { MessageService } from './messages';
 import type { ConfigChange, ProjectService } from './projects';
 import { allowedToolsFor, DONE_TASK_CLEANUP_DELAY_MS, usesWorktree } from './session-policy';
-import { isOpenTask } from './tasks';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
 import { aiActor, humanActor, KeyedMutex, newId, newToken, newUuid, SYSTEM_ACTOR } from './util';
@@ -225,6 +224,15 @@ export class SessionOrchestrator {
     return this.markEnded(session.id, null) ?? this.get(projectKey, sessionId);
   }
 
+  /** Stops all live sessions for a cancelled task without cleaning up its worktrees. */
+  async stopTask(projectKey: string, taskKey: string): Promise<void> {
+    for (const session of this.list(projectKey, { taskKey })) {
+      if (LIVE_SESSION_STATES.includes(session.state) || this.isRunning(session.id)) {
+        await this.stop(projectKey, session.id);
+      }
+    }
+  }
+
   async stopMember(projectKey: string, handle: string): Promise<void> {
     for (const session of this.ctx.repos.sessions.list(projectKey, { member: handle })) {
       try {
@@ -268,7 +276,7 @@ export class SessionOrchestrator {
   /** Stops a done task's sessions and removes its worktrees unless they hold uncommitted or unpushed work. */
   async cleanupDoneTask(projectKey: string, taskKey: string): Promise<void> {
     const task = this.ctx.repos.tasks.get(taskKey);
-    if (!task || task.projectKey !== projectKey || isOpenTask(task)) return; // reopened meanwhile
+    if (!task || task.projectKey !== projectKey || task.status !== 'done') return; // reopened meanwhile
     const sessions = this.ctx.repos.sessions.list(projectKey, { taskKey });
     for (const session of sessions) {
       if (!this.isRunning(session.id)) continue;

@@ -1,3 +1,6 @@
+import { constants } from 'node:fs';
+import { access, stat } from 'node:fs/promises';
+import path from 'node:path';
 import type { StartSessionSpec } from '../contracts';
 
 /**
@@ -129,11 +132,34 @@ export function hookUrlFor(publicBaseUrl: string, token: string): string {
   return `${publicBaseUrl.replace(/\/+$/, '')}/hooks/${token}`;
 }
 
+const SCRIPT_RE = /\.(?:mjs|cjs|js)$/;
+
 /**
  * How to spawn the CLI: a JavaScript file (the fake CLI in tests) runs with the current
  * Node binary, so neither the executable bit nor PATH matters.
  */
 export function resolveCommand(claudeBin: string, args: string[]): { file: string; args: string[] } {
-  if (/\.(?:mjs|cjs|js)$/.test(claudeBin)) return { file: process.execPath, args: [claudeBin, ...args] };
+  if (SCRIPT_RE.test(claudeBin)) return { file: process.execPath, args: [claudeBin, ...args] };
   return { file: claudeBin, args };
+}
+
+/**
+ * Whether the CLI can be started: a script file must exist, a path must be an executable
+ * file, and a bare name must be found on `pathEnv`.
+ */
+export async function cliExists(claudeBin: string, pathEnv: string | undefined): Promise<boolean> {
+  const usable = async (file: string, mode: number) => {
+    try {
+      await access(file, mode);
+      return (await stat(file)).isFile();
+    } catch {
+      return false;
+    }
+  };
+  if (SCRIPT_RE.test(claudeBin)) return usable(claudeBin, constants.R_OK);
+  if (claudeBin.includes('/')) return usable(path.resolve(claudeBin), constants.X_OK);
+  for (const dir of (pathEnv ?? '').split(path.delimiter)) {
+    if (dir && (await usable(path.join(dir, claudeBin), constants.X_OK))) return true;
+  }
+  return false;
 }

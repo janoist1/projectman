@@ -8,7 +8,7 @@ import type {
   SessionRunner,
   StartSessionSpec,
 } from '../contracts';
-import { buildClaudeArgs, buildSettings, hookUrlFor, resolveCommand } from './claude-args';
+import { buildClaudeArgs, buildSettings, cliExists, hookUrlFor, resolveCommand } from './claude-args';
 import { buildSessionEnv } from './env';
 import { ClaudeSession } from './session';
 import { defaultClaudeConfigPath, ensureWorkspaceTrusted } from './trust';
@@ -41,6 +41,10 @@ export class SessionManager implements SessionRunner {
     if (this.sessions.has(spec.sessionId)) throw new Error(`session ${spec.sessionId} is already running`);
     const dir = await stat(spec.cwd).catch(() => null);
     if (!dir?.isDirectory()) throw new Error(`working directory does not exist: ${spec.cwd}`);
+    const env = buildSessionEnv(process.env, spec.sessionId);
+    if (!(await cliExists(this.opts.claudeBin, env.PATH))) {
+      throw new Error(`Claude Code CLI not found: ${this.opts.claudeBin}`);
+    }
 
     await this.trust(spec.cwd);
 
@@ -71,7 +75,7 @@ export class SessionManager implements SessionRunner {
     this.sessions.set(spec.sessionId, session);
     this.byToken.set(token, session);
     try {
-      session.spawn(command.file, command.args, buildSessionEnv(process.env, spec.sessionId));
+      session.spawn(command.file, command.args, env);
     } catch (err) {
       this.sessions.delete(spec.sessionId);
       this.byToken.delete(token);

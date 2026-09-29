@@ -8,6 +8,7 @@ import {
   buildClaudeArgs,
   buildMcpConfig,
   buildSettings,
+  cliExists,
   forwarderCommand,
   hookUrlFor,
   resolveCommand,
@@ -106,6 +107,16 @@ describe('helpers', () => {
       args: ['/x/fake-claude.mjs', '-a'],
     });
     expect(resolveCommand('claude', ['-a'])).toEqual({ file: 'claude', args: ['-a'] });
+  });
+
+  it('checks that the CLI can be started', async () => {
+    const fake = new URL('../../test/fixtures/fake-claude.mjs', import.meta.url).pathname;
+    expect(await cliExists(fake, '')).toBe(true);
+    expect(await cliExists('/nonexistent/fake-claude.mjs', '')).toBe(false);
+    expect(await cliExists('sh', '/usr/bin:/bin')).toBe(true);
+    expect(await cliExists('sh', '/nonexistent')).toBe(false);
+    expect(await cliExists('/bin/sh', '')).toBe(true);
+    expect(await cliExists('/etc', '')).toBe(false);
   });
 
   it('quotes for sh', () => {

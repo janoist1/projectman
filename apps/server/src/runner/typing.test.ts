@@ -22,7 +22,7 @@ describe('messageKeystrokes', () => {
   });
 
   it('never puts a line break or more than the paste limit into one paste', () => {
-    const text = `# AR-21 Brief\n\n${'long line '.repeat(200)}\n- item 1\n- item 2\n\nEnd`;
+    const text = `# ACME-21 Brief\n\n${'long line '.repeat(200)}\n- item 1\n- item 2\n\nEnd`;
     const steps = messageKeystrokes(text);
     for (const step of steps) {
       if (step === NEWLINE_KEY) continue;

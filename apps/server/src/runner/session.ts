@@ -546,6 +546,12 @@ export class ClaudeSession {
     }
 
     const failed = !this.stopRequested && (exitCode !== 0 || (signal ?? 0) !== 0);
+    // Leave a trace in the terminal, so its snapshot shows why the session is gone.
+    const note = `\r\n\x1b[2m[session ended: exit code ${exitCode}${signal ? `, signal ${signal}` : ''}]\x1b[0m\r\n`;
+    this.screen.write(note);
+    this.deps.emit({ type: 'terminal_data', sessionId: this.id, data: note });
+    if (!this.ready)
+      this.log.warn({ sessionId: this.id, exitCode, signal }, 'claude exited before it was ready');
     this.apply({ kind: 'exit', failed });
     this.deps.emit({ type: 'exit', sessionId: this.id, exitCode, signal: signal || null });
     this.proc = null;

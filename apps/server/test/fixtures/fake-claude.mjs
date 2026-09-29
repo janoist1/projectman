@@ -39,7 +39,8 @@
  *     allow rule matches) a PermissionRequest hook with permission_suggestions; "allow" runs
  *     it (tool_result "Everything up-to-date", PostToolUse), "deny" writes an error
  *     tool_result with the message; no decision asks in the terminal (y/n).
- *     `updatedPermissions` addRules with destination "session" are remembered.
+ *     `updatedPermissions` addRules with destination "session" are remembered. Allow rules:
+ *     "Tool", "Tool(exact)", "Tool(glob*)", "Tool(prefix:*)", "mcp__server", "mcp__server__*".
  *   - contains "TEAM": tool_use mcp__team__send_message {to:["qa"], text:"Ready for review"}
  *     (same permission flow; `permissions.allow` "mcp__team" or "mcp__team__*" pre-allows it).
  *   - contains "ASK": tool_use AskUserQuestion, PreToolUse, waits for a key in the terminal.
@@ -376,6 +377,11 @@ async function interactive() {
         : typeof input?.file_path === 'string'
           ? input.file_path
           : '';
+    // "Bash(git diff:*)": the legacy prefix form, the command or the command plus arguments.
+    if (content.endsWith(':*')) {
+      const prefix = content.slice(0, -2);
+      return subject === prefix || subject.startsWith(`${prefix} `);
+    }
     const pattern = new RegExp(`^${content.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`);
     return pattern.test(subject);
   }

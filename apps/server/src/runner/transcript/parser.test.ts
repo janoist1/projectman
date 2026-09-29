@@ -184,7 +184,7 @@ describe('TranscriptParser', () => {
   });
 
   it('recognises injected team messages, also inside pasted-content markers', () => {
-    const plain = user(formatInjectedTeamMessage('qa', 'Tests fail on CI.\nPlease look.', 'AR-21'));
+    const plain = user(formatInjectedTeamMessage('qa', 'Tests fail on CI.\nPlease look.', 'ACME-21'));
     const marked = user(
       `<pasted_content id="1">\n${formatInjectedTeamMessage('lead', 'Ship it')}\n</pasted_content id="1">`,
     );

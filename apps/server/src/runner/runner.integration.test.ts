@@ -265,6 +265,19 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     expect(requests).toHaveLength(1);
   });
 
+  it('does not ask for pre-allowed tools (rules as core passes them)', async () => {
+    await setup();
+    const s = spec({
+      allowedTools: ['mcp__team__*', 'Read', 'Grep', 'Bash(git diff:*)', 'Bash(git push:*)'],
+    });
+    await runner.runner.start(s);
+    await waitState(s.sessionId, 'idle');
+    await runner.runner.sendUserMessage(s.sessionId, 'PERMISSION and TEAM');
+    await assistantSaid(s.sessionId, 'Echo: PERMISSION and TEAM');
+    expect(requests).toHaveLength(0);
+    expect(statesOf(s.sessionId)).not.toContain('waiting_permission');
+  });
+
   it('denies with the broker message, and automatically after the timeout', async () => {
     await setup({ permissionTimeoutMs: 700 });
     const s = spec();
@@ -294,9 +307,9 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     await waitState(s.sessionId, 'idle');
     await runner.runner.sendUserMessage(
       s.sessionId,
-      formatInjectedTeamMessage('qa', 'Please TEAM check', 'AR-21'),
+      formatInjectedTeamMessage('qa', 'Please TEAM check', 'ACME-21'),
     );
-    await assistantSaid(s.sessionId, 'Echo: [team message from qa about AR-21]');
+    await assistantSaid(s.sessionId, 'Echo: [team message from qa about ACME-21]');
     expect(requests).toHaveLength(0); // mcp__team is pre-allowed
     const team = chatOf(s.sessionId).filter((i) => i.kind === 'team_message');
     expect(team).toEqual([
@@ -389,7 +402,20 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
       exitCode: 1,
     });
     expect(runner.runner.snapshot(s.sessionId)?.data).toContain('No conversation found');
+    expect(runner.runner.snapshot(s.sessionId)?.data).toContain('[session ended: exit code 1]');
+    // Nothing follows the exit event.
+    const exitIndex = events.findIndex((e) => e.type === 'exit' && e.sessionId === s.sessionId);
+    expect(events.slice(exitIndex + 1).filter((e) => e.sessionId === s.sessionId)).toEqual([]);
 
+    const missingCli = createRunnerModule({
+      claudeBin: '/nonexistent/claude',
+      publicBaseUrl: 'http://127.0.0.1:1',
+      broker,
+      permissionTimeoutMs: 1000,
+      logger: silentLogger(),
+      trustWorkspaces: false,
+    });
+    await expect(missingCli.runner.start(spec())).rejects.toThrow(/CLI not found/);
     await expect(runner.runner.start(spec({ cwd: path.join(cwd, 'missing') }))).rejects.toThrow(
       /does not exist/,
     );

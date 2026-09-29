@@ -518,6 +518,8 @@ export class SessionOrchestrator {
             this.markEnded(session.id, event.state === 'failed' ? 1 : null);
             return;
           }
+          // A late event from a process that already ended must not revive the session.
+          if (ENDED.has(session.state) && !this.isRunning(session.id)) return;
           const updated = this.ctx.repos.sessions.update(session.id, {
             state: event.state,
             activity: event.activity,

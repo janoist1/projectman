@@ -108,12 +108,19 @@ export class TeamToolsService implements TeamToolsHandler {
     return this.guard(async () => {
       const config = await this.caller(ctx);
       const text = args.text.trim();
-      if (!text) throw new TeamToolError('invalid', 'text must not be empty');
+      if (!text) throw new TeamToolError('invalid', 'The message text is empty.');
       const recipients = unique(args.to).filter((h) => h !== ctx.member);
       if (recipients.length === 0)
-        throw new TeamToolError('invalid', 'no recipients (you cannot message yourself)');
+        throw new TeamToolError(
+          'invalid',
+          'No recipients: name at least one team member other than yourself.',
+        );
       const unknown = recipients.filter((h) => !config.team.members.some((m) => m.handle === h));
-      if (unknown.length > 0) throw new TeamToolError('not_found', `unknown members: ${unknown.join(', ')}`);
+      if (unknown.length > 0)
+        throw new TeamToolError(
+          'not_found',
+          `Unknown team members: ${unknown.join(', ')}. Use list_members to see the handles.`,
+        );
       const taskKey = this.taskKeyFor(ctx, args.taskKey);
 
       const aiRecipients = recipients.filter(
@@ -164,19 +171,34 @@ export class TeamToolsService implements TeamToolsHandler {
     },
   ): Promise<{ task: Task }> {
     return this.guard(async () => {
-      await this.caller(ctx);
+      const config = await this.caller(ctx);
       const taskKey = this.validTaskKey(ctx, args.taskKey);
       const actor = aiActor(ctx.member);
+      // Validate everything first, then apply: check and note before the stage move, so one
+      // call can record "passed" and move through the gate that needs it.
+      const name = args.check ? CheckName.safeParse(args.check.name) : null;
+      const state = args.check ? CheckState.safeParse(args.check.state) : null;
+      if (args.check && (!name?.success || !state?.success)) {
+        throw new TeamToolError(
+          'invalid',
+          'Invalid check: name must be code_review, security_review, qa or client_test; ' +
+            'state must be pending, passed, blocked, failed or retest_needed.',
+        );
+      }
+      if (args.stageId && !config.pipeline.stages.some((s) => s.id === args.stageId)) {
+        throw new TeamToolError(
+          'invalid',
+          `Unknown stage "${args.stageId}". Stages in pipeline order: ` +
+            `${config.pipeline.stages.map((s) => s.id).join(', ')}.`,
+        );
+      }
       let task = this.tasks.get(ctx.projectKey, taskKey);
-      if (args.check) {
-        const name = CheckName.safeParse(args.check.name);
-        const state = CheckState.safeParse(args.check.state);
-        if (!name.success || !state.success)
-          throw new TeamToolError('invalid', 'invalid check name or state');
+      if (name?.success && state?.success) {
         task = this.tasks.setCheck(ctx.projectKey, taskKey, name.data, state.data, actor, ctx.sessionId);
       }
-      if (args.note?.trim())
+      if (args.note?.trim()) {
         this.tasks.addNote(ctx.projectKey, taskKey, args.note.trim(), actor, ctx.sessionId);
+      }
       if (args.stageId && args.stageId !== task.stageId) {
         const result = await this.tasks.moveToStage(ctx.projectKey, taskKey, args.stageId, actor);
         if (!result.moved) {
@@ -200,9 +222,10 @@ export class TeamToolsService implements TeamToolsHandler {
     return this.guard(async () => {
       await this.caller(ctx);
       const taskKey = this.validTaskKey(ctx, args.taskKey);
-      if (!REPO_RE.test(args.repo)) throw new TeamToolError('invalid', 'repo must be "owner/name"');
+      if (!REPO_RE.test(args.repo))
+        throw new TeamToolError('invalid', 'repo must look like "owner/name" (the GitHub repository).');
       if (!Number.isInteger(args.number) || args.number <= 0)
-        throw new TeamToolError('invalid', 'invalid PR number');
+        throw new TeamToolError('invalid', 'number must be the positive number of the pull request.');
       let title: string | undefined;
       let state: string | undefined;
       try {
@@ -234,7 +257,7 @@ export class TeamToolsService implements TeamToolsHandler {
     return this.guard(async () => {
       const config = await this.caller(ctx);
       const question = args.question.trim();
-      if (!question) throw new TeamToolError('invalid', 'question must not be empty');
+      if (!question) throw new TeamToolError('invalid', 'The question is empty.');
       const taskKey = this.taskKeyFor(ctx, args.taskKey);
       let assignees: string[];
       if (args.to && args.to.length > 0) {
@@ -242,7 +265,10 @@ export class TeamToolsService implements TeamToolsHandler {
           (h) => config.team.members.find((m) => m.handle === h)?.kind !== 'human',
         );
         if (notHuman.length > 0)
-          throw new TeamToolError('invalid', `not human members: ${notHuman.join(', ')}`);
+          throw new TeamToolError(
+            'invalid',
+            `ask_human can only ask human members; these are not: ${notHuman.join(', ')}.`,
+          );
         assignees = unique(args.to);
       } else {
         assignees = sponsorOrOwners(config, ctx.member);
@@ -283,7 +309,7 @@ export class TeamToolsService implements TeamToolsHandler {
     return this.guard(async () => {
       await this.caller(ctx);
       const note = args.note.trim();
-      if (!note) throw new TeamToolError('invalid', 'note must not be empty');
+      if (!note) throw new TeamToolError('invalid', 'The memory note is empty.');
       await this.memory.append(ctx.projectKey, ctx.member, note);
       return { ok: true as const };
     });
@@ -352,16 +378,22 @@ export class TeamToolsService implements TeamToolsHandler {
     const config = await this.projects.config(ctx.projectKey);
     const member = config.team.members.find((m) => m.handle === ctx.member);
     if (member?.kind !== 'ai')
-      throw new TeamToolError('forbidden', `${ctx.member} is not an AI member of the team`);
+      throw new TeamToolError(
+        'forbidden',
+        `${ctx.member} is not an active AI member of this team, so the team tools are not available.`,
+      );
     return config;
   }
 
   /** A task key of the caller's project. */
   private validTaskKey(ctx: ToolContext, taskKey: string): string {
     if (!TaskKey.safeParse(taskKey).success)
-      throw new TeamToolError('invalid', `invalid task key: ${taskKey}`);
+      throw new TeamToolError(
+        'invalid',
+        `Invalid task key "${taskKey}"; task keys look like "${ctx.projectKey}-12".`,
+      );
     if (!this.tasks.find(ctx.projectKey, taskKey))
-      throw new TeamToolError('not_found', `task not found: ${taskKey}`);
+      throw new TeamToolError('not_found', `Task ${taskKey} does not exist in this project.`);
     return taskKey;
   }
 

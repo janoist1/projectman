@@ -74,6 +74,15 @@ describe('team tools', () => {
       data: { text: 'Looks good' },
     });
 
+    const unknownStage = await toolError(
+      h.domain.teamTools.updateTask(reviewer, { taskKey: 'AR-1', stageId: 'shipped', note: 'not recorded' }),
+    );
+    expect(unknownStage.message).toBe(
+      'Unknown stage "shipped". Stages in pipeline order: backlog, development, code_review, merge, release, done.',
+    );
+    const notes = h.domain.timeline.list('AR', { taskKey: 'AR-1' }).filter((e) => e.type === 'task_note');
+    expect(notes.map((e) => e.data.text)).toEqual(['Looks good']);
+
     const blocked = await toolError(
       h.domain.teamTools.updateTask(reviewer, { taskKey: 'AR-1', stageId: 'release' }),
     );

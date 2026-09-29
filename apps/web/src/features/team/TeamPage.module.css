@@ -1,0 +1,325 @@
+.page {
+  box-sizing: border-box;
+  padding: 22px 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--c-line);
+}
+
+.titles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 360px;
+  min-width: 0;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+}
+
+.subtitle {
+  font-size: 13.5px;
+  color: var(--c-ink-3);
+  line-height: 1.45;
+}
+
+.limit {
+  box-sizing: border-box;
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-line-strong);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.limitText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.limitTitle {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.limitHint {
+  font-size: 11.5px;
+  color: var(--c-ink-4);
+}
+
+.limitValue {
+  font-size: 14px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.content {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.roster {
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 14px 16px;
+  border-radius: var(--radius-2xl);
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rosterHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.sectionTitle {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th {
+  text-align: left;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--c-ink-4);
+  padding: 6px 10px;
+}
+
+.table td {
+  padding: 10px;
+  border-top: 1px solid var(--c-line-soft);
+  vertical-align: middle;
+}
+
+.table th:first-child,
+.table td:first-child {
+  padding-left: 0;
+}
+
+.memberCell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.memberText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.memberName {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.handle {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--c-ink-4);
+}
+
+.role {
+  color: var(--c-ink-2);
+  font-weight: 600;
+}
+
+.statusCell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.statusLine {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.statusText {
+  font-weight: 800;
+  color: var(--status-text);
+  white-space: nowrap;
+}
+
+.activity {
+  font-size: 12px;
+  color: var(--c-ink-3);
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nowCell {
+  max-width: 280px;
+}
+
+.tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.taskLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--c-ink);
+  font-weight: 700;
+}
+
+.taskLink:hover {
+  color: var(--c-accent-hover);
+}
+
+.taskKey {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--c-ink-3);
+  flex-shrink: 0;
+}
+
+.taskTitle {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.muted {
+  color: var(--c-ink-3);
+  font-size: 12.5px;
+}
+
+.actionsCell {
+  text-align: right;
+  width: 1%;
+  white-space: nowrap;
+}
+
+.cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--c-line-soft);
+}
+
+.card:first-child {
+  border-top: 0;
+}
+
+.cardFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.flow {
+  width: 400px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 16px 18px 12px;
+  border-radius: var(--radius-2xl);
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.flowHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 6px;
+}
+
+.flowTitle {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.flowAll {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 800;
+  padding-top: 8px;
+}
+
+@media (max-width: 1200px) {
+  .flow {
+    display: none;
+  }
+}
+
+@media (max-width: 767px) {
+  .page {
+    padding: 4px 14px 16px;
+    gap: 14px;
+  }
+  .header > button {
+    width: 100%;
+  }
+  .limit {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .roster {
+    padding: 12px 14px;
+  }
+}

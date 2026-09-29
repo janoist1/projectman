@@ -177,7 +177,9 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
     );
     expect(argv[argv.indexOf('--sandbox') + 1]).toBe('workspace-write');
     expect(argv[argv.indexOf('--ask-for-approval') + 1]).toBe('on-request');
-    expect(argv).not.toContain('--model'); // "opus" is a Claude alias: Codex uses its default
+    // "opus" is a Claude alias: Codex members get projectman's default model and effort.
+    expect(argv[argv.indexOf('--model') + 1]).toBe('gpt-6.1-sol');
+    expect(argv).toContain('model_reasoning_effort="medium"');
     expect(argv.slice(-2)).toEqual(['--', 'hi']);
     expect(config).toMatchObject({
       check_for_update_on_startup: false,

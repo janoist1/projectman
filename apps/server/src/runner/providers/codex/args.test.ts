@@ -93,9 +93,9 @@ describe('Codex settings from the member', () => {
       '',
       ' ',
     ]) {
-      expect(codexModel(model)).toBeNull();
+      expect(codexModel(model)).toBe('gpt-6.1-sol');
     }
-    expect(codexModel(undefined)).toBeNull();
+    expect(codexModel(undefined)).toBe('gpt-6.1-sol');
     expect(codexModel('gpt-6.1-codex')).toBe('gpt-6.1-codex');
     expect(codexModel(' o4-mini ')).toBe('o4-mini');
   });
@@ -121,15 +121,18 @@ describe('buildCodexArgs', () => {
       'hooks',
       '-c',
     ]);
-    expect(args.slice(-6)).toEqual([
+    expect(args.slice(-10)).toEqual([
       '--sandbox',
       'read-only',
       '--ask-for-approval',
       'on-request',
+      '--model',
+      'gpt-6.1-sol',
+      '-c',
+      'model_reasoning_effort="medium"',
       '--',
       'Brief',
     ]);
-    expect(args).not.toContain('--model');
     expect(args).not.toContain('resume');
   });
 

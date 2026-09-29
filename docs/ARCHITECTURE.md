@@ -149,7 +149,9 @@ developer instructions); nothing is written to `~/.codex`. The bypass flag lets 
 hooks run without the one-time review in `/hooks`; it also runs any other enabled hooks
 of the user's Codex config and of the trusted project's `.codex/` folder, the same
 exposure as pre-trusting a Claude Code workspace. Claude model aliases (`opus`, …) are
-not passed to Codex, which then uses its default model. The CLI is `CODEX_BIN` (default
+not passed to Codex; such members get projectman's default, `gpt-6.1-sol` at `medium`
+reasoning effort, rather than the owner's interactive Codex default (which may be the most
+expensive model at the highest effort). A member may name any Codex model explicitly. The CLI is `CODEX_BIN` (default
 `codex` on `PATH`); transcripts are read from `CODEX_HOME` (default `~/.codex`).
 
 Permission modes map to Codex's sandbox and approval policy; anything the sandbox does

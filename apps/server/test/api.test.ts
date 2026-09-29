@@ -131,7 +131,7 @@ describe('REST API', () => {
       expect(projects.body).toEqual([
         {
           key: 'AR',
-          name: 'aroom',
+          name: 'acme',
           templateId: 'test',
           configVersion: expect.stringMatching(/^[0-9a-f]{40}$/),
         },

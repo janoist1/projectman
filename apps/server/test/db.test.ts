@@ -68,7 +68,7 @@ describe('database', () => {
     const repos = createRepositories(openDatabase(':memory:'));
     repos.projects.insert({
       key: 'AR',
-      name: 'aroom',
+      name: 'acme',
       templateId: null,
       configVersion: 'v1',
       createdAt: now,

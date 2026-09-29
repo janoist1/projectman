@@ -16,7 +16,7 @@ Agreed with the owner on 2026-09-29, while designing the first version.
 5. **Fresh session per work item** for every AI member (developers and standing roles),
    with persistent identity and memory; follow-ups resume the same session. A context
    pack gives each new session the right context.
-6. **Configurable pipeline.** For the aroom team the order is code review → integration →
+6. **Configurable pipeline.** For the first team (a client web project) the order is code review → integration →
    QA → client test → merge → release: bad code is not worth deploying.
 7. **Gatekeeping can be delegated** (release and other approvals) to other humans; an AI
    never approves; changing the release approvers is owner-only.

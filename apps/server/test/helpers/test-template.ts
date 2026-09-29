@@ -102,8 +102,8 @@ export function testConfig(overrides: Partial<BuildTemplateInput> = {}): Project
   return ProjectConfig.parse(
     testConfigInput({
       key: 'AR',
-      name: 'aroom',
-      workspacePath: '/tmp/aroom',
+      name: 'acme',
+      workspacePath: '/tmp/acme',
       language: 'en',
       owner: { handle: 'owner', displayName: 'Owner', email: 'owner@example.com' },
       ...overrides,

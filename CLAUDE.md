@@ -47,7 +47,7 @@ Stay inside your paths. Each module exposes the factory declared in its `index.t
 - Validate data at boundaries with zod (HTTP bodies, hook payloads, MCP args, YAML).
 - Prettier config in `.prettierrc.json` (`npm run format`).
 - Tests: vitest, `*.test.ts` next to the code or under `test/`. Use temp directories;
-  never touch real user repositories (e.g. `/Users/i/Dev/aroom`) or `~/.claude` in tests.
+  never touch real user repositories (e.g. client projects) or `~/.claude` in tests.
 
 ## Commands
 

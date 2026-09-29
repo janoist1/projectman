@@ -89,7 +89,7 @@ export async function createProject(h: AppHarness, cookie: string): Promise<void
     headers: { cookie },
     payload: {
       key: 'AR',
-      name: 'aroom',
+      name: 'acme',
       workspacePath: h.workspace,
       templateId: 'test',
       repos: [{ name: 'web', path: '.', github: 'acme/web' }],

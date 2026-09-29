@@ -5,7 +5,7 @@ import { pullRequestInfo } from './test-fixtures/harness';
 
 describe('parsePullRequestUrl', () => {
   it.each([
-    ['https://github.com/aroom-hu/infra/pull/3', { repo: 'aroom-hu/infra', number: 3 }],
+    ['https://github.com/acme/infra/pull/3', { repo: 'acme/infra', number: 3 }],
     ['https://github.com/acme/app/pull/12/files', { repo: 'acme/app', number: 12 }],
     ['https://github.com/acme/app/pull/12/checks?check_run_id=1', { repo: 'acme/app', number: 12 }],
     ['https://github.com/acme/app/pull/12#issuecomment-1', { repo: 'acme/app', number: 12 }],
@@ -87,7 +87,7 @@ describe('pullRequestLink', () => {
 });
 
 describe('input validation', () => {
-  it.each(['acme/app', 'aroom-hu/infra', 'acme/.github', 'my_org/my.repo'])('accepts repo %s', (repo) => {
+  it.each(['acme/app', 'acme-corp/infra', 'acme/.github', 'my_org/my.repo'])('accepts repo %s', (repo) => {
     expect(isValidRepo(repo)).toBe(true);
   });
 

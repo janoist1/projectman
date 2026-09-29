@@ -57,7 +57,7 @@ export async function createDomainHarness(opts: { adjust?: (config: ProjectConfi
   });
   await domain.start();
   await domain.projects.create(
-    { key: 'AR', name: 'aroom', workspacePath: workspace, templateId: 'test' },
+    { key: 'AR', name: 'acme', workspacePath: workspace, templateId: 'test' },
     OWNER,
   );
   if (opts.adjust) {

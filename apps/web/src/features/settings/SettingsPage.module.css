@@ -307,3 +307,51 @@
     padding: 14px;
   }
 }
+
+.editor,
+.conditions {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.field input:not([type='checkbox']):not([type='range']),
+.field select,
+.field textarea {
+  padding: 8px;
+  border: 1px solid var(--c-line);
+  border-radius: 6px;
+  background: var(--c-surface);
+  color: var(--c-ink-2);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.condition {
+  padding: 10px;
+  border: 1px solid var(--c-line);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.validation {
+  margin-top: 12px;
+  font-size: 13px;
+}

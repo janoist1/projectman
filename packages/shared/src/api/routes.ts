@@ -37,6 +37,7 @@ export const routes = {
   resolveInbox: (key: string, itemId: string) => `/api/projects/${key}/inbox/${itemId}/resolve`,
 
   config: (key: string) => `/api/projects/${key}/config`,
+  patchConfig: (key: string) => `/api/projects/${key}/config`,
   revertConfig: (key: string) => `/api/projects/${key}/config/revert`,
 
   websocket: () => '/ws',
@@ -71,5 +72,6 @@ export const routeMethods = {
   inbox: 'GET',
   resolveInbox: 'POST',
   config: 'GET | PUT',
+  patchConfig: 'PATCH',
   revertConfig: 'POST',
 } as const;

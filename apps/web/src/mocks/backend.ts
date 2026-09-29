@@ -1,4 +1,9 @@
 import {
+  PatchConfigRequest,
+  applyConfigPatch,
+  configSchemaIssues,
+  humanApprovalChanged,
+  validateProjectConfig,
   CancelTaskRequest,
   ReopenTaskRequest,
   CustomRoleRequest,
@@ -305,7 +310,11 @@ export class MockBackend {
   private board(): BoardView {
     const stages = this.config.pipeline.stages;
     return {
-      project: { ...fixtures.projectSummary, configVersion: this.configVersion },
+      project: {
+        ...fixtures.projectSummary,
+        name: this.config.project.name,
+        configVersion: this.configVersion,
+      },
       columns: this.config.pipeline.columns.map((column) => ({
         ...column,
         stageIds: stages.filter((stage) => stage.columnId === column.id).map((stage) => stage.id),
@@ -362,7 +371,7 @@ export class MockBackend {
         });
       }
       return ok([
-        { ...fixtures.projectSummary, configVersion: this.configVersion },
+        { ...fixtures.projectSummary, name: this.config.project.name, configVersion: this.configVersion },
         ...this.extraProjects.map((p) => ({ ...p, configVersion: '0000000' })),
       ]);
     }
@@ -396,7 +405,11 @@ export class MockBackend {
     if (restricted && (viewer.kind !== 'human' || !['owner', 'admin'].includes(viewer.role)))
       return error(403, 'insufficient_access', 'Owner or admin required');
     if (rest === '' && method === 'GET')
-      return ok({ ...fixtures.projectSummary, configVersion: this.configVersion });
+      return ok({
+        ...fixtures.projectSummary,
+        name: this.config.project.name,
+        configVersion: this.configVersion,
+      });
     if (rest === '/board') return ok(this.board());
 
     if (rest === '/tasks') {
@@ -481,6 +494,7 @@ export class MockBackend {
       return this.resolve(m[1]!, body);
 
     if (rest === '/config') {
+      if (method === 'PATCH') return this.patchConfig(body);
       return ok({ config: clone(this.config), version: this.configVersion, history: clone(this.history) });
     }
     if (rest === '/config/revert' && method === 'POST') {
@@ -495,6 +509,38 @@ export class MockBackend {
   }
 
   /* ---------- mutations ---------- */
+
+  private patchConfig(body: unknown): MockResponse {
+    const member = this.config.team.members.find((member) => member.handle === this.viewerHandle);
+    if (member?.kind !== 'human' || !['owner', 'admin'].includes(member.access)) {
+      return error(403, 'insufficient_access', 'Requires admin access');
+    }
+    const parsed = PatchConfigRequest.safeParse(body);
+    if (!parsed.success) {
+      return error(400, 'config_invalid', 'Invalid configuration', {
+        issues: configSchemaIssues(parsed.error.issues),
+      });
+    }
+    const input = parsed.data;
+    if (input.baseVersion !== this.configVersion) {
+      return error(409, 'config_conflict', 'Configuration changed', { currentVersion: this.configVersion });
+    }
+    const next = applyConfigPatch(this.config, input);
+    if (member.access !== 'owner' && humanApprovalChanged(this.config, next)) {
+      return error(403, 'owner_only', 'Only owners may change human approval gates');
+    }
+    const issues = validateProjectConfig(next);
+    if (issues.length) return error(400, 'config_invalid', 'Invalid configuration', { issues });
+    if (JSON.stringify(next) !== JSON.stringify(this.config)) {
+      this.config = next;
+      const message =
+        input.message ??
+        (input.pipeline ? 'Update pipeline' : input.limits ? 'Update limits' : 'Update project');
+      this.commitConfig(message);
+      this.addTimeline(null, this.viewerHandle, 'config_changed', { version: this.configVersion, message });
+    }
+    return ok({ config: clone(this.config), version: this.configVersion, history: clone(this.history) });
+  }
 
   private roleCatalogue(): RoleView[] {
     return [

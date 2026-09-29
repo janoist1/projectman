@@ -239,6 +239,11 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       if (args.stageId === 'qa' && checks.code_review !== 'passed') {
         throw new TeamToolError('gate_blocked', 'Stage "qa" requires a passed code_review check.');
       }
+      const fields = [
+        ...(args.title !== undefined ? ['title'] : []),
+        ...(args.description !== undefined ? ['description'] : []),
+      ];
+      if (fields.length > 0) record(detail, ctx, 'task_updated', { fields });
       if (args.check) {
         const from = detail.task.checks[args.check.name] ?? null;
         record(detail, ctx, 'task_check_changed', { check: args.check.name, from, to: args.check.state });
@@ -247,7 +252,41 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       if (args.stageId && args.stageId !== detail.task.stageId) {
         record(detail, ctx, 'task_stage_changed', { from: detail.task.stageId, to: args.stageId });
       }
-      detail.task = { ...detail.task, checks, stageId: args.stageId ?? detail.task.stageId };
+      detail.task = {
+        ...detail.task,
+        title: args.title ?? detail.task.title,
+        description: args.description ?? detail.task.description,
+        checks,
+        stageId: args.stageId ?? detail.task.stageId,
+      };
+      return { task: detail.task };
+    },
+
+    async createTask(ctx, args) {
+      await enter('createTask', ctx, args);
+      const key = `AR-${21 + tasks.size}`;
+      const detail: TaskDetail = {
+        task: {
+          ...initial.task,
+          id: `task_${key}`,
+          key,
+          title: args.title,
+          description: args.description ?? '',
+          stageId: STAGES[0]!,
+          assignee: null,
+          repo: null,
+          priority: null,
+          labels: args.labels ?? [],
+          checks: {},
+          links: [],
+          visibility: args.visibility ?? 'internal',
+          createdBy: ctx.member,
+        },
+        timeline: [],
+        sessions: [],
+      };
+      record(detail, ctx, 'task_created', { title: args.title });
+      tasks.set(key, detail);
       return { task: detail.task };
     },
 

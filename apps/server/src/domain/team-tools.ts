@@ -6,6 +6,7 @@ import type {
   ProjectConfig,
   Task,
   TaskDetail,
+  Visibility,
   WorkItemRef,
 } from '@projectman/shared';
 import { TeamToolError } from '../contracts';
@@ -168,14 +169,16 @@ export class TeamToolsService implements TeamToolsHandler {
       stageId?: string;
       check?: { name: CheckName; state: CheckState };
       note?: string;
+      title?: string;
+      description?: string;
     },
   ): Promise<{ task: Task }> {
     return this.guard(async () => {
       const config = await this.caller(ctx);
       const taskKey = this.validTaskKey(ctx, args.taskKey);
       const actor = aiActor(ctx.member);
-      // Validate everything first, then apply: check and note before the stage move, so one
-      // call can record "passed" and move through the gate that needs it.
+      // Validate everything first, then apply: title, description, check and note before the
+      // stage move, so one call can record "passed" and move through the gate that needs it.
       const name = args.check ? CheckName.safeParse(args.check.name) : null;
       const state = args.check ? CheckState.safeParse(args.check.state) : null;
       if (args.check && (!name?.success || !state?.success)) {
@@ -192,7 +195,25 @@ export class TeamToolsService implements TeamToolsHandler {
             `${config.pipeline.stages.map((s) => s.id).join(', ')}.`,
         );
       }
+      const title = args.title?.trim();
+      if (args.title !== undefined && !title) throw new TeamToolError('invalid', 'The title is empty.');
+      const description = args.description?.trim();
+      if (args.description !== undefined && !description) {
+        throw new TeamToolError('invalid', 'The description is empty; pass the whole new description.');
+      }
       let task = this.tasks.get(ctx.projectKey, taskKey);
+      if (title !== undefined || description !== undefined) {
+        task = await this.tasks.update(
+          ctx.projectKey,
+          taskKey,
+          {
+            ...(title !== undefined ? { title } : {}),
+            ...(description !== undefined ? { description } : {}),
+          },
+          actor,
+          { sessionId: ctx.sessionId },
+        );
+      }
       if (name?.success && state?.success) {
         task = this.tasks.setCheck(ctx.projectKey, taskKey, name.data, state.data, actor, ctx.sessionId);
       }
@@ -211,6 +232,31 @@ export class TeamToolsService implements TeamToolsHandler {
         }
         task = result.task;
       }
+      return { task };
+    });
+  }
+
+  async createTask(
+    ctx: ToolContext,
+    args: { title: string; description?: string; labels?: string[]; visibility?: Visibility },
+  ): Promise<{ task: Task }> {
+    return this.guard(async () => {
+      await this.caller(ctx);
+      const title = args.title.trim();
+      if (!title) throw new TeamToolError('invalid', 'The title is empty.');
+      const labels = unique((args.labels ?? []).map((l) => l.trim()).filter(Boolean));
+      // No stage: a new task starts in the pipeline's first (queue) stage, where humans prioritise it.
+      const task = await this.tasks.create(
+        ctx.projectKey,
+        {
+          title,
+          description: args.description?.trim() ?? '',
+          labels,
+          visibility: args.visibility ?? 'internal',
+        },
+        aiActor(ctx.member),
+        { sessionId: ctx.sessionId },
+      );
       return { task };
     });
   }

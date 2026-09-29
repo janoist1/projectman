@@ -140,6 +140,68 @@ describe('team tools', () => {
     expect((await toolError(h.domain.teamTools.getTask(dev, { taskKey: 'AR-99' }))).code).toBe('not_found');
   });
 
+  it('create_task puts an unassigned task into the first stage, attributed to the member', async () => {
+    const { task } = await h.domain.teamTools.createTask(dev, {
+      title: '  Signup form accepts an empty email ',
+      description: 'Steps: open /signup, submit without an email.',
+      labels: ['bug', ' bug', ''],
+      visibility: 'shared',
+    });
+    expect(task).toMatchObject({
+      key: 'AR-2',
+      title: 'Signup form accepts an empty email',
+      description: 'Steps: open /signup, submit without an email.',
+      stageId: 'backlog',
+      status: 'active',
+      assignee: null,
+      priority: null,
+      labels: ['bug'],
+      visibility: 'shared',
+      createdBy: 'dev-1',
+    });
+    const created = h.domain.timeline.list('AR', { taskKey: 'AR-2' });
+    expect(created).toMatchObject([
+      {
+        type: 'task_created',
+        actor: { kind: 'ai', handle: 'dev-1' },
+        sessionId: dev.sessionId,
+        data: { title: 'Signup form accepts an empty email' },
+      },
+    ]);
+    const blank = await toolError(h.domain.teamTools.createTask(dev, { title: '   ' }));
+    expect(blank.code).toBe('invalid');
+  });
+
+  it('update_task rewrites the title and the description before the stage move', async () => {
+    const reviewer: ToolContext = { ...dev, member: 'cr', sessionId: 'ses_cr' };
+    const { task } = await h.domain.teamTools.updateTask(reviewer, {
+      taskKey: 'AR-1',
+      title: 'Login page with remember me',
+      description: '## Acceptance criteria\n1. The session survives a browser restart.',
+      note: 'Specified the acceptance criteria',
+      stageId: 'code_review',
+    });
+    expect(task).toMatchObject({
+      title: 'Login page with remember me',
+      description: '## Acceptance criteria\n1. The session survives a browser restart.',
+      stageId: 'code_review',
+    });
+    const events = h.domain.timeline
+      .list('AR', { taskKey: 'AR-1' })
+      .map((e) => [e.type, e.data, e.sessionId]);
+    expect(events.slice(-3)).toEqual([
+      ['task_updated', { fields: ['title', 'description'] }, 'ses_cr'],
+      ['task_note', { text: 'Specified the acceptance criteria' }, 'ses_cr'],
+      ['task_stage_changed', { from: 'development', to: 'code_review' }, null],
+    ]);
+    expect(
+      (await toolError(h.domain.teamTools.updateTask(reviewer, { taskKey: 'AR-1', title: ' ' }))).code,
+    ).toBe('invalid');
+    expect(
+      (await toolError(h.domain.teamTools.updateTask(reviewer, { taskKey: 'AR-1', description: '\n' }))).code,
+    ).toBe('invalid');
+  });
+
   it('refuses callers that are not AI members of the project', async () => {
     const human: ToolContext = { ...dev, member: 'owner' };
     expect((await toolError(h.domain.teamTools.listMembers(human))).code).toBe('forbidden');

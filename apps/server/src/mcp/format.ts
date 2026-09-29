@@ -31,7 +31,9 @@ export function formatMembers(members: MemberView[], self: string): string {
   const lines = members.map((m) => {
     const who = m.handle === self ? `${m.handle} (you)` : m.handle;
     const kind = m.kind === 'ai' ? 'AI' : 'human';
-    const role = `${kind} ${m.role}${m.specialty ? ` (${m.specialty})` : ''}${m.temp ? ', temporary' : ''}`;
+    // Humans: access level, then the roles they hold; AI members: their one role.
+    const held = m.kind === 'human' && m.roles.length > 0 ? `; roles: ${m.roles.join(', ')}` : '';
+    const role = `${kind} ${m.role}${m.specialty ? ` (${m.specialty})` : ''}${m.temp ? ', temporary' : ''}${held}`;
     const status = m.activity ? `${m.status}: ${oneLine(m.activity, 80)}` : m.status;
     const tasks = m.currentTaskKeys.length > 0 ? ` · tasks: ${m.currentTaskKeys.join(', ')}` : '';
     return `- ${who} — ${m.displayName} · ${role} · ${status}${tasks}`;
@@ -151,13 +153,30 @@ export function formatTaskDetail(detail: TaskDetail): string {
 
 export function formatTaskUpdate(
   task: Task,
-  change: { stageId?: string; check?: { name: string; state: string }; note: boolean },
+  change: {
+    stageId?: string;
+    check?: { name: string; state: string };
+    note: boolean;
+    title?: boolean;
+    description?: boolean;
+  },
 ): string {
   const done: string[] = [];
+  if (change.title) done.push('title changed');
+  if (change.description) done.push('description replaced');
   if (change.check) done.push(`check ${change.check.name} → ${change.check.state}`);
   if (change.note) done.push('note added');
   if (change.stageId) done.push(`moved to ${change.stageId}`);
   return `Updated ${task.key}: ${done.join('; ')}.\nNow: ${taskStatusLine(task)}`;
+}
+
+export function formatTaskCreated(task: Task): string {
+  const labels = task.labels.length > 0 ? ` · Labels: ${task.labels.join(', ')}` : '';
+  return (
+    `Created ${task.key} "${oneLine(task.title, 200)}" in stage ${task.stageId}, unassigned ` +
+    `(visibility ${task.visibility}${labels}). Humans prioritise it. If it came from another task, ` +
+    `note ${task.key} there with update_task.`
+  );
 }
 
 export function formatLinkedPullRequest(task: Task, repo: string, number: number): string {

@@ -53,24 +53,31 @@ tests use the SDK's own client, which behaves the same way here):
 
 ## Tools
 
-| Tool                | Input                                                       | Handler call                                            |
-| ------------------- | ----------------------------------------------------------- | ------------------------------------------------------- |
-| `send_message`      | `to` (handles, 1–20), `text`, `task_key?`                   | `sendMessage(ctx, { to, text, taskKey? })`              |
-| `list_members`      | none                                                        | `listMembers(ctx)`                                      |
-| `get_task`          | `task_key`                                                  | `getTask(ctx, { taskKey })`                             |
-| `update_task`       | `task_key`, `stage_id?`, `check?: { name, state }`, `note?` | `updateTask(ctx, { taskKey, stageId?, check?, note? })` |
-| `link_pull_request` | `task_key`, `repo` (`owner/name`), `number`                 | `linkPullRequest(ctx, { taskKey, repo, number })`       |
-| `ask_human`         | `question`, `options?` (1–10), `task_key?`, `to?` (handles) | `askHuman(ctx, { question, options?, taskKey?, to? })`  |
-| `save_memory`       | `note` (max 2000 chars)                                     | `saveMemory(ctx, { note })`                             |
+| Tool                | Input                                                                                 | Handler call                                                                  |
+| ------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `send_message`      | `to` (handles, 1–20), `text`, `task_key?`                                             | `sendMessage(ctx, { to, text, taskKey? })`                                    |
+| `list_members`      | none                                                                                  | `listMembers(ctx)`                                                            |
+| `get_task`          | `task_key`                                                                            | `getTask(ctx, { taskKey })`                                                   |
+| `update_task`       | `task_key`, `stage_id?`, `check?: { name, state }`, `note?`, `title?`, `description?` | `updateTask(ctx, { taskKey, stageId?, check?, note?, title?, description? })` |
+| `create_task`       | `title` (max 200 chars), `description?`, `labels?` (max 10), `visibility?`            | `createTask(ctx, { title, description?, labels?, visibility? })`              |
+| `link_pull_request` | `task_key`, `repo` (`owner/name`), `number`                                           | `linkPullRequest(ctx, { taskKey, repo, number })`                             |
+| `ask_human`         | `question`, `options?` (1–10), `task_key?`, `to?` (handles)                           | `askHuman(ctx, { question, options?, taskKey?, to? })`                        |
+| `save_memory`       | `note` (max 2000 chars)                                                               | `saveMemory(ctx, { note })`                                                   |
 
 - Inputs are zod schemas (`tools.ts`), strict: an unknown key is an error rather than
-  silently dropped. Handles, task keys, stage ids and check names/states reuse the
+  silently dropped. Handles, task keys, stage ids, check names/states and visibility reuse the
   `@projectman/shared` schemas.
 - `task_key` of `send_message` and `ask_human` defaults to the session's task
   (`ctx.taskKey`); from a session without a task, an omitted key means a general message.
 - `to` is deduplicated. `send_message` also drops the caller's own handle and refuses a
   message addressed only to the caller.
-- `update_task` needs at least one of `stage_id`, `check` and `note`.
+- `update_task` needs at least one of `stage_id`, `check`, `note`, `title` and `description`.
+  `description` replaces the whole description (the analyst's specification, the architect's
+  technical plan); the change is recorded in the timeline as `task_updated`.
+- `create_task` creates the task in the pipeline's first (queue) stage, unassigned and
+  attributed to the calling member (`task_created` in the timeline, with the session); humans
+  prioritise it. Support turns bug reports into cards with it, the architect proposes a
+  breakdown, the analyst splits requests.
 - Descriptions and the server instructions (sent at initialize; Claude Code adds them to the
   system prompt) tell the model to: address teammates by handle, be concise, write in the
   project's language, answer team messages with `send_message`, record check results with
@@ -93,9 +100,9 @@ Results are short plain text (a roster, a task card with the last 20 timeline ev
 - Resolve quickly. The HTTP call, and the Claude turn with it, stays open until the handler
   settles. Queue deliveries into busy sessions instead of awaiting them: two members
   messaging each other while both wait would deadlock until the timeout.
-- `updateTask`: record the check and the note before the stage move, so that one call such as
-  `check: qa passed` + `stage_id: client_test` can pass the gate. The tool description
-  promises this order.
+- `updateTask`: record the title, description, check and note before the stage move, so that one
+  call such as `check: qa passed` + `stage_id: client_test` can pass the gate. The tool
+  description promises this order.
 - Throw `TeamToolError` for expected refusals, with a message written for the model
   (English): unknown handle or task (`not_found`), an AI handle in `askHuman.to`
   (`invalid`), a gate that is not met (`gate_blocked`), and so on.

@@ -1,4 +1,5 @@
-import type { GateCondition, Pipeline, Stage, Task } from '@projectman/shared';
+import { gateApprovers, taskAuthors } from '@projectman/shared';
+import type { GateCondition, Pipeline, Stage, Task, ProjectConfig } from '@projectman/shared';
 
 /**
  * Gate evaluation. A gate on a stage must hold before a task may ENTER that stage.
@@ -56,12 +57,19 @@ export function conditionHolds(task: Task, condition: GateCondition): boolean {
   }
 }
 
-export function evaluateGates(task: Task, stages: Stage[]): GateEvaluation {
+export function evaluateGates(task: Task, stages: Stage[], config?: ProjectConfig): GateEvaluation {
   const evaluation: GateEvaluation = { unmet: [], approvals: [] };
   for (const stage of stages) {
     (stage.gate?.conditions ?? []).forEach((condition, conditionIndex) => {
       if (condition.type === 'human_approval') {
-        evaluation.approvals.push({ stageId: stage.id, conditionIndex, approvers: condition.approvers });
+        evaluation.approvals.push({
+          stageId: stage.id,
+          conditionIndex,
+          approvers: (config ? gateApprovers(config, condition) : (condition.approvers ?? [])).filter(
+            (h) =>
+              !(stage.kind === 'release' && config?.team.releaseFourEyes && taskAuthors(task).includes(h)),
+          ),
+        });
       } else if (!conditionHolds(task, condition)) {
         evaluation.unmet.push({ stageId: stage.id, condition });
       }

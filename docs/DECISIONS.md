@@ -55,3 +55,17 @@ Agreed with the owner on 2026-09-29, while designing the first version.
     Code's usage probe, ChatGPT's from the rate limits Codex records in its transcripts
     (nothing is spent to read either), and new work pauses on the plan of the member's own
     provider.
+
+16. **Roles are configurable bundles of fixed duties.** Approved by the owner on 2026-09-30.
+    Duties, rather than role names, determine who owns stages, who may approve gates and
+    which prompt fragments and session tools an AI receives. Teams may change built-in
+    bundles and create custom roles, but cannot invent duties or configure away invariants.
+    Holder eligibility is the intersection of duty eligibility; humans union their roles.
+    Release approval and final decision are human-only. AI never approves; assignees and
+    PR authors never submit their own code/security/QA results. Optional release four eyes
+    requires an independent human. Release approval grants and removals are owner-only,
+    whether made through a gate, bundle or membership change. Missing pipeline dependencies
+    are errors; missing recommended duties are warnings. Existing explicit member lists and
+    old custom-role YAML continue loading, with in-memory duty defaults. This supersedes
+    decision 14's hard-coded holder restrictions and prompt responsibilities. Meetings and
+    monitoring execution remain future work; their attachment metadata is already defined.

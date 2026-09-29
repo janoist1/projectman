@@ -20,9 +20,9 @@ export function nextStepText(
   if (task.status === 'done' || task.status === 'cancelled') return null;
   const next = nextStage(pipeline, task.stageId);
   if (!next) return t('task.lastStage');
-  if (next.owners.length === 0) return t('task.nextStageNoOwner', { stage: next.name });
+  if ((next.owners ?? []).length === 0) return t('task.nextStageNoOwner', { stage: next.name });
   return t('task.nextStage', {
     stage: next.name,
-    owners: joinNames(namesOf(next.owners, members, myHandle)),
+    owners: joinNames(namesOf(next.owners ?? [], members, myHandle)),
   });
 }

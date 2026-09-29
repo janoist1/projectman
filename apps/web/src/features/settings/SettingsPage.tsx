@@ -1,3 +1,5 @@
+import { DutiesMatrix } from './DutiesMatrix';
+import { resolvedStages } from '@projectman/shared';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import type { ConfigVersionEntry, MemberConfig, ProjectConfig, RoleView } from '@projectman/shared';
@@ -58,7 +60,7 @@ function PipelineSection({ config }: { config: ProjectConfig }) {
       </div>
       <EditableSection section="pipeline">
         <ol className={styles.stages}>
-          {config.pipeline.stages.map((stage) => (
+          {resolvedStages(config).map((stage) => (
             <li key={stage.id} className={styles.stage}>
               <div className={styles.stageTop}>
                 <span className={styles.stageName}>{stage.name}</span>
@@ -431,6 +433,11 @@ export function SettingsPage() {
                 </EditableSection>
               </section>
               <PipelineSection config={config.data.config} />
+              <DutiesMatrix
+                key={config.data.version}
+                config={config.data.config}
+                version={config.data.version}
+              />
               <TeamSection config={config.data.config} />
               <LimitsAndRepos config={config.data.config} />
             </SettingsEditingProvider>

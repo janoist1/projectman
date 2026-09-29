@@ -361,7 +361,7 @@ export class SessionOrchestrator {
     await this.assertProviderReady(provider);
     let cwd = config.project.workspacePath;
     let branch: string | null = null;
-    if (task?.repo && usesWorktree(member.role)) {
+    if (task?.repo && usesWorktree(member.role, config)) {
       // Code-changing roles work in the task's own worktree and branch; others in the workspace.
       try {
         const worktree = await this.deps.worktrees.ensureForTask({
@@ -458,7 +458,7 @@ export class SessionOrchestrator {
         appendSystemPrompt: pack.appendSystemPrompt,
         initialMessage: resume ? null : pack.initialMessage,
         mcpUrl: `${this.deps.publicBaseUrl}${routes.mcp(token)}`,
-        allowedTools: allowedToolsFor(member.role),
+        allowedTools: allowedToolsFor(member.role, config),
         provider,
       });
       const current = this.ctx.repos.sessions.get(session.id);

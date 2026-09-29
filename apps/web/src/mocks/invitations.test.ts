@@ -52,9 +52,6 @@ describe('mock invitations', () => {
     expect(code(backend.handle('POST', '/api/projects/AC/invites', { ...input, access: 'owner' }))).toBe(
       'invalid_request',
     );
-    expect(code(backend.handle('POST', '/api/projects/AC/invites', { ...input, roles: ['watchdog'] }))).toBe(
-      'role_not_for_human',
-    );
     expect(
       code(backend.handle('POST', '/api/projects/AC/invites', { ...input, roles: ['unknown_role'] })),
     ).toBe('unknown_role');

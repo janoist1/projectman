@@ -24,6 +24,7 @@ interface TaskRow {
 }
 
 interface LinkRow {
+  author: string | null;
   id: number;
   task_id: string;
   kind: string;
@@ -43,6 +44,7 @@ export interface PullRequestLinkRef {
 
 function toLink(r: LinkRow): TaskLink {
   const link: TaskLink = { kind: r.kind as TaskLink['kind'], ref: r.ref };
+  if (r.author) link.author = r.author;
   if (r.repo) link.repo = r.repo;
   if (r.title !== null) link.title = r.title;
   if (r.state !== null) link.state = r.state;
@@ -109,17 +111,30 @@ export function createTaskRepository(db: Db) {
       .get(taskId, link.kind, repo, link.ref) as LinkRow | undefined;
     if (!existing) {
       db.prepare(
-        `INSERT INTO task_links (task_id, kind, ref, repo, title, state, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(taskId, link.kind, link.ref, repo, link.title ?? null, link.state ?? null, at, at);
+        `INSERT INTO task_links (task_id, kind, ref, repo, title, state, created_at, updated_at, author)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        taskId,
+        link.kind,
+        link.ref,
+        repo,
+        link.title ?? null,
+        link.state ?? null,
+        at,
+        at,
+        link.author ?? null,
+      );
       return 'inserted';
     }
     const title = link.title ?? existing.title;
     const state = link.state ?? existing.state;
-    if (title === existing.title && state === existing.state) return 'unchanged';
-    db.prepare('UPDATE task_links SET title = ?, state = ?, updated_at = ? WHERE id = ?').run(
+    const author = existing.author ?? link.author ?? null;
+    if (title === existing.title && state === existing.state && author === existing.author)
+      return 'unchanged';
+    db.prepare('UPDATE task_links SET title = ?, state = ?, author = ?, updated_at = ? WHERE id = ?').run(
       title,
       state,
+      author,
       at,
       existing.id,
     );

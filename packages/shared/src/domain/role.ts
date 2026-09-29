@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DUTIES, DutyId } from './duty';
 
 /**
  * Team roles. An AI member holds exactly one role; a human member may hold several.
@@ -41,29 +42,47 @@ export const BUILT_IN_ROLE_IDS = [
 export const BuiltInRoleId = z.enum(BUILT_IN_ROLE_IDS);
 export type BuiltInRoleId = z.infer<typeof BuiltInRoleId>;
 
-/** Who may hold each built-in role. */
-export const BUILT_IN_ROLE_HOLDERS: Record<BuiltInRoleId, RoleHolders> = {
-  operator: 'human',
-  product_owner: 'human',
-  project_manager: 'both',
-  business_analyst: 'both',
-  architect: 'both',
-  designer: 'both',
-  developer: 'both',
-  code_review: 'both',
-  security_review: 'both',
-  qa: 'both',
-  devops: 'both',
-  communication: 'both',
-  support: 'both',
-  researcher: 'both',
-  maintainer: 'both',
-  coach: 'both',
-  watchdog: 'ai',
-  content: 'both',
-  translator: 'both',
-  docs: 'both',
+/** Default bundles; a team override replaces the entire bundle. */
+export const BUILT_IN_ROLE_DUTIES: Record<BuiltInRoleId, DutyId[]> = {
+  operator: ['final_decision', 'release_approval', 'monitoring'],
+  product_owner: ['prioritization', 'requirements_analysis', 'testing_acceptance', 'final_decision'],
+  project_manager: ['scheduling', 'triage', 'standup_facilitation', 'refinement_facilitation'],
+  business_analyst: ['requirements_analysis', 'task_breakdown'],
+  architect: ['technical_direction', 'task_breakdown'],
+  designer: ['ux_design'],
+  developer: ['implementation'],
+  code_review: ['code_review'],
+  security_review: ['security_review'],
+  qa: ['testing_acceptance'],
+  devops: ['deployment', 'monitoring'],
+  communication: ['client_communication'],
+  support: ['support', 'triage'],
+  researcher: ['research'],
+  maintainer: ['maintenance'],
+  coach: ['retro_facilitation', 'process_improvement'],
+  watchdog: ['monitoring'],
+  content: ['content'],
+  translator: ['translation'],
+  docs: ['docs'],
 };
+export const RoleBundle = z.object({
+  duties: z.array(DutyId).refine((ids) => new Set(ids).size === ids.length, 'duplicate duties'),
+  instructions: z.string().default(''),
+});
+export type RoleBundle = z.infer<typeof RoleBundle>;
+export const RoleOverrides = z.partialRecord(BuiltInRoleId, RoleBundle);
+export type RoleOverrides = Partial<Record<BuiltInRoleId, RoleBundle>>;
+
+/** Intersection; null means mutually incompatible duties. Empty bundles allow both. */
+export function dutyHolders(duties: readonly DutyId[]): RoleHolders | null {
+  const human = duties.every((id) => DUTIES[id].holders !== 'ai');
+  const ai = duties.every((id) => DUTIES[id].holders !== 'human');
+  return human && ai ? 'both' : human ? 'human' : ai ? 'ai' : null;
+}
+/** Compatibility export derived from defaults, never a separate policy table. */
+export const BUILT_IN_ROLE_HOLDERS = Object.fromEntries(
+  BUILT_IN_ROLE_IDS.map((id) => [id, dutyHolders(BUILT_IN_ROLE_DUTIES[id])!]),
+) as Record<BuiltInRoleId, RoleHolders>;
 
 export function isBuiltInRole(id: string): id is BuiltInRoleId {
   return (BUILT_IN_ROLE_IDS as readonly string[]).includes(id);
@@ -77,7 +96,12 @@ export const CustomRoleDefinition = z.object({
   summary: z.string().min(1).max(280),
   /** What the role does not do, one short sentence (keeps roles apart). */
   notTheirJob: z.string().max(200).default(''),
-  holders: RoleHolders,
+  /** Legacy metadata, accepted for old YAML. Eligibility comes from duties. */
+  holders: RoleHolders.default('both'),
+  duties: z
+    .array(DutyId)
+    .refine((ids) => new Set(ids).size === ids.length, 'duplicate duties')
+    .optional(),
   /** Instructions for AI members holding this role (prompt text). */
   instructions: z.string().default(''),
 });
@@ -100,8 +124,15 @@ export function holdersAllow(holders: RoleHolders, kind: 'human' | 'ai'): boolea
  */
 export function roleHolders(
   id: string,
-  customRoles: readonly Pick<CustomRoleDefinition, 'id' | 'holders'>[] = [],
+  customRoles: readonly Pick<CustomRoleDefinition, 'id' | 'holders' | 'duties'>[] = [],
+  overrides: RoleOverrides = {},
 ): RoleHolders | null {
-  if (isBuiltInRole(id)) return BUILT_IN_ROLE_HOLDERS[id];
-  return customRoles.find((role) => role.id === id)?.holders ?? null;
+  if (isBuiltInRole(id)) return dutyHolders(overrides[id]?.duties ?? BUILT_IN_ROLE_DUTIES[id]);
+  const role = customRoles.find((role) => role.id === id);
+  return role ? dutyHolders(customRoleDuties(role)) : null;
+}
+
+/** In-memory compatibility for custom roles written before duties existed. */
+export function customRoleDuties(role: Pick<CustomRoleDefinition, 'duties' | 'holders'>): DutyId[] {
+  return role.duties ?? (role.holders === 'human' ? ['final_decision'] : ['research']);
 }

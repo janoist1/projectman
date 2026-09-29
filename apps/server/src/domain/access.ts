@@ -1,3 +1,4 @@
+import { gateApprovers } from '@projectman/shared';
 import type { HumanAccess, HumanMemberConfig, ProjectConfig } from '@projectman/shared';
 
 /** A logged-in user's membership in one project. */
@@ -42,7 +43,7 @@ export function releaseApproversSignature(config: ProjectConfig): string {
     .filter((s) => s.kind === 'release')
     .map((s) => {
       const approvers = (s.gate?.conditions ?? [])
-        .flatMap((c) => (c.type === 'human_approval' ? c.approvers : []))
+        .flatMap((c) => (c.type === 'human_approval' ? gateApprovers(config, c) : []))
         .sort();
       return `${s.id}:${approvers.join(',')}`;
     })

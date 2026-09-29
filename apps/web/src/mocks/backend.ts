@@ -1,4 +1,14 @@
 import {
+  roleBundle,
+  roleHolders,
+  dutyHolders,
+  customRoleDuties,
+  resolvedStages,
+  gateApprovers,
+  stageOwners,
+  taskAuthors,
+} from '@projectman/shared';
+import {
   nextCronRun,
   PatchConfigRequest,
   applyConfigPatch,
@@ -223,9 +233,21 @@ export class MockBackend {
     return this.members.find((member) => member.handle === handle);
   }
 
-  updateTask(key: string, patch: Partial<Task>): Task | undefined {
+  updateTask(key: string, patch: Partial<Task>, actor = this.viewerHandle): Task | undefined {
     const task = this.findTask(key);
     if (!task) return undefined;
+    if (
+      patch.checks &&
+      Object.keys(patch.checks).some(
+        (check) =>
+          check !== 'client_test' &&
+          patch.checks![check as keyof Task['checks']] !== task.checks[check as keyof Task['checks']],
+      ) &&
+      taskAuthors(task).includes(actor)
+    )
+      throw Object.assign(new Error('The assignee and PR author cannot review their task'), {
+        code: 'self_review_forbidden',
+      });
     Object.assign(task, patch, { updatedAt: nowIso() });
     this.emit({ type: 'task_upserted', projectKey: task.projectKey, task: clone(task) });
     return task;
@@ -353,7 +375,7 @@ export class MockBackend {
   }
 
   private board(): BoardView {
-    const stages = this.config.pipeline.stages;
+    const stages = resolvedStages(this.config);
     return {
       project: {
         ...fixtures.projectSummary,
@@ -615,6 +637,18 @@ export class MockBackend {
 
   /* ---------- mutations ---------- */
 
+  private configChangeFailure(next: ProjectConfig): MockResponse | null {
+    const viewer = this.config.team.members.find((m) => m.handle === this.viewerHandle);
+    if (viewer?.kind !== 'human' || !['owner', 'admin'].includes(viewer.access))
+      return error(403, 'insufficient_access', 'Requires admin access');
+    if (viewer.access !== 'owner' && humanApprovalChanged(this.config, next))
+      return error(403, 'owner_only', 'Only owners may change release approval');
+    const issues = validateProjectConfig(next);
+    return issues.some((i) => i.severity !== 'warning')
+      ? error(400, 'config_invalid', 'Invalid configuration', { issues })
+      : null;
+  }
+
   private patchConfig(body: unknown): MockResponse {
     const member = this.config.team.members.find((member) => member.handle === this.viewerHandle);
     if (member?.kind !== 'human' || !['owner', 'admin'].includes(member.access)) {
@@ -635,7 +669,8 @@ export class MockBackend {
       return error(403, 'owner_only', 'Only owners may change human approval gates');
     }
     const issues = validateProjectConfig(next);
-    if (issues.length) return error(400, 'config_invalid', 'Invalid configuration', { issues });
+    if (issues.some((issue) => issue.severity !== 'warning'))
+      return error(400, 'config_invalid', 'Invalid configuration', { issues });
     if (JSON.stringify(next) !== JSON.stringify(this.config)) {
       this.config = next;
       const message =
@@ -677,6 +712,11 @@ export class MockBackend {
       for (const id of input.roles) {
         const role = this.roleCatalogue().find((role) => role.id === id);
         if (!role) return error(400, 'unknown_role', 'Unknown role');
+        if (
+          this.findMember(this.viewerHandle)?.role !== 'owner' &&
+          roleBundle(this.config, id).duties.includes('release_approval')
+        )
+          return error(403, 'owner_only', 'Only owners may grant release approval');
         if (!holdersAllow(role.holders, 'human')) return error(400, 'role_not_for_human', 'AI-only role');
       }
       const token = newInviteToken();
@@ -800,9 +840,15 @@ export class MockBackend {
 
   private roleCatalogue(): RoleView[] {
     return [
-      ...clone(fixtures.builtInRoles),
-      ...this.config.team.roles.map(({ instructions: _instructions, ...role }) => ({
+      ...clone(fixtures.builtInRoles).map((role) => ({
         ...role,
+        ...roleBundle(this.config, role.id),
+        holders: roleHolders(role.id, this.config.team.roles, this.config.team.roleOverrides)!,
+      })),
+      ...this.config.team.roles.map((role) => ({
+        ...role,
+        duties: customRoleDuties(role),
+        holders: dutyHolders(customRoleDuties(role))!,
         builtIn: false,
       })),
     ];
@@ -843,8 +889,13 @@ export class MockBackend {
     const index = this.config.team.roles.findIndex((role) => role.id === input.id);
     if (id && index < 0) return error(404, 'not_found', 'Unknown role');
     if (!id && index >= 0) return error(409, 'duplicate_role', 'Duplicate role');
-    const usage = this.roleUsage(input.id, input.holders);
+    const usage = this.roleUsage(input.id, dutyHolders(customRoleDuties(input))!);
     if (usage.members.length || usage.tempWorkers) return error(409, 'role_in_use', 'Role is in use', usage);
+    const next = clone(this.config);
+    if (id) next.team.roles[index] = input;
+    else next.team.roles.push(input);
+    const failure = this.configChangeFailure(next);
+    if (failure) return failure;
     if (id) this.config.team.roles[index] = input;
     else this.config.team.roles.push(input);
     this.commitConfig(`${id ? 'Update' : 'Add'} role ${input.id}`);
@@ -857,7 +908,11 @@ export class MockBackend {
       return error(404, 'not_found', 'Unknown role');
     const usage = this.roleUsage(id);
     if (usage.members.length || usage.tempWorkers) return error(409, 'role_in_use', 'Role is in use', usage);
-    this.config.team.roles = this.config.team.roles.filter((role) => role.id !== id);
+    const next = clone(this.config);
+    next.team.roles = next.team.roles.filter((role) => role.id !== id);
+    const failure = this.configChangeFailure(next);
+    if (failure) return failure;
+    this.config.team.roles = next.team.roles;
     this.commitConfig(`Remove role ${id}`);
     return ok();
   }
@@ -880,6 +935,11 @@ export class MockBackend {
       (input.specialty !== undefined || input.model !== undefined || input.schedule !== undefined)
     )
       return error(400, 'not_ai_member', 'Not an AI member');
+    const next = clone(this.config);
+    const nextMember = next.team.members.find((m) => m.handle === handle)!;
+    if (nextMember.kind === 'human' && input.roles !== undefined) nextMember.roles = input.roles;
+    const failure = this.configChangeFailure(next);
+    if (failure) return failure;
     if (input.displayName !== undefined) member.displayName = config.displayName = input.displayName;
     if (config.kind === 'human' && input.roles !== undefined)
       member.roles = config.roles = [...new Set(input.roles)];
@@ -956,7 +1016,7 @@ export class MockBackend {
 
   private moveTask(task: Task, stageId: string): MockResponse {
     if (['done', 'cancelled'].includes(task.status)) return error(409, 'task_closed', 'Task is closed');
-    const stages = this.config.pipeline.stages;
+    const stages = resolvedStages(this.config);
     const to = stages.findIndex((stage) => stage.id === stageId);
     if (to < 0) return error(400, 'unknown_stage', 'Unknown stage');
     if (task.stageId === stageId) return ok(task);
@@ -967,7 +1027,18 @@ export class MockBackend {
     for (const stage of entered) {
       (stage.gate?.conditions ?? []).forEach((condition, conditionIndex) => {
         if (condition.type === 'human_approval') {
-          approvals.push({ stageId: stage.id, conditionIndex, approvers: condition.approvers });
+          approvals.push({
+            stageId: stage.id,
+            conditionIndex,
+            approvers: gateApprovers(this.config, condition).filter(
+              (h) =>
+                !(
+                  stage.kind === 'release' &&
+                  this.config.team.releaseFourEyes &&
+                  taskAuthors(task).includes(h)
+                ),
+            ),
+          });
         } else {
           const prs = task.links.filter((link) => link.kind === 'pull_request');
           const holds =
@@ -980,6 +1051,8 @@ export class MockBackend {
       });
     }
     if (unmet.length) return error(409, 'gate_blocked', 'Gate conditions are not met', { unmet, approvals });
+    if (approvals.some((a) => !a.approvers.length))
+      return error(409, 'release_four_eyes', 'No independent human approver is available');
     if (approvals.length) {
       const items: InboxItem[] = [];
       const requestId = mockId('gate');
@@ -1079,17 +1152,24 @@ export class MockBackend {
     const task = this.findTask(taskKey);
     if (!task || !input) return error(404, 'not_found', 'Unknown task');
     if (['done', 'cancelled'].includes(task.status)) return error(409, 'task_closed', 'Task is closed');
-    const developers = this.members.filter((member) => member.kind === 'ai' && member.role === 'developer');
+    const workStage = this.config.pipeline.stages.find((stage) => stage.kind === 'work');
+    const eligible = workStage ? stageOwners(this.config, workStage) : [];
+    const developers = this.members.filter(
+      (member) => eligible.includes(member.handle) && member.status !== 'retired',
+    );
     const assignee =
       input.assignee ??
       [...developers].sort((a, b) => a.currentTaskKeys.length - b.currentTaskKeys.length)[0]?.handle ??
       null;
     if (!assignee) return error(409, 'no_developer', 'No developer available');
-    const workStage = this.config.pipeline.stages.find((stage) => stage.kind === 'work');
+    if (!eligible.includes(assignee))
+      return error(400, 'not_stage_owner', 'Assignee must own the work stage');
     const from = task.stageId;
     this.updateTask(task.key, { assignee, stageId: workStage?.id ?? task.stageId, status: 'active' });
     this.addTimeline(task.key, null, 'task_assigned', { assignee });
     if (workStage) this.addTimeline(task.key, null, 'task_stage_changed', { from, to: workStage.id });
+    if (this.findMember(assignee)?.kind === 'human')
+      return ok({ task: clone(task), session: null, hired: null });
     const session: Session = {
       id: mockId('ses'),
       projectKey: fixtures.PROJECT_KEY,
@@ -1203,15 +1283,26 @@ export class MockBackend {
     const member = this.findMember(handle);
     if (!member || member.kind !== 'ai') return error(404, 'not_found', 'Unknown AI member');
     const target = input.handoverTo ? this.findMember(input.handoverTo) : undefined;
+    const next = clone(this.config);
+    next.team.members = next.team.members.filter((m) => m.handle !== handle);
+    for (const stage of next.pipeline.stages) {
+      if (stage.owners)
+        stage.owners = [
+          ...new Set(stage.owners.flatMap((h) => (h === handle ? (target ? [target.handle] : []) : [h]))),
+        ];
+    }
+    const failure = this.configChangeFailure(next);
+    if (failure) return failure;
+
     for (const taskKey of member.currentTaskKeys) {
       const task = this.findTask(taskKey);
       if (task?.assignee === handle) this.updateTask(taskKey, { assignee: target?.handle ?? null });
       if (target) target.currentTaskKeys = [...target.currentTaskKeys, taskKey];
     }
     for (const stage of this.config.pipeline.stages) {
-      if (stage.owners.includes(handle)) {
-        stage.owners = stage.owners.filter((owner) => owner !== handle);
-        if (target && !stage.owners.includes(target.handle)) stage.owners.push(target.handle);
+      if ((stage.owners ?? []).includes(handle)) {
+        stage.owners = (stage.owners ?? []).filter((owner) => owner !== handle);
+        if (target && !(stage.owners ?? []).includes(target.handle)) stage.owners.push(target.handle);
       }
     }
     member.status = 'retired';
@@ -1382,10 +1473,32 @@ export class MockBackend {
     if (item.kind === 'question' && input.optionId === 'answer' && !input.note?.trim()) {
       return error(400, 'answer_required', 'A free-text answer needs a note');
     }
+    const viewer = this.config.team.members.find((m) => m.handle === this.viewerHandle);
+    if (viewer?.kind !== 'human') return error(403, 'ai_approval_forbidden', 'Only humans may approve');
+    if (!item.assignees.includes(viewer.handle) && !(item.kind !== 'decision' && viewer.access === 'owner'))
+      return error(403, 'not_an_assignee', 'Only assignees may decide');
+    const gate = item.payload.gate as { stageId?: string; conditionIndex?: number } | undefined;
+    const stage = this.config.pipeline.stages.find((s) => s.id === gate?.stageId);
+    const condition = stage?.gate?.conditions[Number(gate?.conditionIndex)];
+    const task = item.taskKey ? this.findTask(item.taskKey) : undefined;
+    if (
+      input.optionId === 'approve' &&
+      stage?.kind === 'release' &&
+      this.config.team.releaseFourEyes &&
+      task &&
+      taskAuthors(task).includes(viewer.handle)
+    )
+      return error(403, 'release_four_eyes', 'Independent approval required');
+    if (
+      input.optionId === 'approve' &&
+      condition?.type === 'human_approval' &&
+      !gateApprovers(this.config, condition).includes(viewer.handle)
+    )
+      return error(403, 'not_an_assignee', 'Current gate changed');
     const resolved: InboxItem = {
       ...item,
       state: 'resolved',
-      resolution: { optionId: input.optionId, by: this.owner, at: nowIso(), note: input.note ?? null },
+      resolution: { optionId: input.optionId, by: this.viewerHandle, at: nowIso(), note: input.note ?? null },
     };
     this.upsertInbox(resolved);
     this.planUsage.fiveHourPercent = Math.min(99, (this.planUsage.fiveHourPercent ?? 0) + 1);
@@ -1489,7 +1602,6 @@ export class MockBackend {
           if (task) {
             this.updateTask(task.key, {
               stageId: 'code_review',
-              checks: { ...task.checks, code_review: 'pending' },
             });
             this.addTimeline(
               task.key,

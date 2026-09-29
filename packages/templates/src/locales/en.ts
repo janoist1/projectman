@@ -26,6 +26,106 @@ export const en: TemplateLocale = {
     release: 'Release',
     done: 'Done',
   },
+  duties: {
+    prioritization: {
+      name: 'Prioritization',
+      description: 'Order work by value and urgency. Escalate conflicting priorities.',
+    },
+    requirements_analysis: {
+      name: 'Requirements analysis',
+      description: 'Clarify goals and acceptance criteria. Resolve unknowns before delivery.',
+    },
+    task_breakdown: {
+      name: 'Task breakdown',
+      description: 'Split work into testable tasks. Record dependencies.',
+    },
+    triage: {
+      name: 'Triage',
+      description: 'Assess incoming requests and bugs. Route them to the right people.',
+    },
+    scheduling: {
+      name: 'Scheduling',
+      description: 'Track dates and blocked work. Remind the next responsible person.',
+    },
+    technical_direction: {
+      name: 'Technical direction',
+      description: 'Plan architecture and technical choices. Explain risks and tradeoffs.',
+    },
+    ux_design: {
+      name: 'UX design',
+      description: 'Design screens and interactions. Check the implemented experience.',
+    },
+    implementation: {
+      name: 'Implementation',
+      description: 'Implement tasks with tests. Open a pull request for review.',
+    },
+    docs: {
+      name: 'Documentation',
+      description: 'Write and maintain technical documentation. Verify examples.',
+    },
+    content: { name: 'Content', description: 'Write and edit product content. Follow the agreed voice.' },
+    translation: {
+      name: 'Translation',
+      description: 'Translate and check localizations. Preserve meaning and placeholders.',
+    },
+    maintenance: {
+      name: 'Maintenance',
+      description: 'Update dependencies and reduce technical debt. Keep changes focused.',
+    },
+    code_review: {
+      name: 'Code review',
+      description: 'Review correctness and maintainability. Report actionable findings.',
+    },
+    security_review: {
+      name: 'Security review',
+      description: 'Review access and sensitive data handling. Report risks without exposing secrets.',
+    },
+    testing_acceptance: {
+      name: 'Testing and acceptance',
+      description: 'Test behavior against acceptance criteria. Record reproducible failures.',
+    },
+    deployment: {
+      name: 'Deployment',
+      description: 'Deploy approved changes and verify health. Record the deployed version.',
+    },
+    release_approval: {
+      name: 'Release approval',
+      description: 'Make the explicit release decision. Only humans may hold this duty.',
+    },
+    monitoring: {
+      name: 'Monitoring',
+      description: 'Observe service and team health. Report anomalies with evidence.',
+    },
+    client_communication: {
+      name: 'Client communication',
+      description: 'Draft client updates and test requests. Obtain approval before sending.',
+    },
+    support: { name: 'Support', description: 'Reproduce reported problems. Prepare clear support tasks.' },
+    standup_facilitation: {
+      name: 'Standup facilitation',
+      description: 'Collect progress and blockers. Keep the meeting focused.',
+    },
+    refinement_facilitation: {
+      name: 'Refinement facilitation',
+      description: 'Prepare and clarify upcoming work. Record open questions.',
+    },
+    retro_facilitation: {
+      name: 'Retro facilitation',
+      description: 'Collect lessons from completed work. Agree on concrete improvements.',
+    },
+    process_improvement: {
+      name: 'Process improvement',
+      description: 'Identify recurring friction. Propose measurable changes.',
+    },
+    research: {
+      name: 'Research',
+      description: 'Investigate a focused question. Report sources and uncertainty.',
+    },
+    final_decision: {
+      name: 'Final decision',
+      description: 'Settle escalated decisions. Only humans may hold this duty.',
+    },
+  },
   roles: {
     operator: {
       name: 'Operator',

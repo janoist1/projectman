@@ -19,6 +19,8 @@ export const TaskLink = z.object({
   /** "owner/name" for GitHub references. */
   repo: z.string().optional(),
   title: z.string().optional(),
+  /** Attributed team member who authored this PR (not a GitHub login). */
+  author: MemberHandle.optional(),
   /** Last known state, e.g. "open" | "merged" for pull requests. */
   state: z.string().optional(),
 });

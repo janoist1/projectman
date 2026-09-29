@@ -164,7 +164,11 @@ describe('scheduler', () => {
   });
 
   it('a human assignee gets the task without an AI session', async () => {
-    h = await createDomainHarness();
+    h = await createDomainHarness({
+      adjust: (c) => {
+        c.pipeline.stages.find((s) => s.kind === 'work')!.owners!.push('owner');
+      },
+    });
     await h.domain.tasks.create('AR', { title: 'Manual' }, OWNER_ACTOR);
     const result = await start(h, 'AR-1', 'owner');
     expect(result.session).toBeNull();

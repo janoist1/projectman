@@ -25,7 +25,7 @@ export function describeGate(gate: Gate | undefined): string | null {
         case 'pr_merged':
           return 'pull request merged';
         case 'human_approval':
-          return `human approval by ${codeList(condition.approvers)}`;
+          return `human approval by ${codeList(condition.approvers ?? [condition.duty ?? ''])}`;
       }
     })
     .join(' and ');

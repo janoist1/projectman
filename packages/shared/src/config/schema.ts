@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AgentProvider, HumanAccess, MemberHandle, PermissionMode } from '../domain/member';
 import { Pipeline } from '../domain/pipeline';
-import { CustomRoleDefinition, RoleId } from '../domain/role';
+import { CustomRoleDefinition, RoleId, RoleOverrides } from '../domain/role';
 
 /**
  * Project configuration ("customizations"). Lives as YAML files in a separate git
@@ -119,6 +119,8 @@ export const ProjectConfig = z.object({
     members: z.array(MemberConfig).min(1),
     /** Roles the team defined in addition to the built-in ones. */
     roles: z.array(CustomRoleDefinition).default([]),
+    roleOverrides: RoleOverrides.optional(),
+    releaseFourEyes: z.boolean().default(false).optional(),
     limits: TeamLimits,
   }),
   pipeline: Pipeline,

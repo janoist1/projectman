@@ -1,3 +1,4 @@
+import { hu as templateLocale } from '@projectman/templates';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
@@ -8,7 +9,7 @@ import { EditMemberDialog } from './EditMemberDialog';
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
 describe('EditMemberDialog', () => {
-  it('edits multiple human roles and excludes AI-only roles', async () => {
+  it('edits multiple human roles and includes roles with monitoring duties', async () => {
     const project = mockProject();
     const onClose = vi.fn();
     project.render(
@@ -20,7 +21,7 @@ describe('EditMemberDialog', () => {
       />,
     );
     expect((screen.getByRole('checkbox', { name: 'Operátor' }) as HTMLInputElement).checked).toBe(true);
-    expect(screen.queryByRole('checkbox', { name: 'Felügyelő' })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: templateLocale.roles.watchdog.name })).toBeTruthy();
     fireEvent.click(screen.getByRole('checkbox', { name: 'QA' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Terméktulajdonos' }));
     fireEvent.click(screen.getByRole('button', { name: 'Mentés' }));

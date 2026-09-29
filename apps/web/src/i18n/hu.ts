@@ -5,6 +5,30 @@
 type MessageTree = { readonly [key: string]: string | MessageTree };
 
 export const hu = {
+  duties: {
+    title: 'Szerepek és feladatkörök',
+    roles: 'Szerepek szerint',
+    people: 'Emberek szerint',
+    add: 'Egyéni szerep hozzáadása',
+    reset: 'Alapértelmezés visszaállítása',
+    missing: 'Nincs felelőse',
+    humanOnly: 'Csak ember töltheti be; a szerepet AI is viseli.',
+    ownerOnly: 'A kiadás jóváhagyását csak tulajdonos módosíthatja.',
+    readOnly: 'A módosításhoz adminisztrátori hozzáférés kell.',
+    fourEyes: 'A kiadás jóváhagyója legyen más, mint a megvalósító és a PR szerzője',
+    extra: 'További felelősségek (csak az utasításban)',
+    defaultOwners: 'Feladatkör felelősei',
+    explicitOwners: 'Név szerinti felülírás',
+    duty: 'Feladatkör',
+    noDuty: 'Nincs feladatkör',
+    direction: 'Irányítás',
+    delivery: 'Megvalósítás',
+    quality: 'Minőség',
+    release: 'Kiadás',
+    communication: 'Kommunikáció',
+    team: 'Csapat',
+  },
+
   schedules: {
     title: 'Ütemezett futások',
     next: 'Következő futás: {time}',
@@ -177,6 +201,12 @@ export const hu = {
       not_a_member: 'Nem vagy tagja ennek a projektnek.',
       insufficient_access: 'Ehhez nincs elég jogod.',
       owner_only: 'Ezt csak a tulajdonos teheti meg.',
+      self_review_forbidden: 'A megvalósító és a PR szerzője nem ellenőrizheti a saját munkáját.',
+      ai_approval_forbidden: 'Jóváhagyást csak ember adhat.',
+      release_four_eyes: 'A kiadáshoz független ember jóváhagyása szükséges.',
+      not_stage_owner: 'A felelősnek a munkalépés feladatkörét kell viselnie.',
+      missing_duty_holder: 'A folyamat egy szükséges feladatkörének nincs felelőse.',
+      recommended_duty_unfilled: 'Egy ajánlott feladatkörnek még nincs felelőse.',
       unknown_role: 'Ismeretlen szerep.',
       role_not_for_ai: 'Ezt a szerepet AI-tag nem töltheti be.',
       role_not_for_human: 'Ezt a szerepet ember nem töltheti be.',

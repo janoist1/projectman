@@ -1,5 +1,8 @@
 import {
   ProjectConfig,
+  BUILT_IN_ROLE_DUTIES,
+  DUTIES,
+  DUTY_IDS,
   type AiBuiltInRoleId,
   type AiMemberConfig,
   type BoardColumn,
@@ -118,8 +121,29 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
         id: key,
         name: locale.stages[key],
         kind,
-        owners,
-        ...(gate.length > 0 ? { gate: { conditions: gate } } : {}),
+        ...(() => {
+          const worker = members.find((m) => owners.includes(m.handle) && m.kind === 'ai');
+          const duty =
+            kind === 'work' && worker?.kind === 'ai'
+              ? BUILT_IN_ROLE_DUTIES[worker.role as AiBuiltInRoleId][0]
+              : DUTY_IDS.find((id) => DUTIES[id].stageKinds.includes(kind));
+          return duty ? { duty } : { owners };
+        })(),
+        ...(gate.length > 0
+          ? {
+              gate: {
+                conditions: gate.map((c) =>
+                  c.type === 'human_approval'
+                    ? {
+                        type: 'human_approval' as const,
+                        duty:
+                          kind === 'release' ? ('release_approval' as const) : ('final_decision' as const),
+                      }
+                    : c,
+                ),
+              },
+            }
+          : {}),
         columnId: column,
       };
     },

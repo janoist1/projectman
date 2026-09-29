@@ -310,7 +310,7 @@ describe('context pack builder', () => {
     const project = buildProject();
     const member = { ...aiMember(project, 'qa'), instructions: 'Always test on a phone-sized screen too.' };
     const prompt = builder.build(input({ project, member, handle: 'qa' })).appendSystemPrompt;
-    expect(prompt).toContain('# Your role instructions\nAlways test on a phone-sized screen too.');
+    expect(prompt).toContain('\n\nAlways test on a phone-sized screen too.');
   });
 
   it('bounds the memory to the most recent entries', () => {
@@ -409,7 +409,7 @@ describe('context pack builder', () => {
     const pack = builder.build(
       input({ handle: 'communication', task: makeTask({ stageId: 'client_test' }) }),
     );
-    expect(pack.initialMessage).toContain('Hand the draft to `owner` with send_message');
+    expect(pack.initialMessage).toContain('Hand the draft to a human with send_message');
     expect(pack.initialMessage).toContain('record the client_test check with update_task');
   });
 
@@ -497,15 +497,8 @@ describe('context pack for the role catalogue', () => {
     const prompt = builder.build(input({ project, handle: 'steward' })).appendSystemPrompt;
     expect(prompt).toContain('You are Dora (handle `steward`), the Data steward of the Acme Web team');
     expect(prompt).toContain('- `steward`: Dora (AI, Data steward) ← you');
-    expect(prompt).toContain(
-      [
-        '# Your role: Data steward',
-        'A role this team defined, in its own words:',
-        '- What the role does: Keeps the reference data clean.',
-        "- Not the role's job: Does not change the database schema.",
-      ].join('\n'),
-    );
-    expect(prompt).toContain(`# Your role instructions\n${dataSteward.instructions}\n\n# Your memory`);
+    expect(prompt).toContain(dataSteward.instructions);
+    expect(prompt).toContain('Research a focused question');
     // A custom role owns no stage here: it reports back to whoever asked.
     expect(prompt).toContain('you do not own this stage');
   });
@@ -513,7 +506,7 @@ describe('context pack for the role catalogue', () => {
   it.each(AI_BUILT_IN_ROLE_IDS)('gives the %s concrete steps with the team tools', (role) => {
     const project = buildProject();
     const member = addMember(project, 'member', role, { displayName: 'Member' });
-    project.pipeline.stages.find((s) => s.id === 'dev')!.owners.push(member.handle);
+    (project.pipeline.stages.find((s) => s.id === 'dev')!.owners ??= []).push(member.handle);
     const pack = builder.build(
       input({ project, handle: 'member', task: makeTask({ stageId: 'dev', assignee: 'member' }) }),
     );
@@ -544,7 +537,7 @@ describe('context pack for the role catalogue', () => {
   it('builds maintenance work in the task worktree and hands it over', () => {
     const project = buildProject();
     addMember(project, 'maintainer', 'maintainer');
-    project.pipeline.stages.find((s) => s.id === 'dev')!.owners.push('maintainer');
+    (project.pipeline.stages.find((s) => s.id === 'dev')!.owners ??= []).push('maintainer');
     const brief =
       builder.build(
         input({ project, handle: 'maintainer', task: makeTask({ stageId: 'dev', assignee: 'maintainer' }) }),
@@ -580,5 +573,40 @@ describe('context pack for the role catalogue', () => {
     expect(builder.build(input({ project, handle: 'pm' })).appendSystemPrompt).toContain(
       '- `ops`: Ops (human, admin; roles: operator)',
     );
+  });
+});
+
+describe('duty prompt composition', () => {
+  it('orders duty fragments, role extra responsibilities and member instructions for overridden and custom bundles', () => {
+    const project = buildProject();
+    project.team.roleOverrides = {
+      developer: { duties: ['docs', 'research'], instructions: 'Explain the examples.' },
+    };
+    const member = { ...aiMember(project, 'fe-1'), instructions: 'Use small examples.' };
+    const prompt = builder
+      .build(input({ project, member, handle: 'fe-1' }))
+      .appendSystemPrompt.split('# Your role instructions')[1]!;
+    expect(prompt.indexOf('Write accurate documentation')).toBeLessThan(
+      prompt.indexOf('Research a focused question'),
+    );
+    expect(prompt.indexOf('Research a focused question')).toBeLessThan(
+      prompt.indexOf('Explain the examples.'),
+    );
+    expect(prompt.indexOf('Explain the examples.')).toBeLessThan(prompt.indexOf('Use small examples.'));
+    expect(prompt).not.toContain('Implement the task');
+    project.team.roles.push({
+      id: 'example_writer',
+      name: 'Example writer',
+      summary: 'Writes examples.',
+      notTheirJob: '',
+      holders: 'both',
+      duties: ['docs'],
+      instructions: 'Keep a glossary.',
+    });
+    const custom = builder.build(
+      input({ project, member: { ...member, role: 'example_writer' }, handle: 'fe-1' }),
+    ).appendSystemPrompt;
+    expect(custom).toContain('Write accurate documentation');
+    expect(custom).toContain('Keep a glossary.');
   });
 });

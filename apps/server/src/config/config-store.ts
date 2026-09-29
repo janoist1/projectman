@@ -69,7 +69,7 @@ function validate(raw: unknown, expectedKey: string): ProjectConfig {
     });
   }
   const issues = validateProjectConfig(parsed.data);
-  if (issues.length > 0) {
+  if (issues.some((issue) => issue.severity !== 'warning')) {
     throw new ConfigStoreError('invalid_config', 'configuration violates the team invariants', { issues });
   }
   return parsed.data;

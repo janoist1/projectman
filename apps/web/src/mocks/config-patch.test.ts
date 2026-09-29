@@ -94,3 +94,81 @@ describe('mock configuration PATCH', () => {
     ).toMatchObject({ status: 403, body: { error: { code: 'insufficient_access' } } });
   });
 });
+
+describe('mock duty configuration', () => {
+  it('saves and resets built-in bundles, rejects orphan dependencies and AI conflicts', () => {
+    const backend = new MockBackend();
+    const patch = (body: Record<string, unknown>) =>
+      backend.handle('PATCH', path, { baseVersion: backend.configVersion, ...body });
+    expect(patch({ roleOverrides: { developer: { duties: ['implementation', 'docs'] } } }).status).toBe(200);
+    expect(backend.config.team.roleOverrides?.developer?.duties).toContain('docs');
+    expect(patch({ roleOverrides: {} }).status).toBe(200);
+    const pipeline = structuredClone(backend.config.pipeline);
+    pipeline.stages[1]!.duty = 'research';
+    expect(patch({ pipeline })).toMatchObject({ body: { error: { code: 'config_invalid' } } });
+    expect(patch({ roleOverrides: { developer: { duties: ['release_approval'] } } })).toMatchObject({
+      body: { error: { code: 'config_invalid' } },
+    });
+  });
+  it('protects release duties through role and member mutations too', () => {
+    const backend = new MockBackend();
+    backend.viewerHandle = 'kata';
+    backend.findMember('kata')!.role = 'admin';
+    const admin = backend.config.team.members.find((m) => m.handle === 'kata')!;
+    if (admin.kind === 'human') admin.access = 'admin';
+    expect(
+      backend.handle('PATCH', path, { baseVersion: backend.configVersion, releaseFourEyes: true }),
+    ).toMatchObject({ status: 403, body: { error: { code: 'owner_only' } } });
+    expect(
+      backend.handle('POST', '/api/projects/AC/roles', {
+        id: 'release_lead',
+        name: 'Release lead',
+        summary: 'Decides.',
+        duties: ['release_approval'],
+      }),
+    ).toMatchObject({ status: 403, body: { error: { code: 'owner_only' } } });
+    expect(backend.handle('PATCH', '/api/projects/AC/members/kata', { roles: ['operator'] })).toMatchObject({
+      status: 403,
+      body: { error: { code: 'owner_only' } },
+    });
+  });
+});
+
+describe('mock duty runtime rules', () => {
+  it('rejects self-review by assignee and PR author, accepting independent results', () => {
+    const backend = new MockBackend();
+    const task = backend.tasks[0]!;
+    task.assignee = 'fe-1';
+    task.links.push({ kind: 'pull_request', ref: '999', author: 'be-1' });
+    for (const actor of ['fe-1', 'be-1'])
+      expect(() => backend.updateTask(task.key, { checks: { qa: 'passed' } }, actor)).toThrow(
+        expect.objectContaining({ code: 'self_review_forbidden' }),
+      );
+    expect(backend.updateTask(task.key, { checks: { qa: 'passed' } }, 'qa')?.checks.qa).toBe('passed');
+  });
+  it('resolves duty approvers and prevents AI approval and stale four-eyes approval', () => {
+    const backend = new MockBackend();
+    const task = backend.tasks[0]!;
+    task.stageId = 'merge';
+    task.assignee = 'owner';
+    backend.config.pipeline.stages.find((s) => s.id === 'release')!.gate = {
+      conditions: [{ type: 'human_approval', duty: 'release_approval' }],
+    };
+    const moved = backend.handle('PATCH', `/api/projects/AC/tasks/${task.key}`, { stageId: 'release' });
+    expect(moved.status).toBe(409);
+    const item = backend.inbox.find(
+      (i) => i.taskKey === task.key && i.kind === 'decision' && i.state === 'open',
+    )!;
+    expect(item.assignees).toContain('owner');
+    backend.viewerHandle = 'fe-1';
+    expect(
+      backend.handle('POST', `/api/projects/AC/inbox/${item.id}/resolve`, { optionId: 'approve' }),
+    ).toMatchObject({ body: { error: { code: 'ai_approval_forbidden' } } });
+    backend.viewerHandle = 'owner';
+    backend.config.team.releaseFourEyes = true;
+    expect(
+      backend.handle('POST', `/api/projects/AC/inbox/${item.id}/resolve`, { optionId: 'approve' }),
+    ).toMatchObject({ body: { error: { code: 'release_four_eyes' } } });
+    expect(item.state).toBe('open');
+  });
+});

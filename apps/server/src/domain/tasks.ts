@@ -18,6 +18,7 @@ import { isoNow } from './context';
 import type { DomainContext } from './context';
 import { conflict, forbidden, invalid, notFound } from './errors';
 import { hasAccess } from './access';
+import { taskAuthors } from '@projectman/shared';
 import { evaluateGates, stagesEntered } from './gates';
 import type { ApprovalRequirement, GateEvaluation } from './gates';
 import { DECISION_OPTIONS } from './inbox';
@@ -202,7 +203,7 @@ export class TaskService {
     };
     if (target.id !== first.id) {
       // A new task has no checks or links: it may start in any stage up to the first gated one.
-      const evaluation = evaluateGates(task, stagesEntered(config.pipeline, first.id, target.id));
+      const evaluation = evaluateGates(task, stagesEntered(config.pipeline, first.id, target.id), config);
       if (evaluation.unmet.length > 0 || evaluation.approvals.length > 0) throw gateBlockedError(evaluation);
       task.stageId = target.id;
       if (target.kind === 'done') {
@@ -373,7 +374,7 @@ export class TaskService {
     if (task.status === 'cancelled') throw conflict('task_closed', `task ${taskKey} is cancelled`);
     const target = findStage(config, stageId);
     if (task.stageId === target.id) return { task, moved: false, pendingApproval: [] };
-    const evaluation = evaluateGates(task, stagesEntered(config.pipeline, task.stageId, target.id));
+    const evaluation = evaluateGates(task, stagesEntered(config.pipeline, task.stageId, target.id), config);
     if (evaluation.unmet.length > 0) throw gateBlockedError(evaluation);
     if (evaluation.approvals.length > 0) {
       const pending = this.requestApproval(task, target, evaluation.approvals, actor);
@@ -411,7 +412,7 @@ export class TaskService {
       this.settleWaiting(task, actor, { gateBlocked: { to: gate.toStageId, reason: 'unknown_stage' } });
       return;
     }
-    const evaluation = evaluateGates(task, stagesEntered(config.pipeline, task.stageId, target.id));
+    const evaluation = evaluateGates(task, stagesEntered(config.pipeline, task.stageId, target.id), config);
     const approvalsStillValid = evaluation.approvals.every((req) =>
       siblings.some((s) => {
         const p = gatePayload(s);
@@ -443,6 +444,11 @@ export class TaskService {
     sessionId: string | null = null,
   ): Task {
     const task = this.get(projectKey, taskKey);
+    if (check !== 'client_test' && taskAuthors(task).includes(actor.handle ?? ''))
+      throw forbidden(
+        'self_review_forbidden',
+        'the assignee and PR authors cannot record review or QA results',
+      );
     const from = task.checks[check] ?? null;
     if (from === state) return task;
     const next: Task = { ...task, checks: { ...task.checks, [check]: state }, updatedAt: isoNow(this.ctx) };
@@ -500,6 +506,9 @@ export class TaskService {
     sessionId: string | null = null,
   ): Task {
     const task = this.get(projectKey, taskKey);
+    // Preserve authorship across reassignment; a linked PR defaults to its task's implementer.
+    if (link.kind === 'pull_request' && !link.author && task.assignee)
+      link = { ...link, author: task.assignee };
     const result = this.ctx.repos.tasks.upsertLink(task.id, link, isoNow(this.ctx));
     if (result === 'unchanged') return task;
     const next = this.get(projectKey, taskKey);
@@ -588,6 +597,8 @@ export class TaskService {
       });
     if (open.length > 0) return open;
 
+    if (approvals.some((req) => req.approvers.length === 0))
+      throw conflict('release_four_eyes', 'no independent human approver is available');
     const requestId = newId('gat');
     const items = approvals.map((req) => {
       const payload: GateRequestPayload = {

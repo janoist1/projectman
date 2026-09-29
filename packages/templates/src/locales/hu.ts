@@ -26,6 +26,113 @@ export const hu: TemplateLocale = {
     release: 'Élesítés',
     done: 'Kész',
   },
+  duties: {
+    prioritization: {
+      name: 'Prioritáskezelés',
+      description: 'Érték és sürgősség szerint rendezi a munkát. Jelzi az ütköző prioritásokat.',
+    },
+    requirements_analysis: {
+      name: 'Igényelemzés',
+      description: 'Tisztázza a célokat és az elfogadási feltételeket. Felderíti a nyitott kérdéseket.',
+    },
+    task_breakdown: {
+      name: 'Feladatbontás',
+      description: 'Tesztelhető feladatokra bontja a munkát. Rögzíti a függőségeket.',
+    },
+    triage: {
+      name: 'Besorolás',
+      description: 'Értékeli a beérkező igényeket és hibákat. A megfelelő emberhez irányítja őket.',
+    },
+    scheduling: {
+      name: 'Ütemezés',
+      description: 'Követi a határidőket és az elakadásokat. Emlékezteti a következő felelőst.',
+    },
+    technical_direction: {
+      name: 'Műszaki irányítás',
+      description: 'Megtervezi az architektúrát és a műszaki döntéseket. Bemutatja a kockázatokat.',
+    },
+    ux_design: {
+      name: 'UX-tervezés',
+      description: 'Képernyőket és interakciókat tervez. Ellenőrzi a megvalósult élményt.',
+    },
+    implementation: {
+      name: 'Megvalósítás',
+      description: 'Tesztek mellett valósítja meg a feladatokat. Pull requestet készít az ellenőrzéshez.',
+    },
+    docs: {
+      name: 'Dokumentáció',
+      description: 'Műszaki dokumentációt ír és tart karban. Ellenőrzi a példákat.',
+    },
+    content: {
+      name: 'Tartalomkészítés',
+      description: 'Terméktartalmat ír és szerkeszt. Követi az egyeztetett hangnemet.',
+    },
+    translation: {
+      name: 'Fordítás',
+      description: 'Fordít és ellenőrzi a lokalizációt. Megőrzi a jelentést és a helyőrzőket.',
+    },
+    maintenance: {
+      name: 'Karbantartás',
+      description: 'Frissíti a függőségeket és csökkenti a műszaki adósságot. Kis változtatásokkal dolgozik.',
+    },
+    code_review: {
+      name: 'Kódellenőrzés',
+      description: 'Ellenőrzi a helyességet és a karbantarthatóságot. Javítható észrevételeket ad.',
+    },
+    security_review: {
+      name: 'Biztonsági ellenőrzés',
+      description:
+        'Ellenőrzi a hozzáférést és az érzékeny adatok kezelését. Titkok nélkül jelzi a kockázatokat.',
+    },
+    testing_acceptance: {
+      name: 'Tesztelés és elfogadás',
+      description: 'Az elfogadási feltételek alapján tesztel. Reprodukálható hibákat rögzít.',
+    },
+    deployment: {
+      name: 'Telepítés',
+      description: 'Telepíti az engedélyezett változásokat és ellenőrzi a működést. Rögzíti a verziót.',
+    },
+    release_approval: {
+      name: 'Kiadás jóváhagyása',
+      description: 'Kifejezetten dönt a kiadásról. Csak ember töltheti be.',
+    },
+    monitoring: {
+      name: 'Felügyelet',
+      description: 'Figyeli a szolgáltatások és a csapat állapotát. Bizonyítékkal jelzi az eltéréseket.',
+    },
+    client_communication: {
+      name: 'Ügyfélkommunikáció',
+      description: 'Ügyféltájékoztatókat és tesztkéréseket készít. Küldés előtt jóváhagyást kér.',
+    },
+    support: {
+      name: 'Ügyféltámogatás',
+      description: 'Reprodukálja a bejelentett problémákat. Egyértelmű támogatási feladatokat készít.',
+    },
+    standup_facilitation: {
+      name: 'Standup vezetése',
+      description: 'Összegyűjti a haladást és az akadályokat. Fókuszban tartja a megbeszélést.',
+    },
+    refinement_facilitation: {
+      name: 'Refinement vezetése',
+      description: 'Előkészíti és tisztázza a következő munkákat. Rögzíti a nyitott kérdéseket.',
+    },
+    retro_facilitation: {
+      name: 'Retrospektív vezetése',
+      description: 'Összegyűjti a munka tanulságait. Konkrét javításokról egyeztet.',
+    },
+    process_improvement: {
+      name: 'Folyamatfejlesztés',
+      description: 'Felismeri a visszatérő nehézségeket. Mérhető változásokat javasol.',
+    },
+    research: {
+      name: 'Kutatás',
+      description: 'Célzott kérdést vizsgál. Forrásokkal és bizonytalanságokkal számol be.',
+    },
+    final_decision: {
+      name: 'Végső döntés',
+      description: 'Dönt az eszkalált kérdésekben. Csak ember töltheti be.',
+    },
+  },
   roles: {
     operator: {
       name: 'Operátor',

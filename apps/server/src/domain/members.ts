@@ -32,7 +32,7 @@ const ENDED_SESSION_STATES = new Set<SessionState>(['exited', 'failed']);
 
 /** Throws unless a member of this kind may hold the role (a built-in or one of the team's custom roles). */
 export function assertRoleFor(config: ProjectConfig, role: string, kind: 'human' | 'ai'): void {
-  const holders = roleHolders(role, config.team.roles);
+  const holders = roleHolders(role, config.team.roles, config.team.roleOverrides);
   if (holders === null) throw invalid('unknown_role', `unknown role: ${role}`, { role });
   if (!holdersAllow(holders, kind)) {
     throw kind === 'ai'
@@ -144,12 +144,12 @@ export class MemberService {
     projectKey: string,
     req: HireMemberRequest,
     by: { actor: Actor; author: Author; sponsor: string },
-    opts: { temp?: boolean } = {},
+    opts: { temp?: boolean; stageId?: string } = {},
   ): Promise<AiMemberConfig> {
     let hired: AiMemberConfig | null = null;
     await this.projects.update(projectKey, { actor: by.actor, author: by.author }, (draft) => {
       assertRoleFor(draft, req.role, 'ai');
-      const defaults = aiMemberDefaults(req.role, draft.team.roles);
+      const defaults = aiMemberDefaults(req.role, draft.team.roles, draft.team.roleOverrides);
       if (!defaults) throw invalid('role_not_for_ai', `no AI member can hold the role ${req.role}`);
       const sponsor = draft.team.members.find((m) => m.handle === by.sponsor);
       if (!sponsor || sponsor.kind !== 'human') {
@@ -188,6 +188,10 @@ export class MemberService {
         ...(req.schedule ? { schedule: req.schedule } : {}),
       });
       draft.team.members.push(member);
+      if (opts.temp && opts.stageId) {
+        const stage = draft.pipeline.stages.find((s) => s.id === opts.stageId);
+        if (stage?.owners) stage.owners = [...stage.owners, handle];
+      }
       hired = member;
       return opts.temp ? `Hire temporary ${req.role} ${handle}` : `Hire ${req.role} ${handle}`;
     });
@@ -277,23 +281,24 @@ export class MemberService {
       if (!config.team.members.some((m) => m.handle === handoverTo)) throw notFound('member', handoverTo);
     }
 
-    for (const task of this.ctx.repos.tasks.listByAssignee(projectKey, handle)) {
+    const assignedTasks = this.ctx.repos.tasks.listByAssignee(projectKey, handle);
+    await this.projects.update(projectKey, by, (draft) => {
+      if (!draft.team.members.some((m) => m.handle === handle)) throw notFound('member', handle);
+      draft.team.members = draft.team.members.filter((m) => m.handle !== handle);
+      for (const stage of draft.pipeline.stages) {
+        if (!(stage.owners ?? []).includes(handle)) continue;
+        stage.owners = unique(
+          (stage.owners ?? []).flatMap((h) => (h === handle ? (handoverTo ? [handoverTo] : []) : [h])),
+        );
+      }
+      return `Retire ${handle}${handoverTo ? ` (handover to ${handoverTo})` : ''}`;
+    });
+    for (const task of assignedTasks) {
       if (isOpenTask(task))
         this.tasks.assign(projectKey, task.key, handoverTo, by.actor, { reason: 'handover', from: handle });
     }
     this.inbox.cancelOpenFromSource(projectKey, handle);
 
-    await this.projects.update(projectKey, by, (draft) => {
-      if (!draft.team.members.some((m) => m.handle === handle)) throw notFound('member', handle);
-      draft.team.members = draft.team.members.filter((m) => m.handle !== handle);
-      for (const stage of draft.pipeline.stages) {
-        if (!stage.owners.includes(handle)) continue;
-        stage.owners = unique(
-          stage.owners.flatMap((h) => (h === handle ? (handoverTo ? [handoverTo] : []) : [h])),
-        );
-      }
-      return `Retire ${handle}${handoverTo ? ` (handover to ${handoverTo})` : ''}`;
-    });
     this.timeline.append({
       projectKey,
       actor: by.actor,

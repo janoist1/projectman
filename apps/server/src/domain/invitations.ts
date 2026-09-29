@@ -1,3 +1,4 @@
+import { roleBundle } from '@projectman/shared';
 import { createHash, randomBytes } from 'node:crypto';
 import { AcceptInviteRequest, InvitationView } from '@projectman/shared';
 import type { Actor, CreateInviteRequest, CreatedInvitation, PublicInviteView } from '@projectman/shared';
@@ -33,7 +34,11 @@ export class InvitationService {
       throw forbidden('owner_only', 'only an owner may invite an admin');
     if (findHumanByEmail(config, input.email))
       throw conflict('already_member', 'this email is already a human member');
-    for (const role of input.roles) assertRoleFor(config, role, 'human');
+    for (const role of input.roles) {
+      assertRoleFor(config, role, 'human');
+      if (inviter.access !== 'owner' && roleBundle(config, role).duties.includes('release_approval'))
+        throw forbidden('owner_only', 'only an owner may grant release approval');
+    }
     const token = randomBytes(32).toString('base64url');
     const now = this.domain.ctx.now();
     const invite: InvitationRecord = {
@@ -123,7 +128,13 @@ export class InvitationService {
         user = await this.auth.prepareUser({ ...input.data, email: invite.email });
       }
       const account = user;
-      const actor: Actor = { kind: 'human', handle: null };
+      const inviterUser = this.domain.ctx.repos.users.get(invite.invitedBy);
+      const inviter = inviterUser
+        ? findHumanByEmail(await this.domain.projects.config(invite.projectKey), inviterUser.email)
+        : undefined;
+      if (!inviter || !['owner', 'admin'].includes(inviter.access))
+        throw forbidden('insufficient_access', 'inviter no longer manages this team');
+      const actor: Actor = { kind: 'human', handle: inviter.handle };
       await this.domain.projects.update(
         invite.projectKey,
         { actor, author: { name: account.name, email: account.email } },
@@ -143,7 +154,7 @@ export class InvitationService {
           const taken = this.domain.members.takenHandles(invite.projectKey, draft);
           let handle = base;
           for (let suffix = 2; taken.has(handle); suffix++) handle = `${base}-${suffix}`;
-          actor.handle = handle;
+
           draft.team.members.push({
             kind: 'human',
             handle,

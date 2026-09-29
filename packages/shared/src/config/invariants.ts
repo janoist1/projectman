@@ -1,9 +1,13 @@
+import { DUTIES, DUTY_IDS } from '../domain/duty';
+import { dutyMembers, gateApprovers } from './duties';
 import { holdersAllow, isBuiltInRole, roleHolders } from '../domain/role';
 import type { ProjectConfig } from './schema';
 
 export interface ConfigIssue {
   /** Stable machine code; the UI maps it to a translated message. */
   code:
+    | 'missing_duty_holder'
+    | 'recommended_duty_unfilled'
     | 'duplicate_handle'
     | 'no_owner'
     | 'unknown_member'
@@ -20,6 +24,8 @@ export interface ConfigIssue {
     | 'role_not_for_human'
     | 'custom_role_shadows_builtin'
     | 'duplicate_role';
+  /** Absent in older clients means error. */
+  severity?: 'error' | 'warning';
   path: string;
   detail?: string;
 }
@@ -45,7 +51,7 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
     customIds.add(role.id);
   });
   const checkRole = (role: string, kind: 'human' | 'ai', path: string) => {
-    const holders = roleHolders(role, config.team.roles);
+    const holders = roleHolders(role, config.team.roles, config.team.roleOverrides);
     if (holders === null) issues.push({ code: 'unknown_role', path, detail: role });
     else if (!holdersAllow(holders, kind)) {
       issues.push({ code: kind === 'ai' ? 'role_not_for_ai' : 'role_not_for_human', path, detail: role });
@@ -86,12 +92,16 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
     if (stageIds.has(stage.id)) issues.push({ code: 'duplicate_stage', path, detail: stage.id });
     stageIds.add(stage.id);
     if (!columns.has(stage.columnId)) issues.push({ code: 'unknown_column', path, detail: stage.columnId });
-    stage.owners.forEach((h) => {
+    (stage.owners ?? []).forEach((h) => {
       if (!members.has(h)) issues.push({ code: 'unknown_member', path: `${path}.owners`, detail: h });
     });
+    if (stage.duty && dutyMembers(config, stage.duty).length === 0)
+      issues.push({ code: 'missing_duty_holder', path: `${path}.duty`, detail: stage.duty });
     const approvals = (stage.gate?.conditions ?? []).filter((c) => c.type === 'human_approval');
     approvals.forEach((c) => {
-      c.approvers.forEach((h) => {
+      if (c.duty && gateApprovers(config, { type: 'human_approval', duty: c.duty }).length === 0)
+        issues.push({ code: 'missing_duty_holder', path: `${path}.gate`, detail: c.duty });
+      (c.approvers ?? []).forEach((h) => {
         const m = members.get(h);
         if (!m) issues.push({ code: 'unknown_member', path: `${path}.gate`, detail: h });
         else if (m.kind !== 'human')
@@ -110,5 +120,9 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
   if (last && last.kind !== 'done')
     issues.push({ code: 'last_stage_not_done', path: `pipeline.stages[${stages.length - 1}]` });
 
+  for (const id of DUTY_IDS) {
+    if (DUTIES[id].recommended && !dutyMembers(config, id).length)
+      issues.push({ code: 'recommended_duty_unfilled', severity: 'warning', path: 'team', detail: id });
+  }
   return issues;
 }

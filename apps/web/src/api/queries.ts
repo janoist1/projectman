@@ -265,6 +265,7 @@ export function usePatchConfig(key: string) {
     onSuccess: async (view) => {
       client.setQueryData(queryKeys.config(key), view);
       await Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.roles(key) }),
         client.invalidateQueries({ queryKey: queryKeys.projects }),
         client.invalidateQueries({ queryKey: queryKeys.board(key) }),
       ]);

@@ -1,3 +1,4 @@
+import { hu as templateLocale } from '@projectman/templates';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
@@ -40,8 +41,8 @@ describe('InviteDialog', () => {
       );
       expect(screen.queryByRole('radio', { name: /Tulajdonos/ })).toBeNull();
       expect(await screen.findByRole('checkbox', { name: 'Acme tester' })).toBeTruthy();
-      expect(screen.queryByRole('checkbox', { name: 'Acme helper' })).toBeNull();
-      expect(screen.queryByRole('checkbox', { name: 'Watchdog' })).toBeNull();
+      expect(screen.queryByRole('checkbox', { name: 'Acme helper' })).toBeTruthy();
+      expect(screen.queryByRole('checkbox', { name: templateLocale.roles.watchdog.name })).toBeTruthy();
       expect(screen.getByText(t('invites.accessHint.client'))).toBeTruthy();
     },
   );

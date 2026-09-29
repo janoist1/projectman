@@ -124,7 +124,14 @@ describe('team tools', () => {
       number: 7,
     });
     expect(task.links).toEqual([
-      { kind: 'pull_request', ref: '7', repo: 'acme/web', title: 'Add login page', state: 'open' },
+      {
+        kind: 'pull_request',
+        ref: '7',
+        repo: 'acme/web',
+        title: 'Add login page',
+        state: 'open',
+        author: 'dev-1',
+      },
     ]);
     expect(h.github.isWatched('acme/web', 7)).toBe(true);
 

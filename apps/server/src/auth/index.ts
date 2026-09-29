@@ -8,7 +8,7 @@ import type { Domain } from '../domain';
 import { DomainError, forbidden } from '../domain/errors';
 import { AuthService } from './auth-service';
 import type { AuthUser } from './auth-service';
-import { isLocalRequest } from './local-request';
+import { isLocalRequest, requestProtocol, sameOrigin } from './local-request';
 
 export { AuthService, SESSION_TTL_MS } from './auth-service';
 export type { AuthUser } from './auth-service';
@@ -61,6 +61,16 @@ export function registerAuth(app: FastifyInstance, deps: { auth: AuthService; do
   app.decorateRequest('authToken', null);
 
   app.addHook('onRequest', async (request, reply) => {
+    reply.header('referrer-policy', 'no-referrer');
+    reply.header('x-content-type-options', 'nosniff');
+    if (request.url.startsWith('/api/')) reply.header('cache-control', 'no-store');
+    if (
+      request.url.startsWith('/api/') &&
+      !['GET', 'HEAD', 'OPTIONS'].includes(request.method) &&
+      !sameOrigin(request)
+    ) {
+      return reply.code(403).send(apiError('invalid_origin', 'same-origin request required'));
+    }
     const raw = request.cookies[SESSION_COOKIE];
     if (raw) {
       const unsigned = request.unsignCookie(raw);
@@ -89,6 +99,7 @@ export function registerAuth(app: FastifyInstance, deps: { auth: AuthService; do
       httpOnly: true,
       sameSite: 'lax',
       signed: true,
+      secure: requestProtocol(reply.request) === 'https',
       maxAge: Math.floor(auth.sessionTtlMs / 1000),
     });
 
@@ -112,19 +123,20 @@ export function registerAuth(app: FastifyInstance, deps: { auth: AuthService; do
   app.post(routes.login(), async (request, reply) => {
     const body = parseBody(LoginRequest, request.body);
     const now = Date.now();
+    for (const [ip, entry] of failedLogins) if (entry.resetAt <= now) failedLogins.delete(ip);
     const failures = failedLogins.get(request.ip);
     if (failures && failures.resetAt > now && failures.count >= MAX_FAILED_LOGINS) {
       throw new DomainError('too_many_attempts', 'too many failed logins; try again later', { status: 429 });
     }
+    // Reserve before the expensive hash: concurrent attempts must count too.
+    const entry = failures ?? { count: 0, resetAt: now + FAILED_LOGIN_WINDOW_MS };
+    entry.count += 1;
+    failedLogins.set(request.ip, entry);
     const user = await auth.verifyPassword(body.email, body.password);
     if (!user) {
-      const entry =
-        failures && failures.resetAt > now ? failures : { count: 0, resetAt: now + FAILED_LOGIN_WINDOW_MS };
-      entry.count += 1;
-      failedLogins.set(request.ip, entry);
       throw new DomainError('invalid_credentials', 'wrong email or password', { status: 401 });
     }
-    failedLogins.delete(request.ip);
+    if (request.authToken) auth.revoke(request.authToken);
     setSessionCookie(reply, auth.createSession(user.id));
     return me(user);
   });

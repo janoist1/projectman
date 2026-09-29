@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { ChatItem, InboxItem } from '@projectman/shared';
 import { describe, expect, it, vi } from 'vitest';
+import { Markdown } from '../../components/Markdown';
 import { groupChatItems } from '../../lib/chat';
 import { inbox } from '../../mocks/fixtures';
 import { mockIndexes } from '../../test/render';
@@ -197,4 +198,19 @@ describe('ChatView', () => {
     expect(screen.getByText('Mehet a push?')).toBeTruthy();
     expect(screen.getByText('Elküldve, sorban áll')).toBeTruthy();
   });
+});
+
+it('renders hostile transcript markdown as text and opens safe links without an opener', () => {
+  const { container } = render(
+    <Markdown
+      text={
+        '<script>alert(1)</script> <img src=x onerror=alert(1)> [bad](javascript:alert(1)) [safe](https://example.com)'
+      }
+    />,
+  );
+  expect(container.querySelector('script, img')).toBeNull();
+  const links = container.querySelectorAll('a');
+  expect(links).toHaveLength(1);
+  expect(links[0]!.getAttribute('href')).toBe('https://example.com');
+  expect(links[0]!.getAttribute('rel')).toBe('noreferrer noopener');
 });

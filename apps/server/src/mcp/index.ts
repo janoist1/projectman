@@ -67,7 +67,9 @@ export function createMcpModule(opts: CreateMcpModuleOptions): McpModule {
 
   async function handlePost(request: FastifyRequest, reply: FastifyReply) {
     const ctx = contexts.get(request);
-    if (!ctx) return sendJsonRpcError(reply, 404, 'Unknown or expired team session.');
+    const live = opts.resolveContext((request.params as { token: string }).token);
+    if (!ctx || !live || live.sessionId !== ctx.sessionId)
+      return sendJsonRpcError(reply, 404, 'Unknown or expired team session.');
     const server = createTeamMcpServer(ctx, deps);
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless

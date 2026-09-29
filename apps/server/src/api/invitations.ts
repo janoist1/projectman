@@ -60,6 +60,7 @@ export function registerInvitationRoutes(
   app.post<{ Params: { token: string } }>(routes.acceptInvite(':token'), async (request, reply) => {
     rateLimit(request.ip);
     const user = await service.accept(request.params.token, request.body, request.user);
+    if (request.authToken) deps.auth.revoke(request.authToken);
     deps.setSessionCookie(reply, deps.auth.createSession(user.id));
     return deps.me(user);
   });

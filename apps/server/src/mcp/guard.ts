@@ -11,7 +11,14 @@ import { isIPv4 } from 'node:net';
  */
 
 /** Headers added by reverse proxies; their presence means the caller is not local. */
-const FORWARDING_HEADERS = ['forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-real-ip'] as const;
+const FORWARDING_HEADERS = [
+  'forwarded',
+  'x-forwarded-for',
+  'x-forwarded-host',
+  'x-forwarded-proto',
+  'x-real-ip',
+  'tailscale-user-login',
+] as const;
 
 /** True for 127.0.0.0/8, ::1 and IPv4-mapped loopback addresses (::ffff:127.x.x.x). */
 export function isLoopbackAddress(address: string | undefined): boolean {

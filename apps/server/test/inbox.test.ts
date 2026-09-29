@@ -54,6 +54,44 @@ describe('inbox: permission requests', () => {
     expect(types).toContain('permission_resolved');
   });
 
+  it('never resolves another sessions permission or accepts a cross-project item id', async () => {
+    const first = ask();
+    const secondSession = (await h.domain.sessions.ensureSession('AR', 'dev-2', { type: 'general' })).session
+      .id;
+    let secondResolved = false;
+    const second = h.runnerModule
+      .broker()
+      .decide(
+        { sessionId: secondSession, toolName: 'Bash', toolInput: { command: 'echo example' }, raw: {} },
+        new AbortController().signal,
+      )
+      .then((decision) => {
+        secondResolved = true;
+        return decision;
+      });
+    await flush();
+    const items = h.domain.inbox.list('AR', { kind: 'permission', state: 'open' });
+    const firstItem = items.find((item) => item.sessionId === sessionId)!;
+    await expect(
+      h.domain.inbox.resolve('ZZ', firstItem.id, { optionId: 'allow' }, { handle: 'owner', access: 'owner' }),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    await h.domain.inbox.resolve(
+      'AR',
+      firstItem.id,
+      { optionId: 'allow' },
+      { handle: 'owner', access: 'owner' },
+    );
+    expect(await first).toEqual({ behavior: 'allow' });
+    expect(secondResolved).toBe(false);
+    await h.domain.inbox.resolve(
+      'AR',
+      items.find((item) => item.sessionId === secondSession)!.id,
+      { optionId: 'deny' },
+      { handle: 'owner', access: 'owner' },
+    );
+    expect((await second).behavior).toBe('deny');
+  });
+
   it('denies with the note', async () => {
     const pending = ask();
     await flush();

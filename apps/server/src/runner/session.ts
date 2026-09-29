@@ -451,6 +451,7 @@ export class AgentSession {
           )
           .then(resolve, reject);
       });
+      if (controller.signal.aborted || this.hasExited) return null;
       if (allowKey && decision.behavior === 'allow' && decision.rememberForSession) {
         this.sessionAllows.add(allowKey);
       }

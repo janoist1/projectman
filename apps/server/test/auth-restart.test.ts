@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
@@ -25,6 +25,7 @@ it('keeps a login cookie valid after rebuilding the app on the same home', async
   };
   try {
     app = await build();
+    expect(statSync(home).mode & 0o777).toBe(0o700);
     await setupOwner(app);
     const login = await app.inject({
       method: 'POST',

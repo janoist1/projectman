@@ -1,4 +1,4 @@
-import { parse, stringify } from 'yaml';
+import { parseDocument, stringify, visit } from 'yaml';
 import type { ProjectConfig } from '@projectman/shared';
 import { ConfigStoreError } from './errors';
 
@@ -39,9 +39,15 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 export function parseYamlFile(file: string, text: string): unknown {
   try {
-    return parse(text);
-  } catch (err) {
-    throw new ConfigStoreError('invalid_yaml', `${file}: ${(err as Error).message}`, { file });
+    if (Buffer.byteLength(text, 'utf8') > 1024 * 1024) throw new Error('YAML exceeds 1 MiB');
+    const doc = parseDocument(text, { prettyErrors: false });
+    if (doc.errors.length) throw new Error('invalid YAML');
+    visit(doc, (_key, _node, path) => {
+      if (path.length > 50) throw new Error('YAML nesting exceeds 50 levels');
+    });
+    return doc.toJS({ maxAliasCount: 0 });
+  } catch {
+    throw new ConfigStoreError('invalid_yaml', `invalid or excessive YAML in ${file}`, { file });
   }
 }
 

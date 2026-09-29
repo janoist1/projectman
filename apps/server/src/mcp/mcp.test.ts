@@ -496,6 +496,40 @@ describe('tokens and HTTP methods', () => {
     expect(JSON.stringify(h.logs)).not.toContain('secret-unknown-token');
   });
 
+  it('enforces its one MiB body limit', async () => {
+    const h = await startServer();
+    const response = await h.app.inject({
+      method: 'POST',
+      url: '/mcp/token-dev',
+      headers: mcpHeaders,
+      payload: JSON.stringify({ padding: 'x'.repeat(1024 * 1024) }),
+    });
+    expect(response.statusCode).toBe(413);
+    expect(h.handler.calls).toEqual([]);
+  });
+
+  it('rechecks a token revoked while its body was being received', async () => {
+    let revoke = () => {};
+    const h = await startServer({
+      configure: (app) => {
+        app.addHook('preHandler', async () => {
+          revoke();
+        });
+      },
+    });
+    revoke = () => {
+      h.tokens.delete('token-dev');
+    };
+    const response = await h.app.inject({
+      method: 'POST',
+      url: '/mcp/token-dev',
+      headers: mcpHeaders,
+      payload: JSON.stringify(initializeRequest),
+    });
+    expect(response.statusCode).toBe(404);
+    expect(h.handler.calls).toEqual([]);
+  });
+
   it('resolves the token on every request, so a revoked token stops working at once', async () => {
     const h = await startServer();
     const client = await connect(h, 'token-dev');

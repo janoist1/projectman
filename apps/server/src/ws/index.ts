@@ -1,7 +1,8 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { ClientCommand, routes } from '@projectman/shared';
 import type { HumanAccess, ServerEvent } from '@projectman/shared';
-import type { AuthUser } from '../auth/auth-service';
+import { sameOrigin } from '../auth/local-request';
+import type { AuthService, AuthUser } from '../auth/auth-service';
 import type { Domain, ProjectAccess } from '../domain';
 import { DomainError, forbidden, hasAccess, notFound } from '../domain';
 
@@ -23,6 +24,7 @@ const POLICY_VIOLATION = 1008;
 interface Client {
   socket: WsSocket;
   user: AuthUser;
+  token: string;
   /** Subscribed projects with the user's access at subscription time. */
   projects: Map<string, ProjectAccess>;
   /** Sessions whose terminal this client is attached to. */
@@ -50,19 +52,6 @@ function canSee(access: ProjectAccess, event: ProjectEvent): boolean {
   }
 }
 
-/** Browsers send Origin; it must name the host the page talks to (blocks cross-site websocket use). */
-function sameOrigin(request: FastifyRequest): boolean {
-  const origin = request.headers.origin;
-  if (!origin) return true;
-  try {
-    const strip = (h: string) => h.toLowerCase().replace(/^\[|\]$/g, '');
-    const host = (request.headers.host ?? '').replace(/:\d+$/, '');
-    return strip(new URL(origin).hostname) === strip(host);
-  } catch {
-    return false;
-  }
-}
-
 function messageText(data: unknown): string {
   if (typeof data === 'string') return data;
   if (Buffer.isBuffer(data)) return data.toString('utf8');
@@ -81,13 +70,20 @@ export interface WebsocketHub {
  */
 export function registerWebsocket(
   app: FastifyInstance,
-  deps: { domain: Domain; heartbeatMs?: number },
+  deps: { domain: Domain; auth: AuthService; heartbeatMs?: number },
 ): WebsocketHub {
   const { domain } = deps;
   const runner = domain.runnerModule.runner;
   const clients = new Set<Client>();
 
+  const authenticated = (client: Client) => {
+    if (deps.auth.resolve(client.token)) return true;
+    client.socket.close(POLICY_VIOLATION, 'session expired');
+    return false;
+  };
+
   const send = (client: Client, event: ServerEvent) => {
+    if (!authenticated(client)) return;
     if (client.socket.readyState !== OPEN) return;
     try {
       client.socket.send(JSON.stringify(event));
@@ -96,31 +92,30 @@ export function registerWebsocket(
     }
   };
 
-  const refreshAccess = async (projectKey: string) => {
-    for (const client of clients) {
-      if (!client.projects.has(projectKey)) continue;
-      const access = await domain.accessFor(projectKey, client.user.email).catch(() => null);
-      if (access) client.projects.set(projectKey, access);
-      else {
-        client.projects.delete(projectKey);
-        send(client, { type: 'error', message: 'not_a_member' });
-      }
-    }
-  };
-
+  // Resolve current membership before every delivery, including terminal streams.
+  let delivery = Promise.resolve();
   const unsubscribe = domain.bus.subscribe((event) => {
-    if (event.type === 'hello' || event.type === 'error') return;
-    if (event.type === 'terminal_data' || event.type === 'terminal_snapshot') {
-      for (const client of clients) if (client.terminals.has(event.sessionId)) send(client, event);
-      return;
-    }
-    for (const client of clients) {
-      const access = client.projects.get(event.projectKey);
-      if (access && canSee(access, event)) send(client, event);
-    }
-    if (event.type === 'config_changed') {
-      refreshAccess(event.projectKey).catch((err: unknown) => app.log.warn({ err }, 'access refresh failed'));
-    }
+    delivery = delivery
+      .then(async () => {
+        if (event.type === 'hello' || event.type === 'error') return;
+        for (const client of clients) {
+          if (!authenticated(client)) continue;
+          if (event.type === 'terminal_data' || event.type === 'terminal_snapshot') {
+            if (!client.terminals.has(event.sessionId)) continue;
+            try {
+              await requireTerminalAccess(client, event.sessionId, 'viewer');
+              send(client, event);
+            } catch {
+              client.terminals.delete(event.sessionId);
+            }
+          } else if (client.projects.has(event.projectKey)) {
+            const access = await domain.accessFor(event.projectKey, client.user.email).catch(() => null);
+            if (access && canSee(access, event)) send(client, event);
+            if (!access) client.projects.delete(event.projectKey);
+          }
+        }
+      })
+      .catch((err: unknown) => app.log.warn({ err }, 'websocket delivery failed'));
   });
 
   /** Terminals are for internal members; typing and resizing need developer access. */
@@ -134,6 +129,7 @@ export function registerWebsocket(
   };
 
   const handle = async (client: Client, data: unknown) => {
+    if (!authenticated(client)) return;
     let command: ClientCommand;
     try {
       command = ClientCommand.parse(JSON.parse(messageText(data)));
@@ -167,13 +163,13 @@ export function registerWebsocket(
           if (!client.terminals.has(command.sessionId))
             throw forbidden('not_attached', 'attach the terminal first');
           await requireTerminalAccess(client, command.sessionId, 'developer');
-          runner.writeTerminal(command.sessionId, command.data);
+          if (authenticated(client)) runner.writeTerminal(command.sessionId, command.data);
           return;
         case 'terminal_resize':
           if (!client.terminals.has(command.sessionId))
             throw forbidden('not_attached', 'attach the terminal first');
           await requireTerminalAccess(client, command.sessionId, 'developer');
-          runner.resize(command.sessionId, command.cols, command.rows);
+          if (authenticated(client)) runner.resize(command.sessionId, command.cols, command.rows);
           return;
       }
     } catch (err) {
@@ -195,9 +191,19 @@ export function registerWebsocket(
       socket.close(POLICY_VIOLATION, 'forbidden');
       return;
     }
-    const client: Client = { socket, user, projects: new Map(), terminals: new Set(), alive: true };
+    const client: Client = {
+      socket,
+      user,
+      token: request.authToken!,
+      projects: new Map(),
+      terminals: new Set(),
+      alive: true,
+    };
     clients.add(client);
-    socket.on('message', (data) => void handle(client, data));
+    let commands = Promise.resolve();
+    socket.on('message', (data) => {
+      commands = commands.then(() => handle(client, data));
+    });
     socket.on('pong', () => {
       client.alive = true;
     });
@@ -212,6 +218,7 @@ export function registerWebsocket(
 
   const heartbeat = setInterval(() => {
     for (const client of clients) {
+      if (!authenticated(client)) continue;
       if (!client.alive) {
         client.socket.terminate();
         continue;

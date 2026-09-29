@@ -43,7 +43,7 @@ export function toApiError(error: unknown): { status: number; body: ApiError } {
       (e.statusCode === 404 ? 'not_found' : e.statusCode === 429 ? 'too_many_requests' : 'bad_request');
     return {
       status: e.statusCode,
-      body: apiError(code, typeof e.message === 'string' ? e.message : 'bad request'),
+      body: apiError(code, 'request rejected'),
     };
   }
   return { status: 500, body: apiError('internal_error', 'internal server error') };
@@ -68,6 +68,6 @@ export function registerErrorHandling(app: FastifyInstance, opts: { spaIndex: bo
     if (opts.spaIndex && !serverRoute && (request.method === 'GET' || request.method === 'HEAD')) {
       return reply.type('text/html').sendFile('index.html');
     }
-    return reply.code(404).send(apiError('not_found', `route not found: ${request.method} ${path}`));
+    return reply.code(404).send(apiError('not_found', 'route not found'));
   });
 }

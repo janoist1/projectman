@@ -76,9 +76,26 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
         `project ${project.project.key} has no repo named "${repoName}"`,
       );
     }
+    if (
+      !/^[A-Z][A-Z0-9]{0,9}$/.test(project.project.key) ||
+      !/^[a-z0-9][a-z0-9._-]*$/.test(repo.name) ||
+      !taskKey.startsWith(`${project.project.key}-`)
+    )
+      throw new WorktreeError('outside_root', 'invalid project worktree path');
     const repoPath = path.resolve(project.project.workspacePath, repo.path);
+    const workspace = await canonical(project.project.workspacePath);
+    const resolvedRepo = await canonical(repoPath);
+    if (resolvedRepo !== workspace && !isInside(resolvedRepo, workspace))
+      throw new WorktreeError('outside_root', 'repository must be inside its workspace');
+    if (!(await gitSucceeds(['check-ref-format', '--branch', repo.defaultBranch])))
+      throw new WorktreeError('no_start_point', 'invalid default branch');
     const target = path.join(rootDir, project.project.key, `${taskKey}-${repo.name}`);
 
+    if (
+      !isInside(await canonical(target), await canonical(path.join(rootDir, project.project.key))) ||
+      !isInside(await canonical(path.join(rootDir, project.project.key)), await canonical(rootDir))
+    )
+      throw new WorktreeError('outside_root', 'worktree must stay inside its project folder');
     await assertRepositoryRoot(repoPath);
     return withLock(await canonical(repoPath), async () => {
       await git(['-C', repoPath, 'worktree', 'prune']);
@@ -103,6 +120,8 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
             `branch ${local} is checked out in the main checkout ${holder.path}; switch that checkout to another branch first`,
           );
         }
+        if (!isInside(await canonical(holder.path), await canonical(path.join(rootDir, project.project.key))))
+          throw new WorktreeError('outside_root', 'existing task worktree is outside its project folder');
         log.info(
           { repo: repo.name, taskKey, path: holder.path, branch },
           'reusing the worktree of the task branch',
@@ -158,7 +177,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
     const remoteRef = `refs/remotes/origin/${defaultBranch}`;
     if (await hasRemote(repoPath, 'origin')) {
       try {
-        await git(['-C', repoPath, 'fetch', '--quiet', 'origin', defaultBranch], {
+        await git(['-C', repoPath, 'fetch', '--quiet', '--', 'origin', defaultBranch], {
           timeoutMs: FETCH_TIMEOUT_MS,
         });
       } catch (err) {
@@ -342,7 +361,9 @@ async function canonical(p: string): Promise<string> {
   try {
     return await realpath(p);
   } catch {
-    return path.resolve(p);
+    const resolved = path.resolve(p);
+    const parent = path.dirname(resolved);
+    return parent === resolved ? resolved : path.join(await canonical(parent), path.basename(resolved));
   }
 }
 

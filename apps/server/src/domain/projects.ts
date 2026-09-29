@@ -272,6 +272,22 @@ export class ProjectService {
   /** Owner-only rules for configuration edits by humans. */
   static assertChangeAllowed(previous: ProjectConfig, next: ProjectConfig, access: HumanAccess): void {
     if (access === 'owner') return;
+    const locations = (config: ProjectConfig) =>
+      JSON.stringify({
+        workspace: config.project.workspacePath,
+        repos: config.project.repos.map((repo) => ({ name: repo.name, path: repo.path })),
+      });
+    if (locations(previous) !== locations(next))
+      throw forbidden('owner_only', 'only an owner may change filesystem locations');
+    for (const member of next.team.members) {
+      if (member.kind !== 'human') continue;
+      const old = previous.team.members.find((m) => m.handle === member.handle);
+      if (
+        (member.access === 'admin' && (old?.kind !== 'human' || old.access !== 'admin')) ||
+        (old?.kind === 'human' && (old.email ?? '').toLowerCase() !== (member.email ?? '').toLowerCase())
+      )
+        throw forbidden('owner_only', 'only an owner may grant admin access or change account bindings');
+    }
     if (humanApprovalChanged(previous, next)) {
       throw forbidden('owner_only', 'only an owner may change or remove human approval gates');
     }

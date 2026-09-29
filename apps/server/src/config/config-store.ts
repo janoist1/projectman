@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import { DAILY_WORKER_SCHEDULE } from '@projectman/templates';
@@ -161,7 +161,23 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
     return (await git(['diff', '--cached', '--quiet', '--', path], [1])).code === 1;
   }
 
+  async function assertProjectPaths(key: string): Promise<void> {
+    for (const relative of [
+      'projects',
+      projectPath(key),
+      ...PROJECT_FILES.map((file) => `${projectPath(key)}/${file}`),
+    ]) {
+      const info = await lstat(join(rootDir, relative)).catch((err: NodeJS.ErrnoException) => {
+        if (err.code === 'ENOENT') return null;
+        throw err;
+      });
+      if (info?.isSymbolicLink())
+        throw new ConfigStoreError('invalid_config', 'symlinks are forbidden in project configuration');
+    }
+  }
+
   async function readWorkingTree(key: string): Promise<Record<ProjectFileName, unknown>> {
+    await assertProjectPaths(key);
     const dir = join(rootDir, projectPath(key));
     const files = {} as Record<ProjectFileName, unknown>;
     for (const file of PROJECT_FILES) {
@@ -172,6 +188,7 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
   }
 
   async function writeProject(key: string, contents: Record<ProjectFileName, string>): Promise<void> {
+    await assertProjectPaths(key);
     const dir = join(rootDir, projectPath(key));
     await rm(dir, { recursive: true, force: true });
     await mkdir(dir, { recursive: true });

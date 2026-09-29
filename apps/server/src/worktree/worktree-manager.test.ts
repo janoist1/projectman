@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -151,6 +151,26 @@ describe('worktree manager', { timeout: 30_000 }, () => {
     expect(await git('-C', clone, 'status', '--porcelain')).toBe('');
   });
 
+  it('rejects traversal, symlink escapes and branch options before creating a worktree', async () => {
+    const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+    project.project.repos[0]!.path = '../outside';
+    await expect(manager.ensureForTask(task('AR-21', 'Escape'))).rejects.toMatchObject({
+      code: 'outside_root',
+    });
+    project.project.repos[0]!.path = 'app';
+    project.project.repos[0]!.defaultBranch = '--upload-pack=malicious';
+    await expect(manager.ensureForTask(task('AR-21', 'Escape'))).rejects.toMatchObject({
+      code: 'no_start_point',
+    });
+    project.project.repos[0]!.defaultBranch = 'main';
+    await mkdir(rootDir);
+    await symlink(workspace, path.join(rootDir, 'AR'));
+    await expect(manager.ensureForTask(task('AR-21', 'Escape'))).rejects.toMatchObject({
+      code: 'outside_root',
+    });
+    expect(await exists(path.join(workspace, 'AR-21-app'))).toBe(false);
+  });
+
   it('reuses the worktree, also after the title changed', async () => {
     const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
     const first = await manager.ensureForTask(task('AR-21', 'Fix the booking email'));
@@ -266,13 +286,14 @@ describe('worktree manager', { timeout: 30_000 }, () => {
     expect(await manager.status(info.path)).toEqual({ dirty: false, unpushedCommits: 1 });
   });
 
-  it('reuses a worktree someone created by hand but never removes it', async () => {
+  it('refuses a task worktree outside the project folder', async () => {
     const manual = path.join(base, 'manual');
     await git('-C', clone, 'worktree', 'add', '--quiet', '-b', 'AR-30-by-hand', manual, 'main');
 
     const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
-    const info = await manager.ensureForTask(task('AR-30', 'Different title'));
-    expect(info).toEqual({ path: manual, branch: 'AR-30-by-hand', repo: 'app' });
+    await expect(manager.ensureForTask(task('AR-30', 'Different title'))).rejects.toMatchObject({
+      code: 'outside_root',
+    });
     await expect(manager.remove({ path: manual })).rejects.toMatchObject({ code: 'outside_root' });
     expect(await exists(manual)).toBe(true);
   });

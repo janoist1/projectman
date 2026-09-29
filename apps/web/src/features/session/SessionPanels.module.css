@@ -1,0 +1,146 @@
+.panel {
+  box-sizing: border-box;
+  padding: 16px;
+  border-radius: var(--radius-2xl);
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.sectionTitle {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--c-ink-4);
+}
+
+.muted {
+  font-size: 13px;
+  color: var(--c-ink-4);
+}
+
+.prHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.prIcon {
+  display: inline-flex;
+  color: var(--c-ok);
+}
+
+.prIcon[data-merged] {
+  color: var(--role-devops-fg);
+}
+
+.prTitle {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.spacer {
+  flex-grow: 1;
+}
+
+.external {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--c-muted);
+  color: var(--c-ink-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.external:hover {
+  background: var(--c-muted-hover);
+  color: var(--c-ink);
+}
+
+.prName {
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--c-ink-3);
+  overflow-wrap: anywhere;
+}
+
+.checks {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  font-size: 13px;
+}
+
+.checkRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.checkRow dt {
+  color: var(--c-ink-4);
+}
+
+.checkRow dd {
+  margin: 0;
+  font-weight: 800;
+  color: var(--c-ink-2);
+  text-align: right;
+}
+
+.checkRow dd[data-state='passed'] {
+  color: var(--c-ok-text);
+}
+
+.checkRow dd[data-state='blocked'],
+.checkRow dd[data-state='failed'],
+.checkRow dd[data-state='retest_needed'] {
+  color: var(--c-needs-text);
+}
+
+.people {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.personText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.personName {
+  font-size: 13.5px;
+  font-weight: 800;
+}
+
+.personWhat {
+  font-size: 12.5px;
+  color: var(--c-ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

@@ -526,17 +526,17 @@ describe('REST API', () => {
         (draft) => {
           draft.team.members.push({
             kind: 'human',
-            handle: 'dani',
-            displayName: 'Dani',
+            handle: 'kata',
+            displayName: 'Kata',
             access: 'developer',
             roles: [],
             email: 'dev@example.com',
           });
-          return 'Add Dani';
+          return 'Add Kata';
         },
       );
       expect((await call('GET', '/api/projects/AR/board', devCookie)).status).toBe(200);
-      expect((await call('POST', '/api/projects/AR/tasks', devCookie, { title: 'From Dani' })).status).toBe(
+      expect((await call('POST', '/api/projects/AR/tasks', devCookie, { title: 'From Kata' })).status).toBe(
         201,
       );
       const hire = await call<ApiError>('POST', '/api/projects/AR/members', devCookie, { role: 'qa' });
@@ -547,17 +547,17 @@ describe('REST API', () => {
       const customRole = { id: 'tester', name: 'Tester', summary: 'Tests.', holders: 'both' };
       expect((await call('POST', '/api/projects/AR/roles', devCookie, customRole)).status).toBe(403);
       expect(
-        (await call('PATCH', '/api/projects/AR/members/dani', devCookie, { roles: ['qa'] })).status,
+        (await call('PATCH', '/api/projects/AR/members/kata', devCookie, { roles: ['qa'] })).status,
       ).toBe(403);
 
-      // As an admin Dani may hire; the AI member still runs on the owner's subscription.
+      // As an admin Kata may hire; the AI member still runs on the owner's subscription.
       await domain.projects.update(
         'AR',
         { actor: { kind: 'human', handle: 'owner' }, author: OWNER_LOGIN },
         (draft) => {
-          const dani = draft.team.members.find((m) => m.handle === 'dani');
-          if (dani?.kind === 'human') dani.access = 'admin';
-          return 'Make Dani an admin';
+          const kata = draft.team.members.find((m) => m.handle === 'kata');
+          if (kata?.kind === 'human') kata.access = 'admin';
+          return 'Make Kata an admin';
         },
       );
       const hired = await call<MemberView>('POST', '/api/projects/AR/members', devCookie, { role: 'qa' });
@@ -568,7 +568,7 @@ describe('REST API', () => {
       const config = (await call<ConfigView>('GET', '/api/projects/AR/config', devCookie)).body.config;
       const approvers = structuredClone(config);
       approvers.pipeline.stages.find((s) => s.id === 'release')!.gate = {
-        conditions: [{ type: 'pr_merged' }, { type: 'human_approval', approvers: ['dani'] }],
+        conditions: [{ type: 'pr_merged' }, { type: 'human_approval', approvers: ['kata'] }],
       };
       const ownerOnly = await call<ApiError>('PUT', '/api/projects/AR/config', devCookie, approvers);
       expect(ownerOnly.status).toBe(403);

@@ -58,14 +58,21 @@ export class HeadlessScreen {
     return this.mouseEncoding ? `${data}\x1b[?${this.mouseEncoding}h` : data;
   }
 
-  /** Text of the visible rows. */
-  screenText(): string {
+  /**
+   * Text of the visible rows. With `lastRows`, only the last rows that have content: an inline
+   * TUI like Claude Code draws from the top of a fresh screen, so its prompt box (or a dialog
+   * in its place) is the end of the content, not necessarily the bottom of the screen.
+   */
+  screenText(lastRows?: number): string {
     const buffer = this.term.buffer.active;
     const lines: string[] = [];
     for (let y = 0; y < this.term.rows; y++) {
       lines.push(buffer.getLine(buffer.viewportY + y)?.translateToString(true) ?? '');
     }
-    return lines.join('\n');
+    if (lastRows === undefined) return lines.join('\n');
+    let end = lines.length;
+    while (end > 0 && lines[end - 1]!.trim() === '') end -= 1;
+    return lines.slice(Math.max(0, end - lastRows), end).join('\n');
   }
 
   dispose(): void {

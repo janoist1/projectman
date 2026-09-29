@@ -7,6 +7,7 @@ import type { SessionState } from '@projectman/shared';
  *   working --PermissionRequest--> waiting_permission --(answered)--> working
  *   working --PreToolUse(AskUserQuestion)--> waiting_input --PostToolUse--> working
  *   starting --(setup screen: trust/login)--> waiting_input --SessionStart--> idle
+ *   idle --(dialog before the first prompt, e.g. MCP approval)--> waiting_input --(gone)--> idle
  *   any --exit--> exited | failed
  */
 
@@ -27,9 +28,10 @@ export type SessionSignal =
   | { kind: 'notification'; type: string | null; message: string | null }
   /** The turn was interrupted from the terminal (Esc): Claude Code sends no Stop hook then. */
   | { kind: 'interrupted' }
-  /** A first-run screen (workspace trust, login, theme) blocks the session at start. */
+  /** A dialog in the terminal (workspace trust, login, MCP approval, ...) blocks the session. */
   | { kind: 'setup_prompt'; description: string }
-  | { kind: 'setup_cleared' }
+  /** The dialog is gone; `ready` tells whether the prompt was already up before. */
+  | { kind: 'setup_cleared'; ready: boolean }
   | { kind: 'exit'; failed: boolean };
 
 export interface StateSnapshot {
@@ -106,13 +108,13 @@ export function nextState(current: StateSnapshot, signal: SessionSignal): StateS
       return current;
 
     case 'setup_prompt':
-      if (state === 'starting' || state === 'waiting_input') {
+      if (state === 'starting' || state === 'waiting_input' || state === 'idle') {
         return { state: 'waiting_input', activity: signal.description };
       }
       return current;
 
     case 'setup_cleared':
-      if (state === 'waiting_input') return { state: 'starting', activity: null };
+      if (state === 'waiting_input') return { state: signal.ready ? 'idle' : 'starting', activity: null };
       return current;
 
     case 'exit':

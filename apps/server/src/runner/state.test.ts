@@ -68,10 +68,22 @@ describe('session state machine', () => {
       state: 'waiting_input',
       activity: 'Workspace trust confirmation is waiting in the terminal',
     });
-    expect(nextState(s, { kind: 'setup_cleared' })).toEqual({ state: 'starting', activity: null });
+    expect(nextState(s, { kind: 'setup_cleared', ready: false })).toEqual({
+      state: 'starting',
+      activity: null,
+    });
     s = nextState(s, { kind: 'session_start', source: 'startup', first: true });
     expect(s.state).toBe('idle');
-    expect(nextState(s, { kind: 'setup_prompt', description: 'x' })).toBe(s);
+  });
+
+  it('flags a dialog that covers the prompt of a ready session, and returns to idle', () => {
+    const idle: StateSnapshot = { state: 'idle', activity: null };
+    const blocked = nextState(idle, { kind: 'setup_prompt', description: 'MCP approval' });
+    expect(blocked).toEqual({ state: 'waiting_input', activity: 'MCP approval' });
+    expect(nextState(blocked, { kind: 'setup_cleared', ready: true })).toEqual(idle);
+    const working: StateSnapshot = { state: 'working', activity: 'Bash: ls' };
+    expect(nextState(working, { kind: 'setup_prompt', description: 'x' })).toBe(working);
+    expect(nextState(working, { kind: 'setup_cleared', ready: true })).toBe(working);
   });
 
   it('goes idle on interruption, idle_prompt and StopFailure', () => {

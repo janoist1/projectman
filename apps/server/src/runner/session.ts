@@ -1,3 +1,4 @@
+import os from 'node:os';
 import * as pty from '@lydell/node-pty';
 import type { FastifyBaseLogger } from 'fastify';
 import type {
@@ -33,7 +34,7 @@ export const TIMING = {
   maxEnterRetries: 2,
   /** A typed message that never produced UserPromptSubmit stops blocking the queue after this. */
   submitTimeoutMs: 8_000,
-  /** How often the screen is checked for first-run screens while starting. */
+  /** How often the screen is checked for blocking dialogs (while starting, or while one is up). */
   startupCheckMs: 1_000,
   /** Without SessionStart after this long, the session is flagged as needing a look. */
   startupTimeoutMs: 20_000,
@@ -43,8 +44,12 @@ export const TIMING = {
   finalReadMs: 1_000,
 };
 
-/** First-run screens that block a session before it can take input. */
-const SETUP_SCREENS: Array<[RegExp, string]> = [
+/**
+ * Dialogs that block a session: first-run screens before it can take input, and prompts that
+ * can appear around start-up (approving a project's MCP servers). Texts as of Claude Code
+ * 2.1.223; the first patterns follow agent-office (MIT, src/server/workers.ts).
+ */
+const BLOCKING_SCREENS: Array<[RegExp, string]> = [
   [
     /Quick safety check|trust this folder|Do you trust the files/i,
     'Workspace trust confirmation is waiting in the terminal',
@@ -55,11 +60,16 @@ const SETUP_SCREENS: Array<[RegExp, string]> = [
   ],
   [/Choose the text style/i, 'Claude Code first-run setup is waiting in the terminal'],
   [/Bypass Permissions mode/i, 'Bypass permissions confirmation is waiting in the terminal'],
+  [/MCP servers? found in this project/i, 'Approval of project MCP servers is waiting in the terminal'],
+  [/Do you want to use this API key/i, 'API key confirmation is waiting in the terminal'],
   [/Press Enter to continue/i, 'Claude Code is waiting for Enter in the terminal'],
 ];
 
-export function detectSetupScreen(text: string): string | null {
-  for (const [pattern, description] of SETUP_SCREENS) if (pattern.test(text)) return description;
+/** Dialogs replace the prompt box at the end of the screen content: only look there. */
+const DIALOG_ROWS = 15;
+
+export function detectBlockingScreen(text: string): string | null {
+  for (const [pattern, description] of BLOCKING_SCREENS) if (pattern.test(text)) return description;
   return null;
 }
 
@@ -108,6 +118,9 @@ export class ClaudeSession {
   /** First SessionStart seen (or other proof that the prompt is up). */
   private ready = false;
   private readyAt = 0;
+  /** A prompt reached Claude (UserPromptSubmit): start-up dialogs are over. */
+  private promptSeen = false;
+  /** Why the session is flagged as blocked by a dialog in the terminal, if it is. */
   private blockedReason: string | null = null;
 
   private readonly queue: QueuedMessage[] = [];
@@ -123,7 +136,7 @@ export class ClaudeSession {
   private parser: TranscriptParser | null = null;
 
   private readonly timers = new Set<NodeJS.Timeout>();
-  private startupTimer: NodeJS.Timeout | null = null;
+  private watchTimer: NodeJS.Timeout | null = null;
   private pumpTimer: NodeJS.Timeout | null = null;
 
   constructor(args: { spec: StartSessionSpec; hookToken: string; deps: SessionDeps }) {
@@ -172,7 +185,7 @@ export class ClaudeSession {
       this.deps.emit({ type: 'terminal_data', sessionId: this.id, data });
     });
     proc.onExit(({ exitCode, signal }) => void this.onExit(exitCode, signal ?? null));
-    this.startupTimer = setInterval(() => this.checkStartup(), TIMING.startupCheckMs);
+    this.startWatch();
     this.emitState();
   }
 
@@ -211,7 +224,10 @@ export class ClaudeSession {
 
   private schedulePump(delayMs: number): void {
     this.notBefore = Math.max(this.notBefore, Date.now() + delayMs);
-    if (this.pumpTimer) clearTimeout(this.pumpTimer);
+    if (this.pumpTimer) {
+      clearTimeout(this.pumpTimer);
+      this.timers.delete(this.pumpTimer);
+    }
     this.pumpTimer = this.timer(() => {
       this.pumpTimer = null;
       this.pump();
@@ -225,6 +241,17 @@ export class ClaudeSession {
     if (now < this.notBefore) return this.schedulePump(this.notBefore - now);
     if (!this.screen.bracketedPasteMode && now - this.readyAt < TIMING.pasteModeGraceMs) {
       return this.schedulePump(100);
+    }
+    // Until a first prompt got through, a start-up dialog (e.g. approving the project's MCP
+    // servers) may cover the prompt box; typing would answer the dialog instead.
+    if (!this.promptSeen) {
+      const dialog = detectBlockingScreen(this.screen.screenText(DIALOG_ROWS));
+      if (dialog) {
+        this.blockedReason = dialog;
+        this.apply({ kind: 'setup_prompt', description: dialog });
+        this.startWatch();
+        return;
+      }
     }
     const message = this.queue.shift()!;
     void this.type(message);
@@ -282,7 +309,7 @@ export class ClaudeSession {
    */
   async handleHook(payload: HookPayload, withdrawn: AbortSignal): Promise<PermissionHookOutput | null> {
     if (this.hasExited) return null;
-    this.noteTranscript(payload.transcript_path);
+    this.noteTranscript(payload);
     // The typing delay is set before any transition to idle, which starts the queue.
     switch (payload.hook_event_name) {
       case 'SessionStart': {
@@ -295,6 +322,7 @@ export class ClaudeSession {
       }
       case 'UserPromptSubmit':
         this.markReady();
+        this.promptSeen = true;
         this.lastPromptAt = Date.now();
         this.awaitingSubmit = null;
         this.apply({ kind: 'prompt_submit' });
@@ -340,8 +368,7 @@ export class ClaudeSession {
     this.ready = true;
     this.readyAt = Date.now();
     this.blockedReason = null;
-    if (this.startupTimer) clearInterval(this.startupTimer);
-    this.startupTimer = null;
+    this.stopWatch();
   }
 
   private async permissionRequest(
@@ -396,8 +423,16 @@ export class ClaudeSession {
 
   // ---------------------------------------------------------------- transcript
 
-  private noteTranscript(path: string | undefined): void {
-    if (!path || path === this.transcriptPath) return;
+  /**
+   * Follows the conversation's transcript. The path comes with every hook; it only changes
+   * on a SessionStart (after /clear, /resume or a fork). Hooks fired inside a subagent are
+   * ignored here, in case they ever carry the subagent's own transcript.
+   */
+  private noteTranscript(payload: HookPayload): void {
+    if (!payload.transcript_path || payload.agent_id) return;
+    const path = expandHome(payload.transcript_path);
+    if (path === this.transcriptPath) return;
+    if (this.transcriptPath !== null && payload.hook_event_name !== 'SessionStart') return;
     const first = this.transcriptPath === null;
     this.transcriptPath = path;
     this.deps.emit({ type: 'transcript_path', sessionId: this.id, path });
@@ -426,20 +461,43 @@ export class ClaudeSession {
     }
   }
 
-  // ---------------------------------------------------------------- startup
+  // ---------------------------------------------------------------- blocking dialogs
 
-  private checkStartup(): void {
-    if (this.ready || this.hasExited) return;
-    const setup = detectSetupScreen(this.screen.screenText());
-    const stalled = Date.now() - this.startedAt > TIMING.startupTimeoutMs;
-    const reason = setup ?? (stalled ? 'Claude Code has not become ready; check the terminal' : null);
-    if (reason && reason !== this.blockedReason) {
-      this.blockedReason = reason;
-      this.apply({ kind: 'setup_prompt', description: reason });
-    } else if (!reason && this.blockedReason) {
-      this.blockedReason = null;
-      this.apply({ kind: 'setup_cleared' });
+  private startWatch(): void {
+    if (this.watchTimer || this.hasExited) return;
+    this.watchTimer = setInterval(() => this.checkScreen(), TIMING.startupCheckMs);
+  }
+
+  private stopWatch(): void {
+    if (this.watchTimer) clearInterval(this.watchTimer);
+    this.watchTimer = null;
+  }
+
+  /**
+   * Runs while starting (first-run screens, or no SessionStart for too long) and while a
+   * start-up dialog blocks the first message: flags the session as waiting for input in the
+   * terminal, and lets it continue once the dialog is gone.
+   */
+  private checkScreen(): void {
+    if (this.hasExited) return this.stopWatch();
+    const dialog = detectBlockingScreen(
+      this.ready ? this.screen.screenText(DIALOG_ROWS) : this.screen.screenText(),
+    );
+    const stalled = !this.ready && Date.now() - this.startedAt > TIMING.startupTimeoutMs;
+    const reason = dialog ?? (stalled ? 'Claude Code has not become ready; check the terminal' : null);
+    if (reason) {
+      if (reason !== this.blockedReason) {
+        this.blockedReason = reason;
+        this.apply({ kind: 'setup_prompt', description: reason });
+      }
+      return;
     }
+    if (this.blockedReason) {
+      this.blockedReason = null;
+      if (this.ready) this.schedulePump(TIMING.readySettleMs);
+      this.apply({ kind: 'setup_cleared', ready: this.ready });
+    }
+    if (this.ready) this.stopWatch();
   }
 
   // ---------------------------------------------------------------- stop / exit
@@ -468,8 +526,7 @@ export class ClaudeSession {
     this.deps.onExited(this);
     for (const t of this.timers) clearTimeout(t);
     this.timers.clear();
-    if (this.startupTimer) clearInterval(this.startupTimer);
-    this.startupTimer = null;
+    this.stopWatch();
 
     for (const [controller, entry] of this.pendingPermissions) {
       if (!entry.end) {
@@ -503,6 +560,8 @@ export class ClaudeSession {
   // ---------------------------------------------------------------- helpers
 
   private apply(signal: SessionSignal): void {
+    // Once the process is gone only the final exit transition may change the state.
+    if (this.hasExited && signal.kind !== 'exit') return;
     const next = nextState(this.current, signal);
     if (next.state === this.current.state && next.activity === this.current.activity) return;
     this.current = next;
@@ -527,6 +586,10 @@ export class ClaudeSession {
     this.timers.add(t);
     return t;
   }
+}
+
+function expandHome(path: string): string {
+  return path === '~' || path.startsWith('~/') ? `${os.homedir()}${path.slice(1)}` : path;
 }
 
 function denyOutput(message: string): PermissionHookOutput {

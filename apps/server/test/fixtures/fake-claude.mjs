@@ -23,6 +23,9 @@
  *   projects[<realpath cwd>].hasTrustDialogAccepted (or a parent's) is not true, it first
  *   shows "Quick safety check: Is this a project you created or one you trust?" and waits:
  *   Enter or "1" accepts, "2" or Esc exits with code 1.
+ * - MCP approval: when FAKE_CLAUDE_MCP_DIALOG is set, right after SessionStart it shows
+ *   "New MCP server found in this project: fake-db" over the prompt, ignores pastes, and
+ *   removes the dialog on any key.
  * - Input (raw mode): bracketed pastes are inserted like Claude Code does: a paste of more
  *   than 800 chars or more than min(rows-10, 2) line breaks collapses to
  *   "[Pasted text #N +X lines]" and is submitted wrapped in <pasted_content id="N"> lines;
@@ -41,6 +44,8 @@
  *     (same permission flow; `permissions.allow` "mcp__team" or "mcp__team__*" pre-allows it).
  *   - contains "ASK": tool_use AskUserQuestion, PreToolUse, waits for a key in the terminal.
  *   - always: assistant text "Echo: <first line of the prompt>", then the Stop hook.
+ * - "/clear": SessionEnd (reason "clear"), a new session id and transcript file, then
+ *   SessionStart with source "clear" (no UserPromptSubmit, like Claude Code's own commands).
  * - "/exit", double Ctrl+C, Ctrl+D, SIGTERM or SIGHUP: SessionEnd hook, exit code 0.
  * - OSC 9;4 progress (busy/idle) and an OSC 0 title are emitted like Claude Code.
  *
@@ -226,10 +231,11 @@ async function interactive() {
   const out = (text) => process.stdout.write(text);
   const line = (text = '') => out(`${text}\r\n`);
   const cwd = process.cwd();
-  const sessionId = opts.resume ?? opts.sessionId ?? randomUUID();
+  // Both change on /clear, which starts a new conversation.
+  let sessionId = opts.resume ?? opts.sessionId ?? randomUUID();
   const transcriptDir = process.env.FAKE_CLAUDE_TRANSCRIPT_DIR || path.join(os.tmpdir(), 'fake-claude');
   mkdirSync(transcriptDir, { recursive: true });
-  const transcriptPath = path.join(transcriptDir, `${sessionId}.jsonl`);
+  let transcriptPath = path.join(transcriptDir, `${sessionId}.jsonl`);
   const permissionMode = opts.permissionMode ?? 'default';
   const settings = loadSettings(opts.settings);
   const allowRules = [...(settings?.permissions?.allow ?? [])];
@@ -460,6 +466,15 @@ async function interactive() {
       return showPrompt();
     }
     if (text === '/exit') return exit('prompt_input_exit');
+    if (text === '/clear') {
+      await runHooks('SessionEnd', { reason: 'clear' }, 'clear');
+      sessionId = randomUUID();
+      transcriptPath = path.join(transcriptDir, `${sessionId}.jsonl`);
+      parentUuid = null;
+      await runHooks('SessionStart', { source: 'clear' }, 'clear');
+      line('(conversation cleared)');
+      return showPrompt();
+    }
     await runTurn(text);
   }
 
@@ -759,7 +774,7 @@ async function interactive() {
       }
     }
     mode = 'prompt';
-    line();
+    out('\x1b[3A\x1b[J'); // an answered dialog disappears, as in Claude Code's UI
   }
 
   await sleep(Number(process.env.FAKE_CLAUDE_STARTUP_DELAY_MS ?? 50));
@@ -768,6 +783,18 @@ async function interactive() {
     { source: opts.resume ? 'resume' : 'startup', model: opts.model ?? 'claude-fake' },
     opts.resume ? 'resume' : 'startup',
   );
+
+  if (process.env.FAKE_CLAUDE_MCP_DIALOG) {
+    // Like Claude Code's approval of a project's .mcp.json servers: it covers the prompt box,
+    // swallows pastes, and disappears once answered.
+    line('New MCP server found in this project: fake-db');
+    line('❯ 1. Use this and all future MCP servers in this project');
+    line('  2. Continue without using this MCP server');
+    mode = 'question';
+    await waitKey();
+    mode = 'prompt';
+    out('\x1b[3A\x1b[J');
+  }
   showPrompt();
 }
 

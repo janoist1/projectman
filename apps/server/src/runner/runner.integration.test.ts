@@ -126,7 +126,7 @@ const waitChat = (id: string, match: (item: ChatItem) => boolean, what: string, 
 const assistantSaid = (id: string, text: string) =>
   waitChat(id, (i) => i.kind === 'assistant_text' && i.text === text, `assistant: ${text}`);
 
-describe('runner with the fake Claude Code CLI', () => {
+describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
   it('starts a session, types the kick-off brief when ready and follows the turn', async () => {
     await setup();
     const s = spec({ initialMessage: 'Hello from the brief' });
@@ -358,6 +358,28 @@ describe('runner with the fake Claude Code CLI', () => {
     expect(full.filter((i) => i.kind === 'user_text')).toHaveLength(2);
   });
 
+  it('follows the new transcript after /clear', async () => {
+    await setup();
+    const s = spec({ initialMessage: 'before clear' });
+    await runner.runner.start(s);
+    await assistantSaid(s.sessionId, 'Echo: before clear');
+    await waitState(s.sessionId, 'idle');
+
+    await runner.runner.sendUserMessage(s.sessionId, '/clear');
+    const paths = () =>
+      events.flatMap((e) => (e.type === 'transcript_path' && e.sessionId === s.sessionId ? [e.path] : []));
+    await waitFor(() => paths().length === 2, { what: 'second transcript path' });
+    expect(paths()[1]).not.toBe(paths()[0]);
+
+    await runner.runner.sendUserMessage(s.sessionId, 'after clear');
+    await assistantSaid(s.sessionId, 'Echo: after clear');
+    const fresh = await runner.transcripts.read(paths()[1]!, { self: 'fe-1' });
+    expect(fresh.map((i) => (i.kind === 'user_text' ? i.text : i.kind))).toEqual([
+      'after clear',
+      'assistant_text',
+    ]);
+  });
+
   it('reports a session that cannot start as failed', async () => {
     await setup();
     const s = spec({ resume: true, initialMessage: 'never typed' });
@@ -388,6 +410,21 @@ describe('runner with the fake Claude Code CLI', () => {
 
     runner.runner.writeTerminal(s.sessionId, '\r');
     await assistantSaid(s.sessionId, 'Echo: after trust');
+  });
+
+  it('does not type into a start-up dialog, and continues once it is answered', async () => {
+    process.env.FAKE_CLAUDE_MCP_DIALOG = '1';
+    await setup();
+    const s = spec({ initialMessage: 'brief after dialog' });
+    await runner.runner.start(s);
+    await waitState(s.sessionId, 'waiting_input', 5_000);
+    const flagged = events.findLast((e) => e.type === 'state' && e.sessionId === s.sessionId);
+    expect(flagged).toMatchObject({ activity: 'Approval of project MCP servers is waiting in the terminal' });
+    expect(chatOf(s.sessionId)).toEqual([]);
+
+    runner.runner.writeTerminal(s.sessionId, '\r');
+    await assistantSaid(s.sessionId, 'Echo: brief after dialog');
+    expect(statesOf(s.sessionId)).toEqual(['starting', 'idle', 'waiting_input', 'idle', 'working', 'idle']);
   });
 
   it('resizes the terminal and stops every session on shutdown', async () => {

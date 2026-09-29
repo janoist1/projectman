@@ -116,7 +116,7 @@ describe('stage gates', () => {
     const byAi = await rejection(
       h.domain.inbox.resolve('AR', id, { optionId: 'approve' }, { handle: 'cr', access: 'developer' }),
     );
-    expect(byAi.code).toBe('not_an_assignee');
+    expect(byAi.code).toBe('ai_approval_forbidden');
     // Even another owner may not approve a gate they are not an approver of.
     const byOtherOwner = await rejection(
       h.domain.inbox.resolve('AR', id, { optionId: 'approve' }, { handle: 'boss', access: 'owner' }),

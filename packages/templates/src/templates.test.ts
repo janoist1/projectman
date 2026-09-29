@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { MemberHandle, ProjectConfig, validateProjectConfig, type Stage } from '@projectman/shared';
+import {
+  MemberHandle,
+  ProjectConfig,
+  resolvedStages,
+  stageOwners,
+  validateProjectConfig,
+  type Stage,
+} from '@projectman/shared';
 import {
   aiMemberDefaults,
   DAILY_WORKER_SCHEDULE,
@@ -35,7 +42,15 @@ function build(id: string, language = 'hu', ownerHandle = 'owner') {
 
 /** [id, kind, owners, gate conditions, column] per stage. */
 function shape(stages: Stage[]) {
-  return stages.map((s) => [s.id, s.kind, s.owners, s.gate?.conditions ?? [], s.columnId]);
+  return stages.map((s) => [
+    s.id,
+    s.kind,
+    s.owners,
+    s.gate?.conditions.map((c) =>
+      c.type === 'human_approval' ? { type: c.type, approvers: c.approvers } : c,
+    ) ?? [],
+    s.columnId,
+  ]);
 }
 
 describe('every template', () => {
@@ -52,7 +67,7 @@ describe('every template', () => {
     it.each(['hu', 'en', 'hu-HU', 'de'])('builds a valid configuration (language %s)', (language) => {
       const config = template.build(input(language));
       expect(ProjectConfig.parse(config)).toEqual(config);
-      expect(validateProjectConfig(config)).toEqual([]);
+      expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([]);
       expect(config.project).toMatchObject({ key: 'AR', templateId: id, language, repos: [] });
     });
 
@@ -113,7 +128,7 @@ describe('every template', () => {
         .map((m) => m.handle);
       for (const taken of aiHandles) {
         const config = template.build(input('en', taken));
-        expect(validateProjectConfig(config)).toEqual([]);
+        expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([]);
         expect(config.team.members.filter((m) => m.handle === taken)).toHaveLength(1);
       }
     });
@@ -124,7 +139,7 @@ describe('every template', () => {
       expect(config.pipeline.columns.map((c) => c.id).filter((c) => !used.has(c))).toEqual([]);
       for (const stage of config.pipeline.stages) {
         if (stage.kind === 'queue' || stage.kind === 'done') continue;
-        expect(stage.owners.length, stage.id).toBeGreaterThan(0);
+        expect(stageOwners(config, stage).length, stage.id).toBeGreaterThan(0);
       }
     });
 
@@ -172,16 +187,16 @@ describe('web-client-project', () => {
   });
 
   it('reviews code before the integration deploy and gates merge and release on the owner', () => {
-    expect(shape(config.pipeline.stages)).toEqual([
-      ['ready', 'queue', [], [], 'ready'],
+    expect(shape(resolvedStages(config))).toEqual([
+      ['ready', 'queue', ['owner'], [], 'ready'],
       ['dev', 'work', ['fe-1', 'be-1'], [], 'development'],
       ['code_review', 'review', ['code-review'], [], 'review'],
       ['integration', 'deploy', ['devops'], [{ type: 'check_passed', check: 'code_review' }], 'review'],
-      ['qa', 'test', ['qa'], [], 'review'],
+      ['qa', 'test', ['owner', 'qa'], [], 'review'],
       [
         'client_test',
         'client_test',
-        ['communication', 'owner'],
+        ['communication'],
         [{ type: 'check_passed', check: 'qa' }],
         'client_test',
       ],
@@ -266,8 +281,8 @@ describe('small-team', () => {
   });
 
   it('closes reviewed work on the owner decision', () => {
-    expect(shape(config.pipeline.stages)).toEqual([
-      ['ready', 'queue', [], [], 'ready'],
+    expect(shape(resolvedStages(config))).toEqual([
+      ['ready', 'queue', ['owner'], [], 'ready'],
       ['dev', 'work', ['dev-1'], [], 'development'],
       ['code_review', 'review', ['code-review'], [], 'review'],
       [
@@ -300,11 +315,11 @@ describe('internal-tool', () => {
   });
 
   it('tests after the review and merges on the owner decision, without a client test', () => {
-    expect(shape(config.pipeline.stages)).toEqual([
-      ['ready', 'queue', [], [], 'ready'],
+    expect(shape(resolvedStages(config))).toEqual([
+      ['ready', 'queue', ['owner'], [], 'ready'],
       ['dev', 'work', ['dev-1', 'dev-2'], [], 'development'],
       ['code_review', 'review', ['code-review'], [], 'review'],
-      ['qa', 'test', ['qa'], [{ type: 'check_passed', check: 'code_review' }], 'review'],
+      ['qa', 'test', ['owner', 'qa'], [{ type: 'check_passed', check: 'code_review' }], 'review'],
       [
         'merge',
         'merge',
@@ -328,8 +343,8 @@ describe('daily-routine', () => {
       ['owner', 'owner'],
       ['daily', 'maintainer'],
     ]);
-    expect(shape(config.pipeline.stages)).toEqual([
-      ['ready', 'queue', [], [], 'ready'],
+    expect(shape(resolvedStages(config))).toEqual([
+      ['ready', 'queue', ['owner'], [], 'ready'],
       ['work', 'work', ['daily'], [], 'in_progress'],
       ['done', 'done', [], [], 'done'],
     ]);

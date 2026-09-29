@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DutyId } from '../domain/duty';
 import { ChatItem } from '../chat/chat';
 import { MemberSchedule, ProjectConfig, RepoConfig } from '../config/schema';
 import { TimelineEvent } from '../domain/event';
@@ -138,6 +139,8 @@ export const RoleView = z.object({
   notTheirJob: z.string(),
   holders: RoleHolders,
   builtIn: z.boolean(),
+  duties: z.array(DutyId).optional(),
+  instructions: z.string().optional(),
 });
 export type RoleView = z.infer<typeof RoleView>;
 

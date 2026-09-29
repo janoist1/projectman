@@ -24,7 +24,7 @@ describe('mock role catalogue and member mutations', () => {
     expect(backend.handle('POST', `${base}/roles`, role).status).toBe(201);
     const catalogue = RolesView.parse(backend.handle('GET', `${base}/roles`, undefined).body);
     expect(catalogue.roles.map((entry) => entry.id)).toEqual([...BUILT_IN_ROLE_IDS, role.id]);
-    expect(catalogue.roles.at(-1)).not.toHaveProperty('instructions');
+    expect(catalogue.roles.at(-1)).toHaveProperty('instructions', role.instructions);
   });
   it('rejects invalid roles, holder mismatches and member kinds without changing data', () => {
     const backend = new MockBackend();
@@ -34,9 +34,7 @@ describe('mock role catalogue and member mutations', () => {
     expect(errorCode(backend.handle('POST', `${base}/members`, { role: 'operator' }))).toBe(
       'role_not_for_ai',
     );
-    expect(errorCode(backend.handle('PATCH', `${base}/members/owner`, { roles: ['watchdog'] }))).toBe(
-      'role_not_for_human',
-    );
+    expect(backend.handle('PATCH', `${base}/members/owner`, { roles: ['watchdog'] }).status).toBe(200);
     expect(errorCode(backend.handle('PATCH', `${base}/members/owner`, { roles: ['missing_role'] }))).toBe(
       'unknown_role',
     );
@@ -56,7 +54,7 @@ describe('mock role catalogue and member mutations', () => {
     ).toBe('role_id_mismatch');
     expect(errorCode(backend.handle('DELETE', `${base}/roles/qa`, undefined))).toBe('builtin_role');
     expect(errorCode(backend.handle('PUT', `${base}/roles/qa`, { ...role, id: 'qa' }))).toBe('builtin_role');
-    expect(validateProjectConfig(backend.config)).toEqual([]);
+    expect(validateProjectConfig(backend.config).filter((i) => i.severity !== 'warning')).toEqual([]);
   });
   it('reports excluded holders and configured temp workers', () => {
     const backend = new MockBackend();
@@ -85,6 +83,8 @@ describe('mock role catalogue and member mutations', () => {
     expect(backend.handle('POST', `${base}/tasks/AC-20/cancel`, {}).status).toBe(403);
     expect(backend.handle('PATCH', `${base}/tasks/AC-20`, { assignee: null }).status).toBe(403);
     backend.findMember('kata')!.role = 'admin';
+    const admin = backend.config.team.members.find((m) => m.handle === 'kata')!;
+    if (admin.kind === 'human') admin.access = 'admin';
     expect(backend.handle('POST', `${base}/roles`, role).status).toBe(201);
   });
 });

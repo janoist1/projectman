@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   AI_BUILT_IN_ROLE_IDS,
+  DUTY_IDS,
+  DUTIES,
   AiMemberConfig,
   BUILT_IN_ROLE_IDS,
   CustomRoleDefinition,
@@ -39,113 +41,28 @@ const dataSteward = CustomRoleDefinition.parse({
 });
 
 describe('aiRoleDefaults', () => {
-  it.each(AI_BUILT_IN_ROLE_IDS)('gives %s valid defaults and short English instructions', (role) => {
+  it.each(AI_BUILT_IN_ROLE_IDS)('gives %s valid defaults without copied role prompts', (role) => {
     const defaults = aiRoleDefaults(role);
-    const member = AiMemberConfig.parse({
-      kind: 'ai',
-      handle: 'member',
-      displayName: 'Member',
-      role,
-      sponsor: 'owner',
-      ...defaults,
-    });
-    expect(member).toMatchObject(defaults);
-    const { instructions } = defaults;
-    expect(instructions.length).toBeGreaterThan(300);
-    // A person reads one in under a minute.
-    expect(instructions.split(/\s+/).length).toBeLessThanOrEqual(250);
-    expect(instructions).not.toMatch(HUNGARIAN_LETTERS);
-    expect(instructions).toMatch(/^You are /);
-    expect(instructions).toContain("in the project's language");
-    expect(instructions).toContain('save_memory');
-    expect(instructions).toMatch(/secret/i);
-    expect(instructions).not.toMatch(/\s$/);
+    expect(
+      AiMemberConfig.parse({
+        kind: 'ai',
+        handle: 'member',
+        displayName: 'Member',
+        role,
+        sponsor: 'owner',
+        ...defaults,
+      }),
+    ).toMatchObject(defaults);
+    expect(defaults.instructions).toBe('');
   });
-
-  it.each(AI_BUILT_IN_ROLE_IDS)('opens the %s instructions with what the role does not do', (role) => {
-    const [opening = ''] = aiRoleDefaults(role).instructions.split('\n\n');
-    expect(opening).toMatch(/\byou (do not|never)\b/i);
-    expect(opening.split(/(?<=\.) /).length).toBeLessThanOrEqual(3);
+  it('keeps editing defaults limited to delivery duties', () => {
+    expect(
+      AI_BUILT_IN_ROLE_IDS.filter((role) => aiRoleDefaults(role).permissionMode === 'acceptEdits').sort(),
+    ).toEqual(WORKTREE_ROLES.sort());
   });
-
-  it.each(AI_BUILT_IN_ROLE_IDS)('tells %s which team tools to use', (role) => {
-    const { instructions } = aiRoleDefaults(role);
-    const tools = [
-      'send_message',
-      'update_task',
-      'ask_human',
-      'create_task',
-      'get_task',
-      'link_pull_request',
-    ];
-    expect(tools.filter((tool) => instructions.includes(tool)).length).toBeGreaterThanOrEqual(2);
-  });
-
-  it('tells developers how to hand over with the team tools', () => {
-    const { instructions } = aiRoleDefaults('developer');
-    for (const tool of ['link_pull_request', 'update_task', 'send_message', 'ask_human']) {
-      expect(instructions).toContain(tool);
-    }
-    expect(instructions).toContain('Never merge your own pull request');
-  });
-
-  it.each(['code_review', 'security_review'] as const)('keeps %s read-only and records its check', (role) => {
-    const { instructions, permissionMode } = aiRoleDefaults(role);
-    expect(instructions).toContain('You never edit code, commit or push');
-    expect(instructions).toContain(`Record the ${role} check with update_task`);
-    expect(instructions).toContain('"Blocking" or "Not blocking", with file:line');
-    expect(permissionMode).toBe('default');
-  });
-
-  it('releases to production only after an approved human decision', () => {
-    const { instructions } = aiRoleDefaults('devops');
-    expect(instructions).toContain('Release only a task that is in your release stage');
-    expect(instructions).toContain('needs an explicit human decision');
-  });
-
-  it('keeps communication to drafts that a human sends', () => {
-    const { instructions } = aiRoleDefaults('communication');
-    expect(instructions).toContain('drafts until a human approves them');
-    expect(instructions).toContain('record the client_test check');
-  });
-
-  it('has the analyst, the architect and support propose work with create_task for humans to prioritise', () => {
-    for (const role of ['business_analyst', 'architect', 'support'] as const) {
-      const { instructions } = aiRoleDefaults(role);
-      expect(instructions, role).toContain('create_task');
-      expect(instructions, role).toMatch(/Humans prioritise/);
-    }
-    expect(aiRoleDefaults('business_analyst').instructions).toContain(
-      "Rewrite the task's description with update_task",
-    );
-    expect(aiRoleDefaults('architect').instructions).toContain("to the task's description with update_task");
-  });
-
-  it('keeps the watchdog and the coach from acting on their own', () => {
-    expect(aiRoleDefaults('watchdog').instructions).toContain('Flag it to the operator');
-    expect(aiRoleDefaults('watchdog').instructions).toContain(
-      'Never redirect, stop or correct a member yourself',
-    );
-    expect(aiRoleDefaults('coach').instructions).toContain('never present a proposal as decided');
-  });
-
-  it('keeps the project manager to the schedule', () => {
-    const { instructions } = aiRoleDefaults('project_manager');
-    expect(instructions).toContain('You do not set priorities');
-    expect(instructions).toContain('you do not run the retro');
-    expect(instructions).toContain('weekly report');
-  });
-
-  it('lets only members who edit their own worktree accept edits', () => {
-    const acceptEdits = AI_BUILT_IN_ROLE_IDS.filter(
-      (role) => aiRoleDefaults(role).permissionMode === 'acceptEdits',
-    );
-    expect([...acceptEdits].sort()).toEqual([...WORKTREE_ROLES].sort());
-  });
-
   it('returns a fresh copy', () => {
-    const defaults = aiRoleDefaults('qa');
-    defaults.capacity = 5;
+    const value = aiRoleDefaults('qa');
+    value.capacity = 5;
     expect(aiRoleDefaults('qa').capacity).toBe(1);
   });
 });
@@ -295,5 +212,16 @@ describe('locales', () => {
       templates: Object.keys(locale.templates).sort(),
     });
     expect(keys(hu)).toEqual(keys(en));
+  });
+});
+
+describe('duty catalogue texts', () => {
+  it.each(DUTY_IDS)('localizes %s and keeps AI fragments in English', (id) => {
+    for (const locale of [en, hu]) {
+      expect(locale.duties[id].name).toBeTruthy();
+      expect(locale.duties[id].description.split(/(?<=\.) /).length).toBeLessThanOrEqual(2);
+    }
+    if (DUTIES[id].holders !== 'human') expect(DUTIES[id].prompt.length).toBeGreaterThan(30);
+    expect(DUTIES[id].prompt).not.toMatch(HUNGARIAN_LETTERS);
   });
 });

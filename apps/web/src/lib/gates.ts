@@ -16,7 +16,7 @@ export function gateConditionText(
       return t('settings.pipeline.gatePrMerged');
     case 'human_approval':
       return t('settings.pipeline.gateApproval', {
-        approvers: joinNames(namesOf(condition.approvers, members, myHandle)),
+        approvers: joinNames(namesOf(condition.approvers ?? [], members, myHandle)),
       });
   }
 }

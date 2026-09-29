@@ -1,6 +1,7 @@
+import { getLocale } from '@projectman/templates';
 import { createContext, useContext, useState } from 'react';
 import type { ReactNode } from 'react';
-import { CheckName } from '@projectman/shared';
+import { CheckName, DUTY_IDS, DutyId } from '@projectman/shared';
 import type { ProjectConfig, GateCondition, PatchConfigRequest, MemberConfig } from '@projectman/shared';
 import { usePatchConfig, useRoles } from '../../api/queries';
 import { isApiError } from '../../api/client';
@@ -127,10 +128,42 @@ function PipelineEditor({
                 </Button>
               ))}
             </div>
+            <label className={styles.field}>
+              {t('duties.duty')}
+              <select
+                value={stage.duty ?? ''}
+                onChange={(event) =>
+                  change((config) => {
+                    config.pipeline.stages[index]!.duty = event.target.value
+                      ? DutyId.parse(event.target.value)
+                      : undefined;
+                  })
+                }
+              >
+                <option value="">{t('duties.noDuty')}</option>
+                {DUTY_IDS.map((id) => (
+                  <option key={id} value={id}>
+                    {getLocale(draft.project.language).duties[id].name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {stage.duty && (
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  change((config) => {
+                    delete config.pipeline.stages[index]!.owners;
+                  })
+                }
+              >
+                {t('duties.defaultOwners')}
+              </Button>
+            )}
             <MemberSelect
               label={t('settings.pipeline.owners')}
               members={draft.team.members}
-              value={stage.owners}
+              value={stage.owners ?? []}
               onChange={(owners) =>
                 change((config) => {
                   config.pipeline.stages[index]!.owners = owners;
@@ -187,12 +220,33 @@ function PipelineEditor({
                     ) : null}
                     {condition.type === 'human_approval' ? (
                       <>
+                        <label className={styles.field}>
+                          {t('duties.duty')}
+                          <select
+                            disabled={!isOwner}
+                            value={condition.duty ?? ''}
+                            onChange={(event) =>
+                              replace(
+                                event.target.value
+                                  ? { type: 'human_approval', duty: DutyId.parse(event.target.value) }
+                                  : { type: 'human_approval', approvers: humans.map((m) => m.handle) },
+                              )
+                            }
+                          >
+                            <option value="">{t('duties.explicitOwners')}</option>
+                            {DUTY_IDS.map((id) => (
+                              <option key={id} value={id}>
+                                {getLocale(draft.project.language).duties[id].name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
                         <MemberSelect
                           label={t('settings.edit.approvers')}
                           members={humans}
-                          value={condition.approvers}
+                          value={condition.approvers ?? []}
                           disabled={!isOwner}
-                          onChange={(approvers) => replace({ ...condition, approvers })}
+                          onChange={(approvers) => replace({ type: 'human_approval', approvers })}
                         />
                         {!isOwner ? (
                           <p className={styles.muted}>{t('settings.edit.approversOwnerOnly')}</p>

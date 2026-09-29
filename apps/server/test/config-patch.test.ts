@@ -163,7 +163,11 @@ describe('configuration PATCH', () => {
     expect(response.statusCode).toBe(400);
     expect(response.json().error).toMatchObject({
       code: 'config_invalid',
-      details: { issues: [{ code: 'unknown_member', path: 'pipeline.stages[1].owners', detail: 'missing' }] },
+      details: {
+        issues: expect.arrayContaining([
+          { code: 'unknown_member', path: 'pipeline.stages[1].owners', detail: 'missing' },
+        ]),
+      },
     });
     expect((await view()).history).toEqual(current.history);
   });

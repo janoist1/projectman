@@ -21,7 +21,12 @@ export function splitProjectConfig(config: ProjectConfig): Record<ProjectFileNam
       project: config.project,
       team: { limits: config.team.limits },
     }),
-    'team.yaml': yaml({ members: config.team.members, roles: config.team.roles }),
+    'team.yaml': yaml({
+      members: config.team.members,
+      roles: config.team.roles,
+      roleOverrides: config.team.roleOverrides,
+      releaseFourEyes: config.team.releaseFourEyes,
+    }),
     'pipeline.yaml': yaml({ columns: config.pipeline.columns, stages: config.pipeline.stages }),
   };
 }
@@ -48,7 +53,13 @@ export function mergeProjectFiles(files: Record<ProjectFileName, unknown>): unkn
   return {
     schemaVersion: project.schemaVersion,
     project: project.project,
-    team: { members: team.members, roles: team.roles, limits: asRecord(project.team).limits ?? {} },
+    team: {
+      members: team.members,
+      roles: team.roles,
+      roleOverrides: team.roleOverrides,
+      releaseFourEyes: team.releaseFourEyes,
+      limits: asRecord(project.team).limits ?? {},
+    },
     pipeline: { columns: pipeline.columns, stages: pipeline.stages },
   };
 }

@@ -12,6 +12,7 @@ const steward = {
   summary: 'Keeps data clean.',
   notTheirJob: 'Does not change schemas.',
   holders: 'both' as const,
+  duties: [],
   instructions: 'Check duplicate records.',
 };
 
@@ -42,16 +43,12 @@ describe('custom roles', () => {
     await screen.findByText('Checks master data too.');
     expect(project.backend.config.team.roles[0]?.instructions).toBe(steward.instructions);
   });
-  it('shows member handles when deletion or holder changes conflict', async () => {
+  it('shows member handles when deletion conflicts with active membership', async () => {
     const project = mockProject();
     project.backend.config.team.roles.push(steward);
     project.backend.handle('POST', '/api/projects/AC/members', { role: steward.id, handle: 'acme-steward' });
     project.render(<RoleSection config={project.backend.config} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Szerkesztés' }));
-    fireEvent.change(screen.getByLabelText('Ki töltheti be?'), { target: { value: 'human' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Mentés' }));
-    expect((await screen.findByRole('alert')).textContent).toContain('acme-steward');
-    fireEvent.click(screen.getByRole('button', { name: 'Mégse' }));
+    await screen.findByText(steward.name);
     fireEvent.click(screen.getByRole('button', { name: 'Törlés' }));
     const dialog = screen.getByRole('dialog');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Törlés' }));

@@ -31,6 +31,25 @@ describe('ConfigStore (customization repository)', () => {
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
+  it('loads legacy explicit owners and approvers without rewriting YAML and round-trips duty overrides', async () => {
+    const old = testConfig();
+    await store.save('AR', old, { author, message: 'Legacy configuration' });
+    const file = join(store.rootDir, 'projects/AR/team.yaml');
+    const before = readFileSync(file, 'utf8');
+    const loaded = await store.load('AR');
+    expect(loaded.config.pipeline).toEqual(old.pipeline);
+    expect(readFileSync(file, 'utf8')).toBe(before);
+    loaded.config.team.roleOverrides = {
+      developer: { duties: ['implementation', 'docs'], instructions: 'Explain examples.' },
+    };
+    loaded.config.team.releaseFourEyes = true;
+    await store.save('AR', loaded.config, { author, message: 'Configure duties' });
+    const saved = await store.load('AR');
+    expect(saved.config.team.roleOverrides).toEqual(loaded.config.team.roleOverrides);
+    expect(saved.config.team.releaseFourEyes).toBe(true);
+    expect(readFileSync(file, 'utf8')).toContain('roleOverrides:');
+  });
+
   it('initializes a separate git repository with an initial commit', async () => {
     await store.init();
     await store.init();

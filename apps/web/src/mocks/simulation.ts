@@ -126,11 +126,15 @@ export function startSimulation(backend: MockBackend): void {
         text: 'Nem blokkol. Egy megjegyzés: a PDF-ben a dátum formátuma a nyelvi beállítást kövesse (InvoicePdf.php:57).',
       }),
     ]);
-    backend.updateTask('AC-25', {
-      stageId: 'integration',
-      status: 'waiting',
-      checks: { ...task.checks, code_review: 'passed' },
-    });
+    backend.updateTask(
+      'AC-25',
+      {
+        stageId: 'integration',
+        status: 'waiting',
+        checks: { ...task.checks, code_review: 'passed' },
+      },
+      'code-review',
+    );
     backend.addTimeline(
       'AC-25',
       'code-review',

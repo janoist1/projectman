@@ -34,25 +34,26 @@ server later.
   a display name ("Anna · fe-1"). AI members have one role, a model, a permission mode, a
   capacity, role instructions, an optional **schedule** (cron in the project's time zone,
   e.g. a "daily worker") and a **sponsor**: the human whose subscription runs them.
-- **Roles** — responsibilities from the **role catalogue**: 20 built-in roles (operator,
-  product owner, project manager, business analyst, architect, designer, developer, code
-  review, security review, QA, DevOps, communication, support, researcher, maintainer,
-  coach, watchdog, content, translator, docs) plus **custom roles** the team defines
-  (name, summary, "not their job", who may hold it, instructions for AI). An AI member holds
-  exactly one role; a human may hold several. Operator and product owner are human-only, the
-  watchdog is AI-only. A human's **access level** (owner, admin, developer, client, viewer)
-  is separate: it is what they may do in the app.
+- **Duties and roles** — a fixed code-backed catalogue of 26 duties defines holder eligibility,
+  English AI prompt fragments, tool policy and stage/gate/meeting/event integration metadata.
+  Roles bundle duty ids and prompt-only extra responsibilities. The 20 built-in roles have
+  default bundles; `team.roleOverrides` replaces a built-in bundle, and deleting its entry
+  restores the default. Custom roles store `duties` and `instructions` in `team.yaml`.
+  Eligibility is the intersection of the duties' holders: release approval and final decision
+  require humans; all other duties allow humans and AI. One AI holds one role; humans union
+  duties across several roles. Access levels remain separate from responsibilities.
 - **Team limits** — `maxConcurrentAi` caps working AI sessions (protects the
   subscription); new AI work pauses above `pauseAbovePlanUsagePercent`. The number of
-  developer sessions is capped by the hired developers' capacity. Optional **temp
-  workers** ("beugró"): when every developer is busy, a temporary member of the configured
+  delivery sessions is capped by the duty holders' capacity. Optional **temp
+  workers**: when every eligible duty holder is busy, a temporary member of the configured
   role (developer by default) is hired for one task and retired when it is done.
-- **Pipeline** — ordered **stages** (id, display name, kind, owners, optional **gate**)
+- **Pipeline** — ordered **stages** (id, display name, kind, optional duty, optional owners override, optional **gate**)
   grouped into **board columns**. Owners can be humans, AI members or both. Gates use a
   fixed catalogue of conditions: `check_passed(check)`, `pr_merged`,
-  `human_approval(approvers)`. A gate must hold before a task may enter the stage.
+  `human_approval(approvers | duty)`. Duty gates resolve only human holders. Explicit member
+  lists, including empty stage owner overrides, retain their existing meaning. A gate must hold before a task may enter the stage.
 - **Task** — key (`AR-21`), title, markdown description, stage, status, assignee
-  (developer), repo, checks (`code_review`, `security_review`, `qa`, `client_test`),
+  (work stage owner), repo, checks (`code_review`, `security_review`, `qa`, `client_test`),
   links (PRs, branches, issues, prerequisites), visibility (internal/shared).
 - **Work item & session** — every AI member works in a **fresh Claude Code session per
   work item**: (member × task), (member × meeting) or (member × general). A developer's
@@ -62,7 +63,7 @@ server later.
   only a fallback inside a long session.
 - **Context pack** — assembled when a session starts: the project's own `CLAUDE.md`
   (loaded by Claude Code from the working directory), the member's identity and role
-  instructions, the team roster, how to use the team tools, the rules of the current
+  instructions (duty fragments, role extra responsibilities, then member instructions), the team roster, how to use the team tools, the rules of the current
   stage, the member's memory (`--append-system-prompt`), and for tasks a kick-off brief
   (title, description, links, prerequisites, recent timeline) typed as the first message.
 - **Team messages** — members message each other through the team tools (MCP). A message
@@ -83,7 +84,13 @@ server later.
 - handles are unique; at least one human owner exists;
 - stage owners, gate approvers and AI sponsors refer to existing members;
 - gate approvers and sponsors are humans — an AI never approves a gate;
-- every release stage requires a human approval; changing its approvers is owner-only;
+- every release stage requires a human approval; changing its approvers, release approval
+  bundles or their membership is owner-only; `team.releaseFourEyes` (default off) is also
+  owner-only and excludes assignees and PR authors from release approval;
+- code review, security review and QA results from the assignee or a linked PR's attributed
+  author fail with `self_review_forbidden`, regardless of their duties;
+- missing stage/gate duty holders are errors; missing recommended duties (retro facilitation)
+  are warnings, returned with additive issue severity and never blocking config loading;
 - releases happen only on an approver's explicit decision;
 - every role a member holds (and the temp workers' role) is a built-in or custom role that
   this kind of member may hold; custom role ids are unique and never reuse a built-in id; a
@@ -165,7 +172,8 @@ hook and so the inbox:
 | `plan`                | `read-only`          | `never`      | research only; nothing is asked or written              |
 | `bypassPermissions`   | `danger-full-access` | `never`      | no sandbox, no questions                                |
 
-The role session policy needs no Codex counterpart for its read-only tools: reading and
+The session policy unions the actual duties: editing duties use the task worktree and
+read-only duties pre-approve reading tools. The policy needs no Codex counterpart for its read-only tools: reading and
 `git diff`/`log`/`show` run inside the sandbox without asking (`gh pr view`/`diff` need
 network, so they are asked). The team tools are pre-approved for every role.
 
@@ -224,3 +232,21 @@ already exist and work with the team tools; the system agent that changes config
 through a fixed list of typed operations within owner-set limits; inviting humans and
 colleagues' own subscriptions; GitHub issue creation and project mirroring; web push
 notifications; surviving server restarts; server deployment.
+
+## Duty customization and compatibility
+
+The settings matrix groups duties by direction, delivery, quality, release, communication
+and team. Columns show roles in use and custom roles, their holders and prompt-only extras.
+Missing coverage is red, incompatible cells show why they are disabled, and a read-only
+people view shows the union of each person's duties. Config PATCH accepts `roleOverrides`,
+`roles` and `releaseFourEyes` atomically, using the existing version conflict check. The role
+catalogue API adds resolved `duties` and `instructions`.
+
+Schema version remains 1. Old explicit owners and approvers load unchanged. Old custom
+roles without duties resolve in memory to research (or final decision for legacy human-only
+roles); the legacy `holders` field is accepted but explicit duties determine eligibility.
+Existing member instructions remain prompt-only text. New hires do not copy role prompts.
+PR links persist member authors in SQLite so reassignment cannot enable self-review.
+A link without explicit attribution defaults to the assignee when it is attached; unknown
+external authors cannot be matched to team members until attributed. See
+[the design note](design/duties.md) for defaults and integration boundaries.

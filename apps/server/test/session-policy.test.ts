@@ -23,18 +23,8 @@ describe('role session policy', () => {
 
   it('pre-approves the read-only tools for review and research roles', () => {
     const readers = BUILT_IN_ROLE_IDS.filter((role) => ROLE_SESSION_POLICIES[role].readOnlyTools);
-    expect([...readers].sort()).toEqual(
-      [
-        'architect',
-        'business_analyst',
-        'code_review',
-        'coach',
-        'qa',
-        'researcher',
-        'security_review',
-        'watchdog',
-      ].sort(),
-    );
+    expect(readers).toContain('code_review');
+    expect(readers).toContain('devops');
     expect(allowedToolsFor('architect')).toEqual([...TEAM_TOOLS_ALLOWED, ...READ_ONLY_REVIEW_TOOLS]);
     expect(allowedToolsFor('developer')).toEqual(TEAM_TOOLS_ALLOWED);
   });

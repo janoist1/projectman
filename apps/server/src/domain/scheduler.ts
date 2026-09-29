@@ -11,6 +11,7 @@ import type {
 import { ownerHandles } from './access';
 import type { DomainContext } from './context';
 import { conflict, invalid, notFound } from './errors';
+import { stageOwners, roleBundle } from '@projectman/shared';
 import { evaluateGates, stageIndex, stagesEntered } from './gates';
 import type { MemberService } from './members';
 import { highestUsagePercent } from './plan-usage';
@@ -122,7 +123,9 @@ export class Scheduler {
       const config = await this.projects.config(projectKey);
       let task = this.tasks.get(projectKey, taskKey);
       if (!isOpenTask(task)) throw conflict('task_closed', `task ${taskKey} is ${task.status}`);
-      const workStage = config.pipeline.stages.find((s) => s.kind === 'work');
+      const workStage =
+        config.pipeline.stages.find((s) => s.id === task.stageId && s.kind === 'work') ??
+        config.pipeline.stages.find((s) => s.kind === 'work');
       if (!workStage) throw invalid('no_work_stage', 'the pipeline has no work stage');
       const needsMove = stageIndex(config.pipeline, task.stageId) < stageIndex(config.pipeline, workStage.id);
 
@@ -138,7 +141,11 @@ export class Scheduler {
         );
 
       if (needsMove) {
-        const evaluation = evaluateGates(task, stagesEntered(config.pipeline, task.stageId, workStage.id));
+        const evaluation = evaluateGates(
+          task,
+          stagesEntered(config.pipeline, task.stageId, workStage.id),
+          config,
+        );
         if (evaluation.unmet.length > 0) throw gateBlockedError(evaluation);
         if (evaluation.approvals.length > 0) {
           const result = await this.tasks.moveToStage(projectKey, taskKey, workStage.id, opts.actor);
@@ -150,7 +157,11 @@ export class Scheduler {
       if (!member) {
         const temp = config.team.limits.tempWorkers;
         const tempCount = config.team.members.filter((m) => m.kind === 'ai' && m.temp).length;
-        if (!temp.enabled || tempCount >= temp.max) {
+        if (
+          !temp.enabled ||
+          tempCount >= temp.max ||
+          (workStage.duty && !roleBundle(config, temp.role).duties.includes(workStage.duty))
+        ) {
           throw conflict('no_free_member', 'every developer is at capacity', {
             tempWorkersEnabled: temp.enabled,
             tempWorkers: tempCount,
@@ -163,7 +174,7 @@ export class Scheduler {
           projectKey,
           { role: temp.role },
           { actor: opts.actor, author: opts.author, sponsor },
-          { temp: true },
+          { temp: true, stageId: workStage.owners !== undefined ? workStage.id : undefined },
         );
         member = hired;
       }
@@ -201,9 +212,15 @@ export class Scheduler {
 
   private chooseMember(config: ProjectConfig, task: Task, assignee: string | undefined): MemberConfig | null {
     const projectKey = config.project.key;
+    const stage =
+      config.pipeline.stages.find((s) => s.id === task.stageId && s.kind === 'work') ??
+      config.pipeline.stages.find((s) => s.kind === 'work');
+    const eligible = stage ? stageOwners(config, stage) : [];
     if (assignee) {
       const member = config.team.members.find((m) => m.handle === assignee);
       if (!member) throw notFound('member', assignee);
+      if (!eligible.includes(member.handle))
+        throw invalid('not_stage_owner', 'assignee must own the work stage');
       if (member.kind === 'ai' && this.memberLoad(projectKey, member.handle, task.key) >= member.capacity) {
         throw conflict('member_at_capacity', `${assignee} is at capacity (${member.capacity})`, {
           capacity: member.capacity,
@@ -213,14 +230,20 @@ export class Scheduler {
     }
     if (task.assignee) {
       const current = config.team.members.find((m) => m.handle === task.assignee);
-      if (current) return current;
+      if (current && eligible.includes(current.handle)) return current;
     }
     const candidates = config.team.members
       .map((m, index) => ({ m, index }))
-      .filter((c): c is { m: AiMemberConfig; index: number } => c.m.kind === 'ai' && c.m.role === 'developer')
+      .filter(
+        (c): c is { m: AiMemberConfig; index: number } => c.m.kind === 'ai' && eligible.includes(c.m.handle),
+      )
       .map((c) => ({ ...c, load: this.memberLoad(projectKey, c.m.handle) }))
       .filter((c) => c.load < c.m.capacity && !(c.m.temp && c.load > 0))
       .sort((a, b) => a.load - b.load || a.index - b.index);
-    return candidates[0]?.m ?? null;
+    return (
+      candidates[0]?.m ??
+      config.team.members.find((m) => m.kind === 'human' && eligible.includes(m.handle)) ??
+      null
+    );
   }
 }

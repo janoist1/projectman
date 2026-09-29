@@ -1,3 +1,4 @@
+import { resolvedStages, roleBundle, gateApprovers, stageOwners } from '@projectman/shared';
 import type {
   BuiltInRoleId,
   CheckName,
@@ -25,14 +26,14 @@ export interface Situation {
 }
 
 export function assess(input: ContextPackInput): Situation {
-  const stages = input.project.pipeline.stages;
+  const stages = resolvedStages(input.project);
   const task = input.workItem.type === 'task' ? input.task : null;
-  const current = task ? (input.stage ?? stages.find((s) => s.id === task.stageId) ?? null) : null;
+  const current = task ? (stages.find((s) => s.id === (input.stage?.id ?? task.stageId)) ?? null) : null;
   return {
     stages,
     current,
     next: current ? stageAfter(stages, current) : null,
-    ownsStage: current?.owners.includes(input.member.handle) ?? false,
+    ownsStage: current?.owners?.includes(input.member.handle) ?? false,
     isAssignee: task?.assignee === input.member.handle,
   };
 }
@@ -91,10 +92,28 @@ export function expectedSteps(input: ContextPackInput, s: Situation): string[] {
   const author = task.assignee ? code(task.assignee) : 'the author of the change';
   const inQueue = current.kind === 'queue';
   const notOwner = `You do not own the current stage (${stageLabel(current)}${
-    current.owners.length > 0 ? `, owners ${codeList(current.owners)}` : ''
+    (current.owners ?? []).length > 0 ? `, owners ${codeList(current.owners ?? [])}` : ''
   }): do what you were asked and report back to the sender with send_message.`;
 
-  switch (member.role) {
+  const bundle = roleBundle(input.project, member.role);
+  const duty = current.duty && bundle.duties.includes(current.duty) ? current.duty : bundle.duties[0];
+  const aliases: Partial<Record<import('@projectman/shared').DutyId, string>> = {
+    implementation: 'developer',
+    maintenance: 'maintainer',
+    translation: 'translator',
+    ux_design: 'designer',
+    testing_acceptance: 'qa',
+    deployment: 'devops',
+    client_communication: 'communication',
+    requirements_analysis: 'business_analyst',
+    technical_direction: 'architect',
+    scheduling: 'project_manager',
+    research: 'researcher',
+    retro_facilitation: 'coach',
+    monitoring: 'watchdog',
+  };
+  const role = duty ? (aliases[duty] ?? duty) : '';
+  switch (role) {
     case 'developer':
     case 'docs':
     case 'maintainer':
@@ -108,12 +127,12 @@ export function expectedSteps(input: ContextPackInput, s: Situation): string[] {
         if (inQueue && working) {
           steps.push(`Move the task to ${stageLabel(working)} with update_task as you start.`);
         }
-        steps.push(...buildSteps(member.role, task));
+        steps.push(...buildSteps(role, task));
         steps.push('Commit, push, open a pull request and attach it with link_pull_request.');
         steps.push(handover(input, working ? stageAfter(s.stages, working) : null));
         return steps;
       }
-      if (member.role === 'designer' && s.ownsStage) {
+      if (role === 'designer' && s.ownsStage) {
         return [
           'Compare the finished interface with the design: screen sizes, states and texts.',
           `Send each difference to ${author} with send_message (where it is, what you expect) and record the result as a note with update_task.`,
@@ -130,7 +149,7 @@ export function expectedSteps(input: ContextPackInput, s: Situation): string[] {
 
     case 'code_review':
     case 'security_review': {
-      const check = REVIEW_CHECKS[member.role] ?? 'code_review';
+      const check = REVIEW_CHECKS[role as BuiltInRoleId] ?? 'code_review';
       if (!s.ownsStage) {
         return [
           `Review what you were asked to review, record the ${check} check with update_task and report to the sender with send_message.`,
@@ -291,9 +310,9 @@ export function handover(input: ContextPackInput, target: Stage | null): string 
   if (!target) return 'Tell whoever asked that your part is done.';
   const approval = target.gate?.conditions.find((c): c is HumanApproval => c.type === 'human_approval');
   if (approval) {
-    return `Request the move to ${stageLabel(target)} with update_task: it needs a human approval, so the system opens a decision for ${codeList(approval.approvers)} and the task waits until they approve. Do not message them separately and never approve it yourself.`;
+    return `Request the move to ${stageLabel(target)} with update_task: it needs a human approval, so the system opens a decision for ${codeList(gateApprovers(input.project, approval))} and the task waits until they approve. Do not message them separately and never approve it yourself.`;
   }
-  const owners = target.owners.filter((h) => h !== input.member.handle);
+  const owners = stageOwners(input.project, target).filter((h) => h !== input.member.handle);
   if (target.kind === 'done' || owners.length === 0) {
     return `Move the task to ${stageLabel(target)} with update_task.`;
   }
@@ -319,7 +338,7 @@ function humansWithRole(input: ContextPackInput, role: string): string[] {
 
 function humanOwners(input: ContextPackInput, stage: Stage): string[] {
   const handles = new Set(humans(input).map((m) => m.handle));
-  return stage.owners.filter((h) => handles.has(h));
+  return stageOwners(input.project, stage).filter((h) => handles.has(h));
 }
 
 /** Communication members who tell clients that a release is live. */

@@ -66,7 +66,8 @@ export function registerConfigRoutes(app: FastifyInstance, domain: Domain): void
         check: (previous, draft) => {
           ProjectService.assertChangeAllowed(previous, draft, access.access);
           const issues = validateProjectConfig(draft);
-          if (issues.length) throw invalid('config_invalid', 'configuration violates invariants', { issues });
+          if (issues.some((issue) => issue.severity !== 'warning'))
+            throw invalid('config_invalid', 'configuration violates invariants', { issues });
         },
       });
     } catch (error) {

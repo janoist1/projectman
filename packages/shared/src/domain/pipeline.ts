@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { MemberHandle } from './member';
+import { DutyId } from './duty';
 
 export const StageId = z.string().regex(/^[a-z][a-z0-9_]{0,31}$/);
 export type StageId = z.infer<typeof StageId>;
@@ -37,7 +38,13 @@ export const GateCondition = z.discriminatedUnion('type', [
   z.object({ type: z.literal('check_passed'), check: CheckName }),
   z.object({ type: z.literal('pr_merged') }),
   /** Approvers must be human members; delegating the release gate is an owner-only change. */
-  z.object({ type: z.literal('human_approval'), approvers: z.array(MemberHandle).min(1) }),
+  z
+    .object({
+      type: z.literal('human_approval'),
+      approvers: z.array(MemberHandle).min(1).optional(),
+      duty: DutyId.optional(),
+    })
+    .refine((c) => c.approvers !== undefined || c.duty !== undefined, 'approvers or duty required'),
 ]);
 export type GateCondition = z.infer<typeof GateCondition>;
 
@@ -60,7 +67,8 @@ export const Stage = z.object({
   description: z.string().optional(),
   kind: StageKind,
   /** Members (human, AI or both) who carry this stage. */
-  owners: z.array(MemberHandle),
+  owners: z.array(MemberHandle).optional(),
+  duty: DutyId.optional(),
   gate: Gate.optional(),
   /** Board column the stage is shown in; several consecutive stages may share a column. */
   columnId: z.string(),

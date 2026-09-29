@@ -46,9 +46,9 @@ describe('role catalogue', () => {
     const { roles } = await h.domain.roles.list('AR');
 
     expect(roles.map((r) => r.id)).toEqual([...BUILT_IN_ROLE_IDS, 'data_steward']);
-    expect(roles[0]).toEqual({ id: 'operator', ...hu.roles.operator, holders: 'human', builtIn: true });
-    expect(roles.find((r) => r.id === 'watchdog')).toMatchObject({ holders: 'ai', builtIn: true });
-    expect(roles.at(-1)).toEqual({
+    expect(roles[0]).toMatchObject({ id: 'operator', ...hu.roles.operator, holders: 'human', builtIn: true });
+    expect(roles.find((r) => r.id === 'watchdog')).toMatchObject({ holders: 'both', builtIn: true });
+    expect(roles.at(-1)).toMatchObject({
       id: 'data_steward',
       name: 'Data steward',
       summary: 'Keeps the reference data clean.',
@@ -179,8 +179,8 @@ describe('role catalogue', () => {
     expect(view.roles).toEqual(['operator', 'product_owner', 'qa']);
     expect(((await member('owner')) as HumanMemberConfig).roles).toEqual(['operator', 'product_owner', 'qa']);
 
-    const aiOnly = await domainError(h.domain.members.update('AR', 'owner', { roles: ['watchdog'] }, by));
-    expect([aiOnly.code, aiOnly.status]).toEqual(['role_not_for_human', 400]);
+    await h.domain.members.update('AR', 'owner', { roles: ['watchdog'] }, by);
+    expect(await member('owner')).toMatchObject({ roles: ['watchdog'] });
     expect((await domainError(h.domain.members.update('AR', 'owner', { roles: ['nope'] }, by))).code).toBe(
       'unknown_role',
     );

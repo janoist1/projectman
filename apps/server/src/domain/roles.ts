@@ -1,4 +1,12 @@
-import { BUILT_IN_ROLE_HOLDERS, BUILT_IN_ROLE_IDS, holdersAllow, isBuiltInRole } from '@projectman/shared';
+import {
+  roleHolders,
+  roleBundle,
+  dutyHolders,
+  customRoleDuties,
+  BUILT_IN_ROLE_IDS,
+  holdersAllow,
+  isBuiltInRole,
+} from '@projectman/shared';
 import type {
   Actor,
   CustomRoleDefinition,
@@ -22,7 +30,9 @@ export function roleViews(config: ProjectConfig): RoleView[] {
     name: locale.roles[id].name,
     summary: locale.roles[id].summary,
     notTheirJob: locale.roles[id].notTheirJob,
-    holders: BUILT_IN_ROLE_HOLDERS[id],
+    holders: roleHolders(id, config.team.roles, config.team.roleOverrides)!,
+    duties: roleBundle(config, id).duties,
+    instructions: roleBundle(config, id).instructions,
     builtIn: true,
   }));
   const custom = config.team.roles.map((role): RoleView => ({
@@ -30,7 +40,9 @@ export function roleViews(config: ProjectConfig): RoleView[] {
     name: role.name,
     summary: role.summary,
     notTheirJob: role.notTheirJob,
-    holders: role.holders,
+    holders: dutyHolders(customRoleDuties(role))!,
+    duties: customRoleDuties(role),
+    instructions: role.instructions,
     builtIn: false,
   }));
   return [...builtIn, ...custom];
@@ -100,9 +112,11 @@ export class RoleService {
       const index = draft.team.roles.findIndex((r) => r.id === roleId);
       if (index < 0) throw notFound('role', roleId);
       const excluded = membersHolding(draft, roleId)
-        .filter((m) => !holdersAllow(role.holders, m.kind))
+        .filter((m) => !holdersAllow(dutyHolders(customRoleDuties(role))!, m.kind))
         .map((m) => m.handle);
-      const tempWorkers = draft.team.limits.tempWorkers.role === roleId && !holdersAllow(role.holders, 'ai');
+      const tempWorkers =
+        draft.team.limits.tempWorkers.role === roleId &&
+        !holdersAllow(dutyHolders(customRoleDuties(role))!, 'ai');
       if (excluded.length > 0 || tempWorkers) {
         throw conflict('role_in_use', `members hold ${roleId} who could not hold it any more`, {
           members: excluded,

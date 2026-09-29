@@ -1,4 +1,4 @@
-import { isBuiltInRole } from '@projectman/shared';
+import { isBuiltInRole, roleBundle, DUTIES } from '@projectman/shared';
 import type { BuiltInRoleId, CustomRoleDefinition } from '@projectman/shared';
 import type { ContextPackInput } from '../contracts';
 import { code, codeList, describeGate, languageName, stageLabel } from './format';
@@ -175,7 +175,7 @@ function teamworkSection({ project, member }: ContextPackInput): string {
 
 function pipelineSection(situation: Situation): string {
   const lines = situation.stages.map((stage, i) => {
-    const owners = stage.owners.length > 0 ? ` — owners ${codeList(stage.owners)}` : '';
+    const owners = (stage.owners ?? []).length > 0 ? ` — owners ${codeList(stage.owners ?? [])}` : '';
     const gate = describeGate(stage.gate);
     const current = situation.current?.id === stage.id ? ' ← current stage' : '';
     return `${i + 1}. ${stage.name} (${code(stage.id)}, ${stage.kind})${owners}${gate ? ` — gate: ${gate}` : ''}${current}`;
@@ -219,7 +219,7 @@ function workItemSection(input: ContextPackInput, situation: Situation): string 
   const { current, next } = situation;
   const lines = [heading, `Task ${task.key}: ${task.title}`];
   if (current) {
-    const owners = current.owners.length > 0 ? `, owners ${codeList(current.owners)}` : '';
+    const owners = (current.owners ?? []).length > 0 ? `, owners ${codeList(current.owners ?? [])}` : '';
     const own = situation.ownsStage ? 'you own this stage' : 'you do not own this stage';
     lines.push(`- Stage: ${stageLabel(current)}${owners}; ${own}.`);
   } else {
@@ -231,7 +231,7 @@ function workItemSection(input: ContextPackInput, situation: Situation): string 
     }.`,
   );
   if (next) {
-    const owners = next.owners.length > 0 ? `, owners ${codeList(next.owners)}` : '';
+    const owners = (next.owners ?? []).length > 0 ? `, owners ${codeList(next.owners ?? [])}` : '';
     const gate = describeGate(next.gate);
     lines.push(`- Next stage: ${stageLabel(next)}${owners}${gate ? `; gate: ${gate}` : ''}.`);
   }
@@ -245,7 +245,7 @@ function workItemSection(input: ContextPackInput, situation: Situation): string 
   return lines.join('\n');
 }
 
-function guardrailsSection({ member }: ContextPackInput): string {
+function guardrailsSection({ project, member }: ContextPackInput): string {
   const lines = [
     '# Guardrails',
     "- Never approve a gate, a decision or a permission request, and never answer in a human's name: approvals come only from the humans named in the gate.",
@@ -253,47 +253,27 @@ function guardrailsSection({ member }: ContextPackInput): string {
     '- When you are blocked or a decision is needed, ask with ask_human instead of guessing.',
     '- Never put secrets (passwords, tokens, keys, connection strings, personal data) in messages, notes, task text, commits or pull requests; say where they are stored instead.',
     '- Do not ask a teammate to do what you are not allowed to do; tell a human instead.',
+    '- Never record a code review, security review or QA result for a task you are assigned to or whose pull request you authored.',
     '- Do not ask humans again about what they have already decided.',
     '- If you told the team something wrong, correct it yourself and tell everyone who relied on it.',
   ];
-  if (member.role === 'code_review' || member.role === 'security_review') {
+  if (!roleBundle(project, member.role).duties.some((id) => DUTIES[id].toolPolicy === 'task_worktree')) {
     lines.push('- You never edit code, commit or push: you only report.');
   }
   return lines.join('\n');
 }
 
-/**
- * The member's role instructions. A built-in role's instructions are copied into the member's
- * configuration when it is hired. A custom role is described by the team (in the project's
- * language): its name, summary and "not their job", its instructions, and then the member's own
- * instructions, if any.
- */
+/** Duty fragments are followed by prompt-only role extras, then personal instructions. */
 function roleSection({ project, member }: ContextPackInput): string {
-  const own = member.instructions.trim();
-  const custom = isBuiltInRole(member.role)
-    ? undefined
-    : project.team.roles.find((r) => r.id === member.role);
-  if (!custom) {
-    return [
-      '# Your role instructions',
-      own || 'No role instructions are configured for you; follow the sections above.',
-    ].join('\n');
-  }
-  const notTheirJob = custom.notTheirJob.trim();
-  const instructions = [custom.instructions.trim(), own].filter(Boolean).join('\n\n');
+  const bundle = roleBundle(project, member.role);
   return [
-    [
-      `# Your role: ${custom.name}`,
-      'A role this team defined, in its own words:',
-      `- What the role does: ${custom.summary.trim()}`,
-      ...(notTheirJob ? [`- Not the role's job: ${notTheirJob}`] : []),
-    ].join('\n'),
-    [
-      '# Your role instructions',
-      instructions ||
-        'No instructions are written for this role yet; follow its description and the sections above.',
-    ].join('\n'),
-  ].join('\n\n');
+    '# Your role instructions',
+    ...bundle.duties.map((id) => DUTIES[id].prompt).filter(Boolean),
+    bundle.instructions.trim(),
+    member.instructions.trim(),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 function memorySection({ memory }: ContextPackInput): string {

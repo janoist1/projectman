@@ -1,4 +1,4 @@
-import type { BuiltInRoleId } from '@projectman/shared';
+import type { BuiltInRoleId, DutyId } from '@projectman/shared';
 
 /** Board column keys used by the factory templates (also used as column ids). */
 export type ColumnKey =
@@ -53,6 +53,7 @@ export interface TemplateLocale {
   timezone: string;
   columns: Record<ColumnKey, { name: string; hint: string }>;
   stages: Record<StageKey, string>;
+  duties: Record<DutyId, { name: string; description: string }>;
   roles: Record<BuiltInRoleId, RoleText>;
   members: Record<TemplateMemberKey, string>;
   specialties: Record<SpecialtyKey, string>;

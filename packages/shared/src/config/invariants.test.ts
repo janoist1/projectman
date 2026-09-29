@@ -51,9 +51,9 @@ describe('role catalogue', () => {
     expect(BUILT_IN_ROLE_IDS).toHaveLength(20);
     const aiRoles: readonly string[] = AI_BUILT_IN_ROLE_IDS;
     expect(BUILT_IN_ROLE_IDS.filter((id) => !aiRoles.includes(id))).toEqual(['operator', 'product_owner']);
-    expect(roleHolders('watchdog')).toBe('ai');
+    expect(roleHolders('watchdog')).toBe('both');
     expect(roleHolders('scheduled')).toBeNull();
-    expect(roleHolders('log_reader', [{ id: 'log_reader', holders: 'ai' }])).toBe('ai');
+    expect(roleHolders('log_reader', [{ id: 'log_reader', holders: 'ai' }])).toBe('both');
     expect(roleHolders('developer', [{ id: 'developer', holders: 'human' }])).toBe('both');
     expect(holdersAllow('both', 'human') && holdersAllow('ai', 'ai')).toBe(true);
     expect(holdersAllow('human', 'ai') || holdersAllow('ai', 'human')).toBe(false);
@@ -107,7 +107,7 @@ describe('validateProjectConfig roles', () => {
       });
       input.team.limits = { tempWorkers: { enabled: true, max: 1, role: 'data_steward' } };
     });
-    expect(validateProjectConfig(config)).toEqual([]);
+    expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([]);
   });
 
   it('reports unknown roles of members and temp workers', () => {
@@ -116,14 +116,14 @@ describe('validateProjectConfig roles', () => {
       members(input)[2]!.role = 'scheduled';
       input.team.limits = { tempWorkers: { role: 'nobody_knows' } };
     });
-    expect(validateProjectConfig(config)).toEqual([
+    expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([
       { code: 'unknown_role', path: 'team.members[1].roles[1]', detail: 'scheduled' },
       { code: 'unknown_role', path: 'team.members[2].role', detail: 'scheduled' },
       { code: 'unknown_role', path: 'team.limits.tempWorkers.role', detail: 'nobody_knows' },
     ]);
   });
 
-  it('keeps human-only roles away from AI members and AI-only roles away from humans', () => {
+  it('derives human-only restrictions while allowing humans to monitor and research', () => {
     const config = build((input) => {
       members(input)[0]!.roles = ['operator', 'watchdog', 'log_reader'];
       members(input)[2]!.role = 'operator';
@@ -136,9 +136,7 @@ describe('validateProjectConfig roles', () => {
       });
       input.team.limits = { tempWorkers: { role: 'product_owner' } };
     });
-    expect(validateProjectConfig(config)).toEqual([
-      { code: 'role_not_for_human', path: 'team.members[0].roles[1]', detail: 'watchdog' },
-      { code: 'role_not_for_human', path: 'team.members[0].roles[2]', detail: 'log_reader' },
+    expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([
       { code: 'role_not_for_ai', path: 'team.members[2].role', detail: 'operator' },
       { code: 'role_not_for_ai', path: 'team.members[3].role', detail: 'client_lead' },
       { code: 'role_not_for_ai', path: 'team.limits.tempWorkers.role', detail: 'product_owner' },
@@ -153,7 +151,7 @@ describe('validateProjectConfig roles', () => {
       );
       members(input)[1]!.roles = ['qa', 'data_steward'];
     });
-    expect(validateProjectConfig(config)).toEqual([
+    expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([
       { code: 'custom_role_shadows_builtin', path: 'team.roles[3].id', detail: 'qa' },
       { code: 'duplicate_role', path: 'team.roles[4].id', detail: 'data_steward' },
     ]);
@@ -163,7 +161,7 @@ describe('validateProjectConfig roles', () => {
     const config = build((input) => {
       members(input)[1]!.roles = ['qa', 'devops', 'qa'];
     });
-    expect(validateProjectConfig(config)).toEqual([
+    expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([
       { code: 'duplicate_role', path: 'team.members[1].roles[2]', detail: 'qa' },
     ]);
   });

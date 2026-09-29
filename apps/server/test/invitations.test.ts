@@ -192,10 +192,7 @@ describe('colleague invitation API', () => {
       const response = await call('POST', '/api/projects/AR/invites', owner, input);
       expect([response.statusCode, response.json().error.code]).toEqual([400, 'invalid_request']);
     }
-    for (const [roles, code] of [
-      [['watchdog'], 'role_not_for_human'],
-      [['unknown_role'], 'unknown_role'],
-    ] as const) {
+    for (const [roles, code] of [[['unknown_role'], 'unknown_role']] as const) {
       const response = await call('POST', '/api/projects/AR/invites', owner, { ...invitation, roles });
       expect([response.statusCode, response.json().error.code]).toEqual([400, code]);
     }

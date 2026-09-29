@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { gateApprovers, dutyMembers, roleBundle } from './duties';
+import { BUILT_IN_ROLE_IDS } from '../domain/role';
 import { Pipeline } from '../domain/pipeline';
 import { ProjectConfig, TeamLimits } from './schema';
 
@@ -34,6 +36,9 @@ export const PatchConfigRequest = z
       .partial()
       .strict()
       .optional(),
+    roleOverrides: ProjectConfig.shape.team.shape.roleOverrides,
+    roles: ProjectConfig.shape.team.shape.roles.removeDefault().optional(),
+    releaseFourEyes: z.boolean().optional(),
     pipeline: Pipeline.optional(),
   })
   .strict();
@@ -50,6 +55,9 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
     project: { ...config.project, ...patch.project },
     team: {
       ...config.team,
+      ...(patch.roleOverrides !== undefined ? { roleOverrides: patch.roleOverrides } : {}),
+      ...(patch.roles !== undefined ? { roles: patch.roles } : {}),
+      ...(patch.releaseFourEyes !== undefined ? { releaseFourEyes: patch.releaseFourEyes } : {}),
       limits: {
         ...config.team.limits,
         ...patch.limits,
@@ -69,11 +77,24 @@ export function humanApprovalChanged(previous: ProjectConfig, next: ProjectConfi
           id: stage.id,
           approvals: (stage.gate?.conditions ?? [])
             .filter((condition) => condition.type === 'human_approval')
-            .map((condition) => [...condition.approvers].sort())
+            .map((condition) => ({
+              duty: condition.duty,
+              approvers: gateApprovers(config, condition).sort(),
+            }))
             .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
         }))
         .filter((stage) => stage.approvals.length)
         .sort((a, b) => a.id.localeCompare(b.id)),
     );
-  return signature(previous) !== signature(next);
+  const releaseSignature = (config: ProjectConfig) =>
+    JSON.stringify({
+      fourEyes: config.team.releaseFourEyes ?? false,
+      holders: dutyMembers(config, 'release_approval')
+        .map((m) => m.handle)
+        .sort(),
+      roles: [...BUILT_IN_ROLE_IDS, ...config.team.roles.map((r) => r.id)]
+        .filter((r) => roleBundle(config, r).duties.includes('release_approval'))
+        .sort(),
+    });
+  return signature(previous) !== signature(next) || releaseSignature(previous) !== releaseSignature(next);
 }

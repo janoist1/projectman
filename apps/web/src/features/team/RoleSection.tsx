@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { CustomRoleRequest } from '@projectman/shared';
+import { CustomRoleRequest, dutyHolders } from '@projectman/shared';
 import type { ProjectConfig, RoleHolders, RoleView } from '@projectman/shared';
 import { useDeleteRole, useRoles, useSaveRole } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Chip } from '../../components/Chip';
 import { Dialog } from '../../components/Dialog';
-import { SelectField, TextAreaField, TextField } from '../../components/Field';
+import { TextAreaField, TextField } from '../../components/Field';
 import { ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
@@ -32,6 +32,7 @@ export function RoleForm({
     summary: role?.summary ?? '',
     notTheirJob: role?.notTheirJob ?? '',
     holders: role?.holders ?? ('both' as RoleHolders),
+    duties: role?.duties ?? [],
     instructions,
   });
   const [invalid, setInvalid] = useState(false);
@@ -74,17 +75,9 @@ export function RoleForm({
         value={draft.notTheirJob}
         onChange={(event) => setDraft({ ...draft, notTheirJob: event.target.value })}
       />
-      <SelectField
-        label={t('roleCatalogue.holders')}
-        value={draft.holders}
-        onChange={(event) => setDraft({ ...draft, holders: event.target.value as RoleHolders })}
-      >
-        {(['human', 'ai', 'both'] as const).map((kind) => (
-          <option key={kind} value={kind}>
-            {t(`roleCatalogue.${kind}`)}
-          </option>
-        ))}
-      </SelectField>
+      <p>
+        {t('roleCatalogue.holders')}: {t(`roleCatalogue.${dutyHolders(draft.duties) ?? 'both'}`)}
+      </p>
       <TextAreaField
         label={t('roleCatalogue.instructions')}
         value={draft.instructions}

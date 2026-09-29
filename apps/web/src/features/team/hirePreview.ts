@@ -1,3 +1,5 @@
+import { roleBundle, DUTIES } from '@projectman/shared';
+import { aiMemberDefaults } from '@projectman/templates';
 import type { AiMemberConfig, RoleId, ProjectConfig } from '@projectman/shared';
 
 /**
@@ -16,8 +18,17 @@ export function previewFor(
   const match = ai.find((member) => wanted && member.specialty?.toLowerCase().includes(wanted)) ?? ai[0];
   return {
     model: match?.model ?? 'opus',
-    permissionMode: match?.permissionMode ?? 'default',
+    permissionMode: config
+      ? (aiMemberDefaults(role, config.team.roles, config.team.roleOverrides)?.permissionMode ?? 'default')
+      : (match?.permissionMode ?? 'default'),
     capacity: match?.capacity ?? 1,
-    instructions: match?.instructions ?? '',
+    instructions: config
+      ? [
+          ...roleBundle(config, role).duties.map((id) => DUTIES[id].prompt),
+          roleBundle(config, role).instructions,
+        ]
+          .filter(Boolean)
+          .join('\n\n')
+      : '',
   };
 }

@@ -325,6 +325,14 @@ export class ProjectService {
     next: ProjectConfig,
     meta: ConfigChangeMeta,
   ): Promise<LoadedProject> {
+    const member = current.config.team.members.find((m) => m.handle === meta.actor.handle);
+    if (meta.actor.kind !== 'system') {
+      if (meta.actor.kind !== 'human' || member?.kind !== 'human')
+        throw forbidden('owner_only', 'AI cannot change configuration');
+      ProjectService.assertChangeAllowed(current.config, next, member.access);
+    } else {
+      ProjectService.assertChangeAllowed(current.config, next, 'admin');
+    }
     const { version } = await this.configStore
       .save(key, next, { author: meta.author, message: meta.message })
       .catch(fromConfigError);

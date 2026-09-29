@@ -20,6 +20,7 @@ import { unmetGateTexts } from '../../lib/gates';
 import { isApiError } from '../../api/client';
 import { useDocumentTitle } from '../../lib/hooks';
 import { nameOf, namesOf } from '../../lib/members';
+import { isDeveloperRole } from '../../lib/roles';
 import type { MemberIndex } from '../../lib/members';
 import { nextStage, stagePosition } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
@@ -47,7 +48,9 @@ function StartPanel({ task, members }: { task: Task; members: MemberIndex }) {
   const start = useStartTask(key);
   const toast = useToast();
   const [assignee, setAssignee] = useState('');
-  const developers = [...members.values()].filter((member) => member.kind === 'ai' && member.role === 'developer' && member.status !== 'retired');
+  const developers = [...members.values()].filter(
+    (member) => member.kind === 'ai' && isDeveloperRole(member.role) && member.status !== 'retired',
+  );
   return (
     <div className={styles.start}>
       <SelectField label={t('task.assigneeLabel')} value={assignee} onChange={(event) => setAssignee(event.target.value)}>

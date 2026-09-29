@@ -1,6 +1,7 @@
 import { useId, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
-import { AiRole, MemberHandle } from '@projectman/shared';
+import { MemberHandle } from '@projectman/shared';
+import type { AiRole } from '@projectman/shared';
 import type { AiMemberConfig, ProjectConfig } from '@projectman/shared';
 import { useHireMember } from '../../api/queries';
 import { useProject } from '../../app/contexts';
@@ -11,7 +12,7 @@ import { Dialog } from '../../components/Dialog';
 import { useToast } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
-import { roleLabel } from '../../lib/members';
+import { aiRoleView, hireableRoles, isDeveloperRole } from '../../lib/roles';
 import styles from './HireDialog.module.css';
 
 const MODELS = ['opus', 'sonnet', 'haiku'] as const;
@@ -51,7 +52,7 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
   const instructionsId = useId();
   const preview = useMemo(() => previewFor(role, specialty, config), [role, specialty, config]);
   const chosenModel = model || preview.model;
-  const defaultName = roleLabel({ handle: '', displayName: '', kind: 'ai', role, specialty });
+  const defaultName = aiRoleView(role, specialty).name;
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -66,7 +67,7 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
         role,
         displayName: name,
         handle: handle || undefined,
-        specialty: role === 'developer' && specialty.trim() ? specialty.trim() : undefined,
+        specialty: isDeveloperRole(role) && specialty.trim() ? specialty.trim() : undefined,
         model: chosenModel,
       },
       {
@@ -83,25 +84,25 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
       <p className={styles.intro}>{t('hire.intro')}</p>
       <fieldset className={styles.roles}>
         <legend className="visually-hidden">{t('hire.roles')}</legend>
-        {AiRole.options.map((option) => {
-          const checked = option === role;
+        {hireableRoles().map((option) => {
+          const checked = option.id === role;
           return (
-            <label key={option} className={styles.role} data-checked={checked || undefined}>
+            <label key={option.id} className={styles.role} data-checked={checked || undefined}>
               <input
                 type="radio"
                 name="role"
-                value={option}
+                value={option.id}
                 checked={checked}
                 onChange={() => {
-                  setRole(option);
+                  setRole(option.id as AiRole);
                   setModel('');
                 }}
                 className={styles.radio}
               />
-              <Avatar member={{ handle: option, displayName: option, kind: 'ai', role: option }} size="md" />
+              <Avatar member={{ handle: option.id, displayName: option.name, kind: 'ai', role: option.id }} size="md" />
               <span className={styles.roleText}>
-                <span className={styles.roleName}>{t(`roles.ai.${option}`)}</span>
-                <span className={styles.roleTag}>{t(`roles.taglines.${option}`)}</span>
+                <span className={styles.roleName}>{option.name}</span>
+                <span className={styles.roleTag}>{option.tagline}</span>
               </span>
             </label>
           );
@@ -129,7 +130,7 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
             spellCheck={false}
             autoCapitalize="off"
           />
-          {role === 'developer' ? (
+          {isDeveloperRole(role) ? (
             <TextField
               label={t('hire.specialty')}
               placeholder={t('hire.specialtyPlaceholder')}

@@ -1,24 +1,10 @@
-import { AiRole, HumanAccess } from '@projectman/shared';
 import type { InboxItem, MemberStatus, MemberView } from '@projectman/shared';
 import type { IconName } from '../components/Icon';
 import { t } from '../i18n/t';
+import { aiRoleView, humanRoleName, isDeveloperRole } from './roles';
+import type { RoleTone } from './roles';
 
-/** Colour family of a member (maps to --role-* tokens through data-tone). */
-export type RoleTone =
-  | 'devops'
-  | 'review'
-  | 'qa'
-  | 'comm'
-  | 'pm'
-  | 'frontend'
-  | 'backend'
-  | 'developer'
-  | 'security'
-  | 'docs'
-  | 'scheduled'
-  | 'human'
-  | 'owner'
-  | 'system';
+export type { RoleTone } from './roles';
 
 /** Enough of a member to draw it; MemberView and member configs both fit. */
 export interface MemberLike {
@@ -29,69 +15,16 @@ export interface MemberLike {
   specialty?: string | null;
 }
 
-export function isAiRole(role: string): role is AiRole {
-  return (AiRole.options as readonly string[]).includes(role);
-}
-
-export function isHumanAccess(role: string): role is HumanAccess {
-  return (HumanAccess.options as readonly string[]).includes(role);
-}
-
-function specialtyKind(specialty: string | null | undefined): 'frontend' | 'backend' | null {
-  const value = specialty?.toLowerCase() ?? '';
-  if (value.includes('front')) return 'frontend';
-  if (value.includes('back')) return 'backend';
-  return null;
-}
-
 export function toneFor(member: MemberLike | null | undefined): RoleTone {
   if (!member) return 'system';
   if (member.kind === 'human') return member.role === 'owner' ? 'owner' : 'human';
-  switch (member.role) {
-    case 'devops':
-      return 'devops';
-    case 'code_review':
-      return 'review';
-    case 'security_review':
-      return 'security';
-    case 'qa':
-      return 'qa';
-    case 'communication':
-      return 'comm';
-    case 'project_manager':
-      return 'pm';
-    case 'docs':
-      return 'docs';
-    case 'scheduled':
-      return 'scheduled';
-    default:
-      return specialtyKind(member.specialty) ?? 'developer';
-  }
+  return aiRoleView(member.role, member.specialty).tone;
 }
 
 export function iconFor(member: MemberLike | null | undefined): IconName {
   if (!member) return 'sparkle';
   if (member.kind === 'human') return 'user';
-  switch (member.role) {
-    case 'devops':
-      return 'server';
-    case 'code_review':
-      return 'code';
-    case 'security_review':
-      return 'shield';
-    case 'qa':
-      return 'flask';
-    case 'communication':
-      return 'mail';
-    case 'project_manager':
-      return 'calendar';
-    case 'docs':
-      return 'doc';
-    case 'scheduled':
-      return 'timer';
-    default:
-      return 'branch';
-  }
+  return aiRoleView(member.role, member.specialty).icon;
 }
 
 /** "CR" for code-review, "FE" for fe-1, "K" for Kata, "TE" for yourself. */
@@ -110,17 +43,10 @@ export function initialsFor(member: MemberLike | null | undefined, isMe = false,
   return (words[0] ?? member.handle).slice(0, 2).toUpperCase();
 }
 
-/** Role label in the UI language: "Tulajdonos", "Code review", "Frontend-fejlesztő". */
+/** Role label in the UI language: "Tulajdonos", "Code review", "Frontend fejlesztő". */
 export function roleLabel(member: MemberLike | null | undefined): string {
   if (!member) return '';
-  if (member.kind === 'human') {
-    return isHumanAccess(member.role) ? t(`roles.human.${member.role}`) : member.role;
-  }
-  if (member.role === 'developer') {
-    const specialty = specialtyKind(member.specialty);
-    if (specialty) return t(`roles.specialties.${specialty}`);
-  }
-  return isAiRole(member.role) ? t(`roles.ai.${member.role}`) : member.role;
+  return member.kind === 'human' ? humanRoleName(member.role) : aiRoleView(member.role, member.specialty).name;
 }
 
 export type MemberIndex = ReadonlyMap<string, MemberView>;
@@ -162,5 +88,5 @@ export function memberStatusView(
 
 /** Standing roles: AI members that are not developers (code review, QA, devops, ...). */
 export function isStandingRole(member: MemberView): boolean {
-  return member.kind === 'ai' && member.role !== 'developer' && !member.temp && member.status !== 'retired';
+  return member.kind === 'ai' && !isDeveloperRole(member.role) && !member.temp && member.status !== 'retired';
 }

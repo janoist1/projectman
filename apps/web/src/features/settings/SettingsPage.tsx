@@ -14,6 +14,7 @@ import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { useDocumentTitle } from '../../lib/hooks';
 import { gateConditionText } from '../../lib/gates';
+import { aiRoleView } from '../../lib/roles';
 import { nameOf, roleLabel } from '../../lib/members';
 import styles from './SettingsPage.module.css';
 
@@ -175,7 +176,7 @@ function LimitsAndRepos({ config }: { config: ProjectConfig }) {
             <dt>{t('settings.limits.tempWorkers')}</dt>
             <dd>
               {limits.tempWorkers.enabled
-                ? t('settings.limits.tempWorkersOn', { max: limits.tempWorkers.max, role: t(`roles.ai.${limits.tempWorkers.role}`) })
+                ? t('settings.limits.tempWorkersOn', { max: limits.tempWorkers.max, role: aiRoleView(limits.tempWorkers.role).name })
                 : t('settings.limits.tempWorkersOff')}
             </dd>
           </div>

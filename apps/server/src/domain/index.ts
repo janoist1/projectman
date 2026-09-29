@@ -41,20 +41,17 @@ export {
   ANSWER_OPTION,
   summarizeToolInput,
 } from './inbox';
-export { MemberService, nextHandle } from './members';
+export { MemberService } from './members';
 export { MessageService } from './messages';
+export { defaultMemberHandle, defaultMemberName } from './naming';
 export { PlanUsageCache, highestUsagePercent } from './plan-usage';
 export { PresenceService } from './presence';
 export { ProjectService, DEFAULT_PROJECT_LANGUAGE, OWNER_HANDLE } from './projects';
 export type { Author, LoadedProject, ConfigChange } from './projects';
 export { Scheduler } from './scheduler';
 export type { StartTaskOptions, StartTaskResult } from './scheduler';
-export {
-  SessionOrchestrator,
-  TEAM_TOOLS_ALLOWED,
-  BUSY_SESSION_STATES,
-  LIVE_SESSION_STATES,
-} from './sessions';
+export * from './session-policy';
+export { SessionOrchestrator, BUSY_SESSION_STATES, LIVE_SESSION_STATES } from './sessions';
 export { TaskService, isOpenTask, gatePayload } from './tasks';
 export type { MoveResult, GateRequestPayload } from './tasks';
 export { TeamToolsService } from './team-tools';
@@ -77,6 +74,8 @@ export interface DomainOptions {
   bus?: EventBus;
   now?: () => Date;
   planUsageTtlMs?: number;
+  /** Delay before a done task's sessions stop and its worktrees are removed (default 2 s). */
+  doneCleanupDelayMs?: number;
 }
 
 export type Domain = ReturnType<typeof createDomain>;
@@ -109,6 +108,7 @@ export function createDomain(opts: DomainOptions) {
     memory: opts.memory,
     worktrees: opts.worktrees,
     publicBaseUrl: opts.publicBaseUrl,
+    doneCleanupDelayMs: opts.doneCleanupDelayMs,
   });
   const planUsage = new PlanUsageCache({
     provider: runnerModule.planUsage,
@@ -144,8 +144,11 @@ export function createDomain(opts: DomainOptions) {
   // Human decisions.
   inbox.onResolved('decision', (item) => tasks.handleDecisionResolved(item));
   inbox.onResolved('question', (item) => teamTools.deliverAnswer(item));
-  // Temp workers leave when their task is done.
+  // Done tasks: temp workers leave; sessions stop and clean worktrees go away.
   tasks.onStageChanged((change) => scheduler.retireFinishedTempWorker(change));
+  tasks.onStageChanged((change) => {
+    if (change.task.status === 'done') sessions.scheduleDoneCleanup(change.task.projectKey, change.task.key);
+  });
 
   return {
     ctx,

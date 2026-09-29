@@ -186,6 +186,9 @@ export class FakeMemoryStore implements MemberMemoryStore {
 
 export class FakeWorktreeManager implements WorktreeManager {
   readonly calls: Array<{ repoName: string; taskKey: string }> = [];
+  readonly removed: string[] = [];
+  /** Status per worktree path (default: clean). */
+  readonly statuses = new Map<string, { dirty: boolean; unpushedCommits: number }>();
   private readonly root: string;
   constructor(root: string) {
     this.root = root;
@@ -201,10 +204,12 @@ export class FakeWorktreeManager implements WorktreeManager {
     mkdirSync(path, { recursive: true });
     return { path, branch: `task/${args.taskKey}`, repo: args.repoName };
   }
-  async status(): Promise<{ dirty: boolean; unpushedCommits: number }> {
-    return { dirty: false, unpushedCommits: 0 };
+  async status(path: string): Promise<{ dirty: boolean; unpushedCommits: number }> {
+    return this.statuses.get(path) ?? { dirty: false, unpushedCommits: 0 };
   }
-  async remove(): Promise<void> {}
+  async remove(args: { path: string; force?: boolean }): Promise<void> {
+    this.removed.push(args.path);
+  }
 }
 
 export function pullRequest(overrides: Partial<PullRequestInfo> = {}): PullRequestInfo {
@@ -319,4 +324,10 @@ export function capturingLogger(): CapturingLogger {
 /** Lets pending promise callbacks (background deliveries) run. */
 export async function flush(times = 5): Promise<void> {
   for (let i = 0; i < times; i++) await new Promise((resolve) => setImmediate(resolve));
+}
+
+/** Lets zero-delay timers and the work they start run. */
+export async function settle(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  await flush();
 }

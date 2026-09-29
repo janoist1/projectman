@@ -148,6 +148,34 @@ describe('session orchestrator', () => {
     expect(h.repos.memberState.get('AR', 'dev-1')?.status).toBe('retired');
   });
 
+  it('runs reviewers in the workspace with read-only tools, developers in the task worktree', async () => {
+    const withRepo = await h.domain.tasks.create('AR', { title: 'With repo', repo: 'web' }, OWNER_ACTOR);
+    const review = await h.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: withRepo.key });
+    expect(review.session).toMatchObject({ cwd: h.workspace, branch: null });
+    expect(h.runner.lastStarted().allowedTools).toEqual([
+      'mcp__team__*',
+      'Read',
+      'Grep',
+      'Glob',
+      'Bash(git diff:*)',
+      'Bash(git log:*)',
+      'Bash(git show:*)',
+      'Bash(gh pr view:*)',
+      'Bash(gh pr diff:*)',
+    ]);
+    expect(h.worktrees.calls).toEqual([]);
+
+    const dev = await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: withRepo.key });
+    expect(dev.session.branch).toBe('task/AR-2');
+    expect(dev.session.cwd).not.toBe(h.workspace);
+    expect(h.runner.lastStarted().allowedTools).toEqual(['mcp__team__*']);
+    expect(h.domain.tasks.get('AR', withRepo.key).links).toContainEqual({
+      kind: 'branch',
+      ref: 'task/AR-2',
+      repo: 'acme/web',
+    });
+  });
+
   it('marks live sessions as exited after a restart', async () => {
     const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
     h.runner.setState(session.id, 'working');

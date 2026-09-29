@@ -1,19 +1,19 @@
 import { AiMemberConfig, MemberHandle } from '@projectman/shared';
 import type {
   Actor,
-  AiRole,
   HireMemberRequest,
   MemberStatus,
   MemberView,
   ProjectConfig,
   SessionState,
 } from '@projectman/shared';
-import { aiRoleDefaults, defaultMemberName } from '@projectman/templates';
+import { aiRoleDefaults } from '@projectman/templates';
 import { findHumanByEmail } from './access';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
 import { conflict, invalid, notFound } from './errors';
 import type { InboxService } from './inbox';
+import { defaultMemberHandle, defaultMemberName } from './naming';
 import type { PresenceService } from './presence';
 import type { Author, ConfigChange, ProjectService } from './projects';
 import { isOpenTask } from './tasks';
@@ -21,39 +21,7 @@ import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
 import { unique } from './util';
 
-/** Handle prefix for a role's first hire when the team has no member of that role yet. */
-const ROLE_PREFIX: Record<AiRole, string> = {
-  developer: 'dev',
-  code_review: 'cr',
-  security_review: 'sec',
-  qa: 'qa',
-  devops: 'ops',
-  communication: 'comm',
-  project_manager: 'pm',
-  docs: 'docs',
-  scheduled: 'sched',
-};
-
 const ENDED_SESSION_STATES = new Set<SessionState>(['exited', 'failed']);
-
-/**
- * Next free handle for a role, following the team's existing naming: with "fe-1" the next
- * developer is "fe-2"; with a bare "qa" the next QA is "qa-2"; otherwise "<prefix>-1".
- * Retired handles are never reused, so history stays unambiguous.
- */
-export function nextHandle(role: AiRole, config: ProjectConfig, taken: Set<string>): string {
-  const sameRole = config.team.members.filter((m) => m.kind === 'ai' && m.role === role).map((m) => m.handle);
-  let prefix = ROLE_PREFIX[role];
-  const numbered = sameRole.map((h) => /^(.+)-(\d+)$/.exec(h)).find((m) => m !== null);
-  if (numbered) prefix = numbered[1]!;
-  else if (sameRole[0]) prefix = sameRole[0];
-  if (!MemberHandle.safeParse(`${prefix}-100`).success) prefix = ROLE_PREFIX[role];
-  for (let n = taken.has(prefix) ? 2 : 1; n < 1000; n++) {
-    const handle = `${prefix}-${n}`;
-    if (!taken.has(handle)) return handle;
-  }
-  throw conflict('handle_taken', `no free handle for role ${role}`);
-}
 
 /**
  * The roster (configured members + runtime state), hiring and retiring. Hiring and retiring
@@ -161,13 +129,22 @@ export class MemberService {
       const taken = this.takenHandles(projectKey, draft);
       if (req.handle && taken.has(req.handle))
         throw conflict('handle_taken', `handle already used: ${req.handle}`);
-      const handle = req.handle ?? nextHandle(req.role, draft, taken);
+      const handle = req.handle ?? defaultMemberHandle(req.role, taken, req.specialty);
+      if (!MemberHandle.safeParse(handle).success || taken.has(handle)) {
+        throw conflict('handle_taken', `no free handle for role ${req.role}`);
+      }
       const defaults = aiRoleDefaults(req.role);
-      const index = draft.team.members.filter((m) => m.kind === 'ai' && m.role === req.role).length + 1;
+      const specialty = req.specialty?.trim() ?? '';
+      const index =
+        draft.team.members.filter(
+          (m) => m.kind === 'ai' && m.role === req.role && (m.specialty ?? '').trim() === specialty,
+        ).length + 1;
       const member = AiMemberConfig.parse({
         kind: 'ai',
         handle,
-        displayName: req.displayName?.trim() || defaultMemberName(req.role, draft.project.language, index),
+        displayName:
+          req.displayName?.trim() ||
+          defaultMemberName(req.role, draft.project.language, index, specialty || undefined),
         role: req.role,
         ...(req.specialty ? { specialty: req.specialty } : {}),
         model: req.model ?? defaults.model,

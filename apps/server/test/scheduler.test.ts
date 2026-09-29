@@ -4,6 +4,7 @@ import type { ProjectConfig } from '@projectman/shared';
 import { DomainError } from '../src/domain';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
+import { settle } from './helpers/fakes';
 
 const start = (h: DomainHarness, key: string, assignee?: string) =>
   h.domain.scheduler.startTask('AR', key, { assignee, actor: OWNER_ACTOR, author: OWNER, sponsor: 'owner' });
@@ -50,6 +51,7 @@ describe('scheduler', () => {
     expect(spec.cwd).toBe(join(h.dir, 'worktrees', 'AR', 'AR-1'));
     expect(result.session!.cwd).toBe(spec.cwd);
     expect(result.session!.branch).toBe('task/AR-1');
+    expect(result.task.links).toEqual([{ kind: 'branch', ref: 'task/AR-1', repo: 'acme/web' }]);
     expect(spec.mcpUrl).toMatch(/^http:\/\/127\.0\.0\.1:4700\/mcp\/[\w-]{20,}$/);
     const token = spec.mcpUrl.split('/').pop()!;
     expect(h.domain.sessions.resolveToken(token)).toEqual({
@@ -141,6 +143,24 @@ describe('scheduler', () => {
     // A new temp worker never reuses a retired handle.
     const fourth = await start(h, 'AR-4');
     expect(fourth.hired?.handle).toBe('dev-4');
+  });
+
+  it('stops the sessions of a done task and removes its clean worktree, keeping local work', async () => {
+    h = await createDomainHarness({ adjust: withoutGates });
+    await h.domain.tasks.create('AR', { title: 'Clean', repo: 'web' }, OWNER_ACTOR);
+    await h.domain.tasks.create('AR', { title: 'Dirty', repo: 'web' }, OWNER_ACTOR);
+    const clean = (await start(h, 'AR-1')).session!;
+    const dirty = (await start(h, 'AR-2')).session!;
+    h.worktrees.statuses.set(dirty.cwd, { dirty: true, unpushedCommits: 0 });
+
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'done', OWNER_ACTOR);
+    await h.domain.tasks.moveToStage('AR', 'AR-2', 'done', OWNER_ACTOR);
+    await settle();
+
+    expect(h.runner.isRunning(clean.id)).toBe(false);
+    expect(h.runner.isRunning(dirty.id)).toBe(false);
+    expect(h.domain.sessions.get('AR', clean.id).state).toBe('exited');
+    expect(h.worktrees.removed).toEqual([clean.cwd]);
   });
 
   it('a human assignee gets the task without an AI session', async () => {

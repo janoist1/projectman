@@ -53,6 +53,7 @@ export async function createDomainHarness(opts: { adjust?: (config: ProjectConfi
     worktrees,
     templates: createTemplateRegistry([testTemplate]),
     planUsageTtlMs: 0,
+    doneCleanupDelayMs: 0,
   });
   await domain.start();
   await domain.projects.create(

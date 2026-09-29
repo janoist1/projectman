@@ -27,12 +27,11 @@ import { DomainError, invalid, notFound } from './errors';
 import type { MemberService } from './members';
 import type { MessageService } from './messages';
 import type { ConfigChange, ProjectService } from './projects';
+import { allowedToolsFor, DONE_TASK_CLEANUP_DELAY_MS, WORKTREE_ROLES } from './session-policy';
+import { isOpenTask } from './tasks';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
-import { aiActor, humanActor, KeyedMutex, newId, newToken, newUuid } from './util';
-
-/** Tools every AI session may use without asking: the team tools. */
-export const TEAM_TOOLS_ALLOWED = ['mcp__team__*'];
+import { aiActor, humanActor, KeyedMutex, newId, newToken, newUuid, SYSTEM_ACTOR } from './util';
 
 export const LIVE_SESSION_STATES: SessionState[] = [
   'starting',
@@ -69,6 +68,8 @@ export interface SessionOrchestratorDeps {
   worktrees: WorktreeManager;
   /** Base URL the claude CLI reaches this server at, e.g. http://127.0.0.1:4700. */
   publicBaseUrl: string;
+  /** Delay before a done task's sessions are stopped and its worktrees removed. */
+  doneCleanupDelayMs?: number;
 }
 
 function workItemLabel(item: WorkItemRef, member: AiMemberConfig): string {
@@ -88,6 +89,7 @@ export class SessionOrchestrator {
   private readonly locks = new KeyedMutex();
   private readonly tokens = new Map<string, ToolContext>();
   private readonly tokenBySession = new Map<string, string>();
+  private readonly cleanupTimers = new Set<NodeJS.Timeout>();
   private readonly unsubscribe: () => void;
 
   constructor(deps: SessionOrchestratorDeps) {
@@ -98,6 +100,8 @@ export class SessionOrchestrator {
 
   dispose(): void {
     this.unsubscribe();
+    for (const timer of this.cleanupTimers) clearTimeout(timer);
+    this.cleanupTimers.clear();
   }
 
   /** MCP: maps /mcp/:token to the calling session; null rejects the call. */
@@ -237,6 +241,51 @@ export class SessionOrchestrator {
     return { session, chat, task };
   }
 
+  /**
+   * Stage change listener for done tasks: after a short delay (so an in-flight tool result
+   * still reaches the agent) the task's sessions stop and its clean worktrees are removed.
+   */
+  scheduleDoneCleanup(projectKey: string, taskKey: string): void {
+    const timer = setTimeout(() => {
+      this.cleanupTimers.delete(timer);
+      this.cleanupDoneTask(projectKey, taskKey).catch((err: unknown) =>
+        this.ctx.logger.warn({ err, taskKey }, 'cleanup of a done task failed'),
+      );
+    }, this.deps.doneCleanupDelayMs ?? DONE_TASK_CLEANUP_DELAY_MS);
+    timer.unref();
+    this.cleanupTimers.add(timer);
+  }
+
+  /** Stops a done task's sessions and removes its worktrees unless they hold uncommitted or unpushed work. */
+  async cleanupDoneTask(projectKey: string, taskKey: string): Promise<void> {
+    const task = this.ctx.repos.tasks.get(taskKey);
+    if (!task || task.projectKey !== projectKey || isOpenTask(task)) return; // reopened meanwhile
+    const sessions = this.ctx.repos.sessions.list(projectKey, { taskKey });
+    for (const session of sessions) {
+      if (!this.isRunning(session.id)) continue;
+      try {
+        await this.deps.runner.stop(session.id);
+      } catch (err) {
+        this.ctx.logger.warn({ err, sessionId: session.id }, 'could not stop a session');
+      }
+      this.markEnded(session.id, null);
+    }
+    const worktreePaths = [...new Set(sessions.filter((s) => s.branch !== null).map((s) => s.cwd))];
+    for (const path of worktreePaths) {
+      try {
+        const status = await this.deps.worktrees.status(path);
+        if (status.dirty || status.unpushedCommits > 0) {
+          this.ctx.logger.info({ path, taskKey, ...status }, 'keeping a worktree with local work');
+          continue;
+        }
+        await this.deps.worktrees.remove({ path });
+      } catch (err) {
+        // e.g. a dirty worktree, a path outside the worktree root, or one already removed
+        this.ctx.logger.warn({ err, path, taskKey }, 'worktree not removed');
+      }
+    }
+  }
+
   /** Config change listener: sessions of removed members are stopped. */
   async handleConfigChange(change: ConfigChange): Promise<void> {
     if (!change.previous) return;
@@ -272,8 +321,9 @@ export class SessionOrchestrator {
     const projectKey = config.project.key;
     let cwd = config.project.workspacePath;
     let branch: string | null = null;
-    try {
-      if (task?.repo) {
+    if (task?.repo && WORKTREE_ROLES.has(member.role)) {
+      // Code-changing roles work in the task's own worktree and branch; others in the workspace.
+      try {
         const worktree = await this.deps.worktrees.ensureForTask({
           project: config,
           repoName: task.repo,
@@ -282,14 +332,19 @@ export class SessionOrchestrator {
         });
         cwd = worktree.path;
         branch = worktree.branch;
+      } catch (err) {
+        throw new DomainError(
+          'session_start_failed',
+          `could not prepare the worktree: ${(err as Error).message}`,
+          { status: 502 },
+        );
       }
-    } catch (err) {
-      throw new DomainError(
-        'session_start_failed',
-        `could not prepare the worktree: ${(err as Error).message}`,
-        {
-          status: 502,
-        },
+      const github = config.project.repos.find((r) => r.name === task.repo)?.github;
+      this.deps.tasks.addLink(
+        projectKey,
+        task.key,
+        { kind: 'branch', ref: branch, ...(github ? { repo: github } : {}) },
+        SYSTEM_ACTOR,
       );
     }
     if (existing) {
@@ -359,7 +414,7 @@ export class SessionOrchestrator {
         appendSystemPrompt: pack.appendSystemPrompt,
         initialMessage: resume ? null : pack.initialMessage,
         mcpUrl: `${this.deps.publicBaseUrl}${routes.mcp(token)}`,
-        allowedTools: TEAM_TOOLS_ALLOWED,
+        allowedTools: allowedToolsFor(member.role),
       });
       const current = this.ctx.repos.sessions.get(session.id);
       if (current?.state === 'starting' && info.state !== 'starting') {

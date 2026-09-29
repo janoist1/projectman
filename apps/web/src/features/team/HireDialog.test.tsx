@@ -9,6 +9,24 @@ import { HireDialog } from './HireDialog';
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
 describe('HireDialog', () => {
+  it('hires Claude with a fixed model and max effort', async () => {
+    const project = mockProject();
+    project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
+    fireEvent.change(await screen.findByLabelText(t('hire.model')), { target: { value: 'claude-opus-5-5' } });
+    fireEvent.change(screen.getByLabelText(t('providerSettings.effort')), { target: { value: 'max' } });
+    fireEvent.click(screen.getByRole('button', { name: t('hire.submit') }));
+    await waitFor(() =>
+      expect(project.backend.config.team.members.at(-1)).toMatchObject({
+        provider: 'claude',
+        model: 'claude-opus-5-5',
+        effort: 'max',
+      }),
+    );
+    expect(project.requests.find((request) => request.method === 'POST')?.body).toMatchObject({
+      effort: 'max',
+    });
+  });
+
   it('lists the AI-compatible catalogue and previews custom responsibilities', async () => {
     const project = mockProject();
     project.backend.config.team.roles.push({
@@ -65,7 +83,7 @@ describe('HireDialog', () => {
     project.backend.providerLoggedIn.codex = false;
     project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
     const provider = await screen.findByLabelText(t('providerSettings.provider'));
-    expect(screen.queryByLabelText(t('providerSettings.effort'))).toBeNull();
+    expect(screen.getByLabelText(t('providerSettings.effort'))).toBeTruthy();
     fireEvent.change(provider, { target: { value: 'codex' } });
     expect((screen.getByLabelText(t('hire.model')) as HTMLSelectElement).value).toBe('gpt-6.1-sol');
     expect((screen.getByLabelText(t('providerSettings.effort')) as HTMLSelectElement).value).toBe('medium');
@@ -106,7 +124,7 @@ describe('HireDialog', () => {
     });
     fireEvent.change(provider, { target: { value: 'claude' } });
     expect((screen.getByLabelText(t('hire.model')) as HTMLSelectElement).value).toBe('opus');
-    expect(screen.queryByLabelText(t('providerSettings.effort'))).toBeNull();
+    expect(screen.getByLabelText(t('providerSettings.effort'))).toBeTruthy();
     fireEvent.change(provider, { target: { value: 'codex' } });
     fireEvent.change(screen.getByLabelText(t('hire.model')), { target: { value: 'custom' } });
     fireEvent.change(screen.getByLabelText(t('providerSettings.modelId')), {

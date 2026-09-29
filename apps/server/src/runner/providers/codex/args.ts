@@ -192,7 +192,7 @@ export function buildCodexArgs(input: CodexArgsInput): string[] {
   if (permissions.sandbox === 'danger-full-access') c('notice.hide_full_access_warning', true);
   args.push('--sandbox', permissions.sandbox, '--ask-for-approval', permissions.approval);
   args.push('--model', codexModel(spec.model));
-  c('model_reasoning_effort', spec.effort ?? DEFAULT_CODEX_EFFORT);
+  c('model_reasoning_effort', spec.effort === 'max' ? 'xhigh' : (spec.effort ?? DEFAULT_CODEX_EFFORT));
 
   const positional: string[] = [];
   if (spec.resume) positional.push(spec.claudeSessionId);

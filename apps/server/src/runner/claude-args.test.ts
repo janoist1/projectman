@@ -65,6 +65,13 @@ describe('buildClaudeArgs', () => {
     permissionTimeoutMs: 1000,
   });
 
+  it.each([false, true])('passes effort on sessions with resume=%s', (resume) => {
+    for (const effort of ['low', 'medium', 'high', 'xhigh', 'max'] as const) {
+      const args = buildClaudeArgs({ ...spec, resume, effort }, settings);
+      expect(args[args.indexOf('--effort') + 1]).toBe(effort);
+    }
+  });
+
   it('starts a new conversation with a fixed session id and every flag', () => {
     const args = buildClaudeArgs(spec, settings);
     const flag = (name: string) => args[args.indexOf(name) + 1];
@@ -76,6 +83,7 @@ describe('buildClaudeArgs', () => {
     });
     expect(JSON.parse(flag('--settings')!)).toEqual(settings);
     expect(flag('--model')).toBe('opus');
+    expect(args).not.toContain('--effort');
     expect(flag('--permission-mode')).toBe('acceptEdits');
     expect(flag('-n')).toBe('Anna · fe-1');
     // The variadic --mcp-config value must be followed by another option, never by a value.
@@ -92,6 +100,7 @@ describe('buildClaudeArgs', () => {
     expect(args).not.toContain('--model');
     expect(args).not.toContain('--permission-mode');
     expect(args).not.toContain('--append-system-prompt');
+    expect(args).not.toContain('--effort');
   });
 });
 

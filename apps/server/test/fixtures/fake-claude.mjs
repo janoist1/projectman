@@ -4,7 +4,7 @@
  * tests. It never calls any API. It speaks the parts of the protocol projectman relies on:
  *
  * FLAGS (same as `claude`): --session-id <uuid> | --resume <uuid>, --append-system-prompt,
- *   --mcp-config <json>, --settings <json|file>, --model, --permission-mode, -n/--name,
+ *   --mcp-config <json>, --settings <json|file>, --model, --effort, --permission-mode, -n/--name,
  *   -p/--print with --input-format/--output-format stream-json, --version, --help.
  *   Other flags are accepted and ignored.
  *
@@ -84,6 +84,7 @@ function parseArgs(argv) {
     mcpConfig: [],
     settings: null,
     model: null,
+    effort: null,
     permissionMode: null,
     name: null,
     inputFormat: null,
@@ -123,6 +124,9 @@ function parseArgs(argv) {
         break;
       case '--model':
         o.model = value();
+        break;
+      case '--effort':
+        o.effort = value();
         break;
       case '--permission-mode':
         o.permissionMode = value();

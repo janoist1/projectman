@@ -37,7 +37,9 @@ function EditMemberForm({
   const [selected, setSelected] = useState(member.roles);
   const [specialty, setSpecialty] = useState(member.specialty ?? '');
   const [provider, setProvider] = useState<AgentProvider>(ai?.provider ?? member.provider ?? 'claude');
-  const [effort, setEffort] = useState<AgentEffort>(ai?.effort ?? member.effort ?? 'medium');
+  const [effort, setEffort] = useState<AgentEffort | undefined>(
+    ai?.effort ?? member.effort ?? (provider === 'codex' ? 'medium' : undefined),
+  );
   const [model, setModel] = useState(
     ai?.model ?? member.model ?? (provider === 'codex' ? 'gpt-6.1-sol' : 'opus'),
   );
@@ -59,7 +61,7 @@ function EditMemberForm({
                 displayName: displayName.trim(),
                 specialty: specialty.trim(),
                 provider,
-                effort: provider === 'codex' ? effort : undefined,
+                effort: effort ?? null,
                 model: model.trim(),
                 schedule: schedule.enabled
                   ? { cron: schedule.cron.trim(), prompt: schedule.prompt.trim() }

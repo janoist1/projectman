@@ -83,12 +83,27 @@ describe('provider API', () => {
     ]);
   });
 
+  it('clears Claude effort with a null PATCH and persists the default', async () => {
+    const cookie = await setupOwner(h.app);
+    await createProject(h, cookie);
+    const patch = (payload: object) =>
+      h.app.inject({ method: 'PATCH', url: '/api/projects/AR/members/dev-1', headers: { cookie }, payload });
+    expect((await patch({ effort: 'max' })).json()).toMatchObject({ effort: 'max' });
+    const cleared = await patch({ effort: null });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json()).not.toHaveProperty('effort');
+    const config = await h.app.projectman.domain.projects.config('AR');
+    expect(config.team.members.find((member) => member.handle === 'dev-1')).not.toHaveProperty('effort');
+  });
+
   it('validates and persists hire and update provider settings', async () => {
     const cookie = await setupOwner(h.app);
     await createProject(h, cookie);
     const call = (method: 'POST' | 'PATCH', url: string, payload: object) =>
       h.app.inject({ method, url, headers: { cookie }, payload });
-    expect((await call('PATCH', '/api/projects/AR/members/dev-1', { effort: 'max' })).statusCode).toBe(400);
+    expect(
+      (await call('PATCH', '/api/projects/AR/members/dev-1', { effort: 'unsupported' })).statusCode,
+    ).toBe(400);
     expect((await call('PATCH', '/api/projects/AR/members/dev-1', { provider: 'other' })).statusCode).toBe(
       400,
     );

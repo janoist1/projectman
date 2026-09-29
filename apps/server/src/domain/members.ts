@@ -270,7 +270,8 @@ export class MemberService {
           fields.push('provider');
         }
         if (req.effort !== undefined) {
-          member.effort = req.effort;
+          if (req.effort === null) delete member.effort;
+          else member.effort = req.effort;
           fields.push('effort');
         }
         if (req.schedule !== undefined) {

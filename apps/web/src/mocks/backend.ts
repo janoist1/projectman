@@ -23,6 +23,7 @@ import type {
   ChatItem,
   ClientCommand,
   ConfigVersionEntry,
+  GateCondition,
   InboxItem,
   MemberView,
   ProjectConfig,
@@ -409,6 +410,12 @@ export class MockBackend {
       if (method === 'PATCH') {
         const input = parseBody(UpdateTaskRequest, body);
         if (!input) return error(400, 'invalid_request', 'Invalid task update');
+        if (input.stageId !== undefined) {
+          if (viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))
+            return error(403, 'insufficient_access', 'Developer access required');
+          const result = this.moveTask(task, input.stageId);
+          if (result.status !== 200) return result;
+        }
         if (input.assignee !== undefined) {
           if (
             input.assignee !== null &&
@@ -425,9 +432,10 @@ export class MockBackend {
               previous: task.assignee,
             });
         }
-        const fields = Object.keys(input).filter((field) => field !== 'assignee');
+        const fields = Object.keys(input).filter((field) => field !== 'assignee' && field !== 'stageId');
         if (fields.length) this.addTimeline(task.key, this.owner, 'task_updated', { fields });
-        this.updateTask(task.key, input);
+        const { stageId: _stageId, ...fieldsToUpdate } = input;
+        this.updateTask(task.key, fieldsToUpdate);
       }
       return ok({
         task: clone(task),
@@ -633,6 +641,95 @@ export class MockBackend {
       });
     }
     return ok(clone(task));
+  }
+
+  private moveTask(task: Task, stageId: string): MockResponse {
+    if (['done', 'cancelled'].includes(task.status)) return error(409, 'task_closed', 'Task is closed');
+    const stages = this.config.pipeline.stages;
+    const to = stages.findIndex((stage) => stage.id === stageId);
+    if (to < 0) return error(400, 'unknown_stage', 'Unknown stage');
+    if (task.stageId === stageId) return ok(task);
+    const from = stages.findIndex((stage) => stage.id === task.stageId);
+    const entered = to > from ? stages.slice(from + 1, to + 1) : [stages[to]!];
+    const unmet: Array<{ stageId: string; condition: GateCondition }> = [];
+    const approvals: Array<{ stageId: string; conditionIndex: number; approvers: string[] }> = [];
+    for (const stage of entered) {
+      (stage.gate?.conditions ?? []).forEach((condition, conditionIndex) => {
+        if (condition.type === 'human_approval') {
+          approvals.push({ stageId: stage.id, conditionIndex, approvers: condition.approvers });
+        } else {
+          const prs = task.links.filter((link) => link.kind === 'pull_request');
+          const holds =
+            condition.type === 'check_passed'
+              ? task.checks[condition.check] === 'passed'
+              : prs.some((pr) => pr.state === 'merged') &&
+                prs.every((pr) => pr.state === 'merged' || pr.state === 'closed');
+          if (!holds) unmet.push({ stageId: stage.id, condition });
+        }
+      });
+    }
+    if (unmet.length) return error(409, 'gate_blocked', 'Gate conditions are not met', { unmet, approvals });
+    if (approvals.length) {
+      const items: InboxItem[] = [];
+      const requestId = mockId('gate');
+      for (const requirement of approvals) {
+        const existing = this.inbox.find((item) => {
+          const gate = item.payload.gate as
+            | { fromStageId?: string; toStageId?: string; stageId?: string; conditionIndex?: number }
+            | undefined;
+          return (
+            item.state === 'open' &&
+            item.taskKey === task.key &&
+            gate?.fromStageId === task.stageId &&
+            gate.toStageId === stageId &&
+            gate.stageId === requirement.stageId &&
+            gate.conditionIndex === requirement.conditionIndex
+          );
+        });
+        const item: InboxItem = existing ?? {
+          id: mockId('inb'),
+          projectKey: task.projectKey,
+          kind: 'decision',
+          assignees: requirement.approvers,
+          source: this.viewerHandle,
+          sessionId: null,
+          taskKey: task.key,
+          title: task.title,
+          body: null,
+          payload: {
+            gate: {
+              requestId,
+              taskKey: task.key,
+              fromStageId: task.stageId,
+              toStageId: stageId,
+              stageId: requirement.stageId,
+              conditionIndex: requirement.conditionIndex,
+              requestedBy: { kind: 'human', handle: this.viewerHandle },
+            },
+          },
+          options: fixtures.DECISION_OPTIONS,
+          state: 'open',
+          resolution: null,
+          createdAt: nowIso(),
+        };
+        if (!existing) this.upsertInbox(item);
+        items.push(item);
+      }
+      this.updateTask(task.key, { status: 'waiting' });
+      return error(409, 'approval_requested', 'Approvers were asked', {
+        inboxItemIds: items.map((item) => item.id),
+        approvers: [...new Set(items.flatMap((item) => item.assignees))],
+      });
+    }
+    const previous = task.stageId;
+    const done = stages[to]!.kind === 'done';
+    this.updateTask(task.key, {
+      stageId,
+      status: done ? 'done' : 'active',
+      closedAt: done ? nowIso() : null,
+    });
+    this.addTimeline(task.key, this.viewerHandle, 'task_stage_changed', { from: previous, to: stageId });
+    return ok(task);
   }
 
   private createTask(body: unknown): MockResponse {

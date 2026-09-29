@@ -42,7 +42,7 @@ const PERMISSION_OPTIONS: InboxOption[] = [
   { id: 'allow_session', label: 'allow_session', style: 'secondary' },
   { id: 'deny', label: 'deny', style: 'danger' },
 ];
-const DECISION_OPTIONS: InboxOption[] = [
+export const DECISION_OPTIONS: InboxOption[] = [
   { id: 'approve', label: 'approve', style: 'primary' },
   { id: 'reject', label: 'reject', style: 'danger' },
 ];

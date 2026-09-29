@@ -143,3 +143,30 @@ describe('mock task lifecycle', () => {
     });
   });
 });
+
+describe('mock stage gates', () => {
+  it('blocks skipped checks and open PRs, but creates deduplicated approval decisions for merged PRs', () => {
+    const backend = new MockBackend();
+    expect(errorCode(backend.handle('PATCH', `${base}/tasks/AC-20`, { stageId: 'client_test' }))).toBe(
+      'gate_blocked',
+    );
+    expect(backend.findTask('AC-20')?.stageId).toBe('dev');
+    expect(errorCode(backend.handle('PATCH', `${base}/tasks/AC-27`, { stageId: 'release' }))).toBe(
+      'gate_blocked',
+    );
+    const task = backend.findTask('AC-27')!;
+    backend.updateTask(task.key, { links: task.links.map((link) => ({ ...link, state: 'merged' })) });
+    expect(errorCode(backend.handle('PATCH', `${base}/tasks/AC-27`, { stageId: 'release' }))).toBe(
+      'approval_requested',
+    );
+    expect(errorCode(backend.handle('PATCH', `${base}/tasks/AC-27`, { stageId: 'release' }))).toBe(
+      'approval_requested',
+    );
+    expect(backend.findTask(task.key)?.stageId).toBe('merge');
+    expect(
+      backend.inbox.filter(
+        (item) => item.taskKey === task.key && item.kind === 'decision' && item.state === 'open',
+      ),
+    ).toHaveLength(1);
+  });
+});

@@ -29,6 +29,7 @@ export function TaskCard({ task, state, pipeline, to, selected = false, compact 
   return (
     <Link
       to={to}
+      draggable={false}
       className={clsx(styles.card, selected && styles.selected, compact && styles.compact)}
       aria-current={selected ? 'true' : undefined}
       data-phase={state.phase}

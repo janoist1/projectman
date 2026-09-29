@@ -11,6 +11,7 @@ coverage/
 # local runtime data (never commit)
 .data/
 .projectman/
+.demo/
 
 # agent worktrees created by Claude Code
 .claude/worktrees/

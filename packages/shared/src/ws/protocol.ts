@@ -1,8 +1,9 @@
 import { z } from 'zod';
+import { MemberView, PlanUsage } from '../api/dto';
 import { ChatItem } from '../chat/chat';
 import { TimelineEvent } from '../domain/event';
 import { InboxItem } from '../domain/inbox';
-import { MemberHandle, MemberStatus } from '../domain/member';
+import { AgentProvider, MemberHandle, MemberStatus } from '../domain/member';
 import { TeamMessage } from '../domain/message';
 import { Session } from '../domain/session';
 import { Task } from '../domain/task';
@@ -19,6 +20,19 @@ export const ServerEvent = z.discriminatedUnion('type', [
     handle: MemberHandle,
     status: MemberStatus,
     activity: z.string().nullable(),
+  }),
+  z.object({
+    type: z.literal('plan_usage'),
+    projectKey: z.string(),
+    provider: AgentProvider,
+    usage: PlanUsage.nullable(),
+  }),
+  /** A null member means the handle left the project. */
+  z.object({
+    type: z.literal('member_changed'),
+    projectKey: z.string(),
+    handle: MemberHandle,
+    member: MemberView.nullable(),
   }),
   z.object({ type: z.literal('inbox_upserted'), projectKey: z.string(), item: InboxItem }),
   z.object({ type: z.literal('team_message'), projectKey: z.string(), message: TeamMessage }),

@@ -140,6 +140,7 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     await waitState(s.sessionId, 'idle');
     expect(statesOf(s.sessionId)).toEqual(['starting', 'idle', 'working', 'idle']);
     expect(chatOf(s.sessionId).map((i) => i.kind)).toEqual(['user_text', 'assistant_text']);
+    expect(chatOf(s.sessionId)[0]).toMatchObject({ origin: 'brief' });
     expect(chatOf(s.sessionId)[0]).toMatchObject({ kind: 'user_text', text: 'Hello from the brief' });
 
     const pathEvent = events.find((e) => e.type === 'transcript_path');
@@ -369,6 +370,7 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     ).toEqual(['second run', 'Echo: second run']);
     const full = await runner.transcripts.read(path.join(transcriptDir, `${s.claudeSessionId}.jsonl`));
     expect(full.filter((i) => i.kind === 'user_text')).toHaveLength(2);
+    expect(full.filter((i) => i.kind === 'user_text').map((i) => i.origin)).toEqual(['brief', 'human']);
   });
 
   it('follows the new transcript after /clear', async () => {

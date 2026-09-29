@@ -2,9 +2,8 @@ import clsx from 'clsx';
 import { Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
-import type { AiMemberConfig, Session, SessionDetail } from '@projectman/shared';
+import type { Session, SessionDetail } from '@projectman/shared';
 import {
-  useConfig,
   useInbox,
   useResolveInbox,
   useSendSessionMessage,
@@ -70,7 +69,6 @@ function SessionView({ detail }: { detail: SessionDetail }) {
   const task = detail.task;
   const taskDetail = useTaskDetail(key, task?.key);
   const inbox = useInbox(key);
-  const config = useConfig(key);
   const { members, pipeline } = useProjectIndexes(key);
   const resolve = useResolveInbox(key, myHandle);
   const send = useSendSessionMessage(key, session.id);
@@ -116,6 +114,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
           !chat.some(
             (item) =>
               item.kind === 'user_text' &&
+              item.origin === 'human' &&
               item.text.trim() === message.text.trim() &&
               Date.parse(item.ts) >= Date.parse(message.sentAt) - ECHO_SKEW_MS,
           ),
@@ -135,9 +134,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
     if (element && stickToBottom.current) element.scrollTop = element.scrollHeight;
   }, [chat.length, pending.length, openItems.length, tab]);
 
-  const memberConfig = config.data?.config.team.members.find(
-    (member): member is AiMemberConfig => member.kind === 'ai' && member.handle === session.member,
-  );
+  const memberConfig = members.get(session.member);
   const running = isRunning(session);
   const needsMe = openItems.some((item) => item.kind === 'permission');
   const liveStatus = needsMe
@@ -206,7 +203,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
 
   const sidePanels = (
     <>
-      <PrPanel task={task} session={session} />
+      <PrPanel task={task} session={session} pullRequests={taskDetail.data?.pullRequests ?? []} />
       <ParticipantsPanel participants={participants} members={members} myHandle={myHandle} />
     </>
   );
@@ -301,10 +298,10 @@ function SessionView({ detail }: { detail: SessionDetail }) {
           <Chip tone="outline" size="md" mono title={t('session.chips.cwd', { cwd: session.cwd })}>
             {shortPath(session.cwd)}
           </Chip>
-          {memberConfig ? (
+          {memberConfig?.model ? (
             <Chip size="md">{t('session.chips.model', { model: memberConfig.model })}</Chip>
           ) : null}
-          {memberConfig ? (
+          {memberConfig?.permissionMode ? (
             <Chip size="md">
               {t('session.chips.permissions', { mode: t(`permissionModes.${memberConfig.permissionMode}`) })}
             </Chip>

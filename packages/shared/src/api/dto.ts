@@ -3,7 +3,14 @@ import { ChatItem } from '../chat/chat';
 import { MemberSchedule, ProjectConfig, RepoConfig } from '../config/schema';
 import { TimelineEvent } from '../domain/event';
 import { InboxItem } from '../domain/inbox';
-import { AgentProvider, HumanAccess, MemberHandle, MemberKind, MemberStatus } from '../domain/member';
+import {
+  AgentProvider,
+  HumanAccess,
+  MemberHandle,
+  MemberKind,
+  MemberStatus,
+  PermissionMode,
+} from '../domain/member';
 import { TeamMessage } from '../domain/message';
 import { BoardColumn, Stage, StageId } from '../domain/pipeline';
 import { CustomRoleDefinition, RoleHolders, RoleId } from '../domain/role';
@@ -28,6 +35,9 @@ export const Me = z.object({
   email: z.string(),
   /** Member handle of this user per project key. */
   handles: z.record(z.string(), MemberHandle),
+  projects: z
+    .array(z.object({ key: z.string(), name: z.string(), access: HumanAccess, roles: z.array(RoleId) }))
+    .default([]),
 });
 export type Me = z.infer<typeof Me>;
 
@@ -82,6 +92,9 @@ export const MemberView = z.object({
   temp: z.boolean(),
   /** AI members only: the agent CLI the member runs in. */
   provider: AgentProvider.optional(),
+  /** AI members only: public session settings, available to every project member. */
+  model: z.string().optional(),
+  permissionMode: PermissionMode.optional(),
 });
 export type MemberView = z.infer<typeof MemberView>;
 
@@ -158,12 +171,28 @@ export const BoardView = z.object({
   members: z.array(MemberView),
   openInboxCount: z.number().int(),
   planUsage: PlanUsage.nullable(),
+  /** Usage snapshots for the providers used by this project. */
+  planUsageByProvider: z.partialRecord(AgentProvider, PlanUsage.nullable()).default({}),
 });
 export type BoardView = z.infer<typeof BoardView>;
+
+export const TaskPullRequest = z.object({
+  repo: z.string(),
+  number: z.number().int().positive(),
+  url: z.string().nullable(),
+  title: z.string().nullable(),
+  state: z.enum(['open', 'closed', 'merged', 'draft']).nullable(),
+  checks: z.enum(['pending', 'passing', 'failing']).nullable(),
+  reviewDecision: z.enum(['approved', 'changes_requested', 'review_required']).nullable(),
+  additions: z.number().int().nonnegative().nullable(),
+  deletions: z.number().int().nonnegative().nullable(),
+});
+export type TaskPullRequest = z.infer<typeof TaskPullRequest>;
 
 export const TaskDetail = z.object({
   task: Task,
   timeline: z.array(TimelineEvent),
+  pullRequests: z.array(TaskPullRequest).default([]),
   sessions: z.array(Session),
 });
 export type TaskDetail = z.infer<typeof TaskDetail>;

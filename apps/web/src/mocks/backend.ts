@@ -106,6 +106,7 @@ export class MockBackend {
   inbox: InboxItem[] = clone(fixtures.inbox);
   messages: TeamMessage[] = clone(fixtures.teamMessages);
   planUsage = clone(fixtures.planUsage);
+  codexPlanUsage = { ...clone(fixtures.planUsage), fiveHourPercent: 24, weeklyPercent: 36 };
   extraProjects: { key: string; name: string; templateId: string }[] = [];
   invitations: Array<Invitation & { tokenHash: string }> = [];
   accounts = new Map<string, { userId: string; name: string; email: string; password: string }>([
@@ -121,6 +122,15 @@ export class MockBackend {
 
   constructor(auth: MockAuthState = 'ready') {
     this.auth = auth;
+    for (const member of this.members) {
+      const config = this.config.team.members.find((entry) => entry.handle === member.handle);
+      if (config?.kind === 'ai')
+        Object.assign(member, {
+          provider: config.provider ?? 'claude',
+          model: config.model,
+          permissionMode: config.permissionMode,
+        });
+    }
     this.terminals = new MockTerminals(this);
   }
 
@@ -318,6 +328,16 @@ export class MockBackend {
     this.emit({ type: 'config_changed', projectKey: fixtures.PROJECT_KEY, version: this.configVersion });
   }
 
+  private memberChanged(handle: string): void {
+    const member = this.findMember(handle);
+    this.emit({
+      type: 'member_changed',
+      projectKey: fixtures.PROJECT_KEY,
+      handle,
+      member: member && member.status !== 'retired' ? clone(member) : null,
+    });
+  }
+
   private board(): BoardView {
     const stages = this.config.pipeline.stages;
     return {
@@ -337,6 +357,18 @@ export class MockBackend {
         (item) => item.state === 'open' && item.assignees.includes(this.owner),
       ).length,
       planUsage: { ...this.planUsage, fetchedAt: nowIso() },
+      planUsageByProvider: Object.fromEntries(
+        [
+          ...new Set(
+            this.members
+              .filter((member) => member.kind === 'ai' && member.status !== 'retired')
+              .map((member) => member.provider ?? 'claude'),
+          ),
+        ].map((provider) => [
+          provider,
+          provider === 'claude' ? { ...this.planUsage, fetchedAt: nowIso() } : this.codexPlanUsage,
+        ]),
+      ),
     };
   }
 
@@ -416,7 +448,22 @@ export class MockBackend {
   }
 
   private me() {
-    return { ...this.user, handles: this.viewerHandle ? { [fixtures.PROJECT_KEY]: this.owner } : {} };
+    const member = this.config.team.members.find((entry) => entry.handle === this.viewerHandle);
+    return {
+      ...this.user,
+      handles: this.viewerHandle ? { [fixtures.PROJECT_KEY]: this.owner } : {},
+      projects:
+        member?.kind === 'human'
+          ? [
+              {
+                key: fixtures.PROJECT_KEY,
+                name: this.config.project.name,
+                access: member.access,
+                roles: member.roles,
+              },
+            ]
+          : [],
+    };
   }
 
   private handleProject(method: string, rest: string, body: unknown): MockResponse {
@@ -484,6 +531,7 @@ export class MockBackend {
       }
       return ok({
         task: clone(task),
+        pullRequests: this.taskPullRequests(task),
         timeline: clone(this.timeline.filter((event) => event.taskKey === task.key)),
         sessions: clone(
           this.sessions.filter((s) => s.workItem.type === 'task' && s.workItem.taskKey === task.key),
@@ -728,6 +776,7 @@ export class MockBackend {
     this.viewerHandle = handle;
     this.auth = 'ready';
     this.commitConfig(`Invite accepted: ${user.name}`);
+    this.memberChanged(handle);
     invite.acceptedAt = nowIso();
     return ok(this.me());
   }
@@ -822,11 +871,28 @@ export class MockBackend {
         config.specialty = input.specialty.trim() || undefined;
         member.specialty = config.specialty ?? null;
       }
-      if (input.model !== undefined) config.model = input.model;
+      if (input.model !== undefined) member.model = config.model = input.model;
       if (input.schedule !== undefined) config.schedule = input.schedule ?? undefined;
     }
     this.commitConfig(`Update member ${handle}`);
+    this.memberChanged(handle);
     return ok(clone(member));
+  }
+
+  private taskPullRequests(task: Task) {
+    return task.links
+      .filter((link) => link.kind === 'pull_request' && link.repo)
+      .map((link) => ({
+        repo: link.repo!,
+        number: Number(link.ref),
+        url: `https://github.com/${link.repo}/pull/${link.ref}`,
+        title: link.title ?? null,
+        state: link.state ?? null,
+        checks: 'passing',
+        reviewDecision: 'approved',
+        additions: 42,
+        deletions: 8,
+      }));
   }
 
   private taskSessions(taskKey: string): Session[] {
@@ -1033,7 +1099,10 @@ export class MockBackend {
       if (session.state === 'exited' || task.status === 'cancelled') return;
       this.updateSession(session.id, { state: 'working', activity: 'Read: README.md' });
       this.appendChat(session.id, [
-        this.chatItem('user_text', { text: `Task ${task.key}: ${task.title}\n\n${task.description}` }),
+        this.chatItem('user_text', {
+          origin: 'brief',
+          text: `Task ${task.key}: ${task.title}\n\n${task.description}`,
+        }),
         this.chatItem('assistant_text', { text: 'Átnézem a feladatot és a kódtárat, aztán nekiállok.' }),
       ]);
     });
@@ -1056,6 +1125,7 @@ export class MockBackend {
     });
     return ok({
       task: clone(task),
+      pullRequests: this.taskPullRequests(task),
       timeline: clone(this.timeline.filter((event) => event.taskKey === task.key)),
       sessions: clone(
         this.sessions.filter((s) => s.workItem.type === 'task' && s.workItem.taskKey === task.key),
@@ -1077,6 +1147,9 @@ export class MockBackend {
       handle,
       displayName: input.displayName ?? this.roleCatalogue().find((role) => role.id === input.role)!.name,
       kind: 'ai',
+      provider: input.provider ?? 'claude',
+      model: input.model ?? 'opus',
+      permissionMode: 'default',
       role: input.role,
       roles: [input.role],
       specialty: input.specialty ?? null,
@@ -1089,6 +1162,7 @@ export class MockBackend {
     this.members.push(member);
     const config: AiMemberConfig = {
       kind: 'ai',
+      provider: input.provider ?? 'claude',
       handle,
       displayName: member.displayName,
       role: input.role,
@@ -1103,6 +1177,7 @@ export class MockBackend {
     };
     this.config.team.members.push(config);
     this.commitConfig(`Felvéve: ${member.displayName} (${handle})`);
+    this.memberChanged(handle);
     return { status: 201, body: clone(member) };
   }
 
@@ -1127,6 +1202,7 @@ export class MockBackend {
     this.config.team.members = this.config.team.members.filter((entry) => entry.handle !== handle);
     this.addTimeline(null, this.owner, 'member_retired', { handle, handoverTo: target?.handle ?? null });
     this.commitConfig(`Elbocsátva: ${member.displayName} (${handle})`);
+    this.memberChanged(handle);
     return ok();
   }
 
@@ -1141,7 +1217,7 @@ export class MockBackend {
     const wasIdle = session.state !== 'working';
     this.later(wasIdle ? 350 : 1500, () => {
       if (this.sessionStops.get(sessionId) !== stops) return;
-      this.appendChat(sessionId, [this.chatItem('user_text', { text: input.text })]);
+      this.appendChat(sessionId, [this.chatItem('user_text', { origin: 'human', text: input.text })]);
       this.updateSession(sessionId, { state: 'working', activity: null, endedAt: null });
       this.setMemberState(session.member, 'working', 'Válaszol');
     });
@@ -1195,6 +1271,24 @@ export class MockBackend {
     };
     this.upsertInbox(resolved);
     this.planUsage.fiveHourPercent = Math.min(99, (this.planUsage.fiveHourPercent ?? 0) + 1);
+    this.emit({
+      type: 'plan_usage',
+      projectKey: fixtures.PROJECT_KEY,
+      provider: 'claude',
+      usage: clone(this.planUsage),
+    });
+    if (
+      this.members.some(
+        (member) => member.kind === 'ai' && member.provider === 'codex' && member.status !== 'retired',
+      )
+    ) {
+      this.emit({
+        type: 'plan_usage',
+        projectKey: fixtures.PROJECT_KEY,
+        provider: 'codex',
+        usage: clone(this.codexPlanUsage),
+      });
+    }
     this.later(250, () => this.afterResolve(resolved, input));
     return ok(clone(resolved));
   }

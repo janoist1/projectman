@@ -55,6 +55,9 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       client.setQueryData<TaskDetail>(queryKeys.task(key, task.key), (detail) =>
         detail ? { ...detail, task } : detail,
       );
+      if (task.links.some((link) => link.kind === 'pull_request')) {
+        void client.invalidateQueries({ queryKey: queryKeys.task(key, task.key) });
+      }
       client.setQueriesData<SessionDetail>({ queryKey: queryKeys.sessions(key) }, (detail) =>
         detail && detail.task?.key === task.key ? { ...detail, task } : detail,
       );
@@ -78,6 +81,34 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
           detail ? { ...detail, sessions: upsertBy(detail.sessions, session, (entry) => entry.id) } : detail,
         );
       }
+      return;
+    }
+    case 'plan_usage': {
+      const { projectKey: key, provider, usage } = event;
+      client.setQueryData<BoardView>(queryKeys.board(key), (board) =>
+        board
+          ? {
+              ...board,
+              planUsage: provider === 'claude' ? usage : board.planUsage,
+              planUsageByProvider: { ...board.planUsageByProvider, [provider]: usage },
+            }
+          : board,
+      );
+      return;
+    }
+    case 'member_changed': {
+      const { projectKey: key, handle, member } = event;
+      const change = (members: readonly MemberView[]) =>
+        member
+          ? upsertBy(members, member, (entry) => entry.handle)
+          : members.filter((entry) => entry.handle !== handle);
+      client.setQueryData<BoardView>(queryKeys.board(key), (board) =>
+        board ? { ...board, members: change(board.members) } : board,
+      );
+      client.setQueryData<MemberView[]>(queryKeys.members(key), (members) =>
+        members ? change(members) : members,
+      );
+      void client.invalidateQueries({ queryKey: queryKeys.me });
       return;
     }
     case 'member_state': {
@@ -120,6 +151,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     }
     case 'config_changed': {
       const key = event.projectKey;
+      void client.invalidateQueries({ queryKey: queryKeys.me });
       void client.invalidateQueries({ queryKey: queryKeys.roles(key) });
       void client.invalidateQueries({ queryKey: queryKeys.config(key) });
       void client.invalidateQueries({ queryKey: queryKeys.board(key) });

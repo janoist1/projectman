@@ -88,6 +88,27 @@ const rollout = [
 ];
 
 describe('CodexTranscriptParser', () => {
+  it('ignores context fragments and marks brief and human turns across incremental reads', () => {
+    const parser = new CodexTranscriptParser({ self: 'dev-1' });
+    const first = parser.parseLines([
+      text('user', '<environment_context>cwd</environment_context>'),
+      text('user', 'Fictional brief'),
+    ]);
+    expect(first.items).toEqual([
+      expect.objectContaining({ kind: 'user_text', origin: 'brief', text: 'Fictional brief' }),
+    ]);
+    expect(parser.parseLines([text('user', 'Human follow-up')]).items[0]).toMatchObject({ origin: 'human' });
+    expect(
+      new CodexTranscriptParser({ firstUserOrigin: 'human' }).parseLines([text('user', 'After resume')])
+        .items[0],
+    ).toMatchObject({ origin: 'human' });
+    const teamFirst = parseCodexTranscript(
+      [text('user', formatInjectedTeamMessage('qa', 'Review ready')), text('user', 'Human reply')].join('\n'),
+    );
+    expect(teamFirst[0]).toMatchObject({ kind: 'team_message', from: 'qa' });
+    expect(teamFirst[1]).toMatchObject({ origin: 'human' });
+  });
+
   it('turns a rollout into chat items, skipping the context Codex adds itself', () => {
     const result = new CodexTranscriptParser({ self: 'fe-1', cwd: '/work' }).parseLines(rollout);
     expect(result.sessionId).toBe(ID);

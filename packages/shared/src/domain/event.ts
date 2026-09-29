@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { MemberHandle } from './member';
+import type { GateCondition } from './pipeline';
 import { TaskKey } from './task';
 
 /** Who did something. Every step is attributed to a human, an AI member or the system. */
@@ -55,8 +56,18 @@ export interface TimelineEventData {
     previousStatus?: string;
     previousAssignee?: string | null;
     reason?: string;
+    /** A stage move waiting for human approval. */
+    gateRequest?: { requestId: string; from: string; to: string; inboxItemIds: string[] };
+    gateRejected?: { requestId: string; to: string; inboxItemId: string };
+    /** Revalidation after approval can fail if the task or pipeline changed. */
+    gateBlocked?: {
+      to: string;
+      reason?: 'unknown_stage';
+      unmet?: Array<{ stageId: string; condition: GateCondition }>;
+      approvalsStillValid?: boolean;
+    };
   };
-  task_stage_changed: { from: string; to: string };
+  task_stage_changed: { from: string; to: string; approvedBy?: string[]; inboxItemIds?: string[] };
   task_assigned: { assignee: string | null; previous?: string | null };
   task_check_changed: { check: string; from: string | null; to: string };
   task_link_added: { kind: string; ref: string; repo?: string };

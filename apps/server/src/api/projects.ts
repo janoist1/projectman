@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { CreateProjectRequest, routes } from '@projectman/shared';
+import { CreateProjectRequest, DEFAULT_AGENT_PROVIDER, routes } from '@projectman/shared';
 import type { BoardView, ProjectSummary, TemplateSummary } from '@projectman/shared';
 import { summarizeTemplate } from '@projectman/templates';
 import type { Domain } from '../domain';
@@ -35,6 +35,16 @@ export function registerProjectRoutes(app: FastifyInstance, domain: Domain): voi
     const access = await requireAccess(domain, request, key);
     const { config } = await domain.projects.load(key);
     const internal = access.access !== 'client';
+    const providers = [
+      ...new Set(
+        config.team.members.flatMap((m) => (m.kind === 'ai' ? [m.provider ?? DEFAULT_AGENT_PROVIDER] : [])),
+      ),
+    ];
+    const planUsageByProvider = Object.fromEntries(
+      await Promise.all(
+        providers.map(async (provider) => [provider, internal ? await domain.planUsage.get(provider) : null]),
+      ),
+    );
     return {
       project: domain.projects.summary(key),
       columns: config.pipeline.columns.map((column) => ({
@@ -45,7 +55,8 @@ export function registerProjectRoutes(app: FastifyInstance, domain: Domain): voi
       tasks: domain.tasks.list(key).filter((t) => canSeeTask(access, t)),
       members: domain.members.rosterFor(config),
       openInboxCount: domain.inbox.countOpenFor(key, access.handle),
-      planUsage: internal ? await domain.planUsage.get() : null,
+      planUsage: planUsageByProvider.claude ?? null,
+      planUsageByProvider,
     };
   });
 }

@@ -132,7 +132,11 @@ export interface ProviderAdapter {
   detectBlockingScreen(text: string): string | null;
   /** Whether the screen shows the input prompt, i.e. no dialog covers it. */
   promptVisible(text: string): boolean;
-  createTranscriptParser(opts: { self: string | null; cwd: string | null }): TranscriptLineParser;
+  createTranscriptParser(opts: {
+    self: string | null;
+    cwd: string | null;
+    firstUserOrigin?: 'brief' | 'human';
+  }): TranscriptLineParser;
   /** Login state, from a check that spends no usage. */
   checkLogin(env: Record<string, string>): Promise<ProviderStatus>;
   readonly planUsage: PlanUsageProvider;

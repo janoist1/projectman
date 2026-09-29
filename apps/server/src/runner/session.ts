@@ -488,6 +488,7 @@ export class AgentSession {
     const parser = this.adapter.createTranscriptParser({
       self: this.spec.member ?? null,
       cwd: this.spec.cwd,
+      firstUserOrigin: first && this.spec.resume ? 'human' : this.spec.initialMessage ? 'brief' : 'human',
     });
     this.parser = parser;
     // A resumed conversation's history is known already: follow only what comes next.

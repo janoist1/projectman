@@ -21,16 +21,15 @@ export function ProjectLayout() {
   useProjectSubscription(projectKey);
   const board = useBoard(projectKey);
   const inbox = useInbox(projectKey);
-  const config = useConfig(projectKey);
+
   const { members } = useProjectIndexes(projectKey);
   const myHandle = me.handles[projectKey] ?? null;
   const myOpen = useMyOpenInbox(projectKey, myHandle);
   const inboxCount = inbox.data ? myOpen.length : (board.data?.openInboxCount ?? 0);
   const [search, setSearch] = useState('');
   const [newTaskOpen, setNewTaskOpen] = useState(false);
-  const access = board.data?.members.find(
-    (member) => member.handle === myHandle && member.kind === 'human',
-  )?.role;
+  const access = me.projects.find((project) => project.key === projectKey)?.access;
+  const config = useConfig(projectKey, access === 'owner' || access === 'admin' || access === 'developer');
   const isOwner = access === 'owner';
   const internal = access === 'owner' || access === 'admin' || access === 'developer';
   const can = useMemo(

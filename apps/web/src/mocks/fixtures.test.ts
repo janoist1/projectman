@@ -5,6 +5,7 @@ import {
   InboxItem,
   InboxView,
   MemberView,
+  Me,
   ProjectConfig,
   ServerEvent,
   Session,
@@ -81,6 +82,48 @@ describe('MockBackend', () => {
       ConfigView.safeParse(backend.handle('GET', '/api/projects/AC/config', undefined).body).success,
     ).toBe(true);
     expect(backend.handle('GET', '/api/projects/XX/board', undefined).status).toBe(404);
+  });
+
+  it('serves membership, provider snapshots and PR details and emits member changes', () => {
+    const backend = new MockBackend();
+    const events: ServerEvent[] = [];
+    const connection: MockConnection = { deliver: (event) => events.push(event) };
+    backend.connect(connection);
+    backend.handleCommand(connection, { type: 'subscribe_project', projectKey: 'AC' });
+    expect(Me.parse(backend.handle('GET', '/api/me', undefined).body).projects).toMatchObject([
+      { key: 'AC', access: 'owner' },
+    ]);
+    const board = BoardView.parse(backend.handle('GET', '/api/projects/AC/board', undefined).body);
+    expect(Object.keys(board.planUsageByProvider).sort()).toEqual(['claude', 'codex']);
+    expect(board.members.find((member) => member.handle === 'be-1')).toMatchObject({
+      provider: 'codex',
+      model: 'gpt-6.1-sol',
+      permissionMode: 'acceptEdits',
+    });
+    expect(
+      TaskDetail.parse(backend.handle('GET', '/api/projects/AC/tasks/AC-21', undefined).body).pullRequests[0],
+    ).toMatchObject({ checks: 'passing', reviewDecision: 'approved', additions: 42, deletions: 8 });
+    const hired = MemberView.parse(
+      backend.handle('POST', '/api/projects/AC/members', {
+        role: 'qa',
+        provider: 'codex',
+        model: 'fictional-model',
+      }).body,
+    );
+    backend.handle('PATCH', `/api/projects/AC/members/${hired.handle}`, { model: 'fictional-new-model' });
+    backend.handle('DELETE', `/api/projects/AC/members/${hired.handle}`, {});
+    expect(events.filter((event) => event.type === 'member_changed')).toEqual([
+      expect.objectContaining({
+        handle: hired.handle,
+        member: expect.objectContaining({ provider: 'codex', model: 'fictional-model' }),
+      }),
+      expect.objectContaining({
+        handle: hired.handle,
+        member: expect.objectContaining({ model: 'fictional-new-model' }),
+      }),
+      expect.objectContaining({ handle: hired.handle, member: null }),
+    ]);
+    expect(events.every((event) => ServerEvent.safeParse(event).success)).toBe(true);
   });
 
   it('asks for a login when the user is logged out', () => {

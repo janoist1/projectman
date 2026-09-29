@@ -63,6 +63,7 @@ export function detailFor(access: ProjectAccess, detail: TaskDetail): TaskDetail
   if (access.access !== 'client') return detail;
   return {
     task: detail.task,
+    pullRequests: detail.pullRequests,
     timeline: detail.timeline.filter((e) => CLIENT_TIMELINE.has(e.type)),
     sessions: [],
   };

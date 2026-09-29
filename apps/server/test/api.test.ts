@@ -242,7 +242,7 @@ describe('REST API', () => {
       const sessionId = started.body.sessions[0]!.id;
       h.runner.emit({ type: 'transcript_path', sessionId, path: '/transcripts/a.jsonl' });
       h.runnerModule.transcripts.set('/transcripts/a.jsonl', [
-        { id: 'u1', ts: '2026-09-29T10:00:00.000Z', kind: 'user_text', text: 'Brief' },
+        { id: 'u1', ts: '2026-09-29T10:00:00.000Z', kind: 'user_text', origin: 'human', text: 'Brief' },
         { id: 'a1', ts: '2026-09-29T10:00:01.000Z', kind: 'assistant_text', text: 'On it' },
       ]);
 

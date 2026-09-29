@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import type { PlanUsage } from '@projectman/shared';
+import type { AgentProvider, PlanUsage } from '@projectman/shared';
 import { formatPercent, formatStamp } from '../i18n/format';
 import { t } from '../i18n/t';
 import styles from './PlanUsageMeter.module.css';
@@ -49,29 +49,24 @@ function Bar({
   );
 }
 
-/** "Keret" meter: the Claude subscription's 5-hour and weekly usage. */
+/** Subscription usage for one provider, with both plan windows. */
 export function PlanUsageMeter({
   usage,
+  provider = 'claude',
   pauseAbove = 80,
   compact = false,
 }: {
   usage: PlanUsage | null | undefined;
+  provider?: AgentProvider;
   pauseAbove?: number;
   compact?: boolean;
 }) {
-  if (!usage) {
-    return (
-      <span className={clsx(styles.box, compact && styles.compact)} title={t('planUsage.unavailable')}>
-        <span className={styles.label}>{t('planUsage.label')}</span>
-        <span className={styles.unknown}>{t('planUsage.unknown')}</span>
-      </span>
-    );
-  }
-  const five = usage.fiveHourPercent;
-  const week = usage.weeklyPercent;
+  const five = usage?.fiveHourPercent ?? null;
+  const week = usage?.weeklyPercent ?? null;
   const paused = (five ?? 0) >= pauseAbove || (week ?? 0) >= pauseAbove;
   const title = [
     t('planUsage.title', {
+      provider: t(`providers.${provider}`),
       fiveHour: five === null ? t('planUsage.unknown') : formatPercent(five),
       weekly: week === null ? t('planUsage.unknown') : formatPercent(week),
     }),
@@ -81,18 +76,20 @@ export function PlanUsageMeter({
     .join(' · ');
   return (
     <span className={clsx(styles.box, compact && styles.compact, paused && styles.paused)} title={title}>
-      <span className={styles.label}>{t('planUsage.label')}</span>
+      <span className={styles.label}>
+        {t('planUsage.providerLabel', { provider: t(`providers.${provider}`) })}
+      </span>
       <Bar
         label={t('planUsage.fiveHour')}
         value={five}
         pauseAbove={pauseAbove}
-        resetsAt={usage.fiveHourResetsAt}
+        resetsAt={usage?.fiveHourResetsAt ?? null}
       />
       <Bar
         label={t('planUsage.weekly')}
         value={week}
         pauseAbove={pauseAbove}
-        resetsAt={usage.weeklyResetsAt}
+        resetsAt={usage?.weeklyResetsAt ?? null}
       />
     </span>
   );

@@ -1,4 +1,4 @@
-import type { ProjectConfig, TemplateSummary } from '@projectman/shared';
+import type { AiRole, PermissionMode, ProjectConfig, TemplateSummary } from '@projectman/shared';
 
 /**
  * Factory team + pipeline templates a new project starts from. Source code is English;
@@ -30,6 +30,25 @@ export interface ProjectTemplate {
 }
 
 export const templates: ProjectTemplate[] = [];
+
+/** Defaults used when an AI member is hired from a role template. */
+export interface AiRoleDefaults {
+  /** English role instructions appended to the member's system prompt. */
+  instructions: string;
+  model: string;
+  permissionMode: PermissionMode;
+  capacity: number;
+}
+
+/** Placeholder: the templates workstream provides real instructions per role. */
+export function aiRoleDefaults(_role: AiRole): AiRoleDefaults {
+  return { instructions: '', model: 'opus', permissionMode: 'default', capacity: 1 };
+}
+
+/** Default display name for the index-th member of a role, in the project's language. */
+export function defaultMemberName(role: AiRole, _language: string, index: number): string {
+  return index > 1 ? `${role} ${index}` : role;
+}
 
 export function getTemplate(id: string): ProjectTemplate | undefined {
   return templates.find((t) => t.id === id);

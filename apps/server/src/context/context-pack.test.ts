@@ -357,11 +357,11 @@ describe('context pack builder', () => {
     expect(pack.initialMessage).toContain('Do the deployment or operations work you were asked for');
   });
 
-  it('asks the approvers instead of approving', () => {
+  it('requests an approval gate through update_task instead of approving', () => {
     const project = buildProject('small-team');
     const pack = builder.build(input({ project, handle: 'code-review' }));
     expect(pack.initialMessage).toContain(
-      'When the review passes, tell `owner` with send_message that the task is ready for their decision: Done (`done`) needs a human approval. Never approve it yourself.',
+      'When the review passes, request the move to Done (`done`) with update_task: it needs a human approval, so the system opens a decision for `owner` and the task waits until they approve. Do not message them separately and never approve it yourself.',
     );
   });
 

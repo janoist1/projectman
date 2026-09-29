@@ -195,7 +195,7 @@ export function handover(input: ContextPackInput, target: Stage | null): string 
   if (!target) return 'Tell whoever asked that your part is done.';
   const approval = target.gate?.conditions.find((c): c is HumanApproval => c.type === 'human_approval');
   if (approval) {
-    return `Tell ${codeList(approval.approvers)} with send_message that the task is ready for their decision: ${stageLabel(target)} needs a human approval. Never approve it yourself.`;
+    return `Request the move to ${stageLabel(target)} with update_task: it needs a human approval, so the system opens a decision for ${codeList(approval.approvers)} and the task waits until they approve. Do not message them separately and never approve it yourself.`;
   }
   const owners = target.owners.filter((h) => h !== input.member.handle);
   if (target.kind === 'done' || owners.length === 0) {

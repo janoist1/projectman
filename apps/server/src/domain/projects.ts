@@ -155,6 +155,10 @@ export class ProjectService {
         language: DEFAULT_PROJECT_LANGUAGE,
         owner: { handle: OWNER_HANDLE, displayName: creator.name, email: creator.email },
       });
+      const repoNames = (req.repos ?? []).map((r) => r.name);
+      if (new Set(repoNames).size !== repoNames.length) {
+        throw invalid('duplicate_repo', 'repository names must be unique');
+      }
       const parsed = ProjectConfig.safeParse({
         ...built,
         project: {
@@ -163,6 +167,7 @@ export class ProjectService {
           name: req.name,
           workspacePath: req.workspacePath,
           templateId: req.templateId,
+          ...(req.repos ? { repos: req.repos } : {}),
         },
       });
       if (!parsed.success) {

@@ -6,14 +6,44 @@ Run and track a team of humans and AI members (Claude Code sessions) from the br
 - Decisions: [docs/DECISIONS.md](docs/DECISIONS.md)
 - Working rules for contributors and agents: [CLAUDE.md](CLAUDE.md)
 
-## Development
+Requires Node 22.12+ and git.
 
-```
+## Try it (demo, no AI usage)
+
+```sh
 npm install
-npm run dev        # server on :4700, web on :5173
-npm run typecheck
-npm test
+npm run demo
 ```
 
-Requires Node 22.12+, git, the Claude Code CLI logged in with a Claude subscription, and
-optionally the GitHub CLI (`gh auth login`).
+Open http://127.0.0.1:5173 and use the generated login printed on the first run and saved
+in `.demo/credentials.txt`. The fictional Acme webshop has Te, Kata and Bence, four tasks,
+and a live fake session. The fake CLI echoes messages; a message containing `PERMISSION`
+triggers an approval request. No Claude account or AI usage is needed.
+
+Ctrl+C stops the demo. Later runs reuse `.demo/`; `npm run demo -- --reset` starts fresh.
+
+## Run it for real
+
+AI members run on the owner's Claude subscription through the standalone `claude` CLI.
+Log in once with `claude auth login` and choose the Claude subscription account, not the
+Console/API account. The desktop app's login is separate. Never set `ANTHROPIC_API_KEY`.
+GitHub integration optionally uses the GitHub CLI (`gh auth login`).
+
+```sh
+npm install
+npm run build && npm start
+```
+
+Open http://localhost:4700 and create the owner account. Runtime data defaults to
+`~/.projectman` (override with `PROJECTMAN_HOME`). `npm run dev` is for development:
+server on port 4700, Vite on port 5173. Checks: `npm run typecheck` and `npm test`.
+
+## Open it on your phone
+
+Connect your computer and phone with Tailscale, then expose the app:
+
+```sh
+tailscale serve --bg 4700
+```
+
+Open the HTTPS URL Tailscale prints on your phone. The server binds to `127.0.0.1` by default.

@@ -10,6 +10,7 @@
     "node": ">=22.12"
   },
   "scripts": {
+    "demo": "node scripts/demo.mjs",
     "dev": "concurrently -k -n server,web -c blue,magenta \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "npm run dev -w @projectman/server",
     "dev:web": "npm run dev -w @projectman/web",

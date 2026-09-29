@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { AI_BUILT_IN_ROLE_IDS } from '@projectman/shared';
 import type {
   Actor,
   AiMemberConfig,
@@ -9,12 +10,36 @@ import type {
   TimelineEventType,
   WorkItemRef,
 } from '@projectman/shared';
-import { getTemplate } from '@projectman/templates';
+import { aiMemberDefaults, getTemplate } from '@projectman/templates';
 import type { ContextPackInput } from '../contracts';
 import { createContextPackBuilder } from './context-pack';
 import { formatMemoryEntry, MEMORY_LIMIT_BYTES } from './memory';
+import { roleLabel } from './system-prompt';
 
 const builder = createContextPackBuilder();
+
+/** Adds an AI member of the role with the role's defaults to the project. */
+function addMember(
+  project: ProjectConfig,
+  handle: string,
+  role: string,
+  extra: Partial<AiMemberConfig> = {},
+) {
+  const defaults = aiMemberDefaults(role, project.team.roles);
+  if (!defaults) throw new Error(`no AI can hold ${role}`);
+  const member: AiMemberConfig = {
+    kind: 'ai',
+    handle,
+    displayName: extra.displayName ?? handle,
+    role,
+    ...defaults,
+    sponsor: 'owner',
+    temp: false,
+    ...extra,
+  };
+  project.team.members.push(member);
+  return member;
+}
 
 function buildProject(templateId = 'web-client-project', language = 'en'): ProjectConfig {
   const template = getTemplate(templateId);
@@ -231,7 +256,7 @@ describe('context pack builder', () => {
     expect(prompt).toContain(
       "You are Frontend developer (handle `fe-1`), the developer (Frontend) of the Acme Web team (project key `AR`); you run on Anna Example's Claude subscription.",
     );
-    expect(prompt).toContain('- `owner`: Anna Example (human, owner)');
+    expect(prompt).toContain('- `owner`: Anna Example (human, owner; roles: operator, product owner)');
     expect(prompt).toContain('- `fe-1`: Frontend developer (AI, developer, Frontend) ← you');
     expect(prompt.match(/← you/g)).toHaveLength(1);
   });
@@ -393,5 +418,153 @@ describe('context pack builder', () => {
   it('builds the roster from the configuration when no team view is given', () => {
     const prompt = builder.build(input({ team: [] })).appendSystemPrompt;
     expect(prompt).toContain('- `code-review`: Code reviewer (AI, code reviewer) ← you');
+    expect(prompt).toContain('- `owner`: Anna Example (human, owner; roles: operator, product owner)');
+  });
+});
+
+describe('context pack for the role catalogue', () => {
+  const dataSteward = {
+    id: 'data_steward',
+    name: 'Data steward',
+    summary: 'Keeps the reference data clean.',
+    notTheirJob: 'Does not change the database schema.',
+    holders: 'both' as const,
+    instructions: 'Check the reference tables for duplicates and report them to the owner.',
+  };
+
+  it('business analyst refining a task in the queue', async () => {
+    const project = buildProject();
+    addMember(project, 'analyst', 'business_analyst', { displayName: 'Business analyst' });
+    const pack = builder.build(
+      input({
+        project,
+        handle: 'analyst',
+        task: makeTask({ stageId: 'ready', assignee: null, checks: {}, links: [] }),
+        timeline: timeline.slice(0, 1),
+        memory: '',
+      }),
+    );
+    await expect(pack.appendSystemPrompt).toMatchFileSnapshot(
+      '__snapshots__/business-analyst-ready.system-prompt.txt',
+    );
+    await expect(pack.initialMessage).toMatchFileSnapshot('__snapshots__/business-analyst-ready.brief.txt');
+  });
+
+  it('custom role member in a general chat', async () => {
+    const project = buildProject();
+    project.team.roles.push(dataSteward);
+    addMember(project, 'data-steward', 'data_steward', {
+      displayName: 'Data steward',
+      instructions: 'Start with the product catalogue.',
+    });
+    const owner = project.team.members[0]!;
+    if (owner.kind === 'human') owner.roles = ['operator', 'product_owner', 'data_steward'];
+    const pack = builder.build(
+      input({
+        project,
+        handle: 'data-steward',
+        workItem: { type: 'general' },
+        task: null,
+        stage: null,
+        timeline: [],
+        memory: '',
+      }),
+    );
+    expect(pack.initialMessage).toBeNull();
+    await expect(pack.appendSystemPrompt).toMatchFileSnapshot(
+      '__snapshots__/custom-role-general.system-prompt.txt',
+    );
+  });
+
+  it('describes a custom role with its own texts and follows its instructions', () => {
+    const project = buildProject();
+    project.team.roles.push(dataSteward);
+    addMember(project, 'steward', 'data_steward', { displayName: 'Dora' });
+    const prompt = builder.build(input({ project, handle: 'steward' })).appendSystemPrompt;
+    expect(prompt).toContain('You are Dora (handle `steward`), the Data steward of the Acme Web team');
+    expect(prompt).toContain('- `steward`: Dora (AI, Data steward) ← you');
+    expect(prompt).toContain(
+      [
+        '# Your role: Data steward',
+        'A role this team defined, in its own words:',
+        '- What the role does: Keeps the reference data clean.',
+        "- Not the role's job: Does not change the database schema.",
+      ].join('\n'),
+    );
+    expect(prompt).toContain(`# Your role instructions\n${dataSteward.instructions}\n\n# Your memory`);
+    // A custom role owns no stage here: it reports back to whoever asked.
+    expect(prompt).toContain('you do not own this stage');
+  });
+
+  it.each(AI_BUILT_IN_ROLE_IDS)('gives the %s concrete steps with the team tools', (role) => {
+    const project = buildProject();
+    const member = addMember(project, 'member', role, { displayName: 'Member' });
+    project.pipeline.stages.find((s) => s.id === 'dev')!.owners.push(member.handle);
+    const pack = builder.build(
+      input({ project, handle: 'member', task: makeTask({ stageId: 'dev', assignee: 'member' }) }),
+    );
+    expect(pack.appendSystemPrompt).toContain(`the ${roleLabel(role)} of the Acme Web team`);
+    const expected = (pack.initialMessage ?? '').split('## What is expected next\n')[1] ?? '';
+    expect(expected).toMatch(/send_message|update_task|ask_human|create_task|get_task|link_pull_request/);
+  });
+
+  it('has the analyst, the architect and support leave queued work for the product owner to prioritise', () => {
+    for (const [role, step] of [
+      ['business_analyst', 'Rewrite the description with update_task'],
+      ['architect', 'Add the technical plan to the description with update_task'],
+      ['support', 'Complete the description with update_task'],
+    ] as const) {
+      const project = buildProject();
+      addMember(project, 'member', role);
+      const brief =
+        builder.build(
+          input({ project, handle: 'member', task: makeTask({ stageId: 'ready', assignee: null }) }),
+        ).initialMessage ?? '';
+      expect(brief, role).toContain(step);
+      expect(brief, role).toContain(
+        'Tell `owner` with send_message that the task is ready to be prioritised; leave it in Ready (`ready`).',
+      );
+    }
+  });
+
+  it('builds maintenance work in the task worktree and hands it over', () => {
+    const project = buildProject();
+    addMember(project, 'maintainer', 'maintainer');
+    project.pipeline.stages.find((s) => s.id === 'dev')!.owners.push('maintainer');
+    const brief =
+      builder.build(
+        input({ project, handle: 'maintainer', task: makeTask({ stageId: 'dev', assignee: 'maintainer' }) }),
+      ).initialMessage ?? '';
+    expect(brief).toContain(
+      "1. Make the maintenance change the task describes in your working directory (the task's own worktree and branch), small and focused, and run the project's tests.",
+    );
+    expect(brief).toContain('2. Commit, push, open a pull request and attach it with link_pull_request.');
+    expect(brief).toContain(
+      '3. Move the task to Code review (`code_review`) with update_task and hand over to `code-review`',
+    );
+  });
+
+  it('has the watchdog flag problems to the operator, and the project manager ask the product owner', () => {
+    const project = buildProject();
+    addMember(project, 'watchdog', 'watchdog');
+    addMember(project, 'pm', 'project_manager');
+    const owner = project.team.members[0]!;
+    if (owner.kind === 'human') owner.roles = ['product_owner'];
+    project.team.members.push({
+      kind: 'human',
+      handle: 'ops',
+      displayName: 'Ops',
+      access: 'admin',
+      roles: ['operator'],
+    });
+
+    const watchdog = builder.build(input({ project, handle: 'watchdog' })).initialMessage ?? '';
+    expect(watchdog).toContain('Flag anything wrong to `ops` with send_message');
+    expect(watchdog).toContain('do not intervene');
+    const pm = builder.build(input({ project, handle: 'pm' })).initialMessage ?? '';
+    expect(pm).toContain('ask `owner` with ask_human; do not reorder the work yourself');
+    expect(builder.build(input({ project, handle: 'pm' })).appendSystemPrompt).toContain(
+      '- `ops`: Ops (human, admin; roles: operator)',
+    );
   });
 });

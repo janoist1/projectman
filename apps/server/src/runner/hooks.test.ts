@@ -47,6 +47,37 @@ describe('POST /hooks/:token', () => {
     expect(calls[0]).toMatchObject({ hook_event_name: 'Stop', transcript_path: '/t.jsonl', extra: 1 });
   });
 
+  it('rejects rebinding and forwarded callers before parsing their bodies', async () => {
+    const { session, calls } = fakeSession(async () => null);
+    const app = appWith(session);
+    for (const headers of [
+      { host: 'evil.example' },
+      { origin: 'https://evil.example' },
+      { 'x-forwarded-proto': 'https' },
+      { 'tailscale-user-login': 'fictional@example.com' },
+    ]) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/hooks/good',
+        headers: { ...headers, 'content-type': 'application/json' },
+        payload: '{invalid',
+      });
+      expect(res.statusCode).toBe(403);
+    }
+    expect(calls).toHaveLength(0);
+  });
+
+  it('enforces the body limit for an authenticated caller', async () => {
+    const { session, calls } = fakeSession(async () => null);
+    const res = await appWith(session).inject({
+      method: 'POST',
+      url: '/hooks/good',
+      payload: { hook_event_name: 'Stop', extra: 'x'.repeat(32 * 1024 * 1024) },
+    });
+    expect(res.statusCode).toBe(413);
+    expect(calls).toHaveLength(0);
+  });
+
   it('answers with the decision JSON', async () => {
     const decision = {
       hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } },

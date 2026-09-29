@@ -127,6 +127,24 @@ const assistantSaid = (id: string, text: string) =>
   waitChat(id, (i) => i.kind === 'assistant_text' && i.text === text, `assistant: ${text}`);
 
 describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
+  it('invalidates the hook capability when its process exits', async () => {
+    await setup();
+    const started = await runner.runner.start(spec());
+    await waitFor(() => stateOf(started.sessionId) === 'idle', { what: 'fake session ready' });
+    const { argv: args } = JSON.parse(await readFile(argsFile, 'utf8')) as { argv: string[] };
+    const settings = JSON.parse(args[args.indexOf('--settings') + 1]!);
+    const hook = new URL(settings.hooks.Stop[0].hooks[0].url);
+    await runner.runner.stop(started.sessionId, { force: true });
+    await waitFor(() => !runner.runner.isRunning(started.sessionId), { what: 'fake session stopped' });
+    const response = await app.inject({
+      method: 'POST',
+      url: hook.pathname,
+      payload: { hook_event_name: 'PermissionRequest', tool_name: 'Bash' },
+    });
+    expect(response.statusCode).toBe(404);
+    expect(requests).toHaveLength(0);
+  });
+
   it('starts a session, types the kick-off brief when ready and follows the turn', async () => {
     await setup();
     const s = spec({ initialMessage: 'Hello from the brief' });

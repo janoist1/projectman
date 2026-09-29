@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { serializeRequest } from './request-logging';
 
 it.each([
+  '/hooks/secret-token',
+  '/mcp/secret-token',
+  '/hooks/secret-token/unknown',
   '/api/invites/secret-token',
   '/api/invites/secret-token/accept',
   '/invite/secret-token',

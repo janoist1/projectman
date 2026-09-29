@@ -2,7 +2,9 @@ import type { FastifyRequest } from 'fastify';
 
 /** Invitation tokens also travel in SPA URLs and login return targets. Never write them to request logs. */
 export function serializeRequest(request: FastifyRequest) {
-  const url = request.url.split('?')[0]!.replace(/^(\/api\/invites\/|\/invite\/)[^/]+/, '$1[redacted]');
+  const url = request.url
+    .split('?')[0]!
+    .replace(/^(\/api\/invites\/|\/invite\/|\/hooks\/|\/mcp\/)[^/]+/i, '$1[redacted]');
   return {
     method: request.method,
     url,

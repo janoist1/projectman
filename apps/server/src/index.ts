@@ -24,6 +24,8 @@ async function main(): Promise<void> {
   const port = Number.parseInt(env.PORT ?? '4700', 10);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error(`invalid PORT: ${env.PORT}`);
   const host = env.HOST ?? '127.0.0.1';
+  if (!['127.0.0.1', '::1', 'localhost'].includes(host))
+    throw new Error('HOST must be loopback; use an HTTPS reverse proxy for remote access');
   // apps/web/dist, from src/index.ts (tsx) as well as from dist/index.js (bundle).
   const webDist = fileURLToPath(new URL('../../web/dist', import.meta.url));
 

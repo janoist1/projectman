@@ -22,6 +22,11 @@ export const BILLING_ENV_VARS = [
   // Codex: CODEX_API_KEY overrides the ChatGPT login; voice falls back to OPENAI_API_KEY.
   'CODEX_API_KEY',
   'OPENAI_API_KEY',
+  'OPENAI_BASE_URL',
+  'OPENAI_API_BASE',
+  'AZURE_OPENAI_API_KEY',
+  'AZURE_OPENAI_ENDPOINT',
+  'AZURE_OPENAI_AD_TOKEN',
 ] as const;
 
 /** Exact names set by a parent Claude Code / Agent SDK session, or that change the TUI. */

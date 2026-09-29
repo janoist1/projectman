@@ -140,6 +140,11 @@ export class InvitationService {
         { actor, author: { name: account.name, email: account.email } },
         (draft) => {
           this.valid(token);
+          const currentInviter = inviterUser ? findHumanByEmail(draft, inviterUser.email) : undefined;
+          if (!currentInviter || !['owner', 'admin'].includes(currentInviter.access))
+            throw forbidden('insufficient_access', 'inviter no longer manages this team');
+          if (invite.access === 'admin' && currentInviter.access !== 'owner')
+            throw forbidden('owner_only', 'only an owner may invite an admin');
           if (findHumanByEmail(draft, invite.email))
             throw conflict('already_member', 'this email is already a human member');
           for (const role of invite.roles) assertRoleFor(draft, role, 'human');

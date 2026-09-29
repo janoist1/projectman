@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ServerEvent, TaskDetail } from '@projectman/shared';
-import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
+import { createAppHarness, createProject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
 interface TestSocket {
@@ -133,6 +133,77 @@ describe('websocket', () => {
     expect(state).toMatchObject({ status: 'working', activity: 'Edit: src/login.tsx' });
   });
 
+  it('revokes existing terminal streams and commands after membership removal or logout', async () => {
+    await h.app.inject({
+      method: 'POST',
+      url: '/api/projects/AR/tasks',
+      headers: { cookie },
+      payload: { title: 'Example' },
+    });
+    const started = await h.app.inject({
+      method: 'POST',
+      url: '/api/projects/AR/tasks/AR-1/start',
+      headers: { cookie },
+      payload: {},
+    });
+    const sessionId = started.json<TaskDetail>().sessions[0]!.id;
+    const user = await h.app.projectman.auth.prepareUser({
+      name: 'Viewer',
+      email: 'viewer@example.com',
+      password: 'fictional password',
+    });
+    h.app.projectman.repos.users.insert(user);
+    const login = await h.app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: user.email, password: 'fictional password' },
+    });
+    const viewerCookie = String(login.headers['set-cookie']).split(';')[0]!;
+    await h.app.projectman.domain.projects.update(
+      'AR',
+      { actor: { kind: 'human', handle: 'owner' }, author: OWNER_LOGIN },
+      (draft) => {
+        draft.team.members.push({
+          kind: 'human',
+          handle: 'viewer',
+          displayName: 'Viewer',
+          email: user.email,
+          access: 'viewer',
+          roles: [],
+        });
+        return 'Add viewer';
+      },
+    );
+    const { ws, events } = await connect({ cookie: viewerCookie });
+    await waitFor(events, ofType('hello'));
+    ws.send(JSON.stringify({ type: 'terminal_attach', sessionId }));
+    await waitFor(events, ofType('terminal_snapshot'));
+    await h.app.projectman.domain.projects.update(
+      'AR',
+      { actor: { kind: 'human', handle: 'owner' }, author: OWNER_LOGIN },
+      (draft) => {
+        draft.team.members = draft.team.members.filter((m) => m.handle !== 'viewer');
+        return 'Remove viewer';
+      },
+    );
+    h.runner.emit({ type: 'terminal_data', sessionId, data: 'private after removal' });
+    ws.send(JSON.stringify({ type: 'terminal_input', sessionId, data: 'x' }));
+    await waitFor(events, ofType('error'));
+    expect(events.some((e) => e.type === 'terminal_data')).toBe(false);
+    expect(h.runner.input).toEqual([]);
+
+    const owner = await connect();
+    await waitFor(owner.events, ofType('hello'));
+    owner.ws.send(JSON.stringify({ type: 'terminal_attach', sessionId }));
+    await waitFor(owner.events, ofType('terminal_snapshot'));
+    await h.app.inject({ method: 'POST', url: '/api/auth/logout', headers: { cookie } });
+    h.runner.emit({ type: 'terminal_data', sessionId, data: 'private after logout' });
+    owner.ws.send(JSON.stringify({ type: 'terminal_input', sessionId, data: 'y' }));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(owner.events.some((e) => e.type === 'terminal_data')).toBe(false);
+    expect(h.runner.input).toEqual([]);
+  });
+
   it('streams fetched provider usage and changed members to project subscribers', async () => {
     const { ws, events } = await connect();
     await waitFor(events, ofType('hello'));
@@ -162,33 +233,36 @@ describe('websocket', () => {
     );
   });
 
-  it('closes foreign-origin sockets and sends nothing for unsubscribed projects', async () => {
-    let closeCode = 0;
-    const closed = new Promise<void>((resolve) => {
-      void h.app.injectWS(
-        '/ws',
-        { headers: { cookie, origin: 'https://evil.example', host: 'localhost:4700' } },
-        {
-          onInit: (socket) =>
-            socket.on('close', (code: number) => {
-              closeCode = code;
-              resolve();
-            }),
-        },
-      );
-    });
-    await closed;
-    expect(closeCode).toBe(1008);
+  it.each(['https://evil.example', 'http://localhost:5173', 'https://localhost:4700'])(
+    'closes foreign-origin sockets (%s) and sends nothing for unsubscribed projects',
+    async (origin) => {
+      let closeCode = 0;
+      const closed = new Promise<void>((resolve) => {
+        void h.app.injectWS(
+          '/ws',
+          { headers: { cookie, origin, host: 'localhost:4700' } },
+          {
+            onInit: (socket) =>
+              socket.on('close', (code: number) => {
+                closeCode = code;
+                resolve();
+              }),
+          },
+        );
+      });
+      await closed;
+      expect(closeCode).toBe(1008);
 
-    const { events } = await connect({ cookie, origin: 'http://localhost:5173', host: 'localhost:5173' });
-    await waitFor(events, ofType('hello'));
-    await h.app.inject({
-      method: 'POST',
-      url: '/api/projects/AR/tasks',
-      headers: { cookie },
-      payload: { title: 'Quiet' },
-    });
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    expect(events.some((e) => e.type === 'task_upserted')).toBe(false);
-  });
+      const { events } = await connect({ cookie, origin: 'http://localhost:5173', host: 'localhost:5173' });
+      await waitFor(events, ofType('hello'));
+      await h.app.inject({
+        method: 'POST',
+        url: '/api/projects/AR/tasks',
+        headers: { cookie },
+        payload: { title: 'Quiet' },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(events.some((e) => e.type === 'task_upserted')).toBe(false);
+    },
+  );
 });

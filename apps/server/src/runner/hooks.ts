@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import type { IncomingHttpHeaders } from 'node:http';
+import { nonLocalReason, isLoopbackAddress } from '../mcp/guard';
 import { HookPayload } from './hook-payload';
 import type { AgentSession } from './session';
 
@@ -35,11 +36,11 @@ const FORWARDING_HEADERS = [
   'x-forwarded-proto',
   'forwarded',
   'x-real-ip',
+  'tailscale-user-login',
 ];
 
 export function isLoopback(address: string | undefined): boolean {
-  if (!address) return false;
-  return address === '::1' || address.startsWith('127.') || address.startsWith('::ffff:127.');
+  return isLoopbackAddress(address);
 }
 
 export function isProxied(headers: IncomingHttpHeaders): boolean {
@@ -49,7 +50,14 @@ export function isProxied(headers: IncomingHttpHeaders): boolean {
 export function registerHookRoutes(app: FastifyInstance, deps: HookRouteDeps): void {
   app.post<{ Params: { token: string } }>(
     '/hooks/:token',
-    { bodyLimit: BODY_LIMIT },
+    {
+      bodyLimit: BODY_LIMIT,
+      onRequest: async (request, reply) => {
+        if (nonLocalReason({ remoteAddress: request.socket.remoteAddress, headers: request.headers }))
+          return reply.code(403).send();
+        if (!deps.sessionForToken(request.params.token)) return reply.code(404).send();
+      },
+    },
     async (request, reply) => {
       if (!isLoopback(request.socket.remoteAddress) || isProxied(request.headers)) {
         return reply.code(403).send();

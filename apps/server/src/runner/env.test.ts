@@ -81,6 +81,11 @@ describe('child environment', () => {
       CODEX_HOME: '/home/me/.codex-work',
       CODEX_API_KEY: 'sk-codex',
       OPENAI_API_KEY: 'sk-openai',
+      OPENAI_BASE_URL: 'https://billing.example',
+      OPENAI_API_BASE: 'https://billing.example',
+      AZURE_OPENAI_API_KEY: 'fictional-key',
+      AZURE_OPENAI_ENDPOINT: 'https://billing.example',
+      AZURE_OPENAI_AD_TOKEN: 'fictional-token',
       CODEX_THREAD_ID: '019a0b1c-2d3e-7f40-8a5b-6c7d8e9f0a1b',
       CODEX_INTERNAL_ORIGINATOR_OVERRIDE: 'codex_vscode',
     });

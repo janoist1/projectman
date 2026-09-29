@@ -48,6 +48,59 @@ describe('REST API', () => {
   }
 
   describe('setup, login and the guard', () => {
+    it('rejects cross-origin mutations including login, and sets secure proxy cookies', async () => {
+      const cookie = await setupOwner(h.app);
+      for (const origin of ['https://evil.example', 'http://localhost:5173', 'null']) {
+        for (const url of ['/api/auth/login', '/api/auth/logout', '/api/projects']) {
+          const res = await h.app.inject({
+            method: 'POST',
+            url,
+            headers: { cookie, host: 'localhost:4700', origin },
+            payload: OWNER_LOGIN,
+          });
+          expect(res.statusCode).toBe(403);
+        }
+      }
+      const login = await h.app.inject({
+        method: 'POST',
+        url: '/api/auth/login',
+        headers: { cookie, host: 'pm.example', origin: 'https://pm.example', 'x-forwarded-proto': 'https' },
+        payload: OWNER_LOGIN,
+      });
+      expect(login.statusCode).toBe(200);
+      expect(login.headers['set-cookie']).toEqual(expect.stringContaining('Secure'));
+      expect(login.headers['set-cookie']).toEqual(expect.stringContaining('HttpOnly'));
+      expect(login.headers['set-cookie']).toEqual(expect.stringContaining('SameSite=Lax'));
+      expect((await call('GET', '/api/me', cookie)).status).toBe(401);
+      expect((await call('GET', '/api/me', cookieOf(login))).status).toBe(200);
+      expect(h.app.projectman.repos.users.list()[0]!.passwordHash).toContain(
+        '$argon2id$v=19$m=19456,t=2,p=1$',
+      );
+    });
+
+    it('bounds concurrent password attempts before hashing', async () => {
+      await setupOwner(h.app);
+      const attempts = await Promise.all(
+        Array.from({ length: 16 }, () =>
+          call('POST', '/api/auth/login', undefined, {
+            email: OWNER_LOGIN.email,
+            password: 'incorrect password',
+          }),
+        ),
+      );
+      expect(attempts.filter((r) => r.status === 401)).toHaveLength(10);
+      expect(attempts.filter((r) => r.status === 429)).toHaveLength(6);
+    });
+
+    it('expires sessions without extending their absolute lifetime', async () => {
+      await h.close();
+      let now = new Date('2026-01-01T00:00:00Z');
+      h = await createAppHarness({ now: () => now });
+      const cookie = await setupOwner(h.app);
+      now = new Date('2026-02-01T00:00:00Z');
+      expect((await call('GET', '/api/me', cookie)).status).toBe(401);
+    });
+
     it('runs the first setup once, from localhost only', async () => {
       expect((await call<{ needsSetup: boolean }>('GET', '/api/setup')).body).toEqual({ needsSetup: true });
 
@@ -515,6 +568,16 @@ describe('REST API', () => {
         password: 'another password',
       });
       const devCookie = cookieOf(login.res);
+      expect(
+        (
+          await call('POST', '/api/projects', devCookie, {
+            key: 'ZZ',
+            name: 'Other',
+            templateId: 'test',
+            workspacePath: h.workspace,
+          })
+        ).status,
+      ).toBe(403);
       expect((await call<ApiError>('GET', '/api/projects/AR/board', devCookie)).body.error.code).toBe(
         'not_a_member',
       );
@@ -566,6 +629,10 @@ describe('REST API', () => {
 
       // Admins cannot change the release approvers or who is an owner; only owners can revert.
       const config = (await call<ConfigView>('GET', '/api/projects/AR/config', devCookie)).body.config;
+      const stolen = structuredClone(config);
+      const ownerMember = stolen.team.members.find((m) => m.handle === 'owner');
+      if (ownerMember?.kind === 'human') ownerMember.email = 'dev@example.com';
+      expect((await call('PUT', '/api/projects/AR/config', devCookie, stolen)).status).toBe(403);
       const approvers = structuredClone(config);
       approvers.pipeline.stages.find((s) => s.id === 'release')!.gate = {
         conditions: [{ type: 'pr_merged' }, { type: 'human_approval', approvers: ['kata'] }],

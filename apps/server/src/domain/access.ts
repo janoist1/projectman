@@ -53,5 +53,9 @@ export function releaseApproversSignature(config: ProjectConfig): string {
 
 /** Who holds owner access; changing it is owner-only. */
 export function ownersSignature(config: ProjectConfig): string {
-  return ownerHandles(config).sort().join(',');
+  return config.team.members
+    .filter((m) => m.kind === 'human' && m.access === 'owner')
+    .map((m) => `${m.handle}:${m.kind === 'human' ? m.email?.trim().toLowerCase() : ''}`)
+    .sort()
+    .join(',');
 }

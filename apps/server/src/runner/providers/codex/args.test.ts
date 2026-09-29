@@ -159,7 +159,7 @@ describe('buildCodexArgs', () => {
     const c = overrides(buildCodexArgs(input));
     const permission = c.get('hooks.PermissionRequest')!;
     expect(permission).toContain('timeout=70}');
-    expect(permission).toContain('curl -sSf -m 70');
+    expect(permission).toContain("curl -q --noproxy '*' -sSf -m 70");
     expect(permission).not.toContain('-o /dev/null');
     const stop = c.get('hooks.Stop')!;
     expect(stop).toContain('timeout=10}');

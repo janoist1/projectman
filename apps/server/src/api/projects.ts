@@ -4,6 +4,7 @@ import { CreateProjectRequest, DEFAULT_AGENT_PROVIDER, routes } from '@projectma
 import type { BoardView, ProjectSummary, TemplateSummary } from '@projectman/shared';
 import { summarizeTemplate } from '@projectman/templates';
 import type { Domain } from '../domain';
+import { forbidden } from '../domain/errors';
 import { authorOf, canSeeTask, currentUser, requireAccess } from './context';
 import { parseBody } from './validation';
 
@@ -21,6 +22,9 @@ export function registerProjectRoutes(app: FastifyInstance, domain: Domain): voi
   });
 
   app.post(routes.projects(), async (request, reply) => {
+    // Selecting host filesystem workspaces is a host-owner operation.
+    if (domain.ctx.repos.users.list()[0]?.id !== currentUser(request).id)
+      throw forbidden('owner_only', 'only the initial host owner may create projects');
     const body = parseBody(CreateProjectRequest, request.body);
     const summary = await domain.projects.create(body, authorOf(request));
     return reply.code(201).send(summary);

@@ -99,7 +99,7 @@ export function forwarderCommand(
 ): string {
   if (!opts.printResponse && opts.maxTimeS === undefined) {
     const curl =
-      `curl -sS -m 10 -o /dev/null -X POST -H 'Content-Type: application/json' ` +
+      `curl -q --noproxy '*' -sS -m 10 -o /dev/null -X POST -H 'Content-Type: application/json' ` +
       `--data-binary @- ${shellQuote(url)}`;
     const node = `${shellQuote(nodePath)} -e ${shellQuote(NODE_FORWARDER)} ${shellQuote(url)}`;
     return `if command -v curl >/dev/null 2>&1; then ${curl}; else ${node}; fi >/dev/null 2>&1; exit 0`;
@@ -107,13 +107,13 @@ export function forwarderCommand(
   const maxTime = Math.max(1, Math.ceil(opts.maxTimeS ?? 10));
   if (!opts.printResponse) {
     const curl =
-      `curl -sS -m ${maxTime} -o /dev/null -X POST -H 'Content-Type: application/json' ` +
+      `curl -q --noproxy '*' -sS -m ${maxTime} -o /dev/null -X POST -H 'Content-Type: application/json' ` +
       `--data-binary @- ${shellQuote(url)}`;
     const node = `${shellQuote(nodePath)} -e ${shellQuote(NODE_FORWARDER)} ${shellQuote(url)}`;
     return `if command -v curl >/dev/null 2>&1; then ${curl}; else ${node}; fi >/dev/null 2>&1; exit 0`;
   }
   const curl =
-    `curl -sSf -m ${maxTime} -X POST -H 'Content-Type: application/json' ` +
+    `curl -q --noproxy '*' -sSf -m ${maxTime} -X POST -H 'Content-Type: application/json' ` +
     `--data-binary @- ${shellQuote(url)}`;
   const node = `${shellQuote(nodePath)} -e ${shellQuote(NODE_FORWARDER_PRINT)} ${shellQuote(url)} ${maxTime}`;
   return `if command -v curl >/dev/null 2>&1; then ${curl}; else ${node}; fi 2>/dev/null; exit 0`;

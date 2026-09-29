@@ -11,6 +11,8 @@ export interface AuthUser {
 }
 
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+/** Argon2id (algorithm 2): 19 MiB, two iterations, one lane. */
+const PASSWORD_OPTIONS = { algorithm: 2 as const, memoryCost: 19456, timeCost: 2, parallelism: 1 };
 const TOUCH_INTERVAL_MS = 5 * 60 * 1000;
 
 /** Hash of a password nobody knows: verifying against it keeps failed logins equally slow. */
@@ -39,7 +41,7 @@ export class AuthService {
   /** First-run setup: creates the owner account; refused once any user exists. */
   async createFirstUser(input: { name: string; email: string; password: string }): Promise<UserRecord> {
     if (!this.needsSetup()) throw conflict('already_set_up', 'the owner account already exists');
-    const passwordHash = await hash(input.password);
+    const passwordHash = await hash(input.password, PASSWORD_OPTIONS);
     const user: UserRecord = {
       id: newId('usr'),
       name: input.name.trim(),
@@ -60,7 +62,7 @@ export class AuthService {
       id: newId('usr'),
       name: input.name.trim(),
       email: input.email.trim().toLowerCase(),
-      passwordHash: await hash(input.password),
+      passwordHash: await hash(input.password, PASSWORD_OPTIONS),
       createdAt: this.now().toISOString(),
     };
   }
@@ -69,7 +71,7 @@ export class AuthService {
   async verifyPassword(email: string, password: string): Promise<UserRecord | null> {
     const user = this.repos.users.findByEmail(email.trim());
     if (!user) {
-      dummyHash ??= hash(randomBytes(16).toString('hex'));
+      dummyHash ??= hash(randomBytes(16).toString('hex'), PASSWORD_OPTIONS);
       await verify(await dummyHash, password).catch(() => false);
       return null;
     }

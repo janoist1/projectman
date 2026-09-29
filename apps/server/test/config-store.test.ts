@@ -1,10 +1,19 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  symlinkSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DAILY_WORKER_SCHEDULE } from '@projectman/templates';
 import type { ProjectConfig } from '@projectman/shared';
+import { parseYamlFile } from '../src/config/layout';
 import { ConfigStoreError, createConfigStore } from '../src/config';
 import type { GitConfigStore } from '../src/config';
 import { testConfig } from './helpers/test-template';
@@ -48,6 +57,32 @@ describe('ConfigStore (customization repository)', () => {
     expect(saved.config.team.roleOverrides).toEqual(loaded.config.team.roleOverrides);
     expect(saved.config.team.releaseFourEyes).toBe(true);
     expect(readFileSync(file, 'utf8')).toContain('roleOverrides:');
+  });
+
+  it('rejects excessive YAML and does not echo source secrets', () => {
+    for (const yaml of [
+      'a: &a [1]\nb: *a',
+      '['.repeat(60) + '1' + ']'.repeat(60),
+      'x'.repeat(1024 * 1024 + 1),
+      'secret-value: [',
+    ]) {
+      expect(() => parseYamlFile('team.yaml', yaml)).toThrow(ConfigStoreError);
+      expect(() => parseYamlFile('team.yaml', yaml)).not.toThrow('secret-value');
+    }
+  });
+
+  it('refuses symlinked project parents without touching the destination', async () => {
+    await store.init();
+    const outside = join(dir, 'outside');
+    mkdirSync(outside);
+    writeFileSync(join(outside, 'sentinel'), 'unchanged');
+    rmSync(join(store.rootDir, 'projects'), { recursive: true });
+    symlinkSync(outside, join(store.rootDir, 'projects'));
+    await expect(store.save('AR', testConfig(), { author, message: 'No escape' })).rejects.toThrow(
+      'symlinks',
+    );
+    expect(readFileSync(join(outside, 'sentinel'), 'utf8')).toBe('unchanged');
+    expect(existsSync(join(outside, 'AR'))).toBe(false);
   });
 
   it('initializes a separate git repository with an initial commit', async () => {

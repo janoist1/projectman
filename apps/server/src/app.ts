@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
@@ -100,8 +100,9 @@ function hasInit(store: ConfigStore): store is ConfigStore & { init(): Promise<v
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const home = resolve(options.home);
   for (const dir of [home, join(home, 'logs'), join(home, 'memory'), join(home, 'worktrees')]) {
-    mkdirSync(dir, { recursive: true });
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
+  chmodSync(home, 0o700);
   const publicBaseUrl = (options.publicBaseUrl ?? 'http://127.0.0.1:4700').replace(/\/+$/, '');
   const modules = options.modules ?? {};
 
@@ -183,7 +184,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     registerErrorHandling(app, { spaIndex: webDistDir !== null });
     registerAuth(app, { auth, domain });
     registerApiRoutes(app, domain);
-    const websocket = registerWebsocket(app, { domain, heartbeatMs: options.wsHeartbeatMs });
+    const websocket = registerWebsocket(app, { domain, auth, heartbeatMs: options.wsHeartbeatMs });
     domain.runnerModule.registerHookRoutes(app);
     mcpModule.registerRoutes(app);
     if (webDistDir) await app.register(fastifyStatic, { root: webDistDir, index: ['index.html'] });

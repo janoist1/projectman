@@ -49,7 +49,7 @@ export function runGit(
   return new Promise((resolve, reject) => {
     execFile(
       'git',
-      args,
+      ['-c', `core.hooksPath=${devNull}`, '-c', 'commit.gpgSign=false', ...args],
       { cwd, env: gitEnv(opts.env ?? {}), maxBuffer: 32 * 1024 * 1024, encoding: 'utf8' },
       (error, stdout, stderr) => {
         if (!error) return resolve({ stdout, stderr, code: 0 });

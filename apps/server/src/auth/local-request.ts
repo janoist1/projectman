@@ -27,3 +27,26 @@ export function isLocalRequest(request: FastifyRequest): boolean {
   ];
   return forwarded.every((address) => LOOPBACK_ADDRESSES.has(address) || address === 'localhost');
 }
+
+/** HTTPS is terminated only by a loopback reverse proxy; never trust forwarded hosts. */
+export function requestProtocol(request: FastifyRequest): 'http' | 'https' {
+  return (request.socket && request.protocol === 'https') ||
+    (LOOPBACK_ADDRESSES.has(request.socket?.remoteAddress ?? '') &&
+      request.headers['x-forwarded-proto'] === 'https')
+    ? 'https'
+    : 'http';
+}
+
+/** Exact scheme, host and port. Absent Origin is allowed for non-browser API clients. */
+export function sameOrigin(request: FastifyRequest): boolean {
+  if (request.headers['sec-fetch-site'] === 'cross-site') return false;
+  const origin = request.headers.origin;
+  if (origin === undefined) return true;
+  try {
+    const expected = new URL(`${requestProtocol(request)}://${request.headers.host ?? ''}`);
+    const actual = new URL(origin);
+    return actual.origin === origin && actual.origin === expected.origin;
+  } catch {
+    return false;
+  }
+}

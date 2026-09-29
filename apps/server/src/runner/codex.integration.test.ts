@@ -416,7 +416,9 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
     const unknown = spec({ claudeSessionId: randomUUID(), resume: true });
     await runner.runner.start(unknown);
     await waitState(unknown.sessionId, 'failed');
-    expect(runner.runner.snapshot(unknown.sessionId)?.data).toContain('No saved session found');
+    await waitFor(() => runner.runner.snapshot(unknown.sessionId)?.data.includes('No saved session found'), {
+      what: 'failed session terminal output parsed',
+    });
   });
 
   it('refuses to start when Codex is not logged in with ChatGPT', async () => {

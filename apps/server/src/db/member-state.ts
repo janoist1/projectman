@@ -50,5 +50,3 @@ export function createMemberStateRepository(db: Db) {
     },
   };
 }
-
-export type MemberStateRepository = ReturnType<typeof createMemberStateRepository>;

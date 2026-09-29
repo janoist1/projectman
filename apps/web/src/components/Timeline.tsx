@@ -12,7 +12,7 @@ import styles from './Timeline.module.css';
 interface TimelineProps {
   events: readonly TimelineEvent[];
   ctx: TimelineContext;
-  /** "Következik" row: what happens next and who carries it. */
+  /** Next-step row: what happens next and who carries it. */
   next?: string | null;
   emptyText?: string;
   className?: string;

@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { AiRole } from '../domain/member';
 import { AI_BUILT_IN_ROLE_IDS, BUILT_IN_ROLE_IDS, holdersAllow, roleHolders, RoleId } from '../domain/role';
 import { validateProjectConfig } from './invariants';
 import { AiMemberConfig, ProjectConfig, type ProjectConfigInput } from './schema';
@@ -59,8 +58,7 @@ describe('role catalogue', () => {
     expect(holdersAllow('human', 'ai') || holdersAllow('ai', 'human')).toBe(false);
   });
 
-  it('keeps AiRole as a deprecated alias of RoleId', () => {
-    expect(AiRole).toBe(RoleId);
+  it('validates custom role identifiers', () => {
     expect(RoleId.safeParse('data_steward').success).toBe(true);
     expect(RoleId.safeParse('Data-Steward').success).toBe(false);
   });

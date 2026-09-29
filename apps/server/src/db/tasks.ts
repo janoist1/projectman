@@ -308,5 +308,3 @@ export function createTaskRepository(db: Db) {
     },
   };
 }
-
-export type TaskRepository = ReturnType<typeof createTaskRepository>;

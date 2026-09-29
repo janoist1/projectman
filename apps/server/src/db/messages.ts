@@ -136,5 +136,3 @@ export function createMessageRepository(db: Db) {
     },
   };
 }
-
-export type MessageRepository = ReturnType<typeof createMessageRepository>;

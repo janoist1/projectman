@@ -29,7 +29,13 @@ export function ProjectLayout() {
   const inboxCount = inbox.data ? myOpen.length : (board.data?.openInboxCount ?? 0);
   const [search, setSearch] = useState('');
   const [newTaskOpen, setNewTaskOpen] = useState(false);
-  const isOwner = board.data?.members.some((member) => member.handle === myHandle && member.role === 'owner') ?? false;
+  const access = board.data?.members.find((member) => member.handle === myHandle && member.kind === 'human')?.role;
+  const isOwner = access === 'owner';
+  const internal = access === 'owner' || access === 'admin' || access === 'developer';
+  const can = useMemo(
+    () => ({ createTasks: internal, manageTeam: access === 'owner' || access === 'admin', workInSessions: internal }),
+    [access, internal],
+  );
 
   useEffect(() => {
     writeStorage('lastProject', projectKey);
@@ -42,11 +48,12 @@ export function ProjectLayout() {
       me,
       myHandle,
       isOwner,
+      can,
       search,
       setSearch,
       openNewTask: () => setNewTaskOpen(true),
     }),
-    [projectKey, me, myHandle, isOwner, search],
+    [projectKey, me, myHandle, isOwner, can, search],
   );
 
   if (board.isError && isApiError(board.error) && board.error.status === 404) {

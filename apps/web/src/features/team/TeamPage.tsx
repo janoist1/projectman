@@ -32,7 +32,7 @@ const statusRank: Record<string, number> = {
 
 /** "Csapat": one roster of humans and AI members, hiring and retiring. */
 export function TeamPage() {
-  const { key, myHandle } = useProject();
+  const { key, myHandle, can } = useProject();
   const isMobile = useIsMobile();
   const membersQuery = useMembers(key);
   const board = useBoard(key);
@@ -98,7 +98,7 @@ export function TeamPage() {
     );
 
   const retireButton = (member: MemberView) =>
-    member.kind === 'ai' ? (
+    member.kind === 'ai' && can.manageTeam ? (
       <Button
         variant="ghost"
         size="sm"
@@ -134,9 +134,11 @@ export function TeamPage() {
             </span>
           </div>
         ) : null}
-        <Button variant="primary" icon="plus" onClick={() => setHireOpen(true)}>
-          {t('team.hire')}
-        </Button>
+        {can.manageTeam ? (
+          <Button variant="primary" icon="plus" onClick={() => setHireOpen(true)}>
+            {t('team.hire')}
+          </Button>
+        ) : null}
       </header>
 
       <div className={styles.content}>

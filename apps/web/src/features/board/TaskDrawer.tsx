@@ -96,7 +96,7 @@ function StartPanel({ task, members }: { task: Task; members: MemberIndex }) {
 
 export function TaskDrawer() {
   const { taskKey = '' } = useParams();
-  const { key, myHandle } = useProject();
+  const { key, myHandle, can } = useProject();
   const navigate = useNavigate();
   const { board, members, pipeline, model } = useBoardModel();
   const detail = useTaskDetail(key, taskKey);
@@ -273,9 +273,9 @@ export function TaskDrawer() {
         </div>
 
         <div className={styles.footer}>
-          {isQueued ? (
+          {isQueued && can.createTasks ? (
             <StartPanel task={task} members={members} />
-          ) : session ? (
+          ) : session && can.workInSessions ? (
             <>
               <ButtonLink
                 to={`/p/${key}/sessions/${session.id}`}

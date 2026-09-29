@@ -225,7 +225,7 @@ export function TopBar({
   inboxCount: number;
   pauseAbove: number | undefined;
 }) {
-  const { key, openNewTask } = useProject();
+  const { key, openNewTask, can } = useProject();
   return (
     <header className={styles.topbar}>
       <ProjectSwitcher currentKey={key} currentName={board?.project.name ?? key} />
@@ -238,16 +238,18 @@ export function TopBar({
         <Presence board={board} members={members} />
       </span>
       <InboxPill count={inboxCount} />
-      <Button variant="primary" icon="plus" onClick={openNewTask}>
-        {t('topbar.newTask')}
-      </Button>
+      {can.createTasks ? (
+        <Button variant="primary" icon="plus" onClick={openNewTask}>
+          {t('topbar.newTask')}
+        </Button>
+      ) : null}
     </header>
   );
 }
 
 /** Phone header: project chip, inbox pill, account. */
 export function MobileHeader({ board, inboxCount }: { board: BoardView | undefined; inboxCount: number }) {
-  const { key, openNewTask } = useProject();
+  const { key, openNewTask, can } = useProject();
   return (
     <header className={styles.mobileHeader}>
       <span className={styles.mobileProject}>
@@ -255,7 +257,9 @@ export function MobileHeader({ board, inboxCount }: { board: BoardView | undefin
       </span>
       <span className={styles.spacer} />
       <InboxPill count={inboxCount} compact />
-      <Button variant="primary" size="md" iconOnly icon="plus" onClick={openNewTask} aria-label={t('topbar.newTask')} />
+      {can.createTasks ? (
+        <Button variant="primary" size="md" iconOnly icon="plus" onClick={openNewTask} aria-label={t('topbar.newTask')} />
+      ) : null}
       <AccountMenu settingsPath={`/p/${key}/settings`} placement="below" />
     </header>
   );

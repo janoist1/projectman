@@ -20,6 +20,8 @@ export interface ProjectContextValue {
   /** The viewer's member handle in this project (null if not a member). */
   myHandle: string | null;
   isOwner: boolean;
+  /** Allowed actions by access level (the server enforces them too). */
+  can: { createTasks: boolean; manageTeam: boolean; workInSessions: boolean };
   search: string;
   setSearch: (value: string) => void;
   openNewTask: () => void;

@@ -9,6 +9,7 @@ import { Chip, StatusDot } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
+import { ProviderBadge } from '../../components/ProviderBadge';
 import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
 import { memberStatusView, nameOf } from '../../lib/members';
@@ -216,7 +217,12 @@ export function TeamPage() {
                       <span className={styles.memberText}>
                         <span className={styles.memberName}>
                           {nameOf(member.handle, indexes.members, myHandle)}
-                          {member.kind === 'ai' ? <Chip tone="dark">{t('common.ai')}</Chip> : null}
+                          {member.kind === 'ai' ? (
+                            <>
+                              <Chip tone="dark">{t('common.ai')}</Chip>
+                              <ProviderBadge provider={member.provider} />
+                            </>
+                          ) : null}
                           {member.temp ? <Chip tone="needs">{t('team.temp')}</Chip> : null}
                         </span>
                         <span className={styles.handle}>
@@ -270,7 +276,12 @@ export function TeamPage() {
                             <span className={styles.memberText}>
                               <span className={styles.memberName}>
                                 {nameOf(member.handle, indexes.members, myHandle)}
-                                {member.kind === 'ai' ? <Chip tone="dark">{t('common.ai')}</Chip> : null}
+                                {member.kind === 'ai' ? (
+                                  <>
+                                    <Chip tone="dark">{t('common.ai')}</Chip>
+                                    <ProviderBadge provider={member.provider} />
+                                  </>
+                                ) : null}
                                 {member.temp ? <Chip tone="needs">{t('team.temp')}</Chip> : null}
                               </span>
                               <span className={styles.handle}>

@@ -1,6 +1,7 @@
 import {
   AiMemberConfig,
   DEFAULT_AGENT_PROVIDER,
+  modelForProvider,
   holdersAllow,
   MemberHandle,
   roleHolders,
@@ -123,6 +124,7 @@ export class MemberService {
         temp: m.temp,
         provider: m.provider ?? DEFAULT_AGENT_PROVIDER,
         model: m.model,
+        effort: m.effort,
         permissionMode: m.permissionMode,
       };
     });
@@ -179,7 +181,9 @@ export class MemberService {
         role: req.role,
         ...(req.specialty ? { specialty: req.specialty } : {}),
         ...(req.provider ? { provider: req.provider } : {}),
-        model: req.model ?? defaults.model,
+        model:
+          req.provider === 'codex' ? modelForProvider('codex', req.model) : (req.model ?? defaults.model),
+        ...(req.effort ? { effort: req.effort } : {}),
         permissionMode: defaults.permissionMode,
         capacity: defaults.capacity,
         instructions: defaults.instructions,
@@ -208,7 +212,7 @@ export class MemberService {
 
   /**
    * Changes a member (a configuration commit): the display name of anyone, the roles a human
-   * holds, and an AI member's specialty, model and schedule. An AI member's one role stays.
+   * holds, and an AI member's specialty, provider, model, effort and schedule. An AI member's one role stays.
    */
   async update(
     projectKey: string,
@@ -221,8 +225,17 @@ export class MemberService {
       if (!member) throw notFound('member', handle);
       const fields: string[] = [];
       if (member.kind === 'human') {
-        if (req.specialty !== undefined || req.model !== undefined || req.schedule !== undefined) {
-          throw invalid('not_ai_member', 'specialty, model and schedule apply to AI members only');
+        if (
+          req.specialty !== undefined ||
+          req.model !== undefined ||
+          req.schedule !== undefined ||
+          req.provider !== undefined ||
+          req.effort !== undefined
+        ) {
+          throw invalid(
+            'not_ai_member',
+            'specialty, provider, model, effort and schedule apply to AI members only',
+          );
         }
         if (req.roles !== undefined) {
           const roles = [...new Set(req.roles)];
@@ -243,6 +256,15 @@ export class MemberService {
         if (req.model !== undefined) {
           member.model = req.model;
           fields.push('model');
+        }
+        if (req.provider !== undefined && req.provider !== (member.provider ?? DEFAULT_AGENT_PROVIDER)) {
+          member.provider = req.provider;
+          member.model = modelForProvider(req.provider, member.model);
+          fields.push('provider');
+        }
+        if (req.effort !== undefined) {
+          member.effort = req.effort;
+          fields.push('effort');
         }
         if (req.schedule !== undefined) {
           if (req.schedule) member.schedule = req.schedule;

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { Domain } from '../domain';
+import { registerProviderRoutes } from './providers';
 import { registerConfigRoutes } from './config';
 import { registerInboxRoutes } from './inbox';
 import { registerMemberRoutes } from './members';
@@ -14,6 +15,7 @@ export { parseBody } from './validation';
 
 /** Every route of the shared route table except auth (src/auth) and the websocket (src/ws). */
 export function registerApiRoutes(app: FastifyInstance, domain: Domain): void {
+  registerProviderRoutes(app, domain);
   registerProjectRoutes(app, domain);
   registerTaskRoutes(app, domain);
   registerMemberRoutes(app, domain);

@@ -71,6 +71,15 @@ export function useLogout() {
   });
 }
 
+export function useProviders() {
+  return useQuery({
+    queryKey: queryKeys.providers,
+    queryFn: api.providers,
+    staleTime: 0,
+    refetchInterval: 30_000,
+  });
+}
+
 /* ---------- projects ---------- */
 
 export function useProjects(enabled = true) {

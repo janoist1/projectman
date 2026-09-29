@@ -1,15 +1,16 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { holdersAllow } from '@projectman/shared';
-import type { MemberView, ProjectConfig, RoleView } from '@projectman/shared';
+import type { AgentProvider, AgentEffort, MemberView, ProjectConfig, RoleView } from '@projectman/shared';
 import { useUpdateMember } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
-import { SelectField, TextField } from '../../components/Field';
+import { TextField } from '../../components/Field';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
+import { ProviderFields } from './ProviderFields';
 import { ScheduleFields } from './ScheduleFields';
 import type { ScheduleDraft } from './ScheduleFields';
 import styles from './HireDialog.module.css';
@@ -33,7 +34,11 @@ function EditMemberForm({
   const [displayName, setDisplayName] = useState(member.displayName);
   const [selected, setSelected] = useState(member.roles);
   const [specialty, setSpecialty] = useState(member.specialty ?? '');
-  const [model, setModel] = useState(ai?.model ?? 'opus');
+  const [provider, setProvider] = useState<AgentProvider>(ai?.provider ?? member.provider ?? 'claude');
+  const [effort, setEffort] = useState<AgentEffort>(ai?.effort ?? member.effort ?? 'medium');
+  const [model, setModel] = useState(
+    ai?.model ?? member.model ?? (provider === 'codex' ? 'gpt-6.1-sol' : 'opus'),
+  );
   const [schedule, setSchedule] = useState<ScheduleDraft>({
     enabled: Boolean(ai?.schedule),
     cron: ai?.schedule?.cron ?? '',
@@ -41,6 +46,7 @@ function EditMemberForm({
   });
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (member.kind === 'ai' && !model.trim()) return;
     update.mutate(
       {
         handle: member.handle,
@@ -50,7 +56,9 @@ function EditMemberForm({
             : {
                 displayName: displayName.trim(),
                 specialty: specialty.trim(),
-                model,
+                provider,
+                effort: provider === 'codex' ? effort : undefined,
+                model: model.trim(),
                 schedule: schedule.enabled
                   ? { cron: schedule.cron.trim(), prompt: schedule.prompt.trim() }
                   : null,
@@ -99,17 +107,17 @@ function EditMemberForm({
             value={specialty}
             onChange={(event) => setSpecialty(event.target.value)}
           />
-          <SelectField
-            label={t('hire.model')}
-            value={model}
-            onChange={(event) => setModel(event.target.value)}
-          >
-            {[...new Set([model, 'opus', 'sonnet', 'haiku'])].map((entry) => (
-              <option key={entry} value={entry}>
-                {entry}
-              </option>
-            ))}
-          </SelectField>
+          <ProviderFields
+            provider={provider}
+            model={model}
+            effort={effort}
+            onProviderChange={(next, nextModel) => {
+              setProvider(next);
+              setModel(nextModel);
+            }}
+            onModelChange={setModel}
+            onEffortChange={setEffort}
+          />
           <ScheduleFields value={schedule} onChange={setSchedule} />
         </>
       )}
@@ -147,7 +155,9 @@ export function EditMemberDialog({
       onClose={onClose}
       title={t('memberEdit.title', { name: member?.displayName ?? '' })}
     >
-      {member ? <EditMemberForm member={member} config={config} roles={roles} onDone={onClose} /> : null}
+      {member ? (
+        <EditMemberForm key={member.handle} member={member} config={config} roles={roles} onDone={onClose} />
+      ) : null}
     </Dialog>
   );
 }

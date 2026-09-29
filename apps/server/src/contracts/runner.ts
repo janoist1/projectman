@@ -1,5 +1,5 @@
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
-import type { AgentProvider, ChatItem, PlanUsage, SessionState } from '@projectman/shared';
+import type { AgentEffort, AgentProvider, ChatItem, PlanUsage, SessionState } from '@projectman/shared';
 
 /**
  * Runs real, interactive agent CLI sessions (Claude Code or OpenAI Codex CLI) in
@@ -21,6 +21,7 @@ export interface StartSessionSpec {
   /** Shown as the session name (`-n`). */
   displayName: string;
   model?: string;
+  effort?: AgentEffort;
   permissionMode?: string;
   /**
    * Identity, team, rules and memory of the member (Claude Code: `--append-system-prompt`;

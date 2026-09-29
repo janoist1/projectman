@@ -3,6 +3,7 @@
  * ['project', key] so a reconnect can refetch a whole project at once.
  */
 export const queryKeys = {
+  providers: ['providers'] as const,
   invitations: (key: string) => ['project', key, 'invitations'] as const,
   invite: (token: string) => ['invite', token] as const,
   setupStatus: ['setupStatus'] as const,

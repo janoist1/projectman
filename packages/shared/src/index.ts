@@ -17,3 +17,4 @@ export * from './config/duties';
 export * from './config/edit';
 export * from './domain/schedule';
 export * from './schedule/cron';
+export * from './domain/provider-model';

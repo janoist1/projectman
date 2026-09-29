@@ -454,6 +454,7 @@ export class SessionOrchestrator {
         member: member.handle,
         displayName: `${member.displayName} · ${workItemLabel(workItem, member)}`,
         model: member.model,
+        effort: member.effort,
         permissionMode: member.permissionMode,
         appendSystemPrompt: pack.appendSystemPrompt,
         initialMessage: resume ? null : pack.initialMessage,

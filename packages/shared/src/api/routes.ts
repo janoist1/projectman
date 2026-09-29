@@ -4,6 +4,7 @@
  * /hooks and /mcp are internal: localhost only, authenticated by a per-session token.
  */
 export const routes = {
+  providers: () => '/api/providers',
   setupStatus: () => '/api/setup',
   setup: () => '/api/setup',
   login: () => '/api/auth/login',
@@ -55,6 +56,7 @@ export const routes = {
 
 /** Methods per route (for documentation and route registration). */
 export const routeMethods = {
+  providers: 'GET',
   setupStatus: 'GET',
   setup: 'POST',
   login: 'POST',

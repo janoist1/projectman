@@ -1,4 +1,5 @@
 import {
+  ProvidersView,
   CreatedInvitation,
   InvitationsView,
   PublicInviteView,
@@ -43,6 +44,7 @@ import { apiRequest, unwrapList } from './client';
  * the contract yet, so callers refetch instead of relying on them.
  */
 export const api = {
+  providers: () => apiRequest(routes.providers(), { schema: ProvidersView }),
   setupStatus: () => apiRequest(routes.setupStatus(), { schema: SetupStatus }),
   setup: (body: SetupRequest) => apiRequest<unknown>(routes.setup(), { method: 'POST', body }),
   login: (body: LoginRequest) => apiRequest<unknown>(routes.login(), { method: 'POST', body }),

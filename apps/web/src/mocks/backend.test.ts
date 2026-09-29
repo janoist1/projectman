@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { BUILT_IN_ROLE_IDS, RolesView, validateProjectConfig } from '@projectman/shared';
+import { BUILT_IN_ROLE_IDS, ProvidersView, RolesView, validateProjectConfig } from '@projectman/shared';
 import { MockBackend } from './backend';
 import { startSimulation } from './simulation';
 
@@ -168,5 +168,64 @@ describe('mock stage gates', () => {
         (item) => item.taskKey === task.key && item.kind === 'decision' && item.state === 'open',
       ),
     ).toHaveLength(1);
+  });
+});
+
+describe('mock provider settings', () => {
+  it('reports provider login statuses for any logged-in member', () => {
+    const backend = new MockBackend();
+    backend.viewerHandle = 'kata';
+    backend.providerLoggedIn.codex = false;
+    expect(ProvidersView.parse(backend.handle('GET', '/api/providers', undefined).body).providers).toEqual([
+      expect.objectContaining({ provider: 'claude', loggedIn: true }),
+      expect.objectContaining({ provider: 'codex', loggedIn: false }),
+    ]);
+    backend.auth = 'login';
+    expect(backend.handle('GET', '/api/providers', undefined).status).toBe(401);
+  });
+  it('hires and edits provider settings, defaults and custom models', () => {
+    const backend = new MockBackend();
+    expect(
+      backend.handle('POST', `${base}/members`, {
+        role: 'qa',
+        handle: 'acme-codex',
+        provider: 'codex',
+        effort: 'low',
+      }).status,
+    ).toBe(201);
+    expect(backend.findMember('acme-codex')).toMatchObject({
+      provider: 'codex',
+      model: 'gpt-6.1-sol',
+      effort: 'low',
+    });
+    expect(
+      backend.handle('PATCH', `${base}/members/qa`, { provider: 'codex', effort: 'xhigh' }).body,
+    ).toMatchObject({ provider: 'codex', model: 'gpt-6.1-sol', effort: 'xhigh' });
+    backend.handle('PATCH', `${base}/members/qa`, { model: 'fictional-codex-model' });
+    expect(backend.handle('PATCH', `${base}/members/qa`, { specialty: 'data' }).body).toMatchObject({
+      provider: 'codex',
+      model: 'fictional-codex-model',
+      effort: 'xhigh',
+    });
+    expect(backend.handle('PATCH', `${base}/members/qa`, { provider: 'claude' }).body).toMatchObject({
+      provider: 'claude',
+      model: 'opus',
+    });
+    expect(
+      backend.handle('PATCH', `${base}/members/qa`, {
+        provider: 'codex',
+        model: 'gpt-6-luna',
+        effort: 'high',
+      }).body,
+    ).toMatchObject({ model: 'gpt-6-luna' });
+    expect(backend.config.team.members.find((member) => member.handle === 'qa')).toMatchObject({
+      provider: 'codex',
+      model: 'gpt-6-luna',
+      effort: 'high',
+    });
+    for (const body of [{ provider: 'codex' }, { effort: 'high' }]) {
+      expect(errorCode(backend.handle('PATCH', `${base}/members/owner`, body))).toBe('not_ai_member');
+    }
+    expect(backend.handle('PATCH', `${base}/members/qa`, { effort: 'max' }).status).toBe(400);
   });
 });

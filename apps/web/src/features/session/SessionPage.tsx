@@ -21,6 +21,7 @@ import { StageProgress } from '../../components/StageProgress';
 import { ErrorState, LoadingState } from '../../components/States';
 import { Timeline } from '../../components/Timeline';
 import { useToast } from '../../components/toastContext';
+import { ProviderBadge } from '../../components/ProviderBadge';
 import { t } from '../../i18n/t';
 import type { PlainMessageKey } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile, useMediaQuery } from '../../lib/hooks';
@@ -312,6 +313,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
           <Chip tone="outline" size="md" mono title={t('session.chips.cwd', { cwd: session.cwd })}>
             {shortPath(session.cwd)}
           </Chip>
+          <ProviderBadge provider={memberConfig?.provider} />
           {memberConfig?.model ? (
             <Chip size="md">{t('session.chips.model', { model: memberConfig.model })}</Chip>
           ) : null}

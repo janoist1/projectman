@@ -1,0 +1,92 @@
+.avatar {
+  position: relative;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--tone-bg, var(--c-muted));
+  color: var(--tone-fg, var(--c-ink-2));
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  box-sizing: border-box;
+}
+
+.round {
+  border-radius: 50%;
+}
+
+.square {
+  border-radius: 30%;
+}
+
+.xs {
+  font-size: 8.5px;
+}
+.sm {
+  font-size: 9.5px;
+}
+.md {
+  font-size: 10px;
+}
+.lg {
+  font-size: 12px;
+}
+.xl {
+  font-size: 13px;
+}
+.xxl {
+  font-size: 16px;
+}
+
+.initials {
+  white-space: nowrap;
+}
+
+.ring {
+  border: 2px solid var(--avatar-ring, var(--c-surface));
+}
+
+.dot {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--status-dot);
+  border: 2px solid var(--avatar-ring, var(--c-surface));
+  box-sizing: border-box;
+}
+
+.xs .dot,
+.sm .dot {
+  width: 9px;
+  height: 9px;
+  right: -2px;
+  bottom: -2px;
+  border-width: 1.5px;
+}
+
+.xl .dot,
+.xxl .dot {
+  width: 13px;
+  height: 13px;
+  border-width: 2.5px;
+}
+
+.stack {
+  display: inline-flex;
+  align-items: center;
+}
+
+.stack > * + * {
+  margin-left: -7px;
+}
+
+.more {
+  background: var(--c-muted);
+  color: var(--c-ink-2);
+  padding: 0 6px;
+  border-radius: 999px;
+}

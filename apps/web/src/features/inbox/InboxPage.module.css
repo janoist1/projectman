@@ -1,0 +1,162 @@
+.page {
+  box-sizing: border-box;
+  padding: 26px 32px 32px;
+  display: flex;
+  gap: 28px;
+  align-items: flex-start;
+}
+
+.main {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 860px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+}
+
+.subtitle {
+  font-size: 14px;
+  color: var(--c-ink-3);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.aside {
+  width: 360px;
+  flex-shrink: 0;
+  padding-top: 4px;
+  position: sticky;
+  top: 16px;
+}
+
+.recent {
+  box-sizing: border-box;
+  padding: 16px 18px 8px;
+  border-radius: var(--radius-2xl);
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  display: flex;
+  flex-direction: column;
+}
+
+.recentTitle {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--c-ink-4);
+}
+
+.recentEmpty {
+  font-size: 13px;
+  color: var(--c-ink-4);
+  padding: 8px 0 10px;
+}
+
+.recentList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.recentItem {
+  display: flex;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--c-line-soft);
+}
+
+.recentItem:first-child {
+  border-top: 0;
+}
+
+.recentIcon {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.recentOk {
+  background: var(--c-ok-bg);
+  color: var(--c-ok);
+}
+
+.recentNo {
+  background: var(--c-needs-bg);
+  color: var(--c-needs);
+}
+
+.recentText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.recentLine {
+  font-size: 13.5px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.recentMeta {
+  font-size: 12px;
+  color: var(--c-ink-4);
+}
+
+@media (max-width: 1100px) {
+  .aside {
+    width: 300px;
+  }
+}
+
+@media (max-width: 900px) {
+  .page {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 20px;
+  }
+  .main {
+    max-width: none;
+  }
+  .aside {
+    width: 100%;
+    position: static;
+  }
+}
+
+@media (max-width: 767px) {
+  .page {
+    padding: 4px 14px 16px;
+  }
+  .title {
+    font-size: 30px;
+  }
+  .list {
+    gap: 10px;
+  }
+}

@@ -1,0 +1,67 @@
+.region {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  width: min(520px, calc(100vw - 32px));
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 8px 9px 13px;
+  border-radius: 11px;
+  background: var(--c-primary);
+  color: var(--c-on-primary);
+  font-size: 13.5px;
+  font-weight: 700;
+  box-shadow: var(--shadow-pop);
+  animation: pm-fade-in 160ms ease-out;
+  max-width: 100%;
+}
+
+.icon {
+  display: inline-flex;
+  color: var(--c-toast-ok);
+}
+
+.error .icon {
+  color: var(--c-toast-error);
+}
+
+.message {
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.dismiss {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.75;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dismiss:hover {
+  opacity: 1;
+}
+
+@media (max-width: 767px) {
+  .region {
+    bottom: calc(var(--tabbar-height) + 16px + env(safe-area-inset-bottom));
+  }
+}

@@ -1,0 +1,105 @@
+.state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 20px;
+  color: var(--c-ink-3);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.compact {
+  padding: 14px;
+  justify-content: flex-start;
+}
+
+.spinner {
+  display: inline-block;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid var(--c-line-strong);
+  border-top-color: var(--c-accent);
+  animation: pm-spin 0.8s linear infinite;
+}
+
+.error {
+  flex-wrap: wrap;
+  color: var(--c-ink-2);
+}
+
+.errorIcon {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--c-blocked-bg);
+  color: var(--c-blocked);
+}
+
+.errorText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.errorMessage {
+  font-weight: 800;
+  color: var(--c-ink);
+}
+
+.code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--c-ink-4);
+  font-weight: 500;
+}
+
+.empty {
+  box-sizing: border-box;
+  padding: 24px;
+  border-radius: var(--radius-2xl);
+  background: var(--c-surface);
+  border: 1px dashed var(--c-line-strong);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.emptyIcon {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--c-muted);
+  color: var(--c-ink-3);
+}
+
+.emptyIconOk {
+  background: var(--c-ok-bg);
+  color: var(--c-ok);
+}
+
+.emptyText {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.emptyTitle {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.emptyBody {
+  font-size: 13.5px;
+  color: var(--c-ink-3);
+  line-height: 1.45;
+}

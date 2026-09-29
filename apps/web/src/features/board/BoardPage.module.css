@@ -1,0 +1,160 @@
+.page {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 18px 24px 14px;
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.titles {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+}
+
+.subtitle {
+  font-size: 13.5px;
+  color: var(--c-ink-3);
+}
+
+.spacer {
+  flex-grow: 1;
+}
+
+.columns {
+  flex: 1 1 auto;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 0 24px 20px;
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+}
+
+.column {
+  flex: 1 1 0;
+  min-width: 196px;
+  box-sizing: border-box;
+  padding: 12px 10px;
+  border-radius: var(--radius-2xl);
+  background: var(--c-column);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.columnDone {
+  background: var(--c-column-done);
+}
+
+.columnHead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 4px 2px;
+}
+
+.columnTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.columnDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--c-accent);
+}
+
+.columnDot[data-stage-kind='queue'] {
+  background: var(--c-mark-ready);
+}
+.columnDot[data-stage-kind='review'],
+.columnDot[data-stage-kind='deploy'],
+.columnDot[data-stage-kind='test'] {
+  background: var(--role-qa-fg);
+}
+.columnDot[data-stage-kind='client_test'] {
+  background: var(--role-comm-fg);
+}
+.columnDot[data-stage-kind='merge'],
+.columnDot[data-stage-kind='release'] {
+  background: var(--c-needs);
+}
+.columnDot[data-stage-kind='done'] {
+  background: var(--c-ok);
+}
+
+.columnName {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.columnCount {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--c-ink-4);
+}
+
+.columnHint {
+  font-size: 12px;
+  color: var(--c-ink-4);
+}
+
+.cards {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 -4px;
+  padding: 2px 4px 4px;
+  scrollbar-width: thin;
+}
+
+.columnEmpty {
+  font-size: 12.5px;
+  color: var(--c-ink-4);
+  padding: 6px;
+}
+
+.emptyWrap {
+  padding: 0 24px 24px;
+}
+
+@media (max-width: 767px) {
+  .page {
+    height: auto;
+  }
+  .header {
+    padding: 6px 14px 10px;
+    align-items: center;
+  }
+  .title {
+    font-size: 28px;
+  }
+  .emptyWrap {
+    padding: 0 14px 24px;
+  }
+}

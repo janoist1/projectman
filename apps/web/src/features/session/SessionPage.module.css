@@ -1,0 +1,255 @@
+.page {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 16px 24px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-bottom: 1px solid var(--c-line);
+}
+
+.crumbRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--c-ink-4);
+  min-height: 32px;
+}
+
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.crumbLink {
+  color: var(--c-ink-3);
+  font-weight: 800;
+}
+
+.crumbLink:hover {
+  color: var(--c-ink);
+}
+
+.spacer {
+  flex-grow: 1;
+}
+
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--status-text);
+  white-space: nowrap;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+
+.chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.stageChip {
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.prChip {
+  color: var(--c-ok-text);
+}
+
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 16px 24px 20px;
+  display: flex;
+  gap: 16px;
+}
+
+.timelineAside {
+  width: 290px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 16px 16px 6px;
+  border-radius: var(--radius-2xl);
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.asideTitle {
+  margin-bottom: 14px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--c-ink-4);
+}
+
+.asideScroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.center {
+  flex: 1 1 auto;
+  min-width: 0;
+  border-radius: var(--radius-2xl);
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tabs {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 6px 12px 0;
+  border-bottom: 1px solid var(--c-line-soft);
+  overflow-x: auto;
+}
+
+.tab {
+  height: 42px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--c-ink-4);
+  font-weight: 800;
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+
+.tab:hover {
+  color: var(--c-ink);
+}
+
+.tabActive {
+  color: var(--c-ink);
+  border-bottom-color: var(--c-ink);
+}
+
+.panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.chatScroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 18px 20px;
+}
+
+.panelScroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 16px;
+}
+
+.detailsStack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.side {
+  width: 320px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.notRunning {
+  padding: 24px;
+  font-size: 14px;
+  color: var(--c-ink-3);
+}
+
+.muted {
+  font-size: 13px;
+  color: var(--c-ink-4);
+}
+
+@media (max-width: 1100px) {
+  .timelineAside {
+    width: 250px;
+  }
+}
+
+@media (max-width: 767px) {
+  .header {
+    padding: 4px 14px 10px;
+    gap: 8px;
+  }
+  .title {
+    font-size: 21px;
+  }
+  .chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin: 0 -14px;
+    padding: 0 14px;
+    scrollbar-width: none;
+  }
+  .body {
+    padding: 0;
+  }
+  .center {
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+  }
+  .chatScroll {
+    padding: 14px;
+  }
+}

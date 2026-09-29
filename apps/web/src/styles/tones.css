@@ -1,0 +1,153 @@
+/*
+ * Data-attribute tones shared by components: set data-tone / data-status / data-phase /
+ * data-kind on an element and use the resulting --tone-*, --status-*, --phase-*, --kind-*
+ * variables in its styles.
+ */
+
+[data-tone='devops'] {
+  --tone-fg: var(--role-devops-fg);
+  --tone-bg: var(--role-devops-bg);
+}
+[data-tone='review'] {
+  --tone-fg: var(--role-review-fg);
+  --tone-bg: var(--role-review-bg);
+}
+[data-tone='qa'] {
+  --tone-fg: var(--role-qa-fg);
+  --tone-bg: var(--role-qa-bg);
+}
+[data-tone='comm'] {
+  --tone-fg: var(--role-comm-fg);
+  --tone-bg: var(--role-comm-bg);
+}
+[data-tone='pm'] {
+  --tone-fg: var(--role-pm-fg);
+  --tone-bg: var(--role-pm-bg);
+}
+[data-tone='frontend'] {
+  --tone-fg: var(--role-frontend-fg);
+  --tone-bg: var(--role-frontend-bg);
+}
+[data-tone='backend'] {
+  --tone-fg: var(--role-backend-fg);
+  --tone-bg: var(--role-backend-bg);
+}
+[data-tone='developer'] {
+  --tone-fg: var(--role-developer-fg);
+  --tone-bg: var(--role-developer-bg);
+}
+[data-tone='security'] {
+  --tone-fg: var(--role-security-fg);
+  --tone-bg: var(--role-security-bg);
+}
+[data-tone='docs'] {
+  --tone-fg: var(--role-docs-fg);
+  --tone-bg: var(--role-docs-bg);
+}
+[data-tone='scheduled'] {
+  --tone-fg: var(--role-scheduled-fg);
+  --tone-bg: var(--role-scheduled-bg);
+}
+[data-tone='human'] {
+  --tone-fg: var(--role-human-fg);
+  --tone-bg: var(--role-human-bg);
+}
+[data-tone='owner'] {
+  --tone-fg: var(--role-owner-fg);
+  --tone-bg: var(--role-owner-bg);
+}
+[data-tone='system'] {
+  --tone-fg: var(--role-system-fg);
+  --tone-bg: var(--role-system-bg);
+}
+
+/* member / session status */
+[data-status='working'] {
+  --status-dot: var(--c-accent);
+  --status-text: var(--c-accent-text);
+  --status-bg: var(--c-accent-bg);
+}
+[data-status='needs_you'],
+[data-status='waiting_for_human'] {
+  --status-dot: var(--c-needs);
+  --status-text: var(--c-needs-text);
+  --status-bg: var(--c-needs-bg);
+}
+[data-status='idle'] {
+  --status-dot: var(--c-mark-idle);
+  --status-text: var(--c-ink-3);
+  --status-bg: var(--c-muted);
+}
+[data-status='online'] {
+  --status-dot: var(--c-ok);
+  --status-text: var(--c-ok-text);
+  --status-bg: var(--c-ok-bg);
+}
+[data-status='offline'],
+[data-status='invited'],
+[data-status='retired'],
+[data-status='exited'] {
+  --status-dot: var(--c-mark-off);
+  --status-text: var(--c-ink-4);
+  --status-bg: var(--c-muted);
+}
+[data-status='failed'] {
+  --status-dot: var(--c-blocked);
+  --status-text: var(--c-blocked-text);
+  --status-bg: var(--c-blocked-bg);
+}
+
+/* task phase (derived) */
+[data-phase='needs_you'] {
+  --phase-dot: var(--c-needs);
+  --phase-text: var(--c-needs-text);
+  --phase-bg: var(--c-needs-bg);
+}
+[data-phase='working'] {
+  --phase-dot: var(--c-accent);
+  --phase-text: var(--c-accent-text);
+  --phase-bg: var(--c-accent-bg);
+}
+[data-phase='waiting'] {
+  --phase-dot: var(--c-mark-muted);
+  --phase-text: var(--c-ink-3);
+  --phase-bg: var(--c-muted);
+}
+[data-phase='ready'],
+[data-phase='cancelled'] {
+  --phase-dot: var(--c-mark-ready);
+  --phase-text: var(--c-ink-3);
+  --phase-bg: var(--c-muted);
+}
+[data-phase='blocked'] {
+  --phase-dot: var(--c-blocked);
+  --phase-text: var(--c-blocked-text);
+  --phase-bg: var(--c-blocked-bg);
+}
+[data-phase='done'] {
+  --phase-dot: var(--c-ok);
+  --phase-text: var(--c-ok-text);
+  --phase-bg: var(--c-ok-bg);
+}
+
+/* inbox kinds */
+[data-kind='permission'] {
+  --kind-fg: var(--c-kind-permission-fg);
+  --kind-bg: var(--c-kind-permission-bg);
+}
+[data-kind='decision'] {
+  --kind-fg: var(--c-kind-decision-fg);
+  --kind-bg: var(--c-kind-decision-bg);
+}
+[data-kind='approval'] {
+  --kind-fg: var(--c-kind-approval-fg);
+  --kind-bg: var(--c-kind-approval-bg);
+}
+[data-kind='question'] {
+  --kind-fg: var(--c-kind-question-fg);
+  --kind-bg: var(--c-kind-question-bg);
+}
+
+.pulse {
+  animation: pm-pulse 1.8s infinite;
+}

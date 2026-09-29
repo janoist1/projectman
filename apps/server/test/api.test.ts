@@ -454,6 +454,50 @@ describe('REST API', () => {
       });
       expect(revert.body.error.code).toBe('insufficient_access');
     });
+
+    it('shows client members only what is shared with them', async () => {
+      const { repos, domain } = h.app.projectman;
+      repos.users.insert({
+        id: 'usr_client',
+        name: 'Client',
+        email: 'client@example.com',
+        passwordHash: await hash('client password'),
+        createdAt: new Date().toISOString(),
+      });
+      await domain.projects.update(
+        'AR',
+        { actor: { kind: 'human', handle: 'owner' }, author: OWNER_LOGIN },
+        (draft) => {
+          draft.team.members.push({
+            kind: 'human',
+            handle: 'client',
+            displayName: 'Client',
+            access: 'client',
+            email: 'client@example.com',
+          });
+          return 'Add the client';
+        },
+      );
+      await call('POST', '/api/projects/AR/tasks', cookie, { title: 'Internal work' });
+      await call('POST', '/api/projects/AR/tasks', cookie, { title: 'Shared work', visibility: 'shared' });
+      const login = await call('POST', '/api/auth/login', undefined, {
+        email: 'client@example.com',
+        password: 'client password',
+      });
+      const clientCookie = cookieOf(login.res);
+
+      const tasks = await call<Task[]>('GET', '/api/projects/AR/tasks', clientCookie);
+      expect(tasks.body.map((t) => t.title)).toEqual(['Shared work']);
+      const board = await call<BoardView>('GET', '/api/projects/AR/board', clientCookie);
+      expect(board.body.tasks.map((t) => t.key)).toEqual(['AR-2']);
+      expect(board.body.planUsage).toBeNull();
+      expect((await call('GET', '/api/projects/AR/tasks/AR-1', clientCookie)).status).toBe(404);
+      const shared = await call<TaskDetail>('GET', '/api/projects/AR/tasks/AR-2', clientCookie);
+      expect(shared.body.sessions).toEqual([]);
+      expect(shared.body.timeline.map((e) => e.type)).toEqual(['task_created']);
+      expect((await call<ApiError>('GET', '/api/projects/AR/config', clientCookie)).status).toBe(403);
+      expect((await call('POST', '/api/projects/AR/tasks', clientCookie, { title: 'x' })).status).toBe(403);
+    });
   });
 
   it('serves the web app with an SPA fallback when it is built', async () => {

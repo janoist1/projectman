@@ -9,11 +9,6 @@ export function useSocket(): SocketClient {
   return client;
 }
 
-/** Null outside a provider (e.g. in component tests). */
-export function useOptionalSocket(): SocketClient | null {
-  return useContext(SocketContext);
-}
-
 const noopSubscribe = () => () => {};
 const openStatus = (): ConnectionStatus => 'open';
 

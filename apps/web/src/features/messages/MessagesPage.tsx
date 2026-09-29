@@ -16,7 +16,7 @@ import styles from './MessagesPage.module.css';
 
 type MessageFilter = 'all' | 'mine' | 'unread';
 
-/** "Üzenetfolyam": who told whom what, across the whole team. */
+/** Who told whom what, across the whole team. */
 export function MessagesPage() {
   const { key, myHandle, me } = useProject();
   const messages = useTeamMessages(key);

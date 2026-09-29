@@ -101,6 +101,3 @@ export function createAuthSessionRepository(db: Db) {
     },
   };
 }
-
-export type UserRepository = ReturnType<typeof createUserRepository>;
-export type AuthSessionRepository = ReturnType<typeof createAuthSessionRepository>;

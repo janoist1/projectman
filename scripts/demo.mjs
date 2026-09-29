@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Isolated Acme webshop demo: the fake CLI echoes messages, without AI usage.
+ * Isolated Acme webshop demo: fake Claude and Codex CLIs echo messages, without AI usage.
  * A message containing "PERMISSION" triggers an approval request.
  * All runtime data and credentials stay in .demo; --reset wipes that directory.
  */
@@ -17,6 +17,7 @@ const repo = fileURLToPath(new URL('../', import.meta.url));
 const demo = join(repo, '.demo');
 const workspace = join(demo, 'workspace');
 const baseUrl = 'http://127.0.0.1:4700';
+const seedMarker = 'Acme webshop demo seeded with both providers.\n';
 const children = [];
 let stopping = false;
 let closing;
@@ -145,10 +146,11 @@ async function seed() {
   );
   developers[0].displayName = 'Kata';
   developers[1].displayName = 'Bence';
+  developers[1].provider = 'codex';
   await api('/projects/AC/config', 'PUT', {
     config,
     baseVersion: version,
-    message: 'Name the demo developers',
+    message: 'Configure demo developers and providers',
   });
   const titles = [
     'Build the product catalogue',
@@ -183,7 +185,7 @@ async function seed() {
     const { session: current, chat } = await api(`/projects/AC/sessions/${session.id}`);
     return current.state === 'idle' && chat.some((entry) => entry.kind === 'assistant_text');
   });
-  writeFileSync(join(demo, 'seeded'), 'Acme webshop demo seeded.\n');
+  writeFileSync(join(demo, 'seeded'), seedMarker);
   console.log('Demo seeded: Acme webshop, four tasks, one live fake session.');
 }
 
@@ -193,7 +195,7 @@ async function main() {
   await requireFreePort(4700);
   await requireFreePort(5173);
   if (process.argv.includes('--reset')) rmSync(demo, { recursive: true, force: true });
-  for (const dir of ['workspace', 'home', 'claude-config', 'transcripts'])
+  for (const dir of ['workspace', 'home', 'claude-config', 'codex-home', 'transcripts'])
     mkdirSync(join(demo, dir), { recursive: true });
   const claudeConfig = join(demo, 'claude-config/.claude.json');
   if (!existsSync(claudeConfig)) {
@@ -228,6 +230,8 @@ async function main() {
     ...process.env,
     PROJECTMAN_HOME: join(demo, 'home'),
     CLAUDE_BIN: join(repo, 'apps/server/test/fixtures/fake-claude.mjs'),
+    CODEX_BIN: join(repo, 'apps/server/test/fixtures/fake-codex.mjs'),
+    CODEX_HOME: join(demo, 'codex-home'),
     GH_BIN: '/usr/bin/false',
     CLAUDE_CONFIG_DIR: join(demo, 'claude-config'),
     FAKE_CLAUDE_CONFIG_FILE: claudeConfig,
@@ -240,7 +244,7 @@ async function main() {
   // Prevent inherited test switches from changing the fake CLI's behaviour.
   for (const key of Object.keys(env)) {
     if (
-      key.startsWith('FAKE_CLAUDE_') &&
+      (key.startsWith('FAKE_CLAUDE_') || key.startsWith('FAKE_CODEX_')) &&
       !['FAKE_CLAUDE_CONFIG_FILE', 'FAKE_CLAUDE_TRANSCRIPT_DIR'].includes(key)
     )
       delete env[key];
@@ -251,7 +255,8 @@ async function main() {
       .then((res) => res.ok)
       .catch(() => false),
   );
-  if (!existsSync(join(demo, 'seeded'))) await seed();
+  const seeded = join(demo, 'seeded');
+  if (!existsSync(seeded) || readFileSync(seeded, 'utf8') !== seedMarker) await seed();
   else console.log('Reusing .demo; seeding skipped.');
   start(
     'Vite',

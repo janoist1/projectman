@@ -13,7 +13,7 @@ interface ToastEntry {
   tone: ToastTone;
 }
 
-/** Short confirmations ("Felvéve: QA 2") and errors, announced politely to screen readers. */
+/** Short confirmations and errors, announced politely to screen readers. */
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastEntry[]>([]);
   const nextId = useRef(1);

@@ -73,5 +73,3 @@ export function createTimelineRepository(db: Db) {
     },
   };
 }
-
-export type TimelineRepository = ReturnType<typeof createTimelineRepository>;

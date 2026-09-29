@@ -126,6 +126,16 @@ const waitChat = (id: string, match: (item: ChatItem) => boolean, what: string, 
 const assistantSaid = (id: string, text: string) =>
   waitChat(id, (i) => i.kind === 'assistant_text' && i.text === text, `assistant: ${text}`);
 
+// Hooks and transcript events do not imply the PTY output has reached xterm's async parser.
+const waitSnapshot = (id: string, text: string) =>
+  waitFor(
+    () => {
+      const snapshot = runner.runner.snapshot(id);
+      return snapshot?.data.includes(text) ? snapshot : null;
+    },
+    { what: `terminal snapshot: ${text}` },
+  );
+
 describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
   it('invalidates the hook capability when its process exits', async () => {
     await setup();
@@ -171,7 +181,7 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
       await runner.transcripts.read(path.join(transcriptDir, `${s.claudeSessionId}.jsonl`), { self: 'fe-1' }),
     ).toEqual(chatOf(s.sessionId));
 
-    const snapshot = runner.runner.snapshot(s.sessionId);
+    const snapshot = await waitSnapshot(s.sessionId, 'Echo: Hello from the brief');
     expect(snapshot).toMatchObject({ cols: 100, rows: 30 });
     expect(snapshot!.data).toContain('Echo: Hello from the brief');
     expect(events.some((e) => e.type === 'terminal_data' && e.sessionId === s.sessionId)).toBe(true);
@@ -376,7 +386,7 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     expect(stateOf(s.sessionId)).toBe('exited');
     expect(runner.runner.isRunning(s.sessionId)).toBe(false);
     expect(runner.runner.list()).toEqual([]);
-    expect(runner.runner.snapshot(s.sessionId)?.data).toContain('Echo: first run');
+    expect((await waitSnapshot(s.sessionId, 'Echo: first run')).data).toContain('Echo: first run');
     await expect(runner.runner.sendUserMessage(s.sessionId, 'too late')).rejects.toThrow(/not running/);
 
     const before = chatOf(s.sessionId).length;
@@ -421,8 +431,9 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     expect(events.find((e) => e.type === 'exit' && e.sessionId === s.sessionId)).toMatchObject({
       exitCode: 1,
     });
-    expect(runner.runner.snapshot(s.sessionId)?.data).toContain('No conversation found');
-    expect(runner.runner.snapshot(s.sessionId)?.data).toContain('[session ended: exit code 1]');
+    const snapshot = await waitSnapshot(s.sessionId, '[session ended: exit code 1]');
+    expect(snapshot.data).toContain('No conversation found');
+    expect(snapshot.data).toContain('[session ended: exit code 1]');
     // Nothing follows the exit event.
     const exitIndex = events.findIndex((e) => e.type === 'exit' && e.sessionId === s.sessionId);
     expect(events.slice(exitIndex + 1).filter((e) => e.sessionId === s.sessionId)).toEqual([]);

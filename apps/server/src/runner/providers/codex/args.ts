@@ -1,4 +1,4 @@
-import { DEFAULT_PROVIDER_MODELS, modelForProvider } from '@projectman/shared';
+import { modelForProvider } from '@projectman/shared';
 import type { StartSessionSpec } from '../../../contracts';
 import { forwarderCommand } from '../../claude-args';
 import { sanitizeMessage } from '../../typing';
@@ -116,13 +116,6 @@ export function codexPermissions(mode: string | undefined): CodexPermissions {
   }
 }
 
-/**
- * Claude model names and aliases, which Codex would reject. A Codex member without a Codex
- * model gets projectman's default, not the owner's interactive Codex default: that one may be
- * the most expensive model at the highest effort, which members should use only when a member
- * explicitly asks for it.
- */
-export const DEFAULT_CODEX_MODEL = DEFAULT_PROVIDER_MODELS.codex;
 /** Default reasoning effort for Codex members (overrides the owner's interactive default). */
 export const DEFAULT_CODEX_EFFORT = 'medium';
 

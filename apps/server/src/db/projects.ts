@@ -73,6 +73,3 @@ export function createCounterRepository(db: Db) {
     },
   };
 }
-
-export type ProjectRepository = ReturnType<typeof createProjectRepository>;
-export type CounterRepository = ReturnType<typeof createCounterRepository>;

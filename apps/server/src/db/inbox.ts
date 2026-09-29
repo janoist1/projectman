@@ -134,5 +134,3 @@ export function createInboxRepository(db: Db) {
     },
   };
 }
-
-export type InboxRepository = ReturnType<typeof createInboxRepository>;

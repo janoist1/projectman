@@ -62,23 +62,6 @@ export function useDismiss(
   }, [open, refs, returnFocusTo]);
 }
 
-/** Re-renders every `ms` so relative times ("5 perce") stay current. */
-export function useNow(ms = 30_000): Date {
-  const subscribe = useCallback(
-    (onChange: () => void) => {
-      const timer = setInterval(onChange, ms);
-      return () => clearInterval(timer);
-    },
-    [ms],
-  );
-  const bucket = useSyncExternalStore(
-    subscribe,
-    () => Math.floor(Date.now() / ms),
-    () => 0,
-  );
-  return new Date(bucket * ms);
-}
-
 const storagePrefix = 'pm:';
 
 export function readStorage(key: string): string | null {

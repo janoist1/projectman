@@ -76,7 +76,7 @@ function RecentDecisions({
   );
 }
 
-/** "Rád vár": everything that waits for the viewer, by kind. */
+/** Everything that waits for the viewer, by kind. */
 export function InboxPage() {
   const { key, myHandle } = useProject();
   const isMobile = useIsMobile();

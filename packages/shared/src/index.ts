@@ -11,3 +11,4 @@ export * from './config/invariants';
 export * from './api/dto';
 export * from './api/routes';
 export * from './ws/protocol';
+export * from './domain/role';

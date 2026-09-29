@@ -12,7 +12,7 @@ import { assess } from './work-item';
  *   the member there, guardrails, role instructions and the most recent ~8 KB of memory.
  *   The system prompt is not stored in the transcript, so pass a freshly built one on
  *   every start, including `--resume` (it then reflects the task's current stage).
- * - `initialMessage`: the kick-off brief for task work items; null for general chats and
+ * - `initialMessage`: the kick-off brief for tasks or the scheduled prompt; null for general chats and
  *   meetings. The caller types it only into a NEW session: when resuming a session the
  *   brief is already in the conversation, so the caller ignores it and types the message
  *   that caused the resume instead.

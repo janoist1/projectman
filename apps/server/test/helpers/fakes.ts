@@ -168,7 +168,12 @@ export class FakeContextBuilder implements ContextPackBuilder {
     this.inputs.push(input);
     return {
       appendSystemPrompt: `You are ${input.member.handle}. Memory: ${input.memory}`,
-      initialMessage: input.task ? `Brief for ${input.task.key}: ${input.task.title}` : null,
+      initialMessage:
+        input.workItem.type === 'schedule'
+          ? (input.member.schedule?.prompt ?? null)
+          : input.task
+            ? `Brief for ${input.task.key}: ${input.task.title}`
+            : null,
     };
   }
 }

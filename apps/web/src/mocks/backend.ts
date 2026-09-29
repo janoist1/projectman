@@ -1,4 +1,5 @@
 import {
+  nextCronRun,
   PatchConfigRequest,
   applyConfigPatch,
   configSchemaIssues,
@@ -26,6 +27,9 @@ import {
   UpdateTaskRequest,
 } from '@projectman/shared';
 import type {
+  AgentProvider,
+  PlanUsage,
+  ScheduleRun,
   InvitationView as Invitation,
   AiMemberConfig,
   BoardView,
@@ -101,6 +105,9 @@ export class MockBackend {
   tasks: Task[] = clone(fixtures.tasks);
   members: MemberView[] = clone(fixtures.members);
   timeline: TimelineEvent[] = clone(fixtures.timeline);
+  scheduleRuns: ScheduleRun[] = [];
+  providerLoggedIn = { claude: true, codex: true };
+  providerPlanUsage: Partial<Record<AgentProvider, PlanUsage>> = {};
   sessions: Session[] = clone(fixtures.sessions);
   chats: Record<string, ChatItem[]> = clone(fixtures.chats);
   inbox: InboxItem[] = clone(fixtures.inbox);
@@ -259,6 +266,13 @@ export class MockBackend {
     const session = this.findSession(id);
     if (!session) return undefined;
     Object.assign(session, patch, { lastActivityAt: nowIso() });
+    if (session.workItem.type === 'schedule' && ['exited', 'failed'].includes(session.state)) {
+      const run = this.scheduleRuns.find((r) => r.sessionId === session.id);
+      if (run) {
+        run.status = session.state === 'failed' ? 'failed' : 'done';
+        run.reason = session.state === 'failed' ? 'session_failed' : null;
+      }
+    }
     this.emit({ type: 'session_upserted', projectKey: session.projectKey, session: clone(session) });
     return session;
   }
@@ -490,6 +504,9 @@ export class MockBackend {
         name: this.config.project.name,
         configVersion: this.configVersion,
       });
+    if (rest === '/schedules' && method === 'GET') return ok(this.schedulesView());
+    const scheduleMatch = /^\/members\/([\w-]+)\/schedule\/run$/.exec(rest);
+    if (scheduleMatch && method === 'POST') return this.runSchedule(scheduleMatch[1]!);
     if (rest === '/board') return ok(this.board());
 
     if (rest === '/tasks') {
@@ -1232,6 +1249,107 @@ export class MockBackend {
       this.setMemberState(session.member, 'idle', null);
     });
     return { status: 202 };
+  }
+
+  private schedulesView() {
+    return {
+      timezone: this.config.project.timezone,
+      members: this.config.team.members.flatMap((member) => {
+        if (member.kind !== 'ai' || !member.schedule) return [];
+        let nextRun: string | null = null;
+        try {
+          nextRun = nextCronRun(member.schedule.cron, new Date(), this.config.project.timezone);
+        } catch {
+          /* Invalid legacy schedule. */
+        }
+        return [
+          {
+            member: member.handle,
+            cron: member.schedule.cron,
+            promptSummary: member.schedule.prompt.replace(/\s+/g, ' ').slice(0, 140),
+            nextRun,
+          },
+        ];
+      }),
+      runs: clone(this.scheduleRuns.slice(-20).reverse()),
+    };
+  }
+
+  private runSchedule(handle: string): MockResponse {
+    const member = this.config.team.members.find((m) => m.handle === handle);
+    if (!member) return error(404, 'not_found', 'Unknown member');
+    if (member.kind !== 'ai' || !member.schedule)
+      return error(400, 'member_not_scheduled', 'Member has no AI schedule');
+    const live = this.sessions.filter((s) => !['exited', 'failed'].includes(s.state));
+    const keys = new Set(this.tasks.filter((t) => t.assignee === handle).map((t) => t.key));
+    for (const session of this.sessions)
+      if (session.member === handle && session.workItem.type === 'task') keys.add(session.workItem.taskKey);
+    const load =
+      this.tasks.filter((t) => keys.has(t.key) && !['done', 'cancelled'].includes(t.status)).length +
+      live.filter((s) => s.member === handle && s.workItem.type !== 'task').length;
+    const provider = member.provider ?? 'claude';
+    const plan = this.providerPlanUsage[provider] ?? (provider === 'claude' ? this.planUsage : null);
+    const usage = Math.max(plan?.fiveHourPercent ?? 0, plan?.weeklyPercent ?? 0);
+    const reason = live.some((s) => s.member === handle && s.workItem.type === 'schedule')
+      ? 'previous_run_live'
+      : load >= member.capacity
+        ? 'member_at_capacity'
+        : live.filter((s) => ['starting', 'working', 'waiting_permission'].includes(s.state)).length >=
+            this.config.team.limits.maxConcurrentAi
+          ? 'ai_limit_reached'
+          : usage > this.config.team.limits.pauseAbovePlanUsagePercent
+            ? 'plan_usage_paused'
+            : !this.providerLoggedIn[provider]
+              ? 'provider_not_logged_in'
+              : null;
+    const at = nowIso();
+    const run: ScheduleRun = {
+      id: mockId('run'),
+      projectKey: fixtures.PROJECT_KEY,
+      member: handle,
+      scheduledFor: at,
+      startedAt: reason ? null : at,
+      sessionId: null,
+      status: reason ? 'skipped' : 'started',
+      reason,
+    };
+    this.scheduleRuns.push(run);
+    if (reason) {
+      this.addTimeline(null, null, 'schedule_skipped', {
+        runId: run.id,
+        member: handle,
+        scheduledFor: at,
+        reason,
+      });
+      return error(409, reason, 'Scheduled run refused', { reason, run: clone(run) });
+    }
+    const session: Session = {
+      id: mockId('ses'),
+      projectKey: fixtures.PROJECT_KEY,
+      member: handle,
+      workItem: { type: 'schedule', runId: run.id },
+      claudeSessionId: mockUuid(this.sessions.length + 1),
+      cwd: this.config.project.workspacePath,
+      branch: null,
+      transcriptPath: null,
+      state: 'working',
+      activity: null,
+      startedAt: at,
+      lastActivityAt: at,
+      endedAt: null,
+    };
+    run.sessionId = session.id;
+    this.sessions.push(session);
+    this.chats[session.id] = [this.chatItem('user_text', { text: member.schedule.prompt, origin: 'brief' })];
+    this.emit({ type: 'session_upserted', projectKey: fixtures.PROJECT_KEY, session: clone(session) });
+    this.addTimeline(
+      null,
+      null,
+      'schedule_started',
+      { runId: run.id, member: handle, scheduledFor: at },
+      session.id,
+    );
+    return { status: 201, body: clone(run) };
   }
 
   private stopSession(sessionId: string): MockResponse {

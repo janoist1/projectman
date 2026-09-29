@@ -14,6 +14,7 @@ import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
 import { memberStatusView, nameOf } from '../../lib/members';
 import { MessageList } from '../messages/MessageList';
 import { humanRoleName, aiRoleView } from '../../lib/roles';
+import { MemberScheduleControl, RecentScheduleRuns } from './ScheduledRuns';
 import { EditMemberDialog } from './EditMemberDialog';
 import { RoleSection } from './RoleSection';
 import { InviteDialog } from './InviteDialog';
@@ -228,6 +229,7 @@ export function TeamPage() {
                       <span className={styles.statusText}>{view.label}</span>
                     </span>
                     {taskLinks(member)}
+                    <MemberScheduleControl handle={member.handle} />
                     <span className={styles.cardFoot}>
                       <span className={styles.muted}>{sponsorText(member)}</span>
                       {memberActions(member)}
@@ -288,7 +290,10 @@ export function TeamPage() {
                             ) : null}
                           </span>
                         </td>
-                        <td className={styles.nowCell}>{taskLinks(member)}</td>
+                        <td className={styles.nowCell}>
+                          {taskLinks(member)}
+                          <MemberScheduleControl handle={member.handle} />
+                        </td>
                         <td className={`${styles.muted} ${styles.subscriptionCol}`}>{sponsorText(member)}</td>
                         <td className={styles.actionsCell}>{memberActions(member)}</td>
                       </tr>
@@ -332,6 +337,7 @@ export function TeamPage() {
         )}
       </div>
 
+      <RecentScheduleRuns />
       <PendingInvites />
       <InviteDialog open={inviteOpen} onClose={() => setInviteOpen(false)} />
       <RoleSection config={config.data?.config} />

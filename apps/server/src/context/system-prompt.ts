@@ -190,6 +190,12 @@ function pipelineSection(situation: Situation): string {
 function workItemSection(input: ContextPackInput, situation: Situation): string {
   const heading = '# Current work item';
   const { workItem } = input;
+  if (workItem.type === 'schedule') {
+    return [
+      heading,
+      `Scheduled run ${code(workItem.runId)} in the project workspace. Follow the scheduled brief; there is no assigned task.`,
+    ].join('\n');
+  }
   if (workItem.type === 'general') {
     return [
       heading,

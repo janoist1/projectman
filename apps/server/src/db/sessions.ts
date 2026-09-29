@@ -25,6 +25,8 @@ export function encodeWorkItem(item: WorkItemRef): { type: string; ref: string }
       return { type: 'task', ref: item.taskKey };
     case 'meeting':
       return { type: 'meeting', ref: item.meetingId };
+    case 'schedule':
+      return { type: 'schedule', ref: item.runId };
     case 'general':
       return { type: 'general', ref: '' };
   }
@@ -32,6 +34,7 @@ export function encodeWorkItem(item: WorkItemRef): { type: string; ref: string }
 
 export function decodeWorkItem(type: string, ref: string): WorkItemRef {
   if (type === 'task') return { type: 'task', taskKey: ref };
+  if (type === 'schedule') return { type: 'schedule', runId: ref };
   if (type === 'meeting') return { type: 'meeting', meetingId: ref };
   return { type: 'general' };
 }

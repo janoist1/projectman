@@ -11,6 +11,7 @@ import {
   useStopSession,
   useTaskDetail,
 } from '../../api/queries';
+import { useSchedules } from '../../api/schedules';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Chip, StatusDot } from '../../components/Chip';
@@ -23,6 +24,7 @@ import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import type { PlainMessageKey } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile, useMediaQuery } from '../../lib/hooks';
+import { formatScheduleTime } from '../../lib/schedules';
 import { nameOf } from '../../lib/members';
 import { stagePosition } from '../../lib/pipeline';
 import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
@@ -67,6 +69,11 @@ function SessionView({ detail }: { detail: SessionDetail }) {
   const wide = useMediaQuery('(min-width: 1200px)');
   const { session, chat } = detail;
   const task = detail.task;
+  const schedules = useSchedules(key, session.workItem.type === 'schedule');
+  const scheduleRun =
+    session.workItem.type === 'schedule'
+      ? schedules.data?.runs.find((run) => run.sessionId === session.id)
+      : undefined;
   const taskDetail = useTaskDetail(key, task?.key);
   const inbox = useInbox(key);
   const { members, pipeline } = useProjectIndexes(key);
@@ -85,9 +92,16 @@ function SessionView({ detail }: { detail: SessionDetail }) {
   const memberName = nameOf(session.member, members, myHandle);
   const title = task
     ? task.title
-    : session.workItem.type === 'general'
-      ? t('session.general', { member: memberName })
-      : t('session.meeting', { member: memberName });
+    : session.workItem.type === 'schedule'
+      ? t('schedules.session', {
+          time: formatScheduleTime(
+            scheduleRun?.scheduledFor ?? session.startedAt,
+            schedules.data?.timezone ?? 'UTC',
+          ),
+        })
+      : session.workItem.type === 'general'
+        ? t('session.general', { member: memberName })
+        : t('session.meeting', { member: memberName });
   useDocumentTitle(title);
 
   const items = inbox.data?.items;

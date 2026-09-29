@@ -24,7 +24,7 @@ import type {
 import { createRepositories, openDatabase } from './db';
 import type { Repositories } from './db';
 import { createDomain } from './domain';
-import type { Domain, TemplateRegistry } from './domain';
+import type { Domain, ScheduleTimer, TemplateRegistry } from './domain';
 import { createGithubService } from './github';
 import { createMcpModule } from './mcp';
 import { createRunnerModule } from './runner';
@@ -64,6 +64,7 @@ export interface BuildAppOptions {
   now?: () => Date;
   modules?: AppModules;
   planUsageTtlMs?: number;
+  scheduleTimer?: ScheduleTimer;
   doneCleanupDelayMs?: number;
   wsHeartbeatMs?: number;
 }
@@ -163,6 +164,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       worktrees,
       templates: modules.templates,
       now: options.now,
+      scheduleTimer: options.scheduleTimer,
       planUsageTtlMs: options.planUsageTtlMs,
       doneCleanupDelayMs: options.doneCleanupDelayMs,
     });
@@ -203,7 +205,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     });
     const db = repos.db;
     app.addHook('onClose', async () => {
-      domain.stop();
+      await domain.stop();
       try {
         await domain.runnerModule.runner.shutdown();
       } catch (err) {

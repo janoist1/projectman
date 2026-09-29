@@ -1,6 +1,6 @@
 import { CheckName, CheckState } from '@projectman/shared';
 import type { TimelineEvent } from '@projectman/shared';
-import { joinNames, t } from '../i18n/t';
+import { joinNames, t, tDynamic } from '../i18n/t';
 import { nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
 import type { PipelineIndex } from './pipeline';
@@ -133,6 +133,14 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       );
     case 'task_note':
       return normal(str(d.text));
+    case 'schedule_started':
+      return normal(t('schedules.startedEvent'));
+    case 'schedule_skipped':
+      return normal(
+        t('schedules.skippedEvent', {
+          reason: tDynamic(`schedules.reasons.${str(d.reason)}`, str(d.reason)),
+        }),
+      );
     case 'session_started':
       return normal(d.resumed ? t('timeline.events.session_resumed') : t('timeline.events.session_started'));
     case 'session_ended':

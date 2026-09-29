@@ -24,6 +24,8 @@ import { PlanUsageCache } from './plan-usage';
 import { PresenceService } from './presence';
 import { ProjectService } from './projects';
 import { RoleService } from './roles';
+import { ScheduleService } from './schedules';
+import type { ScheduleTimer } from './schedules';
 import { Scheduler } from './scheduler';
 import { SessionOrchestrator } from './sessions';
 import { TaskService } from './tasks';
@@ -51,6 +53,8 @@ export { PlanUsageCache, highestUsagePercent } from './plan-usage';
 export { PresenceService } from './presence';
 export { ProjectService, DEFAULT_PROJECT_LANGUAGE, OWNER_HANDLE } from './projects';
 export type { Author, LoadedProject, ConfigChange } from './projects';
+export { ScheduleService } from './schedules';
+export type { ScheduleTimer } from './schedules';
 export { Scheduler } from './scheduler';
 export type { StartTaskOptions, StartTaskResult } from './scheduler';
 export * from './session-policy';
@@ -77,6 +81,7 @@ export interface DomainOptions {
   bus?: EventBus;
   now?: () => Date;
   planUsageTtlMs?: number;
+  scheduleTimer?: ScheduleTimer;
   /** Delay before a done task's sessions stop and its worktrees are removed (default 2 s). */
   doneCleanupDelayMs?: number;
 }
@@ -134,6 +139,14 @@ export function createDomain(opts: DomainOptions) {
     },
   });
   const scheduler = new Scheduler({ ctx, projects, tasks, members, sessions, planUsage });
+  const schedules = new ScheduleService({
+    ctx,
+    projects,
+    scheduler,
+    sessions,
+    timeline,
+    timer: opts.scheduleTimer,
+  });
   const githubSync = new GithubSync({ ctx, github: opts.github, tasks, projects });
   const teamTools = new TeamToolsService({
     ctx,
@@ -196,6 +209,7 @@ export function createDomain(opts: DomainOptions) {
     sessions,
     planUsage,
     scheduler,
+    schedules,
     githubSync,
     teamTools,
 
@@ -212,12 +226,15 @@ export function createDomain(opts: DomainOptions) {
         opts.planUsageTtlMs && opts.planUsageTtlMs > 0 ? opts.planUsageTtlMs : 60_000,
       );
       usageTimer.unref();
+      schedules.start();
     },
 
-    stop(): void {
+    stop(): Promise<void> {
       if (usageTimer) clearInterval(usageTimer);
+      const drained = schedules.stop();
       githubSync.stop();
       sessions.dispose();
+      return drained;
     },
 
     /** The user's membership in a project, or null (unknown project or not a member). */

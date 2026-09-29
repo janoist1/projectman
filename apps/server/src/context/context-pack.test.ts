@@ -245,6 +245,20 @@ describe('context pack snapshots', () => {
 });
 
 describe('context pack builder', () => {
+  it('builds scheduled work without a task and includes the schedule prompt', () => {
+    const source = input({
+      task: null,
+      stage: null,
+      timeline: [],
+      workItem: { type: 'schedule', runId: 'run_fictional' },
+    });
+    source.member.schedule = { cron: '0 9 * * *', prompt: 'Inspect fictional maintenance opportunities.' };
+    const pack = builder.build(source);
+    expect(pack.initialMessage).toBe(source.member.schedule.prompt);
+    expect(pack.appendSystemPrompt).toContain('Scheduled run `run_fictional` in the project workspace');
+    expect(pack.appendSystemPrompt).toContain(source.member.handle);
+  });
+
   it('is deterministic', () => {
     const first = builder.build(input());
     const second = builder.build(structuredClone(input()));

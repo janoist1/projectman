@@ -21,9 +21,10 @@ const QUIET_EVENTS = new Set<string>([
  * The kick-off brief typed as the first message of a new task session: the task, its
  * checks, links, prerequisites, a compact recent timeline and what is expected next.
  * Labels are English; task data (title, description, notes) is shown as it was written.
- * Null when the work item is not a task or the task is unknown.
+ * Scheduled work uses its configured prompt; other non-task work has no brief.
  */
 export function buildBrief(input: ContextPackInput, situation: Situation): string | null {
+  if (input.workItem.type === 'schedule') return input.member.schedule?.prompt ?? null;
   const task = input.workItem.type === 'task' ? input.task : null;
   if (!task) return null;
 

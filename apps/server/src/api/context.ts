@@ -2,7 +2,7 @@ import type { FastifyRequest } from 'fastify';
 import type { Actor, HumanAccess, Task, TaskDetail } from '@projectman/shared';
 import type { AuthUser } from '../auth/auth-service';
 import type { Domain, ProjectAccess } from '../domain';
-import { DomainError, forbidden, hasAccess, humanActor, notFound } from '../domain';
+import { DomainError, forbidden, hasAccess, humanActor, notFound, ownerHandles } from '../domain';
 import type { Author } from '../domain';
 
 export function currentUser(request: FastifyRequest): AuthUser {
@@ -35,6 +35,15 @@ export async function requireAccess(
 
 export function actorOf(access: ProjectAccess): Actor {
   return humanActor(access.handle);
+}
+
+/**
+ * Sponsor of an AI member hired on this request: the requester when they are an owner,
+ * otherwise the first owner (in v1 every AI member runs on the owner's subscription).
+ */
+export async function sponsorFor(domain: Domain, access: ProjectAccess): Promise<string> {
+  if (access.access === 'owner') return access.handle;
+  return ownerHandles(await domain.projects.config(access.projectKey))[0] ?? access.handle;
 }
 
 export function authorOf(request: FastifyRequest): Author {

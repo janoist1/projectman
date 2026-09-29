@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { HireMemberRequest, RetireMemberRequest, routes } from '@projectman/shared';
 import type { MemberView } from '@projectman/shared';
 import type { Domain } from '../domain';
-import { actorOf, authorOf, requireAccess } from './context';
+import { actorOf, authorOf, requireAccess, sponsorFor } from './context';
 import { parseBody } from './validation';
 
 type ProjectParams = { Params: { key: string } };
@@ -22,7 +22,7 @@ export function registerMemberRoutes(app: FastifyInstance, domain: Domain): void
     const hired = await domain.members.hire(key, body, {
       actor: actorOf(access),
       author: authorOf(request),
-      sponsor: access.handle,
+      sponsor: await sponsorFor(domain, access),
     });
     const view = (await domain.members.roster(key)).find((m) => m.handle === hired.handle);
     return reply.code(201).send(view);

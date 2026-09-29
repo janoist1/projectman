@@ -3,7 +3,7 @@ import { CreateTaskRequest, routes, StartTaskRequest, UpdateTaskRequest } from '
 import type { Task, TaskDetail } from '@projectman/shared';
 import type { Domain } from '../domain';
 import { notFound } from '../domain';
-import { actorOf, authorOf, canSeeTask, detailFor, requireAccess } from './context';
+import { actorOf, authorOf, canSeeTask, detailFor, requireAccess, sponsorFor } from './context';
 import { parseBody } from './validation';
 
 type ProjectParams = { Params: { key: string } };
@@ -47,7 +47,7 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
       assignee: body.assignee,
       actor: actorOf(access),
       author: authorOf(request),
-      sponsor: access.handle,
+      sponsor: await sponsorFor(domain, access),
     });
     return domain.tasks.detail(key, taskKey);
   });

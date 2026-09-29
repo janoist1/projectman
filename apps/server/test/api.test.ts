@@ -422,6 +422,37 @@ describe('REST API', () => {
       const hire = await call<ApiError>('POST', '/api/projects/AR/members', devCookie, { role: 'qa' });
       expect(hire.status).toBe(403);
       expect(hire.body.error.code).toBe('insufficient_access');
+
+      // As an admin Dani may hire; the AI member still runs on the owner's subscription.
+      await domain.projects.update(
+        'AR',
+        { actor: { kind: 'human', handle: 'owner' }, author: OWNER_LOGIN },
+        (draft) => {
+          const dani = draft.team.members.find((m) => m.handle === 'dani');
+          if (dani?.kind === 'human') dani.access = 'admin';
+          return 'Make Dani an admin';
+        },
+      );
+      const hired = await call<MemberView>('POST', '/api/projects/AR/members', devCookie, { role: 'qa' });
+      expect(hired.status).toBe(201);
+      expect(hired.body.sponsor).toBe('owner');
+
+      // Admins cannot change the release approvers or who is an owner; only owners can revert.
+      const config = (await call<ConfigView>('GET', '/api/projects/AR/config', devCookie)).body.config;
+      const approvers = structuredClone(config);
+      approvers.pipeline.stages.find((s) => s.id === 'release')!.gate = {
+        conditions: [{ type: 'pr_merged' }, { type: 'human_approval', approvers: ['dani'] }],
+      };
+      const ownerOnly = await call<ApiError>('PUT', '/api/projects/AR/config', devCookie, approvers);
+      expect(ownerOnly.status).toBe(403);
+      expect(ownerOnly.body.error.code).toBe('owner_only');
+      const limits = structuredClone(config);
+      limits.team.limits.maxConcurrentAi = 2;
+      expect((await call('PUT', '/api/projects/AR/config', devCookie, limits)).status).toBe(200);
+      const revert = await call<ApiError>('POST', '/api/projects/AR/config/revert', devCookie, {
+        version: 'abcdef1',
+      });
+      expect(revert.body.error.code).toBe('insufficient_access');
     });
   });
 

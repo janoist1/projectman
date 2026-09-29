@@ -5,7 +5,7 @@ import type { ConfigVersionEntry, ProjectConfig } from '@projectman/shared';
  * holding every project's configuration as YAML. Each save is a commit; admins can
  * revert to any earlier version. Layout:
  *   projects/<KEY>/project.yaml   project, repos, limits
- *   projects/<KEY>/team.yaml      members
+ *   projects/<KEY>/team.yaml      members, custom roles
  *   projects/<KEY>/pipeline.yaml  columns and stages
  * Owned by src/config.
  */

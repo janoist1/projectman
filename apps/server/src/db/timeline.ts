@@ -44,6 +44,17 @@ export function createTimelineRepository(db: Db) {
         e.createdAt,
       );
     },
+    forMember(projectKey: string, handle: string, limit = 30): TimelineEvent[] {
+      const rows = db
+        .prepare(
+          `SELECT * FROM timeline_events WHERE project_key = ? AND
+        (actor_handle = ? OR json_extract(data, '$.handle') = ? OR json_extract(data, '$.member') = ?
+        OR json_extract(data, '$.assignee') = ? OR EXISTS (SELECT 1 FROM json_each(data, '$.to') WHERE value = ?))
+        ORDER BY seq DESC LIMIT ?`,
+        )
+        .all(projectKey, handle, handle, handle, handle, handle, limit) as TimelineRow[];
+      return rows.reverse().map(toEvent);
+    },
     /** The most recent `limit` events, oldest first. */
     list(projectKey: string, opts: { taskKey?: string; limit?: number } = {}): TimelineEvent[] {
       const limit = opts.limit ?? 200;

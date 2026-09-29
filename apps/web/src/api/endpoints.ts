@@ -1,4 +1,8 @@
 import {
+  MemberProfile,
+  MemberMemories,
+  Session,
+  TeamMessage,
   ProvidersView,
   CreatedInvitation,
   InvitationsView,
@@ -18,6 +22,7 @@ import {
   routes,
 } from '@projectman/shared';
 import type {
+  SendTeamMessageRequest,
   PatchConfigRequest,
   CreateInviteRequest,
   AcceptInviteRequest,
@@ -109,7 +114,23 @@ export const api = {
   stopSession: (key: string, sessionId: string) =>
     apiRequest<unknown>(routes.stopSession(key, sessionId), { method: 'POST' }),
 
-  teamMessages: (key: string) => apiRequest(routes.teamMessages(key), { schema: TeamMessagesView }),
+  memberProfile: (key: string, handle: string) =>
+    apiRequest(routes.memberProfile(key, handle), { schema: MemberProfile }),
+  memberMemories: (key: string, handle: string) =>
+    apiRequest(routes.memberMemories(key, handle), { schema: MemberMemories }),
+  startConversation: (key: string, handle: string) =>
+    apiRequest(routes.startConversation(key, handle), { method: 'POST', schema: Session }),
+  removeHuman: (key: string, handle: string) =>
+    apiRequest<unknown>(routes.removeHuman(key, handle), { method: 'DELETE' }),
+  sendTeamMessage: (key: string, body: SendTeamMessageRequest) =>
+    apiRequest(routes.sendTeamMessage(key), { method: 'POST', body, schema: TeamMessage }),
+  readTeamMessage: (key: string, id: string) =>
+    apiRequest(routes.readTeamMessage(key, id), { method: 'POST', schema: TeamMessage }),
+  teamMessages: (key: string, threadWith?: string, unreadOnly = false) =>
+    apiRequest(
+      `${routes.teamMessages(key)}${threadWith ? `?threadWith=${encodeURIComponent(threadWith)}` : unreadOnly ? '?unreadOnly=true' : ''}`,
+      { schema: TeamMessagesView },
+    ),
 
   /** Every state (the server defaults to open items): resolved ones feed the history lists. */
   inbox: (key: string) => apiRequest(`${routes.inbox(key)}?state=all`, { schema: InboxView }),

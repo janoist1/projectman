@@ -2,6 +2,8 @@ import clsx from 'clsx';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import type { BoardView } from '@projectman/shared';
+import { useTeamMessages } from '../api/queries';
+import { unreadMessages } from '../features/messages/receipts';
 import { useConnectionStatus } from '../api/socketHooks';
 import { AvatarStack } from '../components/Avatar';
 import { Button } from '../components/Button';
@@ -26,7 +28,9 @@ interface NavItem {
 }
 
 function useNavItems(inboxCount: number): { main: NavItem[]; settings: NavItem } {
-  const { key } = useProject();
+  const { key, myHandle } = useProject();
+  const messages = useTeamMessages(key);
+  const unread = messages.data?.unreadCount ?? unreadMessages(messages.data?.messages ?? [], myHandle).length;
   const { pathname } = useLocation();
   const base = `/p/${key}`;
   const under = (path: string) => pathname === path || pathname.startsWith(`${path}/`);
@@ -48,6 +52,7 @@ function useNavItems(inboxCount: number): { main: NavItem[]; settings: NavItem }
         icon: 'messages',
         label: t('nav.messages'),
         active: under(`${base}/messages`),
+        badge: unread,
       },
     ],
     settings: {

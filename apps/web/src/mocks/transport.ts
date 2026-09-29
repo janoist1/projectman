@@ -22,7 +22,7 @@ export function createMockFetch(backend: MockBackend) {
     }
     await delay(120 + Math.random() * 180);
     if (init?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-    const result = backend.handle(method, url.pathname, body);
+    const result = backend.handle(method, url.pathname, body, url.searchParams);
     const payload = result.body === undefined || result.status === 204 ? null : JSON.stringify(result.body);
     return new Response(payload, {
       status: result.status,

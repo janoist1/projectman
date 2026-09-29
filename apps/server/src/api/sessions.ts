@@ -1,9 +1,16 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { MemberHandle, routes, SendMessageRequest, TaskKey } from '@projectman/shared';
+import {
+  MemberHandle,
+  routes,
+  SendMessageRequest,
+  SendTeamMessageRequest,
+  TaskKey,
+} from '@projectman/shared';
 import type { Session, SessionDetail, TeamMessagesView } from '@projectman/shared';
+import { forbidden, notFound } from '../domain';
 import type { Domain } from '../domain';
-import { requireAccess } from './context';
+import { canSeeTask, requireAccess } from './context';
 import { parseBody } from './validation';
 
 type ProjectParams = { Params: { key: string } };
@@ -12,6 +19,8 @@ type SessionParams = { Params: { key: string; sessionId: string } };
 const MessagesQuery = z.object({
   taskKey: TaskKey.optional(),
   member: MemberHandle.optional(),
+  threadWith: MemberHandle.optional(),
+  unreadOnly: z.enum(['true', 'false']).optional(),
   limit: z.coerce.number().int().min(1).max(500).optional(),
 });
 
@@ -38,12 +47,47 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
     return domain.sessions.stop(key, sessionId);
   });
 
+  app.post<ProjectParams>(routes.sendTeamMessage(':key'), async (request, reply) => {
+    const key = request.params.key;
+    const access = await requireAccess(domain, request, key);
+    if (!['owner', 'admin', 'developer', 'client'].includes(access.access))
+      throw forbidden('insufficient_access', 'Developer or client access required');
+    const body = parseBody(SendTeamMessageRequest, request.body);
+    if (body.taskKey && !canSeeTask(access, domain.tasks.get(key, body.taskKey)))
+      throw notFound('task', body.taskKey);
+    return reply.code(202).send(await domain.sessions.sendTeamMessage(key, access.handle, body));
+  });
+
+  app.post<{ Params: { key: string; id: string } }>(
+    routes.readTeamMessage(':key', ':id'),
+    async (request) => {
+      const { key, id } = request.params;
+      const access = await requireAccess(domain, request, key);
+      const config = await domain.projects.config(key);
+      return domain.messages.markRead(
+        key,
+        id,
+        access.handle,
+        config.team.members.filter((m) => m.kind === 'human').map((m) => m.handle),
+      );
+    },
+  );
+
   app.get<ProjectParams>(routes.teamMessages(':key'), async (request): Promise<TeamMessagesView> => {
     const key = request.params.key;
     const access = await requireAccess(domain, request, key);
     const query = parseBody(MessagesQuery, request.query);
     // Client members only see messages they are part of.
     const member = access.access === 'client' ? access.handle : query.member;
-    return { messages: domain.messages.list(key, { taskKey: query.taskKey, member, limit: query.limit }) };
+    return {
+      messages: domain.messages.list(key, {
+        taskKey: query.taskKey,
+        member,
+        between: query.threadWith ? [access.handle, query.threadWith] : undefined,
+        limit: query.limit,
+        unreadFor: query.unreadOnly === 'true' ? access.handle : undefined,
+      }),
+      unreadCount: domain.ctx.repos.messages.countUnread(key, access.handle),
+    };
   });
 }

@@ -216,6 +216,11 @@ export const migrations: Migration[] = [
     sql: `ALTER TABLE task_links ADD COLUMN author TEXT;
       UPDATE task_links SET author = (SELECT assignee FROM tasks WHERE tasks.id = task_links.task_id) WHERE kind = 'pull_request';`,
   },
+  {
+    version: 5,
+    name: 'per recipient message receipts',
+    sql: `ALTER TABLE team_messages ADD COLUMN receipts TEXT;`,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

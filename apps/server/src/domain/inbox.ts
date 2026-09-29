@@ -250,6 +250,20 @@ export class InboxService {
     for (const item of this.ctx.repos.inbox.listOpen('permission')) this.close(item.id, 'expired', false);
   }
 
+  reassignRemovedHuman(projectKey: string, handle: string, owners: string[]): void {
+    for (const item of this.ctx.repos.inbox
+      .listOpen()
+      .filter((i) => i.projectKey === projectKey && i.assignees.includes(handle))) {
+      const remaining = item.assignees.filter((h) => h !== handle);
+      const updated = this.ctx.repos.inbox.updateAssignees(
+        item.id,
+        remaining.length ? remaining : owners,
+        isoNow(this.ctx),
+      );
+      if (updated) this.publish(updated);
+    }
+  }
+
   /** Cancels open questions and permission requests raised by a member (e.g. when it is retired). */
   cancelOpenFromSource(projectKey: string, handle: string): void {
     for (const item of this.ctx.repos.inbox.list(projectKey, { state: 'open' })) {

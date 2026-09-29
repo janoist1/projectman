@@ -1,10 +1,4 @@
-import {
-  TaskStatus as TaskStatusSchema,
-  CheckName,
-  CheckState,
-  formatInjectedTeamMessage,
-  TaskKey,
-} from '@projectman/shared';
+import { TaskStatus as TaskStatusSchema, CheckName, CheckState, TaskKey } from '@projectman/shared';
 import type {
   InboxItem,
   InboxOption,
@@ -150,15 +144,10 @@ export class TeamToolsService implements TeamToolsHandler {
         actor: aiActor(ctx.member),
         sessionId: ctx.sessionId,
         delivered: aiRecipients.length === 0,
+        humanRecipients: recipients.filter((h) => !aiRecipients.includes(h)),
       });
       const workItem: WorkItemRef = taskKey ? { type: 'task', taskKey } : { type: 'general' };
-      this.deliverInBackground(
-        ctx.projectKey,
-        aiRecipients,
-        workItem,
-        formatInjectedTeamMessage(ctx.member, text, taskKey),
-        message.id,
-      );
+      this.deliverInBackground(ctx.projectKey, aiRecipients, workItem, message.id);
       // Humans have it in their messages now; AI recipients get it typed into their session
       // for the work item as soon as that session is idle (queued, never awaited here).
       return { messageId: message.id, deliveredTo: recipients };
@@ -436,13 +425,7 @@ export class TeamToolsService implements TeamToolsHandler {
         : item.taskKey
           ? { type: 'task', taskKey: item.taskKey }
           : { type: 'general' };
-    this.deliverInBackground(
-      item.projectKey,
-      [asker.handle],
-      workItem,
-      formatInjectedTeamMessage(resolution.by, body, item.taskKey),
-      message.id,
-    );
+    this.deliverInBackground(item.projectKey, [asker.handle], workItem, message.id);
   }
 
   /**
@@ -453,19 +436,21 @@ export class TeamToolsService implements TeamToolsHandler {
     projectKey: string,
     recipients: string[],
     workItem: WorkItemRef,
-    text: string,
     messageId: string,
   ): void {
     if (recipients.length === 0) return;
-    let remaining = recipients.length;
-    const onTyped = () => {
-      remaining -= 1;
-      if (remaining === 0) this.messages.markDelivered(messageId);
-    };
+
     for (const handle of recipients) {
-      this.sessions.sendToMember(projectKey, handle, workItem, text, onTyped).catch((err: unknown) => {
-        this.ctx.logger.warn({ err, to: handle, messageId }, 'team message delivery failed');
-      });
+      this.sessions
+        .ensureSession(projectKey, handle, workItem)
+        .then(({ session }) => {
+          const message = this.ctx.repos.messages.get(messageId);
+          if (message && !message.receipts?.find((r) => r.handle === handle)?.deliveredAt)
+            this.sessions.deliverTeamMessage(session, message);
+        })
+        .catch((err: unknown) => {
+          this.ctx.logger.warn({ err, to: handle, messageId }, 'team message delivery failed');
+        });
     }
   }
 

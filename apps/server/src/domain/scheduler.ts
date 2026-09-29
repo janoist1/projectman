@@ -118,6 +118,21 @@ export class Scheduler {
     return this.locks.run('ai-admission', fn);
   }
 
+  async startConversation(projectKey: string, handle: string): Promise<Session> {
+    return this.admit(async () => {
+      const config = await this.projects.config(projectKey);
+      const member = config.team.members.find((m) => m.handle === handle);
+      if (!member) throw notFound('member', handle);
+      if (member.kind !== 'ai') throw invalid('not_ai_member', 'Conversations require an AI member');
+      const running = this.sessions.findRunning(projectKey, handle, { type: 'general' });
+      if (running) return running;
+      if (this.memberLoad(projectKey, handle) >= member.capacity)
+        throw conflict('member_at_capacity', `${handle} is at capacity`, { capacity: member.capacity });
+      await this.assertCanStartAiWork(config, member.provider ?? DEFAULT_AGENT_PROVIDER);
+      return (await this.sessions.ensureSession(projectKey, handle, { type: 'general' })).session;
+    });
+  }
+
   async startTask(projectKey: string, taskKey: string, opts: StartTaskOptions): Promise<StartTaskResult> {
     return this.admit(async () => {
       const config = await this.projects.config(projectKey);

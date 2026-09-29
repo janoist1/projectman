@@ -1,4 +1,4 @@
-import { DEFAULT_AGENT_PROVIDER, routes } from '@projectman/shared';
+import { DEFAULT_AGENT_PROVIDER, formatInjectedTeamMessage, routes } from '@projectman/shared';
 import type {
   AgentProvider,
   AiMemberConfig,
@@ -110,6 +110,7 @@ export class SessionOrchestrator {
   private readonly deps: SessionOrchestratorDeps;
   private readonly ctx: DomainContext;
   private readonly locks = new KeyedMutex();
+  private readonly messageDeliveries = new Set<string>();
   private readonly tokens = new Map<string, ToolContext>();
   private readonly tokenBySession = new Map<string, string>();
   private readonly cleanupTimers = new Set<NodeJS.Timeout>();
@@ -206,6 +207,67 @@ export class SessionOrchestrator {
     const { session } = await this.ensureSession(projectKey, handle, workItem);
     this.deliver(session, text, onDelivered);
     return session;
+  }
+
+  /** Delivers stored messages once per recipient; failures stay queued for the next session. */
+  deliverTeamMessage(session: Session, message: TeamMessage): void {
+    const claim = `${message.id}:${session.member}`;
+    if (this.messageDeliveries.has(claim)) return;
+    this.messageDeliveries.add(claim);
+    Promise.resolve()
+      .then(() =>
+        this.deps.runner.sendUserMessage(
+          session.id,
+          formatInjectedTeamMessage(message.from, message.body, message.taskKey),
+        ),
+      )
+      .then(() => this.deps.messages.markRecipientDelivered(message.id, session.member))
+      .catch((err: unknown) =>
+        this.ctx.logger.warn({ err, messageId: message.id }, 'team message delivery failed'),
+      )
+      .finally(() => this.messageDeliveries.delete(claim));
+  }
+
+  async sendTeamMessage(
+    projectKey: string,
+    from: string,
+    input: { to: string[]; text: string; taskKey?: string },
+  ): Promise<TeamMessage> {
+    const config = await this.deps.projects.config(projectKey);
+    const recipients = [...new Set(input.to)];
+    for (const handle of recipients) {
+      if (!config.team.members.some((m) => m.handle === handle)) throw notFound('member', handle);
+    }
+    if (input.taskKey) this.deps.tasks.get(projectKey, input.taskKey);
+    const humans = config.team.members.filter((m) => m.kind === 'human').map((m) => m.handle);
+    const message = this.deps.messages.record({
+      projectKey,
+      from,
+      to: recipients,
+      taskKey: input.taskKey ?? null,
+      body: input.text,
+      actor: humanActor(from),
+      humanRecipients: humans,
+      delivered: recipients.every((h) => humans.includes(h)),
+    });
+    for (const handle of recipients.filter((h) => !humans.includes(h))) {
+      const live = this.list(projectKey, { member: handle }).filter((s) => this.isRunning(s.id));
+      const target =
+        live.find(
+          (s) => input.taskKey && s.workItem.type === 'task' && s.workItem.taskKey === input.taskKey,
+        ) ?? live[0];
+      if (target) this.deliverTeamMessage(target, message);
+    }
+    return message;
+  }
+
+  async memory(projectKey: string, handle: string): Promise<string> {
+    const member = (await this.deps.projects.config(projectKey)).team.members.find(
+      (m) => m.handle === handle,
+    );
+    if (!member) throw notFound('member', handle);
+    if (member.kind !== 'ai') throw invalid('not_ai_member', 'Memory belongs to AI members');
+    return this.deps.memory.read(projectKey, handle);
   }
 
   /** A human writes into an AI session (plain text); recorded as a team message. */
@@ -498,6 +560,9 @@ export class SessionOrchestrator {
     const fresh = this.ctx.repos.sessions.get(session.id)!;
     this.publishSession(fresh);
     this.recomputeMemberState(projectKey, member.handle);
+    for (const message of this.ctx.repos.messages.pending(projectKey, member.handle)) {
+      this.deliverTeamMessage(fresh, message);
+    }
     return { session: fresh, created: !existing, resumed: resume, started: true };
   }
 

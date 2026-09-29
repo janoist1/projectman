@@ -117,6 +117,7 @@ export type HireMemberRequest = z.infer<typeof HireMemberRequest>;
 
 /** PATCH of a member; omitted fields stay as they are. */
 export const UpdateMemberRequest = z.object({
+  access: HumanAccess.optional(),
   provider: AgentProvider.optional(),
   effort: AgentEffort.optional(),
   displayName: z.string().trim().min(1).optional(),
@@ -250,7 +251,10 @@ export type SessionDetail = z.infer<typeof SessionDetail>;
 export const SendMessageRequest = z.object({ text: z.string().min(1) });
 export type SendMessageRequest = z.infer<typeof SendMessageRequest>;
 
-export const TeamMessagesView = z.object({ messages: z.array(TeamMessage) });
+export const TeamMessagesView = z.object({
+  messages: z.array(TeamMessage),
+  unreadCount: z.number().int().nonnegative().optional(),
+});
 export type TeamMessagesView = z.infer<typeof TeamMessagesView>;
 
 /* ---------- inbox ---------- */
@@ -360,3 +364,25 @@ export const ProviderLoginStatus = z.object({
 export type ProviderLoginStatus = z.infer<typeof ProviderLoginStatus>;
 export const ProvidersView = z.object({ providers: z.array(ProviderLoginStatus) });
 export type ProvidersView = z.infer<typeof ProvidersView>;
+
+export const SendTeamMessageRequest = z.object({
+  to: z.array(MemberHandle).min(1).max(100),
+  text: z.string().trim().min(1).max(20000),
+  taskKey: TaskKey.optional(),
+});
+export type SendTeamMessageRequest = z.infer<typeof SendTeamMessageRequest>;
+
+export const MemberProfile = z.object({
+  member: MemberView,
+  duties: z.array(DutyId),
+  tasks: z.array(Task),
+  inbox: z.array(InboxItem),
+  timeline: z.array(TimelineEvent),
+  sessions: z.array(Session),
+  capacity: z.number().nullable(),
+  capacityUsed: z.number(),
+  email: z.string().optional(),
+});
+export type MemberProfile = z.infer<typeof MemberProfile>;
+export const MemberMemories = z.object({ memory: z.string() });
+export type MemberMemories = z.infer<typeof MemberMemories>;

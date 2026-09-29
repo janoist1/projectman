@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  SendTeamMessageRequest,
   PatchConfigRequest,
   CreateInviteRequest,
   AcceptInviteRequest,
@@ -302,7 +303,7 @@ export function useRoles(key: string) {
 }
 
 /** Configuration changes can affect roles, the roster and board at once. */
-function useProjectMutation<T>(key: string, mutationFn: (body: T) => Promise<unknown>) {
+function useProjectMutation<T, R>(key: string, mutationFn: (body: T) => Promise<R>) {
   const client = useQueryClient();
   return useMutation({
     mutationFn,
@@ -392,5 +393,54 @@ export function useAcceptInvite(token: string) {
       client.clear();
       client.setQueryData(queryKeys.me, me);
     },
+  });
+}
+
+export function useMemberProfile(key: string, handle: string) {
+  return useQuery({
+    queryKey: queryKeys.profile(key, handle),
+    queryFn: () => api.memberProfile(key, handle),
+  });
+}
+export function useMemberMemories(key: string, handle: string, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.memories(key, handle),
+    queryFn: () => api.memberMemories(key, handle),
+    enabled,
+  });
+}
+export function useStartConversation(key: string) {
+  return useProjectMutation(key, (handle: string) => api.startConversation(key, handle));
+}
+export function useRemoveHuman(key: string) {
+  return useProjectMutation(key, (handle: string) => api.removeHuman(key, handle));
+}
+export function useSendTeamMessage(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: SendTeamMessageRequest) => api.sendTeamMessage(key, body),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.messages(key) }),
+  });
+}
+export function useReadTeamMessage(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.readTeamMessage(key, id),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.messages(key) }),
+  });
+}
+
+export function useMemberMessages(key: string, handle: string, myHandle: string | null) {
+  return useQuery({
+    queryKey: [...queryKeys.messages(key), 'thread', handle],
+    queryFn: () => api.teamMessages(key, handle === myHandle ? undefined : handle),
+  });
+}
+
+export function useUnreadTeamMessages(key: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [...queryKeys.messages(key), 'unread'],
+    queryFn: () => api.teamMessages(key, undefined, true),
+    enabled,
   });
 }

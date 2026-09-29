@@ -1,4 +1,6 @@
 import {
+  SendTeamMessageRequest,
+  memberDuties,
   AgentProvider,
   modelForProvider,
   roleBundle,
@@ -123,6 +125,9 @@ export class MockBackend {
   chats: Record<string, ChatItem[]> = clone(fixtures.chats);
   inbox: InboxItem[] = clone(fixtures.inbox);
   messages: TeamMessage[] = clone(fixtures.teamMessages);
+  memories: Record<string, string> = {
+    'fe-1': 'Acme checkout uses fictional fixtures. Keep the cart usable on small screens.',
+  };
   planUsage = clone(fixtures.planUsage);
   codexPlanUsage = { ...clone(fixtures.planUsage), fiveHourPercent: 24, weeklyPercent: 36 };
   extraProjects: { key: string; name: string; templateId: string }[] = [];
@@ -149,6 +154,14 @@ export class MockBackend {
           effort: config.effort,
           permissionMode: config.permissionMode,
         });
+    }
+    for (const message of this.messages) {
+      message.receipts ??= message.to.map((handle) => ({
+        handle,
+        kind: this.findMember(handle)?.kind ?? 'human',
+        deliveredAt: message.deliveredAt,
+        readAt: null,
+      }));
     }
     this.terminals = new MockTerminals(this);
   }
@@ -211,6 +224,13 @@ export class MockBackend {
 
   /** Publishes a project event to every subscribed connection. */
   emit(event: ServerEvent): void {
+    if (
+      event.type === 'team_message' &&
+      this.findMember(this.viewerHandle)?.role === 'client' &&
+      event.message.from !== this.viewerHandle &&
+      !event.message.to.includes(this.viewerHandle)
+    )
+      return;
     const projectKey = 'projectKey' in event ? event.projectKey : null;
     for (const [connection, state] of this.connections) {
       if (projectKey === null || state.projects.has(projectKey)) connection.deliver(event);
@@ -289,7 +309,10 @@ export class MockBackend {
   updateSession(id: string, patch: Partial<Session>): Session | undefined {
     const session = this.findSession(id);
     if (!session) return undefined;
+    const wasEnded = ['exited', 'failed'].includes(session.state);
     Object.assign(session, patch, { lastActivityAt: nowIso() });
+    if (wasEnded || session.state === 'idle' || session.state === 'waiting_input')
+      this.flushTeamMessages(session);
     if (session.workItem.type === 'schedule' && ['exited', 'failed'].includes(session.state)) {
       const run = this.scheduleRuns.find((r) => r.sessionId === session.id);
       if (run) {
@@ -330,7 +353,13 @@ export class MockBackend {
       taskKey,
       body,
       createdAt: nowIso(),
-      deliveredAt: nowIso(),
+      deliveredAt: to.every((h) => this.findMember(h)?.kind === 'human') ? nowIso() : null,
+      receipts: to.map((handle) => ({
+        handle,
+        kind: this.findMember(handle)?.kind ?? 'human',
+        deliveredAt: this.findMember(handle)?.kind === 'human' ? nowIso() : null,
+        readAt: null,
+      })),
     };
     this.messages.push(message);
     this.emit({ type: 'team_message', projectKey: message.projectKey, message: clone(message) });
@@ -350,6 +379,14 @@ export class MockBackend {
     }
     if (sessionId)
       this.appendChat(sessionId, [this.chatItem('team_message', { direction: 'out', from, to, text: body })]);
+    for (const handle of to) {
+      const live = this.sessions.filter(
+        (s) => s.member === handle && !['exited', 'failed'].includes(s.state),
+      );
+      const target =
+        live.find((s) => s.workItem.type === 'task' && s.workItem.taskKey === taskKey) ?? live[0];
+      if (target) this.flushTeamMessages(target);
+    }
     return message;
   }
 
@@ -389,7 +426,11 @@ export class MockBackend {
         stageIds: stages.filter((stage) => stage.columnId === column.id).map((stage) => stage.id),
       })),
       stages: clone(stages),
-      tasks: clone(this.tasks),
+      tasks: clone(
+        this.tasks.filter(
+          (task) => this.findMember(this.viewerHandle)?.role !== 'client' || task.visibility === 'shared',
+        ),
+      ),
       members: clone(this.members.filter((member) => member.status !== 'retired')),
       openInboxCount: this.inbox.filter(
         (item) => item.state === 'open' && item.assignees.includes(this.owner),
@@ -412,7 +453,7 @@ export class MockBackend {
 
   /* ---------- REST ---------- */
 
-  handle(method: string, path: string, body: unknown): MockResponse {
+  handle(method: string, path: string, body: unknown, query = new URLSearchParams()): MockResponse {
     const publicInvite = /^\/api\/invites\/([^/]+)(\/accept)?$/.exec(path);
     if (publicInvite) return this.handlePublicInvite(method, publicInvite[1]!, !!publicInvite[2], body);
     if (path === '/api/setup') {
@@ -496,7 +537,7 @@ export class MockBackend {
     const key = match[1]!;
     const rest = match[2] ?? '';
     if (key !== fixtures.PROJECT_KEY) return error(404, 'not_found', `Unknown project ${key}`);
-    return this.handleProject(method, rest, body);
+    return this.handleProject(method, rest, body, query);
   }
 
   private me() {
@@ -518,13 +559,13 @@ export class MockBackend {
     };
   }
 
-  private handleProject(method: string, rest: string, body: unknown): MockResponse {
+  private handleProject(method: string, rest: string, body: unknown, query: URLSearchParams): MockResponse {
     let m: RegExpExecArray | null;
     const restricted =
       rest.startsWith('/invites') ||
       (rest === '/roles' && method !== 'GET') ||
       (rest.startsWith('/roles/') && method !== 'GET') ||
-      (rest.startsWith('/members') && method !== 'GET') ||
+      (rest.startsWith('/members') && method !== 'GET' && !rest.endsWith('/conversation')) ||
       /\/tasks\/[^/]+\/(cancel|reopen)$/.test(rest) ||
       (rest.startsWith('/tasks/') &&
         method === 'PATCH' &&
@@ -631,7 +672,161 @@ export class MockBackend {
       return this.sessionMessage(m[1]!, body);
     if ((m = /^\/sessions\/([\w-]+)\/stop$/.exec(rest)) && method === 'POST') return this.stopSession(m[1]!);
 
-    if (rest === '/messages') return ok({ messages: clone(this.messages) });
+    if (rest === '/messages') {
+      if (method === 'POST') return this.humanTeamMessage(body);
+      return ok({
+        messages: clone(
+          this.messages
+            .filter((message) => {
+              const peer = query.get('threadWith');
+              return (
+                !peer ||
+                (message.from === this.viewerHandle && message.to.includes(peer)) ||
+                (message.from === peer && message.to.includes(this.viewerHandle))
+              );
+            })
+            .filter(
+              (message) =>
+                query.get('unreadOnly') !== 'true' ||
+                (message.to.includes(this.viewerHandle) &&
+                  !message.receipts?.find((r) => r.handle === this.viewerHandle)?.readAt),
+            )
+            .filter(
+              (message) =>
+                viewer.role !== 'client' ||
+                message.from === this.viewerHandle ||
+                message.to.includes(this.viewerHandle),
+            ),
+        ),
+        unreadCount: this.messages.filter(
+          (message) =>
+            message.to.includes(this.viewerHandle) &&
+            !message.receipts?.find((r) => r.handle === this.viewerHandle)?.readAt,
+        ).length,
+      });
+    }
+    if ((m = /^\/messages\/([\w-]+)\/read$/.exec(rest)) && method === 'POST') {
+      const message = this.messages.find((entry) => entry.id === m![1]);
+      if (!message) return error(404, 'not_found', 'Unknown message');
+      if (!message.to.includes(this.viewerHandle))
+        return error(403, 'not_a_recipient', 'Only recipients may mark read');
+      message.receipts ??= message.to.map((handle) => ({
+        handle,
+        kind: this.findMember(handle)?.kind ?? 'human',
+        deliveredAt: message.deliveredAt,
+        readAt: null,
+      }));
+      const receipt = message.receipts.find((r) => r.handle === this.viewerHandle)!;
+      receipt.readAt ??= nowIso();
+      receipt.deliveredAt ??= nowIso();
+      this.emit({ type: 'team_message', projectKey: fixtures.PROJECT_KEY, message: clone(message) });
+      return ok(clone(message));
+    }
+    if ((m = /^\/members\/([a-z0-9-]+)\/(profile|memories|conversation|remove)$/.exec(rest))) {
+      const handle = m[1]!;
+      const member = this.findMember(handle);
+      const original = this.config.team.members.find((entry) => entry.handle === handle);
+      if (!member || !original || member.status === 'retired')
+        return error(404, 'not_found', 'Unknown member');
+      if (m[2] === 'conversation' && method === 'POST') return this.startConversation(handle);
+      if (m[2] === 'memories' && method === 'GET') {
+        if (viewer.role === 'client') return error(403, 'insufficient_access', 'Internal access required');
+        if (member.kind !== 'ai') return error(400, 'not_ai_member', 'Only AI members have memory');
+        return ok({ memory: this.memories[handle] ?? '' });
+      }
+      if (m[2] === 'remove' && method === 'DELETE') {
+        if (handle === this.viewerHandle) return error(403, 'cannot_remove_self', 'Cannot remove yourself');
+        if (original.kind !== 'human') return error(400, 'not_human_member', 'Only humans can be removed');
+        const next = clone(this.config);
+        next.team.members = next.team.members.filter((entry) => entry.handle !== handle);
+        for (const stage of next.pipeline.stages)
+          if (stage.owners) stage.owners = stage.owners.filter((h) => h !== handle);
+        const failure = this.configChangeFailure(next);
+        if (failure) return failure;
+        this.config = next;
+        for (const item of this.inbox.filter((i) => i.state === 'open' && i.assignees.includes(handle))) {
+          const remaining = item.assignees.filter((h) => h !== handle);
+          item.assignees = remaining.length
+            ? remaining
+            : next.team.members
+                .filter((m) => m.kind === 'human' && m.access === 'owner')
+                .map((m) => m.handle);
+          this.emit({ type: 'inbox_upserted', projectKey: fixtures.PROJECT_KEY, item: clone(item) });
+        }
+        this.members = this.members.filter((entry) => entry.handle !== handle);
+        for (const task of this.tasks.filter((t) => t.assignee === handle))
+          this.updateTask(task.key, { assignee: null });
+        this.commitConfig(`Remove human member ${handle}`);
+        this.memberChanged(handle);
+        return ok();
+      }
+      if (m[2] === 'profile' && method === 'GET') {
+        const internal = viewer.role !== 'client';
+        const visible = this.tasks.filter(
+          (t) => !['done', 'cancelled'].includes(t.status) && (internal || t.visibility === 'shared'),
+        );
+        const awaiting = new Set(
+          this.inbox.filter((i) => i.state === 'open' && i.assignees.includes(handle)).map((i) => i.taskKey),
+        );
+        const stages = this.config.pipeline.stages
+          .filter((s) =>
+            s.gate?.conditions.some(
+              (c) => c.type === 'human_approval' && gateApprovers(this.config, c).includes(handle),
+            ),
+          )
+          .map((s) => s.id);
+        return ok({
+          member: {
+            ...clone(member),
+            currentTaskKeys: member.currentTaskKeys.filter((k) => visible.some((t) => t.key === k)),
+          },
+          duties: memberDuties(this.config, original),
+          tasks: clone(
+            visible.filter(
+              (t) =>
+                t.assignee === handle ||
+                member.currentTaskKeys.includes(t.key) ||
+                stages.includes(t.stageId) ||
+                awaiting.has(t.key),
+            ),
+          ),
+          inbox: clone(
+            this.inbox.filter(
+              (i) =>
+                i.state === 'open' &&
+                i.assignees.includes(handle) &&
+                (internal || handle === this.viewerHandle),
+            ),
+          ),
+          timeline: internal
+            ? clone(
+                this.timeline
+                  .filter(
+                    (e) =>
+                      e.actor.handle === handle ||
+                      e.data.handle === handle ||
+                      e.data.member === handle ||
+                      e.data.assignee === handle ||
+                      (Array.isArray(e.data.to) && e.data.to.includes(handle)),
+                  )
+                  .slice(-30),
+              )
+            : [],
+          sessions: internal
+            ? clone(
+                this.sessions
+                  .filter((s) => s.member === handle)
+                  .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt)),
+              )
+            : [],
+          capacity: original.kind === 'ai' ? original.capacity : null,
+          capacityUsed: original.kind === 'ai' && internal ? this.memberLoad(handle) : 0,
+          ...(original.kind === 'human' && ['owner', 'admin'].includes(viewer.role) && original.email
+            ? { email: original.email }
+            : {}),
+        });
+      }
+    }
     if (rest === '/inbox') return ok({ items: clone(this.inbox) });
     if ((m = /^\/inbox\/([\w-]+)\/resolve$/.exec(rest)) && method === 'POST')
       return this.resolve(m[1]!, body);
@@ -957,10 +1152,14 @@ export class MockBackend {
       return error(400, 'not_ai_member', 'Not an AI member');
     const next = clone(this.config);
     const nextMember = next.team.members.find((m) => m.handle === handle)!;
+    if (input.access !== undefined && nextMember.kind !== 'human')
+      return error(400, 'not_human_member', 'Access is for humans');
+    if (nextMember.kind === 'human' && input.access !== undefined) nextMember.access = input.access;
     if (nextMember.kind === 'human' && input.roles !== undefined) nextMember.roles = input.roles;
     const failure = this.configChangeFailure(next);
     if (failure) return failure;
     if (input.displayName !== undefined) member.displayName = config.displayName = input.displayName;
+    if (config.kind === 'human' && input.access !== undefined) member.role = config.access = input.access;
     if (config.kind === 'human' && input.roles !== undefined)
       member.roles = config.roles = [...new Set(input.roles)];
     if (config.kind === 'ai') {
@@ -1212,6 +1411,7 @@ export class MockBackend {
     };
     this.sessions.push(session);
     this.chats[session.id] = [];
+    this.flushTeamMessages(session);
     this.emit({ type: 'session_upserted', projectKey: session.projectKey, session: clone(session) });
     this.addTimeline(task.key, assignee, 'session_started', { member: assignee, resumed: false }, session.id);
     const member = this.findMember(assignee);
@@ -1369,6 +1569,116 @@ export class MockBackend {
     return { status: 202 };
   }
 
+  private memberLoad(handle: string): number {
+    const keys = new Set(this.tasks.filter((t) => t.assignee === handle).map((t) => t.key));
+    for (const s of this.sessions)
+      if (s.member === handle && s.workItem.type === 'task') keys.add(s.workItem.taskKey);
+    return (
+      this.tasks.filter((t) => keys.has(t.key) && !['done', 'cancelled'].includes(t.status)).length +
+      this.sessions.filter(
+        (s) => s.member === handle && s.workItem.type !== 'task' && !['exited', 'failed'].includes(s.state),
+      ).length
+    );
+  }
+
+  private humanTeamMessage(body: unknown): MockResponse {
+    const viewer = this.findMember(this.viewerHandle);
+    if (!viewer || !['owner', 'admin', 'developer', 'client'].includes(viewer.role))
+      return error(403, 'insufficient_access', 'Developer or client required');
+    const input = parseBody(SendTeamMessageRequest, body);
+    if (!input) return error(400, 'invalid_request', 'Invalid message');
+    if (input.to.some((h) => !this.config.team.members.some((m) => m.handle === h)))
+      return error(404, 'not_found', 'Unknown member');
+    if (input.taskKey) {
+      const task = this.findTask(input.taskKey);
+      if (!task || (viewer.role === 'client' && task.visibility !== 'shared'))
+        return error(404, 'not_found', 'Unknown task');
+    }
+    const message = this.sendTeamMessage(
+      this.viewerHandle,
+      [...new Set(input.to)],
+      input.taskKey ?? null,
+      input.text,
+    );
+    return { status: 202, body: clone(message) };
+  }
+
+  private flushTeamMessages(session: Session): void {
+    if (!['idle', 'waiting_input'].includes(session.state)) return;
+    for (const message of this.messages) {
+      const receipt = message.receipts?.find(
+        (r) => r.handle === session.member && r.kind === 'ai' && !r.deliveredAt,
+      );
+      if (!receipt) continue;
+      this.appendChat(session.id, [
+        this.chatItem('team_message', {
+          direction: 'in',
+          from: message.from,
+          to: [session.member],
+          text: message.body,
+        }),
+      ]);
+      receipt.deliveredAt = nowIso();
+      if (message.receipts!.every((r) => r.deliveredAt)) message.deliveredAt = nowIso();
+      this.emit({ type: 'team_message', projectKey: fixtures.PROJECT_KEY, message: clone(message) });
+    }
+  }
+
+  private startConversation(handle: string): MockResponse {
+    if (!['owner', 'admin', 'developer'].includes(this.findMember(this.viewerHandle)?.role ?? ''))
+      return error(403, 'insufficient_access', 'Developer access required');
+    const member = this.config.team.members.find((m) => m.handle === handle);
+    if (!member) return error(404, 'not_found', 'Unknown member');
+    if (member.kind !== 'ai') return error(400, 'not_ai_member', 'Only AI conversations');
+    const existing = this.sessions.find((s) => s.member === handle && s.workItem.type === 'general');
+    if (existing && !['exited', 'failed'].includes(existing.state))
+      return { status: 202, body: clone(existing) };
+    if (this.memberLoad(handle) >= member.capacity) return error(409, 'member_at_capacity', 'At capacity');
+    const provider = member.provider ?? 'claude';
+    const plan =
+      this.providerPlanUsage[provider] ?? (provider === 'claude' ? this.planUsage : this.codexPlanUsage);
+    if (
+      this.sessions.filter((s) => ['starting', 'working', 'waiting_permission'].includes(s.state)).length >=
+      this.config.team.limits.maxConcurrentAi
+    )
+      return error(409, 'ai_limit_reached', 'Too many sessions');
+    if (
+      Math.max(plan?.fiveHourPercent ?? 0, plan?.weeklyPercent ?? 0) >
+      this.config.team.limits.pauseAbovePlanUsagePercent
+    )
+      return error(409, 'plan_usage_paused', 'Plan usage paused');
+    if (!this.providerLoggedIn[provider])
+      return error(409, 'provider_not_logged_in', 'Provider not logged in', { provider });
+    const at = nowIso();
+    const session: Session = existing ?? {
+      id: mockId('ses'),
+      projectKey: fixtures.PROJECT_KEY,
+      member: handle,
+      workItem: { type: 'general' },
+      claudeSessionId: mockUuid(this.sessions.length + 1),
+      cwd: this.config.project.workspacePath,
+      branch: null,
+      transcriptPath: null,
+      state: 'idle',
+      activity: null,
+      startedAt: at,
+      lastActivityAt: at,
+      endedAt: null,
+    };
+    if (!existing) this.sessions.push(session);
+    this.chats[session.id] ??= [];
+    this.updateSession(session.id, { state: 'idle', endedAt: null });
+    this.addTimeline(
+      null,
+      handle,
+      'session_started',
+      { member: handle, resumed: Boolean(existing) },
+      session.id,
+    );
+    this.flushTeamMessages(session);
+    return { status: 202, body: clone(session) };
+  }
+
   private schedulesView() {
     return {
       timezone: this.config.project.timezone,
@@ -1459,6 +1769,7 @@ export class MockBackend {
     run.sessionId = session.id;
     this.sessions.push(session);
     this.chats[session.id] = [this.chatItem('user_text', { text: member.schedule.prompt, origin: 'brief' })];
+    this.flushTeamMessages(session);
     this.emit({ type: 'session_upserted', projectKey: fixtures.PROJECT_KEY, session: clone(session) });
     this.addTimeline(
       null,

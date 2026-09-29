@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { holdersAllow } from '@projectman/shared';
+import { holdersAllow, HumanAccess } from '@projectman/shared';
 import type { AgentProvider, AgentEffort, MemberView, ProjectConfig, RoleView } from '@projectman/shared';
 import { useUpdateMember } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
-import { TextField } from '../../components/Field';
+import { SelectField, TextField } from '../../components/Field';
 import { useToast } from '../../components/toastContext';
+import { humanRoleName } from '../../lib/roles';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { ProviderFields } from './ProviderFields';
@@ -32,6 +33,7 @@ function EditMemberForm({
   const original = config?.team.members.find((entry) => entry.handle === member.handle);
   const ai = original?.kind === 'ai' ? original : undefined;
   const [displayName, setDisplayName] = useState(member.displayName);
+  const [access, setAccess] = useState(member.role);
   const [selected, setSelected] = useState(member.roles);
   const [specialty, setSpecialty] = useState(member.specialty ?? '');
   const [provider, setProvider] = useState<AgentProvider>(ai?.provider ?? member.provider ?? 'claude');
@@ -52,7 +54,7 @@ function EditMemberForm({
         handle: member.handle,
         body:
           member.kind === 'human'
-            ? { displayName: displayName.trim(), roles: selected }
+            ? { displayName: displayName.trim(), roles: selected, access: HumanAccess.parse(access) }
             : {
                 displayName: displayName.trim(),
                 specialty: specialty.trim(),
@@ -83,6 +85,17 @@ function EditMemberForm({
       {member.kind === 'human' ? (
         <fieldset className={styles.schedule}>
           <legend>{t('memberEdit.roles')}</legend>
+          <SelectField
+            label={t('invites.access')}
+            value={access}
+            onChange={(event) => setAccess(event.target.value)}
+          >
+            {HumanAccess.options.map((level) => (
+              <option key={level} value={level}>
+                {humanRoleName(level)}
+              </option>
+            ))}
+          </SelectField>
           {roles
             .filter((role) => holdersAllow(role.holders, 'human'))
             .map((role) => (

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import type { MemberView } from '@projectman/shared';
-import { useBoard, useConfig, useInbox, useMembers, useTeamMessages } from '../../api/queries';
+import { useBoard, useConfig, useInbox, useMembers, useRoles, useTeamMessages } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
@@ -11,8 +11,11 @@ import { SegmentedControl } from '../../components/SegmentedControl';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
-import { memberStatusView, nameOf, roleLabel } from '../../lib/members';
+import { memberStatusView, nameOf } from '../../lib/members';
 import { MessageList } from '../messages/MessageList';
+import { humanRoleName, aiRoleView } from '../../lib/roles';
+import { EditMemberDialog } from './EditMemberDialog';
+import { RoleSection } from './RoleSection';
 import { HireDialog } from './HireDialog';
 import { RetireDialog } from './RetireDialog';
 import styles from './TeamPage.module.css';
@@ -37,7 +40,9 @@ export function TeamPage() {
   const membersQuery = useMembers(key);
   const board = useBoard(key);
   const inbox = useInbox(key);
-  const config = useConfig(key);
+  const config = useConfig(key, can.manageTeam);
+  const roles = useRoles(key);
+  const [editing, setEditing] = useState<MemberView | null>(null);
   const messages = useTeamMessages(key);
   const indexes = useProjectIndexes(key);
   const [filter, setFilter] = useState<MemberFilter>('all');
@@ -108,6 +113,36 @@ export function TeamPage() {
         {t('team.retire')}
       </Button>
     ) : null;
+
+  const memberActions = (member: MemberView) => (
+    <>
+      {can.manageTeam ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={!roles.data || (member.kind === 'ai' && !config.data)}
+          onClick={() => setEditing(member)}
+          aria-label={t('memberEdit.title', { name: member.displayName })}
+        >
+          {t('memberEdit.edit')}
+        </Button>
+      ) : null}
+      {retireButton(member)}
+    </>
+  );
+  const roleChips = (member: MemberView) => (
+    <>
+      {member.kind === 'human' ? <span>{humanRoleName(member.role)}</span> : null}
+      {member.roles.map((id) => {
+        const view = aiRoleView(id, member.specialty, roles.data?.roles);
+        return (
+          <Chip key={id} icon={view.icon} data-tone={view.tone} className={styles.roleChip}>
+            {view.name}
+          </Chip>
+        );
+      })}
+    </>
+  );
 
   return (
     <div className={styles.page}>
@@ -180,7 +215,7 @@ export function TeamPage() {
                           {member.temp ? <Chip tone="needs">{t('team.temp')}</Chip> : null}
                         </span>
                         <span className={styles.handle}>
-                          <span className={styles.mono}>{member.handle}</span> · {roleLabel(member)}
+                          <span className={styles.mono}>{member.handle}</span> · {roleChips(member)}
                         </span>
                       </span>
                     </div>
@@ -191,7 +226,7 @@ export function TeamPage() {
                     {taskLinks(member)}
                     <span className={styles.cardFoot}>
                       <span className={styles.muted}>{sponsorText(member)}</span>
-                      {retireButton(member)}
+                      {memberActions(member)}
                     </span>
                   </li>
                 );
@@ -233,7 +268,7 @@ export function TeamPage() {
                                 {member.temp ? <Chip tone="needs">{t('team.temp')}</Chip> : null}
                               </span>
                               <span className={styles.handle}>
-                                <span className={styles.mono}>{member.handle}</span> · {roleLabel(member)}
+                                <span className={styles.mono}>{member.handle}</span> · {roleChips(member)}
                               </span>
                             </span>
                           </div>
@@ -251,7 +286,7 @@ export function TeamPage() {
                         </td>
                         <td className={styles.nowCell}>{taskLinks(member)}</td>
                         <td className={`${styles.muted} ${styles.subscriptionCol}`}>{sponsorText(member)}</td>
-                        <td className={styles.actionsCell}>{retireButton(member)}</td>
+                        <td className={styles.actionsCell}>{memberActions(member)}</td>
                       </tr>
                     );
                   })}
@@ -293,6 +328,13 @@ export function TeamPage() {
         )}
       </div>
 
+      <RoleSection config={config.data?.config} />
+      <EditMemberDialog
+        member={editing}
+        config={config.data?.config}
+        roles={roles.data?.roles ?? []}
+        onClose={() => setEditing(null)}
+      />
       <HireDialog open={hireOpen} onClose={() => setHireOpen(false)} config={config.data?.config} />
       <RetireDialog
         member={retiring}

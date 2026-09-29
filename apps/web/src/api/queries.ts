@@ -1,5 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  CustomRoleRequest,
+  UpdateMemberRequest,
+  UpdateTaskRequest,
+  CancelTaskRequest,
   BoardView,
   CreateProjectRequest,
   CreateTaskRequest,
@@ -180,8 +184,7 @@ export function useStopSession(key: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (sessionId: string) => api.stopSession(key, sessionId),
-    onSuccess: (_data, sessionId) =>
-      client.invalidateQueries({ queryKey: queryKeys.session(key, sessionId) }),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.project(key) }),
   });
 }
 
@@ -261,9 +264,50 @@ export function useRevertConfig(key: string) {
     onSuccess: async () => {
       await Promise.all([
         client.invalidateQueries({ queryKey: queryKeys.config(key) }),
+        client.invalidateQueries({ queryKey: queryKeys.roles(key) }),
         client.invalidateQueries({ queryKey: queryKeys.board(key) }),
         client.invalidateQueries({ queryKey: queryKeys.members(key) }),
       ]);
     },
   });
+}
+
+export function useRoles(key: string) {
+  return useQuery({ queryKey: queryKeys.roles(key), queryFn: () => api.roles(key) });
+}
+
+/** Configuration changes can affect roles, the roster and board at once. */
+function useProjectMutation<T>(key: string, mutationFn: (body: T) => Promise<unknown>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.project(key) }),
+  });
+}
+
+export function useUpdateMember(key: string) {
+  return useProjectMutation(key, ({ handle, body }: { handle: string; body: UpdateMemberRequest }) =>
+    api.updateMember(key, handle, body),
+  );
+}
+export function useSaveRole(key: string) {
+  return useProjectMutation(key, ({ id, body }: { id?: string; body: CustomRoleRequest }) =>
+    id ? api.updateRole(key, id, body) : api.createRole(key, body),
+  );
+}
+export function useDeleteRole(key: string) {
+  return useProjectMutation(key, (id: string) => api.deleteRole(key, id));
+}
+export function useUpdateTask(key: string) {
+  return useProjectMutation(key, ({ taskKey, body }: { taskKey: string; body: UpdateTaskRequest }) =>
+    api.updateTask(key, taskKey, body),
+  );
+}
+export function useCancelTask(key: string) {
+  return useProjectMutation(key, ({ taskKey, body }: { taskKey: string; body: CancelTaskRequest }) =>
+    api.cancelTask(key, taskKey, body),
+  );
+}
+export function useReopenTask(key: string) {
+  return useProjectMutation(key, (taskKey: string) => api.reopenTask(key, taskKey));
 }

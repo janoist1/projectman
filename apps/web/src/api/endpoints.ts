@@ -1,4 +1,5 @@
 import {
+  RolesView,
   BoardView,
   ConfigView,
   InboxView,
@@ -13,6 +14,10 @@ import {
   routes,
 } from '@projectman/shared';
 import type {
+  CustomRoleRequest,
+  UpdateMemberRequest,
+  UpdateTaskRequest,
+  CancelTaskRequest,
   CreateProjectRequest,
   CreateTaskRequest,
   HireMemberRequest,
@@ -55,6 +60,21 @@ export const api = {
     apiRequest<unknown>(routes.tasks(key), { method: 'POST', body }),
   startTask: (key: string, taskKey: string, body: StartTaskRequest) =>
     apiRequest<unknown>(routes.startTask(key, taskKey), { method: 'POST', body }),
+
+  roles: (key: string) => apiRequest(routes.roles(key), { schema: RolesView }),
+  createRole: (key: string, body: CustomRoleRequest) =>
+    apiRequest<unknown>(routes.roles(key), { method: 'POST', body }),
+  updateRole: (key: string, id: string, body: CustomRoleRequest) =>
+    apiRequest<unknown>(routes.role(key, id), { method: 'PUT', body }),
+  deleteRole: (key: string, id: string) => apiRequest<unknown>(routes.role(key, id), { method: 'DELETE' }),
+  updateMember: (key: string, handle: string, body: UpdateMemberRequest) =>
+    apiRequest<unknown>(routes.member(key, handle), { method: 'PATCH', body }),
+  updateTask: (key: string, taskKey: string, body: UpdateTaskRequest) =>
+    apiRequest<unknown>(routes.task(key, taskKey), { method: 'PATCH', body }),
+  cancelTask: (key: string, taskKey: string, body: CancelTaskRequest) =>
+    apiRequest<unknown>(routes.cancelTask(key, taskKey), { method: 'POST', body }),
+  reopenTask: (key: string, taskKey: string) =>
+    apiRequest<unknown>(routes.reopenTask(key, taskKey), { method: 'POST', body: {} }),
 
   members: async (key: string) => {
     const path = routes.members(key);

@@ -1,11 +1,11 @@
-import type { AiMemberConfig, AiRole, ProjectConfig } from '@projectman/shared';
+import type { AiMemberConfig, RoleId, ProjectConfig } from '@projectman/shared';
 
 /**
  * Defaults shown in the preview. There is no role-template endpoint yet, so the preview
  * mirrors an existing member with the same role (the server applies the real defaults).
  */
 export function previewFor(
-  role: AiRole,
+  role: RoleId,
   specialty: string,
   config: ProjectConfig | undefined,
 ): Pick<AiMemberConfig, 'model' | 'permissionMode' | 'capacity' | 'instructions'> {

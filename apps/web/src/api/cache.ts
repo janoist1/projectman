@@ -120,6 +120,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     }
     case 'config_changed': {
       const key = event.projectKey;
+      void client.invalidateQueries({ queryKey: queryKeys.roles(key) });
       void client.invalidateQueries({ queryKey: queryKeys.config(key) });
       void client.invalidateQueries({ queryKey: queryKeys.board(key) });
       void client.invalidateQueries({ queryKey: queryKeys.members(key) });

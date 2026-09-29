@@ -68,6 +68,7 @@ export function startSimulation(backend: MockBackend): void {
   };
 
   const qaProgress = (done: number) => {
+    if (backend.findSession(QA_SESSION)?.state !== 'working') return;
     const chat = backend.chats[QA_SESSION] ?? [];
     const pending = pendingToolCall(chat);
     if (pending) {
@@ -106,7 +107,13 @@ export function startSimulation(backend: MockBackend): void {
 
   const codeReviewDone = () => {
     const task = backend.findTask('AC-25');
-    if (!task || task.stageId !== 'code_review') return;
+    if (
+      !task ||
+      task.status === 'cancelled' ||
+      task.stageId !== 'code_review' ||
+      backend.findSession(CR_SESSION)?.state !== 'working'
+    )
+      return;
     const chat = backend.chats[CR_SESSION] ?? [];
     const pending = pendingToolCall(chat);
     if (pending) {

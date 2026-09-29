@@ -1,4 +1,4 @@
-import type { InboxItem, MemberStatus, MemberView } from '@projectman/shared';
+import type { InboxItem, MemberStatus, MemberView, RoleView } from '@projectman/shared';
 import type { IconName } from '../components/Icon';
 import { t } from '../i18n/t';
 import { aiRoleView, humanRoleName, isDeveloperRole } from './roles';
@@ -48,11 +48,14 @@ export function initialsFor(
 }
 
 /** Role label in the UI language: "Tulajdonos", "Code review", "Frontend fejlesztő". */
-export function roleLabel(member: MemberLike | null | undefined): string {
+export function roleLabel(
+  member: MemberLike | null | undefined,
+  catalogue: readonly RoleView[] = [],
+): string {
   if (!member) return '';
   return member.kind === 'human'
     ? humanRoleName(member.role)
-    : aiRoleView(member.role, member.specialty).name;
+    : aiRoleView(member.role, member.specialty, catalogue).name;
 }
 
 export type MemberIndex = ReadonlyMap<string, MemberView>;

@@ -159,6 +159,10 @@
 }
 
 .handle {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
   font-size: 12px;
   color: var(--c-ink-3);
 }
@@ -270,6 +274,7 @@
 }
 
 .cardFoot {
+  flex-wrap: wrap;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -342,4 +347,9 @@
   .roster {
     padding: 12px 14px;
   }
+}
+
+.roleChip[data-tone] {
+  background: var(--tone-bg);
+  color: var(--tone-fg);
 }

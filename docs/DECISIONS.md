@@ -34,3 +34,10 @@ Agreed with the owner on 2026-09-29, while designing the first version.
     conversation sets up the working mode and rituals. It proposes; humans prioritise.
 13. **Feedback loop (later phase)**: anyone (optionally AI members, evidence-based) can file
     observations; the retro turns them into configuration changes, tasks or nothing.
+14. **Role catalogue.** Roles are responsibilities, separate from a human's access level. An
+    AI member holds exactly one role; a human may hold several. 20 built-in roles (operator
+    and product owner are human-only, the watchdog is AI-only) plus custom roles the team
+    defines in its configuration. "Daily worker" is a schedule any AI member can have, not a
+    role. The project manager (scheduling: standups, planning, deadlines, reminders, weekly
+    report) and the coach (retros, role and process improvement) are separate roles; the
+    watchdog's monitoring and the coach's retro come in a later phase.

@@ -34,11 +34,11 @@ const DEFAULT_COMMITTER: GitIdentity = { name: 'projectman', email: 'projectman@
 
 const README = `# projectman customization repository
 
-Project configuration (team, pipeline, limits, role instructions) managed by projectman.
+Project configuration (team, roles, pipeline, limits, role instructions) managed by projectman.
 Every change made in the app is a commit here, so any version can be restored.
 
     projects/<KEY>/project.yaml   project, repositories, team limits
-    projects/<KEY>/team.yaml      members
+    projects/<KEY>/team.yaml      members, custom roles
     projects/<KEY>/pipeline.yaml  board columns and stages
 `;
 

@@ -2,7 +2,15 @@ import { en } from './en';
 import { hu } from './hu';
 import type { TemplateLocale } from './types';
 
-export type { ColumnKey, SpecialtyKey, StageKey, TemplateId, TemplateLocale } from './types';
+export type {
+  ColumnKey,
+  RoleText,
+  SpecialtyKey,
+  StageKey,
+  TemplateId,
+  TemplateLocale,
+  TemplateMemberKey,
+} from './types';
 export { en, hu };
 
 const locales: Record<string, TemplateLocale> = { en, hu };

@@ -1,4 +1,11 @@
-import type { AiRole, CheckName, GateCondition, Stage } from '@projectman/shared';
+import type {
+  BuiltInRoleId,
+  CheckName,
+  GateCondition,
+  HumanMemberConfig,
+  Stage,
+  Task,
+} from '@projectman/shared';
 import type { ContextPackInput } from '../contracts';
 import { code, codeList, lowerFirst, stageLabel } from './format';
 
@@ -35,10 +42,41 @@ function stageAfter(stages: Stage[], stage: Stage): Stage | null {
   return index >= 0 ? (stages[index + 1] ?? null) : null;
 }
 
-const REVIEW_CHECKS: Partial<Record<AiRole, CheckName>> = {
+const REVIEW_CHECKS: Partial<Record<BuiltInRoleId, CheckName>> = {
   code_review: 'code_review',
   security_review: 'security_review',
 };
+
+/** What a member of a role that changes files does in the working stage, before the pull request. */
+function buildSteps(role: string, task: Task): string[] {
+  const where = task.repo
+    ? "in your working directory (the task's own worktree and branch)"
+    : 'in your working directory';
+  switch (role) {
+    case 'developer':
+      return [
+        'Read the task, its links and prerequisites; ask with ask_human if the goal or a decision is unclear.',
+        `Implement the change ${where} and run the project's tests.`,
+      ];
+    case 'docs':
+      return [`Update the documentation the task affects ${where}.`];
+    case 'maintainer':
+      return [
+        `Make the maintenance change the task describes ${where}, small and focused, and run the project's tests.`,
+      ];
+    case 'translator':
+      return [
+        `Update the translations the task asks for ${where}; keep keys, placeholders and markup intact.`,
+      ];
+    case 'content':
+      return [
+        `Write the texts the task asks for ${where}; texts for the public stay drafts until a human approves them.`,
+      ];
+    case 'designer':
+      return [`Create the designs or mockups the task asks for ${where}.`];
+  }
+  return [];
+}
 
 /**
  * What finishing the member's part of the current stage looks like, as numbered steps.
@@ -51,36 +89,36 @@ export function expectedSteps(input: ContextPackInput, s: Situation): string[] {
   if (!task || !current) return ['Read the task with get_task and ask the sender what is expected of you.'];
 
   const author = task.assignee ? code(task.assignee) : 'the author of the change';
+  const inQueue = current.kind === 'queue';
   const notOwner = `You do not own the current stage (${stageLabel(current)}${
     current.owners.length > 0 ? `, owners ${codeList(current.owners)}` : ''
   }): do what you were asked and report back to the sender with send_message.`;
 
   switch (member.role) {
     case 'developer':
-    case 'docs': {
-      const building = current.kind === 'queue' || current.kind === 'work';
-      if (building && (s.ownsStage || s.isAssignee || current.kind === 'queue')) {
-        const working = current.kind === 'queue' ? s.next : current;
+    case 'docs':
+    case 'maintainer':
+    case 'translator':
+    case 'content':
+    case 'designer': {
+      const building = inQueue || current.kind === 'work';
+      if (building && (s.ownsStage || s.isAssignee || inQueue)) {
+        const working = inQueue ? s.next : current;
         const steps: string[] = [];
-        if (current.kind === 'queue' && working) {
+        if (inQueue && working) {
           steps.push(`Move the task to ${stageLabel(working)} with update_task as you start.`);
         }
-        if (member.role === 'docs') {
-          steps.push(
-            "Update the documentation the task affects in your working directory (the task's own branch).",
-          );
-        } else {
-          const where = task.repo
-            ? "in your working directory (the task's own worktree and branch)"
-            : 'in your working directory';
-          steps.push(
-            'Read the task, its links and prerequisites; ask with ask_human if the goal or a decision is unclear.',
-            `Implement the change ${where} and run the project's tests.`,
-          );
-        }
+        steps.push(...buildSteps(member.role, task));
         steps.push('Commit, push, open a pull request and attach it with link_pull_request.');
         steps.push(handover(input, working ? stageAfter(s.stages, working) : null));
         return steps;
+      }
+      if (member.role === 'designer' && s.ownsStage) {
+        return [
+          'Compare the finished interface with the design: screen sizes, states and texts.',
+          `Send each difference to ${author} with send_message (where it is, what you expect) and record the result as a note with update_task.`,
+          `When it follows the design, ${lowerFirst(handover(input, s.next))}`,
+        ];
       }
       if (s.isAssignee) {
         return [
@@ -159,27 +197,85 @@ export function expectedSteps(input: ContextPackInput, s: Situation): string[] {
       ];
     }
 
-    case 'scheduled': {
-      if (s.ownsStage || s.isAssignee || current.kind === 'queue') {
-        const working = current.kind === 'queue' ? s.next : current;
-        const recipients = routineOwners(input);
-        return [
-          ...(current.kind === 'queue' && working
-            ? [`Move the task to ${stageLabel(working)} with update_task as you start.`]
-            : []),
-          'Do the routine the task describes, the same way as before, and note anything unusual.',
-          `Report the result to ${recipients.length > 0 ? codeList(recipients) : 'the owner'} with send_message: the facts that need attention first.`,
-          `Record a short note with update_task. ${handover(input, working ? stageAfter(s.stages, working) : null)}`,
-        ];
-      }
-      return [notOwner];
-    }
-
     case 'project_manager':
       return [
-        'Keep the task accurate (stage, assignee, checks, next step) and make sure whoever has to act next knows it.',
+        'Check where the task stands against its dates: who has to act next, and whether anything has waited too long.',
+        'Remind whoever has to act with send_message (the task key, what is due and by when) and record agreed dates as a note with update_task.',
+        `If a deadline is at risk or priorities conflict, ask ${codeList(humansWithRole(input, 'product_owner'))} with ask_human; do not reorder the work yourself.`,
+      ];
+
+    case 'business_analyst': {
+      if (!s.ownsStage && !inQueue) {
+        return [
+          'Clarify what you were asked about, update the description with update_task if it changes, and report to the sender with send_message.',
+        ];
+      }
+      return [
+        'Read the request with get_task; ask with ask_human about anything unclear before work starts.',
+        'Rewrite the description with update_task: the goal, the expected behaviour and numbered acceptance criteria; keep the original request quoted at the end.',
+        'If the request holds several independent pieces of work, create one task per piece with create_task and note the split on this task.',
+        inQueue ? readyForPriority(input, current) : handover(input, s.next),
+      ];
+    }
+
+    case 'architect': {
+      if (!s.ownsStage && !inQueue) {
+        return [
+          'Answer the design question you were asked with send_message; leave the line-by-line review to the code reviewer.',
+        ];
+      }
+      return [
+        'Read the task with get_task and the code it touches; read only, never edit, commit or push.',
+        'Add the technical plan to the description with update_task, under its own heading: approach, affected parts, data or API changes, risks, how to test.',
+        'If the work is bigger than one pull request, create the parts with create_task and note the order and dependencies on this task.',
+        inQueue ? readyForPriority(input, current) : handover(input, s.next),
+      ];
+    }
+
+    case 'support': {
+      if (!s.ownsStage && !inQueue) {
+        return [
+          'Reproduce what you were asked to and report to the sender with send_message; for a new bug, create a card with create_task.',
+        ];
+      }
+      return [
+        'Reproduce the report the task describes in a test environment or locally; never with production data unless a human explicitly asks.',
+        'Complete the description with update_task: steps to reproduce, expected and actual behaviour, environment, impact, and whether you could reproduce it.',
+        inQueue ? readyForPriority(input, current) : handover(input, s.next),
+      ];
+    }
+
+    case 'researcher': {
+      if (!s.ownsStage && !s.isAssignee) {
+        return [
+          'Investigate what you were asked and send the sender your recommendation, the options you compared and your sources with send_message.',
+        ];
+      }
+      const working = inQueue ? s.next : current;
+      return [
+        ...(inQueue && working
+          ? [`Move the task to ${stageLabel(working)} with update_task as you start.`]
+          : []),
+        'Make sure the question and the decision it serves are clear; ask with ask_human if not.',
+        'Investigate from primary sources and change nothing.',
+        'Add the result to the description with update_task, below the question: the recommendation first, then the options you compared, what you could not verify and your sources.',
+        handover(input, working ? stageAfter(s.stages, working) : null),
+      ];
+    }
+
+    case 'coach':
+      return [
+        "Read the task's timeline with get_task and note what slowed it down or went well: stalled stages, repeated review rounds, reopened work, unanswered questions.",
+        'Send the humans your observations and at most three concrete proposals with send_message, or ask for a decision with ask_human; do not change anything yourself.',
+      ];
+
+    case 'watchdog':
+      return [
+        "Check the task's progress with get_task: how long it has been in its stage, moves back and forth, repeated review rounds, unanswered questions, work outside a member's role.",
+        `Flag anything wrong to ${codeList(humansWithRole(input, 'operator'))} with send_message (who, what you saw, since when, why it matters) and record it as a note with update_task; do not intervene.`,
       ];
   }
+  // Custom roles and anything else: the stage's owners do their part and hand over.
   return s.ownsStage ? ownerSteps(input, s) : [notOwner];
 }
 
@@ -204,27 +300,31 @@ export function handover(input: ContextPackInput, target: Stage | null): string 
   return `Move the task to ${stageLabel(target)} with update_task and hand over to ${codeList(owners)} with send_message: the facts they need (links, what changed, what to check).`;
 }
 
-function humanHandles(input: ContextPackInput): Set<string> {
-  return new Set(input.project.team.members.filter((m) => m.kind === 'human').map((m) => m.handle));
+/** A task that waits in the queue is prioritised by humans: tell them instead of moving it on. */
+function readyForPriority(input: ContextPackInput, queue: Stage): string {
+  return `Tell ${codeList(humansWithRole(input, 'product_owner'))} with send_message that the task is ready to be prioritised; leave it in ${stageLabel(queue)}.`;
+}
+
+function humans(input: ContextPackInput): HumanMemberConfig[] {
+  return input.project.team.members.filter((m): m is HumanMemberConfig => m.kind === 'human');
+}
+
+/** Humans holding a role (e.g. the operator); the project's owners when nobody does. */
+function humansWithRole(input: ContextPackInput, role: string): string[] {
+  const holders = humans(input).filter((m) => m.roles.includes(role));
+  return (holders.length > 0 ? holders : humans(input).filter((m) => m.access === 'owner')).map(
+    (m) => m.handle,
+  );
 }
 
 function humanOwners(input: ContextPackInput, stage: Stage): string[] {
-  const humans = humanHandles(input);
-  return stage.owners.filter((h) => humans.has(h));
+  const handles = new Set(humans(input).map((m) => m.handle));
+  return stage.owners.filter((h) => handles.has(h));
 }
 
 /** Communication members who tell clients that a release is live. */
 function followUpMembers(input: ContextPackInput): string[] {
   return input.project.team.members
     .filter((m) => m.kind === 'ai' && m.role === 'communication' && m.handle !== input.member.handle)
-    .map((m) => m.handle);
-}
-
-/** Humans a routine reports to: the task's creator if human, otherwise the project owners. */
-function routineOwners(input: ContextPackInput): string[] {
-  const creator = input.task?.createdBy;
-  if (creator && humanHandles(input).has(creator)) return [creator];
-  return input.project.team.members
-    .filter((m) => m.kind === 'human' && m.access === 'owner')
     .map((m) => m.handle);
 }

@@ -82,3 +82,26 @@ export const CustomRoleDefinition = z.object({
   instructions: z.string().default(''),
 });
 export type CustomRoleDefinition = z.infer<typeof CustomRoleDefinition>;
+
+/** Built-in roles an AI member may hold (holders "ai" or "both"). */
+export type AiBuiltInRoleId = Exclude<BuiltInRoleId, 'operator' | 'product_owner'>;
+export const AI_BUILT_IN_ROLE_IDS: readonly AiBuiltInRoleId[] = BUILT_IN_ROLE_IDS.filter(
+  (id): id is AiBuiltInRoleId => BUILT_IN_ROLE_HOLDERS[id] !== 'human',
+);
+
+/** Whether a role with these holders may be held by a member of this kind. */
+export function holdersAllow(holders: RoleHolders, kind: 'human' | 'ai'): boolean {
+  return holders === 'both' || holders === kind;
+}
+
+/**
+ * Who may hold a role: the built-in role, else the team's custom role with that id (a custom
+ * role never replaces a built-in one). Null when the role is unknown.
+ */
+export function roleHolders(
+  id: string,
+  customRoles: readonly Pick<CustomRoleDefinition, 'id' | 'holders'>[] = [],
+): RoleHolders | null {
+  if (isBuiltInRole(id)) return BUILT_IN_ROLE_HOLDERS[id];
+  return customRoles.find((role) => role.id === id)?.holders ?? null;
+}

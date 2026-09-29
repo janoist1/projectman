@@ -128,6 +128,12 @@ describe('team MCP endpoint', () => {
       'client_test',
     ]);
     expect(schema('update_task').properties.check.properties.state.enum).toContain('retest_needed');
+    expect(schema('update_task').properties.title.maxLength).toBe(200);
+    expect(schema('update_task').properties.description.type).toBe('string');
+    expect(schema('create_task').required).toEqual(['title']);
+    expect(schema('create_task').properties.visibility.enum).toEqual(['internal', 'shared']);
+    expect(schema('create_task').properties.labels.items.type).toBe('string');
+    expect(byName.get('create_task')!.annotations?.readOnlyHint).toBe(false);
     expect(schema('link_pull_request').required).toEqual(['task_key', 'repo', 'number']);
     expect(schema('link_pull_request').properties.number.type).toBe('integer');
     expect(schema('ask_human').required).toEqual(['question']);
@@ -194,7 +200,7 @@ describe('team tools', () => {
     const out = text(await call(client, 'list_members'));
 
     expect(out).toContain('Team (4 members, address them by handle):');
-    expect(out).toContain('- owner — Anna · human owner · online');
+    expect(out).toContain('- owner — Anna · human owner; roles: operator, product_owner · online');
     expect(out).toContain(
       '- fe-1 (you) — Ben · AI developer (frontend) · working: Bash: npm test · tasks: AR-21',
     );
@@ -252,8 +258,70 @@ describe('team tools', () => {
     const result = await call(client, 'update_task', { task_key: 'AR-21' });
 
     expect(result.isError).toBe(true);
-    expect(text(result)).toBe('Error [invalid]: Nothing to update: pass stage_id, check and/or note.');
+    expect(text(result)).toBe(
+      'Error [invalid]: Nothing to update: pass stage_id, check, note, title and/or description.',
+    );
     expect(h.handler.calls).toEqual([]);
+  });
+
+  it('update_task rewrites the title and the description', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+
+    const result = await call(client, 'update_task', {
+      task_key: 'AR-21',
+      title: '  Validate the login and signup forms ',
+      description: '## Goal\nShow an error for an invalid email.\n\n## Acceptance criteria\n1. ...',
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(h.handler.calls[0]).toEqual({
+      method: 'updateTask',
+      ctx: devContext,
+      args: {
+        taskKey: 'AR-21',
+        title: 'Validate the login and signup forms',
+        description: '## Goal\nShow an error for an invalid email.\n\n## Acceptance criteria\n1. ...',
+      },
+    });
+    expect(text(result)).toBe(
+      'Updated AR-21: title changed; description replaced.\n' +
+        'Now: Stage: development · Status: active · Assignee: fe-1 · Checks: none recorded',
+    );
+    expect(h.handler.tasks.get('AR-21')!.task.title).toBe('Validate the login and signup forms');
+    const empty = await call(client, 'update_task', { task_key: 'AR-21', description: '   ' });
+    expect(empty.isError).toBe(true);
+    expect(text(empty)).toContain('Input validation error');
+  });
+
+  it('create_task creates an unassigned task in the first stage for humans to prioritise', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-qa');
+
+    const result = await call(client, 'create_task', {
+      title: 'Login button overlaps the footer on small screens',
+      description: 'Steps to reproduce: open /login at 320 px width.',
+      labels: ['bug', 'bug'],
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(h.handler.calls[0]).toEqual({
+      method: 'createTask',
+      ctx: qaContext,
+      args: {
+        title: 'Login button overlaps the footer on small screens',
+        description: 'Steps to reproduce: open /login at 320 px width.',
+        labels: ['bug'],
+      },
+    });
+    expect(text(result)).toBe(
+      'Created AR-22 "Login button overlaps the footer on small screens" in stage backlog, unassigned ' +
+        '(visibility internal · Labels: bug). Humans prioritise it. If it came from another task, note ' +
+        'AR-22 there with update_task.',
+    );
+    const invalid = await call(client, 'create_task', { title: 'x', visibility: 'public' });
+    expect(invalid.isError).toBe(true);
+    expect(text(invalid)).toContain('Input validation error');
   });
 
   it('link_pull_request attaches the PR', async () => {

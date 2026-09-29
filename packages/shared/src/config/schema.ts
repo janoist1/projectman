@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { AiRole, HumanAccess, MemberHandle, PermissionMode } from '../domain/member';
+import { HumanAccess, MemberHandle, PermissionMode } from '../domain/member';
 import { Pipeline } from '../domain/pipeline';
+import { CustomRoleDefinition, RoleId } from '../domain/role';
 
 /**
  * Project configuration ("customizations"). Lives as YAML files in a separate git
@@ -13,17 +14,33 @@ export const HumanMemberConfig = z.object({
   kind: z.literal('human'),
   handle: MemberHandle,
   displayName: z.string().min(1),
+  /** What the person may do in the app; separate from the roles they hold. */
   access: HumanAccess,
+  /** Roles (responsibilities) the person holds; a human may hold several. */
+  roles: z.array(RoleId).default([]),
   /** Links the member to a user account. */
   email: z.string().optional(),
 });
 export type HumanMemberConfig = z.infer<typeof HumanMemberConfig>;
 
+/**
+ * A recurring run of an AI member ("daily worker"): at every `cron` time (five fields,
+ * evaluated in the project's time zone) `prompt` starts the member's work. Any AI member may
+ * have one; it is not a role.
+ */
+export const MemberSchedule = z.object({
+  cron: z.string().trim().min(1),
+  /** What the member is asked to do on each run (English prompt text). */
+  prompt: z.string().trim().min(1),
+});
+export type MemberSchedule = z.infer<typeof MemberSchedule>;
+
 export const AiMemberConfig = z.object({
   kind: z.literal('ai'),
   handle: MemberHandle,
   displayName: z.string().min(1),
-  role: AiRole,
+  /** The one role this member holds: a built-in role or one of the team's custom roles. */
+  role: RoleId,
   specialty: z.string().optional(),
   /** Claude Code model alias or id, e.g. "opus", "sonnet". */
   model: z.string().default('opus'),
@@ -36,6 +53,8 @@ export const AiMemberConfig = z.object({
   sponsor: MemberHandle,
   /** Temporary stand-in ("beugró"): hired for one task, retired when it is done. */
   temp: z.boolean().default(false),
+  /** Recurring runs, e.g. every weekday morning. */
+  schedule: MemberSchedule.optional(),
 });
 export type AiMemberConfig = z.infer<typeof AiMemberConfig>;
 
@@ -51,7 +70,8 @@ export const TeamLimits = z.object({
     .object({
       enabled: z.boolean().default(false),
       max: z.number().int().min(0).max(5).default(1),
-      role: AiRole.default('developer'),
+      /** Role a temp worker is hired for (an AI-capable built-in or custom role). */
+      role: RoleId.default('developer'),
     })
     .default({ enabled: false, max: 1, role: 'developer' }),
 });
@@ -82,10 +102,14 @@ export const ProjectConfig = z.object({
     repos: z.array(RepoConfig),
     /** Language humans and agents communicate in (BCP 47), e.g. "hu". */
     language: z.string().default('hu'),
+    /** IANA time zone of the team, e.g. "Europe/Budapest"; schedules run in it. */
+    timezone: z.string().min(1).default('UTC'),
     templateId: z.string().optional(),
   }),
   team: z.object({
     members: z.array(MemberConfig).min(1),
+    /** Roles the team defined in addition to the built-in ones. */
+    roles: z.array(CustomRoleDefinition).default([]),
     limits: TeamLimits,
   }),
   pipeline: Pipeline,

@@ -176,6 +176,44 @@ describe('session orchestrator', () => {
     });
   });
 
+  it('applies the session policy of the new roles and of custom roles', async () => {
+    const withRepo = await h.domain.tasks.create('AR', { title: 'With repo', repo: 'web' }, OWNER_ACTOR);
+    const item = { type: 'task' as const, taskKey: withRepo.key };
+    const hireBy = { actor: OWNER_ACTOR, author: OWNER, sponsor: 'owner' };
+    await h.domain.members.hire('AR', { role: 'maintainer' }, hireBy);
+    await h.domain.members.hire('AR', { role: 'architect' }, hireBy);
+    await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
+      draft.team.roles.push({
+        id: 'data_steward',
+        name: 'Data steward',
+        summary: 'Keeps data clean.',
+        notTheirJob: '',
+        holders: 'ai',
+        instructions: '',
+      });
+      return 'Add a custom role';
+    });
+    await h.domain.members.hire('AR', { role: 'data_steward' }, hireBy);
+
+    const maintainer = await h.domain.sessions.ensureSession('AR', 'maintainer', item);
+    expect(maintainer.session.branch).toBe(`task/${withRepo.key}`);
+    expect(h.runner.lastStarted()).toMatchObject({
+      allowedTools: ['mcp__team__*'],
+      permissionMode: 'acceptEdits',
+    });
+
+    const architect = await h.domain.sessions.ensureSession('AR', 'architect', item);
+    expect(architect.session).toMatchObject({ cwd: h.workspace, branch: null });
+    expect(h.runner.lastStarted().allowedTools).toContain('Bash(gh pr diff:*)');
+
+    const steward = await h.domain.sessions.ensureSession('AR', 'data-steward', item);
+    expect(steward.session).toMatchObject({ cwd: h.workspace, branch: null });
+    expect(h.runner.lastStarted()).toMatchObject({
+      allowedTools: ['mcp__team__*'],
+      permissionMode: 'default',
+    });
+  });
+
   it('marks live sessions as exited after a restart', async () => {
     const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
     h.runner.setState(session.id, 'working');

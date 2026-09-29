@@ -48,6 +48,7 @@ export function sampleMembers(): MemberView[] {
       displayName: 'Anna',
       kind: 'human',
       role: 'owner',
+      roles: ['operator', 'product_owner'],
       status: 'online',
       sponsor: null,
     },
@@ -57,13 +58,22 @@ export function sampleMembers(): MemberView[] {
       displayName: 'Ben',
       kind: 'ai',
       role: 'developer',
+      roles: ['developer'],
       specialty: 'frontend',
       status: 'working',
       activity: 'Bash: npm test',
       currentTaskKeys: ['AR-21'],
     },
-    { ...base, handle: 'cr', displayName: 'Cleo', kind: 'ai', role: 'code_review', status: 'idle' },
-    { ...base, handle: 'qa', displayName: 'Quinn', kind: 'ai', role: 'qa', status: 'idle' },
+    {
+      ...base,
+      handle: 'cr',
+      displayName: 'Cleo',
+      kind: 'ai',
+      role: 'code_review',
+      roles: ['code_review'],
+      status: 'idle',
+    },
+    { ...base, handle: 'qa', displayName: 'Quinn', kind: 'ai', role: 'qa', roles: ['qa'], status: 'idle' },
   ];
 }
 
@@ -229,6 +239,11 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       if (args.stageId === 'qa' && checks.code_review !== 'passed') {
         throw new TeamToolError('gate_blocked', 'Stage "qa" requires a passed code_review check.');
       }
+      const fields = [
+        ...(args.title !== undefined ? ['title'] : []),
+        ...(args.description !== undefined ? ['description'] : []),
+      ];
+      if (fields.length > 0) record(detail, ctx, 'task_updated', { fields });
       if (args.check) {
         const from = detail.task.checks[args.check.name] ?? null;
         record(detail, ctx, 'task_check_changed', { check: args.check.name, from, to: args.check.state });
@@ -237,7 +252,41 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       if (args.stageId && args.stageId !== detail.task.stageId) {
         record(detail, ctx, 'task_stage_changed', { from: detail.task.stageId, to: args.stageId });
       }
-      detail.task = { ...detail.task, checks, stageId: args.stageId ?? detail.task.stageId };
+      detail.task = {
+        ...detail.task,
+        title: args.title ?? detail.task.title,
+        description: args.description ?? detail.task.description,
+        checks,
+        stageId: args.stageId ?? detail.task.stageId,
+      };
+      return { task: detail.task };
+    },
+
+    async createTask(ctx, args) {
+      await enter('createTask', ctx, args);
+      const key = `AR-${21 + tasks.size}`;
+      const detail: TaskDetail = {
+        task: {
+          ...initial.task,
+          id: `task_${key}`,
+          key,
+          title: args.title,
+          description: args.description ?? '',
+          stageId: STAGES[0]!,
+          assignee: null,
+          repo: null,
+          priority: null,
+          labels: args.labels ?? [],
+          checks: {},
+          links: [],
+          visibility: args.visibility ?? 'internal',
+          createdBy: ctx.member,
+        },
+        timeline: [],
+        sessions: [],
+      };
+      record(detail, ctx, 'task_created', { title: args.title });
+      tasks.set(key, detail);
       return { task: detail.task };
     },
 

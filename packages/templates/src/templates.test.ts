@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { MemberHandle, ProjectConfig, validateProjectConfig, type Stage } from '@projectman/shared';
 import {
-  aiRoleDefaults,
+  aiMemberDefaults,
+  DAILY_WORKER_SCHEDULE,
   en,
   getTemplate,
   hu,
@@ -9,6 +10,12 @@ import {
   templates,
   type BuildTemplateInput,
 } from './index';
+
+/** Accented letters of Hungarian text (prompt text must be English). Code points keep this file ASCII. */
+const HUNGARIAN_LETTERS = new RegExp(
+  `[${[0xe1, 0xe9, 0xed, 0xf3, 0xf6, 0x151, 0xfa, 0xfc, 0x171].map((c) => String.fromCodePoint(c)).join('')}]`,
+  'i',
+);
 
 function input(language: string, ownerHandle = 'owner'): BuildTemplateInput {
   return {
@@ -49,13 +56,36 @@ describe('every template', () => {
       expect(config.project).toMatchObject({ key: 'AR', templateId: id, language, repos: [] });
     });
 
+    it('makes the owner the operator and the product owner', () => {
+      for (const language of ['hu', 'en']) {
+        const owner = template.build(input(language)).team.members[0];
+        expect(owner).toEqual({
+          kind: 'human',
+          handle: 'owner',
+          displayName: 'Anna Example',
+          access: 'owner',
+          roles: ['operator', 'product_owner'],
+          email: 'anna@example.com',
+        });
+      }
+    });
+
+    it('sets the time zone from the project language', () => {
+      expect(template.build(input('hu')).project.timezone).toBe('Europe/Budapest');
+      expect(template.build(input('hu-HU')).project.timezone).toBe('Europe/Budapest');
+      expect(template.build(input('en')).project.timezone).toBe('UTC');
+      expect(template.build(input('de')).project.timezone).toBe('UTC');
+      expect(template.build(input('en')).team.roles).toEqual([]);
+    });
+
     it('sponsors every AI member by the owner and uses the role defaults', () => {
       const config = template.build(input('en'));
       const owner = config.team.members[0];
       expect(owner).toMatchObject({ kind: 'human', handle: 'owner', access: 'owner' });
       for (const member of config.team.members) {
         if (member.kind !== 'ai') continue;
-        const defaults = aiRoleDefaults(member.role);
+        const defaults = aiMemberDefaults(member.role, config.team.roles);
+        if (!defaults) throw new Error(`no AI defaults for ${member.role}`);
         expect(member).toMatchObject({
           sponsor: 'owner',
           temp: false,
@@ -200,12 +230,12 @@ describe('web-client-project', () => {
     );
     expect(config.team.members.map((m) => m.displayName)).toEqual([
       'Anna Example',
-      hu.roles.devops,
-      hu.roles.code_review,
-      hu.roles.qa,
-      hu.roles.communication,
-      hu.specialist(hu.specialties.frontend, hu.roles.developer),
-      hu.specialist(hu.specialties.backend, hu.roles.developer),
+      hu.roles.devops.name,
+      hu.roles.code_review.name,
+      hu.roles.qa.name,
+      hu.roles.communication.name,
+      hu.specialist(hu.specialties.frontend, hu.roles.developer.name),
+      hu.specialist(hu.specialties.backend, hu.roles.developer.name),
     ]);
 
     const english = build('web-client-project', 'en');
@@ -293,10 +323,10 @@ describe('internal-tool', () => {
 describe('daily-routine', () => {
   const config = build('daily-routine', 'en');
 
-  it('has the owner and one scheduled member working through ready, work and done', () => {
+  it('has the owner and a daily worker working through ready, work and done', () => {
     expect(config.team.members.map((m) => [m.handle, m.kind === 'ai' ? m.role : m.access])).toEqual([
       ['owner', 'owner'],
-      ['daily', 'scheduled'],
+      ['daily', 'maintainer'],
     ]);
     expect(shape(config.pipeline.stages)).toEqual([
       ['ready', 'queue', [], [], 'ready'],
@@ -308,5 +338,19 @@ describe('daily-routine', () => {
       en.columns.in_progress.name,
       en.columns.done.name,
     ]);
+  });
+
+  it('names the maintainer the daily worker and runs it every weekday morning', () => {
+    const worker = config.team.members[1];
+    expect(worker).toMatchObject({ displayName: en.members.daily_worker, schedule: DAILY_WORKER_SCHEDULE });
+    expect(build('daily-routine', 'hu').team.members[1]).toMatchObject({
+      displayName: hu.members.daily_worker,
+      schedule: DAILY_WORKER_SCHEDULE,
+    });
+    // Minute 0, hour 8, Monday to Friday, in the project's time zone.
+    expect(DAILY_WORKER_SCHEDULE.cron).toBe('0 8 * * 1-5');
+    expect(DAILY_WORKER_SCHEDULE.prompt).not.toMatch(HUNGARIAN_LETTERS);
+    expect(DAILY_WORKER_SCHEDULE.prompt).toContain('create_task');
+    expect(DAILY_WORKER_SCHEDULE.prompt).toContain('send_message');
   });
 });

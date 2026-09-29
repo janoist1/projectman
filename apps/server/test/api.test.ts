@@ -12,6 +12,8 @@ import type {
   Me,
   MemberView,
   ProjectSummary,
+  RolesView,
+  RoleView,
   Session,
   SessionDetail,
   Task,
@@ -19,6 +21,7 @@ import type {
   TeamMessagesView,
   TemplateSummary,
 } from '@projectman/shared';
+import { hu } from '@projectman/templates';
 import { cookieOf, createAppHarness, createProject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { flush } from './helpers/fakes';
@@ -337,6 +340,122 @@ describe('REST API', () => {
       expect(history[0]!.author).toBe('Owner');
     });
 
+    it('lists the role catalogue and manages custom roles', async () => {
+      const catalogue = await call<RolesView>('GET', '/api/projects/AR/roles', cookie);
+      expect(catalogue.status).toBe(200);
+      expect(catalogue.body.roles).toHaveLength(20);
+      expect(catalogue.body.roles.find((r) => r.id === 'business_analyst')).toEqual({
+        id: 'business_analyst',
+        ...hu.roles.business_analyst,
+        holders: 'both',
+        builtIn: true,
+      });
+
+      const role = {
+        id: 'data_steward',
+        name: 'Data steward',
+        summary: 'Keeps the reference data clean.',
+        holders: 'both',
+        instructions: 'Report duplicates in the reference data.',
+      };
+      const created = await call<RoleView>('POST', '/api/projects/AR/roles', cookie, role);
+      expect(created.status).toBe(201);
+      expect(created.body).toEqual({
+        id: 'data_steward',
+        name: 'Data steward',
+        summary: 'Keeps the reference data clean.',
+        notTheirJob: '',
+        holders: 'both',
+        builtIn: false,
+      });
+      const invalid = await call<ApiError>('POST', '/api/projects/AR/roles', cookie, {
+        ...role,
+        id: 'Bad-Id',
+      });
+      expect([invalid.status, invalid.body.error.code]).toEqual([400, 'invalid_request']);
+      const shadow = await call<ApiError>('POST', '/api/projects/AR/roles', cookie, { ...role, id: 'qa' });
+      expect([shadow.status, shadow.body.error.code]).toEqual([409, 'custom_role_shadows_builtin']);
+
+      const replaced = await call<RoleView>('PUT', '/api/projects/AR/roles/data_steward', cookie, {
+        ...role,
+        notTheirJob: 'Does not change the schema.',
+      });
+      expect(replaced.body.notTheirJob).toBe('Does not change the schema.');
+      const builtIn = await call<ApiError>('PUT', '/api/projects/AR/roles/qa', cookie, { ...role, id: 'qa' });
+      expect(builtIn.body.error.code).toBe('builtin_role');
+
+      const hired = await call<MemberView>('POST', '/api/projects/AR/members', cookie, {
+        role: 'data_steward',
+      });
+      expect(hired.status).toBe(201);
+      expect(hired.body).toMatchObject({
+        handle: 'data-steward',
+        role: 'data_steward',
+        roles: ['data_steward'],
+      });
+      const inUse = await call<ApiError>('DELETE', '/api/projects/AR/roles/data_steward', cookie);
+      expect([inUse.status, inUse.body.error.code]).toEqual([409, 'role_in_use']);
+      expect(inUse.body.error.details).toEqual({ members: ['data-steward'], tempWorkers: false });
+
+      await call('DELETE', '/api/projects/AR/members/data-steward', cookie);
+      expect((await call('DELETE', '/api/projects/AR/roles/data_steward', cookie)).status).toBe(204);
+      const after = await call<RolesView>('GET', '/api/projects/AR/roles', cookie);
+      expect(after.body.roles.map((r) => r.id)).not.toContain('data_steward');
+      const history = (await call<ConfigView>('GET', '/api/projects/AR/config', cookie)).body.history;
+      expect(history.slice(0, 2).map((e) => e.message)).toEqual([
+        'Remove role data_steward',
+        'Retire data-steward',
+      ]);
+    });
+
+    it('hires only roles an AI may hold and changes members with PATCH', async () => {
+      const operator = await call<ApiError>('POST', '/api/projects/AR/members', cookie, { role: 'operator' });
+      expect([operator.status, operator.body.error.code]).toEqual([400, 'role_not_for_ai']);
+      const watchdog = await call<MemberView>('POST', '/api/projects/AR/members', cookie, {
+        role: 'watchdog',
+        schedule: { cron: '*/30 * * * *', prompt: 'Look for stuck work.' },
+      });
+      expect(watchdog.body).toMatchObject({ handle: 'watchdog', roles: ['watchdog'] });
+
+      const owner = await call<MemberView>('PATCH', '/api/projects/AR/members/owner', cookie, {
+        roles: ['operator', 'product_owner', 'qa'],
+      });
+      expect(owner.status).toBe(200);
+      expect(owner.body).toMatchObject({
+        handle: 'owner',
+        role: 'owner',
+        roles: ['operator', 'product_owner', 'qa'],
+      });
+      const members = (await call<MemberView[]>('GET', '/api/projects/AR/members', cookie)).body;
+      expect(members.find((m) => m.handle === 'owner')?.roles).toEqual(['operator', 'product_owner', 'qa']);
+      expect(members.find((m) => m.handle === 'dev-1')?.roles).toEqual(['developer']);
+
+      const aiOnly = await call<ApiError>('PATCH', '/api/projects/AR/members/owner', cookie, {
+        roles: ['watchdog'],
+      });
+      expect([aiOnly.status, aiOnly.body.error.code]).toEqual([400, 'role_not_for_human']);
+      const aiRoles = await call<ApiError>('PATCH', '/api/projects/AR/members/dev-1', cookie, {
+        roles: ['qa'],
+      });
+      expect(aiRoles.body.error.code).toBe('not_human_member');
+
+      const dev = await call<MemberView>('PATCH', '/api/projects/AR/members/dev-1', cookie, {
+        displayName: 'Frontend dev',
+        specialty: 'Frontend',
+        model: 'sonnet',
+      });
+      expect(dev.body).toMatchObject({
+        displayName: 'Frontend dev',
+        specialty: 'Frontend',
+        role: 'developer',
+      });
+      const config = (await call<ConfigView>('GET', '/api/projects/AR/config', cookie)).body.config;
+      expect(config.team.members.find((m) => m.handle === 'dev-1')).toMatchObject({ model: 'sonnet' });
+      expect(config.team.members.find((m) => m.handle === 'watchdog')).toMatchObject({
+        schedule: { cron: '*/30 * * * *', prompt: 'Look for stuck work.' },
+      });
+    });
+
     it('edits and reverts the configuration', async () => {
       const view = (await call<ConfigView>('GET', '/api/projects/AR/config', cookie)).body;
       expect(view.config.project.key).toBe('AR');
@@ -410,6 +529,7 @@ describe('REST API', () => {
             handle: 'dani',
             displayName: 'Dani',
             access: 'developer',
+            roles: [],
             email: 'dev@example.com',
           });
           return 'Add Dani';
@@ -422,6 +542,13 @@ describe('REST API', () => {
       const hire = await call<ApiError>('POST', '/api/projects/AR/members', devCookie, { role: 'qa' });
       expect(hire.status).toBe(403);
       expect(hire.body.error.code).toBe('insufficient_access');
+      // Everyone sees the role catalogue; only admins and owners change roles and members.
+      expect((await call('GET', '/api/projects/AR/roles', devCookie)).status).toBe(200);
+      const customRole = { id: 'tester', name: 'Tester', summary: 'Tests.', holders: 'both' };
+      expect((await call('POST', '/api/projects/AR/roles', devCookie, customRole)).status).toBe(403);
+      expect(
+        (await call('PATCH', '/api/projects/AR/members/dani', devCookie, { roles: ['qa'] })).status,
+      ).toBe(403);
 
       // As an admin Dani may hire; the AI member still runs on the owner's subscription.
       await domain.projects.update(
@@ -473,6 +600,7 @@ describe('REST API', () => {
             handle: 'client',
             displayName: 'Client',
             access: 'client',
+            roles: [],
             email: 'client@example.com',
           });
           return 'Add the client';

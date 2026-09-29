@@ -1,5 +1,5 @@
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
-import { CheckName, CheckState, MemberHandle, StageId, TaskKey } from '@projectman/shared';
+import { CheckName, CheckState, MemberHandle, StageId, TaskKey, Visibility } from '@projectman/shared';
 import { z } from 'zod';
 import { TeamToolError, type TeamToolsHandler, type ToolContext } from '../contracts';
 import {
@@ -7,6 +7,7 @@ import {
   formatMembers,
   formatQuestionAsked,
   formatSentMessage,
+  formatTaskCreated,
   formatTaskDetail,
   formatTaskUpdate,
 } from './format';
@@ -22,6 +23,7 @@ export const TEAM_TOOL_NAMES = [
   'list_members',
   'get_task',
   'update_task',
+  'create_task',
   'link_pull_request',
   'ask_human',
   'save_memory',
@@ -36,6 +38,7 @@ export const TEAM_INSTRUCTIONS = [
     '"[team message from <handle> ...]", use send_message.',
   "- Be concise. Write messages, notes and questions in the project's language.",
   '- Record check results, stage moves and notes with update_task instead of only mentioning them in text.',
+  '- Propose new work with create_task: it waits unassigned in the first stage until humans prioritise it.',
   '- Link pull requests with link_pull_request as soon as they exist.',
   '- When a human decision or information is needed, use ask_human; the answer arrives later as a team message.',
   '- Keep durable learnings with save_memory.',
@@ -43,6 +46,9 @@ export const TEAM_INSTRUCTIONS = [
 
 const MAX_MESSAGE_CHARS = 20_000;
 const MAX_NOTE_CHARS = 10_000;
+const MAX_TITLE_CHARS = 200;
+const MAX_DESCRIPTION_CHARS = 20_000;
+const MAX_LABEL_CHARS = 40;
 const MAX_QUESTION_CHARS = 4_000;
 const MAX_OPTION_CHARS = 200;
 const MAX_MEMORY_CHARS = 2_000;
@@ -173,11 +179,12 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     title: 'Update a task',
     readOnly: false,
     description:
-      'Record progress on a task: record a check result, add a note and/or move it to another stage. ' +
-      'Always record the outcome of a code review, security review, QA or client test here (check + a short ' +
-      'note with the findings): saying it only in text does not update the task. Stage gates are enforced: ' +
-      'a move is refused while its gate (a passed check, a merged PR or a human approval) is not met. ' +
-      'In one call the check and the note are recorded before the stage move.',
+      'Record progress on a task: record a check result, add a note, rewrite its title or description ' +
+      '(for example a specification with acceptance criteria, or a technical plan) and/or move it to ' +
+      'another stage. Always record the outcome of a code review, security review, QA or client test here ' +
+      '(check + a short note with the findings): saying it only in text does not update the task. Stage ' +
+      'gates are enforced: a move is refused while its gate (a passed check, a merged PR or a human ' +
+      'approval) is not met. In one call everything else is recorded before the stage move.',
     input: {
       task_key: taskKeyInput,
       stage_id: StageId.optional().describe(
@@ -201,19 +208,92 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         .describe(
           "Note for the task timeline, in the project's language: findings, decisions, what changed.",
         ),
+      title: z
+        .string()
+        .trim()
+        .min(1)
+        .max(MAX_TITLE_CHARS)
+        .optional()
+        .describe("New title, short and specific, in the project's language."),
+      description: z
+        .string()
+        .trim()
+        .min(1)
+        .max(MAX_DESCRIPTION_CHARS)
+        .optional()
+        .describe(
+          'New description (markdown). It replaces the whole description, so include everything that ' +
+            'should stay; read the current one with get_task first.',
+        ),
     },
     async run({ ctx, args, handler }) {
-      const { task_key: taskKey, stage_id: stageId, check, note } = args;
-      if (!stageId && !check && !note) {
-        throw new TeamToolError('invalid', 'Nothing to update: pass stage_id, check and/or note.');
+      const { task_key: taskKey, stage_id: stageId, check, note, title, description } = args;
+      if (!stageId && !check && !note && !title && !description) {
+        throw new TeamToolError(
+          'invalid',
+          'Nothing to update: pass stage_id, check, note, title and/or description.',
+        );
       }
       const { task } = await handler.updateTask(ctx, {
         taskKey,
         ...(stageId ? { stageId } : {}),
         ...(check ? { check } : {}),
         ...(note ? { note } : {}),
+        ...(title ? { title } : {}),
+        ...(description ? { description } : {}),
       });
-      return formatTaskUpdate(task, { stageId, check, note: !!note });
+      return formatTaskUpdate(task, {
+        stageId,
+        check,
+        note: !!note,
+        title: !!title,
+        description: !!description,
+      });
+    },
+  }),
+
+  defineTool({
+    name: 'create_task',
+    title: 'Create a task',
+    readOnly: false,
+    description:
+      'Create a new task, for example a card for a reported bug, one part of a request you split, or ' +
+      'follow-up work you found. It starts unassigned in the first stage of the pipeline, where humans ' +
+      'prioritise it; it does not start any work. Give it a specific title and a self-contained ' +
+      "description, in the project's language.",
+    input: {
+      title: z
+        .string()
+        .trim()
+        .min(1)
+        .max(MAX_TITLE_CHARS)
+        .describe("Short, specific title in the project's language."),
+      description: z
+        .string()
+        .trim()
+        .max(MAX_DESCRIPTION_CHARS)
+        .optional()
+        .describe(
+          'Markdown: what and why, and what done means (for a bug: steps to reproduce, expected and ' +
+            'actual behaviour, environment). Mention the task it came from, if any.',
+        ),
+      labels: z
+        .array(z.string().trim().min(1).max(MAX_LABEL_CHARS))
+        .max(10)
+        .optional()
+        .describe('Labels, e.g. ["bug"].'),
+      visibility: Visibility.optional().describe(
+        'internal (default): only the team sees it; shared: client members see it too.',
+      ),
+    },
+    async run({ ctx, args, handler }) {
+      const { task } = await handler.createTask(ctx, {
+        title: args.title,
+        ...(args.description ? { description: args.description } : {}),
+        ...(args.labels ? { labels: unique(args.labels) } : {}),
+        ...(args.visibility ? { visibility: args.visibility } : {}),
+      });
+      return formatTaskCreated(task);
     },
   }),
 

@@ -1,4 +1,4 @@
-import { AiMemberConfig, MemberHandle } from '@projectman/shared';
+import { AiMemberConfig, holdersAllow, MemberHandle, roleHolders } from '@projectman/shared';
 import type {
   Actor,
   HireMemberRequest,
@@ -6,8 +6,9 @@ import type {
   MemberView,
   ProjectConfig,
   SessionState,
+  UpdateMemberRequest,
 } from '@projectman/shared';
-import { aiRoleDefaults } from '@projectman/templates';
+import { aiMemberDefaults } from '@projectman/templates';
 import { findHumanByEmail } from './access';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
@@ -22,6 +23,17 @@ import type { TimelineService } from './timeline';
 import { unique } from './util';
 
 const ENDED_SESSION_STATES = new Set<SessionState>(['exited', 'failed']);
+
+/** Throws unless a member of this kind may hold the role (a built-in or one of the team's custom roles). */
+export function assertRoleFor(config: ProjectConfig, role: string, kind: 'human' | 'ai'): void {
+  const holders = roleHolders(role, config.team.roles);
+  if (holders === null) throw invalid('unknown_role', `unknown role: ${role}`, { role });
+  if (!holdersAllow(holders, kind)) {
+    throw kind === 'ai'
+      ? invalid('role_not_for_ai', `only humans can hold the role ${role}`, { role })
+      : invalid('role_not_for_human', `only AI members can hold the role ${role}`, { role });
+  }
+}
 
 /**
  * The roster (configured members + runtime state), hiring and retiring. Hiring and retiring
@@ -81,6 +93,7 @@ export class MemberService {
           displayName: m.displayName,
           kind: 'human',
           role: m.access,
+          roles: m.roles,
           specialty: null,
           status: this.presence.isOnline(m.email) ? 'online' : 'offline',
           activity: null,
@@ -95,6 +108,7 @@ export class MemberService {
         displayName: m.displayName,
         kind: 'ai',
         role: m.role,
+        roles: [m.role],
         specialty: m.specialty ?? null,
         status: state && state.status !== 'retired' ? state.status : 'idle',
         activity: state?.activity ?? null,
@@ -113,7 +127,10 @@ export class MemberService {
     return taken;
   }
 
-  /** Hires an AI member from the role defaults; `sponsor` is the human whose subscription runs it. */
+  /**
+   * Hires an AI member for any role an AI may hold (built-in or custom) with the role's
+   * defaults; `sponsor` is the human whose subscription runs it.
+   */
   async hire(
     projectKey: string,
     req: HireMemberRequest,
@@ -122,6 +139,9 @@ export class MemberService {
   ): Promise<AiMemberConfig> {
     let hired: AiMemberConfig | null = null;
     await this.projects.update(projectKey, { actor: by.actor, author: by.author }, (draft) => {
+      assertRoleFor(draft, req.role, 'ai');
+      const defaults = aiMemberDefaults(req.role, draft.team.roles);
+      if (!defaults) throw invalid('role_not_for_ai', `no AI member can hold the role ${req.role}`);
       const sponsor = draft.team.members.find((m) => m.handle === by.sponsor);
       if (!sponsor || sponsor.kind !== 'human') {
         throw invalid('invalid_sponsor', `sponsor must be a human member: ${by.sponsor}`);
@@ -133,7 +153,6 @@ export class MemberService {
       if (!MemberHandle.safeParse(handle).success || taken.has(handle)) {
         throw conflict('handle_taken', `no free handle for role ${req.role}`);
       }
-      const defaults = aiRoleDefaults(req.role);
       const specialty = req.specialty?.trim() ?? '';
       const index =
         draft.team.members.filter(
@@ -144,7 +163,10 @@ export class MemberService {
         handle,
         displayName:
           req.displayName?.trim() ||
-          defaultMemberName(req.role, draft.project.language, index, specialty || undefined),
+          defaultMemberName(req.role, draft.project.language, index, {
+            specialty: specialty || undefined,
+            customRoles: draft.team.roles,
+          }),
         role: req.role,
         ...(req.specialty ? { specialty: req.specialty } : {}),
         model: req.model ?? defaults.model,
@@ -153,6 +175,7 @@ export class MemberService {
         instructions: defaults.instructions,
         sponsor: sponsor.handle,
         temp: opts.temp ?? false,
+        ...(req.schedule ? { schedule: req.schedule } : {}),
       });
       draft.team.members.push(member);
       hired = member;
@@ -167,6 +190,61 @@ export class MemberService {
       data: { handle: member.handle, role: member.role, temp: member.temp, sponsor: member.sponsor },
     });
     return member;
+  }
+
+  /**
+   * Changes a member (a configuration commit): the display name of anyone, the roles a human
+   * holds, and an AI member's specialty, model and schedule. An AI member's one role stays.
+   */
+  async update(
+    projectKey: string,
+    handle: string,
+    req: UpdateMemberRequest,
+    by: { actor: Actor; author: Author },
+  ): Promise<MemberView> {
+    await this.projects.update(projectKey, by, (draft) => {
+      const member = draft.team.members.find((m) => m.handle === handle);
+      if (!member) throw notFound('member', handle);
+      const fields: string[] = [];
+      if (member.kind === 'human') {
+        if (req.specialty !== undefined || req.model !== undefined || req.schedule !== undefined) {
+          throw invalid('not_ai_member', 'specialty, model and schedule apply to AI members only');
+        }
+        if (req.roles !== undefined) {
+          const roles = [...new Set(req.roles)];
+          for (const role of roles) assertRoleFor(draft, role, 'human');
+          member.roles = roles;
+          fields.push('roles');
+        }
+      } else {
+        if (req.roles !== undefined) {
+          throw invalid('not_human_member', 'an AI member holds exactly one role; roles apply to humans');
+        }
+        if (req.specialty !== undefined) {
+          const specialty = req.specialty.trim();
+          if (specialty) member.specialty = specialty;
+          else delete member.specialty;
+          fields.push('specialty');
+        }
+        if (req.model !== undefined) {
+          member.model = req.model;
+          fields.push('model');
+        }
+        if (req.schedule !== undefined) {
+          if (req.schedule) member.schedule = req.schedule;
+          else delete member.schedule;
+          fields.push('schedule');
+        }
+      }
+      if (req.displayName !== undefined) {
+        member.displayName = req.displayName;
+        fields.push('display name');
+      }
+      return `Update ${handle}${fields.length > 0 ? `: ${fields.join(', ')}` : ''}`;
+    });
+    const view = (await this.roster(projectKey)).find((m) => m.handle === handle);
+    if (!view) throw notFound('member', handle);
+    return view;
   }
 
   /**

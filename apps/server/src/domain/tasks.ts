@@ -130,7 +130,13 @@ export class TaskService {
     };
   }
 
-  async create(projectKey: string, req: CreateTaskRequest, actor: Actor): Promise<Task> {
+  /** `sessionId`: the AI session the task was created from (recorded in the timeline). */
+  async create(
+    projectKey: string,
+    req: CreateTaskRequest,
+    actor: Actor,
+    opts: { sessionId?: string | null } = {},
+  ): Promise<Task> {
     const config = await this.projects.config(projectKey);
     const first = config.pipeline.stages[0]!;
     const target = req.stageId ? findStage(config, req.stageId) : first;
@@ -173,13 +179,26 @@ export class TaskService {
     }
     task.key = `${projectKey}-${this.ctx.repos.counters.next(projectKey, 'task')}`;
     this.ctx.repos.tasks.insert(task);
-    this.timeline.append({ projectKey, taskKey: task.key, actor, type: 'task_created', data: { title } });
+    this.timeline.append({
+      projectKey,
+      taskKey: task.key,
+      sessionId: opts.sessionId ?? null,
+      actor,
+      type: 'task_created',
+      data: { title },
+    });
     this.publish(task);
     return task;
   }
 
   /** Applies a stage move first (gated); other fields are changed only if the move went through. */
-  async update(projectKey: string, taskKey: string, req: UpdateTaskRequest, actor: Actor): Promise<Task> {
+  async update(
+    projectKey: string,
+    taskKey: string,
+    req: UpdateTaskRequest,
+    actor: Actor,
+    opts: { sessionId?: string | null } = {},
+  ): Promise<Task> {
     let task = this.get(projectKey, taskKey);
     if (req.stageId !== undefined && req.stageId !== task.stageId) {
       const result = await this.moveToStage(projectKey, taskKey, req.stageId, actor);
@@ -208,7 +227,14 @@ export class TaskService {
     if (fields.length === 0) return task;
     next.updatedAt = isoNow(this.ctx);
     this.ctx.repos.tasks.update(next);
-    this.timeline.append({ projectKey, taskKey, actor, type: 'task_updated', data: { fields } });
+    this.timeline.append({
+      projectKey,
+      taskKey,
+      sessionId: opts.sessionId ?? null,
+      actor,
+      type: 'task_updated',
+      data: { fields },
+    });
     this.publish(next);
     return next;
   }

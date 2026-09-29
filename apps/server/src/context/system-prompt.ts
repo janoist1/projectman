@@ -1,24 +1,44 @@
-import type { AiRole } from '@projectman/shared';
+import { isBuiltInRole } from '@projectman/shared';
+import type { BuiltInRoleId, CustomRoleDefinition } from '@projectman/shared';
 import type { ContextPackInput } from '../contracts';
 import { code, codeList, describeGate, languageName, stageLabel } from './format';
 import { recentMemory } from './memory';
 import { expectedSteps, type Situation } from './work-item';
 
-const AI_ROLE_LABELS: Record<AiRole, string> = {
+/** English names of the built-in roles for prompt text. */
+const ROLE_LABELS: Record<BuiltInRoleId, string> = {
+  operator: 'operator',
+  product_owner: 'product owner',
+  project_manager: 'project manager',
+  business_analyst: 'business analyst',
+  architect: 'architect',
+  designer: 'designer',
   developer: 'developer',
   code_review: 'code reviewer',
   security_review: 'security reviewer',
   qa: 'QA engineer',
   devops: 'DevOps engineer',
   communication: 'communication member',
-  project_manager: 'project manager',
+  support: 'support member',
+  researcher: 'researcher',
+  maintainer: 'maintainer',
+  coach: 'coach',
+  watchdog: 'watchdog',
+  content: 'content writer',
+  translator: 'translator',
   docs: 'technical writer',
-  scheduled: 'scheduled routine worker',
 };
 
-/** English description of an AI role for prompt text; other values (human access levels) as-is. */
-export function roleLabel(role: string): string {
-  return (AI_ROLE_LABELS as Record<string, string>)[role] ?? role;
+/**
+ * A role for prompt text: the English name of a built-in role, a custom role's own name (in the
+ * project's language), else the value as it is.
+ */
+export function roleLabel(
+  role: string,
+  customRoles: readonly Pick<CustomRoleDefinition, 'id' | 'name'>[] = [],
+): string {
+  if (isBuiltInRole(role)) return ROLE_LABELS[role];
+  return customRoles.find((r) => r.id === role)?.name ?? role;
 }
 
 /** The text passed to `claude --append-system-prompt`: who, with whom, how, on what, within which limits. */
@@ -40,7 +60,7 @@ function identitySection({ project, member }: ContextPackInput): string {
   const specialty = member.specialty ? ` (${member.specialty})` : '';
   const lines = [
     '# Who you are',
-    `You are ${member.displayName} (handle ${code(member.handle)}), the ${roleLabel(member.role)}${specialty} of the ${project.project.name} team (project key ${code(project.project.key)}); you run on ${sponsor?.displayName ?? member.sponsor}'s Claude subscription.`,
+    `You are ${member.displayName} (handle ${code(member.handle)}), the ${roleLabel(member.role, project.team.roles)}${specialty} of the ${project.project.name} team (project key ${code(project.project.key)}); you run on ${sponsor?.displayName ?? member.sponsor}'s Claude subscription.`,
     'You are an AI member of a team run by projectman: humans follow your work, answer your questions and make the decisions in its web app.',
   ];
   if (member.temp) {
@@ -53,7 +73,10 @@ interface RosterEntry {
   handle: string;
   displayName: string;
   kind: 'human' | 'ai';
+  /** Access level of a human; the role of an AI member. */
   role: string;
+  /** Roles a human holds. */
+  roles: string[];
   specialty: string | null;
   temp: boolean;
 }
@@ -67,6 +90,7 @@ function roster(input: ContextPackInput): RosterEntry[] {
         displayName: m.displayName,
         kind: m.kind,
         role: m.role,
+        roles: m.kind === 'human' ? m.roles : [],
         specialty: m.specialty,
         temp: m.temp,
       }));
@@ -78,6 +102,7 @@ function roster(input: ContextPackInput): RosterEntry[] {
           displayName: m.displayName,
           kind: m.kind,
           role: m.access,
+          roles: m.roles,
           specialty: null,
           temp: false,
         }
@@ -86,6 +111,7 @@ function roster(input: ContextPackInput): RosterEntry[] {
           displayName: m.displayName,
           kind: m.kind,
           role: m.role,
+          roles: [],
           specialty: m.specialty ?? null,
           temp: m.temp,
         },
@@ -93,11 +119,18 @@ function roster(input: ContextPackInput): RosterEntry[] {
 }
 
 function teamSection(input: ContextPackInput): string {
+  const customRoles = input.project.team.roles;
   const lines = roster(input).map((m) => {
+    const held = m.roles.map((role) => roleLabel(role, customRoles));
     const details =
       m.kind === 'human'
-        ? ['human', m.role]
-        : ['AI', roleLabel(m.role), ...(m.specialty ? [m.specialty] : []), ...(m.temp ? ['temporary'] : [])];
+        ? [`human, ${m.role}${held.length > 0 ? `; roles: ${held.join(', ')}` : ''}`]
+        : [
+            'AI',
+            roleLabel(m.role, customRoles),
+            ...(m.specialty ? [m.specialty] : []),
+            ...(m.temp ? ['temporary'] : []),
+          ];
     const self = m.handle === input.member.handle ? ' ← you' : '';
     return `- ${code(m.handle)}: ${m.displayName} (${details.join(', ')})${self}`;
   });
@@ -116,7 +149,8 @@ function teamworkSection({ project }: ContextPackInput): string {
     '- Work with the others through the team tools (MCP server "team"; in Claude Code they are named mcp__team__<tool>):',
     '  - send_message: message members by handle; pass the task key when it is about a task. Give the receiver the facts (links, what changed, what is expected next and from whom). Message only when someone has something to do.',
     '  - get_task and list_members: read a task with its recent timeline, or the roster.',
-    '  - update_task: move a task to another stage (gates are enforced), record a check result (code_review, security_review, qa, client_test: pending, passed, blocked, failed or retest_needed) or add a short note to the timeline.',
+    '  - update_task: move a task to another stage (gates are enforced), record a check result (code_review, security_review, qa, client_test: pending, passed, blocked, failed or retest_needed), add a short note to the timeline, or rewrite its title or description (for example a specification or a technical plan).',
+    '  - create_task: propose new work, such as a bug report or one part of a split request. It waits unassigned in the first stage until humans prioritise it.',
     '  - link_pull_request: attach a pull request to the task as soon as it exists.',
     '  - ask_human: ask a human for a decision or information, with options when you can. The answer arrives later as a team message; meanwhile continue with anything that does not depend on it.',
     '  - save_memory: save a durable learning for your future sessions (conventions, pitfalls, where things are). Task status belongs on the task, not in memory.',
@@ -211,12 +245,38 @@ function guardrailsSection({ member }: ContextPackInput): string {
   return lines.join('\n');
 }
 
-function roleSection({ member }: ContextPackInput): string {
-  const instructions = member.instructions.trim();
+/**
+ * The member's role instructions. A built-in role's instructions are copied into the member's
+ * configuration when it is hired. A custom role is described by the team (in the project's
+ * language): its name, summary and "not their job", its instructions, and then the member's own
+ * instructions, if any.
+ */
+function roleSection({ project, member }: ContextPackInput): string {
+  const own = member.instructions.trim();
+  const custom = isBuiltInRole(member.role)
+    ? undefined
+    : project.team.roles.find((r) => r.id === member.role);
+  if (!custom) {
+    return [
+      '# Your role instructions',
+      own || 'No role instructions are configured for you; follow the sections above.',
+    ].join('\n');
+  }
+  const notTheirJob = custom.notTheirJob.trim();
+  const instructions = [custom.instructions.trim(), own].filter(Boolean).join('\n\n');
   return [
-    '# Your role instructions',
-    instructions || 'No role instructions are configured for you; follow the sections above.',
-  ].join('\n');
+    [
+      `# Your role: ${custom.name}`,
+      'A role this team defined, in its own words:',
+      `- What the role does: ${custom.summary.trim()}`,
+      ...(notTheirJob ? [`- Not the role's job: ${notTheirJob}`] : []),
+    ].join('\n'),
+    [
+      '# Your role instructions',
+      instructions ||
+        'No instructions are written for this role yet; follow its description and the sections above.',
+    ].join('\n'),
+  ].join('\n\n');
 }
 
 function memorySection({ memory }: ContextPackInput): string {

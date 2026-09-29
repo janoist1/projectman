@@ -22,6 +22,7 @@ import { MessageService } from './messages';
 import { PlanUsageCache } from './plan-usage';
 import { PresenceService } from './presence';
 import { ProjectService } from './projects';
+import { RoleService } from './roles';
 import { Scheduler } from './scheduler';
 import { SessionOrchestrator } from './sessions';
 import { TaskService } from './tasks';
@@ -43,6 +44,7 @@ export {
 } from './inbox';
 export { MemberService } from './members';
 export { MessageService } from './messages';
+export { RoleService, roleUsage, roleViews } from './roles';
 export { defaultMemberHandle, defaultMemberName } from './naming';
 export { PlanUsageCache, highestUsagePercent } from './plan-usage';
 export { PresenceService } from './presence';
@@ -95,6 +97,7 @@ export function createDomain(opts: DomainOptions) {
   const messages = new MessageService({ ctx, timeline });
   const tasks = new TaskService({ ctx, timeline, projects, inbox });
   const members = new MemberService({ ctx, projects, timeline, presence, tasks, inbox });
+  const roles = new RoleService({ projects });
   const sessions = new SessionOrchestrator({
     ctx,
     projects,
@@ -162,6 +165,7 @@ export function createDomain(opts: DomainOptions) {
     messages,
     tasks,
     members,
+    roles,
     sessions,
     planUsage,
     scheduler,

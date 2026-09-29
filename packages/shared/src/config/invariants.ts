@@ -1,3 +1,4 @@
+import { holdersAllow, isBuiltInRole, roleHolders } from '../domain/role';
 import type { ProjectConfig } from './schema';
 
 export interface ConfigIssue {
@@ -13,7 +14,12 @@ export interface ConfigIssue {
     | 'last_stage_not_done'
     | 'duplicate_stage'
     | 'sponsor_not_human'
-    | 'unknown_repo';
+    | 'unknown_repo'
+    | 'unknown_role'
+    | 'role_not_for_ai'
+    | 'role_not_for_human'
+    | 'custom_role_shadows_builtin'
+    | 'duplicate_role';
   path: string;
   detail?: string;
 }
@@ -23,11 +29,28 @@ export interface ConfigIssue {
  * - every handle is unique and at least one owner exists;
  * - stage owners, gate approvers and AI sponsors refer to existing members;
  * - approvers and sponsors are humans (an AI can never approve a gate);
- * - every release stage requires a human approval.
+ * - every release stage requires a human approval;
+ * - every role a member holds (and the temp workers' role) is a built-in or custom role that
+ *   the member's kind may hold; custom role ids are unique and never reuse a built-in id.
  */
 export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
   const issues: ConfigIssue[] = [];
   const members = new Map(config.team.members.map((m) => [m.handle, m]));
+
+  const customIds = new Set<string>();
+  config.team.roles.forEach((role, i) => {
+    const path = `team.roles[${i}].id`;
+    if (isBuiltInRole(role.id)) issues.push({ code: 'custom_role_shadows_builtin', path, detail: role.id });
+    else if (customIds.has(role.id)) issues.push({ code: 'duplicate_role', path, detail: role.id });
+    customIds.add(role.id);
+  });
+  const checkRole = (role: string, kind: 'human' | 'ai', path: string) => {
+    const holders = roleHolders(role, config.team.roles);
+    if (holders === null) issues.push({ code: 'unknown_role', path, detail: role });
+    else if (!holdersAllow(holders, kind)) {
+      issues.push({ code: kind === 'ai' ? 'role_not_for_ai' : 'role_not_for_human', path, detail: role });
+    }
+  };
 
   const seen = new Set<string>();
   config.team.members.forEach((m, i) => {
@@ -39,8 +62,18 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
       if (!sponsor || sponsor.kind !== 'human') {
         issues.push({ code: 'sponsor_not_human', path: `team.members[${i}].sponsor`, detail: m.sponsor });
       }
+      checkRole(m.role, 'ai', `team.members[${i}].role`);
+    } else {
+      const held = new Set<string>();
+      m.roles.forEach((role, j) => {
+        const path = `team.members[${i}].roles[${j}]`;
+        if (held.has(role)) issues.push({ code: 'duplicate_role', path, detail: role });
+        held.add(role);
+        checkRole(role, 'human', path);
+      });
     }
   });
+  checkRole(config.team.limits.tempWorkers.role, 'ai', 'team.limits.tempWorkers.role');
 
   if (!config.team.members.some((m) => m.kind === 'human' && m.access === 'owner')) {
     issues.push({ code: 'no_owner', path: 'team.members' });

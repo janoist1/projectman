@@ -27,7 +27,7 @@ import { DomainError, invalid, notFound } from './errors';
 import type { MemberService } from './members';
 import type { MessageService } from './messages';
 import type { ConfigChange, ProjectService } from './projects';
-import { allowedToolsFor, DONE_TASK_CLEANUP_DELAY_MS, WORKTREE_ROLES } from './session-policy';
+import { allowedToolsFor, DONE_TASK_CLEANUP_DELAY_MS, usesWorktree } from './session-policy';
 import { isOpenTask } from './tasks';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
@@ -332,7 +332,7 @@ export class SessionOrchestrator {
     const projectKey = config.project.key;
     let cwd = config.project.workspacePath;
     let branch: string | null = null;
-    if (task?.repo && WORKTREE_ROLES.has(member.role)) {
+    if (task?.repo && usesWorktree(member.role)) {
       // Code-changing roles work in the task's own worktree and branch; others in the workspace.
       try {
         const worktree = await this.deps.worktrees.ensureForTask({

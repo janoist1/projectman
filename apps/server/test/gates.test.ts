@@ -103,6 +103,7 @@ describe('stage gates', () => {
           handle: 'boss',
           displayName: 'Boss',
           access: 'owner',
+          roles: [],
           email: 'b@x',
         });
       },

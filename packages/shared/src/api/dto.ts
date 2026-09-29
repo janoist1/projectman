@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import { ChatItem } from '../chat/chat';
-import { ProjectConfig, RepoConfig } from '../config/schema';
+import { MemberSchedule, ProjectConfig, RepoConfig } from '../config/schema';
 import { TimelineEvent } from '../domain/event';
 import { InboxItem } from '../domain/inbox';
-import { AiRole, HumanAccess, MemberHandle, MemberKind, MemberStatus } from '../domain/member';
+import { HumanAccess, MemberHandle, MemberKind, MemberStatus } from '../domain/member';
 import { TeamMessage } from '../domain/message';
 import { BoardColumn, Stage, StageId } from '../domain/pipeline';
+import { CustomRoleDefinition, RoleHolders, RoleId } from '../domain/role';
 import { Session } from '../domain/session';
 import { Task, TaskKey, Visibility } from '../domain/task';
 
@@ -69,8 +70,10 @@ export const MemberView = z.object({
   handle: MemberHandle,
   displayName: z.string(),
   kind: MemberKind,
-  /** HumanAccess for humans, AiRole for AI members. */
-  role: z.union([HumanAccess, AiRole]),
+  /** HumanAccess for humans, the role id for AI members. */
+  role: z.union([HumanAccess, RoleId]),
+  /** Roles held: a human's roles (possibly none), or the AI member's one role. */
+  roles: z.array(RoleId),
   specialty: z.string().nullable(),
   status: MemberStatus,
   activity: z.string().nullable(),
@@ -80,17 +83,54 @@ export const MemberView = z.object({
 });
 export type MemberView = z.infer<typeof MemberView>;
 
+/** Hires an AI member for a role an AI may hold (built-in or custom). */
 export const HireMemberRequest = z.object({
-  role: AiRole,
+  role: RoleId,
   displayName: z.string().min(1).optional(),
   handle: MemberHandle.optional(),
   specialty: z.string().optional(),
   model: z.string().optional(),
+  schedule: MemberSchedule.optional(),
 });
 export type HireMemberRequest = z.infer<typeof HireMemberRequest>;
 
+/** PATCH of a member; omitted fields stay as they are. */
+export const UpdateMemberRequest = z.object({
+  displayName: z.string().trim().min(1).optional(),
+  /** Humans only: the roles they hold (replaces the list). An AI member holds exactly one role. */
+  roles: z.array(RoleId).optional(),
+  /** AI only; an empty string removes it. */
+  specialty: z.string().optional(),
+  /** AI only. */
+  model: z.string().trim().min(1).optional(),
+  /** AI only; null removes the schedule. */
+  schedule: MemberSchedule.nullable().optional(),
+});
+export type UpdateMemberRequest = z.infer<typeof UpdateMemberRequest>;
+
 export const RetireMemberRequest = z.object({ handoverTo: MemberHandle.optional() });
 export type RetireMemberRequest = z.infer<typeof RetireMemberRequest>;
+
+/* ---------- roles ---------- */
+
+/** A role of the catalogue: built-in texts come in the project's language (English fallback). */
+export const RoleView = z.object({
+  id: RoleId,
+  name: z.string(),
+  summary: z.string(),
+  notTheirJob: z.string(),
+  holders: RoleHolders,
+  builtIn: z.boolean(),
+});
+export type RoleView = z.infer<typeof RoleView>;
+
+/** Built-in roles in catalogue order, then the team's custom roles. */
+export const RolesView = z.object({ roles: z.array(RoleView) });
+export type RolesView = z.infer<typeof RolesView>;
+
+/** Creates (POST) or replaces (PUT, same id) a custom role. */
+export const CustomRoleRequest = CustomRoleDefinition;
+export type CustomRoleRequest = z.input<typeof CustomRoleRequest>;
 
 /* ---------- board & tasks ---------- */
 

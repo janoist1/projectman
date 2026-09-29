@@ -1,5 +1,13 @@
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
-import type { CheckName, CheckState, MemberHandle, MemberView, Task, TaskDetail } from '@projectman/shared';
+import type {
+  CheckName,
+  CheckState,
+  MemberHandle,
+  MemberView,
+  Task,
+  TaskDetail,
+  Visibility,
+} from '@projectman/shared';
 
 /**
  * Team tools exposed to AI members through an MCP server ("team"), replacing the
@@ -26,7 +34,10 @@ export interface TeamToolsHandler {
   listMembers(ctx: ToolContext): Promise<MemberView[]>;
   /** get_task: task with recent timeline. */
   getTask(ctx: ToolContext, args: { taskKey: string }): Promise<TaskDetail>;
-  /** update_task: move stage (gates enforced), record a check result, add a note. */
+  /**
+   * update_task: rewrite the title or description, record a check result, add a note, move
+   * stage (gates enforced). Everything else is recorded before the stage move.
+   */
   updateTask(
     ctx: ToolContext,
     args: {
@@ -34,7 +45,17 @@ export interface TeamToolsHandler {
       stageId?: string;
       check?: { name: CheckName; state: CheckState };
       note?: string;
+      title?: string;
+      description?: string;
     },
+  ): Promise<{ task: Task }>;
+  /**
+   * create_task: a new task in the pipeline's first (queue) stage, unassigned and attributed
+   * to the calling member; humans prioritise it.
+   */
+  createTask(
+    ctx: ToolContext,
+    args: { title: string; description?: string; labels?: string[]; visibility?: Visibility },
   ): Promise<{ task: Task }>;
   /** link_pull_request: attach a GitHub PR to the task. */
   linkPullRequest(

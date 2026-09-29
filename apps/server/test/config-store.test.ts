@@ -62,6 +62,42 @@ describe('ConfigStore (customization repository)', () => {
     expect(head.trim()).toBe('Owner Person <owner@example.com>|Create project AR');
   });
 
+  it('keeps custom roles and human roles in team.yaml and loads files written before them', async () => {
+    const config = testConfig();
+    config.team.roles.push({
+      id: 'data_steward',
+      name: 'Data steward',
+      summary: 'Keeps the reference data clean.',
+      notTheirJob: '',
+      holders: 'human',
+      instructions: '',
+    });
+    const owner = config.team.members[0]!;
+    if (owner.kind === 'human') owner.roles = ['operator', 'data_steward'];
+    config.project.timezone = 'Europe/Budapest';
+    await store.save('AR', config, { author, message: 'Create project AR' });
+    expect(readFileSync(join(store.rootDir, 'projects/AR/project.yaml'), 'utf8')).toContain(
+      'timezone: Europe/Budapest',
+    );
+
+    const teamYaml = readFileSync(join(store.rootDir, 'projects/AR/team.yaml'), 'utf8');
+    expect(teamYaml).toContain('id: data_steward');
+    expect(teamYaml).toMatch(/roles:\n\s+- operator\n\s+- data_steward/);
+    expect((await store.load('AR')).config).toEqual(config);
+
+    // A team.yaml from before custom roles, human roles and the time zone existed.
+    writeFileSync(
+      join(store.rootDir, 'projects/AR/team.yaml'),
+      teamYaml.replace(/\nroles:[\s\S]*$/, '\n').replace(/\n\s+roles:\n(\s+- \w+\n)+/, '\n'),
+    );
+    const projectYaml = join(store.rootDir, 'projects/AR/project.yaml');
+    writeFileSync(projectYaml, readFileSync(projectYaml, 'utf8').replace(/\n\s+timezone: .*/, ''));
+    const legacy = (await store.load('AR')).config;
+    expect(legacy.team.roles).toEqual([]);
+    expect(legacy.team.members[0]).toMatchObject({ kind: 'human', roles: [] });
+    expect(legacy.project.timezone).toBe('UTC');
+  });
+
   it('does not commit when nothing changed', async () => {
     const first = await store.save('AR', testConfig(), { author, message: 'Create' });
     const second = await store.save('AR', testConfig(), { author, message: 'No-op' });

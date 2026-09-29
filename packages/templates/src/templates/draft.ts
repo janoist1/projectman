@@ -1,17 +1,25 @@
 import {
   ProjectConfig,
+  type AiBuiltInRoleId,
   type AiMemberConfig,
-  type AiRole,
   type BoardColumn,
   type CheckName,
   type GateCondition,
   type MemberConfig,
+  type MemberSchedule,
   type Stage,
   type StageKind,
   type TeamLimits,
 } from '@projectman/shared';
-import { getLocale, type ColumnKey, type SpecialtyKey, type StageKey, type TemplateId } from '../locales';
-import { defaultMemberHandle, defaultMemberName } from '../members';
+import {
+  getLocale,
+  type ColumnKey,
+  type SpecialtyKey,
+  type StageKey,
+  type TemplateId,
+  type TemplateMemberKey,
+} from '../locales';
+import { defaultMemberHandle, defaultMemberName, uniqueHandle } from '../members';
 import { aiRoleDefaults } from '../roles';
 import type { BuildTemplateInput, ProjectTemplate } from '../types';
 
@@ -29,12 +37,21 @@ export const humanApproval = (...approvers: string[]): GateCondition => ({
   approvers,
 });
 
+export interface HireOptions {
+  specialty?: SpecialtyKey;
+  /** A display name of its own instead of the role's name, e.g. the "daily worker". */
+  name?: TemplateMemberKey;
+  /** Handle stem instead of the role's (a suffix is added when taken). */
+  handle?: string;
+  schedule?: MemberSchedule;
+}
+
 /** Helpers a template uses to assemble a project configuration in the project's language. */
 export interface TemplateDraft {
   /** Handle of the human owner (the sponsor of every AI member). */
   owner: string;
   /** Adds an AI member with the role's defaults; returns its handle. */
-  hire(role: AiRole, specialty?: SpecialtyKey): string;
+  hire(role: AiBuiltInRoleId, opts?: HireOptions): string;
   column(key: ColumnKey): BoardColumn;
   stage(key: StageKey, kind: StageKind, column: ColumnKey, owners: string[], ...gate: GateCondition[]): Stage;
   /** Validates the assembled configuration (throws if a template is broken). */
@@ -49,6 +66,8 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
       handle: input.owner.handle,
       displayName: input.owner.displayName,
       access: 'owner',
+      // The person who sets up the project runs it and decides what gets built.
+      roles: ['operator', 'product_owner'],
       email: input.owner.email,
     },
   ];
@@ -58,18 +77,24 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
   return {
     owner: input.owner.handle,
 
-    hire(role, specialty) {
-      const handle = defaultMemberHandle(role, taken, specialty);
+    hire(role, opts = {}) {
+      const { specialty } = opts;
+      const handle = opts.handle
+        ? uniqueHandle(opts.handle, taken)
+        : defaultMemberHandle(role, taken, specialty);
       taken.add(handle);
       const specialtyName = specialty ? locale.specialties[specialty] : undefined;
-      const countKey = `${role}:${specialty ?? ''}`;
+      const countKey = `${opts.name ?? role}:${specialty ?? ''}`;
       const index = (perRole.get(countKey) ?? 0) + 1;
       perRole.set(countKey, index);
       const defaults = aiRoleDefaults(role);
+      const displayName = opts.name
+        ? `${locale.members[opts.name]}${index > 1 ? ` ${index}` : ''}`
+        : defaultMemberName(role, input.language, index, { specialty: specialtyName });
       const member: AiMemberConfig = {
         kind: 'ai',
         handle,
-        displayName: defaultMemberName(role, input.language, index, specialtyName),
+        displayName,
         role,
         ...(specialtyName ? { specialty: specialtyName } : {}),
         model: defaults.model,
@@ -78,6 +103,7 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
         instructions: defaults.instructions,
         sponsor: input.owner.handle,
         temp: false,
+        ...(opts.schedule ? { schedule: opts.schedule } : {}),
       };
       members.push(member);
       return handle;
@@ -107,9 +133,10 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
           workspacePath: input.workspacePath,
           repos: [],
           language: input.language,
+          timezone: locale.timezone,
           templateId,
         },
-        team: { members, limits },
+        team: { members, roles: [], limits },
         pipeline,
       });
     },

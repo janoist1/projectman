@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { RoleId } from './role';
 
 /**
  * Stable, unique identifier of a team member within a project ("fe-1", "qa", "owner").
@@ -17,19 +18,14 @@ export type MemberKind = z.infer<typeof MemberKind>;
 export const HumanAccess = z.enum(['owner', 'admin', 'developer', 'client', 'viewer']);
 export type HumanAccess = z.infer<typeof HumanAccess>;
 
-/** Factory role templates an AI member can be hired from. */
-export const AiRole = z.enum([
-  'developer',
-  'code_review',
-  'security_review',
-  'qa',
-  'devops',
-  'communication',
-  'project_manager',
-  'docs',
-  'scheduled',
-]);
-export type AiRole = z.infer<typeof AiRole>;
+/**
+ * @deprecated Roles come from the role catalogue now: use `RoleId` (any built-in or custom
+ * role) or `BuiltInRoleId`, and `BUILT_IN_ROLE_IDS` instead of `AiRole.options`. Kept as an
+ * alias until the web app has moved over.
+ */
+export const AiRole = RoleId;
+/** @deprecated Use `RoleId` or `BuiltInRoleId`. */
+export type AiRole = RoleId;
 
 /** Claude Code permission modes (passed to `claude --permission-mode`). */
 export const PermissionMode = z.enum(['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions']);

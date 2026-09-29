@@ -17,6 +17,8 @@ export const TimelineEventType = z.enum([
   'task_check_changed',
   'task_link_added',
   'task_note',
+  'schedule_started',
+  'schedule_skipped',
   'session_started',
   'session_ended',
   'team_message',
@@ -61,6 +63,8 @@ export interface TimelineEventData {
   task_check_changed: { check: string; from: string | null; to: string };
   task_link_added: { kind: string; ref: string; repo?: string };
   task_note: { text: string };
+  schedule_started: { runId: string; member: string; scheduledFor: string };
+  schedule_skipped: { runId: string; member: string; scheduledFor: string; reason: string };
   session_started: { member: string; resumed: boolean };
   session_ended: { member: string; exitCode: number | null };
   team_message: { messageId: string; from: string; to: string[]; excerpt: string };

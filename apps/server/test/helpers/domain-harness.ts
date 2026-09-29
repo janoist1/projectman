@@ -5,6 +5,7 @@ import type { ProjectConfig } from '@projectman/shared';
 import { createConfigStore } from '../../src/config';
 import { createRepositories, openDatabase } from '../../src/db';
 import { createDomain, createTemplateRegistry, humanActor } from '../../src/domain';
+import type { ScheduleTimer } from '../../src/domain/schedules';
 import type { Domain } from '../../src/domain';
 import {
   capturingLogger,
@@ -28,7 +29,9 @@ export const OWNER_ACTOR = humanActor('owner');
  * runner, context pack, memory, worktrees and GitHub; with project "AR" created from the
  * test template.
  */
-export async function createDomainHarness(opts: { adjust?: (config: ProjectConfig) => void } = {}) {
+export async function createDomainHarness(
+  opts: { adjust?: (config: ProjectConfig) => void; now?: () => Date; scheduleTimer?: ScheduleTimer } = {},
+) {
   const dir = mkdtempSync(join(tmpdir(), 'pm-domain-'));
   const workspace = join(dir, 'workspace');
   mkdirSync(workspace);
@@ -53,6 +56,8 @@ export async function createDomainHarness(opts: { adjust?: (config: ProjectConfi
     worktrees,
     templates: createTemplateRegistry([testTemplate]),
     planUsageTtlMs: 0,
+    now: opts.now,
+    scheduleTimer: opts.scheduleTimer,
     doneCleanupDelayMs: 0,
   });
   await domain.start();

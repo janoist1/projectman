@@ -26,6 +26,9 @@ export const routes = {
   invite: (token: string) => `/api/invites/${token}`,
   acceptInvite: (token: string) => `/api/invites/${token}/accept`,
 
+  schedules: (key: string) => `/api/projects/${key}/schedules`,
+  runSchedule: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/schedule/run`,
+
   members: (key: string) => `/api/projects/${key}/members`,
   member: (key: string, handle: string) => `/api/projects/${key}/members/${handle}`,
 
@@ -70,6 +73,8 @@ export const routeMethods = {
   invitation: 'DELETE',
   invite: 'GET',
   acceptInvite: 'POST',
+  schedules: 'GET',
+  runSchedule: 'POST',
   members: 'GET | POST',
   member: 'PATCH | DELETE',
   roles: 'GET | POST',

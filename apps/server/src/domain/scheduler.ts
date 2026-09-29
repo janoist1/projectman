@@ -81,7 +81,12 @@ export class Scheduler {
       const task = this.ctx.repos.tasks.get(key);
       if (task && isOpenTask(task)) load++;
     }
-    return load;
+    return (
+      load +
+      this.sessions
+        .list(projectKey, { member: handle })
+        .filter((s) => s.workItem.type !== 'task' && this.sessions.isRunning(s.id)).length
+    );
   }
 
   /**
@@ -108,8 +113,12 @@ export class Scheduler {
     }
   }
 
+  admit<T>(fn: () => Promise<T>): Promise<T> {
+    return this.locks.run('ai-admission', fn);
+  }
+
   async startTask(projectKey: string, taskKey: string, opts: StartTaskOptions): Promise<StartTaskResult> {
-    return this.locks.run(`schedule:${projectKey}`, async () => {
+    return this.admit(async () => {
       const config = await this.projects.config(projectKey);
       let task = this.tasks.get(projectKey, taskKey);
       if (!isOpenTask(task)) throw conflict('task_closed', `task ${taskKey} is ${task.status}`);

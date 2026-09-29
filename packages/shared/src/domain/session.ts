@@ -11,6 +11,7 @@ export const WorkItemRef = z.discriminatedUnion('type', [
   z.object({ type: z.literal('task'), taskKey: TaskKey }),
   z.object({ type: z.literal('meeting'), meetingId: z.string() }),
   z.object({ type: z.literal('general') }),
+  z.object({ type: z.literal('schedule'), runId: z.string() }),
 ]);
 export type WorkItemRef = z.infer<typeof WorkItemRef>;
 

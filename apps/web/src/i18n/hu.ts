@@ -5,6 +5,27 @@
 type MessageTree = { readonly [key: string]: string | MessageTree };
 
 export const hu = {
+  schedules: {
+    title: 'Ütemezett futások',
+    next: 'Következő futás: {time}',
+    runNow: 'Futtasd most',
+    session: 'Ütemezett futás · {time}',
+    startedEvent: 'Ütemezett futás elindult',
+    skippedEvent: 'Ütemezett futás kihagyva: {reason}',
+    empty: 'Még nincs ütemezett futás.',
+    noNext: 'Nincs következő futás',
+    statuses: { started: 'Elindult', skipped: 'Kihagyva', failed: 'Sikertelen', done: 'Kész' },
+    reasons: {
+      previous_run_live: 'Az előző ütemezett futás még él.',
+      member_at_capacity: 'A tag elérte a kapacitását.',
+      ai_limit_reached: 'Elértük az egyidejű AI-munkák korlátját.',
+      plan_usage_paused: 'A szolgáltató előfizetésének használata túl magas.',
+      provider_not_logged_in: 'A szolgáltatónál nincs aktív bejelentkezés.',
+      session_start_failed: 'A munkamenetet nem sikerült elindítani.',
+      session_failed: 'A munkamenet sikertelenül zárult.',
+      server_restarted: 'A szerver újraindult a futás közben.',
+    },
+  },
   invites: {
     title: 'Kolléga meghívása',
     email: 'E-mail-cím',

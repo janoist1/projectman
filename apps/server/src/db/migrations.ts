@@ -189,6 +189,27 @@ export const migrations: Migration[] = [
       CREATE INDEX invitations_project ON invitations(project_key, created_at);
     `,
   },
+  {
+    version: 3,
+    name: 'member schedule runs',
+    sql: `
+      CREATE TABLE schedule_runs (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        project_key TEXT NOT NULL REFERENCES projects(key),
+        member TEXT NOT NULL,
+        scheduled_for TEXT NOT NULL,
+        started_at TEXT,
+        session_id TEXT,
+        status TEXT NOT NULL CHECK(status IN ('started', 'skipped', 'failed', 'done')),
+        reason TEXT,
+        automatic INTEGER NOT NULL
+      );
+      CREATE INDEX schedule_runs_project ON schedule_runs(project_key, seq);
+      CREATE UNIQUE INDEX schedule_runs_occurrence
+        ON schedule_runs(project_key, member, scheduled_for) WHERE automatic = 1;
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

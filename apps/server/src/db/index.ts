@@ -4,6 +4,7 @@ import { createInboxRepository } from './inbox';
 import { createMemberStateRepository } from './member-state';
 import { createMessageRepository } from './messages';
 import { createCounterRepository, createProjectRepository } from './projects';
+import { createScheduleRepository } from './schedules';
 import { createSessionRepository } from './sessions';
 import { createTaskRepository } from './tasks';
 import { createTimelineRepository } from './timeline';
@@ -30,6 +31,7 @@ export function createRepositories(db: Db) {
     tasks: createTaskRepository(db),
     timeline: createTimelineRepository(db),
     sessions: createSessionRepository(db),
+    schedules: createScheduleRepository(db),
     messages: createMessageRepository(db),
     inbox: createInboxRepository(db),
     memberState: createMemberStateRepository(db),

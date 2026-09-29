@@ -604,7 +604,9 @@ export function permissionOutput(decision: PermissionDecision, payload: HookPayl
   const allow: { behavior: 'allow'; updatedInput?: unknown; updatedPermissions?: PermissionUpdate[] } = {
     behavior: 'allow',
   };
-  if (decision.updatedInput !== undefined) allow.updatedInput = decision.updatedInput;
+  // Claude Code only accepts an object here; anything else would void the whole decision.
+  const input = decision.updatedInput;
+  if (input !== null && typeof input === 'object' && !Array.isArray(input)) allow.updatedInput = input;
   if (decision.rememberForSession) {
     const updates = sessionPermissionUpdates(payload);
     if (updates.length > 0) allow.updatedPermissions = updates;

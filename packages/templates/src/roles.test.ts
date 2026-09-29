@@ -11,8 +11,11 @@ import {
   type TemplateLocale,
 } from './index';
 
-/** Letters that only appear in Hungarian text (role instructions must be English). */
-const HUNGARIAN_LETTERS = /[áéíóöőúüű]/i;
+/** Accented letters of Hungarian text (role instructions must be English). Code points keep this file ASCII. */
+const HUNGARIAN_LETTERS = new RegExp(
+  `[${[0xe1, 0xe9, 0xed, 0xf3, 0xf6, 0x151, 0xfa, 0xfc, 0x171].map((c) => String.fromCodePoint(c)).join('')}]`,
+  'i',
+);
 
 describe('aiRoleDefaults', () => {
   it.each(AiRole.options)('gives %s valid defaults and English instructions', (role) => {

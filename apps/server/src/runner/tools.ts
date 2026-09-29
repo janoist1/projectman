@@ -66,6 +66,12 @@ export function toolSummary(name: string, input: unknown, cwd?: string | null, m
     const description = str(i.description);
     return description ? oneLine(description, max) : name;
   }
+  if (name === 'apply_patch') {
+    // Codex edits files with a patch: "*** Update File: src/app.ts".
+    const patch = str(i.command) ?? str(i.input) ?? str(i.patch);
+    const file = patch ? /^\*\*\* (?:Add|Update|Delete) File: (.+)$/m.exec(patch)?.[1]?.trim() : undefined;
+    return file ? oneLine(displayPath(file, cwd), max) : name;
+  }
   return mcpName(name) ?? name;
 }
 

@@ -1,12 +1,14 @@
 /**
- * Environment for Claude Code child processes.
+ * Environment for agent CLI child processes (Claude Code, Codex).
  *
- * Members run on the owner's Claude subscription, never on API billing, so every variable
- * that would switch Claude Code to an API key, a custom endpoint or a cloud provider is
- * removed. Variables that a parent Claude Code session leaves behind (when projectman
- * itself is started from inside Claude Code) are removed too: they make the child believe
- * it is a nested session, which changes its behaviour (for example transcript saving).
- * The list of host-session markers follows agent-office (MIT, src/server/workers.ts).
+ * Members run on the owner's subscription, never on API billing, so every variable that
+ * would switch Claude Code or Codex to an API key, a custom endpoint or a cloud provider is
+ * removed. The list is the same for every provider: a member of one provider could start the
+ * other provider's CLI from its shell, and that must not reach API billing either.
+ * Variables that a parent Claude Code or Codex session leaves behind (when projectman itself
+ * is started from inside one) are removed too: they make the child believe it is a nested
+ * session, which changes its behaviour (for example transcript saving). The list of
+ * host-session markers follows agent-office (MIT, src/server/workers.ts).
  */
 
 /** Variables that would move billing away from the subscription. Never passed on. */
@@ -17,6 +19,9 @@ export const BILLING_ENV_VARS = [
   'CLAUDE_CODE_USE_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
+  // Codex: CODEX_API_KEY overrides the ChatGPT login; voice falls back to OPENAI_API_KEY.
+  'CODEX_API_KEY',
+  'OPENAI_API_KEY',
 ] as const;
 
 /** Exact names set by a parent Claude Code / Agent SDK session, or that change the TUI. */
@@ -37,6 +42,9 @@ const HOST_SESSION_VARS = new Set([
   'TERM_PROGRAM',
   'TERM_PROGRAM_VERSION',
   'VSCODE_INJECTION',
+  // Set by a parent Codex session.
+  'CODEX_THREAD_ID',
+  'CODEX_INTERNAL_ORIGINATOR_OVERRIDE',
 ]);
 
 /** Prefixes of host-session variables. */

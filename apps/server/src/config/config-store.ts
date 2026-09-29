@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { FastifyBaseLogger } from 'fastify';
+import { DAILY_WORKER_SCHEDULE } from '@projectman/templates';
 import { ProjectConfig, validateProjectConfig } from '@projectman/shared';
 import type { ConfigVersionEntry } from '@projectman/shared';
 import type { ConfigStore } from '../contracts';
@@ -18,6 +20,7 @@ export interface GitIdentity {
 export interface ConfigStoreOptions {
   /** Directory of the customization repository, e.g. ~/.projectman/customization. */
   rootDir: string;
+  logger?: Pick<FastifyBaseLogger, 'warn'>;
   /** Committer of every commit (the author is whoever made the change). */
   committer?: GitIdentity;
 }
@@ -72,8 +75,30 @@ function validate(raw: unknown, expectedKey: string): ProjectConfig {
   return parsed.data;
 }
 
+/** Upgrades removed AI roles without rewriting the customization files. */
+function migrateScheduledRole(
+  raw: unknown,
+  projectKey: string,
+  logger: Pick<FastifyBaseLogger, 'warn'>,
+): unknown {
+  if (!raw || typeof raw !== 'object' || !('team' in raw)) return raw;
+  const team = raw.team;
+  if (!team || typeof team !== 'object' || !('members' in team) || !Array.isArray(team.members)) return raw;
+  for (const member of team.members) {
+    if (!member || typeof member !== 'object' || member.kind !== 'ai' || member.role !== 'scheduled')
+      continue;
+    member.role = 'maintainer';
+    if (member.schedule === undefined) member.schedule = { ...DAILY_WORKER_SCHEDULE };
+    logger.warn({ projectKey, member: member.handle }, 'Migrated legacy scheduled role to maintainer');
+  }
+  return raw;
+}
+
 export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
   const rootDir = opts.rootDir;
+  const logger = opts.logger ?? {
+    warn: (details: unknown, message?: string) => console.warn(message, details),
+  };
   const committer = cleanIdentity(opts.committer ?? DEFAULT_COMMITTER);
   let queue: Promise<unknown> = Promise.resolve();
   let initialized: Promise<void> | null = null;
@@ -174,7 +199,10 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
       if (!existsSync(join(rootDir, projectPath(projectKey), 'project.yaml'))) {
         throw new ConfigStoreError('not_found', `no configuration for project ${projectKey}`);
       }
-      const config = validate(mergeProjectFiles(await readWorkingTree(projectKey)), projectKey);
+      const config = validate(
+        migrateScheduledRole(mergeProjectFiles(await readWorkingTree(projectKey)), projectKey, logger),
+        projectKey,
+      );
       return { config, version: await projectVersion(projectKey) };
     },
 
@@ -236,7 +264,7 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
           contents[file] = show.stdout;
           parsed[file] = parseYamlFile(file, show.stdout);
         }
-        validate(mergeProjectFiles(parsed), projectKey);
+        validate(migrateScheduledRole(mergeProjectFiles(parsed), projectKey, logger), projectKey);
 
         await writeProject(projectKey, contents);
         await git(['add', '-A', '--', path]);

@@ -1,5 +1,13 @@
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
-import { CheckName, CheckState, MemberHandle, StageId, TaskKey, Visibility } from '@projectman/shared';
+import {
+  CheckName,
+  CheckState,
+  MemberHandle,
+  StageId,
+  TaskKey,
+  TaskStatus,
+  Visibility,
+} from '@projectman/shared';
 import { z } from 'zod';
 import { TeamToolError, type TeamToolsHandler, type ToolContext } from '../contracts';
 import {
@@ -22,6 +30,7 @@ export const TEAM_TOOL_NAMES = [
   'send_message',
   'list_members',
   'get_task',
+  'list_tasks',
   'update_task',
   'create_task',
   'link_pull_request',
@@ -158,6 +167,24 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     input: {},
     async run({ ctx, handler }) {
       return formatMembers(await handler.listMembers(ctx), ctx.member);
+    },
+  }),
+
+  defineTool({
+    name: 'list_tasks',
+    title: 'List tasks',
+    readOnly: true,
+    description:
+      'Read the project board as a compact list, newest update first. Defaults to open tasks ' +
+      '(active, waiting or blocked). Filter by status, stage or assignee; use get_task for details.',
+    input: {
+      status: z.union([z.literal('open'), TaskStatus]).default('open'),
+      stage: StageId.optional(),
+      assignee: MemberHandle.optional().describe('Member handle, or "me" for your own tasks.'),
+      limit: z.number().int().min(1).max(200).default(50),
+    },
+    async run({ ctx, args, handler }) {
+      return JSON.stringify(await handler.listTasks(ctx, args));
     },
   }),
 

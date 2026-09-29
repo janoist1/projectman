@@ -1,0 +1,23 @@
+members:
+  - kind: human
+    handle: owner
+    displayName: Owner Person
+    access: owner
+  - kind: ai
+    handle: dev-1
+    displayName: Daily Worker
+    role: scheduled
+    sponsor: owner
+  - kind: ai
+    handle: dev-2
+    displayName: Evening Worker
+    role: scheduled
+    sponsor: owner
+    schedule:
+      cron: '0 18 * * *'
+      prompt: Review the fictional project backlog.
+  - kind: ai
+    handle: cr
+    displayName: Reviewer
+    role: code_review
+    sponsor: owner

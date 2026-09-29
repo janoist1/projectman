@@ -57,6 +57,7 @@ tests use the SDK's own client, which behaves the same way here):
 | ------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `send_message`      | `to` (handles, 1–20), `text`, `task_key?`                                             | `sendMessage(ctx, { to, text, taskKey? })`                                    |
 | `list_members`      | none                                                                                  | `listMembers(ctx)`                                                            |
+| `list_tasks`        | `status?`, `stage?`, `assignee?`, `limit?`                                            | `listTasks(ctx, args)`                                                        |
 | `get_task`          | `task_key`                                                                            | `getTask(ctx, { taskKey })`                                                   |
 | `update_task`       | `task_key`, `stage_id?`, `check?: { name, state }`, `note?`, `title?`, `description?` | `updateTask(ctx, { taskKey, stageId?, check?, note?, title?, description? })` |
 | `create_task`       | `title` (max 200 chars), `description?`, `labels?` (max 10), `visibility?`            | `createTask(ctx, { title, description?, labels?, visibility? })`              |

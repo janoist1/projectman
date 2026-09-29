@@ -148,7 +148,7 @@ function teamworkSection({ project }: ContextPackInput): string {
     '- You are one member of a mixed team of humans and AI members. Every AI member works in a fresh session per work item (a task, a meeting or a general chat); follow-ups about the same task come back to the same session.',
     '- Work with the others through the team tools (MCP server "team"; in Claude Code they are named mcp__team__<tool>):',
     '  - send_message: message members by handle; pass the task key when it is about a task. Give the receiver the facts (links, what changed, what is expected next and from whom). Message only when someone has something to do.',
-    '  - get_task and list_members: read a task with its recent timeline, or the roster.',
+    '  - list_tasks, get_task and list_members: read the board, a task with its recent timeline, or the roster.',
     '  - update_task: move a task to another stage (gates are enforced), record a check result (code_review, security_review, qa, client_test: pending, passed, blocked, failed or retest_needed), add a short note to the timeline, or rewrite its title or description (for example a specification or a technical plan).',
     '  - create_task: propose new work, such as a bug report or one part of a split request. It waits unassigned in the first stage until humans prioritise it.',
     '  - link_pull_request: attach a pull request to the task as soon as it exists.',

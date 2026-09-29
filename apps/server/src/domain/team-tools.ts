@@ -1,4 +1,10 @@
-import { CheckName, CheckState, formatInjectedTeamMessage, TaskKey } from '@projectman/shared';
+import {
+  TaskStatus as TaskStatusSchema,
+  CheckName,
+  CheckState,
+  formatInjectedTeamMessage,
+  TaskKey,
+} from '@projectman/shared';
 import type {
   InboxItem,
   InboxOption,
@@ -6,11 +12,19 @@ import type {
   ProjectConfig,
   Task,
   TaskDetail,
+  TaskStatus,
   Visibility,
   WorkItemRef,
 } from '@projectman/shared';
 import { TeamToolError } from '../contracts';
-import type { GithubService, MemberMemoryStore, TeamToolsHandler, ToolContext } from '../contracts';
+import type {
+  GithubService,
+  ListTasksInput,
+  MemberMemoryStore,
+  TaskSummary,
+  TeamToolsHandler,
+  ToolContext,
+} from '../contracts';
 import type { DomainContext } from './context';
 import { DomainError } from './errors';
 import type { ApprovalRequirement, UnmetCondition } from './gates';
@@ -153,6 +167,41 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async listMembers(ctx: ToolContext): Promise<MemberView[]> {
     return this.guard(async () => this.members.rosterFor(await this.caller(ctx)));
+  }
+
+  async listTasks(ctx: ToolContext, args: ListTasksInput): Promise<TaskSummary[]> {
+    return this.guard(async () => {
+      await this.caller(ctx);
+      const status = args.status ?? 'open';
+      const limit = args.limit ?? 50;
+      if (status !== 'open' && !TaskStatusSchema.safeParse(status).success) {
+        throw new TeamToolError('invalid', 'Invalid task status.');
+      }
+      if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+        throw new TeamToolError('invalid', 'limit must be an integer between 1 and 200.');
+      }
+      const assignee = args.assignee === 'me' ? ctx.member : args.assignee;
+      const openStatuses: TaskStatus[] = ['active', 'waiting', 'blocked'];
+      return this.tasks
+        .list(ctx.projectKey)
+        .filter(
+          (task) =>
+            (status === 'open' ? openStatuses.includes(task.status) : task.status === status) &&
+            (args.stage === undefined || task.stageId === args.stage) &&
+            (assignee === undefined || task.assignee === assignee),
+        )
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.key.localeCompare(b.key))
+        .slice(0, limit)
+        .map(({ key, title, stageId, status, assignee, labels, updatedAt }) => ({
+          key,
+          title,
+          stageId,
+          status,
+          assignee,
+          labels,
+          updatedAt,
+        }));
+    });
   }
 
   async getTask(ctx: ToolContext, args: { taskKey: string }): Promise<TaskDetail> {

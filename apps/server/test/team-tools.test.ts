@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { TaskStatus } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
@@ -138,6 +139,57 @@ describe('team tools', () => {
     expect(detail.task.key).toBe('AR-1');
     expect(detail.sessions).toHaveLength(1);
     expect((await toolError(h.domain.teamTools.getTask(dev, { taskKey: 'AR-99' }))).code).toBe('not_found');
+  });
+
+  it('list_tasks filters the board, sorts before limiting and uses get_task visibility', async () => {
+    h.repos.tasks.update({ ...h.domain.tasks.get('AR', 'AR-1'), updatedAt: '2026-09-29T09:00:00.000Z' });
+    const statuses: TaskStatus[] = ['active', 'waiting', 'blocked', 'done', 'cancelled'];
+    for (const [index, status] of statuses.entries()) {
+      const task = await h.domain.tasks.create(
+        'AR',
+        { title: `Board task ${index}`, visibility: index % 2 ? 'shared' : 'internal' },
+        OWNER_ACTOR,
+      );
+      h.repos.tasks.update({
+        ...task,
+        status,
+        stageId: 'backlog',
+        assignee: 'dev-2',
+        labels: ['board'],
+        updatedAt: `2026-09-29T10:0${index}:00.000Z`,
+      });
+    }
+    const result = await h.domain.teamTools.listTasks(dev, {});
+    expect(result.slice(0, 3).map((task) => task.status)).toEqual(['blocked', 'waiting', 'active']);
+    expect(result).toHaveLength(4);
+    expect(Object.keys(result[0]!).sort()).toEqual(
+      ['key', 'title', 'stageId', 'status', 'assignee', 'labels', 'updatedAt'].sort(),
+    );
+    expect(await h.domain.teamTools.listTasks(dev, { assignee: 'me' })).toMatchObject([{ key: 'AR-1' }]);
+    expect(
+      await h.domain.teamTools.listTasks(dev, { stage: 'backlog', assignee: 'dev-2', limit: 1 }),
+    ).toMatchObject([{ key: 'AR-4' }]);
+    for (const status of statuses) {
+      const matches = await h.domain.teamTools.listTasks(dev, { status, assignee: 'dev-2' });
+      expect(matches).toHaveLength(1);
+      expect(matches[0]!.status).toBe(status);
+      expect((await h.domain.teamTools.getTask(dev, { taskKey: matches[0]!.key })).task.key).toBe(
+        matches[0]!.key,
+      );
+    }
+    expect(await h.domain.teamTools.listTasks(dev, { stage: 'missing' })).toEqual([]);
+    expect((await toolError(h.domain.teamTools.listTasks({ ...dev, member: 'owner' }, {}))).code).toBe(
+      'forbidden',
+    );
+    expect((await toolError(h.domain.teamTools.listTasks(dev, { limit: 201 }))).code).toBe('invalid');
+  });
+
+  it('list_tasks defaults to 50 results and permits up to 200', async () => {
+    for (let index = 0; index < 201; index += 1) {
+      await h.domain.tasks.create('AR', { title: `Board task ${index}` }, OWNER_ACTOR);
+    }
+    expect(await h.domain.teamTools.listTasks(dev, {})).toHaveLength(50);
+    expect(await h.domain.teamTools.listTasks(dev, { limit: 200 })).toHaveLength(200);
   });
 
   it('create_task puts an unassigned task into the first stage, attributed to the member', async () => {

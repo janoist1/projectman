@@ -1,4 +1,4 @@
-import { AiRole } from '@projectman/shared';
+import { AI_BUILT_IN_ROLE_IDS } from '@projectman/shared';
 import type { IconName } from '../components/Icon';
 import { t, tDynamic } from '../i18n/t';
 
@@ -76,5 +76,5 @@ export function humanRoleName(access: string): string {
 
 /** Roles an AI member can be hired into (the built-in list until the catalogue endpoint exists). */
 export function hireableRoles(): RoleView[] {
-  return AiRole.options.map((id) => aiRoleView(id));
+  return AI_BUILT_IN_ROLE_IDS.map((id) => aiRoleView(id));
 }

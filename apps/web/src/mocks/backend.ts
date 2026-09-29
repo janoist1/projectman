@@ -554,6 +554,7 @@ export class MockBackend {
       displayName: input.displayName ?? handle,
       kind: 'ai',
       role: input.role,
+      roles: [input.role],
       specialty: input.specialty ?? null,
       status: 'idle',
       activity: null,

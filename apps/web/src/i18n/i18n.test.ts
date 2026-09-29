@@ -1,5 +1,4 @@
 import {
-  AiRole,
   CheckName,
   CheckState,
   HumanAccess,
@@ -60,8 +59,6 @@ describe('hu locale', () => {
     expectKeys('stageKinds', StageKind.options);
     expectKeys('checks.names', CheckName.options);
     expectKeys('checks.states', CheckState.options);
-    expectKeys('roles.ai', AiRole.options);
-    expectKeys('roles.taglines', AiRole.options);
     expectKeys('roles.human', HumanAccess.options);
     expectKeys('permissionModes', PermissionMode.options);
     expectKeys('taskStatuses', TaskStatus.options);

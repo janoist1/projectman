@@ -1,26 +1,38 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useState } from 'react';
+import { Suspense, lazy, useState } from 'react';
+import type { ComponentType } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 import { isApiError } from '../api/client';
 import { useProjects } from '../api/queries';
 import { ButtonLink } from '../components/Button';
 import { EmptyState, ErrorState, LoadingState } from '../components/States';
 import { ToastProvider } from '../components/Toast';
-import { LoginPage } from '../features/auth/LoginPage';
-import { SetupPage } from '../features/auth/SetupPage';
 import { BoardPage } from '../features/board/BoardPage';
 import { TaskDrawer } from '../features/board/TaskDrawer';
-import { InboxPage } from '../features/inbox/InboxPage';
-import { MessagesPage } from '../features/messages/MessagesPage';
-import { CreateProjectPage } from '../features/projects/CreateProjectPage';
-import { SessionPage } from '../features/session/SessionPage';
-import { SettingsPage } from '../features/settings/SettingsPage';
-import { TeamPage } from '../features/team/TeamPage';
 import { t } from '../i18n/t';
 import { readStorage } from '../lib/hooks';
 import { AuthGate } from './AuthGate';
 import { ProjectLayout } from './ProjectLayout';
 import styles from './App.module.css';
+
+/** Route pages other than the board load on demand (keeps the first load small). */
+function lazyPage<K extends string>(load: () => Promise<Record<K, ComponentType>>, name: K) {
+  const Page = lazy<ComponentType>(async () => ({ default: (await load())[name] }));
+  return (
+    <Suspense fallback={<LoadingState />}>
+      <Page />
+    </Suspense>
+  );
+}
+
+const setupPage = lazyPage(() => import('../features/auth/SetupPage'), 'SetupPage');
+const loginPage = lazyPage(() => import('../features/auth/LoginPage'), 'LoginPage');
+const createProjectPage = lazyPage(() => import('../features/projects/CreateProjectPage'), 'CreateProjectPage');
+const sessionPage = lazyPage(() => import('../features/session/SessionPage'), 'SessionPage');
+const inboxPage = lazyPage(() => import('../features/inbox/InboxPage'), 'InboxPage');
+const teamPage = lazyPage(() => import('../features/team/TeamPage'), 'TeamPage');
+const messagesPage = lazyPage(() => import('../features/messages/MessagesPage'), 'MessagesPage');
+const settingsPage = lazyPage(() => import('../features/settings/SettingsPage'), 'SettingsPage');
 
 export function createQueryClient(): QueryClient {
   return new QueryClient({
@@ -65,21 +77,21 @@ export function NotFound() {
 export function AppRoutes() {
   return (
     <Routes>
-      <Route path="/setup" element={<SetupPage />} />
-      <Route path="/login" element={<LoginPage />} />
+      <Route path="/setup" element={setupPage} />
+      <Route path="/login" element={loginPage} />
       <Route element={<AuthGate />}>
         <Route index element={<HomeRedirect />} />
-        <Route path="/projects/new" element={<CreateProjectPage />} />
+        <Route path="/projects/new" element={createProjectPage} />
         <Route path="/p/:projectKey" element={<ProjectLayout />}>
           <Route element={<BoardPage />}>
             <Route index element={null} />
             <Route path="tasks/:taskKey" element={<TaskDrawer />} />
           </Route>
-          <Route path="sessions/:sessionId" element={<SessionPage />} />
-          <Route path="inbox" element={<InboxPage />} />
-          <Route path="team" element={<TeamPage />} />
-          <Route path="messages" element={<MessagesPage />} />
-          <Route path="settings" element={<SettingsPage />} />
+          <Route path="sessions/:sessionId" element={sessionPage} />
+          <Route path="inbox" element={inboxPage} />
+          <Route path="team" element={teamPage} />
+          <Route path="messages" element={messagesPage} />
+          <Route path="settings" element={settingsPage} />
           <Route path="*" element={<NotFound />} />
         </Route>
       </Route>

@@ -31,6 +31,16 @@ export type AiRole = RoleId;
 export const PermissionMode = z.enum(['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions']);
 export type PermissionMode = z.infer<typeof PermissionMode>;
 
+/**
+ * The agent CLI an AI member runs in, on its sponsor's subscription: Claude Code (Claude plan)
+ * or OpenAI Codex CLI (ChatGPT plan).
+ */
+export const AgentProvider = z.enum(['claude', 'codex']);
+export type AgentProvider = z.infer<typeof AgentProvider>;
+
+/** Provider of members that do not name one. */
+export const DEFAULT_AGENT_PROVIDER: AgentProvider = 'claude';
+
 /** Runtime status shown on member avatars. Humans: online/offline/invited; AI: idle/working/waiting. */
 export const MemberStatus = z.enum([
   'idle',

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { HumanAccess, MemberHandle, PermissionMode } from '../domain/member';
+import { AgentProvider, HumanAccess, MemberHandle, PermissionMode } from '../domain/member';
 import { Pipeline } from '../domain/pipeline';
 import { CustomRoleDefinition, RoleId } from '../domain/role';
 
@@ -42,8 +42,17 @@ export const AiMemberConfig = z.object({
   /** The one role this member holds: a built-in role or one of the team's custom roles. */
   role: RoleId,
   specialty: z.string().optional(),
-  /** Claude Code model alias or id, e.g. "opus", "sonnet". */
+  /**
+   * The agent CLI the member runs in (default "claude"). Parsing fills in the default; the
+   * type stays optional so hand-written configs without it remain valid.
+   */
+  provider: AgentProvider.default('claude').optional(),
+  /**
+   * Model alias or id, e.g. "opus", "sonnet" (Claude Code) or a Codex model id. Claude aliases
+   * are ignored for Codex members, which then use Codex's default model.
+   */
   model: z.string().default('opus'),
+  /** Claude Code permission mode; for Codex members it maps to a sandbox and approval policy. */
   permissionMode: PermissionMode.default('default'),
   /** How many work items this member may run at the same time. */
   capacity: z.number().int().min(1).max(5).default(1),

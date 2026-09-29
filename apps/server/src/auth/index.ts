@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { LoginRequest, routes, SetupRequest } from '@projectman/shared';
 import type { Me, SetupStatus } from '@projectman/shared';
+import { registerInvitationRoutes } from '../api/invitations';
 import { apiError } from '../api/errors';
 import { parseBody } from '../api/validation';
 import type { Domain } from '../domain';
@@ -27,6 +28,8 @@ export const SESSION_COOKIE = 'pm_session';
 
 /** /api routes reachable without a login. /hooks and /mcp authenticate with their own tokens. */
 const PUBLIC_ROUTES = new Set([
+  `GET ${routes.invite(':token')}`,
+  `POST ${routes.acceptInvite(':token')}`,
   `GET ${routes.setupStatus()}`,
   `POST ${routes.setup()}`,
   `POST ${routes.login()}`,
@@ -87,6 +90,8 @@ export function registerAuth(app: FastifyInstance, deps: { auth: AuthService; do
       signed: true,
       maxAge: Math.floor(auth.sessionTtlMs / 1000),
     });
+
+  registerInvitationRoutes(app, { auth, domain, me, setSessionCookie });
 
   app.get(routes.setupStatus(), async (): Promise<SetupStatus> => ({ needsSetup: auth.needsSetup() }));
 

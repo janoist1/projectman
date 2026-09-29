@@ -4,6 +4,9 @@ import {
   configSchemaIssues,
   humanApprovalChanged,
   validateProjectConfig,
+  AcceptInviteRequest,
+  CreateInviteRequest,
+  InvitationView,
   CancelTaskRequest,
   ReopenTaskRequest,
   CustomRoleRequest,
@@ -23,6 +26,7 @@ import {
   UpdateTaskRequest,
 } from '@projectman/shared';
 import type {
+  InvitationView as Invitation,
   AiMemberConfig,
   BoardView,
   ChatItem,
@@ -40,6 +44,7 @@ import type {
   TimelineEvent,
   TimelineEventType,
 } from '@projectman/shared';
+import { inviteTokenHash, newInviteToken } from './inviteTokens';
 import * as fixtures from './fixtures';
 import { MockTerminals } from './terminal';
 import { mockId, mockUuid, nowIso } from './time';
@@ -102,6 +107,11 @@ export class MockBackend {
   messages: TeamMessage[] = clone(fixtures.teamMessages);
   planUsage = clone(fixtures.planUsage);
   extraProjects: { key: string; name: string; templateId: string }[] = [];
+  invitations: Array<Invitation & { tokenHash: string }> = [];
+  accounts = new Map<string, { userId: string; name: string; email: string; password: string }>([
+    [fixtures.mockUser.email, { ...fixtures.mockUser, password: 'correct horse battery' }],
+  ]);
+  private inviteAttempts = { count: 0, resetAt: 0 };
   readonly terminals: MockTerminals;
   private readonly connections = new Map<MockConnection, ConnectionState>();
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
@@ -333,11 +343,18 @@ export class MockBackend {
   /* ---------- REST ---------- */
 
   handle(method: string, path: string, body: unknown): MockResponse {
+    const publicInvite = /^\/api\/invites\/([^/]+)(\/accept)?$/.exec(path);
+    if (publicInvite) return this.handlePublicInvite(method, publicInvite[1]!, !!publicInvite[2], body);
     if (path === '/api/setup') {
       if (method === 'GET') return ok({ needsSetup: this.auth === 'setup' });
       const input = parseBody(SetupRequest, body);
       if (!input) return error(400, 'invalid_request', 'Invalid setup request');
       this.user = { ...this.user, name: input.name, email: input.email };
+      this.accounts.set(input.email.trim().toLowerCase(), {
+        ...this.user,
+        email: input.email.trim().toLowerCase(),
+        password: input.password,
+      });
       this.auth = 'ready';
       return ok({ ...this.me() });
     }
@@ -345,6 +362,19 @@ export class MockBackend {
       const input = parseBody(LoginRequest, body);
       if (!input || input.password.length < 3)
         return error(401, 'invalid_credentials', 'Invalid email or password');
+      const account = this.accounts.get(input.email.trim().toLowerCase());
+      if (account && account.userId !== fixtures.mockUser.userId) {
+        if (input.password !== account.password)
+          return error(401, 'invalid_credentials', 'Invalid email or password');
+        this.user = { userId: account.userId, name: account.name, email: account.email };
+        this.viewerHandle =
+          this.config.team.members.find(
+            (member) => member.kind === 'human' && member.email?.toLowerCase() === account.email,
+          )?.handle ?? '';
+      } else if (account) {
+        this.user = { userId: account.userId, name: account.name, email: account.email };
+        this.viewerHandle = fixtures.OWNER;
+      } else return error(401, 'invalid_credentials', 'Invalid email or password');
       this.auth = 'ready';
       return ok(this.me());
     }
@@ -386,12 +416,13 @@ export class MockBackend {
   }
 
   private me() {
-    return { ...this.user, handles: { [fixtures.PROJECT_KEY]: this.owner } };
+    return { ...this.user, handles: this.viewerHandle ? { [fixtures.PROJECT_KEY]: this.owner } : {} };
   }
 
   private handleProject(method: string, rest: string, body: unknown): MockResponse {
     let m: RegExpExecArray | null;
     const restricted =
+      rest.startsWith('/invites') ||
       (rest === '/roles' && method !== 'GET') ||
       (rest.startsWith('/roles/') && method !== 'GET') ||
       (rest.startsWith('/members') && method !== 'GET') ||
@@ -405,6 +436,7 @@ export class MockBackend {
     if (!viewer) return error(403, 'not_a_member', 'Not a member');
     if (restricted && (viewer.kind !== 'human' || !['owner', 'admin'].includes(viewer.role)))
       return error(403, 'insufficient_access', 'Owner or admin required');
+    if (rest.startsWith('/invites')) return this.handleInvitations(method, rest, body);
     if (rest === '' && method === 'GET')
       return ok({
         ...fixtures.projectSummary,
@@ -548,6 +580,156 @@ export class MockBackend {
       this.addTimeline(null, this.viewerHandle, 'config_changed', { version: this.configVersion, message });
     }
     return ok({ config: clone(this.config), version: this.configVersion, history: clone(this.history) });
+  }
+
+  private handleInvitations(method: string, rest: string, body: unknown): MockResponse {
+    if (rest === '/invites' && method === 'GET') {
+      const recent = new Date(Date.now() - 30 * 24 * 60 * 60_000).toISOString();
+      return ok({
+        invitations: this.invitations
+          .filter(
+            (invite) =>
+              (!invite.acceptedAt && !invite.revokedAt && invite.expiresAt > nowIso()) ||
+              invite.createdAt >= recent ||
+              (invite.acceptedAt ?? '') >= recent ||
+              (invite.revokedAt ?? '') >= recent,
+          )
+          .map((invite) => InvitationView.parse(invite))
+          .reverse(),
+      });
+    }
+    if (rest === '/invites' && method === 'POST') {
+      const input = parseBody(CreateInviteRequest, body);
+      if (!input) return error(400, 'invalid_request', 'Invalid invitation');
+      if (input.access === 'admin' && this.findMember(this.viewerHandle)?.role !== 'owner')
+        return error(403, 'owner_only', 'Only an owner may invite an admin');
+      if (
+        this.config.team.members.some(
+          (member) => member.kind === 'human' && member.email?.trim().toLowerCase() === input.email,
+        )
+      )
+        return error(409, 'already_member', 'Already a human member');
+      for (const id of input.roles) {
+        const role = this.roleCatalogue().find((role) => role.id === id);
+        if (!role) return error(400, 'unknown_role', 'Unknown role');
+        if (!holdersAllow(role.holders, 'human')) return error(400, 'role_not_for_human', 'AI-only role');
+      }
+      const token = newInviteToken();
+      const invite = {
+        ...input,
+        displayName: input.displayName ?? null,
+        roles: [...new Set(input.roles)],
+        id: mockId('inv'),
+        projectKey: fixtures.PROJECT_KEY,
+        invitedBy: this.user.userId,
+        createdAt: nowIso(),
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60_000).toISOString(),
+        acceptedAt: null,
+        revokedAt: null,
+        tokenHash: inviteTokenHash(token),
+      };
+      this.invitations.push(invite);
+      return { status: 201, body: { ...InvitationView.parse(invite), path: `/invite/${token}` } };
+    }
+    const match = /^\/invites\/([^/]+)$/.exec(rest);
+    if (match && method === 'DELETE') {
+      const invite = this.invitations.find((invite) => invite.id === match[1]);
+      if (!invite) return error(404, 'not_found', 'Unknown invitation');
+      if (invite.acceptedAt) return error(409, 'invite_used', 'Invitation already used');
+      invite.revokedAt ??= nowIso();
+      return ok();
+    }
+    return error(404, 'not_found', 'Unknown invitation route');
+  }
+
+  private handlePublicInvite(method: string, token: string, accepting: boolean, body: unknown): MockResponse {
+    if (!(method === 'GET' && !accepting) && !(method === 'POST' && accepting))
+      return error(404, 'not_found', 'Unknown invitation route');
+    if (this.inviteAttempts.resetAt <= Date.now())
+      this.inviteAttempts = { count: 0, resetAt: Date.now() + 15 * 60_000 };
+    if (this.inviteAttempts.count++ >= 10)
+      return error(429, 'too_many_attempts', 'Too many invitation attempts');
+    const invite = this.invitations.find((invite) => invite.tokenHash === inviteTokenHash(token));
+    if (!invite || invite.acceptedAt || invite.revokedAt || invite.expiresAt <= nowIso())
+      return error(404, 'invite_invalid', 'Invalid invitation');
+    const account = this.accounts.get(invite.email);
+    if (!accepting)
+      return ok({
+        projectKey: invite.projectKey,
+        projectName: this.config.project.name,
+        inviterName:
+          [...this.accounts.values()].find((user) => user.userId === invite.invitedBy)?.name ??
+          fixtures.mockUser.name,
+        displayName: invite.displayName,
+        access: invite.access,
+        roles: invite.roles,
+        roleNames: invite.roles.map((id) => this.roleCatalogue().find((role) => role.id === id)?.name ?? id),
+        expiresAt: invite.expiresAt,
+        requiresLogin: !!account,
+      });
+    if (account && (this.auth !== 'ready' || this.user.userId !== account.userId))
+      return error(409, 'login_required', 'Log in as the invited account');
+    if (account && !parseBody(AcceptInviteRequest, body))
+      return error(400, 'invalid_request', 'Invalid invitation acceptance body');
+    const input = account ? null : parseBody(AcceptInviteRequest.required(), body);
+    if (!account && !input)
+      return error(400, 'invalid_request', 'Name and eight-character password required');
+    if (
+      this.config.team.members.some(
+        (member) => member.kind === 'human' && member.email?.toLowerCase() === invite.email,
+      )
+    )
+      return error(409, 'already_member', 'Already a human member');
+    for (const id of invite.roles) {
+      const role = this.roleCatalogue().find((role) => role.id === id);
+      if (!role) return error(400, 'unknown_role', 'Unknown role');
+      if (!holdersAllow(role.holders, 'human')) return error(400, 'role_not_for_human', 'AI-only role');
+    }
+    const user = account ?? {
+      userId: mockId('usr'),
+      name: input!.name,
+      email: invite.email,
+      password: input!.password,
+    };
+    const base =
+      user.name
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 24) || 'member';
+    let handle = base;
+    for (let suffix = 2; this.members.some((member) => member.handle === handle); suffix++)
+      handle = `${base}-${suffix}`;
+    this.config.team.members.push({
+      kind: 'human',
+      handle,
+      displayName: user.name,
+      email: user.email,
+      access: invite.access,
+      roles: invite.roles,
+    });
+    this.members.push({
+      kind: 'human',
+      handle,
+      displayName: user.name,
+      role: invite.access,
+      roles: invite.roles,
+      status: 'online',
+      activity: null,
+      currentTaskKeys: [],
+      specialty: null,
+      sponsor: null,
+      temp: false,
+    });
+    this.accounts.set(user.email, user);
+    this.user = { userId: user.userId, name: user.name, email: user.email };
+    this.viewerHandle = handle;
+    this.auth = 'ready';
+    this.commitConfig(`Invite accepted: ${user.name}`);
+    invite.acceptedAt = nowIso();
+    return ok(this.me());
   }
 
   private roleCatalogue(): RoleView[] {

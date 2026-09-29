@@ -254,3 +254,60 @@ export const ApiError = z.object({
   }),
 });
 export type ApiError = z.infer<typeof ApiError>;
+
+/* ---------- invitations ---------- */
+
+export const InviteAccess = HumanAccess.exclude(['owner']);
+export type InviteAccess = z.infer<typeof InviteAccess>;
+
+export const CreateInviteRequest = z.object({
+  email: z
+    .string()
+    .trim()
+    .email()
+    .transform((email) => email.toLowerCase()),
+  displayName: z.string().trim().min(1).optional(),
+  access: InviteAccess,
+  roles: z.array(RoleId),
+});
+export type CreateInviteRequest = z.infer<typeof CreateInviteRequest>;
+
+/** Never includes the token or its hash. */
+export const InvitationView = z.object({
+  id: z.string(),
+  projectKey: z.string(),
+  email: z.string(),
+  displayName: z.string().nullable(),
+  access: InviteAccess,
+  roles: z.array(RoleId),
+  invitedBy: z.string(),
+  createdAt: z.string(),
+  expiresAt: z.string(),
+  acceptedAt: z.string().nullable(),
+  revokedAt: z.string().nullable(),
+});
+export type InvitationView = z.infer<typeof InvitationView>;
+export const InvitationsView = z.object({ invitations: z.array(InvitationView) });
+export type InvitationsView = z.infer<typeof InvitationsView>;
+export const CreatedInvitation = InvitationView.extend({ path: z.string() });
+export type CreatedInvitation = z.infer<typeof CreatedInvitation>;
+
+export const PublicInviteView = z.object({
+  projectKey: z.string(),
+  projectName: z.string(),
+  inviterName: z.string(),
+  displayName: z.string().nullable(),
+  access: InviteAccess,
+  roles: z.array(RoleId),
+  roleNames: z.array(z.string()),
+  expiresAt: z.string(),
+  requiresLogin: z.boolean(),
+});
+export type PublicInviteView = z.infer<typeof PublicInviteView>;
+
+/** An existing account accepts with an empty body and its login cookie. */
+export const AcceptInviteRequest = z.object({
+  name: SetupRequest.shape.name.trim().min(1).optional(),
+  password: SetupRequest.shape.password.optional(),
+});
+export type AcceptInviteRequest = z.infer<typeof AcceptInviteRequest>;

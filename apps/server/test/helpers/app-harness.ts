@@ -17,7 +17,7 @@ import { testTemplate } from './test-template';
 export const OWNER_LOGIN = { name: 'Owner', email: 'owner@example.com', password: 'correct horse battery' };
 
 /** The whole server (buildApp) over a temp PROJECTMAN_HOME, with fakes for every external module. */
-export async function createAppHarness(opts: { webDistDir?: string } = {}) {
+export async function createAppHarness(opts: { webDistDir?: string; now?: () => Date } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'pm-app-'));
   const workspace = join(home, 'workspace');
   mkdirSync(workspace);
@@ -30,6 +30,7 @@ export async function createAppHarness(opts: { webDistDir?: string } = {}) {
 
   const app = await buildApp({
     home,
+    now: opts.now,
     logger: false,
     webDistDir: opts.webDistDir ?? null,
     planUsageTtlMs: 0,

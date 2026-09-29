@@ -1,4 +1,7 @@
 import {
+  CreatedInvitation,
+  InvitationsView,
+  PublicInviteView,
   RolesView,
   BoardView,
   ConfigView,
@@ -15,6 +18,8 @@ import {
 } from '@projectman/shared';
 import type {
   PatchConfigRequest,
+  CreateInviteRequest,
+  AcceptInviteRequest,
   CustomRoleRequest,
   UpdateMemberRequest,
   UpdateTaskRequest,
@@ -43,6 +48,15 @@ export const api = {
   login: (body: LoginRequest) => apiRequest<unknown>(routes.login(), { method: 'POST', body }),
   logout: () => apiRequest<unknown>(routes.logout(), { method: 'POST' }),
   me: () => apiRequest(routes.me(), { schema: Me }),
+
+  invitations: (key: string) => apiRequest(routes.invitations(key), { schema: InvitationsView }),
+  createInvite: (key: string, body: CreateInviteRequest) =>
+    apiRequest(routes.invitations(key), { method: 'POST', body, schema: CreatedInvitation }),
+  revokeInvite: (key: string, id: string) =>
+    apiRequest<unknown>(routes.invitation(key, id), { method: 'DELETE' }),
+  invite: (token: string) => apiRequest(routes.invite(token), { schema: PublicInviteView }),
+  acceptInvite: (token: string, body: AcceptInviteRequest) =>
+    apiRequest(routes.acceptInvite(token), { method: 'POST', body, schema: Me }),
 
   templates: async () => {
     const path = routes.templates();

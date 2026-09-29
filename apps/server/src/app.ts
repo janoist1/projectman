@@ -7,6 +7,7 @@ import Fastify from 'fastify';
 import type { FastifyInstance, FastifyServerOptions } from 'fastify';
 import { registerApiRoutes, registerErrorHandling } from './api';
 import { AuthService, loadOrCreateSecret, registerAuth } from './auth';
+import { serializeRequest } from './auth/request-logging';
 import { createConfigStore } from './config';
 import { createContextPackBuilder, createMemberMemoryStore } from './context';
 import type {
@@ -103,7 +104,17 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const publicBaseUrl = (options.publicBaseUrl ?? 'http://127.0.0.1:4700').replace(/\/+$/, '');
   const modules = options.modules ?? {};
 
-  const app = Fastify({ logger: options.logger ?? { level: 'info' }, bodyLimit: 5 * 1024 * 1024 });
+  const logger = options.logger ?? { level: 'info' };
+  const app = Fastify({
+    logger:
+      logger === false
+        ? false
+        : {
+            ...(typeof logger === 'object' ? logger : {}),
+            serializers: { ...(typeof logger === 'object' ? logger.serializers : {}), req: serializeRequest },
+          },
+    bodyLimit: 5 * 1024 * 1024,
+  });
   let repos: Repositories | null = null;
   try {
     await app.register(fastifyCookie, { secret: loadOrCreateSecret(home) });

@@ -25,6 +25,7 @@ function lazyPage<K extends string>(load: () => Promise<Record<K, ComponentType>
   );
 }
 
+const invitePage = lazyPage(() => import('../features/invites/AcceptInvitePage'), 'AcceptInvitePage');
 const setupPage = lazyPage(() => import('../features/auth/SetupPage'), 'SetupPage');
 const loginPage = lazyPage(() => import('../features/auth/LoginPage'), 'LoginPage');
 const createProjectPage = lazyPage(
@@ -56,6 +57,7 @@ const notFound = <NotFoundPage message={t('app.notFound')} />;
 export function AppRoutes() {
   return (
     <Routes>
+      <Route path="/invite/:token" element={invitePage} />
       <Route path="/setup" element={setupPage} />
       <Route path="/login" element={loginPage} />
       <Route element={<AuthGate />}>

@@ -46,8 +46,9 @@ export class MockWebSocket implements WebSocketLike, MockConnection {
     setTimeout(() => {
       if (this.readyState !== 0) return;
       this.readyState = 1;
-      this.onopen?.(new Event('open'));
+      // Register first: the client replays its subscriptions from onopen.
       this.disconnect = this.backend.connect(this);
+      this.onopen?.(new Event('open'));
     }, 80);
   }
 

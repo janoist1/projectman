@@ -88,7 +88,7 @@ export class MockBackend {
   readonly terminals: MockTerminals;
   private readonly connections = new Map<MockConnection, ConnectionState>();
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
-  private taskSeq = 27;
+  private taskSeq = Math.max(0, ...fixtures.tasks.map((task) => Number(task.key.split('-')[1] ?? 0)));
   private onFirstSubscribe: (() => void) | null = null;
 
   constructor(auth: MockAuthState = 'ready') {

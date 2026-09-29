@@ -16,13 +16,16 @@ server later.
    child environment. We do not use the Agent SDK or `claude -p` for member work
    (Anthropic announced, then paused, moving those off plan limits). The app never
    collects or stores Claude credentials; a colleague who runs AI members does it on
-   their own Claude login (a later phase).
+   their own Claude login (a later phase). Codex members (see Providers) run on the
+   owner's ChatGPT login the same way; the runner also removes `CODEX_API_KEY` and
+   `OPENAI_API_KEY`, for every session.
 2. **English source code.** Identifiers, comments, file names, commit messages: English.
    Hungarian (the UI language) lives only in locale files
    (`apps/web/src/i18n/hu.ts`, `packages/templates/src/locales/hu.ts`). Data written by
    people and agents (task titles, notes, messages) is in the project's language.
-3. **No real `claude` in automated tests.** Tests use a fake CLI that speaks the same
-   protocol (hooks, transcript, stdin).
+3. **No real `claude` or `codex` in automated tests.** Tests use fake CLIs that speak the
+   same protocol (hooks, transcript, stdin): `apps/server/test/fixtures/fake-claude.mjs`
+   and `fake-codex.mjs`.
 
 ## Concepts
 
@@ -95,10 +98,11 @@ browser (React) ── REST /api, websocket /ws ──▶ server (Fastify, Node)
                                                  ├─ domain services ─▶ SQLite (runtime state)
                                                  ├─ config store ────▶ customization git repo (YAML)
                                                  ├─ github ──────────▶ gh CLI (owner's login)
-                                                 └─ runner ──▶ node-pty ──▶ claude (interactive TUI)
+                                                 └─ runner ──▶ node-pty ──▶ claude | codex (interactive TUI)
 claude ── HTTP hooks  POST /hooks/:token ─────▶ runner (state machine, permission broker)
-claude ── MCP (http)  /mcp/:token ────────────▶ team tools ─▶ domain
-claude ── transcript JSONL (~/.claude/projects/…) ─▶ runner transcript watcher ─▶ chat events
+codex ─── command hooks ─▶ forwarder ─▶ POST /hooks/:token ─▶ runner
+claude | codex ── MCP (http)  /mcp/:token ────▶ team tools ─▶ domain
+claude | codex ── transcript JSONL ────────────▶ runner transcript watcher ─▶ chat events
 ```
 
 - One HTTP port (default 4700, bound to 127.0.0.1). `/hooks` and `/mcp` accept only
@@ -114,6 +118,64 @@ claude ── transcript JSONL (~/.claude/projects/…) ─▶ runner transcript
   session is idle; otherwise they queue.
 - v1: sessions do not survive a server restart; the conversation does (transcript), and
   a later message resumes it with `--resume`.
+
+## Providers
+
+An AI member runs in one of two agent CLIs, set per member (`provider` in `team.yaml`,
+default `claude`): **Claude Code** on the sponsor's Claude plan, or **OpenAI Codex CLI**
+on the sponsor's ChatGPT plan. Both run as interactive TUIs in a PTY. The runner drives
+them through provider adapters (`apps/server/src/runner/providers`); the PTY session,
+message queue, state machine, permission broker and transcript tailer are shared, and
+each adapter declares its capabilities.
+
+|                   | Claude Code                                     | Codex (codex-cli 0.159.1)                                                          |
+| ----------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Conversation id   | ours (`--session-id`), resume with `--resume`   | Codex's own, learned from the first hook (`provider_session_id`); `codex resume`   |
+| Hooks             | HTTP hooks (SessionStart through the forwarder) | command hooks running the forwarder; the PermissionRequest one prints the decision |
+| Ready for input   | first SessionStart hook                         | composer on screen (SessionStart only fires with the first turn)                   |
+| Kick-off brief    | typed with bracketed paste                      | the prompt argument; later messages typed, Enter more than 120 ms after the paste  |
+| System prompt     | `--append-system-prompt`                        | `-c developer_instructions=…`                                                      |
+| Project rules     | `CLAUDE.md`                                     | `AGENTS.md`, else `CLAUDE.md` (`project_doc_fallback_filenames`)                   |
+| Allow for session | session rules in the hook answer                | remembered by the runner (Codex rejects `updatedPermissions`)                      |
+| Transcript        | `~/.claude/projects/…/<id>.jsonl`               | `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-…-<id>.jsonl`                             |
+| Plan usage        | `get_usage` probe of `claude -p`                | rate limits of the newest `token_count` records in the transcripts                 |
+| Login check       | `claude auth status`                            | `codex login status`                                                               |
+
+Codex is started as `codex [resume] --no-alt-screen --no-daemon
+--dangerously-bypass-hook-trust --enable hooks -c … --sandbox <s> --ask-for-approval <a>
+[--model <m>] -- [<id>] [<brief>]`. Every setting is a per-process `-c` override (update
+check off, the directory trusted, hooks, the team MCP server with its tools pre-approved,
+developer instructions); nothing is written to `~/.codex`. The bypass flag lets our own
+hooks run without the one-time review in `/hooks`; it also runs any other enabled hooks
+of the user's Codex config and of the trusted project's `.codex/` folder, the same
+exposure as pre-trusting a Claude Code workspace. Claude model aliases (`opus`, …) are
+not passed to Codex, which then uses its default model. The CLI is `CODEX_BIN` (default
+`codex` on `PATH`); transcripts are read from `CODEX_HOME` (default `~/.codex`).
+
+Permission modes map to Codex's sandbox and approval policy; anything the sandbox does
+not allow (writes elsewhere, network) is an escalation that reaches the PermissionRequest
+hook and so the inbox:
+
+| Permission mode       | Codex sandbox        | Approval     | Effect                                                  |
+| --------------------- | -------------------- | ------------ | ------------------------------------------------------- |
+| `default`             | `read-only`          | `on-request` | reads freely; every edit and write is asked             |
+| `acceptEdits`, `auto` | `workspace-write`    | `on-request` | edits and commands in the workspace run; the rest asked |
+| `plan`                | `read-only`          | `never`      | research only; nothing is asked or written              |
+| `bypassPermissions`   | `danger-full-access` | `never`      | no sandbox, no questions                                |
+
+The role session policy needs no Codex counterpart for its read-only tools: reading and
+`git diff`/`log`/`show` run inside the sandbox without asking (`gh pr view`/`diff` need
+network, so they are asked). The team tools are pre-approved for every role.
+
+Login: before spawning, the runner checks the provider's login (cached briefly). A CLI
+that is not logged in with a subscription, or is logged in with an API key, is refused
+with `provider_not_logged_in` (the domain answers 409 with `details.provider`). A login
+lost mid-session (Claude Code: "Login expired · Please run /login"; Codex: a turn failing
+with `unauthorized`) emits an `auth_error` runner event, stops the session and leaves it
+`failed` with the message as its activity.
+
+Plan usage is per provider: new AI work pauses above `pauseAbovePlanUsagePercent` of the
+plan of the member's own provider.
 
 ## Storage
 
@@ -143,7 +205,7 @@ reviews, checks, merges, releases, branch protection. v1 tracks PRs linked to ta
 | `packages/shared`                                                              | Domain types, config schema + invariants, REST DTOs, route table, websocket protocol (zod). Source of truth for contracts. |
 | `packages/templates`                                                           | Factory team + pipeline templates; locale files for default display names.                                                 |
 | `apps/server/src/contracts`                                                    | Interfaces between server modules.                                                                                         |
-| `apps/server/src/runner`                                                       | PTY sessions, HTTP hooks, permission waiting, transcript parsing, plan usage.                                              |
+| `apps/server/src/runner`                                                       | PTY sessions, provider adapters (Claude Code, Codex), hooks, permission waiting, transcripts, plan usage, login checks.    |
 | `apps/server/src/mcp`                                                          | Team tools MCP server (`/mcp/:token`).                                                                                     |
 | `apps/server/src/github`                                                       | `gh`-based PR lookups and polling.                                                                                         |
 | `apps/server/src/context`, `src/worktree`                                      | Context pack, member memory, git worktrees.                                                                                |

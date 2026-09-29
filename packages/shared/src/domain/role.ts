@@ -96,7 +96,7 @@ export const CustomRoleDefinition = z.object({
   summary: z.string().min(1).max(280),
   /** What the role does not do, one short sentence (keeps roles apart). */
   notTheirJob: z.string().max(200).default(''),
-  /** Legacy metadata, accepted for old YAML. Eligibility comes from duties. */
+  /** Legacy eligibility for roles without duties; explicit duties determine eligibility. */
   holders: RoleHolders.default('both'),
   duties: z
     .array(DutyId)
@@ -129,10 +129,10 @@ export function roleHolders(
 ): RoleHolders | null {
   if (isBuiltInRole(id)) return dutyHolders(overrides[id]?.duties ?? BUILT_IN_ROLE_DUTIES[id]);
   const role = customRoles.find((role) => role.id === id);
-  return role ? dutyHolders(customRoleDuties(role)) : null;
+  return role ? (role.duties === undefined ? role.holders : dutyHolders(role.duties)) : null;
 }
 
 /** In-memory compatibility for custom roles written before duties existed. */
 export function customRoleDuties(role: Pick<CustomRoleDefinition, 'duties' | 'holders'>): DutyId[] {
-  return role.duties ?? (role.holders === 'human' ? ['final_decision'] : ['research']);
+  return role.duties ?? [];
 }

@@ -57,8 +57,6 @@ A general conversation, not tied to a task: help with what you are asked. If it 
 
 # Your role instructions
 
-Research a focused question using primary sources; report recommendation, alternatives, sources and uncertainties.
-
 Check the reference tables for duplicates and report them to the owner.
 
 Start with the product catalogue.

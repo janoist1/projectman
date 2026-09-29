@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AgentEffort } from '../domain/member';
-import { AgentProvider, HumanAccess, MemberHandle, PermissionMode } from '../domain/member';
+import { AgentProvider, GithubLogin, HumanAccess, MemberHandle, PermissionMode } from '../domain/member';
 import { Pipeline } from '../domain/pipeline';
 import { CustomRoleDefinition, RoleId, RoleOverrides } from '../domain/role';
 
@@ -15,6 +15,7 @@ export const HumanMemberConfig = z.object({
   kind: z.literal('human'),
   handle: MemberHandle,
   displayName: z.string().min(1),
+  githubLogin: GithubLogin.optional(),
   /** What the person may do in the app; separate from the roles they hold. */
   access: HumanAccess,
   /** Roles (responsibilities) the person holds; a human may hold several. */
@@ -40,6 +41,7 @@ export const AiMemberConfig = z.object({
   kind: z.literal('ai'),
   handle: MemberHandle,
   displayName: z.string().min(1),
+  githubLogin: GithubLogin.optional(),
   /** The one role this member holds: a built-in role or one of the team's custom roles. */
   role: RoleId,
   specialty: z.string().optional(),

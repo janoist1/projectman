@@ -209,7 +209,7 @@ describe('session orchestrator', () => {
     const steward = await h.domain.sessions.ensureSession('AR', 'data-steward', item);
     expect(steward.session).toMatchObject({ cwd: h.workspace, branch: null });
     expect(h.runner.lastStarted()).toMatchObject({
-      allowedTools: expect.arrayContaining(['mcp__team__*', 'Read']),
+      allowedTools: ['mcp__team__*'],
       permissionMode: 'default',
     });
   });

@@ -56,3 +56,11 @@ export const MemberStatus = z.enum([
   'retired',
 ]);
 export type MemberStatus = z.infer<typeof MemberStatus>;
+
+/** GitHub account used to attribute pull requests to a team member. */
+export const GithubLogin = z
+  .string()
+  .min(1)
+  .max(39)
+  .regex(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i);
+export type GithubLogin = z.infer<typeof GithubLogin>;

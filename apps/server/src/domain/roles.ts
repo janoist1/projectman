@@ -1,7 +1,6 @@
 import {
   roleHolders,
   roleBundle,
-  dutyHolders,
   customRoleDuties,
   BUILT_IN_ROLE_IDS,
   holdersAllow,
@@ -40,7 +39,7 @@ export function roleViews(config: ProjectConfig): RoleView[] {
     name: role.name,
     summary: role.summary,
     notTheirJob: role.notTheirJob,
-    holders: dutyHolders(customRoleDuties(role))!,
+    holders: roleHolders(role.id, config.team.roles)!,
     duties: customRoleDuties(role),
     instructions: role.instructions,
     builtIn: false,
@@ -112,11 +111,10 @@ export class RoleService {
       const index = draft.team.roles.findIndex((r) => r.id === roleId);
       if (index < 0) throw notFound('role', roleId);
       const excluded = membersHolding(draft, roleId)
-        .filter((m) => !holdersAllow(dutyHolders(customRoleDuties(role))!, m.kind))
+        .filter((m) => !holdersAllow(roleHolders(role.id, [role])!, m.kind))
         .map((m) => m.handle);
       const tempWorkers =
-        draft.team.limits.tempWorkers.role === roleId &&
-        !holdersAllow(dutyHolders(customRoleDuties(role))!, 'ai');
+        draft.team.limits.tempWorkers.role === roleId && !holdersAllow(roleHolders(role.id, [role])!, 'ai');
       if (excluded.length > 0 || tempWorkers) {
         throw conflict('role_in_use', `members hold ${roleId} who could not hold it any more`, {
           members: excluded,

@@ -41,7 +41,7 @@ describe('InviteDialog', () => {
       );
       expect(screen.queryByRole('radio', { name: /Tulajdonos/ })).toBeNull();
       expect(await screen.findByRole('checkbox', { name: 'Acme tester' })).toBeTruthy();
-      expect(screen.queryByRole('checkbox', { name: 'Acme helper' })).toBeTruthy();
+      expect(screen.queryByRole('checkbox', { name: 'Acme helper' })).toBeNull();
       expect(screen.queryByRole('checkbox', { name: templateLocale.roles.watchdog.name })).toBeTruthy();
       expect(screen.getByText(t('invites.accessHint.client'))).toBeTruthy();
     },

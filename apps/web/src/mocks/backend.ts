@@ -3,7 +3,6 @@ import {
   modelForProvider,
   roleBundle,
   roleHolders,
-  dutyHolders,
   customRoleDuties,
   resolvedStages,
   gateApprovers,
@@ -864,7 +863,7 @@ export class MockBackend {
       ...this.config.team.roles.map((role) => ({
         ...role,
         duties: customRoleDuties(role),
-        holders: dutyHolders(customRoleDuties(role))!,
+        holders: roleHolders(role.id, this.config.team.roles)!,
         builtIn: false,
       })),
     ];
@@ -905,7 +904,7 @@ export class MockBackend {
     const index = this.config.team.roles.findIndex((role) => role.id === input.id);
     if (id && index < 0) return error(404, 'not_found', 'Unknown role');
     if (!id && index >= 0) return error(409, 'duplicate_role', 'Duplicate role');
-    const usage = this.roleUsage(input.id, dutyHolders(customRoleDuties(input))!);
+    const usage = this.roleUsage(input.id, roleHolders(input.id, [input])!);
     if (usage.members.length || usage.tempWorkers) return error(409, 'role_in_use', 'Role is in use', usage);
     const next = clone(this.config);
     if (id) next.team.roles[index] = input;

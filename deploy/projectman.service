@@ -1,0 +1,29 @@
+# Template: adjust checkout, Node/CLI executable paths and home before installing.
+[Unit]
+Description=projectman
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=projectman
+Group=projectman
+WorkingDirectory=/srv/projectman
+Environment=HOME=/var/lib/projectman
+Environment=PROJECTMAN_HOME=/var/lib/projectman/data
+Environment=HOST=127.0.0.1
+Environment=PORT=4700
+Environment=NODE_ENV=production
+Environment=LOG_LEVEL=info
+Environment=PATH=/var/lib/projectman/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/node /srv/projectman/apps/server/dist/index.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+KillMode=control-group
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

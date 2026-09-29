@@ -181,6 +181,8 @@ export function createDomain(opts: DomainOptions) {
     if (change.task.status === 'done') sessions.scheduleDoneCleanup(change.task.projectKey, change.task.key);
   });
 
+  let stopped = false;
+  let usageRefresh: Promise<void> | undefined;
   const refreshUsage = async () => {
     const providers = new Set<AgentProvider>();
     for (const project of projects.summaries()) {
@@ -191,6 +193,18 @@ export function createDomain(opts: DomainOptions) {
     }
     await Promise.all([...providers].map((provider) => planUsage.get(provider)));
   };
+  const refreshUsageInBackground = () => {
+    if (stopped || usageRefresh) return;
+    usageRefresh = refreshUsage()
+      .catch((err: unknown) => opts.logger.warn({ err }, 'plan usage refresh failed'))
+      .finally(() => {
+        usageRefresh = undefined;
+      });
+  };
+  // New projects and provider changes get a probe without blocking the config response.
+  projects.onConfigChanged(() => {
+    setImmediate(refreshUsageInBackground).unref();
+  });
   let usageTimer: ReturnType<typeof setInterval> | undefined;
 
   return {
@@ -219,22 +233,24 @@ export function createDomain(opts: DomainOptions) {
       sessions.reconcileAfterRestart();
       inbox.expireOpenPermissions();
       githubSync.start();
+      stopped = false;
+      refreshUsageInBackground();
       usageTimer = setInterval(
-        () => {
-          void refreshUsage().catch((err: unknown) => opts.logger.warn({ err }, 'plan usage refresh failed'));
-        },
+        refreshUsageInBackground,
         opts.planUsageTtlMs && opts.planUsageTtlMs > 0 ? opts.planUsageTtlMs : 60_000,
       );
       usageTimer.unref();
       schedules.start();
     },
 
-    stop(): Promise<void> {
+    async stop(): Promise<void> {
+      stopped = true;
       if (usageTimer) clearInterval(usageTimer);
       const drained = schedules.stop();
       githubSync.stop();
       sessions.dispose();
-      return drained;
+      await drained;
+      await usageRefresh;
     },
 
     /** The user's membership in a project, or null (unknown project or not a member). */

@@ -46,9 +46,7 @@ export function registerProjectRoutes(app: FastifyInstance, domain: Domain): voi
       ),
     ];
     const planUsageByProvider = Object.fromEntries(
-      await Promise.all(
-        providers.map(async (provider) => [provider, internal ? await domain.planUsage.get(provider) : null]),
-      ),
+      providers.map((provider) => [provider, internal ? domain.planUsage.peek(provider) : null]),
     );
     return {
       project: domain.projects.summary(key),

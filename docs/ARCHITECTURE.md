@@ -28,14 +28,22 @@ server later.
 
 - **Project** — a workspace directory with one or more git repos, a team and a pipeline.
 - **Member** — human or AI, identified by a unique **handle** (`fe-1`, `qa`, `owner`) and
-  a display name ("Anna · fe-1"). AI members have a role (developer, code_review, qa,
-  devops, communication, project_manager, …), a model, a permission mode, a capacity,
-  role instructions and a **sponsor**: the human whose subscription runs them.
+  a display name ("Anna · fe-1"). AI members have one role, a model, a permission mode, a
+  capacity, role instructions, an optional **schedule** (cron in the project's time zone,
+  e.g. a "daily worker") and a **sponsor**: the human whose subscription runs them.
+- **Roles** — responsibilities from the **role catalogue**: 20 built-in roles (operator,
+  product owner, project manager, business analyst, architect, designer, developer, code
+  review, security review, QA, DevOps, communication, support, researcher, maintainer,
+  coach, watchdog, content, translator, docs) plus **custom roles** the team defines
+  (name, summary, "not their job", who may hold it, instructions for AI). An AI member holds
+  exactly one role; a human may hold several. Operator and product owner are human-only, the
+  watchdog is AI-only. A human's **access level** (owner, admin, developer, client, viewer)
+  is separate: it is what they may do in the app.
 - **Team limits** — `maxConcurrentAi` caps working AI sessions (protects the
   subscription); new AI work pauses above `pauseAbovePlanUsagePercent`. The number of
   developer sessions is capped by the hired developers' capacity. Optional **temp
-  workers** ("beugró"): when every developer is busy, a temporary developer is hired for
-  one task and retired when it is done.
+  workers** ("beugró"): when every developer is busy, a temporary member of the configured
+  role (developer by default) is hired for one task and retired when it is done.
 - **Pipeline** — ordered **stages** (id, display name, kind, owners, optional **gate**)
   grouped into **board columns**. Owners can be humans, AI members or both. Gates use a
   fixed catalogue of conditions: `check_passed(check)`, `pr_merged`,
@@ -62,9 +70,9 @@ server later.
   (Claude Code `PermissionRequest` hook, answered from the browser), gate decisions
   (merge, release), questions from AI members (`ask_human`), approvals.
 - **Timeline** — append-only attributed events per task and project ("who did what").
-- **Customization repository** — project configuration (team, pipeline, limits, role
-  instructions) is YAML in a **separate git repository**, independent from the app
-  source. Every change is a commit (author + reason); an admin can revert any version.
+- **Customization repository** — project configuration (team, custom roles, pipeline,
+  limits, role instructions) is YAML in a **separate git repository**, independent from the
+  app source. Every change is a commit (author + reason); an admin can revert any version.
   Runtime state (tasks, sessions, events, inbox) lives in SQLite.
 
 ## Invariants (always enforced, whoever changes the configuration)
@@ -73,7 +81,10 @@ server later.
 - stage owners, gate approvers and AI sponsors refer to existing members;
 - gate approvers and sponsors are humans — an AI never approves a gate;
 - every release stage requires a human approval; changing its approvers is owner-only;
-- releases happen only on an approver's explicit decision.
+- releases happen only on an approver's explicit decision;
+- every role a member holds (and the temp workers' role) is a built-in or custom role that
+  this kind of member may hold; custom role ids are unique and never reuse a built-in id; a
+  custom role cannot be removed while anyone holds it.
 
 See `packages/shared/src/config/invariants.ts`.
 
@@ -141,10 +152,11 @@ reviews, checks, merges, releases, branch protection. v1 tracks PRs linked to ta
 
 ## Later phases (not in v1)
 
-Project manager member and meetings (standup, refinement, planning, demo, retro with
-per-meeting screens; led by the PM or whoever starts the meeting); observations and the
-retro feedback loop (humans and optionally AI members, evidence-based, internal by
-default); the system agent that changes configuration through a fixed list of typed
-operations within owner-set limits; inviting humans and colleagues' own subscriptions;
-GitHub issue creation and project mirroring; web push notifications; surviving server
-restarts; server deployment.
+Meetings (standup, refinement, planning, demo, retro with per-meeting screens; led by the
+project manager or whoever starts the meeting); the scheduler that runs members' schedules;
+the watchdog's monitoring; observations and the retro feedback loop run by the coach
+(humans and optionally AI members, evidence-based, internal by default) — these roles
+already exist and work with the team tools; the system agent that changes configuration
+through a fixed list of typed operations within owner-set limits; inviting humans and
+colleagues' own subscriptions; GitHub issue creation and project mirroring; web push
+notifications; surviving server restarts; server deployment.

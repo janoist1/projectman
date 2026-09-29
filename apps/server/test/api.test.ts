@@ -410,6 +410,7 @@ describe('REST API', () => {
             handle: 'dani',
             displayName: 'Dani',
             access: 'developer',
+            roles: [],
             email: 'dev@example.com',
           });
           return 'Add Dani';
@@ -473,6 +474,7 @@ describe('REST API', () => {
             handle: 'client',
             displayName: 'Client',
             access: 'client',
+            roles: [],
             email: 'client@example.com',
           });
           return 'Add the client';

@@ -48,6 +48,7 @@ export function sampleMembers(): MemberView[] {
       displayName: 'Anna',
       kind: 'human',
       role: 'owner',
+      roles: ['operator', 'product_owner'],
       status: 'online',
       sponsor: null,
     },
@@ -57,13 +58,22 @@ export function sampleMembers(): MemberView[] {
       displayName: 'Ben',
       kind: 'ai',
       role: 'developer',
+      roles: ['developer'],
       specialty: 'frontend',
       status: 'working',
       activity: 'Bash: npm test',
       currentTaskKeys: ['AR-21'],
     },
-    { ...base, handle: 'cr', displayName: 'Cleo', kind: 'ai', role: 'code_review', status: 'idle' },
-    { ...base, handle: 'qa', displayName: 'Quinn', kind: 'ai', role: 'qa', status: 'idle' },
+    {
+      ...base,
+      handle: 'cr',
+      displayName: 'Cleo',
+      kind: 'ai',
+      role: 'code_review',
+      roles: ['code_review'],
+      status: 'idle',
+    },
+    { ...base, handle: 'qa', displayName: 'Quinn', kind: 'ai', role: 'qa', roles: ['qa'], status: 'idle' },
   ];
 }
 

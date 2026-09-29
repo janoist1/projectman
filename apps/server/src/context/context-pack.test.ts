@@ -42,6 +42,7 @@ function teamOf(project: ProjectConfig): MemberView[] {
     displayName: m.displayName,
     kind: m.kind,
     role: m.kind === 'human' ? m.access : m.role,
+    roles: m.kind === 'human' ? m.roles : [m.role],
     specialty: m.kind === 'ai' ? (m.specialty ?? null) : null,
     status: 'idle',
     activity: null,

@@ -1,4 +1,4 @@
-import { AiMemberConfig, MemberHandle } from '@projectman/shared';
+import { AiMemberConfig, holdersAllow, MemberHandle, roleHolders } from '@projectman/shared';
 import type {
   Actor,
   HireMemberRequest,
@@ -7,7 +7,7 @@ import type {
   ProjectConfig,
   SessionState,
 } from '@projectman/shared';
-import { aiRoleDefaults } from '@projectman/templates';
+import { aiMemberDefaults } from '@projectman/templates';
 import { findHumanByEmail } from './access';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
@@ -22,6 +22,17 @@ import type { TimelineService } from './timeline';
 import { unique } from './util';
 
 const ENDED_SESSION_STATES = new Set<SessionState>(['exited', 'failed']);
+
+/** Throws unless a member of this kind may hold the role (a built-in or one of the team's custom roles). */
+export function assertRoleFor(config: ProjectConfig, role: string, kind: 'human' | 'ai'): void {
+  const holders = roleHolders(role, config.team.roles);
+  if (holders === null) throw invalid('unknown_role', `unknown role: ${role}`, { role });
+  if (!holdersAllow(holders, kind)) {
+    throw kind === 'ai'
+      ? invalid('role_not_for_ai', `only humans can hold the role ${role}`, { role })
+      : invalid('role_not_for_human', `only AI members can hold the role ${role}`, { role });
+  }
+}
 
 /**
  * The roster (configured members + runtime state), hiring and retiring. Hiring and retiring
@@ -81,6 +92,7 @@ export class MemberService {
           displayName: m.displayName,
           kind: 'human',
           role: m.access,
+          roles: m.roles,
           specialty: null,
           status: this.presence.isOnline(m.email) ? 'online' : 'offline',
           activity: null,
@@ -95,6 +107,7 @@ export class MemberService {
         displayName: m.displayName,
         kind: 'ai',
         role: m.role,
+        roles: [m.role],
         specialty: m.specialty ?? null,
         status: state && state.status !== 'retired' ? state.status : 'idle',
         activity: state?.activity ?? null,
@@ -113,7 +126,10 @@ export class MemberService {
     return taken;
   }
 
-  /** Hires an AI member from the role defaults; `sponsor` is the human whose subscription runs it. */
+  /**
+   * Hires an AI member for any role an AI may hold (built-in or custom) with the role's
+   * defaults; `sponsor` is the human whose subscription runs it.
+   */
   async hire(
     projectKey: string,
     req: HireMemberRequest,
@@ -122,6 +138,9 @@ export class MemberService {
   ): Promise<AiMemberConfig> {
     let hired: AiMemberConfig | null = null;
     await this.projects.update(projectKey, { actor: by.actor, author: by.author }, (draft) => {
+      assertRoleFor(draft, req.role, 'ai');
+      const defaults = aiMemberDefaults(req.role, draft.team.roles);
+      if (!defaults) throw invalid('role_not_for_ai', `no AI member can hold the role ${req.role}`);
       const sponsor = draft.team.members.find((m) => m.handle === by.sponsor);
       if (!sponsor || sponsor.kind !== 'human') {
         throw invalid('invalid_sponsor', `sponsor must be a human member: ${by.sponsor}`);
@@ -133,7 +152,6 @@ export class MemberService {
       if (!MemberHandle.safeParse(handle).success || taken.has(handle)) {
         throw conflict('handle_taken', `no free handle for role ${req.role}`);
       }
-      const defaults = aiRoleDefaults(req.role);
       const specialty = req.specialty?.trim() ?? '';
       const index =
         draft.team.members.filter(
@@ -144,7 +162,10 @@ export class MemberService {
         handle,
         displayName:
           req.displayName?.trim() ||
-          defaultMemberName(req.role, draft.project.language, index, specialty || undefined),
+          defaultMemberName(req.role, draft.project.language, index, {
+            specialty: specialty || undefined,
+            customRoles: draft.team.roles,
+          }),
         role: req.role,
         ...(req.specialty ? { specialty: req.specialty } : {}),
         model: req.model ?? defaults.model,
@@ -153,6 +174,7 @@ export class MemberService {
         instructions: defaults.instructions,
         sponsor: sponsor.handle,
         temp: opts.temp ?? false,
+        ...(req.schedule ? { schedule: req.schedule } : {}),
       });
       draft.team.members.push(member);
       hired = member;

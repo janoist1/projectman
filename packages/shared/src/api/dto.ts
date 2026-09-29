@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import { ChatItem } from '../chat/chat';
-import { ProjectConfig, RepoConfig } from '../config/schema';
+import { MemberSchedule, ProjectConfig, RepoConfig } from '../config/schema';
 import { TimelineEvent } from '../domain/event';
 import { InboxItem } from '../domain/inbox';
-import { AiRole, HumanAccess, MemberHandle, MemberKind, MemberStatus } from '../domain/member';
+import { HumanAccess, MemberHandle, MemberKind, MemberStatus } from '../domain/member';
 import { TeamMessage } from '../domain/message';
 import { BoardColumn, Stage, StageId } from '../domain/pipeline';
+import { RoleId } from '../domain/role';
 import { Session } from '../domain/session';
 import { Task, TaskKey, Visibility } from '../domain/task';
 
@@ -69,8 +70,10 @@ export const MemberView = z.object({
   handle: MemberHandle,
   displayName: z.string(),
   kind: MemberKind,
-  /** HumanAccess for humans, AiRole for AI members. */
-  role: z.union([HumanAccess, AiRole]),
+  /** HumanAccess for humans, the role id for AI members. */
+  role: z.union([HumanAccess, RoleId]),
+  /** Roles held: a human's roles (possibly none), or the AI member's one role. */
+  roles: z.array(RoleId),
   specialty: z.string().nullable(),
   status: MemberStatus,
   activity: z.string().nullable(),
@@ -80,12 +83,14 @@ export const MemberView = z.object({
 });
 export type MemberView = z.infer<typeof MemberView>;
 
+/** Hires an AI member for a role an AI may hold (built-in or custom). */
 export const HireMemberRequest = z.object({
-  role: AiRole,
+  role: RoleId,
   displayName: z.string().min(1).optional(),
   handle: MemberHandle.optional(),
   specialty: z.string().optional(),
   model: z.string().optional(),
+  schedule: MemberSchedule.optional(),
 });
 export type HireMemberRequest = z.infer<typeof HireMemberRequest>;
 

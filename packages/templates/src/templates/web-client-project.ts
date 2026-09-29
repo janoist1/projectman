@@ -11,8 +11,8 @@ export const webClientProject = defineTemplate('web-client-project', (t) => {
   const codeReview = t.hire('code_review');
   const qa = t.hire('qa');
   const communication = t.hire('communication');
-  const frontend = t.hire('developer', 'frontend');
-  const backend = t.hire('developer', 'backend');
+  const frontend = t.hire('developer', { specialty: 'frontend' });
+  const backend = t.hire('developer', { specialty: 'backend' });
 
   return t.finish({
     columns: [

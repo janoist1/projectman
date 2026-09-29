@@ -168,6 +168,10 @@
   color: var(--c-accent-text);
 }
 
+.toolAwaiting {
+  color: var(--c-needs-text);
+}
+
 /* team messages */
 .teamIn {
   align-self: flex-start;

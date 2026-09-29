@@ -62,8 +62,10 @@ export function InboxCard({
   const answerId = useId();
   const source = members.get(item.source);
   const code = payloadCode(item);
-  const tool = item.kind === 'permission' ? permissionTool(item) : null;
   const gateMove = item.kind === 'decision' ? gateMoveText(item, pipeline) : null;
+  const heading = gateMove ?? inboxHeading(item);
+  // The tool line is redundant when the heading already names the tool.
+  const tool = item.kind === 'permission' && heading === item.title ? permissionTool(item) : null;
   const Heading = headingLevel === 2 ? 'h2' : 'h3';
   const assignedToOthers = myHandle !== null && !item.assignees.includes(myHandle);
   const buttonSize = mobile ? 'xl' : 'lg';
@@ -83,14 +85,13 @@ export function InboxCard({
         <Chip tone="kind">{t(`inbox.kinds.${item.kind}`)}</Chip>
         <Avatar member={source} handle={item.source} size="sm" isMe={item.source === myHandle} />
         <span className={styles.source}>{nameOf(item.source, members, myHandle)}</span>
-        {taskTitle ? <span className={styles.task}>· {taskTitle}</span> : null}
+        {taskTitle ? <span className={styles.task}>· {taskTitle}</span> : gateMove && item.title ? <span className={styles.task}>· {item.title}</span> : null}
         <span className={styles.spacer} />
         <time className={styles.time} dateTime={item.createdAt}>
           {formatAgo(item.createdAt)}
         </time>
       </div>
-      <Heading className={styles.title}>{inboxHeading(item)}</Heading>
-      {gateMove ? <p className={styles.gate}>{gateMove}</p> : null}
+      <Heading className={styles.title}>{heading}</Heading>
       {item.body ? (
         item.kind === 'approval' ? (
           <blockquote className={styles.preview}>{item.body}</blockquote>

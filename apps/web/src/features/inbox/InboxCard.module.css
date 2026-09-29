@@ -60,12 +60,6 @@
   font-size: 15px;
 }
 
-.gate {
-  font-size: 13.5px;
-  font-weight: 800;
-  color: var(--kind-fg);
-}
-
 .body {
   font-size: 14px;
   line-height: 1.5;

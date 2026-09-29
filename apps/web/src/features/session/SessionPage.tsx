@@ -76,6 +76,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
   const [pending, setPending] = useState<Array<PendingMessage & { sentAt: string }>>([]);
   const [confirmStop, setConfirmStop] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const timelineRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const tabRefs = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>({});
 
@@ -99,6 +100,13 @@ function SessionView({ detail }: { detail: SessionDetail }) {
       list.filter((message) => !chat.some((item) => item.kind === 'user_text' && item.text.trim() === message.text.trim() && item.ts >= message.sentAt)),
     );
   }, [chat]);
+
+  // The latest events and "what comes next" matter most: start the timeline at the bottom.
+  const timelineLength = taskDetail.data?.timeline.length ?? 0;
+  useLayoutEffect(() => {
+    const element = timelineRef.current;
+    if (element) element.scrollTop = element.scrollHeight;
+  }, [timelineLength]);
 
   useLayoutEffect(() => {
     const element = scrollRef.current;
@@ -185,6 +193,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
           openItems={openItems}
           resolvedItems={resolvedPermissions}
           pending={pending}
+          awaitingPermission={session.state === 'waiting_permission'}
           resolvingId={resolve.isPending ? (resolve.variables?.item.id ?? null) : null}
           onResolve={(item, body) =>
             resolve.mutate({ item, body }, { onError: () => toast.show(t('inbox.resolveFailed'), 'error') })
@@ -263,7 +272,9 @@ function SessionView({ detail }: { detail: SessionDetail }) {
             <h2 id="session-timeline" className={styles.asideTitle}>
               {t('timeline.label')}
             </h2>
-            <div className={styles.asideScroll}>{timelinePanel}</div>
+            <div className={styles.asideScroll} ref={timelineRef}>
+              {timelinePanel}
+            </div>
           </aside>
         ) : null}
 

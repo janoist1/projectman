@@ -37,6 +37,8 @@ export interface ChatViewProps {
   resolvedItems?: readonly InboxItem[];
   onResolve?: (item: InboxItem, body: ResolveInboxRequest) => void;
   resolvingId?: string | null;
+  /** The session waits for a permission: its unanswered tool call shows that instead of "running". */
+  awaitingPermission?: boolean;
   /** Messages sent from the composer that the transcript has not shown yet. */
   pending?: readonly PendingMessage[];
 }
@@ -62,7 +64,7 @@ function CollapsibleText({ text }: { text: string }) {
   );
 }
 
-function ToolRows({ rows }: { rows: ToolRow[] }) {
+function ToolRows({ rows, awaitingId }: { rows: ToolRow[]; awaitingId: string | null }) {
   return (
     <ul className={styles.tools} aria-label={t('session.chat.toolGroup')}>
       {rows.map((row) => {
@@ -82,7 +84,9 @@ function ToolRows({ rows }: { rows: ToolRow[] }) {
                 {result.ok ? result.summary : result.summary ? `${t('session.chat.toolFailed')} · ${result.summary}` : t('session.chat.toolFailed')}
               </span>
             ) : (
-              <span className={clsx(styles.toolResult, styles.toolRunning)}>{t('session.chat.toolRunning')}</span>
+              <span className={clsx(styles.toolResult, row.id === awaitingId ? styles.toolAwaiting : styles.toolRunning)}>
+                {row.id === awaitingId ? t('session.chat.toolAwaiting') : t('session.chat.toolRunning')}
+              </span>
             )}
           </li>
         );
@@ -134,7 +138,7 @@ function PermissionPrompt({
   );
 }
 
-function renderBlock(block: ChatBlock, props: ChatViewProps): ReactNode {
+function renderBlock(block: ChatBlock, props: ChatViewProps, awaitingId: string | null): ReactNode {
   const { members, myHandle, sessionMember } = props;
   switch (block.type) {
     case 'assistant': {
@@ -163,7 +167,7 @@ function renderBlock(block: ChatBlock, props: ChatViewProps): ReactNode {
     case 'tools':
       return (
         <div key={block.id} className={styles.toolBlock}>
-          <ToolRows rows={block.rows} />
+          <ToolRows rows={block.rows} awaitingId={awaitingId} />
         </div>
       );
     case 'team': {
@@ -208,11 +212,18 @@ function renderBlock(block: ChatBlock, props: ChatViewProps): ReactNode {
 export function ChatView(props: ChatViewProps) {
   const { items, sessionMember, members, myHandle, pipeline = null, openItems = [], resolvedItems = [], onResolve, resolvingId = null, pending = [] } = props;
   const blocks = groupChatItems(items, sessionMember);
+  const lastPending = props.awaitingPermission
+    ? [...blocks]
+        .reverse()
+        .flatMap((block) => (block.type === 'tools' ? [...block.rows].reverse() : []))
+        .find((row) => row.call && !row.result)
+    : undefined;
+  const awaitingId = lastPending?.id ?? null;
 
   const entries: Array<{ ts: string; order: number; node: ReactNode }> = blocks.map((block, order) => ({
     ts: block.ts,
     order,
-    node: renderBlock(block, props),
+    node: renderBlock(block, props, awaitingId),
   }));
   resolvedItems.forEach((item, index) => {
     if (!item.resolution) return;

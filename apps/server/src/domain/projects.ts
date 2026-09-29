@@ -1,6 +1,6 @@
 import { existsSync, statSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
-import { ProjectConfig } from '@projectman/shared';
+import { ProjectConfig, humanApprovalChanged } from '@projectman/shared';
 import type {
   Actor,
   ConfigVersionEntry,
@@ -272,6 +272,9 @@ export class ProjectService {
   /** Owner-only rules for configuration edits by humans. */
   static assertChangeAllowed(previous: ProjectConfig, next: ProjectConfig, access: HumanAccess): void {
     if (access === 'owner') return;
+    if (humanApprovalChanged(previous, next)) {
+      throw forbidden('owner_only', 'only an owner may change or remove human approval gates');
+    }
     if (releaseApproversSignature(previous) !== releaseApproversSignature(next)) {
       throw forbidden('owner_only', 'only an owner may change the release approvers');
     }

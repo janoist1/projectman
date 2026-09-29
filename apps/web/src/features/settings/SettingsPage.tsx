@@ -17,6 +17,7 @@ import { gateConditionText } from '../../lib/gates';
 import { aiRoleView } from '../../lib/roles';
 import { nameOf, roleLabel } from '../../lib/members';
 import styles from './SettingsPage.module.css';
+import { EditableSection, SettingsEditingProvider } from './SettingsEditor';
 
 function memberRole(member: MemberConfig, roles: readonly RoleView[]): string {
   return member.kind === 'human'
@@ -55,71 +56,64 @@ function PipelineSection({ config }: { config: ProjectConfig }) {
           {t('settings.pipeline.stageCount', { count: config.pipeline.stages.length })}
         </span>
       </div>
-      <ol className={styles.columns}>
-        {config.pipeline.columns.map((column) => {
-          const stages = config.pipeline.stages.filter((stage) => stage.columnId === column.id);
-          return (
-            <li key={column.id} className={styles.column}>
-              <div className={styles.columnHead}>
-                <span className={styles.columnName}>{column.name}</span>
-                {column.hint ? <span className={styles.muted}>{column.hint}</span> : null}
+      <EditableSection section="pipeline">
+        <ol className={styles.stages}>
+          {config.pipeline.stages.map((stage) => (
+            <li key={stage.id} className={styles.stage}>
+              <div className={styles.stageTop}>
+                <span className={styles.stageName}>{stage.name}</span>
+                <Chip>{t(`stageKinds.${stage.kind}`)}</Chip>
+                <code className={styles.id}>{stage.id}</code>
+                <span className={styles.muted}>
+                  {config.pipeline.columns.find((column) => column.id === stage.columnId)?.name}
+                </span>
               </div>
-              <ol className={styles.stages}>
-                {stages.map((stage) => (
-                  <li key={stage.id} className={styles.stage}>
-                    <div className={styles.stageTop}>
-                      <span className={styles.stageName}>{stage.name}</span>
-                      <Chip>{t(`stageKinds.${stage.kind}`)}</Chip>
-                      <code className={styles.id}>{stage.id}</code>
-                    </div>
-                    <div className={styles.owners}>
-                      <span className={styles.label}>{t('settings.pipeline.owners')}</span>
-                      {stage.owners.length === 0 ? (
-                        <span className={styles.muted}>{t('settings.pipeline.noOwners')}</span>
-                      ) : (
-                        stage.owners.map((handle) => {
-                          const member = byHandle.get(handle);
-                          return (
-                            <span key={handle} className={styles.owner}>
-                              <Avatar
-                                member={
-                                  member
-                                    ? {
-                                        handle,
-                                        displayName: member.displayName,
-                                        kind: member.kind,
-                                        role: member.kind === 'human' ? member.access : member.role,
-                                        specialty: member.kind === 'ai' ? member.specialty : null,
-                                      }
-                                    : members.get(handle)
+              {stage.description ? <p className={styles.muted}>{stage.description}</p> : null}
+              <div className={styles.owners}>
+                <span className={styles.label}>{t('settings.pipeline.owners')}</span>
+                {stage.owners.length === 0 ? (
+                  <span className={styles.muted}>{t('settings.pipeline.noOwners')}</span>
+                ) : (
+                  stage.owners.map((handle) => {
+                    const member = byHandle.get(handle);
+                    return (
+                      <span key={handle} className={styles.owner}>
+                        <Avatar
+                          member={
+                            member
+                              ? {
+                                  handle,
+                                  displayName: member.displayName,
+                                  kind: member.kind,
+                                  role: member.kind === 'human' ? member.access : member.role,
+                                  specialty: member.kind === 'ai' ? member.specialty : null,
                                 }
-                                handle={handle}
-                                isMe={handle === myHandle}
-                                size="xs"
-                              />
-                              {nameOf(handle, members, myHandle)}
-                            </span>
-                          );
-                        })
-                      )}
-                    </div>
-                    {stage.gate ? (
-                      <div className={styles.gate}>
-                        <span className={styles.label}>{t('settings.pipeline.gate')}</span>
-                        {stage.gate.conditions.map((condition, index) => (
-                          <Chip key={index} tone="needs" icon="lock">
-                            {gateConditionText(condition, members, myHandle)}
-                          </Chip>
-                        ))}
-                      </div>
-                    ) : null}
-                  </li>
-                ))}
-              </ol>
+                              : members.get(handle)
+                          }
+                          handle={handle}
+                          isMe={handle === myHandle}
+                          size="xs"
+                        />
+                        {nameOf(handle, members, myHandle)}
+                      </span>
+                    );
+                  })
+                )}
+              </div>
+              {stage.gate ? (
+                <div className={styles.gate}>
+                  <span className={styles.label}>{t('settings.pipeline.gate')}</span>
+                  {stage.gate.conditions.map((condition, index) => (
+                    <Chip key={index} tone="needs" icon="lock">
+                      {gateConditionText(condition, members, myHandle)}
+                    </Chip>
+                  ))}
+                </div>
+              ) : null}
             </li>
-          );
-        })}
-      </ol>
+          ))}
+        </ol>
+      </EditableSection>
     </section>
   );
 }
@@ -191,27 +185,29 @@ function LimitsAndRepos({ config }: { config: ProjectConfig }) {
         <h2 id="settings-limits" className={styles.cardTitle}>
           {t('settings.sections.limits')}
         </h2>
-        <dl className={styles.facts}>
-          <div>
-            <dt>{t('settings.limits.maxConcurrentAi')}</dt>
-            <dd>{t('settings.limits.maxConcurrentAiValue', { count: limits.maxConcurrentAi })}</dd>
-          </div>
-          <div>
-            <dt>{t('settings.limits.pauseAbove')}</dt>
-            <dd>{t('settings.limits.pauseAboveValue', { percent: limits.pauseAbovePlanUsagePercent })}</dd>
-          </div>
-          <div>
-            <dt>{t('settings.limits.tempWorkers')}</dt>
-            <dd>
-              {limits.tempWorkers.enabled
-                ? t('settings.limits.tempWorkersOn', {
-                    max: limits.tempWorkers.max,
-                    role: aiRoleView(limits.tempWorkers.role, undefined, roles.data?.roles).name,
-                  })
-                : t('settings.limits.tempWorkersOff')}
-            </dd>
-          </div>
-        </dl>
+        <EditableSection section="limits">
+          <dl className={styles.facts}>
+            <div>
+              <dt>{t('settings.limits.maxConcurrentAi')}</dt>
+              <dd>{t('settings.limits.maxConcurrentAiValue', { count: limits.maxConcurrentAi })}</dd>
+            </div>
+            <div>
+              <dt>{t('settings.limits.pauseAbove')}</dt>
+              <dd>{t('settings.limits.pauseAboveValue', { percent: limits.pauseAbovePlanUsagePercent })}</dd>
+            </div>
+            <div>
+              <dt>{t('settings.limits.tempWorkers')}</dt>
+              <dd>
+                {limits.tempWorkers.enabled
+                  ? t('settings.limits.tempWorkersOn', {
+                      max: limits.tempWorkers.max,
+                      role: aiRoleView(limits.tempWorkers.role, undefined, roles.data?.roles).name,
+                    })
+                  : t('settings.limits.tempWorkersOff')}
+              </dd>
+            </div>
+          </dl>
+        </EditableSection>
       </section>
       <section className={styles.card} aria-labelledby="settings-repos">
         <h2 id="settings-repos" className={styles.cardTitle}>
@@ -371,7 +367,7 @@ function AccountSection() {
   );
 }
 
-/** Project configuration (read-only in v1) with version history and revert. */
+/** Project configuration with section editors, version history and owner-only revert. */
 export function SettingsPage() {
   const { key, isOwner } = useProject();
   const config = useConfig(key);
@@ -400,38 +396,44 @@ export function SettingsPage() {
             </section>
           ) : null}
           {config.data ? (
-            <>
+            <SettingsEditingProvider view={config.data} reload={async () => (await config.refetch()).data}>
               <section className={styles.card} aria-labelledby="settings-project">
                 <h2 id="settings-project" className={styles.cardTitle}>
                   {t('settings.sections.project')}
                 </h2>
-                <dl className={styles.facts}>
-                  <div>
-                    <dt>{t('settings.project.name')}</dt>
-                    <dd>{config.data.config.project.name}</dd>
-                  </div>
-                  <div>
-                    <dt>{t('settings.project.key')}</dt>
-                    <dd>
-                      <code className={styles.id}>{config.data.config.project.key}</code>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>{t('settings.project.workspace')}</dt>
-                    <dd>
-                      <code className={styles.id}>{config.data.config.project.workspacePath}</code>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>{t('settings.project.language')}</dt>
-                    <dd>{config.data.config.project.language}</dd>
-                  </div>
-                </dl>
+                <EditableSection section="project">
+                  <dl className={styles.facts}>
+                    <div>
+                      <dt>{t('settings.project.name')}</dt>
+                      <dd>{config.data.config.project.name}</dd>
+                    </div>
+                    <div>
+                      <dt>{t('settings.project.key')}</dt>
+                      <dd>
+                        <code className={styles.id}>{config.data.config.project.key}</code>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t('settings.project.workspace')}</dt>
+                      <dd>
+                        <code className={styles.id}>{config.data.config.project.workspacePath}</code>
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{t('settings.project.language')}</dt>
+                      <dd>{config.data.config.project.language}</dd>
+                    </div>
+                    <div>
+                      <dt>{t('settings.project.timezone')}</dt>
+                      <dd>{config.data.config.project.timezone}</dd>
+                    </div>
+                  </dl>
+                </EditableSection>
               </section>
               <PipelineSection config={config.data.config} />
               <TeamSection config={config.data.config} />
               <LimitsAndRepos config={config.data.config} />
-            </>
+            </SettingsEditingProvider>
           ) : null}
         </div>
         <aside className={styles.sideCol}>

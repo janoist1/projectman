@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  PatchConfigRequest,
   CustomRoleRequest,
   UpdateMemberRequest,
   UpdateTaskRequest,
@@ -254,6 +255,20 @@ export function useConfig(key: string, enabled = true) {
     queryFn: () => api.config(key),
     enabled,
     retry: (count, error) => !(isApiError(error) && error.status >= 400 && error.status < 500) && count < 2,
+  });
+}
+
+export function usePatchConfig(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: PatchConfigRequest) => api.patchConfig(key, body),
+    onSuccess: async (view) => {
+      client.setQueryData(queryKeys.config(key), view);
+      await Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.projects }),
+        client.invalidateQueries({ queryKey: queryKeys.board(key) }),
+      ]);
+    },
   });
 }
 

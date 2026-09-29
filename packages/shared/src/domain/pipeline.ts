@@ -56,6 +56,8 @@ export const Stage = z.object({
   id: StageId,
   /** Display name in the project's language. */
   name: z.string().min(1),
+  /** Short explanation of the stage, in the project's language. */
+  description: z.string().optional(),
   kind: StageKind,
   /** Members (human, AI or both) who carry this stage. */
   owners: z.array(MemberHandle),

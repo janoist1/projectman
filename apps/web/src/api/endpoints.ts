@@ -14,6 +14,7 @@ import {
   routes,
 } from '@projectman/shared';
 import type {
+  PatchConfigRequest,
   CustomRoleRequest,
   UpdateMemberRequest,
   UpdateTaskRequest,
@@ -100,6 +101,8 @@ export const api = {
     apiRequest<unknown>(routes.resolveInbox(key, itemId), { method: 'POST', body }),
 
   config: (key: string) => apiRequest(routes.config(key), { schema: ConfigView }),
+  patchConfig: (key: string, body: PatchConfigRequest) =>
+    apiRequest(routes.patchConfig(key), { method: 'PATCH', body, schema: ConfigView }),
   revertConfig: (key: string, body: RevertConfigRequest) =>
     apiRequest<unknown>(routes.revertConfig(key), { method: 'POST', body }),
 };

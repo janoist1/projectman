@@ -57,6 +57,9 @@ function shortPath(path: string): string {
 
 let pendingSeq = 0;
 
+/** How far the server's transcript clock may lag behind the browser's. */
+const ECHO_SKEW_MS = 2 * 60_000;
+
 function SessionView({ detail }: { detail: SessionDetail }) {
   const { key, myHandle } = useProject();
   const [params] = useSearchParams();
@@ -104,7 +107,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
     [items],
   );
 
-  // Drop local echoes once the transcript shows the message.
+  // Drop local echoes once the transcript shows the message (allowing for clock skew).
   useEffect(() => {
     setPending((list) =>
       list.filter(
@@ -113,7 +116,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
             (item) =>
               item.kind === 'user_text' &&
               item.text.trim() === message.text.trim() &&
-              item.ts >= message.sentAt,
+              Date.parse(item.ts) >= Date.parse(message.sentAt) - ECHO_SKEW_MS,
           ),
       ),
     );

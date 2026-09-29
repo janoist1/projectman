@@ -20,8 +20,19 @@ import styles from './SettingsPage.module.css';
 
 function memberRole(member: MemberConfig): string {
   return member.kind === 'human'
-    ? roleLabel({ handle: member.handle, displayName: member.displayName, kind: 'human', role: member.access })
-    : roleLabel({ handle: member.handle, displayName: member.displayName, kind: 'ai', role: member.role, specialty: member.specialty });
+    ? roleLabel({
+        handle: member.handle,
+        displayName: member.displayName,
+        kind: 'human',
+        role: member.access,
+      })
+    : roleLabel({
+        handle: member.handle,
+        displayName: member.displayName,
+        kind: 'ai',
+        role: member.role,
+        specialty: member.specialty,
+      });
 }
 
 function PipelineSection({ config }: { config: ProjectConfig }) {
@@ -34,7 +45,9 @@ function PipelineSection({ config }: { config: ProjectConfig }) {
         <h2 id="settings-pipeline" className={styles.cardTitle}>
           {t('settings.sections.pipeline')}
         </h2>
-        <span className={styles.muted}>{t('settings.pipeline.stageCount', { count: config.pipeline.stages.length })}</span>
+        <span className={styles.muted}>
+          {t('settings.pipeline.stageCount', { count: config.pipeline.stages.length })}
+        </span>
       </div>
       <ol className={styles.columns}>
         {config.pipeline.columns.map((column) => {
@@ -143,8 +156,14 @@ function TeamSection({ config }: { config: ProjectConfig }) {
                 </td>
                 <td>{memberRole(member)}</td>
                 <td>{member.kind === 'ai' ? member.model : t('common.dash')}</td>
-                <td>{member.kind === 'ai' ? t(`permissionModes.${member.permissionMode}`) : t('common.dash')}</td>
-                <td>{member.kind === 'ai' ? t('hire.capacityValue', { count: member.capacity }) : t('common.dash')}</td>
+                <td>
+                  {member.kind === 'ai' ? t(`permissionModes.${member.permissionMode}`) : t('common.dash')}
+                </td>
+                <td>
+                  {member.kind === 'ai'
+                    ? t('hire.capacityValue', { count: member.capacity })
+                    : t('common.dash')}
+                </td>
                 <td>{member.kind === 'ai' ? nameOf(member.sponsor, members, myHandle) : t('common.dash')}</td>
               </tr>
             ))}
@@ -176,7 +195,10 @@ function LimitsAndRepos({ config }: { config: ProjectConfig }) {
             <dt>{t('settings.limits.tempWorkers')}</dt>
             <dd>
               {limits.tempWorkers.enabled
-                ? t('settings.limits.tempWorkersOn', { max: limits.tempWorkers.max, role: aiRoleView(limits.tempWorkers.role).name })
+                ? t('settings.limits.tempWorkersOn', {
+                    max: limits.tempWorkers.max,
+                    role: aiRoleView(limits.tempWorkers.role).name,
+                  })
                 : t('settings.limits.tempWorkersOff')}
             </dd>
           </div>
@@ -206,7 +228,9 @@ function LimitsAndRepos({ config }: { config: ProjectConfig }) {
                     <td>
                       <code className={styles.id}>{repo.path}</code>
                     </td>
-                    <td>{repo.github ? <code className={styles.id}>{repo.github}</code> : t('common.dash')}</td>
+                    <td>
+                      {repo.github ? <code className={styles.id}>{repo.github}</code> : t('common.dash')}
+                    </td>
                     <td>
                       <code className={styles.id}>{repo.defaultBranch}</code>
                     </td>
@@ -221,7 +245,15 @@ function LimitsAndRepos({ config }: { config: ProjectConfig }) {
   );
 }
 
-function HistorySection({ history, current, canRevert }: { history: ConfigVersionEntry[]; current: string; canRevert: boolean }) {
+function HistorySection({
+  history,
+  current,
+  canRevert,
+}: {
+  history: ConfigVersionEntry[];
+  current: string;
+  canRevert: boolean;
+}) {
   const { key } = useProject();
   const revert = useRevertConfig(key);
   const toast = useToast();
@@ -240,7 +272,9 @@ function HistorySection({ history, current, canRevert }: { history: ConfigVersio
               <code className={styles.versionTag}>{entry.version.slice(0, 7)}</code>
               <div className={styles.versionText}>
                 <span className={styles.versionMessage}>{entry.message}</span>
-                <span className={styles.muted}>{t('settings.history.by', { author: entry.author, time: formatStamp(entry.at) })}</span>
+                <span className={styles.muted}>
+                  {t('settings.history.by', { author: entry.author, time: formatStamp(entry.at) })}
+                </span>
               </div>
               {isCurrent ? (
                 <Chip tone="ok">{t('settings.history.current')}</Chip>

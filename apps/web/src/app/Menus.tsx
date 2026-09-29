@@ -10,7 +10,15 @@ import { useMeContext } from './contexts';
 import styles from './Menus.module.css';
 
 /** Project switcher: current project, other projects, new project. */
-export function ProjectSwitcher({ currentKey, currentName, compact = false }: { currentKey: string; currentName: string; compact?: boolean }) {
+export function ProjectSwitcher({
+  currentKey,
+  currentName,
+  compact = false,
+}: {
+  currentKey: string;
+  currentName: string;
+  compact?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -70,7 +78,13 @@ export function ProjectSwitcher({ currentKey, currentName, compact = false }: { 
 }
 
 /** Avatar button with the account: settings and logout. */
-export function AccountMenu({ settingsPath, placement = 'right' }: { settingsPath: string | null; placement?: 'right' | 'below' }) {
+export function AccountMenu({
+  settingsPath,
+  placement = 'right',
+}: {
+  settingsPath: string | null;
+  placement?: 'right' | 'below';
+}) {
   const me = useMeContext();
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -92,10 +106,18 @@ export function AccountMenu({ settingsPath, placement = 'right' }: { settingsPat
         aria-label={t('nav.account', { name: me.name })}
         onClick={() => setOpen((value) => !value)}
       >
-        <Avatar member={{ handle: 'me', displayName: me.name, kind: 'human', role: 'owner' }} isMe size="lg" />
+        <Avatar
+          member={{ handle: 'me', displayName: me.name, kind: 'human', role: 'owner' }}
+          isMe
+          size="lg"
+        />
       </button>
       {open ? (
-        <div ref={panelRef} id={panelId} className={clsx(styles.panel, placement === 'right' ? styles.panelRight : styles.panelBelow)}>
+        <div
+          ref={panelRef}
+          id={panelId}
+          className={clsx(styles.panel, placement === 'right' ? styles.panelRight : styles.panelBelow)}
+        >
           <div className={styles.account}>
             <span className={styles.accountName}>{me.name}</span>
             <span className={styles.accountEmail}>{me.email}</span>

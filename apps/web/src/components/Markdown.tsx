@@ -67,7 +67,8 @@ function parseBlocks(source: string): Block[] {
   return blocks;
 }
 
-const INLINE = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|\[[^\]]+\]\((https?:\/\/[^)\s]+)\)|https?:\/\/[^\s)]+)/g;
+const INLINE =
+  /(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|\[[^\]]+\]\((https?:\/\/[^)\s]+)\)|https?:\/\/[^\s)]+)/g;
 
 function renderInline(text: string, keyPrefix: string): ReactNode[] {
   const nodes: ReactNode[] = [];
@@ -110,9 +111,13 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
 }
 
 function withBreaks(text: string, keyPrefix: string): ReactNode[] {
-  return text.split('\n').flatMap((line, i) =>
-    i === 0 ? renderInline(line, `${keyPrefix}-${i}`) : [<br key={`${keyPrefix}-br-${i}`} />, ...renderInline(line, `${keyPrefix}-${i}`)],
-  );
+  return text
+    .split('\n')
+    .flatMap((line, i) =>
+      i === 0
+        ? renderInline(line, `${keyPrefix}-${i}`)
+        : [<br key={`${keyPrefix}-br-${i}`} />, ...renderInline(line, `${keyPrefix}-${i}`)],
+    );
 }
 
 export function Markdown({ text, className }: { text: string; className?: string }) {
@@ -135,7 +140,9 @@ export function Markdown({ text, className }: { text: string; className?: string
               </p>
             );
           case 'list': {
-            const items = block.items.map((item, j) => <li key={`${key}-${j}`}>{renderInline(item, `${key}-${j}`)}</li>);
+            const items = block.items.map((item, j) => (
+              <li key={`${key}-${j}`}>{renderInline(item, `${key}-${j}`)}</li>
+            ));
             return block.ordered ? <ol key={key}>{items}</ol> : <ul key={key}>{items}</ul>;
           }
           case 'paragraph':

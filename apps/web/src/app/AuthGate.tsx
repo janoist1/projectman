@@ -26,7 +26,8 @@ export function AuthGate() {
 
   const next = `${location.pathname}${location.search}`;
   if (setup.isPending) return <LoadingState className={styles.full} />;
-  if (setup.isError) return <ErrorState className={styles.full} error={setup.error} onRetry={() => void setup.refetch()} />;
+  if (setup.isError)
+    return <ErrorState className={styles.full} error={setup.error} onRetry={() => void setup.refetch()} />;
   if (needsSetup) return <Navigate to="/setup" replace />;
   if (expired) return <Navigate to={loginPath(next)} replace />;
   if (me.isPending) return <LoadingState className={styles.full} />;

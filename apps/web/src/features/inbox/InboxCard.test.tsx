@@ -42,7 +42,11 @@ describe('InboxCard', () => {
     expect(onResolve).toHaveBeenLastCalledWith(entry, { optionId: 'allow_session' });
     fireEvent.click(within(card).getByRole('button', { name: 'Elutasítom' }));
     expect(onResolve).toHaveBeenLastCalledWith(entry, { optionId: 'deny' });
-    expect(within(card).getByRole('link', { name: /Részletek/ }).getAttribute('href')).toBe('/p/AC/sessions/ses_ac21_fe1');
+    expect(
+      within(card)
+        .getByRole('link', { name: /Részletek/ })
+        .getAttribute('href'),
+    ).toBe('/p/AC/sessions/ses_ac21_fe1');
   });
 
   it('answers a question with an agent option or a free-text answer', () => {
@@ -60,7 +64,10 @@ describe('InboxCard', () => {
 
     fireEvent.change(field, { target: { value: '  Elég a süti nélküli, GA4 most nem kell.  ' } });
     fireEvent.click(within(card).getByRole('button', { name: 'Válasz küldése' }));
-    expect(onResolve).toHaveBeenLastCalledWith(entry, { optionId: 'answer', note: 'Elég a süti nélküli, GA4 most nem kell.' });
+    expect(onResolve).toHaveBeenLastCalledWith(entry, {
+      optionId: 'answer',
+      note: 'Elég a süti nélküli, GA4 most nem kell.',
+    });
   });
 
   it('names the stage move of a gate decision and approves or rejects it', () => {
@@ -84,6 +91,10 @@ describe('InboxCard', () => {
     const { card } = renderCard(item('inb_appr_email'), { mobile: true });
     expect(card.className).toMatch(/mobile/);
     expect(within(card).getByText(/a tesztszerver havi költségéről/).tagName).toBe('BLOCKQUOTE');
-    expect(within(card).getAllByRole('button').map((button) => button.textContent)).toEqual(['Jóváhagyom', 'Elutasítom']);
+    expect(
+      within(card)
+        .getAllByRole('button')
+        .map((button) => button.textContent),
+    ).toEqual(['Jóváhagyom', 'Elutasítom']);
   });
 });

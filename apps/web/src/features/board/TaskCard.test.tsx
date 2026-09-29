@@ -25,7 +25,9 @@ function taskByKey(key: string): Task {
 function renderCard(key: string, selected = false) {
   const task = taskByKey(key);
   const state = deriveTaskState(task, ctx);
-  renderUi(<TaskCard task={task} state={state} pipeline={pipeline} to={`/p/AC/tasks/${key}`} selected={selected} />);
+  renderUi(
+    <TaskCard task={task} state={state} pipeline={pipeline} to={`/p/AC/tasks/${key}`} selected={selected} />,
+  );
   return screen.getByRole('link');
 }
 
@@ -37,11 +39,11 @@ describe('TaskCard', () => {
     expect(within(card).getByText('PR #14 · webshop')).toBeTruthy();
     expect(within(card).getByText('Újrateszt kell')).toBeTruthy();
     const checks = within(card).getByRole('list', { name: 'Ellenőrzések' });
-    expect(within(checks).getAllByRole('listitem').map((row) => row.textContent)).toEqual([
-      'Code review: rendben',
-      'Integration: kész',
-      'QA: újrateszt kell',
-    ]);
+    expect(
+      within(checks)
+        .getAllByRole('listitem')
+        .map((row) => row.textContent),
+    ).toEqual(['Code review: rendben', 'Integration: kész', 'QA: újrateszt kell']);
     expect(within(card).getByText('Rád vár: engedély (git push)')).toBeTruthy();
     expect(card.getAttribute('data-phase')).toBe('needs_you');
     expect(within(card).getByRole('img', { name: /QA, 5\. lépés a 9-ból/ })).toBeTruthy();
@@ -82,7 +84,9 @@ describe('deriveTaskState', () => {
   });
 
   it('says who else is waited on when the item is assigned to someone else', () => {
-    const noWorkers = new Map([...members].map(([handle, member]) => [handle, { ...member, status: 'idle' as const }]));
+    const noWorkers = new Map(
+      [...members].map(([handle, member]) => [handle, { ...member, status: 'idle' as const }]),
+    );
     expect(deriveTaskState(taskByKey('AC-18'), { ...ctx, members: noWorkers })).toMatchObject({
       phase: 'waiting',
       label: 'Másra vár: Kata',

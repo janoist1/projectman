@@ -23,7 +23,9 @@ export function mockIndexes() {
     stages: config.pipeline.stages,
     columns: config.pipeline.columns.map((column) => ({
       ...column,
-      stageIds: config.pipeline.stages.filter((stage) => stage.columnId === column.id).map((stage) => stage.id),
+      stageIds: config.pipeline.stages
+        .filter((stage) => stage.columnId === column.id)
+        .map((stage) => stage.id),
     })),
   });
   return { pipeline, members: indexMembers(members) };

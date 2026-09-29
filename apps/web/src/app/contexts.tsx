@@ -46,7 +46,10 @@ export function useProjectIndexes(key: string): {
   const columns = board.data?.columns;
   return {
     members: useMemo(() => indexMembers(members), [members]),
-    pipeline: useMemo(() => (stages && columns ? indexPipeline({ stages, columns }) : null), [stages, columns]),
+    pipeline: useMemo(
+      () => (stages && columns ? indexPipeline({ stages, columns }) : null),
+      [stages, columns],
+    ),
   };
 }
 
@@ -55,7 +58,10 @@ export function useMyOpenInbox(key: string, myHandle: string | null) {
   const inbox = useInbox(key);
   const items = inbox.data?.items;
   return useMemo(
-    () => (items ?? []).filter((item) => item.state === 'open' && (!myHandle || item.assignees.includes(myHandle))),
+    () =>
+      (items ?? []).filter(
+        (item) => item.state === 'open' && (!myHandle || item.assignees.includes(myHandle)),
+      ),
     [items, myHandle],
   );
 }

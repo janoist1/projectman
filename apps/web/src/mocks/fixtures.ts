@@ -183,7 +183,8 @@ export function buildConfig(): ProjectConfig {
           model: 'sonnet',
           permissionMode: 'acceptEdits',
           capacity: 1,
-          instructions: 'Everything that does not fit elsewhere. Ask a human when the product decision is unclear.',
+          instructions:
+            'Everything that does not fit elsewhere. Ask a human when the product decision is unclear.',
           sponsor: 'owner',
           temp: false,
         },
@@ -206,7 +207,13 @@ export function buildConfig(): ProjectConfig {
       stages: [
         { id: 'ready', name: 'Indulhat', kind: 'queue', owners: ['owner'], columnId: 'ready' },
         { id: 'dev', name: 'Fejlesztés', kind: 'work', owners: ['fe-1', 'be-1', 'dev-1'], columnId: 'dev' },
-        { id: 'code_review', name: 'Code review', kind: 'review', owners: ['code-review'], columnId: 'review' },
+        {
+          id: 'code_review',
+          name: 'Code review',
+          kind: 'review',
+          owners: ['code-review'],
+          columnId: 'review',
+        },
         {
           id: 'integration',
           name: 'Integration',
@@ -248,7 +255,12 @@ export function buildConfig(): ProjectConfig {
 
 export const configHistory: ConfigVersionEntry[] = [
   { version: 'c3f9a21', message: 'Új lépés: Élesítésre vár', author: 'Te', at: daysAgo(1, 18, 12) },
-  { version: '8b12e07', message: 'QA és ügyfélteszt jelzés a kártyákon', author: 'Te', at: daysAgo(2, 10, 40) },
+  {
+    version: '8b12e07',
+    message: 'QA és ügyfélteszt jelzés a kártyákon',
+    author: 'Te',
+    at: daysAgo(2, 10, 40),
+  },
   { version: '51d0c4a', message: 'Kommunikáció: levél csak vázlatként', author: 'Te', at: daysAgo(3, 16, 5) },
   { version: 'a0e4471', message: 'Code review az integration elé', author: 'Te', at: daysAgo(4, 17, 41) },
   { version: '2f6d9b3', message: 'Projekt létrehozva sablonból', author: 'Te', at: daysAgo(7, 9, 30) },
@@ -432,7 +444,8 @@ export const tasks: Task[] = [
   task({
     key: 'AC-23',
     title: 'API-kulcsok cseréje',
-    description: 'A kulcscserék egy kártyán gyűlnek, és egy körben mennek, az új fizetési mód élesítése után.',
+    description:
+      'A kulcscserék egy kártyán gyűlnek, és egy körben mennek, az új fizetési mód élesítése után.',
     stageId: 'ready',
     status: 'waiting',
     labels: ['Előfeltétel: új fizetési mód'],
@@ -473,7 +486,13 @@ export const tasks: Task[] = [
     assignee: 'be-1',
     repo: 'webshop',
     links: [
-      { kind: 'pull_request', ref: '16', repo: 'acme/webshop', title: 'Invoice PDF for order confirmation', state: 'open' },
+      {
+        kind: 'pull_request',
+        ref: '16',
+        repo: 'acme/webshop',
+        title: 'Invoice PDF for order confirmation',
+        state: 'open',
+      },
       { kind: 'branch', ref: '25-invoice-pdf', repo: 'acme/webshop' },
     ],
     checks: { code_review: 'pending' },
@@ -488,7 +507,9 @@ export const tasks: Task[] = [
     status: 'waiting',
     assignee: 'fe-1',
     repo: 'webshop',
-    links: [{ kind: 'pull_request', ref: '4', repo: 'acme/webshop', title: 'Faster cart page', state: 'open' }],
+    links: [
+      { kind: 'pull_request', ref: '4', repo: 'acme/webshop', title: 'Faster cart page', state: 'open' },
+    ],
     checks: { code_review: 'passed' },
     createdAt: daysAgo(5, 14, 0),
     updatedAt: minutesAgo(95),
@@ -505,7 +526,13 @@ export const tasks: Task[] = [
     labels: ['Újrateszt kell'],
     checks: { code_review: 'passed', qa: 'retest_needed' },
     links: [
-      { kind: 'pull_request', ref: '14', repo: 'acme/webshop', title: 'Order confirmation page and email', state: 'open' },
+      {
+        kind: 'pull_request',
+        ref: '14',
+        repo: 'acme/webshop',
+        title: 'Order confirmation page and email',
+        state: 'open',
+      },
       { kind: 'branch', ref: '21-order-confirmation', repo: 'acme/webshop' },
     ],
     visibility: 'shared',
@@ -515,14 +542,23 @@ export const tasks: Task[] = [
   task({
     key: 'AC-19',
     title: 'Régi termékoldal-linkek átirányítása',
-    description: 'A régi termékoldal-linkek a megfelelő új termékoldalra vigyenek, a megszűntek a kategóriára.',
+    description:
+      'A régi termékoldal-linkek a megfelelő új termékoldalra vigyenek, a megszűntek a kategóriára.',
     stageId: 'client_test',
     status: 'waiting',
     assignee: 'fe-1',
     repo: 'infra',
     labels: ['Válaszra vár'],
     checks: { code_review: 'passed', qa: 'passed', client_test: 'pending' },
-    links: [{ kind: 'pull_request', ref: '3', repo: 'acme/infra', title: 'Redirect old product links', state: 'open' }],
+    links: [
+      {
+        kind: 'pull_request',
+        ref: '3',
+        repo: 'acme/infra',
+        title: 'Redirect old product links',
+        state: 'open',
+      },
+    ],
     visibility: 'shared',
     createdAt: daysAgo(3, 11, 0),
     updatedAt: daysAgo(1, 15, 52),
@@ -537,7 +573,15 @@ export const tasks: Task[] = [
     repo: 'webshop',
     labels: ['Válaszra vár'],
     checks: { code_review: 'passed', qa: 'passed', client_test: 'pending' },
-    links: [{ kind: 'pull_request', ref: '1', repo: 'acme/webshop', title: 'Home page picks variants', state: 'open' }],
+    links: [
+      {
+        kind: 'pull_request',
+        ref: '1',
+        repo: 'acme/webshop',
+        title: 'Home page picks variants',
+        state: 'open',
+      },
+    ],
     visibility: 'shared',
     createdAt: daysAgo(2, 10, 0),
     updatedAt: minutesAgo(250),
@@ -551,7 +595,9 @@ export const tasks: Task[] = [
     assignee: 'fe-1',
     repo: 'webshop',
     checks: { code_review: 'passed', qa: 'passed', client_test: 'passed' },
-    links: [{ kind: 'pull_request', ref: '15', repo: 'acme/webshop', title: 'Newsletter signup', state: 'open' }],
+    links: [
+      { kind: 'pull_request', ref: '15', repo: 'acme/webshop', title: 'Newsletter signup', state: 'open' },
+    ],
     visibility: 'shared',
     createdAt: daysAgo(5, 9, 0),
     updatedAt: minutesAgo(70),
@@ -559,14 +605,21 @@ export const tasks: Task[] = [
   task({
     key: 'AC-17',
     title: 'Kártyás fizetés átvételkor',
-    description: 'Átvételkor kártyával is lehessen fizetni; a futár terminálja a rendeléshez kötött összeget kéri.',
+    description:
+      'Átvételkor kártyával is lehessen fizetni; a futár terminálja a rendeléshez kötött összeget kéri.',
     stageId: 'merge',
     status: 'waiting',
     assignee: 'be-1',
     repo: 'webshop',
     checks: { code_review: 'passed', qa: 'passed', client_test: 'passed' },
     links: [
-      { kind: 'pull_request', ref: '11', repo: 'acme/webshop', title: 'Card payment on delivery', state: 'merged' },
+      {
+        kind: 'pull_request',
+        ref: '11',
+        repo: 'acme/webshop',
+        title: 'Card payment on delivery',
+        state: 'merged',
+      },
     ],
     visibility: 'shared',
     createdAt: daysAgo(5, 9, 0),
@@ -581,7 +634,15 @@ export const tasks: Task[] = [
     assignee: 'fe-1',
     repo: 'webshop',
     checks: { code_review: 'passed', qa: 'passed', client_test: 'passed' },
-    links: [{ kind: 'pull_request', ref: '12', repo: 'acme/webshop', title: 'Shipping fee calculator', state: 'merged' }],
+    links: [
+      {
+        kind: 'pull_request',
+        ref: '12',
+        repo: 'acme/webshop',
+        title: 'Shipping fee calculator',
+        state: 'merged',
+      },
+    ],
     visibility: 'shared',
     createdAt: daysAgo(6, 9, 0),
     updatedAt: minutesAgo(15),
@@ -594,7 +655,15 @@ export const tasks: Task[] = [
     assignee: 'be-1',
     repo: 'admin',
     checks: { code_review: 'passed', qa: 'passed' },
-    links: [{ kind: 'pull_request', ref: '18', repo: 'acme/admin', title: 'Fix the admin calendar', state: 'merged' }],
+    links: [
+      {
+        kind: 'pull_request',
+        ref: '18',
+        repo: 'acme/admin',
+        title: 'Fix the admin calendar',
+        state: 'merged',
+      },
+    ],
     createdAt: minutesAgo(5 * 60),
     updatedAt: minutesAgo(125),
     closedAt: minutesAgo(125),
@@ -669,7 +738,9 @@ function ev(
 }
 
 export const timeline: TimelineEvent[] = [
-  ev('AC-24', minutesAgo(8 * 60 + 8), 'communication', 'task_created', { title: 'Hibariasztás a fizetési hibákra' }),
+  ev('AC-24', minutesAgo(8 * 60 + 8), 'communication', 'task_created', {
+    title: 'Hibariasztás a fizetési hibákra',
+  }),
   ev('AC-24', minutesAgo(8 * 60 + 7), 'communication', 'task_note', {
     text: 'Kártya a retróból: jelezzen, ha a fizetési kérések hibára futnak',
   }),
@@ -683,13 +754,29 @@ export const timeline: TimelineEvent[] = [
   ev('AC-20', daysAgo(3, 10, 0), 'owner', 'task_created', { title: 'Napi mentés és visszaállítási próba' }),
   ev('AC-20', daysAgo(1, 15, 36), null, 'task_assigned', { assignee: 'be-1' }),
   ev('AC-20', daysAgo(1, 15, 36), null, 'task_stage_changed', { from: 'ready', to: 'dev' }),
-  ev('AC-20', daysAgo(1, 15, 36), 'be-1', 'session_started', { member: 'be-1', resumed: false }, 'ses_ac20_be1'),
-  ev('AC-20', minutesAgo(22), 'be-1', 'task_note', { text: 'A mentési szkript kész, a visszaállítás próbája fut' }),
+  ev(
+    'AC-20',
+    daysAgo(1, 15, 36),
+    'be-1',
+    'session_started',
+    { member: 'be-1', resumed: false },
+    'ses_ac20_be1',
+  ),
+  ev('AC-20', minutesAgo(22), 'be-1', 'task_note', {
+    text: 'A mentési szkript kész, a visszaállítás próbája fut',
+  }),
 
   ev('AC-22', daysAgo(2, 13, 50), 'owner', 'task_created', { title: 'Látogatómérés a pénztár oldalon' }),
   ev('AC-22', daysAgo(2, 13, 52), null, 'task_assigned', { assignee: 'dev-1' }),
   ev('AC-22', daysAgo(2, 13, 52), null, 'task_stage_changed', { from: 'ready', to: 'dev' }),
-  ev('AC-22', daysAgo(2, 13, 52), 'dev-1', 'session_started', { member: 'dev-1', resumed: false }, 'ses_ac22_dev1'),
+  ev(
+    'AC-22',
+    daysAgo(2, 13, 52),
+    'dev-1',
+    'session_started',
+    { member: 'dev-1', resumed: false },
+    'ses_ac22_dev1',
+  ),
   ev(
     'AC-22',
     minutesAgo(60),
@@ -700,21 +787,64 @@ export const timeline: TimelineEvent[] = [
   ),
 
   ev('AC-25', daysAgo(4, 9, 0), 'owner', 'task_created', { title: 'Számla PDF a rendelés-visszaigazolóhoz' }),
-  ev('AC-25', daysAgo(1, 10, 2), 'be-1', 'task_link_added', { kind: 'pull_request', ref: '16', repo: 'acme/webshop' }),
+  ev('AC-25', daysAgo(1, 10, 2), 'be-1', 'task_link_added', {
+    kind: 'pull_request',
+    ref: '16',
+    repo: 'acme/webshop',
+  }),
   ev('AC-25', daysAgo(1, 10, 3), 'be-1', 'task_stage_changed', { from: 'dev', to: 'code_review' }),
-  ev('AC-25', minutesAgo(12), 'code-review', 'session_started', { member: 'code-review', resumed: false }, 'ses_ac25_cr'),
+  ev(
+    'AC-25',
+    minutesAgo(12),
+    'code-review',
+    'session_started',
+    { member: 'code-review', resumed: false },
+    'ses_ac25_cr',
+  ),
 
   ev('AC-26', daysAgo(5, 14, 0), 'owner', 'task_created', { title: 'Kosár oldal gyorsítása' }),
-  ev('AC-26', daysAgo(1, 9, 30), 'fe-1', 'task_link_added', { kind: 'pull_request', ref: '4', repo: 'acme/webshop' }),
-  ev('AC-26', minutesAgo(120), 'code-review', 'task_check_changed', { check: 'code_review', from: 'pending', to: 'passed' }),
-  ev('AC-26', minutesAgo(95), 'code-review', 'task_stage_changed', { from: 'code_review', to: 'integration' }),
+  ev('AC-26', daysAgo(1, 9, 30), 'fe-1', 'task_link_added', {
+    kind: 'pull_request',
+    ref: '4',
+    repo: 'acme/webshop',
+  }),
+  ev('AC-26', minutesAgo(120), 'code-review', 'task_check_changed', {
+    check: 'code_review',
+    from: 'pending',
+    to: 'passed',
+  }),
+  ev('AC-26', minutesAgo(95), 'code-review', 'task_stage_changed', {
+    from: 'code_review',
+    to: 'integration',
+  }),
 
   ev('AC-21', daysAgo(2, 9, 15), 'owner', 'task_created', { title: 'Rendelés-visszaigazoló e-mail' }),
   ev('AC-21', daysAgo(2, 9, 20), null, 'task_assigned', { assignee: 'fe-1' }),
   ev('AC-21', daysAgo(2, 9, 20), null, 'task_stage_changed', { from: 'ready', to: 'dev' }),
-  ev('AC-21', daysAgo(2, 9, 20), 'fe-1', 'session_started', { member: 'fe-1', resumed: false }, 'ses_ac21_fe1'),
-  ev('AC-21', minutesAgo(198), 'fe-1', 'task_link_added', { kind: 'pull_request', ref: '14', repo: 'acme/webshop' }, 'ses_ac21_fe1'),
-  ev('AC-21', minutesAgo(198), 'fe-1', 'task_stage_changed', { from: 'dev', to: 'code_review' }, 'ses_ac21_fe1'),
+  ev(
+    'AC-21',
+    daysAgo(2, 9, 20),
+    'fe-1',
+    'session_started',
+    { member: 'fe-1', resumed: false },
+    'ses_ac21_fe1',
+  ),
+  ev(
+    'AC-21',
+    minutesAgo(198),
+    'fe-1',
+    'task_link_added',
+    { kind: 'pull_request', ref: '14', repo: 'acme/webshop' },
+    'ses_ac21_fe1',
+  ),
+  ev(
+    'AC-21',
+    minutesAgo(198),
+    'fe-1',
+    'task_stage_changed',
+    { from: 'dev', to: 'code_review' },
+    'ses_ac21_fe1',
+  ),
   ev(
     'AC-21',
     minutesAgo(198),
@@ -723,14 +853,56 @@ export const timeline: TimelineEvent[] = [
     { messageId: 'msg_07', from: 'fe-1', to: ['code-review'], excerpt: 'PR #14 nyitva, kérlek, nézd át.' },
     'ses_ac21_fe1',
   ),
-  ev('AC-21', minutesAgo(182), 'code-review', 'task_check_changed', { check: 'code_review', from: 'pending', to: 'passed' }, 'ses_ac21_cr'),
-  ev('AC-21', minutesAgo(182), 'code-review', 'task_note', { text: 'Nem blokkol · 2 megjegyzés · mehet integrationre' }, 'ses_ac21_cr'),
-  ev('AC-21', minutesAgo(181), 'code-review', 'task_stage_changed', { from: 'code_review', to: 'integration' }, 'ses_ac21_cr'),
+  ev(
+    'AC-21',
+    minutesAgo(182),
+    'code-review',
+    'task_check_changed',
+    { check: 'code_review', from: 'pending', to: 'passed' },
+    'ses_ac21_cr',
+  ),
+  ev(
+    'AC-21',
+    minutesAgo(182),
+    'code-review',
+    'task_note',
+    { text: 'Nem blokkol · 2 megjegyzés · mehet integrationre' },
+    'ses_ac21_cr',
+  ),
+  ev(
+    'AC-21',
+    minutesAgo(181),
+    'code-review',
+    'task_stage_changed',
+    { from: 'code_review', to: 'integration' },
+    'ses_ac21_cr',
+  ),
   ev('AC-21', minutesAgo(175), 'devops', 'task_note', { text: 'Kitelepítve az integrationre' }),
   ev('AC-21', minutesAgo(175), 'devops', 'task_stage_changed', { from: 'integration', to: 'qa' }),
-  ev('AC-21', minutesAgo(138), 'qa', 'task_check_changed', { check: 'qa', from: 'pending', to: 'retest_needed' }, 'ses_ac21_qa'),
-  ev('AC-21', minutesAgo(138), 'qa', 'task_note', { text: '5/6 forgatókönyv rendben · mobilon kilóg a gombsor' }, 'ses_ac21_qa'),
-  ev('AC-21', minutesAgo(110), 'fe-1', 'task_note', { text: 'Javítva: a gombsor mobilon tördel (4e1c2a9)' }, 'ses_ac21_fe1'),
+  ev(
+    'AC-21',
+    minutesAgo(138),
+    'qa',
+    'task_check_changed',
+    { check: 'qa', from: 'pending', to: 'retest_needed' },
+    'ses_ac21_qa',
+  ),
+  ev(
+    'AC-21',
+    minutesAgo(138),
+    'qa',
+    'task_note',
+    { text: '5/6 forgatókönyv rendben · mobilon kilóg a gombsor' },
+    'ses_ac21_qa',
+  ),
+  ev(
+    'AC-21',
+    minutesAgo(110),
+    'fe-1',
+    'task_note',
+    { text: 'Javítva: a gombsor mobilon tördel (4e1c2a9)' },
+    'ses_ac21_fe1',
+  ),
   ev(
     'AC-21',
     minutesAgo(99),
@@ -741,8 +913,16 @@ export const timeline: TimelineEvent[] = [
   ),
 
   ev('AC-19', daysAgo(3, 11, 0), 'owner', 'task_created', { title: 'Régi termékoldal-linkek átirányítása' }),
-  ev('AC-19', daysAgo(1, 14, 36), 'fe-1', 'task_link_added', { kind: 'pull_request', ref: '3', repo: 'acme/infra' }),
-  ev('AC-19', daysAgo(1, 14, 50), 'code-review', 'task_check_changed', { check: 'code_review', from: 'pending', to: 'passed' }),
+  ev('AC-19', daysAgo(1, 14, 36), 'fe-1', 'task_link_added', {
+    kind: 'pull_request',
+    ref: '3',
+    repo: 'acme/infra',
+  }),
+  ev('AC-19', daysAgo(1, 14, 50), 'code-review', 'task_check_changed', {
+    check: 'code_review',
+    from: 'pending',
+    to: 'passed',
+  }),
   ev('AC-19', daysAgo(1, 15, 5), 'devops', 'task_note', { text: 'Kitelepítve az integrationre' }),
   ev('AC-19', daysAgo(1, 15, 40), 'qa', 'task_check_changed', { check: 'qa', from: 'pending', to: 'passed' }),
   ev('AC-19', daysAgo(1, 15, 41), 'qa', 'task_stage_changed', { from: 'qa', to: 'client_test' }),
@@ -754,8 +934,16 @@ export const timeline: TimelineEvent[] = [
   }),
 
   ev('AC-18', daysAgo(2, 10, 0), 'owner', 'task_created', { title: 'Főoldali ajánló: három változat' }),
-  ev('AC-18', minutesAgo(310), 'dev-1', 'task_link_added', { kind: 'pull_request', ref: '1', repo: 'acme/webshop' }),
-  ev('AC-18', minutesAgo(302), 'code-review', 'task_check_changed', { check: 'code_review', from: 'pending', to: 'passed' }),
+  ev('AC-18', minutesAgo(310), 'dev-1', 'task_link_added', {
+    kind: 'pull_request',
+    ref: '1',
+    repo: 'acme/webshop',
+  }),
+  ev('AC-18', minutesAgo(302), 'code-review', 'task_check_changed', {
+    check: 'code_review',
+    from: 'pending',
+    to: 'passed',
+  }),
   ev('AC-18', minutesAgo(295), 'devops', 'task_note', { text: 'Kint a tesztszerveren: /ajanlo' }),
   ev('AC-18', minutesAgo(280), 'qa', 'task_check_changed', { check: 'qa', from: 'pending', to: 'passed' }),
   ev('AC-18', minutesAgo(279), 'qa', 'task_stage_changed', { from: 'qa', to: 'client_test' }),
@@ -765,16 +953,28 @@ export const timeline: TimelineEvent[] = [
   }),
 
   ev('AC-27', daysAgo(5, 9, 0), 'owner', 'task_created', { title: 'Hírlevél-feliratkozás a láblécben' }),
-  ev('AC-27', daysAgo(1, 16, 0), 'bence', 'task_check_changed', { check: 'client_test', from: 'pending', to: 'passed' }),
+  ev('AC-27', daysAgo(1, 16, 0), 'bence', 'task_check_changed', {
+    check: 'client_test',
+    from: 'pending',
+    to: 'passed',
+  }),
   ev('AC-27', minutesAgo(70), 'bence', 'task_stage_changed', { from: 'client_test', to: 'merge' }),
 
   ev('AC-17', daysAgo(5, 9, 0), 'owner', 'task_created', { title: 'Kártyás fizetés átvételkor' }),
-  ev('AC-17', daysAgo(2, 11, 0), 'be-1', 'task_link_added', { kind: 'pull_request', ref: '11', repo: 'acme/webshop' }),
+  ev('AC-17', daysAgo(2, 11, 0), 'be-1', 'task_link_added', {
+    kind: 'pull_request',
+    ref: '11',
+    repo: 'acme/webshop',
+  }),
   ev('AC-17', daysAgo(2, 12, 0), 'code-review', 'task_note', {
     text: 'Lelet: sikertelen kártyás fizetés után megszűnt a rendelés. Javítva ebben a PR-ban',
   }),
   ev('AC-17', daysAgo(1, 10, 0), 'qa', 'task_check_changed', { check: 'qa', from: 'pending', to: 'passed' }),
-  ev('AC-17', daysAgo(1, 16, 30), 'kata', 'task_check_changed', { check: 'client_test', from: 'pending', to: 'passed' }),
+  ev('AC-17', daysAgo(1, 16, 30), 'kata', 'task_check_changed', {
+    check: 'client_test',
+    from: 'pending',
+    to: 'passed',
+  }),
   ev('AC-17', minutesAgo(160), 'owner', 'task_stage_changed', { from: 'client_test', to: 'merge' }),
   ev('AC-17', minutesAgo(40), 'owner', 'task_note', { text: 'Merge megvolt' }),
   ev('AC-17', minutesAgo(32), 'devops', 'task_updated', {
@@ -784,8 +984,16 @@ export const timeline: TimelineEvent[] = [
 
   ev('AC-28', daysAgo(6, 9, 0), 'owner', 'task_created', { title: 'Szállítási díj kalkulátor a kosárban' }),
   ev('AC-28', daysAgo(1, 13, 0), 'owner', 'task_stage_changed', { from: 'client_test', to: 'merge' }),
-  ev('AC-28', minutesAgo(15), 'owner', 'task_stage_changed', { from: 'merge', to: 'release', approvedBy: ['owner'] }),
-  ev('AC-16', minutesAgo(5 * 60), 'be-1', 'task_link_added', { kind: 'pull_request', ref: '18', repo: 'acme/admin' }),
+  ev('AC-28', minutesAgo(15), 'owner', 'task_stage_changed', {
+    from: 'merge',
+    to: 'release',
+    approvedBy: ['owner'],
+  }),
+  ev('AC-16', minutesAgo(5 * 60), 'be-1', 'task_link_added', {
+    kind: 'pull_request',
+    ref: '18',
+    repo: 'acme/admin',
+  }),
   ev('AC-16', minutesAgo(135), 'owner', 'task_stage_changed', { from: 'merge', to: 'release' }),
   ev('AC-16', minutesAgo(125), 'devops', 'task_note', { text: 'Élesen: release-2026-09-29.2' }),
   ev('AC-16', minutesAgo(125), 'devops', 'task_stage_changed', { from: 'release', to: 'done' }),
@@ -964,11 +1172,20 @@ function assistant(at: string, text: string): ChatItem {
   return { id: chatId(), ts: at, kind: 'assistant_text', text };
 }
 
-function tool(at: string, name: string, summary: string, input: unknown, result?: { ok: boolean; summary: string }): ChatItem[] {
+function tool(
+  at: string,
+  name: string,
+  summary: string,
+  input: unknown,
+  result?: { ok: boolean; summary: string },
+): ChatItem[] {
   const toolUseId = `toolu_${chatSeq + 1}`;
   const call: ChatItem = { id: chatId(), ts: at, kind: 'tool_call', toolUseId, name, summary, input };
   if (!result) return [call];
-  return [call, { id: chatId(), ts: at, kind: 'tool_result', toolUseId, ok: result.ok, summary: result.summary }];
+  return [
+    call,
+    { id: chatId(), ts: at, kind: 'tool_result', toolUseId, ok: result.ok, summary: result.summary },
+  ];
 }
 
 function teamIn(at: string, from: string, to: string[], text: string): ChatItem {
@@ -993,13 +1210,54 @@ export const chats: Record<string, ChatItem[]> = {
       daysAgo(2, 9, 21),
       'Megnézem a meglévő visszaigazoló oldalt és a levélsablonokat, aztán az újat a meglévő `_summary` részletre építem.',
     ),
-    ...tool(daysAgo(2, 9, 22), 'Read', 'templates/order/confirmation.html.twig', { file_path: 'templates/order/confirmation.html.twig' }, { ok: true, summary: '142 sor' }),
-    ...tool(daysAgo(2, 9, 25), 'Grep', 'order_confirmation_email', { pattern: 'order_confirmation_email' }, { ok: true, summary: '6 találat' }),
-    ...tool(daysAgo(2, 10, 5), 'Edit', 'templates/emails/order_confirmation.html.twig', { file_path: 'templates/emails/order_confirmation.html.twig' }, { ok: true, summary: '+96 −12' }),
-    ...tool(minutesAgo(200), 'Bash', 'npm run build', { command: 'npm run build' }, { ok: true, summary: 'rendben · 14 mp' }),
-    ...tool(minutesAgo(199), 'Bash', 'gh pr create --title "Order confirmation page and email"', { command: 'gh pr create' }, { ok: true, summary: 'PR #14' }),
-    ...tool(minutesAgo(198), 'mcp__team__send_message', 'code-review: PR #14 nyitva', { to: ['code-review'] }, { ok: true, summary: 'kézbesítve' }),
-    teamOut(minutesAgo(198), 'fe-1', ['code-review'], 'PR #14 nyitva: rendelés-visszaigazoló oldal és e-mail sablon. Kérlek, nézd át.'),
+    ...tool(
+      daysAgo(2, 9, 22),
+      'Read',
+      'templates/order/confirmation.html.twig',
+      { file_path: 'templates/order/confirmation.html.twig' },
+      { ok: true, summary: '142 sor' },
+    ),
+    ...tool(
+      daysAgo(2, 9, 25),
+      'Grep',
+      'order_confirmation_email',
+      { pattern: 'order_confirmation_email' },
+      { ok: true, summary: '6 találat' },
+    ),
+    ...tool(
+      daysAgo(2, 10, 5),
+      'Edit',
+      'templates/emails/order_confirmation.html.twig',
+      { file_path: 'templates/emails/order_confirmation.html.twig' },
+      { ok: true, summary: '+96 −12' },
+    ),
+    ...tool(
+      minutesAgo(200),
+      'Bash',
+      'npm run build',
+      { command: 'npm run build' },
+      { ok: true, summary: 'rendben · 14 mp' },
+    ),
+    ...tool(
+      minutesAgo(199),
+      'Bash',
+      'gh pr create --title "Order confirmation page and email"',
+      { command: 'gh pr create' },
+      { ok: true, summary: 'PR #14' },
+    ),
+    ...tool(
+      minutesAgo(198),
+      'mcp__team__send_message',
+      'code-review: PR #14 nyitva',
+      { to: ['code-review'] },
+      { ok: true, summary: 'kézbesítve' },
+    ),
+    teamOut(
+      minutesAgo(198),
+      'fe-1',
+      ['code-review'],
+      'PR #14 nyitva: rendelés-visszaigazoló oldal és e-mail sablon. Kérlek, nézd át.',
+    ),
     assistant(minutesAgo(197), 'A PR #14 megnyitva, szóltam a Code review-nak.'),
     note(minutesAgo(183), 'A session pihen, amíg a Code review dolgozik.'),
     teamIn(
@@ -1018,9 +1276,27 @@ export const chats: Record<string, ChatItem[]> = {
       minutesAgo(137),
       'Megnézem. A gombsor fix szélességű, és mobilon nincs töréspontja. Rugalmasra írom, aztán újratesztet kérek a QA-tól.',
     ),
-    ...tool(minutesAgo(136), 'Read', 'templates/order/confirmation.html.twig', { file_path: 'templates/order/confirmation.html.twig' }, { ok: true, summary: '142 sor' }),
-    ...tool(minutesAgo(125), 'Edit', 'assets/css/confirmation.css', { file_path: 'assets/css/confirmation.css' }, { ok: true, summary: '+9 −3' }),
-    ...tool(minutesAgo(112), 'Bash', 'npm run build', { command: 'npm run build' }, { ok: true, summary: 'rendben · 14 mp' }),
+    ...tool(
+      minutesAgo(136),
+      'Read',
+      'templates/order/confirmation.html.twig',
+      { file_path: 'templates/order/confirmation.html.twig' },
+      { ok: true, summary: '142 sor' },
+    ),
+    ...tool(
+      minutesAgo(125),
+      'Edit',
+      'assets/css/confirmation.css',
+      { file_path: 'assets/css/confirmation.css' },
+      { ok: true, summary: '+9 −3' },
+    ),
+    ...tool(
+      minutesAgo(112),
+      'Bash',
+      'npm run build',
+      { command: 'npm run build' },
+      { ok: true, summary: 'rendben · 14 mp' },
+    ),
     ...tool(
       minutesAgo(110),
       'Bash',
@@ -1028,43 +1304,126 @@ export const chats: Record<string, ChatItem[]> = {
       { command: 'git commit -m "Make confirmation actions wrap on mobile"' },
       { ok: true, summary: '4e1c2a9' },
     ),
-    ...tool(minutesAgo(99), 'Bash', 'git push origin 21-order-confirmation', { command: 'git push origin 21-order-confirmation' }),
+    ...tool(minutesAgo(99), 'Bash', 'git push origin 21-order-confirmation', {
+      command: 'git push origin 21-order-confirmation',
+    }),
   ],
   ses_ac20_be1: [
-    user(daysAgo(1, 15, 36), 'Task AC-20: Napi mentés és visszaállítási próba\n\nNapi mentés, heti visszaállítási próba, riasztás.'),
+    user(
+      daysAgo(1, 15, 36),
+      'Task AC-20: Napi mentés és visszaállítási próba\n\nNapi mentés, heti visszaállítási próba, riasztás.',
+    ),
     assistant(daysAgo(1, 15, 38), 'Először a meglévő mentési szkripteket nézem át az infra repóban.'),
-    ...tool(daysAgo(1, 15, 39), 'Glob', 'scripts/**/*.sh', { pattern: 'scripts/**/*.sh' }, { ok: true, summary: '7 fájl' }),
-    ...tool(daysAgo(1, 15, 45), 'Write', 'scripts/backup.sh', { file_path: 'scripts/backup.sh' }, { ok: true, summary: '+64' }),
-    ...tool(minutesAgo(40), 'Write', 'scripts/restore-drill.sh', { file_path: 'scripts/restore-drill.sh' }, { ok: true, summary: '+88' }),
-    assistant(minutesAgo(23), 'A mentési szkript kész. Most a visszaállítás próbáját futtatom egy eldobható adatbázison.'),
-    ...tool(minutesAgo(22), 'Bash', './scripts/restore-drill.sh --dry-run', { command: './scripts/restore-drill.sh --dry-run' }, { ok: true, summary: 'rendben · 41 mp' }),
+    ...tool(
+      daysAgo(1, 15, 39),
+      'Glob',
+      'scripts/**/*.sh',
+      { pattern: 'scripts/**/*.sh' },
+      { ok: true, summary: '7 fájl' },
+    ),
+    ...tool(
+      daysAgo(1, 15, 45),
+      'Write',
+      'scripts/backup.sh',
+      { file_path: 'scripts/backup.sh' },
+      { ok: true, summary: '+64' },
+    ),
+    ...tool(
+      minutesAgo(40),
+      'Write',
+      'scripts/restore-drill.sh',
+      { file_path: 'scripts/restore-drill.sh' },
+      { ok: true, summary: '+88' },
+    ),
+    assistant(
+      minutesAgo(23),
+      'A mentési szkript kész. Most a visszaállítás próbáját futtatom egy eldobható adatbázison.',
+    ),
+    ...tool(
+      minutesAgo(22),
+      'Bash',
+      './scripts/restore-drill.sh --dry-run',
+      { command: './scripts/restore-drill.sh --dry-run' },
+      { ok: true, summary: 'rendben · 41 mp' },
+    ),
     ...tool(minutesAgo(1), 'Bash', './scripts/restore-drill.sh', { command: './scripts/restore-drill.sh' }),
   ],
   ses_ac22_dev1: [
     user(daysAgo(2, 13, 52), 'Task AC-22: Látogatómérés a pénztár oldalon'),
-    assistant(daysAgo(2, 13, 55), 'Két út van: süti nélküli mérés (banner nélkül), vagy GA4 (hozzájárulás kell). Ezt nem nekem kell eldöntenem.'),
-    ...tool(minutesAgo(60), 'mcp__team__ask_human', 'Elég a süti nélküli mérés, vagy kell GA4 is?', { question: 'GA4?' }, { ok: true, summary: 'kérdés a Rád vár listában' }),
-    assistant(minutesAgo(59), 'Feltettem a kérdést. Amíg nem jön válasz, a süti nélküli változatot készítem elő, mert az mindkét esetben kell.'),
+    assistant(
+      daysAgo(2, 13, 55),
+      'Két út van: süti nélküli mérés (banner nélkül), vagy GA4 (hozzájárulás kell). Ezt nem nekem kell eldöntenem.',
+    ),
+    ...tool(
+      minutesAgo(60),
+      'mcp__team__ask_human',
+      'Elég a süti nélküli mérés, vagy kell GA4 is?',
+      { question: 'GA4?' },
+      { ok: true, summary: 'kérdés a Rád vár listában' },
+    ),
+    assistant(
+      minutesAgo(59),
+      'Feltettem a kérdést. Amíg nem jön válasz, a süti nélküli változatot készítem elő, mert az mindkét esetben kell.',
+    ),
   ],
   ses_ac25_cr: [
-    user(minutesAgo(12), '[team message from be-1 about AC-25]\nPR #16 nyitva: PDF-számla a rendelés-visszaigazolóhoz. Kérlek, nézd át.'),
-    ...tool(minutesAgo(11), 'Bash', 'gh pr diff 16', { command: 'gh pr diff 16' }, { ok: true, summary: '9 fájl · +312 −40' }),
+    user(
+      minutesAgo(12),
+      '[team message from be-1 about AC-25]\nPR #16 nyitva: PDF-számla a rendelés-visszaigazolóhoz. Kérlek, nézd át.',
+    ),
+    ...tool(
+      minutesAgo(11),
+      'Bash',
+      'gh pr diff 16',
+      { command: 'gh pr diff 16' },
+      { ok: true, summary: '9 fájl · +312 −40' },
+    ),
     ...tool(minutesAgo(1), 'Read', 'src/Invoice/InvoicePdf.php', { file_path: 'src/Invoice/InvoicePdf.php' }),
   ],
   ses_ac18_qa: [
-    user(minutesAgo(40), '[team message from communication about AC-18]\nKérlek, nézd meg a változatokat mobilon is, mielőtt Kata dönt.'),
-    ...tool(minutesAgo(35), 'mcp__playwright__browser_navigate', 'https://test.acme.test/ajanlo/a', {}, { ok: true, summary: 'betöltve' }),
-    ...tool(minutesAgo(20), 'mcp__playwright__browser_take_screenshot', 'A · 390×844', {}, { ok: true, summary: 'kép mentve' }),
+    user(
+      minutesAgo(40),
+      '[team message from communication about AC-18]\nKérlek, nézd meg a változatokat mobilon is, mielőtt Kata dönt.',
+    ),
+    ...tool(
+      minutesAgo(35),
+      'mcp__playwright__browser_navigate',
+      'https://test.acme.test/ajanlo/a',
+      {},
+      { ok: true, summary: 'betöltve' },
+    ),
+    ...tool(
+      minutesAgo(20),
+      'mcp__playwright__browser_take_screenshot',
+      'A · 390×844',
+      {},
+      { ok: true, summary: 'kép mentve' },
+    ),
     ...tool(minutesAgo(2), 'mcp__playwright__browser_take_screenshot', 'C · 390×844', {}),
   ],
   ses_ac17_devops: [
-    user(minutesAgo(50), '[team message from owner about AC-17]\nKészítsd elő a kiadást, de csak a jóváhagyásom után menjen ki.'),
-    ...tool(minutesAgo(45), 'Bash', 'git log --oneline main -5', { command: 'git log --oneline main -5' }, { ok: true, summary: '5 commit' }),
-    assistant(minutesAgo(32), 'Kiadási terv kész: release-2026-09-30.1, benne a PR #11. Élesbe csak a jóváhagyásod után megy.'),
+    user(
+      minutesAgo(50),
+      '[team message from owner about AC-17]\nKészítsd elő a kiadást, de csak a jóváhagyásom után menjen ki.',
+    ),
+    ...tool(
+      minutesAgo(45),
+      'Bash',
+      'git log --oneline main -5',
+      { command: 'git log --oneline main -5' },
+      { ok: true, summary: '5 commit' },
+    ),
+    assistant(
+      minutesAgo(32),
+      'Kiadási terv kész: release-2026-09-30.1, benne a PR #11. Élesbe csak a jóváhagyásod után megy.',
+    ),
   ],
   ses_gen_comm: [
     user(minutesAgo(90), 'Írj egy rövid levelet Katának a tesztszerver havi költségéről.'),
-    assistant(minutesAgo(80), 'Vázlatot írtam, és jóváhagyásra a Rád vár listába tettem. Pénzről szól, ezért e-mailben megy, nem a feladatok közé.'),
+    assistant(
+      minutesAgo(80),
+      'Vázlatot írtam, és jóváhagyásra a Rád vár listába tettem. Pénzről szól, ezért e-mailben megy, nem a feladatok közé.',
+    ),
   ],
 };
 
@@ -1083,7 +1442,10 @@ export const inbox: InboxItem[] = [
     body: null,
     payload: {
       toolName: 'Bash',
-      toolInput: { command: 'git push origin 21-order-confirmation', description: 'Push the fix to the PR branch' },
+      toolInput: {
+        command: 'git push origin 21-order-confirmation',
+        description: 'Push the fix to the PR branch',
+      },
       summary: 'git push origin 21-order-confirmation',
     },
     options: PERMISSION_OPTIONS,
@@ -1159,7 +1521,10 @@ export const inbox: InboxItem[] = [
     taskKey: 'AC-22',
     title: 'Elég a süti nélküli látogatómérés, vagy kell GA4 is?',
     body: 'A süti nélküli mérés banner nélkül működik, a GA4-hez hozzájárulás kell.',
-    payload: { question: 'Elég a süti nélküli látogatómérés, vagy kell GA4 is?', options: ['Elég a süti nélküli', 'Kell GA4 is'] },
+    payload: {
+      question: 'Elég a süti nélküli látogatómérés, vagy kell GA4 is?',
+      options: ['Elég a süti nélküli', 'Kell GA4 is'],
+    },
     options: [
       { id: 'option_1', label: 'Elég a süti nélküli', style: 'primary' },
       { id: 'option_2', label: 'Kell GA4 is', style: 'secondary' },
@@ -1236,18 +1601,88 @@ export const inbox: InboxItem[] = [
 
 /* ---------- team messages ---------- */
 
-function msg(id: string, at: string, from: string, to: string[], taskKey: string | null, body: string): TeamMessage {
+function msg(
+  id: string,
+  at: string,
+  from: string,
+  to: string[],
+  taskKey: string | null,
+  body: string,
+): TeamMessage {
   return { id, projectKey: PROJECT_KEY, from, to, taskKey, body, createdAt: at, deliveredAt: at };
 }
 
 export const teamMessages: TeamMessage[] = [
-  msg('msg_09', minutesAgo(250), 'communication', ['kata'], 'AC-18', 'Kérdés: melyik változat menjen tovább, az A, a B vagy a C? Mindhárom kint van a tesztszerveren: /ajanlo.'),
-  msg('msg_08', daysAgo(1, 15, 52), 'communication', ['kata', 'bence'], 'AC-19', 'Tesztkérés: nyissatok meg egy régi termékoldal-linket. Az átirányításnak a megfelelő új termékoldalra kell vinnie.'),
-  msg('msg_07', minutesAgo(198), 'fe-1', ['code-review'], 'AC-21', 'PR #14 nyitva: rendelés-visszaigazoló oldal és e-mail sablon. Kérlek, nézd át.'),
-  msg('msg_06', minutesAgo(182), 'code-review', ['fe-1', 'devops'], 'AC-21', 'Nem blokkol, mehet integrationre. 2 megjegyzés: OrderController.php:88, confirmation.html.twig:41.'),
-  msg('msg_05', minutesAgo(175), 'devops', ['qa'], 'AC-21', 'A PR #14 kint van az integrationön, mehet a teszt.'),
-  msg('msg_04', minutesAgo(138), 'qa', ['fe-1'], 'AC-21', '5/6 rendben. Hiba: 390 px-en kilóg a gombsor. Képernyőkép csatolva.'),
-  msg('msg_03', minutesAgo(137), 'fe-1', ['qa'], 'AC-21', 'Megvan, javítom. A javítást előbb a Code review nézi át, utána jöhet az újrateszt.'),
-  msg('msg_02', minutesAgo(32), 'devops', ['owner'], 'AC-17', 'Kiadási terv kész: release-2026-09-30.1, benne a PR #11. Kiadhatom?'),
-  msg('msg_01', minutesAgo(18), 'code-review', ['owner'], null, 'Egy külső hozzájáruló PR-jában 1 blokkoló lelet van a hozzáférés-szabályokban. A PR-komment a döntésedre vár.'),
+  msg(
+    'msg_09',
+    minutesAgo(250),
+    'communication',
+    ['kata'],
+    'AC-18',
+    'Kérdés: melyik változat menjen tovább, az A, a B vagy a C? Mindhárom kint van a tesztszerveren: /ajanlo.',
+  ),
+  msg(
+    'msg_08',
+    daysAgo(1, 15, 52),
+    'communication',
+    ['kata', 'bence'],
+    'AC-19',
+    'Tesztkérés: nyissatok meg egy régi termékoldal-linket. Az átirányításnak a megfelelő új termékoldalra kell vinnie.',
+  ),
+  msg(
+    'msg_07',
+    minutesAgo(198),
+    'fe-1',
+    ['code-review'],
+    'AC-21',
+    'PR #14 nyitva: rendelés-visszaigazoló oldal és e-mail sablon. Kérlek, nézd át.',
+  ),
+  msg(
+    'msg_06',
+    minutesAgo(182),
+    'code-review',
+    ['fe-1', 'devops'],
+    'AC-21',
+    'Nem blokkol, mehet integrationre. 2 megjegyzés: OrderController.php:88, confirmation.html.twig:41.',
+  ),
+  msg(
+    'msg_05',
+    minutesAgo(175),
+    'devops',
+    ['qa'],
+    'AC-21',
+    'A PR #14 kint van az integrationön, mehet a teszt.',
+  ),
+  msg(
+    'msg_04',
+    minutesAgo(138),
+    'qa',
+    ['fe-1'],
+    'AC-21',
+    '5/6 rendben. Hiba: 390 px-en kilóg a gombsor. Képernyőkép csatolva.',
+  ),
+  msg(
+    'msg_03',
+    minutesAgo(137),
+    'fe-1',
+    ['qa'],
+    'AC-21',
+    'Megvan, javítom. A javítást előbb a Code review nézi át, utána jöhet az újrateszt.',
+  ),
+  msg(
+    'msg_02',
+    minutesAgo(32),
+    'devops',
+    ['owner'],
+    'AC-17',
+    'Kiadási terv kész: release-2026-09-30.1, benne a PR #11. Kiadhatom?',
+  ),
+  msg(
+    'msg_01',
+    minutesAgo(18),
+    'code-review',
+    ['owner'],
+    null,
+    'Egy külső hozzájáruló PR-jában 1 blokkoló lelet van a hozzáférés-szabályokban. A PR-komment a döntésedre vár.',
+  ),
 ];

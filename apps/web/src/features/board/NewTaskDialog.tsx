@@ -86,7 +86,11 @@ function NewTaskForm({ formId, onDone }: { formId: string; onDone: () => void })
         optional
       />
       <div className={styles.row}>
-        <SelectField label={t('newTask.fields.repo')} value={repo} onChange={(event) => setRepo(event.target.value)}>
+        <SelectField
+          label={t('newTask.fields.repo')}
+          value={repo}
+          onChange={(event) => setRepo(event.target.value)}
+        >
           <option value="">{t('newTask.fields.repoRoot')}</option>
           {repos.map((entry) => (
             <option key={entry.name} value={entry.name}>

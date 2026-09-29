@@ -37,7 +37,10 @@ function Column({
   const kind = columnKind(pipeline, column);
   const headingId = `col-${column.id}`;
   return (
-    <section className={clsx(styles.column, kind === 'done' && styles.columnDone)} aria-labelledby={headingId}>
+    <section
+      className={clsx(styles.column, kind === 'done' && styles.columnDone)}
+      aria-labelledby={headingId}
+    >
       <div className={styles.columnHead}>
         <div className={styles.columnTitle}>
           <span className={styles.columnDot} data-stage-kind={kind} aria-hidden="true" />
@@ -80,7 +83,10 @@ export function BoardPage() {
     () => (model ? model.entries.filter((entry) => matchesSearch(entry.task, search)) : []),
     [model, search],
   );
-  const visible = useMemo(() => searched.filter((entry) => matchesFilter(entry.state.phase, filter)), [searched, filter]);
+  const visible = useMemo(
+    () => searched.filter((entry) => matchesFilter(entry.state.phase, filter)),
+    [searched, filter],
+  );
 
   if (board.isPending) return <LoadingState />;
   if (board.isError) return <ErrorState error={board.error} onRetry={() => void board.refetch()} />;
@@ -110,11 +116,15 @@ export function BoardPage() {
 
   return (
     <div className={styles.page}>
-      {isMobile ? null : <TeamStrip members={board.data.members} inbox={inbox.data?.items} activeTaskCount={activeCount} />}
+      {isMobile ? null : (
+        <TeamStrip members={board.data.members} inbox={inbox.data?.items} activeTaskCount={activeCount} />
+      )}
       <div className={styles.header}>
         <div className={styles.titles}>
           <h1 className={styles.title}>{t('board.title')}</h1>
-          <span className={styles.subtitle}>{t('board.subtitle', { count: total, active: activeCount })}</span>
+          <span className={styles.subtitle}>
+            {t('board.subtitle', { count: total, active: activeCount })}
+          </span>
         </div>
         <span className={styles.spacer} />
         {filters}
@@ -135,7 +145,9 @@ export function BoardPage() {
             const ids = new Set(column.stageIds);
             const entries = sortEntries(
               visible.filter(
-                (entry) => ids.has(entry.task.stageId) || pipeline.columnOfStage.get(entry.task.stageId)?.id === column.id,
+                (entry) =>
+                  ids.has(entry.task.stageId) ||
+                  pipeline.columnOfStage.get(entry.task.stageId)?.id === column.id,
               ),
             );
             return (

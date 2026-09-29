@@ -11,7 +11,15 @@ import { formatStamp, formatTime } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
 import { groupChatItems, toolPresentation } from '../../lib/chat';
 import type { ChatBlock, ToolRow } from '../../lib/chat';
-import { inboxHeading, isPositiveResolution, optionLabel, payloadCode, permissionCommand, resolutionLabel, shortCommand } from '../../lib/inbox';
+import {
+  inboxHeading,
+  isPositiveResolution,
+  optionLabel,
+  payloadCode,
+  permissionCommand,
+  resolutionLabel,
+  shortCommand,
+} from '../../lib/inbox';
 import { nameOf, namesOf, toneFor } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
@@ -57,7 +65,12 @@ function CollapsibleText({ text }: { text: string }) {
   return (
     <div className={styles.collapsible}>
       <Markdown text={open ? text : `${text.slice(0, LONG_TEXT).trimEnd()}…`} />
-      <button type="button" className={styles.more} onClick={() => setOpen((value) => !value)} aria-expanded={open}>
+      <button
+        type="button"
+        className={styles.more}
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+      >
         {open ? t('session.chat.showLess') : t('session.chat.showMore')}
       </button>
     </div>
@@ -81,10 +94,19 @@ function ToolRows({ rows, awaitingId }: { rows: ToolRow[]; awaitingId: string | 
             </span>
             {result ? (
               <span className={clsx(styles.toolResult, !result.ok && styles.toolFailed)}>
-                {result.ok ? result.summary : result.summary ? `${t('session.chat.toolFailed')} · ${result.summary}` : t('session.chat.toolFailed')}
+                {result.ok
+                  ? result.summary
+                  : result.summary
+                    ? `${t('session.chat.toolFailed')} · ${result.summary}`
+                    : t('session.chat.toolFailed')}
               </span>
             ) : (
-              <span className={clsx(styles.toolResult, row.id === awaitingId ? styles.toolAwaiting : styles.toolRunning)}>
+              <span
+                className={clsx(
+                  styles.toolResult,
+                  row.id === awaitingId ? styles.toolAwaiting : styles.toolRunning,
+                )}
+              >
                 {row.id === awaitingId ? t('session.chat.toolAwaiting') : t('session.chat.toolRunning')}
               </span>
             )}
@@ -148,7 +170,8 @@ function renderBlock(block: ChatBlock, props: ChatViewProps, awaitingId: string 
           <Avatar member={member} handle={sessionMember} size="md" />
           <div className={styles.assistantBody}>
             <span className={styles.meta}>
-              <span className={styles.author}>{nameOf(sessionMember, members, myHandle)}</span> · {formatStamp(block.ts)}
+              <span className={styles.author}>{nameOf(sessionMember, members, myHandle)}</span> ·{' '}
+              {formatStamp(block.ts)}
             </span>
             <CollapsibleText text={block.item.text} />
           </div>
@@ -210,7 +233,18 @@ function renderBlock(block: ChatBlock, props: ChatViewProps, awaitingId: string 
 
 /** Renders every chat item kind of a session, with inline permission prompts. */
 export function ChatView(props: ChatViewProps) {
-  const { items, sessionMember, members, myHandle, pipeline = null, openItems = [], resolvedItems = [], onResolve, resolvingId = null, pending = [] } = props;
+  const {
+    items,
+    sessionMember,
+    members,
+    myHandle,
+    pipeline = null,
+    openItems = [],
+    resolvedItems = [],
+    onResolve,
+    resolvingId = null,
+    pending = [],
+  } = props;
   const blocks = groupChatItems(items, sessionMember);
   const lastPending = props.awaitingPermission
     ? [...blocks]
@@ -233,7 +267,10 @@ export function ChatView(props: ChatViewProps) {
       ts: item.resolution.at,
       order: blocks.length + index,
       node: (
-        <p key={`decision-${item.id}`} className={clsx(styles.decision, positive ? styles.decisionOk : styles.decisionNo)}>
+        <p
+          key={`decision-${item.id}`}
+          className={clsx(styles.decision, positive ? styles.decisionOk : styles.decisionNo)}
+        >
           <span className={styles.decisionIcon} aria-hidden="true">
             <Icon name={positive ? 'check' : 'close'} size={11} strokeWidth={3.2} />
           </span>

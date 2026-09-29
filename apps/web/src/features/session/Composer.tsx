@@ -67,7 +67,13 @@ export function Composer({ onSend, autoFocus = false, disabled = false }: Compos
         <span id={`${id}-hint`} className={styles.hint}>
           {t('session.composer.hint')}
         </span>
-        <Button type="submit" variant="primary" size="md" iconRight="send" disabled={disabled || !text.trim()}>
+        <Button
+          type="submit"
+          variant="primary"
+          size="md"
+          iconRight="send"
+          disabled={disabled || !text.trim()}
+        >
           {t('common.send')}
         </Button>
       </div>

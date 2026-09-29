@@ -20,16 +20,40 @@ interface DialogProps {
  * Modal dialog on the native <dialog> element (focus trap, Esc, top layer). Content is
  * mounted only while open, so forms start fresh every time.
  */
-export function Dialog({ open, onClose, title, description, children, footer, size = 'md', className }: DialogProps) {
+export function Dialog({
+  open,
+  onClose,
+  title,
+  description,
+  children,
+  footer,
+  size = 'md',
+  className,
+}: DialogProps) {
   if (!open) return null;
   return (
-    <DialogInner onClose={onClose} title={title} description={description} footer={footer} size={size} className={className}>
+    <DialogInner
+      onClose={onClose}
+      title={title}
+      description={description}
+      footer={footer}
+      size={size}
+      className={className}
+    >
       {children}
     </DialogInner>
   );
 }
 
-function DialogInner({ onClose, title, description, children, footer, size = 'md', className }: Omit<DialogProps, 'open'>) {
+function DialogInner({
+  onClose,
+  title,
+  description,
+  children,
+  footer,
+  size = 'md',
+  className,
+}: Omit<DialogProps, 'open'>) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const descriptionId = useId();
@@ -80,7 +104,12 @@ function DialogInner({ onClose, title, description, children, footer, size = 'md
               </p>
             ) : null}
           </div>
-          <button type="button" className={styles.close} onClick={() => onCloseRef.current()} aria-label={t('common.close')}>
+          <button
+            type="button"
+            className={styles.close}
+            onClick={() => onCloseRef.current()}
+            aria-label={t('common.close')}
+          >
             <Icon name="close" size={18} strokeWidth={2} />
           </button>
         </header>

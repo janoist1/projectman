@@ -36,10 +36,26 @@ function useNavItems(inboxCount: number): { main: NavItem[]; settings: NavItem }
     main: [
       { to: base, icon: 'board', label: t('nav.board'), active: boardActive },
       { to: `${base}/team`, icon: 'team', label: t('nav.team'), active: under(`${base}/team`) },
-      { to: `${base}/inbox`, icon: 'inbox', label: t('nav.inbox'), active: under(`${base}/inbox`), badge: inboxCount },
-      { to: `${base}/messages`, icon: 'messages', label: t('nav.messages'), active: under(`${base}/messages`) },
+      {
+        to: `${base}/inbox`,
+        icon: 'inbox',
+        label: t('nav.inbox'),
+        active: under(`${base}/inbox`),
+        badge: inboxCount,
+      },
+      {
+        to: `${base}/messages`,
+        icon: 'messages',
+        label: t('nav.messages'),
+        active: under(`${base}/messages`),
+      },
     ],
-    settings: { to: `${base}/settings`, icon: 'settings', label: t('nav.settings'), active: under(`${base}/settings`) },
+    settings: {
+      to: `${base}/settings`,
+      icon: 'settings',
+      label: t('nav.settings'),
+      active: under(`${base}/settings`),
+    },
   };
 }
 
@@ -129,7 +145,11 @@ function InboxPill({ count, compact = false }: { count: number; compact?: boolea
   return (
     <Link
       to={`/p/${key}/inbox`}
-      className={clsx(styles.inboxPill, compact && styles.inboxPillCompact, count === 0 && styles.inboxPillQuiet)}
+      className={clsx(
+        styles.inboxPill,
+        compact && styles.inboxPillCompact,
+        count === 0 && styles.inboxPillQuiet,
+      )}
       aria-label={t('topbar.inboxPillLabel', { count })}
     >
       {compact ? null : <Icon name="bell" size={18} strokeWidth={2} />}
@@ -185,7 +205,12 @@ function SearchBox() {
         }}
       />
       {search ? (
-        <button type="button" className={styles.searchClear} onClick={() => setSearch('')} aria-label={t('topbar.searchClear')}>
+        <button
+          type="button"
+          className={styles.searchClear}
+          onClick={() => setSearch('')}
+          aria-label={t('topbar.searchClear')}
+        >
           <Icon name="close" size={14} strokeWidth={2.2} />
         </button>
       ) : (
@@ -199,7 +224,9 @@ function SearchBox() {
 
 function Presence({ board, members }: { board: BoardView | undefined; members: MemberIndex }) {
   const { myHandle } = useProject();
-  const online = (board?.members ?? []).filter((member) => member.kind === 'human' && member.status === 'online');
+  const online = (board?.members ?? []).filter(
+    (member) => member.kind === 'human' && member.status === 'online',
+  );
   if (online.length === 0) return null;
   const names = joinNames(online.map((member) => nameOf(member.handle, members, myHandle)));
   return (
@@ -207,7 +234,11 @@ function Presence({ board, members }: { board: BoardView | undefined; members: M
       <AvatarStack
         size="md"
         label={t('topbar.presence', { names })}
-        members={online.map((member) => ({ member, handle: member.handle, isMe: member.handle === myHandle }))}
+        members={online.map((member) => ({
+          member,
+          handle: member.handle,
+          isMe: member.handle === myHandle,
+        }))}
       />
     </span>
   );
@@ -258,7 +289,14 @@ export function MobileHeader({ board, inboxCount }: { board: BoardView | undefin
       <span className={styles.spacer} />
       <InboxPill count={inboxCount} compact />
       {can.createTasks ? (
-        <Button variant="primary" size="md" iconOnly icon="plus" onClick={openNewTask} aria-label={t('topbar.newTask')} />
+        <Button
+          variant="primary"
+          size="md"
+          iconOnly
+          icon="plus"
+          onClick={openNewTask}
+          aria-label={t('topbar.newTask')}
+        />
       ) : null}
       <AccountMenu settingsPath={`/p/${key}/settings`} placement="below" />
     </header>
@@ -277,7 +315,12 @@ export function ConnectionBanner() {
     const timer = setTimeout(() => setSlow(true), 2500);
     return () => clearTimeout(timer);
   }, [status]);
-  const text = status === 'reconnecting' ? t('connection.reconnecting') : status === 'connecting' && slow ? t('connection.connecting') : null;
+  const text =
+    status === 'reconnecting'
+      ? t('connection.reconnecting')
+      : status === 'connecting' && slow
+        ? t('connection.connecting')
+        : null;
   if (!text) return null;
   return (
     <div className={styles.banner} role="status">

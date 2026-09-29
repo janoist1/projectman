@@ -60,7 +60,10 @@ function ok(body?: unknown): MockResponse {
   return body === undefined ? { status: 204 } : { status: 200, body };
 }
 
-function parseBody<T>(schema: { safeParse(data: unknown): { success: true; data: T } | { success: false } }, body: unknown): T | null {
+function parseBody<T>(
+  schema: { safeParse(data: unknown): { success: true; data: T } | { success: false } },
+  body: unknown,
+): T | null {
   const result = schema.safeParse(body ?? {});
   return result.success ? result.data : null;
 }
@@ -239,7 +242,13 @@ export class MockBackend {
     return { id: mockId('chat'), ts: nowIso(), kind, ...fields } as unknown as Extract<ChatItem, { kind: K }>;
   }
 
-  sendTeamMessage(from: string, to: string[], taskKey: string | null, body: string, sessionId?: string): TeamMessage {
+  sendTeamMessage(
+    from: string,
+    to: string[],
+    taskKey: string | null,
+    body: string,
+    sessionId?: string,
+  ): TeamMessage {
     const message: TeamMessage = {
       id: mockId('msg'),
       projectKey: fixtures.PROJECT_KEY,
@@ -253,14 +262,21 @@ export class MockBackend {
     this.messages.push(message);
     this.emit({ type: 'team_message', projectKey: message.projectKey, message: clone(message) });
     if (taskKey) {
-      this.addTimeline(taskKey, from, 'team_message', {
-        messageId: message.id,
+      this.addTimeline(
+        taskKey,
         from,
-        to,
-        excerpt: body.length > 80 ? `${body.slice(0, 77)}…` : body,
-      }, sessionId ?? null);
+        'team_message',
+        {
+          messageId: message.id,
+          from,
+          to,
+          excerpt: body.length > 80 ? `${body.slice(0, 77)}…` : body,
+        },
+        sessionId ?? null,
+      );
     }
-    if (sessionId) this.appendChat(sessionId, [this.chatItem('team_message', { direction: 'out', from, to, text: body })]);
+    if (sessionId)
+      this.appendChat(sessionId, [this.chatItem('team_message', { direction: 'out', from, to, text: body })]);
     return message;
   }
 
@@ -288,7 +304,9 @@ export class MockBackend {
       stages: clone(stages),
       tasks: clone(this.tasks),
       members: clone(this.members.filter((member) => member.status !== 'retired')),
-      openInboxCount: this.inbox.filter((item) => item.state === 'open' && item.assignees.includes(this.owner)).length,
+      openInboxCount: this.inbox.filter(
+        (item) => item.state === 'open' && item.assignees.includes(this.owner),
+      ).length,
       planUsage: { ...this.planUsage, fetchedAt: nowIso() },
     };
   }
@@ -306,7 +324,8 @@ export class MockBackend {
     }
     if (path === '/api/auth/login' && method === 'POST') {
       const input = parseBody(LoginRequest, body);
-      if (!input || input.password.length < 3) return error(401, 'invalid_credentials', 'Invalid email or password');
+      if (!input || input.password.length < 3)
+        return error(401, 'invalid_credentials', 'Invalid email or password');
       this.auth = 'ready';
       return ok(this.me());
     }
@@ -326,7 +345,12 @@ export class MockBackend {
           return error(409, 'conflict', 'Project key already exists');
         }
         this.extraProjects.push({ key: input.key, name: input.name, templateId: input.templateId });
-        return ok({ key: input.key, name: input.name, templateId: input.templateId, configVersion: '0000000' });
+        return ok({
+          key: input.key,
+          name: input.name,
+          templateId: input.templateId,
+          configVersion: '0000000',
+        });
       }
       return ok([
         { ...fixtures.projectSummary, configVersion: this.configVersion },
@@ -348,7 +372,8 @@ export class MockBackend {
 
   private handleProject(method: string, rest: string, body: unknown): MockResponse {
     let m: RegExpExecArray | null;
-    if (rest === '' && method === 'GET') return ok({ ...fixtures.projectSummary, configVersion: this.configVersion });
+    if (rest === '' && method === 'GET')
+      return ok({ ...fixtures.projectSummary, configVersion: this.configVersion });
     if (rest === '/board') return ok(this.board());
 
     if (rest === '/tasks') {
@@ -366,7 +391,9 @@ export class MockBackend {
       return ok({
         task: clone(task),
         timeline: clone(this.timeline.filter((event) => event.taskKey === task.key)),
-        sessions: clone(this.sessions.filter((s) => s.workItem.type === 'task' && s.workItem.taskKey === task.key)),
+        sessions: clone(
+          this.sessions.filter((s) => s.workItem.type === 'task' && s.workItem.taskKey === task.key),
+        ),
       });
     }
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/start$/.exec(rest)) && method === 'POST') {
@@ -383,14 +410,20 @@ export class MockBackend {
       const session = this.findSession(m[1]!);
       if (!session) return error(404, 'not_found', 'Unknown session');
       const task = session.workItem.type === 'task' ? this.findTask(session.workItem.taskKey) : undefined;
-      return ok({ session: clone(session), chat: clone(this.chats[session.id] ?? []), task: task ? clone(task) : null });
+      return ok({
+        session: clone(session),
+        chat: clone(this.chats[session.id] ?? []),
+        task: task ? clone(task) : null,
+      });
     }
-    if ((m = /^\/sessions\/([\w-]+)\/messages$/.exec(rest)) && method === 'POST') return this.sessionMessage(m[1]!, body);
+    if ((m = /^\/sessions\/([\w-]+)\/messages$/.exec(rest)) && method === 'POST')
+      return this.sessionMessage(m[1]!, body);
     if ((m = /^\/sessions\/([\w-]+)\/stop$/.exec(rest)) && method === 'POST') return this.stopSession(m[1]!);
 
     if (rest === '/messages') return ok({ messages: clone(this.messages) });
     if (rest === '/inbox') return ok({ items: clone(this.inbox) });
-    if ((m = /^\/inbox\/([\w-]+)\/resolve$/.exec(rest)) && method === 'POST') return this.resolve(m[1]!, body);
+    if ((m = /^\/inbox\/([\w-]+)\/resolve$/.exec(rest)) && method === 'POST')
+      return this.resolve(m[1]!, body);
 
     if (rest === '/config') {
       return ok({ config: clone(this.config), version: this.configVersion, history: clone(this.history) });
@@ -484,18 +517,27 @@ export class MockBackend {
       ]);
     });
     this.later(2600, () => {
-      const call = this.chatItem('tool_call', { toolUseId: mockId('toolu'), name: 'Read', summary: 'README.md', input: {} });
+      const call = this.chatItem('tool_call', {
+        toolUseId: mockId('toolu'),
+        name: 'Read',
+        summary: 'README.md',
+        input: {},
+      });
       this.appendChat(session.id, [call]);
       this.later(700, () => {
         if (call.kind !== 'tool_call') return;
-        this.appendChat(session.id, [this.chatItem('tool_result', { toolUseId: call.toolUseId, ok: true, summary: '88 sor' })]);
+        this.appendChat(session.id, [
+          this.chatItem('tool_result', { toolUseId: call.toolUseId, ok: true, summary: '88 sor' }),
+        ]);
         this.setMemberState(assignee, 'working', `Olvassa: ${task.key}`);
       });
     });
     return ok({
       task: clone(task),
       timeline: clone(this.timeline.filter((event) => event.taskKey === task.key)),
-      sessions: clone(this.sessions.filter((s) => s.workItem.type === 'task' && s.workItem.taskKey === task.key)),
+      sessions: clone(
+        this.sessions.filter((s) => s.workItem.type === 'task' && s.workItem.taskKey === task.key),
+      ),
     });
   }
 
@@ -590,7 +632,13 @@ export class MockBackend {
     this.updateSession(sessionId, { state: 'exited', activity: null, endedAt: nowIso() });
     this.appendChat(sessionId, [this.chatItem('system_note', { text: 'A session leállt.' })]);
     if (session.workItem.type === 'task') {
-      this.addTimeline(session.workItem.taskKey, session.member, 'session_ended', { member: session.member, exitCode: 0 }, sessionId);
+      this.addTimeline(
+        session.workItem.taskKey,
+        session.member,
+        'session_ended',
+        { member: session.member, exitCode: 0 },
+        sessionId,
+      );
     }
     this.setMemberState(session.member, 'idle', null);
     return ok();
@@ -624,14 +672,22 @@ export class MockBackend {
     if (item.kind === 'permission') {
       const allowed = input.optionId !== 'deny';
       if (item.taskKey) {
-        this.addTimeline(item.taskKey, this.owner, 'permission_resolved', {
-          inboxItemId: item.id,
-          decision: allowed ? 'allow' : 'deny',
-        }, sessionId);
+        this.addTimeline(
+          item.taskKey,
+          this.owner,
+          'permission_resolved',
+          {
+            inboxItemId: item.id,
+            decision: allowed ? 'allow' : 'deny',
+          },
+          sessionId,
+        );
       }
       if (!sessionId) return;
       const chat = this.chats[sessionId] ?? [];
-      const answered = new Set(chat.flatMap((entry) => (entry.kind === 'tool_result' ? [entry.toolUseId] : [])));
+      const answered = new Set(
+        chat.flatMap((entry) => (entry.kind === 'tool_result' ? [entry.toolUseId] : [])),
+      );
       const pending = [...chat]
         .reverse()
         .find((entry) => entry.kind === 'tool_call' && !answered.has(entry.toolUseId));
@@ -645,7 +701,11 @@ export class MockBackend {
         ]);
       }
       if (!allowed) {
-        this.appendChat(sessionId, [this.chatItem('assistant_text', { text: 'Rendben, ezt nem futtatom. Írd meg, mi legyen helyette.' })]);
+        this.appendChat(sessionId, [
+          this.chatItem('assistant_text', {
+            text: 'Rendben, ezt nem futtatom. Írd meg, mi legyen helyette.',
+          }),
+        ]);
         this.updateSession(sessionId, { state: 'idle', activity: null });
         this.setMemberState(source, 'idle', 'Válaszra vár');
         return;
@@ -654,7 +714,9 @@ export class MockBackend {
         this.updateSession(sessionId, { state: 'working', activity: null });
         this.setMemberState(source, 'working', 'Folytatja');
         this.later(1200, () => {
-          this.appendChat(sessionId, [this.chatItem('assistant_text', { text: 'Lefutott, folytatom a munkát.' })]);
+          this.appendChat(sessionId, [
+            this.chatItem('assistant_text', { text: 'Lefutott, folytatom a munkát.' }),
+          ]);
         });
         return;
       }
@@ -676,8 +738,17 @@ export class MockBackend {
         if (item.taskKey) {
           const task = this.findTask(item.taskKey);
           if (task) {
-            this.updateTask(task.key, { stageId: 'code_review', checks: { ...task.checks, code_review: 'pending' } });
-            this.addTimeline(task.key, source, 'task_stage_changed', { from: 'qa', to: 'code_review' }, sessionId);
+            this.updateTask(task.key, {
+              stageId: 'code_review',
+              checks: { ...task.checks, code_review: 'pending' },
+            });
+            this.addTimeline(
+              task.key,
+              source,
+              'task_stage_changed',
+              { from: 'qa', to: 'code_review' },
+              sessionId,
+            );
           }
         }
         this.updateSession(sessionId, { state: 'idle', activity: null });
@@ -691,15 +762,25 @@ export class MockBackend {
       const answer =
         input.note ?? item.options.find((option) => option.id === input.optionId)?.label ?? input.optionId;
       if (item.taskKey) {
-        this.addTimeline(item.taskKey, this.owner, 'question_answered', { inboxItemId: item.id, answer }, sessionId);
+        this.addTimeline(
+          item.taskKey,
+          this.owner,
+          'question_answered',
+          { inboxItemId: item.id, answer },
+          sessionId,
+        );
       }
       this.sendTeamMessage(this.owner, [source], item.taskKey, answer);
       if (!sessionId) return;
-      this.appendChat(sessionId, [this.chatItem('team_message', { direction: 'in', from: this.owner, to: [source], text: answer })]);
+      this.appendChat(sessionId, [
+        this.chatItem('team_message', { direction: 'in', from: this.owner, to: [source], text: answer }),
+      ]);
       this.updateSession(sessionId, { state: 'working', activity: null });
       this.setMemberState(source, 'working', 'Folytatja a válasz alapján');
       this.later(1800, () => {
-        this.appendChat(sessionId, [this.chatItem('assistant_text', { text: 'Köszönöm, ennek megfelelően folytatom.' })]);
+        this.appendChat(sessionId, [
+          this.chatItem('assistant_text', { text: 'Köszönöm, ennek megfelelően folytatom.' }),
+        ]);
         this.updateSession(sessionId, { state: 'idle', activity: null });
         this.setMemberState(source, 'idle', null);
       });
@@ -707,7 +788,8 @@ export class MockBackend {
     }
 
     const approved = input.optionId === 'approve';
-    const gate = item.payload.gate as { requestId?: string; fromStageId?: string; toStageId?: string } | undefined;
+    const gate = item.payload.gate as
+      { requestId?: string; fromStageId?: string; toStageId?: string } | undefined;
     if (item.kind === 'decision' && gate?.toStageId && item.taskKey) {
       const task = this.findTask(item.taskKey);
       if (!task) return;
@@ -733,7 +815,12 @@ export class MockBackend {
         this.updateTask(task.key, { stageId: 'done', status: 'done', closedAt: nowIso() });
         this.addTimeline(task.key, source, 'task_note', { text: 'Élesen: release-2026-09-30.1' });
         this.addTimeline(task.key, source, 'task_stage_changed', { from: 'release', to: 'done' });
-        this.sendTeamMessage(source, [this.owner], task.key, 'Kint van élesben: release-2026-09-30.1. A naplóban nincs hiba.');
+        this.sendTeamMessage(
+          source,
+          [this.owner],
+          task.key,
+          'Kint van élesben: release-2026-09-30.1. A naplóban nincs hiba.',
+        );
         this.setMemberState(source, 'idle', null);
       });
       return;

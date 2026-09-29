@@ -18,7 +18,15 @@ interface RetireDialogProps {
   onClose: () => void;
 }
 
-function RetireForm({ member, candidates, onDone }: { member: MemberView; candidates: readonly MemberView[]; onDone: () => void }) {
+function RetireForm({
+  member,
+  candidates,
+  onDone,
+}: {
+  member: MemberView;
+  candidates: readonly MemberView[];
+  onDone: () => void;
+}) {
   const { key } = useProject();
   const retire = useRetireMember(key);
   const toast = useToast();
@@ -44,7 +52,13 @@ function RetireForm({ member, candidates, onDone }: { member: MemberView; candid
             leading={<Avatar member={candidate} size="md" />}
           />
         ))}
-        <ChoiceCard name="handover" value="" checked={target === ''} onChange={setTarget} title={t('retire.nobody')} />
+        <ChoiceCard
+          name="handover"
+          value=""
+          checked={target === ''}
+          onChange={setTarget}
+          title={t('retire.nobody')}
+        />
       </fieldset>
       {retire.isError ? (
         <p className={styles.error} role="alert">
@@ -81,7 +95,12 @@ function RetireForm({ member, candidates, onDone }: { member: MemberView; candid
 /** Retire an AI member; their stages and running work move to the chosen member. */
 export function RetireDialog({ member, candidates, onClose }: RetireDialogProps) {
   return (
-    <Dialog open={member !== null} onClose={onClose} title={member ? t('retire.title', { name: member.displayName }) : ''} size="sm">
+    <Dialog
+      open={member !== null}
+      onClose={onClose}
+      title={member ? t('retire.title', { name: member.displayName }) : ''}
+      size="sm"
+    >
       {member ? <RetireForm member={member} candidates={candidates} onDone={onClose} /> : null}
     </Dialog>
   );

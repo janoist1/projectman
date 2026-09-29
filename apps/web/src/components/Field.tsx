@@ -53,11 +53,22 @@ interface CommonProps {
 }
 
 export const TextField = forwardRef<HTMLInputElement, CommonProps & InputHTMLAttributes<HTMLInputElement>>(
-  function TextField({ label, hint, error, optional, hideLabel, fieldClassName, className, id: idProp, ...rest }, ref) {
+  function TextField(
+    { label, hint, error, optional, hideLabel, fieldClassName, className, id: idProp, ...rest },
+    ref,
+  ) {
     const generated = useId();
     const id = idProp ?? generated;
     return (
-      <FieldFrame id={id} label={label} hint={hint} error={error} optional={optional} hideLabel={hideLabel} className={fieldClassName}>
+      <FieldFrame
+        id={id}
+        label={label}
+        hint={hint}
+        error={error}
+        optional={optional}
+        hideLabel={hideLabel}
+        className={fieldClassName}
+      >
         <input
           ref={ref}
           id={id}
@@ -71,24 +82,36 @@ export const TextField = forwardRef<HTMLInputElement, CommonProps & InputHTMLAtt
   },
 );
 
-export const TextAreaField = forwardRef<HTMLTextAreaElement, CommonProps & TextareaHTMLAttributes<HTMLTextAreaElement>>(
-  function TextAreaField({ label, hint, error, optional, hideLabel, fieldClassName, className, id: idProp, ...rest }, ref) {
-    const generated = useId();
-    const id = idProp ?? generated;
-    return (
-      <FieldFrame id={id} label={label} hint={hint} error={error} optional={optional} hideLabel={hideLabel} className={fieldClassName}>
-        <textarea
-          ref={ref}
-          id={id}
-          className={clsx(styles.input, styles.textarea, className)}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={describedBy(id, hint, error)}
-          {...rest}
-        />
-      </FieldFrame>
-    );
-  },
-);
+export const TextAreaField = forwardRef<
+  HTMLTextAreaElement,
+  CommonProps & TextareaHTMLAttributes<HTMLTextAreaElement>
+>(function TextAreaField(
+  { label, hint, error, optional, hideLabel, fieldClassName, className, id: idProp, ...rest },
+  ref,
+) {
+  const generated = useId();
+  const id = idProp ?? generated;
+  return (
+    <FieldFrame
+      id={id}
+      label={label}
+      hint={hint}
+      error={error}
+      optional={optional}
+      hideLabel={hideLabel}
+      className={fieldClassName}
+    >
+      <textarea
+        ref={ref}
+        id={id}
+        className={clsx(styles.input, styles.textarea, className)}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={describedBy(id, hint, error)}
+        {...rest}
+      />
+    </FieldFrame>
+  );
+});
 
 export function SelectField({
   label,
@@ -105,7 +128,15 @@ export function SelectField({
   const generated = useId();
   const id = idProp ?? generated;
   return (
-    <FieldFrame id={id} label={label} hint={hint} error={error} optional={optional} hideLabel={hideLabel} className={fieldClassName}>
+    <FieldFrame
+      id={id}
+      label={label}
+      hint={hint}
+      error={error}
+      optional={optional}
+      hideLabel={hideLabel}
+      className={fieldClassName}
+    >
       <span className={styles.selectWrap}>
         <select
           id={id}

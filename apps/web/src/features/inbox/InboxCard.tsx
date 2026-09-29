@@ -9,7 +9,14 @@ import { Chip } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
 import { formatAgo } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
-import { FREE_ANSWER_OPTION_ID, gateMoveText, inboxHeading, optionLabel, payloadCode, permissionTool } from '../../lib/inbox';
+import {
+  FREE_ANSWER_OPTION_ID,
+  gateMoveText,
+  inboxHeading,
+  optionLabel,
+  payloadCode,
+  permissionTool,
+} from '../../lib/inbox';
 import { toolPresentationFor } from '../../lib/chat';
 import { nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
@@ -55,7 +62,8 @@ export function InboxCard({
 }: InboxCardProps) {
   const answerOption = item.options.find((option) => option.id === FREE_ANSWER_OPTION_ID);
   const choices = item.options.filter((option) => option.id !== FREE_ANSWER_OPTION_ID);
-  const allowsFreeAnswer = item.kind === 'question' && (answerOption !== undefined || item.options.length === 0);
+  const allowsFreeAnswer =
+    item.kind === 'question' && (answerOption !== undefined || item.options.length === 0);
   const [answering, setAnswering] = useState(allowsFreeAnswer && choices.length === 0);
   const [answer, setAnswer] = useState('');
   const [answerError, setAnswerError] = useState<string | null>(null);
@@ -80,12 +88,19 @@ export function InboxCard({
   };
 
   return (
-    <article className={clsx(styles.card, compact && styles.compact, mobile && styles.mobile)} data-kind={item.kind}>
+    <article
+      className={clsx(styles.card, compact && styles.compact, mobile && styles.mobile)}
+      data-kind={item.kind}
+    >
       <div className={styles.head}>
         <Chip tone="kind">{t(`inbox.kinds.${item.kind}`)}</Chip>
         <Avatar member={source} handle={item.source} size="sm" isMe={item.source === myHandle} />
         <span className={styles.source}>{nameOf(item.source, members, myHandle)}</span>
-        {taskTitle ? <span className={styles.task}>· {taskTitle}</span> : gateMove && item.title ? <span className={styles.task}>· {item.title}</span> : null}
+        {taskTitle ? (
+          <span className={styles.task}>· {taskTitle}</span>
+        ) : gateMove && item.title ? (
+          <span className={styles.task}>· {item.title}</span>
+        ) : null}
         <span className={styles.spacer} />
         <time className={styles.time} dateTime={item.createdAt}>
           {formatAgo(item.createdAt)}
@@ -101,7 +116,11 @@ export function InboxCard({
       ) : null}
       {code ? (
         <div className={styles.codeWrap}>
-          {tool ? <span className={styles.tool}>{t('inbox.tool', { tool: toolPresentationFor(tool, code ?? '').label })}</span> : null}
+          {tool ? (
+            <span className={styles.tool}>
+              {t('inbox.tool', { tool: toolPresentationFor(tool, code ?? '').label })}
+            </span>
+          ) : null}
           <code className={styles.code}>{code}</code>
         </div>
       ) : null}

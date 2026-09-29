@@ -11,7 +11,13 @@ import type { ConnectionStatus, SocketClient } from './socket';
 const SocketContext = createContext<SocketClient | null>(null);
 
 /** Owns the websocket for a logged-in user and feeds its events into the query cache. */
-export function SocketProvider({ children, client: provided }: { children: ReactNode; client?: SocketClient }) {
+export function SocketProvider({
+  children,
+  client: provided,
+}: {
+  children: ReactNode;
+  client?: SocketClient;
+}) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [client] = useState(() => provided ?? createSocketClient());

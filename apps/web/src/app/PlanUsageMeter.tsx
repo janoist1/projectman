@@ -11,7 +11,17 @@ function level(value: number | null, pauseAbove: number): 'ok' | 'high' | 'criti
   return 'ok';
 }
 
-function Bar({ label, value, pauseAbove, resetsAt }: { label: string; value: number | null; pauseAbove: number; resetsAt: string | null }) {
+function Bar({
+  label,
+  value,
+  pauseAbove,
+  resetsAt,
+}: {
+  label: string;
+  value: number | null;
+  pauseAbove: number;
+  resetsAt: string | null;
+}) {
   const display = value === null ? t('planUsage.unknown') : formatPercent(value);
   return (
     <span className={styles.meter}>
@@ -26,9 +36,14 @@ function Bar({ label, value, pauseAbove, resetsAt }: { label: string; value: num
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={value ?? undefined}
-        aria-valuetext={resetsAt ? `${display}, ${t('planUsage.resets', { time: formatStamp(resetsAt) })}` : display}
+        aria-valuetext={
+          resetsAt ? `${display}, ${t('planUsage.resets', { time: formatStamp(resetsAt) })}` : display
+        }
       >
-        <span className={clsx(styles.fill, styles[level(value, pauseAbove)])} style={{ width: `${Math.min(100, value ?? 0)}%` }} />
+        <span
+          className={clsx(styles.fill, styles[level(value, pauseAbove)])}
+          style={{ width: `${Math.min(100, value ?? 0)}%` }}
+        />
       </span>
     </span>
   );
@@ -67,8 +82,18 @@ export function PlanUsageMeter({
   return (
     <span className={clsx(styles.box, compact && styles.compact, paused && styles.paused)} title={title}>
       <span className={styles.label}>{t('planUsage.label')}</span>
-      <Bar label={t('planUsage.fiveHour')} value={five} pauseAbove={pauseAbove} resetsAt={usage.fiveHourResetsAt} />
-      <Bar label={t('planUsage.weekly')} value={week} pauseAbove={pauseAbove} resetsAt={usage.weeklyResetsAt} />
+      <Bar
+        label={t('planUsage.fiveHour')}
+        value={five}
+        pauseAbove={pauseAbove}
+        resetsAt={usage.fiveHourResetsAt}
+      />
+      <Bar
+        label={t('planUsage.weekly')}
+        value={week}
+        pauseAbove={pauseAbove}
+        resetsAt={usage.weeklyResetsAt}
+      />
     </span>
   );
 }

@@ -11,13 +11,45 @@ const at = (minute: number) => `2026-09-29T14:${String(minute).padStart(2, '0')}
 const items: ChatItem[] = [
   { id: 'u1', ts: at(1), kind: 'user_text', text: 'Kérlek, javítsd a gombsort.' },
   { id: 'a1', ts: at(2), kind: 'assistant_text', text: 'Megnézem, aztán **javítom**.' },
-  { id: 'c1', ts: at(3), kind: 'tool_call', toolUseId: 't1', name: 'Read', summary: 'src/app.css', input: {} },
+  {
+    id: 'c1',
+    ts: at(3),
+    kind: 'tool_call',
+    toolUseId: 't1',
+    name: 'Read',
+    summary: 'src/app.css',
+    input: {},
+  },
   { id: 'r1', ts: at(3), kind: 'tool_result', toolUseId: 't1', ok: true, summary: '42 sor' },
   { id: 'c2', ts: at(4), kind: 'tool_call', toolUseId: 't2', name: 'Bash', summary: 'npm test', input: {} },
   { id: 'r2', ts: at(4), kind: 'tool_result', toolUseId: 't2', ok: false, summary: 'exit 1' },
-  { id: 'c3', ts: at(5), kind: 'tool_call', toolUseId: 't3', name: 'Bash', summary: 'git push origin main', input: {} },
-  { id: 'm1', ts: at(6), kind: 'team_message', direction: 'in', from: 'qa', to: ['fe-1'], text: 'Hiba: kilóg a gombsor.' },
-  { id: 'm2', ts: at(7), kind: 'team_message', direction: 'out', from: 'fe-1', to: ['code-review'], text: 'Kész, nézd át.' },
+  {
+    id: 'c3',
+    ts: at(5),
+    kind: 'tool_call',
+    toolUseId: 't3',
+    name: 'Bash',
+    summary: 'git push origin main',
+    input: {},
+  },
+  {
+    id: 'm1',
+    ts: at(6),
+    kind: 'team_message',
+    direction: 'in',
+    from: 'qa',
+    to: ['fe-1'],
+    text: 'Hiba: kilóg a gombsor.',
+  },
+  {
+    id: 'm2',
+    ts: at(7),
+    kind: 'team_message',
+    direction: 'out',
+    from: 'fe-1',
+    to: ['code-review'],
+    text: 'Kész, nézd át.',
+  },
   { id: 'n1', ts: at(8), kind: 'system_note', text: 'A session folytatódott.' },
 ];
 
@@ -26,7 +58,9 @@ describe('groupChatItems', () => {
     const blocks = groupChatItems(items, 'fe-1');
     expect(blocks.map((block) => block.type)).toEqual(['user', 'assistant', 'tools', 'team', 'team', 'note']);
     const tools = blocks[2];
-    expect(tools?.type === 'tools' && tools.rows.map((row) => [row.call?.toolUseId, row.result?.ok ?? null])).toEqual([
+    expect(
+      tools?.type === 'tools' && tools.rows.map((row) => [row.call?.toolUseId, row.result?.ok ?? null]),
+    ).toEqual([
       ['t1', true],
       ['t2', false],
       ['t3', null],
@@ -47,10 +81,20 @@ describe('groupChatItems', () => {
 
   it('turns an injected team message prefix into a team message', () => {
     const blocks = groupChatItems(
-      [{ id: 'u1', ts: at(1), kind: 'user_text', text: '[team message from qa about AC-21]\nÚjrateszt kész.' }],
+      [
+        {
+          id: 'u1',
+          ts: at(1),
+          kind: 'user_text',
+          text: '[team message from qa about AC-21]\nÚjrateszt kész.',
+        },
+      ],
       'fe-1',
     );
-    expect(blocks[0]).toMatchObject({ type: 'team', item: { direction: 'in', from: 'qa', text: 'Újrateszt kész.' } });
+    expect(blocks[0]).toMatchObject({
+      type: 'team',
+      item: { direction: 'in', from: 'qa', text: 'Újrateszt kész.' },
+    });
   });
 });
 
@@ -58,7 +102,9 @@ describe('ChatView', () => {
   const { members, pipeline } = mockIndexes();
 
   it('renders every chat item kind', () => {
-    render(<ChatView items={items} sessionMember="fe-1" members={members} myHandle="owner" pipeline={pipeline} />);
+    render(
+      <ChatView items={items} sessionMember="fe-1" members={members} myHandle="owner" pipeline={pipeline} />,
+    );
     expect(screen.getByText('Kérlek, javítsd a gombsort.')).toBeTruthy();
     expect(screen.getByText('javítom').tagName).toBe('STRONG');
     expect(screen.getAllByText('Frontend fejlesztő').length).toBeGreaterThan(0);
@@ -106,12 +152,22 @@ describe('ChatView', () => {
       state: 'resolved',
       resolution: { optionId: 'allow', by: 'owner', at: at(9), note: null },
     };
-    render(<ChatView items={items} sessionMember="fe-1" members={members} myHandle="owner" resolvedItems={[resolved]} />);
+    render(
+      <ChatView
+        items={items}
+        sessionMember="fe-1"
+        members={members}
+        myHandle="owner"
+        resolvedItems={[resolved]}
+      />,
+    );
     expect(screen.getByText(/Engedélyezve: git push · Te/)).toBeTruthy();
   });
 
   it('shows an empty state and pending messages', () => {
-    const { rerender } = render(<ChatView items={[]} sessionMember="fe-1" members={members} myHandle="owner" />);
+    const { rerender } = render(
+      <ChatView items={[]} sessionMember="fe-1" members={members} myHandle="owner" />,
+    );
     expect(screen.getByText('Még nincs üzenet ebben a sessionben.')).toBeTruthy();
     rerender(
       <ChatView

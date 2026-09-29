@@ -21,12 +21,20 @@ function checkTone(state: CheckState): CheckRow['tone'] {
  */
 export function cardChecks(task: Task, pipeline: PipelineIndex): CheckRow[] {
   const stage = pipeline.stageById.get(task.stageId);
-  if (!stage || stage.kind === 'queue' || stage.kind === 'work' || stage.kind === 'done' || task.status === 'done') {
+  if (
+    !stage ||
+    stage.kind === 'queue' ||
+    stage.kind === 'work' ||
+    stage.kind === 'done' ||
+    task.status === 'done'
+  ) {
     return [];
   }
   const column = pipeline.columnOfStage.get(task.stageId);
   const current = pipeline.stageIndex.get(task.stageId) ?? 0;
-  const inColumn = new Set(column ? stagesInColumn(pipeline, column).map((entry) => entry.id) : [task.stageId]);
+  const inColumn = new Set(
+    column ? stagesInColumn(pipeline, column).map((entry) => entry.id) : [task.stageId],
+  );
   const grouped = inColumn.size > 1;
   const rows: CheckRow[] = [];
   pipeline.stages.forEach((entry, index) => {
@@ -72,7 +80,9 @@ export function prChip(task: Task): PrChip | null {
   if (!link) return null;
   const repo = link.repo?.split('/').pop();
   return {
-    label: repo ? t('taskCard.prWithRepo', { number: link.ref, repo }) : t('taskCard.pr', { number: link.ref }),
+    label: repo
+      ? t('taskCard.prWithRepo', { number: link.ref, repo })
+      : t('taskCard.pr', { number: link.ref }),
     merged: link.state === 'merged',
     href: githubUrl(link),
   };
@@ -80,11 +90,7 @@ export function prChip(task: Task): PrChip | null {
 
 /** Accent-insensitive search over key, title, labels and PR numbers. */
 export function normalizeSearch(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .trim();
+  return value.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 }
 
 export function matchesSearch(task: Task, query: string): boolean {

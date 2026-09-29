@@ -28,7 +28,11 @@ export function SegmentedControl<T extends string>({
   className,
 }: SegmentedControlProps<T>) {
   return (
-    <div role="group" aria-label={label} className={clsx(styles.group, styles[appearance], styles[size], className)}>
+    <div
+      role="group"
+      aria-label={label}
+      className={clsx(styles.group, styles[appearance], styles[size], className)}
+    >
       {options.map((option) => {
         const active = option.value === value;
         return (

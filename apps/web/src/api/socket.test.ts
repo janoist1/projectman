@@ -22,7 +22,9 @@ class FakeSocket implements WebSocketLike {
     this.onopen?.(new Event('open'));
   }
   receive(event: ServerEvent | string) {
-    this.onmessage?.(new MessageEvent('message', { data: typeof event === 'string' ? event : JSON.stringify(event) }));
+    this.onmessage?.(
+      new MessageEvent('message', { data: typeof event === 'string' ? event : JSON.stringify(event) }),
+    );
   }
   drop() {
     this.readyState = 3;
@@ -99,7 +101,13 @@ describe('SocketClient', () => {
     client.start();
     sockets[0]!.open();
     client.attachTerminal('ses_1', { onData, onSnapshot });
-    sockets[0]!.receive({ type: 'terminal_snapshot', sessionId: 'ses_1', data: 'screen', cols: 100, rows: 30 });
+    sockets[0]!.receive({
+      type: 'terminal_snapshot',
+      sessionId: 'ses_1',
+      data: 'screen',
+      cols: 100,
+      rows: 30,
+    });
     sockets[0]!.receive({ type: 'terminal_data', sessionId: 'ses_1', data: 'abc' });
     sockets[0]!.receive({ type: 'terminal_data', sessionId: 'ses_2', data: 'other' });
     sockets[0]!.receive({ type: 'config_changed', projectKey: 'AC', version: 'v2' });

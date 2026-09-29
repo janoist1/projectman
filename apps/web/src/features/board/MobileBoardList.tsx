@@ -31,10 +31,16 @@ export function MobileBoardList({
     <div className={styles.wrap}>
       <ul className={styles.stages} aria-label={t('board.stagesLabel')}>
         {pipeline.columns.map((column) => {
-          const count = entries.filter((entry) => pipeline.columnOfStage.get(entry.task.stageId)?.id === column.id).length;
+          const count = entries.filter(
+            (entry) => pipeline.columnOfStage.get(entry.task.stageId)?.id === column.id,
+          ).length;
           return (
             <li key={column.id} className={styles.stage}>
-              <span className={styles.stageDot} data-stage-kind={columnKind(pipeline, column)} aria-hidden="true" />
+              <span
+                className={styles.stageDot}
+                data-stage-kind={columnKind(pipeline, column)}
+                aria-hidden="true"
+              />
               <span>{column.name}</span>
               <span className={styles.stageCount}>{count}</span>
             </li>

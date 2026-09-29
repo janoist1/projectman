@@ -26,16 +26,26 @@ function lines(text: string): string[] {
 function render(item: ChatItem): string {
   switch (item.kind) {
     case 'user_text':
-      return lines(item.text).map((line, i) => (i === 0 ? bold(`> ${line}`) : `  ${line}`)).join('\r\n') + '\r\n';
+      return (
+        lines(item.text)
+          .map((line, i) => (i === 0 ? bold(`> ${line}`) : `  ${line}`))
+          .join('\r\n') + '\r\n'
+      );
     case 'assistant_text':
-      return lines(item.text).map((line, i) => (i === 0 ? `● ${line}` : `  ${line}`)).join('\r\n') + '\r\n';
+      return (
+        lines(item.text)
+          .map((line, i) => (i === 0 ? `● ${line}` : `  ${line}`))
+          .join('\r\n') + '\r\n'
+      );
     case 'tool_call':
       return tool(`● ${item.name}(${item.summary})`) + '\r\n';
     case 'tool_result':
       return (item.ok ? dim(`  ⎿  ${item.summary}`) : bad(`  ⎿  ${item.summary}`)) + '\r\n';
     case 'team_message':
       return (
-        team(`● team ${item.direction === 'in' ? `message from ${item.from}` : `send_message → ${item.to.join(', ')}`}`) +
+        team(
+          `● team ${item.direction === 'in' ? `message from ${item.from}` : `send_message → ${item.to.join(', ')}`}`,
+        ) +
         '\r\n' +
         dim(`  ⎿  ${lines(item.text)[0] ?? ''}`) +
         '\r\n'
@@ -63,7 +73,13 @@ export class MockTerminals {
       this.viewers.set(sessionId, set);
     }
     set.add(connection);
-    connection.deliver({ type: 'terminal_snapshot', sessionId, data: this.screen(sessionId), cols: COLS, rows: ROWS });
+    connection.deliver({
+      type: 'terminal_snapshot',
+      sessionId,
+      data: this.screen(sessionId),
+      cols: COLS,
+      rows: ROWS,
+    });
   }
 
   detach(sessionId: string, connection: MockConnection): void {
@@ -103,9 +119,9 @@ export class MockTerminals {
 
   private write(sessionId: string, data: string): void {
     this.screens.set(sessionId, (this.screens.get(sessionId) ?? '') + data);
-    this.viewers.get(sessionId)?.forEach((connection) =>
-      connection.deliver({ type: 'terminal_data', sessionId, data }),
-    );
+    this.viewers
+      .get(sessionId)
+      ?.forEach((connection) => connection.deliver({ type: 'terminal_data', sessionId, data }));
   }
 
   private screen(sessionId: string): string {

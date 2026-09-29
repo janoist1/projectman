@@ -51,14 +51,21 @@ export function validateRepos(rows: readonly RepoRow[]): Record<number, RepoErro
     const entry: RepoErrors = {};
     if (!REPO_NAME_RE.test(row.name.trim())) entry.name = t('projects.validation.repoNameInvalid');
     if (!row.path.trim()) entry.path = t('projects.validation.repoPathRequired');
-    if (row.github.trim() && !GITHUB_RE.test(row.github.trim())) entry.github = t('projects.validation.repoGithubInvalid');
+    if (row.github.trim() && !GITHUB_RE.test(row.github.trim()))
+      entry.github = t('projects.validation.repoGithubInvalid');
     if (Object.keys(entry).length > 0) errors[row.id] = entry;
   }
   return errors;
 }
 
 let repoSeq = 0;
-const newRepo = (): RepoRow => ({ id: (repoSeq += 1), name: '', path: '', github: '', defaultBranch: 'main' });
+const newRepo = (): RepoRow => ({
+  id: (repoSeq += 1),
+  name: '',
+  path: '',
+  github: '',
+  defaultBranch: 'main',
+});
 
 /** Project key suggestion from the name: "Acme webshop" → "AW", "Kosár" → "KO". */
 export function suggestKey(name: string): string {
@@ -69,7 +76,11 @@ export function suggestKey(name: string): string {
     .replace(/[^A-Z0-9 ]/g, '')
     .trim();
   const words = letters.split(/\s+/).filter(Boolean);
-  if (words.length >= 2) return words.map((word) => word[0]).join('').slice(0, 4);
+  if (words.length >= 2)
+    return words
+      .map((word) => word[0])
+      .join('')
+      .slice(0, 4);
   return (words[0] ?? '').slice(0, 2);
 }
 
@@ -122,22 +133,21 @@ export function CreateProjectPage() {
       templateId: selectedTemplate,
       ...(repoList.length > 0 ? { repos: repoList } : {}),
     };
-    create.mutate(
-      body,
-      {
-        onSuccess: () => {
-          toast.show(t('projects.create.created', { name: name.trim() }));
-          navigate(`/p/${effectiveKey}`, { replace: true });
-        },
+    create.mutate(body, {
+      onSuccess: () => {
+        toast.show(t('projects.create.created', { name: name.trim() }));
+        navigate(`/p/${effectiveKey}`, { replace: true });
       },
-    );
+    });
   };
 
   return (
     <AuthLayout
       wide
       title={isFirst ? t('projects.emptyTitle') : t('projects.create.title')}
-      subtitle={isFirst ? `${t('projects.emptyBody')} ${t('projects.create.intro')}` : t('projects.create.intro')}
+      subtitle={
+        isFirst ? `${t('projects.emptyBody')} ${t('projects.create.intro')}` : t('projects.create.intro')
+      }
     >
       <form className={authStyles.form} onSubmit={onSubmit} noValidate>
         <TextField
@@ -174,7 +184,12 @@ export function CreateProjectPage() {
           <legend className={styles.legend}>{t('projects.create.repos')}</legend>
           <p className={styles.muted}>{t('projects.create.reposHint')}</p>
           {repos.map((row, index) => (
-            <div key={row.id} className={styles.repo} role="group" aria-label={t('projects.create.repoLabel', { index: index + 1 })}>
+            <div
+              key={row.id}
+              className={styles.repo}
+              role="group"
+              aria-label={t('projects.create.repoLabel', { index: index + 1 })}
+            >
               <div className={styles.repoGrid}>
                 <TextField
                   label={t('projects.create.repoName')}
@@ -210,19 +225,30 @@ export function CreateProjectPage() {
                 size="sm"
                 icon="close"
                 onClick={() => setRepos((rows) => rows.filter((entry) => entry.id !== row.id))}
-                aria-label={t('projects.create.removeRepo', { name: row.name || t('projects.create.repoLabel', { index: index + 1 }) })}
+                aria-label={t('projects.create.removeRepo', {
+                  name: row.name || t('projects.create.repoLabel', { index: index + 1 }),
+                })}
               />
             </div>
           ))}
-          <Button variant="secondary" size="md" icon="plus" onClick={() => setRepos((rows) => [...rows, newRepo()])}>
+          <Button
+            variant="secondary"
+            size="md"
+            icon="plus"
+            onClick={() => setRepos((rows) => [...rows, newRepo()])}
+          >
             {t('projects.create.addRepo')}
           </Button>
         </fieldset>
         <fieldset className={styles.fieldset}>
           <legend className={styles.legend}>{t('projects.create.template')}</legend>
           {templates.isPending ? <LoadingState compact /> : null}
-          {templates.isError ? <ErrorState compact error={templates.error} onRetry={() => void templates.refetch()} /> : null}
-          {templates.data && templates.data.length === 0 ? <p className={styles.muted}>{t('projects.create.noTemplates')}</p> : null}
+          {templates.isError ? (
+            <ErrorState compact error={templates.error} onRetry={() => void templates.refetch()} />
+          ) : null}
+          {templates.data && templates.data.length === 0 ? (
+            <p className={styles.muted}>{t('projects.create.noTemplates')}</p>
+          ) : null}
           <div className={styles.templates}>
             {(templates.data ?? []).map((template) => (
               <ChoiceCard

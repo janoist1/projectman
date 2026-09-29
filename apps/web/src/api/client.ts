@@ -7,7 +7,10 @@ import { ApiError as ApiErrorBody } from '@projectman/shared';
 export interface ResponseSchema<T> {
   safeParse(data: unknown):
     | { success: true; data: T }
-    | { success: false; error: { issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string }> } };
+    | {
+        success: false;
+        error: { issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string }> };
+      };
 }
 
 /** Every failed request surfaces as an ApiError (HTTP errors, network errors, bad responses). */

@@ -4,14 +4,20 @@ import { namesOf } from './members';
 import type { MemberIndex } from './members';
 
 /** "Code review rendben", "PR merge-elve", "Jóváhagyja: Te". */
-export function gateConditionText(condition: GateCondition, members: MemberIndex, myHandle: string | null): string {
+export function gateConditionText(
+  condition: GateCondition,
+  members: MemberIndex,
+  myHandle: string | null,
+): string {
   switch (condition.type) {
     case 'check_passed':
       return t('settings.pipeline.gateCheck', { check: t(`checks.names.${condition.check}`) });
     case 'pr_merged':
       return t('settings.pipeline.gatePrMerged');
     case 'human_approval':
-      return t('settings.pipeline.gateApproval', { approvers: joinNames(namesOf(condition.approvers, members, myHandle)) });
+      return t('settings.pipeline.gateApproval', {
+        approvers: joinNames(namesOf(condition.approvers, members, myHandle)),
+      });
   }
 }
 

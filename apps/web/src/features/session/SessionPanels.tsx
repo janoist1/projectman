@@ -15,7 +15,9 @@ const prStates = ['open', 'merged', 'closed', 'draft'] as const;
 
 function prStateLabel(state: string | undefined): string | null {
   if (!state) return null;
-  return (prStates as readonly string[]).includes(state) ? t(`links.prStates.${state as (typeof prStates)[number]}`) : state;
+  return (prStates as readonly string[]).includes(state)
+    ? t(`links.prStates.${state as (typeof prStates)[number]}`)
+    : state;
 }
 
 /** Pull request of the task, with the recorded checks. */
@@ -32,13 +34,21 @@ export function PrPanel({ task, session }: { task: Task | null; session: Session
       {link ? (
         <>
           <div className={styles.prHead}>
-            <span className={styles.prIcon} data-merged={link.state === 'merged' || undefined} aria-hidden="true">
+            <span
+              className={styles.prIcon}
+              data-merged={link.state === 'merged' || undefined}
+              aria-hidden="true"
+            >
               <Icon name={link.state === 'merged' ? 'prMerged' : 'prOpen'} size={18} strokeWidth={2} />
             </span>
             <h2 id="session-pr" className={styles.prTitle}>
               {t('session.pr.heading', { number: link.ref })}
             </h2>
-            {link.state ? <Chip tone={link.state === 'merged' ? 'accent' : link.state === 'closed' ? 'neutral' : 'ok'}>{prStateLabel(link.state)}</Chip> : null}
+            {link.state ? (
+              <Chip tone={link.state === 'merged' ? 'accent' : link.state === 'closed' ? 'neutral' : 'ok'}>
+                {prStateLabel(link.state)}
+              </Chip>
+            ) : null}
             <span className={styles.spacer} />
             {githubUrl(link) ? (
               <a
@@ -54,9 +64,7 @@ export function PrPanel({ task, session }: { task: Task | null; session: Session
             ) : null}
           </div>
           {link.title ? <p className={styles.prName}>{link.title}</p> : null}
-          <span className={styles.mono}>
-            {[link.repo, session.branch].filter(Boolean).join(' · ')}
-          </span>
+          <span className={styles.mono}>{[link.repo, session.branch].filter(Boolean).join(' · ')}</span>
         </>
       ) : (
         <>
@@ -71,7 +79,9 @@ export function PrPanel({ task, session }: { task: Task | null; session: Session
           {checks.map(({ name, state }) => (
             <div key={name} className={styles.checkRow}>
               <dt>{t(`checks.names.${name}`)}</dt>
-              <dd data-state={state}>{CheckState.safeParse(state).success ? t(`checks.states.${state}`) : state}</dd>
+              <dd data-state={state}>
+                {CheckState.safeParse(state).success ? t(`checks.states.${state}`) : state}
+              </dd>
             </div>
           ))}
         </dl>
@@ -100,7 +110,12 @@ export function participantsFor(
   for (const event of latest) {
     const handle = event.actor.handle;
     if (!handle || list.has(handle)) continue;
-    list.set(handle, t('session.participantActivity', { text: describeEvent(event, { pipeline, members, myHandle, openInboxIds: new Set() }).text }));
+    list.set(
+      handle,
+      t('session.participantActivity', {
+        text: describeEvent(event, { pipeline, members, myHandle, openInboxIds: new Set() }).text,
+      }),
+    );
   }
   const stage = task && pipeline ? pipeline.stageById.get(task.stageId) : undefined;
   for (const owner of stage?.owners ?? []) {
@@ -109,7 +124,15 @@ export function participantsFor(
   return [...list.entries()].slice(0, 8).map(([handle, what]) => ({ handle, what }));
 }
 
-export function ParticipantsPanel({ participants, members, myHandle }: { participants: Participant[]; members: MemberIndex; myHandle: string | null }) {
+export function ParticipantsPanel({
+  participants,
+  members,
+  myHandle,
+}: {
+  participants: Participant[];
+  members: MemberIndex;
+  myHandle: string | null;
+}) {
   return (
     <section className={styles.panel} aria-labelledby="session-participants">
       <h2 id="session-participants" className={styles.sectionTitle}>

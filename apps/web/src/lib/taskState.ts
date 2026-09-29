@@ -72,7 +72,12 @@ export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
   }
   if (task.status === 'done' || stage?.kind === 'done') {
     const closed = task.closedAt ?? task.updatedAt;
-    return { phase: 'done', label: t('taskStatus.done', { when: formatAge(closed) }), since: closed, worker: null };
+    return {
+      phase: 'done',
+      label: t('taskStatus.done', { when: formatAge(closed) }),
+      since: closed,
+      worker: null,
+    };
   }
 
   const mine = newestFirst(open.filter((item) => !myHandle || item.assignees.includes(myHandle)));
@@ -88,7 +93,9 @@ export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
   if (worker) {
     return {
       phase: 'working',
-      label: worker.activity ? t('taskStatus.working', { activity: worker.activity }) : t('taskStatus.workingPlain'),
+      label: worker.activity
+        ? t('taskStatus.working', { activity: worker.activity })
+        : t('taskStatus.workingPlain'),
       since: task.updatedAt,
       worker,
     };
@@ -97,7 +104,12 @@ export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
   const others = newestFirst(open);
   if (others[0]) {
     const who = joinNames(others[0].assignees.map((handle) => nameOf(handle, members, myHandle)));
-    return { phase: 'waiting', label: t('taskStatus.waitingOn', { who }), since: others[0].createdAt, worker: null };
+    return {
+      phase: 'waiting',
+      label: t('taskStatus.waitingOn', { who }),
+      since: others[0].createdAt,
+      worker: null,
+    };
   }
 
   if (stage?.kind === 'queue') {
@@ -119,7 +131,12 @@ export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
       };
     }
     const who = joinNames(humanOwners.map((handle) => nameOf(handle, members, myHandle)));
-    return { phase: 'waiting', label: t('taskStatus.waitingOn', { who }), since: task.updatedAt, worker: null };
+    return {
+      phase: 'waiting',
+      label: t('taskStatus.waitingOn', { who }),
+      since: task.updatedAt,
+      worker: null,
+    };
   }
 
   const assignee = task.assignee ? members.get(task.assignee) : undefined;

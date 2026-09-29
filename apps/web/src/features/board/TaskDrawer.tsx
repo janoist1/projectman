@@ -35,12 +35,20 @@ export function primarySession(task: Task, sessions: readonly Session[]): Sessio
   return sorted.find((session) => session.member === task.assignee) ?? sorted[0] ?? null;
 }
 
-export function nextStepText(task: Task, pipeline: PipelineIndex, members: MemberIndex, myHandle: string | null): string | null {
+export function nextStepText(
+  task: Task,
+  pipeline: PipelineIndex,
+  members: MemberIndex,
+  myHandle: string | null,
+): string | null {
   if (task.status === 'done' || task.status === 'cancelled') return null;
   const next = nextStage(pipeline, task.stageId);
   if (!next) return t('task.lastStage');
   if (next.owners.length === 0) return t('task.nextStageNoOwner', { stage: next.name });
-  return t('task.nextStage', { stage: next.name, owners: joinNames(namesOf(next.owners, members, myHandle)) });
+  return t('task.nextStage', {
+    stage: next.name,
+    owners: joinNames(namesOf(next.owners, members, myHandle)),
+  });
 }
 
 function StartPanel({ task, members }: { task: Task; members: MemberIndex }) {
@@ -53,7 +61,11 @@ function StartPanel({ task, members }: { task: Task; members: MemberIndex }) {
   );
   return (
     <div className={styles.start}>
-      <SelectField label={t('task.assigneeLabel')} value={assignee} onChange={(event) => setAssignee(event.target.value)}>
+      <SelectField
+        label={t('task.assigneeLabel')}
+        value={assignee}
+        onChange={(event) => setAssignee(event.target.value)}
+      >
         <option value="">{t('task.assigneeAuto')}</option>
         {developers.map((member) => (
           <option key={member.handle} value={member.handle}>
@@ -64,7 +76,9 @@ function StartPanel({ task, members }: { task: Task; members: MemberIndex }) {
       {start.isError && !isApprovalRequested(start.error) ? (
         <p className={styles.error} role="alert">
           {errorMessage(start.error)}
-          {isGateBlocked(start.error) && isApiError(start.error) && unmetGateTexts(start.error.details, members, myHandle).length > 0
+          {isGateBlocked(start.error) &&
+          isApiError(start.error) &&
+          unmetGateTexts(start.error.details, members, myHandle).length > 0
             ? ` ${t('errors.gateUnmet', { conditions: joinNames(unmetGateTexts(start.error.details, members, myHandle)) })}`
             : null}
         </p>
@@ -128,7 +142,8 @@ export function TaskDrawer() {
     [inbox.data],
   );
   const myItems = (inbox.data?.items ?? []).filter(
-    (item) => item.state === 'open' && item.taskKey === taskKey && (!myHandle || item.assignees.includes(myHandle)),
+    (item) =>
+      item.state === 'open' && item.taskKey === taskKey && (!myHandle || item.assignees.includes(myHandle)),
   );
 
   const body = (() => {
@@ -141,11 +156,15 @@ export function TaskDrawer() {
     const stage = pipeline.stageById.get(task.stageId);
     const column = pipeline.columnOfStage.get(task.stageId);
     const position = stagePosition(pipeline, task.stageId);
-    const stageLabel = column && stage && column.name !== stage.name ? `${column.name} · ${stage.name}` : (stage?.name ?? task.stageId);
+    const stageLabel =
+      column && stage && column.name !== stage.name
+        ? `${column.name} · ${stage.name}`
+        : (stage?.name ?? task.stageId);
     const pr = prChip(task);
     const sessions = detail.data?.sessions ?? [];
     const session = primarySession(task, sessions);
-    const isQueued = stage?.kind === 'queue' && task.status !== 'done' && task.status !== 'cancelled' && !task.assignee;
+    const isQueued =
+      stage?.kind === 'queue' && task.status !== 'done' && task.status !== 'cancelled' && !task.assignee;
     return (
       <>
         <div className={styles.head}>
@@ -175,10 +194,17 @@ export function TaskDrawer() {
           <div className={styles.facts}>
             <span className={styles.key}>{task.key}</span>
             <span>{t('task.repo', { repo: task.repo ?? t('task.workspaceRoot') })}</span>
-            {task.assignee ? <span>{t('task.assignee', { name: nameOf(task.assignee, members, myHandle) })}</span> : null}
+            {task.assignee ? (
+              <span>{t('task.assignee', { name: nameOf(task.assignee, members, myHandle) })}</span>
+            ) : null}
             <span>{t(`visibility.${task.visibility}`)}</span>
           </div>
-          <StageProgress pipeline={pipeline} stageId={task.stageId} phase={entry.state.phase} variant="stepper" />
+          <StageProgress
+            pipeline={pipeline}
+            stageId={task.stageId}
+            phase={entry.state.phase}
+            variant="stepper"
+          />
           <div className={styles.now} data-phase={entry.state.phase}>
             <StatusDot phase={entry.state.phase} pulse={entry.state.phase === 'working'} size={9} />
             <span className={styles.nowText}>{entry.state.label}</span>
@@ -256,7 +282,9 @@ export function TaskDrawer() {
                         <Link to={`/p/${key}/sessions/${entrySession.id}`} className={styles.sessionRow}>
                           <Avatar member={member} handle={entrySession.member} size="md" status={status} />
                           <span className={styles.sessionText}>
-                            <span className={styles.sessionName}>{nameOf(entrySession.member, members, myHandle)}</span>
+                            <span className={styles.sessionName}>
+                              {nameOf(entrySession.member, members, myHandle)}
+                            </span>
                             <span className={styles.sessionState} data-status={status}>
                               {t(`sessionState.${entrySession.state}`)}
                               {entrySession.activity ? ` · ${entrySession.activity}` : ''}

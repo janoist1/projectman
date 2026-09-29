@@ -46,10 +46,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map((toast) => (
           <div key={toast.id} className={clsx(styles.toast, styles[toast.tone])}>
             <span className={styles.icon}>
-              <Icon name={toast.tone === 'error' ? 'exclamation' : toast.tone === 'info' ? 'bell' : 'check'} size={15} strokeWidth={2.6} />
+              <Icon
+                name={toast.tone === 'error' ? 'exclamation' : toast.tone === 'info' ? 'bell' : 'check'}
+                size={15}
+                strokeWidth={2.6}
+              />
             </span>
             <span className={styles.message}>{toast.message}</span>
-            <button type="button" className={styles.dismiss} onClick={() => dismiss(toast.id)} aria-label={t('toast.dismiss')}>
+            <button
+              type="button"
+              className={styles.dismiss}
+              onClick={() => dismiss(toast.id)}
+              aria-label={t('toast.dismiss')}
+            >
               <Icon name="close" size={14} strokeWidth={2.2} />
             </button>
           </div>

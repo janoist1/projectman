@@ -11,7 +11,13 @@ import { useToast } from '../../components/Toast';
 import { formatAgo, formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
-import { decisionSubject, isAssignedTo, isPositiveResolution, newestFirst, resolutionLabel } from '../../lib/inbox';
+import {
+  decisionSubject,
+  isAssignedTo,
+  isPositiveResolution,
+  newestFirst,
+  resolutionLabel,
+} from '../../lib/inbox';
 import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import { InboxCard } from './InboxCard';
@@ -25,7 +31,15 @@ export function detailsHrefFor(item: InboxItem, projectKey: string): string | nu
   return null;
 }
 
-function RecentDecisions({ items, members, myHandle }: { items: InboxItem[]; members: MemberIndex; myHandle: string | null }) {
+function RecentDecisions({
+  items,
+  members,
+  myHandle,
+}: {
+  items: InboxItem[];
+  members: MemberIndex;
+  myHandle: string | null;
+}) {
   return (
     <section className={styles.recent} aria-labelledby="inbox-recent">
       <h2 id="inbox-recent" className={styles.recentTitle}>
@@ -37,11 +51,19 @@ function RecentDecisions({ items, members, myHandle }: { items: InboxItem[]; mem
           const positive = isPositiveResolution(item);
           return (
             <li key={item.id} className={styles.recentItem}>
-              <span className={clsx(styles.recentIcon, positive ? styles.recentOk : styles.recentNo)} aria-hidden="true">
+              <span
+                className={clsx(styles.recentIcon, positive ? styles.recentOk : styles.recentNo)}
+                aria-hidden="true"
+              >
                 <Icon name={positive ? 'check' : 'close'} size={12} strokeWidth={3} />
               </span>
               <span className={styles.recentText}>
-                <span className={styles.recentLine}>{t('inbox.resolutionLine', { decision: resolutionLabel(item), title: decisionSubject(item) })}</span>
+                <span className={styles.recentLine}>
+                  {t('inbox.resolutionLine', {
+                    decision: resolutionLabel(item),
+                    title: decisionSubject(item),
+                  })}
+                </span>
                 <span className={styles.recentMeta}>
                   {item.resolution
                     ? t('inbox.resolvedBy', {
@@ -79,12 +101,18 @@ export function InboxPage() {
   const recent = useMemo(
     () =>
       (items ?? [])
-        .filter((item) => item.state !== 'open' && (item.resolution?.by === myHandle || isAssignedTo(item, myHandle)))
+        .filter(
+          (item) =>
+            item.state !== 'open' && (item.resolution?.by === myHandle || isAssignedTo(item, myHandle)),
+        )
         .sort((a, b) => (b.resolution?.at ?? b.createdAt).localeCompare(a.resolution?.at ?? a.createdAt))
         .slice(0, 8),
     [items, myHandle],
   );
-  const titles = useMemo(() => new Map((board.data?.tasks ?? []).map((task) => [task.key, task.title])), [board.data]);
+  const titles = useMemo(
+    () => new Map((board.data?.tasks ?? []).map((task) => [task.key, task.title])),
+    [board.data],
+  );
 
   if (inbox.isPending) return <LoadingState />;
   if (inbox.isError) return <ErrorState error={inbox.error} onRetry={() => void inbox.refetch()} />;
@@ -134,7 +162,10 @@ export function InboxPage() {
               detailsHref={detailsHrefFor(item, key)}
               pending={resolve.isPending && resolve.variables?.item.id === item.id}
               onResolve={(target, body) =>
-                resolve.mutate({ item: target, body }, { onError: () => toast.show(t('inbox.resolveFailed'), 'error') })
+                resolve.mutate(
+                  { item: target, body },
+                  { onError: () => toast.show(t('inbox.resolveFailed'), 'error') },
+                )
               }
             />
           ))}
@@ -146,7 +177,9 @@ export function InboxPage() {
             />
           ) : null}
         </div>
-        {isMobile ? <RecentDecisions items={recent.slice(0, 4)} members={members} myHandle={myHandle} /> : null}
+        {isMobile ? (
+          <RecentDecisions items={recent.slice(0, 4)} members={members} myHandle={myHandle} />
+        ) : null}
       </div>
       {isMobile ? null : (
         <aside className={styles.aside}>

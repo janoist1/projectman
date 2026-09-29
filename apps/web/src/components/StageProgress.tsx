@@ -35,7 +35,9 @@ export function StageProgress({ pipeline, stageId, phase, variant = 'card', clas
     return (
       <ol className={clsx(styles.stepper, className)} aria-label={label}>
         {pipeline.columns.map((column) => {
-          const stages = pipeline.stages.filter((entry) => pipeline.columnOfStage.get(entry.id)?.id === column.id);
+          const stages = pipeline.stages.filter(
+            (entry) => pipeline.columnOfStage.get(entry.id)?.id === column.id,
+          );
           if (stages.length === 0) return null;
           const isCurrent = column.id === currentColumn;
           const firstIndex = pipeline.stageIndex.get(stages[0]!.id) ?? 0;
@@ -43,7 +45,11 @@ export function StageProgress({ pipeline, stageId, phase, variant = 'card', clas
           return (
             <li
               key={column.id}
-              className={clsx(styles.step, isCurrent && styles.stepCurrent, passed && !isCurrent && styles.stepPassed)}
+              className={clsx(
+                styles.step,
+                isCurrent && styles.stepCurrent,
+                passed && !isCurrent && styles.stepPassed,
+              )}
               aria-current={isCurrent ? 'step' : undefined}
             >
               <span className={styles.stepSegments}>
@@ -68,10 +74,16 @@ export function StageProgress({ pipeline, stageId, phase, variant = 'card', clas
   }
 
   return (
-    <span className={clsx(styles.bar, variant === 'chip' && styles.chip, className)} role="img" aria-label={label}>
+    <span
+      className={clsx(styles.bar, variant === 'chip' && styles.chip, className)}
+      role="img"
+      aria-label={label}
+    >
       {pipeline.stages.map((entry, i) => {
         const previous = pipeline.stages[i - 1];
-        const newColumn = previous && pipeline.columnOfStage.get(previous.id)?.id !== pipeline.columnOfStage.get(entry.id)?.id;
+        const newColumn =
+          previous &&
+          pipeline.columnOfStage.get(previous.id)?.id !== pipeline.columnOfStage.get(entry.id)?.id;
         return (
           <span
             key={entry.id}

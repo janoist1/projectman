@@ -23,7 +23,11 @@ import * as fixtures from './fixtures';
 
 describe('mock fixtures satisfy the shared contracts', () => {
   it('validates every fixture against its schema', () => {
-    const check = (schema: { safeParse(data: unknown): { success: boolean } }, list: unknown[], name: string) => {
+    const check = (
+      schema: { safeParse(data: unknown): { success: boolean } },
+      list: unknown[],
+      name: string,
+    ) => {
       const bad = list.filter((entry) => !schema.safeParse(entry).success);
       expect(bad, name).toEqual([]);
     };
@@ -44,7 +48,12 @@ describe('mock fixtures satisfy the shared contracts', () => {
 
   it('has tasks in every pipeline stage', () => {
     const stages = new Set(fixtures.tasks.map((task) => task.stageId));
-    expect(fixtures.buildConfig().pipeline.stages.map((stage) => stage.id).filter((id) => !stages.has(id))).toEqual([]);
+    expect(
+      fixtures
+        .buildConfig()
+        .pipeline.stages.map((stage) => stage.id)
+        .filter((id) => !stages.has(id)),
+    ).toEqual([]);
   });
 });
 
@@ -55,18 +64,31 @@ describe('MockBackend', () => {
 
   it('serves responses that match the DTOs', () => {
     const backend = new MockBackend();
-    expect(BoardView.safeParse(backend.handle('GET', '/api/projects/AC/board', undefined).body).success).toBe(true);
-    expect(TaskDetail.safeParse(backend.handle('GET', '/api/projects/AC/tasks/AC-21', undefined).body).success).toBe(true);
-    expect(SessionDetail.safeParse(backend.handle('GET', '/api/projects/AC/sessions/ses_ac21_fe1', undefined).body).success).toBe(true);
-    expect(InboxView.safeParse(backend.handle('GET', '/api/projects/AC/inbox', undefined).body).success).toBe(true);
-    expect(ConfigView.safeParse(backend.handle('GET', '/api/projects/AC/config', undefined).body).success).toBe(true);
+    expect(BoardView.safeParse(backend.handle('GET', '/api/projects/AC/board', undefined).body).success).toBe(
+      true,
+    );
+    expect(
+      TaskDetail.safeParse(backend.handle('GET', '/api/projects/AC/tasks/AC-21', undefined).body).success,
+    ).toBe(true);
+    expect(
+      SessionDetail.safeParse(backend.handle('GET', '/api/projects/AC/sessions/ses_ac21_fe1', undefined).body)
+        .success,
+    ).toBe(true);
+    expect(InboxView.safeParse(backend.handle('GET', '/api/projects/AC/inbox', undefined).body).success).toBe(
+      true,
+    );
+    expect(
+      ConfigView.safeParse(backend.handle('GET', '/api/projects/AC/config', undefined).body).success,
+    ).toBe(true);
     expect(backend.handle('GET', '/api/projects/XX/board', undefined).status).toBe(404);
   });
 
   it('asks for a login when the user is logged out', () => {
     const backend = new MockBackend('login');
     expect(backend.handle('GET', '/api/me', undefined).status).toBe(401);
-    expect(backend.handle('POST', '/api/auth/login', { email: 'owner@acme.test', password: 'secret' }).status).toBe(200);
+    expect(
+      backend.handle('POST', '/api/auth/login', { email: 'owner@acme.test', password: 'secret' }).status,
+    ).toBe(200);
     expect(backend.handle('GET', '/api/me', undefined).status).toBe(200);
   });
 
@@ -78,14 +100,28 @@ describe('MockBackend', () => {
     backend.connect(connection);
     backend.handleCommand(connection, { type: 'subscribe_project', projectKey: 'AC' });
 
-    expect(backend.handle('POST', '/api/projects/AC/inbox/inb_q_ga4/resolve', { optionId: 'answer' }).status).toBe(400);
-    const response = backend.handle('POST', '/api/projects/AC/inbox/inb_perm_push/resolve', { optionId: 'allow' });
+    expect(
+      backend.handle('POST', '/api/projects/AC/inbox/inb_q_ga4/resolve', { optionId: 'answer' }).status,
+    ).toBe(400);
+    const response = backend.handle('POST', '/api/projects/AC/inbox/inb_perm_push/resolve', {
+      optionId: 'allow',
+    });
     expect(response.status).toBe(200);
     vi.advanceTimersByTime(5000);
 
     expect(events.every((event) => ServerEvent.safeParse(event).success)).toBe(true);
     const types = new Set(events.map((event) => event.type));
-    expect([...types]).toEqual(expect.arrayContaining(['inbox_upserted', 'timeline_appended', 'chat_appended', 'team_message', 'member_state']));
-    expect(backend.handle('POST', '/api/projects/AC/inbox/inb_perm_push/resolve', { optionId: 'allow' }).status).toBe(409);
+    expect([...types]).toEqual(
+      expect.arrayContaining([
+        'inbox_upserted',
+        'timeline_appended',
+        'chat_appended',
+        'team_message',
+        'member_state',
+      ]),
+    );
+    expect(
+      backend.handle('POST', '/api/projects/AC/inbox/inb_perm_push/resolve', { optionId: 'allow' }).status,
+    ).toBe(409);
   });
 });

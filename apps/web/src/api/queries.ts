@@ -175,7 +175,8 @@ export function useStopSession(key: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (sessionId: string) => api.stopSession(key, sessionId),
-    onSuccess: (_data, sessionId) => client.invalidateQueries({ queryKey: queryKeys.session(key, sessionId) }),
+    onSuccess: (_data, sessionId) =>
+      client.invalidateQueries({ queryKey: queryKeys.session(key, sessionId) }),
   });
 }
 

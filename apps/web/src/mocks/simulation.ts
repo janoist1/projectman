@@ -8,9 +8,19 @@ const QA_SESSION = 'ses_ac18_qa';
 const CR_SESSION = 'ses_ac25_cr';
 
 const backendSteps: Array<{ name: string; summary: string; result: string; activity: string }> = [
-  { name: 'Bash', summary: './scripts/restore-drill.sh', result: 'rendben · 2 p 12 mp', activity: 'Visszaállítási próba' },
+  {
+    name: 'Bash',
+    summary: './scripts/restore-drill.sh',
+    result: 'rendben · 2 p 12 mp',
+    activity: 'Visszaállítási próba',
+  },
   { name: 'Read', summary: 'monitoring/alerts.yml', result: '54 sor', activity: 'Riasztások átnézése' },
-  { name: 'Edit', summary: 'monitoring/alerts.yml', result: '+18 −2', activity: 'Riasztás a kimaradt mentésre' },
+  {
+    name: 'Edit',
+    summary: 'monitoring/alerts.yml',
+    result: '+18 −2',
+    activity: 'Riasztás a kimaradt mentésre',
+  },
   { name: 'Bash', summary: 'make lint', result: 'rendben · 6 mp', activity: 'Ellenőrzés' },
 ];
 
@@ -46,7 +56,12 @@ export function startSimulation(backend: MockBackend): void {
     beStep += 1;
     const next = backendSteps[beStep % backendSteps.length]!;
     backend.appendChat(BE_SESSION, [
-      backend.chatItem('tool_call', { toolUseId: mockId('toolu'), name: next.name, summary: next.summary, input: {} }),
+      backend.chatItem('tool_call', {
+        toolUseId: mockId('toolu'),
+        name: next.name,
+        summary: next.summary,
+        input: {},
+      }),
     ]);
     backend.updateSession(BE_SESSION, { activity: `${next.name}: ${next.summary}` });
     backend.setMemberState('be-1', 'working', next.activity);
@@ -74,7 +89,9 @@ export function startSimulation(backend: MockBackend): void {
       return;
     }
     backend.appendChat(QA_SESSION, [
-      backend.chatItem('assistant_text', { text: 'Mind az öt mobil nézet rendben. Szólok a Kommunikációnak.' }),
+      backend.chatItem('assistant_text', {
+        text: 'Mind az öt mobil nézet rendben. Szólok a Kommunikációnak.',
+      }),
     ]);
     backend.sendTeamMessage(
       'qa',
@@ -102,9 +119,25 @@ export function startSimulation(backend: MockBackend): void {
         text: 'Nem blokkol. Egy megjegyzés: a PDF-ben a dátum formátuma a nyelvi beállítást kövesse (InvoicePdf.php:57).',
       }),
     ]);
-    backend.updateTask('AC-25', { stageId: 'integration', status: 'waiting', checks: { ...task.checks, code_review: 'passed' } });
-    backend.addTimeline('AC-25', 'code-review', 'task_check_changed', { check: 'code_review', from: 'pending', to: 'passed' }, CR_SESSION);
-    backend.addTimeline('AC-25', 'code-review', 'task_stage_changed', { from: 'code_review', to: 'integration' }, CR_SESSION);
+    backend.updateTask('AC-25', {
+      stageId: 'integration',
+      status: 'waiting',
+      checks: { ...task.checks, code_review: 'passed' },
+    });
+    backend.addTimeline(
+      'AC-25',
+      'code-review',
+      'task_check_changed',
+      { check: 'code_review', from: 'pending', to: 'passed' },
+      CR_SESSION,
+    );
+    backend.addTimeline(
+      'AC-25',
+      'code-review',
+      'task_stage_changed',
+      { from: 'code_review', to: 'integration' },
+      CR_SESSION,
+    );
     backend.sendTeamMessage(
       'code-review',
       ['be-1', 'devops'],
@@ -131,7 +164,12 @@ export function startSimulation(backend: MockBackend): void {
       backend.chatItem('assistant_text', {
         text: 'A próba-adatbázisba visszaállítom a legutóbbi mentést. Ehhez engedély kell, mert adatbázist ír.',
       }),
-      backend.chatItem('tool_call', { toolUseId: mockId('toolu'), name: 'Bash', summary: command, input: { command } }),
+      backend.chatItem('tool_call', {
+        toolUseId: mockId('toolu'),
+        name: 'Bash',
+        summary: command,
+        input: { command },
+      }),
     ]);
     const item: InboxItem = {
       id: mockId('inb'),
@@ -154,7 +192,13 @@ export function startSimulation(backend: MockBackend): void {
       createdAt: nowIso(),
     };
     backend.upsertInbox(item);
-    backend.addTimeline('AC-20', 'be-1', 'permission_requested', { inboxItemId: item.id, toolName: 'Bash', summary: 'pg_restore' }, BE_SESSION);
+    backend.addTimeline(
+      'AC-20',
+      'be-1',
+      'permission_requested',
+      { inboxItemId: item.id, toolName: 'Bash', summary: 'pg_restore' },
+      BE_SESSION,
+    );
     backend.updateSession(BE_SESSION, { state: 'waiting_permission', activity: `Bash: ${command}` });
     backend.setMemberState('be-1', 'waiting_for_human', 'Engedélyre vár: pg_restore');
   };

@@ -40,12 +40,20 @@ export function Avatar({
   className,
 }: AvatarProps) {
   const isAi = member?.kind === 'ai';
-  const tone = member ? toneFor(isMe && member.kind === 'human' ? { ...member, role: 'owner' } : member) : 'system';
+  const tone = member
+    ? toneFor(isMe && member.kind === 'human' ? { ...member, role: 'owner' } : member)
+    : 'system';
   const showIcon = isAi && variant === 'icon';
   const px = pixelSize[size];
   return (
     <span
-      className={clsx(styles.avatar, styles[size], isAi ? styles.square : styles.round, ring && styles.ring, className)}
+      className={clsx(
+        styles.avatar,
+        styles[size],
+        isAi ? styles.square : styles.round,
+        ring && styles.ring,
+        className,
+      )}
       data-tone={tone}
       style={{ width: px, height: px }}
       role={label ? 'img' : undefined}

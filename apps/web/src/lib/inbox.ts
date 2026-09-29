@@ -26,7 +26,8 @@ export function inboxHeading(item: InboxItem): string {
   if (item.kind === 'permission') {
     const tool = permissionTool(item);
     if (tool && (item.title === tool || item.title.startsWith(`${tool}:`))) {
-      const summary = typeof item.payload.summary === 'string' ? item.payload.summary : (permissionCommand(item) ?? '');
+      const summary =
+        typeof item.payload.summary === 'string' ? item.payload.summary : (permissionCommand(item) ?? '');
       return t('inbox.permissionHeading', { tool: toolPresentationFor(tool, summary).label });
     }
   }
@@ -53,7 +54,9 @@ export function decisionSubject(item: InboxItem): string {
 }
 
 function record(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 export function permissionTool(item: InboxItem): string | null {
@@ -88,7 +91,11 @@ export function shortCommand(command: string | null): string | null {
   if (!command) return null;
   const words = command.trim().split(/\s+/);
   const first = words[0] ?? '';
-  if (words.length > 1 && /^[a-z][\w-]*$/.test(words[1] ?? '') && ['git', 'npm', 'gh', 'docker', 'yarn', 'pnpm', 'make', 'kubectl'].includes(first)) {
+  if (
+    words.length > 1 &&
+    /^[a-z][\w-]*$/.test(words[1] ?? '') &&
+    ['git', 'npm', 'gh', 'docker', 'yarn', 'pnpm', 'make', 'kubectl'].includes(first)
+  ) {
     return `${first} ${words[1]}`;
   }
   return first.length > 32 ? `${first.slice(0, 31)}…` : first;

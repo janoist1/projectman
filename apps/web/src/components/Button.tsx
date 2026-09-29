@@ -18,8 +18,21 @@ interface StyleOptions {
   className?: string;
 }
 
-export function buttonClass({ variant = 'secondary', size = 'lg', fullWidth, iconOnly, className }: StyleOptions): string {
-  return clsx(styles.button, styles[variant], styles[size], fullWidth && styles.full, iconOnly && styles.iconOnly, className);
+export function buttonClass({
+  variant = 'secondary',
+  size = 'lg',
+  fullWidth,
+  iconOnly,
+  className,
+}: StyleOptions): string {
+  return clsx(
+    styles.button,
+    styles[variant],
+    styles[size],
+    fullWidth && styles.full,
+    iconOnly && styles.iconOnly,
+    className,
+  );
 }
 
 const iconPx: Record<ButtonSize, number> = { sm: 15, md: 16, lg: 17, xl: 18 };
@@ -35,7 +48,11 @@ interface ContentProps {
 function Content({ icon, iconRight, size = 'lg', loading, children }: ContentProps) {
   return (
     <>
-      {loading ? <span className={styles.spinner} aria-hidden="true" /> : icon ? <Icon name={icon} size={iconPx[size]} strokeWidth={2.1} /> : null}
+      {loading ? (
+        <span className={styles.spinner} aria-hidden="true" />
+      ) : icon ? (
+        <Icon name={icon} size={iconPx[size]} strokeWidth={2.1} />
+      ) : null}
       {children !== undefined && children !== null ? <span className={styles.label}>{children}</span> : null}
       {iconRight ? <Icon name={iconRight} size={iconPx[size]} strokeWidth={2.1} /> : null}
     </>
@@ -49,7 +66,20 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, St
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { variant, size = 'lg', fullWidth, iconOnly, className, icon, iconRight, loading, children, type = 'button', disabled, ...rest },
+  {
+    variant,
+    size = 'lg',
+    fullWidth,
+    iconOnly,
+    className,
+    icon,
+    iconRight,
+    loading,
+    children,
+    type = 'button',
+    disabled,
+    ...rest
+  },
   ref,
 ) {
   return (
@@ -73,7 +103,17 @@ export interface ButtonLinkProps extends LinkProps, StyleOptions {
   iconRight?: IconName;
 }
 
-export function ButtonLink({ variant, size = 'lg', fullWidth, iconOnly, className, icon, iconRight, children, ...rest }: ButtonLinkProps) {
+export function ButtonLink({
+  variant,
+  size = 'lg',
+  fullWidth,
+  iconOnly,
+  className,
+  icon,
+  iconRight,
+  children,
+  ...rest
+}: ButtonLinkProps) {
   return (
     <Link className={buttonClass({ variant, size, fullWidth, iconOnly, className })} {...rest}>
       <Content icon={icon} iconRight={iconRight} size={size}>

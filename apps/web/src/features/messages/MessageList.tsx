@@ -27,7 +27,15 @@ function dayKey(iso: string): string {
 }
 
 /** Newest-first list of team messages: sender → recipients, the task, the text. */
-export function MessageList({ messages, members, myHandle, projectKey, taskTitles, groupByDay = false, compact = false }: MessageListProps) {
+export function MessageList({
+  messages,
+  members,
+  myHandle,
+  projectKey,
+  taskTitles,
+  groupByDay = false,
+  compact = false,
+}: MessageListProps) {
   const sorted = [...messages].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   let lastDay = '';
   return (
@@ -48,11 +56,24 @@ export function MessageList({ messages, members, myHandle, projectKey, taskTitle
             ) : null}
             <li className={clsx(styles.item, toMe && styles.toMe)}>
               <div className={styles.head}>
-                <Avatar member={members.get(message.from)} handle={message.from} isMe={message.from === myHandle} size="sm" />
+                <Avatar
+                  member={members.get(message.from)}
+                  handle={message.from}
+                  isMe={message.from === myHandle}
+                  size="sm"
+                />
                 <Icon name="arrowRight" size={13} strokeWidth={2} className={styles.arrow} />
                 <span className={styles.recipients} aria-hidden="true">
                   {message.to.slice(0, 3).map((handle) => (
-                    <Avatar key={handle} member={members.get(handle)} handle={handle} isMe={handle === myHandle} size="xs" variant="initials" ring />
+                    <Avatar
+                      key={handle}
+                      member={members.get(handle)}
+                      handle={handle}
+                      isMe={handle === myHandle}
+                      size="xs"
+                      variant="initials"
+                      ring
+                    />
                   ))}
                 </span>
                 <span className={styles.names}>{t('messages.fromTo', { from, to })}</span>
@@ -69,7 +90,9 @@ export function MessageList({ messages, members, myHandle, projectKey, taskTitle
                       <span className={styles.taskTitle}>{taskTitles.get(message.taskKey) ?? ''}</span>
                     </Link>
                   ) : null}
-                  {!message.deliveredAt ? <span className={styles.pending}>{t('messages.undelivered')}</span> : null}
+                  {!message.deliveredAt ? (
+                    <span className={styles.pending}>{t('messages.undelivered')}</span>
+                  ) : null}
                 </div>
               ) : null}
             </li>

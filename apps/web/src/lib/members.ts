@@ -28,7 +28,11 @@ export function iconFor(member: MemberLike | null | undefined): IconName {
 }
 
 /** "CR" for code-review, "FE" for fe-1, "K" for Kata, "TE" for yourself. */
-export function initialsFor(member: MemberLike | null | undefined, isMe = false, fallbackHandle = '?'): string {
+export function initialsFor(
+  member: MemberLike | null | undefined,
+  isMe = false,
+  fallbackHandle = '?',
+): string {
   if (isMe) return t('common.youInitials');
   if (!member) return fallbackHandle.slice(0, 2).toUpperCase();
   const words = member.displayName.split(/[\s·_]+/).filter(Boolean);
@@ -46,7 +50,9 @@ export function initialsFor(member: MemberLike | null | undefined, isMe = false,
 /** Role label in the UI language: "Tulajdonos", "Code review", "Frontend fejlesztő". */
 export function roleLabel(member: MemberLike | null | undefined): string {
   if (!member) return '';
-  return member.kind === 'human' ? humanRoleName(member.role) : aiRoleView(member.role, member.specialty).name;
+  return member.kind === 'human'
+    ? humanRoleName(member.role)
+    : aiRoleView(member.role, member.specialty).name;
 }
 
 export type MemberIndex = ReadonlyMap<string, MemberView>;
@@ -56,7 +62,11 @@ export function indexMembers(members: readonly MemberView[] | undefined): Member
 }
 
 /** Display name, with "Te" for the current user. */
-export function nameOf(handle: string | null | undefined, index: MemberIndex, myHandle: string | null): string {
+export function nameOf(
+  handle: string | null | undefined,
+  index: MemberIndex,
+  myHandle: string | null,
+): string {
   if (!handle) return t('common.system');
   if (handle === myHandle) return t('common.you');
   return index.get(handle)?.displayName ?? handle;
@@ -67,7 +77,11 @@ export function namesOf(handles: readonly string[], index: MemberIndex, myHandle
 }
 
 /** Open inbox items raised by this member that are assigned to me. */
-export function isWaitingForMe(member: MemberView, inbox: readonly InboxItem[] | undefined, myHandle: string | null): boolean {
+export function isWaitingForMe(
+  member: MemberView,
+  inbox: readonly InboxItem[] | undefined,
+  myHandle: string | null,
+): boolean {
   if (!inbox || !myHandle) return false;
   return inbox.some(
     (item) => item.state === 'open' && item.source === member.handle && item.assignees.includes(myHandle),

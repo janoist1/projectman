@@ -18,13 +18,18 @@ export function MessagesPage() {
   const { members } = useProjectIndexes(key);
   const [filter, setFilter] = useState<MessageFilter>('all');
   useDocumentTitle(t('messages.title'), board.data?.project.name);
-  const titles = useMemo(() => new Map((board.data?.tasks ?? []).map((task) => [task.key, task.title])), [board.data]);
+  const titles = useMemo(
+    () => new Map((board.data?.tasks ?? []).map((task) => [task.key, task.title])),
+    [board.data],
+  );
 
   if (messages.isPending) return <LoadingState />;
   if (messages.isError) return <ErrorState error={messages.error} onRetry={() => void messages.refetch()} />;
 
   const all = messages.data.messages;
-  const mine = all.filter((message) => myHandle !== null && (message.to.includes(myHandle) || message.from === myHandle));
+  const mine = all.filter(
+    (message) => myHandle !== null && (message.to.includes(myHandle) || message.from === myHandle),
+  );
   const shown = filter === 'mine' ? mine : all;
 
   return (
@@ -48,7 +53,14 @@ export function MessagesPage() {
         {shown.length === 0 ? (
           <EmptyState icon="messages" title={t('messages.empty')} />
         ) : (
-          <MessageList messages={shown} members={members} myHandle={myHandle} projectKey={key} taskTitles={titles} groupByDay />
+          <MessageList
+            messages={shown}
+            members={members}
+            myHandle={myHandle}
+            projectKey={key}
+            taskTitles={titles}
+            groupByDay
+          />
         )}
       </section>
     </div>

@@ -29,11 +29,17 @@ export function ProjectLayout() {
   const inboxCount = inbox.data ? myOpen.length : (board.data?.openInboxCount ?? 0);
   const [search, setSearch] = useState('');
   const [newTaskOpen, setNewTaskOpen] = useState(false);
-  const access = board.data?.members.find((member) => member.handle === myHandle && member.kind === 'human')?.role;
+  const access = board.data?.members.find(
+    (member) => member.handle === myHandle && member.kind === 'human',
+  )?.role;
   const isOwner = access === 'owner';
   const internal = access === 'owner' || access === 'admin' || access === 'developer';
   const can = useMemo(
-    () => ({ createTasks: internal, manageTeam: access === 'owner' || access === 'admin', workInSessions: internal }),
+    () => ({
+      createTasks: internal,
+      manageTeam: access === 'owner' || access === 'admin',
+      workInSessions: internal,
+    }),
     [access, internal],
   );
 

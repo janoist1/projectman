@@ -97,7 +97,12 @@ export default function TerminalView({ sessionId }: { sessionId: string }) {
 
   return (
     <div className={styles.wrap}>
-      <div className={styles.terminal} ref={containerRef} role="region" aria-label={t('session.terminal.label')} />
+      <div
+        className={styles.terminal}
+        ref={containerRef}
+        role="region"
+        aria-label={t('session.terminal.label')}
+      />
       {ready ? null : (
         <div className={styles.overlay}>
           <Spinner />

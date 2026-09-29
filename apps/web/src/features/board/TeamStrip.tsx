@@ -19,7 +19,11 @@ export function TeamStrip({ members, inbox, activeTaskCount }: TeamStripProps) {
   const active = members.filter((member) => member.status !== 'retired');
   const humans = active.filter((member) => member.kind === 'human');
   const ai = active.filter((member) => member.kind === 'ai');
-  const ordered = [...humans.filter((member) => member.handle === myHandle), ...humans.filter((member) => member.handle !== myHandle), ...ai];
+  const ordered = [
+    ...humans.filter((member) => member.handle === myHandle),
+    ...humans.filter((member) => member.handle !== myHandle),
+    ...ai,
+  ];
 
   return (
     <section aria-label={t('board.teamStrip')} className={styles.strip}>
@@ -45,13 +49,19 @@ export function TeamStrip({ members, inbox, activeTaskCount }: TeamStripProps) {
           size="md"
           max={6}
           label={t('board.teamSummaryDetail', { humans: humans.length, ai: ai.length })}
-          members={ordered.map((member) => ({ member, handle: member.handle, isMe: member.handle === myHandle }))}
+          members={ordered.map((member) => ({
+            member,
+            handle: member.handle,
+            isMe: member.handle === myHandle,
+          }))}
         />
         <span className={styles.text}>
           <span className={styles.name}>
             {t('board.teamSummary', { members: active.length, tasks: activeTaskCount })}
           </span>
-          <span className={styles.activity}>{t('board.teamSummaryDetail', { humans: humans.length, ai: ai.length })}</span>
+          <span className={styles.activity}>
+            {t('board.teamSummaryDetail', { humans: humans.length, ai: ai.length })}
+          </span>
         </span>
       </Link>
     </section>

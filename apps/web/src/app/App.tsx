@@ -27,7 +27,10 @@ function lazyPage<K extends string>(load: () => Promise<Record<K, ComponentType>
 
 const setupPage = lazyPage(() => import('../features/auth/SetupPage'), 'SetupPage');
 const loginPage = lazyPage(() => import('../features/auth/LoginPage'), 'LoginPage');
-const createProjectPage = lazyPage(() => import('../features/projects/CreateProjectPage'), 'CreateProjectPage');
+const createProjectPage = lazyPage(
+  () => import('../features/projects/CreateProjectPage'),
+  'CreateProjectPage',
+);
 const sessionPage = lazyPage(() => import('../features/session/SessionPage'), 'SessionPage');
 const inboxPage = lazyPage(() => import('../features/inbox/InboxPage'), 'InboxPage');
 const teamPage = lazyPage(() => import('../features/team/TeamPage'), 'TeamPage');
@@ -40,7 +43,8 @@ export function createQueryClient(): QueryClient {
       queries: {
         staleTime: 30_000,
         refetchOnWindowFocus: true,
-        retry: (count, error) => !(isApiError(error) && error.status >= 400 && error.status < 500) && count < 2,
+        retry: (count, error) =>
+          !(isApiError(error) && error.status >= 400 && error.status < 500) && count < 2,
       },
       mutations: { retry: false },
     },
@@ -51,7 +55,10 @@ export function createQueryClient(): QueryClient {
 function HomeRedirect() {
   const projects = useProjects();
   if (projects.isPending) return <LoadingState className={styles.full} />;
-  if (projects.isError) return <ErrorState className={styles.full} error={projects.error} onRetry={() => void projects.refetch()} />;
+  if (projects.isError)
+    return (
+      <ErrorState className={styles.full} error={projects.error} onRetry={() => void projects.refetch()} />
+    );
   const last = readStorage('lastProject');
   const target = projects.data.find((project) => project.key === last) ?? projects.data[0];
   if (!target) return <Navigate to="/projects/new" replace />;

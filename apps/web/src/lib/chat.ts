@@ -24,7 +24,10 @@ export type ChatBlock =
  * Turns an injected team message typed into the session ("[team message from qa about
  * AC-21]\n…") into a team message item, in case the transcript parser left it as user text.
  */
-function asTeamMessage(item: Extract<ChatItem, { kind: 'user_text' }>, sessionMember: string | null): TeamMessageItem | null {
+function asTeamMessage(
+  item: Extract<ChatItem, { kind: 'user_text' }>,
+  sessionMember: string | null,
+): TeamMessageItem | null {
   const match = TEAM_MESSAGE_PREFIX_RE.exec(item.text);
   if (!match) return null;
   return {
@@ -62,7 +65,9 @@ export function groupChatItems(items: readonly ChatItem[], sessionMember: string
         blocks.push(last);
       }
       const row: ToolRow =
-        item.kind === 'tool_call' ? { id: item.id, call: item, result: null } : { id: item.id, call: null, result: item };
+        item.kind === 'tool_call'
+          ? { id: item.id, call: item, result: null }
+          : { id: item.id, call: null, result: item };
       last.rows.push(row);
       if (item.kind === 'tool_call') rowsByToolUse.set(item.toolUseId, row);
       continue;
@@ -70,7 +75,11 @@ export function groupChatItems(items: readonly ChatItem[], sessionMember: string
     switch (item.kind) {
       case 'user_text': {
         const team = asTeamMessage(item, sessionMember);
-        blocks.push(team ? { type: 'team', id: item.id, ts: item.ts, item: team } : { type: 'user', id: item.id, ts: item.ts, item });
+        blocks.push(
+          team
+            ? { type: 'team', id: item.id, ts: item.ts, item: team }
+            : { type: 'user', id: item.id, ts: item.ts, item },
+        );
         break;
       }
       case 'assistant_text':

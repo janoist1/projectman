@@ -4,11 +4,12 @@ import { ApiError, apiRequest, onUnauthorized, setFetchImplementation, unwrapLis
 import { errorMessage, isApprovalRequested } from '../lib/errors';
 
 function respond(status: number, body: unknown) {
-  setFetchImplementation(async () =>
-    new Response(body === null ? null : JSON.stringify(body), {
-      status,
-      headers: { 'content-type': 'application/json' },
-    }),
+  setFetchImplementation(
+    async () =>
+      new Response(body === null ? null : JSON.stringify(body), {
+        status,
+        headers: { 'content-type': 'application/json' },
+      }),
   );
 }
 
@@ -23,10 +24,20 @@ describe('apiRequest', () => {
   });
 
   it('turns error bodies into ApiError with the server code', async () => {
-    respond(409, { error: { code: 'approval_requested', message: 'approvers were asked', details: { approvers: ['owner'] } } });
+    respond(409, {
+      error: {
+        code: 'approval_requested',
+        message: 'approvers were asked',
+        details: { approvers: ['owner'] },
+      },
+    });
     const error = await apiRequest('/api/x', { method: 'POST', body: {} }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ApiError);
-    expect(error).toMatchObject({ status: 409, code: 'approval_requested', details: { approvers: ['owner'] } });
+    expect(error).toMatchObject({
+      status: 409,
+      code: 'approval_requested',
+      details: { approvers: ['owner'] },
+    });
     expect(isApprovalRequested(error)).toBe(true);
     expect(errorMessage(error)).toBe('Jóváhagyást kértünk; a feladat a jóváhagyás után lép tovább.');
   });
@@ -43,7 +54,9 @@ describe('apiRequest', () => {
   it('rejects responses that break the contract (development builds)', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     respond(200, { needsSetup: 'yes' });
-    await expect(apiRequest('/api/setup', { schema: SetupStatus })).rejects.toMatchObject({ code: 'invalid_response' });
+    await expect(apiRequest('/api/setup', { schema: SetupStatus })).rejects.toMatchObject({
+      code: 'invalid_response',
+    });
     expect(error).toHaveBeenCalled();
   });
 

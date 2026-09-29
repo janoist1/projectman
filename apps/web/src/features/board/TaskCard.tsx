@@ -57,7 +57,11 @@ export function TaskCard({ task, state, pipeline, to, selected = false, compact 
           {checks.map((check) => (
             <li key={check.label} className={styles.check} data-check={check.tone}>
               <span className={styles.checkIcon} aria-hidden="true">
-                <Icon name={check.tone === 'ok' ? 'check' : check.tone === 'warn' ? 'exclamation' : 'wait'} size={10} strokeWidth={3.2} />
+                <Icon
+                  name={check.tone === 'ok' ? 'check' : check.tone === 'warn' ? 'exclamation' : 'wait'}
+                  size={10}
+                  strokeWidth={3.2}
+                />
               </span>
               <span>{check.label}</span>
             </li>

@@ -4,7 +4,8 @@ import { Icon } from './Icon';
 import type { IconName } from './Icon';
 import styles from './Chip.module.css';
 
-export type ChipTone = 'neutral' | 'outline' | 'accent' | 'needs' | 'ok' | 'blocked' | 'kind' | 'phase' | 'status' | 'dark';
+export type ChipTone =
+  'neutral' | 'outline' | 'accent' | 'needs' | 'ok' | 'blocked' | 'kind' | 'phase' | 'status' | 'dark';
 
 interface ChipProps extends HTMLAttributes<HTMLSpanElement> {
   tone?: ChipTone;
@@ -37,7 +38,12 @@ interface DotProps {
 export function StatusDot({ phase, status, pulse, size = 8, className }: DotProps) {
   return (
     <span
-      className={clsx(styles.dot, status ? styles.dotStatus : phase ? styles.dotPhase : null, pulse && 'pulse', className)}
+      className={clsx(
+        styles.dot,
+        status ? styles.dotStatus : phase ? styles.dotPhase : null,
+        pulse && 'pulse',
+        className,
+      )}
       data-phase={phase}
       data-status={status}
       style={{ width: size, height: size }}

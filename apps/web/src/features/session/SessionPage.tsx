@@ -89,15 +89,33 @@ function SessionView({ detail }: { detail: SessionDetail }) {
   useDocumentTitle(title);
 
   const items = inbox.data?.items;
-  const sessionItems = useMemo(() => (items ?? []).filter((item) => item.sessionId === session.id), [items, session.id]);
-  const openItems = sessionItems.filter((item) => item.state === 'open' && (!myHandle || item.assignees.includes(myHandle)));
-  const resolvedPermissions = sessionItems.filter((item) => item.kind === 'permission' && item.state !== 'open' && item.resolution);
-  const openIds = useMemo(() => new Set((items ?? []).filter((item) => item.state === 'open').map((item) => item.id)), [items]);
+  const sessionItems = useMemo(
+    () => (items ?? []).filter((item) => item.sessionId === session.id),
+    [items, session.id],
+  );
+  const openItems = sessionItems.filter(
+    (item) => item.state === 'open' && (!myHandle || item.assignees.includes(myHandle)),
+  );
+  const resolvedPermissions = sessionItems.filter(
+    (item) => item.kind === 'permission' && item.state !== 'open' && item.resolution,
+  );
+  const openIds = useMemo(
+    () => new Set((items ?? []).filter((item) => item.state === 'open').map((item) => item.id)),
+    [items],
+  );
 
   // Drop local echoes once the transcript shows the message.
   useEffect(() => {
     setPending((list) =>
-      list.filter((message) => !chat.some((item) => item.kind === 'user_text' && item.text.trim() === message.text.trim() && item.ts >= message.sentAt)),
+      list.filter(
+        (message) =>
+          !chat.some(
+            (item) =>
+              item.kind === 'user_text' &&
+              item.text.trim() === message.text.trim() &&
+              item.ts >= message.sentAt,
+          ),
+      ),
     );
   }, [chat]);
 
@@ -118,7 +136,15 @@ function SessionView({ detail }: { detail: SessionDetail }) {
   );
   const running = isRunning(session);
   const needsMe = openItems.some((item) => item.kind === 'permission');
-  const liveStatus = needsMe ? 'needs_you' : session.state === 'working' ? 'working' : running ? 'idle' : session.state === 'failed' ? 'failed' : 'exited';
+  const liveStatus = needsMe
+    ? 'needs_you'
+    : session.state === 'working'
+      ? 'working'
+      : running
+        ? 'idle'
+        : session.state === 'failed'
+          ? 'failed'
+          : 'exited';
   const liveLabel = needsMe ? t('sessionState.needsYou') : t(`sessionState.${session.state}`);
 
   const taskState =
@@ -137,7 +163,11 @@ function SessionView({ detail }: { detail: SessionDetail }) {
   const timeline = taskDetail.data?.timeline ?? [];
   const participants = participantsFor(session, task, timeline, pipeline, members, myHandle);
 
-  const tabs: Tab[] = isMobile ? ['chat', 'terminal', 'timeline', 'details'] : wide ? ['chat', 'terminal'] : ['chat', 'terminal', 'details'];
+  const tabs: Tab[] = isMobile
+    ? ['chat', 'terminal', 'timeline', 'details']
+    : wide
+      ? ['chat', 'terminal']
+      : ['chat', 'terminal', 'details'];
   const activeTab = tabs.includes(tab) ? tab : 'chat';
 
   const onSend = (text: string) => {
@@ -145,7 +175,10 @@ function SessionView({ detail }: { detail: SessionDetail }) {
     setPending((list) => [...list, entry]);
     stickToBottom.current = true;
     send.mutate(text, {
-      onError: () => setPending((list) => list.map((message) => (message.id === entry.id ? { ...message, failed: true } : message))),
+      onError: () =>
+        setPending((list) =>
+          list.map((message) => (message.id === entry.id ? { ...message, failed: true } : message)),
+        ),
     });
   };
 
@@ -236,7 +269,12 @@ function SessionView({ detail }: { detail: SessionDetail }) {
         <div className={styles.chips}>
           {task && pipeline && taskState ? (
             <span className={styles.stageChip}>
-              <StageProgress pipeline={pipeline} stageId={task.stageId} phase={taskState.phase} variant="chip" />
+              <StageProgress
+                pipeline={pipeline}
+                stageId={task.stageId}
+                phase={taskState.phase}
+                variant="chip"
+              />
               <span>
                 {t('task.stageChip', {
                   stage: stage?.name ?? task.stageId,
@@ -259,9 +297,13 @@ function SessionView({ detail }: { detail: SessionDetail }) {
           <Chip tone="outline" size="md" mono title={t('session.chips.cwd', { cwd: session.cwd })}>
             {shortPath(session.cwd)}
           </Chip>
-          {memberConfig ? <Chip size="md">{t('session.chips.model', { model: memberConfig.model })}</Chip> : null}
           {memberConfig ? (
-            <Chip size="md">{t('session.chips.permissions', { mode: t(`permissionModes.${memberConfig.permissionMode}`) })}</Chip>
+            <Chip size="md">{t('session.chips.model', { model: memberConfig.model })}</Chip>
+          ) : null}
+          {memberConfig ? (
+            <Chip size="md">
+              {t('session.chips.permissions', { mode: t(`permissionModes.${memberConfig.permissionMode}`) })}
+            </Chip>
           ) : null}
         </div>
       </div>
@@ -300,7 +342,12 @@ function SessionView({ detail }: { detail: SessionDetail }) {
               </button>
             ))}
           </div>
-          <div role="tabpanel" id={`panel-${activeTab}`} aria-labelledby={`tab-${activeTab}`} className={styles.panel}>
+          <div
+            role="tabpanel"
+            id={`panel-${activeTab}`}
+            aria-labelledby={`tab-${activeTab}`}
+            className={styles.panel}
+          >
             {activeTab === 'chat' ? chatPanel : null}
             {activeTab === 'terminal' ? (
               running ? (
@@ -312,7 +359,9 @@ function SessionView({ detail }: { detail: SessionDetail }) {
               )
             ) : null}
             {activeTab === 'timeline' ? <div className={styles.panelScroll}>{timelinePanel}</div> : null}
-            {activeTab === 'details' ? <div className={clsx(styles.panelScroll, styles.detailsStack)}>{sidePanels}</div> : null}
+            {activeTab === 'details' ? (
+              <div className={clsx(styles.panelScroll, styles.detailsStack)}>{sidePanels}</div>
+            ) : null}
           </div>
         </section>
 

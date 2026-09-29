@@ -738,7 +738,8 @@ export const hu = {
 
   settings: {
     title: 'Beállítások',
-    subtitle: 'A projekt beállításai külön git-tárolóban élnek: minden változás egy verzió, és visszaállítható.',
+    subtitle:
+      'A projekt beállításai külön git-tárolóban élnek: minden változás egy verzió, és visszaállítható.',
     version: 'beállítás {version}',
     sections: {
       pipeline: 'Folyamat',

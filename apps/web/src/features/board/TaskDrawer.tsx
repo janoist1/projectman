@@ -28,6 +28,8 @@ import { prChip } from './cardModel';
 import { nextStepText, primarySession } from './taskModel';
 import { TaskLifecycle } from './TaskLifecycle';
 import { useBoardModel } from './useBoardModel';
+import { TaskMove } from './TaskMove';
+import { canMoveTask } from './moveTask';
 import styles from './TaskDrawer.module.css';
 
 function StartPanel({ task, members }: { task: Task; members: MemberIndex }) {
@@ -192,6 +194,9 @@ export function TaskDrawer() {
         </div>
 
         <div className={styles.scroll}>
+          {canMoveTask(task, can.createTasks) ? (
+            <TaskMove key={`${task.key}:${task.stageId}`} task={task} pipeline={pipeline} members={members} />
+          ) : null}
           {can.manageTeam ? <TaskLifecycle key={task.key} task={task} members={members} /> : null}
           {myItems.length > 0 ? (
             <section className={styles.section}>

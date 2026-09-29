@@ -298,6 +298,16 @@ export const hu = {
   },
 
   task: {
+    move: {
+      target: 'Áthelyezés szakaszba',
+      submit: 'Áthelyezés',
+      conditions: 'A belépés feltételei:',
+      condition: '{stage}: {condition}',
+      noConditions: 'Nincs kapufeltétel.',
+      success: 'A feladatot áthelyeztük.',
+      pending: 'Áthelyezés folyamatban…',
+      dropTarget: 'Ide helyezhető: {stage}',
+    },
     drawerLabel: 'Feladat részletei',
     stageChip: '{stage} · {index}/{total}',
     timeline: 'Idővonal',

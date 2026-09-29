@@ -3,6 +3,7 @@ import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
 import { mockProject } from '../../test/mockProject';
+import { t } from '../../i18n/t';
 import { TaskDrawer } from './TaskDrawer';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
@@ -59,5 +60,69 @@ describe('task drawer lifecycle', () => {
     await screen.findByText('Napi mentés és visszaállítási próba');
     expect(screen.queryByRole('button', { name: 'Feladat megszakítása' })).toBeNull();
     expect(screen.queryByLabelText('Felelős')).toBeNull();
+  });
+});
+
+describe('task drawer stage moves', () => {
+  it('defaults to the next stage and moves successfully', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    const target = await screen.findByLabelText(t('task.move.target'));
+    expect((target as HTMLSelectElement).value).toBe('code_review');
+    fireEvent.click(screen.getByRole('button', { name: t('task.move.submit') }));
+    await waitFor(() => expect(project.backend.findTask('AC-20')?.stageId).toBe('code_review'));
+    await waitFor(() =>
+      expect((screen.getByLabelText(t('task.move.target')) as HTMLSelectElement).value).toBe('integration'),
+    );
+    expect(project.requests).toContainEqual({
+      method: 'PATCH',
+      path: '/api/projects/AC/tasks/AC-20',
+      body: { stageId: 'code_review' },
+    });
+  });
+  it('previews gates and lists unmet conditions inline without moving', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    fireEvent.change(await screen.findByLabelText(t('task.move.target')), {
+      target: { value: 'client_test' },
+    });
+    expect(screen.getByText(/Integration:/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: t('task.move.submit') }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain(
+      t('settings.pipeline.gateCheck', { check: t('checks.names.code_review') }),
+    );
+    expect(alert.textContent).toContain(t('settings.pipeline.gateCheck', { check: t('checks.names.qa') }));
+    expect(project.backend.findTask('AC-20')?.stageId).toBe('dev');
+  });
+  it('reports requested approval as information and stays in the original stage', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-17');
+    await screen.findByLabelText(t('task.move.target'));
+    fireEvent.click(screen.getByRole('button', { name: t('task.move.submit') }));
+    expect(await screen.findByText(t('errors.codes.approval_requested'))).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(project.backend.findTask('AC-17')?.stageId).toBe('merge');
+    expect(
+      project.backend.inbox.some(
+        (item) => item.taskKey === 'AC-17' && item.kind === 'decision' && item.state === 'open',
+      ),
+    ).toBe(true);
+  });
+  it.each(['client', 'viewer'])('hides moving from %s access', async (access) => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-20', {
+      myHandle: access === 'client' ? 'kata' : 'bence',
+      can: { createTasks: false, manageTeam: false, workInSessions: false },
+    });
+    await screen.findByText(project.backend.findTask('AC-20')!.title);
+    expect(screen.queryByLabelText(t('task.move.target'))).toBeNull();
+  });
+  it.each(['done', 'cancelled'] as const)('hides moving for %s tasks', async (status) => {
+    const project = mockProject();
+    project.backend.updateTask('AC-20', { status });
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    await screen.findByText(project.backend.findTask('AC-20')!.title);
+    expect(screen.queryByLabelText(t('task.move.target'))).toBeNull();
   });
 });

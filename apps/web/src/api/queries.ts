@@ -311,3 +311,19 @@ export function useCancelTask(key: string) {
 export function useReopenTask(key: string) {
   return useProjectMutation(key, (taskKey: string) => api.reopenTask(key, taskKey));
 }
+
+/** Refresh even after approval_requested: the task waits and new inbox decisions exist. */
+export function useMoveTask(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ taskKey, stageId }: { taskKey: string; stageId: string }) =>
+      api.updateTask(key, taskKey, { stageId }),
+    onSettled: async (_data, _error, { taskKey }) => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.board(key) }),
+        client.invalidateQueries({ queryKey: queryKeys.task(key, taskKey) }),
+        client.invalidateQueries({ queryKey: queryKeys.inbox(key) }),
+      ]);
+    },
+  });
+}

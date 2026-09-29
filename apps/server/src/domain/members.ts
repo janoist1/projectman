@@ -16,7 +16,7 @@ import type {
   UpdateMemberRequest,
 } from '@projectman/shared';
 import { aiMemberDefaults } from '@projectman/templates';
-import { findHumanByEmail } from './access';
+import { findHumanByEmail, ownerHandles } from './access';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
 import { conflict, invalid, notFound } from './errors';
@@ -225,6 +225,10 @@ export class MemberService {
       if (!member) throw notFound('member', handle);
       const fields: string[] = [];
       if (member.kind === 'human') {
+        if (req.access !== undefined) {
+          member.access = req.access;
+          fields.push('access');
+        }
         if (
           req.specialty !== undefined ||
           req.model !== undefined ||
@@ -244,6 +248,7 @@ export class MemberService {
           fields.push('roles');
         }
       } else {
+        if (req.access !== undefined) throw invalid('not_human_member', 'Access applies to humans');
         if (req.roles !== undefined) {
           throw invalid('not_human_member', 'an AI member holds exactly one role; roles apply to humans');
         }
@@ -327,6 +332,21 @@ export class MemberService {
       type: 'member_retired',
       data: { handle, handoverTo },
     });
+  }
+
+  async removeHuman(projectKey: string, handle: string, by: { actor: Actor; author: Author }): Promise<void> {
+    await this.projects.update(projectKey, by, (draft) => {
+      const member = draft.team.members.find((m) => m.handle === handle);
+      if (!member) throw notFound('member', handle);
+      if (member.kind !== 'human') throw invalid('not_human_member', 'Only humans can be removed');
+      draft.team.members = draft.team.members.filter((m) => m.handle !== handle);
+      // Sponsors and explicit gate approvers must be reassigned before removal.
+      for (const stage of draft.pipeline.stages) {
+        if (stage.owners) stage.owners = stage.owners.filter((h) => h !== handle);
+      }
+      return `Remove human member ${handle}`;
+    });
+    this.inbox.reassignRemovedHuman(projectKey, handle, ownerHandles(await this.projects.config(projectKey)));
   }
 
   /** Records an AI member's runtime status; retired members stay retired. */

@@ -11,7 +11,12 @@ export function mockProject(backend = new MockBackend()) {
     const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
     const method = init?.method ?? 'GET';
     requests.push({ path, method, body });
-    const response = backend.handle(method, new URL(path, 'http://localhost').pathname, body);
+    const response = backend.handle(
+      method,
+      new URL(path, 'http://localhost').pathname,
+      body,
+      new URL(path, 'http://localhost').searchParams,
+    );
     return new Response(response.status === 204 ? null : JSON.stringify(response.body), {
       status: response.status,
       headers: { 'content-type': 'application/json' },

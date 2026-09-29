@@ -1,7 +1,7 @@
 import { Link } from 'react-router';
 import type { InboxItem, MemberView } from '@projectman/shared';
 import { useProject } from '../../app/contexts';
-import { Avatar, AvatarStack } from '../../components/Avatar';
+import { Avatar } from '../../components/Avatar';
 import { ProviderBadge } from '../../components/ProviderBadge';
 import { t } from '../../i18n/t';
 import { isStandingRole, memberStatusView } from '../../lib/members';
@@ -31,7 +31,7 @@ export function TeamStrip({ members, inbox, activeTaskCount }: TeamStripProps) {
       {standing.map((member) => {
         const view = memberStatusView(member, inbox, myHandle);
         return (
-          <Link key={member.handle} to={`/p/${key}/team`} className={styles.role}>
+          <Link key={member.handle} to={`/p/${key}/team/${member.handle}`} className={styles.role}>
             <Avatar member={member} size="lg" status={view.status} />
             <span className={styles.text}>
               <span className={styles.top}>
@@ -46,17 +46,14 @@ export function TeamStrip({ members, inbox, activeTaskCount }: TeamStripProps) {
           </Link>
         );
       })}
-      <Link to={`/p/${key}/team`} className={styles.summary}>
-        <AvatarStack
-          size="md"
-          max={6}
-          label={t('board.teamSummaryDetail', { humans: humans.length, ai: ai.length })}
-          members={ordered.map((member) => ({
-            member,
-            handle: member.handle,
-            isMe: member.handle === myHandle,
-          }))}
-        />
+      <div className={styles.summary}>
+        {ordered
+          .filter((member) => !standing.some((s) => s.handle === member.handle))
+          .map((member) => (
+            <Link key={member.handle} to={`/p/${key}/team/${member.handle}`} aria-label={member.displayName}>
+              <Avatar member={member} isMe={member.handle === myHandle} size="md" />
+            </Link>
+          ))}
         <span className={styles.text}>
           <span className={styles.name}>
             {t('board.teamSummary', { members: active.length, tasks: activeTaskCount })}
@@ -65,7 +62,7 @@ export function TeamStrip({ members, inbox, activeTaskCount }: TeamStripProps) {
             {t('board.teamSummaryDetail', { humans: humans.length, ai: ai.length })}
           </span>
         </span>
-      </Link>
+      </div>
     </section>
   );
 }

@@ -46,6 +46,20 @@ function patchMembers(
  * data that is not in the cache are ignored; it is fetched fresh when a screen needs it.
  */
 export function applyServerEvent(client: QueryClient, event: ServerEvent): void {
+  if (
+    'projectKey' in event &&
+    [
+      'task_upserted',
+      'timeline_appended',
+      'session_upserted',
+      'inbox_upserted',
+      'member_changed',
+      'member_state',
+      'config_changed',
+    ].includes(event.type)
+  ) {
+    void client.invalidateQueries({ queryKey: queryKeys.profiles(event.projectKey) });
+  }
   switch (event.type) {
     case 'task_upserted': {
       const { projectKey: key, task } = event;
@@ -137,8 +151,9 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     }
     case 'team_message': {
       const { projectKey: key, message } = event;
+      void client.invalidateQueries({ queryKey: queryKeys.messages(key) });
       client.setQueryData<TeamMessagesView>(queryKeys.messages(key), (view) =>
-        view ? { messages: upsertBy(view.messages, message, (entry) => entry.id) } : view,
+        view ? { ...view, messages: upsertBy(view.messages, message, (entry) => entry.id) } : view,
       );
       return;
     }

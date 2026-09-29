@@ -69,6 +69,14 @@ export function createInboxRepository(db: Db) {
         item.createdAt,
       );
     },
+    updateAssignees(id: string, assignees: string[], at: string): InboxItem | null {
+      db.prepare("UPDATE inbox_items SET assignees = ?, updated_at = ? WHERE id = ? AND state = 'open'").run(
+        toJson(assignees),
+        at,
+        id,
+      );
+      return get(id);
+    },
     /** Changes state/resolution only while the item is still open; returns the item or null if it was not open. */
     close(
       id: string,

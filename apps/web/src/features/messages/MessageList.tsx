@@ -2,6 +2,7 @@ import clsx from 'clsx';
 import { Fragment } from 'react';
 import { Link } from 'react-router';
 import type { TeamMessage } from '@projectman/shared';
+import { Button } from '../../components/Button';
 import { Avatar } from '../../components/Avatar';
 import { Icon } from '../../components/Icon';
 import { formatDayHeading, formatStamp } from '../../i18n/format';
@@ -19,6 +20,9 @@ interface MessageListProps {
   /** Group by day with headings (full page). */
   groupByDay?: boolean;
   compact?: boolean;
+  onReply?: (message: TeamMessage) => void;
+  onRead?: (id: string) => void;
+  readPending?: boolean;
 }
 
 function dayKey(iso: string): string {
@@ -35,6 +39,9 @@ export function MessageList({
   taskTitles,
   groupByDay = false,
   compact = false,
+  onReply,
+  onRead,
+  readPending,
 }: MessageListProps) {
   const sorted = [...messages].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   let lastDay = '';
@@ -82,19 +89,44 @@ export function MessageList({
                 </time>
               </div>
               <p className={styles.body}>{message.body}</p>
-              {message.taskKey || !message.deliveredAt ? (
-                <div className={styles.foot}>
-                  {message.taskKey ? (
-                    <Link to={`/p/${projectKey}/tasks/${message.taskKey}`} className={styles.task}>
-                      <span className={styles.taskKey}>{message.taskKey}</span>
-                      <span className={styles.taskTitle}>{taskTitles.get(message.taskKey) ?? ''}</span>
-                    </Link>
-                  ) : null}
-                  {!message.deliveredAt ? (
-                    <span className={styles.pending}>{t('messages.undelivered')}</span>
-                  ) : null}
-                </div>
-              ) : null}
+              <div className={styles.foot}>
+                {message.taskKey ? (
+                  <Link to={`/p/${projectKey}/tasks/${message.taskKey}`} className={styles.task}>
+                    <span className={styles.taskKey}>{message.taskKey}</span>
+                    <span className={styles.taskTitle}>{taskTitles.get(message.taskKey) ?? ''}</span>
+                  </Link>
+                ) : null}
+                {(
+                  message.receipts ??
+                  message.to.map((handle) => ({
+                    handle,
+                    kind: members.get(handle)?.kind ?? 'human',
+                    deliveredAt: message.deliveredAt,
+                    readAt: null,
+                  }))
+                ).map((receipt) => (
+                  <span key={receipt.handle} className={styles.pending}>
+                    {nameOf(receipt.handle, members, myHandle)} ·{' '}
+                    {receipt.kind === 'ai'
+                      ? receipt.deliveredAt
+                        ? t('messages.typed')
+                        : t('messages.queued')
+                      : receipt.readAt
+                        ? t('messages.humanRead')
+                        : t('messages.humanUnread')}
+                  </span>
+                ))}
+                {onReply ? (
+                  <Button size="sm" variant="ghost" onClick={() => onReply(message)}>
+                    {t('messages.reply')}
+                  </Button>
+                ) : null}
+                {onRead && toMe && !message.receipts?.find((r) => r.handle === myHandle)?.readAt ? (
+                  <Button size="sm" variant="ghost" disabled={readPending} onClick={() => onRead(message.id)}>
+                    {t('messages.read')}
+                  </Button>
+                ) : null}
+              </div>
             </li>
           </Fragment>
         );

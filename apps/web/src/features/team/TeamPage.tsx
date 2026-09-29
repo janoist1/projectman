@@ -216,7 +216,9 @@ export function TeamPage() {
                       />
                       <span className={styles.memberText}>
                         <span className={styles.memberName}>
-                          {nameOf(member.handle, indexes.members, myHandle)}
+                          <Link to={`/p/${key}/team/${member.handle}`}>
+                            {nameOf(member.handle, indexes.members, myHandle)}
+                          </Link>
                           {member.kind === 'ai' ? (
                             <>
                               <Chip tone="dark">{t('common.ai')}</Chip>
@@ -275,7 +277,9 @@ export function TeamPage() {
                             />
                             <span className={styles.memberText}>
                               <span className={styles.memberName}>
-                                {nameOf(member.handle, indexes.members, myHandle)}
+                                <Link to={`/p/${key}/team/${member.handle}`}>
+                                  {nameOf(member.handle, indexes.members, myHandle)}
+                                </Link>
                                 {member.kind === 'ai' ? (
                                   <>
                                     <Chip tone="dark">{t('common.ai')}</Chip>

@@ -1,3 +1,4 @@
+import { createInvitationRepository } from './invitations';
 import type { Db } from './database';
 import { createInboxRepository } from './inbox';
 import { createMemberStateRepository } from './member-state';
@@ -22,6 +23,7 @@ export function createRepositories(db: Db) {
   return {
     db,
     users: createUserRepository(db),
+    invitations: createInvitationRepository(db),
     authSessions: createAuthSessionRepository(db),
     projects: createProjectRepository(db),
     counters: createCounterRepository(db),

@@ -5,6 +5,43 @@
 type MessageTree = { readonly [key: string]: string | MessageTree };
 
 export const hu = {
+  invites: {
+    title: 'Kolléga meghívása',
+    email: 'E-mail-cím',
+    name: 'Név',
+    access: 'Hozzáférés',
+    roles: 'Szerepek',
+    create: 'Meghívó létrehozása',
+    link: 'Meghívó hivatkozása',
+    copy: 'Hivatkozás másolása',
+    copied: 'Másolva',
+    copyFailed: 'A másolás nem sikerült. Jelöld ki és másold a hivatkozást.',
+    lifetime:
+      'A hivatkozás egyszer használható, és 7 nap múlva lejár. Másold ki, és oszd meg a kollégával; az alkalmazás nem küld e-mailt.',
+    pending: 'Függő meghívók',
+    empty: 'Nincs függő meghívó.',
+    revoke: 'Visszavonás',
+    revokeFor: 'Meghívó visszavonása: {email}',
+    expires: 'Lejárat: {date}',
+    offered: '{name} meghívott a(z) {project} projektbe.',
+    acceptTitle: 'Csatlakozás a projekthez',
+    acceptSubtitle: 'Fogadd el a kollégádtól kapott meghívót.',
+    password: 'Jelszó',
+    passwordHint: 'Legalább 8 karakter.',
+    accept: 'Meghívó elfogadása',
+    loginRequired:
+      'Ehhez az e-mail-címhez már van fiók. Jelentkezz be azzal a fiókkal, majd térj vissza a meghívóhoz.',
+    login: 'Bejelentkezés a meghívóhoz',
+    existing: 'Már van fiókod? Jelentkezz be először.',
+    invalid:
+      'Ez a meghívó már nem használható. Lejárt, visszavonták, már elfogadták, vagy hibás a hivatkozás. Kérj új meghívót a projekt gazdájától.',
+    accessHint: {
+      admin: 'Kezelheti a csapatot és a projekt beállításait.',
+      developer: 'Dolgozhat a feladatokon és a sessionökben.',
+      client: 'Látja a vele megosztott feladatokat, és tesztelhet.',
+      viewer: 'Megtekintheti a projektet; nem módosíthatja.',
+    },
+  },
   app: {
     name: 'projectman',
     loading: 'Betöltés…',
@@ -107,6 +144,10 @@ export const hu = {
     code: 'Hibakód: {code}',
     /** Stable error codes from the server (ApiError.code and websocket error events). */
     codes: {
+      already_member: 'Ez a kolléga már a projekt tagja.',
+      login_required: 'Jelentkezz be a meghívott e-mail-címhez tartozó fiókkal.',
+      invite_invalid: 'A meghívó már nem használható.',
+      invite_used: 'A meghívót már elfogadták.',
       gate_blocked: 'A kapu még nem enged tovább.',
       approval_requested: 'Jóváhagyást kértünk; a feladat a jóváhagyás után lép tovább.',
       not_a_member: 'Nem vagy tagja ennek a projektnek.',

@@ -54,6 +54,17 @@ export class AuthService {
     return user;
   }
 
+  /** Prepares a new colleague account; it is persisted only after the config commit succeeds. */
+  async prepareUser(input: { name: string; email: string; password: string }): Promise<UserRecord> {
+    return {
+      id: newId('usr'),
+      name: input.name.trim(),
+      email: input.email.trim().toLowerCase(),
+      passwordHash: await hash(input.password),
+      createdAt: this.now().toISOString(),
+    };
+  }
+
   /** Returns the user when the password matches; null otherwise (timing does not reveal which part failed). */
   async verifyPassword(email: string, password: string): Promise<UserRecord | null> {
     const user = this.repos.users.findByEmail(email.trim());

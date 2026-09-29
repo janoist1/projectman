@@ -168,6 +168,27 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 2,
+    name: 'colleague invitations',
+    sql: `
+      CREATE TABLE invitations (
+        id TEXT PRIMARY KEY,
+        project_key TEXT NOT NULL REFERENCES projects(key),
+        email TEXT NOT NULL COLLATE NOCASE,
+        display_name TEXT,
+        access TEXT NOT NULL CHECK(access IN ('admin', 'developer', 'client', 'viewer')),
+        roles TEXT NOT NULL,
+        invited_by TEXT NOT NULL REFERENCES users(id),
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        accepted_at TEXT,
+        revoked_at TEXT,
+        token_hash TEXT NOT NULL UNIQUE
+      );
+      CREATE INDEX invitations_project ON invitations(project_key, created_at);
+    `,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

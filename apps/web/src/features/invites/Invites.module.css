@@ -1,0 +1,33 @@
+.form,
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.choices {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.choices legend {
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+.pending {
+  padding: 1rem;
+}
+.list {
+  padding: 0;
+  list-style: none;
+}
+.list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 0.75rem;
+}
+.list p {
+  margin: 0.25rem 0;
+}

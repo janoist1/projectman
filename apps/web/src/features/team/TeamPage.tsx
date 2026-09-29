@@ -16,6 +16,8 @@ import { MessageList } from '../messages/MessageList';
 import { humanRoleName, aiRoleView } from '../../lib/roles';
 import { EditMemberDialog } from './EditMemberDialog';
 import { RoleSection } from './RoleSection';
+import { InviteDialog } from './InviteDialog';
+import { PendingInvites } from './PendingInvites';
 import { HireDialog } from './HireDialog';
 import { RetireDialog } from './RetireDialog';
 import styles from './TeamPage.module.css';
@@ -46,6 +48,7 @@ export function TeamPage() {
   const messages = useTeamMessages(key);
   const indexes = useProjectIndexes(key);
   const [filter, setFilter] = useState<MemberFilter>('all');
+  const [inviteOpen, setInviteOpen] = useState(false);
   const [hireOpen, setHireOpen] = useState(false);
   const [retiring, setRetiring] = useState<MemberView | null>(null);
   useDocumentTitle(t('team.title'), board.data?.project.name);
@@ -169,6 +172,7 @@ export function TeamPage() {
             </span>
           </div>
         ) : null}
+        {can.manageTeam ? <Button onClick={() => setInviteOpen(true)}>{t('invites.title')}</Button> : null}
         {can.manageTeam ? (
           <Button variant="primary" icon="plus" onClick={() => setHireOpen(true)}>
             {t('team.hire')}
@@ -328,6 +332,8 @@ export function TeamPage() {
         )}
       </div>
 
+      <PendingInvites />
+      <InviteDialog open={inviteOpen} onClose={() => setInviteOpen(false)} />
       <RoleSection config={config.data?.config} />
       <EditMemberDialog
         member={editing}

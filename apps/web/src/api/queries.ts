@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  CreateInviteRequest,
+  AcceptInviteRequest,
   CustomRoleRequest,
   UpdateMemberRequest,
   UpdateTaskRequest,
@@ -324,6 +326,48 @@ export function useMoveTask(key: string) {
         client.invalidateQueries({ queryKey: queryKeys.task(key, taskKey) }),
         client.invalidateQueries({ queryKey: queryKeys.inbox(key) }),
       ]);
+    },
+  });
+}
+
+/* ---------- invitations ---------- */
+export function useInvitations(key: string, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.invitations(key),
+    queryFn: () => api.invitations(key),
+    enabled,
+    refetchInterval: 60_000,
+  });
+}
+export function useCreateInvite(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateInviteRequest) => api.createInvite(key, body),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.invitations(key) }),
+  });
+}
+export function useRevokeInvite(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.revokeInvite(key, id),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.invitations(key) }),
+  });
+}
+export function useInvite(token: string) {
+  return useQuery({
+    queryKey: queryKeys.invite(token),
+    queryFn: () => api.invite(token),
+    retry: false,
+    staleTime: 0,
+  });
+}
+export function useAcceptInvite(token: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: AcceptInviteRequest) => api.acceptInvite(token, body),
+    onSuccess: (me) => {
+      client.clear();
+      client.setQueryData(queryKeys.me, me);
     },
   });
 }

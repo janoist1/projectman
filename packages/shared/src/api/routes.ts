@@ -21,6 +21,11 @@ export const routes = {
   cancelTask: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/cancel`,
   reopenTask: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/reopen`,
 
+  invitations: (key: string) => `/api/projects/${key}/invites`,
+  invitation: (key: string, id: string) => `/api/projects/${key}/invites/${id}`,
+  invite: (token: string) => `/api/invites/${token}`,
+  acceptInvite: (token: string) => `/api/invites/${token}/accept`,
+
   members: (key: string) => `/api/projects/${key}/members`,
   member: (key: string, handle: string) => `/api/projects/${key}/members/${handle}`,
 
@@ -60,6 +65,10 @@ export const routeMethods = {
   startTask: 'POST',
   cancelTask: 'POST',
   reopenTask: 'POST',
+  invitations: 'GET | POST',
+  invitation: 'DELETE',
+  invite: 'GET',
+  acceptInvite: 'POST',
   members: 'GET | POST',
   member: 'PATCH | DELETE',
   roles: 'GET | POST',

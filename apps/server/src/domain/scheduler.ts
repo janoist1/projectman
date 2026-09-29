@@ -1,4 +1,13 @@
-import type { Actor, AiMemberConfig, MemberConfig, ProjectConfig, Session, Task } from '@projectman/shared';
+import { DEFAULT_AGENT_PROVIDER } from '@projectman/shared';
+import type {
+  Actor,
+  AgentProvider,
+  AiMemberConfig,
+  MemberConfig,
+  ProjectConfig,
+  Session,
+  Task,
+} from '@projectman/shared';
 import { ownerHandles } from './access';
 import type { DomainContext } from './context';
 import { conflict, invalid, notFound } from './errors';
@@ -75,20 +84,27 @@ export class Scheduler {
     return load;
   }
 
-  /** Throws when new AI work must wait: too many working sessions or plan usage too high. */
-  async assertCanStartAiWork(config: ProjectConfig): Promise<void> {
+  /**
+   * Throws when new AI work must wait: too many working sessions, or the plan usage of the
+   * provider that would run the work (the member's own subscription) is too high.
+   */
+  async assertCanStartAiWork(
+    config: ProjectConfig,
+    provider: AgentProvider = DEFAULT_AGENT_PROVIDER,
+  ): Promise<void> {
     const max = config.team.limits.maxConcurrentAi;
     const busy = this.sessions.busyCount();
     if (busy >= max) {
       throw conflict('ai_limit_reached', `${busy} AI sessions are working (limit ${max})`, { busy, max });
     }
-    const percent = highestUsagePercent(await this.planUsage.get());
+    const percent = highestUsagePercent(await this.planUsage.get(provider));
     const threshold = config.team.limits.pauseAbovePlanUsagePercent;
     if (percent !== null && percent > threshold) {
-      throw conflict('plan_usage_paused', `plan usage is ${percent}% (pause above ${threshold}%)`, {
-        percent,
-        threshold,
-      });
+      throw conflict(
+        'plan_usage_paused',
+        `${provider} plan usage is ${percent}% (pause above ${threshold}%)`,
+        { percent, threshold, provider },
+      );
     }
   }
 
@@ -105,8 +121,12 @@ export class Scheduler {
       const alreadyRunning =
         member?.kind === 'ai' &&
         this.sessions.findRunning(projectKey, member.handle, { type: 'task', taskKey });
+      // A temp worker (no member yet) is hired with the default provider.
       if ((member === null || member.kind === 'ai') && !alreadyRunning)
-        await this.assertCanStartAiWork(config);
+        await this.assertCanStartAiWork(
+          config,
+          member?.kind === 'ai' ? (member.provider ?? DEFAULT_AGENT_PROVIDER) : DEFAULT_AGENT_PROVIDER,
+        );
 
       if (needsMove) {
         const evaluation = evaluateGates(task, stagesEntered(config.pipeline, task.stageId, workStage.id));

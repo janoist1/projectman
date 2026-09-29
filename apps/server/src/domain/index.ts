@@ -115,6 +115,7 @@ export function createDomain(opts: DomainOptions) {
   });
   const planUsage = new PlanUsageCache({
     provider: runnerModule.planUsage,
+    providerFor: (provider) => runnerModule.planUsageFor?.(provider),
     logger: opts.logger,
     now,
     ttlMs: opts.planUsageTtlMs,

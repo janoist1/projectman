@@ -15,6 +15,7 @@
     "dev:server": "npm run dev -w @projectman/server",
     "dev:web": "npm run dev -w @projectman/web",
     "build": "npm run build -w @projectman/web && npm run build -w @projectman/server",
+    "smoke:prod": "node scripts/smoke-prod.mjs",
     "start": "npm run start -w @projectman/server",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",

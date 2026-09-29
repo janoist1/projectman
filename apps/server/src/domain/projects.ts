@@ -124,6 +124,11 @@ export class ProjectService {
     return loaded;
   }
 
+  /** Already loaded at startup or on config commits; no filesystem access. */
+  cachedConfig(key: string): ProjectConfig | undefined {
+    return this.cache.get(key)?.config;
+  }
+
   async config(key: string): Promise<ProjectConfig> {
     return (await this.load(key)).config;
   }

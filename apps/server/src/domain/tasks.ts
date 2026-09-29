@@ -94,6 +94,7 @@ export class TaskService {
   private readonly timeline: TimelineService;
   private readonly projects: ProjectService;
   private readonly inbox: InboxService;
+  private readonly pullRequestLogins = new Map<string, string>();
   private readonly pullRequests = new Map<string, TaskPullRequest>();
   private readonly stageListeners: StageChangeListener[] = [];
   private readonly cancelListeners: Array<(task: Task) => Promise<void>> = [];
@@ -507,8 +508,12 @@ export class TaskService {
   ): Task {
     const task = this.get(projectKey, taskKey);
     // Preserve authorship across reassignment; a linked PR defaults to its task's implementer.
-    if (link.kind === 'pull_request' && !link.author && task.assignee)
-      link = { ...link, author: task.assignee };
+    if (link.kind === 'pull_request' && !link.author) {
+      const author =
+        this.memberForGithubLogin(projectKey, this.pullRequestLogins.get(`${link.repo}#${link.ref}`)) ??
+        task.assignee;
+      if (author) link = { ...link, author };
+    }
     const result = this.ctx.repos.tasks.upsertLink(task.id, link, isoNow(this.ctx));
     if (result === 'unchanged') return task;
     const next = this.get(projectKey, taskKey);
@@ -519,6 +524,13 @@ export class TaskService {
     }
     this.publish(next);
     return next;
+  }
+
+  private memberForGithubLogin(projectKey: string, login: string | undefined): string | undefined {
+    if (!login) return undefined;
+    return this.projects
+      .cachedConfig(projectKey)
+      ?.team.members.find((member) => member.githubLogin?.toLowerCase() === login.toLowerCase())?.handle;
   }
 
   /** Keeps the full snapshot already fetched by GitHub; unknown links remain nullable. */
@@ -541,8 +553,22 @@ export class TaskService {
       additions: pr.additions,
       deletions: pr.deletions,
     };
+    let authorChanged = false;
+    if (pr.authorLogin) this.pullRequestLogins.set(`${pr.repo}#${pr.number}`, pr.authorLogin);
+    for (const link of this.ctx.repos.tasks.findByPullRequest(pr.repo, pr.number)) {
+      const author = this.memberForGithubLogin(link.projectKey, pr.authorLogin);
+      if (author)
+        authorChanged =
+          this.ctx.repos.tasks.attributePullRequestAuthor(
+            link.projectKey,
+            pr.repo,
+            pr.number,
+            author,
+            isoNow(this.ctx),
+          ) || authorChanged;
+    }
     const key = `${pr.repo}#${pr.number}`;
-    if (JSON.stringify(this.pullRequests.get(key)) === JSON.stringify(snapshot)) return;
+    if (!authorChanged && JSON.stringify(this.pullRequests.get(key)) === JSON.stringify(snapshot)) return;
     this.pullRequests.set(key, snapshot);
     for (const link of this.ctx.repos.tasks.findByPullRequest(pr.repo, pr.number)) {
       const task = this.find(link.projectKey, link.taskKey);

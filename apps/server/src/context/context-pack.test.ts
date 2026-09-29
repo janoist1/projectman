@@ -498,7 +498,7 @@ describe('context pack for the role catalogue', () => {
     expect(prompt).toContain('You are Dora (handle `steward`), the Data steward of the Acme Web team');
     expect(prompt).toContain('- `steward`: Dora (AI, Data steward) ← you');
     expect(prompt).toContain(dataSteward.instructions);
-    expect(prompt).toContain('Research a focused question');
+    expect(prompt).not.toContain('Research a focused question');
     // A custom role owns no stage here: it reports back to whoever asked.
     expect(prompt).toContain('you do not own this stage');
   });

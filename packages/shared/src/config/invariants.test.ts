@@ -53,7 +53,7 @@ describe('role catalogue', () => {
     expect(BUILT_IN_ROLE_IDS.filter((id) => !aiRoles.includes(id))).toEqual(['operator', 'product_owner']);
     expect(roleHolders('watchdog')).toBe('both');
     expect(roleHolders('scheduled')).toBeNull();
-    expect(roleHolders('log_reader', [{ id: 'log_reader', holders: 'ai' }])).toBe('both');
+    expect(roleHolders('log_reader', [{ id: 'log_reader', holders: 'ai' }])).toBe('ai');
     expect(roleHolders('developer', [{ id: 'developer', holders: 'human' }])).toBe('both');
     expect(holdersAllow('both', 'human') && holdersAllow('ai', 'ai')).toBe(true);
     expect(holdersAllow('human', 'ai') || holdersAllow('ai', 'human')).toBe(false);
@@ -123,7 +123,7 @@ describe('validateProjectConfig roles', () => {
     ]);
   });
 
-  it('derives human-only restrictions while allowing humans to monitor and research', () => {
+  it('derives duty restrictions and retains legacy custom role holder restrictions', () => {
     const config = build((input) => {
       members(input)[0]!.roles = ['operator', 'watchdog', 'log_reader'];
       members(input)[2]!.role = 'operator';
@@ -137,6 +137,7 @@ describe('validateProjectConfig roles', () => {
       input.team.limits = { tempWorkers: { role: 'product_owner' } };
     });
     expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([
+      { code: 'role_not_for_human', path: 'team.members[0].roles[2]', detail: 'log_reader' },
       { code: 'role_not_for_ai', path: 'team.members[2].role', detail: 'operator' },
       { code: 'role_not_for_ai', path: 'team.members[3].role', detail: 'client_lead' },
       { code: 'role_not_for_ai', path: 'team.limits.tempWorkers.role', detail: 'product_owner' },

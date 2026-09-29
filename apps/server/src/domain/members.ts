@@ -98,6 +98,7 @@ export class MemberService {
         return {
           handle: m.handle,
           displayName: m.displayName,
+          githubLogin: m.githubLogin,
           kind: 'human',
           role: m.access,
           roles: m.roles,
@@ -113,6 +114,7 @@ export class MemberService {
       return {
         handle: m.handle,
         displayName: m.displayName,
+        githubLogin: m.githubLogin,
         kind: 'ai',
         role: m.role,
         roles: [m.role],

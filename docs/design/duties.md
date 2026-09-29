@@ -9,8 +9,9 @@ Roles are named bundles of duty ids plus prompt-only instructions. Built-in defa
 in shared code; `team.roleOverrides` replaces a built-in bundle (removing the entry resets
 it). Custom roles add `duties` alongside existing instructions. Human members union their
 roles; AI members still hold one. Holder eligibility is the intersection of duty eligibility.
-The legacy `holders` field is accepted for YAML compatibility but is not a policy knob.
-Legacy custom roles without duties migrate to research, or final decision for human roles.
+Legacy custom roles without duties retain their declared `holders` eligibility and
+resolve to an empty duty bundle. They receive no approval or other code-backed duties.
+Explicit duties determine eligibility for newer roles.
 
 Stages may name a duty. An explicit owners array, including an empty array, overrides the
 resolved holders. Approval gates may name a duty instead of explicit approvers; only human

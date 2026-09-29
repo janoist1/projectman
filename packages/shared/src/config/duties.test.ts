@@ -135,6 +135,29 @@ describe('duty bundles', () => {
       expect(humanApprovalChanged(c, next)).toBe(true);
     }
   });
+  it.each(['human', 'ai', 'both'] as const)(
+    'keeps legacy %s roles free of all duties and preserves declared holders',
+    (holders) => {
+      const c = config();
+      c.team.roles.push({
+        id: 'legacy_notes',
+        name: 'Notes',
+        summary: 'Keeps notes.',
+        notTheirJob: '',
+        holders,
+        instructions: 'Write notes.',
+      });
+      const owner = c.team.members[0]!;
+      if (owner.kind === 'human') owner.roles = ['legacy_notes'];
+      expect(roleHolders('legacy_notes', c.team.roles)).toBe(holders);
+      expect(roleBundle(c, 'legacy_notes')).toEqual({ duties: [], instructions: 'Write notes.' });
+      expect(memberDuties(c, c.team.members[0]!)).toEqual([]);
+      expect(gateApprovers(c, { type: 'human_approval', duty: 'final_decision' })).toEqual([]);
+      expect(gateApprovers(c, { type: 'human_approval', duty: 'release_approval' })).toEqual([]);
+      c.team.roles[0]!.duties = [];
+      expect(roleHolders('legacy_notes', c.team.roles)).toBe('both');
+    },
+  );
   it('loads old custom definitions and preserves explicit stage owners and approvers', () => {
     const c = config();
     c.team.roles = [
@@ -150,7 +173,7 @@ describe('duty bundles', () => {
     c.pipeline.stages[1] = { ...c.pipeline.stages[1]!, duty: undefined, owners: ['owner'] };
     c.pipeline.stages[2]!.gate = { conditions: [{ type: 'human_approval', approvers: ['owner'] }] };
     const old = ProjectConfig.parse(JSON.parse(JSON.stringify(c)));
-    expect(roleBundle(old, 'legacy_writer')).toEqual({ duties: ['research'], instructions: 'Keep notes.' });
+    expect(roleBundle(old, 'legacy_writer')).toEqual({ duties: [], instructions: 'Keep notes.' });
     expect(stageOwners(old, old.pipeline.stages[1]!)).toEqual(['owner']);
     expect(gateApprovers(old, { type: 'human_approval', approvers: ['owner'] })).toEqual(['owner']);
     expect(validateProjectConfig(old).filter((i) => i.severity !== 'warning')).toEqual([]);

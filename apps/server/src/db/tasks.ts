@@ -249,6 +249,25 @@ export function createTaskRepository(db: Db) {
       return changed;
     },
 
+    /** A matched GitHub identity supersedes the assignee fallback. */
+    attributePullRequestAuthor(
+      projectKey: string,
+      repo: string,
+      number: number,
+      author: string,
+      at: string,
+    ): boolean {
+      const result = db
+        .prepare(
+          `UPDATE task_links SET author = ?, updated_at = ?
+         WHERE kind = 'pull_request' AND repo = ? AND ref = ?
+           AND (author IS NULL OR author <> ?)
+           AND task_id IN (SELECT id FROM tasks WHERE project_key = ?)`,
+        )
+        .run(author, at, repo, String(number), author, projectKey);
+      return result.changes > 0;
+    },
+
     /** Tasks (project key + task key) linking a pull request. */
     findByPullRequest(repo: string, number: number): Array<{ projectKey: string; taskKey: string }> {
       return db

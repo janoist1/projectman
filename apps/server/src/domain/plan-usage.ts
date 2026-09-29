@@ -39,6 +39,11 @@ export class PlanUsageCache {
     this.ttlMs = opts.ttlMs ?? 60_000;
   }
 
+  /** Last background result; reading a board must never start a CLI or scan transcripts. */
+  peek(provider: AgentProvider = DEFAULT_AGENT_PROVIDER): PlanUsage | null {
+    return this.entries.get(provider)?.value ?? null;
+  }
+
   /** Plan usage of a provider's account (default: Claude). */
   async get(provider: AgentProvider = DEFAULT_AGENT_PROVIDER): Promise<PlanUsage | null> {
     const source = this.providerFor?.(provider) ?? (provider === 'claude' ? this.provider : undefined);

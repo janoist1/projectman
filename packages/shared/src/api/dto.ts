@@ -7,6 +7,7 @@ import { InboxItem } from '../domain/inbox';
 import {
   AgentProvider,
   AgentEffort,
+  GithubLogin,
   HumanAccess,
   MemberHandle,
   MemberKind,
@@ -79,6 +80,7 @@ export type TemplateSummary = z.infer<typeof TemplateSummary>;
 /* ---------- members ---------- */
 
 export const MemberView = z.object({
+  githubLogin: GithubLogin.optional(),
   handle: MemberHandle,
   displayName: z.string(),
   kind: MemberKind,

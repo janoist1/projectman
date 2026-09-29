@@ -22,6 +22,8 @@ export interface PullRequestInfo {
   deletions: number;
   changedFiles: number;
   updatedAt: string;
+  /** GitHub login of the PR author, when supplied by gh. */
+  authorLogin?: string;
 }
 
 export interface GithubService {

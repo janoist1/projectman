@@ -128,10 +128,12 @@ describe('web contract follow-ups', () => {
     await h.app.projectman.domain.members.hire('AR', { role: 'qa', provider: 'codex' }, by);
     const events: ServerEvent[] = [];
     h.app.projectman.domain.bus.subscribe((event) => events.push(ServerEvent.parse(event)));
+    refreshUsage();
+    await vi.waitFor(() => expect(calls).toContain('codex'));
     const board = BoardView.parse((await get('/api/projects/AR/board')).json());
     expect(board.planUsage).toEqual(values.claude);
     expect(board.planUsageByProvider).toEqual(values);
-    expect(calls.sort()).toEqual(['claude', 'codex']);
+    expect([...new Set(calls)].sort()).toEqual(['claude', 'codex']);
     expect(events.filter((e) => e.type === 'plan_usage')).toEqual(
       expect.arrayContaining([
         { type: 'plan_usage', projectKey: 'AR', provider: 'claude', usage: values.claude },

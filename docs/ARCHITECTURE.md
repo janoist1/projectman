@@ -243,10 +243,12 @@ people view shows the union of each person's duties. Config PATCH accepts `roleO
 catalogue API adds resolved `duties` and `instructions`.
 
 Schema version remains 1. Old explicit owners and approvers load unchanged. Old custom
-roles without duties resolve in memory to research (or final decision for legacy human-only
-roles); the legacy `holders` field is accepted but explicit duties determine eligibility.
+roles without duties resolve in memory to an empty duty bundle, retaining their declared
+`holders` eligibility; explicit duties determine eligibility for newer roles.
 Existing member instructions remain prompt-only text. New hires do not copy role prompts.
 PR links persist member authors in SQLite so reassignment cannot enable self-review.
-A link without explicit attribution defaults to the assignee when it is attached; unknown
-external authors cannot be matched to team members until attributed. See
+A link without explicit attribution defaults to the assignee when it is attached. GitHub
+authors are matched case-insensitively to members with an optional `githubLogin` in
+`team.yaml`; the matched handle is persisted for self-review checks. Other external
+authors retain the existing explicit attribution or assignee fallback. See
 [the design note](design/duties.md) for defaults and integration boundaries.

@@ -36,7 +36,8 @@ npm run build && npm start
 
 Open http://localhost:4700 and create the owner account. Runtime data defaults to
 `~/.projectman` (override with `PROJECTMAN_HOME`). `npm run dev` is for development:
-server on port 4700, Vite on port 5173. Checks: `npm run typecheck` and `npm test`.
+server on port 4700, Vite on port 5173. Checks: `npm run typecheck`, `npm test` and `npm run smoke:prod`.
+Linux service setup, HTTPS verification and backups: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Open it on your phone
 

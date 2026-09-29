@@ -4,6 +4,7 @@ import { GithubError } from './errors';
 
 /** Fields requested from `gh pr view --json` and `gh pr list --json`. */
 export const PULL_REQUEST_JSON_FIELDS = [
+  'author',
   'number',
   'title',
   'url',
@@ -41,6 +42,7 @@ export const GhCheckContext = z.object({
 export type GhCheckContext = z.infer<typeof GhCheckContext>;
 
 export const GhPullRequest = z.object({
+  author: z.object({ login: z.string() }).nullish(),
   number: z.number().int().positive(),
   title: z.string(),
   url: z.string(),
@@ -76,6 +78,7 @@ export function toPullRequestInfo(repo: string, pr: GhPullRequest): PullRequestI
     deletions: pr.deletions,
     changedFiles: pr.changedFiles,
     updatedAt: pr.updatedAt,
+    authorLogin: pr.author?.login,
   };
 }
 

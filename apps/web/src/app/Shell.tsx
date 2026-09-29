@@ -250,12 +250,9 @@ export function MobileHeader({ board, inboxCount }: { board: BoardView | undefin
   const { key, openNewTask } = useProject();
   return (
     <header className={styles.mobileHeader}>
-      <ProjectSwitcher currentKey={key} currentName={board?.project.name ?? key} compact />
-      {isMockMode ? (
-        <span className={styles.demoInline} title={t('app.demoModeHint')}>
-          {t('app.demoMode')}
-        </span>
-      ) : null}
+      <span className={styles.mobileProject}>
+        <ProjectSwitcher currentKey={key} currentName={board?.project.name ?? key} compact />
+      </span>
       <span className={styles.spacer} />
       <InboxPill count={inboxCount} compact />
       <Button variant="primary" size="md" iconOnly icon="plus" onClick={openNewTask} aria-label={t('topbar.newTask')} />

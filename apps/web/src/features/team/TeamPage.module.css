@@ -102,6 +102,12 @@
   font-weight: 800;
 }
 
+.tableWrap {
+  overflow-x: auto;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -153,6 +159,11 @@
 }
 
 .handle {
+  font-size: 12px;
+  color: var(--c-ink-3);
+}
+
+.mono {
   font-family: var(--font-mono);
   font-size: 11.5px;
   color: var(--c-ink-4);
@@ -191,7 +202,7 @@
 }
 
 .nowCell {
-  max-width: 280px;
+  max-width: 240px;
 }
 
 .tasks {
@@ -304,6 +315,15 @@
 @media (max-width: 1200px) {
   .flow {
     display: none;
+  }
+}
+
+@media (max-width: 960px) {
+  .subscriptionCol {
+    display: none;
+  }
+  .nowCell {
+    max-width: 190px;
   }
 }
 

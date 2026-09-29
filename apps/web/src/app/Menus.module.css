@@ -1,9 +1,11 @@
 .wrap {
   position: relative;
   display: inline-flex;
+  min-width: 0;
 }
 
 .projectTrigger {
+  min-width: 0;
   height: 40px;
   box-sizing: border-box;
   padding: 0 10px 0 7px;

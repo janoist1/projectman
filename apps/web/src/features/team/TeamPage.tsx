@@ -47,10 +47,14 @@ export function TeamPage() {
 
   const list = membersQuery.data ?? board.data?.members;
   const members = useMemo(() => (list ?? []).filter((member) => member.status !== 'retired'), [list]);
-  const titles = useMemo(() => new Map((board.data?.tasks ?? []).map((task) => [task.key, task.title])), [board.data]);
+  const titles = useMemo(
+    () => new Map((board.data?.tasks ?? []).map((task) => [task.key, task.title])),
+    [board.data],
+  );
 
   if (!list) {
-    if (membersQuery.isError && board.isError) return <ErrorState error={membersQuery.error} onRetry={() => void membersQuery.refetch()} />;
+    if (membersQuery.isError && board.isError)
+      return <ErrorState error={membersQuery.error} onRetry={() => void membersQuery.refetch()} />;
     return <LoadingState />;
   }
 
@@ -59,7 +63,10 @@ export function TeamPage() {
   const shown = filter === 'humans' ? humans : filter === 'ai' ? ai : members;
   const sorted = [...shown].sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === 'human' ? -1 : 1;
-    const rank = (statusRank[memberStatusView(a, inbox.data?.items, myHandle).status] ?? 9) - (statusRank[memberStatusView(b, inbox.data?.items, myHandle).status] ?? 9);
+    if (a.handle === myHandle || b.handle === myHandle) return a.handle === myHandle ? -1 : 1;
+    const rank =
+      (statusRank[memberStatusView(a, inbox.data?.items, myHandle).status] ?? 9) -
+      (statusRank[memberStatusView(b, inbox.data?.items, myHandle).status] ?? 9);
     return rank !== 0 ? rank : a.displayName.localeCompare(b.displayName);
   });
   const activeTaskKeys = new Set(members.flatMap((member) => member.currentTaskKeys));
@@ -71,7 +78,9 @@ export function TeamPage() {
   const sponsorText = (member: MemberView) => {
     if (member.kind === 'human') return t('team.ownAccount');
     if (!member.sponsor) return t('common.dash');
-    return member.sponsor === myHandle ? t('team.sponsorYou') : t('team.sponsorOther', { name: nameOf(member.sponsor, indexes.members, myHandle) });
+    return member.sponsor === myHandle
+      ? t('team.sponsorYou')
+      : t('team.sponsorOther', { name: nameOf(member.sponsor, indexes.members, myHandle) });
   };
 
   const taskLinks = (member: MemberView) =>
@@ -90,7 +99,12 @@ export function TeamPage() {
 
   const retireButton = (member: MemberView) =>
     member.kind === 'ai' ? (
-      <Button variant="ghost" size="sm" onClick={() => setRetiring(member)} aria-label={t('retire.title', { name: member.displayName })}>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setRetiring(member)}
+        aria-label={t('team.retireMember', { name: member.displayName, handle: member.handle })}
+      >
         {t('team.retire')}
       </Button>
     ) : null;
@@ -102,16 +116,22 @@ export function TeamPage() {
           <h1 className={styles.title}>{t('team.title')}</h1>
           <p className={styles.subtitle}>
             {t('team.subtitle', { humans: humans.length, ai: ai.length, tasks: activeTaskKeys.size })}
-            {ai.length > 0 ? ` · ${allMine ? t('team.subscriptionYours') : t('team.subscriptionMixed')}` : null}
+            {ai.length > 0
+              ? ` · ${allMine ? t('team.subscriptionYours') : t('team.subscriptionMixed')}`
+              : null}
           </p>
         </div>
         {limits ? (
           <div className={styles.limit}>
             <span className={styles.limitText}>
               <span className={styles.limitTitle}>{t('team.aiLimit')}</span>
-              <span className={styles.limitHint}>{t('team.aiLimitHint', { percent: limits.pauseAbovePlanUsagePercent })}</span>
+              <span className={styles.limitHint}>
+                {t('team.aiLimitHint', { percent: limits.pauseAbovePlanUsagePercent })}
+              </span>
             </span>
-            <span className={styles.limitValue}>{t('team.aiLimitValue', { working, max: limits.maxConcurrentAi })}</span>
+            <span className={styles.limitValue}>
+              {t('team.aiLimitValue', { working, max: limits.maxConcurrentAi })}
+            </span>
           </div>
         ) : null}
         <Button variant="primary" icon="plus" onClick={() => setHireOpen(true)}>
@@ -145,7 +165,12 @@ export function TeamPage() {
                 return (
                   <li key={member.handle} className={styles.card}>
                     <div className={styles.memberCell}>
-                      <Avatar member={member} isMe={member.handle === myHandle} size="lg" status={view.status} />
+                      <Avatar
+                        member={member}
+                        isMe={member.handle === myHandle}
+                        size="lg"
+                        status={view.status}
+                      />
                       <span className={styles.memberText}>
                         <span className={styles.memberName}>
                           {nameOf(member.handle, indexes.members, myHandle)}
@@ -153,7 +178,7 @@ export function TeamPage() {
                           {member.temp ? <Chip tone="needs">{t('team.temp')}</Chip> : null}
                         </span>
                         <span className={styles.handle}>
-                          {member.handle} · {roleLabel(member)}
+                          <span className={styles.mono}>{member.handle}</span> · {roleLabel(member)}
                         </span>
                       </span>
                     </div>
@@ -171,57 +196,66 @@ export function TeamPage() {
               })}
             </ul>
           ) : (
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th scope="col">{t('team.columns.member')}</th>
-                  <th scope="col">{t('team.columns.role')}</th>
-                  <th scope="col">{t('team.columns.status')}</th>
-                  <th scope="col">{t('team.columns.now')}</th>
-                  <th scope="col">{t('team.columns.subscription')}</th>
-                  <th scope="col">
-                    <span className="visually-hidden">{t('team.columns.actions')}</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((member) => {
-                  const view = memberStatusView(member, inbox.data?.items, myHandle);
-                  return (
-                    <tr key={member.handle}>
-                      <td>
-                        <div className={styles.memberCell}>
-                          <Avatar member={member} isMe={member.handle === myHandle} size="lg" status={view.status} />
-                          <span className={styles.memberText}>
-                            <span className={styles.memberName}>
-                              {nameOf(member.handle, indexes.members, myHandle)}
-                              {member.kind === 'ai' ? <Chip tone="dark">{t('common.ai')}</Chip> : null}
-                              {member.temp ? <Chip tone="needs">{t('team.temp')}</Chip> : null}
+            <div className={styles.tableWrap}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th scope="col">{t('team.columns.member')}</th>
+                    <th scope="col">{t('team.columns.status')}</th>
+                    <th scope="col">{t('team.columns.now')}</th>
+                    <th scope="col" className={styles.subscriptionCol}>
+                      {t('team.columns.subscription')}
+                    </th>
+                    <th scope="col">
+                      <span className="visually-hidden">{t('team.columns.actions')}</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sorted.map((member) => {
+                    const view = memberStatusView(member, inbox.data?.items, myHandle);
+                    return (
+                      <tr key={member.handle}>
+                        <td>
+                          <div className={styles.memberCell}>
+                            <Avatar
+                              member={member}
+                              isMe={member.handle === myHandle}
+                              size="lg"
+                              status={view.status}
+                            />
+                            <span className={styles.memberText}>
+                              <span className={styles.memberName}>
+                                {nameOf(member.handle, indexes.members, myHandle)}
+                                {member.kind === 'ai' ? <Chip tone="dark">{t('common.ai')}</Chip> : null}
+                                {member.temp ? <Chip tone="needs">{t('team.temp')}</Chip> : null}
+                              </span>
+                              <span className={styles.handle}>
+                                <span className={styles.mono}>{member.handle}</span> · {roleLabel(member)}
+                              </span>
                             </span>
-                            <span className={styles.handle}>{member.handle}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <span className={styles.statusCell} data-status={view.status}>
+                            <span className={styles.statusLine}>
+                              <StatusDot status={view.status} pulse={view.status === 'working'} />
+                              <span className={styles.statusText}>{view.label}</span>
+                            </span>
+                            {member.activity && member.currentTaskKeys.length > 0 ? (
+                              <span className={styles.activity}>{member.activity}</span>
+                            ) : null}
                           </span>
-                        </div>
-                      </td>
-                      <td className={styles.role}>{roleLabel(member)}</td>
-                      <td>
-                        <span className={styles.statusCell} data-status={view.status}>
-                          <span className={styles.statusLine}>
-                            <StatusDot status={view.status} pulse={view.status === 'working'} />
-                            <span className={styles.statusText}>{view.label}</span>
-                          </span>
-                          {member.activity && member.currentTaskKeys.length > 0 ? (
-                            <span className={styles.activity}>{member.activity}</span>
-                          ) : null}
-                        </span>
-                      </td>
-                      <td className={styles.nowCell}>{taskLinks(member)}</td>
-                      <td className={styles.muted}>{sponsorText(member)}</td>
-                      <td className={styles.actionsCell}>{retireButton(member)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        </td>
+                        <td className={styles.nowCell}>{taskLinks(member)}</td>
+                        <td className={`${styles.muted} ${styles.subscriptionCol}`}>{sponsorText(member)}</td>
+                        <td className={styles.actionsCell}>{retireButton(member)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
 
@@ -235,7 +269,9 @@ export function TeamPage() {
             </div>
             {messages.data ? (
               <MessageList
-                messages={[...messages.data.messages].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 8)}
+                messages={[...messages.data.messages]
+                  .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+                  .slice(0, 8)}
                 members={indexes.members}
                 myHandle={myHandle}
                 projectKey={key}

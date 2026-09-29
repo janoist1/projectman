@@ -137,7 +137,11 @@
 @media (max-width: 900px) {
   .page {
     flex-direction: column;
+    align-items: stretch;
     padding: 20px;
+  }
+  .main {
+    max-width: none;
   }
   .aside {
     width: 100%;

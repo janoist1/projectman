@@ -226,6 +226,8 @@ describe('mock provider settings', () => {
     for (const body of [{ provider: 'codex' }, { effort: 'high' }]) {
       expect(errorCode(backend.handle('PATCH', `${base}/members/owner`, body))).toBe('not_ai_member');
     }
-    expect(backend.handle('PATCH', `${base}/members/qa`, { effort: 'max' }).status).toBe(400);
+    expect(backend.handle('PATCH', `${base}/members/qa`, { effort: 'max' }).status).toBe(200);
+    expect(backend.handle('PATCH', `${base}/members/qa`, { effort: null }).body).not.toHaveProperty('effort');
+    expect(backend.config.team.members.find((member) => member.handle === 'qa')).not.toHaveProperty('effort');
   });
 });

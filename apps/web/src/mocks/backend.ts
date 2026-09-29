@@ -1171,7 +1171,12 @@ export class MockBackend {
         member.provider = config.provider = input.provider;
         member.model = config.model = modelForProvider(input.provider, config.model);
       }
-      if (input.effort !== undefined) member.effort = config.effort = input.effort;
+      if (input.effort !== undefined) {
+        if (input.effort === null) {
+          delete member.effort;
+          delete config.effort;
+        } else member.effort = config.effort = input.effort;
+      }
       if (input.schedule !== undefined) config.schedule = input.schedule ?? undefined;
     }
     this.commitConfig(`Update member ${handle}`);

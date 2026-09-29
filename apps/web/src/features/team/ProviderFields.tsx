@@ -1,18 +1,15 @@
 import { useState } from 'react';
-import { AgentEffort, AgentProvider, modelForProvider } from '@projectman/shared';
+import { AgentEffort, AgentProvider, modelForProvider, PROVIDER_EFFORT_OPTIONS } from '@projectman/shared';
 import { useProviders } from '../../api/queries';
 import { SelectField, TextField } from '../../components/Field';
 import { t } from '../../i18n/t';
-import type { PlainMessageKey } from '../../i18n/t';
+import {
+  CLAUDE_FIXED_LABELS,
+  CLAUDE_ALIAS_LABELS,
+  CODEX_LABELS,
+  PROVIDER_MODEL_LABELS,
+} from './providerModels';
 import styles from './HireDialog.module.css';
-
-const CLAUDE_MODELS = ['opus', 'sonnet', 'haiku'];
-const CODEX_LABELS: Record<string, PlainMessageKey> = {
-  'gpt-6.1-sol': 'providerSettings.models.sol',
-  'gpt-6-luna': 'providerSettings.models.luna',
-  'gpt-6-astra': 'providerSettings.models.astra',
-};
-const CODEX_MODELS = Object.keys(CODEX_LABELS);
 
 /** Shared AI settings for hiring and editing, with live subscription login warnings. */
 export function ProviderFields({
@@ -25,15 +22,20 @@ export function ProviderFields({
 }: {
   provider: AgentProvider;
   model: string;
-  effort: AgentEffort;
+  effort: AgentEffort | undefined;
   onProviderChange: (provider: AgentProvider, model: string) => void;
   onModelChange: (model: string) => void;
-  onEffortChange: (effort: AgentEffort) => void;
+  onEffortChange: (effort: AgentEffort | undefined) => void;
 }) {
   const providers = useProviders();
-  const [custom, setCustom] = useState(provider === 'codex' && !CODEX_MODELS.includes(model));
+  const [custom, setCustom] = useState(!Object.hasOwn(PROVIDER_MODEL_LABELS[provider], model));
   const status = providers.data?.providers.find((entry) => entry.provider === provider);
-  const models = provider === 'codex' ? CODEX_MODELS : [...new Set([model, ...CLAUDE_MODELS])];
+  const modelOptions = (labels: typeof CODEX_LABELS) =>
+    Object.entries(labels).map(([id, key]) => (
+      <option key={id} value={id}>
+        {t(key)}
+      </option>
+    ));
   return (
     <>
       <SelectField
@@ -42,7 +44,8 @@ export function ProviderFields({
         onChange={(event) => {
           const next = AgentProvider.parse(event.target.value);
           const nextModel = modelForProvider(next, model);
-          setCustom(next === 'codex' && !CODEX_MODELS.includes(nextModel));
+          setCustom(!Object.hasOwn(PROVIDER_MODEL_LABELS[next], nextModel));
+          onEffortChange(next === 'codex' ? (effort === 'max' ? 'xhigh' : (effort ?? 'medium')) : effort);
           onProviderChange(next, nextModel);
         }}
       >
@@ -54,21 +57,28 @@ export function ProviderFields({
       </SelectField>
       <SelectField
         label={t('hire.model')}
-        value={custom && provider === 'codex' ? 'custom' : model}
+        value={custom ? 'custom' : model}
         onChange={(event) => {
           const value = event.target.value;
           setCustom(value === 'custom');
           onModelChange(value === 'custom' ? '' : value);
         }}
       >
-        {models.map((entry) => (
-          <option key={entry} value={entry}>
-            {provider === 'codex' ? t(CODEX_LABELS[entry]!) : entry}
-          </option>
-        ))}
-        {provider === 'codex' ? <option value="custom">{t('providerSettings.customModel')}</option> : null}
+        {provider === 'claude' ? (
+          <>
+            <optgroup label={t('providerSettings.fixedVersion')}>
+              {modelOptions(CLAUDE_FIXED_LABELS)}
+            </optgroup>
+            <optgroup label={t('providerSettings.alwaysLatest')}>
+              {modelOptions(CLAUDE_ALIAS_LABELS)}
+            </optgroup>
+          </>
+        ) : (
+          modelOptions(CODEX_LABELS)
+        )}
+        <option value="custom">{t('providerSettings.customModel')}</option>
       </SelectField>
-      {provider === 'codex' && custom ? (
+      {custom ? (
         <TextField
           label={t('providerSettings.modelId')}
           value={model}
@@ -78,20 +88,21 @@ export function ProviderFields({
           autoCapitalize="off"
         />
       ) : null}
-      {provider === 'codex' ? (
-        <SelectField
-          label={t('providerSettings.effort')}
-          hint={t('providerSettings.effortHint')}
-          value={effort}
-          onChange={(event) => onEffortChange(AgentEffort.parse(event.target.value))}
-        >
-          {AgentEffort.options.map((entry) => (
-            <option key={entry} value={entry}>
-              {t(`providerSettings.efforts.${entry}`)}
-            </option>
-          ))}
-        </SelectField>
-      ) : null}
+      <SelectField
+        label={t('providerSettings.effort')}
+        hint={t('providerSettings.effortHint')}
+        value={effort ?? ''}
+        onChange={(event) =>
+          onEffortChange(event.target.value ? AgentEffort.parse(event.target.value) : undefined)
+        }
+      >
+        {provider === 'claude' ? <option value="">{t('providerSettings.defaultEffort')}</option> : null}
+        {PROVIDER_EFFORT_OPTIONS[provider].map((entry) => (
+          <option key={entry} value={entry}>
+            {t(`providerSettings.efforts.${entry}`)}
+          </option>
+        ))}
+      </SelectField>
       {provider === 'codex' && model.trim() === 'gpt-6-astra' ? (
         <p className={styles.warning} role="alert">
           {t('providerSettings.astraWarning')}

@@ -158,8 +158,14 @@ of the user's Codex config and of the trusted project's `.codex/` folder, the sa
 exposure as pre-trusting a Claude Code workspace. Claude model aliases (`opus`, …) are
 not passed to Codex; such members get projectman's default, `gpt-6.1-sol` at `medium`
 reasoning effort, rather than the owner's interactive Codex default (which may be the most
-expensive model at the highest effort). A member may name any Codex model explicitly. The CLI is `CODEX_BIN` (default
+expensive model at the highest effort). A member may name any Codex model explicitly.
+The CLI is `CODEX_BIN` (default
 `codex` on `PATH`); transcripts are read from `CODEX_HOME` (default `~/.codex`).
+
+Claude members may choose a fixed model id, a latest-family alias, or a custom id.
+Their optional effort (`low`, `medium`, `high`, `xhigh`, `max`) is passed via `--effort`
+on new and resumed sessions; unset effort uses Claude Code's own default. Clearing
+effort with a member PATCH (`null`) restores that default. Codex maps `max` to `xhigh`.
 
 Permission modes map to Codex's sandbox and approval policy; anything the sandbox does
 not allow (writes elsewhere, network) is an escalation that reaches the PermissionRequest

@@ -164,6 +164,7 @@ export function buildClaudeArgs(spec: StartSessionSpec, settings: ClaudeSettings
   args.push('--mcp-config', JSON.stringify(buildMcpConfig(spec.mcpUrl)));
   args.push('--settings', JSON.stringify(settings));
   if (spec.model) args.push('--model', spec.model);
+  if (spec.effort) args.push('--effort', spec.effort);
   if (spec.permissionMode) args.push('--permission-mode', spec.permissionMode);
   if (spec.displayName) args.push('-n', spec.displayName);
   return args;

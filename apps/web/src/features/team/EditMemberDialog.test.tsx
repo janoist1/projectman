@@ -10,6 +10,33 @@ import { EditMemberDialog } from './EditMemberDialog';
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
 describe('EditMemberDialog', () => {
+  it('saves Claude effort and clears it when the default is selected', async () => {
+    const project = mockProject();
+    const config = project.backend.config.team.members.find((member) => member.handle === 'qa')!;
+    if (config.kind !== 'ai') throw new Error('Expected AI fixture');
+    config.effort = 'max';
+    project.render(
+      <EditMemberDialog
+        member={project.backend.findMember('qa')!}
+        config={project.backend.config}
+        roles={builtInRoles}
+        onClose={() => {}}
+      />,
+    );
+    const effort = screen.getByLabelText(t('providerSettings.effort')) as HTMLSelectElement;
+    expect(effort.value).toBe('max');
+    fireEvent.change(effort, { target: { value: 'high' } });
+    fireEvent.click(screen.getByRole('button', { name: t('memberEdit.save') }));
+    await waitFor(() => expect(config.effort).toBe('high'));
+    fireEvent.change(effort, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: t('memberEdit.save') }));
+    await waitFor(() => expect(config.effort).toBeUndefined());
+    expect(project.requests.filter((request) => request.method === 'PATCH').at(-1)?.body).toMatchObject({
+      effort: null,
+    });
+    expect(project.backend.findMember('qa')?.effort).toBeUndefined();
+  });
+
   it('edits multiple human roles and includes roles with monitoring duties', async () => {
     const project = mockProject();
     const onClose = vi.fn();
@@ -113,7 +140,7 @@ describe('EditMemberDialog', () => {
     expect((screen.getByLabelText(t('providerSettings.effort')) as HTMLSelectElement).value).toBe('high');
     fireEvent.change(screen.getByLabelText(t('providerSettings.provider')), { target: { value: 'claude' } });
     expect((screen.getByLabelText(t('hire.model')) as HTMLSelectElement).value).toBe('opus');
-    expect(screen.queryByLabelText(t('providerSettings.effort'))).toBeNull();
+    expect(screen.getByLabelText(t('providerSettings.effort'))).toBeTruthy();
     expect(await screen.findByText(t('providerSettings.loginCommands.claude'))).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: t('memberEdit.save') }));
     await waitFor(() =>

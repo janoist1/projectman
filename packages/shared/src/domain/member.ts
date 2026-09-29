@@ -31,9 +31,14 @@ export type AgentProvider = z.infer<typeof AgentProvider>;
 /** Provider of members that do not name one. */
 export const DEFAULT_AGENT_PROVIDER: AgentProvider = 'claude';
 
-/** Reasoning effort supported by Codex members. */
-export const AgentEffort = z.enum(['low', 'medium', 'high', 'xhigh']);
+/** Reasoning effort supported by agent members. */
+export const AgentEffort = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 export type AgentEffort = z.infer<typeof AgentEffort>;
+
+export const PROVIDER_EFFORT_OPTIONS: Record<AgentProvider, readonly AgentEffort[]> = {
+  claude: ['low', 'medium', 'high', 'xhigh', 'max'],
+  codex: ['low', 'medium', 'high', 'xhigh'],
+};
 
 /** Runtime status shown on member avatars. Humans: online/offline/invited; AI: idle/working/waiting. */
 export const MemberStatus = z.enum([

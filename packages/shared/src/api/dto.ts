@@ -121,7 +121,8 @@ export type HireMemberRequest = z.infer<typeof HireMemberRequest>;
 export const UpdateMemberRequest = z.object({
   access: HumanAccess.optional(),
   provider: AgentProvider.optional(),
-  effort: AgentEffort.optional(),
+  /** AI only; null restores the provider default. */
+  effort: AgentEffort.nullable().optional(),
   displayName: z.string().trim().min(1).optional(),
   /** Humans only: the roles they hold (replaces the list). An AI member holds exactly one role. */
   roles: z.array(RoleId).optional(),

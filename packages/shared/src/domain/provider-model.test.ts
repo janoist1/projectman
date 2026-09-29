@@ -3,7 +3,7 @@ import { AiMemberConfig, HireMemberRequest, UpdateMemberRequest } from '../index
 import { modelForProvider } from './provider-model';
 
 describe('provider settings contracts', () => {
-  it.each(['low', 'medium', 'high', 'xhigh'] as const)(
+  it.each(['low', 'medium', 'high', 'xhigh', 'max'] as const)(
     'accepts effort %s on config, hire and update',
     (effort) => {
       const member = {
@@ -30,10 +30,14 @@ describe('provider settings contracts', () => {
           displayName: 'Acme',
           role: 'developer',
           sponsor: 'owner',
-          effort: 'max',
+          effort: 'unsupported',
         }).success,
       ).toBe(false);
     }
+  });
+  it('accepts null only on update to clear effort', () => {
+    expect(UpdateMemberRequest.parse({ effort: null })).toEqual({ effort: null });
+    expect(HireMemberRequest.safeParse({ role: 'developer', effort: null }).success).toBe(false);
   });
   it('resets incompatible models and keeps provider-specific ids', () => {
     for (const model of ['opus', 'sonnet', 'haiku', 'claude-opus-4-1', 'opus[1m]']) {

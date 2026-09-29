@@ -39,7 +39,7 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
   const [handle, setHandle] = useState('');
   const [specialty, setSpecialty] = useState('');
   const [provider, setProvider] = useState<AgentProvider>('claude');
-  const [effort, setEffort] = useState<AgentEffort>('medium');
+  const [effort, setEffort] = useState<AgentEffort | undefined>();
   const [model, setModel] = useState<string | null>(null);
   const [handleError, setHandleError] = useState<string | null>(null);
   const instructionsId = useId();
@@ -75,7 +75,7 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
         handle: handle || undefined,
         specialty: isDeveloperRole(role) && specialty.trim() ? specialty.trim() : undefined,
         provider,
-        effort: provider === 'codex' ? effort : undefined,
+        effort,
         model: chosenModel.trim(),
         schedule: schedule.enabled
           ? { cron: schedule.cron.trim(), prompt: schedule.prompt.trim() }

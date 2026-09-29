@@ -17,6 +17,16 @@ function page() {
   );
 }
 describe('member profiles', () => {
+  it.each([
+    ['claude-opus-5-5', t('providerSettings.claudeModels.opus55')],
+    ['claude-fictional-model', 'claude-fictional-model'],
+  ])('shows Claude model %s and effort', async (model, label) => {
+    const p = mockProject();
+    p.backend.handle('PATCH', '/api/projects/AC/members/fe-1', { model, effort: 'max' });
+    p.render(page(), '/team/fe-1');
+    expect(await screen.findByText(`${label} · ${t('providerSettings.efforts.max')}`)).toBeTruthy();
+  });
+
   it('shows AI settings, current work, live chat, sessions, memory, schedule and thread composer', async () => {
     const p = mockProject();
     p.backend.memories['fe-1'] = 'Acme uses fictional checkout fixtures.';

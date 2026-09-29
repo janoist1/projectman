@@ -55,7 +55,7 @@ export const AiMemberConfig = z.object({
    * are ignored for Codex members, which then use Codex's default model.
    */
   model: z.string().default('opus'),
-  /** Codex reasoning effort; omitted values use medium. */
+  /** Agent reasoning effort; omitted values use the provider default. */
   effort: AgentEffort.optional(),
   /** Claude Code permission mode; for Codex members it maps to a sandbox and approval policy. */
   permissionMode: PermissionMode.default('default'),

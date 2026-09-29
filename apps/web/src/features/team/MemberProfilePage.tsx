@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { providerModelLabel } from './providerModels';
 import { Link, useNavigate, useParams } from 'react-router';
 import type { TeamMessage } from '@projectman/shared';
 import {
@@ -163,8 +164,15 @@ export function MemberProfilePage() {
           <>
             <ProviderBadge provider={member.provider} />
             <p>
-              {member.model} ·{' '}
-              {member.effort ? t(`providerSettings.efforts.${member.effort}`) : t('common.dash')}
+              {member.model
+                ? providerModelLabel(member.provider ?? 'claude', member.model)
+                : t('common.dash')}{' '}
+              ·{' '}
+              {member.effort
+                ? t(`providerSettings.efforts.${member.effort}`)
+                : member.provider === 'codex'
+                  ? t('providerSettings.efforts.medium')
+                  : t('providerSettings.defaultEffort')}
             </p>
             <p>{t('profile.capacity', { used: data.capacityUsed, max: data.capacity ?? 0 })}</p>
             <PlanUsageMeter

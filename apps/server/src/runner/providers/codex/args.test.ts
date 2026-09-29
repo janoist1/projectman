@@ -111,6 +111,10 @@ describe('Codex settings from the member', () => {
 });
 
 describe('buildCodexArgs', () => {
+  it.each([false, true])('maps max to xhigh with resume=%s', (resume) => {
+    const args = buildCodexArgs({ ...input, spec: { ...spec, resume, effort: 'max' } });
+    expect(overrides(args).get('model_reasoning_effort')).toBe(JSON.stringify('xhigh'));
+  });
   it.each(['low', 'medium', 'high', 'xhigh'] as const)('uses the member reasoning effort %s', (effort) => {
     const args = buildCodexArgs({ ...input, spec: { ...spec, effort } });
     expect(overrides(args).get('model_reasoning_effort')).toBe(JSON.stringify(effort));

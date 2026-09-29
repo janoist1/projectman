@@ -1,9 +1,13 @@
 import { readFile } from 'node:fs/promises';
 import type { ChatItem } from '@projectman/shared';
 import type { TranscriptReader } from '../../contracts';
+import { CODEX_ROLLOUT_FILE, parseCodexTranscript } from '../providers/codex/transcript';
 import { parseTranscript, type TranscriptParserOptions } from './parser';
 
-/** Reads a whole transcript; a missing file is an empty conversation. */
+/**
+ * Reads a whole transcript; a missing file is an empty conversation. Codex rollouts
+ * (rollout-*.jsonl) are parsed as such, everything else as a Claude Code transcript.
+ */
 export async function readTranscript(path: string, opts: TranscriptParserOptions = {}): Promise<ChatItem[]> {
   let text: string;
   try {
@@ -12,6 +16,7 @@ export async function readTranscript(path: string, opts: TranscriptParserOptions
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
     throw err;
   }
+  if (CODEX_ROLLOUT_FILE.test(path)) return parseCodexTranscript(text, opts);
   return parseTranscript(text, opts);
 }
 

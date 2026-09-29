@@ -1,13 +1,14 @@
 import type { SessionState } from '@projectman/shared';
 
 /**
- * Session state machine, driven by Claude Code hooks (and a few terminal/transcript signals):
+ * Session state machine, driven by the agent CLI's hooks (and a few terminal/transcript signals):
  *
- *   starting --SessionStart--> idle --UserPromptSubmit--> working --Stop--> idle
+ *   starting --SessionStart (or the prompt on screen)--> idle --UserPromptSubmit--> working --Stop--> idle
  *   working --PermissionRequest--> waiting_permission --(answered)--> working
  *   working --PreToolUse(AskUserQuestion)--> waiting_input --PostToolUse--> working
  *   starting --(setup screen: trust/login)--> waiting_input --SessionStart--> idle
  *   idle --(dialog before the first prompt, e.g. MCP approval)--> waiting_input --(gone)--> idle
+ *   any --(login lost mid-session)--> failed
  *   any --exit--> exited | failed
  */
 
@@ -32,6 +33,8 @@ export type SessionSignal =
   | { kind: 'setup_prompt'; description: string }
   /** The dialog is gone; `ready` tells whether the prompt was already up before. */
   | { kind: 'setup_cleared'; ready: boolean }
+  /** The CLI lost its login (e.g. "Login expired · Please run /login"); the session is stopped. */
+  | { kind: 'auth_failed'; message: string }
   | { kind: 'exit'; failed: boolean };
 
 export interface StateSnapshot {
@@ -52,7 +55,7 @@ export function nextState(current: StateSnapshot, signal: SessionSignal): StateS
 
   switch (signal.kind) {
     case 'session_start':
-      // The first SessionStart of a process means Claude Code can take input (a setup screen,
+      // The first SessionStart of a process means the CLI can take input (a setup screen,
       // if any, is gone). A later one, e.g. after compaction, can arrive in the middle of a
       // turn and changes nothing; after /clear the session is idle with a new conversation.
       if (signal.first && (state === 'starting' || state === 'waiting_input')) {
@@ -116,6 +119,9 @@ export function nextState(current: StateSnapshot, signal: SessionSignal): StateS
     case 'setup_cleared':
       if (state === 'waiting_input') return { state: signal.ready ? 'idle' : 'starting', activity: null };
       return current;
+
+    case 'auth_failed':
+      return { state: 'failed', activity: signal.message };
 
     case 'exit':
       return { state: signal.failed ? 'failed' : 'exited', activity: null };

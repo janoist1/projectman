@@ -12,6 +12,12 @@ export const FAKE_CLAUDE = path.resolve(
   '../../test/fixtures/fake-claude.mjs',
 );
 
+/** The fake OpenAI Codex CLI. */
+export const FAKE_CODEX = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../test/fixtures/fake-codex.mjs',
+);
+
 /** A logger that drops everything. */
 export function silentLogger(): FastifyBaseLogger {
   const noop = () => undefined;

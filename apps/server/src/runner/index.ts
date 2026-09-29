@@ -1,37 +1,47 @@
 import type { RunnerModule, RunnerModuleOptions } from '../contracts';
 import { registerHookRoutes } from './hooks';
-import { createPlanUsageProvider } from './plan-usage';
+import { createProviderAdapters } from './providers';
 import { SessionManager } from './runner';
 import { createTranscriptReader } from './transcript/reader';
 
 /**
- * Runs AI members as real, interactive Claude Code sessions in pseudo-terminals, on the
- * owner's Claude subscription:
+ * Runs AI members as real, interactive agent CLI sessions in pseudo-terminals, on the
+ * owner's subscription: Claude Code (Claude plan) or OpenAI Codex CLI (ChatGPT plan), each
+ * behind a provider adapter (providers/):
  * - `runner`: start/stop sessions, type messages when idle, terminal passthrough and snapshots,
- *   state and chat events (driven by Claude Code hooks and the session transcript);
- * - `registerHookRoutes`: POST /hooks/:token for Claude Code's hooks (localhost only);
+ *   state and chat events (driven by the CLI's hooks and the session transcript), and the
+ *   login check of each provider;
+ * - `registerHookRoutes`: POST /hooks/:token for the CLIs' hooks (localhost only);
  * - `transcripts`: parse a whole transcript into chat items;
- * - `planUsage`: the account's 5-hour and weekly plan usage.
+ * - `planUsage` / `planUsageFor`: the account's plan usage per provider.
+ *
+ * The Codex CLI is `codexBin`, else $CODEX_BIN, else `codex` on PATH; its transcripts are read
+ * from `codexHome`, else $CODEX_HOME, else ~/.codex.
  *
  * Several techniques follow agent-office (MIT, https://github.com/AgentSystemLabs/agent-office):
  * hook forwarding, bracketed-paste input, headless xterm snapshots, first-run screen detection
  * and the plan usage probe. Credited where used.
  */
 export function createRunnerModule(opts: RunnerModuleOptions): RunnerModule {
-  const runner = new SessionManager(opts);
+  const adapters = createProviderAdapters(opts);
+  const runner = new SessionManager(opts, adapters);
   return {
     runner,
     transcripts: createTranscriptReader(),
-    planUsage: createPlanUsageProvider({ claudeBin: opts.claudeBin, logger: opts.logger }),
+    planUsage: adapters.claude.planUsage,
+    planUsageFor: (provider) => adapters[provider].planUsage,
     registerHookRoutes(app) {
       registerHookRoutes(app, {
         sessionForToken: (token) => runner.sessionForToken(token),
+        parse: (session, body) => session.parseHook(body),
         logger: opts.logger,
       });
     },
   };
 }
 
-export { SessionManager } from './runner';
+export { ProviderNotLoggedInError, SessionManager } from './runner';
 export { parseTranscript, TranscriptParser } from './transcript/parser';
+export { CodexTranscriptParser, parseCodexTranscript } from './providers/codex/transcript';
 export { defaultClaudeConfigPath } from './trust';
+export { defaultCodexHome } from './providers/codex';

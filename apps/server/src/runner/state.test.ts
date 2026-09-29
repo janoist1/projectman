@@ -109,4 +109,16 @@ describe('session state machine', () => {
     expect(nextState(exited, { kind: 'prompt_submit' })).toBe(exited);
     expect(nextState(exited, { kind: 'session_start', source: 'startup', first: true })).toBe(exited);
   });
+
+  it('fails with the message when the login is lost, and the exit keeps it', () => {
+    const failed = nextState(
+      { state: 'working', activity: 'Bash: npm test' },
+      { kind: 'auth_failed', message: 'Login expired · Please run /login' },
+    );
+    expect(failed).toEqual({ state: 'failed', activity: 'Login expired · Please run /login' });
+    expect(nextState(failed, { kind: 'exit', failed: false })).toBe(failed);
+    expect(nextState({ state: 'idle', activity: null }, { kind: 'auth_failed', message: 'x' }).state).toBe(
+      'failed',
+    );
+  });
 });

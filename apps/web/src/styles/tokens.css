@@ -82,6 +82,7 @@
   --c-ok: #0f766e;
   --c-ok-text: #0f5c55;
   --c-ok-bg: #e3f2ef;
+  --c-on-ok: #ffffff;
 
   /* blocked */
   --c-blocked: #b42318;
@@ -131,6 +132,10 @@
   --role-owner-bg: #191916;
   --role-system-fg: #3f3e3a;
   --role-system-bg: #eeede8;
+
+  /* toast icons (on the inverted toast background) */
+  --c-toast-ok: #5eead4;
+  --c-toast-error: #fca5a1;
 
   /* terminal (dark in both themes) */
   --c-term-bg: #161614;
@@ -204,6 +209,7 @@
     --c-ok: #2eb5a4;
     --c-ok-text: #82dccd;
     --c-ok-bg: #16312d;
+    --c-on-ok: #0b1f1c;
 
     --c-blocked: #f1706a;
     --c-blocked-text: #fca5a1;
@@ -249,6 +255,9 @@
     --role-owner-bg: #f2f1ec;
     --role-system-fg: #dbd9d1;
     --role-system-bg: #2a2a26;
+
+    --c-toast-ok: #0f766e;
+    --c-toast-error: #b42318;
 
     --c-term-bg: #0f0f0d;
     --c-term-line: #2a2925;

@@ -1,0 +1,160 @@
+import type { InboxItem, MemberView, Task } from '@projectman/shared';
+import { formatAge } from '../i18n/format';
+import { joinNames, t } from '../i18n/t';
+import { newestFirst, permissionCommand, shortCommand } from './inbox';
+import { nameOf } from './members';
+import type { MemberIndex } from './members';
+import type { PipelineIndex } from './pipeline';
+
+/**
+ * Where a task stands from the viewer's point of view. The board, the phone list and
+ * the drawer all use this, so "Rád vár" means the same everywhere.
+ */
+export type TaskPhase = 'needs_you' | 'working' | 'waiting' | 'blocked' | 'ready' | 'done' | 'cancelled';
+
+export interface TaskState {
+  phase: TaskPhase;
+  label: string;
+  /** When the current state began (for the age on the card). */
+  since: string;
+  /** The AI member working on it right now, if any. */
+  worker: MemberView | null;
+}
+
+export interface TaskStateContext {
+  pipeline: PipelineIndex;
+  members: MemberIndex;
+  /** Open inbox items by task key (any assignee). */
+  openInboxByTask: ReadonlyMap<string, InboxItem[]>;
+  tasksByKey: ReadonlyMap<string, Task>;
+  myHandle: string | null;
+}
+
+export function groupOpenInboxByTask(items: readonly InboxItem[] | undefined): Map<string, InboxItem[]> {
+  const map = new Map<string, InboxItem[]>();
+  for (const item of items ?? []) {
+    if (item.state !== 'open' || !item.taskKey) continue;
+    const list = map.get(item.taskKey) ?? [];
+    list.push(item);
+    map.set(item.taskKey, list);
+  }
+  return map;
+}
+
+function needsYouLabel(item: InboxItem): string {
+  const kind = t(`inbox.kindsLower.${item.kind}`);
+  const detail = item.kind === 'permission' ? shortCommand(permissionCommand(item)) : null;
+  return t('taskStatus.needsYou', { what: detail ? t('taskStatus.needsYouDetail', { kind, detail }) : kind });
+}
+
+function findWorker(task: Task, members: MemberIndex): MemberView | null {
+  const working = [...members.values()].filter(
+    (member) => member.status === 'working' && member.currentTaskKeys.includes(task.key),
+  );
+  return working.find((member) => member.handle === task.assignee) ?? working[0] ?? null;
+}
+
+function unmetPrerequisites(task: Task, tasksByKey: ReadonlyMap<string, Task>): boolean {
+  return task.links.some((link) => {
+    if (link.kind !== 'prerequisite') return false;
+    const other = tasksByKey.get(link.ref);
+    return !other || (other.status !== 'done' && other.status !== 'cancelled');
+  });
+}
+
+export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
+  const { pipeline, members, myHandle } = ctx;
+  const stage = pipeline.stageById.get(task.stageId);
+  const open = ctx.openInboxByTask.get(task.key) ?? [];
+
+  if (task.status === 'cancelled') {
+    return { phase: 'cancelled', label: t('taskStatus.cancelled'), since: task.updatedAt, worker: null };
+  }
+  if (task.status === 'done' || stage?.kind === 'done') {
+    const closed = task.closedAt ?? task.updatedAt;
+    return { phase: 'done', label: t('taskStatus.done', { when: formatAge(closed) }), since: closed, worker: null };
+  }
+
+  const mine = newestFirst(open.filter((item) => !myHandle || item.assignees.includes(myHandle)));
+  if (mine[0]) {
+    return { phase: 'needs_you', label: needsYouLabel(mine[0]), since: mine[0].createdAt, worker: null };
+  }
+
+  if (task.status === 'blocked') {
+    return { phase: 'blocked', label: t('taskStatus.blocked'), since: task.updatedAt, worker: null };
+  }
+
+  const worker = findWorker(task, members);
+  if (worker) {
+    return {
+      phase: 'working',
+      label: worker.activity ? t('taskStatus.working', { activity: worker.activity }) : t('taskStatus.workingPlain'),
+      since: task.updatedAt,
+      worker,
+    };
+  }
+
+  const others = newestFirst(open);
+  if (others[0]) {
+    const who = joinNames(others[0].assignees.map((handle) => nameOf(handle, members, myHandle)));
+    return { phase: 'waiting', label: t('taskStatus.waitingOn', { who }), since: others[0].createdAt, worker: null };
+  }
+
+  if (stage?.kind === 'queue') {
+    if (task.status === 'waiting' || unmetPrerequisites(task, ctx.tasksByKey)) {
+      return { phase: 'waiting', label: t('taskStatus.prerequisite'), since: task.updatedAt, worker: null };
+    }
+    return { phase: 'ready', label: t('taskStatus.ready'), since: task.createdAt, worker: null };
+  }
+
+  const owners = stage?.owners ?? [];
+  const humanOwners = owners.filter((handle) => members.get(handle)?.kind === 'human');
+  if (task.status === 'waiting' && humanOwners.length > 0) {
+    if (myHandle && humanOwners.includes(myHandle)) {
+      return {
+        phase: 'needs_you',
+        label: t('taskStatus.needsYou', { what: stage?.name ?? '' }),
+        since: task.updatedAt,
+        worker: null,
+      };
+    }
+    const who = joinNames(humanOwners.map((handle) => nameOf(handle, members, myHandle)));
+    return { phase: 'waiting', label: t('taskStatus.waitingOn', { who }), since: task.updatedAt, worker: null };
+  }
+
+  const assignee = task.assignee ? members.get(task.assignee) : undefined;
+  if (task.status === 'active' && assignee && stage?.kind === 'work') {
+    return {
+      phase: 'waiting',
+      label: t('taskStatus.waitingOn', { who: nameOf(assignee.handle, members, myHandle) }),
+      since: task.updatedAt,
+      worker: null,
+    };
+  }
+
+  return {
+    phase: 'waiting',
+    label: t('taskStatus.queuedFor', { stage: stage?.name ?? task.stageId }),
+    since: task.updatedAt,
+    worker: null,
+  };
+}
+
+/** Sort order inside a column: what needs you first, finished work last. */
+export const phaseOrder: Record<TaskPhase, number> = {
+  needs_you: 0,
+  blocked: 1,
+  working: 2,
+  waiting: 3,
+  ready: 4,
+  done: 5,
+  cancelled: 6,
+};
+
+export type BoardFilter = 'all' | 'needsYou' | 'waiting';
+
+export function matchesFilter(phase: TaskPhase, filter: BoardFilter): boolean {
+  if (filter === 'needsYou') return phase === 'needs_you';
+  if (filter === 'waiting') return phase === 'waiting' || phase === 'blocked';
+  return phase !== 'cancelled';
+}

@@ -1,0 +1,100 @@
+.group {
+  display: flex;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  font-weight: 800;
+  white-space: nowrap;
+  background: transparent;
+  color: var(--c-ink-3);
+}
+
+.count {
+  font-weight: 700;
+  color: var(--c-ink-3);
+}
+
+/* segmented track */
+.segmented {
+  padding: 3px;
+  gap: 2px;
+  border-radius: 12px;
+  background: var(--c-sunken);
+}
+
+.segmented .option {
+  border-radius: 9px;
+}
+
+.segmented.md .option {
+  height: 34px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.segmented.sm {
+  border-radius: 10px;
+}
+
+.segmented.sm .option {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  border-radius: 8px;
+}
+
+.segmented .option:hover {
+  color: var(--c-ink);
+}
+
+.segmented .active {
+  background: var(--c-surface);
+  color: var(--c-ink);
+  box-shadow: var(--shadow-sm);
+}
+
+.segmented .active .count {
+  color: var(--c-ink-4);
+}
+
+/* pills */
+.pills {
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pills .option {
+  height: 36px;
+  padding: 0 13px;
+  border-radius: 18px;
+  border: 1px solid var(--c-line-strong);
+  background: var(--c-surface);
+  color: var(--c-ink);
+  font-size: 13px;
+}
+
+.pills .option:hover {
+  background: var(--c-subtle);
+}
+
+.pills .count {
+  color: var(--c-ink-4);
+}
+
+.pills .active,
+.pills .active:hover {
+  background: var(--c-primary);
+  border-color: var(--c-primary);
+  color: var(--c-on-primary);
+}
+
+.pills .active .count {
+  color: inherit;
+  opacity: 0.8;
+}

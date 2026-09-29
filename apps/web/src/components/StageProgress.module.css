@@ -1,0 +1,90 @@
+.bar {
+  display: flex;
+  gap: 2px;
+  width: 100%;
+}
+
+.segment {
+  flex: 1 1 0;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--c-seg-todo);
+}
+
+.columnStart {
+  margin-left: 3px;
+}
+
+.segment[data-state='done'] {
+  background: var(--c-seg-done);
+}
+
+.segment[data-state='finished'] {
+  background: var(--c-ok);
+}
+
+.segment[data-state='current'] {
+  background: var(--phase-dot);
+}
+
+.segment[data-state='current'][data-phase='waiting'],
+.segment[data-state='current'][data-phase='ready'] {
+  background: var(--c-mark-muted);
+}
+
+.chip {
+  width: auto;
+  gap: 2px;
+}
+
+.chip .segment {
+  flex: 0 0 10px;
+}
+
+.chip .columnStart {
+  margin-left: 2px;
+}
+
+.stepper {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 6px;
+}
+
+.step {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stepSegments {
+  display: flex;
+  gap: 2px;
+}
+
+.stepSegments .segment {
+  height: 5px;
+  border-radius: 3px;
+}
+
+.stepName {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-ink-4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stepPassed .stepName {
+  color: var(--c-ink-2);
+}
+
+.stepCurrent .stepName {
+  color: var(--c-ink);
+  font-weight: 800;
+}

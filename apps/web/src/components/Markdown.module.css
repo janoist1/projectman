@@ -1,0 +1,42 @@
+.markdown {
+  font-size: 14px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.markdown ul,
+.markdown ol {
+  margin: 0;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.heading {
+  font-weight: 800;
+}
+
+.inlineCode {
+  font-size: 0.88em;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--c-muted);
+  border: 1px solid var(--c-line-soft);
+}
+
+.code {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--c-subtle);
+  border: 1px solid var(--c-line-soft);
+  font-size: 12.5px;
+  line-height: 1.55;
+  overflow-x: auto;
+  white-space: pre;
+}

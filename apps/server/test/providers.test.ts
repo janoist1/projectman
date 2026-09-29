@@ -47,10 +47,10 @@ describe('agent providers', () => {
     h = await createDomainHarness();
     const hired = await h.domain.members.hire(
       'AR',
-      { role: 'qa', provider: 'codex' },
+      { role: 'qa', provider: 'codex', effort: 'high' },
       { actor: OWNER_ACTOR, author: OWNER, sponsor: 'owner' },
     );
-    expect(hired.provider).toBe('codex');
+    expect(hired).toMatchObject({ provider: 'codex', model: 'gpt-6.1-sol', effort: 'high' });
     const config = await h.domain.projects.config('AR');
     expect(config.team.members.find((m) => m.handle === hired.handle)).toMatchObject({ provider: 'codex' });
 
@@ -58,6 +58,56 @@ describe('agent providers', () => {
     expect(roster.find((m) => m.handle === hired.handle)?.provider).toBe('codex');
     expect(roster.find((m) => m.handle === 'dev-1')?.provider).toBe('claude');
     expect(roster.find((m) => m.kind === 'human')).not.toHaveProperty('provider');
+  });
+
+  it('switches providers, resets incompatible models and forwards effort to the runner', async () => {
+    h = await createDomainHarness();
+    const update = (body: import('@projectman/shared').UpdateMemberRequest) =>
+      h.domain.members.update('AR', 'dev-2', body, { actor: OWNER_ACTOR, author: OWNER });
+    expect(await update({ provider: 'codex', effort: 'xhigh' })).toMatchObject({
+      provider: 'codex',
+      model: 'gpt-6.1-sol',
+      effort: 'xhigh',
+    });
+    await h.domain.sessions.ensureSession('AR', 'dev-2', general);
+    expect(h.runner.lastStarted()).toMatchObject({
+      provider: 'codex',
+      model: 'gpt-6.1-sol',
+      effort: 'xhigh',
+    });
+    expect(await update({ model: 'fictional-codex-model' })).toMatchObject({
+      model: 'fictional-codex-model',
+    });
+    expect(await update({ specialty: 'backend' })).toMatchObject({
+      provider: 'codex',
+      effort: 'xhigh',
+      model: 'fictional-codex-model',
+    });
+    expect(await update({ provider: 'claude' })).toMatchObject({ provider: 'claude', model: 'opus' });
+    expect(await update({ provider: 'codex', model: 'gpt-6-luna' })).toMatchObject({ model: 'gpt-6-luna' });
+    expect(await update({ provider: 'claude', model: 'sonnet' })).toMatchObject({ model: 'sonnet' });
+  });
+
+  it('retains compatible custom ids and rejects AI settings on humans', async () => {
+    h = await createDomainHarness({
+      adjust: (config) => {
+        const member = config.team.members.find((m) => m.handle === 'dev-2');
+        if (member?.kind === 'ai') member.model = 'fictional-codex-model';
+      },
+    });
+    expect(
+      await h.domain.members.update(
+        'AR',
+        'dev-2',
+        { provider: 'codex' },
+        { actor: OWNER_ACTOR, author: OWNER },
+      ),
+    ).toMatchObject({ provider: 'codex', model: 'fictional-codex-model' });
+    for (const body of [{ provider: 'codex' }, { effort: 'high' }] as const) {
+      expect(
+        await failure(h.domain.members.update('AR', 'owner', body, { actor: OWNER_ACTOR, author: OWNER })),
+      ).toMatchObject({ code: 'not_ai_member' });
+    }
   });
 
   it('starts each member on its own provider', async () => {

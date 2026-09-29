@@ -2,6 +2,7 @@ import { Link } from 'react-router';
 import type { InboxItem, MemberView } from '@projectman/shared';
 import { useProject } from '../../app/contexts';
 import { Avatar, AvatarStack } from '../../components/Avatar';
+import { ProviderBadge } from '../../components/ProviderBadge';
 import { t } from '../../i18n/t';
 import { isStandingRole, memberStatusView } from '../../lib/members';
 import styles from './TeamStrip.module.css';
@@ -35,6 +36,7 @@ export function TeamStrip({ members, inbox, activeTaskCount }: TeamStripProps) {
             <span className={styles.text}>
               <span className={styles.top}>
                 <span className={styles.name}>{member.displayName}</span>
+                {member.kind === 'ai' ? <ProviderBadge provider={member.provider} /> : null}
                 <span className={styles.status} data-status={view.status}>
                   {view.label}
                 </span>

@@ -111,6 +111,11 @@ describe('Codex settings from the member', () => {
 });
 
 describe('buildCodexArgs', () => {
+  it.each(['low', 'medium', 'high', 'xhigh'] as const)('uses the member reasoning effort %s', (effort) => {
+    const args = buildCodexArgs({ ...input, spec: { ...spec, effort } });
+    expect(overrides(args).get('model_reasoning_effort')).toBe(JSON.stringify(effort));
+  });
+
   it('runs the TUI inline, without the daemon, with our hooks trusted and the brief as the prompt', () => {
     const args = buildCodexArgs(input);
     expect(args.slice(0, 6)).toEqual([

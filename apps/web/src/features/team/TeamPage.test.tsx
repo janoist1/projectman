@@ -1,10 +1,14 @@
 import { screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { t } from '../../i18n/t';
 import { setFetchImplementation } from '../../api/client';
 import { mockProject } from '../../test/mockProject';
 import { TeamPage } from './TeamPage';
 
-afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
+afterEach(() => {
+  vi.restoreAllMocks();
+  setFetchImplementation((input, init) => globalThis.fetch(input, init));
+});
 
 describe('TeamPage role catalogue', () => {
   it('shows every human responsibility next to access and one role for AI members', async () => {
@@ -28,5 +32,29 @@ describe('TeamPage role catalogue', () => {
     expect(screen.queryByRole('button', { name: 'Új szerep' })).toBeNull();
     expect(screen.queryByRole('button', { name: /Tag szerkesztése/ })).toBeNull();
     expect(project.requests.some((request) => request.path.endsWith('/config'))).toBe(false);
+  });
+  it.each([false, true])('shows provider badges in roster rows and cards (mobile: %s)', async (mobile) => {
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+      matches: mobile,
+      media: query,
+      onchange: null,
+      addListener() {},
+      removeListener() {},
+      addEventListener() {},
+      removeEventListener() {},
+      dispatchEvent: () => false,
+    }));
+    const project = mockProject();
+    project.render(<TeamPage />);
+    const claude = (await screen.findByText(project.backend.findMember('fe-1')!.displayName)).closest(
+      mobile ? 'li' : 'tr',
+    )!;
+    const codex = screen
+      .getByText(project.backend.findMember('be-1')!.displayName)
+      .closest(mobile ? 'li' : 'tr')!;
+    expect(within(claude).getByText(t('providers.claude'))).toBeTruthy();
+    expect(within(codex).getByText(t('providers.codex'))).toBeTruthy();
+    const human = screen.getByText(t('common.you')).closest(mobile ? 'li' : 'tr')!;
+    expect(within(human).queryByText(t('providers.claude'))).toBeNull();
   });
 });

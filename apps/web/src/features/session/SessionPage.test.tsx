@@ -12,6 +12,7 @@ describe('session header public settings', () => {
   it('shows AI model and permission mode from MemberView without fetching config', async () => {
     const project = mockProject();
     const member = project.backend.findMember('fe-1')!;
+    member.provider = 'codex';
     member.model = 'fictional-public-model';
     member.permissionMode = 'plan';
     project.render(
@@ -27,6 +28,7 @@ describe('session header public settings', () => {
     expect(
       screen.getByText(t('session.chips.permissions', { mode: t('permissionModes.plan') })),
     ).toBeTruthy();
+    expect(screen.getByText(t('providers.codex'))).toBeTruthy();
     expect(project.requests.some((request) => request.path.endsWith('/config'))).toBe(false);
     expect(screen.getByText(t('session.chat.brief'))).toBeTruthy();
   });

@@ -1,4 +1,6 @@
 import {
+  AgentProvider,
+  modelForProvider,
   roleBundle,
   roleHolders,
   dutyHolders,
@@ -37,7 +39,6 @@ import {
   UpdateTaskRequest,
 } from '@projectman/shared';
 import type {
-  AgentProvider,
   PlanUsage,
   ScheduleRun,
   InvitationView as Invitation,
@@ -145,6 +146,7 @@ export class MockBackend {
         Object.assign(member, {
           provider: config.provider ?? 'claude',
           model: config.model,
+          effort: config.effort,
           permissionMode: config.permissionMode,
         });
     }
@@ -453,6 +455,20 @@ export class MockBackend {
     if (this.auth !== 'ready') return error(401, 'unauthorized', 'Login required');
 
     if (path === '/api/me') return ok(this.me());
+    if (path === '/api/providers' && method === 'GET') {
+      return ok({
+        providers: AgentProvider.options.map((provider) => ({
+          provider,
+          loggedIn: this.providerLoggedIn[provider],
+          method: this.providerLoggedIn[provider]
+            ? provider === 'claude'
+              ? 'claude.ai'
+              : 'chatgpt'
+            : 'none',
+          checkedAt: nowIso(),
+        })),
+      });
+    }
     if (path === '/api/templates') return ok(clone(fixtures.templates));
     if (path === '/api/projects') {
       if (method === 'POST') {
@@ -932,7 +948,11 @@ export class MockBackend {
     }
     if (
       config.kind !== 'ai' &&
-      (input.specialty !== undefined || input.model !== undefined || input.schedule !== undefined)
+      (input.specialty !== undefined ||
+        input.model !== undefined ||
+        input.schedule !== undefined ||
+        input.provider !== undefined ||
+        input.effort !== undefined)
     )
       return error(400, 'not_ai_member', 'Not an AI member');
     const next = clone(this.config);
@@ -949,6 +969,11 @@ export class MockBackend {
         member.specialty = config.specialty ?? null;
       }
       if (input.model !== undefined) member.model = config.model = input.model;
+      if (input.provider !== undefined && input.provider !== (config.provider ?? 'claude')) {
+        member.provider = config.provider = input.provider;
+        member.model = config.model = modelForProvider(input.provider, config.model);
+      }
+      if (input.effort !== undefined) member.effort = config.effort = input.effort;
       if (input.schedule !== undefined) config.schedule = input.schedule ?? undefined;
     }
     this.commitConfig(`Update member ${handle}`);
@@ -1245,7 +1270,8 @@ export class MockBackend {
       displayName: input.displayName ?? this.roleCatalogue().find((role) => role.id === input.role)!.name,
       kind: 'ai',
       provider: input.provider ?? 'claude',
-      model: input.model ?? 'opus',
+      model: input.provider === 'codex' ? modelForProvider('codex', input.model) : (input.model ?? 'opus'),
+      effort: input.effort,
       permissionMode: 'default',
       role: input.role,
       roles: [input.role],
@@ -1264,7 +1290,8 @@ export class MockBackend {
       displayName: member.displayName,
       role: input.role,
       specialty: input.specialty,
-      model: input.model ?? 'opus',
+      model: input.provider === 'codex' ? modelForProvider('codex', input.model) : (input.model ?? 'opus'),
+      effort: input.effort,
       permissionMode: 'default',
       capacity: 1,
       instructions: '',

@@ -956,6 +956,24 @@ export const hu = {
     empty: 'Nincs ilyen tag.',
   },
 
+  providerSettings: {
+    provider: 'Szolgáltató',
+    customModel: 'Egyéni modell',
+    modelId: 'Modellazonosító',
+    models: {
+      sol: 'gpt-6.1-sol — munkaló, kódolásra',
+      luna: 'gpt-6-luna — gyors, olcsó, egyszerű feladatokra',
+      astra: 'gpt-6-astra — a legerősebb, drága, csak kritikus feladatra',
+    },
+    effort: 'Gondolkodási erőfeszítés',
+    efforts: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh' },
+    effortHint: 'A nagyobb erőfeszítés több előfizetési keretet használ és lassabb lehet.',
+    astraWarning: 'Költségfigyelmeztetés: az Astra drága, csak kritikus feladatra válaszd.',
+    loginWarning: '{provider} nincs bejelentkezve. Futtasd a szerveren:',
+    loginCommands: { claude: 'claude auth login', codex: 'codex login' },
+    statusUnknown: 'A szolgáltató bejelentkezési állapota nem ellenőrizhető.',
+  },
+
   hire: {
     title: 'Új AI-tag',
     intro: 'Sablonból indulsz, és testre szabod.',

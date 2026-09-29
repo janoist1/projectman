@@ -1,5 +1,6 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { t } from '../../i18n/t';
 import { setFetchImplementation } from '../../api/client';
 import { builtInRoles } from '../../mocks/fixtures';
 import { mockProject } from '../../test/mockProject';
@@ -58,5 +59,83 @@ describe('HireDialog', () => {
     expect(project.backend.config.team.members.at(-1)).toMatchObject({
       schedule: { cron: '0 8 * * 1-5', prompt: 'Check the Acme dependencies.' },
     });
+  });
+  it('switches providers, warns about login and cost, and hires with Codex defaults', async () => {
+    const project = mockProject();
+    project.backend.providerLoggedIn.codex = false;
+    project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
+    const provider = await screen.findByLabelText(t('providerSettings.provider'));
+    expect(screen.queryByLabelText(t('providerSettings.effort'))).toBeNull();
+    fireEvent.change(provider, { target: { value: 'codex' } });
+    expect((screen.getByLabelText(t('hire.model')) as HTMLSelectElement).value).toBe('gpt-6.1-sol');
+    expect((screen.getByLabelText(t('providerSettings.effort')) as HTMLSelectElement).value).toBe('medium');
+    expect(
+      Array.from((screen.getByLabelText(t('hire.model')) as HTMLSelectElement).options).map(
+        (option) => option.value,
+      ),
+    ).toEqual(['gpt-6.1-sol', 'gpt-6-luna', 'gpt-6-astra', 'custom']);
+    expect(await screen.findByText(t('providerSettings.loginCommands.codex'))).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(t('hire.model')), { target: { value: 'gpt-6-astra' } });
+    expect(screen.getByText(t('providerSettings.astraWarning'))).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(t('hire.model')), { target: { value: 'gpt-6.1-sol' } });
+    expect(screen.queryByText(t('providerSettings.astraWarning'))).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: t('hire.submit') }));
+    await waitFor(() =>
+      expect(project.backend.config.team.members.at(-1)).toMatchObject({
+        provider: 'codex',
+        model: 'gpt-6.1-sol',
+        effort: 'medium',
+      }),
+    );
+    expect(project.requests.find((request) => request.method === 'POST')?.body).toMatchObject({
+      provider: 'codex',
+      effort: 'medium',
+    });
+  });
+
+  it('supports custom Codex model ids and resets to Claude defaults on switching back', async () => {
+    const project = mockProject();
+    project.backend.providerLoggedIn.claude = false;
+    project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
+    const provider = await screen.findByLabelText(t('providerSettings.provider'));
+    expect(await screen.findByText(t('providerSettings.loginCommands.claude'))).toBeTruthy();
+    fireEvent.change(provider, { target: { value: 'codex' } });
+    fireEvent.change(screen.getByLabelText(t('hire.model')), { target: { value: 'custom' } });
+    fireEvent.change(screen.getByLabelText(t('providerSettings.modelId')), {
+      target: { value: 'fictional-codex-model' },
+    });
+    fireEvent.change(provider, { target: { value: 'claude' } });
+    expect((screen.getByLabelText(t('hire.model')) as HTMLSelectElement).value).toBe('opus');
+    expect(screen.queryByLabelText(t('providerSettings.effort'))).toBeNull();
+    fireEvent.change(provider, { target: { value: 'codex' } });
+    fireEvent.change(screen.getByLabelText(t('hire.model')), { target: { value: 'custom' } });
+    fireEvent.change(screen.getByLabelText(t('providerSettings.modelId')), {
+      target: { value: 'fictional-codex-model' },
+    });
+    fireEvent.change(screen.getByLabelText(t('providerSettings.effort')), { target: { value: 'low' } });
+    fireEvent.click(screen.getByRole('button', { name: t('hire.submit') }));
+    await waitFor(() =>
+      expect(project.backend.config.team.members.at(-1)).toMatchObject({
+        provider: 'codex',
+        model: 'fictional-codex-model',
+        effort: 'low',
+      }),
+    );
+  });
+  it('keeps the Codex default when changing to a role with an expensive existing model', async () => {
+    const project = mockProject();
+    const qa = project.backend.config.team.members.find((member) => member.handle === 'qa')!;
+    if (qa.kind !== 'ai') throw new Error('Expected AI fixture');
+    qa.provider = 'codex';
+    qa.model = 'gpt-6-astra';
+    project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
+    fireEvent.change(await screen.findByLabelText(t('providerSettings.provider')), {
+      target: { value: 'codex' },
+    });
+    fireEvent.click(
+      screen.getAllByRole('radio').find((entry) => (entry as HTMLInputElement).value === 'qa')!,
+    );
+    expect((screen.getByLabelText(t('hire.model')) as HTMLSelectElement).value).toBe('gpt-6.1-sol');
+    expect(screen.queryByText(t('providerSettings.astraWarning'))).toBeNull();
   });
 });

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AgentEffort } from '../domain/member';
 import { AgentProvider, HumanAccess, MemberHandle, PermissionMode } from '../domain/member';
 import { Pipeline } from '../domain/pipeline';
 import { CustomRoleDefinition, RoleId, RoleOverrides } from '../domain/role';
@@ -52,6 +53,8 @@ export const AiMemberConfig = z.object({
    * are ignored for Codex members, which then use Codex's default model.
    */
   model: z.string().default('opus'),
+  /** Codex reasoning effort; omitted values use medium. */
+  effort: AgentEffort.optional(),
   /** Claude Code permission mode; for Codex members it maps to a sandbox and approval policy. */
   permissionMode: PermissionMode.default('default'),
   /** How many work items this member may run at the same time. */

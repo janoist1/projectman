@@ -6,6 +6,7 @@ import { TimelineEvent } from '../domain/event';
 import { InboxItem } from '../domain/inbox';
 import {
   AgentProvider,
+  AgentEffort,
   HumanAccess,
   MemberHandle,
   MemberKind,
@@ -96,11 +97,13 @@ export const MemberView = z.object({
   /** AI members only: public session settings, available to every project member. */
   model: z.string().optional(),
   permissionMode: PermissionMode.optional(),
+  effort: AgentEffort.optional(),
 });
 export type MemberView = z.infer<typeof MemberView>;
 
 /** Hires an AI member for a role an AI may hold (built-in or custom). */
 export const HireMemberRequest = z.object({
+  effort: AgentEffort.optional(),
   role: RoleId,
   displayName: z.string().min(1).optional(),
   handle: MemberHandle.optional(),
@@ -114,6 +117,8 @@ export type HireMemberRequest = z.infer<typeof HireMemberRequest>;
 
 /** PATCH of a member; omitted fields stay as they are. */
 export const UpdateMemberRequest = z.object({
+  provider: AgentProvider.optional(),
+  effort: AgentEffort.optional(),
   displayName: z.string().trim().min(1).optional(),
   /** Humans only: the roles they hold (replaces the list). An AI member holds exactly one role. */
   roles: z.array(RoleId).optional(),
@@ -343,3 +348,15 @@ export const AcceptInviteRequest = z.object({
   password: SetupRequest.shape.password.optional(),
 });
 export type AcceptInviteRequest = z.infer<typeof AcceptInviteRequest>;
+
+/** Subscription login status of each supported runner provider. */
+export const ProviderLoginStatus = z.object({
+  provider: AgentProvider,
+  loggedIn: z.boolean().nullable(),
+  method: z.string().nullable(),
+  checkedAt: z.string(),
+  detail: z.string().optional(),
+});
+export type ProviderLoginStatus = z.infer<typeof ProviderLoginStatus>;
+export const ProvidersView = z.object({ providers: z.array(ProviderLoginStatus) });
+export type ProvidersView = z.infer<typeof ProvidersView>;

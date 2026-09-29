@@ -1,13 +1,13 @@
 import { useEffect, useId, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
-import { MemberHandle } from '@projectman/shared';
-import type { RoleId } from '@projectman/shared';
+import { DEFAULT_PROVIDER_MODELS, modelForProvider, MemberHandle } from '@projectman/shared';
+import type { AgentProvider, AgentEffort, RoleId } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import { useHireMember, useRoles } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
-import { SelectField, TextField } from '../../components/Field';
+import { TextField } from '../../components/Field';
 import { Dialog } from '../../components/Dialog';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
@@ -17,9 +17,8 @@ import { ErrorState, LoadingState } from '../../components/States';
 import { ScheduleFields } from './ScheduleFields';
 import type { ScheduleDraft } from './ScheduleFields';
 import { previewFor } from './hirePreview';
+import { ProviderFields } from './ProviderFields';
 import styles from './HireDialog.module.css';
-
-const MODELS = ['opus', 'sonnet', 'haiku'] as const;
 
 interface HireDialogProps {
   open: boolean;
@@ -39,11 +38,15 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
   const [displayName, setDisplayName] = useState('');
   const [handle, setHandle] = useState('');
   const [specialty, setSpecialty] = useState('');
-  const [model, setModel] = useState<string>('');
+  const [provider, setProvider] = useState<AgentProvider>('claude');
+  const [effort, setEffort] = useState<AgentEffort>('medium');
+  const [model, setModel] = useState<string | null>(null);
   const [handleError, setHandleError] = useState<string | null>(null);
   const instructionsId = useId();
   const preview = useMemo(() => previewFor(role, specialty, config), [role, specialty, config]);
-  const chosenModel = model || preview.model;
+  const chosenModel =
+    model ??
+    (provider === 'codex' ? DEFAULT_PROVIDER_MODELS.codex : modelForProvider(provider, preview.model));
   const selectedRole = aiRoleView(role, specialty, roles.data?.roles);
   const defaultName = selectedRole.name;
 
@@ -57,7 +60,7 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
       setHandleError(t('hire.handleInvalid'));
       return;
     }
-    if (!options.some((option) => option.id === role)) return;
+    if (!options.some((option) => option.id === role) || !chosenModel.trim()) return;
     if (schedule.enabled && (!schedule.cron.trim() || !schedule.prompt.trim())) {
       setScheduleError(true);
       return;
@@ -71,7 +74,9 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
         displayName: name,
         handle: handle || undefined,
         specialty: isDeveloperRole(role) && specialty.trim() ? specialty.trim() : undefined,
-        model: chosenModel,
+        provider,
+        effort: provider === 'codex' ? effort : undefined,
+        model: chosenModel.trim(),
         schedule: schedule.enabled
           ? { cron: schedule.cron.trim(), prompt: schedule.prompt.trim() }
           : undefined,
@@ -104,7 +109,7 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
                 checked={checked}
                 onChange={() => {
                   setRole(option.id);
-                  setModel('');
+                  setModel(null);
                 }}
                 className={styles.radio}
               />
@@ -156,17 +161,18 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
               optional
             />
           ) : null}
-          <SelectField
-            label={t('hire.model')}
-            value={chosenModel}
-            onChange={(event) => setModel(event.target.value)}
-          >
-            {[...new Set([preview.model, ...MODELS])].map((entry) => (
-              <option key={entry} value={entry}>
-                {entry}
-              </option>
-            ))}
-          </SelectField>
+          <ProviderFields
+            key={role}
+            provider={provider}
+            model={chosenModel}
+            effort={effort}
+            onProviderChange={(next, nextModel) => {
+              setProvider(next);
+              setModel(nextModel);
+            }}
+            onModelChange={setModel}
+            onEffortChange={setEffort}
+          />
         </div>
         <dl className={styles.facts}>
           <div>

@@ -1,3 +1,4 @@
+import { DEFAULT_PROVIDER_MODELS, modelForProvider } from '@projectman/shared';
 import type { StartSessionSpec } from '../../../contracts';
 import { forwarderCommand } from '../../claude-args';
 import { sanitizeMessage } from '../../typing';
@@ -121,17 +122,12 @@ export function codexPermissions(mode: string | undefined): CodexPermissions {
  * the most expensive model at the highest effort, which members should use only when a member
  * explicitly asks for it.
  */
-const CLAUDE_MODEL =
-  /^(?:default|best|opus|sonnet|haiku|fable|opusplan)(?:\[1m\])?$|^claude|^anthropic|opus|sonnet|haiku|fable|\[1m\]/i;
-
-export const DEFAULT_CODEX_MODEL = 'gpt-6.1-sol';
-/** Reasoning effort for every Codex member (overrides the owner's interactive default). */
+export const DEFAULT_CODEX_MODEL = DEFAULT_PROVIDER_MODELS.codex;
+/** Default reasoning effort for Codex members (overrides the owner's interactive default). */
 export const DEFAULT_CODEX_EFFORT = 'medium';
 
 export function codexModel(model: string | undefined): string {
-  const m = model?.trim();
-  if (!m || CLAUDE_MODEL.test(m)) return DEFAULT_CODEX_MODEL;
-  return m;
+  return modelForProvider('codex', model?.trim());
 }
 
 /** The team server's tool approvals, from the session's allow rules (e.g. "mcp__team__*"). */
@@ -203,7 +199,7 @@ export function buildCodexArgs(input: CodexArgsInput): string[] {
   if (permissions.sandbox === 'danger-full-access') c('notice.hide_full_access_warning', true);
   args.push('--sandbox', permissions.sandbox, '--ask-for-approval', permissions.approval);
   args.push('--model', codexModel(spec.model));
-  c('model_reasoning_effort', DEFAULT_CODEX_EFFORT);
+  c('model_reasoning_effort', spec.effort ?? DEFAULT_CODEX_EFFORT);
 
   const positional: string[] = [];
   if (spec.resume) positional.push(spec.claudeSessionId);

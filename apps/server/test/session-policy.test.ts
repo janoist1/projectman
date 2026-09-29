@@ -11,6 +11,12 @@ import {
 } from '../src/domain';
 
 describe('role session policy', () => {
+  it('pre-approves list_tasks alongside get_task for every AI role', () => {
+    for (const role of [...AI_BUILT_IN_ROLE_IDS, 'data_steward']) {
+      expect(allowedToolsFor(role)).toContain('mcp__team__*');
+    }
+  });
+
   it('covers every built-in role', () => {
     expect(Object.keys(ROLE_SESSION_POLICIES).sort()).toEqual([...BUILT_IN_ROLE_IDS].sort());
   });

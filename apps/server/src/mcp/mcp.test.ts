@@ -139,6 +139,8 @@ describe('team MCP endpoint', () => {
     expect(schema('ask_human').required).toEqual(['question']);
     expect(schema('save_memory').required).toEqual(['note']);
     expect(byName.get('get_task')!.annotations?.readOnlyHint).toBe(true);
+    expect(byName.get('list_tasks')!.annotations?.readOnlyHint).toBe(true);
+    expect(schema('list_tasks').properties.limit.maximum).toBe(200);
     expect(byName.get('update_task')!.annotations?.readOnlyHint).toBe(false);
   });
 });
@@ -206,6 +208,44 @@ describe('team tools', () => {
     );
     expect(out).toContain('- qa — Quinn · AI qa · idle');
     expect(h.handler.calls[0]).toMatchObject({ method: 'listMembers', ctx: devContext });
+  });
+
+  it('list_tasks returns compact JSON and passes defaults and filters to the handler', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+    const tasks = JSON.parse(text(await call(client, 'list_tasks')));
+    expect(tasks).toEqual([
+      {
+        key: 'AR-21',
+        title: 'Validate the login form',
+        stageId: 'development',
+        status: 'active',
+        assignee: 'fe-1',
+        labels: ['frontend'],
+        updatedAt: '2026-09-29T09:00:00.000Z',
+      },
+    ]);
+    expect(h.handler.calls.at(-1)).toEqual({
+      method: 'listTasks',
+      ctx: devContext,
+      args: { status: 'open', limit: 50 },
+    });
+    await call(client, 'list_tasks', { status: 'done', stage: 'done', assignee: 'me', limit: 200 });
+    expect(h.handler.calls.at(-1)?.args).toEqual({
+      status: 'done',
+      stage: 'done',
+      assignee: 'me',
+      limit: 200,
+    });
+    for (const args of [
+      { limit: 201 },
+      { limit: 0 },
+      { limit: 1.5 },
+      { status: 'unknown' },
+      { extra: true },
+    ]) {
+      expect((await call(client, 'list_tasks', args)).isError).toBe(true);
+    }
   });
 
   it('get_task returns the task, its links, sessions and timeline', async () => {

@@ -220,6 +220,14 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       return members;
     },
 
+    async listTasks(ctx, args) {
+      await enter('listTasks', ctx, args);
+      return [...tasks.values()].map(({ task }) => {
+        const { key, title, stageId, status, assignee, labels, updatedAt } = task;
+        return { key, title, stageId, status, assignee, labels, updatedAt };
+      });
+    },
+
     async getTask(ctx, args) {
       await enter('getTask', ctx, args);
       return findTask(args.taskKey);

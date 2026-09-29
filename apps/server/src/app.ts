@@ -110,7 +110,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     await app.register(fastifyWebsocket, { options: { maxPayload: 1024 * 1024 } });
 
     repos = createRepositories(openDatabase(options.dbPath ?? join(home, 'db.sqlite')));
-    const configStore = modules.configStore ?? createConfigStore({ rootDir: join(home, 'customization') });
+    const configStore =
+      modules.configStore ??
+      createConfigStore({
+        rootDir: join(home, 'customization'),
+        logger: app.log.child({ module: 'config' }),
+      });
     if (hasInit(configStore)) await configStore.init();
 
     const log = app.log;

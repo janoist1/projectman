@@ -2,7 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DAILY_WORKER_SCHEDULE } from '@projectman/templates';
 import type { ProjectConfig } from '@projectman/shared';
 import { ConfigStoreError, createConfigStore } from '../src/config';
 import type { GitConfigStore } from '../src/config';
@@ -96,6 +97,36 @@ describe('ConfigStore (customization repository)', () => {
     expect(legacy.team.roles).toEqual([]);
     expect(legacy.team.members[0]).toMatchObject({ kind: 'human', roles: [] });
     expect(legacy.project.timezone).toBe('UTC');
+  });
+
+  it('migrates legacy scheduled members in memory and persists them on the next save', async () => {
+    const warn = vi.fn();
+    store = createConfigStore({ rootDir: store.rootDir, logger: { warn } });
+    const { version } = await store.save('AR', testConfig(), { author, message: 'Create' });
+    const path = join(store.rootDir, 'projects/AR/team.yaml');
+    const fixture = readFileSync(new URL('./fixtures/legacy-scheduled-team.yaml', import.meta.url), 'utf8');
+    writeFileSync(path, fixture);
+
+    const loaded = await store.load('AR');
+    expect(loaded.version).toBe(version);
+    expect(loaded.config.team.members[1]).toMatchObject({
+      role: 'maintainer',
+      schedule: DAILY_WORKER_SCHEDULE,
+    });
+    expect(loaded.config.team.members[2]).toMatchObject({
+      role: 'maintainer',
+      schedule: { cron: '0 18 * * *', prompt: 'Review the fictional project backlog.' },
+    });
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledWith(
+      { projectKey: 'AR', member: 'dev-1' },
+      'Migrated legacy scheduled role to maintainer',
+    );
+    expect(readFileSync(path, 'utf8')).toBe(fixture);
+    await store.save('AR', loaded.config, { author, message: 'Save migrated configuration' });
+    expect(readFileSync(path, 'utf8')).not.toContain('role: scheduled');
+    expect((await store.load('AR')).config).toEqual(loaded.config);
+    expect(warn).toHaveBeenCalledTimes(2);
   });
 
   it('does not commit when nothing changed', async () => {

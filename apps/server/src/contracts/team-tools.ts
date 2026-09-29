@@ -6,6 +6,7 @@ import type {
   MemberView,
   Task,
   TaskDetail,
+  TaskStatus,
   Visibility,
 } from '@projectman/shared';
 
@@ -24,7 +25,21 @@ export interface ToolContext {
   taskKey: string | null;
 }
 
+export interface ListTasksInput {
+  status?: 'open' | TaskStatus;
+  stage?: string;
+  assignee?: string;
+  limit?: number;
+}
+
+export type TaskSummary = Pick<
+  Task,
+  'key' | 'title' | 'stageId' | 'status' | 'assignee' | 'labels' | 'updatedAt'
+>;
+
 export interface TeamToolsHandler {
+  /** list_tasks: visible board tasks, newest update first. */
+  listTasks(ctx: ToolContext, args: ListTasksInput): Promise<TaskSummary[]>;
   /** send_message: deliver a message to team members (AI sessions or human inboxes). */
   sendMessage(
     ctx: ToolContext,

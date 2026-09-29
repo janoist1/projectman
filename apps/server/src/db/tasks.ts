@@ -234,6 +234,17 @@ export function createTaskRepository(db: Db) {
       return changed;
     },
 
+    /** Tasks (project key + task key) linking a pull request. */
+    findByPullRequest(repo: string, number: number): Array<{ projectKey: string; taskKey: string }> {
+      return db
+        .prepare(
+          `SELECT DISTINCT t.project_key AS projectKey, t.key AS taskKey FROM task_links l
+           JOIN tasks t ON t.id = l.task_id
+           WHERE l.kind = 'pull_request' AND l.repo = ? AND l.ref = ? ORDER BY t.seq`,
+        )
+        .all(repo, String(number)) as Array<{ projectKey: string; taskKey: string }>;
+    },
+
     /** Pull request links of tasks that are still open, whose PR is not merged or closed yet. */
     listWatchablePullRequests(): PullRequestLinkRef[] {
       const rows = db

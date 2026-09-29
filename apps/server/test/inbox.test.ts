@@ -1,0 +1,110 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { PermissionDecision } from '../src/contracts';
+import { DomainError } from '../src/domain';
+import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import type { DomainHarness } from './helpers/domain-harness';
+import { flush } from './helpers/fakes';
+
+describe('inbox: permission requests', () => {
+  let h: DomainHarness;
+  let sessionId: string;
+  beforeEach(async () => {
+    h = await createDomainHarness();
+    await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
+    sessionId = (await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: 'AR-1' }))
+      .session.id;
+  });
+  afterEach(() => h.cleanup());
+
+  function ask(signal = new AbortController().signal): Promise<PermissionDecision> {
+    return h.runnerModule
+      .broker()
+      .decide({ sessionId, toolName: 'Bash', toolInput: { command: 'rm -rf dist' }, raw: {} }, signal);
+  }
+
+  function openPermission() {
+    const items = h.domain.inbox.list('AR', { kind: 'permission', state: 'open' });
+    expect(items).toHaveLength(1);
+    return items[0]!;
+  }
+
+  it('creates an item for the sponsor and answers the hook with the decision', async () => {
+    const pending = ask();
+    await flush();
+    const item = openPermission();
+    expect(item).toMatchObject({
+      assignees: ['owner'],
+      source: 'dev-1',
+      sessionId,
+      taskKey: 'AR-1',
+      title: 'Bash: rm -rf dist',
+      payload: { toolName: 'Bash', toolInput: { command: 'rm -rf dist' }, summary: 'rm -rf dist' },
+    });
+    expect(item.options.map((o) => o.id)).toEqual(['allow', 'allow_session', 'deny']);
+
+    await h.domain.inbox.resolve(
+      'AR',
+      item.id,
+      { optionId: 'allow_session' },
+      { handle: 'owner', access: 'owner' },
+    );
+    expect(await pending).toEqual({ behavior: 'allow', rememberForSession: true });
+    const types = h.domain.timeline.list('AR', { taskKey: 'AR-1' }).map((e) => e.type);
+    expect(types).toContain('permission_requested');
+    expect(types).toContain('permission_resolved');
+  });
+
+  it('denies with the note', async () => {
+    const pending = ask();
+    await flush();
+    await h.domain.inbox.resolve(
+      'AR',
+      openPermission().id,
+      { optionId: 'deny', note: 'too risky' },
+      {
+        handle: 'owner',
+        access: 'owner',
+      },
+    );
+    expect(await pending).toEqual({ behavior: 'deny', message: 'Denied by owner: too risky' });
+  });
+
+  it('expires the item when the request is aborted', async () => {
+    const controller = new AbortController();
+    const pending = ask(controller.signal);
+    await flush();
+    const item = openPermission();
+    controller.abort();
+    expect((await pending).behavior).toBe('deny');
+    expect(h.domain.inbox.get('AR', item.id).state).toBe('expired');
+    const err = await h.domain.inbox
+      .resolve('AR', item.id, { optionId: 'allow' }, { handle: 'owner', access: 'owner' })
+      .catch((e: unknown) => e);
+    expect((err as DomainError).code).toBe('inbox_item_closed');
+  });
+
+  it('denies requests of unknown sessions and rejects unknown options', async () => {
+    const decision = await h.runnerModule
+      .broker()
+      .decide(
+        { sessionId: 'ses_unknown', toolName: 'Bash', toolInput: {}, raw: {} },
+        new AbortController().signal,
+      );
+    expect(decision.behavior).toBe('deny');
+
+    void ask();
+    await flush();
+    const err = await h.domain.inbox
+      .resolve('AR', openPermission().id, { optionId: 'approve' }, { handle: 'owner', access: 'owner' })
+      .catch((e: unknown) => e);
+    expect((err as DomainError).code).toBe('unknown_option');
+  });
+
+  it('expires open permission requests on startup', async () => {
+    void ask();
+    await flush();
+    const item = openPermission();
+    h.domain.inbox.expireOpenPermissions();
+    expect(h.domain.inbox.get('AR', item.id).state).toBe('expired');
+  });
+});

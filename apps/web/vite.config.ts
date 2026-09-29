@@ -8,8 +8,10 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': serverUrl,
-      '/ws': { target: serverUrl.replace(/^http/, 'ws'), ws: true },
+      // Keep the browser's Host header: the server accepts cookie-authenticated mutations only when
+      // Origin and Host match (docs/SECURITY.md), and a rewritten Host would fail that check.
+      '/api': { target: serverUrl, changeOrigin: false },
+      '/ws': { target: serverUrl.replace(/^http/, 'ws'), ws: true, changeOrigin: false },
     },
   },
   build: {

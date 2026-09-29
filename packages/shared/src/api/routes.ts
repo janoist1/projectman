@@ -18,6 +18,8 @@ export const routes = {
   tasks: (key: string) => `/api/projects/${key}/tasks`,
   task: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}`,
   startTask: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/start`,
+  cancelTask: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/cancel`,
+  reopenTask: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/reopen`,
 
   members: (key: string) => `/api/projects/${key}/members`,
   member: (key: string, handle: string) => `/api/projects/${key}/members/${handle}`,
@@ -56,6 +58,8 @@ export const routeMethods = {
   tasks: 'GET | POST',
   task: 'GET | PATCH',
   startTask: 'POST',
+  cancelTask: 'POST',
+  reopenTask: 'POST',
   members: 'GET | POST',
   member: 'PATCH | DELETE',
   roles: 'GET | POST',

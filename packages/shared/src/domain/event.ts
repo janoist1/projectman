@@ -49,9 +49,15 @@ export type TimelineEvent = z.infer<typeof TimelineEvent>;
 /** Known payload shapes per event type (documentation for producers and renderers). */
 export interface TimelineEventData {
   task_created: { title: string };
-  task_updated: { fields: string[] };
+  task_updated: {
+    fields: string[];
+    action?: 'cancelled' | 'reopened';
+    previousStatus?: string;
+    previousAssignee?: string | null;
+    reason?: string;
+  };
   task_stage_changed: { from: string; to: string };
-  task_assigned: { assignee: string | null };
+  task_assigned: { assignee: string | null; previous?: string | null };
   task_check_changed: { check: string; from: string | null; to: string };
   task_link_added: { kind: string; ref: string; repo?: string };
   task_note: { text: string };

@@ -27,6 +27,11 @@ export interface StartSessionSpec {
   allowedTools: string[];
   cols?: number;
   rows?: number;
+  /**
+   * Handle of the AI member running the session. Chat items use it as the sender of
+   * outgoing team messages and the recipient of incoming ones.
+   */
+  member?: string;
 }
 
 export type RunnerEvent =
@@ -84,8 +89,11 @@ export interface PermissionBroker {
 }
 
 export interface TranscriptReader {
-  /** Parses a whole Claude Code transcript (JSONL) into chat items. */
-  read(path: string): Promise<ChatItem[]>;
+  /**
+   * Parses a whole Claude Code transcript (JSONL) into chat items. `self` is the handle of
+   * the session's member (sender of outgoing team messages; "unknown" when omitted).
+   */
+  read(path: string, opts?: { self?: string }): Promise<ChatItem[]>;
 }
 
 export interface PlanUsageProvider {
@@ -102,6 +110,17 @@ export interface RunnerModuleOptions {
   /** How long a permission request may wait for a human before it is denied. */
   permissionTimeoutMs: number;
   logger: FastifyBaseLogger;
+  /**
+   * Claude Code's global config file, where workspace trust is recorded
+   * (`projects[<path>].hasTrustDialogAccepted`). Default: `$CLAUDE_CONFIG_DIR/.claude.json`,
+   * else `~/.claude.json`. Tests pass a temporary file.
+   */
+  claudeConfigPath?: string;
+  /**
+   * Pre-accept Claude Code's workspace trust dialog for a session's directory (default true).
+   * When false, a new directory shows the dialog in the terminal and the session waits there.
+   */
+  trustWorkspaces?: boolean;
 }
 
 export interface RunnerModule {

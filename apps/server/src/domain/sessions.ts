@@ -72,6 +72,15 @@ export interface SessionOrchestratorDeps {
   doneCleanupDelayMs?: number;
 }
 
+/** Worktree removals that are refused on purpose (the worktree module's error codes). */
+const KEPT_WORKTREE_CODES = new Set(['dirty', 'outside_root', 'not_a_worktree', 'main_worktree']);
+
+/** The `code` of module errors (e.g. WorktreeError), without depending on their classes. */
+function errorCode(err: unknown): string | null {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === 'string' ? code : null;
+}
+
 function workItemLabel(item: WorkItemRef, member: AiMemberConfig): string {
   if (item.type === 'task') return item.taskKey;
   if (item.type === 'meeting') return item.meetingId;
@@ -280,8 +289,10 @@ export class SessionOrchestrator {
         }
         await this.deps.worktrees.remove({ path });
       } catch (err) {
-        // e.g. a dirty worktree, a path outside the worktree root, or one already removed
-        this.ctx.logger.warn({ err, path, taskKey }, 'worktree not removed');
+        // Expected refusals (WorktreeError codes): local changes, a checkout we do not own.
+        const code = errorCode(err);
+        const expected = code !== null && KEPT_WORKTREE_CODES.has(code);
+        this.ctx.logger[expected ? 'info' : 'warn']({ err, path, taskKey, code }, 'worktree not removed');
       }
     }
   }
@@ -336,7 +347,7 @@ export class SessionOrchestrator {
         throw new DomainError(
           'session_start_failed',
           `could not prepare the worktree: ${(err as Error).message}`,
-          { status: 502 },
+          { status: 502, details: { stage: 'worktree', reason: errorCode(err) } },
         );
       }
       const github = config.project.repos.find((r) => r.name === task.repo)?.github;

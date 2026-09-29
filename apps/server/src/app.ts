@@ -152,8 +152,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     });
     const mcpModule = (modules.createMcpModule ?? createMcpModule)({
       handler: domain.teamTools,
+      // O(1) in-memory lookup: runs on every MCP request.
       resolveContext: (token) => domain.sessions.resolveToken(token),
-      logger: log.child({ module: 'mcp' }),
+      logger: log,
     });
     const auth = new AuthService({ repos, now: options.now });
 

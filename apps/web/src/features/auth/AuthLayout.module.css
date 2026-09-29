@@ -1,0 +1,93 @@
+.page {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  background: var(--c-page);
+}
+
+.card {
+  width: min(440px, 100%);
+  box-sizing: border-box;
+  padding: 28px;
+  border-radius: 20px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  box-shadow: var(--shadow-xs);
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.wide {
+  width: min(600px, 100%);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--c-primary);
+  color: var(--c-on-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 18px;
+}
+
+.heading {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+}
+
+.subtitle {
+  font-size: 14px;
+  color: var(--c-ink-3);
+  line-height: 1.5;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.formError {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--c-blocked-bg);
+  color: var(--c-blocked-text);
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+@media (max-width: 767px) {
+  .page {
+    align-items: flex-start;
+    padding: 24px 12px;
+  }
+  .card {
+    padding: 22px 18px;
+  }
+}

@@ -21,7 +21,18 @@ export function mockProject(backend = new MockBackend()) {
     key: 'AC',
     myHandle: 'owner',
     isOwner: true,
-    me: { ...backend.user, handles: { AC: 'owner' } },
+    me: {
+      ...backend.user,
+      handles: { AC: 'owner' },
+      projects: [
+        {
+          key: 'AC',
+          name: backend.config.project.name,
+          access: 'owner',
+          roles: ['operator', 'product_owner'],
+        },
+      ],
+    },
     can: { createTasks: true, manageTeam: true, workInSessions: true },
     search: '',
     setSearch: () => {},

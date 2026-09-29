@@ -133,6 +133,35 @@ describe('websocket', () => {
     expect(state).toMatchObject({ status: 'working', activity: 'Edit: src/login.tsx' });
   });
 
+  it('streams fetched provider usage and changed members to project subscribers', async () => {
+    const { ws, events } = await connect();
+    await waitFor(events, ofType('hello'));
+    ws.send(JSON.stringify({ type: 'subscribe_project', projectKey: 'AR' }));
+    // Wait for a command processed after subscription so no event can race the setup.
+    ws.send('not json');
+    await waitFor(events, ofType('error'));
+    const hired = await h.app.inject({
+      method: 'POST',
+      url: '/api/projects/AR/members',
+      headers: { cookie },
+      payload: { role: 'qa', provider: 'codex' },
+    });
+    const changed = await waitFor(events, ofType('member_changed'));
+    expect(changed).toMatchObject({ handle: hired.json().handle, member: { provider: 'codex', kind: 'ai' } });
+    await h.app.inject({ method: 'GET', url: '/api/projects/AR/board', headers: { cookie } });
+    await waitFor(
+      events,
+      (e): e is Extract<ServerEvent, { type: 'plan_usage' }> =>
+        e.type === 'plan_usage' && e.provider === 'codex',
+    );
+    expect(events.filter((e) => e.type === 'plan_usage')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ projectKey: 'AR', provider: 'claude', usage: null }),
+        expect.objectContaining({ projectKey: 'AR', provider: 'codex', usage: null }),
+      ]),
+    );
+  });
+
   it('closes foreign-origin sockets and sends nothing for unsubscribed projects', async () => {
     let closeCode = 0;
     const closed = new Promise<void>((resolve) => {

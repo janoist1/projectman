@@ -79,6 +79,7 @@ export function sampleMembers(): MemberView[] {
 
 export function sampleTaskDetail(): TaskDetail {
   return {
+    pullRequests: [],
     task: {
       id: 'task_21',
       projectKey: 'AR',
@@ -274,6 +275,7 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('createTask', ctx, args);
       const key = `AR-${21 + tasks.size}`;
       const detail: TaskDetail = {
+        pullRequests: [],
         task: {
           ...initial.task,
           id: `task_${key}`,

@@ -264,7 +264,10 @@ export class SessionOrchestrator {
     let chat: ChatItem[] = [];
     if (session.transcriptPath) {
       try {
-        chat = await this.deps.transcripts.read(session.transcriptPath, { self: session.member });
+        chat = await this.deps.transcripts.read(session.transcriptPath, {
+          self: session.member,
+          firstUserOrigin: session.workItem.type === 'task' ? 'brief' : 'human',
+        });
       } catch (err) {
         this.ctx.logger.warn({ err, sessionId }, 'could not read the transcript');
       }

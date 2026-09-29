@@ -30,6 +30,29 @@ const assistant = (content: unknown[], extra: Record<string, unknown> = {}) => (
 const jsonl = (...entries: unknown[]) => entries.map((e) => JSON.stringify(e)).join('\n');
 
 describe('TranscriptParser', () => {
+  it('marks only the first real prompt as a brief across incremental reads', () => {
+    const parser = new TranscriptParser({ self: 'dev-1' });
+    expect(
+      parser.parseLines([JSON.stringify(user('<system-reminder>noise</system-reminder>'))]).items,
+    ).toEqual([]);
+    expect(
+      parser.parseLines([JSON.stringify(user('<pasted_content id="1">\nFictional brief\n</pasted_content>'))])
+        .items[0],
+    ).toMatchObject({ origin: 'brief', text: 'Fictional brief' });
+    expect(parser.parseLines([JSON.stringify(user('Human follow-up'))]).items[0]).toMatchObject({
+      origin: 'human',
+    });
+    expect(
+      new TranscriptParser({ firstUserOrigin: 'human' }).parseLines([JSON.stringify(user('After resume'))])
+        .items[0],
+    ).toMatchObject({ origin: 'human' });
+    const teamFirst = parseTranscript(
+      jsonl(user(formatInjectedTeamMessage('qa', 'Review ready')), user('Human reply')),
+    );
+    expect(teamFirst[0]).toMatchObject({ kind: 'team_message', from: 'qa' });
+    expect(teamFirst[1]).toMatchObject({ origin: 'human' });
+  });
+
   it('turns prompts and replies into user_text and assistant_text', () => {
     const items = parseTranscript(
       jsonl(

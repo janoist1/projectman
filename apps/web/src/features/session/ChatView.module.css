@@ -356,3 +356,15 @@
     min-height: 44px;
   }
 }
+
+.brief {
+  padding: 14px 18px;
+  border: 1px solid var(--c-line);
+  border-radius: 10px;
+  background: var(--c-surface);
+}
+
+.brief summary {
+  cursor: pointer;
+  font-weight: 600;
+}

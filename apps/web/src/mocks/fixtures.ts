@@ -189,10 +189,11 @@ export function buildConfig(): ProjectConfig {
         {
           kind: 'ai',
           handle: 'be-1',
+          provider: 'codex',
           displayName: 'Backend fejlesztő',
           role: 'developer',
           specialty: 'backend',
-          model: 'opus',
+          model: 'gpt-6.1-sol',
           permissionMode: 'acceptEdits',
           capacity: 1,
           instructions:
@@ -441,6 +442,15 @@ export const members: MemberView[] = [
     temp: false,
   },
 ];
+for (const member of members) {
+  const config = buildConfig().team.members.find((entry) => entry.handle === member.handle);
+  if (config?.kind === 'ai')
+    Object.assign(member, {
+      provider: config.provider ?? 'claude',
+      model: config.model,
+      permissionMode: config.permissionMode,
+    });
+}
 
 /* ---------- tasks ---------- */
 
@@ -1201,7 +1211,7 @@ function chatId(): string {
 }
 
 function user(at: string, text: string): ChatItem {
-  return { id: chatId(), ts: at, kind: 'user_text', text };
+  return { id: chatId(), ts: at, kind: 'user_text', text, origin: 'human' };
 }
 
 function assistant(at: string, text: string): ChatItem {
@@ -1462,6 +1472,12 @@ export const chats: Record<string, ChatItem[]> = {
     ),
   ],
 };
+
+for (const [sessionId, items] of Object.entries(chats)) {
+  if (sessions.find((session) => session.id === sessionId)?.workItem.type !== 'task') continue;
+  const first = items.find((item) => item.kind === 'user_text');
+  if (first?.kind === 'user_text') first.origin = 'brief';
+}
 
 /* ---------- inbox ---------- */
 

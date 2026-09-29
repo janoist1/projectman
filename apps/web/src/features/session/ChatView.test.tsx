@@ -9,7 +9,7 @@ import { ChatView } from './ChatView';
 const at = (minute: number) => `2026-09-29T14:${String(minute).padStart(2, '0')}:00.000Z`;
 
 const items: ChatItem[] = [
-  { id: 'u1', ts: at(1), kind: 'user_text', text: 'Kérlek, javítsd a gombsort.' },
+  { id: 'u1', ts: at(1), kind: 'user_text', origin: 'human', text: 'Kérlek, javítsd a gombsort.' },
   { id: 'a1', ts: at(2), kind: 'assistant_text', text: 'Megnézem, aztán **javítom**.' },
   {
     id: 'c1',
@@ -86,6 +86,7 @@ describe('groupChatItems', () => {
           id: 'u1',
           ts: at(1),
           kind: 'user_text',
+          origin: 'human',
           text: '[team message from qa about AC-21]\nÚjrateszt kész.',
         },
       ],
@@ -100,6 +101,21 @@ describe('groupChatItems', () => {
 
 describe('ChatView', () => {
   const { members, pipeline } = mockIndexes();
+
+  it('renders a brief as a collapsed task description card while human messages stay in chat', () => {
+    const brief: ChatItem = {
+      id: 'brief',
+      ts: at(0),
+      kind: 'user_text',
+      origin: 'brief',
+      text: 'Fictional task brief',
+    };
+    render(<ChatView items={[brief, ...items]} sessionMember="fe-1" members={members} myHandle="owner" />);
+    const card = screen.getByText('Feladatleírás').closest('details')!;
+    expect(card.open).toBe(false);
+    expect(within(card).getByText('Fictional task brief')).toBeTruthy();
+    expect(screen.getByText('Kérlek, javítsd a gombsort.').closest('details')).toBeNull();
+  });
 
   it('renders every chat item kind', () => {
     render(

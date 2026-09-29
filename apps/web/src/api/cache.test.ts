@@ -26,6 +26,7 @@ function seed(): QueryClient {
     members: structuredClone(members),
     openInboxCount: 0,
     planUsage,
+    planUsageByProvider: { claude: planUsage },
   };
   client.setQueryData(queryKeys.board(KEY), board);
   client.setQueryData<InboxView>(queryKeys.inbox(KEY), { items: structuredClone(inbox) });
@@ -37,6 +38,7 @@ function seed(): QueryClient {
     task: tasks.find((task) => task.key === 'AC-21')!,
   });
   client.setQueryData<TaskDetail>(queryKeys.task(KEY, 'AC-21'), {
+    pullRequests: [],
     task: tasks.find((task) => task.key === 'AC-21')!,
     timeline: timeline.filter((event) => event.taskKey === 'AC-21'),
     sessions: sessions.filter(
@@ -141,5 +143,67 @@ describe('applyServerEvent', () => {
     applyServerEvent(client, { type: 'config_changed', projectKey: KEY, version: 'abc1234' });
     expect(client.getQueryState(queryKeys.board(KEY))!.isInvalidated).toBe(true);
     expect(client.getQueryState(queryKeys.members(KEY))!.isInvalidated).toBe(true);
+  });
+});
+
+describe('contract follow-up events', () => {
+  it('keeps provider usage separate and preserves the legacy Claude value', () => {
+    const client = seed();
+    const codex = { ...planUsage, fiveHourPercent: 23 };
+    applyServerEvent(client, { type: 'plan_usage', projectKey: KEY, provider: 'codex', usage: codex });
+    expect(client.getQueryData<BoardView>(queryKeys.board(KEY))).toMatchObject({
+      planUsage,
+      planUsageByProvider: { claude: planUsage, codex },
+    });
+    applyServerEvent(client, { type: 'plan_usage', projectKey: KEY, provider: 'claude', usage: null });
+    expect(client.getQueryData<BoardView>(queryKeys.board(KEY))).toMatchObject({
+      planUsage: null,
+      planUsageByProvider: { claude: null, codex },
+    });
+  });
+
+  it('adds, updates and removes members in board and roster caches', () => {
+    const client = seed();
+    const member: MemberView = {
+      ...members.find((m) => m.kind === 'ai')!,
+      handle: 'fictional-ai',
+      model: 'fictional-model',
+    };
+    applyServerEvent(client, { type: 'member_changed', projectKey: KEY, handle: member.handle, member });
+    const updated = { ...member, model: 'fictional-new-model' };
+    applyServerEvent(client, {
+      type: 'member_changed',
+      projectKey: KEY,
+      handle: member.handle,
+      member: updated,
+    });
+    expect(
+      client.getQueryData<BoardView>(queryKeys.board(KEY))!.members.find((m) => m.handle === member.handle),
+    ).toEqual(updated);
+    expect(
+      client.getQueryData<MemberView[]>(queryKeys.members(KEY))!.filter((m) => m.handle === member.handle),
+    ).toEqual([updated]);
+    applyServerEvent(client, {
+      type: 'member_changed',
+      projectKey: KEY,
+      handle: member.handle,
+      member: null,
+    });
+    expect(
+      client.getQueryData<BoardView>(queryKeys.board(KEY))!.members.some((m) => m.handle === member.handle),
+    ).toBe(false);
+    expect(
+      client.getQueryData<MemberView[]>(queryKeys.members(KEY))!.some((m) => m.handle === member.handle),
+    ).toBe(false);
+  });
+
+  it('refreshes PR details when a linked task is published', () => {
+    const client = seed();
+    const task = {
+      ...tasks.find((entry) => entry.key === 'AC-21')!,
+      links: [{ kind: 'pull_request' as const, repo: 'acme/web', ref: '7' }],
+    };
+    applyServerEvent(client, { type: 'task_upserted', projectKey: KEY, task });
+    expect(client.getQueryState(queryKeys.task(KEY, task.key))!.isInvalidated).toBe(true);
   });
 });

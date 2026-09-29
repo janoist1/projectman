@@ -12,7 +12,12 @@ const base = {
 };
 
 export const ChatItem = z.discriminatedUnion('kind', [
-  z.object({ ...base, kind: z.literal('user_text'), text: z.string() }),
+  z.object({
+    ...base,
+    kind: z.literal('user_text'),
+    text: z.string(),
+    origin: z.enum(['brief', 'human', 'team_message']).default('human'),
+  }),
   z.object({ ...base, kind: z.literal('assistant_text'), text: z.string() }),
   z.object({
     ...base,
@@ -52,4 +57,12 @@ export const TEAM_MESSAGE_PREFIX_RE =
 
 export function formatInjectedTeamMessage(from: string, body: string, taskKey?: string | null): string {
   return `[team message from ${from}${taskKey ? ` about ${taskKey}` : ''}]\n${body}`;
+}
+
+/** Classifies user turns; an injected team message never masquerades as a human prompt. */
+export function userTextOrigin(
+  text: string,
+  firstOrigin: 'brief' | 'human',
+): 'brief' | 'human' | 'team_message' {
+  return TEAM_MESSAGE_PREFIX_RE.test(text) ? 'team_message' : firstOrigin;
 }

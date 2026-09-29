@@ -98,8 +98,6 @@ export function useBoard(key: string) {
   return useQuery({
     queryKey: queryKeys.board(key),
     queryFn: () => api.board(key),
-    // Plan usage is not pushed over the websocket; a periodic refresh keeps the meter current.
-    refetchInterval: 60_000,
   });
 }
 

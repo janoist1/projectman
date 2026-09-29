@@ -117,7 +117,11 @@ export const CLAUDE_AUTH_ERROR =
   /Please run \/login|Login expired|Not logged in|OAuth token (?:has )?(?:expired|been revoked)|authentication_failed/i;
 
 /** Claude Code's transcript parser, plus the login failures it records as error messages. */
-function claudeTranscriptParser(opts: { self: string | null; cwd: string | null }): TranscriptLineParser {
+function claudeTranscriptParser(opts: {
+  self: string | null;
+  cwd: string | null;
+  firstUserOrigin?: 'brief' | 'human';
+}): TranscriptLineParser {
   const parser = new TranscriptParser(opts);
   return {
     parseLines(lines) {

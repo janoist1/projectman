@@ -1,3 +1,4 @@
+import { DEFAULT_AGENT_PROVIDER, type AgentProvider, type Me } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type {
   ConfigStore,
@@ -119,6 +120,18 @@ export function createDomain(opts: DomainOptions) {
     logger: opts.logger,
     now,
     ttlMs: opts.planUsageTtlMs,
+    onFetched: async (provider, usage) => {
+      for (const project of projects.summaries()) {
+        const config = await projects.config(project.key);
+        if (
+          config.team.members.some(
+            (m) => m.kind === 'ai' && (m.provider ?? DEFAULT_AGENT_PROVIDER) === provider,
+          )
+        ) {
+          bus.publish({ type: 'plan_usage', projectKey: project.key, provider, usage });
+        }
+      }
+    },
   });
   const scheduler = new Scheduler({ ctx, projects, tasks, members, sessions, planUsage });
   const githubSync = new GithubSync({ ctx, github: opts.github, tasks, projects });
@@ -155,6 +168,18 @@ export function createDomain(opts: DomainOptions) {
     if (change.task.status === 'done') sessions.scheduleDoneCleanup(change.task.projectKey, change.task.key);
   });
 
+  const refreshUsage = async () => {
+    const providers = new Set<AgentProvider>();
+    for (const project of projects.summaries()) {
+      const config = await projects.config(project.key);
+      for (const member of config.team.members) {
+        if (member.kind === 'ai') providers.add(member.provider ?? DEFAULT_AGENT_PROVIDER);
+      }
+    }
+    await Promise.all([...providers].map((provider) => planUsage.get(provider)));
+  };
+  let usageTimer: ReturnType<typeof setInterval> | undefined;
+
   return {
     ctx,
     bus,
@@ -180,9 +205,17 @@ export function createDomain(opts: DomainOptions) {
       sessions.reconcileAfterRestart();
       inbox.expireOpenPermissions();
       githubSync.start();
+      usageTimer = setInterval(
+        () => {
+          void refreshUsage().catch((err: unknown) => opts.logger.warn({ err }, 'plan usage refresh failed'));
+        },
+        opts.planUsageTtlMs && opts.planUsageTtlMs > 0 ? opts.planUsageTtlMs : 60_000,
+      );
+      usageTimer.unref();
     },
 
     stop(): void {
+      if (usageTimer) clearInterval(usageTimer);
       githubSync.stop();
       sessions.dispose();
     },
@@ -191,6 +224,25 @@ export function createDomain(opts: DomainOptions) {
     async accessFor(projectKey: string, email: string): Promise<ProjectAccess | null> {
       if (!projects.has(projectKey)) return null;
       return projectAccessFor(await projects.config(projectKey), email);
+    },
+
+    async projectsFor(email: string): Promise<Me['projects']> {
+      const memberships: Me['projects'] = [];
+      for (const summary of projects.summaries()) {
+        try {
+          const access = projectAccessFor(await projects.config(summary.key), email);
+          if (access)
+            memberships.push({
+              key: summary.key,
+              name: summary.name,
+              access: access.access,
+              roles: access.member.roles,
+            });
+        } catch (err) {
+          opts.logger.warn({ err, projectKey: summary.key }, 'could not load project configuration');
+        }
+      }
+      return memberships;
     },
 
     /** Member handle of the user per project key. */

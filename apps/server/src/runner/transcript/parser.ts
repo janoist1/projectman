@@ -1,4 +1,4 @@
-import { MemberHandle, TEAM_MESSAGE_PREFIX_RE, type ChatItem } from '@projectman/shared';
+import { MemberHandle, TEAM_MESSAGE_PREFIX_RE, userTextOrigin, type ChatItem } from '@projectman/shared';
 import { TEAM_SEND_MESSAGE_TOOL, compactInput, oneLine, toolSummary } from '../tools';
 
 /**
@@ -20,6 +20,8 @@ export interface TranscriptParserOptions {
   self?: string | null;
   /** Session working directory, to shorten file paths in summaries. */
   cwd?: string | null;
+  /** Only the first actual user turn can be the system kick-off brief. */
+  firstUserOrigin?: 'brief' | 'human';
 }
 
 export interface ParseResult {
@@ -97,6 +99,7 @@ function recipients(value: unknown): string[] {
 export class TranscriptParser {
   private readonly self: string | null;
   private readonly cwd: string | null;
+  private nextUserOrigin: 'brief' | 'human';
   /** tool_use id -> tool name, to summarise the matching tool_result. */
   private readonly tools = new Map<string, string>();
   private anonymous = 0;
@@ -104,6 +107,7 @@ export class TranscriptParser {
   constructor(opts: TranscriptParserOptions = {}) {
     this.self = opts.self && isHandle(opts.self) ? opts.self : null;
     this.cwd = opts.cwd ?? null;
+    this.nextUserOrigin = opts.firstUserOrigin ?? 'brief';
   }
 
   /** Parses complete JSONL lines; malformed lines are skipped. */
@@ -201,6 +205,8 @@ export class TranscriptParser {
     }
     if (tag && NOISE_TAGS.has(tag)) return;
 
+    const origin = userTextOrigin(text, this.nextUserOrigin);
+    this.nextUserOrigin = 'human';
     const team = TEAM_MESSAGE_PREFIX_RE.exec(text);
     const sender = team?.[1];
     if (team && isHandle(sender)) {
@@ -215,7 +221,7 @@ export class TranscriptParser {
       });
       return;
     }
-    out.items.push({ kind: 'user_text', id, ts, text });
+    out.items.push({ kind: 'user_text', id, ts, text, origin });
   }
 
   private assistantEntry(entry: Json, id: string, ts: string): ChatItem[] {

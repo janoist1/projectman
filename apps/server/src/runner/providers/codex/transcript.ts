@@ -1,3 +1,4 @@
+import { userTextOrigin } from '@projectman/shared';
 import { createHash } from 'node:crypto';
 import { MemberHandle, TEAM_MESSAGE_PREFIX_RE, type ChatItem } from '@projectman/shared';
 import { TEAM_SEND_MESSAGE_TOOL, compactInput, displayPath, oneLine, toolSummary } from '../../tools';
@@ -171,12 +172,14 @@ const MAX_TOOL_MEMORY = 2000;
 export class CodexTranscriptParser implements TranscriptLineParser {
   private readonly self: string | null;
   private readonly cwd: string | null;
+  private nextUserOrigin: 'brief' | 'human';
   /** call_id -> tool name, to summarise the matching output. */
   private readonly tools = new Map<string, string>();
 
-  constructor(opts: { self?: string | null; cwd?: string | null } = {}) {
+  constructor(opts: { self?: string | null; cwd?: string | null; firstUserOrigin?: 'brief' | 'human' } = {}) {
     this.self = opts.self && isHandle(opts.self) ? opts.self : null;
     this.cwd = opts.cwd ?? null;
+    this.nextUserOrigin = opts.firstUserOrigin ?? 'brief';
   }
 
   parseLines(lines: Iterable<string>): CodexParseResult {
@@ -279,6 +282,8 @@ export class CodexTranscriptParser implements TranscriptLineParser {
       return;
     }
     if (role !== 'user' || CONTEXT_FRAGMENT.test(text)) return;
+    const origin = userTextOrigin(text, this.nextUserOrigin);
+    this.nextUserOrigin = 'human';
     const team = TEAM_MESSAGE_PREFIX_RE.exec(text);
     const sender = team?.[1];
     if (team && isHandle(sender)) {
@@ -293,7 +298,7 @@ export class CodexTranscriptParser implements TranscriptLineParser {
       });
       return;
     }
-    out.items.push({ kind: 'user_text', id, ts, text });
+    out.items.push({ kind: 'user_text', id, ts, text, origin });
   }
 
   private toolCall(
@@ -419,7 +424,7 @@ export class CodexTranscriptParser implements TranscriptLineParser {
 /** Parses a whole rollout text (JSONL). */
 export function parseCodexTranscript(
   text: string,
-  opts: { self?: string | null; cwd?: string | null } = {},
+  opts: { self?: string | null; cwd?: string | null; firstUserOrigin?: 'brief' | 'human' } = {},
 ): ChatItem[] {
   return new CodexTranscriptParser(opts).parseLines(text.split('\n')).items;
 }

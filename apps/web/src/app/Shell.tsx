@@ -263,7 +263,19 @@ export function TopBar({
       <SearchBox />
       <span className={styles.spacer} />
       <span className={styles.hideNarrow}>
-        <PlanUsageMeter usage={board?.planUsage} pauseAbove={pauseAbove} />
+        {[
+          ...new Set(
+            board?.members.flatMap((member) => (member.kind === 'ai' ? [member.provider ?? 'claude'] : [])) ??
+              [],
+          ),
+        ].map((provider) => (
+          <PlanUsageMeter
+            key={provider}
+            provider={provider}
+            usage={board?.planUsageByProvider[provider] ?? (provider === 'claude' ? board?.planUsage : null)}
+            pauseAbove={pauseAbove}
+          />
+        ))}
       </span>
       <span className={styles.hideNarrow}>
         <Presence board={board} members={members} />

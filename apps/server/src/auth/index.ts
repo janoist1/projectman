@@ -80,6 +80,7 @@ export function registerAuth(app: FastifyInstance, deps: { auth: AuthService; do
     name: user.name,
     email: user.email,
     handles: await domain.handlesFor(user.email),
+    projects: await domain.projectsFor(user.email),
   });
 
   const setSessionCookie = (reply: FastifyReply, token: string) =>

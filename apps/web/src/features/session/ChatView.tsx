@@ -179,6 +179,14 @@ function renderBlock(block: ChatBlock, props: ChatViewProps, awaitingId: string 
       );
     }
     case 'user':
+      if (block.item.origin === 'brief') {
+        return (
+          <details key={block.id} className={styles.brief}>
+            <summary>{t('session.chat.brief')}</summary>
+            <Markdown text={block.item.text} />
+          </details>
+        );
+      }
       return (
         <div key={block.id} className={styles.user}>
           <span className={styles.meta}>{formatStamp(block.ts)}</span>

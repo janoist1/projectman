@@ -147,6 +147,7 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
     expect(statesOf(s.sessionId)).toEqual(['starting', 'idle', 'working', 'idle']);
     // The developer instructions and Codex's own context are not chat.
     expect(chatOf(s.sessionId).map((i) => i.kind)).toEqual(['user_text', 'assistant_text']);
+    expect(chatOf(s.sessionId)[0]).toMatchObject({ origin: 'brief' });
 
     const learned = providerIdOf(s.sessionId);
     expect(learned).toMatch(/^[0-9a-f-]{36}$/);
@@ -409,6 +410,7 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
     expect(events.filter((e) => e.type === 'provider_session_id')).toHaveLength(idEvents);
     const full = await runner.transcripts.read(transcript.path);
     expect(full.filter((i) => i.kind === 'user_text')).toHaveLength(2);
+    expect(full.filter((i) => i.kind === 'user_text').map((i) => i.origin)).toEqual(['brief', 'human']);
 
     await runner.runner.stop(s.sessionId);
     const unknown = spec({ claudeSessionId: randomUUID(), resume: true });

@@ -136,9 +136,9 @@ export interface TranscriptReader {
   /**
    * Parses a whole transcript (Claude Code JSONL or Codex rollout JSONL) into chat items.
    * `self` is the handle of the session's member (sender of outgoing team messages;
-   * "unknown" when omitted).
+   * "unknown" when omitted). General chats have no brief: their first user turn is human.
    */
-  read(path: string, opts?: { self?: string }): Promise<ChatItem[]>;
+  read(path: string, opts?: { self?: string; firstUserOrigin?: 'brief' | 'human' }): Promise<ChatItem[]>;
 }
 
 export interface PlanUsageProvider {

@@ -62,6 +62,7 @@ export class GithubSync {
   }
 
   async handleChange(pr: PullRequestInfo): Promise<void> {
+    this.tasks.recordPullRequest(pr);
     this.tasks.applyPullRequestUpdate(pr.repo, pr.number, { state: pr.state, title: pr.title });
     if (pr.state === 'merged' || pr.state === 'closed') this.unwatch(pr.repo, pr.number);
     if (pr.state !== 'merged') return;

@@ -325,6 +325,7 @@ export class TeamToolsService implements TeamToolsHandler {
       let state: string | undefined;
       try {
         const pr = await this.github.getPullRequest(args.repo, args.number);
+        this.tasks.recordPullRequest(pr);
         title = pr.title;
         state = pr.state;
       } catch (err) {

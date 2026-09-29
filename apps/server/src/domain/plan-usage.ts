@@ -19,6 +19,8 @@ export class PlanUsageCache {
   private readonly ttlMs: number;
   private readonly logger: FastifyBaseLogger;
   private readonly now: () => Date;
+  private readonly onFetched:
+    ((provider: AgentProvider, usage: PlanUsage | null) => void | Promise<void>) | undefined;
   private readonly entries = new Map<AgentProvider, Entry>();
 
   constructor(opts: {
@@ -27,7 +29,9 @@ export class PlanUsageCache {
     logger: FastifyBaseLogger;
     now: () => Date;
     ttlMs?: number;
+    onFetched?: (provider: AgentProvider, usage: PlanUsage | null) => void | Promise<void>;
   }) {
+    this.onFetched = opts.onFetched;
     this.provider = opts.provider;
     this.providerFor = opts.providerFor;
     this.logger = opts.logger;
@@ -37,8 +41,7 @@ export class PlanUsageCache {
 
   /** Plan usage of a provider's account (default: Claude). */
   async get(provider: AgentProvider = DEFAULT_AGENT_PROVIDER): Promise<PlanUsage | null> {
-    const source = provider === 'claude' ? this.provider : this.providerFor?.(provider);
-    if (!source) return null;
+    const source = this.providerFor?.(provider) ?? (provider === 'claude' ? this.provider : undefined);
     let entry = this.entries.get(provider);
     if (!entry) {
       entry = { value: null, fetchedAt: 0, pending: null };
@@ -46,16 +49,20 @@ export class PlanUsageCache {
     }
     const current = entry;
     if (current.fetchedAt > 0 && this.now().getTime() - current.fetchedAt < this.ttlMs) return current.value;
-    current.pending ??= source
-      .get()
+    current.pending ??= Promise.resolve()
+      .then(() => source?.get() ?? null)
       .catch((err: unknown) => {
         this.logger.warn({ err, provider }, 'plan usage unavailable');
         return null;
       })
-      .then((value) => {
+      .then(async (value) => {
         current.value = value;
         current.fetchedAt = this.now().getTime();
-        current.pending = null;
+        try {
+          await this.onFetched?.(provider, value);
+        } finally {
+          current.pending = null;
+        }
         return value;
       });
     return current.pending;

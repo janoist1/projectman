@@ -122,6 +122,8 @@ export class MemberService {
         sponsor: m.sponsor,
         temp: m.temp,
         provider: m.provider ?? DEFAULT_AGENT_PROVIDER,
+        model: m.model,
+        permissionMode: m.permissionMode,
       };
     });
   }
@@ -349,6 +351,17 @@ export class MemberService {
         status: 'retired',
         activity: null,
       });
+    }
+    const previousMembers = new Map((previous?.team.members ?? []).map((m) => [m.handle, m]));
+    for (const member of this.rosterFor(next)) {
+      const configMember = next.team.members.find((m) => m.handle === member.handle);
+      if (JSON.stringify(previousMembers.get(member.handle)) !== JSON.stringify(configMember)) {
+        this.ctx.bus.publish({ type: 'member_changed', projectKey, handle: member.handle, member });
+      }
+    }
+    for (const handle of previousMembers.keys()) {
+      if (!nextHandles.has(handle))
+        this.ctx.bus.publish({ type: 'member_changed', projectKey, handle, member: null });
     }
   }
 

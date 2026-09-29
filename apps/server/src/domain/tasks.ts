@@ -1,3 +1,4 @@
+import type { PullRequestInfo } from '../contracts';
 import type {
   Actor,
   CancelTaskRequest,
@@ -9,6 +10,7 @@ import type {
   Stage,
   Task,
   TaskDetail,
+  TaskPullRequest,
   TaskLink,
   UpdateTaskRequest,
 } from '@projectman/shared';
@@ -91,6 +93,7 @@ export class TaskService {
   private readonly timeline: TimelineService;
   private readonly projects: ProjectService;
   private readonly inbox: InboxService;
+  private readonly pullRequests = new Map<string, TaskPullRequest>();
   private readonly stageListeners: StageChangeListener[] = [];
   private readonly cancelListeners: Array<(task: Task) => Promise<void>> = [];
 
@@ -133,6 +136,28 @@ export class TaskService {
     const task = this.get(projectKey, taskKey);
     return {
       task,
+      pullRequests: task.links
+        .filter((link) => link.kind === 'pull_request')
+        .flatMap((link) => {
+          const number = Number(link.ref);
+          if (!link.repo || !Number.isInteger(number) || number <= 0) return [];
+          const known = this.pullRequests.get(`${link.repo}#${number}`);
+          return [
+            known ?? {
+              repo: link.repo,
+              number,
+              url: null,
+              title: link.title ?? null,
+              state: ['open', 'closed', 'merged', 'draft'].includes(link.state ?? '')
+                ? (link.state as TaskPullRequest['state'])
+                : null,
+              checks: null,
+              reviewDecision: null,
+              additions: null,
+              deletions: null,
+            },
+          ];
+        }),
       timeline: this.timeline.list(projectKey, { taskKey, limit: timelineLimit }),
       sessions: this.ctx.repos.sessions.list(projectKey, { taskKey }),
     };
@@ -485,6 +510,35 @@ export class TaskService {
     }
     this.publish(next);
     return next;
+  }
+
+  /** Keeps the full snapshot already fetched by GitHub; unknown links remain nullable. */
+  recordPullRequest(pr: PullRequestInfo): void {
+    const snapshot: TaskPullRequest = {
+      repo: pr.repo,
+      number: pr.number,
+      url: pr.url,
+      title: pr.title,
+      state: pr.state,
+      checks:
+        pr.checks === 'success'
+          ? 'passing'
+          : pr.checks === 'failure'
+            ? 'failing'
+            : pr.checks === 'pending'
+              ? 'pending'
+              : null,
+      reviewDecision: pr.reviewDecision,
+      additions: pr.additions,
+      deletions: pr.deletions,
+    };
+    const key = `${pr.repo}#${pr.number}`;
+    if (JSON.stringify(this.pullRequests.get(key)) === JSON.stringify(snapshot)) return;
+    this.pullRequests.set(key, snapshot);
+    for (const link of this.ctx.repos.tasks.findByPullRequest(pr.repo, pr.number)) {
+      const task = this.find(link.projectKey, link.taskKey);
+      if (task) this.publish(task);
+    }
   }
 
   /** A watched pull request changed: refresh every task link to it. Returns the tasks linking it. */

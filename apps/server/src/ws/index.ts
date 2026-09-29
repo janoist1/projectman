@@ -43,6 +43,7 @@ function canSee(access: ProjectAccess, event: ProjectEvent): boolean {
     case 'team_message':
       return event.message.from === access.handle || event.message.to.includes(access.handle);
     case 'config_changed':
+    case 'member_changed':
       return true;
     default:
       return false;

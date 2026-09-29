@@ -1,0 +1,312 @@
+import { describe, expect, it } from 'vitest';
+import { MemberHandle, ProjectConfig, validateProjectConfig, type Stage } from '@projectman/shared';
+import {
+  aiRoleDefaults,
+  en,
+  getTemplate,
+  hu,
+  summarizeTemplate,
+  templates,
+  type BuildTemplateInput,
+} from './index';
+
+function input(language: string, ownerHandle = 'owner'): BuildTemplateInput {
+  return {
+    key: 'AR',
+    name: 'Sample project',
+    workspacePath: '/work/sample',
+    language,
+    owner: { handle: ownerHandle, displayName: 'Anna Example', email: 'anna@example.com' },
+  };
+}
+
+function build(id: string, language = 'hu', ownerHandle = 'owner') {
+  const template = getTemplate(id);
+  if (!template) throw new Error(`missing template ${id}`);
+  return template.build(input(language, ownerHandle));
+}
+
+/** [id, kind, owners, gate conditions, column] per stage. */
+function shape(stages: Stage[]) {
+  return stages.map((s) => [s.id, s.kind, s.owners, s.gate?.conditions ?? [], s.columnId]);
+}
+
+describe('every template', () => {
+  it('lists the four factory templates', () => {
+    expect(templates.map((t) => t.id)).toEqual([
+      'web-client-project',
+      'small-team',
+      'internal-tool',
+      'daily-routine',
+    ]);
+  });
+
+  describe.each(templates.map((t) => [t.id, t] as const))('%s', (id, template) => {
+    it.each(['hu', 'en', 'hu-HU', 'de'])('builds a valid configuration (language %s)', (language) => {
+      const config = template.build(input(language));
+      expect(ProjectConfig.parse(config)).toEqual(config);
+      expect(validateProjectConfig(config)).toEqual([]);
+      expect(config.project).toMatchObject({ key: 'AR', templateId: id, language, repos: [] });
+    });
+
+    it('sponsors every AI member by the owner and uses the role defaults', () => {
+      const config = template.build(input('en'));
+      const owner = config.team.members[0];
+      expect(owner).toMatchObject({ kind: 'human', handle: 'owner', access: 'owner' });
+      for (const member of config.team.members) {
+        if (member.kind !== 'ai') continue;
+        const defaults = aiRoleDefaults(member.role);
+        expect(member).toMatchObject({
+          sponsor: 'owner',
+          temp: false,
+          model: defaults.model,
+          permissionMode: defaults.permissionMode,
+          capacity: defaults.capacity,
+          instructions: defaults.instructions,
+        });
+      }
+    });
+
+    it('uses unique, readable handles', () => {
+      const handles = template.build(input('en')).team.members.map((m) => m.handle);
+      expect(new Set(handles).size).toBe(handles.length);
+      for (const handle of handles) {
+        expect(MemberHandle.safeParse(handle).success).toBe(true);
+        expect(handle).toMatch(/^[a-z]+(-[a-z0-9]+)*$/);
+      }
+    });
+
+    it('stays valid when the owner handle collides with an AI handle', () => {
+      const aiHandles = template
+        .build(input('en'))
+        .team.members.filter((m) => m.kind === 'ai')
+        .map((m) => m.handle);
+      for (const taken of aiHandles) {
+        const config = template.build(input('en', taken));
+        expect(validateProjectConfig(config)).toEqual([]);
+        expect(config.team.members.filter((m) => m.handle === taken)).toHaveLength(1);
+      }
+    });
+
+    it('shows every column and gives every working stage an owner', () => {
+      const config = template.build(input('en'));
+      const used = new Set(config.pipeline.stages.map((s) => s.columnId));
+      expect(config.pipeline.columns.map((c) => c.id).filter((c) => !used.has(c))).toEqual([]);
+      for (const stage of config.pipeline.stages) {
+        if (stage.kind === 'queue' || stage.kind === 'done') continue;
+        expect(stage.owners.length, stage.id).toBeGreaterThan(0);
+      }
+    });
+
+    it('starts with the standard limits', () => {
+      expect(template.build(input('en')).team.limits).toEqual({
+        maxConcurrentAi: 3,
+        pauseAbovePlanUsagePercent: 80,
+        tempWorkers: { enabled: false, max: 1, role: 'developer' },
+      });
+    });
+
+    it('is summarized with i18n keys and counts', () => {
+      const config = template.build(input('en'));
+      expect(summarizeTemplate(template)).toEqual({
+        id,
+        nameKey: `templates.${id}.name`,
+        descriptionKey: `templates.${id}.description`,
+        memberCount: {
+          human: config.team.members.filter((m) => m.kind === 'human').length,
+          ai: config.team.members.filter((m) => m.kind === 'ai').length,
+        },
+        stageCount: config.pipeline.stages.length,
+      });
+    });
+  });
+});
+
+describe('web-client-project', () => {
+  const config = build('web-client-project');
+
+  it('hires DevOps, code review, QA, communication and two developers', () => {
+    expect(
+      config.team.members.map((m) =>
+        m.kind === 'ai' ? [m.handle, m.role, m.specialty ?? null] : [m.handle, m.access, null],
+      ),
+    ).toEqual([
+      ['owner', 'owner', null],
+      ['devops', 'devops', null],
+      ['code-review', 'code_review', null],
+      ['qa', 'qa', null],
+      ['communication', 'communication', null],
+      ['fe-1', 'developer', hu.specialties.frontend],
+      ['be-1', 'developer', hu.specialties.backend],
+    ]);
+  });
+
+  it('reviews code before the integration deploy and gates merge and release on the owner', () => {
+    expect(shape(config.pipeline.stages)).toEqual([
+      ['ready', 'queue', [], [], 'ready'],
+      ['dev', 'work', ['fe-1', 'be-1'], [], 'development'],
+      ['code_review', 'review', ['code-review'], [], 'review'],
+      ['integration', 'deploy', ['devops'], [{ type: 'check_passed', check: 'code_review' }], 'review'],
+      ['qa', 'test', ['qa'], [], 'review'],
+      [
+        'client_test',
+        'client_test',
+        ['communication', 'owner'],
+        [{ type: 'check_passed', check: 'qa' }],
+        'client_test',
+      ],
+      [
+        'merge',
+        'merge',
+        ['owner'],
+        [
+          { type: 'check_passed', check: 'client_test' },
+          { type: 'human_approval', approvers: ['owner'] },
+        ],
+        'awaiting_release',
+      ],
+      [
+        'release',
+        'release',
+        ['devops'],
+        [{ type: 'human_approval', approvers: ['owner'] }],
+        'awaiting_release',
+      ],
+      ['done', 'done', [], [], 'done'],
+    ]);
+  });
+
+  it('uses display names from the project language', () => {
+    expect(config.pipeline.columns).toEqual(
+      (['ready', 'development', 'review', 'client_test', 'awaiting_release', 'done'] as const).map((id) => ({
+        id,
+        ...hu.columns[id],
+      })),
+    );
+    expect(config.pipeline.stages.map((s) => s.name)).toEqual(
+      (
+        [
+          'ready',
+          'dev',
+          'code_review',
+          'integration',
+          'qa',
+          'client_test',
+          'merge',
+          'release',
+          'done',
+        ] as const
+      ).map((id) => hu.stages[id]),
+    );
+    expect(config.team.members.map((m) => m.displayName)).toEqual([
+      'Anna Example',
+      hu.roles.devops,
+      hu.roles.code_review,
+      hu.roles.qa,
+      hu.roles.communication,
+      hu.specialist(hu.specialties.frontend, hu.roles.developer),
+      hu.specialist(hu.specialties.backend, hu.roles.developer),
+    ]);
+
+    const english = build('web-client-project', 'en');
+    expect(english.pipeline.columns.map((c) => c.name)).toEqual([
+      'Ready',
+      'In development',
+      'In review',
+      'Client test',
+      'Awaiting release',
+      'Done',
+    ]);
+    expect(english.team.members.map((m) => m.displayName).slice(5)).toEqual([
+      'Frontend developer',
+      'Backend developer',
+    ]);
+  });
+});
+
+describe('small-team', () => {
+  const config = build('small-team', 'en');
+
+  it('has the owner, one developer and a code reviewer', () => {
+    expect(config.team.members.map((m) => [m.handle, m.kind === 'ai' ? m.role : m.access])).toEqual([
+      ['owner', 'owner'],
+      ['dev-1', 'developer'],
+      ['code-review', 'code_review'],
+    ]);
+  });
+
+  it('closes reviewed work on the owner decision', () => {
+    expect(shape(config.pipeline.stages)).toEqual([
+      ['ready', 'queue', [], [], 'ready'],
+      ['dev', 'work', ['dev-1'], [], 'development'],
+      ['code_review', 'review', ['code-review'], [], 'review'],
+      [
+        'done',
+        'done',
+        [],
+        [
+          { type: 'check_passed', check: 'code_review' },
+          { type: 'human_approval', approvers: ['owner'] },
+        ],
+        'done',
+      ],
+    ]);
+  });
+});
+
+describe('internal-tool', () => {
+  const config = build('internal-tool', 'en');
+
+  it('has the owner, two developers, code review and QA', () => {
+    expect(
+      config.team.members.map((m) => [m.handle, m.kind === 'ai' ? m.role : m.access, m.displayName]),
+    ).toEqual([
+      ['owner', 'owner', 'Anna Example'],
+      ['dev-1', 'developer', 'Developer'],
+      ['dev-2', 'developer', 'Developer 2'],
+      ['code-review', 'code_review', 'Code reviewer'],
+      ['qa', 'qa', 'QA'],
+    ]);
+  });
+
+  it('tests after the review and merges on the owner decision, without a client test', () => {
+    expect(shape(config.pipeline.stages)).toEqual([
+      ['ready', 'queue', [], [], 'ready'],
+      ['dev', 'work', ['dev-1', 'dev-2'], [], 'development'],
+      ['code_review', 'review', ['code-review'], [], 'review'],
+      ['qa', 'test', ['qa'], [{ type: 'check_passed', check: 'code_review' }], 'review'],
+      [
+        'merge',
+        'merge',
+        ['owner'],
+        [
+          { type: 'check_passed', check: 'qa' },
+          { type: 'human_approval', approvers: ['owner'] },
+        ],
+        'awaiting_merge',
+      ],
+      ['done', 'done', [], [], 'done'],
+    ]);
+  });
+});
+
+describe('daily-routine', () => {
+  const config = build('daily-routine', 'en');
+
+  it('has the owner and one scheduled member working through ready, work and done', () => {
+    expect(config.team.members.map((m) => [m.handle, m.kind === 'ai' ? m.role : m.access])).toEqual([
+      ['owner', 'owner'],
+      ['daily', 'scheduled'],
+    ]);
+    expect(shape(config.pipeline.stages)).toEqual([
+      ['ready', 'queue', [], [], 'ready'],
+      ['work', 'work', ['daily'], [], 'in_progress'],
+      ['done', 'done', [], [], 'done'],
+    ]);
+    expect(config.pipeline.columns.map((c) => c.name)).toEqual([
+      en.columns.ready.name,
+      en.columns.in_progress.name,
+      en.columns.done.name,
+    ]);
+  });
+});

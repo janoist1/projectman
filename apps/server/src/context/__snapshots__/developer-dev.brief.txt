@@ -1,0 +1,37 @@
+# AR-21: Fix the booking confirmation email
+You are picking up this task at stage Development (`dev`).
+
+- Status: active
+- Assignee: `fe-1`
+- Repo: `app`
+- Priority: 2
+- Labels: bug, email
+- Visibility: shared
+
+## Description
+The confirmation email shows the wrong room name.
+
+- Steps: book any room as a guest
+- Expected: the email names the booked room
+
+## Checks
+None recorded yet.
+
+## Links
+None.
+
+## Prerequisites
+- AR-19 "Update mail templates" (done)
+
+## Recent timeline
+- 2026-09-28 08:00 UTC · `owner`: created the task "Fix the booking confirmation email"
+- 2026-09-28 08:05 UTC · `owner`: assigned it to `fe-1`
+- 2026-09-28 08:06 UTC · `fe-1`: moved it from Ready to Development
+
+## What is expected next
+1. Read the task, its links and prerequisites; ask with ask_human if the goal or a decision is unclear.
+2. Implement the change in your working directory (the task's own worktree and branch) and run the project's tests.
+3. Commit, push, open a pull request and attach it with link_pull_request.
+4. Move the task to Code review (`code_review`) with update_task and hand over to `code-review` with send_message: the facts they need (links, what changed, what to check).
+
+Use get_task for the latest state at any time.

@@ -1,0 +1,378 @@
+import { mkdir, readdir, realpath, stat } from 'node:fs/promises';
+import path from 'node:path';
+import { TaskKey, type ProjectConfig } from '@projectman/shared';
+import type { WorktreeInfo, WorktreeManager, WorktreeManagerOptions } from '../contracts';
+import { isTaskBranch, taskBranchName } from './branch-name';
+import { git, gitSucceeds, tryGit } from './git';
+
+/** A fetch that takes longer is abandoned; the worktree starts from the last known state. */
+const FETCH_TIMEOUT_MS = 60_000;
+/** Checkouts (and the repository's checkout hooks, e.g. Git LFS) may take a while. */
+const CHECKOUT_TIMEOUT_MS = 10 * 60_000;
+
+export type WorktreeErrorCode =
+  | 'invalid_task_key'
+  | 'unknown_repo'
+  | 'not_a_repository'
+  | 'no_start_point'
+  | 'path_taken'
+  | 'branch_in_main_checkout'
+  | 'not_a_worktree'
+  | 'main_worktree'
+  | 'outside_root'
+  | 'dirty';
+
+export class WorktreeError extends Error {
+  readonly code: WorktreeErrorCode;
+
+  constructor(code: WorktreeErrorCode, message: string) {
+    super(message);
+    this.code = code;
+    this.name = 'WorktreeError';
+  }
+}
+
+interface ListedWorktree {
+  path: string;
+  /** Short branch name; null when detached or bare. */
+  branch: string | null;
+  /** The repository's main checkout (listed first by git). */
+  main: boolean;
+  prunable: boolean;
+}
+
+/**
+ * Git worktrees for tasks, so every developer session works on its own branch without
+ * touching the main checkout that people and other sessions use.
+ *
+ * - Path: `<rootDir>/<projectKey>/<TASKKEY>-<repo>`; branch: `<TASKKEY>-<slug of the title>`.
+ * - ensureForTask reuses what exists: the worktree at that path, or the task's branch
+ *   (a local `<TASKKEY>` / `<TASKKEY>-*` branch, then `origin/<TASKKEY>-*`) wherever it is
+ *   checked out. Only a brand-new branch fetches `origin <defaultBranch>` (failures are
+ *   logged and tolerated, e.g. offline) and starts from `origin/<defaultBranch>`, or from the
+ *   local default branch when there is no remote; it gets no upstream until it is pushed.
+ * - remove only touches worktrees under rootDir, refuses dirty ones unless forced and never
+ *   deletes the branch.
+ */
+export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeManager {
+  const rootDir = path.resolve(opts.rootDir);
+  const log = opts.logger;
+  const withLock = createKeyedLock();
+
+  async function ensureForTask(args: {
+    project: ProjectConfig;
+    repoName: string;
+    taskKey: string;
+    title: string;
+  }): Promise<WorktreeInfo> {
+    const { project, repoName, taskKey, title } = args;
+    if (!TaskKey.safeParse(taskKey).success) {
+      throw new WorktreeError('invalid_task_key', `invalid task key: ${JSON.stringify(taskKey)}`);
+    }
+    const repo = project.project.repos.find((r) => r.name === repoName);
+    if (!repo) {
+      throw new WorktreeError(
+        'unknown_repo',
+        `project ${project.project.key} has no repo named "${repoName}"`,
+      );
+    }
+    const repoPath = path.resolve(project.project.workspacePath, repo.path);
+    const target = path.join(rootDir, project.project.key, `${taskKey}-${repo.name}`);
+
+    await assertRepositoryRoot(repoPath);
+    return withLock(await canonical(repoPath), async () => {
+      await git(['-C', repoPath, 'worktree', 'prune']);
+      const worktrees = await listWorktrees(repoPath);
+
+      const atTarget = await findByPath(worktrees, target);
+      if (atTarget) {
+        const branch =
+          atTarget.branch ?? (await git(['-C', target, 'rev-parse', '--abbrev-ref', 'HEAD'])).trim();
+        log.debug({ repo: repo.name, taskKey, path: target, branch }, 'reusing task worktree');
+        return { path: target, branch, repo: repo.name };
+      }
+
+      const wanted = taskBranchName(taskKey, title);
+      const local = await findTaskBranch(repoPath, 'refs/heads/', taskKey, wanted);
+      const branch = local ?? wanted;
+      const holder = local ? worktrees.find((w) => w.branch === local && !w.prunable) : undefined;
+      if (holder) {
+        if (holder.main) {
+          throw new WorktreeError(
+            'branch_in_main_checkout',
+            `branch ${local} is checked out in the main checkout ${holder.path}; switch that checkout to another branch first`,
+          );
+        }
+        log.info(
+          { repo: repo.name, taskKey, path: holder.path, branch },
+          'reusing the worktree of the task branch',
+        );
+        return { path: holder.path, branch, repo: repo.name };
+      }
+
+      await assertFreeDirectory(target, repoPath);
+      await mkdir(path.dirname(target), { recursive: true });
+
+      if (local) {
+        await git(['-C', repoPath, 'worktree', 'add', target, local], { timeoutMs: CHECKOUT_TIMEOUT_MS });
+        log.info(
+          { repo: repo.name, taskKey, path: target, branch },
+          'created task worktree on its existing branch',
+        );
+        return { path: target, branch, repo: repo.name };
+      }
+
+      const remote = await findTaskBranch(repoPath, 'refs/remotes/origin/', taskKey, wanted);
+      if (remote) {
+        await git(
+          [
+            '-C',
+            repoPath,
+            'worktree',
+            'add',
+            '--track',
+            '-b',
+            remote,
+            target,
+            `refs/remotes/origin/${remote}`,
+          ],
+          { timeoutMs: CHECKOUT_TIMEOUT_MS },
+        );
+        log.info(
+          { repo: repo.name, taskKey, path: target, branch: remote },
+          'created task worktree from origin',
+        );
+        return { path: target, branch: remote, repo: repo.name };
+      }
+
+      const startPoint = await startPointFor(repoPath, repo.defaultBranch);
+      await git(['-C', repoPath, 'worktree', 'add', '--no-track', '-b', branch, target, startPoint], {
+        timeoutMs: CHECKOUT_TIMEOUT_MS,
+      });
+      log.info({ repo: repo.name, taskKey, path: target, branch, startPoint }, 'created task worktree');
+      return { path: target, branch, repo: repo.name };
+    });
+  }
+
+  async function startPointFor(repoPath: string, defaultBranch: string): Promise<string> {
+    const remoteRef = `refs/remotes/origin/${defaultBranch}`;
+    if (await hasRemote(repoPath, 'origin')) {
+      try {
+        await git(['-C', repoPath, 'fetch', '--quiet', 'origin', defaultBranch], {
+          timeoutMs: FETCH_TIMEOUT_MS,
+        });
+      } catch (err) {
+        log.warn(
+          { repo: repoPath, err: err instanceof Error ? err.message : String(err) },
+          'git fetch failed; starting from the last known state of the default branch',
+        );
+      }
+      if (await refExists(repoPath, remoteRef)) return remoteRef;
+    }
+    const localRef = `refs/heads/${defaultBranch}`;
+    if (await refExists(repoPath, localRef)) return localRef;
+    throw new WorktreeError(
+      'no_start_point',
+      `neither origin/${defaultBranch} nor ${defaultBranch} exists in ${repoPath}`,
+    );
+  }
+
+  async function status(worktreePath: string): Promise<{ dirty: boolean; unpushedCommits: number }> {
+    const dir = path.resolve(worktreePath);
+    const porcelain = await git(['-C', dir, 'status', '--porcelain']);
+    return { dirty: porcelain.trim().length > 0, unpushedCommits: await unpushedCommits(dir) };
+  }
+
+  async function remove(args: { path: string; force?: boolean }): Promise<void> {
+    const dir = path.resolve(args.path);
+    const force = args.force ?? false;
+    if (!(await exists(dir))) {
+      log.debug({ path: dir }, 'worktree already removed');
+      return;
+    }
+    if (!isInside(await canonical(dir), await canonical(rootDir))) {
+      throw new WorktreeError(
+        'outside_root',
+        `${dir} is not under ${rootDir}; only worktrees created by projectman are removed`,
+      );
+    }
+    let worktrees: ListedWorktree[];
+    try {
+      worktrees = await listWorktrees(dir);
+    } catch {
+      throw new WorktreeError('not_a_worktree', `${dir} is not a git worktree`);
+    }
+    const self = await findByPath(worktrees, dir);
+    const main = worktrees[0];
+    if (!self || !main) throw new WorktreeError('not_a_worktree', `${dir} is not a git worktree`);
+    if (self.main) throw new WorktreeError('main_worktree', `${dir} is a main checkout, not a task worktree`);
+
+    await withLock(await canonical(main.path), async () => {
+      if (!force && (await status(dir)).dirty) {
+        throw new WorktreeError(
+          'dirty',
+          `${dir} has uncommitted changes; commit them or remove it with force`,
+        );
+      }
+      await git(['-C', main.path, 'worktree', 'remove', ...(force ? ['--force'] : []), dir]);
+      log.info({ path: dir, branch: self.branch, force }, 'removed task worktree (branch kept)');
+    });
+  }
+
+  return { ensureForTask, status, remove };
+}
+
+async function assertRepositoryRoot(repoPath: string): Promise<void> {
+  let top: string;
+  try {
+    top = (await git(['-C', repoPath, 'rev-parse', '--show-toplevel'])).trim();
+  } catch {
+    throw new WorktreeError('not_a_repository', `${repoPath} is not a git repository`);
+  }
+  if ((await canonical(top)) !== (await canonical(repoPath))) {
+    throw new WorktreeError(
+      'not_a_repository',
+      `${repoPath} is inside the repository ${top} but is not its root`,
+    );
+  }
+}
+
+async function listWorktrees(repoPath: string): Promise<ListedWorktree[]> {
+  const out = await git(['-C', repoPath, 'worktree', 'list', '--porcelain']);
+  const list: ListedWorktree[] = [];
+  let current: ListedWorktree | null = null;
+  for (const line of out.split('\n')) {
+    if (line.startsWith('worktree ')) {
+      current = {
+        path: line.slice('worktree '.length),
+        branch: null,
+        main: list.length === 0,
+        prunable: false,
+      };
+      list.push(current);
+    } else if (current && line.startsWith('branch refs/heads/')) {
+      current.branch = line.slice('branch refs/heads/'.length);
+    } else if (current && line.startsWith('prunable')) {
+      current.prunable = true;
+    }
+  }
+  return list;
+}
+
+async function findByPath(list: ListedWorktree[], wanted: string): Promise<ListedWorktree | undefined> {
+  const target = await canonical(wanted);
+  for (const worktree of list) {
+    if (!worktree.prunable && (await canonical(worktree.path)) === target) return worktree;
+  }
+  return undefined;
+}
+
+/** The task's branch under `prefix`: the preferred name if present, else the first match. */
+async function findTaskBranch(
+  repoPath: string,
+  prefix: 'refs/heads/' | 'refs/remotes/origin/',
+  taskKey: string,
+  preferred: string,
+): Promise<string | null> {
+  const out = await git(['-C', repoPath, 'for-each-ref', '--format=%(refname)', prefix]);
+  const names = out
+    .split('\n')
+    .filter((ref) => ref.startsWith(prefix))
+    .map((ref) => ref.slice(prefix.length))
+    .filter((name) => isTaskBranch(name, taskKey))
+    .sort();
+  if (names.includes(preferred)) return preferred;
+  return names[0] ?? null;
+}
+
+async function hasRemote(repoPath: string, name: string): Promise<boolean> {
+  return (await git(['-C', repoPath, 'remote'])).split('\n').includes(name);
+}
+
+function refExists(repoPath: string, ref: string): Promise<boolean> {
+  return gitSucceeds(['-C', repoPath, 'rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
+}
+
+/**
+ * Commits on HEAD that no remote has. Without any remote: commits on HEAD that no other
+ * local branch has.
+ */
+async function unpushedCommits(dir: string): Promise<number> {
+  if (!(await refExists(dir, 'HEAD'))) return 0;
+  const remotes = (await git(['-C', dir, 'remote'])).split('\n').filter(Boolean);
+  let args: string[];
+  if (remotes.length > 0) {
+    args = ['rev-list', '--count', 'HEAD', '--not', '--remotes'];
+  } else {
+    // with --branches, --exclude takes the short branch name
+    const head = (await tryGit(['-C', dir, 'symbolic-ref', '--quiet', '--short', 'HEAD']))?.trim();
+    args = ['rev-list', '--count', 'HEAD', '--not', ...(head ? [`--exclude=${head}`] : []), '--branches'];
+  }
+  return Number.parseInt((await git(['-C', dir, ...args])).trim(), 10) || 0;
+}
+
+async function assertFreeDirectory(target: string, repoPath: string): Promise<void> {
+  let entries: string[];
+  try {
+    entries = await readdir(target);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return;
+    if (code === 'ENOTDIR') {
+      throw new WorktreeError('path_taken', `${target} exists and is not a worktree of ${repoPath}`);
+    }
+    throw err;
+  }
+  if (entries.length > 0) {
+    throw new WorktreeError('path_taken', `${target} exists and is not a worktree of ${repoPath}`);
+  }
+}
+
+async function exists(p: string): Promise<boolean> {
+  try {
+    await stat(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Real path when it exists (macOS: /var -> /private/var), else the resolved path. */
+async function canonical(p: string): Promise<string> {
+  try {
+    return await realpath(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+function isInside(child: string, parent: string): boolean {
+  const relative = path.relative(parent, child);
+  return (
+    relative !== '' &&
+    relative !== '..' &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
+  );
+}
+
+/** Serialises async work per key (git operations on one repository). */
+function createKeyedLock(): <T>(key: string, fn: () => Promise<T>) => Promise<T> {
+  const tails = new Map<string, Promise<void>>();
+  return async (key, fn) => {
+    const previous = tails.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const done = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.then(() => done);
+    tails.set(key, tail);
+    await previous;
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (tails.get(key) === tail) tails.delete(key);
+    }
+  };
+}

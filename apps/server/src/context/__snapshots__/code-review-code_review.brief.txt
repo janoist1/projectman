@@ -1,0 +1,43 @@
+# AR-21: Fix the booking confirmation email
+You are picking up this task at stage Code review (`code_review`).
+
+- Status: active
+- Assignee: `fe-1`
+- Repo: `app`
+- Priority: 2
+- Labels: bug, email
+- Visibility: shared
+
+## Description
+The confirmation email shows the wrong room name.
+
+- Steps: book any room as a guest
+- Expected: the email names the booked room
+
+## Checks
+- code_review: pending
+
+## Links
+- Pull request: acme/app#123 "Fix room name in confirmation email" (open)
+- Branch: `AR-21-fix-the-booking-confirmation-email` in acme/app
+- Link: https://example.com/reports/42 "Client report"
+
+## Prerequisites
+- AR-19 "Update mail templates" (done)
+
+## Recent timeline
+- 2026-09-28 08:00 UTC · `owner`: created the task "Fix the booking confirmation email"
+- 2026-09-28 08:05 UTC · `owner`: assigned it to `fe-1`
+- 2026-09-28 08:06 UTC · `fe-1`: moved it from Ready to Development
+- 2026-09-28 11:30 UTC · `fe-1`: linked pull request acme/app#123
+- 2026-09-28 11:31 UTC · `fe-1`: moved it from Development to Code review
+- 2026-09-28 11:31 UTC · `fe-1`: message to `code-review`: PR acme/app#123 is ready for review: the room name now comes from the booking, not the cart.
+- 2026-09-28 11:32 UTC · `fe-1`: set the code_review check to pending
+
+## What is expected next
+1. Review the pull requests linked to the task; do not edit, commit or push.
+2. Record the code_review check with update_task: passed, or blocked with a one-line summary.
+3. Send "Blocking" / "Not blocking" findings with file:line to `fe-1` with send_message; review again when they report a fix.
+4. When the review passes, move the task to Integration (`integration`) with update_task and hand over to `devops` with send_message: the facts they need (links, what changed, what to check).
+
+Use get_task for the latest state at any time.

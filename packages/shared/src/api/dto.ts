@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ChatItem } from '../chat/chat';
-import { ProjectConfig } from '../config/schema';
+import { ProjectConfig, RepoConfig } from '../config/schema';
 import { TimelineEvent } from '../domain/event';
 import { InboxItem } from '../domain/inbox';
 import { AiRole, HumanAccess, MemberHandle, MemberKind, MemberStatus } from '../domain/member';
@@ -48,6 +48,8 @@ export const CreateProjectRequest = z.object({
   name: z.string().min(1),
   workspacePath: z.string().min(1),
   templateId: z.string(),
+  /** Repositories of the workspace; templates start without any (they can also be added later in the config). */
+  repos: z.array(RepoConfig).optional(),
 });
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequest>;
 

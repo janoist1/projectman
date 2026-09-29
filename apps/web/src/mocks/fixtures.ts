@@ -1,3 +1,5 @@
+import { BUILT_IN_ROLE_IDS, BUILT_IN_ROLE_HOLDERS } from '@projectman/shared';
+import { t } from '../i18n/t';
 import type {
   Actor,
   ChatItem,
@@ -8,6 +10,7 @@ import type {
   PlanUsage,
   ProjectConfig,
   ProjectSummary,
+  RoleView,
   Session,
   Task,
   TeamMessage,
@@ -1719,3 +1722,13 @@ export const teamMessages: TeamMessage[] = [
     'Egy külső hozzájáruló PR-jában 1 blokkoló lelet van a hozzáférés-szabályokban. A PR-komment a döntésedre vár.',
   ),
 ];
+
+/** Same order and holder restrictions as the server catalogue. */
+export const builtInRoles: RoleView[] = BUILT_IN_ROLE_IDS.map((id) => ({
+  id,
+  name: t(`mockRoleCatalogue.${id}.name`),
+  summary: t(`mockRoleCatalogue.${id}.summary`),
+  notTheirJob: t(`mockRoleCatalogue.${id}.notTheirJob`),
+  holders: BUILT_IN_ROLE_HOLDERS[id],
+  builtIn: true,
+}));

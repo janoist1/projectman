@@ -26,6 +26,7 @@ import { stagePosition } from '../../lib/pipeline';
 import { InboxCard } from '../inbox/InboxCard';
 import { prChip } from './cardModel';
 import { nextStepText, primarySession } from './taskModel';
+import { TaskLifecycle } from './TaskLifecycle';
 import { useBoardModel } from './useBoardModel';
 import styles from './TaskDrawer.module.css';
 
@@ -191,6 +192,7 @@ export function TaskDrawer() {
         </div>
 
         <div className={styles.scroll}>
+          {can.manageTeam ? <TaskLifecycle key={task.key} task={task} members={members} /> : null}
           {myItems.length > 0 ? (
             <section className={styles.section}>
               {myItems.map((item) => (

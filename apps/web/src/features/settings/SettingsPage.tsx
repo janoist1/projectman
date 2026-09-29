@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import type { ConfigVersionEntry, MemberConfig, ProjectConfig } from '@projectman/shared';
-import { useConfig, useLogout, useRevertConfig } from '../../api/queries';
+import type { ConfigVersionEntry, MemberConfig, ProjectConfig, RoleView } from '@projectman/shared';
+import { useConfig, useLogout, useRevertConfig, useRoles } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
@@ -18,21 +18,27 @@ import { aiRoleView } from '../../lib/roles';
 import { nameOf, roleLabel } from '../../lib/members';
 import styles from './SettingsPage.module.css';
 
-function memberRole(member: MemberConfig): string {
+function memberRole(member: MemberConfig, roles: readonly RoleView[]): string {
   return member.kind === 'human'
-    ? roleLabel({
-        handle: member.handle,
-        displayName: member.displayName,
-        kind: 'human',
-        role: member.access,
-      })
-    : roleLabel({
-        handle: member.handle,
-        displayName: member.displayName,
-        kind: 'ai',
-        role: member.role,
-        specialty: member.specialty,
-      });
+    ? roleLabel(
+        {
+          handle: member.handle,
+          displayName: member.displayName,
+          kind: 'human',
+          role: member.access,
+        },
+        roles,
+      )
+    : roleLabel(
+        {
+          handle: member.handle,
+          displayName: member.displayName,
+          kind: 'ai',
+          role: member.role,
+          specialty: member.specialty,
+        },
+        roles,
+      );
 }
 
 function PipelineSection({ config }: { config: ProjectConfig }) {
@@ -120,6 +126,7 @@ function PipelineSection({ config }: { config: ProjectConfig }) {
 
 function TeamSection({ config }: { config: ProjectConfig }) {
   const { key, myHandle } = useProject();
+  const roles = useRoles(key);
   const { members } = useProjectIndexes(key);
   return (
     <section className={styles.card} aria-labelledby="settings-team">
@@ -154,7 +161,7 @@ function TeamSection({ config }: { config: ProjectConfig }) {
                 <td>
                   <code className={styles.id}>{member.handle}</code>
                 </td>
-                <td>{memberRole(member)}</td>
+                <td>{memberRole(member, roles.data?.roles ?? [])}</td>
                 <td>{member.kind === 'ai' ? member.model : t('common.dash')}</td>
                 <td>
                   {member.kind === 'ai' ? t(`permissionModes.${member.permissionMode}`) : t('common.dash')}
@@ -175,6 +182,8 @@ function TeamSection({ config }: { config: ProjectConfig }) {
 }
 
 function LimitsAndRepos({ config }: { config: ProjectConfig }) {
+  const { key } = useProject();
+  const roles = useRoles(key);
   const { limits } = config.team;
   return (
     <>
@@ -197,7 +206,7 @@ function LimitsAndRepos({ config }: { config: ProjectConfig }) {
               {limits.tempWorkers.enabled
                 ? t('settings.limits.tempWorkersOn', {
                     max: limits.tempWorkers.max,
-                    role: aiRoleView(limits.tempWorkers.role).name,
+                    role: aiRoleView(limits.tempWorkers.role, undefined, roles.data?.roles).name,
                   })
                 : t('settings.limits.tempWorkersOff')}
             </dd>

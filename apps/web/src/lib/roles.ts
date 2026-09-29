@@ -1,12 +1,7 @@
-import { AI_BUILT_IN_ROLE_IDS } from '@projectman/shared';
+import { holdersAllow, isBuiltInRole } from '@projectman/shared';
+import type { BuiltInRoleId, RoleView as CatalogueRole } from '@projectman/shared';
 import type { IconName } from '../components/Icon';
-import { t, tDynamic } from '../i18n/t';
-
-/**
- * Everything the UI shows about a role lives here: name, tagline, colour family and icon.
- * Roles are expected to become an open, server-provided catalogue
- * (GET /api/projects/:key/roles); when that lands, only this module should change.
- */
+import { tDynamic } from '../i18n/t';
 
 /** Colour family of a member (maps to --role-* tokens through data-tone). */
 export type RoleTone =
@@ -25,15 +20,12 @@ export type RoleTone =
   | 'owner'
   | 'system';
 
-export interface RoleView {
-  id: string;
-  name: string;
-  tagline: string;
+export interface StyledRole extends CatalogueRole {
   tone: RoleTone;
   icon: IconName;
 }
 
-const visuals: Record<string, { tone: RoleTone; icon: IconName }> = {
+const visuals: Record<BuiltInRoleId, { tone: RoleTone; icon: IconName }> = {
   developer: { tone: 'developer', icon: 'branch' },
   code_review: { tone: 'review', icon: 'code' },
   security_review: { tone: 'security', icon: 'shield' },
@@ -42,7 +34,18 @@ const visuals: Record<string, { tone: RoleTone; icon: IconName }> = {
   communication: { tone: 'comm', icon: 'mail' },
   project_manager: { tone: 'pm', icon: 'calendar' },
   docs: { tone: 'docs', icon: 'doc' },
-  scheduled: { tone: 'scheduled', icon: 'timer' },
+  operator: { tone: 'owner', icon: 'user' },
+  product_owner: { tone: 'human', icon: 'team' },
+  business_analyst: { tone: 'pm', icon: 'doc' },
+  architect: { tone: 'developer', icon: 'branch' },
+  designer: { tone: 'frontend', icon: 'sparkle' },
+  support: { tone: 'comm', icon: 'messages' },
+  researcher: { tone: 'review', icon: 'search' },
+  maintainer: { tone: 'devops', icon: 'settings' },
+  coach: { tone: 'pm', icon: 'team' },
+  watchdog: { tone: 'scheduled', icon: 'timer' },
+  content: { tone: 'docs', icon: 'doc' },
+  translator: { tone: 'comm', icon: 'messages' },
 };
 
 function specialtyKind(specialty: string | null | undefined): 'frontend' | 'backend' | null {
@@ -56,17 +59,31 @@ export function isDeveloperRole(roleId: string): boolean {
   return roleId === 'developer';
 }
 
-/** An AI role; developers with a frontend/backend specialty get their own name and colour. */
-export function aiRoleView(roleId: string, specialty?: string | null): RoleView {
-  const kind = isDeveloperRole(roleId) ? specialtyKind(specialty) : null;
-  const visual = visuals[roleId] ?? { tone: 'developer', icon: 'sparkle' };
-  return {
-    id: roleId,
-    name: kind ? t(`roles.specialties.${kind}`) : tDynamic(`roles.ai.${roleId}`, roleId),
-    tagline: tDynamic(`roles.taglines.${roleId}`, ''),
-    tone: kind ?? visual.tone,
-    icon: visual.icon,
-  };
+/** Catalogue texts stay in the project's language; visuals are local. */
+export function roleView(role: CatalogueRole, specialty?: string | null): StyledRole {
+  const kind = isDeveloperRole(role.id) ? specialtyKind(specialty) : null;
+  const visual = isBuiltInRole(role.id)
+    ? visuals[role.id]
+    : { tone: 'system' as const, icon: 'sparkle' as const };
+  return { ...role, tone: kind ?? visual.tone, icon: visual.icon };
+}
+
+export function aiRoleView(
+  roleId: string,
+  specialty?: string | null,
+  catalogue: readonly CatalogueRole[] = [],
+): StyledRole {
+  return roleView(
+    catalogue.find((role) => role.id === roleId) ?? {
+      id: roleId,
+      name: roleId,
+      summary: '',
+      notTheirJob: '',
+      holders: 'both',
+      builtIn: false,
+    },
+    specialty,
+  );
 }
 
 /** Access level of a human ("Tulajdonos", "Megrendelő", ...). */
@@ -74,7 +91,7 @@ export function humanRoleName(access: string): string {
   return tDynamic(`roles.human.${access}`, access);
 }
 
-/** Roles an AI member can be hired into (the built-in list until the catalogue endpoint exists). */
-export function hireableRoles(): RoleView[] {
-  return AI_BUILT_IN_ROLE_IDS.map((id) => aiRoleView(id));
+/** Built-in and custom roles whose holders allow AI. */
+export function hireableRoles(catalogue: readonly CatalogueRole[]): StyledRole[] {
+  return catalogue.filter((role) => holdersAllow(role.holders, 'ai')).map((role) => roleView(role));
 }

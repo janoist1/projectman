@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { MemberView } from '@projectman/shared';
-import { useRetireMember } from '../../api/queries';
+import { useRetireMember, useRoles } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
@@ -28,6 +28,7 @@ function RetireForm({
   onDone: () => void;
 }) {
   const { key } = useProject();
+  const roles = useRoles(key);
   const retire = useRetireMember(key);
   const toast = useToast();
   const sameRole = candidates.filter((candidate) => candidate.role === member.role);
@@ -48,7 +49,7 @@ function RetireForm({
             checked={target === candidate.handle}
             onChange={setTarget}
             title={`${candidate.displayName} · ${candidate.handle}`}
-            description={roleLabel(candidate)}
+            description={roleLabel(candidate, roles.data?.roles)}
             leading={<Avatar member={candidate} size="md" />}
           />
         ))}

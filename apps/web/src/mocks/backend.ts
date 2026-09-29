@@ -1,4 +1,10 @@
 import {
+  CancelTaskRequest,
+  ReopenTaskRequest,
+  CustomRoleRequest,
+  UpdateMemberRequest,
+  holdersAllow,
+  isBuiltInRole,
   CreateProjectRequest,
   CreateTaskRequest,
   HireMemberRequest,
@@ -20,6 +26,7 @@ import type {
   InboxItem,
   MemberView,
   ProjectConfig,
+  RoleView,
   ServerEvent,
   Session,
   Task,
@@ -52,8 +59,8 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
-function error(status: number, code: string, message: string): MockResponse {
-  return { status, body: { error: { code, message } } };
+function error(status: number, code: string, message: string, details?: unknown): MockResponse {
+  return { status, body: { error: { code, message, ...(details === undefined ? {} : { details }) } } };
 }
 
 function ok(body?: unknown): MockResponse {
@@ -75,6 +82,7 @@ function parseBody<T>(
  */
 export class MockBackend {
   auth: MockAuthState;
+  viewerHandle: string = fixtures.OWNER;
   user = { ...fixtures.mockUser };
   config: ProjectConfig = fixtures.buildConfig();
   configVersion = fixtures.projectSummary.configVersion;
@@ -91,6 +99,7 @@ export class MockBackend {
   readonly terminals: MockTerminals;
   private readonly connections = new Map<MockConnection, ConnectionState>();
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
+  private readonly sessionStops = new Map<string, number>();
   private taskSeq = Math.max(0, ...fixtures.tasks.map((task) => Number(task.key.split('-')[1] ?? 0)));
   private onFirstSubscribe: (() => void) | null = null;
 
@@ -166,7 +175,7 @@ export class MockBackend {
   /* ---------- domain helpers (also used by the simulation) ---------- */
 
   get owner(): string {
-    return fixtures.OWNER;
+    return this.viewerHandle;
   }
 
   findTask(key: string): Task | undefined {
@@ -372,6 +381,20 @@ export class MockBackend {
 
   private handleProject(method: string, rest: string, body: unknown): MockResponse {
     let m: RegExpExecArray | null;
+    const restricted =
+      (rest === '/roles' && method !== 'GET') ||
+      (rest.startsWith('/roles/') && method !== 'GET') ||
+      (rest.startsWith('/members') && method !== 'GET') ||
+      /\/tasks\/[^/]+\/(cancel|reopen)$/.test(rest) ||
+      (rest.startsWith('/tasks/') &&
+        method === 'PATCH' &&
+        body !== null &&
+        typeof body === 'object' &&
+        'assignee' in body);
+    const viewer = this.findMember(this.viewerHandle);
+    if (!viewer) return error(403, 'not_a_member', 'Not a member');
+    if (restricted && (viewer.kind !== 'human' || !['owner', 'admin'].includes(viewer.role)))
+      return error(403, 'insufficient_access', 'Owner or admin required');
     if (rest === '' && method === 'GET')
       return ok({ ...fixtures.projectSummary, configVersion: this.configVersion });
     if (rest === '/board') return ok(this.board());
@@ -386,6 +409,24 @@ export class MockBackend {
       if (method === 'PATCH') {
         const input = parseBody(UpdateTaskRequest, body);
         if (!input) return error(400, 'invalid_request', 'Invalid task update');
+        if (input.assignee !== undefined) {
+          if (
+            input.assignee !== null &&
+            !this.config.team.members.some((member) => member.handle === input.assignee)
+          )
+            return error(400, 'unknown_member', 'Unknown member');
+          const live = this.taskSessions(task.key).find(
+            (session) => !['exited', 'failed'].includes(session.state),
+          );
+          if (live) return error(409, 'task_session_live', 'A session is still live', { sessionId: live.id });
+          if (input.assignee !== task.assignee)
+            this.addTimeline(task.key, this.owner, 'task_assigned', {
+              assignee: input.assignee,
+              previous: task.assignee,
+            });
+        }
+        const fields = Object.keys(input).filter((field) => field !== 'assignee');
+        if (fields.length) this.addTimeline(task.key, this.owner, 'task_updated', { fields });
         this.updateTask(task.key, input);
       }
       return ok({
@@ -399,6 +440,20 @@ export class MockBackend {
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/start$/.exec(rest)) && method === 'POST') {
       return this.startTask(m[1]!, body);
     }
+
+    if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/(cancel|reopen)$/.exec(rest)) && method === 'POST') {
+      return this.taskLifecycle(m[1]!, m[2]!, body);
+    }
+    if (rest === '/roles') {
+      if (method === 'GET') return ok({ roles: this.roleCatalogue() });
+      if (method === 'POST') return this.saveRole(undefined, body);
+    }
+    if ((m = /^\/roles\/([a-z][a-z0-9_]+)$/.exec(rest))) {
+      if (method === 'PUT') return this.saveRole(m[1]!, body);
+      if (method === 'DELETE') return this.deleteRole(m[1]!);
+    }
+    if ((m = /^\/members\/([a-z0-9-]+)$/.exec(rest)) && method === 'PATCH')
+      return this.editMember(m[1]!, body);
 
     if (rest === '/members') {
       if (method === 'POST') return this.hire(body);
@@ -441,6 +496,145 @@ export class MockBackend {
 
   /* ---------- mutations ---------- */
 
+  private roleCatalogue(): RoleView[] {
+    return [
+      ...clone(fixtures.builtInRoles),
+      ...this.config.team.roles.map(({ instructions: _instructions, ...role }) => ({
+        ...role,
+        builtIn: false,
+      })),
+    ];
+  }
+
+  private validateRole(id: string, kind: 'human' | 'ai'): MockResponse | null {
+    const role = this.roleCatalogue().find((entry) => entry.id === id);
+    if (!role) return error(400, 'unknown_role', 'Unknown role');
+    if (!holdersAllow(role.holders, kind))
+      return error(
+        400,
+        kind === 'ai' ? 'role_not_for_ai' : 'role_not_for_human',
+        'Role does not allow this member kind',
+      );
+    return null;
+  }
+
+  private roleUsage(id: string, holders?: 'human' | 'ai' | 'both') {
+    return {
+      members: this.config.team.members
+        .filter(
+          (member) =>
+            (member.kind === 'ai' ? member.role === id : member.roles.includes(id)) &&
+            (!holders || !holdersAllow(holders, member.kind)),
+        )
+        .map((member) => member.handle),
+      tempWorkers:
+        this.config.team.limits.tempWorkers.role === id && (!holders || !holdersAllow(holders, 'ai')),
+    };
+  }
+
+  private saveRole(id: string | undefined, body: unknown): MockResponse {
+    const input = parseBody(CustomRoleRequest, body);
+    if (!input) return error(400, 'invalid_request', 'Invalid role');
+    if (id && input.id !== id) return error(400, 'role_id_mismatch', 'Role id differs');
+    if (isBuiltInRole(input.id))
+      return error(id ? 400 : 409, id ? 'builtin_role' : 'custom_role_shadows_builtin', 'Built-in role');
+    const index = this.config.team.roles.findIndex((role) => role.id === input.id);
+    if (id && index < 0) return error(404, 'not_found', 'Unknown role');
+    if (!id && index >= 0) return error(409, 'duplicate_role', 'Duplicate role');
+    const usage = this.roleUsage(input.id, input.holders);
+    if (usage.members.length || usage.tempWorkers) return error(409, 'role_in_use', 'Role is in use', usage);
+    if (id) this.config.team.roles[index] = input;
+    else this.config.team.roles.push(input);
+    this.commitConfig(`${id ? 'Update' : 'Add'} role ${input.id}`);
+    return { status: id ? 200 : 201, body: this.roleCatalogue().find((role) => role.id === input.id) };
+  }
+
+  private deleteRole(id: string): MockResponse {
+    if (isBuiltInRole(id)) return error(400, 'builtin_role', 'Built-in role');
+    if (!this.config.team.roles.some((role) => role.id === id))
+      return error(404, 'not_found', 'Unknown role');
+    const usage = this.roleUsage(id);
+    if (usage.members.length || usage.tempWorkers) return error(409, 'role_in_use', 'Role is in use', usage);
+    this.config.team.roles = this.config.team.roles.filter((role) => role.id !== id);
+    this.commitConfig(`Remove role ${id}`);
+    return ok();
+  }
+
+  private editMember(handle: string, body: unknown): MockResponse {
+    const input = parseBody(UpdateMemberRequest, body);
+    if (!input) return error(400, 'invalid_request', 'Invalid member update');
+    const member = this.findMember(handle);
+    const config = this.config.team.members.find((entry) => entry.handle === handle);
+    if (!member || !config) return error(404, 'not_found', 'Unknown member');
+    if (input.roles !== undefined) {
+      if (config.kind !== 'human') return error(400, 'not_human_member', 'Not a human member');
+      for (const role of input.roles) {
+        const failure = this.validateRole(role, 'human');
+        if (failure) return failure;
+      }
+    }
+    if (
+      config.kind !== 'ai' &&
+      (input.specialty !== undefined || input.model !== undefined || input.schedule !== undefined)
+    )
+      return error(400, 'not_ai_member', 'Not an AI member');
+    if (input.displayName !== undefined) member.displayName = config.displayName = input.displayName;
+    if (config.kind === 'human' && input.roles !== undefined)
+      member.roles = config.roles = [...new Set(input.roles)];
+    if (config.kind === 'ai') {
+      if (input.specialty !== undefined) {
+        config.specialty = input.specialty.trim() || undefined;
+        member.specialty = config.specialty ?? null;
+      }
+      if (input.model !== undefined) config.model = input.model;
+      if (input.schedule !== undefined) config.schedule = input.schedule ?? undefined;
+    }
+    this.commitConfig(`Update member ${handle}`);
+    return ok(clone(member));
+  }
+
+  private taskSessions(taskKey: string): Session[] {
+    return this.sessions.filter(
+      (session) => session.workItem.type === 'task' && session.workItem.taskKey === taskKey,
+    );
+  }
+
+  private taskLifecycle(taskKey: string, action: string, body: unknown): MockResponse {
+    const input =
+      action === 'cancel' ? parseBody(CancelTaskRequest, body) : parseBody(ReopenTaskRequest, body);
+    if (!input) return error(400, 'invalid_request', 'Invalid lifecycle request');
+    const task = this.findTask(taskKey);
+    if (!task) return error(404, 'not_found', 'Unknown task');
+    if (action === 'cancel') {
+      if (['done', 'cancelled'].includes(task.status)) return error(409, 'task_closed', 'Task is closed');
+      const previousStatus = task.status;
+      const reason = 'reason' in input ? input.reason : undefined;
+      this.updateTask(taskKey, { status: 'cancelled', closedAt: nowIso() });
+      this.addTimeline(taskKey, this.owner, 'task_updated', {
+        action: 'cancelled',
+        previousStatus,
+        fields: ['status', 'closedAt'],
+        ...(reason === undefined ? {} : { reason }),
+      });
+      for (const session of this.taskSessions(taskKey))
+        if (!['exited', 'failed'].includes(session.state)) this.stopSession(session.id);
+      for (const item of this.inbox.filter((entry) => entry.taskKey === taskKey && entry.state === 'open'))
+        this.upsertInbox({ ...item, state: 'cancelled' });
+      for (const member of this.members)
+        member.currentTaskKeys = member.currentTaskKeys.filter((key) => key !== taskKey);
+    } else {
+      if (task.status !== 'cancelled') return error(409, 'task_not_cancelled', 'Task is not cancelled');
+      const previousAssignee = task.assignee;
+      this.updateTask(taskKey, { status: 'active', closedAt: null, assignee: null });
+      this.addTimeline(taskKey, this.owner, 'task_updated', {
+        action: 'reopened',
+        previousAssignee,
+        fields: ['status', 'closedAt', 'assignee'],
+      });
+    }
+    return ok(clone(task));
+  }
+
   private createTask(body: unknown): MockResponse {
     const input = parseBody(CreateTaskRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid task');
@@ -476,6 +670,7 @@ export class MockBackend {
     const input = parseBody(StartTaskRequest, body);
     const task = this.findTask(taskKey);
     if (!task || !input) return error(404, 'not_found', 'Unknown task');
+    if (['done', 'cancelled'].includes(task.status)) return error(409, 'task_closed', 'Task is closed');
     const developers = this.members.filter((member) => member.kind === 'ai' && member.role === 'developer');
     const assignee =
       input.assignee ??
@@ -510,6 +705,7 @@ export class MockBackend {
     if (member) member.currentTaskKeys = [...member.currentTaskKeys, task.key];
     this.setMemberState(assignee, 'working', `Indul: ${task.key}`);
     this.later(900, () => {
+      if (session.state === 'exited' || task.status === 'cancelled') return;
       this.updateSession(session.id, { state: 'working', activity: 'Read: README.md' });
       this.appendChat(session.id, [
         this.chatItem('user_text', { text: `Task ${task.key}: ${task.title}\n\n${task.description}` }),
@@ -517,6 +713,7 @@ export class MockBackend {
       ]);
     });
     this.later(2600, () => {
+      if (session.state === 'exited' || task.status === 'cancelled') return;
       const call = this.chatItem('tool_call', {
         toolUseId: mockId('toolu'),
         name: 'Read',
@@ -525,7 +722,7 @@ export class MockBackend {
       });
       this.appendChat(session.id, [call]);
       this.later(700, () => {
-        if (call.kind !== 'tool_call') return;
+        if (call.kind !== 'tool_call' || session.state === 'exited' || task.status === 'cancelled') return;
         this.appendChat(session.id, [
           this.chatItem('tool_result', { toolUseId: call.toolUseId, ok: true, summary: '88 sor' }),
         ]);
@@ -544,14 +741,16 @@ export class MockBackend {
   private hire(body: unknown): MockResponse {
     const input = parseBody(HireMemberRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid hire request');
+    const failure = this.validateRole(input.role, 'ai');
+    if (failure) return failure;
     const taken = (candidate: string) => this.members.some((member) => member.handle === candidate);
-    if (input.handle && taken(input.handle)) return error(409, 'conflict', 'Handle already taken');
+    if (input.handle && taken(input.handle)) return error(409, 'handle_taken', 'Handle already taken');
     const base = input.role === 'developer' ? 'dev' : input.role.replace(/_/g, '-');
     let handle = input.handle ?? base;
     for (let n = 2; taken(handle); n += 1) handle = `${base}-${n}`;
     const member: MemberView = {
       handle,
-      displayName: input.displayName ?? handle,
+      displayName: input.displayName ?? this.roleCatalogue().find((role) => role.id === input.role)!.name,
       kind: 'ai',
       role: input.role,
       roles: [input.role],
@@ -573,6 +772,7 @@ export class MockBackend {
       permissionMode: 'default',
       capacity: 1,
       instructions: '',
+      schedule: input.schedule,
       sponsor: this.owner,
       temp: false,
     };
@@ -609,13 +809,19 @@ export class MockBackend {
     const input = parseBody(SendMessageRequest, body);
     const session = this.findSession(sessionId);
     if (!session || !input) return error(404, 'not_found', 'Unknown session');
+    const taskKey = session.workItem.type === 'task' ? session.workItem.taskKey : null;
+    if (taskKey && ['done', 'cancelled'].includes(this.findTask(taskKey)?.status ?? ''))
+      return error(409, 'task_closed', 'Task is closed');
+    const stops = this.sessionStops.get(sessionId);
     const wasIdle = session.state !== 'working';
     this.later(wasIdle ? 350 : 1500, () => {
+      if (this.sessionStops.get(sessionId) !== stops) return;
       this.appendChat(sessionId, [this.chatItem('user_text', { text: input.text })]);
       this.updateSession(sessionId, { state: 'working', activity: null, endedAt: null });
       this.setMemberState(session.member, 'working', 'Válaszol');
     });
     this.later(wasIdle ? 2200 : 3400, () => {
+      if (this.sessionStops.get(sessionId) !== stops) return;
       this.appendChat(sessionId, [
         this.chatItem('assistant_text', {
           text: 'Rendben, megnézem. Ha kész, jelzek a csapatnak, és ide is visszaírok.',
@@ -630,6 +836,7 @@ export class MockBackend {
   private stopSession(sessionId: string): MockResponse {
     const session = this.findSession(sessionId);
     if (!session) return error(404, 'not_found', 'Unknown session');
+    this.sessionStops.set(sessionId, (this.sessionStops.get(sessionId) ?? 0) + 1);
     this.updateSession(sessionId, { state: 'exited', activity: null, endedAt: nowIso() });
     this.appendChat(sessionId, [this.chatItem('system_note', { text: 'A session leállt.' })]);
     if (session.workItem.type === 'task') {
@@ -670,6 +877,8 @@ export class MockBackend {
   private afterResolve(item: InboxItem, input: ResolveInboxRequest): void {
     const sessionId = item.sessionId;
     const source = item.source;
+    if (item.taskKey && this.findTask(item.taskKey)?.status === 'cancelled') return;
+    if (sessionId && this.findSession(sessionId)?.state === 'exited') return;
     if (item.kind === 'permission') {
       const allowed = input.optionId !== 'deny';
       if (item.taskKey) {
@@ -715,6 +924,7 @@ export class MockBackend {
         this.updateSession(sessionId, { state: 'working', activity: null });
         this.setMemberState(source, 'working', 'Folytatja');
         this.later(1200, () => {
+          if (this.findSession(sessionId)?.state === 'exited') return;
           this.appendChat(sessionId, [
             this.chatItem('assistant_text', { text: 'Lefutott, folytatom a munkát.' }),
           ]);
@@ -724,6 +934,7 @@ export class MockBackend {
       this.updateSession(sessionId, { state: 'working', activity: 'mcp__team__send_message' });
       this.setMemberState(source, 'working', 'Szól a Code review-nak');
       this.later(1400, () => {
+        if (this.findSession(sessionId)?.state === 'exited') return;
         this.appendChat(sessionId, [
           this.chatItem('assistant_text', {
             text: 'Feltöltve. Szólok a Code review-nak: ha nem blokkol, jöhet az integration, utána a QA újrateszt.',
@@ -779,6 +990,7 @@ export class MockBackend {
       this.updateSession(sessionId, { state: 'working', activity: null });
       this.setMemberState(source, 'working', 'Folytatja a válasz alapján');
       this.later(1800, () => {
+        if (this.findSession(sessionId)?.state === 'exited') return;
         this.appendChat(sessionId, [
           this.chatItem('assistant_text', { text: 'Köszönöm, ennek megfelelően folytatom.' }),
         ]);
@@ -813,6 +1025,7 @@ export class MockBackend {
       }
       this.setMemberState(source, 'working', 'Élesít');
       this.later(1800, () => {
+        if (task.status === 'cancelled') return;
         this.updateTask(task.key, { stageId: 'done', status: 'done', closedAt: nowIso() });
         this.addTimeline(task.key, source, 'task_note', { text: 'Élesen: release-2026-09-30.1' });
         this.addTimeline(task.key, source, 'task_stage_changed', { from: 'release', to: 'done' });

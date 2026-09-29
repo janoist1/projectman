@@ -16,5 +16,6 @@ export const queryKeys = {
   inbox: (key: string) => ['project', key, 'inbox'] as const,
   messages: (key: string) => ['project', key, 'messages'] as const,
   members: (key: string) => ['project', key, 'members'] as const,
+  roles: (key: string) => ['project', key, 'roles'] as const,
   config: (key: string) => ['project', key, 'config'] as const,
 };

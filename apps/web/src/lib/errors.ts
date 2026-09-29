@@ -11,7 +11,24 @@ export function codeMessage(code: string): string | null {
 export function errorMessage(error: unknown): string {
   if (isApiError(error)) {
     const known = codeMessage(error.code);
-    if (known) return known;
+    if (known) {
+      if (error.code === 'role_in_use' && error.details && typeof error.details === 'object') {
+        const details = error.details as { members?: unknown; tempWorkers?: unknown };
+        const handles = Array.isArray(details.members)
+          ? details.members.filter((value): value is string => typeof value === 'string')
+          : [];
+        return [
+          known,
+          handles.length
+            ? t('roleCatalogue.members', { handles: handles.join(t('common.listSeparator')) })
+            : '',
+          details.tempWorkers === true ? t('roleCatalogue.tempWorkers') : '',
+        ]
+          .filter(Boolean)
+          .join(' ');
+      }
+      return known;
+    }
     if (error.code === 'invalid_response') return t('errors.invalidResponse');
     if (error.isNetworkError) return t('errors.network');
     if (error.status === 401) return t('errors.unauthorized');

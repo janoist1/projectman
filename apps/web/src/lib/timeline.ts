@@ -73,6 +73,13 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
     case 'task_created':
       return normal(t('timeline.events.task_created'));
     case 'task_updated': {
+      if (d.action === 'cancelled')
+        return normal(
+          d.reason
+            ? t('timeline.events.task_cancelled_reason', { reason: str(d.reason) })
+            : t('timeline.events.task_cancelled'),
+        );
+      if (d.action === 'reopened') return normal(t('timeline.events.task_reopened'));
       // Gate outcomes are recorded as task updates by the server.
       const request = record(d.gateRequest);
       if (request) {
@@ -103,14 +110,19 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
           to: stageName(ctx, str(d.to)),
         }),
       );
-    case 'task_assigned':
+    case 'task_assigned': {
+      const assignment = d.assignee
+        ? t('timeline.events.task_assigned', { assignee: nameOf(str(d.assignee), ctx.members, ctx.myHandle) })
+        : t('timeline.events.task_unassigned');
       return normal(
-        d.assignee
-          ? t('timeline.events.task_assigned', {
-              assignee: nameOf(str(d.assignee), ctx.members, ctx.myHandle),
+        d.previous
+          ? t('timeline.events.assignment_previous', {
+              assignment,
+              previous: nameOf(str(d.previous), ctx.members, ctx.myHandle),
             })
-          : t('timeline.events.task_unassigned'),
+          : assignment,
       );
+    }
     case 'task_check_changed':
       return normal(checkLine(str(d.check), str(d.to)));
     case 'task_link_added':

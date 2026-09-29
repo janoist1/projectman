@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import type { Session, Task } from '@projectman/shared';
+import type { Task } from '@projectman/shared';
 import { useInbox, useResolveInbox, useStartTask, useTaskDetail } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
@@ -12,7 +12,7 @@ import { Markdown } from '../../components/Markdown';
 import { StageProgress } from '../../components/StageProgress';
 import { ErrorState, LoadingState } from '../../components/States';
 import { Timeline } from '../../components/Timeline';
-import { useToast } from '../../components/Toast';
+import { useToast } from '../../components/toastContext';
 import { formatAgo } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
 import { errorMessage, isApprovalRequested, isGateBlocked } from '../../lib/errors';
@@ -22,34 +22,12 @@ import { useDocumentTitle } from '../../lib/hooks';
 import { nameOf, namesOf } from '../../lib/members';
 import { isDeveloperRole } from '../../lib/roles';
 import type { MemberIndex } from '../../lib/members';
-import { nextStage, stagePosition } from '../../lib/pipeline';
-import type { PipelineIndex } from '../../lib/pipeline';
+import { stagePosition } from '../../lib/pipeline';
 import { InboxCard } from '../inbox/InboxCard';
 import { prChip } from './cardModel';
+import { nextStepText, primarySession } from './taskModel';
 import { useBoardModel } from './useBoardModel';
 import styles from './TaskDrawer.module.css';
-
-/** The session to open for a task: the assignee's latest, otherwise the latest one. */
-export function primarySession(task: Task, sessions: readonly Session[]): Session | null {
-  const sorted = [...sessions].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-  return sorted.find((session) => session.member === task.assignee) ?? sorted[0] ?? null;
-}
-
-export function nextStepText(
-  task: Task,
-  pipeline: PipelineIndex,
-  members: MemberIndex,
-  myHandle: string | null,
-): string | null {
-  if (task.status === 'done' || task.status === 'cancelled') return null;
-  const next = nextStage(pipeline, task.stageId);
-  if (!next) return t('task.lastStage');
-  if (next.owners.length === 0) return t('task.nextStageNoOwner', { stage: next.name });
-  return t('task.nextStage', {
-    stage: next.name,
-    owners: joinNames(namesOf(next.owners, members, myHandle)),
-  });
-}
 
 function StartPanel({ task, members }: { task: Task; members: MemberIndex }) {
   const { key, myHandle } = useProject();

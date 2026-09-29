@@ -7,7 +7,7 @@ import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
 import { ChoiceCard, SelectField, TextAreaField, TextField } from '../../components/Field';
-import { useToast } from '../../components/Toast';
+import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import styles from './NewTaskDialog.module.css';

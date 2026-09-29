@@ -18,7 +18,7 @@ interface StyleOptions {
   className?: string;
 }
 
-export function buttonClass({
+function buttonClass({
   variant = 'secondary',
   size = 'lg',
   fullWidth,

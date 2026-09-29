@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import type { BoardView } from '@projectman/shared';
-import { useConnectionStatus } from '../api/SocketProvider';
+import { useConnectionStatus } from '../api/socketHooks';
 import { AvatarStack } from '../components/Avatar';
 import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';

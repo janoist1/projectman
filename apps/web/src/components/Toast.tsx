@@ -1,23 +1,17 @@
 import clsx from 'clsx';
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { t } from '../i18n/t';
 import { Icon } from './Icon';
+import { ToastContext } from './toastContext';
+import type { ToastTone } from './toastContext';
 import styles from './Toast.module.css';
-
-type ToastTone = 'ok' | 'error' | 'info';
 
 interface ToastEntry {
   id: number;
   message: string;
   tone: ToastTone;
 }
-
-interface ToastApi {
-  show(message: string, tone?: ToastTone): void;
-}
-
-const ToastContext = createContext<ToastApi>({ show: () => {} });
 
 /** Short confirmations ("Felvéve: QA 2") and errors, announced politely to screen readers. */
 export function ToastProvider({ children }: { children: ReactNode }) {
@@ -66,8 +60,4 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       </div>
     </ToastContext.Provider>
   );
-}
-
-export function useToast(): ToastApi {
-  return useContext(ToastContext);
 }

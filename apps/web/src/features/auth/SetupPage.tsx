@@ -9,21 +9,9 @@ import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { useDocumentTitle } from '../../lib/hooks';
 import { AuthLayout } from './AuthLayout';
+import { validateSetup } from './validation';
+import type { SetupErrors } from './validation';
 import styles from './AuthLayout.module.css';
-
-interface Errors {
-  name?: string;
-  email?: string;
-  password?: string;
-}
-
-export function validateSetup(values: { name: string; email: string; password: string }): Errors {
-  const errors: Errors = {};
-  if (!values.name.trim()) errors.name = t('auth.validation.nameRequired');
-  if (!/^\S+@\S+\.\S+$/.test(values.email.trim())) errors.email = t('auth.validation.emailInvalid');
-  if (values.password.length < 8) errors.password = t('auth.validation.passwordShort');
-  return errors;
-}
 
 /** First run: creates the owner account. */
 export function SetupPage() {
@@ -32,7 +20,7 @@ export function SetupPage() {
   const setup = useSetup();
   const navigate = useNavigate();
   const [values, setValues] = useState({ name: '', email: '', password: '' });
-  const [errors, setErrors] = useState<Errors>({});
+  const [errors, setErrors] = useState<SetupErrors>({});
 
   if (status.isPending) return <LoadingState />;
   if (status.data && !status.data.needsSetup) return <Navigate to="/" replace />;

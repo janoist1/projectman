@@ -2,7 +2,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { useEffect, useRef, useState } from 'react';
-import { useSocket } from '../../api/SocketProvider';
+import { useSocket } from '../../api/socketHooks';
 import { Spinner } from '../../components/States';
 import { t } from '../../i18n/t';
 import styles from './TerminalView.module.css';

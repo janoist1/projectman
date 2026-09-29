@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Outlet, useParams } from 'react-router';
 import { isApiError } from '../api/client';
 import { useBoard, useConfig, useInbox } from '../api/queries';
-import { useProjectSubscription } from '../api/SocketProvider';
+import { useProjectSubscription } from '../api/socketHooks';
 import { ButtonLink } from '../components/Button';
 import { EmptyState } from '../components/States';
 import { NewTaskDialog } from '../features/board/NewTaskDialog';

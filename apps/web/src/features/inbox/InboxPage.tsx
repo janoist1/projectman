@@ -7,12 +7,13 @@ import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Icon } from '../../components/Icon';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
-import { useToast } from '../../components/Toast';
+import { useToast } from '../../components/toastContext';
 import { formatAgo, formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
 import {
   decisionSubject,
+  detailsHrefFor,
   isAssignedTo,
   isPositiveResolution,
   newestFirst,
@@ -24,12 +25,6 @@ import { InboxCard } from './InboxCard';
 import styles from './InboxPage.module.css';
 
 type KindFilter = 'all' | InboxKind;
-
-export function detailsHrefFor(item: InboxItem, projectKey: string): string | null {
-  if (item.sessionId) return `/p/${projectKey}/sessions/${item.sessionId}`;
-  if (item.taskKey) return `/p/${projectKey}/tasks/${item.taskKey}`;
-  return null;
-}
 
 function RecentDecisions({
   items,

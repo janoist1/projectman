@@ -128,3 +128,10 @@ export function isAssignedTo(item: InboxItem, handle: string | null): boolean {
 export function newestFirst<T extends { createdAt: string }>(items: readonly T[]): T[] {
   return [...items].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
+
+/** Where "Részletek" leads: the session that asked, else the task. */
+export function detailsHrefFor(item: InboxItem, projectKey: string): string | null {
+  if (item.sessionId) return `/p/${projectKey}/sessions/${item.sessionId}`;
+  if (item.taskKey) return `/p/${projectKey}/tasks/${item.taskKey}`;
+  return null;
+}

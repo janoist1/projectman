@@ -6,7 +6,7 @@ import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { ChoiceCard } from '../../components/Field';
 import { Dialog } from '../../components/Dialog';
-import { useToast } from '../../components/Toast';
+import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { roleLabel } from '../../lib/members';

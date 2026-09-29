@@ -1,14 +1,13 @@
 import { CheckName, CheckState } from '@projectman/shared';
-import type { Session, Task, TimelineEvent } from '@projectman/shared';
+import type { Session, Task } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
 import { Chip } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
 import { t } from '../../i18n/t';
 import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
-import type { PipelineIndex } from '../../lib/pipeline';
-import { describeEvent } from '../../lib/timeline';
 import { githubUrl, pullRequestLink } from '../board/cardModel';
+import type { Participant } from './participants';
 import styles from './SessionPanels.module.css';
 
 const prStates = ['open', 'merged', 'closed', 'draft'] as const;
@@ -88,40 +87,6 @@ export function PrPanel({ task, session }: { task: Task | null; session: Session
       ) : null}
     </section>
   );
-}
-
-interface Participant {
-  handle: string;
-  what: string;
-}
-
-export function participantsFor(
-  session: Session,
-  task: Task | null,
-  timeline: readonly TimelineEvent[],
-  pipeline: PipelineIndex | null,
-  members: MemberIndex,
-  myHandle: string | null,
-): Participant[] {
-  const list = new Map<string, string>();
-  list.set(session.member, t('session.participantSession'));
-  if (task?.assignee && !list.has(task.assignee)) list.set(task.assignee, t('session.participantAssignee'));
-  const latest = [...timeline].reverse();
-  for (const event of latest) {
-    const handle = event.actor.handle;
-    if (!handle || list.has(handle)) continue;
-    list.set(
-      handle,
-      t('session.participantActivity', {
-        text: describeEvent(event, { pipeline, members, myHandle, openInboxIds: new Set() }).text,
-      }),
-    );
-  }
-  const stage = task && pipeline ? pipeline.stageById.get(task.stageId) : undefined;
-  for (const owner of stage?.owners ?? []) {
-    if (!list.has(owner)) list.set(owner, t('session.participantOwner', { stage: stage?.name ?? '' }));
-  }
-  return [...list.entries()].slice(0, 8).map(([handle, what]) => ({ handle, what }));
 }
 
 export function ParticipantsPanel({

@@ -8,7 +8,7 @@ import { Button } from '../../components/Button';
 import { Chip } from '../../components/Chip';
 import { Dialog } from '../../components/Dialog';
 import { ErrorState, LoadingState } from '../../components/States';
-import { useToast } from '../../components/Toast';
+import { useToast } from '../../components/toastContext';
 import { formatStamp } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';

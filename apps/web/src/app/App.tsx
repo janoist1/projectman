@@ -1,9 +1,9 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { Suspense, lazy, useState } from 'react';
 import type { ComponentType } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
-import { isApiError } from '../api/client';
 import { useProjects } from '../api/queries';
+import { createQueryClient } from '../api/queryClient';
 import { ButtonLink } from '../components/Button';
 import { EmptyState, ErrorState, LoadingState } from '../components/States';
 import { ToastProvider } from '../components/Toast';
@@ -36,20 +36,6 @@ const inboxPage = lazyPage(() => import('../features/inbox/InboxPage'), 'InboxPa
 const teamPage = lazyPage(() => import('../features/team/TeamPage'), 'TeamPage');
 const messagesPage = lazyPage(() => import('../features/messages/MessagesPage'), 'MessagesPage');
 const settingsPage = lazyPage(() => import('../features/settings/SettingsPage'), 'SettingsPage');
-
-export function createQueryClient(): QueryClient {
-  return new QueryClient({
-    defaultOptions: {
-      queries: {
-        staleTime: 30_000,
-        refetchOnWindowFocus: true,
-        retry: (count, error) =>
-          !(isApiError(error) && error.status >= 400 && error.status < 500) && count < 2,
-      },
-      mutations: { retry: false },
-    },
-  });
-}
 
 /** "/" → the last visited project, the first project, or project creation. */
 function HomeRedirect() {

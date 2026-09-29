@@ -5,11 +5,8 @@ import { useMe, useSetupStatus } from '../api/queries';
 import { SocketProvider } from '../api/SocketProvider';
 import { ErrorState, LoadingState } from '../components/States';
 import { MeContext } from './contexts';
+import { loginPath } from './paths';
 import styles from './AuthGate.module.css';
-
-export function loginPath(next: string): string {
-  return next && next !== '/' ? `/login?next=${encodeURIComponent(next)}` : '/login';
-}
 
 /**
  * Lets the app through once the owner account exists and the user is logged in;

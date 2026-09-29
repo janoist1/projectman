@@ -1,0 +1,87 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 0 14px 16px;
+}
+
+.stages {
+  list-style: none;
+  margin: 0 -14px;
+  padding: 0 14px 2px;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.stage {
+  height: 30px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border-radius: 15px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-line-strong);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.stageDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c-accent);
+}
+
+.stageDot[data-stage-kind='queue'] {
+  background: var(--c-mark-ready);
+}
+.stageDot[data-stage-kind='review'],
+.stageDot[data-stage-kind='deploy'],
+.stageDot[data-stage-kind='test'] {
+  background: var(--role-qa-fg);
+}
+.stageDot[data-stage-kind='client_test'] {
+  background: var(--role-comm-fg);
+}
+.stageDot[data-stage-kind='merge'],
+.stageDot[data-stage-kind='release'] {
+  background: var(--c-needs);
+}
+.stageDot[data-stage-kind='done'] {
+  background: var(--c-ok);
+}
+
+.stageCount {
+  color: var(--c-ink-4);
+  font-weight: 700;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.groupHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.groupName {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.groupCount {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--c-ink-4);
+}

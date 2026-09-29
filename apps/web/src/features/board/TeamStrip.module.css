@@ -1,0 +1,71 @@
+.strip {
+  flex-shrink: 0;
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 14px 24px 2px;
+  scrollbar-width: thin;
+}
+
+.role,
+.summary {
+  flex: 1 1 0;
+  min-width: 190px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  color: var(--c-ink);
+}
+
+.role:hover,
+.summary:hover {
+  color: var(--c-ink);
+  border-color: var(--c-mark-idle);
+}
+
+.summary {
+  flex: 0 0 auto;
+  min-width: 0;
+  padding-right: 14px;
+  --avatar-ring: var(--c-surface);
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.top {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+
+.name {
+  font-weight: 800;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.status {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--status-text);
+  white-space: nowrap;
+}
+
+.activity {
+  font-size: 12.5px;
+  color: var(--c-ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

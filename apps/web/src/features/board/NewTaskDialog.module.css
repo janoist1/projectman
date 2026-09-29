@@ -1,0 +1,60 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.legend {
+  padding: 0;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--c-ink-2);
+}
+
+.choices {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.error {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--c-blocked-bg);
+  color: var(--c-blocked-text);
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+@media (max-width: 767px) {
+  .row,
+  .choices {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .actions > * {
+    flex: 1 1 auto;
+  }
+}

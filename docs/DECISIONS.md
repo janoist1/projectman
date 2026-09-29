@@ -41,3 +41,17 @@ Agreed with the owner on 2026-09-29, while designing the first version.
     role. The project manager (scheduling: standups, planning, deadlines, reminders, weekly
     report) and the coach (retros, role and process improvement) are separate roles; the
     watchdog's monitoring and the coach's retro come in a later phase.
+15. **OpenAI Codex CLI as a second provider, through its interactive TUI and hooks, on the
+    subscription only.** Each AI member runs in Claude Code or Codex (default Claude Code),
+    on its sponsor's plan: Codex members use the owner's ChatGPT login. Codex runs like
+    Claude Code: the interactive TUI in a PTY, not `codex exec` or the app server (whose
+    docs rule out app-server authentication for commercial or hosted services), so the
+    terminal view, the chat and the inbox approvals work the same. Command hooks forward
+    every event to the runner, and the PermissionRequest hook answers approvals from the
+    inbox. Every setting is a per-process `-c` override; nothing is written to `~/.codex`.
+    The runner strips `CODEX_API_KEY` and `OPENAI_API_KEY` from every session, and refuses
+    to start a session whose provider is not logged in with a subscription (an API-key
+    login counts as not logged in). **Plan usage is per provider**: Claude's from Claude
+    Code's usage probe, ChatGPT's from the rate limits Codex records in its transcripts
+    (nothing is spent to read either), and new work pauses on the plan of the member's own
+    provider.

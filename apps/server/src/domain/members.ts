@@ -1,4 +1,10 @@
-import { AiMemberConfig, holdersAllow, MemberHandle, roleHolders } from '@projectman/shared';
+import {
+  AiMemberConfig,
+  DEFAULT_AGENT_PROVIDER,
+  holdersAllow,
+  MemberHandle,
+  roleHolders,
+} from '@projectman/shared';
 import type {
   Actor,
   HireMemberRequest,
@@ -115,6 +121,7 @@ export class MemberService {
         currentTaskKeys,
         sponsor: m.sponsor,
         temp: m.temp,
+        provider: m.provider ?? DEFAULT_AGENT_PROVIDER,
       };
     });
   }
@@ -169,6 +176,7 @@ export class MemberService {
           }),
         role: req.role,
         ...(req.specialty ? { specialty: req.specialty } : {}),
+        ...(req.provider ? { provider: req.provider } : {}),
         model: req.model ?? defaults.model,
         permissionMode: defaults.permissionMode,
         capacity: defaults.capacity,

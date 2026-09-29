@@ -1,48 +1,68 @@
 import type { FastifyBaseLogger } from 'fastify';
-import type { PlanUsage } from '@projectman/shared';
+import { DEFAULT_AGENT_PROVIDER, type AgentProvider, type PlanUsage } from '@projectman/shared';
 import type { PlanUsageProvider } from '../contracts';
 
-/** Caches the plan usage (fetching it may be slow); failures read as "unknown" (null). */
+interface Entry {
+  value: PlanUsage | null;
+  fetchedAt: number;
+  pending: Promise<PlanUsage | null> | null;
+}
+
+/**
+ * Caches the plan usage per provider (fetching it may be slow); failures read as "unknown"
+ * (null). Claude's usage comes from `provider`; other providers' from `providerFor` (looked
+ * up when needed), and a provider without a source is unknown.
+ */
 export class PlanUsageCache {
   private readonly provider: PlanUsageProvider;
+  private readonly providerFor: ((provider: AgentProvider) => PlanUsageProvider | undefined) | undefined;
   private readonly ttlMs: number;
   private readonly logger: FastifyBaseLogger;
   private readonly now: () => Date;
-  private value: PlanUsage | null = null;
-  private fetchedAt = 0;
-  private pending: Promise<PlanUsage | null> | null = null;
+  private readonly entries = new Map<AgentProvider, Entry>();
 
   constructor(opts: {
     provider: PlanUsageProvider;
+    providerFor?: (provider: AgentProvider) => PlanUsageProvider | undefined;
     logger: FastifyBaseLogger;
     now: () => Date;
     ttlMs?: number;
   }) {
     this.provider = opts.provider;
+    this.providerFor = opts.providerFor;
     this.logger = opts.logger;
     this.now = opts.now;
     this.ttlMs = opts.ttlMs ?? 60_000;
   }
 
-  async get(): Promise<PlanUsage | null> {
-    if (this.fetchedAt > 0 && this.now().getTime() - this.fetchedAt < this.ttlMs) return this.value;
-    this.pending ??= this.provider
+  /** Plan usage of a provider's account (default: Claude). */
+  async get(provider: AgentProvider = DEFAULT_AGENT_PROVIDER): Promise<PlanUsage | null> {
+    const source = provider === 'claude' ? this.provider : this.providerFor?.(provider);
+    if (!source) return null;
+    let entry = this.entries.get(provider);
+    if (!entry) {
+      entry = { value: null, fetchedAt: 0, pending: null };
+      this.entries.set(provider, entry);
+    }
+    const current = entry;
+    if (current.fetchedAt > 0 && this.now().getTime() - current.fetchedAt < this.ttlMs) return current.value;
+    current.pending ??= source
       .get()
       .catch((err: unknown) => {
-        this.logger.warn({ err }, 'plan usage unavailable');
+        this.logger.warn({ err, provider }, 'plan usage unavailable');
         return null;
       })
       .then((value) => {
-        this.value = value;
-        this.fetchedAt = this.now().getTime();
-        this.pending = null;
+        current.value = value;
+        current.fetchedAt = this.now().getTime();
+        current.pending = null;
         return value;
       });
-    return this.pending;
+    return current.pending;
   }
 
   invalidate(): void {
-    this.fetchedAt = 0;
+    for (const entry of this.entries.values()) entry.fetchedAt = 0;
   }
 }
 

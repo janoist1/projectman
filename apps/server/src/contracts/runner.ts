@@ -1,15 +1,20 @@
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
-import type { ChatItem, PlanUsage, SessionState } from '@projectman/shared';
+import type { AgentProvider, ChatItem, PlanUsage, SessionState } from '@projectman/shared';
 
 /**
- * Runs real, interactive Claude Code sessions in pseudo-terminals, on the logged-in
- * user's Claude subscription (never an API key). Owned by src/runner.
+ * Runs real, interactive agent CLI sessions (Claude Code or OpenAI Codex CLI) in
+ * pseudo-terminals, on the logged-in user's subscription (never an API key). Owned by
+ * src/runner.
  */
 
 export interface StartSessionSpec {
   /** Our session id ("ses_..."). */
   sessionId: string;
-  /** Claude Code session UUID. New sessions: `--session-id`; resumed ones: `--resume`. */
+  /**
+   * Conversation id of the agent CLI. Claude Code: the session UUID (`--session-id` for new
+   * sessions, `--resume` for resumed ones). Codex: ignored for new sessions (Codex picks its
+   * own id, reported with a `provider_session_id` event); resumed ones use `codex resume <id>`.
+   */
   claudeSessionId: string;
   resume: boolean;
   cwd: string;
@@ -17,7 +22,10 @@ export interface StartSessionSpec {
   displayName: string;
   model?: string;
   permissionMode?: string;
-  /** Identity, team, rules and memory of the member (`--append-system-prompt`). */
+  /**
+   * Identity, team, rules and memory of the member (Claude Code: `--append-system-prompt`;
+   * Codex: `developer_instructions`).
+   */
   appendSystemPrompt: string;
   /** First user message typed once the session is ready (e.g. the task brief). */
   initialMessage?: string | null;
@@ -32,6 +40,8 @@ export interface StartSessionSpec {
    * outgoing team messages and the recipient of incoming ones.
    */
   member?: string;
+  /** The agent CLI to run (default "claude"). */
+  provider?: AgentProvider;
 }
 
 export type RunnerEvent =
@@ -39,7 +49,36 @@ export type RunnerEvent =
   | { type: 'terminal_data'; sessionId: string; data: string }
   | { type: 'transcript_path'; sessionId: string; path: string }
   | { type: 'chat'; sessionId: string; items: ChatItem[] }
-  | { type: 'exit'; sessionId: string; exitCode: number | null; signal: number | null };
+  | { type: 'exit'; sessionId: string; exitCode: number | null; signal: number | null }
+  /**
+   * The agent CLI's own conversation id, when the runner learns it instead of choosing it
+   * (Codex: from the first hook). Store it as the session's `claudeSessionId` to resume later.
+   */
+  | { type: 'provider_session_id'; sessionId: string; providerSessionId: string }
+  /**
+   * The CLI lost its login mid-session (e.g. "Login expired · Please run /login"). The
+   * session is stopped and ends as `failed` with `message` as its activity.
+   */
+  | { type: 'auth_error'; sessionId: string; provider: AgentProvider; message: string };
+
+/** Login state of an agent CLI, from a check that spends no usage. */
+export interface ProviderStatus {
+  provider: AgentProvider;
+  /**
+   * Logged in with a subscription (Claude plan, ChatGPT plan). False also for an API-key
+   * login, which would bill the API. Null when the check could not tell.
+   */
+  loggedIn: boolean | null;
+  /** How the CLI is logged in, e.g. "claude.ai", "chatgpt", "api_key", "none"; null if unknown. */
+  method: string | null;
+  /** When the check ran (ISO time). */
+  checkedAt: string;
+  /** Why the provider is not usable (English), when `loggedIn` is not true. */
+  detail?: string;
+}
+
+/** Error code of a session start refused because the provider is not logged in. */
+export const PROVIDER_NOT_LOGGED_IN = 'provider_not_logged_in';
 
 export interface RunningSessionInfo {
   sessionId: string;
@@ -64,9 +103,14 @@ export interface SessionRunner {
   onEvent(listener: (event: RunnerEvent) => void): () => void;
   /** Stops every session (server shutdown). */
   shutdown(): Promise<void>;
+  /**
+   * Login state of a provider's CLI (cached briefly). `start` refuses to spawn a session of a
+   * provider that is not logged in, with an error whose `code` is `provider_not_logged_in`.
+   */
+  providerStatus?(provider: AgentProvider, opts?: { refresh?: boolean }): Promise<ProviderStatus>;
 }
 
-/** Tool permission request coming from Claude Code's PermissionRequest hook. */
+/** Tool permission request coming from the CLI's PermissionRequest hook. */
 export interface PermissionRequestInfo {
   sessionId: string;
   toolName: string;
@@ -90,14 +134,15 @@ export interface PermissionBroker {
 
 export interface TranscriptReader {
   /**
-   * Parses a whole Claude Code transcript (JSONL) into chat items. `self` is the handle of
-   * the session's member (sender of outgoing team messages; "unknown" when omitted).
+   * Parses a whole transcript (Claude Code JSONL or Codex rollout JSONL) into chat items.
+   * `self` is the handle of the session's member (sender of outgoing team messages;
+   * "unknown" when omitted).
    */
   read(path: string, opts?: { self?: string }): Promise<ChatItem[]>;
 }
 
 export interface PlanUsageProvider {
-  /** Current plan usage of the logged-in Claude account, or null if unavailable. */
+  /** Current plan usage of the logged-in account (Claude, or ChatGPT for Codex), or null if unavailable. */
   get(): Promise<PlanUsage | null>;
 }
 
@@ -119,14 +164,22 @@ export interface RunnerModuleOptions {
   /**
    * Pre-accept Claude Code's workspace trust dialog for a session's directory (default true).
    * When false, a new directory shows the dialog in the terminal and the session waits there.
+   * Codex sessions always trust their directory for that one process (a `-c` override).
    */
   trustWorkspaces?: boolean;
+  /** Path or name of the OpenAI Codex CLI (default: $CODEX_BIN, else "codex"). Tests pass a fake CLI. */
+  codexBin?: string;
+  /** Codex's home, where it keeps transcripts (default: $CODEX_HOME, else ~/.codex). Read only. */
+  codexHome?: string;
 }
 
 export interface RunnerModule {
   runner: SessionRunner;
   transcripts: TranscriptReader;
+  /** Plan usage of the Claude account. */
   planUsage: PlanUsageProvider;
+  /** Plan usage per provider (`planUsage` for "claude"). */
+  planUsageFor?(provider: AgentProvider): PlanUsageProvider;
   /** Registers POST /hooks/:token (localhost only). */
   registerHookRoutes(app: FastifyInstance): void;
 }

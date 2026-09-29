@@ -68,13 +68,55 @@ const NODE_FORWARDER =
   'const r=m.request(u,{method:"POST",headers:{"content-type":"application/json"},timeout:10000},(s)=>s.resume());' +
   'r.on("error",()=>{});r.on("timeout",()=>r.destroy());r.end(Buffer.concat(c));});';
 
-/** Shell command that forwards a hook payload (stdin) to `url`, printing nothing. */
-export function forwarderCommand(url: string, nodePath: string = process.execPath): string {
+/**
+ * Node fallback of a forwarder that prints the answer: a 200 answer's body goes to stdout
+ * (where a command hook's decision is read). The second argument is the timeout in seconds.
+ */
+const NODE_FORWARDER_PRINT =
+  'const u=process.argv[1];const t=Number(process.argv[2])*1000;const c=[];' +
+  'process.stdin.on("data",(d)=>c.push(d));' +
+  'process.stdin.on("end",()=>{const m=require(u.startsWith("https:")?"https":"http");' +
+  'const r=m.request(u,{method:"POST",headers:{"content-type":"application/json"},timeout:t},' +
+  '(s)=>{if(s.statusCode===200)s.pipe(process.stdout);else s.resume();});' +
+  'r.on("error",()=>{});r.on("timeout",()=>r.destroy());r.end(Buffer.concat(c));});';
+
+export interface ForwarderOptions {
+  /** Print the server's answer (a PermissionRequest decision) instead of discarding it. */
+  printResponse?: boolean;
+  /** How long to wait for the server, in seconds (default 10). */
+  maxTimeS?: number;
+}
+
+/**
+ * Shell command that forwards a hook payload (stdin) to `url`. By default it prints nothing;
+ * with `printResponse` it prints the answer of a successful request and nothing else. It
+ * always exits 0, so a failed request never reads as a hook's own verdict.
+ */
+export function forwarderCommand(
+  url: string,
+  nodePath: string = process.execPath,
+  opts: ForwarderOptions = {},
+): string {
+  if (!opts.printResponse && opts.maxTimeS === undefined) {
+    const curl =
+      `curl -sS -m 10 -o /dev/null -X POST -H 'Content-Type: application/json' ` +
+      `--data-binary @- ${shellQuote(url)}`;
+    const node = `${shellQuote(nodePath)} -e ${shellQuote(NODE_FORWARDER)} ${shellQuote(url)}`;
+    return `if command -v curl >/dev/null 2>&1; then ${curl}; else ${node}; fi >/dev/null 2>&1; exit 0`;
+  }
+  const maxTime = Math.max(1, Math.ceil(opts.maxTimeS ?? 10));
+  if (!opts.printResponse) {
+    const curl =
+      `curl -sS -m ${maxTime} -o /dev/null -X POST -H 'Content-Type: application/json' ` +
+      `--data-binary @- ${shellQuote(url)}`;
+    const node = `${shellQuote(nodePath)} -e ${shellQuote(NODE_FORWARDER)} ${shellQuote(url)}`;
+    return `if command -v curl >/dev/null 2>&1; then ${curl}; else ${node}; fi >/dev/null 2>&1; exit 0`;
+  }
   const curl =
-    `curl -sS -m 10 -o /dev/null -X POST -H 'Content-Type: application/json' ` +
+    `curl -sSf -m ${maxTime} -X POST -H 'Content-Type: application/json' ` +
     `--data-binary @- ${shellQuote(url)}`;
-  const node = `${shellQuote(nodePath)} -e ${shellQuote(NODE_FORWARDER)} ${shellQuote(url)}`;
-  return `if command -v curl >/dev/null 2>&1; then ${curl}; else ${node}; fi >/dev/null 2>&1; exit 0`;
+  const node = `${shellQuote(nodePath)} -e ${shellQuote(NODE_FORWARDER_PRINT)} ${shellQuote(url)} ${maxTime}`;
+  return `if command -v curl >/dev/null 2>&1; then ${curl}; else ${node}; fi 2>/dev/null; exit 0`;
 }
 
 /** The `--settings` object: hooks for every event we need and pre-allowed tools. */

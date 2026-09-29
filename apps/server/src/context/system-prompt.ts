@@ -41,7 +41,10 @@ export function roleLabel(
   return customRoles.find((r) => r.id === role)?.name ?? role;
 }
 
-/** The text passed to `claude --append-system-prompt`: who, with whom, how, on what, within which limits. */
+/**
+ * The member's system prompt (Claude Code: `--append-system-prompt`; Codex:
+ * `developer_instructions`): who, with whom, how, on what, within which limits.
+ */
 export function buildSystemPrompt(input: ContextPackInput, situation: Situation): string {
   return [
     identitySection(input),
@@ -55,12 +58,18 @@ export function buildSystemPrompt(input: ContextPackInput, situation: Situation)
   ].join('\n\n');
 }
 
+/** Codex members differ in a few words: their plan, the tool naming and the project's rules file. */
+function isCodex(member: ContextPackInput['member']): boolean {
+  return member.provider === 'codex';
+}
+
 function identitySection({ project, member }: ContextPackInput): string {
   const sponsor = project.team.members.find((m) => m.handle === member.sponsor);
   const specialty = member.specialty ? ` (${member.specialty})` : '';
+  const plan = isCodex(member) ? 'ChatGPT subscription (Codex)' : 'Claude subscription';
   const lines = [
     '# Who you are',
-    `You are ${member.displayName} (handle ${code(member.handle)}), the ${roleLabel(member.role, project.team.roles)}${specialty} of the ${project.project.name} team (project key ${code(project.project.key)}); you run on ${sponsor?.displayName ?? member.sponsor}'s Claude subscription.`,
+    `You are ${member.displayName} (handle ${code(member.handle)}), the ${roleLabel(member.role, project.team.roles)}${specialty} of the ${project.project.name} team (project key ${code(project.project.key)}); you run on ${sponsor?.displayName ?? member.sponsor}'s ${plan}.`,
     'You are an AI member of a team run by projectman: humans follow your work, answer your questions and make the decisions in its web app.',
   ];
   if (member.temp) {
@@ -141,12 +150,14 @@ function teamSection(input: ContextPackInput): string {
   ].join('\n');
 }
 
-function teamworkSection({ project }: ContextPackInput): string {
+function teamworkSection({ project, member }: ContextPackInput): string {
   const language = project.project.language;
+  const cli = isCodex(member) ? 'Codex' : 'Claude Code';
+  const rules = isCodex(member) ? "The project's AGENTS.md (or CLAUDE.md)" : "The project's CLAUDE.md";
   return [
     '# How the team works',
     '- You are one member of a mixed team of humans and AI members. Every AI member works in a fresh session per work item (a task, a meeting or a general chat); follow-ups about the same task come back to the same session.',
-    '- Work with the others through the team tools (MCP server "team"; in Claude Code they are named mcp__team__<tool>):',
+    `- Work with the others through the team tools (MCP server "team"; in ${cli} they are named mcp__team__<tool>):`,
     '  - send_message: message members by handle; pass the task key when it is about a task. Give the receiver the facts (links, what changed, what is expected next and from whom). Message only when someone has something to do.',
     '  - list_tasks, get_task and list_members: read the board, a task with its recent timeline, or the roster.',
     '  - update_task: move a task to another stage (gates are enforced), record a check result (code_review, security_review, qa, client_test: pending, passed, blocked, failed or retest_needed), add a short note to the timeline, or rewrite its title or description (for example a specification or a technical plan).',
@@ -156,7 +167,7 @@ function teamworkSection({ project }: ContextPackInput): string {
     '  - save_memory: save a durable learning for your future sessions (conventions, pitfalls, where things are). Task status belongs on the task, not in memory.',
     '- Team messages arrive in your session as "[team message from <handle> about <task key>]" followed by the text. Messages without that prefix come from the app (like the kick-off brief) or from a human using it.',
     '- Be concise: facts first, no pleasantries. Send humans only what needs their decision or action.',
-    `- Write messages, notes and questions in ${languageName(language)} (${code(language)}), the project's language. The project's CLAUDE.md decides the language of code, commits and pull requests.`,
+    `- Write messages, notes and questions in ${languageName(language)} (${code(language)}), the project's language. ${rules} decides the language of code, commits and pull requests.`,
     '- Check the primary source (the code, the logs, the task) before you state a fact.',
     '- Other sessions may share a checkout: never switch branches, reset, stash or clean in a working directory that is not your own.',
   ].join('\n');

@@ -8,75 +8,29 @@ import type {
   RunningSessionInfo,
   StartSessionSpec,
 } from '../contracts';
-import type { HookPayload, PermissionHookOutput, PermissionUpdate } from './hook-payload';
-import { sessionPermissionUpdates } from './hook-payload';
+import type { HookPayload } from './hook-payload';
+import { CLAUDE_TIMING } from './providers/claude';
+import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from './providers/types';
 import { nextState, type SessionSignal, type StateSnapshot } from './state';
 import { HeadlessScreen } from './terminal';
-import { INPUT_TOOLS, toolActivity } from './tools';
-import { TranscriptParser } from './transcript/parser';
+import { toolActivity } from './tools';
 import { TranscriptTailer } from './transcript/tailer';
 import { ENTER_KEY, messageKeystrokes } from './typing';
 
-/** Timing of the interaction with the TUI. */
-export const TIMING = {
-  /** Pause after the first SessionStart before typing (the prompt box finishes mounting). */
-  readySettleMs: 400,
-  /** Typing waits this long at most for the TUI to enable bracketed paste. */
-  pasteModeGraceMs: 3_000,
-  /** Pause after Stop before typing the next queued message. */
-  stopSettleMs: 150,
-  /** Pause between the writes that make up one message. */
-  stepDelayMs: 12,
-  /** Pause between the last text and Enter (agent-office uses 120 ms). */
-  enterDelayMs: 120,
-  /** Enter is pressed again if Claude Code did not report the prompt (an autocomplete ate it). */
-  enterRetryMs: 1_500,
-  maxEnterRetries: 2,
-  /** A typed message that never produced UserPromptSubmit stops blocking the queue after this. */
-  submitTimeoutMs: 8_000,
-  /** How often the screen is checked for blocking dialogs (while starting, or while one is up). */
-  startupCheckMs: 1_000,
-  /** Without SessionStart after this long, the session is flagged as needing a look. */
-  startupTimeoutMs: 20_000,
-  /** Graceful stop: SIGTERM, then SIGKILL after this long. */
-  stopTimeoutMs: 5_000,
-  /** Exit waits this long at most for the last transcript lines. */
-  finalReadMs: 1_000,
-};
+/** Timing of the interaction with Claude Code's TUI (other providers bring their own). */
+export const TIMING: SessionTiming = CLAUDE_TIMING;
 
-/**
- * Dialogs that block a session: first-run screens before it can take input, and prompts that
- * can appear around start-up (approving a project's MCP servers). Texts as of Claude Code
- * 2.1.223; the first patterns follow agent-office (MIT, src/server/workers.ts).
- */
-const BLOCKING_SCREENS: Array<[RegExp, string]> = [
-  [
-    /Quick safety check|trust this folder|Do you trust the files/i,
-    'Workspace trust confirmation is waiting in the terminal',
-  ],
-  [
-    /Select login method|Not logged in|Please run \/login/i,
-    'Claude Code is not logged in; log in from the terminal',
-  ],
-  [/Choose the text style/i, 'Claude Code first-run setup is waiting in the terminal'],
-  [/Bypass Permissions mode/i, 'Bypass permissions confirmation is waiting in the terminal'],
-  [/MCP servers? found in this project/i, 'Approval of project MCP servers is waiting in the terminal'],
-  [/Do you want to use this API key/i, 'API key confirmation is waiting in the terminal'],
-  [/Press Enter to continue/i, 'Claude Code is waiting for Enter in the terminal'],
-];
+// Claude Code's screen and permission answers, kept importable from here.
+export { detectBlockingScreen, permissionOutput } from './providers/claude';
 
 /** Dialogs replace the prompt box at the end of the screen content: only look there. */
 const DIALOG_ROWS = 15;
 
-export function detectBlockingScreen(text: string): string | null {
-  for (const [pattern, description] of BLOCKING_SCREENS) if (pattern.test(text)) return description;
-  return null;
-}
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 const DENY_TIMEOUT =
   'No human answered this permission request in time, so it was denied. Continue without it, or ask a human for help.';
 const DENY_FAILED = 'The permission request could not be processed, so it was denied.';
-const DENY_DEFAULT = 'A human denied this permission request.';
 
 export interface SessionDeps {
   logger: FastifyBaseLogger;
@@ -84,7 +38,9 @@ export interface SessionDeps {
   permissionTimeoutMs: number;
   emit(event: RunnerEvent): void;
   /** Called as soon as the process has exited, before the final chat, state and exit events. */
-  onExited(session: ClaudeSession): void;
+  onExited(session: AgentSession): void;
+  /** The CLI lost its login mid-session (before the session is stopped). */
+  onAuthError?(session: AgentSession, message: string): void;
 }
 
 interface QueuedMessage {
@@ -97,17 +53,34 @@ type PermissionEnd = 'timeout' | 'withdrawn' | 'session_exit';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** One interactive Claude Code process in a pseudo-terminal. */
-export class ClaudeSession {
+/**
+ * "Allow for this session" remembered by the runner, for CLIs that cannot be told to remember
+ * it: the same Bash command again, or the same tool for other tools (as Claude Code's fallback).
+ */
+function sessionAllowKey(payload: HookPayload): string | null {
+  const tool = payload.tool_name;
+  if (!tool) return null;
+  const input = payload.tool_input;
+  const command =
+    input && typeof input === 'object' && typeof (input as Record<string, unknown>).command === 'string'
+      ? ((input as Record<string, unknown>).command as string)
+      : null;
+  return tool === 'Bash' ? (command === null ? null : `Bash\u0000${command}`) : tool;
+}
+
+/** One interactive agent CLI process (Claude Code or Codex) in a pseudo-terminal. */
+export class AgentSession {
   readonly id: string;
   readonly spec: StartSessionSpec;
   readonly hookToken: string;
+  readonly adapter: ProviderAdapter;
   readonly screen: HeadlessScreen;
   /** Resolves once the process has exited and every event has been emitted. */
   readonly exited: Promise<void>;
 
   private readonly deps: SessionDeps;
   private readonly log: FastifyBaseLogger;
+  private readonly timing: SessionTiming;
   private proc: pty.IPty | null = null;
   private current: StateSnapshot = { state: 'starting', activity: null };
   private resolveExited!: () => void;
@@ -118,38 +91,61 @@ export class ClaudeSession {
   /** First SessionStart seen (or other proof that the prompt is up). */
   private ready = false;
   private readyAt = 0;
-  /** A prompt reached Claude (UserPromptSubmit): start-up dialogs are over. */
+  /** A prompt reached the CLI (UserPromptSubmit): start-up dialogs are over. */
   private promptSeen = false;
   /** Why the session is flagged as blocked by a dialog in the terminal, if it is. */
   private blockedReason: string | null = null;
+  /** The brief went on the command line: its submission is awaited before anything is typed. */
+  private readonly initialMessageSent: boolean;
 
   private readonly queue: QueuedMessage[] = [];
   private typing = false;
   private notBefore = 0;
-  private awaitingSubmit: { at: number; retries: number; command: boolean } | null = null;
+  private awaitingSubmit: { at: number; retries: number; command: boolean; timeoutMs: number } | null = null;
   private lastPromptAt = 0;
 
   private readonly pendingPermissions = new Map<AbortController, { end: PermissionEnd | null }>();
+  /** Runner-side "allow for this session" answers (see sessionAllowKey). */
+  private readonly sessionAllows = new Set<string>();
 
   private transcriptPath: string | null = null;
   private tailer: TranscriptTailer | null = null;
-  private parser: TranscriptParser | null = null;
+  private parser: TranscriptLineParser | null = null;
+  /** The CLI's own conversation id, when it chooses it (Codex). */
+  private providerSessionId: string | null = null;
+  private authFailure: string | null = null;
 
   private readonly timers = new Set<NodeJS.Timeout>();
   private watchTimer: NodeJS.Timeout | null = null;
   private pumpTimer: NodeJS.Timeout | null = null;
 
-  constructor(args: { spec: StartSessionSpec; hookToken: string; deps: SessionDeps }) {
+  constructor(args: {
+    spec: StartSessionSpec;
+    hookToken: string;
+    adapter: ProviderAdapter;
+    deps: SessionDeps;
+    /** The launch put the initial message on the command line. */
+    initialMessageSent?: boolean;
+  }) {
     this.spec = args.spec;
     this.id = args.spec.sessionId;
     this.hookToken = args.hookToken;
+    this.adapter = args.adapter;
+    this.timing = args.adapter.timing;
     this.deps = args.deps;
     this.log = args.deps.logger;
+    this.initialMessageSent = args.initialMessageSent ?? false;
+    // Known up front when we chose it (Claude) or resume it (both).
+    if (this.adapter.capabilities.presetSessionId || args.spec.resume) {
+      this.providerSessionId = args.spec.claudeSessionId.toLowerCase();
+    }
     this.screen = new HeadlessScreen(args.spec.cols ?? 120, args.spec.rows ?? 40);
     this.exited = new Promise((resolve) => {
       this.resolveExited = resolve;
     });
-    if (args.spec.initialMessage?.trim()) this.enqueue(args.spec.initialMessage).catch(() => undefined);
+    if (args.spec.initialMessage?.trim() && !this.initialMessageSent) {
+      this.enqueue(args.spec.initialMessage).catch(() => undefined);
+    }
   }
 
   get state(): StateSnapshot {
@@ -185,8 +181,23 @@ export class ClaudeSession {
       this.deps.emit({ type: 'terminal_data', sessionId: this.id, data });
     });
     proc.onExit(({ exitCode, signal }) => void this.onExit(exitCode, signal ?? null));
+    if (this.initialMessageSent) {
+      // The CLI submits the brief itself; nothing is typed before it reports the prompt.
+      this.awaitingSubmit = {
+        at: Date.now(),
+        retries: 0,
+        command: true,
+        timeoutMs: this.timing.argumentSubmitTimeoutMs,
+      };
+      this.timer(() => this.checkSubmitted(), this.timing.enterRetryMs);
+    }
     this.startWatch();
     this.emitState();
+  }
+
+  /** Parses a hook body for this session's CLI; null when malformed. */
+  parseHook(body: unknown): HookPayload | null {
+    return this.adapter.parseHook(body);
   }
 
   // ---------------------------------------------------------------- terminal
@@ -239,13 +250,13 @@ export class ClaudeSession {
     if (!this.ready || this.current.state !== 'idle' || this.awaitingSubmit) return;
     const now = Date.now();
     if (now < this.notBefore) return this.schedulePump(this.notBefore - now);
-    if (!this.screen.bracketedPasteMode && now - this.readyAt < TIMING.pasteModeGraceMs) {
+    if (!this.screen.bracketedPasteMode && now - this.readyAt < this.timing.pasteModeGraceMs) {
       return this.schedulePump(100);
     }
     // Until a first prompt got through, a start-up dialog (e.g. approving the project's MCP
     // servers) may cover the prompt box; typing would answer the dialog instead.
     if (!this.promptSeen) {
-      const dialog = detectBlockingScreen(this.screen.screenText(DIALOG_ROWS));
+      const dialog = this.adapter.detectBlockingScreen(this.screen.screenText(DIALOG_ROWS));
       if (dialog) {
         this.blockedReason = dialog;
         this.apply({ kind: 'setup_prompt', description: dialog });
@@ -268,13 +279,18 @@ export class ClaudeSession {
       for (const step of steps) {
         if (this.hasExited) throw new Error(`Session ${this.id} exited before the message was typed`);
         this.write(step);
-        await sleep(TIMING.stepDelayMs);
+        await sleep(this.timing.stepDelayMs);
       }
-      await sleep(TIMING.enterDelayMs);
+      await sleep(this.timing.enterDelayMs);
       if (this.hasExited) throw new Error(`Session ${this.id} exited before the message was typed`);
       this.write(ENTER_KEY);
-      this.awaitingSubmit = { at: Date.now(), retries: 0, command: message.text.trim().startsWith('/') };
-      this.timer(() => this.checkSubmitted(), TIMING.enterRetryMs);
+      this.awaitingSubmit = {
+        at: Date.now(),
+        retries: 0,
+        command: message.text.trim().startsWith('/'),
+        timeoutMs: this.timing.submitTimeoutMs,
+      };
+      this.timer(() => this.checkSubmitted(), this.timing.enterRetryMs);
       message.resolve();
     } catch (err) {
       message.reject(err instanceof Error ? err : new Error(String(err)));
@@ -283,22 +299,22 @@ export class ClaudeSession {
     }
   }
 
-  /** Claude Code did not report the prompt yet: press Enter again, or stop waiting for it. */
+  /** The CLI did not report the prompt yet: press Enter again, or stop waiting for it. */
   private checkSubmitted(): void {
     const pending = this.awaitingSubmit;
     if (!pending || this.hasExited) return;
-    if (Date.now() - pending.at >= TIMING.submitTimeoutMs) {
+    if (Date.now() - pending.at >= pending.timeoutMs) {
       this.log.warn({ sessionId: this.id }, 'typed message was not reported as submitted');
       this.awaitingSubmit = null;
       this.pump();
       return;
     }
     // A slash command reports no UserPromptSubmit and may open a dialog: never press Enter blindly.
-    if (!pending.command && pending.retries < TIMING.maxEnterRetries && this.current.state === 'idle') {
+    if (!pending.command && pending.retries < this.timing.maxEnterRetries && this.current.state === 'idle') {
       pending.retries += 1;
       this.write(ENTER_KEY);
     }
-    this.timer(() => this.checkSubmitted(), TIMING.enterRetryMs);
+    this.timer(() => this.checkSubmitted(), this.timing.enterRetryMs);
   }
 
   // ---------------------------------------------------------------- hooks
@@ -307,16 +323,25 @@ export class ClaudeSession {
    * Handles one hook call. Returns the JSON body to answer with, or null for an empty 200.
    * `withdrawn` aborts when the caller stops waiting (the HTTP request closed).
    */
-  async handleHook(payload: HookPayload, withdrawn: AbortSignal): Promise<PermissionHookOutput | null> {
+  async handleHook(payload: HookPayload, withdrawn: AbortSignal): Promise<unknown> {
     if (this.hasExited) return null;
+    const subagent = this.adapter.isSubagentHook(payload);
     this.noteTranscript(payload);
+    if (!subagent) this.noteProviderSessionId(payload);
+    const authError = this.adapter.hookAuthError(payload);
+    if (authError) {
+      this.authFailed(authError);
+      return null;
+    }
+    // A subagent's approval still needs an answer; its other hooks say nothing about the session.
+    if (subagent && payload.hook_event_name !== 'PermissionRequest') return null;
     // The typing delay is set before any transition to idle, which starts the queue.
     switch (payload.hook_event_name) {
       case 'SessionStart': {
         const first = !this.ready;
         this.markReady();
         if (payload.source === 'clear') this.awaitingSubmit = null;
-        this.schedulePump(first ? TIMING.readySettleMs : TIMING.stopSettleMs);
+        this.schedulePump(first ? this.timing.readySettleMs : this.timing.stopSettleMs);
         this.apply({ kind: 'session_start', source: payload.source ?? null, first });
         return null;
       }
@@ -332,7 +357,7 @@ export class ClaudeSession {
         this.apply({
           kind: 'pre_tool',
           activity: toolActivity(name, payload.tool_input, this.spec.cwd),
-          needsInput: INPUT_TOOLS.has(name),
+          needsInput: this.adapter.inputTools.has(name),
         });
         return null;
       }
@@ -343,7 +368,7 @@ export class ClaudeSession {
       case 'PermissionRequest':
         return this.permissionRequest(payload, withdrawn);
       case 'Notification':
-        this.schedulePump(TIMING.stopSettleMs);
+        this.schedulePump(this.timing.stopSettleMs);
         this.apply({
           kind: 'notification',
           type: payload.notification_type ?? null,
@@ -351,12 +376,17 @@ export class ClaudeSession {
         });
         return null;
       case 'Stop':
-        this.schedulePump(TIMING.stopSettleMs);
+        this.schedulePump(this.timing.stopSettleMs);
         this.apply({ kind: 'stop' });
         return null;
       case 'StopFailure':
-        this.schedulePump(TIMING.stopSettleMs);
+        this.schedulePump(this.timing.stopSettleMs);
         this.apply({ kind: 'stop_failure', error: typeof payload.error === 'string' ? payload.error : null });
+        return null;
+      case 'Interrupt':
+        // Codex reports Esc with its own hook (Claude Code only in the transcript).
+        this.schedulePump(this.timing.stopSettleMs);
+        this.apply({ kind: 'interrupted' });
         return null;
       default:
         return null;
@@ -371,16 +401,30 @@ export class ClaudeSession {
     this.stopWatch();
   }
 
-  private async permissionRequest(
-    payload: HookPayload,
-    withdrawn: AbortSignal,
-  ): Promise<PermissionHookOutput | null> {
+  /** A CLI that picks its own conversation id reports it with every hook (Codex). */
+  private noteProviderSessionId(payload: HookPayload): void {
+    if (this.adapter.capabilities.presetSessionId) return;
+    const id = payload.session_id?.toLowerCase();
+    if (!id || id === this.providerSessionId) return;
+    if (!UUID_RE.test(id)) {
+      this.log.warn({ sessionId: this.id, providerSessionId: id }, 'unexpected conversation id from a hook');
+      return;
+    }
+    this.providerSessionId = id;
+    this.deps.emit({ type: 'provider_session_id', sessionId: this.id, providerSessionId: id });
+  }
+
+  private async permissionRequest(payload: HookPayload, withdrawn: AbortSignal): Promise<unknown> {
     const toolName = payload.tool_name ?? 'unknown';
     const activity = toolActivity(toolName, payload.tool_input, this.spec.cwd);
-    if (INPUT_TOOLS.has(toolName)) {
-      // A question for whoever is at the terminal: Claude Code shows its own dialog.
+    if (this.adapter.inputTools.has(toolName)) {
+      // A question for whoever is at the terminal: the CLI shows its own dialog.
       this.apply({ kind: 'pre_tool', activity, needsInput: true });
       return null;
+    }
+    const allowKey = this.adapter.capabilities.sessionPermissionRules ? null : sessionAllowKey(payload);
+    if (allowKey && this.sessionAllows.has(allowKey)) {
+      return this.adapter.permissionOutput({ behavior: 'allow' }, payload);
     }
 
     const controller = new AbortController();
@@ -407,12 +451,15 @@ export class ClaudeSession {
           )
           .then(resolve, reject);
       });
-      return permissionOutput(decision, payload);
+      if (allowKey && decision.behavior === 'allow' && decision.rememberForSession) {
+        this.sessionAllows.add(allowKey);
+      }
+      return this.adapter.permissionOutput(decision, payload);
     } catch (err) {
-      if (entry.end === 'timeout') return denyOutput(DENY_TIMEOUT);
+      if (entry.end === 'timeout') return this.adapter.denyOutput(DENY_TIMEOUT);
       if (entry.end) return null; // nobody is waiting for the answer any more
       this.log.error({ err, sessionId: this.id, toolName }, 'permission broker failed');
-      return denyOutput(DENY_FAILED);
+      return this.adapter.denyOutput(DENY_FAILED);
     } finally {
       clearTimeout(timeout);
       withdrawn.removeEventListener('abort', onWithdrawn);
@@ -436,8 +483,12 @@ export class ClaudeSession {
     const first = this.transcriptPath === null;
     this.transcriptPath = path;
     this.deps.emit({ type: 'transcript_path', sessionId: this.id, path });
+    this.adapter.noteTranscript?.(path);
     this.tailer?.stop();
-    const parser = new TranscriptParser({ self: this.spec.member ?? null, cwd: this.spec.cwd });
+    const parser = this.adapter.createTranscriptParser({
+      self: this.spec.member ?? null,
+      cwd: this.spec.cwd,
+    });
     this.parser = parser;
     // A resumed conversation's history is known already: follow only what comes next.
     const tailer = new TranscriptTailer({
@@ -450,22 +501,46 @@ export class ClaudeSession {
     void tailer.start();
   }
 
-  private onTranscriptLines(parser: TranscriptParser, lines: string[]): void {
+  private onTranscriptLines(parser: TranscriptLineParser, lines: string[]): void {
     if (parser !== this.parser) return;
-    const { items, interruptedAt } = parser.parseLines(lines);
+    const { items, interruptedAt, authError } = parser.parseLines(lines);
     if (items.length > 0) this.deps.emit({ type: 'chat', sessionId: this.id, items });
+    if (authError) {
+      this.authFailed(authError);
+      return;
+    }
     // Esc during a turn ends it without a Stop hook; the transcript records the interruption.
     if (interruptedAt && Date.parse(interruptedAt) >= this.lastPromptAt && !this.hasExited) {
-      this.schedulePump(TIMING.stopSettleMs);
+      this.schedulePump(this.timing.stopSettleMs);
       this.apply({ kind: 'interrupted' });
     }
+  }
+
+  // ---------------------------------------------------------------- login failures
+
+  /**
+   * The CLI lost its login mid-session: it can only sit idle now. The session is reported,
+   * marked failed with the CLI's message and stopped; a later message resumes the
+   * conversation once the owner has logged in again.
+   */
+  private authFailed(message: string): void {
+    if (this.authFailure !== null || this.hasExited) return;
+    this.authFailure = message;
+    this.log.warn(
+      { sessionId: this.id, provider: this.adapter.provider, message },
+      'agent CLI lost its login',
+    );
+    this.deps.onAuthError?.(this, message);
+    this.deps.emit({ type: 'auth_error', sessionId: this.id, provider: this.adapter.provider, message });
+    this.apply({ kind: 'auth_failed', message });
+    void this.stop(false);
   }
 
   // ---------------------------------------------------------------- blocking dialogs
 
   private startWatch(): void {
     if (this.watchTimer || this.hasExited) return;
-    this.watchTimer = setInterval(() => this.checkScreen(), TIMING.startupCheckMs);
+    this.watchTimer = setInterval(() => this.checkScreen(), this.timing.startupCheckMs);
   }
 
   private stopWatch(): void {
@@ -474,17 +549,29 @@ export class ClaudeSession {
   }
 
   /**
-   * Runs while starting (first-run screens, or no SessionStart for too long) and while a
-   * start-up dialog blocks the first message: flags the session as waiting for input in the
-   * terminal, and lets it continue once the dialog is gone.
+   * Runs while starting (first-run screens, no readiness for too long, or, for CLIs whose
+   * readiness shows on screen, the prompt appearing) and while a start-up dialog blocks the
+   * first message: flags the session as waiting for input in the terminal, and lets it
+   * continue once the dialog is gone.
    */
   private checkScreen(): void {
     if (this.hasExited) return this.stopWatch();
-    const dialog = detectBlockingScreen(
+    if (
+      !this.ready &&
+      this.adapter.capabilities.readiness === 'screen' &&
+      this.adapter.promptVisible(this.screen.screenText(DIALOG_ROWS))
+    ) {
+      this.markReady();
+      this.schedulePump(this.timing.readySettleMs);
+      this.apply({ kind: 'session_start', source: null, first: true });
+      return;
+    }
+    const dialog = this.adapter.detectBlockingScreen(
       this.ready ? this.screen.screenText(DIALOG_ROWS) : this.screen.screenText(),
     );
-    const stalled = !this.ready && Date.now() - this.startedAt > TIMING.startupTimeoutMs;
-    const reason = dialog ?? (stalled ? 'Claude Code has not become ready; check the terminal' : null);
+    const stalled = !this.ready && Date.now() - this.startedAt > this.timing.startupTimeoutMs;
+    const reason =
+      dialog ?? (stalled ? `${this.adapter.label} has not become ready; check the terminal` : null);
     if (reason) {
       if (reason !== this.blockedReason) {
         this.blockedReason = reason;
@@ -494,7 +581,7 @@ export class ClaudeSession {
     }
     if (this.blockedReason) {
       this.blockedReason = null;
-      if (this.ready) this.schedulePump(TIMING.readySettleMs);
+      if (this.ready) this.schedulePump(this.timing.readySettleMs);
       this.apply({ kind: 'setup_cleared', ready: this.ready });
     }
     if (this.ready) this.stopWatch();
@@ -507,7 +594,7 @@ export class ClaudeSession {
     if (this.hasExited) return this.exited;
     this.stopRequested = true;
     this.kill(force ? 'SIGKILL' : 'SIGTERM');
-    if (!force) this.timer(() => this.kill('SIGKILL'), TIMING.stopTimeoutMs);
+    if (!force) this.timer(() => this.kill('SIGKILL'), this.timing.stopTimeoutMs);
     return this.exited;
   }
 
@@ -541,7 +628,7 @@ export class ClaudeSession {
     // Pick up the last transcript lines before announcing the exit.
     const tailer = this.tailer;
     if (tailer) {
-      await Promise.race([tailer.poll(), sleep(TIMING.finalReadMs)]);
+      await Promise.race([tailer.poll(), sleep(this.timing.finalReadMs)]);
       tailer.stop();
     }
 
@@ -551,7 +638,10 @@ export class ClaudeSession {
     this.screen.write(note);
     this.deps.emit({ type: 'terminal_data', sessionId: this.id, data: note });
     if (!this.ready)
-      this.log.warn({ sessionId: this.id, exitCode, signal }, 'claude exited before it was ready');
+      this.log.warn(
+        { sessionId: this.id, exitCode, signal, provider: this.adapter.provider },
+        'agent CLI exited before it was ready',
+      );
     this.apply({ kind: 'exit', failed });
     this.deps.emit({ type: 'exit', sessionId: this.id, exitCode, signal: signal || null });
     this.proc = null;
@@ -594,28 +684,9 @@ export class ClaudeSession {
   }
 }
 
+/** The session class under its original name (Claude Code was the first provider). */
+export type ClaudeSession = AgentSession;
+
 function expandHome(path: string): string {
   return path === '~' || path.startsWith('~/') ? `${os.homedir()}${path.slice(1)}` : path;
-}
-
-function denyOutput(message: string): PermissionHookOutput {
-  return {
-    hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'deny', message } },
-  };
-}
-
-/** The documented PermissionRequest decision JSON for a broker decision. */
-export function permissionOutput(decision: PermissionDecision, payload: HookPayload): PermissionHookOutput {
-  if (decision.behavior === 'deny') return denyOutput(decision.message?.trim() || DENY_DEFAULT);
-  const allow: { behavior: 'allow'; updatedInput?: unknown; updatedPermissions?: PermissionUpdate[] } = {
-    behavior: 'allow',
-  };
-  // Claude Code only accepts an object here; anything else would void the whole decision.
-  const input = decision.updatedInput;
-  if (input !== null && typeof input === 'object' && !Array.isArray(input)) allow.updatedInput = input;
-  if (decision.rememberForSession) {
-    const updates = sessionPermissionUpdates(payload);
-    if (updates.length > 0) allow.updatedPermissions = updates;
-  }
-  return { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: allow } };
 }

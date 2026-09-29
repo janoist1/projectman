@@ -50,9 +50,16 @@
  * - "/exit", double Ctrl+C, Ctrl+D, SIGTERM or SIGHUP: SessionEnd hook, exit code 0.
  * - OSC 9;4 progress (busy/idle) and an OSC 0 title are emitted like Claude Code.
  *
+ * - contains "EXPIRE" (or any prompt while FAKE_CLAUDE_LOGGED_OUT is set): the login is gone:
+ *   an API error entry "Login expired · Please run /login" (isApiErrorMessage), then Stop.
+ *
  * PRINT MODE (-p --input-format stream-json): answers a `control_request` with subtype
  * "get_usage" with a `control_response` (FAKE_CLAUDE_USAGE = JSON of the answer, or a canned
  * one); it never answers prompts. Exits when stdin closes.
+ *
+ * AUTH STATUS (`auth status`): prints `{"loggedIn": true, "authMethod": "claude.ai",
+ * "apiProvider": "firstParty"}`; with FAKE_CLAUDE_LOGGED_OUT set, `loggedIn` is false and
+ * `authMethod` is "none" (exit code 1). FAKE_CLAUDE_AUTH_METHOD overrides the method.
  *
  * DIAGNOSTICS: FAKE_CLAUDE_ARGS_FILE, when set, receives {argv, cwd, env} at start-up (env
  * without values of variables whose name contains KEY, TOKEN or SECRET, which are "<set>").
@@ -83,6 +90,7 @@ function parseArgs(argv) {
     outputFormat: null,
     version: false,
     help: false,
+    positional: [],
   };
   for (let i = 0; i < argv.length; i++) {
     let arg = argv[i];
@@ -142,7 +150,8 @@ function parseArgs(argv) {
         o.help = true;
         break;
       default:
-        break; // accepted and ignored
+        if (!arg.startsWith('-')) o.positional.push(arg);
+        break; // other flags are accepted and ignored
     }
   }
   return o;
@@ -162,6 +171,16 @@ if (process.env.FAKE_CLAUDE_ARGS_FILE) {
 if (opts.version) {
   process.stdout.write(`${VERSION} (Fake Claude Code)\n`);
   process.exit(0);
+}
+if (opts.positional[0] === 'auth' && opts.positional[1] === 'status') {
+  const loggedOut = Boolean(process.env.FAKE_CLAUDE_LOGGED_OUT);
+  const status = {
+    loggedIn: !loggedOut,
+    authMethod: loggedOut ? 'none' : (process.env.FAKE_CLAUDE_AUTH_METHOD ?? 'claude.ai'),
+    apiProvider: 'firstParty',
+  };
+  process.stdout.write(`${JSON.stringify(status, null, 2)}\n`);
+  process.exit(loggedOut ? 1 : 0);
 }
 if (opts.help) {
   process.stdout.write(
@@ -556,6 +575,30 @@ async function interactive() {
     userEntry(text, { promptId: randomUUID() });
     await sleep(text.includes('SLOW') ? 800 : workDelay);
     if (!busy || turn !== myTurn) return;
+
+    if (process.env.FAKE_CLAUDE_LOGGED_OUT || text.includes('EXPIRE')) {
+      // Like Claude Code after its OAuth login expired: an API error message ends the turn.
+      const error = 'Login expired · Please run /login';
+      writeEntry({
+        type: 'assistant',
+        isApiErrorMessage: true,
+        message: {
+          id: `msg_fake_error_${++messageCounter}`,
+          type: 'message',
+          role: 'assistant',
+          model: '<synthetic>',
+          content: [{ type: 'text', text: error }],
+        },
+      });
+      line(`⏺ ${error}`);
+      await runHooks('Stop', { stop_hook_active: false, last_assistant_message: error });
+      if (turn !== myTurn) return;
+      busy = false;
+      progress(false);
+      line();
+      showPrompt();
+      return;
+    }
 
     if (text.includes('PERMISSION')) {
       const ok = await toolCall(

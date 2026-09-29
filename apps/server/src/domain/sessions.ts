@@ -1,5 +1,6 @@
-import { routes } from '@projectman/shared';
+import { DEFAULT_AGENT_PROVIDER, routes } from '@projectman/shared';
 import type {
+  AgentProvider,
   AiMemberConfig,
   ChatItem,
   MemberStatus,
@@ -11,6 +12,7 @@ import type {
   TeamMessage,
   WorkItemRef,
 } from '@projectman/shared';
+import { PROVIDER_NOT_LOGGED_IN } from '../contracts';
 import type {
   ContextPackBuilder,
   MemberMemoryStore,
@@ -23,7 +25,7 @@ import type {
 import { encodeWorkItem } from '../db';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
-import { DomainError, invalid, notFound } from './errors';
+import { conflict, DomainError, invalid, notFound } from './errors';
 import type { MemberService } from './members';
 import type { MessageService } from './messages';
 import type { ConfigChange, ProjectService } from './projects';
@@ -78,6 +80,19 @@ const KEPT_WORKTREE_CODES = new Set(['dirty', 'outside_root', 'not_a_worktree', 
 function errorCode(err: unknown): string | null {
   const code = (err as { code?: unknown } | null)?.code;
   return typeof code === 'string' ? code : null;
+}
+
+/** Codex keeps conversations in rollout files; any other transcript is Claude Code's. */
+function transcriptProvider(path: string): AgentProvider {
+  return /(?:^|\/)rollout-[^/]*\.jsonl(?:\.zst)?$/.test(path) ? 'codex' : 'claude';
+}
+
+function providerNotLoggedIn(provider: AgentProvider, details: Record<string, unknown>, detail?: string) {
+  return conflict(
+    PROVIDER_NOT_LOGGED_IN,
+    `${provider} is not logged in with a subscription${detail ? `: ${detail}` : ''}`,
+    { provider, ...details },
+  );
 }
 
 function workItemLabel(item: WorkItemRef, member: AiMemberConfig): string {
@@ -338,6 +353,9 @@ export class SessionOrchestrator {
     existing: Session | null,
   ): Promise<EnsureSessionResult> {
     const projectKey = config.project.key;
+    const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
+    // A CLI that is not logged in could only sit at its login screen: refuse before any work.
+    await this.assertProviderReady(provider);
     let cwd = config.project.workspacePath;
     let branch: string | null = null;
     if (task?.repo && usesWorktree(member.role)) {
@@ -389,8 +407,11 @@ export class SessionOrchestrator {
     });
 
     const at = isoNow(this.ctx);
-    // Resume only a conversation that exists (the runner reported its transcript).
-    const resume = Boolean(existing?.transcriptPath);
+    // Resume only a conversation that exists (the runner reported its transcript) and that
+    // belongs to the member's current provider.
+    const resume = Boolean(
+      existing?.transcriptPath && transcriptProvider(existing.transcriptPath) === provider,
+    );
     let session: Session;
     if (existing) {
       session = this.ctx.repos.sessions.update(existing.id, {
@@ -435,6 +456,7 @@ export class SessionOrchestrator {
         initialMessage: resume ? null : pack.initialMessage,
         mcpUrl: `${this.deps.publicBaseUrl}${routes.mcp(token)}`,
         allowedTools: allowedToolsFor(member.role),
+        provider,
       });
       const current = this.ctx.repos.sessions.get(session.id);
       if (current?.state === 'starting' && info.state !== 'starting') {
@@ -448,6 +470,9 @@ export class SessionOrchestrator {
       });
       if (failed) this.publishSession(failed);
       this.recomputeMemberState(projectKey, member.handle);
+      if (errorCode(err) === PROVIDER_NOT_LOGGED_IN) {
+        throw providerNotLoggedIn(provider, { sessionId: session.id }, (err as Error).message);
+      }
       throw new DomainError(
         'session_start_failed',
         `could not start the session: ${(err as Error).message}`,
@@ -472,6 +497,20 @@ export class SessionOrchestrator {
     return { session: fresh, created: !existing, resumed: resume, started: true };
   }
 
+  /** Throws `provider_not_logged_in` when the runner knows the provider's CLI is not logged in. */
+  private async assertProviderReady(provider: AgentProvider): Promise<void> {
+    let status;
+    try {
+      status = await this.deps.runner.providerStatus?.(provider);
+    } catch (err) {
+      this.ctx.logger.warn({ err, provider }, 'could not check the provider login');
+      return;
+    }
+    if (status?.loggedIn === false) {
+      throw providerNotLoggedIn(provider, { method: status.method }, status.detail);
+    }
+  }
+
   private issueToken(session: Session): string {
     this.revokeToken(session.id);
     const token = newToken();
@@ -491,8 +530,15 @@ export class SessionOrchestrator {
     this.tokenBySession.delete(sessionId);
   }
 
-  /** Marks a live session as ended (exit, stop, retire); returns the updated row or null if it had ended. */
-  private markEnded(sessionId: string, exitCode: number | null): Session | null {
+  /**
+   * Marks a live session as ended (exit, stop, retire); returns the updated row or null if it
+   * had ended. `reason` (e.g. a lost login) stays as the session's activity.
+   */
+  private markEnded(
+    sessionId: string,
+    exitCode: number | null,
+    reason: string | null = null,
+  ): Session | null {
     const session = this.ctx.repos.sessions.get(sessionId);
     this.revokeToken(sessionId);
     if (!session || ENDED.has(session.state)) return null;
@@ -500,7 +546,7 @@ export class SessionOrchestrator {
     const state: SessionState = exitCode !== null && exitCode !== 0 ? 'failed' : 'exited';
     const ended = this.ctx.repos.sessions.update(sessionId, {
       state,
-      activity: null,
+      activity: reason,
       endedAt: at,
       lastActivityAt: at,
     })!;
@@ -510,7 +556,7 @@ export class SessionOrchestrator {
       sessionId,
       actor: aiActor(ended.member),
       type: 'session_ended',
-      data: { member: ended.member, exitCode },
+      data: { member: ended.member, exitCode, ...(reason ? { reason } : {}) },
     });
     this.publishSession(ended);
     this.recomputeMemberState(ended.projectKey, ended.member);
@@ -535,7 +581,7 @@ export class SessionOrchestrator {
       switch (event.type) {
         case 'state': {
           if (ENDED.has(event.state)) {
-            this.markEnded(session.id, event.state === 'failed' ? 1 : null);
+            this.markEnded(session.id, event.state === 'failed' ? 1 : null, event.activity);
             return;
           }
           // A late event from a process that already ended must not revive the session.
@@ -566,6 +612,22 @@ export class SessionOrchestrator {
         }
         case 'exit': {
           this.markEnded(session.id, event.exitCode);
+          return;
+        }
+        case 'provider_session_id': {
+          // The CLI chose its own conversation id (Codex): keep it for resuming.
+          if (session.claudeSessionId === event.providerSessionId) return;
+          this.publishSession(
+            this.ctx.repos.sessions.update(session.id, { claudeSessionId: event.providerSessionId })!,
+          );
+          return;
+        }
+        case 'auth_error': {
+          // The runner stops the session; its final state carries the message.
+          this.ctx.logger.warn(
+            { sessionId: session.id, provider: event.provider, message: event.message },
+            'agent CLI lost its login',
+          );
           return;
         }
       }

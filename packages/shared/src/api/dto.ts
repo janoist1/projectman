@@ -3,7 +3,7 @@ import { ChatItem } from '../chat/chat';
 import { MemberSchedule, ProjectConfig, RepoConfig } from '../config/schema';
 import { TimelineEvent } from '../domain/event';
 import { InboxItem } from '../domain/inbox';
-import { HumanAccess, MemberHandle, MemberKind, MemberStatus } from '../domain/member';
+import { AgentProvider, HumanAccess, MemberHandle, MemberKind, MemberStatus } from '../domain/member';
 import { TeamMessage } from '../domain/message';
 import { BoardColumn, Stage, StageId } from '../domain/pipeline';
 import { CustomRoleDefinition, RoleHolders, RoleId } from '../domain/role';
@@ -80,6 +80,8 @@ export const MemberView = z.object({
   currentTaskKeys: z.array(TaskKey),
   sponsor: MemberHandle.nullable(),
   temp: z.boolean(),
+  /** AI members only: the agent CLI the member runs in. */
+  provider: AgentProvider.optional(),
 });
 export type MemberView = z.infer<typeof MemberView>;
 
@@ -91,6 +93,8 @@ export const HireMemberRequest = z.object({
   specialty: z.string().optional(),
   model: z.string().optional(),
   schedule: MemberSchedule.optional(),
+  /** The agent CLI the member runs in (default "claude"). */
+  provider: AgentProvider.optional(),
 });
 export type HireMemberRequest = z.infer<typeof HireMemberRequest>;
 

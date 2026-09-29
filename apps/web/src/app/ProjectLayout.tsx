@@ -4,13 +4,12 @@ import { Outlet, useParams } from 'react-router';
 import { isApiError } from '../api/client';
 import { useBoard, useConfig, useInbox } from '../api/queries';
 import { useProjectSubscription } from '../api/socketHooks';
-import { ButtonLink } from '../components/Button';
-import { EmptyState } from '../components/States';
 import { NewTaskDialog } from '../features/board/NewTaskDialog';
 import { t } from '../i18n/t';
 import { useIsMobile, writeStorage } from '../lib/hooks';
 import { ProjectContext, useMeContext, useMyOpenInbox, useProjectIndexes } from './contexts';
 import type { ProjectContextValue } from './contexts';
+import { NotFoundPage } from './NotFoundPage';
 import { ConnectionBanner, MobileHeader, NavRail, TabBar, TopBar } from './Shell';
 import styles from './Shell.module.css';
 
@@ -65,16 +64,8 @@ export function ProjectLayout() {
   if (board.isError && isApiError(board.error) && board.error.status === 404) {
     return (
       <div className={styles.shell}>
-        <main className={clsx(styles.main, styles.notFound)}>
-          <EmptyState
-            icon="exclamation"
-            title={t('errors.notFound')}
-            action={
-              <ButtonLink to="/" variant="secondary">
-                {t('app.backHome')}
-              </ButtonLink>
-            }
-          />
+        <main className={styles.main}>
+          <NotFoundPage message={t('app.projectNotFound')} />
         </main>
       </div>
     );

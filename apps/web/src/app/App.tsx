@@ -4,14 +4,14 @@ import type { ComponentType } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
 import { useProjects } from '../api/queries';
 import { createQueryClient } from '../api/queryClient';
-import { ButtonLink } from '../components/Button';
-import { EmptyState, ErrorState, LoadingState } from '../components/States';
+import { ErrorState, LoadingState } from '../components/States';
 import { ToastProvider } from '../components/Toast';
 import { BoardPage } from '../features/board/BoardPage';
 import { TaskDrawer } from '../features/board/TaskDrawer';
 import { t } from '../i18n/t';
 import { readStorage } from '../lib/hooks';
 import { AuthGate } from './AuthGate';
+import { NotFoundPage } from './NotFoundPage';
 import { ProjectLayout } from './ProjectLayout';
 import styles from './App.module.css';
 
@@ -51,21 +51,7 @@ function HomeRedirect() {
   return <Navigate to={`/p/${target.key}`} replace />;
 }
 
-export function NotFound() {
-  return (
-    <div className={styles.notFound}>
-      <EmptyState
-        icon="exclamation"
-        title={t('app.notFound')}
-        action={
-          <ButtonLink to="/" variant="secondary">
-            {t('app.backHome')}
-          </ButtonLink>
-        }
-      />
-    </div>
-  );
-}
+const notFound = <NotFoundPage message={t('app.notFound')} />;
 
 export function AppRoutes() {
   return (
@@ -85,10 +71,10 @@ export function AppRoutes() {
           <Route path="team" element={teamPage} />
           <Route path="messages" element={messagesPage} />
           <Route path="settings" element={settingsPage} />
-          <Route path="*" element={<NotFound />} />
+          <Route path="*" element={notFound} />
         </Route>
       </Route>
-      <Route path="*" element={<NotFound />} />
+      <Route path="*" element={notFound} />
     </Routes>
   );
 }

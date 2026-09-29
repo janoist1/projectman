@@ -64,6 +64,7 @@ export function EmptyState({
   body,
   action,
   tone = 'neutral',
+  titleAs: Title = 'span',
   className,
 }: {
   icon?: IconName;
@@ -71,6 +72,8 @@ export function EmptyState({
   body?: string;
   action?: ReactNode;
   tone?: 'neutral' | 'ok';
+  /** Use a heading when the empty state is the whole page. */
+  titleAs?: 'span' | 'h1' | 'h2';
   className?: string;
 }) {
   return (
@@ -79,7 +82,7 @@ export function EmptyState({
         <Icon name={icon} size={22} strokeWidth={2.4} />
       </span>
       <div className={styles.emptyText}>
-        <span className={styles.emptyTitle}>{title}</span>
+        <Title className={styles.emptyTitle}>{title}</Title>
         {body ? <span className={styles.emptyBody}>{body}</span> : null}
       </div>
       {action}

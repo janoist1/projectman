@@ -253,18 +253,16 @@ export class TaskService {
     }
     const note = change.note?.trim() || undefined;
     const wanted = change.labels && unique(change.labels.map((label) => label.trim()).filter(Boolean));
-    const labels = planLabelsOrThrow(
-      config,
-      { ...task, ...patch },
-      wanted
-        ? {
-            add: wanted.filter((label) => !task.labels.includes(label)),
-            remove: task.labels.filter((label) => !wanted.includes(label)),
-          }
-        : { add: change.addLabels, remove: change.removeLabels },
-      actor,
-      note,
-    );
+    const labelChange = wanted
+      ? {
+          add: wanted.filter((label) => !task.labels.includes(label)),
+          remove: task.labels.filter((label) => !wanted.includes(label)),
+        }
+      : { add: change.addLabels, remove: change.removeLabels };
+    // Reassigning in the same change never lifts the self-review rule: both the current and
+    // the new assignee count as authors of the work these labels judge.
+    if (patch.assignee !== undefined) planLabelsOrThrow(config, task, labelChange, actor, note);
+    const labels = planLabelsOrThrow(config, { ...task, ...patch }, labelChange, actor, note);
     const moving = change.stageId !== undefined && change.stageId !== task.stageId;
     if (moving) {
       if (task.status === 'cancelled') throw conflict('task_closed', `task ${task.key} is cancelled`);

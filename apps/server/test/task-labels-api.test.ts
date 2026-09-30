@@ -108,6 +108,25 @@ describe('task labels API', () => {
     },
   );
 
+  it('refuses self-review when the assignee hands the task over in the same change', async () => {
+    const lead = await addHumanAndLogin(h.app, {
+      handle: 'lead',
+      name: 'Lead',
+      access: 'admin',
+      roles: ['qa'],
+    });
+    const { domain } = h.app.projectman;
+    domain.tasks.assign('AR', 'AR-1', 'lead', OWNER_ACTOR);
+    const response = await h.app.inject({
+      method: 'PATCH',
+      url: routes.task('AR', 'AR-1'),
+      headers: { cookie: lead },
+      payload: { assignee: 'owner', labels: ['qa-ok'], note: 'Handing it over as reviewed' },
+    });
+    expect([response.statusCode, response.json().error.code]).toEqual([403, 'self_review_forbidden']);
+    expect(domain.tasks.get('AR', 'AR-1')).toMatchObject({ assignee: 'lead', labels: [] });
+  });
+
   it('keeps approvals and system labels out of reach and plain tags open', async () => {
     for (const label of ['merge-ok', 'pr-merged']) {
       const response = await change({ add: [label] });

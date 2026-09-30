@@ -1,7 +1,10 @@
 import { isApiError } from '../api/client';
 import { t, tDynamic } from '../i18n/t';
 
-/** Message for a server error code (ApiError.code or a websocket error event), if known. */
+/**
+ * Message for a server error code (ApiError.code or a websocket error event), if known. Every
+ * code of the shared ERROR_CODES has one: the locale's `errors.codes` is typed against it.
+ */
 export function codeMessage(code: string): string | null {
   const message = tDynamic(`errors.codes.${code}`, '');
   return message || null;

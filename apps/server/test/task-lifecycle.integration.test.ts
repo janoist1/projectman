@@ -1,80 +1,27 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { FastifyInstance } from 'fastify';
 import { routes } from '@projectman/shared';
 import type { Task, TaskDetail } from '@projectman/shared';
-import { afterEach, expect, it, vi } from 'vitest';
-import { buildApp } from '../src/app';
-import { createTemplateRegistry } from '../src/domain';
-import { createRunnerModule } from '../src/runner';
-import { FAKE_CLAUDE, freePort, waitFor } from '../src/runner/test-helpers';
-import { setupOwner } from './helpers/app-harness';
-import {
-  createFakeMcp,
-  FakeContextBuilder,
-  FakeGithub,
-  FakeMemoryStore,
-  FakeWorktreeManager,
-} from './helpers/fakes';
-import { testTemplate } from './helpers/test-template';
+import { afterEach, expect, it } from 'vitest';
+import { waitFor } from '../src/runner/test-helpers';
+import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
+import type { CliAppHarness } from './helpers/app-harness';
 
-let app: FastifyInstance | undefined;
-let home: string | undefined;
+let h: CliAppHarness | undefined;
 afterEach(async () => {
-  await app?.close();
-  if (home) rmSync(home, { recursive: true, force: true });
-  vi.unstubAllEnvs();
+  await h?.close();
+  h = undefined;
 });
 
 it(
   'cancel stops a live fake-claude session through the HTTP API and keeps its worktree',
   { timeout: 30_000 },
   async () => {
-    home = mkdtempSync(join(tmpdir(), 'pm-task-lifecycle-'));
-    const workspace = join(home, 'workspace');
-    mkdirSync(workspace);
-    const configFile = join(home, '.claude.json');
-    writeFileSync(configFile, JSON.stringify({ numStartups: 1, projects: {} }));
-    vi.stubEnv('FAKE_CLAUDE_CONFIG_FILE', configFile);
-    vi.stubEnv('FAKE_CLAUDE_TRANSCRIPT_DIR', join(home, 'transcripts'));
-    const worktrees = new FakeWorktreeManager(join(home, 'worktrees'));
-    const port = await freePort();
-    app = await buildApp({
-      home,
-      logger: false,
-      webDistDir: null,
-      claudeBin: FAKE_CLAUDE,
-      publicBaseUrl: `http://127.0.0.1:${port}`,
-      modules: {
-        createRunnerModule(options) {
-          const module = createRunnerModule({ ...options, claudeConfigPath: configFile });
-          return { ...module, planUsage: { get: async () => null } };
-        },
-        createMcpModule: (options) => createFakeMcp().create(options),
-        github: new FakeGithub(),
-        contextPackBuilder: new FakeContextBuilder(),
-        memberMemory: new FakeMemoryStore(),
-        worktrees,
-        templates: createTemplateRegistry([testTemplate]),
-      },
-    });
-    await app.listen({ host: '127.0.0.1', port });
+    h = await createAppHarness({ runner: 'fake-cli' });
+    const { app, worktrees } = h;
     const cookie = await setupOwner(app);
     const headers = { cookie };
-    const project = await app.inject({
-      method: 'POST',
-      url: routes.projects(),
-      headers,
-      payload: {
-        key: 'AR',
-        name: 'Acme webshop',
-        workspacePath: workspace,
-        templateId: 'test',
-        repos: [{ name: 'web', path: '.', github: 'acme/web' }],
-      },
-    });
-    expect(project.statusCode).toBe(201);
+    await createProject(h, cookie);
     const created = await app.inject({
       method: 'POST',
       url: routes.tasks('AR'),

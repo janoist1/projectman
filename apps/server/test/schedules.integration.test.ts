@@ -1,59 +1,28 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import type { FastifyInstance } from 'fastify';
 import { routes, ScheduleRun } from '@projectman/shared';
 import { afterEach, expect, it, vi } from 'vitest';
-import { buildApp } from '../src/app';
-import { createTemplateRegistry } from '../src/domain';
-import { createRunnerModule } from '../src/runner';
-import { FAKE_CLAUDE, freePort, waitFor } from '../src/runner/test-helpers';
-import { setupOwner } from './helpers/app-harness';
-import { createFakeMcp, FakeGithub, FakeMemoryStore, FakeWorktreeManager } from './helpers/fakes';
-import { testTemplate } from './helpers/test-template';
+import { waitFor } from '../src/runner/test-helpers';
+import { createAppHarness, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
+import type { CliAppHarness } from './helpers/app-harness';
 
-let app: FastifyInstance | undefined;
-let home: string | undefined;
+let h: CliAppHarness | undefined;
 afterEach(async () => {
-  await app?.close();
-  if (home) rmSync(home, { recursive: true, force: true });
-  vi.unstubAllEnvs();
+  await h?.close();
+  h = undefined;
 });
+
 it(
   'runs a clock-matched schedule in a fake CLI and supports run-now and exit completion',
   { timeout: 30_000 },
   async () => {
-    home = mkdtempSync(join(tmpdir(), 'pm-schedule-cli-'));
-    const workspace = join(home, 'workspace');
-    mkdirSync(workspace);
-    const configFile = join(home, '.claude.json');
-    writeFileSync(configFile, JSON.stringify({ numStartups: 1, projects: {} }));
-    vi.stubEnv('FAKE_CLAUDE_CONFIG_FILE', configFile);
-    vi.stubEnv('FAKE_CLAUDE_TRANSCRIPT_DIR', join(home, 'transcripts'));
-    const worktrees = new FakeWorktreeManager(join(home, 'worktrees'));
-    const port = await freePort();
     let at = new Date('2026-09-30T08:29:30Z');
-    app = await buildApp({
-      home,
+    h = await createAppHarness({
+      runner: 'fake-cli',
       now: () => at,
-      logger: false,
-      webDistDir: null,
-      claudeBin: FAKE_CLAUDE,
-      publicBaseUrl: `http://127.0.0.1:${port}`,
       scheduleTimer: { set: () => null, clear: () => {} },
-      modules: {
-        createRunnerModule(options) {
-          const module = createRunnerModule({ ...options, claudeConfigPath: configFile });
-          return { ...module, planUsage: { get: async () => null } };
-        },
-        createMcpModule: (options) => createFakeMcp().create(options),
-        github: new FakeGithub(),
-        memberMemory: new FakeMemoryStore(),
-        worktrees,
-        templates: createTemplateRegistry([testTemplate]),
-      },
+      // The real context pack types the schedule's prompt as the first message.
+      real: { context: true },
     });
-    await app.listen({ host: '127.0.0.1', port });
+    const { app, worktrees, workspace } = h;
     const cookie = await setupOwner(app);
     const headers = { cookie };
     expect(
@@ -69,10 +38,7 @@ it(
     const prompt = 'Inspect the fictional workspace and report maintenance opportunities.';
     await app.projectman.domain.projects.update(
       'AR',
-      {
-        actor: { kind: 'human', handle: 'owner' },
-        author: { name: 'Owner', email: 'owner@example.com' },
-      },
+      { actor: { kind: 'human', handle: 'owner' }, author: OWNER_LOGIN },
       (config) => {
         config.project.timezone = 'Europe/Budapest';
         return 'Set fictional project timezone';

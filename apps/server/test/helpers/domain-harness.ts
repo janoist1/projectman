@@ -30,7 +30,12 @@ export const OWNER_ACTOR = humanActor('owner');
  * test template.
  */
 export async function createDomainHarness(
-  opts: { adjust?: (config: ProjectConfig) => void; now?: () => Date; scheduleTimer?: ScheduleTimer } = {},
+  opts: {
+    adjust?: (config: ProjectConfig) => void;
+    now?: () => Date;
+    scheduleTimer?: ScheduleTimer;
+    handOffRetryMs?: number;
+  } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'pm-domain-'));
   const workspace = join(dir, 'workspace');
@@ -59,6 +64,7 @@ export async function createDomainHarness(
     now: opts.now,
     scheduleTimer: opts.scheduleTimer,
     doneCleanupDelayMs: 0,
+    handOffRetryMs: opts.handOffRetryMs,
   });
   await domain.start();
   await domain.projects.create(

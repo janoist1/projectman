@@ -88,8 +88,15 @@ describe('human messages wake idle AI members', () => {
       expect(h.runner.started).toHaveLength(before);
       expect(h.repos.messages.pending('AR', 'cr').map((entry) => entry.id)).toContain(message.id);
       expect(info).toHaveBeenCalledWith(
-        expect.objectContaining({ member: 'cr', messageId: message.id }),
-        'team message session start deferred',
+        expect.objectContaining({
+          member: 'cr',
+          reason: {
+            capacity: 'member_at_capacity',
+            concurrency: 'ai_limit_reached',
+            usage: 'plan_usage_paused',
+          }[reason],
+        }),
+        'team message start deferred',
       );
       await flush();
       expect(h.runner.started).toHaveLength(before);

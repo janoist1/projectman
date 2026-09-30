@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { CheckState, taskAuthors } from '@projectman/shared';
 import type { CheckName, Task } from '@projectman/shared';
@@ -23,7 +23,7 @@ import { useDocumentTitle } from '../../lib/hooks';
 import { nameOf, namesOf } from '../../lib/members';
 import { isDeveloperRole } from '../../lib/roles';
 import type { MemberIndex } from '../../lib/members';
-import { stagePosition } from '../../lib/pipeline';
+import { checkForStage, stagePosition } from '../../lib/pipeline';
 import { InboxCard } from '../inbox/InboxCard';
 import { prChip } from './cardModel';
 import { nextStepText, primarySession } from './taskModel';
@@ -91,29 +91,55 @@ function StartPanel({ task, members }: { task: Task; members: MemberIndex }) {
   );
 }
 
-function CheckResult({ task, check }: { task: Task; check: CheckName }) {
+function CheckResult({
+  task,
+  check,
+  open,
+  onToggle,
+  onClose,
+}: {
+  task: Task;
+  check: CheckName;
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+}) {
   const { key, myHandle, can } = useProject();
   const mutation = useSetTaskCheck(key);
   const current = task.checks[check] ?? 'pending';
   const [state, setState] = useState<CheckState>(current);
   const [note, setNote] = useState('');
+  const formId = useId();
   useEffect(() => setState(current), [current]);
   const selfReview = check !== 'client_test' && taskAuthors(task).includes(myHandle ?? '');
   const editable = can.createTasks && Boolean(myHandle) && !['done', 'cancelled'].includes(task.status);
   return (
     <section className={styles.check} aria-label={t(`checks.names.${check}`)}>
-      <h4>{t('checks.line', { name: t(`checks.names.${check}`), state: t(`checks.states.${current}`) })}</h4>
+      <div className={styles.checkRow}>
+        <h4>
+          {t('checks.line', { name: t(`checks.names.${check}`), state: t(`checks.states.${current}`) })}
+        </h4>
+        {editable && !selfReview ? (
+          <Button size="sm" aria-expanded={open} aria-controls={open ? formId : undefined} onClick={onToggle}>
+            {t('task.checks.record')}
+          </Button>
+        ) : null}
+      </div>
       {editable && selfReview ? (
         <p>{t('errors.codes.self_review_forbidden')}</p>
-      ) : editable ? (
+      ) : editable && open ? (
         <form
+          id={formId}
           className={styles.section}
           onSubmit={(event) => {
             event.preventDefault();
             mutation.mutate(
               { taskKey: task.key, body: { check, state, ...(note.trim() ? { note: note.trim() } : {}) } },
               {
-                onSuccess: () => setNote(''),
+                onSuccess: () => {
+                  setNote('');
+                  onClose();
+                },
               },
             );
           }}
@@ -153,21 +179,32 @@ function CheckResult({ task, check }: { task: Task; check: CheckName }) {
 }
 
 function TaskChecks({ task, pipeline }: { task: Task; pipeline: PipelineIndex }) {
+  const stage = pipeline.stageById.get(task.stageId);
+  const stageCheck = stage ? checkForStage(stage) : null;
+  const [openCheck, setOpenCheck] = useState<CheckName | null>(stageCheck);
   const checks = [
-    ...new Set(
-      pipeline.stages.flatMap((stage) =>
+    ...new Set([
+      ...(stageCheck ? [stageCheck] : []),
+      ...pipeline.stages.flatMap((stage) =>
         (stage.gate?.conditions ?? []).flatMap((condition) =>
           condition.type === 'check_passed' ? [condition.check] : [],
         ),
       ),
-    ),
+    ]),
   ];
   if (!checks.length) return null;
   return (
     <section className={styles.section} aria-label={t('task.checks.title')}>
       <h3 className={styles.sectionTitle}>{t('task.checks.title')}</h3>
       {checks.map((check) => (
-        <CheckResult key={`${task.key}:${check}`} task={task} check={check} />
+        <CheckResult
+          key={`${task.key}:${check}`}
+          task={task}
+          check={check}
+          open={openCheck === check}
+          onToggle={() => setOpenCheck(openCheck === check ? null : check)}
+          onClose={() => setOpenCheck(null)}
+        />
       ))}
     </section>
   );
@@ -306,7 +343,7 @@ export function TaskDrawer() {
             </section>
           ) : null}
 
-          <TaskChecks task={task} pipeline={pipeline} />
+          <TaskChecks key={`checks:${task.key}:${task.stageId}`} task={task} pipeline={pipeline} />
 
           {task.description ? (
             <section className={styles.section}>

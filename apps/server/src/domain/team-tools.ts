@@ -429,7 +429,7 @@ export class TeamToolsService implements TeamToolsHandler {
   }
 
   /**
-   * Starts or resumes each recipient's session for the work item and queues the text; the
+   * Wakes each recipient through admission or queues text into its live session; the
    * message counts as delivered once it was typed into every recipient's session.
    */
   private deliverInBackground(
@@ -441,16 +441,7 @@ export class TeamToolsService implements TeamToolsHandler {
     if (recipients.length === 0) return;
 
     for (const handle of recipients) {
-      this.sessions
-        .ensureSession(projectKey, handle, workItem)
-        .then(({ session }) => {
-          const message = this.ctx.repos.messages.get(messageId);
-          if (message && !message.receipts?.find((r) => r.handle === handle)?.deliveredAt)
-            this.sessions.deliverTeamMessage(session, message);
-        })
-        .catch((err: unknown) => {
-          this.ctx.logger.warn({ err, to: handle, messageId }, 'team message delivery failed');
-        });
+      this.sessions.deliverOrStartMessageSession(projectKey, handle, workItem, messageId);
     }
   }
 

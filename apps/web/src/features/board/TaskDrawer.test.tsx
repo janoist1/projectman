@@ -137,6 +137,8 @@ describe('task drawer checks', () => {
       t('checks.line', { name: t('checks.names.qa'), state: t('checks.states.pending') }),
     );
     expect(within(section).queryByRole('region', { name: t('checks.names.security_review') })).toBeNull();
+    expect(within(section).queryByRole('combobox')).toBeNull();
+    fireEvent.click(within(qa).getByRole('button', { name: t('task.checks.record') }));
     fireEvent.change(within(qa).getByLabelText(t('task.checks.state')), { target: { value: 'passed' } });
     fireEvent.change(within(qa).getByLabelText(t('task.checks.note'), { exact: false }), {
       target: { value: 'Acme behavior verified.' },
@@ -153,6 +155,34 @@ describe('task drawer checks', () => {
       body: { check: 'qa', state: 'passed', note: 'Acme behavior verified.' },
     });
   });
+
+  it.each([
+    ['code_review', 'code_review'],
+    ['qa', 'qa'],
+    ['client_test', 'client_test'],
+  ] as const)(
+    'opens the current %s check and switches to only the selected editor',
+    async (stageId, check) => {
+      const project = mockProject();
+      project.backend.updateTask('AC-20', { stageId });
+      project.render(drawer, '/p/AC/tasks/AC-20');
+      const section = await screen.findByRole('region', { name: t('task.checks.title') });
+      const current = within(section).getByRole('region', { name: t(`checks.names.${check}`) });
+      expect(within(current).getByLabelText(t('task.checks.state'))).toBeTruthy();
+      expect(
+        within(current)
+          .getByRole('button', { name: t('task.checks.record') })
+          .getAttribute('aria-expanded'),
+      ).toBe('true');
+      const otherCheck = check === 'qa' ? 'client_test' : 'qa';
+      const other = within(section).getByRole('region', { name: t(`checks.names.${otherCheck}`) });
+      fireEvent.click(within(other).getByRole('button', { name: t('task.checks.record') }));
+      expect(within(current).queryByRole('combobox')).toBeNull();
+      expect(within(section).getAllByRole('combobox')).toHaveLength(1);
+      fireEvent.click(within(other).getByRole('button', { name: t('task.checks.record') }));
+      expect(within(section).queryByRole('combobox')).toBeNull();
+    },
+  );
 
   it.each(['assignee', 'pr_author'] as const)(
     'explains self-review to the %s and keeps client testing available',
@@ -173,6 +203,7 @@ describe('task drawer checks', () => {
       expect(within(qa).getByText(t('errors.codes.self_review_forbidden'))).toBeTruthy();
       expect(within(qa).queryByRole('button')).toBeNull();
       const client = within(section).getByRole('region', { name: t('checks.names.client_test') });
+      fireEvent.click(within(client).getByRole('button', { name: t('task.checks.record') }));
       fireEvent.change(within(client).getByLabelText(t('task.checks.state')), {
         target: { value: 'passed' },
       });
@@ -205,6 +236,7 @@ describe('task drawer checks', () => {
     project.render(drawer, '/p/AC/tasks/AC-20');
     const section = await screen.findByRole('region', { name: t('task.checks.title') });
     const qa = within(section).getByRole('region', { name: t('checks.names.qa') });
+    fireEvent.click(within(qa).getByRole('button', { name: t('task.checks.record') }));
     // The task closes after the drawer has loaded, before the human submits.
     project.backend.findTask('AC-20')!.status = 'done';
     fireEvent.click(within(qa).getByRole('button', { name: t('task.checks.save') }));

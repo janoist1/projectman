@@ -212,6 +212,33 @@ describe('scheduler', () => {
     expect(h.runner.started).toHaveLength(2);
   });
 
+  it('tells a resumed stage owner session which stage the task is in now', async () => {
+    h = await createDomainHarness();
+    await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
+    await start(h, 'AR-1');
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+    const review = await waitFor(
+      () => h.domain.sessions.findRunning('AR', 'cr', { type: 'task', taskKey: 'AR-1' }),
+      { what: 'the reviewer session' },
+    );
+    // The conversation ends with a transcript, so the next start resumes it (without a brief).
+    h.runner.emit({ type: 'transcript_path', sessionId: review.id, path: '/tmp/cr-transcript.jsonl' });
+    h.runner.emit({ type: 'exit', sessionId: review.id, exitCode: 0, signal: null });
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+
+    const notice = await waitFor(
+      () => h.runner.messages.find((m) => m.sessionId === review.id && /Code review/.test(m.text)),
+      { what: 'the notice to the resumed reviewer' },
+    );
+    expect(h.runner.lastStarted()).toMatchObject({
+      sessionId: review.id,
+      resume: true,
+      initialMessage: null,
+    });
+    expect(notice.text).toContain('Task AR-1 is now in stage Code review');
+  });
+
   it('defers the hand-over while admission refuses new AI work', async () => {
     h = await createDomainHarness({ adjust: (c) => void (c.team.limits.maxConcurrentAi = 1) });
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);

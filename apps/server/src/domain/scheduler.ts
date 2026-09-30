@@ -260,6 +260,7 @@ export class Scheduler {
       this.deferredHandOffs.set(key, change);
       this.ctx.logger.info({ taskKey: task.key, stage: stage.id, reason }, 'stage hand-over deferred');
     };
+    let resumed: string | null = null;
     try {
       await this.admit(async () => {
         const free = owners
@@ -268,13 +269,16 @@ export class Scheduler {
           .sort((a, b) => a.load - b.load)[0]?.member;
         if (!free) return defer('member_at_capacity');
         await this.assertCanStartAiWork(config, free.provider ?? DEFAULT_AGENT_PROVIDER);
-        await this.sessions.ensureSession(projectKey, free.handle, workItem);
+        const result = await this.sessions.ensureSession(projectKey, free.handle, workItem);
+        if (result.resumed) resumed = free.handle;
       });
     } catch (err) {
       // Only admission refusals wait for a retry; other failures would fail again.
       if (err instanceof DomainError && DEFERRABLE_CODES.has(err.code)) return defer(err.code);
       throw err;
     }
+    // A resumed session gets no kick-off brief: tell it which stage the task is in now.
+    if (resumed) await this.notifyStageOwner(change, stage, resumed);
   }
 
   /** Tells a member's live task session that the task entered its stage, unless it moved it itself. */

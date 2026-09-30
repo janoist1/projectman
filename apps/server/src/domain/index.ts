@@ -1,6 +1,6 @@
 import type { Me } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
-import type { AuthService } from '../auth/auth-service';
+import type { AuthService } from '../auth';
 import type {
   ConfigStore,
   ContextPackBuilder,

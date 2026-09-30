@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ProjectConfig } from '@projectman/shared';
-import { AuthService } from '../../src/auth/auth-service';
+import { AuthService } from '../../src/auth';
 import { createConfigStore } from '../../src/config';
 import { createRepositories, openDatabase } from '../../src/db';
 import { createDomain, createTemplateRegistry, humanActor } from '../../src/domain';

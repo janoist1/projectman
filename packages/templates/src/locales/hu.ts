@@ -250,25 +250,6 @@ export const hu: TemplateLocale = {
     frontend: 'Frontend',
     backend: 'Backend',
   },
-  templates: {
-    'web-client-project': {
-      name: 'Webes ügyfélprojekt',
-      description:
-        'Ügyfélnek készülő webes projekt: fejlesztők, code review, integration, QA és ügyfélteszt; merge és élesítés emberi döntéssel.',
-    },
-    'small-team': {
-      name: 'Kis csapat',
-      description: 'Egy fejlesztő és egy code review; a tulajdonos dönt a lezárásról.',
-    },
-    'internal-tool': {
-      name: 'Belső eszköz',
-      description: 'Két fejlesztő, code review és QA, ügyfélteszt nélkül; a merge-ről a tulajdonos dönt.',
-    },
-    'daily-routine': {
-      name: 'Napi rutin',
-      description: 'Egy ütemezett munkatárs visszatérő, napi feladatokhoz.',
-    },
-  },
   labels: {
     'code-review-ok': {
       name: 'Code review rendben',

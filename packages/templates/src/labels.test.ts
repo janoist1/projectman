@@ -1,4 +1,4 @@
-import { ProjectConfig, validateProjectConfig } from '@projectman/shared';
+import { DEFAULT_PROJECT_LANGUAGE, ProjectConfig, validateProjectConfig } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
 import { legacyCheckLabels, migrateLegacyConfig, standardLabelsFor } from './labels';
 import { getLocale } from './locales';
@@ -63,6 +63,20 @@ describe('labels', () => {
     expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([]);
     // Idempotent, and a current configuration passes through untouched.
     expect(migrateLegacyConfig(migrated)).toBe(migrated);
+  });
+
+  it('names the labels in the default project language when the configuration has none', () => {
+    const legacy = legacyConfig();
+    delete legacy.project.language;
+    const config = ProjectConfig.parse(migrateLegacyConfig(legacy));
+    expect(config.project.language).toBe(DEFAULT_PROJECT_LANGUAGE);
+    const locale = getLocale(DEFAULT_PROJECT_LANGUAGE);
+    const label = (id: string) => config.pipeline.labels.find((l) => l.id === id)?.name;
+    const merge = config.pipeline.stages.find((s) => s.id === 'merge')!;
+    expect(label('approval-merge')).toBe(locale.stageApproval(merge.name));
+    expect(label('qa-failed')).toBe(locale.labels['qa-failed'].name);
+    expect(label('release-approved')).toBe(locale.labels['release-approved'].name);
+    expect(label('qa-failed')).not.toBe(getLocale('en').labels['qa-failed'].name);
   });
 
   it('maps recorded checks to labels, pending ones to none', () => {

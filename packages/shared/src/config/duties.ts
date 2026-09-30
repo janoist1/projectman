@@ -25,7 +25,8 @@ export function dutyMembers(config: Pick<ProjectConfig, 'team'>, duty: DutyId): 
 export function stageOwners(config: Pick<ProjectConfig, 'team'>, stage: Stage): string[] {
   return stage.owners ?? (stage.duty ? dutyMembers(config, stage.duty).map((m) => m.handle) : []);
 }
-export function taskAuthors(task: Task): string[] {
+/** The task's assignee and the attributed authors of its pull requests. */
+export function taskAuthors(task: Pick<Task, 'assignee' | 'links'>): string[] {
   return [
     ...new Set(
       [task.assignee, ...task.links.filter((l) => l.kind === 'pull_request').map((l) => l.author)].filter(

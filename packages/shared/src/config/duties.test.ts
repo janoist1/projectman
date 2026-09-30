@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DUTIES, DUTY_IDS } from '../domain/duty';
+import { DUTIES, DUTY_GROUPS, DUTY_IDS } from '../domain/duty';
 import { dutyHolders, roleHolders, RoleOverrides } from '../domain/role';
 import { ProjectConfig } from './schema';
 import { dutyMembers, memberDuties, roleBundle, stageOwners } from './duties';
@@ -57,12 +57,13 @@ describe('duty bundles', () => {
       if (DUTIES[id].holders !== 'human') expect(DUTIES[id].prompt).not.toBe('');
       expect(DUTIES[id].events).toBeInstanceOf(Array);
     }
+    for (const group of DUTY_GROUPS) expect(DUTY_IDS.some((id) => DUTIES[id].group === group)).toBe(true);
     expect(dutyHolders(['implementation', 'code_review'])).toBe('both');
     expect(dutyHolders(['implementation', 'release_approval'])).toBe('human');
     expect(dutyHolders([])).toBe('both');
     expect(RoleOverrides.safeParse({ unknown: { duties: [] } }).success).toBe(false);
   });
-  it('unions a human’s roles and resolves stage owners and human gate approvers', () => {
+  it('unions a human’s roles and resolves stage owners and the humans who may set approval labels', () => {
     const c = config();
     expect(memberDuties(c, c.team.members[0]!)).toEqual(
       expect.arrayContaining(['final_decision', 'prioritization', 'release_approval']),
@@ -178,7 +179,7 @@ describe('duty bundles', () => {
       expect(roleHolders('legacy_notes', c.team.roles)).toBe('both');
     },
   );
-  it('loads old custom definitions and preserves explicit stage owners and approvers', () => {
+  it('loads old custom definitions and preserves explicit stage owners and label setters', () => {
     const c = config();
     c.team.roles = [
       {

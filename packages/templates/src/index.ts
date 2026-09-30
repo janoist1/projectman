@@ -11,19 +11,10 @@ import type { ProjectTemplate } from './types';
  */
 
 export type { BuildTemplateInput, ProjectTemplate, TemplateOwner } from './types';
-export { aiMemberDefaults, aiRoleDefaults, CUSTOM_ROLE_DEFAULTS, type AiRoleDefaults } from './roles';
+export { aiMemberDefaults, aiRoleDefaults, type AiRoleDefaults } from './roles';
 export { defaultMemberHandle, defaultMemberName, roleHandleStem, roleName, uniqueHandle } from './members';
 export { DAILY_WORKER_SCHEDULE } from './templates/daily-routine';
-export {
-  hasLabel,
-  isStandardLabel,
-  lacksLabel,
-  legacyCheckLabels,
-  migrateLegacyConfig,
-  STANDARD_LABEL_RULES,
-  standardLabel,
-  standardLabelsFor,
-} from './labels';
+export { legacyCheckLabels, migrateLegacyConfig, standardLabel, standardLabelsFor } from './labels';
 export {
   en,
   getLocale,

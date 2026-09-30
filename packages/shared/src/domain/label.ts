@@ -69,3 +69,11 @@ export function isHumanOnlyLabel(label: Pick<LabelDefinition, 'setBy'>): boolean
 /** Why an actor may not add or remove a label. */
 export const LabelRefusal = z.enum(['system_only', 'humans_only', 'not_holder', 'self_review']);
 export type LabelRefusal = z.infer<typeof LabelRefusal>;
+
+/**
+ * Why labels changed without anyone picking them (`task_labels_changed.reason`): a clear
+ * trigger fired (the task moved back, its pull request changed), the pull request was merged,
+ * or an approver's decision put an approval label on.
+ */
+export const LabelChangeReason = z.enum([...LabelClearTrigger.options, 'pr_merged', 'approval']);
+export type LabelChangeReason = z.infer<typeof LabelChangeReason>;

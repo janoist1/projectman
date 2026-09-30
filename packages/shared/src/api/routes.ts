@@ -1,7 +1,8 @@
 /**
  * HTTP route table shared by the server (registration) and the web app (fetching).
  * All /api routes except setup/login require a session cookie.
- * /hooks and /mcp are internal: localhost only, authenticated by a per-session token.
+ * /mcp (and /hooks, registered by the runner) are internal: localhost only, authenticated by a
+ * per-session token.
  */
 export const routes = {
   providers: () => '/api/providers',
@@ -59,53 +60,5 @@ export const routes = {
   revertConfig: (key: string) => `/api/projects/${key}/config/revert`,
 
   websocket: () => '/ws',
-  hooks: (token: string) => `/hooks/${token}`,
   mcp: (token: string) => `/mcp/${token}`,
-} as const;
-
-/** Methods per route (for documentation and route registration). */
-export const routeMethods = {
-  providers: 'GET',
-  setupStatus: 'GET',
-  setup: 'POST',
-  login: 'POST',
-  logout: 'POST',
-  me: 'GET',
-  templates: 'GET',
-  projects: 'GET | POST',
-  project: 'GET',
-  board: 'GET',
-  tasks: 'GET | POST',
-  task: 'GET | PATCH',
-  taskComments: 'POST',
-  taskLabels: 'POST',
-  startTask: 'POST',
-  cancelTask: 'POST',
-  reopenTask: 'POST',
-  invitations: 'GET | POST',
-  invitation: 'DELETE',
-  invite: 'GET',
-  acceptInvite: 'POST',
-  schedules: 'GET',
-  runSchedule: 'POST',
-  addHumanMember: 'POST',
-  members: 'GET | POST',
-  member: 'PATCH | DELETE',
-  roles: 'GET | POST',
-  role: 'PUT | DELETE',
-  session: 'GET',
-  sessionMessages: 'POST',
-  stopSession: 'POST',
-  sendTeamMessage: 'POST',
-  readTeamMessage: 'POST',
-  memberProfile: 'GET',
-  memberMemories: 'GET',
-  startConversation: 'POST',
-  removeHuman: 'DELETE',
-  teamMessages: 'GET',
-  inbox: 'GET',
-  resolveInbox: 'POST',
-  config: 'GET | PUT',
-  patchConfig: 'PATCH',
-  revertConfig: 'POST',
 } as const;

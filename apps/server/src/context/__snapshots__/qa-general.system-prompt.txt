@@ -70,7 +70,7 @@ A general conversation, not tied to a task: help with what you are asked. If it 
 
 # Your role instructions
 
-Test expected behavior and risky paths in a test environment. Record qa results and reproduction steps; never certify your own work.
+Test expected behavior and risky paths in a test environment. Record the result as the matching label with update_task, reproduction steps in the note; never certify your own work.
 
 # Your memory
 Notes you saved in earlier sessions with save_memory, most recent last. They may be out of date: check facts before you rely on them.

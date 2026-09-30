@@ -11,7 +11,6 @@ import {
 import {
   aiMemberDefaults,
   aiRoleDefaults,
-  CUSTOM_ROLE_DEFAULTS,
   defaultMemberHandle,
   defaultMemberName,
   en,
@@ -60,6 +59,15 @@ describe('aiRoleDefaults', () => {
       AI_BUILT_IN_ROLE_IDS.filter((role) => aiRoleDefaults(role).permissionMode === 'acceptEdits').sort(),
     ).toEqual(WORKTREE_ROLES.sort());
   });
+  it('runs analysts, architects, reviewers, communication and researchers two at a time on opus', () => {
+    const capacity = (n: number) =>
+      AI_BUILT_IN_ROLE_IDS.filter((role) => aiRoleDefaults(role).capacity === n);
+    expect(capacity(2).sort()).toEqual(
+      ['architect', 'business_analyst', 'code_review', 'communication', 'researcher'].sort(),
+    );
+    expect(capacity(1).length + capacity(2).length).toBe(AI_BUILT_IN_ROLE_IDS.length);
+    for (const role of AI_BUILT_IN_ROLE_IDS) expect(aiRoleDefaults(role).model).toBe('opus');
+  });
   it('returns a fresh copy', () => {
     const value = aiRoleDefaults('qa');
     value.capacity = 5;
@@ -83,7 +91,9 @@ describe('aiMemberDefaults', () => {
       permissionMode: 'default',
       capacity: 1,
     });
-    expect(aiMemberDefaults('data_steward', [dataSteward])).not.toBe(CUSTOM_ROLE_DEFAULTS);
+    expect(aiMemberDefaults('data_steward', [dataSteward])).not.toBe(
+      aiMemberDefaults('data_steward', [dataSteward]),
+    );
     expect(aiMemberDefaults('data_steward')).toBeNull();
     expect(aiMemberDefaults('data_steward', [{ ...dataSteward, holders: 'human' }])).toBeNull();
     // A custom role cannot replace a built-in one.
@@ -178,7 +188,7 @@ describe('locales', () => {
       ...Object.values(locale.roles).flatMap((r) => [r.name, r.summary, r.notTheirJob]),
       ...Object.values(locale.members),
       ...Object.values(locale.specialties),
-      ...Object.values(locale.templates).flatMap((t) => [t.name, t.description]),
+      ...Object.values(locale.labels).flatMap((l) => [l.name, l.meaning]),
     ];
     for (const text of texts) expect(text.trim()).not.toBe('');
     expect(Object.keys(locale.roles)).toEqual([...BUILT_IN_ROLE_IDS]);
@@ -209,7 +219,7 @@ describe('locales', () => {
       roles: Object.keys(locale.roles).sort(),
       members: Object.keys(locale.members).sort(),
       specialties: Object.keys(locale.specialties).sort(),
-      templates: Object.keys(locale.templates).sort(),
+      labels: Object.keys(locale.labels).sort(),
     });
     expect(keys(hu)).toEqual(keys(en));
   });

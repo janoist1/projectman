@@ -61,7 +61,8 @@ export interface RoleText {
 /**
  * Default display names a template writes into a new project's configuration (after that
  * they are ordinary configuration data the team may rename), and the texts of the built-in
- * roles.
+ * roles, duties and standard labels. Template names and descriptions are UI texts of the web
+ * app (`TemplateSummary.nameKey` / `descriptionKey`).
  */
 export interface TemplateLocale {
   /** Primary language subtag (BCP 47), e.g. "hu". */
@@ -74,7 +75,6 @@ export interface TemplateLocale {
   roles: Record<BuiltInRoleId, RoleText>;
   members: Record<TemplateMemberKey, string>;
   specialties: Record<SpecialtyKey, string>;
-  templates: Record<TemplateId, { name: string; description: string }>;
   labels: Record<StandardLabelId, { name: string; meaning: string }>;
   /** Name of an approval label generated for a stage, e.g. "Merge: approved". */
   stageApproval: (stageName: string) => string;

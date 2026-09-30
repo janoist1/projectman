@@ -246,25 +246,6 @@ export const en: TemplateLocale = {
     frontend: 'Frontend',
     backend: 'Backend',
   },
-  templates: {
-    'web-client-project': {
-      name: 'Web client project',
-      description:
-        'A web project built for a client: developers, code review, integration, QA and client test; merge and release on a human decision.',
-    },
-    'small-team': {
-      name: 'Small team',
-      description: 'One developer and a code reviewer; the owner decides when work is done.',
-    },
-    'internal-tool': {
-      name: 'Internal tool',
-      description: 'Two developers, code review and QA, no client test; the owner decides on merges.',
-    },
-    'daily-routine': {
-      name: 'Daily routine',
-      description: 'One scheduled member for recurring daily work.',
-    },
-  },
   labels: {
     'code-review-ok': {
       name: 'Code review ok',

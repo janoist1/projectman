@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { AgentEffort } from '../domain/member';
 import { AgentProvider, GithubLogin, HumanAccess, MemberHandle, PermissionMode } from '../domain/member';
 import { Pipeline } from '../domain/pipeline';
+import { DEFAULT_PROVIDER_MODELS } from '../domain/provider-model';
 import { CustomRoleDefinition, RoleId, RoleOverrides } from '../domain/role';
 
 /**
@@ -54,7 +55,7 @@ export const AiMemberConfig = z.object({
    * Model alias or id, e.g. "opus", "sonnet" (Claude Code) or a Codex model id. Claude aliases
    * are ignored for Codex members, which then use Codex's default model.
    */
-  model: z.string().default('opus'),
+  model: z.string().default(DEFAULT_PROVIDER_MODELS.claude),
   /** Agent reasoning effort; omitted values use the provider default. */
   effort: AgentEffort.optional(),
   /** Claude Code permission mode; for Codex members it maps to a sandbox and approval policy. */
@@ -111,6 +112,9 @@ export const RepoConfig = z.object({
 });
 export type RepoConfig = z.infer<typeof RepoConfig>;
 
+/** Language of projects that do not name one (the team's own language). */
+export const DEFAULT_PROJECT_LANGUAGE = 'hu';
+
 export const ProjectConfig = z.object({
   schemaVersion: z.literal(1),
   project: z.object({
@@ -121,7 +125,7 @@ export const ProjectConfig = z.object({
     workspacePath: z.string().min(1),
     repos: z.array(RepoConfig),
     /** Language humans and agents communicate in (BCP 47), e.g. "hu". */
-    language: z.string().default('hu'),
+    language: z.string().default(DEFAULT_PROJECT_LANGUAGE),
     /** IANA time zone of the team, e.g. "Europe/Budapest"; schedules run in it. */
     timezone: z.string().min(1).default('UTC'),
     templateId: z.string().optional(),

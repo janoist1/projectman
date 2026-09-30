@@ -21,16 +21,3 @@ export const ScheduleRun = z.object({
   reason: z.string().nullable(),
 });
 export type ScheduleRun = z.infer<typeof ScheduleRun>;
-export const SchedulesView = z.object({
-  timezone: z.string(),
-  members: z.array(
-    z.object({
-      member: MemberHandle,
-      cron: z.string(),
-      promptSummary: z.string(),
-      nextRun: z.string().nullable(),
-    }),
-  ),
-  runs: z.array(ScheduleRun),
-});
-export type SchedulesView = z.infer<typeof SchedulesView>;

@@ -11,7 +11,7 @@ import {
   type MemberSchedule,
   type Stage,
   type StageKind,
-  type TeamLimits,
+  TeamLimits,
 } from '@projectman/shared';
 import {
   getLocale,
@@ -26,15 +26,10 @@ import { standardLabelsFor } from '../labels';
 import { aiRoleDefaults } from '../roles';
 import type { BuildTemplateInput, ProjectTemplate } from '../types';
 
-/** Limits every factory template starts with. */
-export const DEFAULT_LIMITS: TeamLimits = {
-  aiEnabled: true,
-  maxConcurrentAi: 3,
-  pauseAbovePlanUsagePercent: 80,
-  tempWorkers: { enabled: false, max: 1, role: 'developer' },
-};
+/** Limits every factory template starts with: the schema defaults. */
+export const DEFAULT_LIMITS: TeamLimits = TeamLimits.parse({});
 
-export { hasLabel, lacksLabel } from '../labels';
+export { hasLabel } from '../labels';
 
 export interface HireOptions {
   specialty?: SpecialtyKey;

@@ -132,7 +132,7 @@ export function roleHolders(
   return role ? (role.duties === undefined ? role.holders : dutyHolders(role.duties)) : null;
 }
 
-/** In-memory compatibility for custom roles written before duties existed. */
-export function customRoleDuties(role: Pick<CustomRoleDefinition, 'duties' | 'holders'>): DutyId[] {
+/** Duties of a custom role; roles written before duties existed have none (their holders stay). */
+export function customRoleDuties(role: Pick<CustomRoleDefinition, 'duties'>): DutyId[] {
   return role.duties ?? [];
 }

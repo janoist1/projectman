@@ -7,25 +7,24 @@ import { Chip, StatusDot } from '../../components/Chip';
 import { StageProgress } from '../../components/StageProgress';
 import { formatAgo } from '../../i18n/format';
 import { t } from '../../i18n/t';
-import { nameOf } from '../../lib/members';
-import type { MemberIndex } from '../../lib/members';
 import { stagePosition } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
 import type { TaskState } from '../../lib/taskState';
 import { prChip } from './cardModel';
-import { TaskRepo } from './TaskRepo';
+import { TaskTitle } from './TaskEdit';
+import { TaskLifecycleMenu } from './TaskLifecycle';
 import styles from './TaskHeader.module.css';
 
 /**
- * The drawer's head: the parent task, the stage and PR chips with close, the title, the facts
- * (key, repo, assignee, visibility), the pipeline stepper and where the task stands now.
+ * The drawer's head: the parent task, the stage and PR chips with the "⋯" menu and close, the title
+ * (edited in place), the pipeline stepper and where the task stands now. The other properties sit
+ * below, in the properties rows.
  */
 export function TaskHeader({
   task,
   parent,
   state,
   pipeline,
-  members,
   headingRef,
   onClose,
 }: {
@@ -33,11 +32,10 @@ export function TaskHeader({
   parent: Pick<Task, 'key' | 'title'> | null | undefined;
   state: TaskState;
   pipeline: PipelineIndex;
-  members: MemberIndex;
   headingRef: Ref<HTMLHeadingElement>;
   onClose: () => void;
 }) {
-  const { key, myHandle } = useProject();
+  const { key, can } = useProject();
   const stage = pipeline.stageById.get(task.stageId);
   const column = pipeline.columnOfStage.get(task.stageId);
   const position = stagePosition(pipeline, task.stageId);
@@ -69,20 +67,12 @@ export function TaskHeader({
         ) : (
           prBadge
         )}
+        <span className={styles.key}>{task.key}</span>
         <span className={styles.spacer} />
+        {can.manageTeam ? <TaskLifecycleMenu key={task.key} task={task} /> : null}
         <Button variant="muted" iconOnly icon="close" onClick={onClose} aria-label={t('common.close')} />
       </div>
-      <h2 ref={headingRef} tabIndex={-1} className={styles.title}>
-        {task.title}
-      </h2>
-      <div className={styles.facts}>
-        <span className={styles.key}>{task.key}</span>
-        <TaskRepo key={task.key} task={task} />
-        {task.assignee ? (
-          <span>{t('task.assignee', { name: nameOf(task.assignee, members, myHandle) })}</span>
-        ) : null}
-        <span>{t(`visibility.${task.visibility}`)}</span>
-      </div>
+      <TaskTitle key={task.key} task={task} headingRef={headingRef} />
       <StageProgress pipeline={pipeline} stageId={task.stageId} phase={state.phase} variant="stepper" />
       <div className={styles.now} data-phase={state.phase}>
         <StatusDot phase={state.phase} pulse={state.phase === 'working'} size={9} />

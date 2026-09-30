@@ -1,10 +1,21 @@
-/* The repository select in the drawer's facts: one line, no bigger than the text around it. */
+/* The repository row of the drawer's properties: one line, no bigger than the text around it. The
+   row spans the whole properties grid; its label lines up with the other rows' labels. */
 
 .repo {
-  display: inline-flex;
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
   align-items: center;
-  gap: 6px;
+  column-gap: 8px;
   max-width: 100%;
+}
+
+.repo .select {
+  justify-self: start;
+}
+
+.text {
+  grid-column: 1 / -1;
 }
 
 .select {

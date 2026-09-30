@@ -15,6 +15,71 @@
   color: var(--c-ink-4);
 }
 
+/* The gate conditions a move would have to meet: shown only when there are some. */
+.conditions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--text-sm);
+  color: var(--c-ink-2);
+}
+
+.conditions p,
+.conditions ul {
+  margin: 0;
+}
+
+.conditions ul {
+  padding-left: 18px;
+}
+
+/* The properties block: one tight row per property, label left, value (and a small action) right. */
+.props {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.prop {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--c-ink-2);
+}
+
+.propLabel {
+  font-size: var(--text-xs);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--c-ink-4);
+}
+
+.propValue {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-wrap: anywhere;
+}
+
+.propMuted {
+  color: var(--c-ink-3);
+}
+
+/* Takes the whole row under the label and value (a picker, a form, a list). */
+.propWide {
+  grid-column: 1 / -1;
+}
+
 .error {
   font-size: var(--text-sm);
   font-weight: 700;

@@ -17,6 +17,10 @@ const drawer = (
   </Routes>
 );
 
+/** Opens the "⋯" menu of the rare task actions. */
+const openMenu = async () =>
+  fireEvent.click(await screen.findByRole('button', { name: t('taskLifecycle.title') }));
+
 describe('task drawer lifecycle', () => {
   it.each([
     'ai_limit_reached',
@@ -47,6 +51,7 @@ describe('task drawer lifecycle', () => {
   it('confirms cancellation with a reason, stops live sessions, and reopens unassigned', async () => {
     const project = mockProject();
     project.render(drawer, '/p/AC/tasks/AC-20');
+    await openMenu();
     fireEvent.click(await screen.findByRole('button', { name: t('taskLifecycle.cancel') }));
     expect(project.backend.findTask('AC-20')?.status).toBe('active');
     const dialog = screen.getByRole('dialog');
@@ -54,6 +59,7 @@ describe('task drawer lifecycle', () => {
       target: { value: 'Acme scope changed.' },
     });
     fireEvent.click(within(dialog).getByRole('button', { name: t('taskLifecycle.cancel') }));
+    await openMenu();
     await screen.findByRole('button', { name: t('taskLifecycle.reopen') });
     expect(project.backend.findTask('AC-20')).toMatchObject({ status: 'cancelled', assignee: 'be-1' });
     expect(project.backend.findSession('ses_ac20_be1')?.state).toBe('exited');
@@ -61,7 +67,7 @@ describe('task drawer lifecycle', () => {
       screen.getByText(t('timeline.events.task_cancelled_reason', { reason: 'Acme scope changed.' })),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: t('taskLifecycle.reopen') }));
-    await screen.findByRole('button', { name: t('taskLifecycle.cancel') });
+    await waitFor(() => expect(project.backend.findTask('AC-20')?.status).toBe('active'));
     expect(project.backend.findTask('AC-20')).toMatchObject({
       status: 'active',
       assignee: null,
@@ -73,17 +79,22 @@ describe('task drawer lifecycle', () => {
   it('offers stopping a live session, then allows changing and clearing the assignee', async () => {
     const project = mockProject();
     project.render(drawer, '/p/AC/tasks/AC-20');
-    await screen.findByRole('button', { name: t('taskLifecycle.assign') });
-    fireEvent.change(screen.getByLabelText(t('taskLifecycle.assignee')), { target: { value: 'kata' } });
-    fireEvent.click(screen.getByRole('button', { name: t('taskLifecycle.assign') }));
+    // The select saves on change: there is no save button.
+    const select = (await screen.findByLabelText(t('taskLifecycle.assignee'))) as HTMLSelectElement;
+    expect(screen.queryByRole('button', { name: /Felelős mentése/ })).toBeNull();
+    fireEvent.change(select, { target: { value: 'kata' } });
+    // The live session refuses the change; the pick stays shown next to the way out.
     fireEvent.click(await screen.findByRole('button', { name: t('taskLifecycle.stop') }));
-    await waitFor(() => expect(screen.queryByRole('button', { name: t('taskLifecycle.stop') })).toBeNull());
-    fireEvent.click(screen.getByRole('button', { name: t('taskLifecycle.assign') }));
     await waitFor(() => expect(project.backend.findTask('AC-20')?.assignee).toBe('kata'));
+    expect(screen.queryByRole('button', { name: t('taskLifecycle.stop') })).toBeNull();
     await screen.findByText(/Előző felelős: Backend fejlesztő/);
     fireEvent.change(screen.getByLabelText(t('taskLifecycle.assignee')), { target: { value: '' } });
-    fireEvent.click(screen.getByRole('button', { name: t('taskLifecycle.assign') }));
     await waitFor(() => expect(project.backend.findTask('AC-20')?.assignee).toBeNull());
+    expect(project.requests).toContainEqual({
+      method: 'PATCH',
+      path: '/api/projects/AC/tasks/AC-20',
+      body: { assignee: null },
+    });
   });
   it('hides lifecycle controls from non-admin members', async () => {
     const project = mockProject();
@@ -91,22 +102,44 @@ describe('task drawer lifecycle', () => {
       can: { createTasks: true, manageTeam: false, workInSessions: false },
     });
     await screen.findByText('Napi mentés és visszaállítási próba');
-    expect(screen.queryByRole('button', { name: t('taskLifecycle.cancel') })).toBeNull();
+    expect(screen.queryByRole('button', { name: t('taskLifecycle.title') })).toBeNull();
     expect(screen.queryByLabelText(t('taskLifecycle.assignee'))).toBeNull();
+    // The assignee is still told, as plain text.
+    expect(screen.getByText(t('taskLifecycle.assignee')).parentElement?.textContent).toContain(
+      'Backend fejlesztő',
+    );
   });
 });
 
+/** Opens the small move panel and returns its target select. */
+const openMove = async () => {
+  fireEvent.click(await screen.findByRole('button', { name: t('task.move.open') }));
+  return screen.findByLabelText(t('task.move.target'));
+};
+
 describe('task drawer stage moves', () => {
+  it('keeps the move panel closed until asked, and shows no gate line without conditions', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    const trigger = await screen.findByRole('button', { name: t('task.move.open') });
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByLabelText(t('task.move.target'))).toBeNull();
+    await openMove();
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.queryByText(t('task.move.conditions'))).toBeNull();
+    fireEvent.keyDown(trigger, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByLabelText(t('task.move.target'))).toBeNull());
+  });
   it('defaults to the next stage and moves successfully', async () => {
     const project = mockProject();
     project.render(drawer, '/p/AC/tasks/AC-20');
-    const target = await screen.findByLabelText(t('task.move.target'));
+    const target = await openMove();
     expect((target as HTMLSelectElement).value).toBe('code_review');
     fireEvent.click(screen.getByRole('button', { name: t('task.move.submit') }));
     await waitFor(() => expect(project.backend.findTask('AC-20')?.stageId).toBe('code_review'));
-    await waitFor(() =>
-      expect((screen.getByLabelText(t('task.move.target')) as HTMLSelectElement).value).toBe('integration'),
-    );
+    // The panel closes after the move; opened again it offers the stage after the new one.
+    await waitFor(() => expect(screen.queryByLabelText(t('task.move.target'))).toBeNull());
+    expect(((await openMove()) as HTMLSelectElement).value).toBe('integration');
     expect(project.requests).toContainEqual({
       method: 'PATCH',
       path: '/api/projects/AC/tasks/AC-20',
@@ -116,7 +149,7 @@ describe('task drawer stage moves', () => {
   it('previews gates and lists unmet conditions inline without moving', async () => {
     const project = mockProject();
     project.render(drawer, '/p/AC/tasks/AC-20');
-    fireEvent.change(await screen.findByLabelText(t('task.move.target')), {
+    fireEvent.change(await openMove(), {
       target: { value: 'client_test' },
     });
     expect(screen.getByText(/Integration:/)).toBeTruthy();
@@ -131,7 +164,7 @@ describe('task drawer stage moves', () => {
   it('reports requested approval as information and stays in the original stage', async () => {
     const project = mockProject();
     project.render(drawer, '/p/AC/tasks/AC-17');
-    await screen.findByLabelText(t('task.move.target'));
+    await openMove();
     fireEvent.click(screen.getByRole('button', { name: t('task.move.submit') }));
     expect(await screen.findByText(t('errors.codes.approval_requested'))).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
@@ -149,7 +182,7 @@ describe('task drawer stage moves', () => {
     task.stageId = 'merge';
     task.links[0]!.author = 'owner';
     project.render(drawer, '/p/AC/tasks/AC-28');
-    await screen.findByLabelText(t('task.move.target'));
+    await openMove();
     fireEvent.click(screen.getByRole('button', { name: t('task.move.submit') }));
     expect((await screen.findByRole('alert')).textContent).toBe(t('errors.codes.release_four_eyes'));
     expect(project.backend.findTask('AC-28')?.stageId).toBe('merge');
@@ -164,14 +197,14 @@ describe('task drawer stage moves', () => {
       can: { createTasks: false, manageTeam: false, workInSessions: false },
     });
     await screen.findByText(project.backend.findTask('AC-20')!.title);
-    expect(screen.queryByLabelText(t('task.move.target'))).toBeNull();
+    expect(screen.queryByRole('button', { name: t('task.move.open') })).toBeNull();
   });
   it.each(['done', 'cancelled'] as const)('hides moving for %s tasks', async (status) => {
     const project = mockProject();
     project.backend.updateTask('AC-20', { status });
     project.render(drawer, '/p/AC/tasks/AC-20');
     await screen.findByText(project.backend.findTask('AC-20')!.title);
-    expect(screen.queryByLabelText(t('task.move.target'))).toBeNull();
+    expect(screen.queryByRole('button', { name: t('task.move.open') })).toBeNull();
   });
 });
 
@@ -357,44 +390,62 @@ describe('task editing and subtasks', () => {
   it('edits title and markdown through PATCH and cancels a later draft', async () => {
     const project = mockProject();
     project.render(drawer, '/p/AC/tasks/AC-20');
-    fireEvent.click(await screen.findByRole('button', { name: t('task.edit') }));
-    fireEvent.change(screen.getByLabelText(t('newTask.fields.title')), {
-      target: { value: 'Example updated task' },
+    // The title is edited in place through its pencil; Enter saves.
+    fireEvent.click(await screen.findByRole('button', { name: t('task.editTitle') }));
+    const title = screen.getByLabelText(t('newTask.fields.title'));
+    fireEvent.change(title, { target: { value: 'Example updated task' } });
+    fireEvent.submit(title.closest('form')!);
+    await waitFor(() => expect(project.backend.findTask('AC-20')?.title).toBe('Example updated task'));
+    await screen.findByRole('heading', { name: 'Example updated task' });
+    expect(screen.queryByLabelText(t('newTask.fields.title'))).toBeNull();
+    expect(project.requests).toContainEqual({
+      method: 'PATCH',
+      path: '/api/projects/AC/tasks/AC-20',
+      body: { title: 'Example updated task' },
     });
+
+    // The description has its own pencil and editor.
+    fireEvent.click(screen.getByRole('button', { name: t('task.editDescription') }));
     fireEvent.change(screen.getByLabelText(t('task.description')), {
       target: { value: '**Example description**' },
     });
     fireEvent.click(screen.getByRole('button', { name: t('task.save') }));
     await waitFor(() =>
-      expect(project.backend.findTask('AC-20')).toMatchObject({
-        title: 'Example updated task',
-        description: '**Example description**',
-      }),
+      expect(project.backend.findTask('AC-20')?.description).toBe('**Example description**'),
     );
     expect(project.requests).toContainEqual({
       method: 'PATCH',
       path: '/api/projects/AC/tasks/AC-20',
-      body: {
-        title: 'Example updated task',
-        description: '**Example description**',
-      },
+      body: { description: '**Example description**' },
     });
-    fireEvent.click(await screen.findByRole('button', { name: t('task.edit') }));
+    await screen.findByRole('button', { name: t('task.editDescription') });
+
+    // A cancelled draft leaves the task alone and is not kept.
+    fireEvent.click(screen.getByRole('button', { name: t('task.editTitle') }));
     fireEvent.change(screen.getByLabelText(t('newTask.fields.title')), {
       target: { value: 'Unsaved draft' },
     });
     fireEvent.click(screen.getByRole('button', { name: t('common.cancel') }));
     expect(project.backend.findTask('AC-20')?.title).toBe('Example updated task');
-    fireEvent.click(screen.getByRole('button', { name: t('task.edit') }));
+    fireEvent.click(screen.getByRole('button', { name: t('task.editTitle') }));
     expect((screen.getByLabelText(t('newTask.fields.title')) as HTMLInputElement).value).toBe(
       'Example updated task',
     );
   });
 
+  it('cancels a title edit with Escape without closing the drawer', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    fireEvent.click(await screen.findByRole('button', { name: t('task.editTitle') }));
+    fireEvent.keyDown(screen.getByLabelText(t('newTask.fields.title')), { key: 'Escape' });
+    expect(screen.queryByLabelText(t('newTask.fields.title'))).toBeNull();
+    expect(screen.getByRole('heading', { name: project.backend.findTask('AC-20')!.title })).toBeTruthy();
+  });
+
   it('keeps the edited draft after a save refusal and permits retry', async () => {
     const project = mockProject();
     project.render(drawer, '/p/AC/tasks/AC-20');
-    fireEvent.click(await screen.findByRole('button', { name: t('task.edit') }));
+    fireEvent.click(await screen.findByRole('button', { name: t('task.editTitle') }));
     fireEvent.change(screen.getByLabelText(t('newTask.fields.title')), {
       target: { value: 'Preserved draft' },
     });
@@ -419,6 +470,9 @@ describe('task editing and subtasks', () => {
     expect(within(section).getByRole('link', { name: /AC-21/ }).getAttribute('href')).toBe(
       '/p/AC/tasks/AC-21',
     );
+    // The quick-add form stays folded until the small "+" asks for it.
+    expect(within(section).queryByLabelText(t('task.subtaskTitle'))).toBeNull();
+    fireEvent.click(within(section).getByRole('button', { name: t('task.subtaskNew') }));
     fireEvent.change(within(section).getByLabelText(t('task.subtaskTitle')), {
       target: { value: 'Example child' },
     });
@@ -452,8 +506,34 @@ describe('task editing and subtasks', () => {
       can: { createTasks: false, manageTeam: false, workInSessions: false },
     });
     await screen.findByText(project.backend.findTask('AC-20')!.title);
-    expect(screen.queryByRole('button', { name: t('task.edit') })).toBeNull();
-    expect(screen.queryByLabelText(t('task.subtaskTitle'))).toBeNull();
+    expect(screen.queryByRole('button', { name: t('task.editTitle') })).toBeNull();
+    expect(screen.queryByRole('button', { name: t('task.editDescription') })).toBeNull();
+    expect(screen.queryByRole('button', { name: t('task.subtaskNew') })).toBeNull();
+    expect(screen.queryByRole('button', { name: t('task.labels.add') })).toBeNull();
+  });
+});
+
+describe('task drawer layout', () => {
+  it('puts the open decision first, the session buttons near the head and the properties in tight rows', async () => {
+    const project = mockProject();
+    const question = plainLanguageQuestion();
+    project.backend.inbox.push(question);
+    project.render(drawer, '/p/AC/tasks/AC-22');
+
+    const decision = (await screen.findByRole('heading', { name: question.title, level: 3 })).closest(
+      'article',
+    )!;
+    const properties = screen.getByRole('region', { name: t('task.labels.title') });
+    const timeline = screen.getByRole('heading', { name: t('task.timeline') });
+    const follows = (a: Node, b: Node) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(decision, properties)).toBe(true);
+    const open = screen.queryByRole('link', { name: t('task.openSession') });
+    if (open) expect(follows(open, timeline)).toBe(true);
+    expect(follows(properties, timeline)).toBe(true);
+    // No full-width action buttons: the rare ones hide in the menu, the move in its small panel.
+    expect(screen.getByRole('button', { name: t('taskLifecycle.title') })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: t('task.move.submit') })).toBeNull();
   });
 });
 

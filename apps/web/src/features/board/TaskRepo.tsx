@@ -1,3 +1,4 @@
+import clsx from 'clsx';
 import type { Task } from '@projectman/shared';
 import { effectiveRepo, needsRepoChoice } from '@projectman/shared';
 import { useConfig, useUpdateTask } from '../../api/queries';
@@ -28,7 +29,7 @@ export function TaskRepo({ task }: { task: Task }) {
     return (
       <>
         <label className={styles.repo}>
-          <span>{t('task.repoLabel')}</span>
+          <span className={drawer.propLabel}>{t('task.repoLabel')}</span>
           <select
             className={styles.select}
             value={picked ?? ''}
@@ -49,7 +50,7 @@ export function TaskRepo({ task }: { task: Task }) {
           </select>
         </label>
         {update.isError ? (
-          <span role="alert" className={drawer.error}>
+          <span role="alert" className={clsx(drawer.error, styles.text)}>
             {errorMessage(update.error)}
           </span>
         ) : null}
@@ -58,10 +59,10 @@ export function TaskRepo({ task }: { task: Task }) {
   }
 
   const repo = config ? effectiveRepo(config, task) : task.repo;
-  if (repo) return <span>{t('task.repo', { repo })}</span>;
+  if (repo) return <span className={styles.text}>{t('task.repo', { repo })}</span>;
   if (!config) return null;
   return (
-    <span>
+    <span className={styles.text}>
       {needsRepoChoice(config, task) ? t('task.repoNone') : t('task.repo', { repo: t('task.workspaceRoot') })}
     </span>
   );

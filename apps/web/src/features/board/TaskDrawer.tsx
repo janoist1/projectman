@@ -7,7 +7,6 @@ import { Avatar } from '../../components/Avatar';
 import { Button, ButtonLink } from '../../components/Button';
 import { SelectField } from '../../components/Field';
 import { Icon } from '../../components/Icon';
-import { Markdown } from '../../components/Markdown';
 import { ErrorState, LoadingState } from '../../components/States';
 import { Timeline } from '../../components/Timeline';
 import { useToast } from '../../components/toastContext';
@@ -23,14 +22,12 @@ import { useDocumentTitle } from '../../lib/hooks';
 import { nameOf } from '../../lib/members';
 import { isDeveloperRole } from '../../lib/roles';
 import type { MemberIndex } from '../../lib/members';
-import { TaskLabels } from './TaskLabels';
 import { InboxCard } from '../inbox/InboxCard';
 import { nextStepText, primarySession } from './taskModel';
-import { TaskLifecycle } from './TaskLifecycle';
 import { useBoardModel } from './useBoardModel';
 import { TaskCommentComposer } from './TaskCommentComposer';
-import { TaskEdit } from './TaskEdit';
-import { TaskSubtasks } from './TaskSubtasks';
+import { TaskDescription } from './TaskEdit';
+import { TaskProperties } from './TaskProperties';
 import { TaskMove } from './TaskMove';
 import { canMoveTask } from './moveTask';
 import drawer from './drawer.module.css';
@@ -72,9 +69,8 @@ function StartPanel({ task, members }: { task: Task; members: MemberIndex }) {
       ) : null}
       <Button
         variant="primary"
-        size="xl"
+        size="md"
         icon="play"
-        fullWidth
         loading={start.isPending}
         onClick={() =>
           start.mutate(
@@ -119,7 +115,9 @@ export function TaskDrawer() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !document.querySelector('dialog[open]')) navigate(`/p/${key}`);
+      // An open dialog or popover takes Escape for itself.
+      if (event.key === 'Escape' && !document.querySelector('dialog[open], [data-popover-open]'))
+        navigate(`/p/${key}`);
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
@@ -144,6 +142,10 @@ export function TaskDrawer() {
     const sessions = detail.data?.sessions ?? [];
     const session = primarySession(task, sessions);
     const isQueued = stage?.kind === 'queue' && !isTaskClosed(task) && !task.assignee;
+    const hasActions =
+      (isQueued && can.createTasks) ||
+      Boolean(session && can.workInSessions) ||
+      canMoveTask(task, can.createTasks);
     return (
       <>
         <TaskHeader
@@ -151,17 +153,11 @@ export function TaskDrawer() {
           parent={parent}
           state={entry.state}
           pipeline={pipeline}
-          members={members}
           headingRef={headingRef}
           onClose={close}
         />
 
         <div className={styles.scroll}>
-          {task.startWaiting ? <p className={drawer.section}>{startWaitingHint(task)}</p> : null}
-          {canMoveTask(task, can.createTasks) ? (
-            <TaskMove key={`${task.key}:${task.stageId}`} task={task} pipeline={pipeline} />
-          ) : null}
-          {can.manageTeam ? <TaskLifecycle key={task.key} task={task} members={members} /> : null}
           {myItems.length > 0 ? (
             <section className={drawer.section}>
               {myItems.map((item) => (
@@ -186,29 +182,34 @@ export function TaskDrawer() {
             </section>
           ) : null}
 
-          <TaskLabels task={task} />
+          {task.startWaiting ? <p className={drawer.section}>{startWaitingHint(task)}</p> : null}
+          <div className={styles.actions} hidden={!hasActions}>
+            {isQueued && can.createTasks ? (
+              <StartPanel task={task} members={members} />
+            ) : session && can.workInSessions ? (
+              <>
+                <ButtonLink
+                  to={`/p/${key}/sessions/${session.id}`}
+                  variant="primary"
+                  size="md"
+                  iconRight="arrowRight"
+                  className={styles.grow}
+                >
+                  {t('task.openSession')}
+                </ButtonLink>
+                <ButtonLink to={`/p/${key}/sessions/${session.id}?compose=1`} variant="secondary" size="md">
+                  {t('task.message')}
+                </ButtonLink>
+              </>
+            ) : null}
+            {canMoveTask(task, can.createTasks) ? (
+              <TaskMove key={`${task.key}:${task.stageId}`} task={task} pipeline={pipeline} />
+            ) : null}
+          </div>
 
-          {can.createTasks ? (
-            <section className={drawer.section}>
-              <TaskEdit key={task.key} task={task} />
-            </section>
-          ) : null}
-          {!task.parentKey ? (
-            <TaskSubtasks
-              key={`subtasks:${task.key}`}
-              task={task}
-              children={subtasks}
-              members={members}
-              pipeline={pipeline}
-            />
-          ) : null}
+          <TaskProperties task={task} subtasks={subtasks} members={members} pipeline={pipeline} />
 
-          {task.description ? (
-            <section className={drawer.section}>
-              <h3 className={drawer.sectionTitle}>{t('task.description')}</h3>
-              <Markdown text={task.description} className={styles.description} />
-            </section>
-          ) : null}
+          <TaskDescription key={`description:${task.key}`} task={task} className={styles.description} />
 
           <section className={drawer.section}>
             <h3 className={drawer.sectionTitle}>{t('task.timeline')}</h3>
@@ -259,28 +260,6 @@ export function TaskDrawer() {
               </ul>
             </section>
           ) : null}
-          <div className={styles.actions}>
-            {isQueued && can.createTasks ? (
-              <StartPanel task={task} members={members} />
-            ) : session && can.workInSessions ? (
-              <>
-                <ButtonLink
-                  to={`/p/${key}/sessions/${session.id}`}
-                  variant="primary"
-                  size="xl"
-                  iconRight="arrowRight"
-                  className={styles.grow}
-                >
-                  {t('task.openSession')}
-                </ButtonLink>
-                <ButtonLink to={`/p/${key}/sessions/${session.id}?compose=1`} variant="secondary" size="xl">
-                  {t('task.message')}
-                </ButtonLink>
-              </>
-            ) : (
-              <p className={styles.noSession}>{t('task.noSessions')}</p>
-            )}
-          </div>
         </div>
       </>
     );

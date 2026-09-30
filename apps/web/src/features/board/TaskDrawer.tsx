@@ -273,7 +273,7 @@ export function TaskDrawer() {
       <>
         <div className={styles.head}>
           <div className={styles.chips}>
-            <Chip tone="accent" size="md">
+            <Chip tone="column" data-column-color={pipeline.columnOfStage.get(task.stageId)?.color} size="md">
               {t('task.stageChip', { stage: stageLabel, index: position.index, total: position.total })}
             </Chip>
             {pr ? (

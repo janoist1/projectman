@@ -1,7 +1,6 @@
 import { StatusDot } from '../../components/Chip';
 import { t } from '../../i18n/t';
 import type { PlainMessageKey } from '../../i18n/t';
-import { columnKind } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
 import type { TaskPhase } from '../../lib/taskState';
 import { TaskCard } from './TaskCard';
@@ -35,12 +34,8 @@ export function MobileBoardList({
             (entry) => pipeline.columnOfStage.get(entry.task.stageId)?.id === column.id,
           ).length;
           return (
-            <li key={column.id} className={styles.stage}>
-              <span
-                className={styles.stageDot}
-                data-stage-kind={columnKind(pipeline, column)}
-                aria-hidden="true"
-              />
+            <li key={column.id} className={styles.stage} data-column-color={column.color}>
+              <span className={styles.stageDot} aria-hidden="true" />
               <span>{column.name}</span>
               <span className={styles.stageCount}>{count}</span>
             </li>

@@ -102,3 +102,8 @@
 .dotPhase {
   background: var(--phase-dot);
 }
+
+.column {
+  background: var(--column-bg);
+  color: var(--column-fg);
+}

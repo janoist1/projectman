@@ -23,15 +23,6 @@
   background: var(--c-ok);
 }
 
-.segment[data-state='current'] {
-  background: var(--phase-dot);
-}
-
-.segment[data-state='current'][data-phase='waiting'],
-.segment[data-state='current'][data-phase='ready'] {
-  background: var(--c-mark-muted);
-}
-
 .chip {
   width: auto;
   gap: 2px;
@@ -85,6 +76,10 @@
 }
 
 .stepCurrent .stepName {
-  color: var(--c-ink);
+  color: var(--column-fg);
   font-weight: 800;
+}
+
+.segment[data-state='current'] {
+  background: var(--column-fg);
 }

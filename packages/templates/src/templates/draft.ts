@@ -6,6 +6,7 @@ import {
   type AiBuiltInRoleId,
   type AiMemberConfig,
   type BoardColumn,
+  type BoardColumnColor,
   type CheckName,
   type GateCondition,
   type MemberConfig,
@@ -61,6 +62,17 @@ export interface TemplateDraft {
   finish(pipeline: { columns: BoardColumn[]; stages: Stage[] }, limits?: TeamLimits): ProjectConfig;
 }
 
+export const TEMPLATE_COLUMN_COLORS: Record<ColumnKey, BoardColumnColor> = {
+  ready: 'gray',
+  development: 'blue',
+  in_progress: 'blue',
+  review: 'purple',
+  client_test: 'pink',
+  awaiting_merge: 'teal',
+  awaiting_release: 'orange',
+  done: 'green',
+};
+
 function draftProject(templateId: TemplateId, input: BuildTemplateInput): TemplateDraft {
   const locale = getLocale(input.language);
   const members: MemberConfig[] = [
@@ -113,7 +125,12 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
     },
 
     column(key) {
-      return { id: key, name: locale.columns[key].name, hint: locale.columns[key].hint };
+      return {
+        color: TEMPLATE_COLUMN_COLORS[key],
+        id: key,
+        name: locale.columns[key].name,
+        hint: locale.columns[key].hint,
+      };
     },
 
     stage(key, kind, column, owners, ...gate) {

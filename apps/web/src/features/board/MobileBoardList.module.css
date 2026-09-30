@@ -21,7 +21,8 @@
   box-sizing: border-box;
   padding: 0 10px;
   border-radius: 15px;
-  background: var(--c-surface);
+  background: var(--column-bg);
+  color: var(--column-fg);
   border: 1px solid var(--c-line-strong);
   display: inline-flex;
   align-items: center;
@@ -35,30 +36,11 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--c-accent);
-}
-
-.stageDot[data-stage-kind='queue'] {
-  background: var(--c-mark-ready);
-}
-.stageDot[data-stage-kind='review'],
-.stageDot[data-stage-kind='deploy'],
-.stageDot[data-stage-kind='test'] {
-  background: var(--role-qa-fg);
-}
-.stageDot[data-stage-kind='client_test'] {
-  background: var(--role-comm-fg);
-}
-.stageDot[data-stage-kind='merge'],
-.stageDot[data-stage-kind='release'] {
-  background: var(--c-needs);
-}
-.stageDot[data-stage-kind='done'] {
-  background: var(--c-ok);
+  background: var(--column-fg);
 }
 
 .stageCount {
-  color: var(--c-ink-4);
+  color: inherit;
   font-weight: 700;
 }
 

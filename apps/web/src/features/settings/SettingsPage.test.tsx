@@ -328,6 +328,35 @@ describe('settings section editors', () => {
     expect(project.backend.config).toEqual(current);
   });
 
+  it('saves a column colour through config PATCH and retains it when reopened', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    const section = await editSection('pipeline');
+    const name = project.backend.config.pipeline.columns[0]!.name;
+    const columns = within(section.getByRole('group', { name: t('settings.pipeline.columns') }));
+    const column = within(columns.getByDisplayValue(name).closest('div')!);
+    fireEvent.click(column.getByRole('button', { name: t('columnColors.teal') }));
+    expect(column.getByRole('button', { name: t('columnColors.teal') }).getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
+    await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
+    expect(project.backend.config.pipeline.columns[0]!.color).toBe('teal');
+    expect(
+      project.requests.some((request) => request.method === 'PATCH' && request.path.endsWith('/config')),
+    ).toBe(true);
+    const reopened = await editSection('pipeline');
+    expect(
+      within(
+        within(reopened.getByRole('group', { name: t('settings.pipeline.columns') }))
+          .getByDisplayValue(name)
+          .closest('div')!,
+      )
+        .getByRole('button', { name: t('columnColors.teal') })
+        .getAttribute('aria-pressed'),
+    ).toBe('true');
+  });
+
   it('adds, renames and removes columns, refusing removal until their stages move away', async () => {
     const project = mockProject();
     project.render(<SettingsPage />);

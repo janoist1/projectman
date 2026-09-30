@@ -1,3 +1,4 @@
+import styles from './BoardPage.module.css';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
@@ -16,6 +17,26 @@ function transfer() {
 }
 
 describe('desktop board moving', () => {
+  it('applies explicit and positional colours to constrained columns and card lists', async () => {
+    const project = mockProject();
+    project.backend.config.pipeline.columns[0]!.color = 'purple';
+    delete project.backend.config.pipeline.columns[1]!.color;
+    const view = project.render(<BoardPage />);
+    const column = await screen.findByRole('region', {
+      name: project.backend.config.pipeline.columns[0]!.name,
+    });
+    expect(column.getAttribute('data-column-color')).toBe('purple');
+    expect(
+      screen
+        .getByRole('region', { name: project.backend.config.pipeline.columns[1]!.name })
+        .getAttribute('data-column-color'),
+    ).toBe('blue');
+    expect(column.classList.contains(styles.column!)).toBe(true);
+    expect(column.parentElement!.classList.contains(styles.columns!)).toBe(true);
+    expect(column.querySelector(`.${styles.cards}`)).toBeTruthy();
+    expect(view.container.firstElementChild!.classList.contains(styles.page!)).toBe(true);
+  });
+
   it('shows the drop target and pending card, then rolls back a blocked move', async () => {
     const project = mockProject();
     let release!: () => void;

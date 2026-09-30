@@ -51,11 +51,30 @@ export type GateCondition = z.infer<typeof GateCondition>;
 export const Gate = z.object({ conditions: z.array(GateCondition).min(1) });
 export type Gate = z.infer<typeof Gate>;
 
+export const BoardColumnColor = z.enum([
+  'gray',
+  'blue',
+  'teal',
+  'green',
+  'yellow',
+  'orange',
+  'red',
+  'pink',
+  'purple',
+]);
+export type BoardColumnColor = z.infer<typeof BoardColumnColor>;
+
+/** Stable positional fallback; omitted colours remain omitted in stored configuration. */
+export function defaultBoardColumnColor(position: number): BoardColumnColor {
+  return BoardColumnColor.options[position % BoardColumnColor.options.length] ?? 'gray';
+}
+
 export const BoardColumn = z.object({
   id: z.string().regex(/^[a-z][a-z0-9_]{0,31}$/),
   /** Display name in the project's language (config data, not source code). */
   name: z.string().min(1),
   hint: z.string().optional(),
+  color: BoardColumnColor.optional(),
 });
 export type BoardColumn = z.infer<typeof BoardColumn>;
 

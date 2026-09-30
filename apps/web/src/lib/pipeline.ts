@@ -1,3 +1,4 @@
+import { defaultBoardColumnColor } from '@projectman/shared';
 import type { BoardColumnView, BoardView, CheckName, Stage } from '@projectman/shared';
 
 export interface PipelineIndex {
@@ -9,20 +10,24 @@ export interface PipelineIndex {
 }
 
 export function indexPipeline(board: Pick<BoardView, 'stages' | 'columns'>): PipelineIndex {
+  const columns = board.columns.map((column, position) => ({
+    ...column,
+    color: column.color ?? defaultBoardColumnColor(position),
+  }));
   const stageById = new Map(board.stages.map((stage) => [stage.id, stage]));
   const stageIndex = new Map(board.stages.map((stage, index) => [stage.id, index]));
   const columnOfStage = new Map<string, BoardColumnView>();
-  for (const column of board.columns) {
+  for (const column of columns) {
     for (const stageId of column.stageIds) columnOfStage.set(stageId, column);
   }
   // Stages whose column lists nothing still map through Stage.columnId.
   for (const stage of board.stages) {
     if (!columnOfStage.has(stage.id)) {
-      const column = board.columns.find((entry) => entry.id === stage.columnId);
+      const column = columns.find((entry) => entry.id === stage.columnId);
       if (column) columnOfStage.set(stage.id, column);
     }
   }
-  return { stages: board.stages, columns: board.columns, stageById, stageIndex, columnOfStage };
+  return { stages: board.stages, columns, stageById, stageIndex, columnOfStage };
 }
 
 /** 1-based position of a stage: "QA · 5/9". */
@@ -55,7 +60,7 @@ export function checkForStage(stage: Stage): CheckName | null {
   }
 }
 
-/** Kind of the first stage in a column; drives the column dot colour. */
+/** Kind of the first stage in a column. */
 export function columnKind(pipeline: PipelineIndex, column: BoardColumnView): Stage['kind'] {
   const first = column.stageIds[0] ? pipeline.stageById.get(column.stageIds[0]) : undefined;
   return first?.kind ?? 'work';

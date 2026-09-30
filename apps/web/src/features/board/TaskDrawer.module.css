@@ -173,8 +173,9 @@
   text-overflow: ellipsis;
 }
 
-.footer {
-  padding: 14px 22px 18px;
+.actions {
+  padding-top: 14px;
+  flex-wrap: wrap;
   border-top: 1px solid var(--c-line-soft);
   display: flex;
   gap: 10px;
@@ -210,7 +211,7 @@
 
 @media (max-width: 767px) {
   /* Phones show the bottom tab bar (above this drawer); end the drawer on top of it so the
-     footer actions stay reachable. The tab bar already pads for the safe area. */
+     actions stay reachable. The tab bar already pads for the safe area. */
   .drawer {
     bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom));
     width: 100vw;
@@ -221,12 +222,9 @@
     padding-left: 16px;
     padding-right: 16px;
   }
-  .footer {
-    padding: 12px 16px 14px;
-  }
 }
 
-/* Too short for a fixed head and footer around a scrolling middle (landscape phones, small
+/* Too short for a fixed head around a scrolling body (landscape phones, small
    windows): scroll the whole drawer instead. */
 @media (max-height: 560px) {
   .drawer {
@@ -236,4 +234,14 @@
     flex: 0 0 auto;
     overflow-y: visible;
   }
+}
+
+.check {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--c-line-soft);
+  border-radius: 10px;
+  font-size: 13px;
 }

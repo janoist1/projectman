@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { routes, MemberProfile, Session, TeamMessage, TeamMessagesView } from '@projectman/shared';
+import { routes, MemberProfile, TeamMessage, TeamMessagesView } from '@projectman/shared';
 import type { HumanAccess, ServerEvent } from '@projectman/shared';
 import { createAppHarness, createProject, cookieOf, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
@@ -59,45 +59,46 @@ describe('human team messages and member profiles', () => {
     return h.app.inject({ url: routes.memberProfile(key, handle), headers: { cookie } });
   }
 
-  it('queues offline AI recipients, records the task timeline, and flushes into the next session once', async () => {
-    await h.app.projectman.domain.tasks.create(key, { title: 'Acme checkout' }, actor);
+  it('starts an offline task recipient and delivers the queued message once', async () => {
+    const domain = h.app.projectman.domain;
+    await domain.tasks.create(key, { title: 'Acme checkout' }, actor);
     const response = await send(['dev-1', 'dev-1'], owner, { taskKey: 'AR-1' });
     expect(response.statusCode).toBe(202);
     const message = TeamMessage.parse(response.json());
-    expect(message).toMatchObject({
-      from: 'owner',
-      to: ['dev-1'],
-      receipts: [{ handle: 'dev-1', kind: 'ai', deliveredAt: null }],
-    });
-    expect(h.runner.started).toHaveLength(0);
-    expect(h.app.projectman.domain.timeline.list(key, { taskKey: 'AR-1' })).toContainEqual(
+    expect(message).toMatchObject({ from: 'owner', to: ['dev-1'] });
+    expect(domain.timeline.list(key, { taskKey: 'AR-1' })).toContainEqual(
       expect.objectContaining({
         type: 'team_message',
         actor,
         data: expect.objectContaining({ messageId: message.id }),
       }),
     );
-    const start = await h.app.inject({
-      method: 'POST',
-      url: routes.startConversation(key, 'dev-1'),
-      headers: { cookie: owner },
-    });
-    expect(start.statusCode).toBe(202);
-    const session = Session.parse(start.json());
-    expect(session.workItem).toEqual({ type: 'general' });
     await flush();
+    const session = domain.sessions.list(key, { member: 'dev-1' })[0]!;
+    expect(session.workItem).toEqual({ type: 'task', taskKey: 'AR-1' });
     expect(h.runner.messages).toEqual([
       { sessionId: session.id, text: '[team message from owner about AR-1]\nDiscuss the Acme webshop' },
     ]);
     expect(h.app.projectman.repos.messages.get(message.id)?.receipts?.[0]?.deliveredAt).toBeTruthy();
-    await h.app.inject({
-      method: 'POST',
-      url: routes.startConversation(key, 'dev-1'),
-      headers: { cookie: owner },
-    });
-    await flush();
     expect(h.runner.started).toHaveLength(1);
-    expect(h.runner.messages).toHaveLength(1);
+  });
+
+  it('responds before an idle recipient PTY starts', async () => {
+    const start = h.runner.start.bind(h.runner);
+    let release!: () => void;
+    const called = vi.spyOn(h.runner, 'start').mockImplementation(async (spec) => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return start(spec);
+    });
+    const response = await send(['dev-1']);
+    expect(response.statusCode).toBe(202);
+    await vi.waitFor(() => expect(called).toHaveBeenCalledOnce());
+    expect(h.runner.started).toHaveLength(0);
+    release();
+    await h.app.projectman.domain.stop();
+    expect(h.runner.started).toHaveLength(1);
   });
 
   it('delivers to a live task session with the team prefix and retries failed delivery on resume', async () => {
@@ -124,11 +125,11 @@ describe('human team messages and member profiles', () => {
   it('waits for the runner paste before acknowledging each AI recipient', async () => {
     const domain = h.app.projectman.domain;
     await domain.sessions.ensureSession(key, 'dev-1', { type: 'general' });
-    let typed!: () => void;
+    const typed: Array<() => void> = [];
     vi.spyOn(h.runner, 'sendUserMessage').mockImplementation(
       () =>
         new Promise((resolve) => {
-          typed = resolve;
+          typed.push(resolve);
         }),
     );
     const response = TeamMessage.parse((await send(['dev-1', 'dev-2', 'owner'])).json());
@@ -138,7 +139,7 @@ describe('human team messages and member profiles', () => {
       { deliveredAt: null },
       { kind: 'human', deliveredAt: expect.any(String) },
     ]);
-    typed();
+    typed[0]!();
     await flush();
     const stored = h.app.projectman.repos.messages.get(response.id)!;
     expect(stored.receipts?.[0]?.deliveredAt).toBeTruthy();

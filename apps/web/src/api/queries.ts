@@ -19,6 +19,7 @@ import type {
   RetireMemberRequest,
   SetupRequest,
   StartTaskRequest,
+  SetTaskCheckRequest,
 } from '@projectman/shared';
 import { isApiError } from './client';
 import { countOpenInbox, upsertBy } from './cache';
@@ -327,6 +328,11 @@ export function useDeleteRole(key: string) {
 export function useUpdateTask(key: string) {
   return useProjectMutation(key, ({ taskKey, body }: { taskKey: string; body: UpdateTaskRequest }) =>
     api.updateTask(key, taskKey, body),
+  );
+}
+export function useSetTaskCheck(key: string) {
+  return useProjectMutation(key, ({ taskKey, body }: { taskKey: string; body: SetTaskCheckRequest }) =>
+    api.setTaskCheck(key, taskKey, body),
   );
 }
 export function useCancelTask(key: string) {

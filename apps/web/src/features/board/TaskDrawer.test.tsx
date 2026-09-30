@@ -126,3 +126,88 @@ describe('task drawer stage moves', () => {
     expect(screen.queryByLabelText(t('task.move.target'))).toBeNull();
   });
 });
+
+describe('task drawer checks', () => {
+  it('shows gate checks and saves a result with a note, refreshing the state and timeline', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    const section = await screen.findByRole('region', { name: t('task.checks.title') });
+    const qa = within(section).getByRole('region', { name: t('checks.names.qa') });
+    expect(within(qa).getByRole('heading').textContent).toBe(
+      t('checks.line', { name: t('checks.names.qa'), state: t('checks.states.pending') }),
+    );
+    expect(within(section).queryByRole('region', { name: t('checks.names.security_review') })).toBeNull();
+    fireEvent.change(within(qa).getByLabelText(t('task.checks.state')), { target: { value: 'passed' } });
+    fireEvent.change(within(qa).getByLabelText(t('task.checks.note'), { exact: false }), {
+      target: { value: 'Acme behavior verified.' },
+    });
+    fireEvent.click(within(qa).getByRole('button', { name: t('task.checks.save') }));
+    await waitFor(() => expect(project.backend.findTask('AC-20')?.checks.qa).toBe('passed'));
+    await waitFor(() =>
+      expect(within(qa).getByRole('heading').textContent).toContain(t('checks.states.passed')),
+    );
+    expect(await screen.findByText('Acme behavior verified.')).toBeTruthy();
+    expect(project.requests).toContainEqual({
+      method: 'POST',
+      path: '/api/projects/AC/tasks/AC-20/checks',
+      body: { check: 'qa', state: 'passed', note: 'Acme behavior verified.' },
+    });
+  });
+
+  it.each(['assignee', 'pr_author'] as const)(
+    'explains self-review to the %s and keeps client testing available',
+    async (kind) => {
+      const project = mockProject();
+      const task = project.backend.findTask('AC-20')!;
+      project.backend.updateTask(
+        task.key,
+        kind === 'assignee'
+          ? { assignee: 'owner' }
+          : {
+              links: [...task.links, { kind: 'pull_request', ref: '42', repo: 'acme/web', author: 'owner' }],
+            },
+      );
+      project.render(drawer, '/p/AC/tasks/AC-20');
+      const section = await screen.findByRole('region', { name: t('task.checks.title') });
+      const qa = within(section).getByRole('region', { name: t('checks.names.qa') });
+      expect(within(qa).getByText(t('errors.codes.self_review_forbidden'))).toBeTruthy();
+      expect(within(qa).queryByRole('button')).toBeNull();
+      const client = within(section).getByRole('region', { name: t('checks.names.client_test') });
+      fireEvent.change(within(client).getByLabelText(t('task.checks.state')), {
+        target: { value: 'passed' },
+      });
+      fireEvent.click(within(client).getByRole('button', { name: t('task.checks.save') }));
+      await waitFor(() => expect(project.backend.findTask(task.key)?.checks.client_test).toBe('passed'));
+      expect(project.requests).toContainEqual({
+        method: 'POST',
+        path: '/api/projects/AC/tasks/AC-20/checks',
+        body: { check: 'client_test', state: 'passed' },
+      });
+    },
+  );
+
+  it.each(['viewer', 'done', 'cancelled'])('shows checks read-only for %s', async (reason) => {
+    const project = mockProject();
+    if (reason === 'done' || reason === 'cancelled') project.backend.updateTask('AC-20', { status: reason });
+    project.render(
+      drawer,
+      '/p/AC/tasks/AC-20',
+      reason === 'viewer' ? { can: { createTasks: false, manageTeam: false, workInSessions: false } } : {},
+    );
+    const section = await screen.findByRole('region', { name: t('task.checks.title') });
+    expect(within(section).getAllByRole('heading').length).toBeGreaterThan(1);
+    expect(within(section).queryByRole('combobox')).toBeNull();
+    expect(within(section).queryByRole('button')).toBeNull();
+  });
+
+  it('shows errors from a check request inline', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    const section = await screen.findByRole('region', { name: t('task.checks.title') });
+    const qa = within(section).getByRole('region', { name: t('checks.names.qa') });
+    // The task closes after the drawer has loaded, before the human submits.
+    project.backend.findTask('AC-20')!.status = 'done';
+    fireEvent.click(within(qa).getByRole('button', { name: t('task.checks.save') }));
+    expect((await within(qa).findByRole('alert')).textContent).toBe(t('errors.codes.task_closed'));
+  });
+});

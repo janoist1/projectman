@@ -114,12 +114,22 @@ export class SessionOrchestrator {
   private readonly tokens = new Map<string, ToolContext>();
   private readonly tokenBySession = new Map<string, string>();
   private readonly cleanupTimers = new Set<NodeJS.Timeout>();
+  private messageSessionStarter?: (
+    projectKey: string,
+    handle: string,
+    workItem: WorkItemRef,
+    messageId: string,
+  ) => void;
   private readonly unsubscribe: () => void;
 
   constructor(deps: SessionOrchestratorDeps) {
     this.deps = deps;
     this.ctx = deps.ctx;
     this.unsubscribe = deps.runner.onEvent((event) => this.handleRunnerEvent(event));
+  }
+
+  onMessageNeedsSession(starter: NonNullable<SessionOrchestrator['messageSessionStarter']>): void {
+    this.messageSessionStarter = starter;
   }
 
   dispose(): void {
@@ -251,12 +261,12 @@ export class SessionOrchestrator {
       delivered: recipients.every((h) => humans.includes(h)),
     });
     for (const handle of recipients.filter((h) => !humans.includes(h))) {
-      const live = this.list(projectKey, { member: handle }).filter((s) => this.isRunning(s.id));
-      const target =
-        live.find(
-          (s) => input.taskKey && s.workItem.type === 'task' && s.workItem.taskKey === input.taskKey,
-        ) ?? live[0];
+      const workItem: WorkItemRef = input.taskKey
+        ? { type: 'task', taskKey: input.taskKey }
+        : { type: 'general' };
+      const target = this.findRunning(projectKey, handle, workItem);
       if (target) this.deliverTeamMessage(target, message);
+      else this.messageSessionStarter?.(projectKey, handle, workItem, message.id);
     }
     return message;
   }
@@ -561,6 +571,7 @@ export class SessionOrchestrator {
     this.publishSession(fresh);
     this.recomputeMemberState(projectKey, member.handle);
     for (const message of this.ctx.repos.messages.pending(projectKey, member.handle)) {
+      if (message.taskKey !== (workItem.type === 'task' ? workItem.taskKey : null)) continue;
       this.deliverTeamMessage(fresh, message);
     }
     return { session: fresh, created: !existing, resumed: resume, started: true };

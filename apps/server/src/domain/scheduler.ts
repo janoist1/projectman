@@ -7,6 +7,7 @@ import type {
   ProjectConfig,
   Session,
   Task,
+  WorkItemRef,
 } from '@projectman/shared';
 import { ownerHandles } from './access';
 import type { DomainContext } from './context';
@@ -124,17 +125,25 @@ export class Scheduler {
   }
 
   async startConversation(projectKey: string, handle: string): Promise<Session> {
+    return this.startMessageSession(projectKey, handle, { type: 'general' });
+  }
+
+  /** Admission for a message that needs a task or general session. */
+  async startMessageSession(projectKey: string, handle: string, workItem: WorkItemRef): Promise<Session> {
     return this.admit(async () => {
       const config = await this.projects.config(projectKey);
       const member = config.team.members.find((m) => m.handle === handle);
       if (!member) throw notFound('member', handle);
       if (member.kind !== 'ai') throw invalid('not_ai_member', 'Conversations require an AI member');
-      const running = this.sessions.findRunning(projectKey, handle, { type: 'general' });
+      const running = this.sessions.findRunning(projectKey, handle, workItem);
       if (running) return running;
-      if (this.memberLoad(projectKey, handle) >= member.capacity)
+      if (
+        this.memberLoad(projectKey, handle, workItem.type === 'task' ? workItem.taskKey : undefined) >=
+        member.capacity
+      )
         throw conflict('member_at_capacity', `${handle} is at capacity`, { capacity: member.capacity });
       await this.assertCanStartAiWork(config, member.provider ?? DEFAULT_AGENT_PROVIDER);
-      return (await this.sessions.ensureSession(projectKey, handle, { type: 'general' })).session;
+      return (await this.sessions.ensureSession(projectKey, handle, workItem)).session;
     });
   }
 

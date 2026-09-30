@@ -1,4 +1,6 @@
 import {
+  commentMentions,
+  CreateTaskCommentRequest,
   SendTeamMessageRequest,
   memberDuties,
   AgentProvider,
@@ -633,6 +635,27 @@ export class MockBackend {
           this.sessions.filter((s) => s.workItem.type === 'task' && s.workItem.taskKey === task.key),
         ),
       });
+    }
+    if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/comments$/.exec(rest)) && method === 'POST') {
+      if (viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))
+        return error(403, 'insufficient_access', 'Developer access required');
+      const input = parseBody(CreateTaskCommentRequest, body);
+      if (!input) return error(400, 'invalid_request', 'Invalid comment');
+      const imported = input.importedAuthor !== undefined || input.importedAt !== undefined;
+      if (imported && viewer.role !== 'owner')
+        return error(403, 'insufficient_access', 'Owner access required');
+      const task = this.findTask(m[1]!);
+      if (!task) return error(404, 'not_found', 'Unknown task');
+      const mentions = commentMentions(
+        input.text,
+        this.config.team.members.map((member) => member.handle),
+        this.viewerHandle,
+      );
+      this.addTimeline(task.key, this.viewerHandle, 'task_note', { ...input, mentions });
+      if (!imported && mentions.length)
+        this.sendTeamMessage(this.viewerHandle, mentions, task.key, input.text);
+      const response = this.handleProject('GET', `/tasks/${task.key}`, undefined, query);
+      return { ...response, status: 201 };
     }
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/checks$/.exec(rest)) && method === 'POST') {
       if (viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))

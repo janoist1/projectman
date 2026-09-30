@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import {
+  CreateTaskCommentRequest,
   CancelTaskRequest,
   CreateTaskRequest,
   ReopenTaskRequest,
@@ -47,6 +48,16 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
     return domain.tasks.update(key, taskKey, body, actorOf(access));
   });
 
+  app.post<TaskParams>(routes.taskComments(':key', ':taskKey'), async (request, reply) => {
+    const { key, taskKey } = request.params;
+    const access = await requireAccess(domain, request, key, { minimum: 'developer' });
+    const { text, ...imported } = parseBody(CreateTaskCommentRequest, request.body);
+    if (imported.importedAuthor !== undefined || imported.importedAt !== undefined)
+      await requireAccess(domain, request, key, { minimum: 'owner' });
+    await domain.tasks.addNote(key, taskKey, text, actorOf(access), null, imported);
+    return reply.code(201).send(domain.tasks.detail(key, taskKey));
+  });
+
   app.post<TaskParams>(routes.taskChecks(':key', ':taskKey'), async (request): Promise<TaskDetail> => {
     const { key, taskKey } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'developer' });
@@ -55,7 +66,7 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
     if (!isOpenTask(task)) throw conflict('task_closed', `task ${taskKey} is ${task.status}`);
     const actor = actorOf(access);
     domain.tasks.setCheck(key, taskKey, body.check, body.state, actor);
-    if (body.note !== undefined) domain.tasks.addNote(key, taskKey, body.note, actor);
+    if (body.note !== undefined) await domain.tasks.addNote(key, taskKey, body.note, actor);
     return domain.tasks.detail(key, taskKey);
   });
 

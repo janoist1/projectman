@@ -18,3 +18,4 @@ export * from './config/edit';
 export * from './domain/schedule';
 export * from './schedule/cron';
 export * from './domain/provider-model';
+export * from './domain/mentions';

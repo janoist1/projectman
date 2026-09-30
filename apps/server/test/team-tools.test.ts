@@ -250,7 +250,7 @@ describe('team tools', () => {
       .map((e) => [e.type, e.data, e.sessionId]);
     expect(events.slice(-3)).toEqual([
       ['task_updated', { fields: ['title', 'description'] }, 'ses_cr'],
-      ['task_note', { text: 'Specified the acceptance criteria' }, 'ses_cr'],
+      ['task_note', { text: 'Specified the acceptance criteria', mentions: [] }, 'ses_cr'],
       ['task_stage_changed', { from: 'development', to: 'code_review' }, null],
     ]);
     expect(

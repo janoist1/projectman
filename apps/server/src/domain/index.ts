@@ -121,6 +121,19 @@ export function createDomain(opts: DomainOptions) {
     publicBaseUrl: opts.publicBaseUrl,
     doneCleanupDelayMs: opts.doneCleanupDelayMs,
   });
+  tasks.onNoteAdded(async (event, mentions) => {
+    await sessions.sendTeamMessage(
+      event.projectKey,
+      event.actor.handle!,
+      {
+        to: mentions,
+        text: event.data.text as string,
+        taskKey: event.taskKey!,
+      },
+      event.actor,
+      event.sessionId,
+    );
+  });
   const planUsage = new PlanUsageCache({
     provider: runnerModule.planUsage,
     providerFor: (provider) => runnerModule.planUsageFor?.(provider),

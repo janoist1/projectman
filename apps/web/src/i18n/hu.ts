@@ -425,6 +425,13 @@ export const hu = {
   },
 
   task: {
+    comments: {
+      label: 'Hozzászólás',
+      hint: 'Írj @ jelet egy csapattag megemlítéséhez.',
+      send: 'Küldés',
+      members: 'Megemlíthető csapattagok',
+      imported: 'Importált',
+    },
     checks: {
       title: 'Ellenőrzések',
       state: 'Eredmény',

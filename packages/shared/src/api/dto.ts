@@ -230,6 +230,13 @@ export const UpdateTaskRequest = z.object({
 });
 export type UpdateTaskRequest = z.infer<typeof UpdateTaskRequest>;
 
+export const CreateTaskCommentRequest = z.object({
+  text: z.string().trim().min(1).max(10000),
+  importedAuthor: z.string().trim().min(1).max(80).optional(),
+  importedAt: z.iso.datetime({ offset: true }).optional(),
+});
+export type CreateTaskCommentRequest = z.infer<typeof CreateTaskCommentRequest>;
+
 export const SetTaskCheckRequest = z.object({
   check: CheckName,
   state: CheckState,

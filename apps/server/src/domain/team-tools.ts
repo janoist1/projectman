@@ -256,7 +256,7 @@ export class TeamToolsService implements TeamToolsHandler {
         task = this.tasks.setCheck(ctx.projectKey, taskKey, name.data, state.data, actor, ctx.sessionId);
       }
       if (args.note?.trim()) {
-        this.tasks.addNote(ctx.projectKey, taskKey, args.note.trim(), actor, ctx.sessionId);
+        await this.tasks.addNote(ctx.projectKey, taskKey, args.note.trim(), actor, ctx.sessionId);
       }
       if (args.stageId && args.stageId !== task.stageId) {
         const result = await this.tasks.moveToStage(ctx.projectKey, taskKey, args.stageId, actor);

@@ -42,6 +42,11 @@ describe('parsePullRequestJson', () => {
     });
   });
 
+  it('maps the head commit when gh supplies it', () => {
+    const pr = parsePullRequestJson('acme/app', json(ghPullRequestJson({ headRefOid: 'a1b2c3d' })));
+    expect(pr.headSha).toBe('a1b2c3d');
+  });
+
   it('echoes the repo as given by the caller', () => {
     expect(parsePullRequestJson('Acme/App', json(ghPullRequestJson())).repo).toBe('Acme/App');
   });

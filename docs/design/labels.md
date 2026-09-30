@@ -2,8 +2,8 @@
 
 Status: implemented (decision 17). The owner answered the open questions below:
 approvals are labels; a failing label only notifies; stage kinds are simplified later; plain
-labels stay allowed. The `pr_updated` clear trigger is defined but not yet fired: the GitHub
-integration does not track new commits yet.
+labels stay allowed. The `pr_updated` clear trigger fires when the head commit of a linked
+pull request changes (see `docs/GITHUB.md`).
 
 ## Why
 

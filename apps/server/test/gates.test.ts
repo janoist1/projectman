@@ -130,6 +130,34 @@ describe('stage gates', () => {
     );
   });
 
+  it('new commits on the pull request take off the labels that expire with them', async () => {
+    const task = await taskInCodeReview();
+    h.github.prs.set('acme/web#7', pullRequest({ headSha: 'aaa111' }));
+    await h.domain.teamTools.linkPullRequest(
+      { sessionId: 'ses_x', projectKey: 'AR', member: 'dev-1', taskKey: task.key },
+      { taskKey: task.key, repo: 'acme/web', number: 7 },
+    );
+    await h.domain.tasks.changeLabels('AR', task.key, { add: ['code-review-ok', 'checkout'] }, aiActor('cr'));
+
+    // The first sighting of a head (e.g. after a restart) and polls without new commits change nothing.
+    h.github.emit(pullRequest({ headSha: 'aaa111' }));
+    await flush();
+    h.github.emit(pullRequest({ headSha: 'aaa111', title: 'Add login page (v2)' }));
+    await flush();
+    expect(h.domain.tasks.get('AR', task.key).labels).toEqual(['code-review-ok', 'checkout']);
+
+    h.github.emit(pullRequest({ headSha: 'bbb222' }));
+    await flush();
+    expect(h.domain.tasks.get('AR', task.key).labels).toEqual(['checkout']);
+    expect(h.domain.timeline.list('AR', { taskKey: task.key })).toContainEqual(
+      expect.objectContaining({
+        type: 'task_labels_changed',
+        actor: SYSTEM_ACTOR,
+        data: { added: [], removed: ['code-review-ok'], reason: 'pr_updated' },
+      }),
+    );
+  });
+
   it('a blocking label holds forward moves, not backward ones', async () => {
     const task = await taskInCodeReview();
     await h.domain.tasks.changeLabels('AR', task.key, { add: ['waiting'] }, OWNER_ACTOR);

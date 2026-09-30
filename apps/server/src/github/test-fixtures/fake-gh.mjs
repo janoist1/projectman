@@ -38,6 +38,7 @@ const PR_FIELDS = new Set([
   'createdAt',
   'deletions',
   'headRefName',
+  'headRefOid',
   'isDraft',
   'labels',
   'mergeable',

@@ -56,8 +56,8 @@ server later.
   pipeline defines each label once: name, colour, meaning (shown to humans and put into
   every AI member's instructions), group (labels of a group exclude each other), who may set
   it (anyone, humans, the system, duty holders or members, optionally humans only), no
-  self-review, comment required, notify the assignee, cleared when the task moves back, and
-  blocking (the task may not move forward). A missing label only humans may set is an
+  self-review, comment required, notify the assignee, cleared when the task moves back or
+  when new commits land on its pull request, and blocking (the task may not move forward). A missing label only humans may set is an
   approval: the move opens an inbox decision, and approving puts the label on in the
   approver's name. `pr-merged` is a system label kept by the GitHub integration. Labels
   without a definition are plain tags. Configurations from before labels (check_passed,

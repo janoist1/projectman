@@ -27,7 +27,7 @@ projectman server ── execFile (no shell) ──▶ gh CLI ──▶ GitHub A
 | One pull request          | `gh pr view <n> --repo=<owner/name> --json=<fields>`                                    |
 | Pull requests of a branch | `gh pr list --repo=<owner/name> --head=<branch> --state=all --limit=30 --json=<fields>` |
 
-`<fields>` = `number,title,url,state,isDraft,headRefName,baseRefName,statusCheckRollup,reviewDecision,additions,deletions,changedFiles,updatedAt,mergedAt`.
+`<fields>` = `author,number,title,url,state,isDraft,headRefName,headRefOid,baseRefName,statusCheckRollup,reviewDecision,additions,deletions,changedFiles,updatedAt,mergedAt`.
 
 The JSON is validated (zod) and mapped to `PullRequestInfo`
 (`apps/server/src/contracts/github.ts`):
@@ -52,8 +52,13 @@ The JSON is validated (zod) and mapped to `PullRequestInfo`
   branches (`CU-869f4byk9-name`) give no key. `findPullRequestsForBranch` lists the PRs of
   a branch.
 - A linked PR is stored as a task link: `{ kind: 'pull_request', ref: '<number>', repo,
-title, state }` (built by `pullRequestLink`). The `pr_merged` gate is checked against the
-  link's state.
+title, state }` (built by `pullRequestLink`). When the PR merges, the system label
+  `pr-merged` goes on the task, and a gate may require it.
+- The link also remembers the PR's head commit (`headRefOid`, database only). When the head
+  moves (new commits, a force push or a base update), the labels with
+  `clearedWhen: pr_updated` come off the open tasks linking the PR, for example a code
+  review or a merge approval of the previous code. The first head seen for a link (a new
+  link, or the first poll after this was introduced) changes nothing.
 
 ## Polling
 
@@ -125,9 +130,8 @@ Callers can turn `not_found` into a friendly "no such PR" message; the others me
 ## Why tasks stay in our database
 
 - **The model does not fit GitHub Projects.** projectman has a mixed team of humans and AI
-  members (handles, sponsors, capacities), pipeline stages with gates (`check_passed`,
-  `pr_merged`, `human_approval`), per-task checks, internal/shared visibility, and later
-  meetings and observations.
+  members (handles, sponsors, capacities), pipeline stages with label gates, meaningful
+  labels with rules, internal/shared visibility, and later meetings and observations.
 - **Clients would need GitHub accounts** and access to the repository or project just to
   take part in the client test stage.
 - **No webhooks on a local app.** A two-way sync would rely on polling. It would be slow,

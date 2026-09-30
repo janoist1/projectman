@@ -233,6 +233,11 @@ export const migrations: Migration[] = [
     sql: `ALTER TABLE tasks ADD COLUMN parent_key TEXT REFERENCES tasks(key);
       CREATE INDEX tasks_parent ON tasks(project_key, parent_key);`,
   },
+  {
+    version: 8,
+    name: 'pull request head commit',
+    sql: `ALTER TABLE task_links ADD COLUMN head_sha TEXT;`,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

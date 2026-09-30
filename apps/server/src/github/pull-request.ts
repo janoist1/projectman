@@ -11,6 +11,7 @@ export const PULL_REQUEST_JSON_FIELDS = [
   'state',
   'isDraft',
   'headRefName',
+  'headRefOid',
   'baseRefName',
   'statusCheckRollup',
   'reviewDecision',
@@ -49,6 +50,7 @@ export const GhPullRequest = z.object({
   state: z.enum(['OPEN', 'CLOSED', 'MERGED']),
   isDraft: z.boolean(),
   headRefName: z.string(),
+  headRefOid: z.string().nullish(),
   baseRefName: z.string(),
   statusCheckRollup: z.array(GhCheckContext).nullish(),
   /** "" when the base branch does not require reviews. */
@@ -79,6 +81,7 @@ export function toPullRequestInfo(repo: string, pr: GhPullRequest): PullRequestI
     changedFiles: pr.changedFiles,
     updatedAt: pr.updatedAt,
     authorLogin: pr.author?.login,
+    headSha: pr.headRefOid ?? undefined,
   };
 }
 

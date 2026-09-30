@@ -259,6 +259,42 @@ export function createTaskRepository(db: Db) {
       return changed;
     },
 
+    /**
+     * Remembers the head commit of a pull request on every link to it. Returns the tasks whose
+     * link had seen another head before: new commits landed there. A first sighting is not a change.
+     */
+    recordPullRequestHead(
+      repo: string,
+      number: number,
+      headSha: string,
+      at: string,
+    ): Array<{ projectKey: string; taskKey: string }> {
+      const rows = db
+        .prepare(
+          `SELECT l.id, l.head_sha, t.project_key AS projectKey, t.key AS taskKey FROM task_links l
+           JOIN tasks t ON t.id = l.task_id
+           WHERE l.kind = 'pull_request' AND l.repo = ? AND l.ref = ? ORDER BY t.seq`,
+        )
+        .all(repo, String(number)) as Array<{
+        id: number;
+        head_sha: string | null;
+        projectKey: string;
+        taskKey: string;
+      }>;
+      const moved = new Map<string, { projectKey: string; taskKey: string }>();
+      for (const row of rows) {
+        if (row.head_sha === headSha) continue;
+        db.prepare('UPDATE task_links SET head_sha = ?, updated_at = ? WHERE id = ?').run(
+          headSha,
+          at,
+          row.id,
+        );
+        if (row.head_sha !== null)
+          moved.set(`${row.projectKey}/${row.taskKey}`, { projectKey: row.projectKey, taskKey: row.taskKey });
+      }
+      return [...moved.values()];
+    },
+
     /** A matched GitHub identity supersedes the assignee fallback. */
     attributePullRequestAuthor(
       projectKey: string,

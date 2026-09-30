@@ -1,5 +1,6 @@
 import type { GithubService, PullRequestInfo } from '../contracts';
 import type { DomainContext } from './context';
+import { isoNow } from './context';
 import { DomainError } from './errors';
 import type { ProjectService } from './projects';
 import type { TaskService } from './tasks';
@@ -12,9 +13,12 @@ export const PR_MERGED_LABEL = 'pr-merged';
 
 /**
  * Keeps pull request links up to date: every linked PR that is not merged or closed yet is
- * watched through the GitHub service. When a PR merges, tasks whose next stage is gated by
- * `pr_merged` try to advance (other gate conditions still apply; a human approval in that
- * gate becomes an inbox decision).
+ * watched through the GitHub service.
+ * - New commits on a PR (its head commit changes) take off the labels that expire then
+ *   (`clearedWhen: pr_updated`, e.g. a review or approval of the previous code).
+ * - When a PR merges, the system label `pr-merged` goes on the tasks linking it, and tasks
+ *   whose next stage is gated by it try to advance (other gate conditions still apply; a human
+ *   approval in that gate becomes an inbox decision).
  */
 export class GithubSync {
   private readonly ctx: DomainContext;
@@ -69,10 +73,20 @@ export class GithubSync {
   async handleChange(pr: PullRequestInfo): Promise<void> {
     this.tasks.recordPullRequest(pr);
     this.tasks.applyPullRequestUpdate(pr.repo, pr.number, { state: pr.state, title: pr.title });
+    if (pr.headSha) await this.clearAfterNewCommits(pr.repo, pr.number, pr.headSha);
     if (pr.state === 'merged' || pr.state === 'closed') this.unwatch(pr.repo, pr.number);
     if (pr.state !== 'merged') return;
     for (const link of this.ctx.repos.tasks.findByPullRequest(pr.repo, pr.number)) {
       await this.advanceAfterMerge(link.projectKey, link.taskKey);
+    }
+  }
+
+  private async clearAfterNewCommits(repo: string, number: number, headSha: string): Promise<void> {
+    const moved = this.ctx.repos.tasks.recordPullRequestHead(repo, number, headSha, isoNow(this.ctx));
+    for (const { projectKey, taskKey } of moved) {
+      const task = this.tasks.find(projectKey, taskKey);
+      if (!task || task.status === 'done' || task.status === 'cancelled') continue;
+      await this.tasks.clearLabels(projectKey, taskKey, 'pr_updated');
     }
   }
 

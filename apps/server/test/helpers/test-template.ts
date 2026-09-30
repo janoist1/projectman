@@ -104,7 +104,7 @@ export function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
           group: 'code-review',
           setBy: { duties: ['code_review'] },
           notByAuthor: true,
-          clearedWhen: ['moved_back'],
+          clearedWhen: ['moved_back', 'pr_updated'],
         },
         {
           id: 'code-review-changes',

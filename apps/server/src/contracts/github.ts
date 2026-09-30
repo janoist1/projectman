@@ -24,6 +24,8 @@ export interface PullRequestInfo {
   updatedAt: string;
   /** GitHub login of the PR author, when supplied by gh. */
   authorLogin?: string;
+  /** SHA of the PR's head commit, when supplied by gh; it changes when new commits land. */
+  headSha?: string;
 }
 
 export interface GithubService {

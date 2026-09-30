@@ -18,6 +18,16 @@ function selectMembers(select: HTMLElement, handles: string[]) {
   fireEvent.change(select);
 }
 
+describe('settings history', () => {
+  it('explains saved settings changes below the history heading', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    const section = within(await screen.findByRole('region', { name: t('settings.sections.history') }));
+    const heading = section.getByRole('heading', { name: t('settings.sections.history'), level: 2 });
+    expect(heading.nextElementSibling).toBe(section.getByText(t('settings.history.intro')));
+  });
+});
+
 describe('settings section editors', () => {
   it('edits project fields, cancels drafts and permits one active section', async () => {
     const project = mockProject();

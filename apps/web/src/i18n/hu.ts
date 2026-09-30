@@ -1285,7 +1285,7 @@ export const hu = {
       team: 'Csapat',
       limits: 'Keretek',
       repos: 'Repók',
-      history: 'Előzmények',
+      history: 'Beállítások előzményei',
       account: 'Fiók',
       project: 'Projekt',
     },
@@ -1366,6 +1366,7 @@ export const hu = {
       none: 'Nincs repó beállítva; a munka a munkaterület gyökerében folyik.',
     },
     history: {
+      intro: 'A csapat, a folyamat és a keretek mentett változásai. A kód előzménye a git-repóban van.',
       current: 'jelenlegi',
       revert: 'Visszaállítás',
       revertTitle: 'Visszaállítás erre: {version}?',

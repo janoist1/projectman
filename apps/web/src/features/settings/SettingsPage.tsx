@@ -332,6 +332,7 @@ function HistorySection({
       <h2 id="settings-history" className={styles.cardTitle}>
         {t('settings.sections.history')}
       </h2>
+      <p className={styles.muted}>{t('settings.history.intro')}</p>
       {history.length === 0 ? <p className={styles.muted}>{t('settings.history.empty')}</p> : null}
       <ol className={styles.history}>
         {history.map((entry) => {

@@ -36,7 +36,7 @@ function stageName(ctx: TimelineContext, id: string): string {
   return ctx.pipeline?.stageById.get(id)?.name ?? id;
 }
 
-const fieldKeys = ['title', 'description', 'labels', 'visibility', 'stageId'] as const;
+const fieldKeys = ['title', 'description', 'labels', 'visibility', 'stageId', 'parentKey'] as const;
 
 function fieldLabel(field: string): string {
   return (fieldKeys as readonly string[]).includes(field)
@@ -70,6 +70,14 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
   const d = event.data;
   const normal = (text: string): DescribedEvent => ({ text, emphasis: 'normal' });
   switch (event.type) {
+    case 'task_subtask_added':
+    case 'task_subtask_removed':
+      return normal(
+        t(event.type === 'task_subtask_added' ? 'timeline.subtaskAdded' : 'timeline.subtaskRemoved', {
+          parentKey: str(d.parentKey),
+          subtaskKey: str(d.subtaskKey),
+        }),
+      );
     case 'task_created':
       return normal(
         t(d.imported === true ? 'timeline.events.task_created_imported' : 'timeline.events.task_created'),

@@ -13,6 +13,7 @@ import styles from './TaskCard.module.css';
 
 interface TaskCardProps {
   task: Task;
+  subtasks?: readonly Task[];
   state: TaskState;
   pipeline: PipelineIndex;
   to: string;
@@ -21,7 +22,15 @@ interface TaskCardProps {
   compact?: boolean;
 }
 
-export function TaskCard({ task, state, pipeline, to, selected = false, compact = false }: TaskCardProps) {
+export function TaskCard({
+  task,
+  state,
+  pipeline,
+  to,
+  selected = false,
+  compact = false,
+  subtasks = [],
+}: TaskCardProps) {
   const pr = prChip(task);
   const checks = compact ? [] : cardChecks(task, pipeline);
   const stage = pipeline.stageById.get(task.stageId);
@@ -38,6 +47,27 @@ export function TaskCard({ task, state, pipeline, to, selected = false, compact 
       <span className={styles.titleRow}>
         <span className={styles.title}>{task.title}</span>
       </span>
+      {task.parentKey || subtasks.length ? (
+        <span className={styles.meta}>
+          {task.parentKey ? (
+            <span className={styles.label}>{t('task.parentChip', { key: task.parentKey })}</span>
+          ) : null}
+          {subtasks.length ? (
+            <span
+              className={styles.label}
+              aria-label={t('task.subtaskProgress', {
+                done: subtasks.filter((child) => child.status === 'done').length,
+                total: subtasks.length,
+              })}
+            >
+              {t('task.subtaskCount', {
+                done: subtasks.filter((child) => child.status === 'done').length,
+                total: subtasks.length,
+              })}
+            </span>
+          ) : null}
+        </span>
+      ) : null}
       {showMeta ? (
         <span className={styles.meta}>
           {pr ? (

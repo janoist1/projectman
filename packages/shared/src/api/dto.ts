@@ -211,6 +211,8 @@ export const TaskPullRequest = z.object({
 export type TaskPullRequest = z.infer<typeof TaskPullRequest>;
 
 export const TaskDetail = z.object({
+  parent: Task.nullable().optional(),
+  subtasks: z.array(Task).optional(),
   task: Task,
   timeline: z.array(TimelineEvent),
   pullRequests: z.array(TaskPullRequest).default([]),
@@ -219,6 +221,7 @@ export const TaskDetail = z.object({
 export type TaskDetail = z.infer<typeof TaskDetail>;
 
 export const CreateTaskRequest = z.object({
+  parentKey: TaskKey.optional(),
   importedAt: z.string().datetime().optional(),
   title: z.string().min(1),
   description: z.string().optional(),
@@ -230,6 +233,7 @@ export const CreateTaskRequest = z.object({
 export type CreateTaskRequest = z.infer<typeof CreateTaskRequest>;
 
 export const UpdateTaskRequest = z.object({
+  parentKey: TaskKey.nullable().optional(),
   title: z.string().min(1).optional(),
   description: z.string().optional(),
   stageId: StageId.optional(),

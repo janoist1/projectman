@@ -49,6 +49,8 @@ export const TaskStartWaiting = z.object({
 export type TaskStartWaiting = z.infer<typeof TaskStartWaiting>;
 
 export const Task = z.object({
+  /** One level of subtasks; omitted by older clients. */
+  parentKey: TaskKey.nullable().optional(),
   startWaiting: TaskStartWaiting.optional(),
   id: z.string(),
   projectKey: z.string(),

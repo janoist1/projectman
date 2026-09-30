@@ -126,7 +126,12 @@ export function useCreateTask(key: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (body: CreateTaskRequest) => api.createTask(key, body),
-    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.board(key) }),
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.board(key) }),
+        client.invalidateQueries({ queryKey: queryKeys.tasks(key) }),
+      ]);
+    },
   });
 }
 

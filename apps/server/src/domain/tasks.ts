@@ -158,6 +158,8 @@ export class TaskService {
     const task = this.get(projectKey, taskKey);
     return {
       task,
+      parent: task.parentKey ? this.find(projectKey, task.parentKey) : null,
+      subtasks: this.list(projectKey).filter((child) => child.parentKey === taskKey),
       pullRequests: task.links
         .filter((link) => link.kind === 'pull_request')
         .flatMap((link) => {
@@ -206,8 +208,10 @@ export class TaskService {
     if (repo && !config.project.repos.some((r) => r.name === repo)) {
       throw invalid('unknown_repo', `unknown repository: ${repo}`);
     }
+    if (req.parentKey) this.validateParent(projectKey, null, req.parentKey);
     const at = req.importedAt ?? isoNow(this.ctx);
     const task: Task = {
+      parentKey: req.parentKey ?? null,
       id: newId('tsk'),
       projectKey,
       key: `${projectKey}-0`,
@@ -251,6 +255,7 @@ export class TaskService {
       data: { title, ...(req.importedAt !== undefined ? { imported: true } : {}) },
       createdAt: at,
     });
+    if (task.parentKey) this.recordParentChange(task, null, actor, opts.sessionId);
     this.publish(task);
     return task;
   }
@@ -277,6 +282,7 @@ export class TaskService {
       }
     }
     let task = this.get(projectKey, taskKey);
+    if (req.parentKey) this.validateParent(projectKey, taskKey, req.parentKey);
     if (req.stageId !== undefined && req.stageId !== task.stageId) {
       const result = await this.moveToStage(projectKey, taskKey, req.stageId, actor);
       if (!result.moved) throw approvalRequestedError(result.pendingApproval);
@@ -300,6 +306,11 @@ export class TaskService {
     if (req.visibility !== undefined && req.visibility !== task.visibility) {
       next.visibility = req.visibility;
       fields.push('visibility');
+    }
+    if (req.parentKey !== undefined && req.parentKey !== (task.parentKey ?? null)) {
+      if (req.parentKey) this.validateParent(projectKey, taskKey, req.parentKey);
+      next.parentKey = req.parentKey;
+      fields.push('parentKey');
     }
     const assignmentChanged = req.assignee !== undefined && req.assignee !== task.assignee;
     if (req.assignee !== undefined) next.assignee = req.assignee;
@@ -325,8 +336,45 @@ export class TaskService {
         data: { assignee: next.assignee, previous: task.assignee },
       });
     }
+    if (next.parentKey !== task.parentKey)
+      this.recordParentChange(next, task.parentKey ?? null, actor, opts.sessionId);
     this.publish(next);
     return next;
+  }
+
+  private validateParent(projectKey: string, taskKey: string | null, parentKey: string): void {
+    if (parentKey === taskKey) throw invalid('subtask_self_parent', 'a task cannot be its own parent');
+    const parent = this.ctx.repos.tasks.get(parentKey);
+    if (!parent) throw invalid('subtask_parent_not_found', 'the parent task does not exist');
+    if (parent.projectKey !== projectKey)
+      throw invalid('subtask_parent_project', 'the parent must belong to the same project');
+    if (parent.parentKey) throw invalid('subtask_parent_is_subtask', 'a subtask cannot have subtasks');
+    if (taskKey && this.list(projectKey).some((child) => child.parentKey === taskKey))
+      throw invalid('subtask_has_children', 'a task with subtasks cannot become a subtask');
+  }
+
+  private recordParentChange(
+    task: Task,
+    previous: string | null,
+    actor: Actor,
+    sessionId?: string | null,
+  ): void {
+    for (const [parentKey, type] of [
+      [previous, 'task_subtask_removed'],
+      [task.parentKey, 'task_subtask_added'],
+    ] as const) {
+      if (!parentKey) continue;
+      for (const taskKey of [parentKey, task.key]) {
+        this.timeline.append({
+          projectKey: task.projectKey,
+          taskKey,
+          actor,
+          sessionId: sessionId ?? null,
+          type,
+          data: { parentKey, subtaskKey: task.key },
+        });
+      }
+    }
   }
 
   /** Closes the task and stops its sessions while preserving assignment, stage and files. */

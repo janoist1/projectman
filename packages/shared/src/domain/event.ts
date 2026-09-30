@@ -11,6 +11,8 @@ export const Actor = z.object({
 export type Actor = z.infer<typeof Actor>;
 
 export const TimelineEventType = z.enum([
+  'task_subtask_added',
+  'task_subtask_removed',
   'task_created',
   'task_updated',
   'task_stage_changed',
@@ -51,6 +53,8 @@ export type TimelineEvent = z.infer<typeof TimelineEvent>;
 
 /** Known payload shapes per event type (documentation for producers and renderers). */
 export interface TimelineEventData {
+  task_subtask_added: { parentKey: string; subtaskKey: string };
+  task_subtask_removed: { parentKey: string; subtaskKey: string };
   task_created: { title: string };
   task_updated: {
     fields: string[];

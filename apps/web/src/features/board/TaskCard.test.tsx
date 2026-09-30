@@ -124,3 +124,35 @@ describe('deriveTaskState', () => {
     expect(deriveTaskState(task, { ...ctx, pipeline: withIncoming })).toMatchObject({ label: 'Indítható' });
   });
 });
+
+describe('subtask card chips', () => {
+  it('shows the parent key even on a compact phone card', () => {
+    const task = { ...taskByKey('AC-20'), parentKey: 'AC-21' };
+    renderUi(
+      <TaskCard
+        task={task}
+        state={deriveTaskState(task, ctx)}
+        pipeline={pipeline}
+        to="/p/AC/tasks/AC-20"
+        compact
+      />,
+    );
+    expect(screen.getByText('↳ AC-21')).toBeTruthy();
+  });
+  it('shows completed children out of all children', () => {
+    const task = taskByKey('AC-20');
+    renderUi(
+      <TaskCard
+        task={task}
+        subtasks={[
+          { ...taskByKey('AC-21'), parentKey: task.key, status: 'done' },
+          { ...taskByKey('AC-22'), parentKey: task.key },
+        ]}
+        state={deriveTaskState(task, ctx)}
+        pipeline={pipeline}
+        to="/p/AC/tasks/AC-20"
+      />,
+    );
+    expect(screen.getByText('1/2')).toBeTruthy();
+  });
+});

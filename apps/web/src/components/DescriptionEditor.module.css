@@ -1,0 +1,50 @@
+.editor {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+.editor > div {
+  min-width: 0;
+}
+.switch,
+.toolbar {
+  display: flex;
+  gap: 6px;
+}
+.switch button,
+.toolbar button {
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius-md);
+  background: var(--c-surface);
+  color: var(--c-ink);
+  padding: 8px 10px;
+  flex-shrink: 0;
+}
+.switch button[aria-pressed='true'] {
+  background: var(--c-muted);
+}
+.toolbar {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.input {
+  min-height: calc(12 * 1.5em + 24px);
+  line-height: 1.5;
+  resize: vertical;
+  overflow: hidden;
+}
+.preview {
+  min-height: 18em;
+  padding: 12px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius-md);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 767px) {
+  .input {
+    min-height: calc(8 * 1.5em + 24px);
+  }
+  .preview {
+    min-height: 12em;
+  }
+}

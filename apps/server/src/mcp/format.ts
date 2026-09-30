@@ -144,6 +144,19 @@ export function formatTaskDetail(detail: TaskDetail): string {
     'Description:',
     description ? truncate(description, MAX_DESCRIPTION_CHARS) : '(none)',
   ];
+  if (detail.parent)
+    lines.push(
+      '',
+      `Parent: ${detail.parent.key} — ${detail.parent.title} · Stage: ${detail.parent.stageId} · Status: ${detail.parent.status}`,
+    );
+  if (detail.subtasks?.length)
+    lines.push(
+      '',
+      'Subtasks:',
+      ...detail.subtasks.map(
+        (child) => `- ${child.key} — ${child.title} · Stage: ${child.stageId} · Status: ${child.status}`,
+      ),
+    );
   if (sessions.length > 0) {
     lines.push('', `Sessions: ${sessions.map((s) => `${s.member} (${s.state})`).join(', ')}`);
   }

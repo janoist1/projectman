@@ -53,17 +53,17 @@ tests use the SDK's own client, which behaves the same way here):
 
 ## Tools
 
-| Tool                | Input                                                                                 | Handler call                                                                  |
-| ------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `send_message`      | `to` (handles, 1–20), `text`, `task_key?`                                             | `sendMessage(ctx, { to, text, taskKey? })`                                    |
-| `list_members`      | none                                                                                  | `listMembers(ctx)`                                                            |
-| `list_tasks`        | `status?`, `stage?`, `assignee?`, `limit?`                                            | `listTasks(ctx, args)`                                                        |
-| `get_task`          | `task_key`                                                                            | `getTask(ctx, { taskKey })`                                                   |
-| `update_task`       | `task_key`, `stage_id?`, `check?: { name, state }`, `note?`, `title?`, `description?` | `updateTask(ctx, { taskKey, stageId?, check?, note?, title?, description? })` |
-| `create_task`       | `title` (max 200 chars), `description?`, `labels?` (max 10), `visibility?`            | `createTask(ctx, { title, description?, labels?, visibility? })`              |
-| `link_pull_request` | `task_key`, `repo` (`owner/name`), `number`                                           | `linkPullRequest(ctx, { taskKey, repo, number })`                             |
-| `ask_human`         | `question`, `options?` (1–10), `task_key?`, `to?` (handles)                           | `askHuman(ctx, { question, options?, taskKey?, to? })`                        |
-| `save_memory`       | `note` (max 2000 chars)                                                               | `saveMemory(ctx, { note })`                                                   |
+| Tool                | Input                                                                                     | Handler call                                                                  |
+| ------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `send_message`      | `to` (handles, 1–20), `text`, `task_key?`                                                 | `sendMessage(ctx, { to, text, taskKey? })`                                    |
+| `list_members`      | none                                                                                      | `listMembers(ctx)`                                                            |
+| `list_tasks`        | `status?`, `stage?`, `assignee?`, `limit?`                                                | `listTasks(ctx, args)`                                                        |
+| `get_task`          | `task_key`                                                                                | `getTask(ctx, { taskKey })`                                                   |
+| `update_task`       | `task_key`, `stage_id?`, `check?: { name, state }`, `note?`, `title?`, `description?`     | `updateTask(ctx, { taskKey, stageId?, check?, note?, title?, description? })` |
+| `create_task`       | `title` (max 200 chars), `description?`, `labels?` (max 10), `visibility?`, `parent_key?` | `createTask(ctx, { title, description?, labels?, visibility?, parentKey? })`  |
+| `link_pull_request` | `task_key`, `repo` (`owner/name`), `number`                                               | `linkPullRequest(ctx, { taskKey, repo, number })`                             |
+| `ask_human`         | `question`, `options?` (1–10), `task_key?`, `to?` (handles)                               | `askHuman(ctx, { question, options?, taskKey?, to? })`                        |
+| `save_memory`       | `note` (max 2000 chars)                                                                   | `saveMemory(ctx, { note })`                                                   |
 
 - Inputs are zod schemas (`tools.ts`), strict: an unknown key is an error rather than
   silently dropped. Handles, task keys, stage ids, check names/states and visibility reuse the
@@ -75,7 +75,8 @@ tests use the SDK's own client, which behaves the same way here):
 - `update_task` needs at least one of `stage_id`, `check`, `note`, `title` and `description`.
   `description` replaces the whole description (the analyst's specification, the architect's
   technical plan); the change is recorded in the timeline as `task_updated`.
-- `create_task` creates the task in the pipeline's first (queue) stage, unassigned and
+- `get_task` includes the parent and one-level subtasks with keys, titles, stages and statuses.
+- `create_task` accepts optional `parent_key` for a one-level subtask in the same project. It creates the task in the pipeline's first (queue) stage, unassigned and
   attributed to the calling member (`task_created` in the timeline, with the session); humans
   prioritise it. Support turns bug reports into cards with it, the architect proposes a
   breakdown, the analyst splits requests.

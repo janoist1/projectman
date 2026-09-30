@@ -3,6 +3,7 @@ import type { Db } from './database';
 import { parseJson, toJson } from './json';
 
 interface TaskRow {
+  parent_key: string | null;
   id: string;
   project_key: string;
   key: string;
@@ -53,6 +54,7 @@ function toLink(r: LinkRow): TaskLink {
 
 function toTask(r: TaskRow, links: TaskLink[]): Task {
   return {
+    parentKey: r.parent_key,
     id: r.id,
     projectKey: r.project_key,
     key: r.key,
@@ -148,8 +150,8 @@ export function createTaskRepository(db: Db) {
       db.transaction(() => {
         db.prepare(
           `INSERT INTO tasks (id, project_key, key, seq, title, description, stage_id, status, assignee,
-             repo, priority, labels, checks, visibility, created_by, created_at, updated_at, closed_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             repo, priority, labels, checks, visibility, created_by, created_at, updated_at, closed_at, parent_key)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           task.id,
           task.projectKey,
@@ -169,6 +171,7 @@ export function createTaskRepository(db: Db) {
           task.createdAt,
           task.updatedAt,
           task.closedAt,
+          task.parentKey ?? null,
         );
         for (const link of task.links) upsertLink(task.id, link, task.createdAt);
       })();
@@ -202,7 +205,7 @@ export function createTaskRepository(db: Db) {
     update(task: Task): void {
       db.prepare(
         `UPDATE tasks SET title = ?, description = ?, stage_id = ?, status = ?, assignee = ?, repo = ?,
-           priority = ?, labels = ?, checks = ?, visibility = ?, updated_at = ?, closed_at = ?
+           priority = ?, labels = ?, checks = ?, visibility = ?, updated_at = ?, closed_at = ?, parent_key = ?
          WHERE id = ?`,
       ).run(
         task.title,
@@ -217,6 +220,7 @@ export function createTaskRepository(db: Db) {
         task.visibility,
         task.updatedAt,
         task.closedAt,
+        task.parentKey ?? null,
         task.id,
       );
     },

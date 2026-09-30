@@ -194,7 +194,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     readOnly: true,
     description:
       'Get a task: title, description, stage, status, assignee, checks, links (pull requests, branches) and ' +
-      'its recent timeline (who did what).',
+      'its parent, subtasks (keys, titles, stages, statuses), and recent timeline (who did what).',
     input: { task_key: taskKeyInput },
     async run({ ctx, args, handler }) {
       return formatTaskDetail(await handler.getTask(ctx, { taskKey: args.task_key }));
@@ -287,8 +287,11 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       'Create a new task, for example a card for a reported bug, one part of a request you split, or ' +
       'follow-up work you found. It starts unassigned in the first stage of the pipeline, where humans ' +
       'prioritise it; it does not start any work. Give it a specific title and a self-contained ' +
-      "description, in the project's language.",
+      "description, in the project's language. Set parent_key for a one-level subtask in the same project.",
     input: {
+      parent_key: taskKeyInput
+        .optional()
+        .describe('Parent task in this project; must not itself be a subtask.'),
       title: z
         .string()
         .trim()
@@ -316,6 +319,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     async run({ ctx, args, handler }) {
       const { task } = await handler.createTask(ctx, {
         title: args.title,
+        ...(args.parent_key ? { parentKey: args.parent_key } : {}),
         ...(args.description ? { description: args.description } : {}),
         ...(args.labels ? { labels: unique(args.labels) } : {}),
         ...(args.visibility ? { visibility: args.visibility } : {}),

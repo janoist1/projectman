@@ -192,6 +192,11 @@ export const hu = {
     code: 'Hibakód: {code}',
     /** Stable error codes from the server (ApiError.code and websocket error events). */
     codes: {
+      subtask_self_parent: 'A feladat nem lehet saját maga alfeladata.',
+      subtask_parent_not_found: 'A szülőfeladat nem található.',
+      subtask_parent_project: 'A szülőfeladatnak ugyanebben a projektben kell lennie.',
+      subtask_parent_is_subtask: 'Egy alfeladatnak nem lehetnek további alfeladatai.',
+      subtask_has_children: 'Az alfeladatokat tartalmazó feladat nem válhat alfeladattá.',
       provider_not_logged_in: 'A szolgáltatónál nincs aktív előfizetéses bejelentkezés.',
       bad_request: 'A kérés érvénytelen.',
       cannot_remove_self: 'Saját magadat nem távolíthatod el.',
@@ -429,7 +434,32 @@ export const hu = {
     stageProgress: 'Haladás: {stage}, {index}. lépés a {total}-ból',
   },
 
+  editor: {
+    write: 'Írás',
+    preview: 'Előnézet',
+    toolbar: 'Leírás formázása',
+    bold: 'Félkövér',
+    italic: 'Dőlt',
+    heading: 'Címsor',
+    bullet: 'Felsorolás',
+    numbered: 'Számozott lista',
+    taskList: 'Feladatlista',
+    link: 'Hivatkozás',
+    code: 'Kód',
+    placeholder: 'szöveg',
+  },
   task: {
+    edit: 'Szerkesztés',
+    save: 'Mentés',
+    cancelEdit: 'Mégse',
+    subtasks: 'Alfeladatok',
+    subtaskTitle: 'Új alfeladat címe',
+    addSubtask: 'Hozzáadás',
+    parent: 'Része ennek: {key} – {title}',
+    parentChip: '↳ {key}',
+    subtaskProgress: '{done}/{total} kész',
+    subtaskCount: '{done}/{total}',
+    unassigned: 'Nincs felelős',
     comments: {
       label: 'Hozzászólás',
       hint: 'Írj @ jelet egy csapattag megemlítéséhez.',
@@ -934,6 +964,8 @@ export const hu = {
   },
 
   timeline: {
+    subtaskAdded: 'Alfeladat hozzáadva: {subtaskKey} → {parentKey}',
+    subtaskRemoved: 'Alfeladat eltávolítva: {subtaskKey} → {parentKey}',
     label: 'Idővonal',
     events: {
       task_cancelled: 'Megszakította a feladatot.',
@@ -966,6 +998,7 @@ export const hu = {
       gate_blocked: 'A kapu nem engedte tovább: {to}',
     },
     fields: {
+      parentKey: 'szülőfeladat',
       title: 'cím',
       description: 'leírás',
       labels: 'címkék',

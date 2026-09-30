@@ -54,7 +54,7 @@ export function labelSetters(
   label: LabelDefinition,
   task: Pick<Task, 'assignee' | 'links'>,
 ) {
-  const authors = labelExcludesAuthors(config, label) ? taskAuthors(task as Task) : [];
+  const authors = labelExcludesAuthors(config, label) ? taskAuthors(task) : [];
   return labelHolders(config, label).filter((handle) => !authors.includes(handle));
 }
 
@@ -72,7 +72,7 @@ export function labelRefusal(
   if (label.setBy === 'system') return 'system_only';
   if (isHumanOnlyLabel(label) && actor.kind !== 'human') return 'humans_only';
   if (!labelHolders(config, label).includes(actor.handle ?? '')) return 'not_holder';
-  if (labelExcludesAuthors(config, label) && taskAuthors(task as Task).includes(actor.handle ?? ''))
+  if (labelExcludesAuthors(config, label) && taskAuthors(task).includes(actor.handle ?? ''))
     return 'self_review';
   return null;
 }

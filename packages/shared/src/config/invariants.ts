@@ -36,11 +36,17 @@ export interface ConfigIssue {
 /**
  * Rules that always hold, whoever changes the configuration (a human or the system agent):
  * - every handle is unique and at least one owner exists;
- * - stage owners, gate approvers and AI sponsors refer to existing members;
- * - approvers and sponsors are humans (an AI can never approve a gate);
- * - every release stage requires a human approval;
+ * - stage owners, the members a label names as setters and AI sponsors refer to existing
+ *   members; sponsors are humans;
+ * - stage and label ids are unique, every stage sits in an existing column, the first stage is
+ *   a queue and the last one done;
+ * - every label a gate requires is defined and, unless the system sets it, someone may set it;
+ *   stage and gate duties have holders;
+ * - every release stage requires an approval: a label only humans may set (so an AI can never
+ *   approve), with at least one human who may set it;
  * - every role a member holds (and the temp workers' role) is a built-in or custom role that
  *   the member's kind may hold; custom role ids are unique and never reuse a built-in id.
+ * Unfilled recommended duties are warnings, never errors.
  */
 export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
   const issues: ConfigIssue[] = [];

@@ -23,6 +23,10 @@ export async function readTranscript(path: string, opts: TranscriptParserOptions
 export function createTranscriptReader(): TranscriptReader {
   return {
     read: (path, opts) =>
-      readTranscript(path, { self: opts?.self ?? null, firstUserOrigin: opts?.firstUserOrigin }),
+      readTranscript(path, {
+        self: opts?.self ?? null,
+        cwd: opts?.cwd ?? null,
+        firstUserOrigin: opts?.firstUserOrigin,
+      }),
   };
 }

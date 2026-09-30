@@ -1,67 +1,58 @@
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { CreateInviteRequest, routes } from '@projectman/shared';
 import type { Me } from '@projectman/shared';
-import type { AuthService, AuthUser } from '../auth/auth-service';
+import { createAttemptLimiter, meOf, startSession } from '../auth';
+import type { AuthService } from '../auth';
 import type { Domain } from '../domain';
-import { DomainError } from '../domain/errors';
-import { InvitationService } from '../domain/invitations';
-import { requireAccess } from './context';
+import type { InvitationService } from '../domain/invitations';
+import { currentUser, requireAccess } from './context';
 import { parseBody } from './validation';
 
+type ProjectParams = { Params: { key: string } };
+type TokenParams = { Params: { token: string } };
+
+/** Admins manage a project's invitations; the invite link itself is public (and rate-limited). */
 export function registerInvitationRoutes(
   app: FastifyInstance,
-  deps: {
-    domain: Domain;
-    auth: AuthService;
-    me: (user: AuthUser) => Promise<Me>;
-    setSessionCookie: (reply: FastifyReply, token: string) => unknown;
-  },
+  deps: { domain: Domain; invitations: InvitationService; auth: AuthService },
 ): void {
-  const service = new InvitationService(deps.domain, deps.auth);
-  const attempts = new Map<string, { count: number; resetAt: number }>();
-  const rateLimit = (ip: string) => {
-    const now = Date.now();
-    // Bound memory even when requests arrive from many addresses.
-    for (const [key, value] of attempts) if (value.resetAt <= now) attempts.delete(key);
-    const entry = attempts.get(ip) ?? { count: 0, resetAt: now + 15 * 60_000 };
-    if (entry.count >= 10)
-      throw new DomainError('too_many_attempts', 'too many invitation attempts; try again later', {
-        status: 429,
-      });
-    entry.count++;
-    attempts.set(ip, entry);
-  };
+  const { domain, invitations, auth } = deps;
+  // Invitation tokens can only be guessed by trying: failed inspections and acceptances count.
+  const attempts = createAttemptLimiter({
+    max: 10,
+    windowMs: 15 * 60_000,
+    message: 'too many invitation attempts; try again later',
+  });
 
-  app.post<{ Params: { key: string } }>(routes.invitations(':key'), async (request, reply) => {
-    await requireAccess(deps.domain, request, request.params.key, { minimum: 'admin' });
-    const invite = await service.create(
-      request.params.key,
-      parseBody(CreateInviteRequest, request.body),
-      request.user!,
-    );
+  app.post<ProjectParams>(routes.invitations(':key'), async (request, reply) => {
+    await requireAccess(domain, request, request.params.key, { minimum: 'admin' });
+    const body = parseBody(CreateInviteRequest, request.body);
+    const invite = await invitations.create(request.params.key, body, currentUser(request));
     return reply.code(201).send(invite);
   });
-  app.get<{ Params: { key: string } }>(routes.invitations(':key'), async (request) => {
-    await requireAccess(deps.domain, request, request.params.key, { minimum: 'admin' });
-    return { invitations: service.list(request.params.key) };
+  app.get<ProjectParams>(routes.invitations(':key'), async (request) => {
+    await requireAccess(domain, request, request.params.key, { minimum: 'admin' });
+    return { invitations: invitations.list(request.params.key) };
   });
   app.delete<{ Params: { key: string; id: string } }>(
     routes.invitation(':key', ':id'),
     async (request, reply) => {
-      await requireAccess(deps.domain, request, request.params.key, { minimum: 'admin' });
-      await service.revoke(request.params.key, request.params.id);
+      await requireAccess(domain, request, request.params.key, { minimum: 'admin' });
+      await invitations.revoke(request.params.key, request.params.id);
       return reply.code(204).send();
     },
   );
-  app.get<{ Params: { token: string } }>(routes.invite(':token'), async (request) => {
-    rateLimit(request.ip);
-    return service.inspect(request.params.token);
+  app.get<TokenParams>(routes.invite(':token'), async (request) => {
+    const release = attempts.reserve(request.ip);
+    const invite = await invitations.inspect(request.params.token);
+    release();
+    return invite;
   });
-  app.post<{ Params: { token: string } }>(routes.acceptInvite(':token'), async (request, reply) => {
-    rateLimit(request.ip);
-    const user = await service.accept(request.params.token, request.body, request.user);
-    if (request.authToken) deps.auth.revoke(request.authToken);
-    deps.setSessionCookie(reply, deps.auth.createSession(user.id));
-    return deps.me(user);
+  app.post<TokenParams>(routes.acceptInvite(':token'), async (request, reply): Promise<Me> => {
+    const release = attempts.reserve(request.ip);
+    const user = await invitations.accept(request.params.token, request.body, request.user);
+    release();
+    startSession(auth, request, reply, user.id);
+    return meOf(domain, user);
   });
 }

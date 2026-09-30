@@ -1,16 +1,22 @@
-import { labelHolders, resolvedStages } from '@projectman/shared';
 import type { FastifyInstance } from 'fastify';
-import { CreateProjectRequest, DEFAULT_AGENT_PROVIDER, routes } from '@projectman/shared';
+import { CreateProjectRequest, routes } from '@projectman/shared';
 import type { BoardView, ProjectSummary, TemplateSummary } from '@projectman/shared';
 import { summarizeTemplate } from '@projectman/templates';
+import type { AuthService } from '../auth';
 import type { Domain } from '../domain';
+import type { BoardService } from '../domain/board';
 import { forbidden } from '../domain/errors';
-import { authorOf, canSeeTask, currentUser, requireAccess } from './context';
+import { authorOf, currentUser, requireAccess } from './context';
 import { parseBody } from './validation';
 
 type ProjectParams = { Params: { key: string } };
 
-export function registerProjectRoutes(app: FastifyInstance, domain: Domain): void {
+export function registerProjectRoutes(
+  app: FastifyInstance,
+  deps: { domain: Domain; auth: AuthService; board: BoardService },
+): void {
+  const { domain, auth, board } = deps;
+
   app.get(routes.templates(), async (): Promise<TemplateSummary[]> =>
     domain.templates.list().map(summarizeTemplate),
   );
@@ -23,7 +29,7 @@ export function registerProjectRoutes(app: FastifyInstance, domain: Domain): voi
 
   app.post(routes.projects(), async (request, reply) => {
     // Selecting host filesystem workspaces is a host-owner operation.
-    if (domain.ctx.repos.users.list()[0]?.id !== currentUser(request).id)
+    if (!auth.isHostOwner(currentUser(request).id))
       throw forbidden('owner_only', 'only the initial host owner may create projects');
     const body = parseBody(CreateProjectRequest, request.body);
     const summary = await domain.projects.create(body, authorOf(request));
@@ -36,32 +42,7 @@ export function registerProjectRoutes(app: FastifyInstance, domain: Domain): voi
   });
 
   app.get<ProjectParams>(routes.board(':key'), async (request): Promise<BoardView> => {
-    const key = request.params.key;
-    const access = await requireAccess(domain, request, key);
-    const { config } = await domain.projects.load(key);
-    const internal = access.access !== 'client';
-    const providers = [
-      ...new Set(
-        config.team.members.flatMap((m) => (m.kind === 'ai' ? [m.provider ?? DEFAULT_AGENT_PROVIDER] : [])),
-      ),
-    ];
-    const planUsageByProvider = Object.fromEntries(
-      providers.map((provider) => [provider, internal ? domain.planUsage.peek(provider) : null]),
-    );
-    return {
-      aiEnabled: config.team.limits.aiEnabled,
-      project: domain.projects.summary(key),
-      columns: config.pipeline.columns.map((column) => ({
-        ...column,
-        stageIds: config.pipeline.stages.filter((s) => s.columnId === column.id).map((s) => s.id),
-      })),
-      stages: resolvedStages(config),
-      labels: config.pipeline.labels.map((label) => ({ ...label, holders: labelHolders(config, label) })),
-      tasks: domain.tasks.list(key).filter((t) => canSeeTask(access, t)),
-      members: domain.members.rosterFor(config),
-      openInboxCount: domain.inbox.countOpenFor(key, access.handle),
-      planUsage: planUsageByProvider.claude ?? null,
-      planUsageByProvider,
-    };
+    const access = await requireAccess(domain, request, request.params.key);
+    return board.view(request.params.key, access);
   });
 }

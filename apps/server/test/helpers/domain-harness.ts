@@ -93,8 +93,8 @@ export async function createDomainHarness(
     worktrees,
     log,
     /** Closes everything; fails the test if a service logged an error (e.g. a swallowed listener failure). */
-    cleanup() {
-      domain.stop();
+    async cleanup() {
+      await domain.stop();
       repos.db.close();
       rmSync(dir, { recursive: true, force: true });
       if (log.errors.length > 0) {

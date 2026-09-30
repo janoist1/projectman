@@ -7,11 +7,13 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:net';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
+import { fakeCliEnv } from './lib/fake-cli.mjs';
+import { requireFreePort } from './lib/ports.mjs';
+import { stopProcessGroup } from './lib/processes.mjs';
 
 const repo = fileURLToPath(new URL('../', import.meta.url));
 const demo = join(repo, '.demo');
@@ -27,25 +29,7 @@ let cookie;
 async function shutdown() {
   if (closing) return closing;
   stopping = true;
-  closing = Promise.all(
-    children.map(async ({ child, exited }) => {
-      if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
-      const kill = (signal) => {
-        try {
-          process.kill(-child.pid, signal);
-        } catch (err) {
-          if (err.code !== 'ESRCH') throw err;
-        }
-      };
-      kill('SIGTERM');
-      const timer = setTimeout(() => kill('SIGKILL'), 8_000);
-      try {
-        await exited;
-      } finally {
-        clearTimeout(timer);
-      }
-    }),
-  );
+  closing = Promise.all(children.map(({ child, exited }) => stopProcessGroup(child, exited, 8_000)));
   return closing;
 }
 
@@ -94,17 +78,6 @@ async function api(path, method = 'GET', body) {
   return response.status === 204 ? null : response.json();
 }
 
-async function requireFreePort(port) {
-  const probe = createServer();
-  await new Promise((resolve, reject) => {
-    probe.once('error', () =>
-      reject(new Error(`Port ${port} is busy; stop its server before running the demo.`)),
-    );
-    probe.listen(port, '127.0.0.1', resolve);
-  });
-  await new Promise((resolve, reject) => probe.close((err) => (err ? reject(err) : resolve())));
-}
-
 function git(args) {
   const result = spawnSync('git', args, { cwd: workspace, encoding: 'utf8' });
   if (result.error) throw result.error;
@@ -140,17 +113,13 @@ async function seed() {
       repos: [{ name: 'webshop', path: '.' }],
     });
   }
-  const { config, version } = await api('/projects/AC/config');
-  const developers = config.team.members.filter(
+  const developers = (await api('/projects/AC/members')).filter(
     (member) => member.kind === 'ai' && member.role === 'developer',
   );
-  developers[0].displayName = 'Kata';
-  developers[1].displayName = 'Bence';
-  developers[1].provider = 'codex';
-  await api('/projects/AC/config', 'PUT', {
-    config,
-    baseVersion: version,
-    message: 'Configure demo developers and providers',
+  await api(`/projects/AC/members/${developers[0].handle}`, 'PATCH', { displayName: 'Kata' });
+  await api(`/projects/AC/members/${developers[1].handle}`, 'PATCH', {
+    displayName: 'Bence',
+    provider: 'codex',
   });
   const titles = [
     'Build the product catalogue',
@@ -192,19 +161,10 @@ async function seed() {
 async function main() {
   if (process.argv.slice(2).some((arg) => arg !== '--reset'))
     throw new Error('Usage: npm run demo -- [--reset]');
-  await requireFreePort(4700);
-  await requireFreePort(5173);
+  for (const port of [4700, 5173])
+    await requireFreePort(port, `Port ${port} is busy; stop its server before running the demo.`);
   if (process.argv.includes('--reset')) rmSync(demo, { recursive: true, force: true });
-  for (const dir of ['workspace', 'home', 'claude-config', 'codex-home', 'transcripts'])
-    mkdirSync(join(demo, dir), { recursive: true });
-  const claudeConfig = join(demo, 'claude-config/.claude.json');
-  if (!existsSync(claudeConfig)) {
-    writeFileSync(
-      claudeConfig,
-      JSON.stringify({ numStartups: 1, projects: { [demo]: { hasTrustDialogAccepted: true } } }),
-      { mode: 0o600 },
-    );
-  }
+  for (const dir of ['workspace', 'home']) mkdirSync(join(demo, dir), { recursive: true });
   if (!existsSync(join(workspace, '.git'))) {
     writeFileSync(
       join(workspace, 'README.md'),
@@ -227,28 +187,14 @@ async function main() {
     ]);
   }
   const env = {
-    ...process.env,
+    // The fake claude, codex and gh CLIs; the demo folder is trusted.
+    ...fakeCliEnv(demo, { trusted: [demo] }),
     PROJECTMAN_HOME: join(demo, 'home'),
-    CLAUDE_BIN: join(repo, 'apps/server/test/fixtures/fake-claude.mjs'),
-    CODEX_BIN: join(repo, 'apps/server/test/fixtures/fake-codex.mjs'),
-    CODEX_HOME: join(demo, 'codex-home'),
-    GH_BIN: '/usr/bin/false',
-    CLAUDE_CONFIG_DIR: join(demo, 'claude-config'),
-    FAKE_CLAUDE_CONFIG_FILE: claudeConfig,
-    FAKE_CLAUDE_TRANSCRIPT_DIR: join(demo, 'transcripts'),
     PORT: '4700',
     HOST: '127.0.0.1',
     LOG_LEVEL: 'warn',
     PROJECTMAN_SERVER_URL: baseUrl,
   };
-  // Prevent inherited test switches from changing the fake CLI's behaviour.
-  for (const key of Object.keys(env)) {
-    if (
-      (key.startsWith('FAKE_CLAUDE_') || key.startsWith('FAKE_CODEX_')) &&
-      !['FAKE_CLAUDE_CONFIG_FILE', 'FAKE_CLAUDE_TRANSCRIPT_DIR'].includes(key)
-    )
-      delete env[key];
-  }
   start('Server', ['--import', 'tsx', 'src/index.ts'], join(repo, 'apps/server'), env);
   await waitFor(() =>
     fetch(`${baseUrl}/api/setup`, { signal: AbortSignal.timeout(1_000) })

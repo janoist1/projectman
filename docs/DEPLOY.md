@@ -21,17 +21,17 @@ sudo install -d -o projectman -g projectman -m 0700 /var/lib/projectman/data
 sudo -iu projectman
 cd /srv/projectman
 npm ci
-npm run build
 npm run smoke:prod
 ```
 
 Install build dependencies too: do not use `npm ci --omit=dev` before building.
-The server bundle is `apps/server/dist/index.js`, with third-party/native dependencies
-in `node_modules`. It serves `apps/web/dist`, its SPA fallback, `/api` and `/ws` on
-**127.0.0.1:4700**. Deploy both dist directories and the checkout's dependencies together.
-The smoke command builds and runs `npm start` using fake CLIs, a temporary home and an
-isolated port, checks HTML/assets/SPA/API and an authenticated websocket handshake,
-then stops and removes its data. It does not use your CLI accounts.
+`npm run smoke:prod` runs the production build (`npm run build`) and then checks it:
+it runs `npm start` using fake CLIs, a temporary home and an isolated port, checks
+HTML/assets/SPA/API and an authenticated websocket handshake, then stops and removes its
+data. It does not use your CLI accounts. The server bundle is `apps/server/dist/index.js`,
+with third-party/native dependencies in `node_modules`. It serves `apps/web/dist`, its SPA
+fallback, `/api` and `/ws` on **127.0.0.1:4700**. Deploy both dist directories and the
+checkout's dependencies together.
 
 ## CLI subscription login
 

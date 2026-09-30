@@ -8,9 +8,10 @@ import {
   TaskKey,
 } from '@projectman/shared';
 import type { Session, SessionDetail, TeamMessagesView } from '@projectman/shared';
-import { forbidden, notFound } from '../domain';
+import { notFound } from '../domain';
 import type { Domain } from '../domain';
-import { canSeeTask, requireAccess } from './context';
+import { canSeeTask, teamMessageMember } from '../domain/visibility';
+import { requireAccess } from './context';
 import { parseBody } from './validation';
 
 type ProjectParams = { Params: { key: string } };
@@ -49,9 +50,7 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
 
   app.post<ProjectParams>(routes.sendTeamMessage(':key'), async (request, reply) => {
     const key = request.params.key;
-    const access = await requireAccess(domain, request, key);
-    if (!['owner', 'admin', 'developer', 'client'].includes(access.access))
-      throw forbidden('insufficient_access', 'Developer or client access required');
+    const access = await requireAccess(domain, request, key, { messaging: true });
     const body = parseBody(SendTeamMessageRequest, request.body);
     if (body.taskKey && !canSeeTask(access, domain.tasks.get(key, body.taskKey)))
       throw notFound('task', body.taskKey);
@@ -63,13 +62,7 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
     async (request) => {
       const { key, id } = request.params;
       const access = await requireAccess(domain, request, key);
-      const config = await domain.projects.config(key);
-      return domain.messages.markRead(
-        key,
-        id,
-        access.handle,
-        config.team.members.filter((m) => m.kind === 'human').map((m) => m.handle),
-      );
+      return domain.messages.markRead(key, id, access.handle, await domain.members.humanHandles(key));
     },
   );
 
@@ -77,12 +70,10 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
     const key = request.params.key;
     const access = await requireAccess(domain, request, key);
     const query = parseBody(MessagesQuery, request.query);
-    // Client members only see messages they are part of.
-    const member = access.access === 'client' ? access.handle : query.member;
     return {
       messages: domain.messages.list(key, {
         taskKey: query.taskKey,
-        member,
+        member: teamMessageMember(access, query.member),
         between: query.threadWith ? [access.handle, query.threadWith] : undefined,
         limit: query.limit,
         unreadFor: query.unreadOnly === 'true' ? access.handle : undefined,

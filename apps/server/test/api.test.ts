@@ -1,7 +1,6 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { hash } from '@node-rs/argon2';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type {
   ApiError,
@@ -22,7 +21,15 @@ import type {
   TemplateSummary,
 } from '@projectman/shared';
 import { hu } from '@projectman/templates';
-import { cookieOf, createAppHarness, createProject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
+import {
+  addHumanAndLogin,
+  cookieOf,
+  createAppHarness,
+  createProject,
+  inject,
+  OWNER_LOGIN,
+  setupOwner,
+} from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { flush } from './helpers/fakes';
 
@@ -38,12 +45,7 @@ describe('REST API', () => {
   });
 
   async function call<T>(method: Method, url: string, cookie?: string, payload?: unknown) {
-    const res = await h.app.inject({
-      method,
-      url,
-      headers: cookie ? { cookie } : {},
-      ...(payload !== undefined ? { payload: payload as object } : {}),
-    });
+    const res = await inject(h.app, method, url, cookie, payload);
     return { status: res.statusCode, body: (res.body ? res.json() : null) as T, res };
   }
 
@@ -90,6 +92,15 @@ describe('REST API', () => {
       );
       expect(attempts.filter((r) => r.status === 401)).toHaveLength(10);
       expect(attempts.filter((r) => r.status === 429)).toHaveLength(6);
+    });
+
+    it('counts only failed logins, so a team behind one proxy address is not locked out', async () => {
+      await setupOwner(h.app);
+      const login = (password: string) =>
+        call('POST', '/api/auth/login', undefined, { email: OWNER_LOGIN.email, password });
+      for (let i = 0; i < 12; i++) expect((await login(OWNER_LOGIN.password)).status).toBe(200);
+      for (let i = 0; i < 10; i++) expect((await login('incorrect password')).status).toBe(401);
+      expect((await login(OWNER_LOGIN.password)).status).toBe(429);
     });
 
     it('expires sessions without extending their absolute lifetime', async () => {
@@ -529,7 +540,7 @@ describe('REST API', () => {
         config: changed,
         baseVersion: first,
       });
-      expect(stale.body.error.code).toBe('version_conflict');
+      expect(stale.body.error.code).toBe('config_conflict');
 
       const bare = structuredClone(saved.body.config);
       bare.team.limits.maxConcurrentAi = 4;
@@ -543,8 +554,8 @@ describe('REST API', () => {
         conditions: [{ type: 'has_label', label: 'nobody-defined-this' }],
       };
       const rejected = await call<ApiError>('PUT', '/api/projects/AR/config', cookie, invalidConfig);
-      expect(rejected.status).toBe(422);
-      expect(rejected.body.error.code).toBe('invalid_config');
+      expect(rejected.status).toBe(400);
+      expect(rejected.body.error.code).toBe('config_invalid');
 
       const reverted = await call<ConfigView>('POST', '/api/projects/AR/config/revert', cookie, {
         version: first,
@@ -555,19 +566,13 @@ describe('REST API', () => {
 
     it('enforces membership and access levels', async () => {
       // A second user (inviting people is a later phase; insert the account directly).
-      const { repos, domain } = h.app.projectman;
-      repos.users.insert({
-        id: 'usr_dev',
+      const { domain } = h.app.projectman;
+      const devCookie = await addHumanAndLogin(h.app, {
+        handle: 'dev',
         name: 'Dev Human',
         email: 'dev@example.com',
-        passwordHash: await hash('another password'),
-        createdAt: new Date().toISOString(),
+        projectKey: null,
       });
-      const login = await call('POST', '/api/auth/login', undefined, {
-        email: 'dev@example.com',
-        password: 'another password',
-      });
-      const devCookie = cookieOf(login.res);
       expect(
         (
           await call('POST', '/api/projects', devCookie, {
@@ -651,36 +656,13 @@ describe('REST API', () => {
     });
 
     it('shows client members only what is shared with them', async () => {
-      const { repos, domain } = h.app.projectman;
-      repos.users.insert({
-        id: 'usr_client',
+      const clientCookie = await addHumanAndLogin(h.app, {
+        handle: 'client',
         name: 'Client',
-        email: 'client@example.com',
-        passwordHash: await hash('client password'),
-        createdAt: new Date().toISOString(),
+        access: 'client',
       });
-      await domain.projects.update(
-        'AR',
-        { actor: { kind: 'human', handle: 'owner' }, author: OWNER_LOGIN },
-        (draft) => {
-          draft.team.members.push({
-            kind: 'human',
-            handle: 'client',
-            displayName: 'Client',
-            access: 'client',
-            roles: [],
-            email: 'client@example.com',
-          });
-          return 'Add the client';
-        },
-      );
       await call('POST', '/api/projects/AR/tasks', cookie, { title: 'Internal work' });
       await call('POST', '/api/projects/AR/tasks', cookie, { title: 'Shared work', visibility: 'shared' });
-      const login = await call('POST', '/api/auth/login', undefined, {
-        email: 'client@example.com',
-        password: 'client password',
-      });
-      const clientCookie = cookieOf(login.res);
 
       const tasks = await call<Task[]>('GET', '/api/projects/AR/tasks', clientCookie);
       expect(tasks.body.map((t) => t.title)).toEqual(['Shared work']);

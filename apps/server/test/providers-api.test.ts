@@ -1,8 +1,7 @@
-import { hash } from '@node-rs/argon2';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProvidersView } from '@projectman/shared';
 import type { AgentProvider } from '@projectman/shared';
-import { cookieOf, createAppHarness, createProject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
+import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
 describe('provider API', () => {
@@ -27,38 +26,11 @@ describe('provider API', () => {
     expect(providerStatus).not.toHaveBeenCalled();
     const owner = await setupOwner(h.app);
     await createProject(h, owner);
-    const { repos, domain } = h.app.projectman;
-    repos.users.insert({
-      id: 'usr_viewer',
-      name: 'Acme viewer',
-      email: 'viewer@example.com',
-      passwordHash: await hash('viewer password'),
-      createdAt: new Date().toISOString(),
-    });
-    await domain.projects.update(
-      'AR',
-      { actor: { kind: 'human', handle: 'owner' }, author: OWNER_LOGIN },
-      (draft) => {
-        draft.team.members.push({
-          kind: 'human',
-          handle: 'viewer',
-          displayName: 'Acme viewer',
-          email: 'viewer@example.com',
-          access: 'viewer',
-          roles: [],
-        });
-        return 'Add fictional viewer';
-      },
-    );
-    const login = await h.app.inject({
-      method: 'POST',
-      url: '/api/auth/login',
-      payload: { email: 'viewer@example.com', password: 'viewer password' },
-    });
+    const viewer = await addHumanAndLogin(h.app, { handle: 'viewer', name: 'Acme viewer', access: 'viewer' });
     const response = await h.app.inject({
       method: 'GET',
       url: '/api/providers',
-      headers: { cookie: cookieOf(login) },
+      headers: { cookie: viewer },
     });
     expect(response.statusCode).toBe(200);
     expect(ProvidersView.parse(response.json()).providers).toEqual([
@@ -100,7 +72,7 @@ describe('provider API', () => {
     const cookie = await setupOwner(h.app);
     await createProject(h, cookie);
     const call = (method: 'POST' | 'PATCH', url: string, payload: object) =>
-      h.app.inject({ method, url, headers: { cookie }, payload });
+      inject(h.app, method, url, cookie, payload);
     expect(
       (await call('PATCH', '/api/projects/AR/members/dev-1', { effort: 'unsupported' })).statusCode,
     ).toBe(400);

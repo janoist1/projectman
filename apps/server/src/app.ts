@@ -9,9 +9,9 @@ import { registerApiRoutes, registerErrorHandling } from './api';
 import { AuthService, loadOrCreateSecret, registerAuth } from './auth';
 import { serializeRequest } from './auth/request-logging';
 import { createConfigStore } from './config';
+import type { GitConfigStore } from './config';
 import { createContextPackBuilder, createMemberMemoryStore } from './context';
 import type {
-  ConfigStore,
   ContextPackBuilder,
   GithubService,
   McpModule,
@@ -25,12 +25,30 @@ import { createRepositories, openDatabase } from './db';
 import type { Repositories } from './db';
 import { createDomain } from './domain';
 import type { Domain, ScheduleTimer, TemplateRegistry } from './domain';
+import { BoardService } from './domain/board';
+import { InvitationService } from './domain/invitations';
+import { MemberProfiles } from './domain/members';
 import { createGithubService } from './github';
 import { createMcpModule } from './mcp';
 import { createRunnerModule } from './runner';
 import { createWorktreeManager } from './worktree';
 import { registerWebsocket } from './ws';
-import type { WebsocketHub } from './ws';
+
+/** Loopback addresses the server may listen on; remote access goes through `tailscale serve`. */
+export const LOOPBACK_HOSTS = ['127.0.0.1', '::1', 'localhost'] as const;
+export type LoopbackHost = (typeof LOOPBACK_HOSTS)[number];
+
+export function isLoopbackHost(host: string): host is LoopbackHost {
+  return (LOOPBACK_HOSTS as readonly string[]).includes(host);
+}
+
+/**
+ * How the local agent CLIs reach the hooks and MCP endpoints of a server listening on this
+ * loopback host. "localhost" listens on every address it resolves to, IPv4 included.
+ */
+export function loopbackBaseUrl(host: LoopbackHost, port: number): string {
+  return `http://${host === '::1' ? '[::1]' : '127.0.0.1'}:${port}`;
+}
 
 /** Module factories and instances; each can be replaced (tests inject fakes). */
 export interface AppModules {
@@ -40,24 +58,36 @@ export interface AppModules {
   contextPackBuilder?: ContextPackBuilder;
   memberMemory?: MemberMemoryStore;
   worktrees?: WorktreeManager;
-  configStore?: ConfigStore;
   templates?: TemplateRegistry;
 }
+
+/** Defaults of the server's options, including those index.ts reads from the environment. */
+export const APP_DEFAULTS = {
+  port: 4700,
+  host: '127.0.0.1' satisfies LoopbackHost,
+  claudeBin: 'claude',
+  ghBin: 'gh',
+  logLevel: 'info',
+  permissionTimeoutMs: 10 * 60_000,
+  githubPollIntervalMs: 60_000,
+} as const;
 
 export interface BuildAppOptions {
   /** PROJECTMAN_HOME: database, customization repository, memory, worktrees, cookie secret. */
   home: string;
-  /** How the claude CLI reaches this server (hooks, MCP). Default http://127.0.0.1:4700. */
+  /** How the agent CLIs reach this server (hooks, MCP); default: the default host and port. */
   publicBaseUrl?: string;
   /** Claude Code CLI (default "claude"). */
   claudeBin?: string;
   /** GitHub CLI (default "gh"). */
   ghBin?: string;
+  /** Pino options, or false; default: level "info". */
   logger?: FastifyServerOptions['logger'];
   /** Built web app served with an SPA fallback; null = API only. */
   webDistDir?: string | null;
   /** How long a permission request waits for a human (default 10 minutes). */
   permissionTimeoutMs?: number;
+  /** How often linked pull requests are polled (default 1 minute). */
   githubPollIntervalMs?: number;
   /** Default `${home}/db.sqlite`; ":memory:" works too. */
   dbPath?: string;
@@ -69,26 +99,20 @@ export interface BuildAppOptions {
   wsHeartbeatMs?: number;
 }
 
+/** What `app.projectman` exposes (tests and tooling reach the services through it). */
 export interface AppContext {
   home: string;
   repos: Repositories;
-  configStore: ConfigStore;
+  configStore: GitConfigStore;
   domain: Domain;
   auth: AuthService;
   runnerModule: RunnerModule;
-  mcpModule: McpModule;
-  github: GithubService;
-  websocket: WebsocketHub;
 }
 
 declare module 'fastify' {
   interface FastifyInstance {
     projectman: AppContext;
   }
-}
-
-function hasInit(store: ConfigStore): store is ConfigStore & { init(): Promise<void> } {
-  return typeof (store as { init?: unknown }).init === 'function';
 }
 
 /**
@@ -99,14 +123,16 @@ function hasInit(store: ConfigStore): store is ConfigStore & { init(): Promise<v
  */
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const home = resolve(options.home);
-  for (const dir of [home, join(home, 'logs'), join(home, 'memory'), join(home, 'worktrees')]) {
+  for (const dir of [home, join(home, 'memory'), join(home, 'worktrees')]) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
   chmodSync(home, 0o700);
-  const publicBaseUrl = (options.publicBaseUrl ?? 'http://127.0.0.1:4700').replace(/\/+$/, '');
+  const publicBaseUrl = (
+    options.publicBaseUrl ?? loopbackBaseUrl(APP_DEFAULTS.host, APP_DEFAULTS.port)
+  ).replace(/\/+$/, '');
   const modules = options.modules ?? {};
 
-  const logger = options.logger ?? { level: 'info' };
+  const logger = options.logger ?? { level: APP_DEFAULTS.logLevel };
   const app = Fastify({
     logger:
       logger === false
@@ -123,20 +149,18 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     await app.register(fastifyWebsocket, { options: { maxPayload: 1024 * 1024 } });
 
     repos = createRepositories(openDatabase(options.dbPath ?? join(home, 'db.sqlite')));
-    const configStore =
-      modules.configStore ??
-      createConfigStore({
-        rootDir: join(home, 'customization'),
-        logger: app.log.child({ module: 'config' }),
-      });
-    if (hasInit(configStore)) await configStore.init();
+    const configStore = createConfigStore({
+      rootDir: join(home, 'customization'),
+      logger: app.log.child({ module: 'config' }),
+    });
+    await configStore.init();
 
     const log = app.log;
     const github =
       modules.github ??
       createGithubService({
-        ghBin: options.ghBin ?? 'gh',
-        pollIntervalMs: options.githubPollIntervalMs ?? 60_000,
+        ghBin: options.ghBin ?? APP_DEFAULTS.ghBin,
+        pollIntervalMs: options.githubPollIntervalMs ?? APP_DEFAULTS.githubPollIntervalMs,
         logger: log.child({ module: 'github' }),
       });
     const contextBuilder = modules.contextPackBuilder ?? createContextPackBuilder();
@@ -153,10 +177,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       publicBaseUrl,
       createRunner: (broker) =>
         makeRunner({
-          claudeBin: options.claudeBin ?? 'claude',
+          claudeBin: options.claudeBin ?? APP_DEFAULTS.claudeBin,
           publicBaseUrl,
           broker,
-          permissionTimeoutMs: options.permissionTimeoutMs ?? 10 * 60_000,
+          permissionTimeoutMs: options.permissionTimeoutMs ?? APP_DEFAULTS.permissionTimeoutMs,
           logger: log.child({ module: 'runner' }),
         }),
       github,
@@ -177,6 +201,33 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       logger: log,
     });
     const auth = new AuthService({ repos, now: options.now });
+    // Read models and flows beside the domain services, with their explicit dependencies.
+    const services = {
+      domain,
+      auth,
+      board: new BoardService({
+        projects: domain.projects,
+        tasks: domain.tasks,
+        members: domain.members,
+        inbox: domain.inbox,
+        planUsage: domain.planUsage,
+      }),
+      profiles: new MemberProfiles({
+        ctx: domain.ctx,
+        projects: domain.projects,
+        members: domain.members,
+        tasks: domain.tasks,
+        inbox: domain.inbox,
+        sessions: domain.sessions,
+        scheduler: domain.scheduler,
+      }),
+      invitations: new InvitationService({
+        ctx: domain.ctx,
+        projects: domain.projects,
+        members: domain.members,
+        accounts: auth,
+      }),
+    };
 
     const webDistDir =
       options.webDistDir && existsSync(join(options.webDistDir, 'index.html'))
@@ -184,8 +235,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         : null;
     registerErrorHandling(app, { spaIndex: webDistDir !== null });
     registerAuth(app, { auth, domain });
-    registerApiRoutes(app, domain);
-    const websocket = registerWebsocket(app, { domain, auth, heartbeatMs: options.wsHeartbeatMs });
+    registerApiRoutes(app, services);
+    registerWebsocket(app, { domain, auth, heartbeatMs: options.wsHeartbeatMs });
     domain.runnerModule.registerHookRoutes(app);
     mcpModule.registerRoutes(app);
     if (webDistDir) await app.register(fastifyStatic, { root: webDistDir, index: ['index.html'] });
@@ -197,9 +248,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       domain,
       auth,
       runnerModule: domain.runnerModule,
-      mcpModule,
-      github,
-      websocket,
     });
 
     app.addHook('onReady', async () => {

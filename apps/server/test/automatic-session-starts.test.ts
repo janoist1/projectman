@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
-import { flush } from './helpers/fakes';
+import { flush, planUsage } from './helpers/fakes';
 
 const sender: ToolContext = {
   projectKey: 'AR',
@@ -11,13 +11,6 @@ const sender: ToolContext = {
   sessionId: 'ses_fictional_sender',
   taskKey: 'AR-1',
 };
-const usage = (percent: number) => ({
-  fiveHourPercent: percent,
-  weeklyPercent: null,
-  fiveHourResetsAt: null,
-  weeklyResetsAt: null,
-  fetchedAt: '2026-09-29T10:00:00.000Z',
-});
 
 const humanMessage = (h: DomainHarness, taskKey = 'AR-1') =>
   h.domain.sessions.sendTeamMessage('AR', 'owner', {
@@ -37,13 +30,13 @@ describe('automatic session admission and retries', () => {
   afterEach(async () => {
     await h.domain.stop();
     vi.restoreAllMocks();
-    h.cleanup();
+    await h.cleanup();
   });
 
   it('defers AI messages on plan usage, retries periodically and delivers each message once', async () => {
     h = await createDomainHarness({ handOffRetryMs: 20 });
     await h.domain.tasks.create('AR', { title: 'Fictional checkout' }, OWNER_ACTOR);
-    h.runnerModule.planUsage.value = usage(95);
+    h.runnerModule.planUsage.value = planUsage(95);
     const first = await h.domain.teamTools.sendMessage(sender, { to: ['cr'], text: 'Review the checkout.' });
     const second = await h.domain.teamTools.sendMessage(sender, { to: ['cr'], text: 'Also check refunds.' });
     await flush();
@@ -62,7 +55,7 @@ describe('automatic session admission and retries', () => {
     await h.domain.scheduler.retryDeferredStarts();
     expect(h.runner.started).toHaveLength(0);
 
-    h.runnerModule.planUsage.value = usage(30);
+    h.runnerModule.planUsage.value = planUsage(30);
     await vi.waitFor(() => expect(h.runner.messages).toHaveLength(2));
     expect(h.runner.started).toHaveLength(1);
     expect(h.runner.messages.map((m) => m.text)).toEqual([
@@ -75,7 +68,7 @@ describe('automatic session admission and retries', () => {
     expect(h.runner.started).toHaveLength(1);
 
     // A live recipient receives new messages even while new AI work is paused.
-    h.runnerModule.planUsage.value = usage(99);
+    h.runnerModule.planUsage.value = planUsage(99);
     await h.domain.teamTools.sendMessage(sender, { to: ['cr'], text: 'One more detail.' });
     await flush();
     expect(h.runner.started).toHaveLength(1);
@@ -124,7 +117,7 @@ describe('automatic session admission and retries', () => {
     async (reason) => {
       h = await createDomainHarness({ adjust: reviewersBesidesCr });
       await h.domain.tasks.create('AR', { title: 'Fictional checkout' }, OWNER_ACTOR);
-      h.runnerModule.planUsage.value = usage(95);
+      h.runnerModule.planUsage.value = planUsage(95);
       const message = await humanMessage(h);
       await flush();
       if (reason === 'stage') {
@@ -140,7 +133,7 @@ describe('automatic session admission and retries', () => {
         await h.domain.members.retire('AR', 'cr', {}, { actor: OWNER_ACTOR, author: OWNER });
       }
       await flush();
-      h.runnerModule.planUsage.value = usage(30);
+      h.runnerModule.planUsage.value = planUsage(30);
       await h.domain.scheduler.retryDeferredStarts();
       expect(h.runner.started).toHaveLength(0);
       const retry = vi.spyOn(h.domain.scheduler, 'startQueuedMessageSession');
@@ -169,12 +162,12 @@ describe('automatic session admission and retries', () => {
     });
     h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: '/tmp/fictional-review.jsonl' });
     await h.domain.sessions.stop('AR', session.id);
-    h.runnerModule.planUsage.value = usage(95);
+    h.runnerModule.planUsage.value = planUsage(95);
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
     await humanMessage(h);
     await flush();
     expect(h.runner.started).toHaveLength(1);
-    h.runnerModule.planUsage.value = usage(30);
+    h.runnerModule.planUsage.value = planUsage(30);
     await h.domain.scheduler.retryDeferredStarts();
     await flush();
     expect(h.runner.lastStarted()).toMatchObject({
@@ -207,7 +200,7 @@ describe('automatic session admission and retries', () => {
   it.each(['done', 'cancelled', 'retired'] as const)('drops a deferred hand-over when %s', async (reason) => {
     h = await createDomainHarness({ adjust: reviewersBesidesCr });
     await h.domain.tasks.create('AR', { title: 'Fictional checkout' }, OWNER_ACTOR);
-    h.runnerModule.planUsage.value = usage(95);
+    h.runnerModule.planUsage.value = planUsage(95);
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
     await flush();
     if (reason === 'done') {
@@ -217,7 +210,7 @@ describe('automatic session admission and retries', () => {
     } else {
       await h.domain.members.retire('AR', 'cr', {}, { actor: OWNER_ACTOR, author: OWNER });
     }
-    h.runnerModule.planUsage.value = usage(30);
+    h.runnerModule.planUsage.value = planUsage(30);
     await h.domain.scheduler.retryDeferredStarts();
     expect(h.runner.started).toHaveLength(0);
     const retry = vi.spyOn(h.domain.scheduler, 'handOffToStageOwner');
@@ -238,7 +231,7 @@ describe('automatic session admission and retries', () => {
     });
     await h.domain.teamTools.sendMessage(sender, { to: ['cr'], text: 'Review the checkout.' });
     await vi.waitFor(() => expect(called).toHaveBeenCalledOnce());
-    h.runnerModule.planUsage.value = usage(95);
+    h.runnerModule.planUsage.value = planUsage(95);
     await h.domain.teamTools.sendMessage(sender, { to: ['dev-2'], text: 'Check the checkout.' });
     let stopped = false;
     const stopping = h.domain.stop().then(() => {
@@ -250,7 +243,7 @@ describe('automatic session admission and retries', () => {
     release();
     await stopping;
     expect(stopped).toBe(true);
-    h.runnerModule.planUsage.value = usage(30);
+    h.runnerModule.planUsage.value = planUsage(30);
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(h.runner.started).toHaveLength(1);
     expect(h.repos.messages.pending('AR', 'dev-2')).toHaveLength(2);

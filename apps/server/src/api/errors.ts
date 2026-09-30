@@ -1,6 +1,5 @@
 import type { FastifyInstance } from 'fastify';
 import type { ApiError } from '@projectman/shared';
-import { ConfigStoreError } from '../config/errors';
 import { DomainError } from '../domain/errors';
 
 export function apiError(code: string, message: string, details?: unknown): ApiError {
@@ -15,25 +14,13 @@ const FASTIFY_CODES: Record<string, string> = {
   FST_ERR_CTP_INVALID_CONTENT_LENGTH: 'invalid_request',
 };
 
-const CONFIG_STORE_STATUS: Record<string, number> = {
-  invalid_config: 422,
-  invalid_yaml: 422,
-  not_found: 404,
-  unknown_version: 400,
-  invalid_key: 400,
-};
-
-/** Maps any thrown error to an HTTP status and the shared ApiError body. */
+/**
+ * Maps any thrown error to an HTTP status and the shared ApiError body. Modules raise
+ * DomainError for the client (configuration store errors are translated by ProjectService).
+ */
 export function toApiError(error: unknown): { status: number; body: ApiError } {
   if (error instanceof DomainError) {
     return { status: error.status, body: apiError(error.code, error.message, error.details) };
-  }
-  if (error instanceof ConfigStoreError) {
-    const code = error.code === 'invalid_yaml' ? 'invalid_config' : error.code;
-    return {
-      status: CONFIG_STORE_STATUS[error.code] ?? 400,
-      body: apiError(code, error.message, error.details),
-    };
   }
   const e = error as { statusCode?: unknown; code?: unknown; message?: unknown };
   if (typeof e.statusCode === 'number' && e.statusCode >= 400 && e.statusCode < 500) {

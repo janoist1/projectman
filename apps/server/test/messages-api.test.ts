@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes, MemberProfile, TeamMessage, TeamMessagesView } from '@projectman/shared';
 import type { HumanAccess, ServerEvent } from '@projectman/shared';
-import { createAppHarness, createProject, cookieOf, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
+import {
+  addHumanAndLogin,
+  createAppHarness,
+  createProject,
+  OWNER_LOGIN,
+  setupOwner,
+} from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { flush } from './helpers/fakes';
 
@@ -19,34 +25,8 @@ describe('human team messages and member profiles', () => {
     await h.close();
   });
   const actor = { kind: 'human' as const, handle: 'owner' };
-  async function human(handle: string, access: HumanAccess = 'developer') {
-    const repos = h.app.projectman.repos;
-    repos.users.insert({
-      id: handle,
-      name: handle,
-      email: `${handle}@acme.test`,
-      passwordHash: repos.users.findByEmail(OWNER_LOGIN.email)!.passwordHash,
-      createdAt: new Date().toISOString(),
-    });
-    await h.app.projectman.domain.projects.update(key, { actor, author: OWNER_LOGIN }, (draft) => {
-      draft.team.members.push({
-        kind: 'human',
-        handle,
-        displayName: handle,
-        roles: [],
-        access,
-        email: `${handle}@acme.test`,
-      });
-      return `Add fictional member ${handle}`;
-    });
-    return cookieOf(
-      await h.app.inject({
-        method: 'POST',
-        url: routes.login(),
-        payload: { email: `${handle}@acme.test`, password: OWNER_LOGIN.password },
-      }),
-    );
-  }
+  const human = (handle: string, access: HumanAccess = 'developer') =>
+    addHumanAndLogin(h.app, { handle, access, email: `${handle}@acme.test` });
   async function send(to: string[], cookie = owner, extra: object = {}) {
     return h.app.inject({
       method: 'POST',

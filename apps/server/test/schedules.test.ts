@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { AgentProvider, PlanUsage, ProjectConfig } from '@projectman/shared';
+import type { AgentProvider, ProjectConfig } from '@projectman/shared';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
-import { flush } from './helpers/fakes';
+import { flush, planUsage } from './helpers/fakes';
 import { ScheduleService } from '../src/domain/schedules';
 import type { ScheduleTimer } from '../src/domain/schedules';
 
@@ -12,13 +12,6 @@ function scheduled(config: ProjectConfig) {
   const member = config.team.members.find((m) => m.handle === 'dev-1')!;
   if (member.kind === 'ai') member.schedule = { cron: '30 10 * * *', prompt };
 }
-const usage = (percent: number): PlanUsage => ({
-  fiveHourPercent: percent,
-  weeklyPercent: null,
-  fiveHourResetsAt: null,
-  weeklyResetsAt: null,
-  fetchedAt: '2026-09-30T08:30:00Z',
-});
 class FakeTimer implements ScheduleTimer {
   callback: (() => void) | undefined;
   delay = 0;
@@ -171,10 +164,10 @@ describe('member schedules', () => {
       const member = config.team.members[1]!;
       if (member.kind === 'ai') member.provider = 'codex';
     });
-    h.domain.runnerModule.planUsageFor = () => ({ get: async () => usage(81) });
-    h.runnerModule.planUsage.value = usage(0);
+    h.domain.runnerModule.planUsageFor = () => ({ get: async () => planUsage(81) });
+    h.runnerModule.planUsage.value = planUsage(0);
     expect(await h.domain.schedules.runNow('AR', 'dev-1')).toMatchObject({ reason: 'plan_usage_paused' });
-    h.domain.runnerModule.planUsageFor = () => ({ get: async () => usage(80) });
+    h.domain.runnerModule.planUsageFor = () => ({ get: async () => planUsage(80) });
     expect(await h.domain.schedules.runNow('AR', 'dev-1')).toMatchObject({ status: 'started' });
   });
   it('records a provider login refusal and spawn failures', async () => {

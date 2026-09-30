@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { fakeCliEnv } from './lib/fake-cli.mjs';
+import { freePort } from './lib/ports.mjs';
+import { stopProcessGroup } from './lib/processes.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -26,28 +29,16 @@ async function fetchApp(path, options) {
 
 try {
   // Use an isolated port so a running development server is never touched.
-  const { createServer } = await import('node:net');
-  const probe = createServer();
-  await new Promise((resolve, reject) => {
-    probe.once('error', reject);
-    probe.listen(0, '127.0.0.1', resolve);
-  });
-  port = probe.address().port;
+  port = await freePort();
   base = `http://127.0.0.1:${port}`;
-  await new Promise((resolve, reject) => probe.close((err) => (err ? reject(err) : resolve())));
-  await mkdir(join(home, '.codex'));
   server = spawn(npm, ['start'], {
     cwd: root,
     detached: process.platform !== 'win32',
     env: {
-      ...process.env,
+      // The fake claude, codex and gh CLIs, with their state in the temporary home.
+      ...fakeCliEnv(home),
       HOME: home,
       PROJECTMAN_HOME: join(home, 'data'),
-      CLAUDE_CONFIG_DIR: join(home, '.claude'),
-      CODEX_HOME: join(home, '.codex'),
-      CLAUDE_BIN: join(root, 'apps/server/test/fixtures/fake-claude.mjs'),
-      CODEX_BIN: join(root, 'apps/server/test/fixtures/fake-codex.mjs'),
-      GH_BIN: join(root, 'apps/server/src/github/test-fixtures/fake-gh.mjs'),
       HOST: '127.0.0.1',
       PORT: String(port),
       LOG_LEVEL: 'warn',
@@ -124,18 +115,6 @@ try {
   if (output) console.error(output);
   throw err;
 } finally {
-  if (server && server.exitCode === null) {
-    const kill = (signal) => {
-      if (process.platform === 'win32') server.kill(signal);
-      else process.kill(-server.pid, signal);
-    };
-    kill('SIGTERM');
-    const timer = setTimeout(() => kill('SIGKILL'), 5000);
-    try {
-      await exited;
-    } finally {
-      clearTimeout(timer);
-    }
-  }
+  if (server) await stopProcessGroup(server, exited, 5000);
   await rm(home, { recursive: true, force: true });
 }

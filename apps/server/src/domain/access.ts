@@ -1,5 +1,5 @@
 import { isHumanOnlyLabel, labelDefinition, labelHolders } from '@projectman/shared';
-import type { HumanAccess, HumanMemberConfig, ProjectConfig } from '@projectman/shared';
+import type { HumanAccess, HumanMemberConfig, ProjectConfig, Stage } from '@projectman/shared';
 
 /** A logged-in user's membership in one project. */
 export interface ProjectAccess {
@@ -35,21 +35,24 @@ export function ownerHandles(config: ProjectConfig): string[] {
 }
 
 /**
+ * The humans who approve a task into this stage: the holders of every label only humans may
+ * set that its gate requires (one entry per label held).
+ */
+export function stageApprovers(config: ProjectConfig, stage: Stage): string[] {
+  return (stage.gate?.conditions ?? []).flatMap((c) => {
+    const label = c.type === 'has_label' ? labelDefinition(config, c.label) : undefined;
+    return label && isHumanOnlyLabel(label) ? labelHolders(config, label) : [];
+  });
+}
+
+/**
  * Signature of the release approvers (every release stage and its human approvers).
  * Changing it is owner-only.
  */
 export function releaseApproversSignature(config: ProjectConfig): string {
   return config.pipeline.stages
     .filter((s) => s.kind === 'release')
-    .map((s) => {
-      const approvers = (s.gate?.conditions ?? [])
-        .flatMap((c) => {
-          const label = c.type === 'has_label' ? labelDefinition(config, c.label) : undefined;
-          return label && isHumanOnlyLabel(label) ? labelHolders(config, label) : [];
-        })
-        .sort();
-      return `${s.id}:${approvers.join(',')}`;
-    })
+    .map((s) => `${s.id}:${stageApprovers(config, s).sort().join(',')}`)
     .sort()
     .join('|');
 }

@@ -4,7 +4,7 @@ import type { BuildTemplateInput, ProjectTemplate } from '@projectman/templates'
 
 /**
  * A small team and pipeline used by the tests:
- *   backlog (queue) -> development (work) -> code_review (review)
+ *   backlog (queue) -> development (work) -> code_review (step)
  *   -> merge (gate: labels code-review-ok + merge-ok, an owner approval)
  *   -> release (gate: labels pr-merged + release-ok, an owner approval) -> done
  */

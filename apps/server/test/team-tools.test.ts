@@ -4,16 +4,10 @@ import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
+import { rejection } from './helpers/errors';
 import { flush, pullRequest } from './helpers/fakes';
 
-async function toolError(promise: Promise<unknown>): Promise<TeamToolError> {
-  const err = await promise.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(err).toBeInstanceOf(TeamToolError);
-  return err as TeamToolError;
-}
+const toolError = (promise: Promise<unknown>) => rejection(promise, TeamToolError);
 
 describe('team tools', () => {
   let h: DomainHarness;

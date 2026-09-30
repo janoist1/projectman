@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Task, TaskDetail, routes } from '@projectman/shared';
-import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
+import { createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
 let h: AppHarness;
@@ -12,7 +12,7 @@ beforeEach(async () => {
 });
 afterEach(() => h.close());
 const call = (method: 'POST' | 'PATCH' | 'GET', url: string, payload?: object) =>
-  h.app.inject({ method, url, headers: { cookie }, ...(payload ? { payload } : {}) });
+  inject(h.app, method, url, cookie, payload);
 
 describe('subtask HTTP contracts', () => {
   it('creates, attaches and clears parents through POST and PATCH', async () => {

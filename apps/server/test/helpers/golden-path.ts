@@ -1,17 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { hash } from '@node-rs/argon2';
-import type { FastifyInstance } from 'fastify';
 import {
   isHumanOnlyLabel,
   labelDefinition,
@@ -31,39 +20,37 @@ import {
   type TimelineEvent,
 } from '@projectman/shared';
 import { templates } from '@projectman/templates';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildApp } from '../src/app';
-import type { ToolContext } from '../src/contracts';
-import { createRunnerModule } from '../src/runner';
-import { FAKE_CLAUDE, FAKE_CODEX, freePort, waitFor } from '../src/runner/test-helpers';
-import { cookieOf, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
-import { FakeGithub } from './helpers/fakes';
+import { afterEach, describe, expect, it } from 'vitest';
+import type { ToolContext } from '../../src/contracts';
+import { waitFor } from '../../src/runner/test-helpers';
+import { createAppHarness, setupOwner } from './app-harness';
+
+/**
+ * Golden paths: a task goes through a factory template's whole pipeline in the real server,
+ * with the real runner driving the fake CLIs, real worktrees, context packs, memory and MCP.
+ * Every step is checked against the task detail, the timeline, the inbox and the board.
+ * One test file per template, so vitest runs them in parallel.
+ */
 
 const projectKey = 'GP';
 const owner: Actor = { kind: 'human', handle: 'owner' };
 const ai = (handle: string): Actor => ({ kind: 'ai', handle });
-const reviewTemplates = ['web-client-project', 'internal-tool', 'small-team'];
-let app: FastifyInstance | undefined;
-let root: string | undefined;
 
-afterEach(async () => {
-  try {
-    await app?.close();
-  } finally {
-    app = undefined;
-    if (root) rmSync(root, { recursive: true, force: true });
-    root = undefined;
-    vi.unstubAllEnvs();
-  }
-});
+/** Templates whose pipeline has a code review stage a QA member can take over. */
+const REVIEW_TEMPLATES = new Set(['web-client-project', 'internal-tool', 'small-team']);
+
+/** The factory templates the golden-path files cover, one file each. */
+export const GOLDEN_PATH_TEMPLATES = ['web-client-project', 'internal-tool', 'small-team', 'daily-routine'];
 
 async function setup(templateId: string) {
-  root = realpathSync(mkdtempSync(join(tmpdir(), 'pm-golden-path-')));
-  const home = join(root, 'projectman');
-  const userHome = join(root, 'user');
-  const workspace = join(root, 'workspace');
-  mkdirSync(userHome);
-  mkdirSync(workspace);
+  const harness = await createAppHarness({
+    runner: 'fake-cli',
+    trustAll: true,
+    real: { context: true, memory: true, worktrees: true, mcp: true, templates: true },
+    // Cleanup is exercised explicitly so event assertions do not race a timer.
+    app: { doneCleanupDelayMs: 60_000 },
+  });
+  const { workspace } = harness;
   // Seed only the disposable repository. No git config or source checkout is changed.
   execFileSync('git', ['init', '--initial-branch=main', workspace]);
   execFileSync('git', ['-C', workspace, 'fast-import', '--quiet'], {
@@ -73,40 +60,7 @@ async function setup(templateId: string) {
       'data 12\nSeed fixture\nM 100644 :1 README.md\n\ndone\n',
   });
   execFileSync('git', ['-C', workspace, 'reset', '--hard', 'main']);
-  const claudeConfig = join(userHome, '.claude.json');
-  // The fake CLI checks cwd/parents for trust; the real adapter keys worktrees
-  // on their main checkout. Trust the disposable root to accommodate both.
-  writeFileSync(
-    claudeConfig,
-    JSON.stringify({ numStartups: 1, projects: { [root]: { hasTrustDialogAccepted: true } } }),
-  );
-  vi.stubEnv('HOME', userHome);
-  vi.stubEnv('CODEX_HOME', join(userHome, '.codex'));
-  vi.stubEnv('FAKE_CLAUDE_CONFIG_FILE', claudeConfig);
-  vi.stubEnv('FAKE_CLAUDE_TRANSCRIPT_DIR', join(userHome, 'transcripts'));
-  const port = await freePort();
-  app = await buildApp({
-    home,
-    logger: false,
-    webDistDir: null,
-    claudeBin: FAKE_CLAUDE,
-    publicBaseUrl: `http://127.0.0.1:${port}`,
-    // Cleanup is exercised explicitly so event assertions do not race a timer.
-    doneCleanupDelayMs: 60_000,
-    modules: {
-      github: new FakeGithub(),
-      createRunnerModule(options) {
-        const runner = createRunnerModule({
-          ...options,
-          codexBin: FAKE_CODEX,
-          claudeConfigPath: claudeConfig,
-        });
-        return { ...runner, planUsage: { get: async () => null } };
-      },
-    },
-  });
-  await app.listen({ host: '127.0.0.1', port });
-  const server = app;
+  const server = harness.app;
   const cookie = await setupOwner(server);
   const headers = { cookie };
   const created = await server.inject({
@@ -145,7 +99,7 @@ async function setup(templateId: string) {
     });
     return next.config;
   };
-  return { server, domain, cookie, headers, workspace, configView, board, patchConfig };
+  return { server, domain, cookie, headers, workspace, configView, board, patchConfig, close: harness.close };
 }
 
 type Harness = Awaited<ReturnType<typeof setup>>;
@@ -594,12 +548,24 @@ async function cleanupTask(h: Harness, j: Journey) {
   expect(h.server.projectman.runnerModule.runner.list()).toEqual([]);
 }
 
-describe('factory pipeline golden paths', () => {
-  it.each(templates.map((template) => template.id))(
-    'completes the %s pipeline with attributed tools and human decisions',
-    { timeout: 60_000 },
-    async (templateId) => {
-      const h = await setup(templateId);
+/**
+ * The golden-path tests of one factory template: the whole pipeline, and for templates with a
+ * code review stage, the same after moving code review to QA (orphaning it is refused).
+ */
+export function describeGoldenPath(templateId: string): void {
+  describe(`factory pipeline golden path: ${templateId}`, () => {
+    let current: Harness | undefined;
+    const start = async () => {
+      current = await setup(templateId);
+      return current;
+    };
+    afterEach(async () => {
+      await current?.close();
+      current = undefined;
+    });
+
+    it('completes the pipeline with attributed tools and human decisions', { timeout: 60_000 }, async () => {
+      const h = await start();
       const j = await startTask(h);
       if (templateId === 'daily-routine') {
         await refuseOrphan(h, j, j.developer, 'maintenance', 'pipeline.stages[1].duty');
@@ -609,111 +575,26 @@ describe('factory pipeline golden paths', () => {
         await throughQuality(h, j);
         await finish(h, j);
       }
-    },
-  );
+    });
 
-  it.each(reviewTemplates)(
-    'completes %s after moving code review to QA and rejects orphaning it',
-    { timeout: 60_000 },
-    async (templateId) => {
-      const h = await setup(templateId);
-      const j = await startTask(h);
-      await throughQuality(h, j, true);
-      await finish(h, j);
-    },
-  );
-
-  it(
-    'requires an independent human release approver for a PR author with four eyes enabled',
-    { timeout: 60_000 },
-    async () => {
-      const h = await setup('web-client-project');
-      await h.domain.projects.update(projectKey, { actor: owner, author: OWNER_LOGIN }, (config) => {
-        config.team.members.push({
-          kind: 'human',
-          handle: 'release-owner',
-          displayName: 'Release Owner',
-          email: 'release-owner@example.com',
-          access: 'owner',
-          roles: ['operator'],
-        });
-        return 'Add a fictional independent release owner';
-      });
-      await h.patchConfig({ releaseFourEyes: true });
-      h.server.projectman.repos.users.insert({
-        id: 'release-owner',
-        name: 'Release Owner',
-        email: 'release-owner@example.com',
-        passwordHash: await hash('fictional password'),
-        createdAt: new Date().toISOString(),
-      });
-      const login = await h.server.inject({
-        method: 'POST',
-        url: routes.login(),
-        payload: { email: 'release-owner@example.com', password: 'fictional password' },
-      });
-      expect(login.statusCode).toBe(200);
-      const independentCookie = cookieOf(login);
-      const j = await startTask(h);
-      await throughQuality(h, j);
-      await approve(h, j, j.developer, 'merge');
-      h.domain.tasks.addLink(
-        projectKey,
-        j.task.key,
-        { kind: 'pull_request', ref: '42', author: 'owner', state: 'merged' },
-        owner,
+    if (REVIEW_TEMPLATES.has(templateId)) {
+      it(
+        'completes after moving code review to QA and rejects orphaning it',
+        { timeout: 60_000 },
+        async () => {
+          const h = await start();
+          const j = await startTask(h);
+          await throughQuality(h, j, true);
+          await finish(h, j);
+        },
       );
-      j.events.push({
-        type: 'task_link_added',
-        actor: owner,
-        data: { kind: 'pull_request', ref: '42' },
-      });
-      await j.assertState('merge');
-      await expect(
-        h.domain.teamTools.updateTask(await j.context(j.developer), { taskKey: j.task.key, stageId: 'done' }),
-      ).rejects.toMatchObject({ code: 'gate_blocked' });
-      const item = h.domain.inbox.list(projectKey, { state: 'open', taskKey: j.task.key })[0]!;
-      expect(item.assignees).toEqual(['release-owner']);
-      expect(item.payload).toMatchObject({
-        gate: { stageId: 'release', fromStageId: 'merge', toStageId: 'done' },
-      });
-      j.decisions.push(item);
-      j.events.push({
-        type: 'task_updated',
-        actor: ai(j.developer),
-        data: { fields: ['status'], gateRequest: { from: 'merge', to: 'done', inboxItemIds: [item.id] } },
-      });
-      await j.assertState('merge', 'waiting');
-      const denied = await h.server.inject({
-        method: 'POST',
-        url: routes.resolveInbox(projectKey, item.id),
-        headers: h.headers,
-        payload: { optionId: 'approve' },
-      });
-      expect(denied.statusCode).toBe(403);
-      expect(denied.json().error.code).toBe('release_four_eyes');
-      await j.assertState('merge', 'waiting');
-      const approved = await h.server.inject({
-        method: 'POST',
-        url: routes.resolveInbox(projectKey, item.id),
-        headers: { cookie: independentCookie },
-        payload: { optionId: 'approve' },
-      });
-      expect(approved.statusCode, approved.body).toBe(200);
-      j.decisions[j.decisions.length - 1] = approved.json<InboxItem>();
-      j.labels.push('release-approved');
-      j.events.push({
-        type: 'task_labels_changed',
-        actor: { kind: 'human', handle: 'release-owner' },
-        data: { added: ['release-approved'], removed: [], reason: 'approval' },
-      });
-      j.events.push({
-        type: 'task_stage_changed',
-        actor: { kind: 'human', handle: 'release-owner' },
-        data: { from: 'merge', to: 'done', approvedBy: ['release-owner'], inboxItemIds: [item.id] },
-      });
-      await j.assertState('done', 'done');
-      await cleanupTask(h, j);
-    },
-  );
-});
+    }
+  });
+}
+
+/** Guards the split into one file per template: a new factory template needs its own file. */
+export function describeTemplateCoverage(): void {
+  it('has a golden-path file for every factory template', () => {
+    expect(templates.map((template) => template.id).sort()).toEqual([...GOLDEN_PATH_TEMPLATES].sort());
+  });
+}

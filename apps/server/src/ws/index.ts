@@ -3,8 +3,9 @@ import { ClientCommand, routes } from '@projectman/shared';
 import type { HumanAccess, ServerEvent } from '@projectman/shared';
 import { sameOrigin } from '../auth/local-request';
 import type { AuthService, AuthUser } from '../auth/auth-service';
-import type { Domain, ProjectAccess } from '../domain';
+import type { Domain } from '../domain';
 import { DomainError, forbidden, hasAccess, notFound } from '../domain';
+import { canSeeProjectEvent } from '../domain/visibility';
 
 /** The part of the `ws` WebSocket API this module uses. */
 interface WsSocket {
@@ -25,31 +26,11 @@ interface Client {
   socket: WsSocket;
   user: AuthUser;
   token: string;
-  /** Subscribed projects with the user's access at subscription time. */
-  projects: Map<string, ProjectAccess>;
+  /** Subscribed project keys (membership is rechecked for every delivery). */
+  projects: Set<string>;
   /** Sessions whose terminal this client is attached to. */
   terminals: Set<string>;
   alive: boolean;
-}
-
-type ProjectEvent = Exclude<ServerEvent, { type: 'hello' | 'error' | 'terminal_data' | 'terminal_snapshot' }>;
-
-/** Client members only receive what is shared with them. */
-function canSee(access: ProjectAccess, event: ProjectEvent): boolean {
-  if (access.access !== 'client') return true;
-  switch (event.type) {
-    case 'task_upserted':
-      return event.task.visibility === 'shared';
-    case 'inbox_upserted':
-      return event.item.assignees.includes(access.handle);
-    case 'team_message':
-      return event.message.from === access.handle || event.message.to.includes(access.handle);
-    case 'config_changed':
-    case 'member_changed':
-      return true;
-    default:
-      return false;
-  }
 }
 
 function messageText(data: unknown): string {
@@ -60,10 +41,6 @@ function messageText(data: unknown): string {
   return String(data);
 }
 
-export interface WebsocketHub {
-  clientCount(): number;
-}
-
 /**
  * /ws: login-cookie websocket. Clients subscribe to projects and receive their bus events;
  * terminal data goes only to clients attached to that session's terminal.
@@ -71,7 +48,7 @@ export interface WebsocketHub {
 export function registerWebsocket(
   app: FastifyInstance,
   deps: { domain: Domain; auth: AuthService; heartbeatMs?: number },
-): WebsocketHub {
+): void {
   const { domain } = deps;
   const runner = domain.runnerModule.runner;
   const clients = new Set<Client>();
@@ -82,6 +59,7 @@ export function registerWebsocket(
     return false;
   };
 
+  /** Sends the event if the client's login session is still valid (else closes the socket). */
   const send = (client: Client, event: ServerEvent) => {
     if (!authenticated(client)) return;
     if (client.socket.readyState !== OPEN) return;
@@ -92,26 +70,29 @@ export function registerWebsocket(
     }
   };
 
-  // Resolve current membership before every delivery, including terminal streams.
+  // Every delivery rechecks the current membership and then the login session (in send),
+  // terminal streams included; clients that did not subscribe to the project or attach the
+  // terminal are skipped first, without any lookups.
   let delivery = Promise.resolve();
   const unsubscribe = domain.bus.subscribe((event) => {
     delivery = delivery
       .then(async () => {
         if (event.type === 'hello' || event.type === 'error') return;
         for (const client of clients) {
-          if (!authenticated(client)) continue;
           if (event.type === 'terminal_data' || event.type === 'terminal_snapshot') {
             if (!client.terminals.has(event.sessionId)) continue;
             try {
               await requireTerminalAccess(client, event.sessionId, 'viewer');
-              send(client, event);
             } catch {
               client.terminals.delete(event.sessionId);
+              continue;
             }
-          } else if (client.projects.has(event.projectKey)) {
+            send(client, event);
+          } else {
+            if (!client.projects.has(event.projectKey)) continue;
             const access = await domain.accessFor(event.projectKey, client.user.email).catch(() => null);
-            if (access && canSee(access, event)) send(client, event);
             if (!access) client.projects.delete(event.projectKey);
+            else if (canSeeProjectEvent(access, event)) send(client, event);
           }
         }
       })
@@ -142,7 +123,7 @@ export function registerWebsocket(
         case 'subscribe_project': {
           const access = await domain.accessFor(command.projectKey, client.user.email);
           if (!access) send(client, { type: 'error', message: 'not_a_member' });
-          else client.projects.set(command.projectKey, access);
+          else client.projects.add(command.projectKey);
           return;
         }
         case 'unsubscribe_project':
@@ -195,7 +176,7 @@ export function registerWebsocket(
       socket,
       user,
       token: request.authToken!,
-      projects: new Map(),
+      projects: new Set(),
       terminals: new Set(),
       alive: true,
     };
@@ -237,6 +218,4 @@ export function registerWebsocket(
     clearInterval(heartbeat);
     unsubscribe();
   });
-
-  return { clientCount: () => clients.size };
 }

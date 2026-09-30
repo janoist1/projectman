@@ -39,17 +39,13 @@ async function serverErrorCodes(): Promise<Set<string>> {
     }
     // Helpers and route responses declare their stable code as the first argument.
     for (const match of source.matchAll(
-      /\b(conflict|invalid|forbidden|DomainError|apiError|ConfigStoreError)\(\s*['"]([a-z_]+)['"]/g,
+      /\b(?:conflict|invalid|forbidden|DomainError|apiError)\(\s*['"]([a-z_]+)['"]/g,
     )) {
-      const [, helper, code] = match;
-      // The REST mapper exposes invalid YAML as invalid_config.
-      codes.add(helper === 'ConfigStoreError' && code === 'invalid_yaml' ? 'invalid_config' : code!);
+      codes.add(match[1]!);
     }
     // Include framework mappings, status fallbacks and dynamic scheduled-run fallbacks.
     if (filename.endsWith('/api/errors.ts') || filename.endsWith('/api/schedules.ts')) {
-      for (const match of source.matchAll(/['"]([a-z]+(?:_[a-z]+)+)['"]/g)) {
-        if (match[1] !== 'invalid_yaml') codes.add(match[1]!);
-      }
+      for (const match of source.matchAll(/['"]([a-z]+(?:_[a-z]+)+)['"]/g)) codes.add(match[1]!);
     }
     // WebSocket errors carry their code in message rather than ApiError.code.
     for (const match of source.matchAll(/type:\s*['"]error['"],\s*message:\s*['"]([a-z_]+)['"]/g)) {

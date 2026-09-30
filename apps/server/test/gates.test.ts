@@ -1,20 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ServerEvent } from '@projectman/shared';
-import { aiActor, DomainError, gatePayload, SYSTEM_ACTOR } from '../src/domain';
+import { aiActor, gatePayload, SYSTEM_ACTOR } from '../src/domain';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import { rejection } from './helpers/errors';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush, pullRequest } from './helpers/fakes';
 
 const owner = { handle: 'owner', access: 'owner' as const };
-
-async function rejection(promise: Promise<unknown>): Promise<DomainError> {
-  const err = await promise.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(err).toBeInstanceOf(DomainError);
-  return err as DomainError;
-}
 
 describe('stage gates', () => {
   let h: DomainHarness;
@@ -171,7 +163,7 @@ describe('stage gates', () => {
   });
 
   it('an AI member or a non-approver can never resolve a gate decision', async () => {
-    h.cleanup();
+    await h.cleanup();
     h = await createDomainHarness({
       adjust: (c) => {
         c.team.members.push({

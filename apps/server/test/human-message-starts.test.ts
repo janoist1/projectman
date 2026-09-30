@@ -12,7 +12,7 @@ describe('human messages wake idle AI members', () => {
   afterEach(async () => {
     await h.domain.stop();
     vi.restoreAllMocks();
-    h.cleanup();
+    await h.cleanup();
   });
   const send = (taskKey?: string) =>
     h.domain.sessions.sendTeamMessage('AR', 'owner', {

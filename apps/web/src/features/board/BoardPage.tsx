@@ -29,11 +29,13 @@ const inProgress: ReadonlySet<TaskPhase> = new Set(['needs_you', 'working', 'wai
 function Column({
   column,
   entries,
+  subtasksByParent,
   pipeline,
   projectKey,
   selectedKey,
   drag,
 }: {
+  subtasksByParent: Map<string, Task[]>;
   column: BoardColumnView;
   entries: BoardEntry[];
   pipeline: PipelineIndex;
@@ -99,6 +101,7 @@ function Column({
             {drag.pendingKey === task.key ? <p role="status">{t('task.move.pending')}</p> : null}
             <TaskCard
               task={task}
+              subtasks={subtasksByParent.get(task.key)}
               state={state}
               pipeline={pipeline}
               to={`/p/${projectKey}/tasks/${task.key}`}
@@ -238,7 +241,12 @@ export function BoardPage() {
           <EmptyState icon="search" title={t('board.noResults', { query: search })} />
         </div>
       ) : isMobile ? (
-        <MobileBoardList entries={visible} pipeline={pipeline} projectKey={key} />
+        <MobileBoardList
+          subtasksByParent={model.subtasksByParent}
+          entries={visible}
+          pipeline={pipeline}
+          projectKey={key}
+        />
       ) : (
         <div className={styles.columns}>
           {pipeline.columns.map((column) => {
@@ -254,6 +262,7 @@ export function BoardPage() {
               <Column
                 key={column.id}
                 column={column}
+                subtasksByParent={model.subtasksByParent}
                 entries={entries}
                 pipeline={pipeline}
                 projectKey={key}

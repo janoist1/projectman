@@ -37,8 +37,20 @@ export function useBoardModel() {
       tasksByKey: new Map(tasks.map((task) => [task.key, task])),
       myHandle,
     };
+    const subtasksByParent = new Map<string, Task[]>();
+    for (const task of tasks) {
+      if (!task.parentKey) continue;
+      const children = subtasksByParent.get(task.parentKey) ?? [];
+      children.push(task);
+      subtasksByParent.set(task.parentKey, children);
+    }
     const entries: BoardEntry[] = tasks.map((task) => ({ task, state: deriveTaskState(task, ctx) }));
-    return { ctx, entries, byKey: new Map(entries.map((entry) => [entry.task.key, entry])) };
+    return {
+      ctx,
+      entries,
+      subtasksByParent,
+      byKey: new Map(entries.map((entry) => [entry.task.key, entry])),
+    };
   }, [tasks, items, pipeline, members, myHandle]);
 
   return { board, inbox, members, pipeline, model };

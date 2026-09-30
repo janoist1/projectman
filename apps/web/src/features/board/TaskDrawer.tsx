@@ -31,6 +31,8 @@ import { nextStepText, primarySession } from './taskModel';
 import { TaskLifecycle } from './TaskLifecycle';
 import { useBoardModel } from './useBoardModel';
 import { TaskCommentComposer } from './TaskCommentComposer';
+import { TaskEdit } from './TaskEdit';
+import { TaskSubtasks } from './TaskSubtasks';
 import { TaskMove } from './TaskMove';
 import { canMoveTask } from './moveTask';
 import type { PipelineIndex } from '../../lib/pipeline';
@@ -264,6 +266,11 @@ export function TaskDrawer() {
       column && stage && column.name !== stage.name
         ? `${column.name} · ${stage.name}`
         : (stage?.name ?? task.stageId);
+    const parent =
+      board.data?.tasks.find((candidate) => candidate.key === task.parentKey) ?? detail.data?.parent;
+    const subtasks = (board.data?.tasks ?? detail.data?.subtasks ?? []).filter(
+      (child) => child.parentKey === task.key,
+    );
     const pr = prChip(task);
     const sessions = detail.data?.sessions ?? [];
     const session = primarySession(task, sessions);
@@ -272,6 +279,11 @@ export function TaskDrawer() {
     return (
       <>
         <div className={styles.head}>
+          {parent ? (
+            <Link to={`/p/${key}/tasks/${parent.key}`}>
+              {t('task.parent', { key: parent.key, title: parent.title })}
+            </Link>
+          ) : null}
           <div className={styles.chips}>
             <Chip tone="accent" size="md">
               {t('task.stageChip', { stage: stageLabel, index: position.index, total: position.total })}
@@ -347,6 +359,21 @@ export function TaskDrawer() {
           ) : null}
 
           <TaskChecks key={`checks:${task.key}:${task.stageId}`} task={task} pipeline={pipeline} />
+
+          {can.createTasks ? (
+            <section className={styles.section}>
+              <TaskEdit key={task.key} task={task} />
+            </section>
+          ) : null}
+          {!task.parentKey ? (
+            <TaskSubtasks
+              key={`subtasks:${task.key}`}
+              task={task}
+              children={subtasks}
+              members={members}
+              pipeline={pipeline}
+            />
+          ) : null}
 
           {task.description ? (
             <section className={styles.section}>

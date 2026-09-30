@@ -276,7 +276,13 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async createTask(
     ctx: ToolContext,
-    args: { title: string; description?: string; labels?: string[]; visibility?: Visibility },
+    args: {
+      title: string;
+      description?: string;
+      labels?: string[];
+      visibility?: Visibility;
+      parentKey?: string;
+    },
   ): Promise<{ task: Task }> {
     return this.guard(async () => {
       await this.caller(ctx);
@@ -288,6 +294,7 @@ export class TeamToolsService implements TeamToolsHandler {
         ctx.projectKey,
         {
           title,
+          parentKey: args.parentKey,
           description: args.description?.trim() ?? '',
           labels,
           visibility: args.visibility ?? 'internal',

@@ -1,3 +1,4 @@
+import type { Task } from '@projectman/shared';
 import { StatusDot } from '../../components/Chip';
 import { t } from '../../i18n/t';
 import type { PlainMessageKey } from '../../i18n/t';
@@ -20,10 +21,12 @@ const groups: ReadonlyArray<{ id: string; label: PlainMessageKey; phases: TaskPh
 /** Phone board: tasks grouped by what they wait for, with stage counts on top. */
 export function MobileBoardList({
   entries,
+  subtasksByParent = new Map(),
   pipeline,
   projectKey,
 }: {
   entries: BoardEntry[];
+  subtasksByParent?: Map<string, Task[]>;
   pipeline: PipelineIndex;
   projectKey: string;
 }) {
@@ -64,6 +67,7 @@ export function MobileBoardList({
               <TaskCard
                 key={task.id}
                 task={task}
+                subtasks={subtasksByParent.get(task.key)}
                 state={state}
                 pipeline={pipeline}
                 to={`/p/${projectKey}/tasks/${task.key}`}

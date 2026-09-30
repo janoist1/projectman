@@ -347,3 +347,112 @@ describe('task drawer comments', () => {
     expect(screen.queryByLabelText(t('task.comments.label'))).toBeNull();
   });
 });
+
+describe('task editing and subtasks', () => {
+  it('edits title, markdown and labels through PATCH and cancels a later draft', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    fireEvent.click(await screen.findByRole('button', { name: t('task.edit') }));
+    fireEvent.change(screen.getByLabelText(t('newTask.fields.title')), {
+      target: { value: 'Example updated task' },
+    });
+    fireEvent.change(screen.getByLabelText(t('task.description')), {
+      target: { value: '**Example description**' },
+    });
+    fireEvent.change(screen.getByLabelText(t('newTask.fields.labels')), {
+      target: { value: 'bug, example' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: t('task.save') }));
+    await waitFor(() =>
+      expect(project.backend.findTask('AC-20')).toMatchObject({
+        title: 'Example updated task',
+        description: '**Example description**',
+        labels: ['bug', 'example'],
+      }),
+    );
+    expect(project.requests).toContainEqual({
+      method: 'PATCH',
+      path: '/api/projects/AC/tasks/AC-20',
+      body: {
+        title: 'Example updated task',
+        description: '**Example description**',
+        labels: ['bug', 'example'],
+      },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: t('task.edit') }));
+    fireEvent.change(screen.getByLabelText(t('newTask.fields.title')), {
+      target: { value: 'Unsaved draft' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: t('task.cancelEdit') }));
+    expect(project.backend.findTask('AC-20')?.title).toBe('Example updated task');
+    fireEvent.click(screen.getByRole('button', { name: t('task.edit') }));
+    expect((screen.getByLabelText(t('newTask.fields.title')) as HTMLInputElement).value).toBe(
+      'Example updated task',
+    );
+  });
+
+  it('keeps the edited draft after a save refusal and permits retry', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    fireEvent.click(await screen.findByRole('button', { name: t('task.edit') }));
+    fireEvent.change(screen.getByLabelText(t('newTask.fields.title')), {
+      target: { value: 'Preserved draft' },
+    });
+    project.backend.viewerHandle = 'kata';
+    fireEvent.click(screen.getByRole('button', { name: t('task.save') }));
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    expect((screen.getByLabelText(t('newTask.fields.title')) as HTMLInputElement).value).toBe(
+      'Preserved draft',
+    );
+    project.backend.viewerHandle = 'owner';
+    fireEvent.click(screen.getByRole('button', { name: t('task.save') }));
+    await waitFor(() => expect(project.backend.findTask('AC-20')?.title).toBe('Preserved draft'));
+  });
+
+  it('shows child progress and quick-add inherits repo, visibility and first stage', async () => {
+    const project = mockProject();
+    project.backend.updateTask('AC-21', { parentKey: 'AC-20', status: 'done' });
+    project.backend.updateTask('AC-22', { parentKey: 'AC-20' });
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    const section = await screen.findByRole('region', { name: t('task.subtasks') });
+    expect(within(section).getByText(t('task.subtaskProgress', { done: 1, total: 2 }))).toBeTruthy();
+    expect(within(section).getByRole('link', { name: /AC-21/ }).getAttribute('href')).toBe(
+      '/p/AC/tasks/AC-21',
+    );
+    fireEvent.change(within(section).getByLabelText(t('task.subtaskTitle')), {
+      target: { value: 'Example child' },
+    });
+    fireEvent.click(within(section).getByRole('button', { name: t('task.addSubtask') }));
+    expect(await within(section).findByRole('link', { name: /Example child/ })).toBeTruthy();
+    const parent = project.backend.findTask('AC-20')!;
+    expect(project.backend.tasks.find((task) => task.title === 'Example child')).toMatchObject({
+      parentKey: parent.key,
+      repo: parent.repo,
+      visibility: parent.visibility,
+      stageId: project.backend.config.pipeline.stages[0]!.id,
+    });
+    expect((within(section).getByLabelText(t('task.subtaskTitle')) as HTMLInputElement).value).toBe('');
+  });
+
+  it('shows a parent link on a subtask and prevents a nested quick-add', async () => {
+    const project = mockProject();
+    project.backend.updateTask('AC-20', { parentKey: 'AC-21' });
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    const parent = project.backend.findTask('AC-21')!;
+    const link = await screen.findByRole('link', {
+      name: t('task.parent', { key: parent.key, title: parent.title }),
+    });
+    expect(link.getAttribute('href')).toBe('/p/AC/tasks/AC-21');
+    expect(screen.queryByLabelText(t('task.subtaskTitle'))).toBeNull();
+  });
+
+  it('hides editing and quick-add from viewers', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-20', {
+      can: { createTasks: false, manageTeam: false, workInSessions: false },
+    });
+    await screen.findByText(project.backend.findTask('AC-20')!.title);
+    expect(screen.queryByRole('button', { name: t('task.edit') })).toBeNull();
+    expect(screen.queryByLabelText(t('task.subtaskTitle'))).toBeNull();
+  });
+});

@@ -5,8 +5,9 @@ import type { Visibility } from '@projectman/shared';
 import { useConfig, useCreateTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
+import { DescriptionEditor } from '../../components/DescriptionEditor';
 import { Dialog } from '../../components/Dialog';
-import { ChoiceCard, SelectField, TextAreaField, TextField } from '../../components/Field';
+import { ChoiceCard, SelectField, TextField } from '../../components/Field';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
@@ -79,13 +80,11 @@ function NewTaskForm({ formId, onDone }: { formId: string; onDone: () => void })
         required
         autoFocus
       />
-      <TextAreaField
+      <DescriptionEditor
         label={t('newTask.fields.description')}
-        hint={t('newTask.fields.descriptionHint')}
         value={description}
-        onChange={(event) => setDescription(event.target.value)}
-        rows={5}
-        optional
+        onChange={setDescription}
+        disabled={create.isPending}
       />
       <div className={styles.row}>
         <SelectField
@@ -153,7 +152,7 @@ function SubmitState({ pending, formId }: { pending: boolean; formId: string }) 
 export function NewTaskDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const formId = useId();
   return (
-    <Dialog open={open} onClose={onClose} title={t('newTask.title')} size="md">
+    <Dialog open={open} onClose={onClose} title={t('newTask.title')} size="lg">
       <NewTaskForm formId={formId} onDone={onClose} />
     </Dialog>
   );

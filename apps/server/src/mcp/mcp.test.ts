@@ -334,6 +334,17 @@ describe('team tools', () => {
     expect(text(empty)).toContain('Input validation error');
   });
 
+  it('create_task forwards optional parent_key and describes one-level subtasks', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-qa');
+    const result = await call(client, 'create_task', { title: 'Example child', parent_key: 'AR-21' });
+    expect(result.isError).toBeFalsy();
+    expect(h.handler.calls[0]).toMatchObject({
+      method: 'createTask',
+      args: { title: 'Example child', parentKey: 'AR-21' },
+    });
+  });
+
   it('create_task creates an unassigned task in the first stage for humans to prioritise', async () => {
     const h = await startServer();
     const client = await connect(h, 'token-qa');

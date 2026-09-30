@@ -579,6 +579,10 @@ export class MockBackend {
     if (!viewer) return error(403, 'not_a_member', 'Not a member');
     if (restricted && (viewer.kind !== 'human' || !['owner', 'admin'].includes(viewer.role)))
       return error(403, 'insufficient_access', 'Owner or admin required');
+    if ((rest === '/tasks' && method === 'POST') || (rest.startsWith('/tasks/') && method === 'PATCH')) {
+      if (viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))
+        return error(403, 'insufficient_access', 'Developer access required');
+    }
     if (rest.startsWith('/invites')) return this.handleInvitations(method, rest, body);
     if (rest === '' && method === 'GET')
       return ok({
@@ -601,6 +605,10 @@ export class MockBackend {
       if (method === 'PATCH') {
         const input = parseBody(UpdateTaskRequest, body);
         if (!input) return error(400, 'invalid_request', 'Invalid task update');
+        if (input.parentKey) {
+          const refusal = this.validateParent(task.key, input.parentKey);
+          if (refusal) return refusal;
+        }
         if (input.stageId !== undefined) {
           if (viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))
             return error(403, 'insufficient_access', 'Developer access required');
@@ -623,6 +631,8 @@ export class MockBackend {
               previous: task.assignee,
             });
         }
+        if (input.parentKey !== undefined && input.parentKey !== (task.parentKey ?? null))
+          this.recordParentChange(task.key, task.parentKey ?? null, input.parentKey);
         const fields = Object.keys(input).filter((field) => field !== 'assignee' && field !== 'stageId');
         if (fields.length) this.addTimeline(task.key, this.owner, 'task_updated', { fields });
         const { stageId: _stageId, ...fieldsToUpdate } = input;
@@ -630,6 +640,8 @@ export class MockBackend {
       }
       return ok({
         task: clone(task),
+        parent: task.parentKey ? clone(this.findTask(task.parentKey) ?? null) : null,
+        subtasks: clone(this.tasks.filter((child) => child.parentKey === task.key)),
         pullRequests: this.taskPullRequests(task),
         timeline: clone(this.timeline.filter((event) => event.taskKey === task.key)),
         sessions: clone(
@@ -1484,16 +1496,45 @@ export class MockBackend {
     return ok(task);
   }
 
+  private validateParent(taskKey: string | null, parentKey: string): MockResponse | null {
+    if (parentKey === taskKey) return error(400, 'subtask_self_parent', 'A task cannot parent itself');
+    const parent = this.findTask(parentKey);
+    if (!parent) return error(400, 'subtask_parent_not_found', 'Parent not found');
+    if (parent.projectKey !== fixtures.PROJECT_KEY)
+      return error(400, 'subtask_parent_project', 'Parent belongs to another project');
+    if (parent.parentKey) return error(400, 'subtask_parent_is_subtask', 'A subtask cannot have subtasks');
+    if (taskKey && this.tasks.some((child) => child.parentKey === taskKey))
+      return error(400, 'subtask_has_children', 'A task with subtasks cannot become a subtask');
+    return null;
+  }
+
+  private recordParentChange(subtaskKey: string, previous: string | null, next: string | null): void {
+    for (const [parentKey, type] of [
+      [previous, 'task_subtask_removed'],
+      [next, 'task_subtask_added'],
+    ] as const) {
+      if (!parentKey) continue;
+      for (const taskKey of [parentKey, subtaskKey])
+        this.addTimeline(taskKey, this.owner, type, { parentKey, subtaskKey });
+    }
+  }
+
   private createTask(body: unknown): MockResponse {
     const input = parseBody(CreateTaskRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid task');
+    if (input.parentKey) {
+      const refusal = this.validateParent(null, input.parentKey);
+      if (refusal) return refusal;
+    }
+    if (!input.title.trim()) return error(400, 'invalid_request', 'Empty title');
     this.taskSeq += 1;
     const now = nowIso();
     const task: Task = {
+      parentKey: input.parentKey ?? null,
       id: mockId('tsk'),
       projectKey: fixtures.PROJECT_KEY,
       key: `${fixtures.PROJECT_KEY}-${this.taskSeq}`,
-      title: input.title,
+      title: input.title.trim(),
       description: input.description ?? '',
       stageId: input.stageId ?? this.config.pipeline.stages[0]!.id,
       status: 'active',
@@ -1512,6 +1553,7 @@ export class MockBackend {
     this.tasks.push(task);
     this.emit({ type: 'task_upserted', projectKey: task.projectKey, task: clone(task) });
     this.addTimeline(task.key, this.owner, 'task_created', { title: task.title });
+    if (task.parentKey) this.recordParentChange(task.key, null, task.parentKey);
     return { status: 201, body: clone(task) };
   }
 

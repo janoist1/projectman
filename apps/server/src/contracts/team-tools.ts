@@ -70,7 +70,13 @@ export interface TeamToolsHandler {
    */
   createTask(
     ctx: ToolContext,
-    args: { title: string; description?: string; labels?: string[]; visibility?: Visibility },
+    args: {
+      title: string;
+      description?: string;
+      labels?: string[];
+      visibility?: Visibility;
+      parentKey?: string;
+    },
   ): Promise<{ task: Task }>;
   /** link_pull_request: attach a GitHub PR to the task. */
   linkPullRequest(

@@ -140,9 +140,21 @@ export function Markdown({ text, className }: { text: string; className?: string
               </p>
             );
           case 'list': {
-            const items = block.items.map((item, j) => (
-              <li key={`${key}-${j}`}>{renderInline(item, `${key}-${j}`)}</li>
-            ));
+            const items = block.items.map((item, j) => {
+              const task = !block.ordered ? /^\[([ xX])\]\s+(.*)$/.exec(item) : null;
+              return (
+                <li key={`${key}-${j}`}>
+                  {task ? (
+                    <label>
+                      <input type="checkbox" checked={task[1]!.toLowerCase() === 'x'} disabled readOnly />{' '}
+                      {renderInline(task[2]!, `${key}-${j}`)}
+                    </label>
+                  ) : (
+                    renderInline(item, `${key}-${j}`)
+                  )}
+                </li>
+              );
+            });
             return block.ordered ? <ol key={key}>{items}</ol> : <ul key={key}>{items}</ul>;
           }
           case 'paragraph':

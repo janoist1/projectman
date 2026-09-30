@@ -69,3 +69,22 @@ describe('truncate', () => {
     expect(truncate('abcd', 3)).toBe('ab…');
   });
 });
+
+describe('related task formatting', () => {
+  it('includes parent and subtasks with key, title, stage and status', () => {
+    const detail = sampleTaskDetail();
+    detail.parent = {
+      ...detail.task,
+      key: 'AR-20',
+      title: 'Example parent',
+      stageId: 'backlog',
+      status: 'waiting',
+    };
+    detail.subtasks = [
+      { ...detail.task, key: 'AR-22', title: 'Example child', stageId: 'qa', status: 'done' },
+    ];
+    const out = formatTaskDetail(detail);
+    expect(out).toContain('Parent: AR-20 — Example parent · Stage: backlog · Status: waiting');
+    expect(out).toContain('- AR-22 — Example child · Stage: qa · Status: done');
+  });
+});

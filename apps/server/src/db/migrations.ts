@@ -227,6 +227,12 @@ export const migrations: Migration[] = [
     sql: `ALTER TABLE invitations ADD COLUMN member_handle TEXT;
       CREATE INDEX invitations_member ON invitations(project_key, member_handle);`,
   },
+  {
+    version: 7,
+    name: 'one level subtasks',
+    sql: `ALTER TABLE tasks ADD COLUMN parent_key TEXT REFERENCES tasks(key);
+      CREATE INDEX tasks_parent ON tasks(project_key, parent_key);`,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

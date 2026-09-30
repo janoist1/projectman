@@ -13,9 +13,12 @@ import {
 } from './format';
 
 /**
- * The team tools as Claude sees them (mcp__team__<name>). Names, descriptions and input
- * schemas are the prompt: they tell the model when and how to use each tool. Input is
- * validated by the MCP SDK against the zod schema before `run` is called.
+ * The team tools as the agent sees them (mcp__team__<name>). Names, descriptions and input
+ * schemas are the prompt: they tell the model when and how to use each tool. Rules that are
+ * not about one tool (the project's language, being concise, recording results on the task)
+ * are stated once in the member's system prompt (src/context), which both providers receive;
+ * they are not repeated here. Input is validated by the MCP SDK against the zod schema before
+ * `run` is called.
  */
 
 export const TEAM_TOOL_NAMES = [
@@ -31,19 +34,15 @@ export const TEAM_TOOL_NAMES = [
 ] as const;
 export type TeamToolName = (typeof TEAM_TOOL_NAMES)[number];
 
-/** Server-level instructions, sent once at initialization (Claude Code adds them to the system prompt). */
-export const TEAM_INSTRUCTIONS = [
-  'Team tools connect you with your team in projectman: humans and other AI members.',
-  '- Address teammates by handle (e.g. "qa", "fe-1"); list_members shows who is who.',
-  '- Text you write in your own session reaches nobody. To tell a teammate something, or to answer a ' +
-    '"[team message from <handle> ...]", use send_message.',
-  "- Be concise. Write messages, notes and questions in the project's language.",
-  '- Record results as labels, stage moves and notes with update_task instead of only mentioning them in text.',
-  '- Propose new work with create_task: it waits unassigned in the first stage until humans prioritise it.',
-  '- Link pull requests with link_pull_request as soon as they exist.',
-  '- When a human decision or information is needed, use ask_human; the answer arrives later as a team message.',
-  '- Keep durable learnings with save_memory.',
-].join('\n');
+/**
+ * Server-level instructions, sent once at initialization. Claude Code appends them to the
+ * system prompt; Codex (0.159.1) shows them to the model as the description of the server's
+ * tool namespace. Every session's system prompt already has the team rules ("How the team
+ * works"), so they only say what the server is and where the rules are.
+ */
+export const TEAM_INSTRUCTIONS =
+  'Team tools connect you with your team in projectman: humans and other AI members. How the team ' +
+  'uses them is in your instructions under "How the team works"; each tool says when to use it.';
 
 const MAX_MESSAGE_CHARS = 20_000;
 const MAX_NOTE_CHARS = 10_000;
@@ -107,10 +106,9 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     title: 'Send a team message',
     readOnly: false,
     description:
-      'Send a message to teammates (humans or AI members), addressed by handle. AI members receive it in ' +
-      'their session for the task; humans see it in the app. This is the only way to reach a teammate: ' +
-      'text in your own session is not delivered. Use it to hand over work, report findings or reply to a ' +
-      "team message. Be concise and specific, in the project's language.",
+      'Send a message to teammates (humans or AI members). AI members receive it in their session for ' +
+      'the task; humans see it in the app. Use it to hand over work, report findings or reply to a team ' +
+      'message.',
     input: {
       to: z
         .array(MemberHandle)
@@ -123,8 +121,8 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         .min(1)
         .max(MAX_MESSAGE_CHARS)
         .describe(
-          "The message, in the project's language. Include what the recipient needs to act on it " +
-            '(task, PR, findings, what you expect from them).',
+          'The message. Give the recipient what they need to act on it: the facts (task, links, what ' +
+            'changed, findings) and what you expect next and from whom.',
         ),
       task_key: TaskKey.optional().describe(
         'Task the message is about, e.g. "AR-21". Defaults to the task of your current session.',
@@ -200,24 +198,23 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     description:
       'Record progress on a task: add or remove labels, add a note, rewrite its title or description ' +
       '(for example a specification with acceptance criteria, or a technical plan) and/or move it to ' +
-      'another stage. Labels are how results are recorded: the outcome of a review, a test or a client ' +
-      "answer is a label from the project's label list (in your instructions: meaning, who may set it), " +
-      'with the findings in `note`; saying it only in text does not update the task. Some labels require ' +
-      'a note, and labels only humans may set (approvals) are refused. Stage gates are enforced: a move is ' +
+      'another stage. The outcome of a review, a test or a client answer is a label from the ' +
+      "project's label list (in your instructions: meaning, who may set it). Some labels require a " +
+      'note, and labels only humans may set (approvals) are refused. Stage gates are enforced: a move is ' +
       'refused while a label its gate requires is missing or a blocking label is on the task. In one call ' +
       'everything else is recorded before the stage move.',
     input: {
       task_key: taskKeyInput,
       stage_id: StageId.optional().describe(
-        'Stage to move the task to, e.g. "qa" (a stage id of the project pipeline).',
+        'Id of the stage to move the task to (the pipeline is in your instructions).',
       ),
       add_labels: z
         .array(z.string().trim().min(1).max(MAX_LABEL_CHARS))
         .max(10)
         .optional()
         .describe(
-          'Label ids to add, e.g. ["qa-failed"]. A label of a group replaces the other labels of that ' +
-            'group (e.g. "qa-ok" replaces "qa-failed").',
+          "Label ids to add (the project's labels are listed in your instructions). A label of a group " +
+            'replaces the other labels of that group.',
         ),
       remove_labels: z
         .array(z.string().trim().min(1).max(MAX_LABEL_CHARS))
@@ -231,8 +228,8 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         .max(MAX_NOTE_CHARS)
         .optional()
         .describe(
-          "Note for the task timeline, in the project's language: findings, decisions, what changed. " +
-            'With labels it is the comment explaining them.',
+          'Note for the task timeline: findings, decisions, what changed. With labels it is the comment ' +
+            'explaining them.',
         ),
       title: z
         .string()
@@ -240,7 +237,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         .min(1)
         .max(MAX_TITLE_CHARS)
         .optional()
-        .describe("New title, short and specific, in the project's language."),
+        .describe('New title, short and specific.'),
       description: z
         .string()
         .trim()
@@ -294,18 +291,14 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     description:
       'Create a new task, for example a card for a reported bug, one part of a request you split, or ' +
       'follow-up work you found. It starts unassigned in the first stage of the pipeline, where humans ' +
-      'prioritise it; it does not start any work. Give it a specific title and a self-contained ' +
-      "description, in the project's language. Set parent_key for a one-level subtask in the same project.",
+      'prioritise it; it does not start any work. Give it a self-contained description. Set parent_key ' +
+      'for a one-level subtask in the same project. If it came from another task, note the new key ' +
+      'there with update_task.',
     input: {
       parent_key: taskKeyInput
         .optional()
         .describe('Parent task in this project; must not itself be a subtask.'),
-      title: z
-        .string()
-        .trim()
-        .min(1)
-        .max(MAX_TITLE_CHARS)
-        .describe("Short, specific title in the project's language."),
+      title: z.string().trim().min(1).max(MAX_TITLE_CHARS).describe('Short, specific title.'),
       description: z
         .string()
         .trim()
@@ -368,24 +361,24 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     description:
       'Ask a human for a decision or information you cannot find or decide yourself (requirements, ' +
       'priorities, approvals, access, trade-offs). The question goes to their inbox; the answer arrives ' +
-      'later in this session as a team message, so do not wait or poll for it. Ask one clear, self-contained ' +
-      "question in the project's language.",
+      'later in this session as a team message. Do not wait or poll for it: continue with work that does ' +
+      'not depend on the answer, or end your turn. Ask one clear question.',
     input: {
       question: z
         .string()
         .trim()
         .min(1)
         .max(MAX_QUESTION_CHARS)
-        .describe(
-          "The question, in the project's language, with the context needed to answer it without opening " +
-            'anything else.',
-        ),
+        .describe('The question, with the context needed to answer it without opening anything else.'),
       options: z
         .array(z.string().trim().min(1).max(MAX_OPTION_CHARS))
         .min(1)
         .max(10)
         .optional()
-        .describe('Suggested answers shown as buttons, e.g. ["Yes", "No"]. Omit for a free-text answer.'),
+        .describe(
+          'Suggested answers shown as buttons, e.g. ["Yes", "No"]; offer them when you can. Omit for a ' +
+            'free-text answer.',
+        ),
       task_key: TaskKey.optional().describe(
         'Task the question is about. Defaults to the task of your current session.',
       ),
@@ -417,8 +410,8 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     readOnly: false,
     description:
       'Save a durable learning to your own memory; it is included in all your future sessions. Use it for ' +
-      'lasting knowledge about the project, codebase, conventions or people, not for task progress or ' +
-      'temporary state (record those with update_task).',
+      'lasting knowledge about the project, codebase, conventions, pitfalls, where things are or people, ' +
+      'not for task progress or temporary state (record those with update_task).',
     input: {
       note: z
         .string()
@@ -429,7 +422,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     },
     async run({ ctx, args, handler }) {
       await handler.saveMemory(ctx, { note: args.note });
-      return 'Saved to your memory; it will be part of your future sessions.';
+      return 'Saved to your memory.';
     },
   }),
 ];

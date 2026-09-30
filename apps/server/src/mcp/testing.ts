@@ -37,7 +37,8 @@ export const qaContext: ToolContext = {
   taskKey: null,
 };
 
-const STAGES = ['backlog', 'development', 'code_review', 'qa', 'done'];
+/** Stage ids as in the built-in templates (the internal-tool pipeline without its merge stage). */
+const STAGES = ['ready', 'dev', 'code_review', 'qa', 'done'];
 
 export function sampleMembers(): MemberView[] {
   const base = { specialty: null, activity: null, currentTaskKeys: [], sponsor: 'owner', temp: false };
@@ -86,7 +87,7 @@ export function sampleTaskDetail(): TaskDetail {
       key: 'AR-21',
       title: 'Validate the login form',
       description: 'Show an error message when the email address is invalid.',
-      stageId: 'development',
+      stageId: 'dev',
       status: 'active',
       assignee: 'fe-1',
       repo: 'web',
@@ -107,13 +108,7 @@ export function sampleTaskDetail(): TaskDetail {
         { title: 'Validate the login form' },
         '2026-09-29T08:00:00.000Z',
       ),
-      event(
-        'task_stage_changed',
-        'owner',
-        'human',
-        { from: 'backlog', to: 'development' },
-        '2026-09-29T09:00:00.000Z',
-      ),
+      event('task_stage_changed', 'owner', 'human', { from: 'ready', to: 'dev' }, '2026-09-29T09:00:00.000Z'),
     ],
     sessions: [
       {

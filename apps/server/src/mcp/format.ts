@@ -1,28 +1,16 @@
-import type { MemberView, Task, TaskDetail, TaskLink, TimelineEvent } from '@projectman/shared';
+import type { MemberView, Task, TaskDetail, TimelineEvent } from '@projectman/shared';
+import { describeLink, formatTimestamp, linkTarget, oneLine, recentTimeline, truncate } from '../agent-text';
 
 /**
  * Tool results are short plain text: cheap for the model to read and easy to scan in
  * transcripts. Free text written by people and agents (titles, notes, messages) is data
- * and is passed through, shortened where it could flood the context.
+ * and is passed through, shortened where it could flood the context. Links and timeline
+ * events are worded by src/agent-text, like in the kick-off brief, with plain ids.
  */
 
 const MAX_DESCRIPTION_CHARS = 6000;
 const MAX_TIMELINE_EVENTS = 20;
 const MAX_EVENT_TEXT_CHARS = 300;
-
-export function truncate(text: string, max: number): string {
-  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
-}
-
-/** Collapses whitespace so free text fits on one line. */
-function oneLine(text: string, max: number): string {
-  return truncate(text.replace(/\s+/g, ' ').trim(), max);
-}
-
-/** "2026-09-29T10:15:03.000Z" -> "2026-09-29 10:15" (other formats are kept as they are). */
-function shortTime(iso: string): string {
-  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(iso) ? `${iso.slice(0, 10)} ${iso.slice(11, 16)}` : iso;
-}
 
 /* ---------- members ---------- */
 
@@ -43,23 +31,6 @@ export function formatMembers(members: MemberView[], self: string): string {
 
 /* ---------- tasks ---------- */
 
-function describeLink(link: TaskLink): string {
-  const title = link.title ? ` "${oneLine(link.title, 100)}"` : '';
-  const state = link.state ? ` (${link.state})` : '';
-  switch (link.kind) {
-    case 'pull_request':
-      return `PR ${link.repo ?? ''}#${link.ref}${title}${state}`;
-    case 'issue':
-      return `issue ${link.repo ?? ''}#${link.ref}${title}${state}`;
-    case 'branch':
-      return `branch ${link.ref}${link.repo ? ` (${link.repo})` : ''}`;
-    case 'prerequisite':
-      return `prerequisite ${link.ref}${state}`;
-    case 'url':
-      return `${link.title ? `${oneLine(link.title, 100)}: ` : ''}${link.ref}`;
-  }
-}
-
 /** One line with where the task stands. */
 export function taskStatusLine(task: Task): string {
   return [
@@ -70,68 +41,17 @@ export function taskStatusLine(task: Task): string {
   ].join(' · ');
 }
 
-function eventText(event: TimelineEvent): string {
-  const data = event.data;
-  const str = (key: string): string => {
-    const value = data[key];
-    return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
-  };
-  const text = (key: string) => oneLine(str(key), MAX_EVENT_TEXT_CHARS);
-  switch (event.type) {
-    case 'task_created':
-      return `created the task "${text('title')}"`;
-    case 'task_stage_changed':
-      return `moved it ${str('from') || '?'} → ${str('to') || '?'}`;
-    case 'task_assigned':
-      return `assigned it to ${str('assignee') || 'nobody'}`;
-    case 'task_check_changed':
-      return `check ${str('check')}: ${str('from') || 'none'} → ${str('to')}`;
-    case 'task_labels_changed': {
-      const list = (key: string) => ((event.data[key] as string[] | undefined) ?? []).join(', ');
-      return [
-        list('added') && `labels added: ${list('added')}`,
-        list('removed') && `labels removed: ${list('removed')}`,
-      ]
-        .filter(Boolean)
-        .join('; ');
-    }
-    case 'task_link_added': {
-      const kind = str('kind');
-      const repo = str('repo');
-      const numbered = kind === 'pull_request' || kind === 'issue';
-      return `linked ${kind} ${numbered ? `${repo}#${str('ref')}` : str('ref')}`;
-    }
-    case 'task_note':
-      return `note: ${text('text')}`;
-    case 'team_message': {
-      const to = Array.isArray(data.to) ? data.to.join(', ') : str('to');
-      return `message to ${to}: ${text('excerpt')}`;
-    }
-    case 'question_asked':
-      return `asked a human: ${text('question')}`;
-    case 'question_answered':
-      return `human answer: ${text('answer')}`;
-    default: {
-      const fields = Object.entries(data)
-        .filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value))
-        .map(([key, value]) => `${key}=${oneLine(String(value), 80)}`);
-      return fields.length > 0 ? `${event.type} (${fields.join(', ')})` : event.type;
-    }
-  }
-}
-
 function timelineLines(events: TimelineEvent[]): string[] {
-  if (events.length === 0) return ['Timeline: no events yet.'];
-  const sorted = [...events].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  const recent = sorted.slice(-MAX_TIMELINE_EVENTS);
+  const { lines, total } = recentTimeline(events, {
+    limit: MAX_TIMELINE_EVENTS,
+    textLimit: MAX_EVENT_TEXT_CHARS,
+  });
+  if (total === 0) return ['Timeline: no events yet.'];
   const header =
-    recent.length < sorted.length
-      ? `Recent timeline (last ${recent.length} of ${sorted.length}, oldest first):`
+    lines.length < total
+      ? `Recent timeline (last ${lines.length} of ${total}, oldest first):`
       : 'Timeline (oldest first):';
-  return [
-    header,
-    ...recent.map((e) => `- ${shortTime(e.createdAt)} ${e.actor.handle ?? e.actor.kind}: ${eventText(e)}`),
-  ];
+  return [header, ...lines];
 }
 
 export function formatTaskDetail(detail: TaskDetail): string {
@@ -140,10 +60,9 @@ export function formatTaskDetail(detail: TaskDetail): string {
   const lines = [
     `${task.key} — ${task.title}`,
     taskStatusLine(task),
-    `Repo: ${task.repo ?? 'workspace root'} · Visibility: ${task.visibility} · Priority: ${task.priority ?? 'none'}` +
-      (task.labels.length > 0 ? ` · Labels: ${task.labels.join(', ')}` : ''),
-    `Links: ${task.links.length > 0 ? task.links.map(describeLink).join('; ') : 'none'}`,
-    `Created by ${task.createdBy} at ${shortTime(task.createdAt)} · Updated ${shortTime(task.updatedAt)}`,
+    `Repo: ${task.repo ?? 'workspace root'} · Visibility: ${task.visibility} · Priority: ${task.priority ?? 'none'}`,
+    `Links: ${task.links.length > 0 ? task.links.map((l) => describeLink(l)).join('; ') : 'none'}`,
+    `Created by ${task.createdBy} at ${formatTimestamp(task.createdAt)} · Updated ${formatTimestamp(task.updatedAt)}`,
     '',
     'Description:',
     description ? truncate(description, MAX_DESCRIPTION_CHARS) : '(none)',
@@ -188,17 +107,17 @@ export function formatTaskUpdate(
   return `Updated ${task.key}: ${done.join('; ')}.\nNow: ${taskStatusLine(task)}`;
 }
 
+/** What the call did; what happens next with the task is in the tool's description. */
 export function formatTaskCreated(task: Task): string {
   const labels = task.labels.length > 0 ? ` · Labels: ${task.labels.join(', ')}` : '';
   return (
     `Created ${task.key} "${oneLine(task.title, 200)}" in stage ${task.stageId}, unassigned ` +
-    `(visibility ${task.visibility}${labels}). Humans prioritise it. If it came from another task, ` +
-    `note ${task.key} there with update_task.`
+    `(visibility ${task.visibility}${labels}).`
   );
 }
 
 export function formatLinkedPullRequest(task: Task, repo: string, number: number): string {
-  const prs = task.links.filter((l) => l.kind === 'pull_request').map(describeLink);
+  const prs = task.links.filter((l) => l.kind === 'pull_request').map((l) => linkTarget(l));
   const all = prs.length > 0 ? `\nPull requests on ${task.key}: ${prs.join('; ')}` : '';
   return `Linked PR ${repo}#${number} to ${task.key}.${all}`;
 }
@@ -220,11 +139,8 @@ export function formatSentMessage(result: {
   return missing.length > 0 ? `${sent} Not delivered to: ${missing.join(', ')}.` : sent;
 }
 
+/** Where the question is; how the answer arrives is in the tool's description. */
 export function formatQuestionAsked(inboxItemId: string, to: string[] | undefined): string {
   const whose = to && to.length > 0 ? ` of ${to.join(', ')}` : '';
-  return (
-    `Question ${inboxItemId} is waiting in the inbox${whose}. ` +
-    'The answer will arrive later in this session as a team message. Do not wait or poll for it: ' +
-    'continue with work that does not depend on the answer, or end your turn.'
-  );
+  return `Question ${inboxItemId} is waiting in the inbox${whose}.`;
 }

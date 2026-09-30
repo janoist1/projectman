@@ -94,11 +94,28 @@ describe('team MCP endpoint', () => {
 
     expect(client.getServerVersion()?.name).toBe('projectman-team');
     expect(client.getServerCapabilities()?.tools).toBeDefined();
+    // The team rules are in every member's system prompt; the instructions only point there.
     const instructions = client.getInstructions() ?? '';
-    expect(instructions).toContain('handle');
-    expect(instructions).toContain("project's language");
-    expect(instructions).toContain('update_task');
-    expect(instructions).toContain('ask_human');
+    expect(instructions).toContain('humans and other AI members');
+    expect(instructions).toContain('"How the team works"');
+    expect(instructions.length).toBeLessThan(300);
+  });
+
+  it('keeps tool-specific guidance in the tools and team rules out of them', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+    const { tools } = await client.listTools();
+    const byName = new Map(tools.map((t) => [t.name, JSON.stringify(t)]));
+
+    // Stated once in the system prompt ("How the team works").
+    for (const [name, tool] of byName) {
+      expect(tool, name).not.toContain("project's language");
+      expect(tool, name).not.toMatch(/be concise/i);
+    }
+    expect(byName.get('ask_human')).toContain('the answer arrives later in this session as a team message');
+    expect(byName.get('ask_human')).toContain('Do not wait or poll for it');
+    expect(byName.get('create_task')).toContain('where humans prioritise it');
+    expect(byName.get('create_task')).toContain('note the new key there with update_task');
   });
 
   it('lists exactly the team tools with strict input schemas', async () => {
@@ -214,7 +231,7 @@ describe('team tools', () => {
       {
         key: 'AR-21',
         title: 'Validate the login form',
-        stageId: 'development',
+        stageId: 'dev',
         status: 'active',
         assignee: 'fe-1',
         labels: ['frontend'],
@@ -252,11 +269,11 @@ describe('team tools', () => {
 
     expect(h.handler.calls[0]).toEqual({ method: 'getTask', ctx: qaContext, args: { taskKey: 'AR-21' } });
     expect(out).toContain('AR-21 — Validate the login form');
-    expect(out).toContain('Stage: development · Status: active · Assignee: fe-1 · Labels: frontend');
-    expect(out).toContain('Links: branch ar-21-login-validation (web)');
+    expect(out).toContain('Stage: dev · Status: active · Assignee: fe-1 · Labels: frontend');
+    expect(out).toContain('Links: Branch: ar-21-login-validation in web');
     expect(out).toContain('Show an error message when the email address is invalid.');
     expect(out).toContain('Sessions: fe-1 (working)');
-    expect(out).toContain('- 2026-09-29 09:00 owner: moved it backlog → development');
+    expect(out).toContain('- 2026-09-29 09:00 UTC · owner: moved it from ready to dev');
   });
 
   it('update_task records labels, their note and a stage move in one call', async () => {
@@ -322,7 +339,7 @@ describe('team tools', () => {
     });
     expect(text(result)).toBe(
       'Updated AR-21: title changed; description replaced.\n' +
-        'Now: Stage: development · Status: active · Assignee: fe-1 · Labels: frontend',
+        'Now: Stage: dev · Status: active · Assignee: fe-1 · Labels: frontend',
     );
     expect(h.handler.tasks.get('AR-21')!.task.title).toBe('Validate the login and signup forms');
     const empty = await call(client, 'update_task', { task_key: 'AR-21', description: '   ' });
@@ -362,9 +379,8 @@ describe('team tools', () => {
       },
     });
     expect(text(result)).toBe(
-      'Created AR-22 "Login button overlaps the footer on small screens" in stage backlog, unassigned ' +
-        '(visibility internal · Labels: bug). Humans prioritise it. If it came from another task, note ' +
-        'AR-22 there with update_task.',
+      'Created AR-22 "Login button overlaps the footer on small screens" in stage ready, unassigned ' +
+        '(visibility internal · Labels: bug).',
     );
     const invalid = await call(client, 'create_task', { title: 'x', visibility: 'public' });
     expect(invalid.isError).toBe(true);
@@ -380,7 +396,7 @@ describe('team tools', () => {
     );
 
     expect(h.handler.calls[0]?.args).toEqual({ taskKey: 'AR-21', repo: 'acme/web', number: 42 });
-    expect(out).toBe('Linked PR acme/web#42 to AR-21.\nPull requests on AR-21: PR acme/web#42 (open)');
+    expect(out).toBe('Linked PR acme/web#42 to AR-21.\nPull requests on AR-21: acme/web#42 (open)');
   });
 
   it('ask_human queues the question and tells the model not to wait', async () => {
@@ -405,8 +421,7 @@ describe('team tools', () => {
         to: ['owner'],
       },
     });
-    expect(out).toContain('Question inbox_1 is waiting in the inbox of owner.');
-    expect(out).toContain('Do not wait or poll for it');
+    expect(out).toBe('Question inbox_1 is waiting in the inbox of owner.');
   });
 
   it('save_memory appends to the caller memory', async () => {

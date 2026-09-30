@@ -1,0 +1,171 @@
+import type { TaskLink, TimelineEvent, TimelineEventType } from '@projectman/shared';
+import { describe, expect, it } from 'vitest';
+import {
+  describeEvent,
+  describeLink,
+  formatTimestamp,
+  linkTarget,
+  oneLine,
+  recentTimeline,
+  truncate,
+  type TextStyle,
+} from '.';
+
+/** The context pack's kind of style: inline code and names. */
+const named: TextStyle = {
+  code: (value) => `\`${value}\``,
+  stage: (id) => ({ dev: 'Development', qa: 'QA' })[id] ?? id,
+  label: (id) => (id === 'qa-ok' ? '`qa-ok` (QA ok)' : `\`${id}\``),
+};
+
+let seq = 0;
+function event(
+  type: TimelineEventType,
+  data: Record<string, unknown>,
+  createdAt = '2026-09-29T10:00:00.000Z',
+  handle: string | null = 'qa',
+): TimelineEvent {
+  seq += 1;
+  return {
+    id: `evt_${seq}`,
+    projectKey: 'AR',
+    taskKey: 'AR-21',
+    sessionId: null,
+    actor: { kind: handle ? 'ai' : 'system', handle },
+    type,
+    data,
+    createdAt,
+  };
+}
+
+describe('free text', () => {
+  it('leaves short text alone and marks cut text', () => {
+    expect(truncate('abc', 3)).toBe('abc');
+    expect(truncate('abcd', 3)).toBe('ab…');
+    expect(truncate('ab cd', 4)).toBe('ab…');
+  });
+
+  it('never splits a character made of two code units', () => {
+    expect(truncate('😀😀😀', 2)).toBe('😀…');
+  });
+
+  it('collapses whitespace to one line', () => {
+    expect(oneLine('  multi\n\nline\ttext ', 100)).toBe('multi line text');
+    expect(oneLine('a\nb c d', 4)).toBe('a b…');
+  });
+
+  it('writes timestamps in UTC', () => {
+    expect(formatTimestamp('2026-09-29T14:05:59.000Z')).toBe('2026-09-29 14:05 UTC');
+    expect(formatTimestamp('2026-09-29T16:05:00+02:00')).toBe('2026-09-29 14:05 UTC');
+    expect(formatTimestamp('yesterday')).toBe('yesterday');
+  });
+});
+
+describe('links', () => {
+  const links: TaskLink[] = [
+    { kind: 'pull_request', ref: '123', repo: 'acme/app', title: 'Fix the\nmail', state: 'open' },
+    { kind: 'issue', ref: '7', repo: 'acme/app' },
+    { kind: 'branch', ref: 'AR-21-fix', repo: 'acme/app' },
+    { kind: 'url', ref: 'https://example.com/r/42', title: 'Client report' },
+    { kind: 'prerequisite', ref: 'AR-19', title: 'Update mail templates', state: 'done' },
+  ];
+
+  it('names the kind of each link', () => {
+    expect(links.map((l) => describeLink(l))).toEqual([
+      'Pull request: acme/app#123 "Fix the mail" (open)',
+      'Issue: acme/app#7',
+      'Branch: AR-21-fix in acme/app',
+      'Link: https://example.com/r/42 "Client report"',
+      'Prerequisite: AR-19 "Update mail templates" (done)',
+    ]);
+  });
+
+  it('quotes branches in the given style and can leave the kind out', () => {
+    expect(describeLink(links[2]!, named)).toBe('Branch: `AR-21-fix` in acme/app');
+    expect(linkTarget(links[4]!, named)).toBe('AR-19 "Update mail templates" (done)');
+  });
+});
+
+describe('describeEvent', () => {
+  it('names the labels of a label change', () => {
+    const changed = event('task_labels_changed', { added: ['qa-ok'], removed: ['qa-failed', 'qa-retest'] });
+    expect(describeEvent(changed, 100)).toBe('labels added: qa-ok; labels removed: qa-failed, qa-retest');
+    expect(describeEvent(changed, 100, named)).toBe(
+      'labels added: `qa-ok` (QA ok); labels removed: `qa-failed`, `qa-retest`',
+    );
+    expect(describeEvent(event('task_labels_changed', { added: [], removed: [] }), 100)).toBe(
+      'changed the labels',
+    );
+  });
+
+  it('still words legacy check events', () => {
+    expect(
+      describeEvent(event('task_check_changed', { check: 'qa', from: 'pending', to: 'passed' }), 100),
+    ).toBe('set the qa check to passed (was pending)');
+    expect(describeEvent(event('task_check_changed', { check: 'qa', from: null, to: 'pending' }), 100)).toBe(
+      'set the qa check to pending',
+    );
+  });
+
+  it('words task changes with stage names and quoted handles in the given style', () => {
+    const moved = event('task_stage_changed', { from: 'dev', to: 'qa' });
+    expect(describeEvent(moved, 100)).toBe('moved it from dev to qa');
+    expect(describeEvent(moved, 100, named)).toBe('moved it from Development to QA');
+    expect(describeEvent(event('task_assigned', { assignee: 'fe-1' }), 100, named)).toBe(
+      'assigned it to `fe-1`',
+    );
+    expect(describeEvent(event('task_assigned', { assignee: null }), 100)).toBe('unassigned it');
+    expect(describeEvent(event('task_updated', { fields: ['title', 'description'] }), 100)).toBe(
+      'updated title, description',
+    );
+    expect(
+      describeEvent(event('task_link_added', { kind: 'pull_request', ref: '123', repo: 'acme/app' }), 100),
+    ).toBe('linked pull request acme/app#123');
+    expect(describeEvent(event('task_created', {}), 100)).toBe('created the task');
+  });
+
+  it('shortens free text to the limit', () => {
+    const note = event('task_note', { text: `multi\nline ${'y'.repeat(500)}` });
+    const text = describeEvent(note, 50);
+    expect(text.startsWith('note: multi line yyy')).toBe(true);
+    expect(text).toHaveLength('note: '.length + 50);
+    expect(
+      describeEvent(event('team_message', { to: ['fe-1', 'owner'], excerpt: 'Ready' }), 100, named),
+    ).toBe('message to `fe-1`, `owner`: Ready');
+  });
+
+  it('shows the data of event types without their own wording', () => {
+    expect(
+      describeEvent(
+        event('permission_resolved', { inboxItemId: 'inbox_7', decision: 'allow', extra: {} }),
+        100,
+      ),
+    ).toBe('permission_resolved (inboxItemId=inbox_7, decision=allow)');
+    expect(describeEvent(event('session_ended', {}), 100)).toBe('session_ended');
+  });
+});
+
+describe('recentTimeline', () => {
+  it('shows the most recent events oldest first, after skipping', () => {
+    const events = [
+      event('task_note', { text: 'third' }, '2026-09-29T10:03:00.000Z'),
+      event('session_started', { member: 'qa' }, '2026-09-29T10:04:00.000Z', null),
+      event('task_note', { text: 'first' }, '2026-09-29T10:01:00.000Z'),
+      event('task_note', { text: 'second' }, '2026-09-29T10:02:00.000Z'),
+    ];
+    const { lines, total } = recentTimeline(events, {
+      limit: 2,
+      textLimit: 100,
+      style: named,
+      skip: new Set(['session_started']),
+    });
+    expect(total).toBe(3);
+    expect(lines).toEqual([
+      '- 2026-09-29 10:02 UTC · `qa`: note: second',
+      '- 2026-09-29 10:03 UTC · `qa`: note: third',
+    ]);
+    expect(recentTimeline(events, { limit: 10, textLimit: 100 }).lines[3]).toBe(
+      '- 2026-09-29 10:04 UTC · system: session_started (member=qa)',
+    );
+  });
+});

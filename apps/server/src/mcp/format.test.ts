@@ -1,6 +1,6 @@
 import type { TimelineEvent } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
-import { formatSentMessage, formatTaskDetail, truncate } from './format';
+import { formatSentMessage, formatTaskDetail } from './format';
 import { sampleTaskDetail } from './testing';
 
 function note(minute: number, text: string): TimelineEvent {
@@ -17,6 +17,17 @@ function note(minute: number, text: string): TimelineEvent {
 }
 
 describe('formatTaskDetail', () => {
+  it('lists the labels once, on the status line', () => {
+    const detail = sampleTaskDetail();
+    detail.task.labels = ['frontend', 'qa-ok'];
+    const out = formatTaskDetail(detail);
+    expect(out.split('\n').slice(1, 3)).toEqual([
+      'Stage: dev · Status: active · Assignee: fe-1 · Labels: frontend, qa-ok',
+      'Repo: web · Visibility: internal · Priority: 2',
+    ]);
+    expect(out.match(/Labels:/g)).toHaveLength(1);
+  });
+
   it('shows the most recent timeline events, oldest first', () => {
     const detail = sampleTaskDetail();
     // Out of order on purpose: the formatter sorts by time.
@@ -27,7 +38,7 @@ describe('formatTaskDetail', () => {
     expect(out).toContain('Recent timeline (last 20 of 25, oldest first):');
     expect(out).not.toContain('note 4\n');
     expect(out.indexOf('note 5')).toBeLessThan(out.indexOf('note 24'));
-    expect(out.trimEnd().endsWith('- 2026-09-29 11:24 qa: note: note 24')).toBe(true);
+    expect(out.trimEnd().endsWith('- 2026-09-29 11:24 UTC · qa: note: note 24')).toBe(true);
   });
 
   it('keeps long free text short', () => {
@@ -63,13 +74,6 @@ describe('formatSentMessage', () => {
   });
 });
 
-describe('truncate', () => {
-  it('leaves short text alone and marks cut text', () => {
-    expect(truncate('abc', 3)).toBe('abc');
-    expect(truncate('abcd', 3)).toBe('ab…');
-  });
-});
-
 describe('related task formatting', () => {
   it('includes parent and subtasks with key, title, stage and status', () => {
     const detail = sampleTaskDetail();
@@ -77,14 +81,14 @@ describe('related task formatting', () => {
       ...detail.task,
       key: 'AR-20',
       title: 'Example parent',
-      stageId: 'backlog',
+      stageId: 'ready',
       status: 'waiting',
     };
     detail.subtasks = [
       { ...detail.task, key: 'AR-22', title: 'Example child', stageId: 'qa', status: 'done' },
     ];
     const out = formatTaskDetail(detail);
-    expect(out).toContain('Parent: AR-20 — Example parent · Stage: backlog · Status: waiting');
+    expect(out).toContain('Parent: AR-20 — Example parent · Stage: ready · Status: waiting');
     expect(out).toContain('- AR-22 — Example child · Stage: qa · Status: done');
   });
 });

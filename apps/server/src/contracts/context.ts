@@ -30,9 +30,16 @@ export interface ContextPackInput {
 }
 
 export interface ContextPack {
-  /** Identity, team, how to use the team tools, rules, memory. English prompt text. */
+  /**
+   * Identity, team, how the team works, pipeline and labels, the current work item and its
+   * steps, guardrails, role instructions, memory. English prompt text, rebuilt on every start
+   * and resume (Claude Code: `--append-system-prompt`; Codex: `developer_instructions`).
+   */
   appendSystemPrompt: string;
-  /** Kick-off message for a new work item (task brief); null for general chats. */
+  /**
+   * Kick-off message for a new work item: the task brief, or a scheduled run's prompt; null for
+   * general chats and meetings.
+   */
   initialMessage: string | null;
 }
 

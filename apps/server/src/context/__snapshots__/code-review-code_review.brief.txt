@@ -26,10 +26,11 @@ The confirmation email shows the wrong room name.
 - 2026-09-28 08:00 UTC · `owner`: created the task "Fix the booking confirmation email"
 - 2026-09-28 08:05 UTC · `owner`: assigned it to `fe-1`
 - 2026-09-28 08:06 UTC · `fe-1`: moved it from Ready to Development
+- 2026-09-28 09:30 UTC · `owner`: labels added: `waiting-answer` (Waiting for an answer)
+- 2026-09-28 10:45 UTC · `owner`: labels removed: `waiting-answer` (Waiting for an answer)
 - 2026-09-28 11:30 UTC · `fe-1`: linked pull request acme/app#123
 - 2026-09-28 11:31 UTC · `fe-1`: moved it from Development to Code review
 - 2026-09-28 11:31 UTC · `fe-1`: message to `code-review`: PR acme/app#123 is ready for review: the room name now comes from the booking, not the cart.
-- 2026-09-28 11:32 UTC · `fe-1`: set the code_review check to pending
 
 ## What is expected next
 1. Review the pull requests linked to the task; do not edit, commit or push.

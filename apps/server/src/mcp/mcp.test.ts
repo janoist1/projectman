@@ -214,7 +214,7 @@ describe('team tools', () => {
       {
         key: 'AR-21',
         title: 'Validate the login form',
-        stageId: 'development',
+        stageId: 'dev',
         status: 'active',
         assignee: 'fe-1',
         labels: ['frontend'],
@@ -252,11 +252,11 @@ describe('team tools', () => {
 
     expect(h.handler.calls[0]).toEqual({ method: 'getTask', ctx: qaContext, args: { taskKey: 'AR-21' } });
     expect(out).toContain('AR-21 — Validate the login form');
-    expect(out).toContain('Stage: development · Status: active · Assignee: fe-1 · Labels: frontend');
+    expect(out).toContain('Stage: dev · Status: active · Assignee: fe-1 · Labels: frontend');
     expect(out).toContain('Links: Branch: ar-21-login-validation in web');
     expect(out).toContain('Show an error message when the email address is invalid.');
     expect(out).toContain('Sessions: fe-1 (working)');
-    expect(out).toContain('- 2026-09-29 09:00 UTC · owner: moved it from backlog to development');
+    expect(out).toContain('- 2026-09-29 09:00 UTC · owner: moved it from ready to dev');
   });
 
   it('update_task records labels, their note and a stage move in one call', async () => {
@@ -322,7 +322,7 @@ describe('team tools', () => {
     });
     expect(text(result)).toBe(
       'Updated AR-21: title changed; description replaced.\n' +
-        'Now: Stage: development · Status: active · Assignee: fe-1 · Labels: frontend',
+        'Now: Stage: dev · Status: active · Assignee: fe-1 · Labels: frontend',
     );
     expect(h.handler.tasks.get('AR-21')!.task.title).toBe('Validate the login and signup forms');
     const empty = await call(client, 'update_task', { task_key: 'AR-21', description: '   ' });
@@ -362,7 +362,7 @@ describe('team tools', () => {
       },
     });
     expect(text(result)).toBe(
-      'Created AR-22 "Login button overlaps the footer on small screens" in stage backlog, unassigned ' +
+      'Created AR-22 "Login button overlaps the footer on small screens" in stage ready, unassigned ' +
         '(visibility internal · Labels: bug). Humans prioritise it. If it came from another task, note ' +
         'AR-22 there with update_task.',
     );

@@ -22,7 +22,7 @@ describe('formatTaskDetail', () => {
     detail.task.labels = ['frontend', 'qa-ok'];
     const out = formatTaskDetail(detail);
     expect(out.split('\n').slice(1, 3)).toEqual([
-      'Stage: development · Status: active · Assignee: fe-1 · Labels: frontend, qa-ok',
+      'Stage: dev · Status: active · Assignee: fe-1 · Labels: frontend, qa-ok',
       'Repo: web · Visibility: internal · Priority: 2',
     ]);
     expect(out.match(/Labels:/g)).toHaveLength(1);
@@ -81,14 +81,14 @@ describe('related task formatting', () => {
       ...detail.task,
       key: 'AR-20',
       title: 'Example parent',
-      stageId: 'backlog',
+      stageId: 'ready',
       status: 'waiting',
     };
     detail.subtasks = [
       { ...detail.task, key: 'AR-22', title: 'Example child', stageId: 'qa', status: 'done' },
     ];
     const out = formatTaskDetail(detail);
-    expect(out).toContain('Parent: AR-20 — Example parent · Stage: backlog · Status: waiting');
+    expect(out).toContain('Parent: AR-20 — Example parent · Stage: ready · Status: waiting');
     expect(out).toContain('- AR-22 — Example child · Stage: qa · Status: done');
   });
 });

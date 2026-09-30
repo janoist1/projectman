@@ -39,7 +39,7 @@ export function describeEvent(
     case 'task_created':
       return text('title') ? `created the task "${text('title')}"` : 'created the task';
     case 'task_updated':
-      return list('fields').length > 0 ? `updated ${list('fields').join(', ')}` : 'updated the task';
+      return describeTaskUpdate(data, text, list, style);
     case 'task_stage_changed':
       return `moved it from ${stage('from')} to ${stage('to')}`;
     case 'task_assigned':
@@ -84,6 +84,55 @@ export function describeEvent(
       return fields.length > 0 ? `${event.type} (${fields.join(', ')})` : event.type;
     }
   }
+}
+
+/**
+ * A `task_updated` event: what happened to the task (cancelled with the reason, reopened, an
+ * approval requested or rejected, a move refused after approval, a pull request changing),
+ * else which fields changed.
+ */
+function describeTaskUpdate(
+  data: Record<string, unknown>,
+  text: (key: string) => string | null,
+  list: (key: string) => string[],
+  style: TextStyle,
+): string {
+  const record = (key: string): Record<string, unknown> | null => {
+    const value = data[key];
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  };
+  const field = (value: Record<string, unknown>, key: string): string | null =>
+    typeof value[key] === 'string' || typeof value[key] === 'number' ? String(value[key]) : null;
+
+  const action = text('action');
+  if (action === 'cancelled') return `cancelled the task${text('reason') ? `: ${text('reason')}` : ''}`;
+  if (action === 'reopened') return 'reopened the task';
+  const request = record('gateRequest');
+  if (request) {
+    const to = field(request, 'to');
+    return `asked a human to approve the move${to ? ` to ${style.stage(to)}` : ''}`;
+  }
+  const rejected = record('gateRejected');
+  if (rejected) {
+    const to = field(rejected, 'to');
+    return `the move${to ? ` to ${style.stage(to)}` : ''} was not approved`;
+  }
+  const blocked = record('gateBlocked');
+  if (blocked) {
+    const to = field(blocked, 'to');
+    const why = field(blocked, 'reason');
+    return `the approved move${to ? ` to ${style.stage(to)}` : ''} could not happen${why ? ` (${why})` : ''}`;
+  }
+  const pr = record('pullRequest');
+  if (pr) {
+    const repo = field(pr, 'repo');
+    const number = field(pr, 'number');
+    const state = field(pr, 'state');
+    return `pull request ${numberedRef(number ?? '', repo)}${state ? ` is ${state}` : ' changed'}`.trim();
+  }
+  return list('fields').length > 0 ? `updated ${list('fields').join(', ')}` : 'updated the task';
 }
 
 /** `- 2026-09-28 08:06 UTC · fe-1: moved it from Ready to Development` */

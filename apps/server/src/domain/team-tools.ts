@@ -47,7 +47,10 @@ function describeGateBlock(err: DomainError): string {
       ),
     );
   }
-  return reasons.length > 0 ? `The stage move is blocked: ${reasons.join('; ')}.` : err.message;
+  return reasons.length > 0
+    ? `The stage move is blocked: ${reasons.join('; ')}. Nothing from this call was recorded; ` +
+        'send the labels and the note again, without stage_id or once the gate is met.'
+    : err.message;
 }
 
 /** The send_message refusals of the messaging module, in the words the agent reads. */
@@ -237,7 +240,8 @@ export class TeamToolsService implements TeamToolsHandler {
           throw new TeamToolError(
             'gate_blocked',
             `Moving ${taskKey} to ${args.stageId} needs a human approval. It was requested from ` +
-              `${approvers.join(', ')}; the task moves automatically once they approve.`,
+              `${approvers.join(', ')}; the task moves automatically once they approve. The rest of this ` +
+              'call was recorded.',
           );
         }
         throw err;

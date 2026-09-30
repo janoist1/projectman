@@ -113,9 +113,11 @@ Results are short plain text (a roster, a task card with the last 20 timeline ev
 - Resolve quickly. The HTTP call, and the Claude turn with it, stays open until the handler
   settles. Queue deliveries into busy sessions instead of awaiting them: two members
   messaging each other while both wait would deadlock until the timeout.
-- `updateTask`: record the title, description, labels and note before the stage move, so that
-  one call such as `add_labels: ["qa-ok"]` + `stage_id: "client_test"` can pass the gate. The
-  tool description promises this order.
+- `updateTask`: one call is all or nothing. The title, description, labels and note count
+  before the stage move, so that one call such as `add_labels: ["qa-ok"]` +
+  `stage_id: "client_test"` can pass the gate; a refused label or a blocked gate records
+  nothing, and a move that needs a human approval records the rest and requests it. The tool
+  description promises exactly this.
 - Throw `TeamToolError` for expected refusals, with a message written for the model
   (English): unknown handle or task (`not_found`), an AI handle in `askHuman.to`
   (`invalid`), a gate that is not met (`gate_blocked`), and so on.

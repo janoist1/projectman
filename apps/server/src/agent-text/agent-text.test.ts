@@ -124,6 +124,34 @@ describe('describeEvent', () => {
     expect(describeEvent(event('task_created', {}), 100)).toBe('created the task');
   });
 
+  it('says why a task was updated when the event tells', () => {
+    const updated = (data: Record<string, unknown>) =>
+      describeEvent(event('task_updated', { fields: ['status'], ...data }), 100, named);
+    expect(updated({ action: 'cancelled', previousStatus: 'active', reason: 'Duplicate of AR-7' })).toBe(
+      'cancelled the task: Duplicate of AR-7',
+    );
+    expect(updated({ action: 'cancelled' })).toBe('cancelled the task');
+    expect(updated({ action: 'reopened', previousAssignee: 'fe-1' })).toBe('reopened the task');
+    expect(updated({ gateRequest: { requestId: 'r1', from: 'dev', to: 'qa', inboxItemIds: ['i1'] } })).toBe(
+      'asked a human to approve the move to QA',
+    );
+    expect(updated({ gateRejected: { requestId: 'r1', to: 'qa', inboxItemId: 'i1' } })).toBe(
+      'the move to QA was not approved',
+    );
+    expect(updated({ gateBlocked: { to: 'qa', reason: 'unknown_stage' } })).toBe(
+      'the approved move to QA could not happen (unknown_stage)',
+    );
+    expect(
+      describeEvent(
+        event('task_updated', {
+          fields: ['links'],
+          pullRequest: { repo: 'acme/app', number: 12, state: 'merged' },
+        }),
+        100,
+      ),
+    ).toBe('pull request acme/app#12 is merged');
+  });
+
   it('shortens free text to the limit', () => {
     const note = event('task_note', { text: `multi\nline ${'y'.repeat(500)}` });
     const text = describeEvent(note, 50);

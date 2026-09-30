@@ -201,8 +201,10 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       'another stage. The outcome of a review, a test or a client answer is a label from the ' +
       "project's label list (in your instructions: meaning, who may set it). Some labels require a " +
       'note, and labels only humans may set (approvals) are refused. Stage gates are enforced: a move is ' +
-      'refused while a label its gate requires is missing or a blocking label is on the task. In one call ' +
-      'everything else is recorded before the stage move.',
+      'refused while a label its gate requires is missing or a blocking label is on the task. One call is ' +
+      'all or nothing: labels and the note are recorded before the stage move, and if a label is refused ' +
+      'or the gate blocks the move, nothing is recorded. A move that needs a human approval records the ' +
+      'rest and waits for the approval.',
     input: {
       task_key: taskKeyInput,
       stage_id: StageId.optional().describe(

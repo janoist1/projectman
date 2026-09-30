@@ -1,5 +1,4 @@
-import { getLocale, standardLabel, standardLabelsFor } from '@projectman/templates';
-import { BUILT_IN_ROLE_IDS, BUILT_IN_ROLE_HOLDERS } from '@projectman/shared';
+import { getLocale, roleViews, standardLabel, standardLabelsFor } from '@projectman/templates';
 import type {
   Actor,
   ChatItem,
@@ -862,10 +861,9 @@ export const timeline: TimelineEvent[] = [
     ref: '4',
     repo: 'acme/webshop',
   }),
-  ev('AC-26', minutesAgo(120), 'code-review', 'task_check_changed', {
-    check: 'code_review',
-    from: 'pending',
-    to: 'passed',
+  ev('AC-26', minutesAgo(120), 'code-review', 'task_labels_changed', {
+    added: ['code-review-ok'],
+    removed: [],
   }),
   ev('AC-26', minutesAgo(95), 'code-review', 'task_stage_changed', {
     from: 'code_review',
@@ -911,8 +909,8 @@ export const timeline: TimelineEvent[] = [
     'AC-21',
     minutesAgo(182),
     'code-review',
-    'task_check_changed',
-    { check: 'code_review', from: 'pending', to: 'passed' },
+    'task_labels_changed',
+    { added: ['code-review-ok'], removed: [] },
     'ses_ac21_cr',
   ),
   ev(
@@ -937,8 +935,8 @@ export const timeline: TimelineEvent[] = [
     'AC-21',
     minutesAgo(138),
     'qa',
-    'task_check_changed',
-    { check: 'qa', from: 'pending', to: 'retest_needed' },
+    'task_labels_changed',
+    { added: ['qa-retest'], removed: [] },
     'ses_ac21_qa',
   ),
   ev(
@@ -972,13 +970,12 @@ export const timeline: TimelineEvent[] = [
     ref: '3',
     repo: 'acme/infra',
   }),
-  ev('AC-19', daysAgo(1, 14, 50), 'code-review', 'task_check_changed', {
-    check: 'code_review',
-    from: 'pending',
-    to: 'passed',
+  ev('AC-19', daysAgo(1, 14, 50), 'code-review', 'task_labels_changed', {
+    added: ['code-review-ok'],
+    removed: [],
   }),
   ev('AC-19', daysAgo(1, 15, 5), 'devops', 'task_note', { text: 'Kitelepítve az integrationre' }),
-  ev('AC-19', daysAgo(1, 15, 40), 'qa', 'task_check_changed', { check: 'qa', from: 'pending', to: 'passed' }),
+  ev('AC-19', daysAgo(1, 15, 40), 'qa', 'task_labels_changed', { added: ['qa-ok'], removed: [] }),
   ev('AC-19', daysAgo(1, 15, 41), 'qa', 'task_stage_changed', { from: 'qa', to: 'client_test' }),
   ev('AC-19', daysAgo(1, 15, 52), 'communication', 'team_message', {
     messageId: 'msg_08',
@@ -993,13 +990,12 @@ export const timeline: TimelineEvent[] = [
     ref: '1',
     repo: 'acme/webshop',
   }),
-  ev('AC-18', minutesAgo(302), 'code-review', 'task_check_changed', {
-    check: 'code_review',
-    from: 'pending',
-    to: 'passed',
+  ev('AC-18', minutesAgo(302), 'code-review', 'task_labels_changed', {
+    added: ['code-review-ok'],
+    removed: [],
   }),
   ev('AC-18', minutesAgo(295), 'devops', 'task_note', { text: 'Kint a tesztszerveren: /ajanlo' }),
-  ev('AC-18', minutesAgo(280), 'qa', 'task_check_changed', { check: 'qa', from: 'pending', to: 'passed' }),
+  ev('AC-18', minutesAgo(280), 'qa', 'task_labels_changed', { added: ['qa-ok'], removed: [] }),
   ev('AC-18', minutesAgo(279), 'qa', 'task_stage_changed', { from: 'qa', to: 'client_test' }),
   ev('AC-18', minutesAgo(250), 'communication', 'question_asked', {
     inboxItemId: 'inb_q_variant',
@@ -1007,11 +1003,7 @@ export const timeline: TimelineEvent[] = [
   }),
 
   ev('AC-27', daysAgo(5, 9, 0), 'owner', 'task_created', { title: 'Hírlevél-feliratkozás a láblécben' }),
-  ev('AC-27', daysAgo(1, 16, 0), 'bence', 'task_check_changed', {
-    check: 'client_test',
-    from: 'pending',
-    to: 'passed',
-  }),
+  ev('AC-27', daysAgo(1, 16, 0), 'bence', 'task_labels_changed', { added: ['client-accepted'], removed: [] }),
   ev('AC-27', minutesAgo(70), 'bence', 'task_stage_changed', { from: 'client_test', to: 'merge' }),
 
   ev('AC-17', daysAgo(5, 9, 0), 'owner', 'task_created', { title: 'Kártyás fizetés átvételkor' }),
@@ -1023,12 +1015,8 @@ export const timeline: TimelineEvent[] = [
   ev('AC-17', daysAgo(2, 12, 0), 'code-review', 'task_note', {
     text: 'Lelet: sikertelen kártyás fizetés után megszűnt a rendelés. Javítva ebben a PR-ban',
   }),
-  ev('AC-17', daysAgo(1, 10, 0), 'qa', 'task_check_changed', { check: 'qa', from: 'pending', to: 'passed' }),
-  ev('AC-17', daysAgo(1, 16, 30), 'kata', 'task_check_changed', {
-    check: 'client_test',
-    from: 'pending',
-    to: 'passed',
-  }),
+  ev('AC-17', daysAgo(1, 10, 0), 'qa', 'task_labels_changed', { added: ['qa-ok'], removed: [] }),
+  ev('AC-17', daysAgo(1, 16, 30), 'kata', 'task_labels_changed', { added: ['client-accepted'], removed: [] }),
   ev('AC-17', minutesAgo(160), 'owner', 'task_stage_changed', { from: 'client_test', to: 'merge' }),
   ev('AC-17', minutesAgo(40), 'owner', 'task_note', { text: 'Merge megvolt' }),
   ev('AC-17', minutesAgo(32), 'devops', 'task_updated', {
@@ -1747,10 +1735,5 @@ export const teamMessages: TeamMessage[] = [
   ),
 ];
 
-/** Same order and holder restrictions as the server catalogue. */
-export const builtInRoles: RoleView[] = BUILT_IN_ROLE_IDS.map((id) => ({
-  id,
-  ...getLocale('hu').roles[id],
-  holders: BUILT_IN_ROLE_HOLDERS[id],
-  builtIn: true,
-}));
+/** The built-in part of the server's role catalogue for this project. */
+export const builtInRoles: RoleView[] = roleViews(buildConfig()).filter((role) => role.builtIn);

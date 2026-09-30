@@ -1,6 +1,4 @@
 import {
-  CheckName,
-  CheckState,
   HumanAccess,
   InboxKind,
   MemberStatus,
@@ -57,8 +55,9 @@ describe('hu locale', () => {
     expectKeys('inbox.kinds', InboxKind.options);
     expectKeys('inbox.kindsLower', InboxKind.options);
     expectKeys('stageKinds', StageKind.options);
-    expectKeys('checks.names', CheckName.options);
-    expectKeys('checks.states', CheckState.options);
+    // Checks were replaced by labels; old timeline events still name them.
+    expectKeys('checks.names', ['code_review', 'security_review', 'qa', 'client_test']);
+    expectKeys('checks.states', ['pending', 'passed', 'blocked', 'failed', 'retest_needed']);
     expectKeys('roles.human', HumanAccess.options);
     expectKeys('permissionModes', PermissionMode.options);
     expectKeys('taskStatuses', TaskStatus.options);

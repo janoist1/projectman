@@ -121,13 +121,9 @@ describe('team MCP endpoint', () => {
     expect(schema('list_members').properties).toEqual({});
     expect(schema('get_task').required).toEqual(['task_key']);
     expect(schema('update_task').required).toEqual(['task_key']);
-    expect(schema('update_task').properties.check.properties.name.enum).toEqual([
-      'code_review',
-      'security_review',
-      'qa',
-      'client_test',
-    ]);
-    expect(schema('update_task').properties.check.properties.state.enum).toContain('retest_needed');
+    expect(schema('update_task').properties.add_labels.items.maxLength).toBe(40);
+    expect(schema('update_task').properties.remove_labels.type).toBe('array');
+    expect(schema('update_task').properties.check).toBeUndefined();
     expect(schema('update_task').properties.title.maxLength).toBe(200);
     expect(schema('update_task').properties.description.type).toBe('string');
     expect(schema('create_task').required).toEqual(['title']);
@@ -256,20 +252,20 @@ describe('team tools', () => {
 
     expect(h.handler.calls[0]).toEqual({ method: 'getTask', ctx: qaContext, args: { taskKey: 'AR-21' } });
     expect(out).toContain('AR-21 — Validate the login form');
-    expect(out).toContain('Stage: development · Status: active · Assignee: fe-1 · Checks: none recorded');
+    expect(out).toContain('Stage: development · Status: active · Assignee: fe-1 · Labels: frontend');
     expect(out).toContain('Links: branch ar-21-login-validation (web)');
     expect(out).toContain('Show an error message when the email address is invalid.');
     expect(out).toContain('Sessions: fe-1 (working)');
     expect(out).toContain('- 2026-09-29 09:00 owner: moved it backlog → development');
   });
 
-  it('update_task records a check, a note and a stage move in one call', async () => {
+  it('update_task records labels, their note and a stage move in one call', async () => {
     const h = await startServer();
     const client = await connect(h, 'token-dev');
 
     const result = await call(client, 'update_task', {
       task_key: 'AR-21',
-      check: { name: 'code_review', state: 'passed' },
+      add_labels: ['code-review-ok'],
       note: 'No findings.',
       stage_id: 'qa',
     });
@@ -281,13 +277,13 @@ describe('team tools', () => {
       args: {
         taskKey: 'AR-21',
         stageId: 'qa',
-        check: { name: 'code_review', state: 'passed' },
+        addLabels: ['code-review-ok'],
         note: 'No findings.',
       },
     });
     expect(text(result)).toBe(
-      'Updated AR-21: check code_review → passed; note added; moved to qa.\n' +
-        'Now: Stage: qa · Status: active · Assignee: fe-1 · Checks: code_review passed',
+      'Updated AR-21: labels added: code-review-ok; note added; moved to qa.\n' +
+        'Now: Stage: qa · Status: active · Assignee: fe-1 · Labels: frontend, code-review-ok',
     );
   });
 
@@ -299,7 +295,7 @@ describe('team tools', () => {
 
     expect(result.isError).toBe(true);
     expect(text(result)).toBe(
-      'Error [invalid]: Nothing to update: pass stage_id, check, note, title and/or description.',
+      'Error [invalid]: Nothing to update: pass stage_id, add_labels, remove_labels, note, title and/or description.',
     );
     expect(h.handler.calls).toEqual([]);
   });
@@ -326,7 +322,7 @@ describe('team tools', () => {
     });
     expect(text(result)).toBe(
       'Updated AR-21: title changed; description replaced.\n' +
-        'Now: Stage: development · Status: active · Assignee: fe-1 · Checks: none recorded',
+        'Now: Stage: development · Status: active · Assignee: fe-1 · Labels: frontend',
     );
     expect(h.handler.tasks.get('AR-21')!.task.title).toBe('Validate the login and signup forms');
     const empty = await call(client, 'update_task', { task_key: 'AR-21', description: '   ' });
@@ -452,7 +448,7 @@ describe('tool errors', () => {
     const notHuman = await call(client, 'ask_human', { question: 'Ok?', to: ['qa'] });
 
     expect(blocked).toMatchObject({ isError: true });
-    expect(text(blocked)).toBe('Error [gate_blocked]: Stage "qa" requires a passed code_review check.');
+    expect(text(blocked)).toBe('Error [gate_blocked]: Stage "qa" requires the label "code-review-ok".');
     expect(text(missing)).toBe('Error [not_found]: Task AR-99 does not exist.');
     expect(text(notHuman)).toBe('Error [invalid]: Only humans can be asked: qa.');
   });

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import {
   BoardColumnColor,
   defaultBoardColumnColor,
-  CheckName,
+  isHumanOnlyLabel,
   DUTY_IDS,
   DutyId,
   StageKind,
@@ -248,7 +248,7 @@ function AddStage({
   );
 }
 
-function MemberSelect({
+export function MemberSelect({
   label,
   members,
   value,
@@ -399,6 +399,15 @@ export function PipelineEditor({
       <ol className={styles.stages}>
         {draft.pipeline.stages.map((stage, index) => {
           const conditions = stage.gate?.conditions ?? [];
+          const isApproval = (id: string) => {
+            const label = draft.pipeline.labels.find((entry) => entry.id === id);
+            return label !== undefined && isHumanOnlyLabel(label);
+          };
+          // An unknown label (e.g. from an older file) stays selectable so it can be replaced.
+          const labelOptions = (current: string) =>
+            draft.pipeline.labels.some((label) => label.id === current)
+              ? draft.pipeline.labels
+              : [...draft.pipeline.labels, { id: current, name: current, setBy: 'anyone' as const }];
           const updateConditions = (next: GateCondition[]) =>
             change((config) => {
               config.pipeline.stages[index]!.gate = next.length ? { conditions: next } : undefined;
@@ -442,10 +451,7 @@ export function PipelineEditor({
               </div>
               <Button
                 variant="danger"
-                disabled={
-                  !isOwner &&
-                  !!stage.gate?.conditions.some((condition) => condition.type === 'human_approval')
-                }
+                disabled={!isOwner && conditions.some((condition) => isApproval(condition.label))}
                 onClick={() => setRemoving(stage)}
               >
                 {t('settings.pipeline.removeStage')}
@@ -458,7 +464,8 @@ export function PipelineEditor({
               <fieldset className={styles.conditions}>
                 <legend>{t('settings.pipeline.gate')}</legend>
                 {conditions.map((condition, conditionIndex) => {
-                  const locked = condition.type === 'human_approval' && !isOwner;
+                  // Approvals (labels only humans may set) are the owner's to change.
+                  const locked = isApproval(condition.label) && !isOwner;
                   const replace = (next: GateCondition) =>
                     updateConditions(conditions.map((value, i) => (i === conditionIndex ? next : value)));
                   return (
@@ -468,76 +475,33 @@ export function PipelineEditor({
                         <select
                           value={condition.type}
                           disabled={locked}
-                          onChange={(event) => {
-                            const type = event.target.value as GateCondition['type'];
-                            replace(
-                              type === 'check_passed'
-                                ? { type, check: 'code_review' }
-                                : type === 'pr_merged'
-                                  ? { type }
-                                  : { type, approvers: [] },
-                            );
-                          }}
+                          onChange={(event) =>
+                            replace({ ...condition, type: event.target.value as GateCondition['type'] })
+                          }
                         >
-                          <option value="check_passed">{t('settings.edit.checkPassed')}</option>
-                          <option value="pr_merged">{t('settings.pipeline.gatePrMerged')}</option>
-                          <option value="human_approval" disabled={!isOwner}>
-                            {t('settings.edit.humanApproval')}
-                          </option>
+                          <option value="has_label">{t('settings.edit.hasLabel')}</option>
+                          <option value="lacks_label">{t('settings.edit.lacksLabel')}</option>
                         </select>
                       </label>
-                      {condition.type === 'check_passed' ? (
-                        <label className={styles.field}>
-                          {t('settings.edit.check')}
-                          <select
-                            value={condition.check}
-                            onChange={(event) =>
-                              replace({ ...condition, check: CheckName.parse(event.target.value) })
-                            }
-                          >
-                            {CheckName.options.map((check) => (
-                              <option key={check} value={check}>
-                                {t(`checks.names.${check}`)}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      ) : null}
-                      {condition.type === 'human_approval' ? (
-                        <>
-                          <label className={styles.field}>
-                            {t('duties.duty')}
-                            <select
-                              disabled={!isOwner}
-                              value={condition.duty ?? ''}
-                              onChange={(event) =>
-                                replace(
-                                  event.target.value
-                                    ? { type: 'human_approval', duty: DutyId.parse(event.target.value) }
-                                    : { type: 'human_approval', approvers: humans.map((m) => m.handle) },
-                                )
-                              }
+                      <label className={styles.field}>
+                        {t('settings.edit.label')}
+                        <select
+                          value={condition.label}
+                          disabled={locked}
+                          onChange={(event) => replace({ ...condition, label: event.target.value })}
+                        >
+                          {labelOptions(condition.label).map((label) => (
+                            <option
+                              key={label.id}
+                              value={label.id}
+                              disabled={!isOwner && isHumanOnlyLabel(label) && label.id !== condition.label}
                             >
-                              <option value="">{t('duties.explicitOwners')}</option>
-                              {DUTY_IDS.map((id) => (
-                                <option key={id} value={id}>
-                                  {getLocale(draft.project.language).duties[id].name}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <MemberSelect
-                            label={t('settings.edit.approvers')}
-                            members={humans}
-                            value={condition.approvers ?? []}
-                            disabled={!isOwner}
-                            onChange={(approvers) => replace({ type: 'human_approval', approvers })}
-                          />
-                          {!isOwner ? (
-                            <p className={styles.muted}>{t('settings.edit.approversOwnerOnly')}</p>
-                          ) : null}
-                        </>
-                      ) : null}
+                              {label.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {locked ? <p className={styles.muted}>{t('settings.edit.approvalOwnerOnly')}</p> : null}
                       <Button
                         variant="secondary"
                         disabled={locked}
@@ -548,14 +512,21 @@ export function PipelineEditor({
                     </div>
                   );
                 })}
-                <Button
-                  variant="secondary"
-                  onClick={() =>
-                    updateConditions([...conditions, { type: 'check_passed', check: 'code_review' }])
-                  }
-                >
-                  {t('settings.edit.addCondition')}
-                </Button>
+                {draft.pipeline.labels.length > 0 ? (
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      updateConditions([
+                        ...conditions,
+                        { type: 'has_label', label: draft.pipeline.labels[0]!.id },
+                      ])
+                    }
+                  >
+                    {t('settings.edit.addCondition')}
+                  </Button>
+                ) : (
+                  <p className={styles.muted}>{t('settings.edit.noLabels')}</p>
+                )}
               </fieldset>
             </li>
           );

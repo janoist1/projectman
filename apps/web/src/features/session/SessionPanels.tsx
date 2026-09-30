@@ -1,5 +1,5 @@
-import { CheckName, CheckState } from '@projectman/shared';
-import type { Session, Task, TaskPullRequest } from '@projectman/shared';
+import { LabelChip } from '../../components/LabelChip';
+import type { LabelView, Session, Task, TaskPullRequest } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
 import { Chip } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
@@ -23,17 +23,14 @@ export function PrPanel({
   task,
   session,
   pullRequests = [],
+  labels = [],
 }: {
   task: Task | null;
   session: Session;
   pullRequests?: readonly TaskPullRequest[];
+  /** The project's label definitions, for label names and colours. */
+  labels?: readonly LabelView[];
 }) {
-  const checks = task
-    ? CheckName.options.flatMap((name) => {
-        const state = task.checks[name];
-        return state ? [{ name, state }] : [];
-      })
-    : [];
   return (
     <section className={styles.panel} aria-labelledby="session-pr">
       <h2 id="session-pr" className={styles.sectionTitle}>
@@ -94,17 +91,14 @@ export function PrPanel({
           </article>
         ))
       )}
-      {checks.length > 0 ? (
-        <dl className={styles.checks}>
-          {checks.map(({ name, state }) => (
-            <div key={name} className={styles.checkRow}>
-              <dt>{t(`checks.names.${name}`)}</dt>
-              <dd data-state={state}>
-                {CheckState.safeParse(state).success ? t(`checks.states.${state}`) : state}
-              </dd>
-            </div>
+      {task && task.labels.length > 0 ? (
+        <ul className={styles.labels} aria-label={t('task.labels.title')}>
+          {task.labels.map((id) => (
+            <li key={id}>
+              <LabelChip id={id} labels={labels} />
+            </li>
           ))}
-        </dl>
+        </ul>
       ) : null}
     </section>
   );

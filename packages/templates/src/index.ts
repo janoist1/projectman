@@ -15,6 +15,16 @@ export { aiMemberDefaults, aiRoleDefaults, CUSTOM_ROLE_DEFAULTS, type AiRoleDefa
 export { defaultMemberHandle, defaultMemberName, roleHandleStem, roleName, uniqueHandle } from './members';
 export { DAILY_WORKER_SCHEDULE } from './templates/daily-routine';
 export {
+  hasLabel,
+  isStandardLabel,
+  lacksLabel,
+  legacyCheckLabels,
+  migrateLegacyConfig,
+  STANDARD_LABEL_RULES,
+  standardLabel,
+  standardLabelsFor,
+} from './labels';
+export {
   en,
   getLocale,
   hu,

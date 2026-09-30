@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Task } from '@projectman/shared';
-import { useMoveTask } from '../../api/queries';
+import { useLabels, useMoveTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { useToast } from '../../components/toastContext';
 import { Button } from '../../components/Button';
@@ -23,7 +23,8 @@ export function TaskMove({
   pipeline: PipelineIndex;
   members: MemberIndex;
 }) {
-  const { key, myHandle } = useProject();
+  const { key } = useProject();
+  const labels = useLabels(key);
   const move = useMoveTask(key);
   const toast = useToast();
   const options = pipeline.stages.filter((stage) => stage.id !== task.stageId);
@@ -33,7 +34,7 @@ export function TaskMove({
     (stage.gate?.conditions ?? []).map((condition) =>
       t('task.move.condition', {
         stage: stage.name,
-        condition: gateConditionText(condition, members, myHandle),
+        condition: gateConditionText(condition, labels),
       }),
     ),
   );
@@ -69,7 +70,7 @@ export function TaskMove({
           role={isApprovalRequested(move.error) ? 'status' : 'alert'}
           className={isApprovalRequested(move.error) ? undefined : styles.error}
         >
-          {moveErrorText(move.error, members, myHandle)}
+          {moveErrorText(move.error, labels)}
         </p>
       ) : null}
       {move.isSuccess ? <p role="status">{t('task.move.success')}</p> : null}

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AgentProvider, MemberHandle } from './member';
-import { CheckState, StageId } from './pipeline';
+import { StageId } from './pipeline';
 
 /** Human-friendly task key: project key + sequence number, e.g. "AR-21". */
 export const TaskKey = z.string().regex(/^[A-Z][A-Z0-9]{0,9}-\d+$/);
@@ -25,14 +25,6 @@ export const TaskLink = z.object({
   state: z.string().optional(),
 });
 export type TaskLink = z.infer<typeof TaskLink>;
-
-export const TaskChecks = z.object({
-  code_review: CheckState.optional(),
-  security_review: CheckState.optional(),
-  qa: CheckState.optional(),
-  client_test: CheckState.optional(),
-});
-export type TaskChecks = z.infer<typeof TaskChecks>;
 
 /** Internal tasks are hidden from client members; shared ones appear in the client view. */
 export const Visibility = z.enum(['internal', 'shared']);
@@ -65,8 +57,8 @@ export const Task = z.object({
   /** Repo name from the project config the work happens in; null = the workspace root. */
   repo: z.string().nullable(),
   priority: z.number().int().nullable(),
+  /** Label ids: defined in the pipeline's label vocabulary, or plain tags. */
   labels: z.array(z.string()),
-  checks: TaskChecks,
   links: z.array(TaskLink),
   visibility: Visibility,
   createdBy: MemberHandle,

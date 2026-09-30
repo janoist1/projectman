@@ -1,4 +1,4 @@
-import { gateApprovers } from '@projectman/shared';
+import { isHumanOnlyLabel, labelDefinition, labelHolders } from '@projectman/shared';
 import type { HumanAccess, HumanMemberConfig, ProjectConfig } from '@projectman/shared';
 
 /** A logged-in user's membership in one project. */
@@ -43,7 +43,10 @@ export function releaseApproversSignature(config: ProjectConfig): string {
     .filter((s) => s.kind === 'release')
     .map((s) => {
       const approvers = (s.gate?.conditions ?? [])
-        .flatMap((c) => (c.type === 'human_approval' ? gateApprovers(config, c) : []))
+        .flatMap((c) => {
+          const label = c.type === 'has_label' ? labelDefinition(config, c.label) : undefined;
+          return label && isHumanOnlyLabel(label) ? labelHolders(config, label) : [];
+        })
         .sort();
       return `${s.id}:${approvers.join(',')}`;
     })

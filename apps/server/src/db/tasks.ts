@@ -1,4 +1,5 @@
-import type { Task, TaskChecks, TaskLink } from '@projectman/shared';
+import type { Task, TaskLink } from '@projectman/shared';
+import { legacyCheckLabels } from '@projectman/templates';
 import type { Db } from './database';
 import { parseJson, toJson } from './json';
 
@@ -65,8 +66,13 @@ function toTask(r: TaskRow, links: TaskLink[]): Task {
     assignee: r.assignee,
     repo: r.repo,
     priority: r.priority,
-    labels: parseJson<string[]>(r.labels, []),
-    checks: parseJson<TaskChecks>(r.checks, {}),
+    // Checks recorded before labels read as their labels; the next write clears the column.
+    labels: [
+      ...new Set([
+        ...parseJson<string[]>(r.labels, []),
+        ...legacyCheckLabels(parseJson<Record<string, string>>(r.checks, {})),
+      ]),
+    ],
     links,
     visibility: r.visibility as Task['visibility'],
     createdBy: r.created_by,
@@ -165,7 +171,7 @@ export function createTaskRepository(db: Db) {
           task.repo,
           task.priority,
           toJson(task.labels),
-          toJson(task.checks),
+          '{}',
           task.visibility,
           task.createdBy,
           task.createdAt,
@@ -216,7 +222,7 @@ export function createTaskRepository(db: Db) {
         task.repo,
         task.priority,
         toJson(task.labels),
-        toJson(task.checks),
+        '{}',
         task.visibility,
         task.updatedAt,
         task.closedAt,

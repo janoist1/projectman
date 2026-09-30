@@ -1,12 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import {
+  ChangeTaskLabelsRequest,
   CreateTaskCommentRequest,
   CancelTaskRequest,
   CreateTaskRequest,
   ReopenTaskRequest,
   routes,
   StartTaskRequest,
-  SetTaskCheckRequest,
   UpdateTaskRequest,
 } from '@projectman/shared';
 import type { Task, TaskDetail } from '@projectman/shared';
@@ -58,15 +58,13 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
     return reply.code(201).send(domain.tasks.detail(key, taskKey));
   });
 
-  app.post<TaskParams>(routes.taskChecks(':key', ':taskKey'), async (request): Promise<TaskDetail> => {
+  app.post<TaskParams>(routes.taskLabels(':key', ':taskKey'), async (request): Promise<TaskDetail> => {
     const { key, taskKey } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'developer' });
-    const body = parseBody(SetTaskCheckRequest, request.body);
-    const task = domain.tasks.get(key, taskKey);
-    if (!isOpenTask(task)) throw conflict('task_closed', `task ${taskKey} is ${task.status}`);
-    const actor = actorOf(access);
-    domain.tasks.setCheck(key, taskKey, body.check, body.state, actor);
-    if (body.note !== undefined) await domain.tasks.addNote(key, taskKey, body.note, actor);
+    const body = parseBody(ChangeTaskLabelsRequest, request.body);
+    await domain.tasks.changeLabels(key, taskKey, { add: body.add, remove: body.remove }, actorOf(access), {
+      comment: body.comment,
+    });
     return domain.tasks.detail(key, taskKey);
   });
 

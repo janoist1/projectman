@@ -92,7 +92,6 @@ export function sampleTaskDetail(): TaskDetail {
       repo: 'web',
       priority: 2,
       labels: ['frontend'],
-      checks: {},
       links: [{ kind: 'branch', ref: 'ar-21-login-validation', repo: 'web' }],
       visibility: 'internal',
       createdBy: 'owner',
@@ -240,22 +239,24 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       if (args.stageId && !STAGES.includes(args.stageId)) {
         throw new TeamToolError('invalid', `Unknown stage "${args.stageId}".`);
       }
-      // The check is applied before the stage move, so it can satisfy the target stage's gate.
-      const checks = {
-        ...detail.task.checks,
-        ...(args.check ? { [args.check.name]: args.check.state } : {}),
-      };
-      if (args.stageId === 'qa' && checks.code_review !== 'passed') {
-        throw new TeamToolError('gate_blocked', 'Stage "qa" requires a passed code_review check.');
+      // Labels are applied before the stage move, so they can satisfy the target stage's gate.
+      const labels = [
+        ...detail.task.labels.filter((label) => !(args.removeLabels ?? []).includes(label)),
+        ...(args.addLabels ?? []).filter((label) => !detail.task.labels.includes(label)),
+      ];
+      if (args.stageId === 'qa' && !labels.includes('code-review-ok')) {
+        throw new TeamToolError('gate_blocked', 'Stage "qa" requires the label "code-review-ok".');
       }
       const fields = [
         ...(args.title !== undefined ? ['title'] : []),
         ...(args.description !== undefined ? ['description'] : []),
       ];
       if (fields.length > 0) record(detail, ctx, 'task_updated', { fields });
-      if (args.check) {
-        const from = detail.task.checks[args.check.name] ?? null;
-        record(detail, ctx, 'task_check_changed', { check: args.check.name, from, to: args.check.state });
+      if (args.addLabels?.length || args.removeLabels?.length) {
+        record(detail, ctx, 'task_labels_changed', {
+          added: args.addLabels ?? [],
+          removed: args.removeLabels ?? [],
+        });
       }
       if (args.note) record(detail, ctx, 'task_note', { text: args.note });
       if (args.stageId && args.stageId !== detail.task.stageId) {
@@ -265,7 +266,7 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         ...detail.task,
         title: args.title ?? detail.task.title,
         description: args.description ?? detail.task.description,
-        checks,
+        labels,
         stageId: args.stageId ?? detail.task.stageId,
       };
       return { task: detail.task };
@@ -287,7 +288,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
           repo: null,
           priority: null,
           labels: args.labels ?? [],
-          checks: {},
           links: [],
           visibility: args.visibility ?? 'internal',
           createdBy: ctx.member,

@@ -1,23 +1,16 @@
-import type { CheckState, Task, TaskLink } from '@projectman/shared';
+import type { Task, TaskLink } from '@projectman/shared';
 import { t } from '../../i18n/t';
-import { checkForStage, stagesInColumn } from '../../lib/pipeline';
+import { stagesInColumn } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
-import { checkLine } from '../../lib/timeline';
 
 export interface CheckRow {
   label: string;
   tone: 'ok' | 'warn' | 'wait';
 }
 
-function checkTone(state: CheckState): CheckRow['tone'] {
-  if (state === 'passed') return 'ok';
-  if (state === 'pending') return 'wait';
-  return 'warn';
-}
-
 /**
- * Check rows on a card: recorded checks up to the task's column, plus progress through
- * the stages of a grouped column (e.g. Code review → Integration → QA).
+ * Progress rows on a card through the stages of a grouped column (e.g. Code review →
+ * Integration → QA). Results are labels, shown as chips.
  */
 export function cardChecks(task: Task, pipeline: PipelineIndex): CheckRow[] {
   const stage = pipeline.stageById.get(task.stageId);
@@ -38,14 +31,6 @@ export function cardChecks(task: Task, pipeline: PipelineIndex): CheckRow[] {
   const grouped = inColumn.size > 1;
   const rows: CheckRow[] = [];
   pipeline.stages.forEach((entry, index) => {
-    if (index > current && !inColumn.has(entry.id)) return;
-    const check = checkForStage(entry);
-    const state = check ? task.checks[check] : undefined;
-    if (check && state) {
-      if (index > current && state === 'pending') return;
-      rows.push({ label: checkLine(check, state), tone: checkTone(state) });
-      return;
-    }
     if (!grouped || !inColumn.has(entry.id) || index > current) return;
     rows.push(
       index < current

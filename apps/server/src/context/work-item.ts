@@ -1,16 +1,15 @@
-import { resolvedStages, roleBundle, gateApprovers, stageOwners } from '@projectman/shared';
-import type {
-  BuiltInRoleId,
-  CheckName,
-  GateCondition,
-  HumanMemberConfig,
-  Stage,
-  Task,
+import {
+  gateLabels,
+  isHumanOnlyLabel,
+  labelDefinition,
+  labelHolders,
+  resolvedStages,
+  roleBundle,
+  stageOwners,
 } from '@projectman/shared';
+import type { DutyId, HumanMemberConfig, Stage, Task } from '@projectman/shared';
 import type { ContextPackInput } from '../contracts';
-import { code, codeList, lowerFirst, stageLabel } from './format';
-
-type HumanApproval = Extract<GateCondition, { type: 'human_approval' }>;
+import { code, codeList, labelRef, lowerFirst, stageLabel } from './format';
 
 /** Where the member's work item stands in the pipeline. */
 export interface Situation {
@@ -43,10 +42,34 @@ function stageAfter(stages: Stage[], stage: Stage): Stage | null {
   return index >= 0 ? (stages[index + 1] ?? null) : null;
 }
 
-const REVIEW_CHECKS: Partial<Record<BuiltInRoleId, CheckName>> = {
-  code_review: 'code_review',
-  security_review: 'security_review',
-};
+/**
+ * The labels a duty lets this member record, e.g. "`qa-ok` (QA ok) or `qa-failed` (QA: failed,
+ * with a note)"; null when the project defines none.
+ */
+function resultLabels(input: ContextPackInput, duty: DutyId): string | null {
+  const labels = input.project.pipeline.labels;
+  const mine = labels.filter(
+    (label) =>
+      typeof label.setBy === 'object' &&
+      !isHumanOnlyLabel(label) &&
+      label.setBy.duties?.includes(duty) &&
+      labelHolders(input.project, label).includes(input.member.handle),
+  );
+  if (mine.length === 0) return null;
+  const refs = mine.map((label) => {
+    const ref = labelRef(label.id, labels);
+    return label.requiresComment ? `${ref} with a note` : ref;
+  });
+  return refs.length === 1 ? refs[0]! : `${refs.slice(0, -1).join(', ')} or ${refs[refs.length - 1]}`;
+}
+
+/** "record the result with update_task as …" or a plain note when the project has no such labels. */
+function recordResult(input: ContextPackInput, duty: DutyId, detail: string): string {
+  const labels = resultLabels(input, duty);
+  return labels
+    ? `Record the result with update_task as ${labels}; put ${detail} in note.`
+    : `Record the result as a note with update_task: ${detail}.`;
+}
 
 /** What a member of a role that changes files does in the working stage, before the pull request. */
 function buildSteps(role: string, task: Task): string[] {
@@ -149,15 +172,15 @@ export function expectedSteps(input: ContextPackInput, s: Situation): string[] {
 
     case 'code_review':
     case 'security_review': {
-      const check = REVIEW_CHECKS[role as BuiltInRoleId] ?? 'code_review';
+      const duty: DutyId = role === 'security_review' ? 'security_review' : 'code_review';
       if (!s.ownsStage) {
         return [
-          `Review what you were asked to review, record the ${check} check with update_task and report to the sender with send_message.`,
+          `Review what you were asked to review. ${recordResult(input, duty, 'your findings')} Report to the sender with send_message.`,
         ];
       }
       return [
         'Review the pull requests linked to the task; do not edit, commit or push.',
-        `Record the ${check} check with update_task: passed, or blocked with a one-line summary.`,
+        recordResult(input, duty, 'a one-line summary of the findings'),
         `Send "Blocking" / "Not blocking" findings with file:line to ${author} with send_message; review again when they report a fix.`,
         `When the review passes, ${lowerFirst(handover(input, s.next))}`,
       ];
@@ -166,12 +189,12 @@ export function expectedSteps(input: ContextPackInput, s: Situation): string[] {
     case 'qa': {
       if (!s.ownsStage) {
         return [
-          'Test what you were asked, record the qa check with update_task and report to the sender with send_message.',
+          `Test what you were asked. ${recordResult(input, 'testing_acceptance', 'what you tested and the result')} Report to the sender with send_message.`,
         ];
       }
       return [
         'Test the change where it is deployed: what the task asks and the risky paths around it.',
-        'Record the qa check with update_task: passed, failed or retest_needed, with a short note (what, where, result).',
+        recordResult(input, 'testing_acceptance', 'a short note (what, where, result)'),
         `Send failures to ${author} with send_message, with steps to reproduce.`,
         `When the test passes, ${lowerFirst(handover(input, s.next))}`,
       ];
@@ -206,7 +229,7 @@ export function expectedSteps(input: ContextPackInput, s: Situation): string[] {
         return [
           'Draft the client test request: what to test, where, what the tester needs to know, and who tests it.',
           `Hand the draft to ${humans.length > 0 ? codeList(humans) : 'a human'} with send_message; do not send it outside the team yourself.`,
-          `When a human reports the client's result, record the client_test check with update_task and tell ${author} about failures.`,
+          `When a human reports the client's result: ${lowerFirst(recordResult(input, 'client_communication', "the client's words"))} Tell ${author} about requested changes.`,
           `When the client test passes, ${lowerFirst(handover(input, s.next))}`,
         ];
       }
@@ -308,9 +331,18 @@ function ownerSteps(input: ContextPackInput, s: Situation): string[] {
 /** How to pass the task on to the given stage (or close the work item without one). */
 export function handover(input: ContextPackInput, target: Stage | null): string {
   if (!target) return 'Tell whoever asked that your part is done.';
-  const approval = target.gate?.conditions.find((c): c is HumanApproval => c.type === 'human_approval');
-  if (approval) {
-    return `Request the move to ${stageLabel(target)} with update_task: it needs a human approval, so the system opens a decision for ${codeList(gateApprovers(input.project, approval))} and the task waits until they approve. Do not message them separately and never approve it yourself.`;
+  const approvals = gateLabels(input.project, target).approvals;
+  if (approvals.length > 0) {
+    const labels = input.project.pipeline.labels;
+    const approvers = [
+      ...new Set(
+        approvals.flatMap((id) => {
+          const label = labelDefinition(input.project, id);
+          return label ? labelHolders(input.project, label) : [];
+        }),
+      ),
+    ];
+    return `Request the move to ${stageLabel(target)} with update_task: it needs a human approval (${approvals.map((id) => labelRef(id, labels)).join(', ')}), so the system opens a decision for ${codeList(approvers)} and the task waits until they approve. Do not message them separately and never set that label yourself.`;
   }
   const owners = stageOwners(input.project, target).filter((h) => h !== input.member.handle);
   if (target.kind === 'done' || owners.length === 0) {

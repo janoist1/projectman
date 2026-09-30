@@ -5,6 +5,7 @@ import { Link, useParams, useSearchParams } from 'react-router';
 import type { Session, SessionDetail } from '@projectman/shared';
 import {
   useInbox,
+  useLabels,
   useResolveInbox,
   useSendSessionMessage,
   useSessionDetail,
@@ -65,6 +66,7 @@ const ECHO_SKEW_MS = 2 * 60_000;
 
 function SessionView({ detail }: { detail: SessionDetail }) {
   const { key, myHandle } = useProject();
+  const labels = useLabels(key);
   const [params] = useSearchParams();
   const isMobile = useIsMobile();
   const wide = useMediaQuery('(min-width: 1200px)');
@@ -218,7 +220,12 @@ function SessionView({ detail }: { detail: SessionDetail }) {
 
   const sidePanels = (
     <>
-      <PrPanel task={task} session={session} pullRequests={taskDetail.data?.pullRequests ?? []} />
+      <PrPanel
+        task={task}
+        session={session}
+        pullRequests={taskDetail.data?.pullRequests ?? []}
+        labels={labels}
+      />
       <ParticipantsPanel participants={participants} members={members} myHandle={myHandle} />
     </>
   );

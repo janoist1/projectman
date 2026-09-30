@@ -6,7 +6,7 @@ import { ConfigStoreError } from './errors';
  * File layout of one project in the customization repository:
  *   projects/<KEY>/project.yaml   schemaVersion, project, team.limits
  *   projects/<KEY>/team.yaml      members, custom roles
- *   projects/<KEY>/pipeline.yaml  columns, stages
+ *   projects/<KEY>/pipeline.yaml  columns, stages, labels
  */
 export const PROJECT_FILES = ['project.yaml', 'team.yaml', 'pipeline.yaml'] as const;
 export type ProjectFileName = (typeof PROJECT_FILES)[number];
@@ -27,7 +27,11 @@ export function splitProjectConfig(config: ProjectConfig): Record<ProjectFileNam
       roleOverrides: config.team.roleOverrides,
       releaseFourEyes: config.team.releaseFourEyes,
     }),
-    'pipeline.yaml': yaml({ columns: config.pipeline.columns, stages: config.pipeline.stages }),
+    'pipeline.yaml': yaml({
+      columns: config.pipeline.columns,
+      stages: config.pipeline.stages,
+      labels: config.pipeline.labels,
+    }),
   };
 }
 
@@ -66,6 +70,6 @@ export function mergeProjectFiles(files: Record<ProjectFileName, unknown>): unkn
       releaseFourEyes: team.releaseFourEyes,
       limits: asRecord(project.team).limits ?? {},
     },
-    pipeline: { columns: pipeline.columns, stages: pipeline.stages },
+    pipeline: { columns: pipeline.columns, stages: pipeline.stages, labels: pipeline.labels },
   };
 }

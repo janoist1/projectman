@@ -1,4 +1,4 @@
-import { gateApprovers, taskAuthors } from '@projectman/shared';
+import { labelDefinition, labelHolders, taskAuthors } from '@projectman/shared';
 import type {
   HumanAccess,
   InboxItem,
@@ -169,12 +169,12 @@ export class InboxService {
     if (!config.team.members.some((m) => m.handle === by.handle && m.kind === 'human'))
       throw forbidden('ai_approval_forbidden', 'only human members may resolve inbox items');
     if (item.kind === 'decision' && req.optionId === 'approve') {
-      const gate = item.payload.gate as { stageId?: string; conditionIndex?: number } | undefined;
+      const gate = item.payload.gate as { stageId?: string; label?: string } | undefined;
       const stage = config.pipeline.stages.find((s) => s.id === gate?.stageId);
-      const condition = stage?.gate?.conditions[Number(gate?.conditionIndex)];
-      if (condition?.type === 'human_approval' && !gateApprovers(config, condition).includes(by.handle))
-        throw forbidden('not_an_assignee', 'the current gate does not authorize this approver');
       const task = item.taskKey ? this.ctx.repos.tasks.get(item.taskKey) : null;
+      const label = gate?.label ? labelDefinition(config, gate.label) : undefined;
+      if (label && !labelHolders(config, label).includes(by.handle))
+        throw forbidden('not_an_assignee', 'the current gate does not authorize this approver');
       if (
         stage?.kind === 'release' &&
         config.team.releaseFourEyes &&

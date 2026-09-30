@@ -1,36 +1,30 @@
 import { GateCondition } from '@projectman/shared';
-import { joinNames, t } from '../i18n/t';
-import { namesOf } from './members';
-import type { MemberIndex } from './members';
+import type { LabelView } from '@projectman/shared';
+import { t } from '../i18n/t';
 
-/** "Code review rendben", "PR merge-elve", "Jóváhagyja: Te". */
-export function gateConditionText(
-  condition: GateCondition,
-  members: MemberIndex,
-  myHandle: string | null,
-): string {
-  switch (condition.type) {
-    case 'check_passed':
-      return t('settings.pipeline.gateCheck', { check: t(`checks.names.${condition.check}`) });
-    case 'pr_merged':
-      return t('settings.pipeline.gatePrMerged');
-    case 'human_approval':
-      return t('settings.pipeline.gateApproval', {
-        approvers: joinNames(namesOf(condition.approvers ?? [], members, myHandle)),
-      });
-  }
+/** Display name of a label: its definition's name, or the plain tag itself. */
+export function labelName(id: string, labels: readonly LabelView[]): string {
+  return labels.find((label) => label.id === id)?.name ?? id;
+}
+
+/** "Kell: Code review rendben", "Nem lehet rajta: Válaszra vár". */
+export function gateConditionText(condition: GateCondition, labels: readonly LabelView[]): string {
+  const label = labelName(condition.label, labels);
+  return condition.type === 'has_label'
+    ? t('settings.pipeline.gateHasLabel', { label })
+    : t('settings.pipeline.gateLacksLabel', { label });
 }
 
 /**
  * Unmet conditions from a `gate_blocked` error (`details.unmet: [{ stageId, condition }]`),
  * as readable texts. Unknown shapes are skipped.
  */
-export function unmetGateTexts(details: unknown, members: MemberIndex, myHandle: string | null): string[] {
+export function unmetGateTexts(details: unknown, labels: readonly LabelView[]): string[] {
   if (!details || typeof details !== 'object') return [];
   const unmet = (details as { unmet?: unknown }).unmet;
   if (!Array.isArray(unmet)) return [];
   return unmet.flatMap((entry) => {
     const parsed = GateCondition.safeParse((entry as { condition?: unknown } | null)?.condition);
-    return parsed.success ? [gateConditionText(parsed.data, members, myHandle)] : [];
+    return parsed.success ? [gateConditionText(parsed.data, labels)] : [];
   });
 }

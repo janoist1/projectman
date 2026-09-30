@@ -131,15 +131,15 @@ export function startSimulation(backend: MockBackend): void {
       {
         stageId: 'integration',
         status: 'waiting',
-        checks: { ...task.checks, code_review: 'passed' },
+        labels: [...task.labels.filter((label) => !label.startsWith('code-review')), 'code-review-ok'],
       },
       'code-review',
     );
     backend.addTimeline(
       'AC-25',
       'code-review',
-      'task_check_changed',
-      { check: 'code_review', from: 'pending', to: 'passed' },
+      'task_labels_changed',
+      { added: ['code-review-ok'], removed: [] },
       CR_SESSION,
     );
     backend.addTimeline(

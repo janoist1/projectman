@@ -1,4 +1,4 @@
-import { checkPassed, defineTemplate, humanApproval } from './draft';
+import { defineTemplate, hasLabel } from './draft';
 
 /**
  * A web project built for a client (the setup the owner's first team works in): standing
@@ -27,18 +27,18 @@ export const webClientProject = defineTemplate('web-client-project', (t) => {
       t.stage('ready', 'queue', 'ready', []),
       t.stage('dev', 'work', 'development', [frontend, backend]),
       t.stage('code_review', 'review', 'review', [codeReview]),
-      t.stage('integration', 'deploy', 'review', [devops], checkPassed('code_review')),
+      t.stage('integration', 'deploy', 'review', [devops], hasLabel('code-review-ok')),
       t.stage('qa', 'test', 'review', [qa]),
-      t.stage('client_test', 'client_test', 'client_test', [communication, t.owner], checkPassed('qa')),
+      t.stage('client_test', 'client_test', 'client_test', [communication, t.owner], hasLabel('qa-ok')),
       t.stage(
         'merge',
         'merge',
         'awaiting_release',
         [t.owner],
-        checkPassed('client_test'),
-        humanApproval(t.owner),
+        hasLabel('client-accepted'),
+        hasLabel('merge-approved'),
       ),
-      t.stage('release', 'release', 'awaiting_release', [devops], humanApproval(t.owner)),
+      t.stage('release', 'release', 'awaiting_release', [devops], hasLabel('release-approved')),
       t.stage('done', 'done', 'done', []),
     ],
   });

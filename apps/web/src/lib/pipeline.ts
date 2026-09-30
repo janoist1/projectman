@@ -1,5 +1,5 @@
 import { defaultBoardColumnColor } from '@projectman/shared';
-import type { BoardColumnView, BoardView, CheckName, Stage } from '@projectman/shared';
+import type { BoardColumnView, BoardView, Stage } from '@projectman/shared';
 
 export interface PipelineIndex {
   stages: Stage[];
@@ -44,20 +44,6 @@ export function nextStage(pipeline: PipelineIndex, stageId: string): Stage | nul
 /** Stages of the column a stage belongs to, in pipeline order. */
 export function stagesInColumn(pipeline: PipelineIndex, column: BoardColumnView): Stage[] {
   return pipeline.stages.filter((stage) => pipeline.columnOfStage.get(stage.id)?.id === column.id);
-}
-
-/** Which recorded check a stage produces (review → code_review, test → qa, ...). */
-export function checkForStage(stage: Stage): CheckName | null {
-  switch (stage.kind) {
-    case 'review':
-      return /secur/i.test(stage.id) || /secur/i.test(stage.name) ? 'security_review' : 'code_review';
-    case 'test':
-      return 'qa';
-    case 'client_test':
-      return 'client_test';
-    default:
-      return null;
-  }
 }
 
 /** Kind of the first stage in a column. */

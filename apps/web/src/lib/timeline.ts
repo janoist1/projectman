@@ -1,5 +1,4 @@
-import { CheckName, CheckState } from '@projectman/shared';
-import type { TimelineEvent } from '@projectman/shared';
+import type { LabelView, TimelineEvent } from '@projectman/shared';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
@@ -7,6 +6,8 @@ import type { PipelineIndex } from './pipeline';
 
 export interface TimelineContext {
   pipeline: PipelineIndex | null;
+  /** The project's label definitions, for label names. */
+  labels?: readonly LabelView[];
   members: MemberIndex;
   myHandle: string | null;
   /** Inbox items still open: their request events are highlighted. */
@@ -59,10 +60,37 @@ export function linkLabel(kind: string, ref: string, repo?: string): string {
   }
 }
 
+const LEGACY_CHECKS = ['code_review', 'security_review', 'qa', 'client_test'] as const;
+const LEGACY_CHECK_STATES = ['pending', 'passed', 'blocked', 'failed', 'retest_needed'] as const;
+
+/** Checks were replaced by labels; events recorded before that still read as they did. */
 export function checkLine(check: string, state: string): string {
-  const name = CheckName.safeParse(check).success ? t(`checks.names.${check as CheckName}`) : check;
-  const label = CheckState.safeParse(state).success ? t(`checks.states.${state as CheckState}`) : state;
+  const name = (LEGACY_CHECKS as readonly string[]).includes(check)
+    ? t(`checks.names.${check as (typeof LEGACY_CHECKS)[number]}`)
+    : check;
+  const label = (LEGACY_CHECK_STATES as readonly string[]).includes(state)
+    ? t(`checks.states.${state as (typeof LEGACY_CHECK_STATES)[number]}`)
+    : state;
   return t('checks.line', { name, state: label });
+}
+
+const LABEL_REASONS = ['approval', 'moved_back', 'pr_merged', 'pr_updated'] as const;
+
+function labelsChanged(d: Record<string, unknown>, ctx: TimelineContext): string {
+  const names = (key: string) =>
+    ((d[key] as string[] | undefined) ?? [])
+      .map((id) => ctx.labels?.find((label) => label.id === id)?.name ?? id)
+      .join(', ');
+  const parts = [
+    names('added') && t('timeline.labelsAdded', { labels: names('added') }),
+    names('removed') && t('timeline.labelsRemoved', { labels: names('removed') }),
+  ].filter(Boolean);
+  const reason = d.reason as string | undefined;
+  const why =
+    reason && (LABEL_REASONS as readonly string[]).includes(reason)
+      ? ` (${t(`timeline.labelReasons.${reason as (typeof LABEL_REASONS)[number]}`)})`
+      : '';
+  return `${parts.join('; ')}${why}`;
 }
 
 /** Attributed, translated text of a timeline event. Free text (notes, messages) stays as written. */
@@ -135,6 +163,8 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
     }
     case 'task_check_changed':
       return normal(checkLine(str(d.check), str(d.to)));
+    case 'task_labels_changed':
+      return normal(labelsChanged(d, ctx));
     case 'task_link_added':
       return normal(
         t('timeline.events.task_link_added', {

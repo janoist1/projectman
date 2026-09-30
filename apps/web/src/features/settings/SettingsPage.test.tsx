@@ -7,7 +7,7 @@ import { SettingsPage } from './SettingsPage';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
-async function editSection(section: 'project' | 'limits' | 'pipeline') {
+async function editSection(section: 'project' | 'limits' | 'pipeline' | 'labels') {
   const region = await screen.findByRole('region', { name: t(`settings.sections.${section}`) });
   fireEvent.click(within(region).getByRole('button', { name: t('memberEdit.edit') }));
   return within(region);
@@ -101,18 +101,18 @@ describe('settings section editors', () => {
     });
     selectMembers(stage.getByLabelText(t('settings.pipeline.owners')), ['owner', 'qa']);
     fireEvent.click(stage.getByRole('button', { name: t('settings.edit.addCondition') }));
-    fireEvent.change(stage.getByLabelText(t('settings.edit.check')), { target: { value: 'qa' } });
+    fireEvent.change(stage.getByLabelText(t('settings.edit.label')), { target: { value: 'qa-ok' } });
     fireEvent.click(stage.getByRole('button', { name: t('settings.edit.addCondition') }));
     fireEvent.change(stage.getAllByLabelText(t('settings.edit.condition'))[1]!, {
-      target: { value: 'pr_merged' },
+      target: { value: 'lacks_label' },
+    });
+    fireEvent.change(stage.getAllByLabelText(t('settings.edit.label'))[1]!, {
+      target: { value: 'waiting-answer' },
     });
     fireEvent.click(stage.getByRole('button', { name: t('settings.edit.addCondition') }));
-    fireEvent.change(stage.getAllByLabelText(t('settings.edit.condition'))[2]!, {
-      target: { value: 'human_approval' },
+    fireEvent.change(stage.getAllByLabelText(t('settings.edit.label'))[2]!, {
+      target: { value: 'release-approved' },
     });
-    const approvers = stage.getByLabelText(t('settings.edit.approvers')) as HTMLSelectElement;
-    expect(Array.from(approvers.options, (option) => option.value)).toEqual(['owner', 'kata', 'bence']);
-    selectMembers(approvers, ['owner', 'kata']);
     fireEvent.click(stage.getByRole('button', { name: t('settings.edit.moveDown') }));
     fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
     await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
@@ -125,13 +125,35 @@ describe('settings section editors', () => {
       owners: ['owner', 'qa'],
       gate: {
         conditions: [
-          { type: 'check_passed', check: 'qa' },
-          { type: 'pr_merged' },
-          { type: 'human_approval', approvers: ['owner', 'kata'] },
+          { type: 'has_label', label: 'qa-ok' },
+          { type: 'lacks_label', label: 'waiting-answer' },
+          { type: 'has_label', label: 'release-approved' },
         ],
       },
     });
     expect(section.getByText('Implement Acme checkout.')).toBeTruthy();
+  });
+
+  it('gives a tag in use a meaning and rules, and keeps approvals for the owner', async () => {
+    const project = mockProject();
+    project.backend.findTask('AC-20')!.labels.push('Sürgős');
+    project.render(<SettingsPage />);
+    const section = await editSection('labels');
+    const row = within(section.getByText('Sürgős').closest('div')!);
+    fireEvent.click(row.getByRole('button', { name: t('settings.labels.define') }));
+    fireEvent.change(section.getByLabelText(t('settings.labels.meaning')), { target: { value: 'Ma kell.' } });
+    fireEvent.change(section.getByLabelText(t('settings.labels.color')), { target: { value: 'red' } });
+    fireEvent.click(section.getByLabelText(t('settings.labels.blocks')));
+    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
+    await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
+    expect(project.backend.config.pipeline.labels.find((label) => label.id === 'Sürgős')).toEqual({
+      id: 'Sürgős',
+      name: 'Sürgős',
+      color: 'red',
+      meaning: 'Ma kell.',
+      setBy: 'anyone',
+      blocks: true,
+    });
   });
 
   it('locks human approval fields and removal for admins while allowing other gate edits', async () => {
@@ -141,22 +163,21 @@ describe('settings section editors', () => {
     project.backend.viewerHandle = 'kata';
     project.render(<SettingsPage />, '/', { isOwner: false, myHandle: 'kata' });
     const section = await editSection('pipeline');
-    const approvers = section.getByLabelText(t('settings.edit.approvers')) as HTMLSelectElement;
-    expect(approvers.disabled).toBe(true);
-    const condition = within(approvers.closest('div')!);
+    // The release approval is a label only humans may set: locked for an admin.
+    const condition = within(section.getByText(t('settings.edit.approvalOwnerOnly')).closest('div')!);
     expect((condition.getByLabelText(t('settings.edit.condition')) as HTMLSelectElement).disabled).toBe(true);
+    expect((condition.getByLabelText(t('settings.edit.label')) as HTMLSelectElement).disabled).toBe(true);
     expect(
       (condition.getByRole('button', { name: t('settings.edit.removeCondition') }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
-    expect(section.getByText(t('settings.edit.approversOwnerOnly'))).toBeTruthy();
-    const checks = section.getAllByLabelText(t('settings.edit.check'));
-    fireEvent.change(checks[0]!, { target: { value: 'security_review' } });
+    const labels = section.getAllByLabelText(t('settings.edit.label'));
+    fireEvent.change(labels[0]!, { target: { value: 'qa-ok' } });
     fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
     await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
     expect(
       project.backend.config.pipeline.stages.find((stage) => stage.id === 'integration')?.gate?.conditions[0],
-    ).toEqual({ type: 'check_passed', check: 'security_review' });
+    ).toEqual({ type: 'has_label', label: 'qa-ok' });
   });
 
   it('shows a conflict and reloads the latest version before retrying', async () => {
@@ -262,7 +283,7 @@ describe('settings section editors', () => {
     expect(project.requests.some((request) => request.method === 'PATCH')).toBe(false);
     const stage = within(section.getAllByRole('listitem', { name })[0]!);
     fireEvent.click(stage.getByRole('button', { name: t('settings.edit.addCondition') }));
-    fireEvent.change(stage.getByLabelText(t('settings.edit.check')), { target: { value: 'qa' } });
+    fireEvent.change(stage.getByLabelText(t('settings.edit.label')), { target: { value: 'qa-ok' } });
     fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
     await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
     const added = project.backend.config.pipeline.stages.filter((stage) => stage.name === name);
@@ -272,7 +293,7 @@ describe('settings section editors', () => {
       expect(stage.owners).toEqual(['owner', 'qa']);
       expect(stage.duty).toBeUndefined();
     }
-    expect(added[0]?.gate).toEqual({ conditions: [{ type: 'check_passed', check: 'qa' }] });
+    expect(added[0]?.gate).toEqual({ conditions: [{ type: 'has_label', label: 'qa-ok' }] });
   });
 
   it('confirms stage removal and cancels it before saving an unoccupied stage removal', async () => {

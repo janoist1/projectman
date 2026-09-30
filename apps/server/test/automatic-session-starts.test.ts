@@ -1,3 +1,4 @@
+import type { ProjectConfig } from '@projectman/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
@@ -24,6 +25,12 @@ const humanMessage = (h: DomainHarness, taskKey = 'AR-1') =>
     text: 'Please review the fictional checkout.',
     taskKey,
   });
+
+/** The owner may also record code reviews, so the reviewer can be retired without orphaning the gate. */
+const reviewersBesidesCr = (c: ProjectConfig) => {
+  for (const label of c.pipeline.labels)
+    if (label.group === 'code-review') label.setBy = { duties: ['code_review'], members: ['owner'] };
+};
 
 describe('automatic session admission and retries', () => {
   let h: DomainHarness;
@@ -115,7 +122,7 @@ describe('automatic session admission and retries', () => {
   it.each(['stage', 'done', 'cancelled', 'delivered', 'retired'] as const)(
     'drops deferred message starts when %s makes them obsolete',
     async (reason) => {
-      h = await createDomainHarness();
+      h = await createDomainHarness({ adjust: reviewersBesidesCr });
       await h.domain.tasks.create('AR', { title: 'Fictional checkout' }, OWNER_ACTOR);
       h.runnerModule.planUsage.value = usage(95);
       const message = await humanMessage(h);
@@ -198,7 +205,7 @@ describe('automatic session admission and retries', () => {
   });
 
   it.each(['done', 'cancelled', 'retired'] as const)('drops a deferred hand-over when %s', async (reason) => {
-    h = await createDomainHarness();
+    h = await createDomainHarness({ adjust: reviewersBesidesCr });
     await h.domain.tasks.create('AR', { title: 'Fictional checkout' }, OWNER_ACTOR);
     h.runnerModule.planUsage.value = usage(95);
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);

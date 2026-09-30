@@ -1,6 +1,6 @@
 import { BUILT_IN_ROLE_DUTIES, customRoleDuties, isBuiltInRole } from '../domain/role';
 import type { DutyId } from '../domain/duty';
-import type { GateCondition, Stage } from '../domain/pipeline';
+import type { Stage } from '../domain/pipeline';
 import type { Task } from '../domain/task';
 import type { MemberConfig, ProjectConfig } from './schema';
 
@@ -25,13 +25,6 @@ export function dutyMembers(config: Pick<ProjectConfig, 'team'>, duty: DutyId): 
 export function stageOwners(config: Pick<ProjectConfig, 'team'>, stage: Stage): string[] {
   return stage.owners ?? (stage.duty ? dutyMembers(config, stage.duty).map((m) => m.handle) : []);
 }
-export function gateApprovers(
-  config: Pick<ProjectConfig, 'team'>,
-  gate: Extract<GateCondition, { type: 'human_approval' }>,
-): string[] {
-  const candidates = gate.approvers ?? (gate.duty ? dutyMembers(config, gate.duty).map((m) => m.handle) : []);
-  return candidates.filter((h) => config.team.members.some((m) => m.handle === h && m.kind === 'human'));
-}
 export function taskAuthors(task: Task): string[] {
   return [
     ...new Set(
@@ -43,15 +36,5 @@ export function taskAuthors(task: Task): string[] {
 }
 /** Resolve at use time, never persist derived member lists into customization YAML. */
 export function resolvedStages(config: ProjectConfig): (Stage & { owners: string[] })[] {
-  return config.pipeline.stages.map((stage) => ({
-    ...stage,
-    owners: stageOwners(config, stage),
-    gate: stage.gate
-      ? {
-          conditions: stage.gate.conditions.map((c) =>
-            c.type === 'human_approval' ? { ...c, approvers: gateApprovers(config, c) } : c,
-          ),
-        }
-      : undefined,
-  }));
+  return config.pipeline.stages.map((stage) => ({ ...stage, owners: stageOwners(config, stage) }));
 }

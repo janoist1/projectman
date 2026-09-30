@@ -29,6 +29,23 @@ export type SpecialtyKey = 'frontend' | 'backend';
 /** Members a template hires under a display name of their own (not the role's name). */
 export type TemplateMemberKey = 'daily_worker';
 
+/** Labels the templates may ship; rules live in ../labels.ts, words in the locales. */
+export type StandardLabelId =
+  | 'code-review-ok'
+  | 'code-review-changes'
+  | 'code-review-blocked'
+  | 'security-ok'
+  | 'security-changes'
+  | 'qa-ok'
+  | 'qa-failed'
+  | 'qa-retest'
+  | 'client-accepted'
+  | 'client-changes'
+  | 'pr-merged'
+  | 'merge-approved'
+  | 'release-approved'
+  | 'waiting-answer';
+
 export type TemplateId = 'web-client-project' | 'small-team' | 'internal-tool' | 'daily-routine';
 
 /** How a built-in role is presented to people. */
@@ -58,6 +75,9 @@ export interface TemplateLocale {
   members: Record<TemplateMemberKey, string>;
   specialties: Record<SpecialtyKey, string>;
   templates: Record<TemplateId, { name: string; description: string }>;
+  labels: Record<StandardLabelId, { name: string; meaning: string }>;
+  /** Name of an approval label generated for a stage, e.g. "Merge: approved". */
+  stageApproval: (stageName: string) => string;
   /** Display name of a specialist, e.g. ("Frontend", "Developer") -> "Frontend developer". */
   specialist(specialty: string, roleName: string): string;
 }

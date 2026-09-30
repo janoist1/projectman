@@ -1,4 +1,4 @@
-import { checkPassed, defineTemplate, humanApproval } from './draft';
+import { defineTemplate, hasLabel } from './draft';
 
 /** The owner, one developer and a code reviewer; the owner closes reviewed work. */
 export const smallTeam = defineTemplate('small-team', (t) => {
@@ -11,7 +11,7 @@ export const smallTeam = defineTemplate('small-team', (t) => {
       t.stage('ready', 'queue', 'ready', []),
       t.stage('dev', 'work', 'development', [developer]),
       t.stage('code_review', 'review', 'review', [codeReview]),
-      t.stage('done', 'done', 'done', [], checkPassed('code_review'), humanApproval(t.owner)),
+      t.stage('done', 'done', 'done', [], hasLabel('code-review-ok'), hasLabel('merge-approved')),
     ],
   });
 });

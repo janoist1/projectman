@@ -60,18 +60,13 @@ function describeLink(link: TaskLink): string {
   }
 }
 
-function checksText(task: Task): string {
-  const entries = Object.entries(task.checks).filter(([, state]) => state !== undefined);
-  return entries.length > 0 ? entries.map(([name, state]) => `${name} ${state}`).join(', ') : 'none recorded';
-}
-
 /** One line with where the task stands. */
 export function taskStatusLine(task: Task): string {
   return [
     `Stage: ${task.stageId}`,
     `Status: ${task.status}`,
     `Assignee: ${task.assignee ?? 'none'}`,
-    `Checks: ${checksText(task)}`,
+    `Labels: ${task.labels.length > 0 ? task.labels.join(', ') : 'none'}`,
   ].join(' · ');
 }
 
@@ -91,6 +86,15 @@ function eventText(event: TimelineEvent): string {
       return `assigned it to ${str('assignee') || 'nobody'}`;
     case 'task_check_changed':
       return `check ${str('check')}: ${str('from') || 'none'} → ${str('to')}`;
+    case 'task_labels_changed': {
+      const list = (key: string) => ((event.data[key] as string[] | undefined) ?? []).join(', ');
+      return [
+        list('added') && `labels added: ${list('added')}`,
+        list('removed') && `labels removed: ${list('removed')}`,
+      ]
+        .filter(Boolean)
+        .join('; ');
+    }
     case 'task_link_added': {
       const kind = str('kind');
       const repo = str('repo');
@@ -168,7 +172,7 @@ export function formatTaskUpdate(
   task: Task,
   change: {
     stageId?: string;
-    check?: { name: string; state: string };
+    labels?: { added: string[]; removed: string[] };
     note: boolean;
     title?: boolean;
     description?: boolean;
@@ -177,7 +181,8 @@ export function formatTaskUpdate(
   const done: string[] = [];
   if (change.title) done.push('title changed');
   if (change.description) done.push('description replaced');
-  if (change.check) done.push(`check ${change.check.name} → ${change.check.state}`);
+  if (change.labels?.added.length) done.push(`labels added: ${change.labels.added.join(', ')}`);
+  if (change.labels?.removed.length) done.push(`labels removed: ${change.labels.removed.join(', ')}`);
   if (change.note) done.push('note added');
   if (change.stageId) done.push(`moved to ${change.stageId}`);
   return `Updated ${task.key}: ${done.join('; ')}.\nNow: ${taskStatusLine(task)}`;

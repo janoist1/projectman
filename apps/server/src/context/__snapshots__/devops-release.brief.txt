@@ -5,7 +5,7 @@ You are picking up this task at stage Release (`release`).
 - Assignee: `fe-1`
 - Repo: `app`
 - Priority: 2
-- Labels: bug, email
+- Labels: `code-review-ok` (Code review ok), `qa-ok` (QA ok), `client-accepted` (Client accepted), `release-approved` (Release approved)
 - Visibility: shared
 
 ## Description
@@ -13,11 +13,6 @@ The confirmation email shows the wrong room name.
 
 - Steps: book any room as a guest
 - Expected: the email names the booked room
-
-## Checks
-- code_review: passed
-- qa: passed
-- client_test: passed
 
 ## Links
 - Pull request: acme/app#123 "Fix room name in confirmation email" (merged)

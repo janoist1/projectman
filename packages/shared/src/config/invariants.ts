@@ -1,5 +1,7 @@
 import { DUTIES, DUTY_IDS } from '../domain/duty';
-import { dutyMembers, gateApprovers } from './duties';
+import { dutyMembers } from './duties';
+import { labelDefinition, labelHolders } from './labels';
+import { isHumanOnlyLabel } from '../domain/label';
 import { holdersAllow, isBuiltInRole, roleHolders } from '../domain/role';
 import type { ProjectConfig } from './schema';
 
@@ -11,7 +13,9 @@ export interface ConfigIssue {
     | 'duplicate_handle'
     | 'no_owner'
     | 'unknown_member'
-    | 'approver_not_human'
+    | 'unknown_label'
+    | 'duplicate_label'
+    | 'missing_label_setter'
     | 'release_without_human_approval'
     | 'unknown_column'
     | 'first_stage_not_queue'
@@ -97,20 +101,40 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
     });
     if (stage.duty && dutyMembers(config, stage.duty).length === 0)
       issues.push({ code: 'missing_duty_holder', path: `${path}.duty`, detail: stage.duty });
-    const approvals = (stage.gate?.conditions ?? []).filter((c) => c.type === 'human_approval');
-    approvals.forEach((c) => {
-      if (c.duty && gateApprovers(config, { type: 'human_approval', duty: c.duty }).length === 0)
-        issues.push({ code: 'missing_duty_holder', path: `${path}.gate`, detail: c.duty });
-      (c.approvers ?? []).forEach((h) => {
-        const m = members.get(h);
-        if (!m) issues.push({ code: 'unknown_member', path: `${path}.gate`, detail: h });
-        else if (m.kind !== 'human')
-          issues.push({ code: 'approver_not_human', path: `${path}.gate`, detail: h });
-      });
+    let humanApproval = false;
+    (stage.gate?.conditions ?? []).forEach((condition, j) => {
+      const gatePath = `${path}.gate.conditions[${j}]`;
+      const label = labelDefinition(config, condition.label);
+      if (!label) {
+        issues.push({ code: 'unknown_label', path: gatePath, detail: condition.label });
+        return;
+      }
+      if (condition.type !== 'has_label' || label.setBy === 'system') return;
+      const holders = labelHolders(config, label);
+      if (holders.length === 0) {
+        // Name the unfilled duties too: that is usually what the owner has to fix.
+        if (typeof label.setBy === 'object')
+          for (const duty of label.setBy.duties ?? [])
+            if (dutyMembers(config, duty).length === 0)
+              issues.push({ code: 'missing_duty_holder', path: gatePath, detail: duty });
+        issues.push({ code: 'missing_label_setter', path: gatePath, detail: label.id });
+      }
+      if (isHumanOnlyLabel(label) && holders.length > 0) humanApproval = true;
     });
-    if (stage.kind === 'release' && approvals.length === 0) {
+    if (stage.kind === 'release' && !humanApproval) {
       issues.push({ code: 'release_without_human_approval', path });
     }
+  });
+
+  const labelIds = new Set<string>();
+  config.pipeline.labels.forEach((label, i) => {
+    const path = `pipeline.labels[${i}]`;
+    if (labelIds.has(label.id)) issues.push({ code: 'duplicate_label', path, detail: label.id });
+    labelIds.add(label.id);
+    if (typeof label.setBy === 'object')
+      (label.setBy.members ?? []).forEach((h) => {
+        if (!members.has(h)) issues.push({ code: 'unknown_member', path: `${path}.setBy`, detail: h });
+      });
   });
 
   const stages = config.pipeline.stages;

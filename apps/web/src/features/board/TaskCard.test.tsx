@@ -4,11 +4,13 @@ import { describe, expect, it } from 'vitest';
 import { indexPipeline } from '../../lib/pipeline';
 import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
 import type { TaskStateContext } from '../../lib/taskState';
-import { inbox, tasks } from '../../mocks/fixtures';
+import { buildConfig, inbox, tasks } from '../../mocks/fixtures';
 import { mockIndexes, renderUi } from '../../test/render';
+import { t } from '../../i18n/t';
 import { TaskCard } from './TaskCard';
 
 const { pipeline, members } = mockIndexes();
+const labelViews = buildConfig().pipeline.labels.map((label) => ({ ...label, holders: [] }));
 const ctx: TaskStateContext = {
   pipeline,
   members,
@@ -27,7 +29,14 @@ function renderCard(key: string, selected = false) {
   const task = taskByKey(key);
   const state = deriveTaskState(task, ctx);
   renderUi(
-    <TaskCard task={task} state={state} pipeline={pipeline} to={`/p/AC/tasks/${key}`} selected={selected} />,
+    <TaskCard
+      task={task}
+      state={state}
+      pipeline={pipeline}
+      to={`/p/AC/tasks/${key}`}
+      selected={selected}
+      labels={labelViews}
+    />,
   );
   return screen.getByRole('link');
 }
@@ -38,13 +47,15 @@ describe('TaskCard', () => {
     expect(card.getAttribute('href')).toBe('/p/AC/tasks/AC-21');
     expect(within(card).getByText('Rendelés-visszaigazoló e-mail')).toBeTruthy();
     expect(within(card).getByText('PR #14 · webshop')).toBeTruthy();
+    // Results are labels, named and coloured by their definitions.
     expect(within(card).getByText('Újrateszt kell')).toBeTruthy();
-    const checks = within(card).getByRole('list', { name: 'Ellenőrzések' });
+    expect(within(card).getByText('Code review rendben')).toBeTruthy();
+    const progress = within(card).getByRole('list', { name: t('taskCard.checks') });
     expect(
-      within(checks)
+      within(progress)
         .getAllByRole('listitem')
         .map((row) => row.textContent),
-    ).toEqual(['Code review: rendben', 'Integration: kész', 'QA: újrateszt kell']);
+    ).toEqual(['Code review: kész', 'Integration: kész', 'QA: folyamatban']);
     expect(within(card).getByText('Rád vár: engedély (git push)')).toBeTruthy();
     expect(card.getAttribute('data-phase')).toBe('needs_you');
     expect(within(card).getByRole('img', { name: /QA, 5\. lépés a 9-ból/ })).toBeTruthy();

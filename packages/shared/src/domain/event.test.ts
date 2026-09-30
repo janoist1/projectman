@@ -22,7 +22,7 @@ const payloads: Array<{
       fields: ['status'],
       gateBlocked: {
         to: 'merge',
-        unmet: [{ stageId: 'merge', condition: { type: 'pr_merged' } }],
+        unmet: [{ stageId: 'merge', condition: { type: 'has_label', label: 'pr-merged' } }],
         approvalsStillValid: false,
       },
     },

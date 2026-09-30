@@ -18,6 +18,7 @@ export const TimelineEventType = z.enum([
   'task_stage_changed',
   'task_assigned',
   'task_check_changed',
+  'task_labels_changed',
   'task_link_added',
   'task_note',
   'schedule_started',
@@ -75,7 +76,14 @@ export interface TimelineEventData {
   };
   task_stage_changed: { from: string; to: string; approvedBy?: string[]; inboxItemIds?: string[] };
   task_assigned: { assignee: string | null; previous?: string | null };
+  /** Legacy: checks were replaced by labels; old events keep this shape. */
   task_check_changed: { check: string; from: string | null; to: string };
+  /** `reason` names an automatic change: a group swap, the task moving back, a PR update, an approval. */
+  task_labels_changed: {
+    added: string[];
+    removed: string[];
+    reason?: 'group' | 'moved_back' | 'pr_updated' | 'pr_merged' | 'approval';
+  };
   task_link_added: { kind: string; ref: string; repo?: string };
   task_note: { text: string; mentions?: string[]; importedAuthor?: string; importedAt?: string };
   schedule_started: { runId: string; member: string; scheduledFor: string };

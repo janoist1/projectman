@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { lstat, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
-import { DAILY_WORKER_SCHEDULE } from '@projectman/templates';
+import { DAILY_WORKER_SCHEDULE, migrateLegacyConfig } from '@projectman/templates';
 import { ProjectConfig, validateProjectConfig } from '@projectman/shared';
 import type { ConfigVersionEntry } from '@projectman/shared';
 import type { ConfigStore } from '../contracts';
@@ -42,7 +42,7 @@ Every change made in the app is a commit here, so any version can be restored.
 
     projects/<KEY>/project.yaml   project, repositories, team limits
     projects/<KEY>/team.yaml      members, custom roles
-    projects/<KEY>/pipeline.yaml  board columns and stages
+    projects/<KEY>/pipeline.yaml  board columns, stages and labels
 `;
 
 /** Strips characters that would break the "Name <email>" author format. */
@@ -217,7 +217,9 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
         throw new ConfigStoreError('not_found', `no configuration for project ${projectKey}`);
       }
       const config = validate(
-        migrateScheduledRole(mergeProjectFiles(await readWorkingTree(projectKey)), projectKey, logger),
+        migrateLegacyConfig(
+          migrateScheduledRole(mergeProjectFiles(await readWorkingTree(projectKey)), projectKey, logger),
+        ),
         projectKey,
       );
       return { config, version: await projectVersion(projectKey) };
@@ -281,7 +283,10 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
           contents[file] = show.stdout;
           parsed[file] = parseYamlFile(file, show.stdout);
         }
-        validate(migrateScheduledRole(mergeProjectFiles(parsed), projectKey, logger), projectKey);
+        validate(
+          migrateLegacyConfig(migrateScheduledRole(mergeProjectFiles(parsed), projectKey, logger)),
+          projectKey,
+        );
 
         await writeProject(projectKey, contents);
         await git(['add', '-A', '--', path]);

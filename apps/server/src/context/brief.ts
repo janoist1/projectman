@@ -1,6 +1,6 @@
-import { CheckName, type TaskLink, type TimelineEvent } from '@projectman/shared';
+import type { TaskLink, TimelineEvent } from '@projectman/shared';
 import type { ContextPackInput } from '../contracts';
-import { code, codeList, formatTimestamp, oneLine, stageLabel } from './format';
+import { code, codeList, formatTimestamp, labelRef, oneLine, stageLabel } from './format';
 import { expectedSteps, type Situation } from './work-item';
 
 /** Timeline entries shown in the brief (the most recent ones). */
@@ -41,18 +41,16 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
       `- Assignee: ${task.assignee ? code(task.assignee) : 'none'}`,
       `- Repo: ${task.repo ? code(task.repo) : 'the workspace root'}`,
       ...(task.priority !== null ? [`- Priority: ${task.priority}`] : []),
-      ...(task.labels.length > 0 ? [`- Labels: ${task.labels.join(', ')}`] : []),
+      `- Labels: ${
+        task.labels.length > 0
+          ? task.labels.map((label) => labelRef(label, input.project.pipeline.labels)).join(', ')
+          : 'none'
+      }`,
       `- Visibility: ${task.visibility}`,
     ].join('\n'),
   );
 
   sections.push(['## Description', description(task.description)].join('\n'));
-
-  const checks = CheckName.options.flatMap((name) => {
-    const state = task.checks[name];
-    return state ? [`- ${name}: ${state}`] : [];
-  });
-  sections.push(['## Checks', ...(checks.length > 0 ? checks : ['None recorded yet.'])].join('\n'));
 
   const links = task.links.filter((l) => l.kind !== 'prerequisite').map(linkLine);
   sections.push(['## Links', ...(links.length > 0 ? links : ['None.'])].join('\n'));

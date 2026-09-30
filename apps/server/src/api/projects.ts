@@ -1,4 +1,4 @@
-import { resolvedStages } from '@projectman/shared';
+import { labelHolders, resolvedStages } from '@projectman/shared';
 import type { FastifyInstance } from 'fastify';
 import { CreateProjectRequest, DEFAULT_AGENT_PROVIDER, routes } from '@projectman/shared';
 import type { BoardView, ProjectSummary, TemplateSummary } from '@projectman/shared';
@@ -55,6 +55,7 @@ export function registerProjectRoutes(app: FastifyInstance, domain: Domain): voi
         stageIds: config.pipeline.stages.filter((s) => s.columnId === column.id).map((s) => s.id),
       })),
       stages: resolvedStages(config),
+      labels: config.pipeline.labels.map((label) => ({ ...label, holders: labelHolders(config, label) })),
       tasks: domain.tasks.list(key).filter((t) => canSeeTask(access, t)),
       members: domain.members.rosterFor(config),
       openInboxCount: domain.inbox.countOpenFor(key, access.handle),

@@ -217,18 +217,20 @@ describe('configuration PATCH', () => {
       (await patch({ baseVersion: current.version, limits: { maxConcurrentAi: 2 } }, adminCookie)).statusCode,
     ).toBe(200);
     current = await view();
-    for (const stageId of ['merge', 'release']) {
+    for (const [stageId, approval] of [
+      ['merge', 'merge-ok'],
+      ['release', 'release-ok'],
+    ] as const) {
       for (const operation of ['change', 'remove', 'removeStage']) {
         const pipeline = structuredClone(current.config.pipeline);
         const stage = pipeline.stages.find((stage) => stage.id === stageId)!;
         if (operation === 'change')
-          stage.gate!.conditions.forEach((condition) => {
-            if (condition.type === 'human_approval') condition.approvers = ['kata'];
-          });
+          pipeline.labels.find((label) => label.id === approval)!.setBy = {
+            members: ['kata'],
+            humansOnly: true,
+          };
         if (operation === 'remove')
-          stage.gate!.conditions = stage.gate!.conditions.filter(
-            (condition) => condition.type !== 'human_approval',
-          );
+          stage.gate!.conditions = stage.gate!.conditions.filter((condition) => condition.label !== approval);
         if (operation === 'removeStage')
           pipeline.stages = pipeline.stages.filter((stage) => stage.id !== stageId);
         const response = await patch({ baseVersion: current.version, pipeline }, adminCookie);
@@ -237,23 +239,25 @@ describe('configuration PATCH', () => {
       }
     }
     expect(await view()).toEqual(current);
-    const legacy = structuredClone(current.config);
-    legacy.pipeline.stages.find((stage) => stage.id === 'merge')!.gate = {
-      conditions: [{ type: 'human_approval', approvers: ['kata'] }],
+    const replaced = structuredClone(current.config);
+    replaced.pipeline.labels.find((label) => label.id === 'merge-ok')!.setBy = {
+      members: ['kata'],
+      humansOnly: true,
     };
-    const legacyResponse = await h.app.inject({
+    const replacedResponse = await h.app.inject({
       method: 'PUT',
       url: '/api/projects/AR/config',
       headers: { cookie: adminCookie },
-      payload: legacy,
+      payload: replaced,
     });
-    expect(legacyResponse.statusCode).toBe(403);
-    expect(legacyResponse.json().error.code).toBe('owner_only');
+    expect(replacedResponse.statusCode).toBe(403);
+    expect(replacedResponse.json().error.code).toBe('owner_only');
     // An owner can delegate approval to another human.
     const pipeline = structuredClone(current.config.pipeline);
-    pipeline.stages.find((stage) => stage.id === 'release')!.gate!.conditions = [
-      { type: 'human_approval', approvers: ['kata'] },
-    ];
+    pipeline.labels.find((label) => label.id === 'release-ok')!.setBy = {
+      members: ['kata'],
+      humansOnly: true,
+    };
     expect((await patch({ baseVersion: current.version, pipeline })).statusCode).toBe(200);
   });
 

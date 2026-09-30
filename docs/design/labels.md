@@ -1,6 +1,9 @@
 # Meaningful labels in place of checks: proposal
 
-Status: proposal for the owner's review. Nothing here is implemented yet.
+Status: implemented (decision 17). The owner answered the open questions below:
+approvals are labels; a failing label only notifies; stage kinds are simplified later; plain
+labels stay allowed. The `pr_updated` clear trigger is defined but not yet fired: the GitHub
+integration does not track new commits yet.
 
 ## Why
 

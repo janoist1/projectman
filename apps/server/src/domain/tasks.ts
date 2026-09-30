@@ -4,8 +4,6 @@ import type {
   CreateTaskCommentRequest,
   TimelineEvent,
   CancelTaskRequest,
-  CheckName,
-  CheckState,
   CreateTaskRequest,
   InboxItem,
   ProjectConfig,
@@ -21,8 +19,8 @@ import { isoNow } from './context';
 import type { DomainContext } from './context';
 import { conflict, forbidden, invalid, notFound } from './errors';
 import { hasAccess } from './access';
-import { commentMentions, taskAuthors } from '@projectman/shared';
-import { evaluateGates, stagesEntered } from './gates';
+import { commentMentions, labelDefinition, labelRefusal } from '@projectman/shared';
+import { evaluateMove } from './gates';
 import type { ApprovalRequirement, GateEvaluation } from './gates';
 import { DECISION_OPTIONS } from './inbox';
 import type { InboxService } from './inbox';
@@ -46,7 +44,8 @@ export interface GateRequestPayload {
   toStageId: string;
   /** Stage whose gate holds the condition (moving forward may enter several gated stages). */
   stageId: string;
-  conditionIndex: number;
+  /** The human-only label the approver puts on the task by approving. */
+  label: string;
   requestedBy: Actor;
 }
 
@@ -115,6 +114,7 @@ export class TaskService {
     this.inbox = deps.inbox;
   }
 
+  private labelNotifier?: (task: Task, labels: string[], actor: Actor, comment?: string) => Promise<void>;
   private noteNotifier?: (event: TimelineEvent, mentions: string[]) => Promise<void>;
 
   onNoteAdded(notifier: NonNullable<TaskService['noteNotifier']>): void {
@@ -222,8 +222,7 @@ export class TaskService {
       assignee: null,
       repo,
       priority: null,
-      labels: req.labels ?? [],
-      checks: {},
+      labels: unique((req.labels ?? []).map((label) => label.trim()).filter(Boolean)),
       links: [],
       visibility: req.visibility ?? 'internal',
       createdBy: actorHandle(actor),
@@ -234,7 +233,7 @@ export class TaskService {
     if (target.id !== first.id) {
       // A new task has no checks or links: it may start in any stage up to the first gated one.
       if (req.importedAt === undefined) {
-        const evaluation = evaluateGates(task, stagesEntered(config.pipeline, first.id, target.id), config);
+        const evaluation = evaluateMove(task, config, first.id, target.id);
         if (evaluation.unmet.length > 0 || evaluation.approvals.length > 0)
           throw gateBlockedError(evaluation);
       }
@@ -244,6 +243,7 @@ export class TaskService {
       task.status = 'done';
       task.closedAt = at;
     }
+    if (req.importedAt === undefined) this.planLabelChange(config, task, task.labels, [], actor, undefined);
     task.key = `${projectKey}-${this.ctx.repos.counters.next(projectKey, 'task')}`;
     this.ctx.repos.tasks.insert(task);
     this.timeline.append({
@@ -299,9 +299,19 @@ export class TaskService {
       next.description = req.description;
       fields.push('description');
     }
+    let labelChange: { added: string[]; removed: string[] } | null = null;
     if (req.labels !== undefined && JSON.stringify(req.labels) !== JSON.stringify(task.labels)) {
-      next.labels = req.labels;
-      fields.push('labels');
+      const wanted = unique(req.labels.map((label) => label.trim()).filter(Boolean));
+      const plan = this.planLabelChange(
+        await this.projects.config(projectKey),
+        task,
+        wanted.filter((label) => !task.labels.includes(label)),
+        task.labels.filter((label) => !wanted.includes(label)),
+        actor,
+        undefined,
+      );
+      next.labels = plan.labels;
+      labelChange = { added: plan.added, removed: plan.removed };
     }
     if (req.visibility !== undefined && req.visibility !== task.visibility) {
       next.visibility = req.visibility;
@@ -314,7 +324,7 @@ export class TaskService {
     }
     const assignmentChanged = req.assignee !== undefined && req.assignee !== task.assignee;
     if (req.assignee !== undefined) next.assignee = req.assignee;
-    if (fields.length === 0 && !assignmentChanged) return task;
+    if (fields.length === 0 && !assignmentChanged && !labelChange) return task;
     next.updatedAt = isoNow(this.ctx);
     this.ctx.repos.tasks.update(next);
     if (fields.length > 0) {
@@ -325,6 +335,16 @@ export class TaskService {
         actor,
         type: 'task_updated',
         data: { fields },
+      });
+    }
+    if (labelChange) {
+      this.timeline.append({
+        projectKey,
+        taskKey,
+        sessionId: opts.sessionId ?? null,
+        actor,
+        type: 'task_labels_changed',
+        data: labelChange,
       });
     }
     if (assignmentChanged) {
@@ -452,7 +472,7 @@ export class TaskService {
     if (task.status === 'cancelled') throw conflict('task_closed', `task ${taskKey} is cancelled`);
     const target = findStage(config, stageId);
     if (task.stageId === target.id) return { task, moved: false, pendingApproval: [] };
-    const evaluation = evaluateGates(task, stagesEntered(config.pipeline, task.stageId, target.id), config);
+    const evaluation = evaluateMove(task, config, task.stageId, target.id);
     if (evaluation.unmet.length > 0) throw gateBlockedError(evaluation);
     if (evaluation.approvals.length > 0) {
       const pending = this.requestApproval(task, target, evaluation.approvals, actor);
@@ -490,57 +510,142 @@ export class TaskService {
       this.settleWaiting(task, actor, { gateBlocked: { to: gate.toStageId, reason: 'unknown_stage' } });
       return;
     }
-    const evaluation = evaluateGates(task, stagesEntered(config.pipeline, task.stageId, target.id), config);
-    const approvalsStillValid = evaluation.approvals.every((req) =>
-      siblings.some((s) => {
-        const p = gatePayload(s);
-        return (
-          p?.stageId === req.stageId &&
-          p.conditionIndex === req.conditionIndex &&
-          req.approvers.includes(s.resolution!.by)
+    // Approving puts each requested human-only label on the task in the approver's name.
+    let current = task;
+    for (const sibling of siblings) {
+      const payload = gatePayload(sibling)!;
+      if (current.labels.includes(payload.label)) continue;
+      try {
+        current = await this.changeLabels(
+          item.projectKey,
+          task.key,
+          { add: [payload.label] },
+          humanActor(sibling.resolution!.by),
+          { reason: 'approval' },
         );
-      }),
-    );
-    if (evaluation.unmet.length > 0 || !approvalsStillValid) {
-      this.settleWaiting(task, actor, {
-        gateBlocked: { to: target.id, unmet: evaluation.unmet, approvalsStillValid },
+      } catch (err) {
+        this.settleWaiting(current, actor, {
+          gateBlocked: { to: target.id, label: payload.label, reason: (err as { code?: string }).code },
+        });
+        return;
+      }
+    }
+    const evaluation = evaluateMove(current, config, current.stageId, target.id);
+    if (evaluation.unmet.length > 0 || evaluation.approvals.length > 0) {
+      this.settleWaiting(current, actor, {
+        gateBlocked: { to: target.id, unmet: evaluation.unmet, approvals: evaluation.approvals },
       });
       return;
     }
-    await this.applyMove(task, target, actor, {
+    await this.applyMove(current, target, actor, {
       approvedBy: unique(siblings.map((s) => s.resolution!.by)),
       inboxItemIds: siblings.map((s) => s.id),
     });
   }
 
-  setCheck(
+  /**
+   * Adds and removes labels under the project's label rules: who may set them, no self-review,
+   * a comment when a label asks for one. Adding a grouped label replaces the other labels of
+   * its group. The comment is recorded as a task comment (mentions notify), and a label that
+   * notifies the assignee sends them the change.
+   */
+  async changeLabels(
     projectKey: string,
     taskKey: string,
-    check: CheckName,
-    state: CheckState,
+    change: { add?: string[]; remove?: string[] },
     actor: Actor,
-    sessionId: string | null = null,
-  ): Task {
+    opts: {
+      comment?: string;
+      sessionId?: string | null;
+      reason?: 'group' | 'moved_back' | 'pr_updated' | 'pr_merged' | 'approval';
+    } = {},
+  ): Promise<Task> {
+    const config = await this.projects.config(projectKey);
     const task = this.get(projectKey, taskKey);
-    if (check !== 'client_test' && taskAuthors(task).includes(actor.handle ?? ''))
-      throw forbidden(
-        'self_review_forbidden',
-        'the assignee and PR authors cannot record review or QA results',
-      );
-    const from = task.checks[check] ?? null;
-    if (from === state) return task;
-    const next: Task = { ...task, checks: { ...task.checks, [check]: state }, updatedAt: isoNow(this.ctx) };
+    const add = unique((change.add ?? []).map((label) => label.trim()).filter(Boolean)).filter(
+      (label) => !task.labels.includes(label),
+    );
+    const remove = unique(change.remove ?? []).filter(
+      (label) => task.labels.includes(label) && !add.includes(label),
+    );
+    const plan = this.planLabelChange(config, task, add, remove, actor, opts.comment);
+    if (plan.added.length === 0 && plan.removed.length === 0) return task;
+    const next: Task = { ...task, labels: plan.labels, updatedAt: isoNow(this.ctx) };
     this.ctx.repos.tasks.update(next);
     this.timeline.append({
       projectKey,
       taskKey,
-      sessionId,
+      sessionId: opts.sessionId ?? null,
       actor,
-      type: 'task_check_changed',
-      data: { check, from, to: state },
+      type: 'task_labels_changed',
+      data: { added: plan.added, removed: plan.removed, ...(opts.reason ? { reason: opts.reason } : {}) },
     });
     this.publish(next);
+    const comment = opts.comment?.trim();
+    if (comment) await this.addNote(projectKey, taskKey, comment, actor, opts.sessionId ?? null);
+    const notify = plan.added.filter((label) => labelDefinition(config, label)?.notifyAssignee);
+    if (notify.length > 0 && next.assignee && actor.handle && next.assignee !== actor.handle)
+      await this.labelNotifier?.(next, notify, actor, comment);
     return next;
+  }
+
+  /** Called when an added label notifies the task's assignee (wired to team messages). */
+  onLabelNotify(notifier: NonNullable<TaskService['labelNotifier']>): void {
+    this.labelNotifier = notifier;
+  }
+
+  /** Label changes are refused as a whole when any label's rules forbid them. */
+  private planLabelChange(
+    config: ProjectConfig,
+    task: Task,
+    add: string[],
+    remove: string[],
+    actor: Actor,
+    comment: string | undefined,
+  ): { labels: string[]; added: string[]; removed: string[] } {
+    for (const label of [...add, ...remove]) {
+      const refusal = labelRefusal(config, labelDefinition(config, label), actor, task);
+      if (refusal === 'self_review')
+        throw forbidden('self_review_forbidden', 'the assignee and PR authors cannot set this label', {
+          label,
+        });
+      if (refusal)
+        throw forbidden('label_not_allowed', `label ${label} cannot be changed: ${refusal}`, {
+          label,
+          reason: refusal,
+        });
+    }
+    const needsComment = add.filter((label) => labelDefinition(config, label)?.requiresComment);
+    if (needsComment.length > 0 && !comment?.trim())
+      throw invalid('comment_required', 'these labels need a comment with the reason', {
+        labels: needsComment,
+      });
+    // A grouped label replaces the other labels of its group.
+    const groups = new Set(add.map((label) => labelDefinition(config, label)?.group).filter(Boolean));
+    const replaced = task.labels.filter(
+      (label) => !add.includes(label) && groups.has(labelDefinition(config, label)?.group),
+    );
+    const removed = unique([...remove, ...replaced]);
+    return {
+      labels: [...task.labels.filter((label) => !removed.includes(label)), ...add],
+      added: add,
+      removed,
+    };
+  }
+
+  /** Removes the labels that expire on an event (the task moving back, its PR changing). */
+  async clearLabels(
+    projectKey: string,
+    taskKey: string,
+    trigger: 'moved_back' | 'pr_updated',
+  ): Promise<void> {
+    const config = await this.projects.config(projectKey);
+    const task = this.get(projectKey, taskKey);
+    const expired = task.labels.filter((label) =>
+      labelDefinition(config, label)?.clearedWhen?.includes(trigger),
+    );
+    if (expired.length > 0)
+      await this.changeLabels(projectKey, taskKey, { remove: expired }, SYSTEM_ACTOR, { reason: trigger });
   }
 
   async addNote(
@@ -738,7 +843,7 @@ export class TaskService {
         fromStageId: task.stageId,
         toStageId: target.id,
         stageId: req.stageId,
-        conditionIndex: req.conditionIndex,
+        label: req.label,
         requestedBy: actor,
       };
       return this.inbox.create({
@@ -793,6 +898,12 @@ export class TaskService {
       data: { from: task.stageId, to: target.id, ...extra },
     });
     this.publish(next);
+    // Facts that expire when work goes back (e.g. "code review ok") come off the task.
+    const pipeline = (await this.projects.config(task.projectKey)).pipeline;
+    const back =
+      pipeline.stages.findIndex((s) => s.id === target.id) <
+      pipeline.stages.findIndex((s) => s.id === task.stageId);
+    if (back) await this.clearLabels(task.projectKey, task.key, 'moved_back');
     // Requests made from the previous stage are stale now.
     for (const item of this.inbox.list(task.projectKey, {
       kind: 'decision',

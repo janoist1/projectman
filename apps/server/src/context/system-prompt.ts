@@ -1,7 +1,8 @@
 import { isBuiltInRole, roleBundle, DUTIES } from '@projectman/shared';
 import type { BuiltInRoleId, CustomRoleDefinition } from '@projectman/shared';
 import type { ContextPackInput } from '../contracts';
-import { code, codeList, describeGate, languageName, stageLabel } from './format';
+import { isHumanOnlyLabel, labelHolders } from '@projectman/shared';
+import { code, codeList, describeGate, labelRef, languageName, stageLabel } from './format';
 import { recentMemory } from './memory';
 import { expectedSteps, type Situation } from './work-item';
 
@@ -50,12 +51,15 @@ export function buildSystemPrompt(input: ContextPackInput, situation: Situation)
     identitySection(input),
     teamSection(input),
     teamworkSection(input),
-    pipelineSection(situation),
+    pipelineSection(input, situation),
+    labelsSection(input),
     workItemSection(input, situation),
     guardrailsSection(input),
     roleSection(input),
     memorySection(input),
-  ].join('\n\n');
+  ]
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 /** Codex members differ in a few words: their plan, the tool naming and the project's rules file. */
@@ -173,16 +177,45 @@ function teamworkSection({ project, member }: ContextPackInput): string {
   ].join('\n');
 }
 
-function pipelineSection(situation: Situation): string {
+function pipelineSection(input: ContextPackInput, situation: Situation): string {
   const lines = situation.stages.map((stage, i) => {
     const owners = (stage.owners ?? []).length > 0 ? ` — owners ${codeList(stage.owners ?? [])}` : '';
-    const gate = describeGate(stage.gate);
+    const gate = describeGate(stage.gate, input.project.pipeline.labels);
     const current = situation.current?.id === stage.id ? ' ← current stage' : '';
     return `${i + 1}. ${stage.name} (${code(stage.id)}, ${stage.kind})${owners}${gate ? ` — gate: ${gate}` : ''}${current}`;
   });
   return [
     '# The pipeline',
-    'Tasks move through these stages in order. A gate must hold before a task may enter its stage; human approvals are given in the app by the humans named in the gate.',
+    'Tasks move through these stages in order. A gate must hold before a task may enter its stage: labels that must (or must not) be on the task. Approvals are labels only humans may set; the app asks them.',
+    ...lines,
+  ].join('\n');
+}
+
+/** The project's label vocabulary: what each label means and who may set it. */
+function labelsSection({ project }: ContextPackInput): string {
+  const labels = project.pipeline.labels;
+  if (labels.length === 0) return '';
+  const lines = labels.map((label) => {
+    const who =
+      label.setBy === 'system'
+        ? 'set by the system'
+        : isHumanOnlyLabel(label)
+          ? `only humans set it: ${codeList(labelHolders(project, label))}; never set it yourself`
+          : label.setBy === 'anyone' || label.setBy === 'humans'
+            ? `set by ${label.setBy}`
+            : `set by ${codeList(labelHolders(project, label))}`;
+    const rules = [
+      who,
+      ...(label.group ? [`one of group ${code(label.group)}`] : []),
+      ...(label.requiresComment ? ['needs a note'] : []),
+      ...(label.notByAuthor ? ['not on your own work'] : []),
+      ...(label.blocks ? ['holds the task back while on it'] : []),
+    ].join('; ');
+    return `- ${labelRef(label.id, labels)}${label.meaning ? `: ${label.meaning}` : ''} (${rules})`;
+  });
+  return [
+    '# Labels',
+    'Labels state facts about a task; gates and people rely on them. Record results as labels with update_task (add_labels / remove_labels), with the reason in note. Other labels on tasks are plain tags.',
     ...lines,
   ].join('\n');
 }
@@ -232,7 +265,7 @@ function workItemSection(input: ContextPackInput, situation: Situation): string 
   );
   if (next) {
     const owners = (next.owners ?? []).length > 0 ? `, owners ${codeList(next.owners ?? [])}` : '';
-    const gate = describeGate(next.gate);
+    const gate = describeGate(next.gate, input.project.pipeline.labels);
     lines.push(`- Next stage: ${stageLabel(next)}${owners}${gate ? `; gate: ${gate}` : ''}.`);
   }
   lines.push(
@@ -240,7 +273,7 @@ function workItemSection(input: ContextPackInput, situation: Situation): string 
     'What done means for you here:',
     ...expectedSteps(input, situation).map((step, i) => `${i + 1}. ${step}`),
     '',
-    'The kick-off brief (description, checks, links, recent timeline) is the first message of this session; get_task gives the latest state.',
+    'The kick-off brief (description, labels, links, recent timeline) is the first message of this session; get_task gives the latest state.',
   );
   return lines.join('\n');
 }

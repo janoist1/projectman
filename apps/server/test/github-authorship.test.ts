@@ -12,6 +12,12 @@ describe('GitHub member authorship', () => {
       h = await createDomainHarness({
         adjust: (config) => {
           config.team.members.find((member) => member.handle === 'cr')!.githubLogin = 'acme-reviewer';
+          config.pipeline.labels.push({
+            id: `${check}-ok`,
+            name: `${check} ok`,
+            setBy: 'anyone',
+            notByAuthor: true,
+          });
         },
       });
       const { domain } = h;
@@ -32,14 +38,19 @@ describe('GitHub member authorship', () => {
         return 'Remove fictional login mapping';
       });
       await domain.githubSync.handleChange(pullRequest({ authorLogin: 'acme-reviewer' }));
-      expect(() =>
-        domain.tasks.setCheck('AR', task.key, check, 'passed', { kind: 'ai', handle: 'cr' }),
-      ).toThrow(expect.objectContaining({ code: 'self_review_forbidden' }));
+      await expect(
+        domain.tasks.changeLabels('AR', task.key, { add: [`${check}-ok`] }, { kind: 'ai', handle: 'cr' }),
+      ).rejects.toMatchObject({ code: 'self_review_forbidden' });
       expect(
-        domain.tasks.setCheck('AR', task.key, check, 'passed', { kind: 'human', handle: 'owner' }).checks[
-          check
-        ],
-      ).toBe('passed');
+        (
+          await domain.tasks.changeLabels(
+            'AR',
+            task.key,
+            { add: [`${check}-ok`] },
+            { kind: 'human', handle: 'owner' },
+          )
+        ).labels,
+      ).toContain(`${check}-ok`);
     },
   );
 

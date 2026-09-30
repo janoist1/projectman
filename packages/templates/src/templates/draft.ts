@@ -7,7 +7,6 @@ import {
   type AiMemberConfig,
   type BoardColumn,
   type BoardColumnColor,
-  type CheckName,
   type GateCondition,
   type MemberConfig,
   type MemberSchedule,
@@ -24,6 +23,7 @@ import {
   type TemplateMemberKey,
 } from '../locales';
 import { defaultMemberHandle, defaultMemberName, uniqueHandle } from '../members';
+import { standardLabelsFor } from '../labels';
 import { aiRoleDefaults } from '../roles';
 import type { BuildTemplateInput, ProjectTemplate } from '../types';
 
@@ -34,12 +34,7 @@ export const DEFAULT_LIMITS: TeamLimits = {
   tempWorkers: { enabled: false, max: 1, role: 'developer' },
 };
 
-export const checkPassed = (check: CheckName): GateCondition => ({ type: 'check_passed', check });
-
-export const humanApproval = (...approvers: string[]): GateCondition => ({
-  type: 'human_approval',
-  approvers,
-});
+export { hasLabel, lacksLabel } from '../labels';
 
 export interface HireOptions {
   specialty?: SpecialtyKey;
@@ -146,21 +141,7 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
               : DUTY_IDS.find((id) => DUTIES[id].stageKinds.includes(kind));
           return duty ? { duty } : { owners };
         })(),
-        ...(gate.length > 0
-          ? {
-              gate: {
-                conditions: gate.map((c) =>
-                  c.type === 'human_approval'
-                    ? {
-                        type: 'human_approval' as const,
-                        duty:
-                          kind === 'release' ? ('release_approval' as const) : ('final_decision' as const),
-                      }
-                    : c,
-                ),
-              },
-            }
-          : {}),
+        ...(gate.length > 0 ? { gate: { conditions: gate } } : {}),
         columnId: column,
       };
     },
@@ -178,7 +159,14 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
           templateId,
         },
         team: { members, roles: [], limits },
-        pipeline,
+        pipeline: {
+          ...pipeline,
+          // The standard labels the gates use, whole groups included.
+          labels: standardLabelsFor(
+            pipeline.stages.flatMap((stage) => (stage.gate?.conditions ?? []).map((c) => c.label)),
+            locale,
+          ),
+        },
       });
     },
   };

@@ -4,6 +4,11 @@ import { DomainError } from './errors';
 import type { ProjectService } from './projects';
 import type { TaskService } from './tasks';
 import { SYSTEM_ACTOR } from './util';
+import { pullRequestsMerged } from './gates';
+import { labelDefinition } from '@projectman/shared';
+
+/** Id of the system label the GitHub integration keeps on tasks whose pull request is merged. */
+export const PR_MERGED_LABEL = 'pr-merged';
 
 /**
  * Keeps pull request links up to date: every linked PR that is not merged or closed yet is
@@ -86,9 +91,18 @@ export class GithubSync {
     const task = this.tasks.find(projectKey, taskKey);
     if (!task || task.status !== 'active') return;
     const config = await this.projects.config(projectKey);
+    // The system label stands for the merged pull request when the project defines it.
+    if (
+      labelDefinition(config, PR_MERGED_LABEL) &&
+      !task.labels.includes(PR_MERGED_LABEL) &&
+      pullRequestsMerged(task)
+    )
+      await this.tasks.changeLabels(projectKey, taskKey, { add: [PR_MERGED_LABEL] }, SYSTEM_ACTOR, {
+        reason: 'pr_merged',
+      });
     const index = config.pipeline.stages.findIndex((s) => s.id === task.stageId);
     const next = config.pipeline.stages[index + 1];
-    if (!next?.gate?.conditions.some((c) => c.type === 'pr_merged')) return;
+    if (!next?.gate?.conditions.some((c) => c.type === 'has_label' && c.label === PR_MERGED_LABEL)) return;
     try {
       await this.tasks.moveToStage(projectKey, taskKey, next.id, SYSTEM_ACTOR);
     } catch (err) {

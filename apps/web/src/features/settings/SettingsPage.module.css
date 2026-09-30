@@ -408,3 +408,10 @@
   outline: 2px solid var(--c-ink);
   outline-offset: 2px;
 }
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}

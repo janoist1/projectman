@@ -540,7 +540,7 @@ describe('REST API', () => {
 
       const invalidConfig = structuredClone(bare);
       invalidConfig.pipeline.stages.find((s) => s.id === 'merge')!.gate = {
-        conditions: [{ type: 'human_approval', approvers: ['dev-1'] }],
+        conditions: [{ type: 'has_label', label: 'nobody-defined-this' }],
       };
       const rejected = await call<ApiError>('PUT', '/api/projects/AR/config', cookie, invalidConfig);
       expect(rejected.status).toBe(422);
@@ -634,8 +634,9 @@ describe('REST API', () => {
       if (ownerMember?.kind === 'human') ownerMember.email = 'dev@example.com';
       expect((await call('PUT', '/api/projects/AR/config', devCookie, stolen)).status).toBe(403);
       const approvers = structuredClone(config);
-      approvers.pipeline.stages.find((s) => s.id === 'release')!.gate = {
-        conditions: [{ type: 'pr_merged' }, { type: 'human_approval', approvers: ['kata'] }],
+      approvers.pipeline.labels.find((l) => l.id === 'release-ok')!.setBy = {
+        members: ['kata'],
+        humansOnly: true,
       };
       const ownerOnly = await call<ApiError>('PUT', '/api/projects/AR/config', devCookie, approvers);
       expect(ownerOnly.status).toBe(403);

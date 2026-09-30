@@ -15,7 +15,8 @@ import {
   PermissionMode,
 } from '../domain/member';
 import { TeamMessage } from '../domain/message';
-import { BoardColumn, CheckName, CheckState, Stage, StageId } from '../domain/pipeline';
+import { LabelDefinition, LabelId } from '../domain/label';
+import { BoardColumn, Stage, StageId } from '../domain/pipeline';
 import { CustomRoleDefinition, RoleHolders, RoleId } from '../domain/role';
 import { Session } from '../domain/session';
 import { Task, TaskKey, Visibility } from '../domain/task';
@@ -184,10 +185,16 @@ export type PlanUsage = z.infer<typeof PlanUsage>;
 export const BoardColumnView = BoardColumn.extend({ stageIds: z.array(StageId) });
 export type BoardColumnView = z.infer<typeof BoardColumnView>;
 
+/** A label definition with the members who may set it (resolved from its duties or members). */
+export const LabelView = LabelDefinition.extend({ holders: z.array(z.string()) });
+export type LabelView = z.infer<typeof LabelView>;
+
 export const BoardView = z.object({
   project: ProjectSummary,
   columns: z.array(BoardColumnView),
   stages: z.array(Stage),
+  /** The project's label vocabulary, for chips, pickers and gate hints. */
+  labels: z.array(LabelView).default([]),
   tasks: z.array(Task),
   members: z.array(MemberView),
   openInboxCount: z.number().int(),
@@ -251,12 +258,19 @@ export const CreateTaskCommentRequest = z.object({
 });
 export type CreateTaskCommentRequest = z.infer<typeof CreateTaskCommentRequest>;
 
-export const SetTaskCheckRequest = z.object({
-  check: CheckName,
-  state: CheckState,
-  note: z.string().optional(),
-});
-export type SetTaskCheckRequest = z.infer<typeof SetTaskCheckRequest>;
+/**
+ * Adds and/or removes labels under the project's label rules (who may set them, no self-review,
+ * comment required). The comment is recorded with the change; adding a grouped label replaces
+ * the other labels of its group.
+ */
+export const ChangeTaskLabelsRequest = z
+  .object({
+    add: z.array(LabelId).optional(),
+    remove: z.array(LabelId).optional(),
+    comment: z.string().trim().min(1).max(10000).optional(),
+  })
+  .refine((r) => (r.add?.length ?? 0) + (r.remove?.length ?? 0) > 0, 'add or remove a label');
+export type ChangeTaskLabelsRequest = z.infer<typeof ChangeTaskLabelsRequest>;
 
 export const CancelTaskRequest = z.object({ reason: z.string().optional() });
 export type CancelTaskRequest = z.infer<typeof CancelTaskRequest>;

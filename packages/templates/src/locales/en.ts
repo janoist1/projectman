@@ -265,5 +265,55 @@ export const en: TemplateLocale = {
       description: 'One scheduled member for recurring daily work.',
     },
   },
+  labels: {
+    'code-review-ok': {
+      name: 'Code review ok',
+      meaning: 'Someone other than the author reviewed the change and found nothing blocking.',
+    },
+    'code-review-changes': {
+      name: 'Code review: changes needed',
+      meaning: 'The review found changes to make; the comment says what.',
+    },
+    'code-review-blocked': {
+      name: 'Code review: blocked',
+      meaning: 'The review cannot be done now; the comment says why.',
+    },
+    'security-ok': {
+      name: 'Security review ok',
+      meaning: 'Access, secrets and payment paths were reviewed; nothing blocking.',
+    },
+    'security-changes': {
+      name: 'Security review: changes needed',
+      meaning: 'A security problem was found; the comment says what.',
+    },
+    'qa-ok': { name: 'QA ok', meaning: 'Tested; the acceptance criteria hold.' },
+    'qa-failed': {
+      name: 'QA: failed',
+      meaning: 'Testing found a defect; the comment says where and how to reproduce it.',
+    },
+    'qa-retest': { name: 'Retest needed', meaning: 'Needs testing again after a fix.' },
+    'client-accepted': { name: 'Client accepted', meaning: 'The client tried it and accepted it.' },
+    'client-changes': {
+      name: 'Client: changes requested',
+      meaning: 'The client tried it and asks for changes; the comment says what.',
+    },
+    'pr-merged': {
+      name: 'PR merged',
+      meaning: "The task's pull request is merged; set automatically from GitHub.",
+    },
+    'merge-approved': {
+      name: 'Merge approved',
+      meaning: 'An authorized human approved the merge. Only humans may set it.',
+    },
+    'release-approved': {
+      name: 'Release approved',
+      meaning: 'An authorized human approved the release. Only humans may set it.',
+    },
+    'waiting-answer': {
+      name: 'Waiting for an answer',
+      meaning: 'Waiting for an outside answer; the task cannot move forward meanwhile.',
+    },
+  },
+  stageApproval: (stageName) => `${stageName}: approved`,
   specialist: (specialty, roleName) => `${specialty} ${lowerFirstWord(roleName)}`,
 };

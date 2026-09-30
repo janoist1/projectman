@@ -10,7 +10,7 @@ Export: 2026-09-30, main 6f40e6a. Card texts are in Hungarian, as on the board.
 
 _Címkék: Válaszra vár_
 
-**Állapot:** Helyben a Codex elkezdte, de a munkaág frissítésénél megállt (commit nincs). A felhőben tiszta lappal megcsinálható.
+**Állapot:** Helyben a Codex elkezdte, de a munkaág frissítésénél megállt (commit nincs). A felhőben tiszta lappal megcsinálható. A felhős átnézés (2026-09-30) szétbontotta a beállítások komponenseit: minden címke saját `LabelCard`-ot kapott, a folyamatszerkesztő a `settings/pipeline/*` részekre (oszlopok, szakaszkártya, belépési feltételek) bomlott, így az elemenkénti gombok egy-egy helyre kerülnek. Maga a funkció még nincs kész.
 
 A tulajdonos kérése: a Beállításokban ne a teljes rész kapcsoljon szerkesztő módba (a mostani „Szerkesztés” gomb), hanem elemenként lehessen szerkeszteni és törölni, és egy „+” gombbal hozzáadni.
 
@@ -108,7 +108,7 @@ Egyrepós projektben a repó nélküli feladat (például az importáltak) a mun
 
 ### PM-69: Az átnéző jóváhagyás nélkül olvashassa a feladat munkakönyvtárát
 
-**Állapot:** Nagyrészt megoldva a PM-75-tel: az átnéző megkapja a fejlesztő munkapéldányát `--add-dir`-rel; egy `xargs` miatt még kérdezett.
+**Állapot:** Nagyrészt megoldva a PM-75-tel: az átnéző megkapja a fejlesztő munkapéldányát `--add-dir`-rel; egy `xargs` miatt még kérdezett. Javaslat (felhős átnézés): a maradékot a PM-77 parancsszabályaival együtt érdemes rendezni, utána a kártya lezárható.
 
 A próbában az átnéző minden olvasó parancshoz (grep, git log, ls) engedélyt kért, mert a fejlesztő munkakönyvtára kívül esik a sajátján. Az átnéző munkamenete kapja meg a feladat munkakönyvtárát további könyvtárként (Claude Code: `--add-dir`), így az olvasás nem kér engedélyt; az írás továbbra is igen.
 
@@ -189,7 +189,7 @@ Az átvitelhez: a Claude- és a Codex-tag beállításainak ellenőrzése, a fő
 
 ### PM-71: Codex-commit jóváhagyás nélkül a feladat ágán?
 
-**Állapot:** Részben: a `writable_roots` nem elég, mert a Codex sandboxa a .git-et így is csak olvashatóvá teszi. A folytatás a PM-77.
+**Állapot:** Részben: a `writable_roots` nem elég, mert a Codex sandboxa a .git-et így is csak olvashatóvá teszi. A folytatás a PM-77. Javaslat (felhős átnézés): a PM-77 kiváltja, ez a kártya lezárható.
 
 A Codex-tag minden commithoz engedélyt kér, mert a git metaadatai a munkakönyvtáron kívül, a közös `.git`-ben vannak. Megoldás lehet a `.git` írhatóvá tétele a munkamenetnek, de akkor a sandbox a többi ágat (például a main-t) sem védi. Döntés kell: kényelem vagy védelem.
 
@@ -215,3 +215,15 @@ Javaslat:
   - a részletek lenyithatók;
   - a gombok azt mondják, mi történik, nem azt, hogy ki mit csinál.
 - **Kevesebb kérdés:** ami rutin és biztonságos (például a saját feladatág frissítése), azt ne kérdezze; ehhez PM-66, PM-69, PM-70.
+
+## Felhős átnézés, 2026-09-30
+
+A tulajdonos kérésére egy felhős munkamenet átnézte a teljes kódot és a tervet, és rendbe tette őket (ág: `claude/determined-faraday-yz17ut`). A terv most a `docs/ROADMAP.md`-ben van: mi készült el, a PM-51 felé vezető út a kártyák sorrendjével, a technikai adósság és 15 nyitott kérdés a tulajdonosnak. A fenti kártyák tartalma nem változott, csak a PM-69, PM-71 és PM-73 állapotsora.
+
+Javasolt új kártyák (a helyi táblára felvehetők):
+
+- **Döntések a kód-átnézés után.** 15 kérdés a `docs/ROADMAP.md` végén (például mit lásson az ügyfél, hogyan számoljon a kapacitás, szigorúbb legyen-e a kiadási jóváhagyás, átírjuk-e egyszer a régi formátumokat). Mindegyiknek van mostani, biztonságos alapértéke; semmi sem akad el miatta.
+- **Codex: tiltott eszközök betartatása.** A „helyi repóból nincs feltöltés” szabályt csak a Claude Code beállításai tartatják be; `bypassPermissions` módban a Codex-tagot semmi sem állítja meg. Kapcsolódik: PM-49, PM-77.
+- **Szolgáltatófüggetlen munkamenet-szabályok.** A munkamenet-szabályok most a Claude Code szabályszintaxisában készülnek, és a Codex visszafejti őket; egy közös leírásból (csapateszközök, olvasó parancsok, tiltott műveletek, olvasható és írható könyvtárak) mindkét szolgáltató a sajátját készítené el.
+- **Üzenet-nyugták külön táblába.** A kézbesítési nyugták JSON-ként vannak az üzenet sorában, és minden munkamenet-indításkor a tag összes üzenetét be kell olvasni; egy `team_message_recipients` tábla megoldaná.
+- **GitHub: kapcsolatjelző és ág–feladat párosítás, vagy a fölösleges kód törlése.** Az `isAvailable`, a `findPullRequestsForBranch` és a `taskKeyFromBranch` kész, de semmi sem használja.

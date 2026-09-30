@@ -96,19 +96,45 @@ limits (PM-58); browser notifications, then a PWA (PM-59); a shared queue for he
 
 ## Technical debt
 
-The 2026-09-30 review looked at every module. Fixed in that clean-up: see the commit log of
-the `claude/determined-faraday-yz17ut` branch. Still open, roughly by value:
+The 2026-09-30 review looked at every module; the clean-up that followed is on the
+`claude/determined-faraday-yz17ut` branch. What it changed, in short:
+
+- **One place per rule.** Gate evaluation, label change planning, owner-only changes, member
+  and stage lookups and the task key sequence moved into `packages/shared`; the server and the
+  web's test fake both use them. One commit path for configuration writes (PUT, PATCH,
+  revert) and one place for configuration migrations.
+- **Domain.** Tasks split into CRUD, labels, stage moves and pull request records; one
+  all-or-nothing task update for REST and `update_task`; one admission path for every
+  automatic session start with one deferred-start store; one send path for team messages;
+  typed domain events instead of late-bound callbacks; units of work (SQLite transactions
+  with events published after commit); the provider stored on each session; error codes typed
+  against one shared list.
+- **Runner and prompts.** Claude code under `providers/claude` like Codex; the session split
+  into an input queue and a permission gate with fast unit tests; shared transcript and fake
+  CLI code; each rule for AI members stated once, in the wording of labels and duties.
+- **Web.** The removed `VITE_MOCK` mode; large components split (settings sections, pipeline
+  editor, session page, team page, task drawer); design tokens; translations checked against
+  the shared issue and error codes.
+- **Bugs fixed on the way.** A retire with hand-over wrote a false "unassigned" event;
+  `update_task` could half-apply; REST and MCP updates applied labels and moves in different
+  orders; configuration revert skipped the "stage in use" check; `HOST=::1` broke hooks and
+  MCP; successful logins used up the shared login limit; label changes were missing from the
+  kick-off brief; `get_task` listed labels twice; role overrides were ignored when finding
+  prioritisers and release contacts; the label picker offered release approvals the server
+  refuses; reloaded chats showed absolute paths.
+
+Still open, roughly by value:
 
 - **Storage.** Message receipts are a JSON blob scanned in JavaScript on every session start;
   a `team_message_recipients` table would fix that. The legacy `tasks.checks` column is
-  converted to labels on every read.
-- **Providers.** Provider knowledge leaks outside the adapters (the context pack branches on
-  provider), and the session policy is written in Claude Code's rule syntax that Codex parses
-  back. The runner still falls back to `process.env` when its caller passes no environment
-  (only its own tests do).
-- **Tests.** Admission scenarios are spread over five domain test files (the checks and the
-  deferred-start store also have unit tests in `admission.test.ts`); every domain test builds a
-  full domain with a git-backed config store.
+  converted to labels on every read (see question 9).
+- **Providers.** The context pack still branches on provider, and the session policy is
+  written in Claude Code's rule syntax that Codex parses back; a provider-neutral policy
+  (team tools, read-only commands, denied operations, readable and writable directories)
+  rendered by each adapter would remove that. Codex does not enforce denied tools (question 10).
+- **Tests.** Every domain test builds a full domain with a git-backed configuration store;
+  the pure parts (admission checks, label planning) now have fast unit tests, the rest could
+  follow. The PTY integration tests of the runner are the slowest part of the suite.
 
 ## Open questions for the owner
 
@@ -151,3 +177,12 @@ From the review (each has a safe default today; nothing is blocked):
 12. **Pushing.** Agents follow "commit, do not push", so GitHub lagged 150+ commits behind the
     owner's local `main` until PM-48, and cloud sessions saw an old state. Should the
     integrating session push `main` after each merge from now on?
+13. **Who hears from the watchdog and whom members ask.** Since the clean-up these follow
+    duties, like everything else: the watchdog flags problems to humans holding `monitoring`
+    (before: the operator role), prioritisation questions go to `prioritization` holders, and
+    release news to `client_communication` holders. Right?
+14. **Duplicate repository names and column ids** are not rejected by the invariants. A new
+    rule would refuse such configurations everywhere, including loading an existing one or
+    reverting to it. Add it, and fix any configuration it catches?
+15. **`PUT /config`** (replace the whole configuration) has no caller any more; the web and
+    the demo use PATCH. Remove it?

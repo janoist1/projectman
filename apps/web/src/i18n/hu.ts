@@ -1200,6 +1200,17 @@ export const hu = {
     undelivered: 'kézbesítésre vár',
   },
 
+  columnColors: {
+    gray: 'Szürke',
+    blue: 'Kék',
+    teal: 'Türkiz',
+    green: 'Zöld',
+    yellow: 'Sárga',
+    orange: 'Narancs',
+    red: 'Piros',
+    pink: 'Rózsaszín',
+    purple: 'Lila',
+  },
   settings: {
     title: 'Beállítások',
     subtitle:
@@ -1222,6 +1233,7 @@ export const hu = {
       timezone: 'Időzóna',
     },
     pipeline: {
+      color: 'Oszlop színe',
       owners: 'Gazdák',
       noOwners: 'nincs gazdája',
       gate: 'Kapu',

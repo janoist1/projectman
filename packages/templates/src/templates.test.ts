@@ -1,3 +1,4 @@
+import { TEMPLATE_COLUMN_COLORS } from './templates/draft';
 import { describe, expect, it } from 'vitest';
 import {
   MemberHandle,
@@ -226,6 +227,7 @@ describe('web-client-project', () => {
       (['ready', 'development', 'review', 'client_test', 'awaiting_release', 'done'] as const).map((id) => ({
         id,
         ...hu.columns[id],
+        color: TEMPLATE_COLUMN_COLORS[id],
       })),
     );
     expect(config.pipeline.stages.map((s) => s.name)).toEqual(

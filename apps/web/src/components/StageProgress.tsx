@@ -50,6 +50,7 @@ export function StageProgress({ pipeline, stageId, phase, variant = 'card', clas
                 isCurrent && styles.stepCurrent,
                 passed && !isCurrent && styles.stepPassed,
               )}
+              data-column-color={column.color}
               aria-current={isCurrent ? 'step' : undefined}
             >
               <span className={styles.stepSegments}>
@@ -88,6 +89,7 @@ export function StageProgress({ pipeline, stageId, phase, variant = 'card', clas
           <span
             key={entry.id}
             className={clsx(styles.segment, newColumn && styles.columnStart)}
+            data-column-color={pipeline.columnOfStage.get(entry.id)?.color}
             data-state={segmentState(i, current, phase)}
             data-phase={phase}
           />

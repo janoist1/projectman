@@ -5,7 +5,17 @@ import type { IconName } from './Icon';
 import styles from './Chip.module.css';
 
 export type ChipTone =
-  'neutral' | 'outline' | 'accent' | 'needs' | 'ok' | 'blocked' | 'kind' | 'phase' | 'status' | 'dark';
+  | 'column'
+  | 'neutral'
+  | 'outline'
+  | 'accent'
+  | 'needs'
+  | 'ok'
+  | 'blocked'
+  | 'kind'
+  | 'phase'
+  | 'status'
+  | 'dark';
 
 interface ChipProps extends HTMLAttributes<HTMLSpanElement> {
   tone?: ChipTone;

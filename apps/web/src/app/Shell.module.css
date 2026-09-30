@@ -430,3 +430,14 @@
   border-right-color: transparent;
   animation: pm-spin 0.9s linear infinite;
 }
+
+.boardShell {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.boardMain {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}

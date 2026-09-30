@@ -385,3 +385,26 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
+
+.swatches {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.swatch {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  border: 3px solid var(--c-surface);
+  background: var(--column-fg);
+}
+
+.swatch[aria-pressed='true'] {
+  outline: 2px solid var(--c-ink);
+  outline-offset: 2px;
+}

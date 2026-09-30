@@ -8,7 +8,6 @@ import { SegmentedControl } from '../../components/SegmentedControl';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
-import { columnKind } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { matchesFilter } from '../../lib/taskState';
 import type { BoardFilter, TaskPhase } from '../../lib/taskState';
@@ -52,15 +51,11 @@ function Column({
     drop: (event: DragEvent, column: BoardColumnView) => void;
   };
 }) {
-  const kind = columnKind(pipeline, column);
   const headingId = `col-${column.id}`;
   return (
     <section
-      className={clsx(
-        styles.column,
-        kind === 'done' && styles.columnDone,
-        drag.targetColumn === column.id && styles.dropTarget,
-      )}
+      className={clsx(styles.column, drag.targetColumn === column.id && styles.dropTarget)}
+      data-column-color={column.color}
       aria-labelledby={headingId}
       onDragOver={(event) => drag.over(event, column)}
       onDragLeave={drag.leave}
@@ -68,7 +63,7 @@ function Column({
     >
       <div className={styles.columnHead}>
         <div className={styles.columnTitle}>
-          <span className={styles.columnDot} data-stage-kind={kind} aria-hidden="true" />
+          <span className={styles.columnDot} aria-hidden="true" />
           <h2 id={headingId} className={styles.columnName}>
             {column.name}
           </h2>

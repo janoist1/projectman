@@ -1,6 +1,13 @@
 import { getLocale } from '@projectman/templates';
 import { useState } from 'react';
-import { CheckName, DUTY_IDS, DutyId, StageKind } from '@projectman/shared';
+import {
+  BoardColumnColor,
+  defaultBoardColumnColor,
+  CheckName,
+  DUTY_IDS,
+  DutyId,
+  StageKind,
+} from '@projectman/shared';
 import type { ProjectConfig, GateCondition, MemberConfig, Stage, Pipeline } from '@projectman/shared';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
@@ -327,6 +334,24 @@ export function PipelineEditor({
                 }
               />
             </label>
+            <fieldset className={styles.swatches}>
+              <legend>{t('settings.pipeline.color')}</legend>
+              {BoardColumnColor.options.map((color) => (
+                <button
+                  type="button"
+                  key={color}
+                  className={styles.swatch}
+                  data-column-color={color}
+                  aria-label={t(`columnColors.${color}`)}
+                  aria-pressed={(column.color ?? defaultBoardColumnColor(index)) === color}
+                  onClick={() =>
+                    change((config) => {
+                      config.pipeline.columns[index]!.color = color;
+                    })
+                  }
+                />
+              ))}
+            </fieldset>
             <Button
               variant="secondary"
               onClick={() => {

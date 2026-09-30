@@ -22,6 +22,26 @@
   --topbar-height: 64px;
   --tabbar-height: 64px;
 
+  /* Board column palette: foreground accents and softly tinted surfaces. */
+  --column-gray-fg: #4b5563;
+  --column-gray-bg: #e9ecef;
+  --column-blue-fg: #1e40af;
+  --column-blue-bg: #e8eefb;
+  --column-teal-fg: #115e59;
+  --column-teal-bg: #e3f1ee;
+  --column-green-fg: #166534;
+  --column-green-bg: #e6f1e7;
+  --column-yellow-fg: #713f12;
+  --column-yellow-bg: #f6efd9;
+  --column-orange-fg: #9a3412;
+  --column-orange-bg: #f9ece1;
+  --column-red-fg: #991b1b;
+  --column-red-bg: #f7e7e6;
+  --column-pink-fg: #9d174d;
+  --column-pink-bg: #f7e7ef;
+  --column-purple-fg: #6b21a8;
+  --column-purple-bg: #efe8f8;
+
   /* surfaces */
   --c-page: #f5f4ef;
   --c-rail: #eceae3;
@@ -155,6 +175,25 @@
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
+
+    --column-gray-fg: #cbd5e1;
+    --column-gray-bg: #272e38;
+    --column-blue-fg: #a5bfff;
+    --column-blue-bg: #242f49;
+    --column-teal-fg: #7eddd0;
+    --column-teal-bg: #1d3534;
+    --column-green-fg: #9cdda9;
+    --column-green-bg: #25372b;
+    --column-yellow-fg: #ead287;
+    --column-yellow-bg: #3b3321;
+    --column-orange-fg: #ffc095;
+    --column-orange-bg: #3e2e25;
+    --column-red-fg: #ffaaa5;
+    --column-red-bg: #3f282b;
+    --column-pink-fg: #f5acd0;
+    --column-pink-bg: #3c2938;
+    --column-purple-fg: #d3b2fa;
+    --column-purple-bg: #332b43;
 
     --c-page: #141412;
     --c-rail: #191916;

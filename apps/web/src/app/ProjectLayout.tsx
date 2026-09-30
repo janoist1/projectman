@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { useEffect, useMemo, useState } from 'react';
-import { Outlet, useParams } from 'react-router';
+import { Outlet, useMatch, useParams } from 'react-router';
 import { isApiError } from '../api/client';
 import { useBoard, useConfig, useInbox } from '../api/queries';
 import { useProjectSubscription } from '../api/socketHooks';
@@ -18,6 +18,9 @@ export function ProjectLayout() {
   const { projectKey = '' } = useParams();
   const me = useMeContext();
   const isMobile = useIsMobile();
+  const boardIndex = useMatch('/p/:projectKey');
+  const boardTask = useMatch('/p/:projectKey/tasks/:taskKey');
+  const fixedBoard = !isMobile && !!(boardIndex || boardTask);
   useProjectSubscription(projectKey);
   const board = useBoard(projectKey);
   const inbox = useInbox(projectKey);
@@ -72,7 +75,7 @@ export function ProjectLayout() {
 
   return (
     <ProjectContext.Provider value={value}>
-      <div className={styles.shell}>
+      <div className={clsx(styles.shell, fixedBoard && styles.boardShell)}>
         <a href="#main" className={styles.skip}>
           {t('app.skipToContent')}
         </a>
@@ -89,7 +92,7 @@ export function ProjectLayout() {
             />
           )}
           <ConnectionBanner />
-          <main id="main" tabIndex={-1} className={styles.main}>
+          <main id="main" tabIndex={-1} className={clsx(styles.main, fixedBoard && styles.boardMain)}>
             <Outlet />
           </main>
         </div>

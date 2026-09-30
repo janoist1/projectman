@@ -152,3 +152,41 @@
 .pulse {
   animation: pm-pulse 1.8s infinite;
 }
+
+/* Pipeline columns share their palette with stage chips and editor swatches. */
+[data-column-color='gray'] {
+  --column-fg: var(--column-gray-fg);
+  --column-bg: var(--column-gray-bg);
+}
+[data-column-color='blue'] {
+  --column-fg: var(--column-blue-fg);
+  --column-bg: var(--column-blue-bg);
+}
+[data-column-color='teal'] {
+  --column-fg: var(--column-teal-fg);
+  --column-bg: var(--column-teal-bg);
+}
+[data-column-color='green'] {
+  --column-fg: var(--column-green-fg);
+  --column-bg: var(--column-green-bg);
+}
+[data-column-color='yellow'] {
+  --column-fg: var(--column-yellow-fg);
+  --column-bg: var(--column-yellow-bg);
+}
+[data-column-color='orange'] {
+  --column-fg: var(--column-orange-fg);
+  --column-bg: var(--column-orange-bg);
+}
+[data-column-color='red'] {
+  --column-fg: var(--column-red-fg);
+  --column-bg: var(--column-red-bg);
+}
+[data-column-color='pink'] {
+  --column-fg: var(--column-pink-fg);
+  --column-bg: var(--column-pink-bg);
+}
+[data-column-color='purple'] {
+  --column-fg: var(--column-purple-fg);
+  --column-bg: var(--column-purple-bg);
+}

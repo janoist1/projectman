@@ -1,9 +1,9 @@
 import { request as httpRequest } from 'node:http';
 import Fastify from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { HookPayload } from './hook-payload';
-import { isLoopback, isProxied, registerHookRoutes } from './hooks';
-import type { ClaudeSession } from './session';
+import { HookPayload } from './hook-payload';
+import { registerHookRoutes } from './hooks';
+import type { AgentSession } from './session';
 import { silentLogger, waitFor } from './test-helpers';
 
 function fakeSession(answer: (p: HookPayload, withdrawn: AbortSignal) => Promise<unknown>) {
@@ -14,7 +14,7 @@ function fakeSession(answer: (p: HookPayload, withdrawn: AbortSignal) => Promise
       calls.push(payload);
       return answer(payload, withdrawn);
     },
-  } as unknown as ClaudeSession;
+  } as unknown as AgentSession;
   return { session, calls };
 }
 
@@ -23,11 +23,17 @@ afterEach(async () => {
   await Promise.all(apps.splice(0).map((app) => app.close()));
 });
 
-function appWith(session: ClaudeSession) {
+function parse(_session: AgentSession, body: unknown): HookPayload | null {
+  const parsed = HookPayload.safeParse(body);
+  return parsed.success ? parsed.data : null;
+}
+
+function appWith(session: AgentSession, sessionForToken?: (token: string) => AgentSession | undefined) {
   const app = Fastify({ logger: false });
   apps.push(app);
   registerHookRoutes(app, {
-    sessionForToken: (t) => (t === 'good' ? session : undefined),
+    sessionForToken: sessionForToken ?? ((t) => (t === 'good' ? session : undefined)),
+    parse,
     logger: silentLogger(),
   });
   return app;
@@ -117,6 +123,21 @@ describe('POST /hooks/:token', () => {
     ).toBe(403);
     expect(calls).toHaveLength(0);
   });
+
+  it('looks the token up again once the body has arrived', async () => {
+    const { session, calls } = fakeSession(async () => null);
+    // The session exits while the body is on its way: the second lookup finds nothing.
+    let lookups = 0;
+    const app = appWith(session, (t) => (t === 'good' && ++lookups === 1 ? session : undefined));
+    const res = await app.inject({
+      method: 'POST',
+      url: '/hooks/good',
+      payload: { hook_event_name: 'Stop' },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(lookups).toBe(2);
+    expect(calls).toHaveLength(0);
+  });
 });
 
 describe('withdrawn requests', () => {
@@ -147,17 +168,5 @@ describe('withdrawn requests', () => {
     expect(seen!.aborted).toBe(false);
     request.destroy(); // Claude Code stops waiting, e.g. the prompt was answered in the terminal
     await waitFor(() => seen!.aborted, { what: 'withdrawn signal' });
-  });
-});
-
-describe('address checks', () => {
-  it('accepts loopback only', () => {
-    expect(isLoopback('127.0.0.1')).toBe(true);
-    expect(isLoopback('::1')).toBe(true);
-    expect(isLoopback('::ffff:127.0.0.1')).toBe(true);
-    expect(isLoopback('192.168.1.10')).toBe(false);
-    expect(isLoopback(undefined)).toBe(false);
-    expect(isProxied({ forwarded: 'for=1.2.3.4' })).toBe(true);
-    expect(isProxied({ host: '127.0.0.1:4700' })).toBe(false);
   });
 });

@@ -1,5 +1,14 @@
-import { MemberHandle, TEAM_MESSAGE_PREFIX_RE, userTextOrigin, type ChatItem } from '@projectman/shared';
-import { TEAM_SEND_MESSAGE_TOOL, compactInput, oneLine, toolSummary } from '../tools';
+import type { ChatItem } from '@projectman/shared';
+import { TEAM_SEND_MESSAGE_TOOL, compactInput, oneLine, toolSummary } from '../../tools';
+import {
+  ToolNames,
+  UserTurns,
+  selfHandle,
+  sentTeamMessage,
+  textOf,
+  undeliveredTeamMessage,
+} from '../../transcript/chat-items';
+import { num, rec, str, type Json } from '../../transcript/json';
 
 /**
  * Turns Claude Code transcript entries (one JSON object per JSONL line) into chat items.
@@ -30,9 +39,6 @@ export interface ParseResult {
   interruptedAt: string | null;
 }
 
-/** Sender used for outgoing team messages when the session's member is unknown. */
-export const UNKNOWN_MEMBER = 'unknown';
-
 /** Tags of messages Claude Code writes as user entries for its own bookkeeping. */
 const NOISE_TAGS = new Set([
   'local-command-stdout',
@@ -53,30 +59,9 @@ const NOISE_TAGS = new Set([
 
 const INTERRUPT_RE = /^\[Request interrupted by user[^\]]*\]$/;
 const PASTED_CONTENT_LINE_RE = /^<\/?pasted_content(?:\s[^>]*)?>$/;
-const MAX_TOOL_MEMORY = 2000;
 
-type Json = Record<string, unknown>;
-
-function rec(value: unknown): Json | null {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Json) : null;
-}
-
-function str(value: unknown): string | null {
-  return typeof value === 'string' ? value : null;
-}
-
-/** Text of a message content (string, or the text blocks of a block array). */
-function textOf(content: unknown): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .map((block) => {
-      const b = rec(block);
-      return b && b.type === 'text' && typeof b.text === 'string' ? b.text : '';
-    })
-    .filter((t) => t.length > 0)
-    .join('\n\n');
-}
+/** Only `text` blocks carry the text of a message (not thinking, images or tool blocks). */
+const isTextBlock = (block: Json) => block.type === 'text';
 
 /** Removes the `<pasted_content id="…">` wrapper lines newer Claude Code versions add. */
 function stripPasteMarkers(text: string): string {
@@ -87,27 +72,18 @@ function stripPasteMarkers(text: string): string {
     .join('\n');
 }
 
-function isHandle(value: unknown): value is string {
-  return MemberHandle.safeParse(value).success;
-}
-
-function recipients(value: unknown): string[] {
-  const list = Array.isArray(value) ? value : typeof value === 'string' ? [value] : [];
-  return list.filter(isHandle);
-}
-
 export class TranscriptParser {
   private readonly self: string | null;
   private readonly cwd: string | null;
-  private nextUserOrigin: 'brief' | 'human';
+  private readonly turns: UserTurns;
   /** tool_use id -> tool name, to summarise the matching tool_result. */
-  private readonly tools = new Map<string, string>();
+  private readonly tools = new ToolNames();
   private anonymous = 0;
 
   constructor(opts: TranscriptParserOptions = {}) {
-    this.self = opts.self && isHandle(opts.self) ? opts.self : null;
+    this.self = selfHandle(opts.self);
     this.cwd = opts.cwd ?? null;
-    this.nextUserOrigin = opts.firstUserOrigin ?? 'brief';
+    this.turns = new UserTurns(this.self, opts.firstUserOrigin);
   }
 
   /** Parses complete JSONL lines; malformed lines are skipped. */
@@ -169,7 +145,7 @@ export class TranscriptParser {
     const multi = content.length > 1;
     const hasToolResult = content.some((b) => rec(b)?.type === 'tool_result');
     if (!hasToolResult) {
-      this.userText(textOf(content), id, ts, result);
+      this.userText(textOf(content, isTextBlock), id, ts, result);
       return result;
     }
     content.forEach((block, index) => {
@@ -205,23 +181,7 @@ export class TranscriptParser {
     }
     if (tag && NOISE_TAGS.has(tag)) return;
 
-    const origin = userTextOrigin(text, this.nextUserOrigin);
-    this.nextUserOrigin = 'human';
-    const team = TEAM_MESSAGE_PREFIX_RE.exec(text);
-    const sender = team?.[1];
-    if (team && isHandle(sender)) {
-      out.items.push({
-        kind: 'team_message',
-        id,
-        ts,
-        direction: 'in',
-        from: sender,
-        to: this.self ? [this.self] : [],
-        text: text.slice(team[0].length).trim(),
-      });
-      return;
-    }
-    out.items.push({ kind: 'user_text', id, ts, text, origin });
+    out.items.push(this.turns.item(text, id, ts));
   }
 
   private assistantEntry(entry: Json, id: string, ts: string): ChatItem[] {
@@ -230,7 +190,7 @@ export class TranscriptParser {
     const content = message.content;
 
     if (entry.isApiErrorMessage === true) {
-      const text = textOf(content).trim();
+      const text = textOf(content, isTextBlock).trim();
       return text ? [{ kind: 'system_note', id, ts, text: oneLine(text, 300) }] : [];
     }
     if (typeof content === 'string') {
@@ -253,19 +213,9 @@ export class TranscriptParser {
       if (b.type !== 'tool_use') return;
       const toolUseId = str(b.id) ?? itemId;
       const name = str(b.name) ?? 'tool';
-      this.remember(toolUseId, name);
+      this.tools.remember(toolUseId, name);
       if (name === TEAM_SEND_MESSAGE_TOOL) {
-        const input = rec(b.input) ?? {};
-        const text = str(input.text) ?? str(input.message) ?? '';
-        items.push({
-          kind: 'team_message',
-          id: itemId,
-          ts,
-          direction: 'out',
-          from: this.self ?? UNKNOWN_MEMBER,
-          to: recipients(input.to),
-          text,
-        });
+        items.push(sentTeamMessage(rec(b.input) ?? {}, itemId, ts, this.self));
         return;
       }
       items.push({
@@ -283,15 +233,11 @@ export class TranscriptParser {
 
   private toolResult(block: Json, id: string, ts: string, toolUseResult: unknown): ChatItem | null {
     const toolUseId = str(block.tool_use_id) ?? id;
-    const name = this.tools.get(toolUseId) ?? null;
+    const name = this.tools.get(toolUseId);
     const ok = block.is_error !== true;
-    const text = textOf(block.content);
+    const text = textOf(block.content, isTextBlock);
 
-    if (name === TEAM_SEND_MESSAGE_TOOL) {
-      return ok
-        ? null
-        : { kind: 'system_note', id, ts, text: `Team message not delivered: ${oneLine(text, 200)}` };
-    }
+    if (name === TEAM_SEND_MESSAGE_TOOL) return ok ? null : undeliveredTeamMessage(text, id, ts);
     return {
       kind: 'tool_result',
       id,
@@ -301,18 +247,6 @@ export class TranscriptParser {
       summary: resultSummary(name, ok, text, toolUseResult),
     };
   }
-
-  private remember(toolUseId: string, name: string): void {
-    this.tools.set(toolUseId, name);
-    if (this.tools.size > MAX_TOOL_MEMORY) {
-      const oldest = this.tools.keys().next().value;
-      if (oldest !== undefined) this.tools.delete(oldest);
-    }
-  }
-}
-
-function count(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 /** Short outcome of a tool call, e.g. "3 files", "Created", or the first line of output. */
@@ -333,7 +267,7 @@ export function resultSummary(
       return out || 'Done';
     }
     case 'Read': {
-      const lines = count(rec(r?.file)?.numLines);
+      const lines = num(rec(r?.file)?.numLines);
       return lines !== null ? `${lines} lines` : 'Read';
     }
     case 'Edit':
@@ -344,7 +278,7 @@ export function resultSummary(
       return r?.type === 'create' ? 'Created' : 'Updated';
     case 'Grep':
     case 'Glob': {
-      const files = count(r?.numFiles) ?? (Array.isArray(r?.filenames) ? r.filenames.length : null);
+      const files = num(r?.numFiles) ?? (Array.isArray(r?.filenames) ? r.filenames.length : null);
       return files !== null ? `${files} files` : first || 'Done';
     }
     default:

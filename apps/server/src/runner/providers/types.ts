@@ -14,7 +14,10 @@ import type { HookPayload } from '../hook-payload';
  * are answered, how the screen and the transcript read, the login check and plan usage.
  */
 
-/** What a provider's CLI can do, as far as the runner is concerned. */
+/**
+ * What differs in how the shared session drives a provider's CLI. (Everything else, such as
+ * how hooks arrive or where plan usage comes from, is inside the adapter's own functions.)
+ */
 export interface ProviderCapabilities {
   /**
    * The CLI takes our conversation id at launch (Claude `--session-id`). Otherwise the id is
@@ -22,33 +25,18 @@ export interface ProviderCapabilities {
    */
   presetSessionId: boolean;
   /**
-   * How hooks reach POST /hooks/<token>: HTTP hooks (Claude, except SessionStart), or command
-   * hooks that run the curl/Node forwarder (Codex has no HTTP hooks).
-   */
-  hookTransport: 'http' | 'command';
-  /** A PermissionRequest hook can answer approval prompts (the browser inbox). */
-  permissionHook: boolean;
-  /**
    * The hook answer can make the CLI itself remember an "allow for this session" (Claude
    * `updatedPermissions`). Otherwise the runner remembers it and answers repeats itself.
    */
   sessionPermissionRules: boolean;
-  /** Conversations can be resumed by id. */
-  resume: boolean;
-  /** The team tools are reached as an MCP server over Streamable HTTP. */
-  mcpHttp: boolean;
   /**
    * When a new process can take input: at its first SessionStart hook (Claude), or once the
    * screen shows the prompt (Codex fires SessionStart only with the first turn).
    */
   readiness: 'session_start' | 'screen';
-  /** The kick-off brief is typed once ready, or passed on the command line. */
-  initialPrompt: 'typed' | 'argument';
-  /** Where plan usage comes from: a usage probe of the CLI, or rate limits in transcripts. */
-  planUsage: 'probe' | 'transcripts';
 }
 
-/** Timing of the interaction with a TUI (see TIMING in session.ts for the defaults). */
+/** Timing of the interaction with a TUI (CLAUDE_TIMING and CODEX_TIMING in the adapters). */
 export interface SessionTiming {
   /** Pause after the first SessionStart before typing (the prompt box finishes mounting). */
   readySettleMs: number;

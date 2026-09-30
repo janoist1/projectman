@@ -16,7 +16,8 @@ import { createTranscriptReader } from './transcript/reader';
  * - `planUsage` / `planUsageFor`: the account's plan usage per provider.
  *
  * The Codex CLI is `codexBin`, else $CODEX_BIN, else `codex` on PATH; its transcripts are read
- * from `codexHome`, else $CODEX_HOME, else ~/.codex.
+ * from `codexHome`, else $CODEX_HOME, else ~/.codex. Environment variables come from `env`,
+ * else `process.env`.
  *
  * Several techniques follow agent-office (MIT, https://github.com/AgentSystemLabs/agent-office):
  * hook forwarding, bracketed-paste input, headless xterm snapshots, first-run screen detection
@@ -39,9 +40,3 @@ export function createRunnerModule(opts: RunnerModuleOptions): RunnerModule {
     },
   };
 }
-
-export { ProviderNotLoggedInError, SessionManager } from './runner';
-export { parseTranscript, TranscriptParser } from './transcript/parser';
-export { CodexTranscriptParser, parseCodexTranscript } from './providers/codex/transcript';
-export { defaultClaudeConfigPath } from './trust';
-export { defaultCodexHome } from './providers/codex';

@@ -1,19 +1,6 @@
-import { execFile } from 'node:child_process';
-import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { describe, expect, it } from 'vitest';
-import type { StartSessionSpec } from '../contracts';
-import {
-  HTTP_HOOK_EVENTS,
-  buildClaudeArgs,
-  buildMcpConfig,
-  buildSettings,
-  cliExists,
-  forwarderCommand,
-  hookUrlFor,
-  resolveCommand,
-  shellQuote,
-} from './claude-args';
+import type { StartSessionSpec } from '../../../contracts';
+import { HTTP_HOOK_EVENTS, buildClaudeArgs, buildMcpConfig, buildSettings } from './args';
 
 const spec: StartSessionSpec = {
   sessionId: 'ses_1',
@@ -122,69 +109,8 @@ describe('buildClaudeArgs', () => {
   });
 });
 
-describe('helpers', () => {
-  it('builds hook urls and MCP config', () => {
-    expect(hookUrlFor('http://127.0.0.1:4700/', 'abc')).toBe('http://127.0.0.1:4700/hooks/abc');
+describe('buildMcpConfig', () => {
+  it('points the team server at the session endpoint over HTTP', () => {
     expect(buildMcpConfig('http://x/mcp/1').mcpServers.team.type).toBe('http');
-  });
-
-  it('runs JavaScript CLIs with the current Node binary', () => {
-    expect(resolveCommand('/x/fake-claude.mjs', ['-a'])).toEqual({
-      file: process.execPath,
-      args: ['/x/fake-claude.mjs', '-a'],
-    });
-    expect(resolveCommand('claude', ['-a'])).toEqual({ file: 'claude', args: ['-a'] });
-  });
-
-  it('checks that the CLI can be started', async () => {
-    const fake = new URL('../../test/fixtures/fake-claude.mjs', import.meta.url).pathname;
-    expect(await cliExists(fake, '')).toBe(true);
-    expect(await cliExists('/nonexistent/fake-claude.mjs', '')).toBe(false);
-    expect(await cliExists('sh', '/usr/bin:/bin')).toBe(true);
-    expect(await cliExists('sh', '/nonexistent')).toBe(false);
-    expect(await cliExists('/bin/sh', '')).toBe(true);
-    expect(await cliExists('/etc', '')).toBe(false);
-  });
-
-  it('quotes for sh', () => {
-    expect(shellQuote("it's")).toBe(`'it'\\''s'`);
-  });
-});
-
-describe('forwarderCommand', () => {
-  async function forward(pathEnv: string): Promise<{ body: string; stdout: string }> {
-    let body = '';
-    const server = createServer((req, res) => {
-      req.setEncoding('utf8');
-      req.on('data', (chunk: string) => (body += chunk));
-      req.on('end', () => {
-        res.writeHead(200, { 'content-type': 'text/plain' });
-        res.end('this must not reach stdout');
-      });
-    });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const { port } = server.address() as AddressInfo;
-    const command = forwarderCommand(`http://127.0.0.1:${port}/hooks/tok`);
-    const stdout = await new Promise<string>((resolve, reject) => {
-      const child = execFile('/bin/sh', ['-c', command], { env: { PATH: pathEnv } }, (err, out) =>
-        err ? reject(err) : resolve(out),
-      );
-      child.stdin!.end('{"hook_event_name":"SessionStart","session_id":"s1"}');
-    });
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    return { body, stdout };
-  }
-
-  it('posts the hook payload with curl and prints nothing', async () => {
-    const result = await forward(process.env.PATH ?? '/usr/bin:/bin');
-    expect(JSON.parse(result.body)).toEqual({ hook_event_name: 'SessionStart', session_id: 's1' });
-    expect(result.stdout).toBe('');
-  });
-
-  it('falls back to Node when curl is missing', async () => {
-    // Only /bin on PATH: sh is there, curl (in /usr/bin) is not.
-    const result = await forward('/bin');
-    expect(JSON.parse(result.body)).toEqual({ hook_event_name: 'SessionStart', session_id: 's1' });
-    expect(result.stdout).toBe('');
   });
 });

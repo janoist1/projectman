@@ -1,9 +1,24 @@
-import { userTextOrigin } from '@projectman/shared';
 import { createHash } from 'node:crypto';
-import { MemberHandle, TEAM_MESSAGE_PREFIX_RE, type ChatItem } from '@projectman/shared';
-import { TEAM_SEND_MESSAGE_TOOL, compactInput, displayPath, oneLine, toolSummary } from '../../tools';
-import { UNKNOWN_MEMBER } from '../../transcript/parser';
+import type { ChatItem } from '@projectman/shared';
+import {
+  TEAM_SEND_MESSAGE_TOOL,
+  compactInput,
+  displayPath,
+  oneLine,
+  patchSummary,
+  toolSummary,
+} from '../../tools';
+import {
+  ToolNames,
+  UserTurns,
+  selfHandle,
+  sentTeamMessage,
+  textOf,
+  undeliveredTeamMessage,
+} from '../../transcript/chat-items';
+import { num, rec, str, type Json } from '../../transcript/json';
 import type { TranscriptLineParser, TranscriptParseResult } from '../types';
+import { rateLimitsOf, type CodexRateLimits } from './plan-usage';
 
 /**
  * Turns Codex rollout lines ($CODEX_HOME/sessions/YYYY/MM/DD/rollout-<ts>-<id>.jsonl) into chat
@@ -23,62 +38,11 @@ import type { TranscriptLineParser, TranscriptParseResult } from '../types';
  * ids from a hash of their line, which stays the same whenever the file is read again.
  */
 
-export interface CodexRateWindow {
-  usedPercent: number;
-  windowMinutes: number | null;
-  /** Unix seconds. */
-  resetsAt: number | null;
-}
-
-export interface CodexRateLimits {
-  /** When the record was written (ISO). */
-  at: string;
-  limitId: string | null;
-  primary: CodexRateWindow | null;
-  secondary: CodexRateWindow | null;
-}
-
 export interface CodexParseResult extends TranscriptParseResult {
   /** The newest plan rate limits in these lines. */
   rateLimits: CodexRateLimits | null;
   /** The conversation id, when these lines include the session header. */
   sessionId: string | null;
-}
-
-type Json = Record<string, unknown>;
-
-function rec(value: unknown): Json | null {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Json) : null;
-}
-
-function str(value: unknown): string | null {
-  return typeof value === 'string' ? value : null;
-}
-
-function num(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
-function isHandle(value: unknown): value is string {
-  return MemberHandle.safeParse(value).success;
-}
-
-function recipients(value: unknown): string[] {
-  const list = Array.isArray(value) ? value : typeof value === 'string' ? [value] : [];
-  return list.filter(isHandle);
-}
-
-/** Text of message content or tool output: a string, or the text items of a list. */
-function textOf(content: unknown): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .map((item) => {
-      const i = rec(item);
-      return i && typeof i.text === 'string' ? i.text : '';
-    })
-    .filter((t) => t.length > 0)
-    .join('\n\n');
 }
 
 /** "mcp__team__" + "send_message" -> "mcp__team__send_message" (as Codex names it in hooks). */
@@ -117,12 +81,6 @@ function shellCommand(args: Json): string | null {
 
 const SHELL_TOOLS = new Set(['exec_command', 'shell', 'shell_command', 'container.exec', 'local_shell']);
 
-/** First file an apply_patch touches: "*** Update File: src/app.ts" -> "src/app.ts". */
-export function patchSummary(patch: string): string | null {
-  const m = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/m.exec(patch);
-  return m ? m[1]!.trim() : null;
-}
-
 /** Outcome of a tool output: exit status and the first line of what it printed. */
 export function outputSummary(text: string): { ok: boolean; summary: string } {
   const json = (() => {
@@ -150,36 +108,17 @@ export function outputSummary(text: string): { ok: boolean; summary: string } {
   };
 }
 
-function rateWindow(value: unknown): CodexRateWindow | null {
-  const w = rec(value);
-  const used = num(w?.used_percent);
-  if (!w || used === null) return null;
-  return { usedPercent: used, windowMinutes: num(w.window_minutes), resetsAt: num(w.resets_at) };
-}
-
-/** The rate limits of a `token_count` event payload, or null. */
-export function rateLimitsOf(payload: Json, at: string): CodexRateLimits | null {
-  const limits = rec(payload.rate_limits);
-  if (!limits) return null;
-  const primary = rateWindow(limits.primary);
-  const secondary = rateWindow(limits.secondary);
-  if (!primary && !secondary) return null;
-  return { at, limitId: str(limits.limit_id), primary, secondary };
-}
-
-const MAX_TOOL_MEMORY = 2000;
-
 export class CodexTranscriptParser implements TranscriptLineParser {
   private readonly self: string | null;
   private readonly cwd: string | null;
-  private nextUserOrigin: 'brief' | 'human';
+  private readonly turns: UserTurns;
   /** call_id -> tool name, to summarise the matching output. */
-  private readonly tools = new Map<string, string>();
+  private readonly tools = new ToolNames();
 
   constructor(opts: { self?: string | null; cwd?: string | null; firstUserOrigin?: 'brief' | 'human' } = {}) {
-    this.self = opts.self && isHandle(opts.self) ? opts.self : null;
+    this.self = selfHandle(opts.self);
     this.cwd = opts.cwd ?? null;
-    this.nextUserOrigin = opts.firstUserOrigin ?? 'brief';
+    this.turns = new UserTurns(this.self, opts.firstUserOrigin);
   }
 
   parseLines(lines: Iterable<string>): CodexParseResult {
@@ -282,23 +221,7 @@ export class CodexTranscriptParser implements TranscriptLineParser {
       return;
     }
     if (role !== 'user' || CONTEXT_FRAGMENT.test(text)) return;
-    const origin = userTextOrigin(text, this.nextUserOrigin);
-    this.nextUserOrigin = 'human';
-    const team = TEAM_MESSAGE_PREFIX_RE.exec(text);
-    const sender = team?.[1];
-    if (team && isHandle(sender)) {
-      out.items.push({
-        kind: 'team_message',
-        id,
-        ts,
-        direction: 'in',
-        from: sender,
-        to: this.self ? [this.self] : [],
-        text: text.slice(team[0].length).trim(),
-      });
-      return;
-    }
-    out.items.push({ kind: 'user_text', id, ts, text, origin });
+    out.items.push(this.turns.item(text, id, ts));
   }
 
   private toolCall(
@@ -309,17 +232,9 @@ export class CodexTranscriptParser implements TranscriptLineParser {
     ts: string,
     out: CodexParseResult,
   ): void {
-    this.remember(toolUseId, name);
+    this.tools.remember(toolUseId, name);
     if (name === TEAM_SEND_MESSAGE_TOOL) {
-      out.items.push({
-        kind: 'team_message',
-        id,
-        ts,
-        direction: 'out',
-        from: this.self ?? UNKNOWN_MEMBER,
-        to: recipients(args.to),
-        text: str(args.text) ?? str(args.message) ?? '',
-      });
+      out.items.push(sentTeamMessage(args, id, ts, this.self));
       return;
     }
     if (name === 'write_stdin' && !str(args.chars)) return; // polling a running command
@@ -363,20 +278,13 @@ export class CodexTranscriptParser implements TranscriptLineParser {
 
   private toolOutput(item: Json, id: string, ts: string, out: CodexParseResult): void {
     const toolUseId = str(item.call_id) ?? id;
-    const name = this.tools.get(toolUseId) ?? null;
+    const name = this.tools.get(toolUseId);
     if (name === 'write_stdin') return;
     const text = textOf(item.output);
     const { ok, summary } = outputSummary(text);
     if (name === TEAM_SEND_MESSAGE_TOOL) {
       // Codex does not record whether an MCP call failed; only an explicit error is shown.
-      if (/^(?:error|failed)\b/i.test(text.trim())) {
-        out.items.push({
-          kind: 'system_note',
-          id,
-          ts,
-          text: `Team message not delivered: ${oneLine(text, 200)}`,
-        });
-      }
+      if (/^(?:error|failed)\b/i.test(text.trim())) out.items.push(undeliveredTeamMessage(text, id, ts));
       return;
     }
     out.items.push({ kind: 'tool_result', id, ts, toolUseId, ok, summary });
@@ -410,14 +318,6 @@ export class CodexTranscriptParser implements TranscriptLineParser {
     const message = str(error.message)?.trim() || 'The turn failed';
     out.items.push({ kind: 'system_note', id, ts, text: oneLine(message, 300) });
     if (isAuthError(error)) out.authError = oneLine(message, 300);
-  }
-
-  private remember(toolUseId: string, name: string): void {
-    this.tools.set(toolUseId, name);
-    if (this.tools.size > MAX_TOOL_MEMORY) {
-      const oldest = this.tools.keys().next().value;
-      if (oldest !== undefined) this.tools.delete(oldest);
-    }
   }
 }
 

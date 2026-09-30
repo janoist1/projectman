@@ -137,5 +137,6 @@ createMcpModule({ handler, resolveContext, logger: app.log }).registerRoutes(app
 `npm test -w @projectman/server`: `mcp.test.ts` runs a real Fastify server and the SDK's
 `Client` with `StreamableHTTPClientTransport` (initialize, tool list and schemas, every tool,
 errors, timeout, tokens, HTTP methods, the `server/discover` probe, localhost enforcement);
-`guard.test.ts` and `format.test.ts` cover the helpers. `testing.ts` provides an in-memory
+`format.test.ts` covers the helpers; the local-request guard is `src/http/local-guard.ts`
+(tested in `local-guard.test.ts`). `testing.ts` provides an in-memory
 `TeamToolsHandler` that other tests can reuse.

@@ -1,6 +1,7 @@
 import { formatInjectedTeamMessage } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
-import { CodexTranscriptParser, outputSummary, parseCodexTranscript, patchSummary } from './transcript';
+import { patchSummary } from '../../tools';
+import { CodexTranscriptParser, outputSummary, parseCodexTranscript } from './transcript';
 
 const ID = '019a0b1c-2d3e-7f40-8a5b-6c7d8e9f0a1b';
 let second = 0;

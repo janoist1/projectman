@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createPlanUsageProvider, toPlanUsage } from './plan-usage';
-import { FAKE_CLAUDE, silentLogger } from './test-helpers';
+import { FAKE_CLAUDE, silentLogger } from '../../test-helpers';
 
 const saved = process.env.FAKE_CLAUDE_USAGE;
 afterEach(() => {

@@ -11,12 +11,12 @@ import {
   type SessionRunner,
   type StartSessionSpec,
 } from '../contracts';
-import { cliExists, hookUrlFor } from './claude-args';
+import { cliExists } from './cli';
 import { buildChildEnv, buildSessionEnv } from './env';
+import { hookUrlFor } from './hook-forwarder';
 import { createProviderAdapters, type ProviderAdapters } from './providers';
-import { AgentSession } from './session';
+import { AgentSession, UUID_RE } from './session';
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Exited sessions kept for a last look at their terminal. */
 const MAX_FINISHED = 20;
 /** A login check is reused this long when it said "logged in", and this long otherwise. */
@@ -71,7 +71,7 @@ export class SessionManager implements SessionRunner {
     if (this.sessions.has(spec.sessionId)) throw new Error(`session ${spec.sessionId} is already running`);
     const dir = await stat(spec.cwd).catch(() => null);
     if (!dir?.isDirectory()) throw new Error(`working directory does not exist: ${spec.cwd}`);
-    const env = buildSessionEnv(process.env, spec.sessionId);
+    const env = buildSessionEnv(this.opts.env ?? process.env, spec.sessionId);
     if (!(await cliExists(adapter.bin, env.PATH))) {
       throw new Error(`${adapter.label} CLI not found: ${adapter.bin}`);
     }
@@ -135,7 +135,7 @@ export class SessionManager implements SessionRunner {
     let pending = this.statusChecks.get(provider);
     if (!pending) {
       pending = (async (): Promise<ProviderStatus> => {
-        const env = buildChildEnv(process.env);
+        const env = buildChildEnv(this.opts.env ?? process.env);
         if (!(await cliExists(adapter.bin, env.PATH))) {
           return {
             provider,

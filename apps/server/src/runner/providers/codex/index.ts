@@ -4,10 +4,9 @@ import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import { z } from 'zod';
 import type { PermissionDecision, ProviderStatus } from '../../../contracts';
-import { resolveCommand } from '../../claude-args';
-import type { HookPayload } from '../../hook-payload';
-import { sanitizeMessage } from '../../typing';
-import { parseCodexLoginStatus, runQuietly } from '../login';
+import { resolveCommand, runQuietly } from '../../cli';
+import { DENY_DEFAULT, type HookPayload } from '../../hook-payload';
+import { parseCodexLoginStatus } from '../login';
 import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from '../types';
 import { buildCodexArgs } from './args';
 import { CodexPlanUsage } from './plan-usage';
@@ -117,8 +116,6 @@ function decisionOutput(decision: { behavior: 'allow' } | { behavior: 'deny'; me
   return { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } };
 }
 
-const DENY_DEFAULT = 'A human denied this permission request.';
-
 export function codexPermissionOutput(decision: PermissionDecision): unknown {
   if (decision.behavior === 'deny') {
     return decisionOutput({ behavior: 'deny', message: decision.message?.trim() || DENY_DEFAULT });
@@ -145,23 +142,15 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
     bin: opts.bin,
     capabilities: {
       presetSessionId: false,
-      hookTransport: 'command',
-      permissionHook: true,
       sessionPermissionRules: false,
-      resume: true,
-      mcpHttp: true,
       readiness: 'screen',
-      initialPrompt: 'argument',
-      planUsage: 'transcripts',
     },
     timing: CODEX_TIMING,
     inputTools: CODEX_INPUT_TOOLS,
 
     async launch({ spec, hookUrl, permissionTimeoutMs }) {
       const realCwd = await realpath(spec.cwd).catch(() => spec.cwd);
-      const args = buildCodexArgs({ spec, hookUrl, permissionTimeoutMs, realCwd });
-      // buildCodexArgs puts a non-empty brief on the command line (new and resumed sessions).
-      const initialMessageSent = sanitizeMessage(spec.initialMessage ?? '').length > 0;
+      const { args, initialMessageSent } = buildCodexArgs({ spec, hookUrl, permissionTimeoutMs, realCwd });
       return { ...resolveCommand(opts.bin, args), initialMessageSent };
     },
 

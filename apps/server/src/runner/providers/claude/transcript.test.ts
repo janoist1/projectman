@@ -1,6 +1,6 @@
 import { ChatItem, formatInjectedTeamMessage } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
-import { TranscriptParser, parseTranscript, resultSummary } from './parser';
+import { TranscriptParser, parseTranscript, resultSummary } from './transcript';
 
 /** Synthetic transcript entries shaped like Claude Code's JSONL (no real data). */
 let n = 0;

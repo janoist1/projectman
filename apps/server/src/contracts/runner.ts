@@ -144,8 +144,13 @@ export interface TranscriptReader {
    * Parses a whole transcript (Claude Code JSONL or Codex rollout JSONL) into chat items.
    * `self` is the handle of the session's member (sender of outgoing team messages;
    * "unknown" when omitted). General chats have no brief: their first user turn is human.
+   * `cwd` is the session's working directory: file paths inside it are shown relative to it,
+   * as in the live chat (absolute when omitted).
    */
-  read(path: string, opts?: { self?: string; firstUserOrigin?: 'brief' | 'human' }): Promise<ChatItem[]>;
+  read(
+    path: string,
+    opts?: { self?: string; firstUserOrigin?: 'brief' | 'human'; cwd?: string | null },
+  ): Promise<ChatItem[]>;
 }
 
 export interface PlanUsageProvider {
@@ -178,6 +183,12 @@ export interface RunnerModuleOptions {
   codexBin?: string;
   /** Codex's home, where it keeps transcripts (default: $CODEX_HOME, else ~/.codex). Read only. */
   codexHome?: string;
+  /**
+   * The environment the runner reads its defaults from ($CODEX_BIN, $CODEX_HOME,
+   * $CLAUDE_CONFIG_DIR, PATH) and starts the CLIs with, after removing billing and host-session
+   * variables. Explicit options above take precedence. Default: `process.env`.
+   */
+  env?: NodeJS.ProcessEnv;
 }
 
 export interface RunnerModule {

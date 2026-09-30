@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { parseClaudeAuthStatus, parseCodexLoginStatus, type CommandOutput } from './login';
+import type { CommandOutput } from '../cli';
+import { parseClaudeAuthStatus, parseCodexLoginStatus } from './login';
 
 const now = new Date('2026-01-01T00:00:00.000Z');
 const out = (stdout: string, stderr = '', code: number | null = 0): CommandOutput => ({

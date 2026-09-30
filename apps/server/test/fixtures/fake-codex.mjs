@@ -72,15 +72,27 @@
  * DIAGNOSTICS: FAKE_CODEX_ARGS_FILE, when set, receives {argv, cwd, env, config} at start-up
  *   (`config` = the parsed -c overrides; env values of names containing KEY, TOKEN or SECRET
  *   are "<set>").
+ *
+ * The terminal input, dialogs, command hooks and exit sequence shared with fake-claude live in
+ * fake-tui.mjs.
  */
-import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, mkdirSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readdirSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-
-const VERSION = '0.0.0';
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+import {
+  VERSION,
+  awaitTrust,
+  createKeyWaiter,
+  createPasteStore,
+  exitOnSignals,
+  line,
+  out,
+  readTerminalInput,
+  runCommandHook,
+  sleep,
+  writeArgsFile,
+} from './fake-tui.mjs';
 
 // ------------------------------------------------------------------ TOML values (for -c)
 
@@ -325,14 +337,7 @@ for (const feature of opts.disable) applyOverride(config, `features.${feature}=f
 
 const codexHome = process.env.CODEX_HOME || path.join(os.tmpdir(), 'fake-codex-home');
 
-if (process.env.FAKE_CODEX_ARGS_FILE) {
-  const env = {};
-  for (const [k, v] of Object.entries(process.env)) env[k] = /KEY|TOKEN|SECRET/.test(k) ? '<set>' : v;
-  writeFileSync(
-    process.env.FAKE_CODEX_ARGS_FILE,
-    JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), env, config }, null, 2),
-  );
-}
+if (process.env.FAKE_CODEX_ARGS_FILE) writeArgsFile(process.env.FAKE_CODEX_ARGS_FILE, { config });
 
 if (opts.version) {
   process.stdout.write(`codex-cli ${VERSION}\n`);
@@ -395,8 +400,6 @@ function newRolloutPath(sessionsDir, id) {
 }
 
 async function interactive() {
-  const out = (text) => process.stdout.write(text);
-  const line = (text = '') => out(`${text}\r\n`);
   const cwd = process.cwd();
   let realCwd = cwd;
   try {
@@ -485,32 +488,6 @@ async function interactive() {
   );
   let hooksTrusted = opts.bypassHookTrust;
 
-  function runCommandHook(hook, payload) {
-    return new Promise((resolve) => {
-      const child = spawn('/bin/sh', ['-c', hook.command], { cwd, env: process.env });
-      let stdout = '';
-      const timer = setTimeout(() => child.kill('SIGKILL'), (hook.timeout ?? 600) * 1000);
-      child.stdout.on('data', (d) => (stdout += d));
-      child.stderr.on('data', () => undefined);
-      child.on('error', () => {
-        clearTimeout(timer);
-        resolve(null);
-      });
-      child.on('close', (code) => {
-        clearTimeout(timer);
-        const text = stdout.trim();
-        if (code !== 0 || !text.startsWith('{')) return resolve(null);
-        try {
-          resolve(JSON.parse(text));
-        } catch {
-          resolve(null);
-        }
-      });
-      child.stdin.on('error', () => undefined);
-      child.stdin.end(JSON.stringify(payload));
-    });
-  }
-
   let turnId = null;
   async function runHooks(event, extra = {}) {
     if (!hooksTrusted) return [];
@@ -528,7 +505,7 @@ async function interactive() {
     for (const group of Array.isArray(hookEvents[event]) ? hookEvents[event] : []) {
       for (const hook of group?.hooks ?? []) {
         if (hook?.type === 'command' && typeof hook.command === 'string')
-          runs.push(runCommandHook(hook, payload));
+          runs.push(runCommandHook(hook, payload, { cwd, requireSuccess: true }));
       }
     }
     return (await Promise.all(runs)).filter((r) => r && typeof r === 'object');
@@ -549,15 +526,13 @@ async function interactive() {
 
   // --- screen & input state
   let input = '';
-  const pastes = new Map();
-  let pasteCounter = 0;
+  const pastes = createPasteStore({ placeholder: (_id, text) => `[Pasted Content ${text.length} chars]` });
   let lastPasteAt = 0;
   let busy = false;
   let turn = 0;
   let mode = 'dialog'; // dialog | prompt | question
-  let pendingKey = null;
+  const keys = createKeyWaiter();
   let lastCtrlC = 0;
-  let exiting = false;
 
   const FOOTER = '  ? for shortcuts                                              100% context left';
   function showPrompt() {
@@ -570,29 +545,17 @@ async function interactive() {
     out('\r\x1b[J');
   }
 
-  function waitKey() {
-    return new Promise((resolve) => {
-      pendingKey = resolve;
-    });
-  }
-
-  async function exit() {
-    if (exiting) return;
-    exiting = true;
-    await Promise.race([runHooks('SessionEnd', { reason: 'other' }), sleep(1500)]);
-    out('\x1b[?2004l');
-    line();
-    process.exit(0);
-  }
-  process.on('SIGTERM', () => void exit());
-  process.on('SIGHUP', () => void exit());
+  // Codex reports every exit with reason "other".
+  const exit = exitOnSignals({
+    sessionEnd: () => runHooks('SessionEnd', { reason: 'other' }),
+    restore: '\x1b[?2004l',
+  });
 
   function insertPaste(raw) {
     const text = raw.replace(/\r\n?/g, '\n');
     lastPasteAt = Date.now();
     if (text.length > 1000) {
-      const placeholder = `[Pasted Content ${text.length} chars]`;
-      pastes.set(placeholder, text);
+      const placeholder = pastes.add(text);
       input += placeholder;
       out(placeholder);
       return;
@@ -601,16 +564,10 @@ async function interactive() {
     out(text.replace(/\n/g, '\r\n  '));
   }
 
-  function expandPastes(text) {
-    let result = text;
-    for (const [placeholder, content] of pastes) result = result.split(placeholder).join(content);
-    return result;
-  }
-
   async function submit() {
     const raw = input;
     input = '';
-    const text = expandPastes(raw).trim();
+    const text = pastes.expand(raw).trim();
     pastes.clear();
     clearComposer();
     if (!text) return showPrompt();
@@ -667,7 +624,7 @@ async function interactive() {
     line('› 1. Yes, proceed');
     line('  2. No, and tell Codex what to do differently');
     mode = 'question';
-    const key = await waitKey();
+    const key = await keys.wait();
     mode = 'prompt';
     return key === 'y' || key === '1' || key === '\r'
       ? { behavior: 'allow' }
@@ -840,7 +797,7 @@ async function interactive() {
       });
       line('Which option? 1. One  2. Two');
       mode = 'question';
-      const key = await waitKey();
+      const key = await keys.wait();
       mode = 'prompt';
       if (!busy || turn !== myTurn) return;
       const answer = key === '2' ? 'Two' : 'One';
@@ -875,11 +832,9 @@ async function interactive() {
     if (!busy) return;
     busy = false;
     turn += 1; // abandons the running turn
-    if (pendingKey) {
-      const resolve = pendingKey;
-      pendingKey = null;
+    if (keys.waiting) {
       mode = 'prompt';
-      resolve('\x1b');
+      keys.deliver('\x1b');
     }
     eventMsg({ type: 'turn_aborted', turn_id: turnId, reason: 'interrupted' });
     line();
@@ -888,19 +843,10 @@ async function interactive() {
     showPrompt();
   }
 
-  // --- raw input parsing
-  let pending = '';
-  let inPaste = false;
-  let pasteBuffer = '';
-  let escTimer = null;
-
+  // --- raw input
   function handleKey(key) {
     if (mode === 'dialog' || mode === 'question') {
-      if (pendingKey) {
-        const resolve = pendingKey;
-        pendingKey = null;
-        resolve(key);
-      }
+      keys.deliver(key);
       return;
     }
     switch (key) {
@@ -949,75 +895,17 @@ async function interactive() {
     }
   }
 
-  function feed(data) {
-    pending += data;
-    while (pending.length > 0) {
-      if (inPaste) {
-        const end = pending.indexOf('\x1b[201~');
-        if (end < 0) {
-          pasteBuffer += pending;
-          pending = '';
-          return;
-        }
-        pasteBuffer += pending.slice(0, end);
-        pending = pending.slice(end + 6);
-        inPaste = false;
-        const content = pasteBuffer;
-        pasteBuffer = '';
-        if (mode === 'prompt') {
-          if (input.length === 0) out('\r› \x1b[K');
-          if (input.length === 0 && content.startsWith('!')) {
-            // "!" on an empty composer: a shell command
-            input = '!';
-            insertPaste(content.slice(1));
-          } else insertPaste(content);
-        }
-        continue;
-      }
-      if (pending.startsWith('\x1b[200~')) {
-        inPaste = true;
-        pending = pending.slice(6);
-        continue;
-      }
-      if (pending.startsWith('\x1b')) {
-        if (pending.length < 6 && '\x1b[200~'.startsWith(pending)) {
-          if (!escTimer) {
-            escTimer = setTimeout(() => {
-              escTimer = null;
-              if (pending.startsWith('\x1b') && !pending.startsWith('\x1b[200~')) {
-                pending = pending.slice(1);
-                handleKey('\x1b');
-                feed('');
-              }
-            }, 30);
-          }
-          return;
-        }
-        const seq = /^\x1b\[[0-9;]*[A-Za-z~]/.exec(pending);
-        if (seq) {
-          pending = pending.slice(seq[0].length);
-          continue;
-        }
-        pending = pending.slice(1);
-        handleKey('\x1b');
-        continue;
-      }
-      const ch = String.fromCodePoint(pending.codePointAt(0));
-      pending = pending.slice(ch.length);
-      handleKey(ch);
-    }
+  function handlePaste(content) {
+    if (mode !== 'prompt') return;
+    if (input.length === 0) out('\r› \x1b[K');
+    if (input.length === 0 && content.startsWith('!')) {
+      // "!" on an empty composer: a shell command
+      input = '!';
+      insertPaste(content.slice(1));
+    } else insertPaste(content);
   }
 
-  if (process.stdin.isTTY) process.stdin.setRawMode(true);
-  process.stdin.setEncoding('utf8');
-  process.stdin.on('data', (data) => {
-    if (escTimer) {
-      clearTimeout(escTimer);
-      escTimer = null;
-    }
-    feed(data);
-  });
-  process.stdin.resume();
+  readTerminalInput({ onKey: handleKey, onPaste: handlePaste });
 
   // --- start-up
   out('\x1b[?2004h');
@@ -1029,7 +917,7 @@ async function interactive() {
     line('Sign in with ChatGPT to use Codex as part of your paid plan');
     line('› 1. Sign in with ChatGPT');
     line('  2. Provide your own API key');
-    await waitKey();
+    await keys.wait();
     line('Exiting');
     process.exit(1);
   }
@@ -1038,14 +926,7 @@ async function interactive() {
     line('Trust this folder? Codex can read, edit, and run files here, subject to your permission settings.');
     line('› 1. Trust and continue');
     line('  2. Quit');
-    for (;;) {
-      const key = await waitKey();
-      if (key === '\r' || key === '1') break;
-      if (key === '2' || key === '\x1b') {
-        line('Exiting');
-        process.exit(1);
-      }
-    }
+    await awaitTrust(keys);
     out('\x1b[3A\x1b[J');
   }
 
@@ -1053,7 +934,7 @@ async function interactive() {
     line('Hooks need review');
     line(`${configuredHooks} hooks need review before they can run.`);
     line('› 1. Continue without them');
-    await waitKey();
+    await keys.wait();
     out('\x1b[3A\x1b[J');
   }
 

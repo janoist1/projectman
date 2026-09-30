@@ -3,9 +3,6 @@ import path from 'node:path';
 /** Tool name of the team tools' send_message, as Claude Code sees it. */
 export const TEAM_SEND_MESSAGE_TOOL = 'mcp__team__send_message';
 
-/** Tools that wait for an answer typed by a human in the terminal. */
-export const INPUT_TOOLS: ReadonlySet<string> = new Set(['AskUserQuestion']);
-
 const FILE_TOOLS = new Set(['Read', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'NotebookRead']);
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -34,6 +31,12 @@ export function displayPath(filePath: string, cwd?: string | null): string {
   if (!cwd || !path.isAbsolute(filePath)) return filePath;
   const rel = path.relative(cwd, filePath);
   return rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel : filePath;
+}
+
+/** First file an apply_patch touches: "*** Update File: src/app.ts" -> "src/app.ts". */
+export function patchSummary(patch: string): string | null {
+  const m = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/m.exec(patch);
+  return m ? m[1]!.trim() : null;
 }
 
 /** "mcp__team__send_message" -> "team: send_message". */
@@ -69,7 +72,7 @@ export function toolSummary(name: string, input: unknown, cwd?: string | null, m
   if (name === 'apply_patch') {
     // Codex edits files with a patch: "*** Update File: src/app.ts".
     const patch = str(i.command) ?? str(i.input) ?? str(i.patch);
-    const file = patch ? /^\*\*\* (?:Add|Update|Delete) File: (.+)$/m.exec(patch)?.[1]?.trim() : undefined;
+    const file = patch ? patchSummary(patch) : null;
     return file ? oneLine(displayPath(file, cwd), max) : name;
   }
   return mcpName(name) ?? name;

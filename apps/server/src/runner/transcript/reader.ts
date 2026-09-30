@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import type { ChatItem } from '@projectman/shared';
 import type { TranscriptReader } from '../../contracts';
 import { CODEX_ROLLOUT_FILE, parseCodexTranscript } from '../providers/codex/transcript';
-import { parseTranscript, type TranscriptParserOptions } from './parser';
+import { parseTranscript, type TranscriptParserOptions } from '../providers/claude/transcript';
 
 /**
  * Reads a whole transcript; a missing file is an empty conversation. Codex rollouts
@@ -23,6 +23,10 @@ export async function readTranscript(path: string, opts: TranscriptParserOptions
 export function createTranscriptReader(): TranscriptReader {
   return {
     read: (path, opts) =>
-      readTranscript(path, { self: opts?.self ?? null, firstUserOrigin: opts?.firstUserOrigin }),
+      readTranscript(path, {
+        self: opts?.self ?? null,
+        cwd: opts?.cwd ?? null,
+        firstUserOrigin: opts?.firstUserOrigin,
+      }),
   };
 }

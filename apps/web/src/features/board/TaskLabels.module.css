@@ -1,28 +1,8 @@
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.none {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--c-ink-3);
-}
-
+/* The remove cross is easy to hit with a thumb: its padding reaches past the chip's edge. */
 .remove {
   border: 0;
-  padding: 0 0 0 2px;
+  margin: -6px -8px -6px 0;
+  padding: 6px 8px 6px 4px;
   background: none;
   color: inherit;
   font: inherit;

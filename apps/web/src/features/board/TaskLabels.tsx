@@ -1,3 +1,4 @@
+import clsx from 'clsx';
 import { useState } from 'react';
 import type { Task } from '@projectman/shared';
 import { useChangeTaskLabels, useConfig, useLabels } from '../../api/queries';
@@ -48,17 +49,10 @@ export function TaskLabels({ task }: { task: Task }) {
   const pendingLabel = labels.find((label) => label.id === pending);
 
   return (
-    <section className={drawer.section} aria-label={t('task.labels.title')}>
-      <div className={styles.head}>
-        <h3 className={drawer.sectionTitle}>{t('task.labels.title')}</h3>
-        {editable ? (
-          <Button size="sm" aria-expanded={picking} onClick={() => setPicking(!picking)}>
-            {t('task.labels.add')}
-          </Button>
-        ) : null}
-      </div>
+    <section className={drawer.prop} aria-label={t('task.labels.title')}>
+      <h3 className={drawer.propLabel}>{t('task.labels.title')}</h3>
       {task.labels.length > 0 ? (
-        <ul className={styles.chips}>
+        <ul className={drawer.propValue}>
           {task.labels.map((id) => (
             <li key={id}>
               <LabelChip id={id} labels={labels}>
@@ -78,11 +72,24 @@ export function TaskLabels({ task }: { task: Task }) {
           ))}
         </ul>
       ) : (
-        <p className={styles.none}>{t('task.labels.none')}</p>
+        <span className={drawer.propMuted}>{t('task.labels.none')}</span>
+      )}
+      {editable ? (
+        <Button
+          size="sm"
+          variant="muted"
+          iconOnly
+          icon="plus"
+          aria-label={t('task.labels.add')}
+          aria-expanded={picking}
+          onClick={() => setPicking(!picking)}
+        />
+      ) : (
+        <span />
       )}
 
       {editable && picking ? (
-        <div className={styles.picker}>
+        <div className={clsx(styles.picker, drawer.propWide)}>
           {labelGroups(labels).map((group) => (
             <div key={group[0]!.group ?? group[0]!.id} className={styles.group} role="group">
               {group.map((label) => {
@@ -130,7 +137,7 @@ export function TaskLabels({ task }: { task: Task }) {
 
       {pendingLabel ? (
         <form
-          className={styles.reasonForm}
+          className={clsx(styles.reasonForm, drawer.propWide)}
           onSubmit={(event) => {
             event.preventDefault();
             submit({ add: [pendingLabel.id], comment: comment.trim() });
@@ -155,7 +162,7 @@ export function TaskLabels({ task }: { task: Task }) {
         </form>
       ) : null}
       {change.isError ? (
-        <p className={drawer.error} role="alert">
+        <p className={clsx(drawer.error, drawer.propWide)} role="alert">
           {errorMessage(change.error)}
         </p>
       ) : null}

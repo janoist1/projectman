@@ -85,12 +85,17 @@
   text-overflow: ellipsis;
 }
 
+/* The main actions under the head: open the session and write to it (or start the task), and move. */
 .actions {
-  padding-top: 14px;
-  flex-wrap: wrap;
-  border-top: 1px solid var(--c-line-soft);
+  position: relative; /* the move panel opens under the whole row */
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.actions[hidden] {
+  display: none;
 }
 
 .grow {
@@ -100,13 +105,9 @@
 .start {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  width: 100%;
-}
-
-.noSession {
-  font-size: var(--text-sm);
-  color: var(--c-ink-4);
+  align-items: flex-start;
+  gap: 8px;
+  flex: 1 1 100%;
 }
 
 .missing {

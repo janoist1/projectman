@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { Task } from '@projectman/shared';
 import { isApiError } from '../../api/client';
 import { useCancelTask, useReopenTask, useStopSession, useUpdateTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
-import { SelectField, TextAreaField } from '../../components/Field';
+import { TextAreaField } from '../../components/Field';
+import { Popover } from '../../components/Popover';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
@@ -27,112 +28,62 @@ function liveSessionId(error: unknown): string | null {
   return typeof id === 'string' ? id : null;
 }
 
-export function TaskLifecycle({ task, members }: { task: Task; members: MemberIndex }) {
-  const { key, myHandle } = useProject();
+/**
+ * The "⋯" menu of the rare task actions: cancelling the task (after a confirmation with an
+ * optional reason) and reopening a cancelled one. Nothing to offer on a finished task.
+ */
+export function TaskLifecycleMenu({ task }: { task: Task }) {
+  const { key } = useProject();
   const cancel = useCancelTask(key);
   const reopen = useReopenTask(key);
-  const update = useUpdateTask(key);
-  const stop = useStopSession(key);
   const toast = useToast();
   const [confirm, setConfirm] = useState(false);
   const [reason, setReason] = useState('');
-  const [assignee, setAssignee] = useState(task.assignee ?? '');
-  useEffect(() => setAssignee(task.assignee ?? ''), [task.assignee]);
-  const sessionId = liveSessionId(update.error);
   const open = !isTaskClosed(task);
+  const cancelled = task.status === 'cancelled';
+  if (!open && !cancelled) return null;
   return (
-    <section className={drawer.section}>
-      <h3 className={drawer.sectionTitle}>{t('taskLifecycle.title')}</h3>
-      <div className={styles.form}>
-        <SelectField
-          label={t('taskLifecycle.assignee')}
-          value={assignee}
-          onChange={(event) => {
-            setAssignee(event.target.value);
-            update.reset();
-          }}
-        >
-          <option value="">{t('taskLifecycle.nobody')}</option>
-          {[...members.values()]
-            .filter((member) => member.status !== 'retired')
-            .map((member) => (
-              <option key={member.handle} value={member.handle}>
-                {nameOf(member.handle, members, myHandle)}
-              </option>
-            ))}
-        </SelectField>
-        <Button
-          variant="secondary"
-          loading={update.isPending}
-          onClick={() =>
-            update.mutate(
-              { taskKey: task.key, body: { assignee: assignee || null } },
-              { onSuccess: () => toast.show(t('taskLifecycle.assigned')) },
-            )
-          }
-        >
-          {t('taskLifecycle.assign')}
-        </Button>
-        {update.isError ? (
-          <p role="alert" className={drawer.error}>
-            {errorMessage(update.error)}
-          </p>
-        ) : null}
-        {sessionId ? (
-          <Button
-            variant="danger"
-            loading={stop.isPending}
-            onClick={() =>
-              stop.mutate(sessionId, {
-                onSuccess: () => {
-                  update.reset();
-                  toast.show(t('taskLifecycle.stopped'));
-                },
-              })
-            }
-          >
-            {t('taskLifecycle.stop')}
-          </Button>
-        ) : null}
-        {stop.isError ? (
-          <p role="alert" className={drawer.error}>
-            {errorMessage(stop.error)}
-          </p>
-        ) : null}
-        {open ? (
-          <Button
-            variant="danger"
-            onClick={() => {
-              cancel.reset();
-              setReason('');
-              setConfirm(true);
-            }}
-          >
-            {t('taskLifecycle.cancel')}
-          </Button>
-        ) : null}
-        {task.status === 'cancelled' ? (
-          <Button
-            variant="primary"
-            loading={reopen.isPending}
-            onClick={() =>
-              reopen.mutate(task.key, {
-                onSuccess: () => {
-                  setAssignee('');
-                  toast.show(t('taskLifecycle.reopened'));
-                },
-              })
-            }
-          >
-            {t('taskLifecycle.reopen')}
-          </Button>
-        ) : null}
-        {reopen.isError ? (
-          <p role="alert" className={drawer.error}>
-            {errorMessage(reopen.error)}
-          </p>
-        ) : null}
-      </div>
+    <>
+      <Popover label={t('taskLifecycle.title')} icon="more" iconOnly variant="muted" size="md" align="right">
+        {(close) => (
+          <div className={styles.menu}>
+            {open ? (
+              <Button
+                variant="danger"
+                onClick={() => {
+                  cancel.reset();
+                  setReason('');
+                  setConfirm(true);
+                  close();
+                }}
+              >
+                {t('taskLifecycle.cancel')}
+              </Button>
+            ) : null}
+            {cancelled ? (
+              <Button
+                variant="primary"
+                loading={reopen.isPending}
+                onClick={() =>
+                  reopen.mutate(task.key, {
+                    onSuccess: () => {
+                      toast.show(t('taskLifecycle.reopened'));
+                      close();
+                    },
+                  })
+                }
+              >
+                {t('taskLifecycle.reopen')}
+              </Button>
+            ) : null}
+            {reopen.isError ? (
+              <p role="alert" className={drawer.error}>
+                {errorMessage(reopen.error)}
+              </p>
+            ) : null}
+          </div>
+        )}
+      </Popover>
       <Dialog
         open={confirm}
         onClose={() => setConfirm(false)}
@@ -175,6 +126,70 @@ export function TaskLifecycle({ task, members }: { task: Task; members: MemberIn
           </div>
         </div>
       </Dialog>
-    </section>
+    </>
+  );
+}
+
+/**
+ * The assignee as a select that saves the moment it changes. A task with a live session refuses
+ * the change; the refusal offers stopping that session, which then saves the pick.
+ */
+export function TaskAssigneeSelect({ task, members }: { task: Task; members: MemberIndex }) {
+  const { key, myHandle } = useProject();
+  const update = useUpdateTask(key);
+  const stop = useStopSession(key);
+  const toast = useToast();
+  const sessionId = liveSessionId(update.error);
+  // The select shows the pick while it is saved, or held back by a live session; otherwise the task's.
+  const showsPick = update.isPending || Boolean(sessionId);
+  const assignee = showsPick ? (update.variables?.body.assignee ?? '') : (task.assignee ?? '');
+  const save = (next: string) =>
+    update.mutate(
+      { taskKey: task.key, body: { assignee: next || null } },
+      { onSuccess: () => toast.show(t('taskLifecycle.assigned')) },
+    );
+  return (
+    <>
+      <select
+        className={styles.select}
+        aria-label={t('taskLifecycle.assignee')}
+        value={assignee}
+        disabled={update.isPending || stop.isPending}
+        onChange={(event) => save(event.target.value)}
+      >
+        <option value="">{t('taskLifecycle.nobody')}</option>
+        {[...members.values()]
+          .filter((member) => member.status !== 'retired' || member.handle === task.assignee)
+          .map((member) => (
+            <option key={member.handle} value={member.handle}>
+              {nameOf(member.handle, members, myHandle)}
+            </option>
+          ))}
+      </select>
+      {update.isError || stop.isError ? (
+        <div className={drawer.propWide}>
+          <p role="alert" className={drawer.error}>
+            {errorMessage(stop.isError ? stop.error : update.error)}
+          </p>
+          {sessionId ? (
+            <Button
+              variant="danger"
+              size="sm"
+              loading={stop.isPending}
+              onClick={() =>
+                stop.mutate(sessionId, {
+                  onSuccess: () => {
+                    toast.show(t('taskLifecycle.stopped'));
+                    save(assignee);
+                  },
+                })
+              }
+            >
+              {t('taskLifecycle.stop')}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </>
   );
 }

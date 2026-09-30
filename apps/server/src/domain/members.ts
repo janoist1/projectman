@@ -348,8 +348,8 @@ export class MemberService {
   }
 
   /**
-   * Retires an AI member: its open tasks go to `handoverTo` (or become unassigned), its stage
-   * ownerships move to `handoverTo`, its sessions are stopped (config change listener).
+   * Retires an AI member: its stage ownerships move to `handoverTo`; the configuration change
+   * listeners hand its open tasks to `handoverTo` (or unassign them) and stop its sessions.
    */
   async retire(
     projectKey: string,
@@ -367,8 +367,8 @@ export class MemberService {
       if (!config.team.members.some((m) => m.handle === handoverTo)) throw notFound('member', handoverTo);
     }
 
-    const assignedTasks = this.ctx.repos.tasks.listByAssignee(projectKey, handle);
-    await this.projects.update(projectKey, by, (draft) => {
+    const handovers = handoverTo ? { [handle]: handoverTo } : undefined;
+    await this.projects.update(projectKey, { ...by, handovers }, (draft) => {
       if (!draft.team.members.some((m) => m.handle === handle)) throw notFound('member', handle);
       draft.team.members = draft.team.members.filter((m) => m.handle !== handle);
       for (const stage of draft.pipeline.stages) {
@@ -379,10 +379,6 @@ export class MemberService {
       }
       return `Retire ${handle}${handoverTo ? ` (handover to ${handoverTo})` : ''}`;
     });
-    for (const task of assignedTasks) {
-      if (isOpenTask(task))
-        this.tasks.assign(projectKey, task.key, handoverTo, by.actor, { reason: 'handover', from: handle });
-    }
     this.inbox.cancelOpenFromSource(projectKey, handle);
 
     this.timeline.append({

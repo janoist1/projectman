@@ -199,7 +199,7 @@ export function createDomain(opts: DomainOptions) {
     if (!change.previous) return;
     const remaining = new Set(change.next.team.members.map((m) => m.handle));
     const removed = change.previous.team.members.map((m) => m.handle).filter((h) => !remaining.has(h));
-    tasks.unassignMembers(change.projectKey, removed, change.actor);
+    tasks.handOverTasks(change.projectKey, removed, change.actor, change.handovers);
   });
   projects.onConfigChanged((change) => sessions.handleConfigChange(change));
   // Human decisions.

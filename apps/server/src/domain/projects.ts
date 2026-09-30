@@ -42,6 +42,8 @@ export interface ConfigChangeMeta {
   message: string;
   /** Internal invitation acceptance may claim only this previously unbound seat. */
   invitationBinding?: { handle: string; email: string };
+  /** Members who leave in this change and who takes over their open tasks (handle -> handle). */
+  handovers?: Readonly<Record<string, string>>;
 }
 
 /** A human's edit of the configuration (settings: replace, patch or revert). */
@@ -61,6 +63,8 @@ export interface ConfigChange {
   next: ProjectConfig;
   version: string;
   actor: Actor;
+  /** Members who left in this change and who takes over their open tasks (handle -> handle). */
+  handovers?: Readonly<Record<string, string>>;
 }
 
 export type ConfigChangeListener = (change: ConfigChange) => void | Promise<void>;
@@ -301,7 +305,7 @@ export class ProjectService {
   /** Read-modify-write of the configuration; `change` edits the draft and returns the commit message. */
   async update(
     key: string,
-    meta: { actor: Actor; author: Author; invitationBinding?: { handle: string; email: string } },
+    meta: Omit<ConfigChangeMeta, 'message'>,
     change: (draft: ProjectConfig) => string,
   ): Promise<LoadedProject> {
     return this.locks.run(`config:${key}`, async () => {
@@ -440,7 +444,14 @@ export class ProjectService {
     if (version !== current.version) {
       this.touchRecord(key, loaded);
       await this.announce(
-        { projectKey: key, previous: current.config, next: loaded.config, version, actor: meta.actor },
+        {
+          projectKey: key,
+          previous: current.config,
+          next: loaded.config,
+          version,
+          actor: meta.actor,
+          ...(meta.handovers ? { handovers: meta.handovers } : {}),
+        },
         meta.message,
       );
     }

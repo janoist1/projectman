@@ -539,12 +539,28 @@ export class TaskService {
     return this.pullRequests.applyUpdate(repo, number, patch);
   }
 
-  /** Open tasks of members who left the team lose their assignee. */
-  unassignMembers(projectKey: string, handles: Iterable<string>, actor: Actor): void {
+  /**
+   * The open tasks of members who left the team go to the member named in `handovers`, or
+   * lose their assignee.
+   */
+  handOverTasks(
+    projectKey: string,
+    handles: Iterable<string>,
+    actor: Actor,
+    handovers: Readonly<Record<string, string>> = {},
+  ): void {
     this.ctx.unitOfWork(() => {
       for (const handle of handles) {
+        const to = handovers[handle] ?? null;
         for (const task of this.ctx.repos.tasks.listByAssignee(projectKey, handle)) {
-          if (isOpenTask(task)) this.assign(projectKey, task.key, null, actor, { reason: 'member_removed' });
+          if (!isOpenTask(task)) continue;
+          this.assign(
+            projectKey,
+            task.key,
+            to,
+            actor,
+            to ? { reason: 'handover', from: handle } : { reason: 'member_removed' },
+          );
         }
       }
     });

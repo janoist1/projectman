@@ -152,7 +152,7 @@ export class TaskMoves {
     // Approving puts each requested human-only label on the task in the approver's name.
     let current = task;
     for (const sibling of siblings) {
-      const label = gateRequestOf(sibling)!.label;
+      const label = gateRequestOf(sibling)?.label;
       if (!label) {
         // A request from before approvals were labels names no label to put on.
         this.settleWaiting(current, actor, { gateBlocked: { to: target.id } });

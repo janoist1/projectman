@@ -3,6 +3,7 @@ import { AI_BUILT_IN_ROLE_IDS } from '@projectman/shared';
 import type {
   Actor,
   AiMemberConfig,
+  DutyId,
   MemberView,
   ProjectConfig,
   Task,
@@ -573,6 +574,92 @@ describe('context pack for the role catalogue', () => {
     expect(builder.build(input({ project, handle: 'pm' })).appendSystemPrompt).toContain(
       '- `ops`: Ops (human, admin; roles: operator)',
     );
+  });
+});
+
+/** The numbered steps under "What done means for you here" in the system prompt. */
+function doneSteps(prompt: string): string {
+  const section = prompt.split('What done means for you here:\n')[1] ?? '';
+  return section.slice(0, section.indexOf('\n\n'));
+}
+
+describe('steps by duty', () => {
+  function customRole(id: string, duties: DutyId[], holders: 'human' | 'ai' | 'both' = 'both') {
+    return { id, name: id, summary: `The ${id}.`, notTheirJob: '', holders, duties, instructions: '' };
+  }
+
+  it('finds prioritisers, monitors and client communicators by duty through overrides and custom roles', () => {
+    const project = buildProject();
+    project.team.roles.push(
+      customRole('backlog_keeper', ['prioritization', 'monitoring'], 'human'),
+      customRole('client_liaison', ['client_communication']),
+    );
+    // The owner keeps the operator and product owner roles, but neither holds these duties any more.
+    project.team.roleOverrides = {
+      product_owner: { duties: ['requirements_analysis', 'final_decision'], instructions: '' },
+      operator: { duties: ['final_decision', 'release_approval'], instructions: '' },
+      communication: { duties: ['support'], instructions: '' },
+    };
+    project.team.members.push({
+      kind: 'human',
+      handle: 'pat',
+      displayName: 'Pat',
+      access: 'admin',
+      roles: ['backlog_keeper'],
+    });
+    addMember(project, 'liaison', 'client_liaison');
+    addMember(project, 'analyst', 'business_analyst');
+    addMember(project, 'watchdog', 'watchdog');
+    addMember(project, 'pm', 'project_manager');
+
+    const steps = (handle: string, task: Task = makeTask()) =>
+      doneSteps(builder.build(input({ project, handle, task })).appendSystemPrompt);
+
+    expect(steps('analyst', makeTask({ stageId: 'ready', assignee: null }))).toContain(
+      'Tell `pat` with send_message that the task is ready to be prioritised',
+    );
+    expect(steps('pm')).toContain('ask `pat` with ask_human; do not reorder the work yourself');
+    expect(steps('watchdog')).toContain('Flag anything wrong to `pat` with send_message');
+    const release = steps('devops', makeTask({ stageId: 'release', labels: ['release-approved'] }));
+    expect(release).toContain('Tell `liaison` that the change is live.');
+    expect(release).not.toContain('`communication`');
+  });
+
+  it('falls back to the project owners when nobody holds the duty', () => {
+    const project = buildProject();
+    project.team.roleOverrides = {
+      product_owner: { duties: ['requirements_analysis', 'final_decision'], instructions: '' },
+    };
+    addMember(project, 'analyst', 'business_analyst');
+    const prompt = builder.build(
+      input({ project, handle: 'analyst', task: makeTask({ stageId: 'ready', assignee: null }) }),
+    ).appendSystemPrompt;
+    expect(doneSteps(prompt)).toContain(
+      'Tell `owner` with send_message that the task is ready to be prioritised',
+    );
+  });
+
+  it('uses the steps of a duty with steps whatever order the role bundle lists its duties in', () => {
+    const project = buildProject();
+    project.team.roles.push(customRole('builder', ['triage', 'implementation']));
+    addMember(project, 'builder-1', 'builder');
+    // In the queue (a prioritisation stage) the member's own duties decide, not the first one listed.
+    const prompt = builder.build(
+      input({ project, handle: 'builder-1', task: makeTask({ stageId: 'ready', assignee: 'builder-1' }) }),
+    ).appendSystemPrompt;
+    const steps = doneSteps(prompt);
+    expect(steps).toContain('1. Move the task to Development (`dev`) with update_task as you start.');
+    expect(steps).toContain("Implement the change in your working directory (the task's own worktree");
+  });
+
+  it('follows the duty of the current stage when the member holds it', () => {
+    const project = buildProject();
+    // DevOps also monitors: at a monitoring stage it gets the monitoring steps, not the deployment ones.
+    project.pipeline.stages.find((s) => s.id === 'integration')!.duty = 'monitoring';
+    const prompt = builder.build(
+      input({ project, handle: 'devops', task: makeTask({ stageId: 'integration' }) }),
+    ).appendSystemPrompt;
+    expect(doneSteps(prompt)).toContain("Check the task's progress with get_task");
   });
 });
 

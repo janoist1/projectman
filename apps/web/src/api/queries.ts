@@ -25,7 +25,7 @@ import type {
   LabelView,
 } from '@projectman/shared';
 import { isApiError } from './client';
-import { countOpenInbox, upsertBy } from './cache';
+import { patchOpenInboxCount, upsertBy } from './cache';
 import { api } from './endpoints';
 import { queryKeys } from './queryKeys';
 
@@ -263,11 +263,7 @@ export function useResolveInbox(key: string, myHandle: string | null) {
       const next = client.setQueryData<InboxView>(queryKeys.inbox(key), (view) =>
         view ? { items: upsertBy(view.items, resolved, (entry) => entry.id) } : view,
       );
-      if (next) {
-        client.setQueryData<BoardView>(queryKeys.board(key), (board) =>
-          board ? { ...board, openInboxCount: countOpenInbox(next.items, null) } : board,
-        );
-      }
+      if (next) patchOpenInboxCount(client, key, next);
       return { previous };
     },
     onError: (_error, _variables, context) => {

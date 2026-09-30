@@ -1,10 +1,11 @@
 import { QueryClient } from '@tanstack/react-query';
-import type { BoardView, InboxView, MemberView, SessionDetail, TaskDetail } from '@projectman/shared';
+import type { BoardView, InboxView, Me, MemberView, SessionDetail, TaskDetail } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
 import {
   chats,
   inbox,
   members,
+  mockUser,
   planUsage,
   projectSummary,
   sessions,
@@ -98,14 +99,25 @@ describe('applyServerEvent', () => {
     expect(chat.filter((entry) => entry.id === 'new-1')).toHaveLength(1);
   });
 
-  it('keeps the inbox and the board count in sync', () => {
+  it("keeps the inbox and the board's count of the viewer's open items in sync", () => {
     const client = seed();
+    client.setQueryData<Me>(queryKeys.me, { ...mockUser, handles: { [KEY]: 'owner' }, projects: [] });
     const item = { ...inbox.find((entry) => entry.id === 'inb_perm_push')!, state: 'resolved' as const };
     applyServerEvent(client, { type: 'inbox_upserted', projectKey: KEY, item });
     const items = client.getQueryData<InboxView>(queryKeys.inbox(KEY))!.items;
     expect(items.find((entry) => entry.id === 'inb_perm_push')!.state).toBe('resolved');
-    const open = items.filter((entry) => entry.state === 'open').length;
-    expect(client.getQueryData<BoardView>(queryKeys.board(KEY))!.openInboxCount).toBe(open);
+    const mine = items.filter((entry) => entry.state === 'open' && entry.assignees.includes('owner'));
+    // Another member's open question does not count for the viewer, as on the server.
+    expect(items.some((entry) => entry.state === 'open' && !entry.assignees.includes('owner'))).toBe(true);
+    expect(client.getQueryData<BoardView>(queryKeys.board(KEY))!.openInboxCount).toBe(mine.length);
+    expect(client.getQueryState(queryKeys.board(KEY))!.isInvalidated).toBe(false);
+  });
+
+  it('refetches the board count when the viewer is unknown', () => {
+    const client = seed();
+    const item = { ...inbox.find((entry) => entry.id === 'inb_perm_push')!, state: 'resolved' as const };
+    applyServerEvent(client, { type: 'inbox_upserted', projectKey: KEY, item });
+    expect(client.getQueryState(queryKeys.board(KEY))!.isInvalidated).toBe(true);
   });
 
   it('updates member state everywhere', () => {

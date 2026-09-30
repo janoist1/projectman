@@ -2,14 +2,15 @@ import type { QueryClient } from '@tanstack/react-query';
 import type {
   BoardView,
   ChatItem,
-  InboxItem,
   InboxView,
+  Me,
   MemberView,
   ServerEvent,
   SessionDetail,
   TaskDetail,
   TeamMessagesView,
 } from '@projectman/shared';
+import { openItemsFor } from '../lib/inbox';
 import { queryKeys } from './queryKeys';
 
 /** Replaces the item with the same id, or appends it. Returns the same array when unchanged. */
@@ -29,8 +30,19 @@ export function appendUnique<T extends { id: string }>(list: readonly T[], items
   return fresh.length === 0 ? (list as T[]) : [...list, ...fresh];
 }
 
-export function countOpenInbox(items: readonly InboxItem[], handle: string | null): number {
-  return items.filter((item) => item.state === 'open' && (!handle || item.assignees.includes(handle))).length;
+/**
+ * The board's inbox badge counts the viewer's open items, as the server does. Patched from the
+ * cached inbox when the viewer's handle is known; otherwise the board is fetched again.
+ */
+export function patchOpenInboxCount(client: QueryClient, key: string, inbox: InboxView | undefined): void {
+  const myHandle = client.getQueryData<Me>(queryKeys.me)?.handles[key];
+  if (!inbox || !myHandle) {
+    void client.invalidateQueries({ queryKey: queryKeys.board(key) });
+    return;
+  }
+  client.setQueryData<BoardView>(queryKeys.board(key), (board) =>
+    board ? { ...board, openInboxCount: openItemsFor(inbox.items, myHandle).length } : board,
+  );
 }
 
 function patchMembers(
@@ -140,13 +152,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       const inbox = client.setQueryData<InboxView>(queryKeys.inbox(key), (view) =>
         view ? { items: upsertBy(view.items, item, (entry) => entry.id) } : view,
       );
-      if (inbox) {
-        client.setQueryData<BoardView>(queryKeys.board(key), (board) =>
-          board ? { ...board, openInboxCount: countOpenInbox(inbox.items, null) } : board,
-        );
-      } else {
-        void client.invalidateQueries({ queryKey: queryKeys.board(key) });
-      }
+      patchOpenInboxCount(client, key, inbox);
       return;
     }
     case 'team_message': {

@@ -92,4 +92,15 @@ describe('deriveTaskState', () => {
       label: 'Másra vár: Kata',
     });
   });
+
+  it('waits on an AI stage owner that already carries the task instead of queueing', () => {
+    const task = taskByKey('AC-26');
+    const owner = pipeline.stageById.get(task.stageId)!.owners!.find((h) => members.get(h)?.kind === 'ai')!;
+    const holding = new Map(members);
+    holding.set(owner, { ...members.get(owner)!, status: 'idle', currentTaskKeys: [task.key] });
+    expect(deriveTaskState(task, { ...ctx, members: holding })).toMatchObject({
+      phase: 'waiting',
+      label: `Másra vár: ${members.get(owner)!.displayName}`,
+    });
+  });
 });

@@ -149,6 +149,22 @@ export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
     };
   }
 
+  // An AI stage owner already carries the task (its session is idle between turns).
+  const holder = owners.find(
+    (handle) =>
+      handle !== task.assignee &&
+      members.get(handle)?.kind === 'ai' &&
+      members.get(handle)?.currentTaskKeys.includes(task.key),
+  );
+  if (holder) {
+    return {
+      phase: 'waiting',
+      label: t('taskStatus.waitingOn', { who: nameOf(holder, members, myHandle) }),
+      since: task.updatedAt,
+      worker: null,
+    };
+  }
+
   return {
     phase: 'waiting',
     label: t('taskStatus.queuedFor', { stage: stage?.name ?? task.stageId }),

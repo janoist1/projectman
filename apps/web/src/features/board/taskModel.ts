@@ -5,10 +5,18 @@ import type { MemberIndex } from '../../lib/members';
 import { nextStage } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
 
-/** The session to open for a task: the assignee's latest, otherwise the latest one. */
+/**
+ * The session to open for a task: the newest live one (e.g. the reviewer's while the task is in
+ * review), otherwise the assignee's latest, otherwise the latest one.
+ */
 export function primarySession(task: Task, sessions: readonly Session[]): Session | null {
   const sorted = [...sessions].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-  return sorted.find((session) => session.member === task.assignee) ?? sorted[0] ?? null;
+  return (
+    sorted.find((session) => session.state !== 'exited' && session.state !== 'failed') ??
+    sorted.find((session) => session.member === task.assignee) ??
+    sorted[0] ??
+    null
+  );
 }
 
 export function nextStepText(

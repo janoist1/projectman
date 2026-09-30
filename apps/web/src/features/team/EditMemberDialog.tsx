@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { holdersAllow, HumanAccess } from '@projectman/shared';
+import {
+  DEFAULT_AGENT_PROVIDER,
+  DEFAULT_PROVIDER_MODELS,
+  holdersAllow,
+  HumanAccess,
+} from '@projectman/shared';
 import type { AgentProvider, AgentEffort, MemberView, ProjectConfig, RoleView } from '@projectman/shared';
 import { useUpdateMember } from '../../api/queries';
 import { useProject } from '../../app/contexts';
@@ -37,13 +42,13 @@ function EditMemberForm({
   const [access, setAccess] = useState(member.role);
   const [selected, setSelected] = useState(member.roles);
   const [specialty, setSpecialty] = useState(member.specialty ?? '');
-  const [provider, setProvider] = useState<AgentProvider>(ai?.provider ?? member.provider ?? 'claude');
+  const [provider, setProvider] = useState<AgentProvider>(
+    ai?.provider ?? member.provider ?? DEFAULT_AGENT_PROVIDER,
+  );
   const [effort, setEffort] = useState<AgentEffort | undefined>(
     ai?.effort ?? member.effort ?? (provider === 'codex' ? 'medium' : undefined),
   );
-  const [model, setModel] = useState(
-    ai?.model ?? member.model ?? (provider === 'codex' ? 'gpt-6.1-sol' : 'opus'),
-  );
+  const [model, setModel] = useState(ai?.model ?? member.model ?? DEFAULT_PROVIDER_MODELS[provider]);
   const [schedule, setSchedule] = useState<ScheduleDraft>({
     enabled: Boolean(ai?.schedule),
     cron: ai?.schedule?.cron ?? '',

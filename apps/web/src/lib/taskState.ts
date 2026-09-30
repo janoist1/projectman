@@ -1,3 +1,4 @@
+import { DEFAULT_AGENT_PROVIDER } from '@projectman/shared';
 import type { InboxItem, LabelView, MemberView, Task } from '@projectman/shared';
 import { formatAge } from '../i18n/format';
 import { joinNames, t } from '../i18n/t';
@@ -77,7 +78,7 @@ export function startWaitingHint(task: Task): string | null {
 function startWaitingLabel(task: Task, ctx: TaskStateContext): string {
   const waiting = task.startWaiting!;
   return t(`taskStatus.startWaiting.${waiting.reason}`, {
-    provider: t(`providers.${waiting.provider ?? 'claude'}`),
+    provider: t(`providers.${waiting.provider ?? DEFAULT_AGENT_PROVIDER}`),
     percent: waiting.threshold ?? '',
     name: waiting.member ? nameOf(waiting.member, ctx.members, ctx.myHandle) : t('taskStatus.stageOwners'),
   });

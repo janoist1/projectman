@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import {
   DUTIES,
+  DUTY_GROUPS,
   DUTY_IDS,
   BUILT_IN_ROLE_IDS,
   dutyMembers,
   memberDuties,
+  memberRoles,
   roleBundle,
   isBuiltInRole,
   validateProjectConfig,
@@ -27,10 +29,9 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
   const [people, setPeople] = useState(false);
   const [adding, setAdding] = useState(false);
   const locale = getLocale(config.project.language);
-  const used = new Set(config.team.members.flatMap((m) => (m.kind === 'ai' ? [m.role] : m.roles)));
+  const used = new Set(config.team.members.flatMap(memberRoles));
   const roles = [...BUILT_IN_ROLE_IDS.filter((id) => used.has(id)), ...draft.team.roles.map((r) => r.id)];
-  const holders = (role: string) =>
-    draft.team.members.filter((m) => (m.kind === 'ai' ? m.role === role : m.roles.includes(role)));
+  const holders = (role: string) => draft.team.members.filter((m) => memberRoles(m).includes(role));
   const name = (role: string) =>
     isBuiltInRole(role)
       ? locale.roles[role].name
@@ -124,59 +125,57 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
                   ))}
             </tr>
           </thead>
-          {(['direction', 'delivery', 'quality', 'release', 'communication', 'team'] as const).map(
-            (group) => (
-              <tbody key={group}>
-                <tr>
-                  <th
-                    colSpan={1 + (people ? draft.team.members.length : roles.length)}
-                    className={styles.group}
-                  >
-                    {t(`duties.${group}`)}
-                  </th>
-                </tr>
-                {DUTY_IDS.filter((id) => DUTIES[id].group === group).map((id) => {
-                  const orphan = dutyMembers(draft, id).length === 0;
-                  return (
-                    <tr key={id} className={orphan ? styles.orphan : undefined}>
-                      <th scope="row">
-                        {locale.duties[id].name}
-                        <small>{locale.duties[id].description}</small>
-                        {orphan && <small>{t('duties.missing')}</small>}
-                      </th>
-                      {people
-                        ? draft.team.members.map((m) => (
-                            <td key={m.handle}>
+          {DUTY_GROUPS.map((group) => (
+            <tbody key={group}>
+              <tr>
+                <th
+                  colSpan={1 + (people ? draft.team.members.length : roles.length)}
+                  className={styles.group}
+                >
+                  {t(`duties.${group}`)}
+                </th>
+              </tr>
+              {DUTY_IDS.filter((id) => DUTIES[id].group === group).map((id) => {
+                const orphan = dutyMembers(draft, id).length === 0;
+                return (
+                  <tr key={id} className={orphan ? styles.orphan : undefined}>
+                    <th scope="row">
+                      {locale.duties[id].name}
+                      <small>{locale.duties[id].description}</small>
+                      {orphan && <small>{t('duties.missing')}</small>}
+                    </th>
+                    {people
+                      ? draft.team.members.map((m) => (
+                          <td key={m.handle}>
+                            <input
+                              type="checkbox"
+                              checked={memberDuties(draft, m).includes(id)}
+                              readOnly
+                              disabled
+                              aria-label={`${locale.duties[id].name}: ${m.displayName}`}
+                            />
+                          </td>
+                        ))
+                      : roles.map((role) => {
+                          const why = reason(role, id);
+                          return (
+                            <td key={role} className={why ? styles.disabled : undefined} title={why}>
                               <input
                                 type="checkbox"
-                                checked={memberDuties(draft, m).includes(id)}
-                                readOnly
-                                disabled
-                                aria-label={`${locale.duties[id].name}: ${m.displayName}`}
+                                aria-label={`${locale.duties[id].name}: ${name(role)}`}
+                                checked={roleBundle(draft, role).duties.includes(id)}
+                                disabled={!!why || save.isPending}
+                                onChange={() => toggle(role, id)}
                               />
+                              {why && <small>{why}</small>}
                             </td>
-                          ))
-                        : roles.map((role) => {
-                            const why = reason(role, id);
-                            return (
-                              <td key={role} className={why ? styles.disabled : undefined} title={why}>
-                                <input
-                                  type="checkbox"
-                                  aria-label={`${locale.duties[id].name}: ${name(role)}`}
-                                  checked={roleBundle(draft, role).duties.includes(id)}
-                                  disabled={!!why || save.isPending}
-                                  onChange={() => toggle(role, id)}
-                                />
-                                {why && <small>{why}</small>}
-                              </td>
-                            );
-                          })}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            ),
-          )}
+                          );
+                        })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          ))}
           {!people && (
             <tbody>
               <tr>

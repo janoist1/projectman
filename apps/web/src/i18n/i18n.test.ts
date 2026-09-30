@@ -2,6 +2,7 @@ import {
   HumanAccess,
   InboxKind,
   InboxResolutionRule,
+  LabelChangeReason,
   MemberStatus,
   PermissionMode,
   SessionState,
@@ -67,6 +68,7 @@ describe('hu locale', () => {
     expectKeys('inbox.options', ['allow', 'allow_session', 'deny', 'approve', 'reject', 'answer']);
     expectKeys('inbox.resolutions', ['allow', 'allow_session', 'deny', 'approve', 'reject', 'answer']);
     expectKeys('inbox.resolutionRules', InboxResolutionRule.options);
+    expectKeys('timeline.labelReasons', LabelChangeReason.options);
   });
 
   it('contains only non-empty strings', () => {

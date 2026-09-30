@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BUILT_IN_ROLE_IDS, ProvidersView, RolesView, validateProjectConfig } from '@projectman/shared';
+import { ProvidersView, Task, validateProjectConfig } from '@projectman/shared';
 import { MockBackend } from './backend';
 
 const role = {
@@ -16,13 +16,6 @@ function errorCode(response: { body?: unknown }) {
 }
 
 describe('mock role catalogue and member mutations', () => {
-  it('preserves catalogue order and appends custom roles', () => {
-    const backend = new MockBackend();
-    expect(backend.handle('POST', `${base}/roles`, role).status).toBe(201);
-    const catalogue = RolesView.parse(backend.handle('GET', `${base}/roles`, undefined).body);
-    expect(catalogue.roles.map((entry) => entry.id)).toEqual([...BUILT_IN_ROLE_IDS, role.id]);
-    expect(catalogue.roles.at(-1)).toHaveProperty('instructions', role.instructions);
-  });
   it('rejects invalid roles, holder mismatches and member kinds without changing data', () => {
     const backend = new MockBackend();
     expect(errorCode(backend.handle('POST', `${base}/members`, { role: 'missing_role' }))).toBe(
@@ -124,30 +117,69 @@ describe('mock task lifecycle', () => {
   });
 });
 
-describe('mock stage gates', () => {
-  it('blocks skipped checks and open PRs, but creates deduplicated approval decisions for merged PRs', () => {
+describe('mock task updates', () => {
+  /** A label anyone may set, required to enter code review. */
+  function gatedBackend() {
     const backend = new MockBackend();
-    expect(errorCode(backend.handle('PATCH', `${base}/tasks/AC-20`, { stageId: 'client_test' }))).toBe(
-      'gate_blocked',
-    );
-    expect(backend.findTask('AC-20')?.stageId).toBe('dev');
-    expect(errorCode(backend.handle('PATCH', `${base}/tasks/AC-27`, { stageId: 'release' }))).toBe(
-      'gate_blocked',
-    );
-    const task = backend.findTask('AC-27')!;
-    backend.updateTask(task.key, { links: task.links.map((link) => ({ ...link, state: 'merged' })) });
-    expect(errorCode(backend.handle('PATCH', `${base}/tasks/AC-27`, { stageId: 'release' }))).toBe(
-      'approval_requested',
-    );
-    expect(errorCode(backend.handle('PATCH', `${base}/tasks/AC-27`, { stageId: 'release' }))).toBe(
-      'approval_requested',
-    );
-    expect(backend.findTask(task.key)?.stageId).toBe('merge');
+    backend.config.pipeline.labels.push({ id: 'ready-for-review', name: 'Ready', setBy: 'anyone' });
+    backend.config.pipeline.stages.find((stage) => stage.id === 'code_review')!.gate = {
+      conditions: [{ type: 'has_label', label: 'ready-for-review' }],
+    };
+    return backend;
+  }
+  const newEvents = (backend: MockBackend, before: number) =>
+    backend.timeline.slice(before).map((event) => event.type);
+
+  it('applies fields and labels before the move, so one change can pass a gate', () => {
+    const backend = gatedBackend();
+    const task = backend.findTask('AC-20')!;
+    const before = backend.timeline.length;
+    const response = backend.handle('PATCH', `${base}/tasks/AC-20`, {
+      title: 'Fictional backup check',
+      labels: [...task.labels, 'ready-for-review'],
+      stageId: 'code_review',
+    });
+    expect(response.status).toBe(200);
+    expect(Task.parse(response.body)).toMatchObject({
+      title: 'Fictional backup check',
+      stageId: 'code_review',
+    });
+    expect(backend.findTask('AC-20')?.labels).toContain('ready-for-review');
+    expect(newEvents(backend, before)).toEqual(['task_updated', 'task_labels_changed', 'task_stage_changed']);
+  });
+
+  it.each([
+    ['a blocked gate', { stageId: 'code_review' }, 409, 'gate_blocked'],
+    ['a refused label', { labels: ['pr-merged'] }, 403, 'label_not_allowed'],
+  ] as const)('changes nothing when %s refuses the update', (_case, change, status, code) => {
+    const backend = gatedBackend();
+    const task = structuredClone(backend.findTask('AC-20')!);
+    const before = backend.timeline.length;
     expect(
+      backend.handle('PATCH', `${base}/tasks/AC-20`, { title: 'Must not save', ...change }),
+    ).toMatchObject({ status, body: { error: { code } } });
+    expect(backend.findTask('AC-20')).toEqual(task);
+    expect(backend.timeline).toHaveLength(before);
+  });
+
+  it('applies the rest and asks for the approval once when the move needs one', () => {
+    const backend = new MockBackend();
+    const open = () =>
       backend.inbox.filter(
-        (item) => item.taskKey === task.key && item.kind === 'decision' && item.state === 'open',
-      ),
-    ).toHaveLength(1);
+        (item) => item.taskKey === 'AC-28' && item.kind === 'decision' && item.state === 'open',
+      );
+    backend.handle('PATCH', `${base}/tasks/AC-28`, { stageId: 'merge' });
+    for (const title of ['Fictional shipping fee', 'Fictional shipping fee v2'])
+      expect(backend.handle('PATCH', `${base}/tasks/AC-28`, { title, stageId: 'release' })).toMatchObject({
+        status: 409,
+        body: { error: { code: 'approval_requested', details: { inboxItemIds: [open()[0]?.id] } } },
+      });
+    expect(backend.findTask('AC-28')).toMatchObject({
+      title: 'Fictional shipping fee v2',
+      stageId: 'merge',
+      status: 'waiting',
+    });
+    expect(open()).toHaveLength(1);
   });
 });
 

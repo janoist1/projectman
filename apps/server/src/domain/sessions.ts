@@ -238,6 +238,20 @@ export class SessionOrchestrator {
       .finally(() => this.messageDeliveries.delete(claim));
   }
 
+  /** Live recipients receive messages directly; idle recipients wake through admission. */
+  deliverOrStartMessageSession(
+    projectKey: string,
+    handle: string,
+    workItem: WorkItemRef,
+    messageId: string,
+  ): void {
+    const target = this.findRunning(projectKey, handle, workItem);
+    if (target) {
+      const message = this.ctx.repos.messages.get(messageId);
+      if (message) this.deliverTeamMessage(target, message);
+    } else this.messageSessionStarter?.(projectKey, handle, workItem, messageId);
+  }
+
   async sendTeamMessage(
     projectKey: string,
     from: string,
@@ -264,9 +278,7 @@ export class SessionOrchestrator {
       const workItem: WorkItemRef = input.taskKey
         ? { type: 'task', taskKey: input.taskKey }
         : { type: 'general' };
-      const target = this.findRunning(projectKey, handle, workItem);
-      if (target) this.deliverTeamMessage(target, message);
-      else this.messageSessionStarter?.(projectKey, handle, workItem, message.id);
+      this.deliverOrStartMessageSession(projectKey, handle, workItem, message.id);
     }
     return message;
   }

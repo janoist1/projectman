@@ -84,7 +84,7 @@ export interface DomainOptions {
   scheduleTimer?: ScheduleTimer;
   /** Delay before a done task's sessions stop and its worktrees are removed (default 2 s). */
   doneCleanupDelayMs?: number;
-  /** How often refused stage hand-overs are retried (default 30 s). */
+  /** How often refused automatic session starts are retried (default 30 s). */
   handOffRetryMs?: number;
 }
 
@@ -177,24 +177,18 @@ export function createDomain(opts: DomainOptions) {
   inbox.onResolved('decision', (item) => tasks.handleDecisionResolved(item));
   inbox.onResolved('question', (item) => teamTools.deliverAnswer(item));
   tasks.onCancelled((task) => sessions.stopTask(task.projectKey, task.key));
+  tasks.onCancelled(async (task) => scheduler.discardStaleTaskStarts(task));
+  tasks.onStageChanged((change) => scheduler.discardStaleTaskStarts(change.task));
   // Done tasks: temp workers leave; sessions stop and clean worktrees go away.
   tasks.onStageChanged((change) => scheduler.retireFinishedTempWorker(change));
-  // Human messages wake idle recipients in the background; stop() drains pending starts.
+  // Human and AI messages wake idle recipients through admission; stop() drains pending starts.
   const messageStarts = new Set<Promise<void>>();
   sessions.onMessageNeedsSession((projectKey, handle, workItem, messageId) => {
     if (stopped) return;
     const start = scheduler
-      .startMessageSession(projectKey, handle, workItem)
-      .then((session) => {
-        const message = ctx.repos.messages.get(messageId);
-        if (message && !message.receipts?.find((receipt) => receipt.handle === handle)?.deliveredAt)
-          sessions.deliverTeamMessage(session, message);
-      })
+      .startQueuedMessageSession(projectKey, handle, workItem)
       .catch((err: unknown) =>
-        opts.logger.info(
-          { err, projectKey, member: handle, messageId },
-          'team message session start deferred',
-        ),
+        opts.logger.info({ err, projectKey, member: handle, messageId }, 'team message session start failed'),
       )
       .finally(() => messageStarts.delete(start));
     messageStarts.add(start);
@@ -275,9 +269,9 @@ export function createDomain(opts: DomainOptions) {
       );
       usageTimer.unref();
       schedules.start();
-      // Hand-overs refused by admission limits start once capacity or plan usage allows.
+      // Refused hand-overs and message starts retry once capacity or plan usage allows.
       handOffTimer = setInterval(
-        () => trackHandOff(() => scheduler.retryDeferredHandOffs()),
+        () => trackHandOff(() => scheduler.retryDeferredStarts()),
         opts.handOffRetryMs ?? 30_000,
       );
       handOffTimer.unref();

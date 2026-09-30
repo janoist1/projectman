@@ -69,7 +69,9 @@ server later.
 - **Team messages** — members message each other through the team tools (MCP). A message
   about a task is delivered to the recipient's session for that task (created or resumed);
   to humans it goes to their inbox/notifications. Injected messages are prefixed
-  `[team message from <handle> about <KEY>]` so transcripts can be parsed.
+  `[team message from <handle> about <KEY>]` so transcripts can be parsed. Human and AI messages
+  wake idle recipients through scheduler admission; AI-limit, plan-usage and capacity refusals
+  retry every 30 s while the message remains queued, the task stays open in its stage and the recipient remains a member.
 - **Stage hand-over** — when a task enters a later stage owned by AI members (review, QA,
   deploy, release, …) by any move, including a human's move or an approved gate, the least
   loaded free owner (never the task's assignee) gets a session for the task; its kick-off brief
@@ -77,7 +79,8 @@ server later.
   live session when the task returns to the work stage) instead gets a notice, typed as a team
   message from whoever moved it. It runs in the
   background under the usual admission limits; a start refused by them (AI limit, plan usage,
-  owners at capacity) is retried every 30 s while the task stays in the stage. Work stages start through the scheduler's `startTask`.
+  owners at capacity) shares the message-start retry every 30 s while the task stays active in
+  the stage and an AI owner remains on the team. Work stages start through the scheduler's `startTask`.
 - **Inbox ("Rád vár")** — everything waiting for a human: tool permission requests
   (Claude Code `PermissionRequest` hook, answered from the browser), gate decisions
   (merge, release), questions from AI members (`ask_human`), approvals.

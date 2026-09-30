@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PermissionBroker, RunnerEvent, StartSessionSpec } from '../contracts';
 import type { HookPayload } from './hook-payload';
 import { CLAUDE_TIMING, createClaudeAdapter } from './providers/claude';
+import { CODEX_TIMING, createCodexAdapter } from './providers/codex';
 import type { ProviderAdapter } from './providers/types';
 import { AgentSession, type PtyProcess, type PtySpawnOptions } from './session';
 import { silentLogger } from './test-helpers';
@@ -67,7 +68,13 @@ const spec: StartSessionSpec = {
 const sessions: AgentSession[] = [];
 
 function start(
-  opts: { broker?: PermissionBroker; adapter?: ProviderAdapter; spec?: Partial<StartSessionSpec> } = {},
+  opts: {
+    broker?: PermissionBroker;
+    adapter?: ProviderAdapter;
+    spec?: Partial<StartSessionSpec>;
+    /** The launch put the initial message on the command line (Codex). */
+    initialMessageSent?: boolean;
+  } = {},
 ) {
   const pty = new FakePty();
   const spawned: Array<{ file: string; args: string[]; options: PtySpawnOptions }> = [];
@@ -76,6 +83,7 @@ function start(
     spec: { ...spec, ...opts.spec },
     hookToken: 'tok',
     adapter: opts.adapter ?? createClaudeAdapter({ bin: 'claude', logger: silentLogger() }),
+    initialMessageSent: opts.initialMessageSent,
     deps: {
       logger: silentLogger(),
       broker: opts.broker ?? { decide: () => new Promise(() => undefined) },
@@ -238,5 +246,94 @@ describe('AgentSession', () => {
     await expect(permission).resolves.toBeNull();
     expect(session.state.state).toBe('exited');
     await expect(session.enqueue('too late')).rejects.toThrow('is not running');
+  });
+});
+
+describe('AgentSession of Codex', () => {
+  const codex = () => createCodexAdapter({ bin: 'codex', codexHome: '/nonexistent', logger: silentLogger() });
+  /** Time to type a one-piece message and press Enter in Codex. */
+  const TYPE_CODEX_MS = CODEX_TIMING.stepDelayMs + CODEX_TIMING.enterDelayMs;
+
+  /** A resumed session whose first message is on the command line, on a screen without a composer. */
+  function resumedWithPrompt() {
+    const started = start({
+      adapter: codex(),
+      initialMessageSent: true,
+      spec: { provider: 'codex', resume: true, initialMessage: 'Your session was restarted.' },
+    });
+    // History only: Codex has not drawn the composer, or the screen is not one the checks know.
+    started.pty.print('\x1b[?2004h› an earlier question\r\n• an earlier answer\r\n');
+    return started;
+  }
+
+  it.each(['startup', 'resume', 'clear'])(
+    'becomes ready from its first SessionStart (source %s) and then types what was queued',
+    async (source) => {
+      const { session, pty, hook, states } = resumedWithPrompt();
+      const queued = session.enqueue('A message queued for the restart');
+      await vi.advanceTimersByTimeAsync(CODEX_TIMING.startupCheckMs * 4);
+      expect(session.state.state).toBe('starting');
+      expect(pty.typed().pastes).toEqual([]);
+
+      // The first turn, which the command-line prompt starts, is what says the session runs.
+      await hook({ hook_event_name: 'SessionStart', source });
+      expect(session.state.state).toBe('idle');
+      await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'Your session was restarted.' });
+      expect(session.state.state).toBe('working');
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(pty.typed().pastes).toEqual([]); // typed only once the turn is over
+
+      await hook({ hook_event_name: 'Stop' });
+      await vi.advanceTimersByTimeAsync(CODEX_TIMING.stopSettleMs + TYPE_CODEX_MS);
+      await expect(queued).resolves.toBeUndefined();
+      expect(pty.typed()).toEqual({ pastes: ['A message queued for the restart'], enters: 1 });
+      expect(states()).toEqual<SessionState[]>(['starting', 'idle', 'working', 'idle']);
+    },
+  );
+
+  it('stops flagging a session that has not become ready once its first SessionStart arrives', async () => {
+    const { session, hook } = resumedWithPrompt();
+    await vi.advanceTimersByTimeAsync(CODEX_TIMING.startupTimeoutMs + CODEX_TIMING.startupCheckMs);
+    expect(session.state).toEqual({
+      state: 'waiting_input',
+      activity: 'Codex has not become ready; check the terminal',
+    });
+    await hook({ hook_event_name: 'SessionStart', source: 'resume' });
+    expect(session.state).toEqual({ state: 'idle', activity: null });
+    await vi.advanceTimersByTimeAsync(CODEX_TIMING.startupCheckMs * 4);
+    expect(session.state.state).toBe('idle');
+  });
+
+  it('is ready for typing as soon as SessionStart arrives, whatever the screen shows', async () => {
+    const { session, pty, hook } = start({ adapter: codex(), spec: { provider: 'codex' } });
+    pty.print('\x1b[?2004h› an earlier question\r\n• an earlier answer\r\n'); // no composer to recognise
+    const queued = session.enqueue('Queued before the session reported anything');
+    await vi.advanceTimersByTimeAsync(CODEX_TIMING.startupCheckMs * 4);
+    expect(pty.typed().pastes).toEqual([]);
+
+    await hook({ hook_event_name: 'SessionStart', source: 'startup' });
+    await vi.advanceTimersByTimeAsync(CODEX_TIMING.readySettleMs + TYPE_CODEX_MS);
+    await expect(queued).resolves.toBeUndefined();
+    expect(pty.typed().pastes).toEqual(['Queued before the session reported anything']);
+  });
+
+  it('becomes ready when the composer shows under a history, without waiting for a hook', async () => {
+    const { session, pty } = start({ adapter: codex(), spec: { provider: 'codex', resume: true } });
+    const queued = session.enqueue('Hello after the restart');
+    pty.print(
+      [
+        '› an earlier question',
+        '• Sign in with ChatGPT is mentioned in the answer.',
+        '',
+        '› Ask Codex to do anything',
+        '',
+        '  ? for shortcuts                                              100% context left',
+      ].join('\r\n'),
+    );
+    await vi.advanceTimersByTimeAsync(
+      CODEX_TIMING.startupCheckMs + CODEX_TIMING.readySettleMs + TYPE_CODEX_MS,
+    );
+    await expect(queued).resolves.toBeUndefined();
+    expect(pty.typed().pastes).toEqual(['Hello after the restart']);
   });
 });

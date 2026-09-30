@@ -259,6 +259,21 @@ export const migrations: Migration[] = [
     sql: `ALTER TABLE sessions ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude';
       ${SESSION_PROVIDER_REPAIR}`,
   },
+  {
+    version: 10,
+    name: 'deferred automatic session starts',
+    // The starts admission refused for a reason that can clear (src/domain/admission): they are
+    // loaded back into the in-memory store when the server starts, so a restart does not lose them.
+    // seq keeps the order they were deferred in; spec and waiting are JSON.
+    sql: `CREATE TABLE deferred_starts (
+        seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+        key         TEXT NOT NULL UNIQUE,
+        project_key TEXT NOT NULL,
+        task_key    TEXT,
+        spec        TEXT NOT NULL,
+        waiting     TEXT NOT NULL
+      );`,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

@@ -162,6 +162,10 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
         permissionTimeoutMs,
       });
       const command = resolveCommand(opts.bin, buildClaudeArgs(spec, settings));
+      // The first message (the brief; for a resumed conversation, the message that caused the
+      // resume or the continue message) is typed once SessionStart arrives, which Claude Code
+      // reports at launch, for a resume too: nothing depends on the screen, so it is not passed
+      // as a prompt argument as Codex's is.
       return { ...command, initialMessageSent: false };
     },
 

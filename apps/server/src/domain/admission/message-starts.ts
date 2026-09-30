@@ -6,6 +6,7 @@ import type { MessageDelivery, MessageService } from '../messaging';
 import type { ProjectService } from '../projects';
 import type { TaskService } from '../tasks';
 import type { Admission } from './admission';
+import type { AutomaticStart, StartSpec } from './deferred-starts';
 
 /**
  * Sessions that messages need: a member's general chat a person opens, and the wake-up of an
@@ -44,18 +45,35 @@ export class MessageStarts {
 
   /**
    * An AI recipient of waiting messages has no running session for their work item: its session
-   * starts or resumes through admission, then the messages are typed in (once each).
+   * starts or resumes through admission, then the messages are typed in (once each). A session
+   * that resumes its conversation takes the first message as its first input.
    */
   async wake(projectKey: string, handle: string, workItem: WorkItemRef): Promise<void> {
+    await this.admission.attempt(this.startFor(projectKey, handle, workItem));
+  }
+
+  /** A wake-up that was deferred when the server stopped, made again from what was stored. */
+  rebuild(spec: Extract<StartSpec, { kind: 'message_wake' }>): AutomaticStart {
+    return this.startFor(spec.projectKey, spec.handle, spec.workItem, spec.stageId ?? undefined);
+  }
+
+  /** `stageId`: the task's stage when the wake-up was tried before (the stored one, when rebuilt). */
+  private startFor(
+    projectKey: string,
+    handle: string,
+    workItem: WorkItemRef,
+    stageId?: string,
+  ): AutomaticStart {
     const wi = encodeWorkItem(workItem);
     const taskKey = workItem.type === 'task' ? workItem.taskKey : null;
     /** The task's stage when the wake-up was tried: a move makes a waiting wake-up obsolete. */
-    let stageId: string | undefined;
-    await this.admission.attempt({
+    let triedIn = stageId;
+    return {
       key: `message:${projectKey}:${handle}:${wi.type}:${wi.ref}`,
       projectKey,
       taskKey,
-      stillValid: (task) => (task ? task.stageId === stageId && isOpenTask(task) : taskKey === null),
+      spec: () => ({ kind: 'message_wake', projectKey, handle, workItem, stageId: triedIn ?? null }),
+      stillValid: (task) => (task ? task.stageId === triedIn && isOpenTask(task) : taskKey === null),
       waitsFor: () => handle,
       retry: () => this.wake(projectKey, handle, workItem),
       log: {
@@ -69,11 +87,12 @@ export class MessageStarts {
         if (member?.kind !== 'ai') return;
         const task = taskKey ? this.tasks.get(projectKey, taskKey) : null;
         if (task && !isOpenTask(task)) return;
-        stageId = task?.stageId;
+        triedIn = task?.stageId;
         if (this.messages.waiting(projectKey, handle, workItem).length === 0) return;
-        const { session } = await this.admission.start({ config, member, workItem });
-        this.delivery.deliverWaiting(session);
+        await this.delivery.startAndDeliver(projectKey, handle, workItem, (message) =>
+          this.admission.start({ config, member, workItem, message }),
+        );
       },
-    });
+    };
   }
 }

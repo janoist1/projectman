@@ -59,6 +59,7 @@ describe('database', () => {
       'inbox_items',
       'member_state',
       'counters',
+      'deferred_starts',
     ]) {
       expect(tables).toContain(t);
     }
@@ -211,6 +212,43 @@ describe('database', () => {
     } finally {
       db.close();
     }
+  });
+
+  it('stores deferred starts one per key, oldest first, and reads a broken value as null', () => {
+    const repos = createRepositories(openDatabase(':memory:'));
+    const record = (key: string, reason: string) => ({
+      key,
+      projectKey: 'AR',
+      taskKey: key.startsWith('message') ? null : 'AR-1',
+      spec: { kind: key.split(':')[0], projectKey: 'AR' },
+      waiting: { reason, since: now },
+    });
+    repos.deferredStarts.save(record('hand-over:AR:AR-1', 'ai_disabled'));
+    repos.deferredStarts.save(record('message:AR:cr:general', 'plan_usage_paused'));
+    expect(repos.deferredStarts.list().map((r) => r.key)).toEqual([
+      'hand-over:AR:AR-1',
+      'message:AR:cr:general',
+    ]);
+    expect(repos.deferredStarts.list()[1]).toEqual(record('message:AR:cr:general', 'plan_usage_paused'));
+
+    // Deferred again: the row is replaced, and it counts as the newest.
+    repos.deferredStarts.save(record('hand-over:AR:AR-1', 'member_at_capacity'));
+    expect(repos.deferredStarts.list().map((r) => [r.key, (r.waiting as { reason: string }).reason])).toEqual(
+      [
+        ['message:AR:cr:general', 'plan_usage_paused'],
+        ['hand-over:AR:AR-1', 'member_at_capacity'],
+      ],
+    );
+
+    repos.db
+      .prepare(
+        `UPDATE deferred_starts SET spec = 'not json', waiting = '' WHERE key = 'message:AR:cr:general'`,
+      )
+      .run();
+    expect(repos.deferredStarts.list()[0]).toMatchObject({ spec: null, waiting: null });
+    repos.deferredStarts.remove('message:AR:cr:general');
+    repos.deferredStarts.remove('unknown');
+    expect(repos.deferredStarts.list().map((r) => r.key)).toEqual(['hand-over:AR:AR-1']);
   });
 
   it('refuses a database written by a newer build', () => {

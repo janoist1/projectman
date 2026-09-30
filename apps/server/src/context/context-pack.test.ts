@@ -16,6 +16,7 @@ import type { ContextPackInput } from '../contracts';
 import { commandVerdict, readableRootsFor } from '../domain';
 import { TEAM_TOOL_NAMES } from '../mcp';
 import { createContextPackBuilder } from './context-pack';
+import { stageLabel } from './format';
 import { formatMemoryEntry, MEMORY_LIMIT_BYTES } from './memory';
 import { roleLabel } from './system-prompt';
 
@@ -363,6 +364,54 @@ describe('context pack builder', () => {
     const unknown = builder.build(input({ task: null, stage: null }));
     expect(unknown.initialMessage).toBeNull();
     expect(unknown.appendSystemPrompt).toContain('Task `AR-21`. Its details were not available');
+  });
+});
+
+describe('continue message', () => {
+  it('tells a restarted task session which task and stage it is in, and to check where it left off', () => {
+    const message = builder.build(input()).continueMessage;
+    expect(message).toBe(
+      'Your session was restarted. ' +
+        'You are working on AR-21 "Fix the booking confirmation email", now in stage Code review (`code_review`). ' +
+        "Check where you left off (git status in your working directory, and the task's comments in get_task), " +
+        "then carry on as usual, writing in English (`en`), the project's language.",
+    );
+    // Short: three sentences, one line, English.
+    expect(message).not.toContain('\n');
+    expect(message!.match(/\. /g)).toHaveLength(2);
+  });
+
+  it('names the current stage and the project language', () => {
+    const project = buildProject('web-client-project', 'hu');
+    const message = builder.build(
+      input({ project, handle: 'fe-1', task: makeTask({ stageId: 'dev', title: 'Új foglalási űrlap' }) }),
+    ).continueMessage;
+    expect(message).toContain('You are working on AR-21 "Új foglalási űrlap", now in stage ');
+    expect(message).toContain(`stage ${stageLabel(project.pipeline.stages.find((s) => s.id === 'dev')!)}.`);
+    expect(message).toContain("writing in Hungarian (`hu`), the project's language.");
+  });
+
+  it('falls back to the stage id when the stage is no longer in the pipeline', () => {
+    const message = builder.build(
+      input({ task: makeTask({ stageId: 'retired_stage' }), stage: null }),
+    ).continueMessage;
+    expect(message).toContain('now in stage `retired_stage`.');
+  });
+
+  it('is only for task sessions', () => {
+    const scheduled = input({
+      task: null,
+      stage: null,
+      workItem: { type: 'schedule', runId: 'run_fictional' },
+    });
+    scheduled.member.schedule = { cron: '0 9 * * *', prompt: 'Inspect fictional maintenance.' };
+    const cases: Array<Partial<ContextPackInput>> = [
+      { workItem: { type: 'general' }, task: null, stage: null },
+      { workItem: { type: 'meeting', meetingId: 'standup-2026-09-29' }, task: null, stage: null },
+      { task: null, stage: null },
+      scheduled,
+    ];
+    for (const overrides of cases) expect(builder.build(input(overrides)).continueMessage).toBeNull();
   });
 });
 

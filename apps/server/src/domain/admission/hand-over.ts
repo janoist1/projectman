@@ -5,6 +5,7 @@ import type { ProjectService } from '../projects';
 import type { SessionOrchestrator } from '../sessions';
 import type { StageChange, TaskService } from '../tasks';
 import type { Admission } from './admission';
+import type { AutomaticStart, StartSpec } from './deferred-starts';
 
 /**
  * Stage hand-over: a task entering a later stage owned by AI members (review, QA, deploy,
@@ -38,12 +39,33 @@ export class StageHandOver {
 
   /** Stage change listener (also the retry of a refused hand-over). */
   async handOff(change: StageChange): Promise<void> {
+    await this.admission.attempt(this.startFor(change));
+  }
+
+  /**
+   * A hand-over that was deferred when the server stopped, made again from what was stored;
+   * null when its task is gone.
+   */
+  rebuild(spec: Extract<StartSpec, { kind: 'hand_over' }>): AutomaticStart | null {
+    const task = this.tasks.find(spec.projectKey, spec.taskKey);
+    return task ? this.startFor({ task, from: spec.from, to: spec.to, actor: spec.actor }) : null;
+  }
+
+  private startFor(change: StageChange): AutomaticStart {
     const { projectKey, key: taskKey } = change.task;
     let waitsFor: string | undefined;
-    await this.admission.attempt({
+    return {
       key: `hand-over:${projectKey}:${taskKey}`,
       projectKey,
       taskKey,
+      spec: () => ({
+        kind: 'hand_over',
+        projectKey,
+        taskKey,
+        from: change.from,
+        to: change.to,
+        actor: change.actor,
+      }),
       stillValid: (task) => task !== null && task.stageId === change.to && task.status === 'active',
       waitsFor: () => waitsFor,
       retry: () => this.handOff(change),
@@ -80,7 +102,7 @@ export class StageHandOver {
         // Resumed sessions get no brief, so tell them which stage the task is in now.
         if (result.resumed) this.notify(current, stage, result.session.member);
       },
-    });
+    };
   }
 
   /** Tells a member's live task session that the task entered its stage, unless it moved it itself. */

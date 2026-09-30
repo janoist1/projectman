@@ -1,4 +1,32 @@
-import type { Task, TaskStartWaiting } from '@projectman/shared';
+import { z } from 'zod';
+import { Actor, MemberHandle, TaskKey, TaskStartWaiting, WorkItemRef } from '@projectman/shared';
+import type { Task } from '@projectman/shared';
+import type { DeferredStartRecord } from '../../db';
+
+/**
+ * What an automatic start needs to be rebuilt when the server starts again: plain data, stored
+ * as JSON next to why the start waits. The kind says which module rebuilds it.
+ */
+export const StartSpec = z.discriminatedUnion('kind', [
+  /** A stage hand-over: the move into stage `to`, and who made it. */
+  z.object({
+    kind: z.literal('hand_over'),
+    projectKey: z.string(),
+    taskKey: TaskKey,
+    from: z.string(),
+    to: z.string(),
+    actor: Actor,
+  }),
+  /** The wake-up of an AI recipient of waiting messages; `stageId` is the task's stage when it was tried. */
+  z.object({
+    kind: z.literal('message_wake'),
+    projectKey: z.string(),
+    handle: MemberHandle,
+    workItem: WorkItemRef,
+    stageId: z.string().nullable(),
+  }),
+]);
+export type StartSpec = z.infer<typeof StartSpec>;
 
 /**
  * An automatic session start (a stage hand-over, a message wake-up) that admission may refuse
@@ -10,6 +38,8 @@ export interface AutomaticStart {
   projectKey: string;
   /** The task whose card shows why the start waits; null for a general chat. */
   taskKey: string | null;
+  /** What the start needs to be rebuilt after a restart; read when its deferral is stored. */
+  spec(): StartSpec;
   /** Whether the start still applies to its task as it is now (null: it has no task). */
   stillValid(task: Task | null): boolean;
   /** One try, under admission; throws the refusal. */
@@ -28,15 +58,34 @@ export interface DeferredStart {
   waiting: TaskStartWaiting;
 }
 
+/** Where the deferrals are kept besides memory (the `deferred_starts` table). */
+export interface DeferredStartStore {
+  save(record: DeferredStartRecord): void;
+  remove(key: string): void;
+  /** Oldest first. */
+  list(): DeferredStartRecord[];
+}
+
 /**
  * The automatic starts admission refused with a reason that can clear (the master switch,
- * concurrency, plan usage, capacity), in memory. The messages a wake-up would deliver stay in
- * SQLite regardless.
+ * concurrency, plan usage, capacity). They are kept in memory and in SQLite, so that a restart
+ * does not lose them: what this store holds, the table holds, and `restore` loads it back when
+ * the server starts. The messages a wake-up would deliver stay in SQLite regardless.
  */
 export class DeferredStarts {
   private readonly entries = new Map<string, DeferredStart>();
+  private readonly store: DeferredStartStore | undefined;
 
-  /** Removes and returns the deferral of a start (a new attempt replaces it). */
+  /** `store`: where the deferrals are kept besides memory (none: only in memory). */
+  constructor(store?: DeferredStartStore) {
+    this.store = store;
+  }
+
+  /**
+   * Takes the deferral of a start for a new attempt, which keeps a new one or ends it. The
+   * attempt replaces it, so it leaves this store's view; it stays in SQLite until the attempt
+   * settles, so that a restart in the middle of one does not lose the start.
+   */
   take(key: string): DeferredStart | undefined {
     const entry = this.entries.get(key);
     this.entries.delete(key);
@@ -45,10 +94,12 @@ export class DeferredStarts {
 
   keep(entry: DeferredStart): void {
     this.entries.set(entry.start.key, entry);
+    this.store?.save(recordOf(entry));
   }
 
   drop(key: string): void {
     this.entries.delete(key);
+    this.store?.remove(key);
   }
 
   /** Whether this very deferral is still kept (a retry may have replaced or dropped it). */
@@ -72,8 +123,37 @@ export class DeferredStarts {
   /** Drops the task's deferrals it made obsolete (it moved on or closed), even if it later returns. */
   discardStale(task: Task): void {
     for (const entry of this.forTask(task)) {
-      if (!entry.start.stillValid(task)) this.entries.delete(entry.start.key);
+      if (!entry.start.stillValid(task)) this.drop(entry.start.key);
     }
+  }
+
+  /**
+   * Startup: puts the stored deferrals back as they were (why they wait, since when), oldest
+   * first. Nothing is tried: the retry does that, under admission. A stored start that cannot
+   * be rebuilt (its shape is unknown, or `rebuild` has no task for it any more) is removed.
+   */
+  restore(rebuild: (spec: StartSpec) => AutomaticStart | null): { restored: number; removed: number } {
+    let restored = 0;
+    let removed = 0;
+    for (const record of this.store?.list() ?? []) {
+      const spec = StartSpec.safeParse(record.spec);
+      const waiting = TaskStartWaiting.safeParse(record.waiting);
+      const start = spec.success && waiting.success ? rebuild(spec.data) : null;
+      if (!start || !waiting.success) {
+        this.store?.remove(record.key);
+        removed++;
+        continue;
+      }
+      const entry = { start, waiting: waiting.data };
+      this.entries.set(start.key, entry);
+      if (start.key !== record.key) {
+        // The key is made up differently than when the start was stored.
+        this.store?.remove(record.key);
+        this.store?.save(recordOf(entry));
+      }
+      restored++;
+    }
+    return { restored, removed };
   }
 
   private forTask(task: Task): DeferredStart[] {
@@ -81,4 +161,14 @@ export class DeferredStarts {
       (entry) => entry.start.projectKey === task.projectKey && entry.start.taskKey === task.key,
     );
   }
+}
+
+function recordOf({ start, waiting }: DeferredStart): DeferredStartRecord {
+  return {
+    key: start.key,
+    projectKey: start.projectKey,
+    taskKey: start.taskKey,
+    spec: start.spec(),
+    waiting,
+  };
 }

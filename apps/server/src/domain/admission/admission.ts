@@ -5,10 +5,11 @@ import type { DomainContext } from '../context';
 import { conflict } from '../errors';
 import { highestUsagePercent } from '../plan-usage';
 import type { PlanUsageCache } from '../plan-usage';
+import type { ProjectService } from '../projects';
 import type { EnsureSessionResult, SessionOrchestrator } from '../sessions';
 import type { TaskService } from '../tasks';
 import { KeyedMutex } from '../util';
-import type { AutomaticStart, DeferredStarts } from './deferred-starts';
+import type { AutomaticStart, DeferredStarts, StartSpec } from './deferred-starts';
 import { assertAiEnabled, isDeferrable, waitingOf } from './rules';
 
 export interface AdmissionRequest {
@@ -19,6 +20,11 @@ export interface AdmissionRequest {
   workItem?: WorkItemRef;
   /** Whether the member's capacity applies (default true); a task's assignee keeps working on it. */
   capacity?: boolean;
+  /**
+   * The message that causes the start, typed in as the first input of a session that resumes its
+   * conversation (see `SessionOrchestrator.ensureSession`).
+   */
+  message?: string;
 }
 
 /**
@@ -28,13 +34,14 @@ export interface AdmissionRequest {
  * member's capacity (open tasks it carries plus its other running chats); the concurrent AI
  * sessions (`maxConcurrentAi`); the plan usage of the member's provider. Decisions and the
  * starts they allow are serialized. An automatic start refused for a reason that can clear
- * waits in the deferred-start store and is retried.
+ * waits in the deferred-start store, which SQLite backs, and is retried.
  */
 export class Admission {
   private readonly ctx: DomainContext;
   private readonly sessions: SessionOrchestrator;
   private readonly planUsage: Pick<PlanUsageCache, 'get'>;
   private readonly tasks: TaskService;
+  private readonly projects: Pick<ProjectService, 'config'>;
   private readonly deferred: DeferredStarts;
   private readonly locks = new KeyedMutex();
 
@@ -43,12 +50,14 @@ export class Admission {
     sessions: SessionOrchestrator;
     planUsage: Pick<PlanUsageCache, 'get'>;
     tasks: TaskService;
+    projects: Pick<ProjectService, 'config'>;
     deferred: DeferredStarts;
   }) {
     this.ctx = deps.ctx;
     this.sessions = deps.sessions;
     this.planUsage = deps.planUsage;
     this.tasks = deps.tasks;
+    this.projects = deps.projects;
     this.deferred = deps.deferred;
   }
 
@@ -115,9 +124,12 @@ export class Admission {
   ): Promise<EnsureSessionResult> {
     const projectKey = request.config.project.key;
     const running = this.sessions.findRunning(projectKey, request.member.handle, request.workItem);
-    if (running) return { session: running, created: false, resumed: false, started: false };
+    if (running)
+      return { session: running, created: false, resumed: false, started: false, messageSent: false };
     await this.check(request);
-    return this.sessions.ensureSession(projectKey, request.member.handle, request.workItem);
+    return this.sessions.ensureSession(projectKey, request.member.handle, request.workItem, {
+      message: request.message,
+    });
   }
 
   /**
@@ -128,24 +140,49 @@ export class Admission {
   async attempt(start: AutomaticStart): Promise<void> {
     await this.exclusive(() =>
       this.publishingWaitingChanges(start.taskKey, async () => {
+        // The previous deferral of this start stays stored until the attempt settles.
         const previous = this.deferred.take(start.key);
         const since = previous?.start.stillValid(this.taskOf(start)) ? previous.waiting : undefined;
         try {
           await start.run();
         } catch (err) {
-          if (!isDeferrable(err)) throw err;
+          if (!isDeferrable(err)) {
+            this.deferred.drop(start.key);
+            throw err;
+          }
           this.deferred.keep({
             start,
             waiting: waitingOf(err, { member: start.waitsFor(), previous: since, at: isoNow(this.ctx) }),
           });
           this.ctx.logger.info({ ...start.log.fields(), reason: err.code }, start.log.deferred);
+          return;
         }
+        // The start happened, or it no longer applies.
+        this.deferred.drop(start.key);
       }),
     );
   }
 
-  /** Retries the deferred starts that still apply; the others are dropped. */
+  /**
+   * Startup: the starts deferred before the server stopped wait again, as they were (`rebuild`
+   * makes each from what was stored). Nothing is tried here; `retryDeferred` applies admission
+   * to them. Returns how many wait. Nothing is inferred from the state of tasks: only what was
+   * actually deferred comes back.
+   */
+  restoreDeferred(rebuild: (spec: StartSpec) => AutomaticStart | null): number {
+    const { restored, removed } = this.deferred.restore(rebuild);
+    if (restored + removed > 0)
+      this.ctx.logger.info({ restored, removed }, 'deferred session starts restored');
+    return restored;
+  }
+
+  /**
+   * Retries the deferred starts that still apply; the others are dropped. A start that waits for
+   * the project's master switch is left alone while the switch is off: a retry could only be
+   * refused and logged again, and turning the switch on retries it.
+   */
   async retryDeferred(): Promise<void> {
+    const switches = new Map<string, boolean>();
     for (const entry of this.deferred.list()) {
       if (!this.deferred.holds(entry)) continue;
       const { start } = entry;
@@ -155,6 +192,8 @@ export class Admission {
         if (task) this.tasks.publish(task);
         continue;
       }
+      if (entry.waiting.reason === 'ai_disabled' && !(await this.aiEnabled(start.projectKey, switches)))
+        continue;
       try {
         await start.retry();
       } catch (err) {
@@ -172,6 +211,19 @@ export class Admission {
     return this.sessions
       .list(projectKey, { member: handle })
       .some((s) => s.workItem.type === 'schedule' && this.sessions.isRunning(s.id));
+  }
+
+  /** Whether the project's AI master switch is on (read once per project in `known`); on when it cannot be read. */
+  private async aiEnabled(projectKey: string, known: Map<string, boolean>): Promise<boolean> {
+    let enabled = known.get(projectKey);
+    if (enabled === undefined) {
+      enabled = await this.projects.config(projectKey).then(
+        (config) => config.team.limits.aiEnabled,
+        () => true,
+      );
+      known.set(projectKey, enabled);
+    }
+    return enabled;
   }
 
   private taskOf(start: AutomaticStart): Task | null {

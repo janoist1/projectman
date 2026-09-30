@@ -228,7 +228,7 @@ describe('scheduler', () => {
     expect(h.runner.lastStarted()).toMatchObject({
       sessionId: review.id,
       resume: true,
-      initialMessage: null,
+      initialMessage: 'Continue AR-1: Login page',
     });
     expect(notice.text).toContain('Task AR-1 is now in stage Code review');
   });

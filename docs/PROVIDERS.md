@@ -14,14 +14,26 @@ adapter declares its capabilities.
 | ----------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------- |
 | Conversation id   | ours (`--session-id`), resume with `--resume`   | Codex's own, learned from the first hook (`provider_session_id`); `codex resume`   |
 | Hooks             | HTTP hooks (SessionStart through the forwarder) | command hooks running the forwarder; the PermissionRequest one prints the decision |
-| Ready for input   | first SessionStart hook                         | composer on screen (SessionStart only fires with the first turn)                   |
+| Ready for input   | first SessionStart hook                         | composer on screen, or the first SessionStart hook (it fires with the first turn)  |
 | Kick-off brief    | typed with bracketed paste                      | the prompt argument; later messages typed, Enter more than 120 ms after the paste  |
+| Resume: 1st input | typed once SessionStart arrives                 | the prompt argument of `codex resume <id> -- <prompt>`                             |
 | System prompt     | `--append-system-prompt`                        | `-c developer_instructions=…`                                                      |
 | Project rules     | `CLAUDE.md`                                     | `AGENTS.md`, else `CLAUDE.md` (`project_doc_fallback_filenames`)                   |
 | Allow for session | session rules in the hook answer                | remembered by the runner (Codex rejects `updatedPermissions`)                      |
 | Transcript        | `~/.claude/projects/…/<id>.jsonl`               | `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-…-<id>.jsonl`                             |
 | Plan usage        | `get_usage` probe of `claude -p`                | rate limits of the newest `token_count` records in the transcripts                 |
 | Login check       | `claude auth status`                            | `codex login status`                                                               |
+
+## A resumed session's first input
+
+A task session that starts again resumes its conversation and is given a first input, so that it
+does not sit at its prompt: the message that caused the resume, else the context pack's short
+continue message (restarted; the task and its stage; check `git status` and the task's comments).
+General chats resume without one. Codex takes it as the prompt of `codex resume <id> -- <prompt>`,
+which starts the first turn by itself, so nothing depends on recognising the composer under the
+history of a resumed screen; SessionStart (any `source`) then makes the session ready for queued
+messages, as the composer does. Claude Code reports SessionStart at launch, for a resume too, so its
+first input is typed like the brief; a prompt argument would add nothing.
 
 ## Claude Code
 

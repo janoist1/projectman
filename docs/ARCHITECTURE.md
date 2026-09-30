@@ -93,11 +93,15 @@ Documentation map:
   switch (`team.limits.aiEnabled`), for a schedule run that the member's previous run ended,
   the member's capacity, `maxConcurrentAi`, and the provider's plan usage against
   `pauseAbovePlanUsagePercent`. A refused hand-over or message wake-up is retried every 30 s
-  while it is still valid; the task shows why it waits. While
-  the master switch is off, no AI session starts or resumes and schedule runs are skipped;
-  running sessions keep running, and deferred starts continue once it is back on. When
-  every eligible holder is busy, an optional **temp worker** of the configured role is hired
-  for one task and retired when it is done.
+  while it is still valid; the task shows why it waits. Such a deferred start is kept in
+  SQLite (`deferred_starts`) as well as in memory: the server loads the table back when it
+  starts and retries what it finds, under admission as usual (decision 19); nothing is inferred
+  from the state of tasks, so imported or idle tasks start nothing. While the master switch is
+  off, no AI session starts or resumes and schedule runs are skipped; running sessions keep
+  running, the retry timer leaves the starts that wait for the switch alone, and they continue
+  once it is back on (or at startup with it on). When every eligible holder is busy, an
+  optional **temp worker** of the configured role is hired for one task and retired when it
+  is done.
 - **Stage hand-over** — when a task enters a later stage owned by AI members, by anyone's
   move, the least loaded free owner (never the task's assignee) gets a session for the task.
   An owner that already has a session for the task gets a notice instead.
@@ -167,7 +171,10 @@ claude | codex ── transcript JSONL ────────────▶ r
 - Messages are typed into the PTY with bracketed paste only while the session is idle;
   otherwise they queue.
 - Sessions do not survive a server restart; conversations do (the CLI's transcript), and a
-  later message resumes them.
+  later message resumes them. A resumed task session gets a first input so that it does not
+  sit at its prompt: the message that caused the resume, else a short continue message (it was
+  restarted; the task and its stage; check where it left off). Codex has it on the command line
+  of `codex resume`, Claude Code has it typed once SessionStart arrives ([PROVIDERS.md](PROVIDERS.md)).
 - The server's composition root is `apps/server/src/app.ts` (`buildApp`); the domain's is
   `apps/server/src/domain/index.ts` (`createDomain`), which builds the services (the board,
   member profiles and invitations included) and wires their reactions to the domain events.
@@ -241,7 +248,7 @@ worktrees/<KEY>/…         git worktrees created for tasks
 
 SQLite tables: `users`, `auth_sessions`, `invitations`, `projects`, `counters`, `tasks`,
 `task_links`, `timeline_events`, `sessions`, `team_messages`, `inbox_items`, `member_state`,
-`schedule_runs`. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
+`schedule_runs`, `deferred_starts`. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
 the server refuses a database a newer build migrated.
 
 ## GitHub

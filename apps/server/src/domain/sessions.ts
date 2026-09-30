@@ -55,11 +55,32 @@ export interface EnsureSessionResult {
   session: Session;
   /** A new row was created (first session for this member x work item). */
   created: boolean;
-  /** The Claude Code conversation was resumed (`--resume`). */
+  /** The agent's conversation was resumed (`--resume`, `codex resume`). */
   resumed: boolean;
   /** A process was started (false when a running session was reused). */
   started: boolean;
+  /** The message passed in `EnsureSessionOptions` became the first input of the resumed session. */
+  messageSent: boolean;
 }
+
+export interface EnsureSessionOptions {
+  /**
+   * The message that causes this start (a person writing to a stopped session, a waiting team
+   * message), as it is typed in. A session that resumes its conversation takes it as its first
+   * input, in place of the continue message; `messageSent` tells the caller. A session that
+   * starts a new conversation begins with its brief, and the caller types the message after, as
+   * it does with a message longer than `MAX_FIRST_INPUT_CHARS`.
+   */
+  message?: string;
+}
+
+/**
+ * The longest message a resumed session takes as its first input: it may go on a command line
+ * (Codex), which the system limits (about 128 KB for one argument). A longer one is typed in after
+ * the session started, as it is for a session that runs. A team message (at most 20 000
+ * characters) with its prefix fits.
+ */
+export const MAX_FIRST_INPUT_CHARS = 24_000;
 
 export interface SessionOrchestratorDeps {
   ctx: DomainContext;
@@ -174,11 +195,18 @@ export class SessionOrchestrator {
    * Running -> reuse; exited -> resume the same conversation; none -> create (worktree or
    * workspace cwd, context pack, MCP token, runner.start). Only the AI master switch applies
    * here; automatic starts pass admission first.
+   *
+   * What the session gets as its first input: a new conversation, its brief; a resumed task
+   * conversation, the message that caused the resume (`opts.message`) or else a short message
+   * that it was restarted and should check where it left off (the context pack's continue
+   * message), so it does not sit at its prompt. It goes on the command line where the agent CLI
+   * takes a prompt there (Codex), and is typed once the CLI is ready otherwise.
    */
   async ensureSession(
     projectKey: string,
     handle: string,
     workItem: WorkItemRef,
+    opts: EnsureSessionOptions = {},
   ): Promise<EnsureSessionResult> {
     const wi = encodeWorkItem(workItem);
     return this.locks.run(`${projectKey}:${handle}:${wi.type}:${wi.ref}`, async () => {
@@ -187,9 +215,11 @@ export class SessionOrchestrator {
       const task = workItem.type === 'task' ? this.deps.tasks.get(projectKey, workItem.taskKey) : null;
       const existing = this.ctx.repos.sessions.findByWorkItem(projectKey, handle, workItem);
       if (existing && this.isRunning(existing.id)) {
-        return { session: existing, created: false, resumed: false, started: false };
+        return { session: existing, created: false, resumed: false, started: false, messageSent: false };
       }
-      return this.start(config, member, workItem, task, existing);
+      const message =
+        opts.message?.trim() && opts.message.length <= MAX_FIRST_INPUT_CHARS ? opts.message : null;
+      return this.start(config, member, workItem, task, existing, message);
     });
   }
 
@@ -320,6 +350,7 @@ export class SessionOrchestrator {
     workItem: WorkItemRef,
     task: Task | null,
     existing: Session | null,
+    message: string | null,
   ): Promise<EnsureSessionResult> {
     assertAiEnabled(config);
     const projectKey = config.project.key;
@@ -447,7 +478,8 @@ export class SessionOrchestrator {
         effort: member.effort,
         permissionMode: member.permissionMode,
         appendSystemPrompt: pack.appendSystemPrompt,
-        initialMessage: resume ? null : pack.initialMessage,
+        // A resumed conversation has its brief already; it needs to know why it was woken.
+        initialMessage: resume ? (message ?? pack.continueMessage) : pack.initialMessage,
         firstUserOrigin: openingTurnOrigin(workItem),
         mcpUrl: `${this.deps.publicBaseUrl}${routes.mcp(token)}`,
         allowedTools: allowedToolsFor(member.role, config),
@@ -497,7 +529,13 @@ export class SessionOrchestrator {
     this.publishSession(fresh);
     this.recomputeMemberState(projectKey, member.handle);
     void this.ctx.events.emit('session_started', fresh);
-    return { session: fresh, created: !existing, resumed: resume, started: true };
+    return {
+      session: fresh,
+      created: !existing,
+      resumed: resume,
+      started: true,
+      messageSent: resume && message !== null,
+    };
   }
 
   /** Throws `provider_not_logged_in` when the runner knows the provider's CLI is not logged in. */

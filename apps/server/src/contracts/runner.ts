@@ -28,7 +28,12 @@ export interface StartSessionSpec {
    * Codex: `developer_instructions`).
    */
   appendSystemPrompt: string;
-  /** First user message typed once the session is ready (e.g. the task brief). */
+  /**
+   * First user message of the process: the task brief of a new conversation; for a resumed one,
+   * the message that caused the resume or else a continue message, so it does not sit at its
+   * prompt. Codex gets it as the prompt on its command line (so it does not depend on the screen);
+   * Claude Code has it typed once the session reports SessionStart.
+   */
   initialMessage?: string | null;
   /**
    * Who writes the first user turn of a new conversation (`openingTurnOrigin`); the chat labels

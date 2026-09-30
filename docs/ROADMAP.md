@@ -51,9 +51,12 @@ Moving the work into projectman is the best test of the product. The path:
    This replaces the temporary trial wording in members' instructions. **PM-68**: a task
    without a repo never runs in the workspace root (in a one-repo project it uses that repo's
    worktree), and a task's repo can be set later.
-4. **Session continuity.** **PM-76**: a restarted task session gets a short "continue"
-   message, and readiness detection recognises a resumed Codex prompt. **PM-81**: deferred
-   starts are rebuilt from the database when the server starts.
+4. **Session continuity. Done on 2026-10-01.** **PM-76**: a restarted task session gets a
+   short "continue" message (or the message that woke it) as its first input, on the command
+   line of `codex resume`, and the first SessionStart hook also makes a Codex session ready.
+   **PM-81**: deferred starts are kept in SQLite and rebuilt when the server starts (nothing
+   is inferred from task state). **PM-90**: while a project's AI switch is off, the retry
+   timer leaves the starts that wait for it alone.
 5. **Clear questions.** **PM-74**: `ask_human` questions start with one plain sentence, say
    what the member recommends and why, and describe each option by its consequence; the inbox
    marks the recommended option and folds away the details.

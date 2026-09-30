@@ -8,6 +8,7 @@ import type {
   Task,
   WorkItemRef,
 } from '@projectman/shared';
+import { createRepositories, openDatabase } from '../src/db';
 import { Admission, DeferredStarts, DomainError } from '../src/domain';
 import type { AutomaticStart, DomainContext, SessionOrchestrator, TaskService } from '../src/domain';
 import { capturingLogger, planUsage } from './helpers/fakes';
@@ -65,6 +66,10 @@ interface World {
   busy?: number;
   usage?: Partial<Record<AgentProvider, PlanUsage | null>>;
   adjust?: (config: ProjectConfig) => void;
+  /** The deferred starts are kept in SQLite too (an in-memory database). */
+  persist?: boolean;
+  /** The project's configuration cannot be loaded. */
+  configFails?: boolean;
 }
 
 /** Admission over an in-memory world: tasks, sessions, running processes and plan usage. */
@@ -101,9 +106,13 @@ function admissionFor(world: World = {}) {
       created: true,
       resumed: false,
       started: true,
+      messageSent: false,
     })),
   };
-  const deferred = new DeferredStarts();
+  const config = testConfig();
+  world.adjust?.(config);
+  const store = createRepositories(openDatabase(':memory:')).deferredStarts;
+  const deferred = new DeferredStarts(world.persist ? store : undefined);
   const admission = new Admission({
     ctx,
     sessions: sessionFake as unknown as SessionOrchestrator,
@@ -114,12 +123,16 @@ function admissionFor(world: World = {}) {
       },
     },
     tasks: { publish: (t: Task) => published.push(t.key) } as unknown as TaskService,
+    projects: {
+      config: async () => {
+        if (world.configFails) throw new Error('fictional: no configuration');
+        return config;
+      },
+    },
     deferred,
   });
-  const config = testConfig();
-  world.adjust?.(config);
   const member = (handle: string) => config.team.members.find((m) => m.handle === handle) as AiMemberConfig;
-  return { admission, deferred, config, member, usageRequests, published, tasks, sessionFake, log };
+  return { admission, deferred, store, config, member, usageRequests, published, tasks, sessionFake, log };
 }
 
 const refusal = async (promise: Promise<unknown>): Promise<string | null> =>
@@ -286,6 +299,14 @@ describe('deferred starts', () => {
       key,
       projectKey: 'AR',
       taskKey: opts.taskKey ?? null,
+      spec: () => ({
+        kind: 'hand_over',
+        projectKey: 'AR',
+        taskKey: opts.taskKey ?? 'AR-1',
+        from: 'backlog',
+        to: opts.stage ?? 'code_review',
+        actor: { kind: 'system', handle: null },
+      }),
       stillValid: (t) => (t ? t.stageId === (opts.stage ?? 'code_review') && t.status === 'active' : true),
       run,
       waitsFor: () => opts.member,
@@ -371,5 +392,182 @@ describe('deferred starts', () => {
     await admission.retryDeferred();
     expect(next.retry).toHaveBeenCalledOnce();
     expect(JSON.stringify(log.warnings)).toContain('fictional retry failed');
+  });
+
+  describe('while the project AI switch is off', () => {
+    const aiOff = (c: ProjectConfig) => void (c.team.limits.aiEnabled = false);
+    const since = { since: AT };
+
+    it('leaves a start that waits for the switch alone, and retries the starts that wait for something else', async () => {
+      const { admission, deferred, config, log } = admissionFor({
+        tasks: [task('AR-1', { stageId: 'code_review' }), task('AR-2', { stageId: 'code_review' })],
+        adjust: aiOff,
+      });
+      const forSwitch = start('hand-over:AR-1', { taskKey: 'AR-1' });
+      const forCapacity = start('hand-over:AR-2', { taskKey: 'AR-2' });
+      deferred.keep({ start: forSwitch.automatic, waiting: { reason: 'ai_disabled', ...since } });
+      deferred.keep({ start: forCapacity.automatic, waiting: { reason: 'member_at_capacity', ...since } });
+
+      await admission.retryDeferred();
+      await admission.retryDeferred();
+      expect(forSwitch.retry).not.toHaveBeenCalled();
+      expect(forCapacity.retry).toHaveBeenCalledTimes(2);
+      expect(deferred.list().map((entry) => entry.start.key)).toEqual(['hand-over:AR-1', 'hand-over:AR-2']);
+      expect(log.warnings).toEqual([]);
+
+      // The start that waited for the switch is tried again once the switch is on.
+      config.team.limits.aiEnabled = true;
+      await admission.retryDeferred();
+      expect(forSwitch.retry).toHaveBeenCalledOnce();
+    });
+
+    it('still drops a start that does not apply any more', async () => {
+      const { admission, deferred, published } = admissionFor({
+        tasks: [task('AR-1', { stageId: 'development' })],
+        adjust: aiOff,
+      });
+      const moved = start('hand-over:AR-1', { taskKey: 'AR-1' });
+      deferred.keep({ start: moved.automatic, waiting: { reason: 'ai_disabled', ...since } });
+      await admission.retryDeferred();
+      expect(deferred.list()).toEqual([]);
+      expect(published).toEqual(['AR-1']);
+    });
+
+    it('retries the starts of a project whose switch is on, and of one whose configuration cannot be read', async () => {
+      const on = admissionFor({ tasks: [task('AR-1', { stageId: 'code_review' })] });
+      const retry = start('hand-over:AR-1', { taskKey: 'AR-1' });
+      on.deferred.keep({ start: retry.automatic, waiting: { reason: 'ai_disabled', ...since } });
+      await on.admission.retryDeferred();
+      expect(retry.retry).toHaveBeenCalledOnce();
+
+      const unknown = admissionFor({ tasks: [task('AR-1', { stageId: 'code_review' })], configFails: true });
+      const other = start('hand-over:AR-1', { taskKey: 'AR-1' });
+      unknown.deferred.keep({ start: other.automatic, waiting: { reason: 'ai_disabled', ...since } });
+      await unknown.admission.retryDeferred();
+      expect(other.retry).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('kept in SQLite', () => {
+    const SYSTEM = { kind: 'system', handle: null } as const;
+
+    it('mirrors what it keeps, replaces and drops, and keeps a start stored while it is attempted', async () => {
+      const reviewing = task('AR-1', { stageId: 'code_review' });
+      const { admission, deferred, store } = admissionFor({ tasks: [reviewing], persist: true });
+      let code: string | null = 'plan_usage_paused';
+      const { automatic } = start('hand-over:AR-1', { taskKey: 'AR-1', member: 'cr', refuse: () => code });
+      await admission.attempt(automatic);
+      const record = {
+        key: 'hand-over:AR-1',
+        projectKey: 'AR',
+        taskKey: 'AR-1',
+        spec: {
+          kind: 'hand_over',
+          projectKey: 'AR',
+          taskKey: 'AR-1',
+          from: 'backlog',
+          to: 'code_review',
+          actor: SYSTEM,
+        },
+      };
+      expect(store.list()).toEqual([
+        { ...record, waiting: { reason: 'plan_usage_paused', member: 'cr', since: AT } },
+      ]);
+
+      // Refused for another reason: the stored deferral is replaced, from the same time.
+      code = 'ai_limit_reached';
+      await admission.attempt(automatic);
+      expect(store.list()).toEqual([
+        { ...record, waiting: { reason: 'ai_limit_reached', member: 'cr', since: AT } },
+      ]);
+
+      // While the attempt runs the start leaves the store's view but stays stored; once it
+      // happened, it is gone from both.
+      let storedDuring = -1;
+      let shownDuring: unknown = 'not read';
+      automatic.run = async () => {
+        storedDuring = store.list().length;
+        shownDuring = deferred.waitingFor(reviewing);
+      };
+      await admission.attempt(automatic);
+      expect(storedDuring).toBe(1);
+      expect(shownDuring).toBeUndefined();
+      expect(store.list()).toEqual([]);
+      expect(deferred.list()).toEqual([]);
+
+      // A refusal that cannot clear ends the start, stored or not.
+      code = 'plan_usage_paused';
+      automatic.run = async () => {
+        if (code) throw new DomainError(code as never, 'refused', { status: 409 });
+      };
+      await admission.attempt(automatic);
+      expect(store.list()).toHaveLength(1);
+      code = 'no_free_member';
+      expect(await refusal(admission.attempt(automatic))).toBe('no_free_member');
+      expect(store.list()).toEqual([]);
+    });
+
+    it('drops the stored starts of a task that moved on, and only those', () => {
+      const { deferred, store } = admissionFor({ persist: true });
+      const moved = start('hand-over:AR-1', { taskKey: 'AR-1' }).automatic;
+      const staying = start('hand-over:AR-2', { taskKey: 'AR-2' }).automatic;
+      for (const automatic of [moved, staying])
+        deferred.keep({ start: automatic, waiting: { reason: 'ai_disabled', since: AT } });
+      deferred.discardStale(task('AR-1', { stageId: 'development' }));
+      expect(store.list().map((record) => record.key)).toEqual(['hand-over:AR-2']);
+    });
+
+    it('restores the stored starts as they waited, oldest first, and removes the ones it cannot rebuild', () => {
+      const { deferred: earlier, store } = admissionFor({ persist: true });
+      const reasons = ['ai_disabled', 'plan_usage_paused', 'member_at_capacity'] as const;
+      reasons.forEach((reason, i) => {
+        const automatic = start(`hand-over:AR-${i + 1}`, { taskKey: `AR-${i + 1}` }).automatic;
+        earlier.keep({
+          start: automatic,
+          waiting: { reason, member: 'cr', since: `2026-09-30T10:0${i}:00.000Z` },
+        });
+      });
+      store.save({
+        key: 'from-a-newer-build',
+        projectKey: 'AR',
+        taskKey: null,
+        spec: { kind: 'other' },
+        waiting: {},
+      });
+
+      const later = new DeferredStarts(store);
+      const rebuilt: string[] = [];
+      const result = later.restore((spec) => {
+        if (spec.kind !== 'hand_over') return null;
+        rebuilt.push(spec.taskKey);
+        // AR-3's task is gone.
+        return spec.taskKey === 'AR-3'
+          ? null
+          : start(`hand-over:${spec.taskKey}`, { taskKey: spec.taskKey }).automatic;
+      });
+      expect(result).toEqual({ restored: 2, removed: 2 });
+      expect(rebuilt).toEqual(['AR-1', 'AR-2', 'AR-3']);
+      expect(later.list().map((entry) => [entry.start.key, entry.waiting])).toEqual([
+        ['hand-over:AR-1', { reason: 'ai_disabled', member: 'cr', since: '2026-09-30T10:00:00.000Z' }],
+        ['hand-over:AR-2', { reason: 'plan_usage_paused', member: 'cr', since: '2026-09-30T10:01:00.000Z' }],
+      ]);
+      expect(store.list().map((record) => record.key)).toEqual(['hand-over:AR-1', 'hand-over:AR-2']);
+    });
+
+    it('stores a restored start again under the key it is made with now', () => {
+      const { deferred: earlier, store } = admissionFor({ persist: true });
+      earlier.keep({
+        start: start('old-key', { taskKey: 'AR-1' }).automatic,
+        waiting: { reason: 'ai_disabled', since: AT },
+      });
+      const later = new DeferredStarts(store);
+      later.restore(() => start('hand-over:AR-1', { taskKey: 'AR-1' }).automatic);
+      expect(later.list().map((entry) => entry.start.key)).toEqual(['hand-over:AR-1']);
+      expect(store.list().map((record) => record.key)).toEqual(['hand-over:AR-1']);
+    });
+
+    it('restores nothing without a store', () => {
+      expect(new DeferredStarts().restore(() => null)).toEqual({ restored: 0, removed: 0 });
+    });
   });
 });

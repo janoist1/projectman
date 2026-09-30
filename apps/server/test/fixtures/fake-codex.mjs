@@ -16,7 +16,8 @@
  *   `{timestamp, type, payload}` line each (session_meta, turn_context, response_item,
  *   event_msg), written from the first turn on. The session id is chosen here (it cannot be
  *   preset); `resume <id>` appends to that rollout, or prints "No saved session found with ID
- *   <id>" and exits with code 1.
+ *   <id>" and exits with code 1. A resumed session shows the conversation so far above the
+ *   composer (each user message as "› text", each answer and tool call as "• text").
  *
  * LOGIN: `login status` prints "Logged in using ChatGPT" on stderr (exit 0); with
  *   FAKE_CODEX_LOGGED_OUT set, "Not logged in" (exit 1); FAKE_CODEX_AUTH=api_key prints
@@ -28,9 +29,10 @@
  *   projects[<realpath cwd>].trust_level is set: Enter or "1" trusts, "2" or Esc exits 1;
  * - a hooks review ("Hooks need review") when hooks are configured without
  *   --dangerously-bypass-hook-trust: any key continues, and those hooks never run;
- * - after FAKE_CODEX_STARTUP_DELAY_MS (default 50) the composer: "› Ask Codex to do
- *   anything" above a footer "? for shortcuts ... 100% context left".
- *   A PROMPT argument is submitted right away.
+ * - after FAKE_CODEX_STARTUP_DELAY_MS (default 50) the history of a resumed session, then the
+ *   composer: "› Ask Codex to do anything" above a footer "? for shortcuts ... 100% context
+ *   left". A PROMPT argument is submitted right away. SessionStart only fires with that first
+ *   turn, so a resumed session that is given no prompt reports nothing until someone types.
  *
  * HOOKS (`hooks.<Event> = [{hooks = [{type = "command", command, timeout}]}]`): run with
  *   `/bin/sh -c`, the payload on stdin (session_id, turn_id, transcript_path, cwd,
@@ -77,7 +79,7 @@
  * fake-tui.mjs.
  */
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, mkdirSync, readdirSync, realpathSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -384,6 +386,44 @@ function findRollout(sessionsDir, id) {
     return null;
   };
   return walk(sessionsDir);
+}
+
+/**
+ * Prints the conversation of a resumed session, as Codex shows it above the composer: each user
+ * message as "› text" (a message's later lines indented), each answer as "• text", each tool call
+ * as "• name", a blank line between turns. What Codex itself put into the conversation (the
+ * developer instructions, the environment context, shell commands) stays out.
+ */
+function replayHistory(rolloutPath) {
+  let lines;
+  try {
+    lines = readFileSync(rolloutPath, 'utf8').split('\n');
+  } catch {
+    return;
+  }
+  for (const raw of lines) {
+    let payload;
+    try {
+      const entry = JSON.parse(raw);
+      if (entry.type !== 'response_item') continue;
+      payload = entry.payload;
+    } catch {
+      continue;
+    }
+    if (payload?.type === 'function_call' || payload?.type === 'custom_tool_call') {
+      line(`• ${payload.name}`);
+      continue;
+    }
+    if (payload?.type !== 'message' || (payload.role !== 'user' && payload.role !== 'assistant')) continue;
+    const text = (payload.content ?? [])
+      .map((part) => part.text ?? '')
+      .join('\n')
+      .trim();
+    if (!text || /^<(environment_context|user_shell_command)>/.test(text)) continue;
+    if (payload.role === 'user') line();
+    line(`${payload.role === 'user' ? '›' : '•'} ${text.replace(/\n/g, '\r\n  ')}`);
+  }
+  line();
 }
 
 function newRolloutPath(sessionsDir, id) {
@@ -939,6 +979,7 @@ async function interactive() {
   }
 
   await sleep(Number(process.env.FAKE_CODEX_STARTUP_DELAY_MS ?? 50));
+  if (resumeId) replayHistory(rolloutPath);
   showPrompt();
   if (firstPrompt && firstPrompt.trim()) {
     input = firstPrompt;

@@ -39,11 +39,12 @@ describe('session orchestrator', () => {
     expect(resumed).toMatchObject({ created: false, resumed: true, started: true });
     expect(resumed.session.id).toBe(first.session.id);
     const spec = h.runner.lastStarted();
+    // Nothing caused the resume but the start itself: the session is told to carry on.
     expect(spec).toMatchObject({
       resume: true,
       claudeSessionId: first.session.claudeSessionId,
       cwd: first.session.cwd,
-      initialMessage: null,
+      initialMessage: 'Continue AR-1: Login page',
     });
     expect(spec.mcpUrl.split('/').pop()).not.toBe(token);
     const timeline = h.domain.timeline

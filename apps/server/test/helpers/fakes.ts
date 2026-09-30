@@ -180,6 +180,10 @@ export class FakeContextBuilder implements ContextPackBuilder {
           : input.task
             ? `Brief for ${input.task.key}: ${input.task.title}`
             : null,
+      continueMessage:
+        input.workItem.type === 'task' && input.task
+          ? `Continue ${input.task.key}: ${input.task.title}`
+          : null,
     };
   }
 }

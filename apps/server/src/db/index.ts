@@ -1,5 +1,6 @@
 import { createInvitationRepository } from './invitations';
 import type { Db } from './database';
+import { createDeferredStartRepository } from './deferred-starts';
 import { createInboxRepository } from './inbox';
 import { createMemberStateRepository } from './member-state';
 import { createMessageRepository } from './messages';
@@ -13,6 +14,7 @@ import { createAuthSessionRepository, createUserRepository } from './users';
 export { openDatabase, migrate, schemaVersion } from './database';
 export type { Db } from './database';
 export { LATEST_SCHEMA_VERSION, migrations } from './migrations';
+export type { DeferredStartRecord } from './deferred-starts';
 export type { UserRecord, AuthSessionRecord } from './users';
 export type { ProjectRecord } from './projects';
 export type { MemberStateRecord } from './member-state';
@@ -32,6 +34,7 @@ export function createRepositories(db: Db) {
     timeline: createTimelineRepository(db),
     sessions: createSessionRepository(db),
     schedules: createScheduleRepository(db),
+    deferredStarts: createDeferredStartRepository(db),
     messages: createMessageRepository(db),
     inbox: createInboxRepository(db),
     memberState: createMemberStateRepository(db),

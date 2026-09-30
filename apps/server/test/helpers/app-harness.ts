@@ -72,6 +72,11 @@ export interface CliAppHarness extends HarnessBase {
   port: number;
   /** HOME of the fake CLIs. */
   userHome: string;
+  /**
+   * A server restart: the app closes (its sessions end) and starts again over the same home and
+   * database, on the same port. `app` is the new instance afterwards.
+   */
+  restart(): Promise<void>;
 }
 
 /**
@@ -125,28 +130,32 @@ export async function createAppHarness(
     };
   }
 
-  const app = await buildApp({
-    home,
-    now: opts.now,
-    scheduleTimer: opts.scheduleTimer,
-    logger: false,
-    webDistDir: opts.webDistDir ?? null,
-    planUsageTtlMs: 0,
-    doneCleanupDelayMs: 0,
-    ...opts.app,
-    ...(cli
-      ? {
-          claudeBin: FAKE_CLAUDE,
-          codexBin: FAKE_CODEX,
-          codexHome,
-          claudeConfigPath: claudeConfig,
-          publicBaseUrl: `http://127.0.0.1:${port}`,
-        }
-      : {}),
-    modules,
-  });
-  if (cli) await app.listen({ host: '127.0.0.1', port });
-  else await app.ready();
+  const launch = async (): Promise<FastifyInstance> => {
+    const launched = await buildApp({
+      home,
+      now: opts.now,
+      scheduleTimer: opts.scheduleTimer,
+      logger: false,
+      webDistDir: opts.webDistDir ?? null,
+      planUsageTtlMs: 0,
+      doneCleanupDelayMs: 0,
+      ...opts.app,
+      ...(cli
+        ? {
+            claudeBin: FAKE_CLAUDE,
+            codexBin: FAKE_CODEX,
+            codexHome,
+            claudeConfigPath: claudeConfig,
+            publicBaseUrl: `http://127.0.0.1:${port}`,
+          }
+        : {}),
+      modules,
+    });
+    if (cli) await launched.listen({ host: '127.0.0.1', port });
+    else await launched.ready();
+    return launched;
+  };
+  let app = await launch();
 
   const base: HarnessBase = {
     app,
@@ -166,7 +175,18 @@ export async function createAppHarness(
       }
     },
   };
-  return cli ? { ...base, port, userHome } : { ...base, runnerModule, runner: runnerModule.runner };
+  if (!cli) return { ...base, runnerModule, runner: runnerModule.runner };
+  const harness: CliAppHarness = {
+    ...base,
+    port,
+    userHome,
+    async restart() {
+      await app.close();
+      app = await launch();
+      harness.app = app;
+    },
+  };
+  return harness;
 }
 
 /** "name=value" of the response's first Set-Cookie header. */

@@ -170,10 +170,12 @@ describe('automatic session admission and retries', () => {
     h.runnerModule.planUsage.value = planUsage(30);
     await h.domain.admission.retryDeferred();
     await flush();
+    // No message caused this resume, so the session starts with the continue message; the
+    // waiting message and the notice follow it.
     expect(h.runner.lastStarted()).toMatchObject({
       sessionId: session.id,
       resume: true,
-      initialMessage: null,
+      initialMessage: 'Continue AR-1: Fictional checkout',
     });
     expect(h.runner.messages.map((m) => m.text)).toEqual([
       '[team message from owner about AR-1]\nPlease review the fictional checkout.',

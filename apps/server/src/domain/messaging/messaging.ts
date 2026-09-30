@@ -104,7 +104,8 @@ export class Messaging {
   /**
    * A human writes into an AI session's chat: recorded as a team message and typed in as plain
    * text. A stopped session is resumed for it without admission (a person asked), but not
-   * while the project's AI work is switched off.
+   * while the project's AI work is switched off; a session that resumes its conversation takes
+   * the text as its first input, so it is not typed again.
    */
   async sendToSession(
     projectKey: string,
@@ -115,9 +116,10 @@ export class Messaging {
     const session = this.sessions.get(projectKey, sessionId);
     const body = text.trim();
     if (!body) throw invalid('invalid_request', 'the message text is empty', { field: 'text' });
-    const target = this.sessions.isRunning(session.id)
-      ? session
-      : (await this.sessions.ensureSession(projectKey, session.member, session.workItem)).session;
+    const started = this.sessions.isRunning(session.id)
+      ? null
+      : await this.sessions.ensureSession(projectKey, session.member, session.workItem, { message: body });
+    const sentAsFirstInput = started?.messageSent ?? false;
     const message = this.messages.record({
       projectKey,
       from,
@@ -126,8 +128,9 @@ export class Messaging {
       body,
       actor: humanActor(from),
       sessionId: session.id,
+      delivered: sentAsFirstInput,
     });
-    this.delivery.deliver(target, message, body);
+    if (!sentAsFirstInput) this.delivery.deliver(started?.session ?? session, message, body);
     return message;
   }
 

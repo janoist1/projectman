@@ -129,6 +129,14 @@ const waitChat = (id: string, match: (item: ChatItem) => boolean, what: string, 
   waitFor(() => chatOf(id).find(match), { timeoutMs, what });
 const assistantSaid = (id: string, text: string) =>
   waitChat(id, (i) => i.kind === 'assistant_text' && i.text === text, `assistant: ${text}`);
+const waitSnapshot = (id: string, text: string) =>
+  waitFor(
+    () => {
+      const snapshot = runner.runner.snapshot(id);
+      return snapshot?.data.includes(text) ? snapshot : null;
+    },
+    { what: `terminal snapshot: ${text}` },
+  );
 const providerIdOf = (id: string) =>
   events.findLast(
     (e): e is Extract<RunnerEvent, { type: 'provider_session_id' }> =>
@@ -357,6 +365,9 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
 
     await runner.runner.sendUserMessage(s.sessionId, 'ASK me something');
     await waitState(s.sessionId, 'waiting_input');
+    // The hook reaches the server before the fake CLI shows its question and takes keys as the
+    // answer: a key typed in between would go into the composer, and the question never ends.
+    await waitSnapshot(s.sessionId, 'Which option?');
     runner.runner.writeTerminal(s.sessionId, '2');
     await assistantSaid(s.sessionId, 'Echo: ASK me something');
     await waitState(s.sessionId, 'idle');
@@ -419,6 +430,66 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
     await waitFor(() => runner.runner.snapshot(unknown.sessionId)?.data.includes('No saved session found'), {
       what: 'failed session terminal output parsed',
     });
+  });
+
+  it('becomes ready from the composer of a resumed screen, below a long history that quotes dialogs', async () => {
+    await setup();
+    // A conversation taller than the terminal, whose text quotes what start-up dialogs say.
+    const notes = Array.from(
+      { length: 45 },
+      (_, i) => `Note ${i + 1}: Press enter to continue. Update available. Sign in with ChatGPT.`,
+    ).join('\n');
+    const s = spec({ initialMessage: `Read these notes\n${notes}` });
+    await runner.runner.start(s);
+    await assistantSaid(s.sessionId, 'Echo: Read these notes');
+    await waitState(s.sessionId, 'idle');
+    const learned = providerIdOf(s.sessionId)!;
+    await runner.runner.stop(s.sessionId);
+
+    // Resumed with nothing on the command line, Codex reports nothing until a turn starts: the
+    // session can only become ready by recognising the composer under the history.
+    await runner.runner.start({ ...s, claudeSessionId: learned, resume: true, initialMessage: null });
+    await waitState(s.sessionId, 'idle');
+    const { argv } = JSON.parse(await readFile(argsFile, 'utf8'));
+    expect(argv.slice(-2)).toEqual(['--', learned]);
+    const screen = (await waitSnapshot(s.sessionId, 'Ask Codex to do anything')).data;
+    expect(screen.indexOf('Note 45')).toBeGreaterThan(-1);
+    expect(screen.indexOf('Note 45')).toBeLessThan(screen.indexOf('Ask Codex to do anything'));
+
+    await runner.runner.sendUserMessage(s.sessionId, 'Carry on after the restart');
+    await assistantSaid(s.sessionId, 'Echo: Carry on after the restart');
+    await waitState(s.sessionId, 'idle');
+  });
+
+  it('types a message queued for a resumed session that got its first message on the command line', async () => {
+    await setup();
+    const s = spec({ initialMessage: 'first run' });
+    await runner.runner.start(s);
+    await assistantSaid(s.sessionId, 'Echo: first run');
+    await waitState(s.sessionId, 'idle');
+    const learned = providerIdOf(s.sessionId)!;
+    await runner.runner.stop(s.sessionId);
+
+    const before = chatOf(s.sessionId).length;
+    await runner.runner.start({
+      ...s,
+      claudeSessionId: learned,
+      resume: true,
+      initialMessage: 'Your session was restarted. Carry on.',
+    });
+    // Queued at once, before the first turn has even started: typed after it, on SessionStart's
+    // word that the session runs.
+    const queued = runner.runner.sendUserMessage(s.sessionId, 'A message queued during the restart');
+    await assistantSaid(s.sessionId, 'Echo: A message queued during the restart');
+    await queued;
+    const { argv } = JSON.parse(await readFile(argsFile, 'utf8'));
+    expect(argv.slice(-3)).toEqual(['--', learned, 'Your session was restarted. Carry on.']);
+    expect(
+      chatOf(s.sessionId)
+        .slice(before)
+        .flatMap((i) => (i.kind === 'user_text' ? [i.text] : [])),
+    ).toEqual(['Your session was restarted. Carry on.', 'A message queued during the restart']);
+    await waitState(s.sessionId, 'idle');
   });
 
   it('refuses to start when Codex is not logged in with ChatGPT', async () => {

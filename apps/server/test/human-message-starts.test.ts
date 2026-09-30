@@ -51,14 +51,20 @@ describe('human messages wake idle AI members', () => {
     await h.domain.sessions.stop('AR', session.id);
     const message = await send('AR-1');
     await flush();
-    expect(h.runner.lastStarted()).toMatchObject({ sessionId: session.id, resume: true });
+    // The resumed session takes the message as its first input: nothing is typed after it.
+    expect(h.runner.lastStarted()).toMatchObject({
+      sessionId: session.id,
+      resume: true,
+      initialMessage: '[team message from owner about AR-1]\nPlease check Acme.',
+    });
     expect(h.repos.messages.get(message.id)?.deliveredAt).toBeTruthy();
+    expect(h.runner.messages).toEqual([]);
     await h.domain.tasks.create('AR', { title: 'Acme second checkout' }, OWNER_ACTOR);
     const refused = await send('AR-2');
     await flush();
     expect(h.runner.started).toHaveLength(2);
     expect(h.repos.messages.pending('AR', 'cr').map((entry) => entry.id)).toContain(refused.id);
-    expect(h.runner.messages).toHaveLength(1);
+    expect(h.runner.messages).toEqual([]);
   });
 
   it.each(['capacity', 'concurrency', 'usage'] as const)(

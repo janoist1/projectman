@@ -41,6 +41,13 @@ export interface ContextPack {
    * general chats and meetings.
    */
   initialMessage: string | null;
+  /**
+   * First message of a resumed task session that no message caused, so that it does not sit at its
+   * prompt: it was restarted, which task and stage it is in, and to check where it left off before
+   * it carries on. Null for other work items. A resume that a message caused (a person writing to
+   * the stopped session, a waiting team message) gets that message instead.
+   */
+  continueMessage: string | null;
 }
 
 export interface ContextPackBuilder {

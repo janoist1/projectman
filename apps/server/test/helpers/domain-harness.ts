@@ -15,6 +15,7 @@ import {
   FakeGithub,
   FakeMemoryStore,
   FakeWorktreeManager,
+  planUsage,
 } from './fakes';
 import { testTemplate } from './test-template';
 
@@ -28,7 +29,8 @@ export const OWNER_ACTOR = humanActor('owner');
 /**
  * A domain over an in-memory database, a temp customization repository and fakes for the
  * runner, context pack, memory, worktrees and GitHub; with project "AR" created from the
- * test template.
+ * test template. `persistent` keeps the database in a file instead, and `restartDomainHarness`
+ * then starts a new domain over it.
  */
 export async function createDomainHarness(
   opts: {
@@ -36,14 +38,27 @@ export async function createDomainHarness(
     now?: () => Date;
     scheduleTimer?: ScheduleTimer;
     handOffRetryMs?: number;
+    /** The database lives in a file, so that a restart can open it again. */
+    persistent?: boolean;
+    /** Plan usage (percent of the five-hour window) the fake probe reports from the start (default: unknown). */
+    planUsagePercent?: number;
+    /**
+     * The directory of an earlier harness (database file, customization repository, workspace):
+     * the domain starts over what that one left, as after a restart. See `restartDomainHarness`.
+     */
+    directory?: string;
   } = {},
 ) {
-  const dir = mkdtempSync(join(tmpdir(), 'pm-domain-'));
+  const restarted = opts.directory !== undefined;
+  const dir = opts.directory ?? mkdtempSync(join(tmpdir(), 'pm-domain-'));
   const workspace = join(dir, 'workspace');
-  mkdirSync(workspace);
-  const repos = createRepositories(openDatabase(':memory:'));
+  if (!restarted) mkdirSync(workspace);
+  const repos = createRepositories(
+    openDatabase(restarted || opts.persistent ? join(dir, 'db.sqlite') : ':memory:'),
+  );
   const configStore = createConfigStore({ rootDir: join(dir, 'customization') });
   const runnerModule = createFakeRunnerModule();
+  if (opts.planUsagePercent !== undefined) runnerModule.planUsage.value = planUsage(opts.planUsagePercent);
   const github = new FakeGithub();
   const contextBuilder = new FakeContextBuilder();
   const memory = new FakeMemoryStore();
@@ -70,11 +85,13 @@ export async function createDomainHarness(
     handOffRetryMs: opts.handOffRetryMs,
   });
   await domain.start();
-  await domain.projects.create(
-    { key: 'AR', name: 'acme', workspacePath: workspace, templateId: 'test' },
-    OWNER,
-  );
-  if (opts.adjust) {
+  if (!restarted) {
+    await domain.projects.create(
+      { key: 'AR', name: 'acme', workspacePath: workspace, templateId: 'test' },
+      OWNER,
+    );
+  }
+  if (opts.adjust && !restarted) {
     await domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
       opts.adjust!(draft);
       return 'Adjust test configuration';
@@ -99,11 +116,31 @@ export async function createDomainHarness(
       await domain.stop();
       repos.db.close();
       rmSync(dir, { recursive: true, force: true });
-      if (log.errors.length > 0) {
-        throw new Error(`errors were logged: ${JSON.stringify(log.errors, errorReplacer, 2)}`);
-      }
+      assertNoErrors(log);
     },
   };
 }
 
 export type DomainHarness = Awaited<ReturnType<typeof createDomainHarness>>;
+
+function assertNoErrors(log: { errors: unknown[] }): void {
+  if (log.errors.length > 0) {
+    throw new Error(`errors were logged: ${JSON.stringify(log.errors, errorReplacer, 2)}`);
+  }
+}
+
+/**
+ * A restart of the server: the harness's domain stops and a new one starts over the same database
+ * file, customization repository and workspace, with new fakes (nothing runs any more). The
+ * harness must be `persistent`. Clean up with the returned harness; `opts` are its options (the
+ * configuration is not adjusted again).
+ */
+export async function restartDomainHarness(
+  previous: DomainHarness,
+  opts: Parameters<typeof createDomainHarness>[0] = {},
+): Promise<DomainHarness> {
+  await previous.domain.stop();
+  previous.repos.db.close();
+  assertNoErrors(previous.log);
+  return createDomainHarness({ ...opts, directory: previous.dir });
+}

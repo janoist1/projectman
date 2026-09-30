@@ -1,7 +1,7 @@
 export { Admission } from './admission';
 export type { AdmissionRequest } from './admission';
-export { DeferredStarts } from './deferred-starts';
-export type { AutomaticStart, DeferredStart } from './deferred-starts';
+export { DeferredStarts, StartSpec } from './deferred-starts';
+export type { AutomaticStart, DeferredStart, DeferredStartStore } from './deferred-starts';
 export { StageHandOver } from './hand-over';
 export { MessageStarts } from './message-starts';
 export { assertAiEnabled, isDeferrable, waitingOf } from './rules';

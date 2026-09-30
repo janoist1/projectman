@@ -401,6 +401,32 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     expect(full.filter((i) => i.kind === 'user_text').map((i) => i.origin)).toEqual(['brief', 'human']);
   });
 
+  it('types the first message of a resumed session once SessionStart says it runs, ahead of later ones', async () => {
+    await setup();
+    const s = spec({ initialMessage: 'first run' });
+    await runner.runner.start(s);
+    await assistantSaid(s.sessionId, 'Echo: first run');
+    await waitState(s.sessionId, 'idle');
+    await runner.runner.stop(s.sessionId);
+
+    // Claude Code reports SessionStart at launch, for a resumed conversation too (source
+    // "resume"): nothing depends on the screen, so the first message is typed, not passed as an
+    // argument, and a message queued straight after follows it.
+    const before = chatOf(s.sessionId).length;
+    await runner.runner.start({ ...s, resume: true, initialMessage: 'Your session was restarted.' });
+    const queued = runner.runner.sendUserMessage(s.sessionId, 'A message queued during the restart');
+    await assistantSaid(s.sessionId, 'Echo: A message queued during the restart');
+    await queued;
+    const { argv } = JSON.parse(await readFile(argsFile, 'utf8'));
+    expect(argv).toEqual(expect.arrayContaining(['--resume', s.claudeSessionId]));
+    expect(argv).not.toContain('Your session was restarted.');
+    expect(
+      chatOf(s.sessionId)
+        .slice(before)
+        .flatMap((i) => (i.kind === 'user_text' ? [i.text] : [])),
+    ).toEqual(['Your session was restarted.', 'A message queued during the restart']);
+  });
+
   it('follows the new transcript after /clear', async () => {
     await setup();
     const s = spec({ initialMessage: 'before clear' });

@@ -15,6 +15,7 @@ import type { Repositories } from '../db';
 import { projectAccessFor } from './access';
 import type { ProjectAccess } from './access';
 import { Admission, DeferredStarts, MessageStarts, StageHandOver, TaskStarts } from './admission';
+import type { StartSpec } from './admission';
 import { BackgroundTasks } from './background';
 import { BoardService } from './board';
 import { createDomainContext, defaultTemplateRegistry } from './context';
@@ -47,6 +48,8 @@ export type {
   AdmissionRequest,
   AutomaticStart,
   DeferredStart,
+  DeferredStartStore,
+  StartSpec,
   StartTaskOptions,
   StartTaskResult,
 } from './admission';
@@ -66,7 +69,12 @@ export type { Author, LoadedProject, ConfigChange } from './projects';
 export { ScheduleService } from './schedules';
 export type { ScheduleTimer } from './schedules';
 export * from './session-policy';
-export { SessionOrchestrator, BUSY_SESSION_STATES, LIVE_SESSION_STATES } from './sessions';
+export {
+  SessionOrchestrator,
+  BUSY_SESSION_STATES,
+  LIVE_SESSION_STATES,
+  MAX_FIRST_INPUT_CHARS,
+} from './sessions';
 export { TaskService, isOpenTask } from './tasks';
 export type { MoveResult, StageChange, TaskUpdate } from './tasks';
 export { TeamToolsService } from './team-tools';
@@ -116,7 +124,8 @@ export function createDomain(opts: DomainOptions) {
   const inbox = new InboxService({ ctx, timeline, projects, worktreesRootDir: opts.worktreesRootDir });
   const runnerModule = opts.createRunner(inbox.broker);
   const presence = new PresenceService();
-  const deferredStarts = new DeferredStarts();
+  // The deferred automatic starts live in SQLite too: a restart loads them back (see `start`).
+  const deferredStarts = new DeferredStarts(opts.repos.deferredStarts);
   const messages = new MessageService({ ctx, timeline });
   const tasks = new TaskService({ ctx, timeline, projects, inbox, startWaiting: deferredStarts });
   const members = new MemberService({ ctx, projects, timeline, presence, inbox });
@@ -146,7 +155,7 @@ export function createDomain(opts: DomainOptions) {
     ttlMs: opts.planUsageTtlMs,
   });
   const planUsage = usage.cache;
-  const admission = new Admission({ ctx, sessions, planUsage, tasks, deferred: deferredStarts });
+  const admission = new Admission({ ctx, sessions, planUsage, tasks, projects, deferred: deferredStarts });
   const delivery = new MessageDelivery({ ctx, sessions, messages });
   const messaging = new Messaging({ ctx, projects, tasks, sessions, messages, delivery });
   const taskStarts = new TaskStarts({ projects, tasks, members, sessions, admission });
@@ -182,6 +191,9 @@ export function createDomain(opts: DomainOptions) {
       () => admission.retryDeferred(),
       (err) => opts.logger.warn({ err }, 'deferred start retry failed'),
     );
+  /** A deferred start as it was stored, made again by the module that made it. */
+  const rebuildDeferredStart = (spec: StartSpec) =>
+    spec.kind === 'hand_over' ? handOver.rebuild(spec) : messageStarts.rebuild(spec);
 
   // Configuration changes: runtime state follows the roster.
   events.on('config_changed', (change) => members.reconcile(change));
@@ -275,7 +287,10 @@ export function createDomain(opts: DomainOptions) {
       background.start();
       usage.start();
       schedules.start();
-      // Refused hand-overs and message wake-ups retry once admission allows them.
+      // What admission refused before the server stopped waits again and is retried now, as usual
+      // (under admission, and not while its master switch is off)...
+      if (admission.restoreDeferred(rebuildDeferredStart) > 0) retryDeferredStarts();
+      // ... and refused hand-overs and message wake-ups retry once admission allows them.
       retryTimer = setInterval(retryDeferredStarts, opts.handOffRetryMs ?? 30_000);
       retryTimer.unref();
     },

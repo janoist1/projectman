@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TimelineEvent, type TimelineEventData } from './event';
+import { LabelChangeReason, LabelClearTrigger } from './label';
 
 const payloads: Array<{
   type: 'task_updated' | 'task_stage_changed';
@@ -32,6 +33,24 @@ const payloads: Array<{
     data: { fields: ['status'], gateBlocked: { to: 'merge', reason: 'unknown_stage' } },
   },
   {
+    type: 'task_updated',
+    data: {
+      fields: ['status'],
+      gateBlocked: { to: 'release', label: 'release-approved', reason: 'label_not_allowed' },
+    },
+  },
+  {
+    type: 'task_updated',
+    data: {
+      fields: [],
+      gateBlocked: {
+        to: 'release',
+        unmet: [],
+        approvals: [{ stageId: 'release', label: 'release-approved', approvers: ['owner'] }],
+      },
+    },
+  },
+  {
     type: 'task_stage_changed',
     data: { from: 'review', to: 'merge', approvedBy: ['owner'], inboxItemIds: ['inbox-1'] },
   },
@@ -51,5 +70,18 @@ describe('documented gate timeline data', () => {
         data,
       }).data,
     ).toEqual(data);
+  });
+});
+
+describe('label change reasons', () => {
+  it('covers the clear triggers, a merged pull request and an approval', () => {
+    expect(LabelChangeReason.options).toEqual([...LabelClearTrigger.options, 'pr_merged', 'approval']);
+    const data: TimelineEventData['task_labels_changed'] = {
+      added: [],
+      removed: ['code-review-ok'],
+      reason: LabelChangeReason.parse('moved_back'),
+    };
+    expect(data.reason).toBe('moved_back');
+    expect(LabelChangeReason.safeParse('group').success).toBe(false);
   });
 });

@@ -1,9 +1,12 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { getLocale } from '@projectman/templates';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { t } from '../../i18n/t';
 import { setFetchImplementation } from '../../api/client';
 import { mockProject } from '../../test/mockProject';
 import { TeamPage } from './TeamPage';
+
+const roleNames = getLocale('hu').roles;
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -92,22 +95,26 @@ describe('TeamPage role catalogue', () => {
   it('shows every human responsibility next to access and one role for AI members', async () => {
     const project = mockProject();
     project.render(<TeamPage />);
-    const owner = (await screen.findByText('Te')).closest('tr')!;
-    expect(within(owner).getByText('Tulajdonos')).toBeTruthy();
-    await waitFor(() => expect(within(owner).getByText('Operátor')).toBeTruthy());
-    expect(within(owner).getByText('Terméktulajdonos')).toBeTruthy();
-    const frontend = screen.getByText('Frontend fejlesztő').closest('tr')!;
-    expect(within(frontend).getByText('Fejlesztő')).toBeTruthy();
-    expect(within(owner).getByRole('button', { name: 'Tag szerkesztése: Te' })).toBeTruthy();
+    const owner = (await screen.findByText(t('common.you'))).closest('tr')!;
+    expect(within(owner).getByText(t('roles.human.owner'))).toBeTruthy();
+    await waitFor(() => expect(within(owner).getByText(roleNames.operator.name)).toBeTruthy());
+    expect(within(owner).getByText(roleNames.product_owner.name)).toBeTruthy();
+    const frontend = screen.getByText(project.backend.findMember('fe-1')!.displayName).closest('tr')!;
+    expect(within(frontend).getByText(roleNames.developer.name)).toBeTruthy();
+    expect(
+      within(owner).getByRole('button', {
+        name: t('memberEdit.title', { name: project.backend.findMember('owner')!.displayName }),
+      }),
+    ).toBeTruthy();
   });
   it('allows non-admins to see the catalogue without offering configuration changes', async () => {
     const project = mockProject();
     project.render(<TeamPage />, '/', {
       can: { createTasks: true, manageTeam: false, workInSessions: false },
     });
-    await screen.findByRole('heading', { name: 'Szerepek' });
-    await waitFor(() => expect(screen.getAllByText('Operátor').length).toBeGreaterThan(0));
-    expect(screen.queryByRole('button', { name: 'Új szerep' })).toBeNull();
+    await screen.findByRole('heading', { name: t('roleCatalogue.title') });
+    await waitFor(() => expect(screen.getAllByText(roleNames.operator.name).length).toBeGreaterThan(0));
+    expect(screen.queryByRole('button', { name: t('roleCatalogue.create') })).toBeNull();
     expect(screen.queryByRole('button', { name: /Tag szerkesztése/ })).toBeNull();
     expect(screen.queryByRole('button', { name: t('addHuman.title') })).toBeNull();
     expect(screen.queryByRole('button', { name: t('invites.create') })).toBeNull();

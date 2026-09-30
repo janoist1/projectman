@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildApp } from './app';
+import { buildApp, isLoopbackHost, loopbackBaseUrl } from './app';
 
 /**
  * Server entry point.
@@ -11,27 +11,20 @@ import { buildApp } from './app';
  * Remote access goes through Tailscale (`tailscale serve`), not by binding publicly.
  */
 
-/** The address the local claude CLI uses to reach the hooks and MCP endpoints. */
-function localBaseUrl(host: string, port: number): string {
-  const loopback = ['', '0.0.0.0', '::', 'localhost', '127.0.0.1', '::1'].includes(host);
-  const address = loopback ? '127.0.0.1' : host;
-  return `http://${address.includes(':') ? `[${address}]` : address}:${port}`;
-}
-
 async function main(): Promise<void> {
   const env = process.env;
   const home = resolve(env.PROJECTMAN_HOME ?? join(homedir(), '.projectman'));
   const port = Number.parseInt(env.PORT ?? '4700', 10);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error(`invalid PORT: ${env.PORT}`);
   const host = env.HOST ?? '127.0.0.1';
-  if (!['127.0.0.1', '::1', 'localhost'].includes(host))
+  if (!isLoopbackHost(host))
     throw new Error('HOST must be loopback; use an HTTPS reverse proxy for remote access');
   // apps/web/dist, from src/index.ts (tsx) as well as from dist/index.js (bundle).
   const webDist = fileURLToPath(new URL('../../web/dist', import.meta.url));
 
   const app = await buildApp({
     home,
-    publicBaseUrl: localBaseUrl(host, port),
+    publicBaseUrl: loopbackBaseUrl(host, port),
     claudeBin: env.CLAUDE_BIN ?? 'claude',
     ghBin: env.GH_BIN ?? 'gh',
     logger: { level: env.LOG_LEVEL ?? 'info' },

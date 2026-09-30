@@ -32,6 +32,22 @@ import { createWorktreeManager } from './worktree';
 import { registerWebsocket } from './ws';
 import type { WebsocketHub } from './ws';
 
+/** Loopback addresses the server may listen on; remote access goes through `tailscale serve`. */
+export const LOOPBACK_HOSTS = ['127.0.0.1', '::1', 'localhost'] as const;
+export type LoopbackHost = (typeof LOOPBACK_HOSTS)[number];
+
+export function isLoopbackHost(host: string): host is LoopbackHost {
+  return (LOOPBACK_HOSTS as readonly string[]).includes(host);
+}
+
+/**
+ * How the local agent CLIs reach the hooks and MCP endpoints of a server listening on this
+ * loopback host. "localhost" listens on every address it resolves to, IPv4 included.
+ */
+export function loopbackBaseUrl(host: LoopbackHost, port: number): string {
+  return `http://${host === '::1' ? '[::1]' : '127.0.0.1'}:${port}`;
+}
+
 /** Module factories and instances; each can be replaced (tests inject fakes). */
 export interface AppModules {
   createRunnerModule?: (opts: RunnerModuleOptions) => RunnerModule;

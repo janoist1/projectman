@@ -1,7 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { LoginRequest, routes, SetupRequest } from '@projectman/shared';
 import type { Me, SetupStatus } from '@projectman/shared';
-import { registerInvitationRoutes } from '../api/invitations';
 import { apiError } from '../api/errors';
 import { parseBody } from '../api/validation';
 import type { Domain } from '../domain';
@@ -52,10 +51,42 @@ function needsLogin(request: FastifyRequest): boolean {
   return !PUBLIC_ROUTES.has(`${request.method} ${route ?? path}`);
 }
 
+/** The user and their memberships, as every login answers and GET /api/auth/me returns. */
+export async function meOf(domain: Domain, user: AuthUser): Promise<Me> {
+  return {
+    userId: user.id,
+    name: user.name,
+    email: user.email,
+    handles: await domain.handlesFor(user.email),
+    projects: await domain.projectsFor(user.email),
+  };
+}
+
+/**
+ * Logs the user in on this response: the presented session is revoked (sessions rotate on
+ * every login) and a new signed session cookie is set.
+ */
+export function startSession(
+  auth: AuthService,
+  request: FastifyRequest,
+  reply: FastifyReply,
+  userId: string,
+): void {
+  if (request.authToken) auth.revoke(request.authToken);
+  reply.setCookie(SESSION_COOKIE, auth.createSession(userId), {
+    path: '/',
+    httpOnly: true,
+    sameSite: 'lax',
+    signed: true,
+    secure: requestProtocol(request) === 'https',
+    maxAge: Math.floor(auth.sessionTtlMs / 1000),
+  });
+}
+
 /**
  * Login with a signed, httpOnly session cookie. The first-run setup creates the owner and
  * is allowed only while no user exists and only from this machine. Everything under /api
- * (except setup and login) and /ws requires the cookie.
+ * (except setup, login and the public invitation routes) and /ws requires the cookie.
  */
 export function registerAuth(app: FastifyInstance, deps: { auth: AuthService; domain: Domain }): void {
   const { auth, domain } = deps;
@@ -93,26 +124,6 @@ export function registerAuth(app: FastifyInstance, deps: { auth: AuthService; do
     }
   });
 
-  const me = async (user: AuthUser): Promise<Me> => ({
-    userId: user.id,
-    name: user.name,
-    email: user.email,
-    handles: await domain.handlesFor(user.email),
-    projects: await domain.projectsFor(user.email),
-  });
-
-  const setSessionCookie = (reply: FastifyReply, token: string) =>
-    reply.setCookie(SESSION_COOKIE, token, {
-      path: '/',
-      httpOnly: true,
-      sameSite: 'lax',
-      signed: true,
-      secure: requestProtocol(reply.request) === 'https',
-      maxAge: Math.floor(auth.sessionTtlMs / 1000),
-    });
-
-  registerInvitationRoutes(app, { auth, domain, me, setSessionCookie });
-
   app.get(routes.setupStatus(), async (): Promise<SetupStatus> => ({ needsSetup: auth.needsSetup() }));
 
   app.post(routes.setup(), async (request, reply) => {
@@ -124,8 +135,8 @@ export function registerAuth(app: FastifyInstance, deps: { auth: AuthService; do
     }
     const body = parseBody(SetupRequest, request.body);
     const user = await auth.createFirstUser(body);
-    setSessionCookie(reply, auth.createSession(user.id));
-    return reply.code(201).send(await me(user));
+    startSession(auth, request, reply, user.id);
+    return reply.code(201).send(await meOf(domain, user));
   });
 
   app.post(routes.login(), async (request, reply) => {
@@ -137,9 +148,8 @@ export function registerAuth(app: FastifyInstance, deps: { auth: AuthService; do
       throw new DomainError('invalid_credentials', 'wrong email or password', { status: 401 });
     }
     release();
-    if (request.authToken) auth.revoke(request.authToken);
-    setSessionCookie(reply, auth.createSession(user.id));
-    return me(user);
+    startSession(auth, request, reply, user.id);
+    return meOf(domain, user);
   });
 
   app.post(routes.logout(), async (request, reply) => {
@@ -148,5 +158,5 @@ export function registerAuth(app: FastifyInstance, deps: { auth: AuthService; do
     return reply.code(204).send();
   });
 
-  app.get(routes.me(), async (request) => me(request.user!));
+  app.get(routes.me(), async (request) => meOf(domain, request.user!));
 }

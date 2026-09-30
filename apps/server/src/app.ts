@@ -25,6 +25,7 @@ import { createRepositories, openDatabase } from './db';
 import type { Repositories } from './db';
 import { createDomain } from './domain';
 import type { Domain, ScheduleTimer, TemplateRegistry } from './domain';
+import { InvitationService } from './domain/invitations';
 import { createGithubService } from './github';
 import { createMcpModule } from './mcp';
 import { createRunnerModule } from './runner';
@@ -183,6 +184,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       logger: log,
     });
     const auth = new AuthService({ repos, now: options.now });
+    const invitations = new InvitationService({
+      ctx: domain.ctx,
+      projects: domain.projects,
+      members: domain.members,
+      accounts: auth,
+    });
 
     const webDistDir =
       options.webDistDir && existsSync(join(options.webDistDir, 'index.html'))
@@ -190,7 +197,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         : null;
     registerErrorHandling(app, { spaIndex: webDistDir !== null });
     registerAuth(app, { auth, domain });
-    registerApiRoutes(app, domain);
+    registerApiRoutes(app, { domain, invitations, auth });
     registerWebsocket(app, { domain, auth, heartbeatMs: options.wsHeartbeatMs });
     domain.runnerModule.registerHookRoutes(app);
     mcpModule.registerRoutes(app);

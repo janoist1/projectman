@@ -24,7 +24,8 @@ tenants into separate OS accounts or machines.
   and expire after 30 days without sliding renewal. Logout revokes the session.
 - Argon2id passwords: 19 MiB memory, two iterations, one lane. Unknown accounts also
   perform password verification. Login reserves one of ten attempts per peer per
-  15 minutes before hashing; invitation inspection/acceptance is also limited.
+  15 minutes before hashing and gives it back when the login succeeds, so only failures
+  count; invitation inspection/acceptance is limited the same way.
 - Mutating API requests compare Origin against the exact scheme, Host and port;
   cross-site Fetch Metadata is rejected. Missing Origin supports non-browser
   clients; opaque `null` origins are rejected. WebSockets use the same origin

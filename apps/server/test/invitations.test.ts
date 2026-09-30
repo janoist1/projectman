@@ -506,4 +506,15 @@ describe('colleague invitation API', () => {
       expect([response.statusCode, response.json().error.code]).toEqual([429, 'too_many_attempts']);
     }
   });
+
+  it('does not count successful inspections against the shared limit', async () => {
+    const created = await invite();
+    for (let attempt = 0; attempt < 12; attempt++)
+      expect((await call('GET', publicPath(created))).statusCode).toBe(200);
+    for (let attempt = 0; attempt < 9; attempt++)
+      expect((await call('GET', '/api/invites/unknown')).statusCode).toBe(404);
+    expect((await call('POST', `${publicPath(created)}/accept`, undefined, newAccount)).statusCode).toBe(200);
+    expect((await call('GET', '/api/invites/unknown')).statusCode).toBe(404);
+    expect((await call('GET', '/api/invites/unknown')).statusCode).toBe(429);
+  });
 });

@@ -92,6 +92,15 @@ describe('REST API', () => {
       expect(attempts.filter((r) => r.status === 429)).toHaveLength(6);
     });
 
+    it('counts only failed logins, so a team behind one proxy address is not locked out', async () => {
+      await setupOwner(h.app);
+      const login = (password: string) =>
+        call('POST', '/api/auth/login', undefined, { email: OWNER_LOGIN.email, password });
+      for (let i = 0; i < 12; i++) expect((await login(OWNER_LOGIN.password)).status).toBe(200);
+      for (let i = 0; i < 10; i++) expect((await login('incorrect password')).status).toBe(401);
+      expect((await login(OWNER_LOGIN.password)).status).toBe(429);
+    });
+
     it('expires sessions without extending their absolute lifetime', async () => {
       await h.close();
       let now = new Date('2026-01-01T00:00:00Z');

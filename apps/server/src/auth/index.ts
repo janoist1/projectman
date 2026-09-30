@@ -6,10 +6,13 @@ import { apiError } from '../api/errors';
 import { parseBody } from '../api/validation';
 import type { Domain } from '../domain';
 import { DomainError, forbidden } from '../domain/errors';
+import { createAttemptLimiter } from './attempt-limiter';
 import { AuthService } from './auth-service';
 import type { AuthUser } from './auth-service';
 import { isLocalRequest, requestProtocol, sameOrigin } from './local-request';
 
+export { createAttemptLimiter } from './attempt-limiter';
+export type { AttemptLimiter } from './attempt-limiter';
 export { AuthService, SESSION_TTL_MS } from './auth-service';
 export type { AuthUser } from './auth-service';
 export { isLocalRequest } from './local-request';
@@ -36,6 +39,7 @@ const PUBLIC_ROUTES = new Set([
   `POST ${routes.logout()}`,
 ]);
 
+/** Failed logins per peer address and window. */
 const MAX_FAILED_LOGINS = 10;
 const FAILED_LOGIN_WINDOW_MS = 15 * 60 * 1000;
 
@@ -55,7 +59,11 @@ function needsLogin(request: FastifyRequest): boolean {
  */
 export function registerAuth(app: FastifyInstance, deps: { auth: AuthService; domain: Domain }): void {
   const { auth, domain } = deps;
-  const failedLogins = new Map<string, { count: number; resetAt: number }>();
+  const loginAttempts = createAttemptLimiter({
+    max: MAX_FAILED_LOGINS,
+    windowMs: FAILED_LOGIN_WINDOW_MS,
+    message: 'too many failed logins; try again later',
+  });
 
   app.decorateRequest('user', null);
   app.decorateRequest('authToken', null);
@@ -122,20 +130,13 @@ export function registerAuth(app: FastifyInstance, deps: { auth: AuthService; do
 
   app.post(routes.login(), async (request, reply) => {
     const body = parseBody(LoginRequest, request.body);
-    const now = Date.now();
-    for (const [ip, entry] of failedLogins) if (entry.resetAt <= now) failedLogins.delete(ip);
-    const failures = failedLogins.get(request.ip);
-    if (failures && failures.resetAt > now && failures.count >= MAX_FAILED_LOGINS) {
-      throw new DomainError('too_many_attempts', 'too many failed logins; try again later', { status: 429 });
-    }
-    // Reserve before the expensive hash: concurrent attempts must count too.
-    const entry = failures ?? { count: 0, resetAt: now + FAILED_LOGIN_WINDOW_MS };
-    entry.count += 1;
-    failedLogins.set(request.ip, entry);
+    // Reserved before the expensive hash: concurrent attempts must count too.
+    const release = loginAttempts.reserve(request.ip);
     const user = await auth.verifyPassword(body.email, body.password);
     if (!user) {
       throw new DomainError('invalid_credentials', 'wrong email or password', { status: 401 });
     }
+    release();
     if (request.authToken) auth.revoke(request.authToken);
     setSessionCookie(reply, auth.createSession(user.id));
     return me(user);

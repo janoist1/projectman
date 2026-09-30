@@ -8,7 +8,7 @@ import { Button } from '../../components/Button';
 import { LabelChip } from '../../components/LabelChip';
 import { t } from '../../i18n/t';
 import { slugId } from '../../lib/ids';
-import { MemberSelect } from './PipelineEditor';
+import { MemberSelect } from '../../components/MemberSelect';
 import type { SectionEditorProps } from './SettingsEditor';
 import styles from './settings.module.css';
 

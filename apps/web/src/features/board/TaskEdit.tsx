@@ -70,7 +70,7 @@ export function TaskEdit({ task }: { task: Task }) {
           {t('task.save')}
         </Button>
         <Button disabled={update.isPending} onClick={() => setEditing(false)}>
-          {t('task.cancelEdit')}
+          {t('common.cancel')}
         </Button>
       </div>
     </form>

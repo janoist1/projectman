@@ -149,7 +149,7 @@ export function TaskLabels({ task }: { task: Task }) {
               {t('task.labels.apply')}
             </Button>
             <Button variant="ghost" onClick={() => setPending(null)}>
-              {t('task.labels.cancel')}
+              {t('common.cancel')}
             </Button>
           </div>
         </form>

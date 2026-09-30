@@ -20,7 +20,6 @@ export const hu = {
     defaultOwners: 'Feladatkör felelősei',
     explicitOwners: 'Név szerinti felülírás',
     duty: 'Feladatkör',
-    noDuty: 'Nincs feladatkör',
     direction: 'Irányítás',
     delivery: 'Megvalósítás',
     quality: 'Minőség',
@@ -100,24 +99,18 @@ export const hu = {
 
   common: {
     you: 'Te',
-    youLower: 'te',
     youInitials: 'TE',
     close: 'Bezárás',
     cancel: 'Mégse',
-    back: 'Vissza',
-    open: 'Megnyitás',
-    details: 'Részletek',
     send: 'Küldés',
+    logout: 'Kijelentkezés',
     ai: 'AI',
-    human: 'ember',
     optional: 'nem kötelező',
     listSeparator: ', ',
     and: ' és ',
     dash: '–',
     moreCount: '+{count}',
-    unknown: 'ismeretlen',
     system: 'Rendszer',
-    pleaseWait: 'Egy pillanat…',
   },
 
   time: {
@@ -154,13 +147,11 @@ export const hu = {
     inboxPill: 'Rád vár',
     inboxPillLabel: 'Rád vár: {count} tétel',
     presence: 'Most itt: {names}',
-    logout: 'Kijelentkezés',
   },
 
   providers: { claude: 'Claude', codex: 'Codex' },
 
   planUsage: {
-    label: 'Keret',
     providerLabel: 'Keret · {provider}',
     fiveHour: '5 óra',
     weekly: 'Hét',
@@ -169,7 +160,6 @@ export const hu = {
     title: '{provider}-előfizetés: 5 órás keret {fiveHour}, heti keret {weekly}',
     resets: 'Visszaáll: {time}',
     paused: 'A keret {limit}% fölött van: új AI-munka nem indul.',
-    unavailable: 'A keret most nem látszik.',
   },
 
   connection: {
@@ -185,7 +175,6 @@ export const hu = {
     notFound: 'Nem található.',
     invalidResponse: 'A szerver válasza nem a várt formátumú.',
     conflict: 'Közben valaki más is módosította. Frissíts, és próbáld újra.',
-    gateBlocked: 'A kapu még nem enged tovább.',
     gateUnmet: 'Még hiányzik: {conditions}',
     approvalRequested: 'Jóváhagyást kértünk; a feladat a jóváhagyás után lép tovább.',
     code: 'Hibakód: {code}',
@@ -426,14 +415,10 @@ export const hu = {
     ready: 'Indítható',
     prerequisite: 'Előfeltételre vár',
     done: 'Kész · {when}',
-    donePlain: 'Kész',
     cancelled: 'Elvetve',
   },
 
   taskCard: {
-    label: '{key}: {title}',
-    pr: 'PR #{number}',
-    prWithRepo: 'PR #{number} · {repo}',
     checks: 'Ellenőrzések',
     stageProgress: 'Haladás: {stage}, {index}. lépés a {total}-ból',
   },
@@ -455,7 +440,6 @@ export const hu = {
   task: {
     edit: 'Szerkesztés',
     save: 'Mentés',
-    cancelEdit: 'Mégse',
     subtasks: 'Alfeladatok',
     subtaskTitle: 'Új alfeladat címe',
     addSubtask: 'Hozzáadás',
@@ -467,7 +451,6 @@ export const hu = {
     comments: {
       label: 'Hozzászólás',
       hint: 'Írj @ jelet egy csapattag megemlítéséhez.',
-      send: 'Küldés',
       members: 'Megemlíthető csapattagok',
       imported: 'Importált',
     },
@@ -481,7 +464,6 @@ export const hu = {
       comment: 'Indoklás: {label}',
       commentHint: 'Ehhez a címkéhez kötelező megírni, miért; kommentként jelenik meg.',
       apply: 'Rátesz',
-      cancel: 'Mégse',
       refusal: {
         system_only: 'a rendszer teszi rá',
         humans_only: 'csak ember teheti rá',
@@ -504,7 +486,6 @@ export const hu = {
     timeline: 'Idővonal',
     timelineEmpty: 'Még nincs esemény.',
     description: 'Leírás',
-    noDescription: 'Nincs leírás.',
     openSession: 'Session megnyitása',
     sessions: 'Sessionök',
     noSessions: 'Még nincs session.',
@@ -517,7 +498,6 @@ export const hu = {
     assignee: 'Viszi: {name}',
     repo: 'Repó: {repo}',
     workspaceRoot: 'munkaterület gyökere',
-    links: 'Kapcsolatok',
     next: 'Következik',
     nextStage: '{stage} · {owners}',
     nextStageNoOwner: '{stage}',
@@ -531,7 +511,6 @@ export const hu = {
       title: 'Cím',
       titlePlaceholder: 'Mi a feladat?',
       description: 'Leírás',
-      descriptionHint: 'Markdown is mehet. Az AI-tag ebből indul.',
       repo: 'Repó',
       repoRoot: 'Munkaterület gyökere',
       visibility: 'Láthatóság',
@@ -576,7 +555,6 @@ export const hu = {
     line: '{name}: {state}',
     stageDone: 'kész',
     stageActive: 'folyamatban',
-    stagePending: 'még nem',
   },
 
   taskStatuses: {
@@ -603,7 +581,6 @@ export const hu = {
     },
     prLabel: 'PR #{number}',
     prLabelRepo: 'PR #{number} · {repo}',
-    prLabelFull: 'PR #{number} · {repo} · {state}',
     issueLabel: 'Issue #{number}',
   },
 
@@ -688,116 +665,6 @@ export const hu = {
     reopened: 'A feladat újranyitva, felelős nélkül.',
     assigned: 'A felelős mentve.',
   },
-  mockRoleCatalogue: {
-    operator: {
-      name: 'Operátor',
-      summary: 'Futtatja és felügyeli a rendszert, visszaterel minden félrement munkát, és övé a végső szó.',
-      notTheirJob: 'Nem végzi a napi feladatokat: irányítja a csapatot, nem helyettesíti.',
-    },
-    product_owner: {
-      name: 'Terméktulajdonos',
-      summary: 'Eldönti, mi készüljön és milyen sorrendben, és ő fogadja el a kész munkát.',
-      notTheirJob: 'Nem ír specifikációt és nem ütemez.',
-    },
-    project_manager: {
-      name: 'Projektmenedzser',
-      summary: 'Az ütemezést viszi: standup, tervezés, határidők, emlékeztetők, heti jelentés.',
-      notTheirJob: 'Nem rangsorol, és nem vezeti a retrót.',
-    },
-    business_analyst: {
-      name: 'Elemző',
-      summary:
-        'Az ügyfél kéréséből pontos leírást és elfogadási feltételeket ír, és visszakérdez, mielőtt a munka elindul.',
-      notTheirJob: 'Nem ütemez, és nem tervez technikai megoldást.',
-    },
-    architect: {
-      name: 'Architekt',
-      summary:
-        'Fejlesztés előtt megtervezi a technikai megoldást, feladatokra bontja, és átnézi a nagyobb döntéseket.',
-      notTheirJob: 'Nem nézi át sorról sorra a kódot.',
-    },
-    designer: {
-      name: 'Designer',
-      summary:
-        'Képernyőterveket és kattintható mockupot készít, és ellenőrzi, hogy a kész felület a terv szerint készült-e.',
-      notTheirJob: 'Nem programozza le a felületet.',
-    },
-    developer: {
-      name: 'Fejlesztő',
-      summary: 'Saját ágon, tesztekkel együtt megvalósítja a feladatot, és PR-t nyit.',
-      notTheirJob: 'Nem hagyja jóvá a saját munkáját.',
-    },
-    code_review: {
-      name: 'Code review',
-      summary: 'Minden PR-t átnéz az integration előtt, és fájl:sor pontossággal jelzi, mi blokkol.',
-      notTheirJob: 'Nem ír és nem javít kódot.',
-    },
-    security_review: {
-      name: 'Biztonsági átnéző',
-      summary: 'A PR-okban a hozzáférést, a titokkezelést és a kockázatos részeket nézi át.',
-      notTheirJob: 'Nem javít, csak jelez.',
-    },
-    qa: {
-      name: 'QA',
-      summary:
-        'Integrationön és böngészőben teszteli a kész munkát, és reprodukálható hibajelentést ad vissza.',
-      notTheirJob: 'Nem javítja a hibát.',
-    },
-    devops: {
-      name: 'Devops',
-      summary: 'Kitelepít, felügyeli a szervereket és az infrastruktúrát.',
-      notTheirJob: 'Élesbe csak jóváhagyás után ad ki, funkciót nem fejleszt.',
-    },
-    communication: {
-      name: 'Kommunikáció',
-      summary:
-        'Megírja a tesztkéréseket, az összefoglalókat és az ügyfélnek szóló leveleket, küldés előtt jóváhagyásra.',
-      notTheirJob: 'Nem dönt az ügyfél helyett.',
-    },
-    support: {
-      name: 'Hibafelvevő',
-      summary: 'Fogadja és reprodukálja a hibajelentéseket, és kidolgozott kártyát készít belőlük.',
-      notTheirJob: 'Nem javítja a hibát.',
-    },
-    researcher: {
-      name: 'Kutató',
-      summary: 'Rövid felméréseket végez: melyik könyvtár, járható-e egy megoldás, mit csinál a versenytárs.',
-      notTheirJob: 'Nem valósítja meg, csak ajánl.',
-    },
-    maintainer: {
-      name: 'Karbantartó',
-      summary:
-        'Frissíti a függőségeket, rendbe teszi az instabil teszteket, csökkenti a technikai adósságot. Ütemezve fut a legjobban.',
-      notTheirJob: 'Nem fejleszt új funkciót.',
-    },
-    coach: {
-      name: 'Coach',
-      summary:
-        'A retrók gazdája: gyűjti az észrevételeket, és javaslatot tesz a szerepek és a folyamat javítására.',
-      notTheirJob: 'Nem lépteti életbe a változást: azt jóváhagyják.',
-    },
-    watchdog: {
-      name: 'Felügyelő',
-      summary:
-        'Az Operátor segítője: jelez, ha egy tag elakadt, körbe-körbe jár, túl sokat fogyaszt vagy túllépi a hatáskörét.',
-      notTheirJob: 'Nem avatkozik be, csak jelez.',
-    },
-    content: {
-      name: 'Tartalom',
-      summary: 'Szövegeket, SEO-t és marketinganyagot készít.',
-      notTheirJob: 'Nem fejleszti a felületet.',
-    },
-    translator: {
-      name: 'Fordító',
-      summary: 'Kezeli a többnyelvű felületek szövegeit, és vigyáz a következetes szóhasználatra.',
-      notTheirJob: 'Nem ír új tartalmat.',
-    },
-    docs: {
-      name: 'Dokumentáló',
-      summary: 'Naprakészen tartja a leírásokat és a döntésnaplót.',
-      notTheirJob: 'Nem hoz döntést, csak rögzíti.',
-    },
-  },
   roles: {
     human: {
       owner: 'Tulajdonos',
@@ -870,20 +737,16 @@ export const hu = {
     answerSubmit: 'Válasz küldése',
     answerOwn: 'Saját válasz',
     answerRequired: 'Írj választ, vagy válassz egy lehetőséget.',
-    noteLabel: 'Megjegyzés',
     recent: 'Mostanában döntöttél',
     recentEmpty: 'Még nem döntöttél semmiről.',
     resolveFailed: 'Nem ment át a döntés. Próbáld újra.',
     assignedTo: 'Neki szól: {names}',
-    notYours: 'Nem neked szól',
-    othersTitle: 'Másra vár',
   },
 
   session: {
     breadcrumb: 'Hely',
     general: '{member} · általános beszélgetés',
     meeting: '{member} · megbeszélés',
-    notFound: 'Nincs ilyen session.',
     tabs: {
       label: 'Nézet',
       chat: 'Beszélgetés',
@@ -910,7 +773,6 @@ export const hu = {
     },
     chat: {
       brief: 'Feladatleírás',
-      label: 'Beszélgetés',
       empty: 'Még nincs üzenet ebben a sessionben.',
       teamMessageIn: 'csapatüzenet',
       teamMessageOut: 'Csapatüzenet',
@@ -966,14 +828,12 @@ export const hu = {
       heading: 'PR #{number}',
       openOnGithub: 'Megnyitás a GitHubon',
       none: 'Még nincs PR.',
-      branch: '{branch} → {base}',
     },
     participants: 'Résztvevők',
     participantSession: 'Ebben a sessionben dolgozik',
     participantAssignee: 'Viszi a feladatot',
     participantOwner: 'Gazda: {stage}',
     participantActivity: 'Utoljára: {text}',
-    member: 'Tag',
   },
 
   timeline: {
@@ -1050,7 +910,6 @@ export const hu = {
     roster: 'Tagok',
     columns: {
       member: 'Tag',
-      role: 'Szerep',
       status: 'Állapot',
       now: 'Most',
       subscription: 'Előfizetés',
@@ -1063,7 +922,6 @@ export const hu = {
     temp: 'beugró',
     retire: 'Elbocsátás',
     retireMember: 'Elbocsátás: {name} ({handle})',
-    memberActions: '{name}: műveletek',
     messagesTitle: 'Üzenetfolyam',
     messagesHint: 'Ki kinek mit szólt',
     messagesAll: 'Az összes üzenet',
@@ -1127,7 +985,6 @@ export const hu = {
     instructions: 'Utasítások',
     instructionsNote: 'Az utasítások angolul vannak; a tag a projekt nyelvén kommunikál.',
     instructionsDefault: 'A szerep alapértelmezett utasításaival indul.',
-    loadingDefaults: 'Alapértékek betöltése…',
     submit: 'Felveszem',
     submitting: 'Felvétel…',
     hired: 'Felvéve: {name}',
@@ -1190,8 +1047,6 @@ export const hu = {
     conversation: 'Beszélgetés indítása',
     remove: 'Tag eltávolítása',
     removeConfirm: 'Eltávolítod ezt a csapattagot: {name}?',
-    removed: 'Csapattag eltávolítva.',
-    notFound: 'Ez a csapattag nem található.',
     noTasks: 'Nincs feladata.',
     noSessions: 'Még nincs sessionje.',
     noWaiting: 'Nincs rá váró döntés.',
@@ -1221,8 +1076,6 @@ export const hu = {
       mine: 'Nekem szól',
     },
     fromTo: '{from} → {to}',
-    about: 'Feladat: {key}',
-    undelivered: 'kézbesítésre vár',
   },
 
   columnColors: {
@@ -1307,7 +1160,6 @@ export const hu = {
       gateHasLabel: 'Kell: {label}',
       gateLacksLabel: 'Nem lehet rajta: {label}',
       stageCount: '{count} lépés',
-      kind: 'Típus: {kind}',
       kindLabel: 'Lépés típusa',
       kindHelp: {
         queue: 'Várakozó feladatok, amelyek még nem indultak el.',
@@ -1383,7 +1235,6 @@ export const hu = {
       name: 'Név',
       email: 'E-mail',
       handle: 'Azonosítód itt',
-      logout: 'Kijelentkezés',
     },
     edit: {
       description: 'Leírás',

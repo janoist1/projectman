@@ -68,8 +68,8 @@ export function prChip(task: Task): PrChip | null {
   const repo = link.repo?.split('/').pop();
   return {
     label: repo
-      ? t('taskCard.prWithRepo', { number: link.ref, repo })
-      : t('taskCard.pr', { number: link.ref }),
+      ? t('links.prLabelRepo', { number: link.ref, repo })
+      : t('links.prLabel', { number: link.ref }),
     merged: link.state === 'merged',
     href: githubUrl(link),
   };

@@ -426,7 +426,7 @@ function AccountSection() {
         loading={logout.isPending}
         onClick={() => logout.mutate(undefined, { onSettled: () => navigate('/login', { replace: true }) })}
       >
-        {t('settings.account.logout')}
+        {t('common.logout')}
       </Button>
     </section>
   );

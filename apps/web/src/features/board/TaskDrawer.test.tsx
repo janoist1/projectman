@@ -266,7 +266,7 @@ describe('task drawer comments', () => {
       within(screen.getByRole('listbox')).getByRole('button', { name: `${member.displayName} @fe-1` }),
     );
     expect((input as HTMLTextAreaElement).value).toBe('Hello @fe-1 ');
-    fireEvent.click(screen.getByRole('button', { name: t('task.comments.send') }));
+    fireEvent.click(screen.getByRole('button', { name: t('common.send') }));
     await waitFor(() =>
       expect(project.requests).toContainEqual({
         method: 'POST',
@@ -353,7 +353,7 @@ describe('task editing and subtasks', () => {
     fireEvent.change(screen.getByLabelText(t('newTask.fields.title')), {
       target: { value: 'Unsaved draft' },
     });
-    fireEvent.click(screen.getByRole('button', { name: t('task.cancelEdit') }));
+    fireEvent.click(screen.getByRole('button', { name: t('common.cancel') }));
     expect(project.backend.findTask('AC-20')?.title).toBe('Example updated task');
     fireEvent.click(screen.getByRole('button', { name: t('task.edit') }));
     expect((screen.getByLabelText(t('newTask.fields.title')) as HTMLInputElement).value).toBe(

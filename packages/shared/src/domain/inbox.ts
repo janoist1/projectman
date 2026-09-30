@@ -1,5 +1,8 @@
 import { z } from 'zod';
+import { Actor } from './event';
+import { LabelId } from './label';
 import { MemberHandle } from './member';
+import { StageId } from './pipeline';
 import { TaskKey } from './task';
 
 /**
@@ -51,3 +54,26 @@ export const InboxItem = z.object({
   createdAt: z.string(),
 });
 export type InboxItem = z.infer<typeof InboxItem>;
+
+/**
+ * `payload.gate` of a `decision` item: one approval a stage move waits for. A move that needs
+ * several approvals opens one item per approval label; they share `requestId`.
+ */
+export const GateRequestPayload = z.object({
+  requestId: z.string(),
+  taskKey: TaskKey,
+  fromStageId: StageId,
+  toStageId: StageId,
+  /** Stage whose gate requires the approval (moving forward may enter several gated stages). */
+  stageId: StageId,
+  /** The human-only label the approver puts on the task by approving; missing on requests from before labels. */
+  label: LabelId.optional(),
+  requestedBy: Actor,
+});
+export type GateRequestPayload = z.infer<typeof GateRequestPayload>;
+
+/** The gate request of a decision item, or null when the item has none (or an unreadable one). */
+export function gateRequestOf(item: Pick<InboxItem, 'payload'>): GateRequestPayload | null {
+  const parsed = GateRequestPayload.safeParse(item.payload.gate);
+  return parsed.success ? parsed.data : null;
+}

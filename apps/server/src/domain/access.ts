@@ -1,5 +1,4 @@
-import { isHumanOnlyLabel, labelDefinition, labelHolders } from '@projectman/shared';
-import type { HumanAccess, HumanMemberConfig, ProjectConfig, Stage } from '@projectman/shared';
+import type { HumanAccess, HumanMemberConfig, ProjectConfig } from '@projectman/shared';
 
 /** A logged-in user's membership in one project. */
 export interface ProjectAccess {
@@ -32,36 +31,4 @@ export function projectAccessFor(config: ProjectConfig, email: string): ProjectA
 
 export function ownerHandles(config: ProjectConfig): string[] {
   return config.team.members.filter((m) => m.kind === 'human' && m.access === 'owner').map((m) => m.handle);
-}
-
-/**
- * The humans who approve a task into this stage: the holders of every label only humans may
- * set that its gate requires (one entry per label held).
- */
-export function stageApprovers(config: ProjectConfig, stage: Stage): string[] {
-  return (stage.gate?.conditions ?? []).flatMap((c) => {
-    const label = c.type === 'has_label' ? labelDefinition(config, c.label) : undefined;
-    return label && isHumanOnlyLabel(label) ? labelHolders(config, label) : [];
-  });
-}
-
-/**
- * Signature of the release approvers (every release stage and its human approvers).
- * Changing it is owner-only.
- */
-export function releaseApproversSignature(config: ProjectConfig): string {
-  return config.pipeline.stages
-    .filter((s) => s.kind === 'release')
-    .map((s) => `${s.id}:${stageApprovers(config, s).sort().join(',')}`)
-    .sort()
-    .join('|');
-}
-
-/** Who holds owner access; changing it is owner-only. */
-export function ownersSignature(config: ProjectConfig): string {
-  return config.team.members
-    .filter((m) => m.kind === 'human' && m.access === 'owner')
-    .map((m) => `${m.handle}:${m.kind === 'human' ? m.email?.trim().toLowerCase() : ''}`)
-    .sort()
-    .join(',');
 }

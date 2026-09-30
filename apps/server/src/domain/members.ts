@@ -6,7 +6,9 @@ import {
   holdersAllow,
   MemberHandle,
   memberDuties,
+  memberRoles,
   roleHolders,
+  stageApprovers,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -20,7 +22,7 @@ import type {
   UpdateMemberRequest,
 } from '@projectman/shared';
 import { aiMemberDefaults } from '@projectman/templates';
-import { findHumanByEmail, ownerHandles, stageApprovers } from './access';
+import { findHumanByEmail, ownerHandles } from './access';
 import type { ProjectAccess } from './access';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
@@ -126,7 +128,7 @@ export class MemberService {
         githubLogin: m.githubLogin,
         kind: 'ai',
         role: m.role,
-        roles: [m.role],
+        roles: memberRoles(m),
         specialty: m.specialty ?? null,
         status: state && state.status !== 'retired' ? state.status : 'idle',
         activity: state?.activity ?? null,

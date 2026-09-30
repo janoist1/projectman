@@ -2,7 +2,15 @@ import { describe, expect, it } from 'vitest';
 import type { Actor } from '../domain/event';
 import type { LabelRefusal } from '../domain/label';
 import type { Task } from '../domain/task';
-import { labelDefinition, labelRefusal, labelSetters } from './labels';
+import {
+  approvalRefusal,
+  expiredLabels,
+  labelDefinition,
+  labelRefusal,
+  labelSetters,
+  planLabelChange,
+} from './labels';
+import type { LabelChangePlan } from './labels';
 import { ProjectConfig } from './schema';
 
 function config(fourEyes = false) {
@@ -41,7 +49,23 @@ function config(fourEyes = false) {
         { id: 'done', name: 'Done', kind: 'done', columnId: 'all' },
       ],
       labels: [
-        { id: 'review-ok', name: 'Review ok', setBy: { duties: ['code_review'] }, notByAuthor: true },
+        {
+          id: 'review-ok',
+          name: 'Review ok',
+          group: 'review',
+          setBy: { duties: ['code_review'] },
+          notByAuthor: true,
+          clearedWhen: ['moved_back', 'pr_updated'],
+        },
+        {
+          id: 'review-changes',
+          name: 'Review: changes',
+          group: 'review',
+          setBy: { duties: ['code_review'] },
+          requiresComment: true,
+          notifyAssignee: true,
+          clearedWhen: ['moved_back'],
+        },
         { id: 'decided', name: 'Decided', setBy: 'humans' },
         { id: 'release-ok', name: 'Release ok', setBy: { duties: ['release_approval'], humansOnly: true } },
         { id: 'merged', name: 'Merged', setBy: 'system' },
@@ -127,5 +151,153 @@ describe('labelSetters', () => {
       'ann',
       'vic',
     ]);
+  });
+});
+
+describe('planLabelChange', () => {
+  const on = (labels: string[]) => ({ ...task, labels });
+  const change = (add: string[], remove: string[] = []) => ({ add, remove });
+
+  it.each<
+    [string, string[], { add?: string[]; remove?: string[] }, Actor, string | undefined, LabelChangePlan]
+  >([
+    [
+      'adds an open label',
+      [],
+      change(['waiting']),
+      ai('dev-1'),
+      undefined,
+      { ok: true, labels: ['waiting'], added: ['waiting'], removed: [], notify: [] },
+    ],
+    [
+      'trims, dedupes and skips labels already on the task',
+      ['waiting'],
+      change([' waiting ', 'tag', 'tag', ' ']),
+      ai('dev-1'),
+      undefined,
+      { ok: true, labels: ['waiting', 'tag'], added: ['tag'], removed: [], notify: [] },
+    ],
+    [
+      'removes only labels on the task',
+      ['tag', 'waiting'],
+      change([], ['tag', 'missing', 'tag']),
+      ai('dev-1'),
+      undefined,
+      { ok: true, labels: ['waiting'], added: [], removed: ['tag'], notify: [] },
+    ],
+    [
+      'a grouped label replaces the other labels of its group',
+      ['review-changes', 'waiting'],
+      change(['review-ok']),
+      ai('rev'),
+      undefined,
+      {
+        ok: true,
+        labels: ['waiting', 'review-ok'],
+        added: ['review-ok'],
+        removed: ['review-changes'],
+        notify: [],
+      },
+    ],
+    [
+      'a label that notifies the assignee is named',
+      ['review-ok'],
+      change(['review-changes']),
+      ai('rev'),
+      'Fix the form',
+      {
+        ok: true,
+        labels: ['review-changes'],
+        added: ['review-changes'],
+        removed: ['review-ok'],
+        notify: ['review-changes'],
+      },
+    ],
+    [
+      'a label that needs a comment is refused without one',
+      [],
+      change(['review-changes', 'waiting']),
+      ai('rev'),
+      '  ',
+      { ok: false, refusal: { code: 'comment_required', labels: ['review-changes'] } },
+    ],
+    [
+      'a task author may not review',
+      [],
+      change(['review-ok']),
+      human('ann'),
+      undefined,
+      { ok: false, refusal: { code: 'self_review_forbidden', label: 'review-ok' } },
+    ],
+    [
+      'one refused label refuses the whole change',
+      [],
+      change(['waiting', 'review-ok']),
+      ai('dev-1'),
+      undefined,
+      { ok: false, refusal: { code: 'label_not_allowed', label: 'review-ok', reason: 'not_holder' } },
+    ],
+    [
+      'removals follow the rules too',
+      ['merged'],
+      change([], ['merged']),
+      human('owner'),
+      undefined,
+      { ok: false, refusal: { code: 'label_not_allowed', label: 'merged', reason: 'system_only' } },
+    ],
+    [
+      'the system changes any label',
+      ['release-ok'],
+      change(['merged'], ['release-ok']),
+      system,
+      undefined,
+      { ok: true, labels: ['merged'], added: ['merged'], removed: ['release-ok'], notify: [] },
+    ],
+    [
+      'nothing to change is an empty plan',
+      ['waiting'],
+      change(['waiting'], ['tag']),
+      ai('dev-1'),
+      undefined,
+      { ok: true, labels: ['waiting'], added: [], removed: [], notify: [] },
+    ],
+  ])('%s', (_name, labels, requested, actor, comment, expected) => {
+    expect(planLabelChange(config(), on(labels), requested, actor, comment)).toEqual(expected);
+  });
+});
+
+describe('expiredLabels', () => {
+  it.each([
+    ['moved_back', ['review-ok', 'review-changes']],
+    ['pr_updated', ['review-ok']],
+  ] as const)('lists the labels that come off when %s', (trigger, expected) => {
+    const labels = ['review-ok', 'review-changes', 'waiting', 'plain'];
+    expect(expiredLabels(config(), { labels }, trigger)).toEqual(expected);
+  });
+});
+
+describe('approvalRefusal', () => {
+  const authoredBy = (handle: string) => ({
+    assignee: null,
+    links: [{ kind: 'pull_request' as const, ref: '9', author: handle }],
+  });
+
+  it.each<[string, boolean, string, string, Pick<Task, 'assignee' | 'links'> | null, string | null]>([
+    ['a holder approves', false, 'release-ok', 'owner', task, null],
+    ['a human who does not hold the label may not', false, 'release-ok', 'ann', task, 'not_an_assignee'],
+    [
+      'an author approves the release without four eyes',
+      false,
+      'release-ok',
+      'owner',
+      authoredBy('owner'),
+      null,
+    ],
+    ['four eyes refuses the author', true, 'release-ok', 'owner', authoredBy('owner'), 'release_four_eyes'],
+    ['a label that excludes authors refuses them', false, 'review-ok', 'ann', task, 'self_review_forbidden'],
+    ['an unknown label is no refusal', true, 'gone', 'vic', task, null],
+    ['a missing task has no authors', true, 'release-ok', 'owner', null, null],
+  ])('%s', (_name, fourEyes, label, approver, target, expected) => {
+    expect(approvalRefusal(config(fourEyes), label, approver, target)).toBe(expected);
   });
 });

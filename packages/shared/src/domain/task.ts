@@ -67,3 +67,13 @@ export const Task = z.object({
   closedAt: z.string().nullable(),
 });
 export type Task = z.infer<typeof Task>;
+
+/** A task is open until it is done or cancelled. */
+export function isOpenTask(task: Pick<Task, 'status'>): boolean {
+  return task.status !== 'done' && task.status !== 'cancelled';
+}
+
+/** Sequence number of a task key ("AR-21" -> 21). */
+export function taskSeq(key: string): number {
+  return Number(key.slice(key.lastIndexOf('-') + 1));
+}

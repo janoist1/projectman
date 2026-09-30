@@ -1,6 +1,6 @@
 import type { Actor } from '../domain/event';
 import { isHumanOnlyLabel } from '../domain/label';
-import type { LabelDefinition, LabelRefusal } from '../domain/label';
+import type { LabelClearTrigger, LabelDefinition, LabelRefusal } from '../domain/label';
 import type { Stage } from '../domain/pipeline';
 import type { Task } from '../domain/task';
 import { dutyMembers, taskAuthors } from './duties';
@@ -91,4 +91,103 @@ export function gateLabels(config: Pick<ProjectConfig, 'pipeline'>, stage: Stage
     }),
     forbidden: (stage.gate?.conditions ?? []).filter((c) => c.type === 'lacks_label').map((c) => c.label),
   };
+}
+
+/**
+ * A label change refused as a whole (REST and team tools answer with `code`): the first label
+ * the actor may not change, or the added labels that need a comment when none was given.
+ */
+export type LabelChangeRefusal =
+  | { code: 'self_review_forbidden'; label: string }
+  | { code: 'label_not_allowed'; label: string; reason: LabelRefusal }
+  | { code: 'comment_required'; labels: string[] };
+
+/** The outcome of a requested label change, or why it is refused. */
+export type LabelChangePlan =
+  | {
+      ok: true;
+      /** The task's labels after the change. */
+      labels: string[];
+      added: string[];
+      /** Removed on request, plus the labels of a group an added label replaces. */
+      removed: string[];
+      /** Added labels that notify the task's assignee. */
+      notify: string[];
+    }
+  | { ok: false; refusal: LabelChangeRefusal };
+
+/**
+ * Plans adding and removing labels under the project's label rules: who may set them, no
+ * self-review, a comment when a label asks for one. Labels already on the task are not added
+ * again, missing ones are not removed, and adding a grouped label replaces the other labels of
+ * its group. Any refused label refuses the whole change.
+ */
+export function planLabelChange(
+  config: LabelConfig,
+  task: Pick<Task, 'labels' | 'assignee' | 'links'>,
+  change: { add?: readonly string[]; remove?: readonly string[] },
+  actor: Actor,
+  comment?: string,
+): LabelChangePlan {
+  const add = [...new Set((change.add ?? []).map((label) => label.trim()).filter(Boolean))].filter(
+    (label) => !task.labels.includes(label),
+  );
+  const remove = [...new Set(change.remove ?? [])].filter(
+    (label) => task.labels.includes(label) && !add.includes(label),
+  );
+  for (const label of [...add, ...remove]) {
+    const refusal = labelRefusal(config, labelDefinition(config, label), actor, task);
+    if (refusal === 'self_review') return { ok: false, refusal: { code: 'self_review_forbidden', label } };
+    if (refusal) return { ok: false, refusal: { code: 'label_not_allowed', label, reason: refusal } };
+  }
+  const needsComment = add.filter((label) => labelDefinition(config, label)?.requiresComment);
+  if (needsComment.length > 0 && !comment?.trim())
+    return { ok: false, refusal: { code: 'comment_required', labels: needsComment } };
+  const groups = new Set(add.map((label) => labelDefinition(config, label)?.group).filter(Boolean));
+  const replaced = task.labels.filter(
+    (label) => !add.includes(label) && groups.has(labelDefinition(config, label)?.group),
+  );
+  const removed = [...new Set([...remove, ...replaced])];
+  return {
+    ok: true,
+    labels: [...task.labels.filter((label) => !removed.includes(label)), ...add],
+    added: add,
+    removed,
+    notify: add.filter((label) => labelDefinition(config, label)?.notifyAssignee),
+  };
+}
+
+/** Labels on the task that come off on an event (the task moving back, its pull request changing). */
+export function expiredLabels(
+  config: Pick<ProjectConfig, 'pipeline'>,
+  task: Pick<Task, 'labels'>,
+  trigger: LabelClearTrigger,
+): string[] {
+  return task.labels.filter((label) => labelDefinition(config, label)?.clearedWhen?.includes(trigger));
+}
+
+/**
+ * Why a human may not approve a gate request (approving puts its label on the task), or null:
+ * they do not hold the label (`not_an_assignee`), or they authored the task while the label
+ * excludes its authors (four eyes on a release approval, or the label's own rule).
+ */
+export function approvalRefusal(
+  config: LabelConfig,
+  labelId: string,
+  approver: string,
+  task: Pick<Task, 'assignee' | 'links'> | null,
+): 'not_an_assignee' | 'release_four_eyes' | 'self_review_forbidden' | null {
+  const label = labelDefinition(config, labelId);
+  if (!label) return null;
+  const refusal = labelRefusal(
+    config,
+    label,
+    { kind: 'human', handle: approver },
+    task ?? { assignee: null, links: [] },
+  );
+  if (refusal === 'self_review')
+    return config.team.releaseFourEyes === true && releaseGateLabels(config).has(label.id)
+      ? 'release_four_eyes'
+      : 'self_review_forbidden';
+  return refusal ? 'not_an_assignee' : null;
 }

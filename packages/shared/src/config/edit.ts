@@ -1,8 +1,4 @@
 import { z } from 'zod';
-import { dutyMembers, roleBundle } from './duties';
-import { labelDefinition, labelHolders } from './labels';
-import { isHumanOnlyLabel } from '../domain/label';
-import { BUILT_IN_ROLE_IDS } from '../domain/role';
 import { Pipeline } from '../domain/pipeline';
 import { ProjectConfig, TeamLimits } from './schema';
 
@@ -69,35 +65,4 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
     },
     pipeline: patch.pipeline ?? config.pipeline,
   };
-}
-
-/** Stage and condition ordering do not alter the approval policy. Removal does. */
-export function humanApprovalChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
-  // Approvals are gate labels only humans may set; their holders are part of the policy.
-  const signature = (config: ProjectConfig) =>
-    JSON.stringify(
-      config.pipeline.stages
-        .map((stage) => ({
-          id: stage.id,
-          approvals: (stage.gate?.conditions ?? [])
-            .filter((condition) => condition.type === 'has_label')
-            .map((condition) => labelDefinition(config, condition.label))
-            .filter((label) => label !== undefined && isHumanOnlyLabel(label))
-            .map((label) => ({ label: label!.id, holders: labelHolders(config, label!).sort() }))
-            .sort((a, b) => a.label.localeCompare(b.label)),
-        }))
-        .filter((stage) => stage.approvals.length)
-        .sort((a, b) => a.id.localeCompare(b.id)),
-    );
-  const releaseSignature = (config: ProjectConfig) =>
-    JSON.stringify({
-      fourEyes: config.team.releaseFourEyes ?? false,
-      holders: dutyMembers(config, 'release_approval')
-        .map((m) => m.handle)
-        .sort(),
-      roles: [...BUILT_IN_ROLE_IDS, ...config.team.roles.map((r) => r.id)]
-        .filter((r) => roleBundle(config, r).duties.includes('release_approval'))
-        .sort(),
-    });
-  return signature(previous) !== signature(next) || releaseSignature(previous) !== releaseSignature(next);
 }

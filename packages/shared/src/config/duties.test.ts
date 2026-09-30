@@ -4,7 +4,8 @@ import { dutyHolders, roleHolders, RoleOverrides } from '../domain/role';
 import { ProjectConfig } from './schema';
 import { dutyMembers, memberDuties, roleBundle, stageOwners } from './duties';
 import { labelHolders } from './labels';
-import { applyConfigPatch, humanApprovalChanged, PatchConfigRequest } from './edit';
+import { applyConfigPatch, PatchConfigRequest } from './edit';
+import { approvalPolicyChanged } from './owner-only';
 import { validateProjectConfig } from './invariants';
 
 function config() {
@@ -148,7 +149,7 @@ describe('duty bundles', () => {
     ]) {
       const next = structuredClone(c);
       change(next);
-      expect(humanApprovalChanged(c, next)).toBe(true);
+      expect(approvalPolicyChanged(c, next)).toBe(true);
     }
   });
   it.each(['human', 'ai', 'both'] as const)(

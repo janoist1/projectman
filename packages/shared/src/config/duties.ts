@@ -2,6 +2,7 @@ import { BUILT_IN_ROLE_DUTIES, customRoleDuties, isBuiltInRole } from '../domain
 import type { DutyId } from '../domain/duty';
 import type { Stage } from '../domain/pipeline';
 import type { Task } from '../domain/task';
+import { memberRoles } from './lookup';
 import type { MemberConfig, ProjectConfig } from './schema';
 
 export function roleBundle(config: Pick<ProjectConfig, 'team'>, role: string) {
@@ -11,13 +12,7 @@ export function roleBundle(config: Pick<ProjectConfig, 'team'>, role: string) {
   return { duties: custom ? customRoleDuties(custom) : [], instructions: custom?.instructions ?? '' };
 }
 export function memberDuties(config: Pick<ProjectConfig, 'team'>, member: MemberConfig): DutyId[] {
-  return [
-    ...new Set(
-      (member.kind === 'ai' ? [member.role] : member.roles).flatMap(
-        (role) => roleBundle(config, role).duties,
-      ),
-    ),
-  ];
+  return [...new Set(memberRoles(member).flatMap((role) => roleBundle(config, role).duties))];
 }
 export function dutyMembers(config: Pick<ProjectConfig, 'team'>, duty: DutyId): MemberConfig[] {
   return config.team.members.filter((m) => memberDuties(config, m).includes(duty));

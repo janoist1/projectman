@@ -5,6 +5,7 @@ import {
   BUILT_IN_ROLE_IDS,
   holdersAllow,
   isBuiltInRole,
+  memberRoles,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -49,7 +50,7 @@ export function roleViews(config: ProjectConfig): RoleView[] {
 
 /** Members holding a role: AI members of that role and humans who hold it among their roles. */
 function membersHolding(config: ProjectConfig, roleId: string): MemberConfig[] {
-  return config.team.members.filter((m) => (m.kind === 'ai' ? m.role === roleId : m.roles.includes(roleId)));
+  return config.team.members.filter((m) => memberRoles(m).includes(roleId));
 }
 
 /** Who holds a role, and whether temp workers are hired for it. */

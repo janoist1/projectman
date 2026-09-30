@@ -14,10 +14,15 @@ import { ownerHandles } from './access';
 import type { DomainContext } from './context';
 import { encodeWorkItem } from '../db';
 import { conflict, DomainError, invalid, notFound } from './errors';
-import { formatInjectedTeamMessage, stageOwners, roleBundle } from '@projectman/shared';
+import {
+  evaluateMove,
+  formatInjectedTeamMessage,
+  stageIndex,
+  stageOwners,
+  roleBundle,
+} from '@projectman/shared';
 import type { TaskStartWaiting } from '@projectman/shared';
 import { isoNow } from './context';
-import { evaluateMove, stageIndex } from './gates';
 import type { MemberService } from './members';
 import { highestUsagePercent } from './plan-usage';
 import type { PlanUsageCache } from './plan-usage';

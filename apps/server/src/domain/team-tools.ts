@@ -21,7 +21,7 @@ import type {
 } from '../contracts';
 import type { DomainContext } from './context';
 import { DomainError } from './errors';
-import type { ApprovalRequirement, UnmetCondition } from './gates';
+import type { ApprovalRequirement, UnmetCondition } from '@projectman/shared';
 import type { GithubSync } from './github-sync';
 import { ANSWER_OPTION, answerText, sponsorOrOwners } from './inbox';
 import type { InboxService } from './inbox';

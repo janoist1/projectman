@@ -19,9 +19,21 @@ import { isoNow } from './context';
 import type { DomainContext } from './context';
 import { conflict, forbidden, invalid, notFound } from './errors';
 import { hasAccess } from './access';
-import { commentMentions, labelDefinition, labelRefusal } from '@projectman/shared';
-import { evaluateMove } from './gates';
-import type { ApprovalRequirement, GateEvaluation } from './gates';
+import {
+  commentMentions,
+  evaluateMove,
+  expiredLabels,
+  gateRequestOf,
+  isOpenTask,
+  planLabelChange,
+} from '@projectman/shared';
+import type {
+  ApprovalRequirement,
+  GateEvaluation,
+  GateRequestPayload,
+  LabelChangeReason,
+  LabelClearTrigger,
+} from '@projectman/shared';
 import { DECISION_OPTIONS } from './inbox';
 import type { InboxService } from './inbox';
 import type { ProjectService } from './projects';
@@ -36,19 +48,6 @@ export interface MoveResult {
   pendingApproval: InboxItem[];
 }
 
-/** Payload of a `decision` inbox item created for a human_approval gate condition. */
-export interface GateRequestPayload {
-  requestId: string;
-  taskKey: string;
-  fromStageId: string;
-  toStageId: string;
-  /** Stage whose gate holds the condition (moving forward may enter several gated stages). */
-  stageId: string;
-  /** The human-only label the approver puts on the task by approving. */
-  label: string;
-  requestedBy: Actor;
-}
-
 export interface StageChange {
   task: Task;
   from: string;
@@ -57,11 +56,6 @@ export interface StageChange {
 }
 
 export type StageChangeListener = (change: StageChange) => void | Promise<void>;
-
-export function gatePayload(item: InboxItem): GateRequestPayload | null {
-  const gate = item.payload.gate;
-  return gate && typeof gate === 'object' ? (gate as GateRequestPayload) : null;
-}
 
 export function gateBlockedError(evaluation: GateEvaluation) {
   return conflict('gate_blocked', 'the gate conditions of the target stage are not met', {
@@ -81,11 +75,7 @@ export function approvalRequestedError(items: InboxItem[]) {
   );
 }
 
-const CLOSED = new Set(['done', 'cancelled']);
-
-export function isOpenTask(task: Task): boolean {
-  return !CLOSED.has(task.status);
-}
+export { isOpenTask };
 
 /**
  * Tasks: creation (keys KEY-n), edits, checks, links, notes, assignment and stage moves.
@@ -243,7 +233,8 @@ export class TaskService {
       task.status = 'done';
       task.closedAt = at;
     }
-    if (req.importedAt === undefined) this.planLabelChange(config, task, task.labels, [], actor, undefined);
+    if (req.importedAt === undefined)
+      this.planLabelChange(config, { ...task, labels: [] }, { add: task.labels }, actor, undefined);
     task.key = `${projectKey}-${this.ctx.repos.counters.next(projectKey, 'task')}`;
     this.ctx.repos.tasks.insert(task);
     this.timeline.append({
@@ -305,8 +296,10 @@ export class TaskService {
       const plan = this.planLabelChange(
         await this.projects.config(projectKey),
         task,
-        wanted.filter((label) => !task.labels.includes(label)),
-        task.labels.filter((label) => !wanted.includes(label)),
+        {
+          add: wanted.filter((label) => !task.labels.includes(label)),
+          remove: task.labels.filter((label) => !wanted.includes(label)),
+        },
         actor,
         undefined,
       );
@@ -483,7 +476,7 @@ export class TaskService {
 
   /** Handler for resolved `decision` items: completes (or drops) the requested stage move. */
   async handleDecisionResolved(item: InboxItem): Promise<void> {
-    const gate = gatePayload(item);
+    const gate = gateRequestOf(item);
     const resolution = item.resolution;
     if (!gate || !resolution) return;
     const task = this.find(item.projectKey, gate.taskKey);
@@ -491,7 +484,7 @@ export class TaskService {
     const actor = humanActor(resolution.by);
     const siblings = this.inbox
       .list(item.projectKey, { kind: 'decision', taskKey: task.key })
-      .filter((i) => gatePayload(i)?.requestId === gate.requestId);
+      .filter((i) => gateRequestOf(i)?.requestId === gate.requestId);
 
     if (resolution.optionId !== 'approve') {
       for (const s of siblings) if (s.state === 'open') this.inbox.cancel(s.id);
@@ -513,7 +506,12 @@ export class TaskService {
     // Approving puts each requested human-only label on the task in the approver's name.
     let current = task;
     for (const sibling of siblings) {
-      const payload = gatePayload(sibling)!;
+      const payload = gateRequestOf(sibling)!;
+      if (!payload.label) {
+        // A request from before approvals were labels names no label to put on.
+        this.settleWaiting(current, actor, { gateBlocked: { to: target.id } });
+        return;
+      }
       if (current.labels.includes(payload.label)) continue;
       try {
         current = await this.changeLabels(
@@ -557,18 +555,12 @@ export class TaskService {
     opts: {
       comment?: string;
       sessionId?: string | null;
-      reason?: 'group' | 'moved_back' | 'pr_updated' | 'pr_merged' | 'approval';
+      reason?: LabelChangeReason;
     } = {},
   ): Promise<Task> {
     const config = await this.projects.config(projectKey);
     const task = this.get(projectKey, taskKey);
-    const add = unique((change.add ?? []).map((label) => label.trim()).filter(Boolean)).filter(
-      (label) => !task.labels.includes(label),
-    );
-    const remove = unique(change.remove ?? []).filter(
-      (label) => task.labels.includes(label) && !add.includes(label),
-    );
-    const plan = this.planLabelChange(config, task, add, remove, actor, opts.comment);
+    const plan = this.planLabelChange(config, task, change, actor, opts.comment);
     if (plan.added.length === 0 && plan.removed.length === 0) return task;
     const next: Task = { ...task, labels: plan.labels, updatedAt: isoNow(this.ctx) };
     this.ctx.repos.tasks.update(next);
@@ -583,7 +575,7 @@ export class TaskService {
     this.publish(next);
     const comment = opts.comment?.trim();
     if (comment) await this.addNote(projectKey, taskKey, comment, actor, opts.sessionId ?? null);
-    const notify = plan.added.filter((label) => labelDefinition(config, label)?.notifyAssignee);
+    const notify = plan.notify;
     if (notify.length > 0 && next.assignee && actor.handle && next.assignee !== actor.handle)
       await this.labelNotifier?.(next, notify, actor, comment);
     return next;
@@ -598,52 +590,35 @@ export class TaskService {
   private planLabelChange(
     config: ProjectConfig,
     task: Task,
-    add: string[],
-    remove: string[],
+    change: { add?: string[]; remove?: string[] },
     actor: Actor,
     comment: string | undefined,
-  ): { labels: string[]; added: string[]; removed: string[] } {
-    for (const label of [...add, ...remove]) {
-      const refusal = labelRefusal(config, labelDefinition(config, label), actor, task);
-      if (refusal === 'self_review')
+  ): { labels: string[]; added: string[]; removed: string[]; notify: string[] } {
+    const plan = planLabelChange(config, task, change, actor, comment);
+    if (plan.ok) return plan;
+    const refusal = plan.refusal;
+    switch (refusal.code) {
+      case 'self_review_forbidden':
         throw forbidden('self_review_forbidden', 'the assignee and PR authors cannot set this label', {
-          label,
+          label: refusal.label,
         });
-      if (refusal)
-        throw forbidden('label_not_allowed', `label ${label} cannot be changed: ${refusal}`, {
-          label,
-          reason: refusal,
+      case 'label_not_allowed':
+        throw forbidden('label_not_allowed', `label ${refusal.label} cannot be changed: ${refusal.reason}`, {
+          label: refusal.label,
+          reason: refusal.reason,
+        });
+      case 'comment_required':
+        throw invalid('comment_required', 'these labels need a comment with the reason', {
+          labels: refusal.labels,
         });
     }
-    const needsComment = add.filter((label) => labelDefinition(config, label)?.requiresComment);
-    if (needsComment.length > 0 && !comment?.trim())
-      throw invalid('comment_required', 'these labels need a comment with the reason', {
-        labels: needsComment,
-      });
-    // A grouped label replaces the other labels of its group.
-    const groups = new Set(add.map((label) => labelDefinition(config, label)?.group).filter(Boolean));
-    const replaced = task.labels.filter(
-      (label) => !add.includes(label) && groups.has(labelDefinition(config, label)?.group),
-    );
-    const removed = unique([...remove, ...replaced]);
-    return {
-      labels: [...task.labels.filter((label) => !removed.includes(label)), ...add],
-      added: add,
-      removed,
-    };
   }
 
   /** Removes the labels that expire on an event (the task moving back, its PR changing). */
-  async clearLabels(
-    projectKey: string,
-    taskKey: string,
-    trigger: 'moved_back' | 'pr_updated',
-  ): Promise<void> {
+  async clearLabels(projectKey: string, taskKey: string, trigger: LabelClearTrigger): Promise<void> {
     const config = await this.projects.config(projectKey);
     const task = this.get(projectKey, taskKey);
-    const expired = task.labels.filter((label) =>
-      labelDefinition(config, label)?.clearedWhen?.includes(trigger),
-    );
+    const expired = expiredLabels(config, task, trigger);
     if (expired.length > 0)
       await this.changeLabels(projectKey, taskKey, { remove: expired }, SYSTEM_ACTOR, { reason: trigger });
   }
@@ -828,7 +803,7 @@ export class TaskService {
     const open = this.inbox
       .list(task.projectKey, { kind: 'decision', state: 'open', taskKey: task.key })
       .filter((i) => {
-        const p = gatePayload(i);
+        const p = gateRequestOf(i);
         return p?.toStageId === target.id && p.fromStageId === task.stageId;
       });
     if (open.length > 0) return open;

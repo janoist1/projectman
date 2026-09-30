@@ -61,6 +61,9 @@ export const LabelDefinition = z.object({
 });
 export type LabelDefinition = z.infer<typeof LabelDefinition>;
 
+/** Id of the system label the GitHub integration keeps on tasks whose pull requests are merged. */
+export const PR_MERGED_LABEL = 'pr-merged';
+
 /** Labels only humans may set: the ones that stand for approvals and decisions. */
 export function isHumanOnlyLabel(label: Pick<LabelDefinition, 'setBy'>): boolean {
   return label.setBy === 'humans' || (typeof label.setBy === 'object' && label.setBy.humansOnly === true);

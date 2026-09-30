@@ -5,11 +5,7 @@ import { DomainError } from './errors';
 import type { ProjectService } from './projects';
 import type { TaskService } from './tasks';
 import { SYSTEM_ACTOR } from './util';
-import { pullRequestsMerged } from './gates';
-import { labelDefinition } from '@projectman/shared';
-
-/** Id of the system label the GitHub integration keeps on tasks whose pull request is merged. */
-export const PR_MERGED_LABEL = 'pr-merged';
+import { labelDefinition, PR_MERGED_LABEL, pullRequestsMerged } from '@projectman/shared';
 
 /**
  * Keeps pull request links up to date: every linked PR that is not merged or closed yet is

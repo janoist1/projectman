@@ -5,6 +5,7 @@ import { DomainError } from '../src/domain';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { settle } from './helpers/fakes';
+import { waitFor } from '../src/runner/test-helpers';
 
 const start = (h: DomainHarness, key: string, assignee?: string) =>
   h.domain.scheduler.startTask('AR', key, { assignee, actor: OWNER_ACTOR, author: OWNER, sponsor: 'owner' });
@@ -174,5 +175,40 @@ describe('scheduler', () => {
     expect(result.session).toBeNull();
     expect(result.task).toMatchObject({ assignee: 'owner', stageId: 'development' });
     expect(h.runner.started).toHaveLength(0);
+  });
+
+  it('starts the AI owner of a later stage when a human moves the task there', async () => {
+    h = await createDomainHarness();
+    await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
+    await start(h, 'AR-1');
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+
+    const review = await waitFor(
+      () => h.domain.sessions.findRunning('AR', 'cr', { type: 'task', taskKey: 'AR-1' }),
+      { what: 'the reviewer session' },
+    );
+    expect(h.runner.lastStarted()).toMatchObject({
+      sessionId: review.id,
+      initialMessage: 'Brief for AR-1: Login page',
+    });
+    // Back to the work stage (the developer resumes through startTask or a message) starts nothing.
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+    await settle();
+    expect(h.runner.started).toHaveLength(2);
+    // Re-entering the stage reuses the reviewer's running session.
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+    await settle();
+    expect(h.runner.started).toHaveLength(2);
+  });
+
+  it('defers the hand-over while admission refuses new AI work', async () => {
+    h = await createDomainHarness({ adjust: (c) => void (c.team.limits.maxConcurrentAi = 1) });
+    await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
+    const dev = await start(h, 'AR-1');
+    h.runner.setState(dev.session!.id, 'working', 'Bash: npm test');
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+    await settle();
+    expect(h.runner.started).toHaveLength(1);
+    expect(h.log.errors).toEqual([]);
   });
 });

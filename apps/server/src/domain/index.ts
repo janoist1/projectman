@@ -177,6 +177,17 @@ export function createDomain(opts: DomainOptions) {
   tasks.onCancelled((task) => sessions.stopTask(task.projectKey, task.key));
   // Done tasks: temp workers leave; sessions stop and clean worktrees go away.
   tasks.onStageChanged((change) => scheduler.retireFinishedTempWorker(change));
+  // Later stages owned by AI members (review, QA, release, …) get their owner started, in the
+  // background so a session start does not hold up the move; stop() waits for pending ones.
+  const handOffs = new Set<Promise<void>>();
+  tasks.onStageChanged((change) => {
+    if (stopped) return;
+    const handOff = scheduler
+      .handOffToStageOwner(change)
+      .catch((err: unknown) => opts.logger.warn({ err, taskKey: change.task.key }, 'stage hand-over failed'))
+      .finally(() => handOffs.delete(handOff));
+    handOffs.add(handOff);
+  });
   tasks.onStageChanged((change) => {
     if (change.task.status === 'done') sessions.scheduleDoneCleanup(change.task.projectKey, change.task.key);
   });
@@ -248,6 +259,7 @@ export function createDomain(opts: DomainOptions) {
       if (usageTimer) clearInterval(usageTimer);
       const drained = schedules.stop();
       githubSync.stop();
+      await Promise.allSettled(handOffs);
       sessions.dispose();
       await drained;
       await usageRefresh;

@@ -70,6 +70,12 @@ server later.
   about a task is delivered to the recipient's session for that task (created or resumed);
   to humans it goes to their inbox/notifications. Injected messages are prefixed
   `[team message from <handle> about <KEY>]` so transcripts can be parsed.
+- **Stage hand-over** — when a task enters a later stage owned by AI members (review, QA,
+  deploy, release, …) by any move, including a human's move or an approved gate, the least
+  loaded free owner (never the task's assignee) gets a session for the task unless one of the
+  owners already runs one; its kick-off brief carries the stage rules. It runs in the
+  background under the usual admission limits; a refused start is logged and the task waits
+  in the stage. Work stages start through the scheduler's `startTask`.
 - **Inbox ("Rád vár")** — everything waiting for a human: tool permission requests
   (Claude Code `PermissionRequest` hook, answered from the browser), gate decisions
   (merge, release), questions from AI members (`ask_human`), approvals.

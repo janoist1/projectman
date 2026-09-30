@@ -209,6 +209,46 @@ export class Scheduler {
     });
   }
 
+  /**
+   * Stage change listener: a task entering a later stage owned by AI members (review, QA,
+   * deploy, release, …) gets a session for the least loaded free owner, so work does not stall
+   * when a human moved the task or approved the release. The kick-off brief carries the stage
+   * rules. An owner already working the task (e.g. reached by a hand-over message) is enough;
+   * work stages start through startTask. Admission limits apply: a refused start is logged and
+   * the task stays queued for the stage.
+   */
+  async handOffToStageOwner(change: StageChange): Promise<void> {
+    const { task } = change;
+    if (task.status !== 'active') return;
+    const projectKey = task.projectKey;
+    const workItem = { type: 'task', taskKey: task.key } as const;
+    const config = await this.projects.config(projectKey);
+    const stage = config.pipeline.stages.find((s) => s.id === change.to);
+    if (!stage || stage.kind === 'queue' || stage.kind === 'work' || stage.kind === 'done') return;
+    // The assignee (usually the developer) never takes over a later stage: no self-review.
+    const owners = stageOwners(config, stage)
+      .map((handle) => config.team.members.find((m) => m.handle === handle))
+      .filter((m): m is AiMemberConfig => m?.kind === 'ai' && m.handle !== task.assignee);
+    if (owners.some((m) => this.sessions.findRunning(projectKey, m.handle, workItem))) return;
+    try {
+      await this.admit(async () => {
+        const free = owners
+          .map((member) => ({ member, load: this.memberLoad(projectKey, member.handle, task.key) }))
+          .filter(({ member, load }) => load < member.capacity)
+          .sort((a, b) => a.load - b.load)[0]?.member;
+        if (!free) {
+          if (owners.length > 0)
+            this.ctx.logger.info({ taskKey: task.key, stage: stage.id }, 'stage owners are at capacity');
+          return;
+        }
+        await this.assertCanStartAiWork(config, free.provider ?? DEFAULT_AGENT_PROVIDER);
+        await this.sessions.ensureSession(projectKey, free.handle, workItem);
+      });
+    } catch (err) {
+      this.ctx.logger.info({ err, taskKey: task.key, stage: stage.id }, 'stage hand-over deferred');
+    }
+  }
+
   /** Stage change listener: a temp worker is retired once its task is done. */
   async retireFinishedTempWorker(change: StageChange): Promise<void> {
     const { task } = change;

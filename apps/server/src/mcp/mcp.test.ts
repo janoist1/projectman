@@ -94,11 +94,28 @@ describe('team MCP endpoint', () => {
 
     expect(client.getServerVersion()?.name).toBe('projectman-team');
     expect(client.getServerCapabilities()?.tools).toBeDefined();
+    // The team rules are in every member's system prompt; the instructions only point there.
     const instructions = client.getInstructions() ?? '';
-    expect(instructions).toContain('handle');
-    expect(instructions).toContain("project's language");
-    expect(instructions).toContain('update_task');
-    expect(instructions).toContain('ask_human');
+    expect(instructions).toContain('humans and other AI members');
+    expect(instructions).toContain('"How the team works"');
+    expect(instructions.length).toBeLessThan(300);
+  });
+
+  it('keeps tool-specific guidance in the tools and team rules out of them', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+    const { tools } = await client.listTools();
+    const byName = new Map(tools.map((t) => [t.name, JSON.stringify(t)]));
+
+    // Stated once in the system prompt ("How the team works").
+    for (const [name, tool] of byName) {
+      expect(tool, name).not.toContain("project's language");
+      expect(tool, name).not.toMatch(/be concise/i);
+    }
+    expect(byName.get('ask_human')).toContain('the answer arrives later in this session as a team message');
+    expect(byName.get('ask_human')).toContain('Do not wait or poll for it');
+    expect(byName.get('create_task')).toContain('where humans prioritise it');
+    expect(byName.get('create_task')).toContain('note the new key there with update_task');
   });
 
   it('lists exactly the team tools with strict input schemas', async () => {
@@ -363,8 +380,7 @@ describe('team tools', () => {
     });
     expect(text(result)).toBe(
       'Created AR-22 "Login button overlaps the footer on small screens" in stage ready, unassigned ' +
-        '(visibility internal · Labels: bug). Humans prioritise it. If it came from another task, note ' +
-        'AR-22 there with update_task.',
+        '(visibility internal · Labels: bug).',
     );
     const invalid = await call(client, 'create_task', { title: 'x', visibility: 'public' });
     expect(invalid.isError).toBe(true);
@@ -405,8 +421,7 @@ describe('team tools', () => {
         to: ['owner'],
       },
     });
-    expect(out).toContain('Question inbox_1 is waiting in the inbox of owner.');
-    expect(out).toContain('Do not wait or poll for it');
+    expect(out).toBe('Question inbox_1 is waiting in the inbox of owner.');
   });
 
   it('save_memory appends to the caller memory', async () => {

@@ -147,13 +147,14 @@ function teamSection(input: ContextPackInput): string {
     const self = m.handle === input.member.handle ? ' ← you' : '';
     return `- ${code(m.handle)}: ${m.displayName} (${details.join(', ')})${self}`;
   });
-  return [
-    '# The team',
-    'Address members by handle. A message to an AI member reaches its session for that task; a message to a human reaches their inbox in the app.',
-    ...lines,
-  ].join('\n');
+  return ['# The team', 'Address members by handle.', ...lines].join('\n');
 }
 
+/**
+ * The team rules, stated once. Both providers receive this system prompt, so rules that are not
+ * about one tool live here; what a tool does and when to use it lives in its description (see
+ * src/mcp/tools.ts), and the MCP server instructions only name the server.
+ */
 function teamworkSection({ project, member }: ContextPackInput): string {
   const language = project.project.language;
   const cli = isCodex(member) ? 'Codex' : 'Claude Code';
@@ -161,17 +162,11 @@ function teamworkSection({ project, member }: ContextPackInput): string {
   return [
     '# How the team works',
     '- You are one member of a mixed team of humans and AI members. Every AI member works in a fresh session per work item (a task, a meeting or a general chat); follow-ups about the same task come back to the same session.',
-    `- Work with the others through the team tools (MCP server "team"; in ${cli} they are named mcp__team__<tool>):`,
-    '  - send_message: message members by handle; pass the task key when it is about a task. Give the receiver the facts (links, what changed, what is expected next and from whom). Message only when someone has something to do.',
-    '  - list_tasks, get_task and list_members: read the board, a task with its recent timeline, or the roster.',
-    '  - update_task: move a task to another stage (gates are enforced), add or remove labels (their meanings and rules are under # Labels; the note gives the reason), add a short note to the timeline, or rewrite its title or description (for example a specification or a technical plan).',
-    '  - create_task: propose new work, such as a bug report or one part of a split request. It waits unassigned in the first stage until humans prioritise it.',
-    '  - link_pull_request: attach a pull request to the task as soon as it exists.',
-    '  - ask_human: ask a human for a decision or information, with options when you can. The answer arrives later as a team message; meanwhile continue with anything that does not depend on it.',
-    '  - save_memory: save a durable learning for your future sessions (conventions, pitfalls, where things are). Task status belongs on the task, not in memory.',
-    '- Team messages arrive in your session as "[team message from <handle> about <task key>]" followed by the text. Messages without that prefix come from the app (like the kick-off brief) or from a human using it.',
-    '- Be concise: facts first, no pleasantries. Send humans only what needs their decision or action.',
-    `- Write messages, notes and questions in ${languageName(language)} (${code(language)}), the project's language. ${rules} decides the language of code, commits and pull requests.`,
+    `- Work with the others through the team tools (MCP server "team"; in ${cli} they are named mcp__team__<tool>): send_message, list_members, list_tasks, get_task, update_task, create_task, link_pull_request, ask_human and save_memory. Each tool's description says when and how to use it.`,
+    '- Text you write in your own session reaches nobody: to tell a teammate something, or to answer a team message, use send_message. Team messages arrive in your session as "[team message from <handle> about <task key>]" followed by the text. Messages without that prefix come from the app (like the kick-off brief) or from a human using it.',
+    '- Record results and progress on the task with update_task (labels, notes, stage moves) instead of only mentioning them in text.',
+    '- Message only when someone has something to do, and send humans only what needs their decision or action. Be concise: facts first, no pleasantries.',
+    `- Write messages, notes, questions, task titles and descriptions in ${languageName(language)} (${code(language)}), the project's language. ${rules} decides the language of code, commits and pull requests.`,
     '- Check the primary source (the code, the logs, the task) before you state a fact.',
     '- Other sessions may share a checkout: never switch branches, reset, stash or clean in a working directory that is not your own.',
   ].join('\n');
@@ -218,7 +213,7 @@ function labelsSection({ project }: ContextPackInput): string {
   });
   return [
     '# Labels',
-    'Labels state facts about a task; gates and people rely on them. Record results as labels with update_task (add_labels / remove_labels), with the reason in note. Other labels on tasks are plain tags.',
+    'Labels state facts about a task; gates and people rely on them. Record results as labels (add_labels / remove_labels of update_task). Other labels on tasks are plain tags.',
     ...lines,
   ].join('\n');
 }

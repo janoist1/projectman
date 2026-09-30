@@ -107,12 +107,12 @@ export function formatTaskUpdate(
   return `Updated ${task.key}: ${done.join('; ')}.\nNow: ${taskStatusLine(task)}`;
 }
 
+/** What the call did; what happens next with the task is in the tool's description. */
 export function formatTaskCreated(task: Task): string {
   const labels = task.labels.length > 0 ? ` · Labels: ${task.labels.join(', ')}` : '';
   return (
     `Created ${task.key} "${oneLine(task.title, 200)}" in stage ${task.stageId}, unassigned ` +
-    `(visibility ${task.visibility}${labels}). Humans prioritise it. If it came from another task, ` +
-    `note ${task.key} there with update_task.`
+    `(visibility ${task.visibility}${labels}).`
   );
 }
 
@@ -139,11 +139,8 @@ export function formatSentMessage(result: {
   return missing.length > 0 ? `${sent} Not delivered to: ${missing.join(', ')}.` : sent;
 }
 
+/** Where the question is; how the answer arrives is in the tool's description. */
 export function formatQuestionAsked(inboxItemId: string, to: string[] | undefined): string {
   const whose = to && to.length > 0 ? ` of ${to.join(', ')}` : '';
-  return (
-    `Question ${inboxItemId} is waiting in the inbox${whose}. ` +
-    'The answer will arrive later in this session as a team message. Do not wait or poll for it: ' +
-    'continue with work that does not depend on the answer, or end your turn.'
-  );
+  return `Question ${inboxItemId} is waiting in the inbox${whose}.`;
 }

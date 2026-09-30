@@ -33,9 +33,4 @@ The confirmation email shows the wrong room name.
 - 2026-09-28 11:31 UTC · `fe-1`: message to `code-review`: PR acme/app#123 is ready for review: the room name now comes from the booking, not the cart.
 
 ## What is expected next
-1. Review the pull requests linked to the task; do not edit, commit or push.
-2. Record the result with update_task as `code-review-ok` (Code review ok), `code-review-changes` (Code review: changes needed) with a note or `code-review-blocked` (Code review: blocked) with a note; put a one-line summary of the findings in note.
-3. Send "Blocking" / "Not blocking" findings with file:line to `fe-1` with send_message; review again when they report a fix.
-4. When the review passes, move the task to Integration (`integration`) with update_task and hand over to `devops` with send_message: the facts they need (links, what changed, what to check).
-
-Use get_task for the latest state at any time.
+See "What done means for you here" in your instructions.

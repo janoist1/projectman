@@ -83,10 +83,18 @@ tests use the SDK's own client, which behaves the same way here):
   attributed to the calling member (`task_created` in the timeline, with the session); humans
   prioritise it. Support turns bug reports into cards with it, the architect proposes a
   breakdown, the analyst splits requests.
-- Descriptions and the server instructions (sent at initialize; Claude Code adds them to the
-  system prompt) tell the model to: address teammates by handle, be concise, write in the
-  project's language, answer team messages with `send_message`, record results as labels with
-  `update_task`, link PRs, and use `ask_human` for human decisions.
+- Each piece of guidance is stated once. What a tool does and when to use it (link PRs right
+  away, the `ask_human` answer arrives later as a team message, new tasks wait for humans to
+  prioritise them, …) is in its description and parameter descriptions. Team rules that are
+  not about one tool (address teammates by handle, text in your own session reaches nobody,
+  be concise, the project's language, record results on the task) are in the member's system
+  prompt (`src/context/system-prompt.ts`, "How the team works"), which both Claude Code
+  (`--append-system-prompt`) and Codex (`developer_instructions`) receive. The server
+  instructions (sent at initialize) only say what the server is and point there: Claude Code
+  appends them to the system prompt, and Codex 0.159.1 shows them to the model as the
+  description of the `team` tool namespace, so rules there would be stated twice.
+- Results say what the call did (`Created AR-22 …`, `Question … is waiting in the inbox of
+owner.`); they do not repeat the guidance of the description.
 
 ## Results and errors
 

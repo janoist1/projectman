@@ -1,7 +1,7 @@
 import { describeLink, linkTarget, recentTimeline } from '../agent-text';
 import type { ContextPackInput } from '../contracts';
 import { code, promptStyle, stageLabel } from './format';
-import { expectedSteps, type Situation } from './work-item';
+import type { Situation } from './work-item';
 
 /** Timeline entries shown in the brief (the most recent ones). */
 const TIMELINE_LIMIT = 15;
@@ -19,7 +19,8 @@ const QUIET_EVENTS = new Set<string>([
 
 /**
  * The kick-off brief typed as the first message of a new task session: the task, its
- * labels, links, prerequisites, a compact recent timeline and what is expected next.
+ * labels, links, prerequisites and a compact recent timeline. What is expected next is in the
+ * system prompt ("What done means for you here"), which follows the task to its current stage.
  * Labels are English; task data (title, description, notes) is shown as it was written.
  * Scheduled work uses its configured prompt; other non-task work has no brief.
  */
@@ -72,13 +73,10 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
     ].join('\n'),
   );
 
+  // The steps themselves are in the system prompt, which is rebuilt for the task's current stage
+  // whenever the session starts or resumes; this brief is typed once.
   sections.push(
-    [
-      '## What is expected next',
-      ...expectedSteps(input, situation).map((step, i) => `${i + 1}. ${step}`),
-      '',
-      'Use get_task for the latest state at any time.',
-    ].join('\n'),
+    ['## What is expected next', 'See "What done means for you here" in your instructions.'].join('\n'),
   );
 
   return sections.join('\n\n');

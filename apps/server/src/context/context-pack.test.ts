@@ -13,6 +13,7 @@ import type {
 } from '@projectman/shared';
 import { aiMemberDefaults, getTemplate } from '@projectman/templates';
 import type { ContextPackInput } from '../contracts';
+import { TEAM_TOOL_NAMES } from '../mcp';
 import { createContextPackBuilder } from './context-pack';
 import { formatMemoryEntry, MEMORY_LIMIT_BYTES } from './memory';
 import { roleLabel } from './system-prompt';
@@ -358,6 +359,22 @@ describe('system prompt', () => {
     expect(prompt).toContain('- `owner`: Anna Example (human, owner; roles: operator, product owner)');
   });
 
+  it('states each team rule once and names every team tool', () => {
+    // The tool descriptions and the MCP server instructions leave these rules to the system prompt.
+    const prompt = builder.build(input()).appendSystemPrompt;
+    for (const rule of [
+      'Address members by handle',
+      'reaches nobody',
+      'instead of only mentioning them in text',
+      'Be concise',
+      "the project's language",
+    ]) {
+      expect(prompt.split(rule).length - 1, rule).toBe(1);
+    }
+    const teamwork = section(prompt, '# How the team works');
+    for (const tool of TEAM_TOOL_NAMES) expect(teamwork).toContain(tool);
+  });
+
   it('tells the member to write in the project language', () => {
     const hungarian = builder.build(input({ project: buildProject('web-client-project', 'hu') }));
     expect(hungarian.appendSystemPrompt).toContain("in Hungarian (`hu`), the project's language");
@@ -531,6 +548,16 @@ describe('kick-off brief', () => {
     expect(brief).not.toContain('session_started');
     expect(brief).not.toContain('permission');
     expect(brief).toContain('- 2026-09-28 08:06 UTC · `fe-1`: moved it from Ready to Development');
+  });
+
+  it('points to the steps in the system prompt instead of repeating them', () => {
+    const pack = builder.build(input());
+    expect(pack.initialMessage).toContain(
+      '## What is expected next\nSee "What done means for you here" in your instructions.',
+    );
+    const firstStep = doneSteps(pack.appendSystemPrompt).split('\n')[0]!.replace(/^1\. /, '');
+    expect(firstStep).toContain('Review the pull requests linked to the task');
+    expect(pack.initialMessage).not.toContain(firstStep);
   });
 
   it('lists links and prerequisites apart', () => {

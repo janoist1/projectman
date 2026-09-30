@@ -302,7 +302,7 @@ function stepDuty(duties: readonly DutyId[], current: Stage): DutyId | null {
 
 /**
  * What finishing the member's part of the current stage looks like, as numbered steps.
- * Shared by the system prompt ("what done means for you here") and the kick-off brief.
+ * Part of the system prompt ("What done means for you here"); the kick-off brief refers to it.
  */
 export function expectedSteps(input: ContextPackInput, s: Situation): string[] {
   const task = input.workItem.type === 'task' ? input.task : null;

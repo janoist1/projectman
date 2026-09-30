@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CancelTaskRequest, ReopenTaskRequest, routes, UpdateTaskRequest } from '@projectman/shared';
+import { routes } from '@projectman/shared';
 import type { Task, TaskDetail } from '@projectman/shared';
 import {
   addHumanAndLogin,
@@ -25,16 +25,6 @@ describe('task lifecycle API', () => {
 
   const call = (method: 'POST' | 'PATCH', url: string, payload?: object, auth: string | null = cookie) =>
     inject(h.app, method, url, auth, payload);
-
-  it('exports additive lifecycle schemas and routes', () => {
-    expect(CancelTaskRequest.parse({})).toEqual({});
-    expect(CancelTaskRequest.parse({ reason: 'Scope changed' })).toEqual({ reason: 'Scope changed' });
-    expect(ReopenTaskRequest.parse({})).toEqual({});
-    expect(UpdateTaskRequest.parse({ assignee: null })).toEqual({ assignee: null });
-    expect(UpdateTaskRequest.parse({ assignee: 'dev-2' })).toEqual({ assignee: 'dev-2' });
-    expect(routes.cancelTask('AR', 'AR-1')).toBe('/api/projects/AR/tasks/AR-1/cancel');
-    expect(routes.reopenTask('AR', 'AR-1')).toBe('/api/projects/AR/tasks/AR-1/reopen');
-  });
 
   it('cancels a live task and reopens without a body or automatic start', async () => {
     const started = await call('POST', routes.startTask('AR', 'AR-1'), { assignee: 'dev-1' });

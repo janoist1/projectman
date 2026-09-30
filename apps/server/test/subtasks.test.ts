@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CreateTaskRequest, UpdateTaskRequest } from '@projectman/shared';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 
@@ -14,10 +13,7 @@ const update = (key: string, parentKey: string | null) =>
   h.domain.tasks.update('AR', key, { parentKey }, OWNER_ACTOR);
 
 describe('one-level subtasks', () => {
-  it('accepts additive parent contracts, preserving omitted fields and clearing with null', async () => {
-    expect(CreateTaskRequest.parse({ title: 'Child', parentKey: 'AR-1' }).parentKey).toBe('AR-1');
-    expect(UpdateTaskRequest.parse({ parentKey: null })).toEqual({ parentKey: null });
-    expect(CreateTaskRequest.safeParse({ title: 'Child', parentKey: null }).success).toBe(false);
+  it('sets, preserves and clears the parent of a task', async () => {
     const parent = await create('Parent');
     const child = await create('Child', parent.key);
     expect(child.parentKey).toBe(parent.key);

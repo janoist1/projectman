@@ -1,6 +1,6 @@
 # PM backlog (temporary export)
 
-Temporary export of the open cards of the "PM" project board, which lives only in the owner's local projectman instance. Cloud sessions read it and may update the "Állapot" lines. Back on the local machine the changes go to the board, and this file is removed. Client-specific cards are left out on purpose (public repository).
+Temporary export of the open cards of the "PM" project board, which lives only in the owner's local projectman instance. Cloud sessions read it and may update the "Állapot" lines. Back on the local machine the changes go to the board, and this file is removed.
 
 Export: 2026-09-30, main 6f40e6a. Card texts are in Hungarian, as on the board.
 
@@ -73,6 +73,20 @@ Az átnéző kérdés nélkül olvashatja a fejlesztő munkapéldányát (ezzel 
 - **PM-70** Engedélykérés: az érdemi parancs látsszon, ne a „cd” — _Kész, a PM-75-tel együtt beolvadt (8b9a9ba)._
 
 ## Indulhat
+
+### PM-43: ClickUp-kommentek és a 26 lezárt jegy áthozatala (AROOM)
+
+_Címkék: AROOM, Válaszra vár_
+
+**Állapot:** A ClickUp-korlát lejártára vár; a tulajdonos szól, ha mehet (helyi ClickUp-összekötővel, a felhőből valószínűleg nem megy).
+
+A ClickUp-összekötő napi 100 hívásos korlátja miatt maradt ki:
+
+- a jegyek kommentjei, importált kommentként (értesítés nélkül);
+- a 26 lezárt jegy a Kész oszlopba;
+- 2 Admin-jegy hiányzó leírása.
+
+Akkor indul, amikor a tulajdonos szól, hogy lejárt a korlát.
 
 ### PM-46: Tailscale: X-Forwarded-Proto ellenőrzése a telefonos eléréshez
 
@@ -155,9 +169,13 @@ Irány: Hetzner 8 GB VPS Tailscale mögött. Méretezés: kb. 2 GB alap + 1–1,
 
 _Címkék: Válaszra vár_
 
-**Állapot:** A tulajdonos döntésére vár; a névjelöltek és az ütközések a helyi táblán vannak.
+Kedvenc: „Onboard” (az AI-tagokat úgy veszed fel, mint egy kollégát). Ütközések: a HR Cloud „Onboard” terméke, az onboard.dev/.ai, az npm-csomag és a GitHub-név foglalt. A kód átnevezése csak a döntés után.
 
-Terméknév-döntés és a kód átnevezése utána.
+### PM-48: GitHub: feltöltés és a korábbi előzmények
+
+**Állapot:** Eldöntve: a tulajdonos kérésére minden felkerült úgy, ahogy volt (6f40e6a).
+
+A repó nyilvános (janoist1/projectman), a helyi main jóval előrébb jár. Pusholás előtt dönteni kell, maradhatnak-e a korábbi commitok: a legelsőkben még ügyfélre utaló nevek lehetnek (a kódból azóta kikerültek).
 
 ### PM-49: Codex: a tulajdonos saját hookjai ellenőrzés nélkül futnak
 

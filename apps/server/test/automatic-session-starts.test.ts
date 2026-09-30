@@ -37,7 +37,7 @@ describe('automatic session admission and retries', () => {
   afterEach(async () => {
     await h.domain.stop();
     vi.restoreAllMocks();
-    h.cleanup();
+    await h.cleanup();
   });
 
   it('defers AI messages on plan usage, retries periodically and delivers each message once', async () => {

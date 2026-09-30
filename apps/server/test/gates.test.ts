@@ -171,7 +171,7 @@ describe('stage gates', () => {
   });
 
   it('an AI member or a non-approver can never resolve a gate decision', async () => {
-    h.cleanup();
+    await h.cleanup();
     h = await createDomainHarness({
       adjust: (c) => {
         c.team.members.push({

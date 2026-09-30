@@ -43,7 +43,13 @@ export { createEventBus } from './event-bus';
 export { createDomainEvents } from './events';
 export type { DomainEventMap, DomainEvents } from './events';
 export { Admission, DeferredStarts, MessageStarts, StageHandOver, TaskStarts } from './admission';
-export type { AdmissionRequest, StartTaskOptions, StartTaskResult } from './admission';
+export type {
+  AdmissionRequest,
+  AutomaticStart,
+  DeferredStart,
+  StartTaskOptions,
+  StartTaskResult,
+} from './admission';
 export { BackgroundTasks } from './background';
 export { BoardService } from './board';
 export { GithubSync } from './github-sync';

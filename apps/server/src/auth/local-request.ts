@@ -1,7 +1,5 @@
 import type { FastifyRequest } from 'fastify';
-
-const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
-const LOOPBACK_HOST_RE = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
+import { isLoopbackAddress, isLoopbackHostHeader, isLoopbackHostname } from '../http/local-guard';
 
 function headerValues(value: string | string[] | undefined): string[] {
   if (value === undefined) return [];
@@ -12,11 +10,12 @@ function headerValues(value: string | string[] | undefined): string[] {
  * True for requests made on this machine: a loopback peer, a loopback Host header (no DNS
  * rebinding) and, if a local proxy (e.g. the Vite dev server) forwarded it, only loopback
  * hops. Requests arriving through `tailscale serve` carry the remote client's address or
- * Tailscale identity headers and are therefore not local.
+ * Tailscale identity headers and are therefore not local. Loopback means what the internal
+ * endpoints' guard accepts (src/http/local-guard): 127.0.0.0/8, ::1 and IPv4-mapped loopback.
  */
-export function isLocalRequest(request: FastifyRequest): boolean {
-  if (!LOOPBACK_ADDRESSES.has(request.socket.remoteAddress ?? '')) return false;
-  if (!LOOPBACK_HOST_RE.test(request.headers.host ?? '')) return false;
+export function isLocalRequest(request: Pick<FastifyRequest, 'socket' | 'headers'>): boolean {
+  if (!isLoopbackAddress(request.socket.remoteAddress)) return false;
+  if (!isLoopbackHostHeader(request.headers.host)) return false;
   if (request.headers['tailscale-user-login'] !== undefined) return false;
   const forwarded = [
     ...headerValues(request.headers['x-forwarded-for']),
@@ -25,14 +24,13 @@ export function isLocalRequest(request: FastifyRequest): boolean {
       .map((part) => /for="?\[?([^\]";]+)/i.exec(part)?.[1])
       .filter((v): v is string => v !== undefined),
   ];
-  return forwarded.every((address) => LOOPBACK_ADDRESSES.has(address) || address === 'localhost');
+  return forwarded.every(isLoopbackHostname);
 }
 
 /** HTTPS is terminated only by a loopback reverse proxy; never trust forwarded hosts. */
 export function requestProtocol(request: FastifyRequest): 'http' | 'https' {
   return (request.socket && request.protocol === 'https') ||
-    (LOOPBACK_ADDRESSES.has(request.socket?.remoteAddress ?? '') &&
-      request.headers['x-forwarded-proto'] === 'https')
+    (isLoopbackAddress(request.socket?.remoteAddress) && request.headers['x-forwarded-proto'] === 'https')
     ? 'https'
     : 'http';
 }

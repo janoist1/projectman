@@ -125,6 +125,51 @@ describe('database', () => {
     expect(repos.tasks.listByAssignee('AR', 'dev-1').map((t) => t.key)).toEqual(['AR-1']);
   });
 
+  it('writes only the task fields a change names, and reads subtasks and assignments with their links', () => {
+    const repos = createRepositories(openDatabase(':memory:'));
+    repos.projects.insert({
+      key: 'AR',
+      name: 'acme',
+      templateId: null,
+      configVersion: 'v1',
+      createdAt: now,
+      updatedAt: now,
+    });
+    repos.tasks.insert(sampleTask());
+    repos.tasks.insert(sampleTask({ id: 'tsk_2', key: 'AR-2', parentKey: 'AR-1', assignee: 'dev-1' }));
+    repos.tasks.insert(
+      sampleTask({ id: 'tsk_3', key: 'AR-3', parentKey: 'AR-1', assignee: 'dev-1', links: [] }),
+    );
+    // Two writers, each with its own field: neither undoes the other.
+    repos.tasks.update('tsk_1', { labels: ['frontend', 'waiting'] });
+    repos.tasks.update('tsk_1', { title: 'Login page v2', parentKey: null });
+    expect(repos.tasks.get('AR-1')).toMatchObject({
+      title: 'Login page v2',
+      labels: ['frontend', 'waiting'],
+      parentKey: null,
+    });
+    // Writing labels replaces the legacy checks they were read with.
+    repos.db.prepare(`UPDATE tasks SET checks = ? WHERE key = 'AR-1'`).run('{"code_review":"passed"}');
+    expect(repos.tasks.get('AR-1')!.labels).toContain('code-review-ok');
+    repos.tasks.update('tsk_1', { labels: ['frontend'] });
+    expect(repos.tasks.get('AR-1')!.labels).toEqual(['frontend']);
+
+    for (const tasks of [repos.tasks.children('AR', 'AR-1'), repos.tasks.listByAssignee('AR', 'dev-1')]) {
+      expect(tasks.map((t) => [t.key, t.links.length])).toEqual([
+        ['AR-2', 1],
+        ['AR-3', 0],
+      ]);
+    }
+    expect(repos.tasks.children('AR', 'AR-2')).toEqual([]);
+  });
+
+  it('refuses a database written by a newer build', () => {
+    const db = openDatabase(':memory:');
+    db.pragma(`user_version = ${LATEST_SCHEMA_VERSION + 1}`);
+    expect(() => migrate(db)).toThrow(/schema version .* newer build/);
+    db.close();
+  });
+
   it('maps sessions, timeline, messages, inbox and member state', () => {
     const repos = createRepositories(openDatabase(':memory:'));
     const session: Session = {
@@ -204,6 +249,24 @@ describe('database', () => {
     expect(repos.inbox.close('inb_1', 'resolved', resolution, now)!.resolution).toEqual(resolution);
     expect(repos.inbox.close('inb_1', 'expired', null, now)).toBeNull();
     expect(repos.inbox.countOpenFor('AR', 'owner')).toBe(0);
+
+    const gate = (id: string, requestId: string, to: string): InboxItem => ({
+      ...item,
+      id,
+      kind: 'decision',
+      payload: { gate: { requestId, taskKey: 'AR-1', fromStageId: 'code_review', toStageId: to } },
+    });
+    repos.inbox.insert(gate('inb_2', 'gat_1', 'merge'));
+    repos.inbox.insert(gate('inb_3', 'gat_1', 'merge'));
+    repos.inbox.insert(gate('inb_4', 'gat_2', 'release'));
+    repos.inbox.close('inb_3', 'resolved', resolution, now);
+    const ids = (items: InboxItem[]) => items.map((i) => i.id);
+    expect(ids(repos.inbox.listGateRequest('AR', 'AR-1', 'gat_1'))).toEqual(['inb_2', 'inb_3']);
+    expect(ids(repos.inbox.listGateRequest('AR', 'AR-2', 'gat_1'))).toEqual([]);
+    expect(ids(repos.inbox.listOpenGateRequests('AR', 'AR-1', 'code_review', 'merge'))).toEqual(['inb_2']);
+    expect(ids(repos.inbox.listOpenGateRequests('AR', 'AR-1', 'merge', 'release'))).toEqual([]);
+    expect(ids(repos.inbox.list('AR', { kind: 'decision', state: 'open' }))).toEqual(['inb_2', 'inb_4']);
+    expect(ids(repos.inbox.list('AR', { limit: 2 }))).toEqual(['inb_3', 'inb_4']);
 
     repos.memberState.upsert({
       projectKey: 'AR',

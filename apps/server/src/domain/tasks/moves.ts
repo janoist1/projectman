@@ -131,9 +131,7 @@ export class TaskMoves {
   ): void {
     const task = this.store.find(item.projectKey, gate.taskKey);
     if (!task) return;
-    const siblings = this.inbox
-      .list(item.projectKey, { kind: 'decision', taskKey: task.key })
-      .filter((i) => gateRequestOf(i)?.requestId === gate.requestId);
+    const siblings = this.inbox.gateRequestItems(item.projectKey, task.key, gate.requestId);
 
     if (item.resolution?.optionId !== 'approve') {
       for (const s of siblings) if (s.state === 'open') this.inbox.cancel(s.id);
@@ -201,12 +199,7 @@ export class TaskMoves {
     approvals: ApprovalRequirement[],
     actor: Actor,
   ): { task: Task; items: InboxItem[] } {
-    const open = this.inbox
-      .list(task.projectKey, { kind: 'decision', state: 'open', taskKey: task.key })
-      .filter((i) => {
-        const p = gateRequestOf(i);
-        return p?.toStageId === target.id && p.fromStageId === task.stageId;
-      });
+    const open = this.inbox.openGateRequests(task.projectKey, task.key, task.stageId, target.id);
     if (open.length > 0) return { task, items: open };
 
     if (approvals.some((req) => req.approvers.length === 0))

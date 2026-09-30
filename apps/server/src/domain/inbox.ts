@@ -160,6 +160,16 @@ export class InboxService {
     return this.ctx.repos.inbox.list(projectKey, filter);
   }
 
+  /** The decision items of one gate request of a task, oldest first. */
+  gateRequestItems(projectKey: string, taskKey: string, requestId: string): InboxItem[] {
+    return this.ctx.repos.inbox.listGateRequest(projectKey, taskKey, requestId);
+  }
+
+  /** Open decision items requesting to move a task from one stage to another. */
+  openGateRequests(projectKey: string, taskKey: string, fromStageId: string, toStageId: string): InboxItem[] {
+    return this.ctx.repos.inbox.listOpenGateRequests(projectKey, taskKey, fromStageId, toStageId);
+  }
+
   countOpenFor(projectKey: string, handle: string): number {
     return this.ctx.repos.inbox.countOpenFor(projectKey, handle);
   }

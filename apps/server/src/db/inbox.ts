@@ -1,4 +1,5 @@
 import type { InboxItem, InboxKind, InboxState } from '@projectman/shared';
+import type { Statement } from 'better-sqlite3';
 import type { Db } from './database';
 import { parseJson, toJson } from './json';
 
@@ -21,6 +22,13 @@ interface InboxRow {
   updated_at: string;
 }
 
+export interface InboxFilter {
+  state?: InboxState;
+  kind?: InboxKind;
+  taskKey?: string;
+  limit?: number;
+}
+
 const toItem = (r: InboxRow): InboxItem => ({
   id: r.id,
   projectKey: r.project_key,
@@ -39,19 +47,47 @@ const toItem = (r: InboxRow): InboxItem => ({
 });
 
 export function createInboxRepository(db: Db) {
+  const statements = {
+    get: db.prepare('SELECT * FROM inbox_items WHERE id = ?'),
+    insert: db.prepare(
+      `INSERT INTO inbox_items (id, project_key, kind, assignees, source, session_id, task_key, title, body, payload,
+         options, state, resolution, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ),
+    updateAssignees: db.prepare(
+      "UPDATE inbox_items SET assignees = ?, updated_at = ? WHERE id = ? AND state = 'open'",
+    ),
+    close: db.prepare(
+      `UPDATE inbox_items SET state = ?, resolution = ?, updated_at = ? WHERE id = ? AND state = 'open'`,
+    ),
+    listOpen: db.prepare(`SELECT * FROM inbox_items WHERE state = 'open' ORDER BY seq`),
+    listOpenOfKind: db.prepare(`SELECT * FROM inbox_items WHERE state = 'open' AND kind = ? ORDER BY seq`),
+    gateRequest: db.prepare(
+      `SELECT * FROM inbox_items WHERE project_key = ? AND kind = 'decision' AND task_key = ?
+         AND json_extract(payload, '$.gate.requestId') = ? ORDER BY seq`,
+    ),
+    openGateRequests: db.prepare(
+      `SELECT * FROM inbox_items WHERE project_key = ? AND kind = 'decision' AND state = 'open' AND task_key = ?
+         AND json_extract(payload, '$.gate.fromStageId') = ? AND json_extract(payload, '$.gate.toStageId') = ?
+       ORDER BY seq`,
+    ),
+    countOpenFor: db.prepare(
+      `SELECT COUNT(*) AS n FROM inbox_items
+       WHERE project_key = ? AND state = 'open' AND EXISTS (SELECT 1 FROM json_each(assignees) WHERE value = ?)`,
+    ),
+  };
+  /** List statements per combination of filters. */
+  const lists = new Map<string, Statement>();
+
   const get = (id: string): InboxItem | null => {
-    const row = db.prepare('SELECT * FROM inbox_items WHERE id = ?').get(id) as InboxRow | undefined;
+    const row = statements.get.get(id) as InboxRow | undefined;
     return row ? toItem(row) : null;
   };
 
   return {
     get,
     insert(item: InboxItem): void {
-      db.prepare(
-        `INSERT INTO inbox_items (id, project_key, kind, assignees, source, session_id, task_key, title, body, payload,
-           options, state, resolution, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
+      statements.insert.run(
         item.id,
         item.projectKey,
         item.kind,
@@ -70,11 +106,7 @@ export function createInboxRepository(db: Db) {
       );
     },
     updateAssignees(id: string, assignees: string[], at: string): InboxItem | null {
-      db.prepare("UPDATE inbox_items SET assignees = ?, updated_at = ? WHERE id = ? AND state = 'open'").run(
-        toJson(assignees),
-        at,
-        id,
-      );
+      statements.updateAssignees.run(toJson(assignees), at, id);
       return get(id);
     },
     /** Changes state/resolution only while the item is still open; returns the item or null if it was not open. */
@@ -84,53 +116,49 @@ export function createInboxRepository(db: Db) {
       resolution: InboxItem['resolution'],
       at: string,
     ): InboxItem | null {
-      const changes = db
-        .prepare(
-          `UPDATE inbox_items SET state = ?, resolution = ?, updated_at = ? WHERE id = ? AND state = 'open'`,
-        )
-        .run(state, resolution ? toJson(resolution) : null, at, id).changes;
+      const changes = statements.close.run(state, resolution ? toJson(resolution) : null, at, id).changes;
       return changes > 0 ? get(id) : null;
     },
     /** Items of a project, oldest first. */
-    list(
-      projectKey: string,
-      filter: { state?: InboxState; kind?: InboxKind; taskKey?: string; limit?: number } = {},
-    ): InboxItem[] {
-      let sql = 'SELECT * FROM inbox_items WHERE project_key = ?';
-      const params: Array<string | number> = [projectKey];
-      if (filter.state) {
-        sql += ' AND state = ?';
-        params.push(filter.state);
+    list(projectKey: string, filter: InboxFilter = {}): InboxItem[] {
+      const signature = [filter.state && 'state', filter.kind && 'kind', filter.taskKey && 'task'].join(',');
+      let statement = lists.get(signature);
+      if (!statement) {
+        let sql = 'SELECT * FROM inbox_items WHERE project_key = @projectKey';
+        if (filter.state) sql += ' AND state = @state';
+        if (filter.kind) sql += ' AND kind = @kind';
+        if (filter.taskKey) sql += ' AND task_key = @taskKey';
+        statement = db.prepare(`${sql} ORDER BY seq DESC LIMIT @limit`);
+        lists.set(signature, statement);
       }
-      if (filter.kind) {
-        sql += ' AND kind = ?';
-        params.push(filter.kind);
-      }
-      if (filter.taskKey) {
-        sql += ' AND task_key = ?';
-        params.push(filter.taskKey);
-      }
-      sql += ' ORDER BY seq DESC LIMIT ?';
-      params.push(filter.limit ?? 500);
-      return (db.prepare(sql).all(...params) as InboxRow[]).reverse().map(toItem);
+      const params: Record<string, string | number> = { projectKey, limit: filter.limit ?? 500 };
+      if (filter.state) params.state = filter.state;
+      if (filter.kind) params.kind = filter.kind;
+      if (filter.taskKey) params.taskKey = filter.taskKey;
+      return (statement.all(params) as InboxRow[]).reverse().map(toItem);
     },
     /** Open items across all projects, optionally of one kind. */
     listOpen(kind?: InboxKind): InboxItem[] {
-      const rows = (
-        kind
-          ? db.prepare(`SELECT * FROM inbox_items WHERE state = 'open' AND kind = ? ORDER BY seq`).all(kind)
-          : db.prepare(`SELECT * FROM inbox_items WHERE state = 'open' ORDER BY seq`).all()
-      ) as InboxRow[];
+      const rows = (kind ? statements.listOpenOfKind.all(kind) : statements.listOpen.all()) as InboxRow[];
       return rows.map(toItem);
     },
+    /** The decision items of one gate request of a task (`payload.gate.requestId`), oldest first. */
+    listGateRequest(projectKey: string, taskKey: string, requestId: string): InboxItem[] {
+      return (statements.gateRequest.all(projectKey, taskKey, requestId) as InboxRow[]).map(toItem);
+    },
+    /** Open decision items requesting to move a task from one stage to another, oldest first. */
+    listOpenGateRequests(
+      projectKey: string,
+      taskKey: string,
+      fromStageId: string,
+      toStageId: string,
+    ): InboxItem[] {
+      return (statements.openGateRequests.all(projectKey, taskKey, fromStageId, toStageId) as InboxRow[]).map(
+        toItem,
+      );
+    },
     countOpenFor(projectKey: string, handle: string): number {
-      const row = db
-        .prepare(
-          `SELECT COUNT(*) AS n FROM inbox_items
-           WHERE project_key = ? AND state = 'open' AND EXISTS (SELECT 1 FROM json_each(assignees) WHERE value = ?)`,
-        )
-        .get(projectKey, handle) as { n: number };
-      return row.n;
+      return (statements.countOpenFor.get(projectKey, handle) as { n: number }).n;
     },
   };
 }

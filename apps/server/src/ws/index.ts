@@ -25,8 +25,8 @@ interface Client {
   socket: WsSocket;
   user: AuthUser;
   token: string;
-  /** Subscribed projects with the user's access at subscription time. */
-  projects: Map<string, ProjectAccess>;
+  /** Subscribed project keys (membership is rechecked for every delivery). */
+  projects: Set<string>;
   /** Sessions whose terminal this client is attached to. */
   terminals: Set<string>;
   alive: boolean;
@@ -60,10 +60,6 @@ function messageText(data: unknown): string {
   return String(data);
 }
 
-export interface WebsocketHub {
-  clientCount(): number;
-}
-
 /**
  * /ws: login-cookie websocket. Clients subscribe to projects and receive their bus events;
  * terminal data goes only to clients attached to that session's terminal.
@@ -71,7 +67,7 @@ export interface WebsocketHub {
 export function registerWebsocket(
   app: FastifyInstance,
   deps: { domain: Domain; auth: AuthService; heartbeatMs?: number },
-): WebsocketHub {
+): void {
   const { domain } = deps;
   const runner = domain.runnerModule.runner;
   const clients = new Set<Client>();
@@ -142,7 +138,7 @@ export function registerWebsocket(
         case 'subscribe_project': {
           const access = await domain.accessFor(command.projectKey, client.user.email);
           if (!access) send(client, { type: 'error', message: 'not_a_member' });
-          else client.projects.set(command.projectKey, access);
+          else client.projects.add(command.projectKey);
           return;
         }
         case 'unsubscribe_project':
@@ -195,7 +191,7 @@ export function registerWebsocket(
       socket,
       user,
       token: request.authToken!,
-      projects: new Map(),
+      projects: new Set(),
       terminals: new Set(),
       alive: true,
     };
@@ -237,6 +233,4 @@ export function registerWebsocket(
     clearInterval(heartbeat);
     unsubscribe();
   });
-
-  return { clientCount: () => clients.size };
 }

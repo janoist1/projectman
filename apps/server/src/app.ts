@@ -9,9 +9,9 @@ import { registerApiRoutes, registerErrorHandling } from './api';
 import { AuthService, loadOrCreateSecret, registerAuth } from './auth';
 import { serializeRequest } from './auth/request-logging';
 import { createConfigStore } from './config';
+import type { GitConfigStore } from './config';
 import { createContextPackBuilder, createMemberMemoryStore } from './context';
 import type {
-  ConfigStore,
   ContextPackBuilder,
   GithubService,
   McpModule,
@@ -30,7 +30,6 @@ import { createMcpModule } from './mcp';
 import { createRunnerModule } from './runner';
 import { createWorktreeManager } from './worktree';
 import { registerWebsocket } from './ws';
-import type { WebsocketHub } from './ws';
 
 /** Loopback addresses the server may listen on; remote access goes through `tailscale serve`. */
 export const LOOPBACK_HOSTS = ['127.0.0.1', '::1', 'localhost'] as const;
@@ -56,7 +55,6 @@ export interface AppModules {
   contextPackBuilder?: ContextPackBuilder;
   memberMemory?: MemberMemoryStore;
   worktrees?: WorktreeManager;
-  configStore?: ConfigStore;
   templates?: TemplateRegistry;
 }
 
@@ -85,26 +83,20 @@ export interface BuildAppOptions {
   wsHeartbeatMs?: number;
 }
 
+/** What `app.projectman` exposes (tests and tooling reach the services through it). */
 export interface AppContext {
   home: string;
   repos: Repositories;
-  configStore: ConfigStore;
+  configStore: GitConfigStore;
   domain: Domain;
   auth: AuthService;
   runnerModule: RunnerModule;
-  mcpModule: McpModule;
-  github: GithubService;
-  websocket: WebsocketHub;
 }
 
 declare module 'fastify' {
   interface FastifyInstance {
     projectman: AppContext;
   }
-}
-
-function hasInit(store: ConfigStore): store is ConfigStore & { init(): Promise<void> } {
-  return typeof (store as { init?: unknown }).init === 'function';
 }
 
 /**
@@ -115,7 +107,7 @@ function hasInit(store: ConfigStore): store is ConfigStore & { init(): Promise<v
  */
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const home = resolve(options.home);
-  for (const dir of [home, join(home, 'logs'), join(home, 'memory'), join(home, 'worktrees')]) {
+  for (const dir of [home, join(home, 'memory'), join(home, 'worktrees')]) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
   chmodSync(home, 0o700);
@@ -139,13 +131,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     await app.register(fastifyWebsocket, { options: { maxPayload: 1024 * 1024 } });
 
     repos = createRepositories(openDatabase(options.dbPath ?? join(home, 'db.sqlite')));
-    const configStore =
-      modules.configStore ??
-      createConfigStore({
-        rootDir: join(home, 'customization'),
-        logger: app.log.child({ module: 'config' }),
-      });
-    if (hasInit(configStore)) await configStore.init();
+    const configStore = createConfigStore({
+      rootDir: join(home, 'customization'),
+      logger: app.log.child({ module: 'config' }),
+    });
+    await configStore.init();
 
     const log = app.log;
     const github =
@@ -201,7 +191,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     registerErrorHandling(app, { spaIndex: webDistDir !== null });
     registerAuth(app, { auth, domain });
     registerApiRoutes(app, domain);
-    const websocket = registerWebsocket(app, { domain, auth, heartbeatMs: options.wsHeartbeatMs });
+    registerWebsocket(app, { domain, auth, heartbeatMs: options.wsHeartbeatMs });
     domain.runnerModule.registerHookRoutes(app);
     mcpModule.registerRoutes(app);
     if (webDistDir) await app.register(fastifyStatic, { root: webDistDir, index: ['index.html'] });
@@ -213,9 +203,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       domain,
       auth,
       runnerModule: domain.runnerModule,
-      mcpModule,
-      github,
-      websocket,
     });
 
     app.addHook('onReady', async () => {

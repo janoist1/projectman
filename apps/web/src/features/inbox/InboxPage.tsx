@@ -120,13 +120,14 @@ export function InboxPage() {
       <div className={styles.main}>
         <header className={styles.header}>
           <h1 className={styles.title}>{t('inbox.title')}</h1>
-          <p className={styles.subtitle}>
-            {isMobile
-              ? latest
+          {/* On phones an empty inbox says it in the empty state below; no repeat here. */}
+          {isMobile && !latest ? null : (
+            <p className={styles.subtitle}>
+              {isMobile && latest
                 ? t('inbox.mobileSubtitle', { count: mine.length, time: formatTime(latest.createdAt) })
-                : t('inbox.allDoneEverywhere')
-              : t('inbox.subtitle')}
-          </p>
+                : t('inbox.subtitle')}
+            </p>
+          )}
         </header>
         {isMobile ? null : (
           <SegmentedControl<KindFilter>

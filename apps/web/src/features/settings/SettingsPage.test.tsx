@@ -237,8 +237,8 @@ describe('settings section editors', () => {
       (form.getByRole('button', { name: t('settings.pipeline.createStage') }) as HTMLButtonElement).disabled,
     ).toBe(true);
     fireEvent.change(form.getByLabelText(t('settings.project.name')), { target: { value: 'Acme review' } });
-    fireEvent.change(form.getByLabelText(t('settings.pipeline.kindLabel')), { target: { value: 'review' } });
-    expect(form.getByText(t('settings.pipeline.kindHelp.review'), { selector: 'p' })).toBeTruthy();
+    fireEvent.change(form.getByLabelText(t('settings.pipeline.kindLabel')), { target: { value: 'step' } });
+    expect(form.getByText(t('settings.pipeline.kindHelp.step'), { selector: 'p' })).toBeTruthy();
     fireEvent.change(form.getByLabelText(t('settings.pipeline.afterStage')), { target: { value: 'dev' } });
     fireEvent.change(form.getByLabelText(t('settings.pipeline.column')), { target: { value: 'review' } });
     fireEvent.change(form.getByLabelText(t('duties.duty')), { target: { value: 'code_review' } });
@@ -255,7 +255,7 @@ describe('settings section editors', () => {
     expect(added).toEqual({
       id: 'acme_review',
       name: 'Acme review',
-      kind: 'review',
+      kind: 'step',
       columnId: 'review',
       duty: 'code_review',
       description: 'Review the Acme checkout.',

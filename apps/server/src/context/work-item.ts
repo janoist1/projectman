@@ -201,7 +201,7 @@ export function expectedSteps(input: ContextPackInput, s: Situation): string[] {
     }
 
     case 'devops': {
-      if (s.ownsStage && current.kind === 'deploy') {
+      if (s.ownsStage && current.kind === 'step' && current.duty === 'deployment') {
         return [
           "Deploy the task's branch or pull request to the test environment and verify that it works.",
           'Record what is deployed where as a note with update_task.',
@@ -224,7 +224,7 @@ export function expectedSteps(input: ContextPackInput, s: Situation): string[] {
     }
 
     case 'communication': {
-      if (s.ownsStage && current.kind === 'client_test') {
+      if (s.ownsStage && current.kind === 'step' && current.duty === 'client_communication') {
         const humans = humanOwners(input, current);
         return [
           'Draft the client test request: what to test, where, what the tester needs to know, and who tests it.',

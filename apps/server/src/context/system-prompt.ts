@@ -164,7 +164,7 @@ function teamworkSection({ project, member }: ContextPackInput): string {
     `- Work with the others through the team tools (MCP server "team"; in ${cli} they are named mcp__team__<tool>):`,
     '  - send_message: message members by handle; pass the task key when it is about a task. Give the receiver the facts (links, what changed, what is expected next and from whom). Message only when someone has something to do.',
     '  - list_tasks, get_task and list_members: read the board, a task with its recent timeline, or the roster.',
-    '  - update_task: move a task to another stage (gates are enforced), record a check result (code_review, security_review, qa, client_test: pending, passed, blocked, failed or retest_needed), add a short note to the timeline, or rewrite its title or description (for example a specification or a technical plan).',
+    '  - update_task: move a task to another stage (gates are enforced), add or remove labels (their meanings and rules are under # Labels; the note gives the reason), add a short note to the timeline, or rewrite its title or description (for example a specification or a technical plan).',
     '  - create_task: propose new work, such as a bug report or one part of a split request. It waits unassigned in the first stage until humans prioritise it.',
     '  - link_pull_request: attach a pull request to the task as soon as it exists.',
     '  - ask_human: ask a human for a decision or information, with options when you can. The answer arrives later as a team message; meanwhile continue with anything that does not depend on it.',
@@ -182,7 +182,10 @@ function pipelineSection(input: ContextPackInput, situation: Situation): string 
     const owners = (stage.owners ?? []).length > 0 ? ` — owners ${codeList(stage.owners ?? [])}` : '';
     const gate = describeGate(stage.gate, input.project.pipeline.labels);
     const current = situation.current?.id === stage.id ? ' ← current stage' : '';
-    return `${i + 1}. ${stage.name} (${code(stage.id)}, ${stage.kind})${owners}${gate ? ` — gate: ${gate}` : ''}${current}`;
+    // A step is defined by its duty (a review, a deploy, a test ...), so name it.
+    const kind =
+      stage.kind === 'step' && stage.duty ? `step: ${stage.duty.replaceAll('_', ' ')}` : stage.kind;
+    return `${i + 1}. ${stage.name} (${code(stage.id)}, ${kind})${owners}${gate ? ` — gate: ${gate}` : ''}${current}`;
   });
   return [
     '# The pipeline',

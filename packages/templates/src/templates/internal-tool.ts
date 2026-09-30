@@ -18,9 +18,16 @@ export const internalTool = defineTemplate('internal-tool', (t) => {
     stages: [
       t.stage('ready', 'queue', 'ready', []),
       t.stage('dev', 'work', 'development', [first, second]),
-      t.stage('code_review', 'review', 'review', [codeReview]),
-      t.stage('qa', 'test', 'review', [qa], hasLabel('code-review-ok')),
-      t.stage('merge', 'merge', 'awaiting_merge', [t.owner], hasLabel('qa-ok'), hasLabel('merge-approved')),
+      t.stage('code_review', 'step', 'review', [codeReview]),
+      t.stage('qa', 'step', 'review', [qa], hasLabel('code-review-ok')),
+      t.stage(
+        'merge',
+        'step',
+        'awaiting_merge',
+        'final_decision',
+        hasLabel('qa-ok'),
+        hasLabel('merge-approved'),
+      ),
       t.stage('done', 'done', 'done', []),
     ],
   });

@@ -118,7 +118,11 @@ function PipelineSection({ config }: { config: ProjectConfig }) {
             <li key={stage.id} className={styles.stage}>
               <div className={styles.stageTop}>
                 <span className={styles.stageName}>{stage.name}</span>
-                <Chip>{t(`stageKinds.${stage.kind}`)}</Chip>
+                <Chip>
+                  {stage.kind === 'step' && stage.duty
+                    ? t('settings.pipeline.stepOf', { duty: t(`dutyNames.${stage.duty}`) })
+                    : t(`stageKinds.${stage.kind}`)}
+                </Chip>
                 <code className={styles.id}>{stage.id}</code>
                 <span className={styles.muted}>
                   {config.pipeline.columns.find((column) => column.id === stage.columnId)?.name}

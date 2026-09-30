@@ -37,7 +37,6 @@ export interface DutyDefinition {
   holders: 'human' | 'ai' | 'both';
   prompt: string;
   toolPolicy: 'read_only' | 'task_worktree';
-  stageKinds: readonly string[];
   gateApproval: boolean;
   meetings: readonly string[];
   events: readonly string[];
@@ -50,7 +49,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     holders: 'both',
     prompt: 'Prioritize work by agreed value and urgency; ask a human to settle conflicts.',
     toolPolicy: 'read_only',
-    stageKinds: ['queue'],
     gateApproval: false,
     meetings: [],
     events: [],
@@ -63,7 +61,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     prompt:
       'Clarify goals, edge cases and acceptance criteria with ask_human; record requirements with update_task.',
     toolPolicy: 'read_only',
-    stageKinds: [],
     gateApproval: false,
     meetings: [],
     events: [],
@@ -75,7 +72,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     holders: 'both',
     prompt: 'Split work into independently testable tasks with create_task and record dependencies.',
     toolPolicy: 'read_only',
-    stageKinds: [],
     gateApproval: false,
     meetings: [],
     events: [],
@@ -88,7 +84,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     prompt:
       'Assess incoming requests, reproduce reported issues and route them to the appropriate duty holders.',
     toolPolicy: 'read_only',
-    stageKinds: [],
     gateApproval: false,
     meetings: [],
     events: [],
@@ -100,7 +95,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     holders: 'both',
     prompt: 'Track deadlines, blocked work and agreed plans; send concise reminders with send_message.',
     toolPolicy: 'read_only',
-    stageKinds: [],
     gateApproval: false,
     meetings: [],
     events: [],
@@ -113,7 +107,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     prompt:
       'Read the code and propose technical plans with risks and tradeoffs; escalate major decisions to a human.',
     toolPolicy: 'read_only',
-    stageKinds: [],
     gateApproval: false,
     meetings: [],
     events: [],
@@ -126,7 +119,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     prompt:
       'Create designs and mockups in the task worktree and describe all interface states and handoff requirements.',
     toolPolicy: 'task_worktree',
-    stageKinds: [],
     gateApproval: false,
     meetings: [],
     events: [],
@@ -139,7 +131,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     prompt:
       'Implement the task and tests only in its worktree; run checks, open a pull request and link it with link_pull_request.',
     toolPolicy: 'task_worktree',
-    stageKinds: ['work'],
     gateApproval: false,
     meetings: [],
     events: ['task_stage_changed'],
@@ -152,7 +143,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     prompt:
       'Write accurate documentation in the task worktree; verify examples against the code and link the pull request.',
     toolPolicy: 'task_worktree',
-    stageKinds: [],
     gateApproval: false,
     meetings: [],
     events: [],
@@ -164,7 +154,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     holders: 'both',
     prompt: 'Write and edit content in the task worktree using the agreed voice; ask about missing facts.',
     toolPolicy: 'task_worktree',
-    stageKinds: [],
     gateApproval: false,
     meetings: [],
     events: [],
@@ -177,7 +166,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     prompt:
       'Translate in the task worktree, preserving meaning, formatting and placeholders; validate locale completeness.',
     toolPolicy: 'task_worktree',
-    stageKinds: [],
     gateApproval: false,
     meetings: [],
     events: [],
@@ -190,7 +178,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     prompt:
       'Maintain dependencies and tests in the task worktree; keep changes small and verify compatibility.',
     toolPolicy: 'task_worktree',
-    stageKinds: [],
     gateApproval: false,
     meetings: [],
     events: [],
@@ -203,7 +190,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     prompt:
       'Review diffs for correctness, errors and missing tests. Record code_review with update_task and send findings to the author; never review your own work.',
     toolPolicy: 'read_only',
-    stageKinds: ['review'],
     gateApproval: false,
     meetings: [],
     events: ['task_stage_changed'],
@@ -216,7 +202,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     prompt:
       'Review authentication, authorization, injection and secret handling. Record security_review with evidence; never review your own work or disclose secrets.',
     toolPolicy: 'read_only',
-    stageKinds: [],
     gateApproval: false,
     meetings: [],
     events: ['task_stage_changed'],
@@ -229,7 +214,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     prompt:
       'Test expected behavior and risky paths in a test environment. Record qa results and reproduction steps; never certify your own work.',
     toolPolicy: 'read_only',
-    stageKinds: ['test'],
     gateApproval: false,
     meetings: [],
     events: ['task_stage_changed'],
@@ -242,7 +226,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     prompt:
       'Deploy the exact approved change and verify health; production changes require an explicit human decision. Record environment and version.',
     toolPolicy: 'read_only',
-    stageKinds: ['deploy', 'release'],
     gateApproval: false,
     meetings: [],
     events: ['task_stage_changed'],
@@ -254,7 +237,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     holders: 'human',
     prompt: '',
     toolPolicy: 'read_only',
-    stageKinds: [],
     gateApproval: true,
     meetings: [],
     events: [],
@@ -267,7 +249,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     prompt:
       'Observe service and team health, stalled work and unusual usage; report evidence to humans without intervening.',
     toolPolicy: 'read_only',
-    stageKinds: [],
     gateApproval: false,
     meetings: [],
     events: ['observation'],
@@ -280,7 +261,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     prompt:
       'Draft concise client updates and test requests; obtain a human decision before sending anything outside the team.',
     toolPolicy: 'read_only',
-    stageKinds: ['client_test'],
     gateApproval: false,
     meetings: [],
     events: [],
@@ -293,7 +273,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     prompt:
       'Collect reproduction steps, expected behavior and environment; create support tasks without exposing customer data.',
     toolPolicy: 'read_only',
-    stageKinds: [],
     gateApproval: false,
     meetings: [],
     events: [],
@@ -305,7 +284,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     holders: 'both',
     prompt: 'Collect progress, next steps and blockers for standups; send a brief factual summary.',
     toolPolicy: 'read_only',
-    stageKinds: [],
     gateApproval: false,
     meetings: ['standup'],
     events: [],
@@ -318,7 +296,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     prompt:
       'Facilitate refinement by clarifying scope, dependencies and open questions; record agreed actions.',
     toolPolicy: 'read_only',
-    stageKinds: [],
     gateApproval: false,
     meetings: ['refinement'],
     events: [],
@@ -331,7 +308,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     prompt:
       'Facilitate retros using task evidence; propose at most three concrete improvements and ask humans to decide.',
     toolPolicy: 'read_only',
-    stageKinds: [],
     gateApproval: false,
     meetings: ['retro'],
     events: [],
@@ -344,7 +320,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     prompt:
       'Identify recurring process friction from evidence and propose measurable improvements; never change configuration yourself.',
     toolPolicy: 'read_only',
-    stageKinds: [],
     gateApproval: false,
     meetings: [],
     events: ['observation'],
@@ -357,7 +332,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     prompt:
       'Research a focused question using primary sources; report recommendation, alternatives, sources and uncertainties.',
     toolPolicy: 'read_only',
-    stageKinds: [],
     gateApproval: false,
     meetings: [],
     events: [],
@@ -369,7 +343,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     holders: 'human',
     prompt: '',
     toolPolicy: 'read_only',
-    stageKinds: ['merge'],
     gateApproval: true,
     meetings: [],
     events: [],

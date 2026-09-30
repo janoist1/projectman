@@ -183,19 +183,13 @@ describe('web-client-project', () => {
     expect(shape(resolvedStages(config))).toEqual([
       ['ready', 'queue', ['owner'], [], 'ready'],
       ['dev', 'work', ['fe-1', 'be-1'], [], 'development'],
-      ['code_review', 'review', ['code-review'], [], 'review'],
-      ['integration', 'deploy', ['devops'], [{ type: 'has_label', label: 'code-review-ok' }], 'review'],
-      ['qa', 'test', ['owner', 'qa'], [], 'review'],
-      [
-        'client_test',
-        'client_test',
-        ['communication'],
-        [{ type: 'has_label', label: 'qa-ok' }],
-        'client_test',
-      ],
+      ['code_review', 'step', ['code-review'], [], 'review'],
+      ['integration', 'step', ['devops'], [{ type: 'has_label', label: 'code-review-ok' }], 'review'],
+      ['qa', 'step', ['owner', 'qa'], [], 'review'],
+      ['client_test', 'step', ['communication'], [{ type: 'has_label', label: 'qa-ok' }], 'client_test'],
       [
         'merge',
-        'merge',
+        'step',
         ['owner'],
         [
           { type: 'has_label', label: 'client-accepted' },
@@ -278,7 +272,7 @@ describe('small-team', () => {
     expect(shape(resolvedStages(config))).toEqual([
       ['ready', 'queue', ['owner'], [], 'ready'],
       ['dev', 'work', ['dev-1'], [], 'development'],
-      ['code_review', 'review', ['code-review'], [], 'review'],
+      ['code_review', 'step', ['code-review'], [], 'review'],
       [
         'done',
         'done',
@@ -312,11 +306,11 @@ describe('internal-tool', () => {
     expect(shape(resolvedStages(config))).toEqual([
       ['ready', 'queue', ['owner'], [], 'ready'],
       ['dev', 'work', ['dev-1', 'dev-2'], [], 'development'],
-      ['code_review', 'review', ['code-review'], [], 'review'],
-      ['qa', 'test', ['owner', 'qa'], [{ type: 'has_label', label: 'code-review-ok' }], 'review'],
+      ['code_review', 'step', ['code-review'], [], 'review'],
+      ['qa', 'step', ['owner', 'qa'], [{ type: 'has_label', label: 'code-review-ok' }], 'review'],
       [
         'merge',
-        'merge',
+        'step',
         ['owner'],
         [
           { type: 'has_label', label: 'qa-ok' },

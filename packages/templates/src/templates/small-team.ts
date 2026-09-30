@@ -10,7 +10,7 @@ export const smallTeam = defineTemplate('small-team', (t) => {
     stages: [
       t.stage('ready', 'queue', 'ready', []),
       t.stage('dev', 'work', 'development', [developer]),
-      t.stage('code_review', 'review', 'review', [codeReview]),
+      t.stage('code_review', 'step', 'review', [codeReview]),
       t.stage('done', 'done', 'done', [], hasLabel('code-review-ok'), hasLabel('merge-approved')),
     ],
   });

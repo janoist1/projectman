@@ -471,7 +471,7 @@ async function refuseOrphan(h: Harness, j: Journey, member: string, duty: string
 async function throughQuality(h: Harness, j: Journey, rebundled = false) {
   let config = (await h.configView()).config;
   const review = config.pipeline.stages.find((stage) => stage.id === 'code_review')!;
-  expect(review).toMatchObject({ kind: 'review', duty: 'code_review' });
+  expect(review).toMatchObject({ kind: 'step', duty: 'code_review' });
   expect(review.owners).toBeUndefined();
   await move(h, j, j.developer, review.id);
   const developerContext = await j.context(j.developer);
@@ -498,7 +498,7 @@ async function throughQuality(h: Harness, j: Journey, rebundled = false) {
   }
   if (config.pipeline.stages.some((stage) => stage.id === 'integration')) {
     const integration = config.pipeline.stages.find((stage) => stage.id === 'integration')!;
-    expect(integration).toMatchObject({ kind: 'deploy', duty: 'deployment' });
+    expect(integration).toMatchObject({ kind: 'step', duty: 'deployment' });
     const devops = holder(config, integration);
     await move(h, j, devops, integration.id);
     const ctx = await j.context(devops);
@@ -516,7 +516,7 @@ async function throughQuality(h: Harness, j: Journey, rebundled = false) {
   }
   const qa = config.pipeline.stages.find((stage) => stage.id === 'qa');
   if (qa) {
-    expect(qa).toMatchObject({ kind: 'test', duty: 'testing_acceptance' });
+    expect(qa).toMatchObject({ kind: 'step', duty: 'testing_acceptance' });
     await move(h, j, holder(config, qa), qa.id);
     const clientTest = config.pipeline.stages.find((stage) => stage.id === 'client_test');
     if (clientTest) {

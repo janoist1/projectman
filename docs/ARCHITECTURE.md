@@ -48,7 +48,10 @@ server later.
   workers**: when every eligible duty holder is busy, a temporary member of the configured
   role (developer by default) is hired for one task and retired when it is done.
 - **Pipeline** — ordered **stages** (id, display name, kind, optional duty, optional owners override, optional **gate**)
-  grouped into **board columns**. Owners can be humans, AI members or both. A gate is a
+  grouped into **board columns**. The kind is one of `queue` (waiting to start), `work` (the
+  assignee builds it), `step` (the owners do one thing, such as a review, deploy, test,
+  client test or merge, as the stage's duty says, and record the result with a label),
+  `release` (always behind a human approval) and `done`; older kind names read as `step`. Owners can be humans, AI members or both. A gate is a
   list of label conditions, `has_label` / `lacks_label`, and must hold before a task may
   enter the stage. Explicit member lists, including empty stage owner overrides, retain
   their existing meaning.

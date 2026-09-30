@@ -1,12 +1,11 @@
 import {
   ProjectConfig,
   BUILT_IN_ROLE_DUTIES,
-  DUTIES,
-  DUTY_IDS,
   type AiBuiltInRoleId,
   type AiMemberConfig,
   type BoardColumn,
   type BoardColumnColor,
+  type DutyId,
   type GateCondition,
   type MemberConfig,
   type MemberSchedule,
@@ -52,10 +51,28 @@ export interface TemplateDraft {
   /** Adds an AI member with the role's defaults; returns its handle. */
   hire(role: AiBuiltInRoleId, opts?: HireOptions): string;
   column(key: ColumnKey): BoardColumn;
-  stage(key: StageKey, kind: StageKind, column: ColumnKey, owners: string[], ...gate: GateCondition[]): Stage;
+  /**
+   * A stage carried by a duty: an AI owner's role decides it, otherwise the kind's default
+   * (queue, work, release). Pass the duty instead of owners when neither fits (e.g. a merge
+   * step decided by humans). Stages without a duty keep the given owners.
+   */
+  stage(
+    key: StageKey,
+    kind: StageKind,
+    column: ColumnKey,
+    owners: string[] | DutyId,
+    ...gate: GateCondition[]
+  ): Stage;
   /** Validates the assembled configuration (throws if a template is broken). */
   finish(pipeline: { columns: BoardColumn[]; stages: Stage[] }, limits?: TeamLimits): ProjectConfig;
 }
+
+/** The duty that carries a stage of this kind when no AI owner decides it. */
+const KIND_DUTIES: Partial<Record<StageKind, DutyId>> = {
+  queue: 'prioritization',
+  work: 'implementation',
+  release: 'deployment',
+};
 
 export const TEMPLATE_COLUMN_COLORS: Record<ColumnKey, BoardColumnColor> = {
   ready: 'gray',
@@ -134,11 +151,12 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
         name: locale.stages[key],
         kind,
         ...(() => {
+          if (typeof owners === 'string') return { duty: owners };
           const worker = members.find((m) => owners.includes(m.handle) && m.kind === 'ai');
           const duty =
-            kind === 'work' && worker?.kind === 'ai'
+            worker?.kind === 'ai'
               ? BUILT_IN_ROLE_DUTIES[worker.role as AiBuiltInRoleId][0]
-              : DUTY_IDS.find((id) => DUTIES[id].stageKinds.includes(kind));
+              : KIND_DUTIES[kind];
           return duty ? { duty } : { owners };
         })(),
         ...(gate.length > 0 ? { gate: { conditions: gate } } : {}),

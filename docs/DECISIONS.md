@@ -80,4 +80,13 @@ Agreed with the owner on 2026-09-29, while designing the first version.
     the inbox; the GitHub integration keeps the `pr-merged` system label. A failing label
     notifies the assignee but does not move the task back. Plain labels without a meaning
     stay allowed and are offered for definition in settings. Simplifying stage kinds to
-    queue / work / check / release / done is deferred.
+    queue / work / check / release / done was deferred to decision 18.
+18. **Five stage kinds; the duty says what a step is.** Agreed with the owner as the second
+    step of decision 17, built on 2026-09-30. Once checks were labels, the kinds `review`,
+    `deploy`, `test`, `client_test` and `merge` differed only in name, and the pipeline editor
+    offered nine kinds where four behave differently. Kinds are now `queue`, `work`, `step`,
+    `release` and `done`: a `step` stage's owners do one thing and record the result with a
+    label, and the stage's duty says what (code review, deployment, testing, client
+    communication, final decision); AI instructions follow the duty. The kind is called
+    `step` rather than the proposal's `check` so it is not mistaken for the removed checks.
+    Configurations with the old kind names still load: they read as `step`.

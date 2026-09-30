@@ -295,12 +295,14 @@ describe('context pack builder', () => {
 
   it('marks the current stage and describes the next gate', () => {
     const prompt = builder.build(input()).appendSystemPrompt;
-    expect(prompt).toContain('3. Code review (`code_review`, review) — owners `code-review` ← current stage');
+    expect(prompt).toContain(
+      '3. Code review (`code_review`, step: code review) — owners `code-review` ← current stage',
+    );
     expect(prompt).toContain(
       '- Next stage: Integration (`integration`), owners `devops`; gate: label `code-review-ok` (Code review ok).',
     );
     expect(prompt).toContain(
-      '7. Merge (`merge`, merge) — owners `owner` — gate: label `client-accepted` (Client accepted) and label `merge-approved` (Merge approved), a human approval',
+      '7. Merge (`merge`, step: final decision) — owners `owner` — gate: label `client-accepted` (Client accepted) and label `merge-approved` (Merge approved), a human approval',
     );
   });
 

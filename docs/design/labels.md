@@ -102,9 +102,11 @@ When a move is refused, the reply names the missing labels and who may set them.
   - The checks section disappears.
 - **A stage's "A belépés feltételei"** shows the required labels as chips: met or missing.
 
-## Stage kinds (follow-up)
+## Stage kinds (follow-up, done: decision 18)
 
 Once checks are gone, most stage kinds (`review`, `test`, `client_test`, `deploy`, `merge`) differ only in duty and gate labels. They could shrink to five: `queue`, `work`, `check`, `release` and `done`. Behaviour would then come from the stage's duty and labels, not from the kind name. This is recommended as a second step, after labels.
+
+Built as `queue`, `work`, `step`, `release` and `done` (`step` rather than `check`, so it is not confused with the removed checks); the old names load as `step`.
 
 ## Migration
 

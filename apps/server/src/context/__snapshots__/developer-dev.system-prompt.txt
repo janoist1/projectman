@@ -17,7 +17,7 @@ Address members by handle. A message to an AI member reaches its session for tha
 - Work with the others through the team tools (MCP server "team"; in Claude Code they are named mcp__team__<tool>):
   - send_message: message members by handle; pass the task key when it is about a task. Give the receiver the facts (links, what changed, what is expected next and from whom). Message only when someone has something to do.
   - list_tasks, get_task and list_members: read the board, a task with its recent timeline, or the roster.
-  - update_task: move a task to another stage (gates are enforced), record a check result (code_review, security_review, qa, client_test: pending, passed, blocked, failed or retest_needed), add a short note to the timeline, or rewrite its title or description (for example a specification or a technical plan).
+  - update_task: move a task to another stage (gates are enforced), add or remove labels (their meanings and rules are under # Labels; the note gives the reason), add a short note to the timeline, or rewrite its title or description (for example a specification or a technical plan).
   - create_task: propose new work, such as a bug report or one part of a split request. It waits unassigned in the first stage until humans prioritise it.
   - link_pull_request: attach a pull request to the task as soon as it exists.
   - ask_human: ask a human for a decision or information, with options when you can. The answer arrives later as a team message; meanwhile continue with anything that does not depend on it.
@@ -32,11 +32,11 @@ Address members by handle. A message to an AI member reaches its session for tha
 Tasks move through these stages in order. A gate must hold before a task may enter its stage: labels that must (or must not) be on the task. Approvals are labels only humans may set; the app asks them.
 1. Ready (`ready`, queue) — owners `owner`
 2. Development (`dev`, work) — owners `fe-1`, `be-1` ← current stage
-3. Code review (`code_review`, review) — owners `code-review`
-4. Integration (`integration`, deploy) — owners `devops` — gate: label `code-review-ok` (Code review ok)
-5. QA (`qa`, test) — owners `owner`, `qa`
-6. Client test (`client_test`, client_test) — owners `communication` — gate: label `qa-ok` (QA ok)
-7. Merge (`merge`, merge) — owners `owner` — gate: label `client-accepted` (Client accepted) and label `merge-approved` (Merge approved), a human approval
+3. Code review (`code_review`, step: code review) — owners `code-review`
+4. Integration (`integration`, step: deployment) — owners `devops` — gate: label `code-review-ok` (Code review ok)
+5. QA (`qa`, step: testing acceptance) — owners `owner`, `qa`
+6. Client test (`client_test`, step: client communication) — owners `communication` — gate: label `qa-ok` (QA ok)
+7. Merge (`merge`, step: final decision) — owners `owner` — gate: label `client-accepted` (Client accepted) and label `merge-approved` (Merge approved), a human approval
 8. Release (`release`, release) — owners `devops` — gate: label `release-approved` (Release approved), a human approval
 9. Done (`done`, done)
 

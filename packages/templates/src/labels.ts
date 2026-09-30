@@ -157,7 +157,7 @@ export function legacyCheckLabels(checks: Record<string, string | undefined> | n
 interface LegacyStage {
   id: string;
   name: string;
-  kind: StageKind;
+  kind: string;
   gate?: { conditions: Array<Record<string, unknown>> };
 }
 interface LegacyConfig {

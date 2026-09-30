@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BoardColumn, BoardColumnColor, defaultBoardColumnColor } from './pipeline';
+import { BoardColumn, BoardColumnColor, defaultBoardColumnColor, Stage } from './pipeline';
 import { BoardColumnView } from '../api/dto';
 
 describe('board column colours', () => {
@@ -20,5 +20,20 @@ describe('board column colours', () => {
     );
     expect(defaultBoardColumnColor(9)).toBe('gray');
     expect(defaultBoardColumnColor(10)).toBe('blue');
+  });
+});
+
+describe('stage kinds', () => {
+  const stage = (kind: string) => ({ id: 'check', name: 'Check', kind, columnId: 'review' });
+
+  it('reads the kinds from before decision 18 as steps', () => {
+    for (const kind of ['review', 'deploy', 'test', 'client_test', 'merge'])
+      expect(Stage.parse(stage(kind)).kind).toBe('step');
+    expect(Stage.parse(stage('release')).kind).toBe('release');
+  });
+
+  it('rejects unknown kinds', () => {
+    expect(Stage.safeParse(stage('toString')).success).toBe(false);
+    expect(Stage.safeParse(stage('meeting')).success).toBe(false);
   });
 });

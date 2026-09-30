@@ -38,7 +38,7 @@ export const TEAM_INSTRUCTIONS = [
   '- Text you write in your own session reaches nobody. To tell a teammate something, or to answer a ' +
     '"[team message from <handle> ...]", use send_message.',
   "- Be concise. Write messages, notes and questions in the project's language.",
-  '- Record check results, stage moves and notes with update_task instead of only mentioning them in text.',
+  '- Record results as labels, stage moves and notes with update_task instead of only mentioning them in text.',
   '- Propose new work with create_task: it waits unassigned in the first stage until humans prioritise it.',
   '- Link pull requests with link_pull_request as soon as they exist.',
   '- When a human decision or information is needed, use ask_human; the answer arrives later as a team message.',
@@ -185,7 +185,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     title: 'Get a task',
     readOnly: true,
     description:
-      'Get a task: title, description, stage, status, assignee, checks, links (pull requests, branches) and ' +
+      'Get a task: title, description, stage, status, assignee, labels, links (pull requests, branches) and ' +
       'its parent, subtasks (keys, titles, stages, statuses), and recent timeline (who did what).',
     input: { task_key: taskKeyInput },
     async run({ ctx, args, handler }) {

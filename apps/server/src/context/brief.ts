@@ -19,7 +19,7 @@ const QUIET_EVENTS = new Set<string>([
 
 /**
  * The kick-off brief typed as the first message of a new task session: the task, its
- * checks, links, prerequisites, a compact recent timeline and what is expected next.
+ * labels, links, prerequisites, a compact recent timeline and what is expected next.
  * Labels are English; task data (title, description, notes) is shown as it was written.
  * Scheduled work uses its configured prompt; other non-task work has no brief.
  */

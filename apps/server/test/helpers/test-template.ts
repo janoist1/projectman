@@ -68,11 +68,11 @@ export function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
           owners: ['dev-1', 'dev-2'],
           columnId: 'doing',
         },
-        { id: 'code_review', name: 'Code review', kind: 'review', owners: ['cr'], columnId: 'review' },
+        { id: 'code_review', name: 'Code review', kind: 'step', owners: ['cr'], columnId: 'review' },
         {
           id: 'merge',
           name: 'Merge',
-          kind: 'merge',
+          kind: 'step',
           owners: [input.owner.handle],
           columnId: 'review',
           gate: {

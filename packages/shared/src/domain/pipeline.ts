@@ -10,21 +10,29 @@ export const StageId = z.string().regex(/^[a-z][a-z0-9_]{0,31}$/);
 export type StageId = z.infer<typeof StageId>;
 
 /**
- * What kind of work happens in a stage. The kind drives default behaviour
- * (who gets notified, which checks apply); names are free text per project.
+ * The role a stage plays in the flow (decision 18); names are free text per project.
+ * - `queue`: waiting to start; `work`: the assignee builds it;
+ * - `step`: the stage's owners do one thing and record the result with a label, e.g. a
+ *   review, a deploy, a test, a client test or a merge (what exactly comes from the duty);
+ * - `release`: goes live, always behind a human approval; `done`: closed.
  */
-export const StageKind = z.enum([
-  'queue',
-  'work',
-  'review',
-  'deploy',
-  'test',
-  'client_test',
-  'merge',
-  'release',
-  'done',
-]);
+export const StageKind = z.enum(['queue', 'work', 'step', 'release', 'done']);
 export type StageKind = z.infer<typeof StageKind>;
+
+/** Kinds before decision 18 differed only in name; configurations that use them still load. */
+const LEGACY_STAGE_KINDS: Readonly<Record<string, StageKind>> = {
+  review: 'step',
+  deploy: 'step',
+  test: 'step',
+  client_test: 'step',
+  merge: 'step',
+};
+
+function currentStageKind(value: unknown): unknown {
+  return typeof value === 'string' && Object.hasOwn(LEGACY_STAGE_KINDS, value)
+    ? LEGACY_STAGE_KINDS[value]
+    : value;
+}
 
 /**
  * Gate conditions: a gate on a stage must hold before a task may ENTER that stage. Every
@@ -55,7 +63,7 @@ export const Stage = z.object({
   name: z.string().min(1),
   /** Short explanation of the stage, in the project's language. */
   description: z.string().optional(),
-  kind: StageKind,
+  kind: z.preprocess(currentStageKind, StageKind),
   /** Members (human, AI or both) who carry this stage. */
   owners: z.array(MemberHandle).optional(),
   duty: DutyId.optional(),

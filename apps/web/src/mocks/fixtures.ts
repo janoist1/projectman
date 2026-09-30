@@ -1,6 +1,5 @@
 import { getLocale, standardLabel, standardLabelsFor } from '@projectman/templates';
 import { BUILT_IN_ROLE_IDS, BUILT_IN_ROLE_HOLDERS } from '@projectman/shared';
-import { t } from '../i18n/t';
 import type {
   Actor,
   ChatItem,
@@ -22,7 +21,7 @@ import type {
 import { daysAgo, hoursFromNow, minutesAgo, mockUuid } from './time';
 
 /**
- * A fictional project for mock mode: "Acme webshop" with three humans (the owner, Kata the
+ * A fictional project for the UI tests' MockBackend: "Acme webshop" with three humans (the owner, Kata the
  * client, Bence the tester) and seven AI members, tasks in every pipeline stage, open inbox
  * items, team messages and session chats. Titles and messages are data in the project's
  * language. Nothing here refers to a real client or person.
@@ -1751,9 +1750,7 @@ export const teamMessages: TeamMessage[] = [
 /** Same order and holder restrictions as the server catalogue. */
 export const builtInRoles: RoleView[] = BUILT_IN_ROLE_IDS.map((id) => ({
   id,
-  name: t(`mockRoleCatalogue.${id}.name`),
-  summary: t(`mockRoleCatalogue.${id}.summary`),
-  notTheirJob: t(`mockRoleCatalogue.${id}.notTheirJob`),
+  ...getLocale('hu').roles[id],
   holders: BUILT_IN_ROLE_HOLDERS[id],
   builtIn: true,
 }));

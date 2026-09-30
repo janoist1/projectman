@@ -9,11 +9,12 @@ import { Chip } from '../../components/Chip';
 import { Dialog } from '../../components/Dialog';
 import { TextAreaField, TextField } from '../../components/Field';
 import { ErrorState, LoadingState } from '../../components/States';
+import { ErrorBanner } from '../../components/ErrorBanner';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { roleView } from '../../lib/roles';
 import styles from './RoleSection.module.css';
-import formStyles from './HireDialog.module.css';
+import formStyles from './memberForm.module.css';
 
 export function RoleForm({
   role,
@@ -84,11 +85,7 @@ export function RoleForm({
         onChange={(event) => setDraft({ ...draft, instructions: event.target.value })}
       />
       {invalid ? <p role="alert">{t('roleCatalogue.invalid')}</p> : null}
-      {save.isError ? (
-        <p className={formStyles.error} role="alert">
-          {errorMessage(save.error)}
-        </p>
-      ) : null}
+      {save.isError ? <ErrorBanner>{errorMessage(save.error)}</ErrorBanner> : null}
       <div className={formStyles.actions}>
         <Button type="submit" variant="primary" loading={save.isPending}>
           {t('memberEdit.save')}
@@ -181,11 +178,7 @@ export function RoleSection({ config }: { config?: ProjectConfig }) {
       >
         <div className={formStyles.form}>
           <p>{t('roleCatalogue.deleteConfirm')}</p>
-          {remove.isError ? (
-            <p role="alert" className={formStyles.error}>
-              {errorMessage(remove.error)}
-            </p>
-          ) : null}
+          {remove.isError ? <ErrorBanner>{errorMessage(remove.error)}</ErrorBanner> : null}
           <Button
             variant="dangerSolid"
             loading={remove.isPending}

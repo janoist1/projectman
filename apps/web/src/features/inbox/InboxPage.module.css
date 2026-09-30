@@ -16,22 +16,8 @@
 }
 
 .header {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.title {
-  font-family: var(--font-display);
-  font-size: 32px;
-  font-weight: 700;
-  letter-spacing: -0.015em;
-  line-height: 1.1;
-}
-
-.subtitle {
-  font-size: 14px;
-  color: var(--c-ink-3);
+  --page-title-size: 32px;
+  --page-subtitle-size: var(--text-md);
 }
 
 .list {
@@ -60,7 +46,7 @@
 
 .recentTitle {
   margin-bottom: 6px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 800;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -68,7 +54,7 @@
 }
 
 .recentEmpty {
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--c-ink-4);
   padding: 8px 0 10px;
 }
@@ -124,7 +110,7 @@
 }
 
 .recentMeta {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--c-ink-4);
 }
 
@@ -153,8 +139,8 @@
   .page {
     padding: 4px 14px 16px;
   }
-  .title {
-    font-size: 30px;
+  .header {
+    --page-title-size: var(--text-display);
   }
   .list {
     gap: 10px;

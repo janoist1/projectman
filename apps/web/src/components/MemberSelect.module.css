@@ -1,0 +1,19 @@
+.field {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--text-sm);
+}
+
+.field select {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  padding: 8px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-xs);
+  background: var(--c-surface);
+  color: var(--c-ink-2);
+}

@@ -20,21 +20,21 @@
 .sm {
   height: 22px;
   padding: 0 7px;
-  font-size: 12px;
-  border-radius: 6px;
+  font-size: var(--text-xs);
+  border-radius: var(--radius-xs);
 }
 
 .md {
   height: 28px;
   padding: 0 10px;
   font-size: 12.5px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .mono {
   font-family: var(--font-mono);
   font-weight: 500;
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .neutral {

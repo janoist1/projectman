@@ -5,6 +5,7 @@ import type { DragEvent } from 'react';
 import type { BoardColumnView, Task } from '@projectman/shared';
 import { useProject } from '../../app/contexts';
 import { SegmentedControl } from '../../components/SegmentedControl';
+import { PageHeader } from '../../components/PageHeader';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
@@ -113,9 +114,9 @@ function Column({
 
 /** "Folyamat": the pipeline board; the task drawer renders through the nested route. */
 export function BoardPage() {
-  const { key, search, can, myHandle } = useProject();
+  const { key, search, can } = useProject();
   const isMobile = useIsMobile();
-  const { board, inbox, pipeline, model, members } = useBoardModel();
+  const { board, inbox, pipeline, model } = useBoardModel();
   const move = useMoveTask(key);
   const toast = useToast();
   const [dragged, setDragged] = useState<Task | null>(null);
@@ -222,16 +223,13 @@ export function BoardPage() {
       {isMobile ? null : (
         <TeamStrip members={board.data.members} inbox={inbox.data?.items} activeTaskCount={activeCount} />
       )}
-      <div className={styles.header}>
-        <div className={styles.titles}>
-          <h1 className={styles.title}>{t('board.title')}</h1>
-          <span className={styles.subtitle}>
-            {t('board.subtitle', { count: total, active: activeCount })}
-          </span>
-        </div>
-        <span className={styles.spacer} />
+      <PageHeader
+        className={styles.header}
+        title={t('board.title')}
+        subtitle={t('board.subtitle', { count: total, active: activeCount })}
+      >
         {filters}
-      </div>
+      </PageHeader>
       {total === 0 ? (
         <div className={styles.emptyWrap}>
           <EmptyState icon="board" title={t('board.noTasks')} />

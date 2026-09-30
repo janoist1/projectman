@@ -43,38 +43,42 @@ describe('task drawer lifecycle', () => {
   it('confirms cancellation with a reason, stops live sessions, and reopens unassigned', async () => {
     const project = mockProject();
     project.render(drawer, '/p/AC/tasks/AC-20');
-    fireEvent.click(await screen.findByRole('button', { name: 'Feladat megszakítása' }));
+    fireEvent.click(await screen.findByRole('button', { name: t('taskLifecycle.cancel') }));
     expect(project.backend.findTask('AC-20')?.status).toBe('active');
     const dialog = screen.getByRole('dialog');
-    fireEvent.change(within(dialog).getByLabelText(/Indok/), { target: { value: 'Acme scope changed.' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Feladat megszakítása' }));
-    await screen.findByRole('button', { name: 'Újranyitás' });
+    fireEvent.change(within(dialog).getByLabelText(new RegExp(t('taskLifecycle.reason'))), {
+      target: { value: 'Acme scope changed.' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: t('taskLifecycle.cancel') }));
+    await screen.findByRole('button', { name: t('taskLifecycle.reopen') });
     expect(project.backend.findTask('AC-20')).toMatchObject({ status: 'cancelled', assignee: 'be-1' });
     expect(project.backend.findSession('ses_ac20_be1')?.state).toBe('exited');
-    expect(screen.getByText('Megszakította a feladatot: Acme scope changed.')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Újranyitás' }));
-    await screen.findByRole('button', { name: 'Feladat megszakítása' });
+    expect(
+      screen.getByText(t('timeline.events.task_cancelled_reason', { reason: 'Acme scope changed.' })),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: t('taskLifecycle.reopen') }));
+    await screen.findByRole('button', { name: t('taskLifecycle.cancel') });
     expect(project.backend.findTask('AC-20')).toMatchObject({
       status: 'active',
       assignee: null,
       closedAt: null,
       stageId: 'dev',
     });
-    expect(screen.getByText('Újranyitotta a feladatot.')).toBeTruthy();
+    expect(screen.getByText(t('timeline.events.task_reopened'))).toBeTruthy();
   });
   it('offers stopping a live session, then allows changing and clearing the assignee', async () => {
     const project = mockProject();
     project.render(drawer, '/p/AC/tasks/AC-20');
-    await screen.findByRole('button', { name: 'Felelős mentése' });
-    fireEvent.change(screen.getByLabelText('Felelős'), { target: { value: 'kata' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Felelős mentése' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Session leállítása' }));
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Session leállítása' })).toBeNull());
-    fireEvent.click(screen.getByRole('button', { name: 'Felelős mentése' }));
+    await screen.findByRole('button', { name: t('taskLifecycle.assign') });
+    fireEvent.change(screen.getByLabelText(t('taskLifecycle.assignee')), { target: { value: 'kata' } });
+    fireEvent.click(screen.getByRole('button', { name: t('taskLifecycle.assign') }));
+    fireEvent.click(await screen.findByRole('button', { name: t('taskLifecycle.stop') }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: t('taskLifecycle.stop') })).toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: t('taskLifecycle.assign') }));
     await waitFor(() => expect(project.backend.findTask('AC-20')?.assignee).toBe('kata'));
     await screen.findByText(/Előző felelős: Backend fejlesztő/);
-    fireEvent.change(screen.getByLabelText('Felelős'), { target: { value: '' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Felelős mentése' }));
+    fireEvent.change(screen.getByLabelText(t('taskLifecycle.assignee')), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: t('taskLifecycle.assign') }));
     await waitFor(() => expect(project.backend.findTask('AC-20')?.assignee).toBeNull());
   });
   it('hides lifecycle controls from non-admin members', async () => {
@@ -83,8 +87,8 @@ describe('task drawer lifecycle', () => {
       can: { createTasks: true, manageTeam: false, workInSessions: false },
     });
     await screen.findByText('Napi mentés és visszaállítási próba');
-    expect(screen.queryByRole('button', { name: 'Feladat megszakítása' })).toBeNull();
-    expect(screen.queryByLabelText('Felelős')).toBeNull();
+    expect(screen.queryByRole('button', { name: t('taskLifecycle.cancel') })).toBeNull();
+    expect(screen.queryByLabelText(t('taskLifecycle.assignee'))).toBeNull();
   });
 });
 
@@ -153,7 +157,17 @@ describe('task drawer stage moves', () => {
 });
 
 describe('task drawer labels', () => {
-  const labelsSection = () => screen.findByRole('region', { name: t('task.labels.title') });
+  /** The label changes the drawer sent, in order. */
+  const labelChanges = (project: ReturnType<typeof mockProject>) =>
+    project.requests
+      .filter((request) => request.method === 'POST' && request.path.endsWith('/tasks/AC-20/labels'))
+      .map((request) => request.body);
+  /** The labels section once it is editable (the label rules come with the configuration). */
+  const labelsSection = async () => {
+    const section = await screen.findByRole('region', { name: t('task.labels.title') });
+    await within(section).findByRole('button', { name: t('task.labels.add') });
+    return section;
+  };
 
   it('adds and removes labels under their rules, asking for the reason where needed', async () => {
     const project = mockProject();
@@ -167,7 +181,6 @@ describe('task drawer labels', () => {
     const section = await labelsSection();
     fireEvent.click(within(section).getByRole('button', { name: t('task.labels.add') }));
     fireEvent.click(within(section).getByRole('button', { name: /Válaszra vár/ }));
-    await waitFor(() => expect(project.backend.findTask('AC-20')?.labels).toContain('waiting-answer'));
     // The timeline names the label, not its id.
     await screen.findByText(t('timeline.labelsAdded', { labels: 'Válaszra vár' }));
     fireEvent.click(
@@ -175,7 +188,10 @@ describe('task drawer labels', () => {
         name: t('task.labels.remove', { label: 'Válaszra vár' }),
       }),
     );
-    await waitFor(() => expect(project.backend.findTask('AC-20')?.labels).not.toContain('waiting-answer'));
+    await screen.findByText(t('timeline.labelsRemoved', { labels: 'Válaszra vár' }));
+    expect(
+      within(section).queryByRole('button', { name: t('task.labels.remove', { label: 'Válaszra vár' }) }),
+    ).toBeNull();
 
     // A label that needs a reason asks for it and records it as a comment.
     fireEvent.click(within(section).getByRole('button', { name: /Infó kell/ }));
@@ -188,13 +204,13 @@ describe('task drawer labels', () => {
         .getAllByRole('button', { name: t('task.labels.apply') })
         .at(-1)!,
     );
-    await waitFor(() => expect(project.backend.findTask('AC-20')?.labels).toContain('needs-info'));
-    expect(
-      project.backend.timeline.some(
-        (event) =>
-          event.taskKey === 'AC-20' && event.type === 'task_note' && event.data.text === 'Which Acme market?',
-      ),
-    ).toBe(true);
+    // The reason shows as a comment on the timeline.
+    await screen.findByText('Which Acme market?');
+    expect(labelChanges(project)).toEqual([
+      { add: ['waiting-answer'] },
+      { remove: ['waiting-answer'] },
+      { add: ['needs-info'], comment: 'Which Acme market?' },
+    ]);
   });
 
   it('explains why a label cannot be set and keeps viewers read-only', async () => {
@@ -210,6 +226,19 @@ describe('task drawer labels', () => {
     const option = within(section).getByRole('button', { name: /Csak QA/ });
     expect((option as HTMLButtonElement).disabled).toBe(true);
     expect(option.textContent).toContain(t('task.labels.refusal.not_holder'));
+  });
+
+  it('keeps the assignee from approving the release of their own work under four eyes', async () => {
+    const project = mockProject();
+    project.backend.config.team.releaseFourEyes = true;
+    project.backend.findTask('AC-20')!.assignee = 'owner';
+    const approval = project.backend.config.pipeline.labels.find((label) => label.id === 'release-approved')!;
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    const section = await labelsSection();
+    fireEvent.click(within(section).getByRole('button', { name: t('task.labels.add') }));
+    const option = within(section).getByRole('button', { name: new RegExp(approval.name) });
+    expect((option as HTMLButtonElement).disabled).toBe(true);
+    expect(option.textContent).toContain(t('task.labels.refusal.self_review'));
   });
 
   it('shows label errors from the server inline', async () => {
@@ -248,7 +277,7 @@ describe('task drawer comments', () => {
       within(screen.getByRole('listbox')).getByRole('button', { name: `${member.displayName} @fe-1` }),
     );
     expect((input as HTMLTextAreaElement).value).toBe('Hello @fe-1 ');
-    fireEvent.click(screen.getByRole('button', { name: t('task.comments.send') }));
+    fireEvent.click(screen.getByRole('button', { name: t('common.send') }));
     await waitFor(() =>
       expect(project.requests).toContainEqual({
         method: 'POST',
@@ -335,7 +364,7 @@ describe('task editing and subtasks', () => {
     fireEvent.change(screen.getByLabelText(t('newTask.fields.title')), {
       target: { value: 'Unsaved draft' },
     });
-    fireEvent.click(screen.getByRole('button', { name: t('task.cancelEdit') }));
+    fireEvent.click(screen.getByRole('button', { name: t('common.cancel') }));
     expect(project.backend.findTask('AC-20')?.title).toBe('Example updated task');
     fireEvent.click(screen.getByRole('button', { name: t('task.edit') }));
     expect((screen.getByLabelText(t('newTask.fields.title')) as HTMLInputElement).value).toBe(

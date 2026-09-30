@@ -14,9 +14,9 @@
   min-height: 62px;
   box-sizing: border-box;
   border: 1px solid var(--c-line-strong);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 10px 12px;
-  font-size: 14px;
+  font-size: var(--text-md);
   line-height: 1.45;
   color: var(--c-ink);
   background: var(--c-surface);
@@ -40,7 +40,7 @@
 }
 
 .hint {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--c-ink-4);
 }
 

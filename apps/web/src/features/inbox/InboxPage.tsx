@@ -5,6 +5,7 @@ import type { InboxItem } from '@projectman/shared';
 import { useBoard, useInbox, useResolveInbox } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Icon } from '../../components/Icon';
+import { PageHeader } from '../../components/PageHeader';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { useToast } from '../../components/toastContext';
@@ -122,17 +123,18 @@ export function InboxPage() {
   return (
     <div className={styles.page}>
       <div className={styles.main}>
-        <header className={styles.header}>
-          <h1 className={styles.title}>{t('inbox.title')}</h1>
-          {/* On phones an empty inbox says it in the empty state below; no repeat here. */}
-          {isMobile && !latest ? null : (
-            <p className={styles.subtitle}>
-              {isMobile && latest
+        <PageHeader
+          className={styles.header}
+          title={t('inbox.title')}
+          subtitle={
+            // On phones an empty inbox says it in the empty state below; no repeat here.
+            isMobile && !latest
+              ? null
+              : isMobile && latest
                 ? t('inbox.mobileSubtitle', { count: mine.length, time: formatTime(latest.createdAt) })
-                : t('inbox.subtitle')}
-            </p>
-          )}
-        </header>
+                : t('inbox.subtitle')
+          }
+        />
         {isMobile ? null : (
           <SegmentedControl<KindFilter>
             label={t('inbox.filtersLabel')}

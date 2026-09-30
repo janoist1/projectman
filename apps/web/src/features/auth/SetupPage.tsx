@@ -5,6 +5,7 @@ import { useSetup, useSetupStatus } from '../../api/queries';
 import { Button } from '../../components/Button';
 import { PasswordField, TextField } from '../../components/Field';
 import { LoadingState } from '../../components/States';
+import { ErrorBanner } from '../../components/ErrorBanner';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { useDocumentTitle } from '../../lib/hooks';
@@ -67,11 +68,7 @@ export function SetupPage() {
           required
           minLength={8}
         />
-        {setup.isError ? (
-          <p className={styles.formError} role="alert">
-            {errorMessage(setup.error)}
-          </p>
-        ) : null}
+        {setup.isError ? <ErrorBanner>{errorMessage(setup.error)}</ErrorBanner> : null}
         <Button type="submit" variant="primary" size="xl" fullWidth loading={setup.isPending}>
           {setup.isPending ? t('auth.setup.submitting') : t('auth.setup.submit')}
         </Button>

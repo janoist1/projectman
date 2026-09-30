@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CreatedInvitation } from '@projectman/shared';
 import { MockBackend } from './backend';
-import { inviteTokenHash } from './inviteTokens';
 
 const input = { email: 'colleague@acme.test', displayName: 'Kata', access: 'developer', roles: ['qa'] };
 function created(backend: MockBackend, body = input) {
@@ -13,16 +12,13 @@ const publicPath = (invite: CreatedInvitation) => invite.path.replace('/invite/'
 const code = (response: { body?: unknown }) => (response.body as { error: { code: string } }).error.code;
 
 describe('mock invitations', () => {
-  it('uses SHA-256 compatible with the server', () => {
-    expect(inviteTokenHash('abc')).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
-  });
   it('creates, inspects, accepts, logs in and consumes invitations', () => {
     const backend = new MockBackend();
     const invite = created(backend);
-    expect(backend.invitations[0]?.tokenHash).toBe(inviteTokenHash(invite.path.split('/').at(-1)!));
+    expect(backend.invitations[0]?.token).toBe(invite.path.split('/').at(-1)!);
     const list = backend.handle('GET', '/api/projects/AC/invites', undefined);
     expect(JSON.stringify(list.body)).not.toContain(invite.path.split('/').at(-1)!);
-    expect(JSON.stringify(list.body)).not.toContain('tokenHash');
+    expect(JSON.stringify(list.body)).not.toContain('"token"');
     backend.auth = 'login';
     expect(backend.handle('GET', publicPath(invite), undefined).body).toMatchObject({
       projectName: 'Acme webshop',

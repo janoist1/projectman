@@ -22,7 +22,7 @@
 }
 
 .unknown {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--c-ink-4);
 }
 
@@ -36,7 +36,7 @@
 .row {
   display: flex;
   justify-content: space-between;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--c-ink-4);
 }
 

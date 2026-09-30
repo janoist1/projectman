@@ -10,6 +10,7 @@ import { Button } from '../../components/Button';
 import { TextField } from '../../components/Field';
 import { Dialog } from '../../components/Dialog';
 import { useToast } from '../../components/toastContext';
+import { ErrorBanner } from '../../components/ErrorBanner';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { aiRoleView, hireableRoles, isDeveloperRole } from '../../lib/roles';
@@ -19,6 +20,7 @@ import type { ScheduleDraft } from './ScheduleFields';
 import { previewFor } from './hirePreview';
 import { ProviderFields } from './ProviderFields';
 import styles from './HireDialog.module.css';
+import form from './memberForm.module.css';
 
 interface HireDialogProps {
   open: boolean;
@@ -94,7 +96,7 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
   if (roles.isError) return <ErrorState error={roles.error} onRetry={() => void roles.refetch()} />;
 
   return (
-    <form className={styles.form} onSubmit={onSubmit} noValidate>
+    <form className={form.form} onSubmit={onSubmit} noValidate>
       <p className={styles.intro}>{t('hire.intro')}</p>
       <fieldset className={styles.roles}>
         <legend className="visually-hidden">{t('hire.roles')}</legend>
@@ -207,13 +209,9 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
       </section>
 
       <ScheduleFields value={schedule} onChange={setSchedule} />
-      {scheduleError ? <p role="alert">{t('schedule.invalid')}</p> : null}
-      {hire.isError ? (
-        <p className={styles.error} role="alert">
-          {errorMessage(hire.error)}
-        </p>
-      ) : null}
-      <div className={styles.actions}>
+      {scheduleError ? <p role="alert">{t('schedules.form.invalid')}</p> : null}
+      {hire.isError ? <ErrorBanner>{errorMessage(hire.error)}</ErrorBanner> : null}
+      <div className={form.actions}>
         <Button
           type="submit"
           variant="primary"

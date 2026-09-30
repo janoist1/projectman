@@ -1,43 +1,38 @@
 import clsx from 'clsx';
-import { Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router';
-import type { Session, SessionDetail } from '@projectman/shared';
+import { useParams, useSearchParams } from 'react-router';
+import type { SessionDetail } from '@projectman/shared';
 import {
+  useBoard,
   useInbox,
   useLabels,
   useResolveInbox,
+  useSchedules,
   useSendSessionMessage,
   useSessionDetail,
-  useStopSession,
   useTaskDetail,
 } from '../../api/queries';
-import { useSchedules } from '../../api/schedules';
 import { useProject, useProjectIndexes } from '../../app/contexts';
-import { Button } from '../../components/Button';
-import { Chip, StatusDot } from '../../components/Chip';
-import { Dialog } from '../../components/Dialog';
-import { Icon } from '../../components/Icon';
-import { StageProgress } from '../../components/StageProgress';
 import { ErrorState, LoadingState } from '../../components/States';
 import { Timeline } from '../../components/Timeline';
 import { useToast } from '../../components/toastContext';
-import { ProviderBadge } from '../../components/ProviderBadge';
 import { t } from '../../i18n/t';
 import type { PlainMessageKey } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile, useMediaQuery } from '../../lib/hooks';
-import { formatScheduleTime } from '../../lib/schedules';
+import { openItemIds, openItemsFor } from '../../lib/inbox';
 import { nameOf } from '../../lib/members';
-import { stagePosition } from '../../lib/pipeline';
+import { isLiveSession } from '../../lib/sessions';
 import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
-import { prChip } from '../board/cardModel';
 import { nextStepText } from '../board/taskModel';
 import { ChatView } from './ChatView';
-import type { PendingMessage } from './ChatView';
 import { Composer } from './Composer';
 import { participantsFor } from './participants';
+import { SessionHeader } from './SessionHeader';
+import { liveState, sessionTitle } from './sessionModel';
 import { ParticipantsPanel, PrPanel } from './SessionPanels';
 import styles from './SessionPage.module.css';
+import { usePendingEchoes } from './usePendingEchoes';
 
 const TerminalView = lazy(() => import('./TerminalView'));
 
@@ -49,20 +44,6 @@ const tabLabels: Record<Tab, PlainMessageKey> = {
   timeline: 'session.tabs.timeline',
   details: 'session.tabs.details',
 };
-
-function isRunning(session: Session): boolean {
-  return session.state !== 'exited' && session.state !== 'failed';
-}
-
-function shortPath(path: string): string {
-  const parts = path.split('/').filter(Boolean);
-  return parts.length > 2 ? `…/${parts.slice(-2).join('/')}` : path;
-}
-
-let pendingSeq = 0;
-
-/** How far the server's transcript clock may lag behind the browser's. */
-const ECHO_SKEW_MS = 2 * 60_000;
 
 function SessionView({ detail }: { detail: SessionDetail }) {
   const { key, myHandle } = useProject();
@@ -78,33 +59,24 @@ function SessionView({ detail }: { detail: SessionDetail }) {
       ? schedules.data?.runs.find((run) => run.sessionId === session.id)
       : undefined;
   const taskDetail = useTaskDetail(key, task?.key);
+  const boardTasks = useBoard(key).data?.tasks;
   const inbox = useInbox(key);
   const { members, pipeline } = useProjectIndexes(key);
   const resolve = useResolveInbox(key, myHandle);
   const send = useSendSessionMessage(key, session.id);
-  const stop = useStopSession(key);
   const toast = useToast();
+  const echoes = usePendingEchoes(chat);
   const [tab, setTab] = useState<Tab>('chat');
-  const [pending, setPending] = useState<Array<PendingMessage & { sentAt: string }>>([]);
-  const [confirmStop, setConfirmStop] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const tabRefs = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>({});
 
   const memberName = nameOf(session.member, members, myHandle);
-  const title = task
-    ? task.title
-    : session.workItem.type === 'schedule'
-      ? t('schedules.session', {
-          time: formatScheduleTime(
-            scheduleRun?.scheduledFor ?? session.startedAt,
-            schedules.data?.timezone ?? 'UTC',
-          ),
-        })
-      : session.workItem.type === 'general'
-        ? t('session.general', { member: memberName })
-        : t('session.meeting', { member: memberName });
+  const title = sessionTitle(session, task, memberName, {
+    scheduledFor: scheduleRun?.scheduledFor,
+    timezone: schedules.data?.timezone,
+  });
   useDocumentTitle(title);
 
   const items = inbox.data?.items;
@@ -112,32 +84,11 @@ function SessionView({ detail }: { detail: SessionDetail }) {
     () => (items ?? []).filter((item) => item.sessionId === session.id),
     [items, session.id],
   );
-  const openItems = sessionItems.filter(
-    (item) => item.state === 'open' && (!myHandle || item.assignees.includes(myHandle)),
-  );
+  const openItems = openItemsFor(sessionItems, myHandle);
   const resolvedPermissions = sessionItems.filter(
     (item) => item.kind === 'permission' && item.state !== 'open' && item.resolution,
   );
-  const openIds = useMemo(
-    () => new Set((items ?? []).filter((item) => item.state === 'open').map((item) => item.id)),
-    [items],
-  );
-
-  // Drop local echoes once the transcript shows the message (allowing for clock skew).
-  useEffect(() => {
-    setPending((list) =>
-      list.filter(
-        (message) =>
-          !chat.some(
-            (item) =>
-              item.kind === 'user_text' &&
-              item.origin === 'human' &&
-              item.text.trim() === message.text.trim() &&
-              Date.parse(item.ts) >= Date.parse(message.sentAt) - ECHO_SKEW_MS,
-          ),
-      ),
-    );
-  }, [chat]);
+  const openIds = useMemo(() => openItemIds(items), [items]);
 
   // The latest events and "what comes next" matter most: start the timeline at the bottom.
   const timelineLength = taskDetail.data?.timeline.length ?? 0;
@@ -149,21 +100,13 @@ function SessionView({ detail }: { detail: SessionDetail }) {
   useLayoutEffect(() => {
     const element = scrollRef.current;
     if (element && stickToBottom.current) element.scrollTop = element.scrollHeight;
-  }, [chat.length, pending.length, openItems.length, tab]);
+  }, [chat.length, echoes.pending.length, openItems.length, tab]);
 
-  const memberConfig = members.get(session.member);
-  const running = isRunning(session);
-  const needsMe = openItems.some((item) => item.kind === 'permission');
-  const liveStatus = needsMe
-    ? 'needs_you'
-    : session.state === 'working'
-      ? 'working'
-      : running
-        ? 'idle'
-        : session.state === 'failed'
-          ? 'failed'
-          : 'exited';
-  const liveLabel = needsMe ? t('sessionState.needsYou') : t(`sessionState.${session.state}`);
+  const running = isLiveSession(session);
+  const live = liveState(
+    session,
+    openItems.some((item) => item.kind === 'permission'),
+  );
 
   const taskState =
     task && pipeline
@@ -171,14 +114,15 @@ function SessionView({ detail }: { detail: SessionDetail }) {
           pipeline,
           members,
           openInboxByTask: groupOpenInboxByTask(items),
-          tasksByKey: new Map([[task.key, task]]),
+          // Prerequisites are other tasks: look them up on the board.
+          tasksByKey: new Map([
+            ...(boardTasks ?? []).map((entry) => [entry.key, entry] as const),
+            [task.key, task],
+          ]),
           myHandle,
           labels,
         })
       : null;
-  const stage = task && pipeline ? pipeline.stageById.get(task.stageId) : undefined;
-  const column = task && pipeline ? pipeline.columnOfStage.get(task.stageId) : undefined;
-  const pr = task ? prChip(task) : null;
   const timeline = taskDetail.data?.timeline ?? [];
   const participants = participantsFor(session, task, timeline, pipeline, members, myHandle, labels);
 
@@ -190,15 +134,9 @@ function SessionView({ detail }: { detail: SessionDetail }) {
   const activeTab = tabs.includes(tab) ? tab : 'chat';
 
   const onSend = (text: string) => {
-    const entry = { id: `local-${(pendingSeq += 1)}`, text, failed: false, sentAt: new Date().toISOString() };
-    setPending((list) => [...list, entry]);
+    const id = echoes.add(text);
     stickToBottom.current = true;
-    send.mutate(text, {
-      onError: () =>
-        setPending((list) =>
-          list.map((message) => (message.id === entry.id ? { ...message, failed: true } : message)),
-        ),
-    });
+    send.mutate(text, { onError: () => echoes.fail(id) });
   };
 
   const onTabKey = (event: KeyboardEvent<HTMLButtonElement>, current: Tab) => {
@@ -249,7 +187,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
           pipeline={pipeline}
           openItems={openItems}
           resolvedItems={resolvedPermissions}
-          pending={pending}
+          pending={echoes.pending}
           awaitingPermission={session.state === 'waiting_permission'}
           resolvingId={resolve.isPending ? (resolve.variables?.item.id ?? null) : null}
           onResolve={(item, body) =>
@@ -263,75 +201,16 @@ function SessionView({ detail }: { detail: SessionDetail }) {
 
   return (
     <div className={styles.page}>
-      <div className={styles.header}>
-        <div className={styles.crumbRow}>
-          <nav aria-label={t('session.breadcrumb')} className={styles.crumbs}>
-            <Link to={`/p/${key}`} className={styles.crumbLink}>
-              {t('nav.board')}
-            </Link>
-            <Icon name="chevronRight" size={14} strokeWidth={2} />
-            {task ? (
-              <Link to={`/p/${key}/tasks/${task.key}`} className={styles.crumbLink}>
-                {column?.name ?? task.key}
-              </Link>
-            ) : (
-              <span>{memberName}</span>
-            )}
-          </nav>
-          <span className={styles.spacer} />
-          <span className={styles.live} data-status={liveStatus} role="status">
-            <StatusDot status={liveStatus} pulse={liveStatus === 'working'} size={9} />
-            <span>{liveLabel}</span>
-          </span>
-          {running ? (
-            <Button variant="ghost" size="sm" icon="stop" onClick={() => setConfirmStop(true)}>
-              {t('session.stop')}
-            </Button>
-          ) : null}
-        </div>
-        <h1 className={styles.title}>{title}</h1>
-        <div className={styles.chips}>
-          {task && pipeline && taskState ? (
-            <span className={styles.stageChip}>
-              <StageProgress
-                pipeline={pipeline}
-                stageId={task.stageId}
-                phase={taskState.phase}
-                variant="chip"
-              />
-              <span>
-                {t('task.stageChip', {
-                  stage: stage?.name ?? task.stageId,
-                  index: stagePosition(pipeline, task.stageId).index,
-                  total: stagePosition(pipeline, task.stageId).total,
-                })}
-              </span>
-            </span>
-          ) : null}
-          {pr ? (
-            <Chip tone="outline" size="md" icon={pr.merged ? 'prMerged' : 'prOpen'} className={styles.prChip}>
-              {pr.label}
-            </Chip>
-          ) : null}
-          {session.branch ? (
-            <Chip tone="outline" size="md" mono title={t('session.chips.branch', { branch: session.branch })}>
-              {session.branch}
-            </Chip>
-          ) : null}
-          <Chip tone="outline" size="md" mono title={t('session.chips.cwd', { cwd: session.cwd })}>
-            {shortPath(session.cwd)}
-          </Chip>
-          <ProviderBadge provider={memberConfig?.provider} />
-          {memberConfig?.model ? (
-            <Chip size="md">{t('session.chips.model', { model: memberConfig.model })}</Chip>
-          ) : null}
-          {memberConfig?.permissionMode ? (
-            <Chip size="md">
-              {t('session.chips.permissions', { mode: t(`permissionModes.${memberConfig.permissionMode}`) })}
-            </Chip>
-          ) : null}
-        </div>
-      </div>
+      <SessionHeader
+        session={session}
+        task={task}
+        title={title}
+        memberName={memberName}
+        member={members.get(session.member)}
+        pipeline={pipeline}
+        taskPhase={taskState?.phase ?? null}
+        live={live}
+      />
 
       <div className={styles.body}>
         {!isMobile && task ? (
@@ -392,37 +271,6 @@ function SessionView({ detail }: { detail: SessionDetail }) {
 
         {wide && !isMobile ? <aside className={styles.side}>{sidePanels}</aside> : null}
       </div>
-
-      <Dialog
-        open={confirmStop}
-        onClose={() => setConfirmStop(false)}
-        title={t('session.stopTitle')}
-        description={t('session.stopBody')}
-        size="sm"
-        footer={
-          <>
-            <Button
-              variant="dangerSolid"
-              icon="stop"
-              loading={stop.isPending}
-              onClick={() =>
-                stop.mutate(session.id, {
-                  onSuccess: () => {
-                    toast.show(t('session.stopped'));
-                    setConfirmStop(false);
-                  },
-                  onError: () => toast.show(t('errors.generic'), 'error'),
-                })
-              }
-            >
-              {t('session.stop')}
-            </Button>
-            <Button variant="secondary" onClick={() => setConfirmStop(false)}>
-              {t('common.cancel')}
-            </Button>
-          </>
-        }
-      />
     </div>
   );
 }

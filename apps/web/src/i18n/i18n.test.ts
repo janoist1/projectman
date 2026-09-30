@@ -56,11 +56,11 @@ describe('hu locale', () => {
     expectKeys('inbox.kindsLower', InboxKind.options);
     expectKeys('stageKinds', StageKind.options);
     // Checks were replaced by labels; old timeline events still name them.
-    expectKeys('checks.names', ['code_review', 'security_review', 'qa', 'client_test']);
-    expectKeys('checks.states', ['pending', 'passed', 'blocked', 'failed', 'retest_needed']);
+    expectKeys('timeline.legacyChecks.names', ['code_review', 'security_review', 'qa', 'client_test']);
+    expectKeys('timeline.legacyChecks.states', ['pending', 'passed', 'blocked', 'failed', 'retest_needed']);
     expectKeys('roles.human', HumanAccess.options);
     expectKeys('permissionModes', PermissionMode.options);
-    expectKeys('taskStatuses', TaskStatus.options);
+    expectKeys('taskStatus.statuses', TaskStatus.options);
     expectKeys('links.kinds', TaskLinkKind.options);
     expectKeys('visibility', Visibility.options);
     expectKeys('inbox.options', ['allow', 'allow_session', 'deny', 'approve', 'reject', 'answer']);

@@ -1,5 +1,6 @@
 import type { LabelView, TimelineEvent } from '@projectman/shared';
 import { joinNames, t, tDynamic } from '../i18n/t';
+import { labelName } from './labels';
 import { nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
 import type { PipelineIndex } from './pipeline';
@@ -66,21 +67,19 @@ const LEGACY_CHECK_STATES = ['pending', 'passed', 'blocked', 'failed', 'retest_n
 /** Checks were replaced by labels; events recorded before that still read as they did. */
 export function checkLine(check: string, state: string): string {
   const name = (LEGACY_CHECKS as readonly string[]).includes(check)
-    ? t(`checks.names.${check as (typeof LEGACY_CHECKS)[number]}`)
+    ? t(`timeline.legacyChecks.names.${check as (typeof LEGACY_CHECKS)[number]}`)
     : check;
   const label = (LEGACY_CHECK_STATES as readonly string[]).includes(state)
-    ? t(`checks.states.${state as (typeof LEGACY_CHECK_STATES)[number]}`)
+    ? t(`timeline.legacyChecks.states.${state as (typeof LEGACY_CHECK_STATES)[number]}`)
     : state;
-  return t('checks.line', { name, state: label });
+  return t('timeline.events.task_check_changed', { check: name, state: label });
 }
 
 const LABEL_REASONS = ['approval', 'moved_back', 'pr_merged', 'pr_updated'] as const;
 
 function labelsChanged(d: Record<string, unknown>, ctx: TimelineContext): string {
   const names = (key: string) =>
-    ((d[key] as string[] | undefined) ?? [])
-      .map((id) => ctx.labels?.find((label) => label.id === id)?.name ?? id)
-      .join(', ');
+    ((d[key] as string[] | undefined) ?? []).map((id) => labelName(id, ctx.labels ?? [])).join(', ');
   const parts = [
     names('added') && t('timeline.labelsAdded', { labels: names('added') }),
     names('removed') && t('timeline.labelsRemoved', { labels: names('removed') }),

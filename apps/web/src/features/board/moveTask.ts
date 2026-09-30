@@ -5,9 +5,10 @@ import { joinNames, t } from '../../i18n/t';
 import { errorMessage, isGateBlocked } from '../../lib/errors';
 import { unmetGateTexts } from '../../lib/gates';
 import type { PipelineIndex } from '../../lib/pipeline';
+import { isTaskClosed } from '../../lib/taskState';
 
 export function canMoveTask(task: Task, allowed: boolean): boolean {
-  return allowed && task.status !== 'done' && task.status !== 'cancelled';
+  return allowed && !isTaskClosed(task);
 }
 
 export function enteredStages(pipeline: PipelineIndex, from: string, to: string) {

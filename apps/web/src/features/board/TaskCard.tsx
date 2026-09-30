@@ -9,7 +9,7 @@ import { formatAge } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import type { PipelineIndex } from '../../lib/pipeline';
 import type { TaskState } from '../../lib/taskState';
-import { cardChecks, prChip } from './cardModel';
+import { prChip, stageRows } from './cardModel';
 import { LabelChip } from '../../components/LabelChip';
 import styles from './TaskCard.module.css';
 
@@ -37,7 +37,7 @@ export function TaskCard({
   labels = [],
 }: TaskCardProps) {
   const pr = prChip(task);
-  const checks = compact ? [] : cardChecks(task, pipeline);
+  const rows = compact ? [] : stageRows(task, pipeline);
   const stage = pipeline.stageById.get(task.stageId);
   const showMeta = !compact && (pr !== null || task.labels.length > 0);
   return (
@@ -86,18 +86,14 @@ export function TaskCard({
           ))}
         </span>
       ) : null}
-      {checks.length > 0 ? (
-        <ul className={styles.checks} aria-label={t('taskCard.checks')}>
-          {checks.map((check) => (
-            <li key={check.label} className={styles.check} data-check={check.tone}>
-              <span className={styles.checkIcon} aria-hidden="true">
-                <Icon
-                  name={check.tone === 'ok' ? 'check' : check.tone === 'warn' ? 'exclamation' : 'wait'}
-                  size={10}
-                  strokeWidth={3.2}
-                />
+      {rows.length > 0 ? (
+        <ul className={styles.stageRows} aria-label={t('taskCard.stageRows')}>
+          {rows.map((row) => (
+            <li key={row.label} className={styles.stageRow} data-state={row.state}>
+              <span className={styles.stageIcon} aria-hidden="true">
+                <Icon name={row.state === 'done' ? 'check' : 'wait'} size={10} strokeWidth={3.2} />
               </span>
-              <span>{check.label}</span>
+              <span>{row.label}</span>
             </li>
           ))}
         </ul>

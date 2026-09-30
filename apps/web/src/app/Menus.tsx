@@ -139,7 +139,7 @@ export function AccountMenu({
             }
           >
             <Icon name="logout" size={16} />
-            <span className={styles.itemText}>{t('topbar.logout')}</span>
+            <span className={styles.itemText}>{t('common.logout')}</span>
           </button>
         </div>
       ) : null}

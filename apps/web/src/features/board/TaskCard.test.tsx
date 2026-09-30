@@ -7,7 +7,7 @@ import { matchesSearch } from './cardModel';
 import type { TaskStateContext } from '../../lib/taskState';
 import { buildConfig, inbox, tasks } from '../../mocks/fixtures';
 import { mockIndexes, renderUi } from '../../test/render';
-import { t } from '../../i18n/t';
+import { joinNames, t } from '../../i18n/t';
 import { TaskCard } from './TaskCard';
 
 const { pipeline, members } = mockIndexes();
@@ -19,6 +19,12 @@ const ctx: TaskStateContext = {
   tasksByKey: new Map(tasks.map((task) => [task.key, task])),
   myHandle: 'owner',
 };
+
+const needsYou = (what: string) => t('taskStatus.needsYou', { what });
+const waitingOn = (...names: string[]) => t('taskStatus.waitingOn', { who: joinNames(names) });
+const working = (activity: string) => t('taskStatus.working', { activity });
+const permissionFor = (detail: string) =>
+  needsYou(t('taskStatus.needsYouDetail', { kind: t('inbox.kindsLower.permission'), detail }));
 
 function taskByKey(key: string): Task {
   const task = tasks.find((entry) => entry.key === key);
@@ -43,7 +49,7 @@ function renderCard(key: string, selected = false) {
 }
 
 describe('TaskCard', () => {
-  it('shows the title, PR, labels, grouped-stage checks and the status line', () => {
+  it('shows the title, PR, labels, grouped-stage rows and the status line', () => {
     const card = renderCard('AC-21');
     expect(card.getAttribute('href')).toBe('/p/AC/tasks/AC-21');
     expect(within(card).getByText('Rendelés-visszaigazoló e-mail')).toBeTruthy();
@@ -51,28 +57,38 @@ describe('TaskCard', () => {
     // Results are labels, named and coloured by their definitions.
     expect(within(card).getByText('Újrateszt kell')).toBeTruthy();
     expect(within(card).getByText('Code review rendben')).toBeTruthy();
-    const progress = within(card).getByRole('list', { name: t('taskCard.checks') });
+    const progress = within(card).getByRole('list', { name: t('taskCard.stageRows') });
     expect(
       within(progress)
         .getAllByRole('listitem')
         .map((row) => row.textContent),
-    ).toEqual(['Code review: kész', 'Integration: kész', 'QA: folyamatban']);
-    expect(within(card).getByText('Rád vár: engedély (git push)')).toBeTruthy();
+    ).toEqual([
+      t('stageRows.line', { name: 'Code review', state: t('stageRows.done') }),
+      t('stageRows.line', { name: 'Integration', state: t('stageRows.done') }),
+      t('stageRows.line', { name: 'QA', state: t('stageRows.active') }),
+    ]);
+    expect(within(card).getByText(permissionFor('git push'))).toBeTruthy();
     expect(card.getAttribute('data-phase')).toBe('needs_you');
-    expect(within(card).getByRole('img', { name: /QA, 5\. lépés a 9-ból/ })).toBeTruthy();
+    expect(
+      within(card).getByRole('img', {
+        name: t('taskCard.stageProgress', { stage: 'QA', index: 5, total: 9 }),
+      }),
+    ).toBeTruthy();
   });
 
   it('marks the task that is open in the drawer', () => {
     const card = renderCard('AC-20', true);
     expect(card.getAttribute('aria-current')).toBe('true');
-    expect(within(card).getByText('Dolgozik: Visszaállítási próba')).toBeTruthy();
-    expect(within(card).queryByRole('list', { name: 'Ellenőrzések' })).toBeNull();
+    expect(within(card).getByText(working('Visszaállítási próba'))).toBeTruthy();
+    expect(within(card).queryByRole('list', { name: t('taskCard.stageRows') })).toBeNull();
   });
 
   it('shows done tasks with the merged PR', () => {
     const card = renderCard('AC-16');
     expect(within(card).getByText('PR #18 · admin')).toBeTruthy();
-    expect(within(card).getByText(/^Kész · /)).toBeTruthy();
+    expect(
+      within(card).getByText((text) => text.startsWith(t('taskStatus.done', { when: '' }))),
+    ).toBeTruthy();
     expect(card.getAttribute('data-phase')).toBe('done');
   });
 });
@@ -81,18 +97,27 @@ describe('deriveTaskState', () => {
   const phase = (key: string) => deriveTaskState(taskByKey(key), ctx);
 
   it('puts what waits for the viewer first', () => {
-    expect(phase('AC-21')).toMatchObject({ phase: 'needs_you', label: 'Rád vár: engedély (git push)' });
-    expect(phase('AC-22')).toMatchObject({ phase: 'needs_you', label: 'Rád vár: kérdés' });
-    expect(phase('AC-17')).toMatchObject({ phase: 'needs_you', label: 'Rád vár: döntés' });
-    expect(phase('AC-27')).toMatchObject({ phase: 'needs_you', label: 'Rád vár: Merge' });
+    expect(phase('AC-21')).toMatchObject({ phase: 'needs_you', label: permissionFor('git push') });
+    expect(phase('AC-22')).toMatchObject({
+      phase: 'needs_you',
+      label: needsYou(t('inbox.kindsLower.question')),
+    });
+    expect(phase('AC-17')).toMatchObject({
+      phase: 'needs_you',
+      label: needsYou(t('inbox.kindsLower.decision')),
+    });
+    expect(phase('AC-27')).toMatchObject({ phase: 'needs_you', label: needsYou('Merge') });
   });
 
   it('tells working, waiting and ready tasks apart', () => {
-    expect(phase('AC-20')).toMatchObject({ phase: 'working', label: 'Dolgozik: Visszaállítási próba' });
-    expect(phase('AC-19')).toMatchObject({ phase: 'waiting', label: 'Másra vár: Kata és Bence' });
-    expect(phase('AC-26')).toMatchObject({ phase: 'waiting', label: 'Sorra kerül: Integration' });
-    expect(phase('AC-23')).toMatchObject({ phase: 'waiting', label: 'Előfeltételre vár' });
-    expect(phase('AC-24')).toMatchObject({ phase: 'ready', label: 'Indítható' });
+    expect(phase('AC-20')).toMatchObject({ phase: 'working', label: working('Visszaállítási próba') });
+    expect(phase('AC-19')).toMatchObject({ phase: 'waiting', label: waitingOn('Kata', 'Bence') });
+    expect(phase('AC-26')).toMatchObject({
+      phase: 'waiting',
+      label: t('taskStatus.queuedFor', { stage: 'Integration' }),
+    });
+    expect(phase('AC-23')).toMatchObject({ phase: 'waiting', label: t('taskStatus.prerequisite') });
+    expect(phase('AC-24')).toMatchObject({ phase: 'ready', label: t('taskStatus.ready') });
     expect(phase('AC-16').phase).toBe('done');
   });
 
@@ -102,7 +127,7 @@ describe('deriveTaskState', () => {
     );
     expect(deriveTaskState(taskByKey('AC-18'), { ...ctx, members: noWorkers })).toMatchObject({
       phase: 'waiting',
-      label: 'Másra vár: Kata',
+      label: waitingOn('Kata'),
     });
   });
 
@@ -113,7 +138,7 @@ describe('deriveTaskState', () => {
     holding.set(owner, { ...members.get(owner)!, status: 'idle', currentTaskKeys: [task.key] });
     expect(deriveTaskState(task, { ...ctx, members: holding })).toMatchObject({
       phase: 'waiting',
-      label: `Másra vár: ${members.get(owner)!.displayName}`,
+      label: waitingOn(members.get(owner)!.displayName),
     });
   });
 
@@ -133,7 +158,9 @@ describe('deriveTaskState', () => {
       phase: 'ready',
       label: 'Beérkezett',
     });
-    expect(deriveTaskState(task, { ...ctx, pipeline: withIncoming })).toMatchObject({ label: 'Indítható' });
+    expect(deriveTaskState(task, { ...ctx, pipeline: withIncoming })).toMatchObject({
+      label: t('taskStatus.ready'),
+    });
   });
 });
 
@@ -149,7 +176,7 @@ describe('subtask card chips', () => {
         compact
       />,
     );
-    expect(screen.getByText('↳ AC-21')).toBeTruthy();
+    expect(screen.getByText(t('task.parentChip', { key: 'AC-21' }))).toBeTruthy();
   });
   it('shows completed children out of all children', () => {
     const task = taskByKey('AC-20');

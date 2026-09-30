@@ -24,7 +24,7 @@
 .segmented {
   padding: 3px;
   gap: 2px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--c-sunken);
 }
 
@@ -35,18 +35,18 @@
 .segmented.md .option {
   height: 34px;
   padding: 0 12px;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .segmented.sm {
-  border-radius: 10px;
+  border-radius: var(--radius-md);
 }
 
 .segmented.sm .option {
   height: 30px;
   padding: 0 10px;
   font-size: 12.5px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .segmented .option:hover {
@@ -76,7 +76,7 @@
   border: 1px solid var(--c-line-strong);
   background: var(--c-surface);
   color: var(--c-ink);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .pills .option:hover {

@@ -1,0 +1,187 @@
+.tableWrap {
+  overflow-x: auto;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.table th {
+  text-align: left;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--c-ink-4);
+  padding: 6px 10px;
+}
+
+.table td {
+  padding: 10px;
+  border-top: 1px solid var(--c-line-soft);
+  vertical-align: middle;
+}
+
+.table th:first-child,
+.table td:first-child {
+  padding-left: 0;
+}
+
+.memberCell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.memberText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.memberName {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.handle {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: var(--text-xs);
+  color: var(--c-ink-3);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--c-ink-4);
+}
+
+.statusCell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.statusLine {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.statusText {
+  font-weight: 800;
+  color: var(--status-text);
+  white-space: nowrap;
+}
+
+.activity {
+  font-size: var(--text-xs);
+  color: var(--c-ink-3);
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nowCell {
+  max-width: 240px;
+}
+
+.tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.taskLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--c-ink);
+  font-weight: 700;
+}
+
+.taskLink:hover {
+  color: var(--c-accent-hover);
+}
+
+.taskKey {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--c-ink-3);
+  flex-shrink: 0;
+}
+
+.taskTitle {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.muted {
+  color: var(--c-ink-3);
+  font-size: 12.5px;
+}
+
+.actionsCell {
+  text-align: right;
+  width: 1%;
+  white-space: nowrap;
+}
+
+.cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--c-line-soft);
+}
+
+.card:first-child {
+  border-top: 0;
+}
+
+.cardFoot {
+  flex-wrap: wrap;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.roleChip[data-tone] {
+  background: var(--tone-bg);
+  color: var(--tone-fg);
+}
+
+@media (max-width: 960px) {
+  .subscriptionCol {
+    display: none;
+  }
+  .nowCell {
+    max-width: 190px;
+  }
+}

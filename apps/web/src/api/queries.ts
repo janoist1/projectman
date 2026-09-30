@@ -8,7 +8,6 @@ import type {
   UpdateMemberRequest,
   UpdateTaskRequest,
   CancelTaskRequest,
-  BoardView,
   CreateProjectRequest,
   CreateTaskRequest,
   HireMemberRequest,
@@ -25,7 +24,7 @@ import type {
   LabelView,
 } from '@projectman/shared';
 import { isApiError } from './client';
-import { countOpenInbox, upsertBy } from './cache';
+import { patchOpenInboxCount, upsertBy, writeTaskDetail } from './cache';
 import { api } from './endpoints';
 import { queryKeys } from './queryKeys';
 
@@ -130,7 +129,7 @@ export function useCreateTask(key: string) {
     onSuccess: async () => {
       await Promise.all([
         client.invalidateQueries({ queryKey: queryKeys.board(key) }),
-        client.invalidateQueries({ queryKey: queryKeys.tasks(key) }),
+        client.invalidateQueries({ queryKey: queryKeys.taskDetails(key) }),
       ]);
     },
   });
@@ -263,11 +262,7 @@ export function useResolveInbox(key: string, myHandle: string | null) {
       const next = client.setQueryData<InboxView>(queryKeys.inbox(key), (view) =>
         view ? { items: upsertBy(view.items, resolved, (entry) => entry.id) } : view,
       );
-      if (next) {
-        client.setQueryData<BoardView>(queryKeys.board(key), (board) =>
-          board ? { ...board, openInboxCount: countOpenInbox(next.items, null) } : board,
-        );
-      }
+      if (next) patchOpenInboxCount(client, key, next);
       return { previous };
     },
     onError: (_error, _variables, context) => {
@@ -352,15 +347,26 @@ export function useUpdateTask(key: string) {
     api.updateTask(key, taskKey, body),
   );
 }
+/** The server answers with the task's detail: write it instead of refetching the project. */
 export function useCreateTaskComment(key: string) {
-  return useProjectMutation(key, ({ taskKey, body }: { taskKey: string; body: CreateTaskCommentRequest }) =>
-    api.createTaskComment(key, taskKey, body),
-  );
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ taskKey, body }: { taskKey: string; body: CreateTaskCommentRequest }) =>
+      api.createTaskComment(key, taskKey, body),
+    onSuccess: async (detail) => {
+      writeTaskDetail(client, key, detail);
+      // Mentions message the mentioned members.
+      await client.invalidateQueries({ queryKey: queryKeys.messages(key) });
+    },
+  });
 }
 export function useChangeTaskLabels(key: string) {
-  return useProjectMutation(key, ({ taskKey, body }: { taskKey: string; body: ChangeTaskLabelsRequest }) =>
-    api.changeTaskLabels(key, taskKey, body),
-  );
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ taskKey, body }: { taskKey: string; body: ChangeTaskLabelsRequest }) =>
+      api.changeTaskLabels(key, taskKey, body),
+    onSuccess: (detail) => writeTaskDetail(client, key, detail),
+  });
 }
 
 /** The project's label vocabulary (with who may set each label), from the board. */
@@ -388,6 +394,31 @@ export function useMoveTask(key: string) {
         client.invalidateQueries({ queryKey: queryKeys.board(key) }),
         client.invalidateQueries({ queryKey: queryKeys.task(key, taskKey) }),
         client.invalidateQueries({ queryKey: queryKeys.inbox(key) }),
+      ]);
+    },
+  });
+}
+
+/* ---------- schedules ---------- */
+
+export function useSchedules(key: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.schedules(key),
+    queryFn: () => api.schedules(key),
+    refetchInterval: 60_000,
+    enabled,
+  });
+}
+
+export function useRunSchedule(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (handle: string) => api.runSchedule(key, handle),
+    onSettled: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.schedules(key) }),
+        client.invalidateQueries({ queryKey: queryKeys.board(key) }),
+        client.invalidateQueries({ queryKey: queryKeys.members(key) }),
       ]);
     },
   });
@@ -471,14 +502,14 @@ export function useReadTeamMessage(key: string) {
 
 export function useMemberMessages(key: string, handle: string, myHandle: string | null) {
   return useQuery({
-    queryKey: [...queryKeys.messages(key), 'thread', handle],
+    queryKey: queryKeys.messageThread(key, handle),
     queryFn: () => api.teamMessages(key, handle === myHandle ? undefined : handle),
   });
 }
 
 export function useUnreadTeamMessages(key: string, enabled: boolean) {
   return useQuery({
-    queryKey: [...queryKeys.messages(key), 'unread'],
+    queryKey: queryKeys.unreadMessages(key),
     queryFn: () => api.teamMessages(key, undefined, true),
     enabled,
   });

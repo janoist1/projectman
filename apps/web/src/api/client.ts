@@ -44,7 +44,7 @@ type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 let fetchImpl: FetchLike = (input, init) => globalThis.fetch(input, init);
 
-/** Swaps the transport (mock mode installs an in-memory backend here). */
+/** Swaps the transport (UI tests route requests to the in-memory MockBackend). */
 export function setFetchImplementation(impl: FetchLike): void {
   fetchImpl = impl;
 }
@@ -132,20 +132,4 @@ export async function apiRequest<T>(path: string, options: RequestOptions<T> = {
 
   checkContract(schema, data, path);
   return data as T;
-}
-
-/**
- * Some list endpoints have no wrapper DTO in the contract yet; accept both a bare array and
- * `{ [prop]: [...] }` and validate the items.
- */
-export function unwrapList<T>(data: unknown, prop: string, item: ResponseSchema<T>, path: string): T[] {
-  let list: unknown = data;
-  if (!Array.isArray(list) && list !== null && typeof list === 'object') {
-    list = (list as Record<string, unknown>)[prop];
-  }
-  if (!Array.isArray(list)) {
-    throw new ApiError(200, 'invalid_response', `${path}: expected a list of ${prop}`);
-  }
-  list.forEach((entry) => checkContract(item, entry, path));
-  return list as T[];
 }

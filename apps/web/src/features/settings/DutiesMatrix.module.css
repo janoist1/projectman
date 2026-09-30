@@ -4,7 +4,7 @@
   background: var(--c-surface);
   padding: 1.25rem;
   border: 1px solid var(--c-line);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
 }
 .actions {
   display: flex;

@@ -1,7 +1,7 @@
 import { ServerEvent } from '@projectman/shared';
 import type { ClientCommand } from '@projectman/shared';
 
-/** The subset of the browser WebSocket the client uses (mock mode provides its own). */
+/** The subset of the browser WebSocket the client uses (tests provide their own). */
 export interface WebSocketLike {
   readonly readyState: number;
   onopen: ((event: Event) => void) | null;
@@ -234,15 +234,8 @@ export class SocketClient {
   }
 }
 
-let factory: WebSocketFactory = (url) => new WebSocket(url);
-
-/** Mock mode swaps in an in-memory socket. */
-export function setWebSocketFactory(next: WebSocketFactory): void {
-  factory = next;
-}
-
 export function createSocketClient(): SocketClient {
   const { protocol, host } = window.location;
   const url = `${protocol === 'https:' ? 'wss' : 'ws'}://${host}/ws`;
-  return new SocketClient({ url, factory: (target) => factory(target) });
+  return new SocketClient({ url, factory: (target) => new WebSocket(target) });
 }

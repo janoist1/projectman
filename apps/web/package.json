@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@projectman/shared": "*",
+    "@projectman/templates": "*",
     "@tanstack/react-query": "^5.104.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",

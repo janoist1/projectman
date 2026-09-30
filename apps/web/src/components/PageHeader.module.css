@@ -1,0 +1,29 @@
+.header {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.titles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: var(--page-title-size, var(--text-display));
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+}
+
+.subtitle {
+  font-size: var(--page-subtitle-size, 13.5px);
+  color: var(--c-ink-3);
+  line-height: 1.45;
+  max-width: 720px;
+}

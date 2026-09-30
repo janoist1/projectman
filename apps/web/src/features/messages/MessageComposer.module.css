@@ -4,7 +4,7 @@
   padding: 20px;
   background: var(--c-surface);
   border: 1px solid var(--c-line);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
 }
 .recipients {
   display: flex;
@@ -19,7 +19,7 @@
   gap: 8px;
   padding: 8px;
   border: 1px solid var(--c-line);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 .recipient small {

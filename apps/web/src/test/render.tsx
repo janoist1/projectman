@@ -2,9 +2,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { MemoryRouter } from 'react-router';
+import type { BoardView } from '@projectman/shared';
 import { indexMembers } from '../lib/members';
 import { indexPipeline } from '../lib/pipeline';
-import { buildConfig, members } from '../mocks/fixtures';
+import { MockBackend } from '../mocks/backend';
 
 /** Renders UI inside a router and a fresh query client. */
 export function renderUi(ui: ReactElement, { route = '/' }: { route?: string } = {}) {
@@ -16,17 +17,8 @@ export function renderUi(ui: ReactElement, { route = '/' }: { route?: string } =
   );
 }
 
-/** Pipeline and member lookups of the mock project, as the board builds them. */
+/** Pipeline and member lookups of the mock project, from the board it serves. */
 export function mockIndexes() {
-  const config = buildConfig();
-  const pipeline = indexPipeline({
-    stages: config.pipeline.stages,
-    columns: config.pipeline.columns.map((column) => ({
-      ...column,
-      stageIds: config.pipeline.stages
-        .filter((stage) => stage.columnId === column.id)
-        .map((stage) => stage.id),
-    })),
-  });
-  return { pipeline, members: indexMembers(members) };
+  const board = new MockBackend().handle('GET', '/api/projects/AC/board', undefined).body as BoardView;
+  return { pipeline: indexPipeline(board), members: indexMembers(board.members) };
 }

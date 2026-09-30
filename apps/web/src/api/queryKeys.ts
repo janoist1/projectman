@@ -16,11 +16,17 @@ export const queryKeys = {
   project: (key: string) => ['project', key] as const,
   board: (key: string) => ['project', key, 'board'] as const,
   task: (key: string, taskKey: string) => ['project', key, 'task', taskKey] as const,
-  tasks: (key: string) => ['project', key, 'task'] as const,
+  /** Prefix of every task detail query of a project. */
+  taskDetails: (key: string) => ['project', key, 'task'] as const,
   session: (key: string, sessionId: string) => ['project', key, 'session', sessionId] as const,
-  sessions: (key: string) => ['project', key, 'session'] as const,
+  /** Prefix of every session detail query of a project. */
+  sessionDetails: (key: string) => ['project', key, 'session'] as const,
   inbox: (key: string) => ['project', key, 'inbox'] as const,
+  /** The project's message feed; also the prefix of the thread and unread queries below. */
   messages: (key: string) => ['project', key, 'messages'] as const,
+  messageThread: (key: string, handle: string) => ['project', key, 'messages', 'thread', handle] as const,
+  unreadMessages: (key: string) => ['project', key, 'messages', 'unread'] as const,
+  schedules: (key: string) => ['project', key, 'schedules'] as const,
   members: (key: string) => ['project', key, 'members'] as const,
   roles: (key: string) => ['project', key, 'roles'] as const,
   config: (key: string) => ['project', key, 'config'] as const,

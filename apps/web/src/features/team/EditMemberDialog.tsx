@@ -9,12 +9,13 @@ import { Dialog } from '../../components/Dialog';
 import { SelectField, TextField } from '../../components/Field';
 import { useToast } from '../../components/toastContext';
 import { humanRoleName } from '../../lib/roles';
+import { ErrorBanner } from '../../components/ErrorBanner';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { ProviderFields } from './ProviderFields';
 import { ScheduleFields } from './ScheduleFields';
 import type { ScheduleDraft } from './ScheduleFields';
-import styles from './HireDialog.module.css';
+import styles from './memberForm.module.css';
 
 function EditMemberForm({
   member,
@@ -136,11 +137,7 @@ function EditMemberForm({
           <ScheduleFields value={schedule} onChange={setSchedule} />
         </>
       )}
-      {update.isError ? (
-        <p className={styles.error} role="alert">
-          {errorMessage(update.error)}
-        </p>
-      ) : null}
+      {update.isError ? <ErrorBanner>{errorMessage(update.error)}</ErrorBanner> : null}
       <div className={styles.actions}>
         <Button type="submit" variant="primary" loading={update.isPending}>
           {t('memberEdit.save')}

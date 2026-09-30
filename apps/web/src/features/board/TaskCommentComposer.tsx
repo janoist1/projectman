@@ -120,7 +120,7 @@ export function TaskCommentComposer({ taskKey, members }: { taskKey: string; mem
       ) : null}
       {mutation.isError ? <p role="alert">{errorMessage(mutation.error)}</p> : null}
       <Button type="submit" loading={mutation.isPending} disabled={!text.trim()}>
-        {t('task.comments.send')}
+        {t('common.send')}
       </Button>
     </form>
   );

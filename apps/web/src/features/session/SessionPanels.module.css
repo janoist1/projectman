@@ -10,7 +10,7 @@
 }
 
 .sectionTitle {
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 800;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -18,7 +18,7 @@
 }
 
 .muted {
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--c-ink-4);
 }
 
@@ -38,7 +38,7 @@
 }
 
 .prTitle {
-  font-size: 16px;
+  font-size: var(--text-xl);
   font-weight: 800;
 }
 
@@ -49,7 +49,7 @@
 .external {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--c-muted);
   color: var(--c-ink-2);
   display: inline-flex;
@@ -79,7 +79,7 @@
   display: flex;
   flex-direction: column;
   gap: 9px;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .checkRow {

@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo } from 'react';
 import type { Me } from '@projectman/shared';
 import { useBoard, useInbox } from '../api/queries';
+import { openItemsFor } from '../lib/inbox';
 import { indexMembers } from '../lib/members';
 import type { MemberIndex } from '../lib/members';
 import { indexPipeline } from '../lib/pipeline';
@@ -57,11 +58,5 @@ export function useProjectIndexes(key: string): {
 export function useMyOpenInbox(key: string, myHandle: string | null) {
   const inbox = useInbox(key);
   const items = inbox.data?.items;
-  return useMemo(
-    () =>
-      (items ?? []).filter(
-        (item) => item.state === 'open' && (!myHandle || item.assignees.includes(myHandle)),
-      ),
-    [items, myHandle],
-  );
+  return useMemo(() => openItemsFor(items, myHandle), [items, myHandle]);
 }

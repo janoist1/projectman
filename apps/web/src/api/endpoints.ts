@@ -15,6 +15,8 @@ import {
   Me,
   MemberView,
   ProjectSummary,
+  ScheduleRun,
+  SchedulesView,
   SessionDetail,
   SetupStatus,
   TaskDetail,
@@ -44,12 +46,12 @@ import type {
   StartTaskRequest,
   CreateTaskCommentRequest,
 } from '@projectman/shared';
-import { apiRequest, unwrapList } from './client';
+import { apiRequest } from './client';
 
 /**
- * One function per route in the shared route table. Read endpoints validate their
- * responses against the shared DTOs (in development); mutation responses are not part of
- * the contract yet, so callers refetch instead of relying on them.
+ * One function per route in the shared route table. Responses with a shared DTO are validated
+ * against it (in development); mutations without one resolve to unknown, and their callers
+ * refetch instead of relying on the body.
  */
 export const api = {
   addHumanMember: (key: string, body: AddHumanMemberRequest) =>
@@ -70,14 +72,8 @@ export const api = {
   acceptInvite: (token: string, body: AcceptInviteRequest) =>
     apiRequest(routes.acceptInvite(token), { method: 'POST', body, schema: Me }),
 
-  templates: async () => {
-    const path = routes.templates();
-    return unwrapList(await apiRequest<unknown>(path), 'templates', TemplateSummary, path);
-  },
-  projects: async () => {
-    const path = routes.projects();
-    return unwrapList(await apiRequest<unknown>(path), 'projects', ProjectSummary, path);
-  },
+  templates: () => apiRequest(routes.templates(), { schema: TemplateSummary.array() }),
+  projects: () => apiRequest(routes.projects(), { schema: ProjectSummary.array() }),
   createProject: (body: CreateProjectRequest) =>
     apiRequest<unknown>(routes.projects(), { method: 'POST', body }),
 
@@ -107,10 +103,7 @@ export const api = {
   reopenTask: (key: string, taskKey: string) =>
     apiRequest<unknown>(routes.reopenTask(key, taskKey), { method: 'POST', body: {} }),
 
-  members: async (key: string) => {
-    const path = routes.members(key);
-    return unwrapList(await apiRequest<unknown>(path), 'members', MemberView, path);
-  },
+  members: (key: string) => apiRequest(routes.members(key), { schema: MemberView.array() }),
   hireMember: (key: string, body: HireMemberRequest) =>
     apiRequest<unknown>(routes.members(key), { method: 'POST', body }),
   retireMember: (key: string, handle: string, body: RetireMemberRequest) =>
@@ -145,6 +138,10 @@ export const api = {
   inbox: (key: string) => apiRequest(`${routes.inbox(key)}?state=all`, { schema: InboxView }),
   resolveInbox: (key: string, itemId: string, body: ResolveInboxRequest) =>
     apiRequest<unknown>(routes.resolveInbox(key, itemId), { method: 'POST', body }),
+
+  schedules: (key: string) => apiRequest(routes.schedules(key), { schema: SchedulesView }),
+  runSchedule: (key: string, handle: string) =>
+    apiRequest(routes.runSchedule(key, handle), { method: 'POST', schema: ScheduleRun }),
 
   config: (key: string) => apiRequest(routes.config(key), { schema: ConfigView }),
   patchConfig: (key: string, body: PatchConfigRequest) =>

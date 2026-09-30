@@ -68,9 +68,7 @@ import type {
   TimelineEvent,
   TimelineEventType,
 } from '@projectman/shared';
-import { inviteTokenHash, newInviteToken } from './inviteTokens';
 import * as fixtures from './fixtures';
-import { MockTerminals } from './terminal';
 import { mockId, mockUuid, nowIso } from './time';
 
 export type MockAuthState = 'ready' | 'setup' | 'login';
@@ -80,18 +78,19 @@ export interface MockResponse {
   body?: unknown;
 }
 
-/** A connected mock websocket as seen by the backend. */
+/** A test listener for the websocket events the backend publishes. */
 export interface MockConnection {
   deliver(event: ServerEvent): void;
 }
 
-interface ConnectionState {
-  projects: Set<string>;
-  terminals: Set<string>;
-}
-
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+function newInviteToken(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
+    byte.toString(16).padStart(2, '0'),
+  ).join('');
 }
 
 /** Like the GitHub integration: the system label "pr-merged" follows the linked pull requests. */
@@ -125,9 +124,9 @@ function parseBody<T>(
 }
 
 /**
- * In-memory stand-in for the projectman server (VITE_MOCK=1). It implements the REST
- * routes from the shared route table and publishes the same websocket events the real
- * server would, so the UI runs through its normal data path.
+ * In-memory stand-in for the projectman server, the fake behind the UI tests. It implements
+ * the REST routes from the shared route table and publishes the same websocket events the
+ * real server would, so the UI runs through its normal data path.
  */
 export class MockBackend {
   auth: MockAuthState;
@@ -152,17 +151,14 @@ export class MockBackend {
   planUsage = clone(fixtures.planUsage);
   codexPlanUsage = { ...clone(fixtures.planUsage), fiveHourPercent: 24, weeklyPercent: 36 };
   extraProjects: { key: string; name: string; templateId: string }[] = [];
-  invitations: Array<Invitation & { tokenHash: string }> = [];
+  invitations: Array<Invitation & { token: string }> = [];
   accounts = new Map<string, { userId: string; name: string; email: string; password: string }>([
     [fixtures.mockUser.email, { ...fixtures.mockUser, password: 'correct horse battery' }],
   ]);
   private inviteAttempts = { count: 0, resetAt: 0 };
-  readonly terminals: MockTerminals;
-  private readonly connections = new Map<MockConnection, ConnectionState>();
-  private readonly timers = new Set<ReturnType<typeof setTimeout>>();
-  private readonly sessionStops = new Map<string, number>();
+  /** Connected listeners and the projects each subscribed to. */
+  private readonly connections = new Map<MockConnection, Set<string>>();
   private taskSeq = Math.max(0, ...fixtures.tasks.map((task) => Number(task.key.split('-')[1] ?? 0)));
-  private onFirstSubscribe: (() => void) | null = null;
 
   constructor(auth: MockAuthState = 'ready') {
     this.auth = auth;
@@ -184,63 +180,24 @@ export class MockBackend {
         readAt: null,
       }));
     }
-    this.terminals = new MockTerminals(this);
-  }
-
-  /** Registers the live-event simulation, started when the first client subscribes. */
-  setSimulation(start: () => void): void {
-    this.onFirstSubscribe = start;
   }
 
   /* ---------- plumbing ---------- */
 
-  later(ms: number, fn: () => void): void {
-    const timer = setTimeout(() => {
-      this.timers.delete(timer);
-      fn();
-    }, ms);
-    this.timers.add(timer);
-  }
-
   connect(connection: MockConnection): () => void {
-    this.connections.set(connection, { projects: new Set(), terminals: new Set() });
+    this.connections.set(connection, new Set());
     connection.deliver({ type: 'hello', serverTime: nowIso() });
     return () => {
-      const state = this.connections.get(connection);
-      state?.terminals.forEach((sessionId) => this.terminals.detach(sessionId, connection));
       this.connections.delete(connection);
     };
   }
 
+  /** Project subscriptions; terminal commands have no fake terminal behind them. */
   handleCommand(connection: MockConnection, command: ClientCommand): void {
-    const state = this.connections.get(connection);
-    if (!state) return;
-    switch (command.type) {
-      case 'subscribe_project':
-        state.projects.add(command.projectKey);
-        if (this.onFirstSubscribe) {
-          const start = this.onFirstSubscribe;
-          this.onFirstSubscribe = null;
-          start();
-        }
-        return;
-      case 'unsubscribe_project':
-        state.projects.delete(command.projectKey);
-        return;
-      case 'terminal_attach':
-        state.terminals.add(command.sessionId);
-        this.terminals.attach(command.sessionId, connection);
-        return;
-      case 'terminal_detach':
-        state.terminals.delete(command.sessionId);
-        this.terminals.detach(command.sessionId, connection);
-        return;
-      case 'terminal_input':
-        this.terminals.input(command.sessionId, command.data);
-        return;
-      case 'terminal_resize':
-        return;
-    }
+    const projects = this.connections.get(connection);
+    if (!projects) return;
+    if (command.type === 'subscribe_project') projects.add(command.projectKey);
+    else if (command.type === 'unsubscribe_project') projects.delete(command.projectKey);
   }
 
   /** Publishes a project event to every subscribed connection. */
@@ -253,12 +210,12 @@ export class MockBackend {
     )
       return;
     const projectKey = 'projectKey' in event ? event.projectKey : null;
-    for (const [connection, state] of this.connections) {
-      if (projectKey === null || state.projects.has(projectKey)) connection.deliver(event);
+    for (const [connection, projects] of this.connections) {
+      if (projectKey === null || projects.has(projectKey)) connection.deliver(event);
     }
   }
 
-  /* ---------- domain helpers (also used by the simulation) ---------- */
+  /* ---------- domain helpers ---------- */
 
   get owner(): string {
     return this.viewerHandle;
@@ -339,7 +296,6 @@ export class MockBackend {
     const list = (this.chats[sessionId] ??= []);
     list.push(...items);
     this.emit({ type: 'chat_appended', projectKey: fixtures.PROJECT_KEY, sessionId, items: clone(items) });
-    this.terminals.echoChat(sessionId, items);
   }
 
   chatItem<K extends ChatItem['kind']>(
@@ -1085,7 +1041,7 @@ export class MockBackend {
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60_000).toISOString(),
         acceptedAt: null,
         revokedAt: null,
-        tokenHash: inviteTokenHash(token),
+        token,
       };
       this.invitations.push(invite);
       return { status: 201, body: { ...InvitationView.parse(invite), path: `/invite/${token}` } };
@@ -1108,7 +1064,7 @@ export class MockBackend {
       this.inviteAttempts = { count: 0, resetAt: Date.now() + 15 * 60_000 };
     if (this.inviteAttempts.count++ >= 10)
       return error(429, 'too_many_attempts', 'Too many invitation attempts');
-    const invite = this.invitations.find((invite) => invite.tokenHash === inviteTokenHash(token));
+    const invite = this.invitations.find((invite) => invite.token === token);
     if (!invite || invite.acceptedAt || invite.revokedAt || invite.expiresAt <= nowIso())
       return error(404, 'invite_invalid', 'Invalid invitation');
     const account = this.accounts.get(invite.email);
@@ -1657,34 +1613,6 @@ export class MockBackend {
     const member = this.findMember(assignee);
     if (member) member.currentTaskKeys = [...member.currentTaskKeys, task.key];
     this.setMemberState(assignee, 'working', `Indul: ${task.key}`);
-    this.later(900, () => {
-      if (session.state === 'exited' || task.status === 'cancelled') return;
-      this.updateSession(session.id, { state: 'working', activity: 'Read: README.md' });
-      this.appendChat(session.id, [
-        this.chatItem('user_text', {
-          origin: 'brief',
-          text: `Task ${task.key}: ${task.title}\n\n${task.description}`,
-        }),
-        this.chatItem('assistant_text', { text: 'Átnézem a feladatot és a kódtárat, aztán nekiállok.' }),
-      ]);
-    });
-    this.later(2600, () => {
-      if (session.state === 'exited' || task.status === 'cancelled') return;
-      const call = this.chatItem('tool_call', {
-        toolUseId: mockId('toolu'),
-        name: 'Read',
-        summary: 'README.md',
-        input: {},
-      });
-      this.appendChat(session.id, [call]);
-      this.later(700, () => {
-        if (call.kind !== 'tool_call' || session.state === 'exited' || task.status === 'cancelled') return;
-        this.appendChat(session.id, [
-          this.chatItem('tool_result', { toolUseId: call.toolUseId, ok: true, summary: '88 sor' }),
-        ]);
-        this.setMemberState(assignee, 'working', `Olvassa: ${task.key}`);
-      });
-    });
     return ok({
       task: clone(task),
       pullRequests: this.taskPullRequests(task),
@@ -1790,24 +1718,8 @@ export class MockBackend {
       return error(409, 'ai_disabled', 'AI work is switched off in this project');
     if (taskKey && ['done', 'cancelled'].includes(this.findTask(taskKey)?.status ?? ''))
       return error(409, 'task_closed', 'Task is closed');
-    const stops = this.sessionStops.get(sessionId);
-    const wasIdle = session.state !== 'working';
-    this.later(wasIdle ? 350 : 1500, () => {
-      if (this.sessionStops.get(sessionId) !== stops) return;
-      this.appendChat(sessionId, [this.chatItem('user_text', { origin: 'human', text: input.text })]);
-      this.updateSession(sessionId, { state: 'working', activity: null, endedAt: null });
-      this.setMemberState(session.member, 'working', 'Válaszol');
-    });
-    this.later(wasIdle ? 2200 : 3400, () => {
-      if (this.sessionStops.get(sessionId) !== stops) return;
-      this.appendChat(sessionId, [
-        this.chatItem('assistant_text', {
-          text: 'Rendben, megnézem. Ha kész, jelzek a csapatnak, és ide is visszaírok.',
-        }),
-      ]);
-      this.updateSession(sessionId, { state: 'idle', activity: null });
-      this.setMemberState(session.member, 'idle', null);
-    });
+    this.appendChat(sessionId, [this.chatItem('user_text', { origin: 'human', text: input.text })]);
+    this.updateSession(sessionId, { state: 'working', activity: null, endedAt: null });
     return { status: 202 };
   }
 
@@ -2030,7 +1942,6 @@ export class MockBackend {
   private stopSession(sessionId: string): MockResponse {
     const session = this.findSession(sessionId);
     if (!session) return error(404, 'not_found', 'Unknown session');
-    this.sessionStops.set(sessionId, (this.sessionStops.get(sessionId) ?? 0) + 1);
     this.updateSession(sessionId, { state: 'exited', activity: null, endedAt: nowIso() });
     this.appendChat(sessionId, [this.chatItem('system_note', { text: 'A session leállt.' })]);
     if (session.workItem.type === 'task') {
@@ -2085,32 +1996,13 @@ export class MockBackend {
       resolution: { optionId: input.optionId, by: this.viewerHandle, at: nowIso(), note: input.note ?? null },
     };
     this.upsertInbox(resolved);
-    this.planUsage.fiveHourPercent = Math.min(99, (this.planUsage.fiveHourPercent ?? 0) + 1);
-    this.emit({
-      type: 'plan_usage',
-      projectKey: fixtures.PROJECT_KEY,
-      provider: 'claude',
-      usage: clone(this.planUsage),
-    });
-    if (
-      this.members.some(
-        (member) => member.kind === 'ai' && member.provider === 'codex' && member.status !== 'retired',
-      )
-    ) {
-      this.emit({
-        type: 'plan_usage',
-        projectKey: fixtures.PROJECT_KEY,
-        provider: 'codex',
-        usage: clone(this.codexPlanUsage),
-      });
-    }
-    this.later(250, () => this.afterResolve(resolved, input));
+    this.afterResolve(resolved, input);
     return ok(clone(resolved));
   }
 
+  /** What the server does with a decision: record it, answer the asker, apply a gate decision. */
   private afterResolve(item: InboxItem, input: ResolveInboxRequest): void {
     const sessionId = item.sessionId;
-    const source = item.source;
     if (item.taskKey && this.findTask(item.taskKey)?.status === 'cancelled') return;
     if (sessionId && this.findSession(sessionId)?.state === 'exited') return;
     if (item.kind === 'permission') {
@@ -2120,86 +2012,11 @@ export class MockBackend {
           item.taskKey,
           this.owner,
           'permission_resolved',
-          {
-            inboxItemId: item.id,
-            decision: allowed ? 'allow' : 'deny',
-          },
+          { inboxItemId: item.id, decision: allowed ? 'allow' : 'deny' },
           sessionId,
         );
       }
-      if (!sessionId) return;
-      const chat = this.chats[sessionId] ?? [];
-      const answered = new Set(
-        chat.flatMap((entry) => (entry.kind === 'tool_result' ? [entry.toolUseId] : [])),
-      );
-      const pending = [...chat]
-        .reverse()
-        .find((entry) => entry.kind === 'tool_call' && !answered.has(entry.toolUseId));
-      if (pending && pending.kind === 'tool_call') {
-        this.appendChat(sessionId, [
-          this.chatItem('tool_result', {
-            toolUseId: pending.toolUseId,
-            ok: allowed,
-            summary: allowed ? 'feltöltve' : 'elutasítva',
-          }),
-        ]);
-      }
-      if (!allowed) {
-        this.appendChat(sessionId, [
-          this.chatItem('assistant_text', {
-            text: 'Rendben, ezt nem futtatom. Írd meg, mi legyen helyette.',
-          }),
-        ]);
-        this.updateSession(sessionId, { state: 'idle', activity: null });
-        this.setMemberState(source, 'idle', 'Válaszra vár');
-        return;
-      }
-      if (item.id !== 'inb_perm_push') {
-        this.updateSession(sessionId, { state: 'working', activity: null });
-        this.setMemberState(source, 'working', 'Folytatja');
-        this.later(1200, () => {
-          if (this.findSession(sessionId)?.state === 'exited') return;
-          this.appendChat(sessionId, [
-            this.chatItem('assistant_text', { text: 'Lefutott, folytatom a munkát.' }),
-          ]);
-        });
-        return;
-      }
-      this.updateSession(sessionId, { state: 'working', activity: 'mcp__team__send_message' });
-      this.setMemberState(source, 'working', 'Szól a Code review-nak');
-      this.later(1400, () => {
-        if (this.findSession(sessionId)?.state === 'exited') return;
-        this.appendChat(sessionId, [
-          this.chatItem('assistant_text', {
-            text: 'Feltöltve. Szólok a Code review-nak: ha nem blokkol, jöhet az integration, utána a QA újrateszt.',
-          }),
-        ]);
-        this.sendTeamMessage(
-          source,
-          ['code-review'],
-          item.taskKey,
-          'Javítva a mobil gombsor (4e1c2a9), egy CSS-fájl. Kérlek, nézd át. Ha nem blokkol, mehet újra az integrationre, utána a QA a 6. forgatókönyvet futtatja.',
-          sessionId,
-        );
-        if (item.taskKey) {
-          const task = this.findTask(item.taskKey);
-          if (task) {
-            this.updateTask(task.key, {
-              stageId: 'code_review',
-            });
-            this.addTimeline(
-              task.key,
-              source,
-              'task_stage_changed',
-              { from: 'qa', to: 'code_review' },
-              sessionId,
-            );
-          }
-        }
-        this.updateSession(sessionId, { state: 'idle', activity: null });
-        this.setMemberState(source, 'idle', 'A Code review-ra vár');
-        this.setMemberState('code-review', 'working', `Átnézi: ${item.taskKey ?? ''}`.trim());
-      });
+      if (sessionId) this.updateSession(sessionId, { state: allowed ? 'working' : 'idle', activity: null });
       return;
     }
 
@@ -2215,27 +2032,13 @@ export class MockBackend {
           sessionId,
         );
       }
-      this.sendTeamMessage(this.owner, [source], item.taskKey, answer);
-      if (!sessionId) return;
-      this.appendChat(sessionId, [
-        this.chatItem('team_message', { direction: 'in', from: this.owner, to: [source], text: answer }),
-      ]);
-      this.updateSession(sessionId, { state: 'working', activity: null });
-      this.setMemberState(source, 'working', 'Folytatja a válasz alapján');
-      this.later(1800, () => {
-        if (this.findSession(sessionId)?.state === 'exited') return;
-        this.appendChat(sessionId, [
-          this.chatItem('assistant_text', { text: 'Köszönöm, ennek megfelelően folytatom.' }),
-        ]);
-        this.updateSession(sessionId, { state: 'idle', activity: null });
-        this.setMemberState(source, 'idle', null);
-      });
+      this.sendTeamMessage(this.owner, [item.source], item.taskKey, answer);
       return;
     }
 
     const approved = input.optionId === 'approve';
     const gate = item.payload.gate as
-      { requestId?: string; fromStageId?: string; toStageId?: string } | undefined;
+      { requestId?: string; fromStageId?: string; toStageId?: string; label?: string } | undefined;
     if (item.kind === 'decision' && gate?.toStageId && item.taskKey) {
       const task = this.findTask(item.taskKey);
       if (!task) return;
@@ -2245,50 +2048,26 @@ export class MockBackend {
           fields: ['status'],
           gateRejected: { requestId: gate.requestId, to: gate.toStageId, inboxItemId: item.id },
         });
-        this.setMemberState(source, 'idle', null);
         return;
       }
       const from = task.stageId;
       const to = gate.toStageId;
-      const label = (item.payload.gate as { label?: string }).label;
-      if (label && !task.labels.includes(label)) {
-        this.updateTask(task.key, { labels: [...task.labels, label] });
+      if (gate.label && !task.labels.includes(gate.label)) {
+        this.updateTask(task.key, { labels: [...task.labels, gate.label] });
         this.addTimeline(task.key, this.owner, 'task_labels_changed', {
-          added: [label],
+          added: [gate.label],
           removed: [],
           reason: 'approval',
         });
       }
       this.updateTask(task.key, { stageId: to, status: 'active' });
       this.addTimeline(task.key, this.owner, 'task_stage_changed', { from, to, approvedBy: [this.owner] });
-      if (to !== 'release') {
-        this.setMemberState(source, 'idle', null);
-        return;
-      }
-      this.setMemberState(source, 'working', 'Élesít');
-      this.later(1800, () => {
-        if (task.status === 'cancelled') return;
-        this.updateTask(task.key, { stageId: 'done', status: 'done', closedAt: nowIso() });
-        this.addTimeline(task.key, source, 'task_note', { text: 'Élesen: release-2026-09-30.1' });
-        this.addTimeline(task.key, source, 'task_stage_changed', { from: 'release', to: 'done' });
-        this.sendTeamMessage(
-          source,
-          [this.owner],
-          task.key,
-          'Kint van élesben: release-2026-09-30.1. A naplóban nincs hiba.',
-        );
-        this.setMemberState(source, 'idle', null);
-      });
       return;
     }
     if (item.taskKey) {
       this.addTimeline(item.taskKey, this.owner, 'task_note', {
         text: approved ? `Jóváhagyva: ${item.title}` : `Elhalasztva: ${item.title}`,
       });
-    }
-    this.setMemberState(source, 'idle', null);
-    if (approved && item.kind === 'approval') {
-      this.later(900, () => this.sendTeamMessage(source, [this.owner], null, 'Elküldtem a levelet Katának.'));
     }
   }
 }

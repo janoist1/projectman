@@ -9,7 +9,7 @@ import { SelectField, TextField } from '../../components/Field';
 import { ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { humanRoleName } from '../../lib/roles';
-import styles from './HireDialog.module.css';
+import styles from './memberForm.module.css';
 
 export function AddHumanDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (

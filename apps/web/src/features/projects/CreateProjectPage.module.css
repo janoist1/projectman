@@ -22,8 +22,14 @@
 }
 
 .muted {
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--c-ink-4);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
 .error {
@@ -37,7 +43,7 @@
   align-items: flex-start;
   gap: 6px;
   padding: 10px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--c-subtle);
   border: 1px solid var(--c-line-soft);
 }

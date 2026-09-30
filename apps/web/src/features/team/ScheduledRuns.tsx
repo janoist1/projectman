@@ -1,5 +1,5 @@
 import { Link } from 'react-router';
-import { useRunSchedule, useSchedules } from '../../api/schedules';
+import { useRunSchedule, useSchedules } from '../../api/queries';
 import { isApiError } from '../../api/client';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';

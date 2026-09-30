@@ -3,20 +3,18 @@ import { Link } from 'react-router';
 import type { MemberView } from '@projectman/shared';
 import { useBoard, useConfig, useInbox, useMembers, useRoles, useTeamMessages } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
-import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
-import { Chip, StatusDot } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
+import { PageHeader } from '../../components/PageHeader';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
-import { ProviderBadge } from '../../components/ProviderBadge';
 import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
-import { memberStatusView, nameOf } from '../../lib/members';
+import { memberStatusView } from '../../lib/members';
 import { MessageList } from '../messages/MessageList';
-import { humanRoleName, aiRoleView } from '../../lib/roles';
-import { MemberScheduleControl, RecentScheduleRuns } from './ScheduledRuns';
+import { RecentScheduleRuns } from './ScheduledRuns';
 import { EditMemberDialog } from './EditMemberDialog';
+import { RosterCards, RosterTable } from './Roster';
 import { RoleSection } from './RoleSection';
 import { AddHumanDialog } from './AddHumanDialog';
 import { InviteDialog } from './InviteDialog';
@@ -26,6 +24,14 @@ import { RetireDialog } from './RetireDialog';
 import styles from './TeamPage.module.css';
 
 type MemberFilter = 'all' | 'humans' | 'ai';
+
+/** The one team dialog open at a time. */
+type TeamDialog =
+  | { kind: 'addHuman' }
+  | { kind: 'invite'; member?: MemberView }
+  | { kind: 'hire' }
+  | { kind: 'edit'; member: MemberView }
+  | { kind: 'retire'; member: MemberView };
 
 const statusRank: Record<string, number> = {
   needs_you: 0,
@@ -48,15 +54,11 @@ export function TeamPage() {
   const inbox = useInbox(key);
   const config = useConfig(key, can.manageTeam);
   const roles = useRoles(key);
-  const [editing, setEditing] = useState<MemberView | null>(null);
   const messages = useTeamMessages(key);
   const indexes = useProjectIndexes(key);
   const [filter, setFilter] = useState<MemberFilter>('all');
-  const [addHumanOpen, setAddHumanOpen] = useState(false);
-  const [inviting, setInviting] = useState<MemberView | null>(null);
-  const [inviteOpen, setInviteOpen] = useState(false);
-  const [hireOpen, setHireOpen] = useState(false);
-  const [retiring, setRetiring] = useState<MemberView | null>(null);
+  const [dialog, setDialog] = useState<TeamDialog | null>(null);
+  const close = () => setDialog(null);
   useDocumentTitle(t('team.title'), board.data?.project.name);
 
   const list = membersQuery.data ?? board.data?.members;
@@ -89,88 +91,53 @@ export function TeamPage() {
   const sponsors = new Set(ai.map((member) => member.sponsor));
   const allMine = sponsors.size === 1 && myHandle !== null && sponsors.has(myHandle);
 
-  const sponsorText = (member: MemberView) => {
-    if (member.kind === 'human')
-      return t(member.status === 'no_account' ? 'memberStatus.no_account' : 'team.ownAccount');
-    if (!member.sponsor) return t('common.dash');
-    return member.sponsor === myHandle
-      ? t('team.sponsorYou')
-      : t('team.sponsorOther', { name: nameOf(member.sponsor, indexes.members, myHandle) });
-  };
-
-  const taskLinks = (member: MemberView) =>
-    member.currentTaskKeys.length === 0 ? (
-      <span className={styles.muted}>{member.activity ?? t('team.noTask')}</span>
-    ) : (
-      <span className={styles.tasks}>
-        {member.currentTaskKeys.slice(0, 2).map((taskKey) => (
-          <Link key={taskKey} to={`/p/${key}/tasks/${taskKey}`} className={styles.taskLink}>
-            <span className={styles.taskKey}>{taskKey}</span>
-            <span className={styles.taskTitle}>{titles.get(taskKey) ?? ''}</span>
-          </Link>
-        ))}
-      </span>
-    );
-
-  const retireButton = (member: MemberView) =>
-    member.kind === 'ai' && can.manageTeam ? (
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => setRetiring(member)}
-        aria-label={t('team.retireMember', { name: member.displayName, handle: member.handle })}
-      >
-        {t('team.retire')}
-      </Button>
-    ) : null;
-
-  const memberActions = (member: MemberView) => (
-    <>
-      {can.manageTeam ? (
+  const memberActions = (member: MemberView) =>
+    can.manageTeam ? (
+      <>
         <Button
           variant="ghost"
           size="sm"
           disabled={!roles.data || (member.kind === 'ai' && !config.data)}
-          onClick={() => setEditing(member)}
+          onClick={() => setDialog({ kind: 'edit', member })}
           aria-label={t('memberEdit.title', { name: member.displayName })}
         >
           {t('memberEdit.edit')}
         </Button>
-      ) : null}
-      {can.manageTeam && member.kind === 'human' && member.status === 'no_account' ? (
-        <Button variant="ghost" size="sm" onClick={() => setInviting(member)}>
-          {t('invites.create')}
-        </Button>
-      ) : null}
-      {retireButton(member)}
-    </>
-  );
-  const roleChips = (member: MemberView) => (
-    <>
-      {member.kind === 'human' ? <span>{humanRoleName(member.role)}</span> : null}
-      {member.roles.map((id) => {
-        const view = aiRoleView(id, member.specialty, roles.data?.roles);
-        return (
-          <Chip key={id} icon={view.icon} data-tone={view.tone} className={styles.roleChip}>
-            {view.name}
-          </Chip>
-        );
-      })}
-    </>
-  );
+        {member.kind === 'human' && member.status === 'no_account' ? (
+          <Button variant="ghost" size="sm" onClick={() => setDialog({ kind: 'invite', member })}>
+            {t('invites.create')}
+          </Button>
+        ) : null}
+        {member.kind === 'ai' ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setDialog({ kind: 'retire', member })}
+            aria-label={t('team.retireMember', { name: member.displayName, handle: member.handle })}
+          >
+            {t('team.retire')}
+          </Button>
+        ) : null}
+      </>
+    ) : null;
+  const editing = dialog?.kind === 'edit' ? dialog.member : null;
+  const retiring = dialog?.kind === 'retire' ? dialog.member : null;
+  const Roster = isMobile ? RosterCards : RosterTable;
 
   return (
     <div className={styles.page}>
-      <header className={styles.header}>
-        <div className={styles.titles}>
-          <h1 className={styles.title}>{t('team.title')}</h1>
-          <p className={styles.subtitle}>
+      <PageHeader
+        className={styles.header}
+        title={t('team.title')}
+        subtitle={
+          <>
             {t('team.subtitle', { humans: humans.length, ai: ai.length, tasks: activeTaskKeys.size })}
             {ai.length > 0
               ? ` · ${allMine ? t('team.subscriptionYours') : t('team.subscriptionMixed')}`
               : null}
-          </p>
-        </div>
+          </>
+        }
+      >
         {(board.data?.aiEnabled ?? limits?.aiEnabled) === false ? (
           <div role="status" className={styles.limit}>
             <span>{t('team.aiDisabled')}</span>
@@ -190,14 +157,18 @@ export function TeamPage() {
             </span>
           </div>
         ) : null}
-        {can.manageTeam ? <Button onClick={() => setAddHumanOpen(true)}>{t('addHuman.title')}</Button> : null}
-        {can.manageTeam ? <Button onClick={() => setInviteOpen(true)}>{t('invites.title')}</Button> : null}
         {can.manageTeam ? (
-          <Button variant="primary" icon="plus" onClick={() => setHireOpen(true)}>
+          <Button onClick={() => setDialog({ kind: 'addHuman' })}>{t('addHuman.title')}</Button>
+        ) : null}
+        {can.manageTeam ? (
+          <Button onClick={() => setDialog({ kind: 'invite' })}>{t('invites.title')}</Button>
+        ) : null}
+        {can.manageTeam ? (
+          <Button variant="primary" icon="plus" onClick={() => setDialog({ kind: 'hire' })}>
             {t('team.hire')}
           </Button>
         ) : null}
-      </header>
+      </PageHeader>
 
       <div className={styles.content}>
         <section className={styles.roster} aria-labelledby="team-roster">
@@ -218,123 +189,13 @@ export function TeamPage() {
             />
           </div>
           {sorted.length === 0 ? <EmptyState icon="team" title={t('team.empty')} /> : null}
-          {isMobile ? (
-            <ul className={styles.cards}>
-              {sorted.map((member) => {
-                const view = memberStatusView(member, inbox.data?.items, myHandle);
-                return (
-                  <li key={member.handle} className={styles.card}>
-                    <div className={styles.memberCell}>
-                      <Avatar
-                        member={member}
-                        isMe={member.handle === myHandle}
-                        size="lg"
-                        status={view.status}
-                      />
-                      <span className={styles.memberText}>
-                        <span className={styles.memberName}>
-                          <Link to={`/p/${key}/team/${member.handle}`}>
-                            {nameOf(member.handle, indexes.members, myHandle)}
-                          </Link>
-                          {member.kind === 'ai' ? (
-                            <>
-                              <Chip tone="dark">{t('common.ai')}</Chip>
-                              <ProviderBadge provider={member.provider} />
-                            </>
-                          ) : null}
-                          {member.temp ? <Chip tone="needs">{t('team.temp')}</Chip> : null}
-                        </span>
-                        <span className={styles.handle}>
-                          <span className={styles.mono}>{member.handle}</span> · {roleChips(member)}
-                        </span>
-                      </span>
-                    </div>
-                    <span className={styles.statusLine} data-status={view.status}>
-                      <StatusDot status={view.status} pulse={view.status === 'working'} />
-                      <span className={styles.statusText}>{view.label}</span>
-                    </span>
-                    {taskLinks(member)}
-                    <MemberScheduleControl handle={member.handle} />
-                    <span className={styles.cardFoot}>
-                      <span className={styles.muted}>{sponsorText(member)}</span>
-                      {memberActions(member)}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <div className={styles.tableWrap}>
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    <th scope="col">{t('team.columns.member')}</th>
-                    <th scope="col">{t('team.columns.status')}</th>
-                    <th scope="col">{t('team.columns.now')}</th>
-                    <th scope="col" className={styles.subscriptionCol}>
-                      {t('team.columns.subscription')}
-                    </th>
-                    <th scope="col">
-                      <span className="visually-hidden">{t('team.columns.actions')}</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sorted.map((member) => {
-                    const view = memberStatusView(member, inbox.data?.items, myHandle);
-                    return (
-                      <tr key={member.handle}>
-                        <td>
-                          <div className={styles.memberCell}>
-                            <Avatar
-                              member={member}
-                              isMe={member.handle === myHandle}
-                              size="lg"
-                              status={view.status}
-                            />
-                            <span className={styles.memberText}>
-                              <span className={styles.memberName}>
-                                <Link to={`/p/${key}/team/${member.handle}`}>
-                                  {nameOf(member.handle, indexes.members, myHandle)}
-                                </Link>
-                                {member.kind === 'ai' ? (
-                                  <>
-                                    <Chip tone="dark">{t('common.ai')}</Chip>
-                                    <ProviderBadge provider={member.provider} />
-                                  </>
-                                ) : null}
-                                {member.temp ? <Chip tone="needs">{t('team.temp')}</Chip> : null}
-                              </span>
-                              <span className={styles.handle}>
-                                <span className={styles.mono}>{member.handle}</span> · {roleChips(member)}
-                              </span>
-                            </span>
-                          </div>
-                        </td>
-                        <td>
-                          <span className={styles.statusCell} data-status={view.status}>
-                            <span className={styles.statusLine}>
-                              <StatusDot status={view.status} pulse={view.status === 'working'} />
-                              <span className={styles.statusText}>{view.label}</span>
-                            </span>
-                            {member.activity && member.currentTaskKeys.length > 0 ? (
-                              <span className={styles.activity}>{member.activity}</span>
-                            ) : null}
-                          </span>
-                        </td>
-                        <td className={styles.nowCell}>
-                          {taskLinks(member)}
-                          <MemberScheduleControl handle={member.handle} />
-                        </td>
-                        <td className={`${styles.muted} ${styles.subscriptionCol}`}>{sponsorText(member)}</td>
-                        <td className={styles.actionsCell}>{memberActions(member)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <Roster
+            members={sorted}
+            inbox={inbox.data?.items}
+            roles={roles.data?.roles}
+            titles={titles}
+            actions={memberActions}
+          />
         </section>
 
         {isMobile ? null : (
@@ -371,25 +232,24 @@ export function TeamPage() {
 
       <RecentScheduleRuns />
       <PendingInvites />
-      <AddHumanDialog open={addHumanOpen} onClose={() => setAddHumanOpen(false)} />
+      <AddHumanDialog open={dialog?.kind === 'addHuman'} onClose={close} />
       <InviteDialog
-        open={inviting !== null}
-        member={inviting ?? undefined}
-        onClose={() => setInviting(null)}
+        open={dialog?.kind === 'invite'}
+        member={dialog?.kind === 'invite' ? dialog.member : undefined}
+        onClose={close}
       />
-      <InviteDialog open={inviteOpen} onClose={() => setInviteOpen(false)} />
       <RoleSection config={config.data?.config} />
       <EditMemberDialog
         member={editing}
         config={config.data?.config}
         roles={roles.data?.roles ?? []}
-        onClose={() => setEditing(null)}
+        onClose={close}
       />
-      <HireDialog open={hireOpen} onClose={() => setHireOpen(false)} config={config.data?.config} />
+      <HireDialog open={dialog?.kind === 'hire'} onClose={close} config={config.data?.config} />
       <RetireDialog
         member={retiring}
         candidates={ai.filter((member) => member.handle !== retiring?.handle)}
-        onClose={() => setRetiring(null)}
+        onClose={close}
       />
     </div>
   );

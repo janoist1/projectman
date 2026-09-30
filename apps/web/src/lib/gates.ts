@@ -1,11 +1,7 @@
 import { GateCondition } from '@projectman/shared';
 import type { LabelView } from '@projectman/shared';
 import { t } from '../i18n/t';
-
-/** Display name of a label: its definition's name, or the plain tag itself. */
-export function labelName(id: string, labels: readonly LabelView[]): string {
-  return labels.find((label) => label.id === id)?.name ?? id;
-}
+import { labelName } from './labels';
 
 /** "Kell: Code review rendben", "Nem lehet rajta: Válaszra vár". */
 export function gateConditionText(condition: GateCondition, labels: readonly LabelView[]): string {

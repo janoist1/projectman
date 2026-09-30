@@ -1,0 +1,44 @@
+/* Shared by the team's member forms: hire, add, edit, roles, schedule and provider fields. */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.schedule {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  padding: 12px;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.warning {
+  grid-column: 1 / -1;
+  padding: 12px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-sm);
+  color: var(--c-needs-text);
+  background: var(--c-needs-bg);
+}
+
+@media (max-width: 767px) {
+  .actions > button {
+    flex: 1 1 100%;
+  }
+}

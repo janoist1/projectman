@@ -5,7 +5,7 @@
   padding: 20px;
   background: var(--c-surface);
   border: 1px solid var(--c-line);
-  border-radius: 16px;
+  border-radius: var(--radius-2xl);
 }
 .header {
   display: flex;
@@ -15,7 +15,7 @@
 }
 .header h2 {
   flex: 1;
-  font-size: 18px;
+  font-size: var(--text-2xl);
 }
 .list {
   display: grid;
@@ -27,12 +27,12 @@
 }
 .role {
   border: 1px solid var(--c-line);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 .muted {
   color: var(--c-ink-3);

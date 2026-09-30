@@ -135,6 +135,16 @@ export function isAssignedTo(item: InboxItem, handle: string | null): boolean {
   return !handle || item.assignees.includes(handle);
 }
 
+/** Ids of every open item (the timeline marks requests that still wait). */
+export function openItemIds(items: readonly InboxItem[] | undefined): Set<string> {
+  return new Set(openItems(items).map((item) => item.id));
+}
+
+/** Open items waiting for this member (every open item when the handle is unknown). */
+export function openItemsFor(items: readonly InboxItem[] | undefined, handle: string | null): InboxItem[] {
+  return openItems(items).filter((item) => isAssignedTo(item, handle));
+}
+
 export function newestFirst<T extends { createdAt: string }>(items: readonly T[]): T[] {
   return [...items].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }

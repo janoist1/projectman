@@ -2,14 +2,16 @@ import type { QueryClient } from '@tanstack/react-query';
 import type {
   BoardView,
   ChatItem,
-  InboxItem,
   InboxView,
+  Me,
+  MemberProfile,
   MemberView,
   ServerEvent,
   SessionDetail,
+  Task,
   TaskDetail,
-  TeamMessagesView,
 } from '@projectman/shared';
+import { openItemsFor } from '../lib/inbox';
 import { queryKeys } from './queryKeys';
 
 /** Replaces the item with the same id, or appends it. Returns the same array when unchanged. */
@@ -29,8 +31,19 @@ export function appendUnique<T extends { id: string }>(list: readonly T[], items
   return fresh.length === 0 ? (list as T[]) : [...list, ...fresh];
 }
 
-export function countOpenInbox(items: readonly InboxItem[], handle: string | null): number {
-  return items.filter((item) => item.state === 'open' && (!handle || item.assignees.includes(handle))).length;
+/**
+ * The board's inbox badge counts the viewer's open items, as the server does. Patched from the
+ * cached inbox when the viewer's handle is known; otherwise the board is fetched again.
+ */
+export function patchOpenInboxCount(client: QueryClient, key: string, inbox: InboxView | undefined): void {
+  const myHandle = client.getQueryData<Me>(queryKeys.me)?.handles[key];
+  if (!inbox || !myHandle) {
+    void client.invalidateQueries({ queryKey: queryKeys.board(key) });
+    return;
+  }
+  client.setQueryData<BoardView>(queryKeys.board(key), (board) =>
+    board ? { ...board, openInboxCount: openItemsFor(inbox.items, myHandle).length } : board,
+  );
 }
 
 function patchMembers(
@@ -39,6 +52,25 @@ function patchMembers(
   patch: Pick<MemberView, 'status' | 'activity'>,
 ): MemberView[] {
   return members.map((member) => (member.handle === handle ? { ...member, ...patch } : member));
+}
+
+/** A changed task: on the board, in its detail and in the sessions that work on it. */
+function writeTask(client: QueryClient, key: string, task: Task): void {
+  client.setQueryData<BoardView>(queryKeys.board(key), (board) =>
+    board ? { ...board, tasks: upsertBy(board.tasks, task, (entry) => entry.key) } : board,
+  );
+  client.setQueryData<TaskDetail>(queryKeys.task(key, task.key), (detail) =>
+    detail ? { ...detail, task } : detail,
+  );
+  client.setQueriesData<SessionDetail>({ queryKey: queryKeys.sessionDetails(key) }, (detail) =>
+    detail && detail.task?.key === task.key ? { ...detail, task } : detail,
+  );
+}
+
+/** A task detail the server returned from a mutation (labels, comments). */
+export function writeTaskDetail(client: QueryClient, key: string, detail: TaskDetail): void {
+  writeTask(client, key, detail.task);
+  client.setQueryData<TaskDetail>(queryKeys.task(key, detail.task.key), detail);
 }
 
 /**
@@ -54,7 +86,6 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       'session_upserted',
       'inbox_upserted',
       'member_changed',
-      'member_state',
       'config_changed',
     ].includes(event.type)
   ) {
@@ -63,18 +94,10 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
   switch (event.type) {
     case 'task_upserted': {
       const { projectKey: key, task } = event;
-      client.setQueryData<BoardView>(queryKeys.board(key), (board) =>
-        board ? { ...board, tasks: upsertBy(board.tasks, task, (entry) => entry.key) } : board,
-      );
-      client.setQueryData<TaskDetail>(queryKeys.task(key, task.key), (detail) =>
-        detail ? { ...detail, task } : detail,
-      );
+      writeTask(client, key, task);
       if (task.links.some((link) => link.kind === 'pull_request')) {
         void client.invalidateQueries({ queryKey: queryKeys.task(key, task.key) });
       }
-      client.setQueriesData<SessionDetail>({ queryKey: queryKeys.sessions(key) }, (detail) =>
-        detail && detail.task?.key === task.key ? { ...detail, task } : detail,
-      );
       return;
     }
     case 'timeline_appended': {
@@ -133,6 +156,10 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       client.setQueryData<MemberView[]>(queryKeys.members(key), (members) =>
         members ? patchMembers(members, handle, { status, activity }) : members,
       );
+      // Activity ticks often: patch the member's profile instead of refetching every profile.
+      client.setQueryData<MemberProfile>(queryKeys.profile(key, handle), (profile) =>
+        profile ? { ...profile, member: { ...profile.member, status, activity } } : profile,
+      );
       return;
     }
     case 'inbox_upserted': {
@@ -140,21 +167,12 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       const inbox = client.setQueryData<InboxView>(queryKeys.inbox(key), (view) =>
         view ? { items: upsertBy(view.items, item, (entry) => entry.id) } : view,
       );
-      if (inbox) {
-        client.setQueryData<BoardView>(queryKeys.board(key), (board) =>
-          board ? { ...board, openInboxCount: countOpenInbox(inbox.items, null) } : board,
-        );
-      } else {
-        void client.invalidateQueries({ queryKey: queryKeys.board(key) });
-      }
+      patchOpenInboxCount(client, key, inbox);
       return;
     }
     case 'team_message': {
-      const { projectKey: key, message } = event;
-      void client.invalidateQueries({ queryKey: queryKeys.messages(key) });
-      client.setQueryData<TeamMessagesView>(queryKeys.messages(key), (view) =>
-        view ? { ...view, messages: upsertBy(view.messages, message, (entry) => entry.id) } : view,
-      );
+      // The feed, its unread count, the threads and the unread list all change: refetch them.
+      void client.invalidateQueries({ queryKey: queryKeys.messages(event.projectKey) });
       return;
     }
     case 'chat_appended': {

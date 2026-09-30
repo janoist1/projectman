@@ -6,6 +6,7 @@ import type { TeamMessage } from '@projectman/shared';
 import {
   useBoard,
   useConfig,
+  useSchedules,
   useLabels,
   useMemberMemories,
   useMemberProfile,
@@ -16,7 +17,6 @@ import {
   useStartConversation,
   useMemberMessages,
 } from '../../api/queries';
-import { useSchedules } from '../../api/schedules';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { PlanUsageMeter } from '../../app/PlanUsageMeter';
 import { Avatar } from '../../components/Avatar';
@@ -29,6 +29,7 @@ import { t } from '../../i18n/t';
 import { formatStamp } from '../../i18n/format';
 import { errorMessage } from '../../lib/errors';
 import { memberStatusView } from '../../lib/members';
+import { isLiveSession } from '../../lib/sessions';
 import { aiRoleView, humanRoleName } from '../../lib/roles';
 import { useDocumentTitle } from '../../lib/hooks';
 import { MessageComposer } from '../messages/MessageComposer';
@@ -62,7 +63,7 @@ function MemberSchedule({ handle }: { handle: string }) {
   if (schedules.error) return <ErrorState compact error={schedules.error} />;
   return (
     <section className={styles.panel}>
-      <h2>{t('schedule.title')}</h2>
+      <h2>{t('schedules.form.title')}</h2>
       {schedule ? (
         <>
           <code>{schedule.cron}</code>
@@ -106,7 +107,7 @@ export function MemberProfilePage() {
   const member = data.member;
   const ai = member.kind === 'ai';
   const status = memberStatusView(member, data.inbox, myHandle);
-  const live = data.sessions.filter((s) => !['exited', 'failed'].includes(s.state));
+  const live = data.sessions.filter(isLiveSession);
   const titles = new Map((board.data?.tasks ?? []).map((task) => [task.key, task.title]));
   const thread = (messages.data?.messages ?? []).filter((m) =>
     handle === myHandle

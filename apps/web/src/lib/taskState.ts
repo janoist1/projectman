@@ -1,7 +1,7 @@
 import type { InboxItem, LabelView, MemberView, Task } from '@projectman/shared';
 import { formatAge } from '../i18n/format';
 import { joinNames, t } from '../i18n/t';
-import { newestFirst, permissionCommand, shortCommand } from './inbox';
+import { isAssignedTo, newestFirst, openItems, permissionCommand, shortCommand } from './inbox';
 import { nameOf } from './members';
 import type { MemberIndex } from './members';
 import { nextStage } from './pipeline';
@@ -33,10 +33,15 @@ export interface TaskStateContext {
   labels?: readonly LabelView[];
 }
 
+/** Done and cancelled tasks are closed: they no longer move or start. */
+export function isTaskClosed(task: Pick<Task, 'status'>): boolean {
+  return task.status === 'done' || task.status === 'cancelled';
+}
+
 export function groupOpenInboxByTask(items: readonly InboxItem[] | undefined): Map<string, InboxItem[]> {
   const map = new Map<string, InboxItem[]>();
-  for (const item of items ?? []) {
-    if (item.state !== 'open' || !item.taskKey) continue;
+  for (const item of openItems(items)) {
+    if (!item.taskKey) continue;
     const list = map.get(item.taskKey) ?? [];
     list.push(item);
     map.set(item.taskKey, list);
@@ -61,7 +66,7 @@ function unmetPrerequisites(task: Task, tasksByKey: ReadonlyMap<string, Task>): 
   return task.links.some((link) => {
     if (link.kind !== 'prerequisite') return false;
     const other = tasksByKey.get(link.ref);
-    return !other || (other.status !== 'done' && other.status !== 'cancelled');
+    return !other || !isTaskClosed(other);
   });
 }
 
@@ -84,7 +89,12 @@ export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
   const open = ctx.openInboxByTask.get(task.key) ?? [];
 
   if (task.status === 'cancelled') {
-    return { phase: 'cancelled', label: t('taskStatus.cancelled'), since: task.updatedAt, worker: null };
+    return {
+      phase: 'cancelled',
+      label: t('taskStatus.statuses.cancelled'),
+      since: task.updatedAt,
+      worker: null,
+    };
   }
   if (task.status === 'done' || stage?.kind === 'done') {
     const closed = task.closedAt ?? task.updatedAt;
@@ -105,13 +115,13 @@ export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
     };
   }
 
-  const mine = newestFirst(open.filter((item) => !myHandle || item.assignees.includes(myHandle)));
+  const mine = newestFirst(open.filter((item) => isAssignedTo(item, myHandle)));
   if (mine[0]) {
     return { phase: 'needs_you', label: needsYouLabel(mine[0]), since: mine[0].createdAt, worker: null };
   }
 
   if (task.status === 'blocked') {
-    return { phase: 'blocked', label: t('taskStatus.blocked'), since: task.updatedAt, worker: null };
+    return { phase: 'blocked', label: t('taskStatus.statuses.blocked'), since: task.updatedAt, worker: null };
   }
 
   const worker = findWorker(task, members);

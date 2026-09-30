@@ -11,7 +11,9 @@ import { errorMessage } from '../../lib/errors';
 import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
-import styles from './TaskDrawer.module.css';
+import { isTaskClosed } from '../../lib/taskState';
+import drawer from './drawer.module.css';
+import styles from './TaskSubtasks.module.css';
 
 export function TaskSubtasks({
   task,
@@ -28,8 +30,8 @@ export function TaskSubtasks({
   const create = useCreateTask(key);
   const [title, setTitle] = useState('');
   return (
-    <section className={styles.section} aria-label={t('task.subtasks')}>
-      <h3 className={styles.sectionTitle}>{t('task.subtasks')}</h3>
+    <section className={drawer.section} aria-label={t('task.subtasks')}>
+      <h3 className={drawer.sectionTitle}>{t('task.subtasks')}</h3>
       <p>
         {t('task.subtaskProgress', {
           done: children.filter((child) => child.status === 'done').length,
@@ -43,8 +45,8 @@ export function TaskSubtasks({
               {child.key} – {child.title}
             </Link>
             <Chip>
-              {['done', 'cancelled'].includes(child.status)
-                ? t(`taskStatuses.${child.status}`)
+              {isTaskClosed(child)
+                ? t(`taskStatus.statuses.${child.status}`)
                 : (pipeline.stageById.get(child.stageId)?.name ?? child.stageId)}
             </Chip>
             <span>{child.assignee ? nameOf(child.assignee, members, myHandle) : t('task.unassigned')}</span>
@@ -73,7 +75,7 @@ export function TaskSubtasks({
             {t('task.addSubtask')}
           </Button>
           {create.isError ? (
-            <p className={styles.error} role="alert">
+            <p className={drawer.error} role="alert">
               {errorMessage(create.error)}
             </p>
           ) : null}

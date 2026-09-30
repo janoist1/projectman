@@ -5,15 +5,12 @@ import { useInbox, useLabels, useResolveInbox, useStartTask, useTaskDetail } fro
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button, ButtonLink } from '../../components/Button';
-import { Chip, StatusDot } from '../../components/Chip';
 import { SelectField } from '../../components/Field';
 import { Icon } from '../../components/Icon';
 import { Markdown } from '../../components/Markdown';
-import { StageProgress } from '../../components/StageProgress';
 import { ErrorState, LoadingState } from '../../components/States';
 import { Timeline } from '../../components/Timeline';
 import { useToast } from '../../components/toastContext';
-import { formatAgo } from '../../i18n/format';
 import { startWaitingHint } from '../../lib/taskState';
 import { joinNames, t } from '../../i18n/t';
 import { errorMessage, isApprovalRequested, isGateBlocked } from '../../lib/errors';
@@ -26,10 +23,8 @@ import { useDocumentTitle } from '../../lib/hooks';
 import { nameOf } from '../../lib/members';
 import { isDeveloperRole } from '../../lib/roles';
 import type { MemberIndex } from '../../lib/members';
-import { stagePosition } from '../../lib/pipeline';
 import { TaskLabels } from './TaskLabels';
 import { InboxCard } from '../inbox/InboxCard';
-import { prChip } from './cardModel';
 import { nextStepText, primarySession } from './taskModel';
 import { TaskLifecycle } from './TaskLifecycle';
 import { useBoardModel } from './useBoardModel';
@@ -38,7 +33,9 @@ import { TaskEdit } from './TaskEdit';
 import { TaskSubtasks } from './TaskSubtasks';
 import { TaskMove } from './TaskMove';
 import { canMoveTask } from './moveTask';
+import drawer from './drawer.module.css';
 import styles from './TaskDrawer.module.css';
+import { TaskHeader } from './TaskHeader';
 
 function StartPanel({ task, members }: { task: Task; members: MemberIndex }) {
   const { key } = useProject();
@@ -64,7 +61,7 @@ function StartPanel({ task, members }: { task: Task; members: MemberIndex }) {
         ))}
       </SelectField>
       {start.isError && !isApprovalRequested(start.error) ? (
-        <p className={styles.error} role="alert">
+        <p className={drawer.error} role="alert">
           {errorMessage(start.error)}
           {isGateBlocked(start.error) &&
           isApiError(start.error) &&
@@ -139,81 +136,34 @@ export function TaskDrawer() {
     }
     if (!pipeline || !entry) return <LoadingState />;
     const stage = pipeline.stageById.get(task.stageId);
-    const column = pipeline.columnOfStage.get(task.stageId);
-    const position = stagePosition(pipeline, task.stageId);
-    const stageLabel =
-      column && stage && column.name !== stage.name
-        ? `${column.name} · ${stage.name}`
-        : (stage?.name ?? task.stageId);
     const parent =
       board.data?.tasks.find((candidate) => candidate.key === task.parentKey) ?? detail.data?.parent;
     const subtasks = (board.data?.tasks ?? detail.data?.subtasks ?? []).filter(
       (child) => child.parentKey === task.key,
     );
-    const pr = prChip(task);
     const sessions = detail.data?.sessions ?? [];
     const session = primarySession(task, sessions);
     const isQueued = stage?.kind === 'queue' && !isTaskClosed(task) && !task.assignee;
     return (
       <>
-        <div className={styles.head}>
-          {parent ? (
-            <Link to={`/p/${key}/tasks/${parent.key}`}>
-              {t('task.parent', { key: parent.key, title: parent.title })}
-            </Link>
-          ) : null}
-          <div className={styles.chips}>
-            <Chip tone="column" data-column-color={pipeline.columnOfStage.get(task.stageId)?.color} size="md">
-              {t('task.stageChip', { stage: stageLabel, index: position.index, total: position.total })}
-            </Chip>
-            {pr ? (
-              pr.href ? (
-                <a href={pr.href} target="_blank" rel="noreferrer noopener" className={styles.prLink}>
-                  <Chip tone="neutral" size="md" icon={pr.merged ? 'prMerged' : 'prOpen'}>
-                    {pr.label}
-                  </Chip>
-                </a>
-              ) : (
-                <Chip tone="neutral" size="md" icon={pr.merged ? 'prMerged' : 'prOpen'}>
-                  {pr.label}
-                </Chip>
-              )
-            ) : null}
-            <span className={styles.spacer} />
-            <Button variant="muted" iconOnly icon="close" onClick={close} aria-label={t('common.close')} />
-          </div>
-          <h2 ref={headingRef} tabIndex={-1} className={styles.title}>
-            {task.title}
-          </h2>
-          <div className={styles.facts}>
-            <span className={styles.key}>{task.key}</span>
-            <span>{t('task.repo', { repo: task.repo ?? t('task.workspaceRoot') })}</span>
-            {task.assignee ? (
-              <span>{t('task.assignee', { name: nameOf(task.assignee, members, myHandle) })}</span>
-            ) : null}
-            <span>{t(`visibility.${task.visibility}`)}</span>
-          </div>
-          <StageProgress
-            pipeline={pipeline}
-            stageId={task.stageId}
-            phase={entry.state.phase}
-            variant="stepper"
-          />
-          <div className={styles.now} data-phase={entry.state.phase}>
-            <StatusDot phase={entry.state.phase} pulse={entry.state.phase === 'working'} size={9} />
-            <span className={styles.nowText}>{entry.state.label}</span>
-            <span className={styles.nowAge}>{formatAgo(entry.state.since)}</span>
-          </div>
-        </div>
+        <TaskHeader
+          task={task}
+          parent={parent}
+          state={entry.state}
+          pipeline={pipeline}
+          members={members}
+          headingRef={headingRef}
+          onClose={close}
+        />
 
         <div className={styles.scroll}>
-          {task.startWaiting ? <p className={styles.section}>{startWaitingHint(task)}</p> : null}
+          {task.startWaiting ? <p className={drawer.section}>{startWaitingHint(task)}</p> : null}
           {canMoveTask(task, can.createTasks) ? (
             <TaskMove key={`${task.key}:${task.stageId}`} task={task} pipeline={pipeline} />
           ) : null}
           {can.manageTeam ? <TaskLifecycle key={task.key} task={task} members={members} /> : null}
           {myItems.length > 0 ? (
-            <section className={styles.section}>
+            <section className={drawer.section}>
               {myItems.map((item) => (
                 <InboxCard
                   key={item.id}
@@ -239,7 +189,7 @@ export function TaskDrawer() {
           <TaskLabels task={task} />
 
           {can.createTasks ? (
-            <section className={styles.section}>
+            <section className={drawer.section}>
               <TaskEdit key={task.key} task={task} />
             </section>
           ) : null}
@@ -254,14 +204,14 @@ export function TaskDrawer() {
           ) : null}
 
           {task.description ? (
-            <section className={styles.section}>
-              <h3 className={styles.sectionTitle}>{t('task.description')}</h3>
+            <section className={drawer.section}>
+              <h3 className={drawer.sectionTitle}>{t('task.description')}</h3>
               <Markdown text={task.description} className={styles.description} />
             </section>
           ) : null}
 
-          <section className={styles.section}>
-            <h3 className={styles.sectionTitle}>{t('task.timeline')}</h3>
+          <section className={drawer.section}>
+            <h3 className={drawer.sectionTitle}>{t('task.timeline')}</h3>
             {detail.isPending ? (
               <LoadingState compact />
             ) : detail.isError ? (
@@ -280,8 +230,8 @@ export function TaskDrawer() {
           ) : null}
 
           {sessions.length > 0 ? (
-            <section className={styles.section}>
-              <h3 className={styles.sectionTitle}>{t('task.sessions')}</h3>
+            <section className={drawer.section}>
+              <h3 className={drawer.sectionTitle}>{t('task.sessions')}</h3>
               <ul className={styles.sessions}>
                 {[...sessions]
                   .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))

@@ -12,7 +12,8 @@ import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { isTaskClosed } from '../../lib/taskState';
-import styles from './TaskDrawer.module.css';
+import drawer from './drawer.module.css';
+import styles from './TaskSubtasks.module.css';
 
 export function TaskSubtasks({
   task,
@@ -29,8 +30,8 @@ export function TaskSubtasks({
   const create = useCreateTask(key);
   const [title, setTitle] = useState('');
   return (
-    <section className={styles.section} aria-label={t('task.subtasks')}>
-      <h3 className={styles.sectionTitle}>{t('task.subtasks')}</h3>
+    <section className={drawer.section} aria-label={t('task.subtasks')}>
+      <h3 className={drawer.sectionTitle}>{t('task.subtasks')}</h3>
       <p>
         {t('task.subtaskProgress', {
           done: children.filter((child) => child.status === 'done').length,
@@ -74,7 +75,7 @@ export function TaskSubtasks({
             {t('task.addSubtask')}
           </Button>
           {create.isError ? (
-            <p className={styles.error} role="alert">
+            <p className={drawer.error} role="alert">
               {errorMessage(create.error)}
             </p>
           ) : null}

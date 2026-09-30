@@ -12,8 +12,8 @@ import { errorMessage } from '../../lib/errors';
 import type { MemberIndex } from '../../lib/members';
 import { nameOf } from '../../lib/members';
 import { isTaskClosed } from '../../lib/taskState';
-import styles from './TaskDrawer.module.css';
-import formStyles from '../team/HireDialog.module.css';
+import drawer from './drawer.module.css';
+import styles from './TaskLifecycle.module.css';
 
 function liveSessionId(error: unknown): string | null {
   if (
@@ -41,9 +41,9 @@ export function TaskLifecycle({ task, members }: { task: Task; members: MemberIn
   const sessionId = liveSessionId(update.error);
   const open = !isTaskClosed(task);
   return (
-    <section className={styles.section}>
-      <h3 className={styles.sectionTitle}>{t('taskLifecycle.title')}</h3>
-      <div className={formStyles.form}>
+    <section className={drawer.section}>
+      <h3 className={drawer.sectionTitle}>{t('taskLifecycle.title')}</h3>
+      <div className={styles.form}>
         <SelectField
           label={t('taskLifecycle.assignee')}
           value={assignee}
@@ -74,7 +74,7 @@ export function TaskLifecycle({ task, members }: { task: Task; members: MemberIn
           {t('taskLifecycle.assign')}
         </Button>
         {update.isError ? (
-          <p role="alert" className={styles.error}>
+          <p role="alert" className={drawer.error}>
             {errorMessage(update.error)}
           </p>
         ) : null}
@@ -95,7 +95,7 @@ export function TaskLifecycle({ task, members }: { task: Task; members: MemberIn
           </Button>
         ) : null}
         {stop.isError ? (
-          <p role="alert" className={styles.error}>
+          <p role="alert" className={drawer.error}>
             {errorMessage(stop.error)}
           </p>
         ) : null}
@@ -128,7 +128,7 @@ export function TaskLifecycle({ task, members }: { task: Task; members: MemberIn
           </Button>
         ) : null}
         {reopen.isError ? (
-          <p role="alert" className={styles.error}>
+          <p role="alert" className={drawer.error}>
             {errorMessage(reopen.error)}
           </p>
         ) : null}
@@ -139,7 +139,7 @@ export function TaskLifecycle({ task, members }: { task: Task; members: MemberIn
         title={t('taskLifecycle.confirm')}
         description={t('taskLifecycle.warning')}
       >
-        <div className={formStyles.form}>
+        <div className={styles.form}>
           <TextAreaField
             label={t('taskLifecycle.reason')}
             optional
@@ -147,11 +147,11 @@ export function TaskLifecycle({ task, members }: { task: Task; members: MemberIn
             onChange={(event) => setReason(event.target.value)}
           />
           {cancel.isError ? (
-            <p role="alert" className={styles.error}>
+            <p role="alert" className={drawer.error}>
               {errorMessage(cancel.error)}
             </p>
           ) : null}
-          <div className={formStyles.actions}>
+          <div className={styles.actions}>
             <Button
               variant="dangerSolid"
               loading={cancel.isPending}

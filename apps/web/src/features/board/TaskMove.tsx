@@ -11,7 +11,7 @@ import { gateConditionText } from '../../lib/gates';
 import { nextStage } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { enteredStages, moveErrorText } from './moveTask';
-import styles from './TaskDrawer.module.css';
+import styles from './drawer.module.css';
 
 export function TaskMove({ task, pipeline }: { task: Task; pipeline: PipelineIndex }) {
   const { key } = useProject();

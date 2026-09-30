@@ -9,7 +9,7 @@ import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { labelGroups, labelName, viewerLabelRefusal } from '../../lib/labels';
 import styles from './TaskLabels.module.css';
-import drawer from './TaskDrawer.module.css';
+import drawer from './drawer.module.css';
 
 /**
  * The task's labels: chips in their colours (meaning on hover), removable where the label's

@@ -7,7 +7,8 @@ import { DescriptionEditor } from '../../components/DescriptionEditor';
 import { TextField } from '../../components/Field';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
-import styles from './TaskDrawer.module.css';
+import drawer from './drawer.module.css';
+import styles from './TaskEdit.module.css';
 
 /** Edits the title and description; labels have their own section with the label rules. */
 export function TaskEdit({ task }: { task: Task }) {
@@ -31,7 +32,7 @@ export function TaskEdit({ task }: { task: Task }) {
     );
   return (
     <form
-      className={styles.section}
+      className={drawer.section}
       onSubmit={(event) => {
         event.preventDefault();
         if (!title.trim() || update.isPending) return;
@@ -61,11 +62,11 @@ export function TaskEdit({ task }: { task: Task }) {
         disabled={update.isPending}
       />
       {update.isError ? (
-        <p role="alert" className={styles.error}>
+        <p role="alert" className={drawer.error}>
           {errorMessage(update.error)}
         </p>
       ) : null}
-      <div className={styles.chips}>
+      <div className={styles.actions}>
         <Button type="submit" loading={update.isPending} disabled={!title.trim()}>
           {t('task.save')}
         </Button>

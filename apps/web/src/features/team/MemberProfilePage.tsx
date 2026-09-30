@@ -6,6 +6,7 @@ import type { TeamMessage } from '@projectman/shared';
 import {
   useBoard,
   useConfig,
+  useLabels,
   useMemberMemories,
   useMemberProfile,
   useReadTeamMessage,
@@ -82,6 +83,7 @@ export function MemberProfilePage() {
   const profile = useMemberProfile(key, handle);
   const board = useBoard(key);
   const indexes = useProjectIndexes(key);
+  const labels = useLabels(key);
   const roles = useRoles(key);
   const config = useConfig(key, can.manageTeam);
   const messages = useMemberMessages(key, handle, myHandle);
@@ -282,7 +284,7 @@ export function MemberProfilePage() {
         <h2>{t('profile.activity')}</h2>
         <Timeline
           events={data.timeline}
-          ctx={{ ...indexes, myHandle, openInboxIds: new Set(data.inbox.map((i) => i.id)) }}
+          ctx={{ ...indexes, labels, myHandle, openInboxIds: new Set(data.inbox.map((i) => i.id)) }}
         />
       </section>
       <section className={styles.panel}>

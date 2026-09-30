@@ -102,6 +102,7 @@ export function TaskDrawer() {
   const navigate = useNavigate();
   const { board, members, pipeline, model } = useBoardModel();
   const detail = useTaskDetail(key, taskKey);
+  const labels = useLabels(key);
   const inbox = useInbox(key);
   const resolve = useResolveInbox(key, myHandle);
   const toast = useToast();
@@ -273,7 +274,7 @@ export function TaskDrawer() {
             ) : (
               <Timeline
                 events={detail.data.timeline}
-                ctx={{ pipeline, members, myHandle, openInboxIds: openIds }}
+                ctx={{ pipeline, members, labels, myHandle, openInboxIds: openIds }}
                 next={nextStepText(task, pipeline, members, myHandle)}
               />
             )}

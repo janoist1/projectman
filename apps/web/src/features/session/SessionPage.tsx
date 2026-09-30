@@ -179,7 +179,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
   const column = task && pipeline ? pipeline.columnOfStage.get(task.stageId) : undefined;
   const pr = task ? prChip(task) : null;
   const timeline = taskDetail.data?.timeline ?? [];
-  const participants = participantsFor(session, task, timeline, pipeline, members, myHandle);
+  const participants = participantsFor(session, task, timeline, pipeline, members, myHandle, labels);
 
   const tabs: Tab[] = isMobile
     ? ['chat', 'terminal', 'timeline', 'details']
@@ -211,7 +211,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
   const timelinePanel = task ? (
     <Timeline
       events={timeline}
-      ctx={{ pipeline, members, myHandle, openInboxIds: openIds }}
+      ctx={{ pipeline, members, labels, myHandle, openInboxIds: openIds }}
       next={pipeline ? nextStepText(task, pipeline, members, myHandle) : null}
     />
   ) : (

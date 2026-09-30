@@ -1,4 +1,4 @@
-import type { Session, Task, TimelineEvent } from '@projectman/shared';
+import type { LabelView, Session, Task, TimelineEvent } from '@projectman/shared';
 import { t } from '../../i18n/t';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
@@ -16,6 +16,7 @@ export function participantsFor(
   pipeline: PipelineIndex | null,
   members: MemberIndex,
   myHandle: string | null,
+  labels?: readonly LabelView[],
 ): Participant[] {
   const list = new Map<string, string>();
   list.set(session.member, t('session.participantSession'));
@@ -27,7 +28,7 @@ export function participantsFor(
     list.set(
       handle,
       t('session.participantActivity', {
-        text: describeEvent(event, { pipeline, members, myHandle, openInboxIds: new Set() }).text,
+        text: describeEvent(event, { pipeline, members, labels, myHandle, openInboxIds: new Set() }).text,
       }),
     );
   }

@@ -168,6 +168,8 @@ describe('task drawer labels', () => {
     fireEvent.click(within(section).getByRole('button', { name: t('task.labels.add') }));
     fireEvent.click(within(section).getByRole('button', { name: /Válaszra vár/ }));
     await waitFor(() => expect(project.backend.findTask('AC-20')?.labels).toContain('waiting-answer'));
+    // The timeline names the label, not its id.
+    await screen.findByText(t('timeline.labelsAdded', { labels: 'Válaszra vár' }));
     fireEvent.click(
       await within(section).findByRole('button', {
         name: t('task.labels.remove', { label: 'Válaszra vár' }),

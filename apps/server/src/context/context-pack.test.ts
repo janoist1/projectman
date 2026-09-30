@@ -443,6 +443,15 @@ describe('system prompt', () => {
     );
   });
 
+  it('forbids self-review through the labels marked for it', () => {
+    const rule =
+      '- Never set a label marked "not on your own work" on a task you are assigned to or whose pull request you authored.';
+    const project = buildProject();
+    expect(section(builder.build(input({ project })).appendSystemPrompt, '# Guardrails')).toContain(rule);
+    project.pipeline.labels = project.pipeline.labels.map((label) => ({ ...label, notByAuthor: false }));
+    expect(builder.build(input({ project })).appendSystemPrompt).not.toContain('not on your own work');
+  });
+
   it('includes the role instructions from the configuration', () => {
     const project = buildProject();
     const member = { ...aiMember(project, 'qa'), instructions: 'Always test on a phone-sized screen too.' };

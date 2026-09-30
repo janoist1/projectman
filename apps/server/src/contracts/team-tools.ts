@@ -41,8 +41,9 @@ export interface TeamToolsHandler {
   /** get_task: task with recent timeline. */
   getTask(ctx: ToolContext, args: { taskKey: string }): Promise<TaskDetail>;
   /**
-   * update_task: rewrite the title or description, record a check result, add a note, move
-   * stage (gates enforced). Everything else is recorded before the stage move.
+   * update_task: rewrite the title or description, add or remove labels (under the labels'
+   * rules), add a note, move stage (gates enforced). Everything else is recorded before the
+   * stage move, so labels added in the same call count for the target stage's gate.
    */
   updateTask(
     ctx: ToolContext,

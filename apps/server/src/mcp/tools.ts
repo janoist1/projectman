@@ -209,15 +209,15 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     input: {
       task_key: taskKeyInput,
       stage_id: StageId.optional().describe(
-        'Stage to move the task to, e.g. "qa" (a stage id of the project pipeline).',
+        'Id of the stage to move the task to (the pipeline is in your instructions).',
       ),
       add_labels: z
         .array(z.string().trim().min(1).max(MAX_LABEL_CHARS))
         .max(10)
         .optional()
         .describe(
-          'Label ids to add, e.g. ["qa-failed"]. A label of a group replaces the other labels of that ' +
-            'group (e.g. "qa-ok" replaces "qa-failed").',
+          "Label ids to add (the project's labels are listed in your instructions). A label of a group " +
+            'replaces the other labels of that group.',
         ),
       remove_labels: z
         .array(z.string().trim().min(1).max(MAX_LABEL_CHARS))

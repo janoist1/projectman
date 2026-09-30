@@ -130,6 +130,24 @@ describe('human team messages and member profiles', () => {
     expect(stored.deliveredAt).toBeNull();
   });
 
+  it('trims messages and never sends one to its sender', async () => {
+    await human('bence');
+    const toSelf = await send(['owner']);
+    expect(toSelf.statusCode).toBe(400);
+    expect(toSelf.json()).toMatchObject({ error: { code: 'invalid_request', details: { field: 'to' } } });
+    const blank = await send(['bence'], owner, { text: '  \n ' });
+    expect([blank.statusCode, blank.json().error.code]).toEqual([400, 'invalid_request']);
+    const unknown = await send(['bence', 'nobody', 'ghost']);
+    expect(unknown.statusCode).toBe(404);
+    expect(unknown.json()).toMatchObject({
+      error: { code: 'not_found', details: { ids: ['nobody', 'ghost'] } },
+    });
+    const sent = TeamMessage.parse(
+      (await send(['bence', 'owner'], owner, { text: '  Acme notes \n' })).json(),
+    );
+    expect(sent).toMatchObject({ to: ['bence'], body: 'Acme notes' });
+  });
+
   it('keeps human unread counts and read receipts independent and checks the recipient', async () => {
     const kata = await human('kata', 'client');
     const bence = await human('bence');

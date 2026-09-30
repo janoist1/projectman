@@ -1,6 +1,8 @@
 import path from 'node:path';
+import { hasShortOption, namesOption } from './command-options';
 import { hasGlobCharacter, isWithinAny, pathsInside, resolveWord } from './command-paths';
 import type { ShellCommand, ShellStage } from './shell-words';
+import { isXargsFeed } from './xargs-feed';
 
 /**
  * Commands that only read: what a reviewer or any other AI member on a task runs constantly
@@ -8,10 +10,10 @@ import type { ShellCommand, ShellStage } from './shell-words';
  * The server allows them without asking when every stage is a known reader used in a way that
  * cannot write, run another program or leave the directories the session may read.
  *
- * The check reads the command's text only. It cannot see what the shell expands a glob to, what
- * a symbolic link inside a directory points at, or what the data flowing through a pipe names
- * (`xargs` reads file names from its input); a session that may already write a file in its own
- * worktree could use any of those, which is why this rule is a convenience and not a sandbox.
+ * The check reads the command's text only. It cannot see what a symbolic link inside a directory
+ * points at, and it takes the names a lister finds (`git ls-files | xargs …`, see `xargs-feed.ts`)
+ * as they are. A session that may already write a file in its own worktree could use either, which
+ * is why this rule is a convenience and not a sandbox.
  */
 
 export interface ReadOnlyContext {
@@ -24,28 +26,10 @@ export interface ReadOnlyContext {
 /** A command that could end up in more directories than this is not followed. */
 const MAX_DIRECTORIES = 16;
 
-type Nested = (words: readonly string[]) => boolean;
 /** Whether a command's options are harmless; `args` are its words after the command name. */
-type Rule = (args: readonly string[], nested: Nested) => boolean;
+type Rule = (args: readonly string[]) => boolean;
 
 const allowAll: Rule = () => true;
-
-/**
- * `arg` is the long option `name`, or an abbreviation of it (`getopt_long` tools accept any
- * unambiguous one), with or without a `=value`.
- */
-function namesOption(arg: string, name: string, minLength = 3): boolean {
-  if (!arg.startsWith('--')) return false;
-  const given = arg.split('=', 1)[0]!;
-  return given.length >= minLength && name.startsWith(given);
-}
-
-/** A short option cluster (`-nr`, `-ofile`) that includes one of `letters`. */
-function hasShortOption(arg: string, letters: string): boolean {
-  if (!arg.startsWith('-') || arg.startsWith('--')) return false;
-  const run = /^[A-Za-z]*/.exec(arg.slice(1))![0];
-  return [...run].some((letter) => letters.includes(letter));
-}
 
 function startsWithWords(args: readonly string[], prefix: readonly string[]): boolean {
   return prefix.every((word, i) => args[i] === word);
@@ -171,29 +155,100 @@ const findRule: Rule = (args) => !args.some((arg) => FIND_ACTIONS.has(arg));
 const fileRule: Rule = (args) =>
   !args.some((arg) => hasShortOption(arg, 'C') || namesOption(arg, '--compile', 4));
 
-/** `xargs` with the options that only shape the batches, then a command that is allowed itself. */
-const xargsRule: Rule = (args, nested) => {
+/**
+ * The command `xargs` runs, and the texts `-I` names to be replaced in it, when its options only
+ * shape the batches (`-0`, `-r`, `-n N`, `-L N`, `-I X`, `-d X`, `-P N`); `null` for any other
+ * option, or when there is no command.
+ */
+function xargsCommand(args: readonly string[]): { command: string[]; replaced: string[] } | null {
+  const replaced: string[] = [];
   let i = 0;
   while (i < args.length && args[i]!.startsWith('-')) {
     const flag = args[i]!;
     if (flag === '-0' || flag === '-r') {
       i += 1;
     } else if (flag === '-n' || flag === '-L' || flag === '-P') {
-      if (!/^\d+$/.test(args[i + 1] ?? '')) return false;
+      if (!/^\d+$/.test(args[i + 1] ?? '')) return null;
       i += 2;
     } else if (/^-[nLP]\d+$/.test(flag) || /^-[Id][^-]/.test(flag)) {
+      if (flag.startsWith('-I')) replaced.push(flag.slice(2));
       i += 1;
     } else if (flag === '-I' || flag === '-d') {
       const value = args[i + 1];
-      if (!value || value.startsWith('-')) return false;
+      if (!value || value.startsWith('-')) return null;
+      if (flag === '-I') replaced.push(value);
       i += 2;
     } else {
-      return false;
+      return null;
     }
   }
-  const inner = args.slice(i);
-  return inner.length > 0 && inner[0] !== 'xargs' && nested(inner);
-};
+  const command = args.slice(i);
+  return command.length > 0 ? { command, replaced } : null;
+}
+
+/** Commands whose options cannot write a file or run a program, whatever names end up there. */
+const NAME_SAFE = new Set([
+  'cat',
+  'head',
+  'tail',
+  'wc',
+  'grep',
+  'ls',
+  'stat',
+  'du',
+  'nl',
+  'basename',
+  'dirname',
+  'realpath',
+  'echo',
+  'printf',
+  'cut',
+  'tr',
+  'true',
+  'pwd',
+]);
+
+/** Commands that may run under `xargs` once `--` ends their options, so that no name is taken for one. */
+const NEEDS_DASHES = new Set(['git', 'rg', 'sort', 'diff']);
+
+/**
+ * `xargs` hands its names to a command as arguments, and a name that starts with a dash is an
+ * option there: a file `--compress-program=./x` makes `sort` run `./x`, `--pre=./x` makes `rg`
+ * run it on every file. So `xargs` runs only the commands whose options are harmless, or ones
+ * that get the names after `--` (appended names follow a last word `--`; with `-I` they stand
+ * where the placeholder is, and no word before the `--` starts with it).
+ */
+function isSafeWithNames(command: readonly string[], replaced: readonly string[]): boolean {
+  const program = command[0]!;
+  if (NAME_SAFE.has(program)) return true;
+  if (!NEEDS_DASHES.has(program)) return false;
+  if (replaced.length === 0) return command[command.length - 1] === '--';
+  const dashes = command.indexOf('--');
+  return command.every(
+    (word, i) => (dashes >= 0 && i > dashes) || !replaced.some((text) => word.startsWith(text)),
+  );
+}
+
+/** The positions after the program whose words name what `git`, `npm` and `npx` do. */
+const NAMING_WORDS = new Map([
+  ['git', [1]],
+  ['npm', [1, 2]],
+  ['npx', [1, 2]],
+]);
+
+/**
+ * `-I X` puts each name in place of every `X` in the command, substrings and (on some systems)
+ * the program included. The rules read the program, the options and the word that says what
+ * `git`, `npm` or `npx` do as they are written, so none of them may hold an `X`: with `-I cat cat`
+ * the names would decide what runs.
+ */
+function isRewritten(command: readonly string[], replaced: readonly string[]): boolean {
+  const naming = NAMING_WORDS.get(command[0]!) ?? [];
+  return command.some(
+    (word, i) =>
+      (i === 0 || word.startsWith('-') || naming.includes(i)) && replaced.some((text) => word.includes(text)),
+  );
+}
 
 /* ---------- the project's own checks ---------- */
 
@@ -218,7 +273,6 @@ const RULES = new Map<string, Rule>([
   ['uniq', uniqRule],
   ['find', findRule],
   ['file', fileRule],
-  ['xargs', xargsRule],
   ['npm', npmRule],
   ['npx', npxRule],
 ]);
@@ -244,22 +298,47 @@ for (const name of [
   RULES.set(name, allowAll);
 }
 
+/** An option whose name is a pattern (`-[f]`) could expand to a file named like a forbidden option. */
+function hasPatternOption(args: readonly string[]): boolean {
+  return args.some((arg) => arg.startsWith('-') && hasGlobCharacter(arg.split('=', 1)[0]!));
+}
+
 /**
  * Whether one command (its words) is a known reader whose options cannot write or run another
- * program, and every path in it stays inside `roots` from each directory it may run in.
+ * program, and every path in it stays inside `roots` from each directory it may run in. `cd`
+ * and `xargs` are not readers of their own: `isReadOnlyCommand` follows the first, and
+ * `isReadOnlyPipeline` the second.
  */
-function isReadOnlyStage(
+export function isReadOnlyStage(
   words: readonly string[],
   dirs: readonly string[],
   roots: readonly string[],
 ): boolean {
   const [program, ...args] = words;
   const rule = program === undefined ? undefined : RULES.get(program);
-  if (!rule) return false;
-  // An option whose name is a pattern (`-[f]`) could expand to a file named like a forbidden one.
-  if (args.some((arg) => arg.startsWith('-') && hasGlobCharacter(arg.split('=', 1)[0]!))) return false;
-  if (!rule(args, (inner) => isReadOnlyStage(inner, dirs, roots))) return false;
+  if (!rule || hasPatternOption(args) || !rule(args)) return false;
   return args.every((arg) => pathsInside(arg, dirs, roots));
+}
+
+/**
+ * Whether every stage of a pipeline is a reader. An `xargs` counts as one when it is the first in
+ * its pipeline, preceded by a lister and whole-line filters only (`xargs-feed.ts`), and runs a
+ * reader of its own. A second `xargs` is no reader, and an `xargs` with nothing before it has
+ * no lister, so both refuse the pipeline.
+ */
+function isReadOnlyPipeline(
+  stages: readonly ShellStage[],
+  dirs: readonly string[],
+  roots: readonly string[],
+): boolean {
+  const reader = (words: readonly string[]) => isReadOnlyStage(words, dirs, roots);
+  const at = stages.findIndex((stage) => stage.words[0] === 'xargs');
+  if (at < 0) return stages.every((stage) => reader(stage.words));
+  const run = xargsCommand(stages[at]!.words.slice(1));
+  if (!run || isRewritten(run.command, run.replaced) || !isSafeWithNames(run.command, run.replaced))
+    return false;
+  if (!isXargsFeed(stages.slice(0, at).map((stage) => stage.words))) return false;
+  return stages.every((stage, i) => reader(i === at ? run.command : stage.words));
 }
 
 /**
@@ -313,7 +392,7 @@ export function isReadOnlyCommand(command: ShellCommand, context: ReadOnlyContex
       for (const dir of moved) seen.add(dir);
       if (seen.size > MAX_DIRECTORIES) return false;
       if (certain) exact = moved[0]!;
-    } else if (!segment.stages.every((each) => isReadOnlyStage(each.words, dirs, roots))) {
+    } else if (!isReadOnlyPipeline(segment.stages, dirs, roots)) {
       return false;
     }
   }

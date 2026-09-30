@@ -93,11 +93,13 @@ the timeline like any other answer):
   the command says and even when it cannot be parsed;
 - a developer's routine steps in the task's own worktree are allowed: a lockfile install,
   `git add`, `git commit` with a message and `git merge --ff-only` of the default branch or a
-  commit, joined with `&&` only (PM-77);
+  commit, joined with `&&` only, with read-only commands between them as long as those stay
+  in the worktree (`git status && git add -A && git commit -m …`, PM-77);
 - read-only commands are allowed for every AI session on a task, inside the session's own
   directory and the task's worktree: `git status`/`diff`/`log`/`show` and similar, `grep`,
-  `ls`, `cat`, `find` without actions, `xargs` of a reader, and the project's test, type and
-  format checks (PM-69).
+  `ls`, `cat`, `find` without actions, `xargs` fed only by a lister (`git ls-files`,
+  `git diff --name-only`, `grep -l`, `find`, …), and the project's test, type and format
+  checks (PM-69). Patterns that can match `.` and `..` (`.*`) are not followed.
 
 The allow rules read the command with a strict parser (`domain/shell-words.ts`): quotes are
 understood, every `$`, backtick, subshell, unknown redirection or unclear construct refuses the

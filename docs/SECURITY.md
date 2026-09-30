@@ -65,11 +65,21 @@ tenants into separate OS accounts or machines.
 
 When the server auto-allows a Codex escalation (the routine git steps of a developer, lockfile
 installs), that command runs outside Codex's sandbox with the server user's rights, including
-the repository's git hooks and npm lifecycle scripts; the allowed forms are narrow and a
-command the strict parser (`domain/shell-words.ts`) does not fully understand always goes to a
-human. The read-only rule reads the command's text only: it cannot see where a symbolic link in
-a worktree points or which names flow through a pipe into `xargs`. A Codex member never runs in
-`bypassPermissions`, where nothing would be asked at all.
+the repository's git hooks and npm lifecycle scripts. The same holds for the read-only rule's
+check commands (`npm test`, `npm run typecheck`, `npx vitest run`, `npx tsc --noEmit`): when a
+Codex member's run escalates, for example because its tests listen on localhost, and the rule
+allows it, it runs the project's own scripts outside the sandbox. Even a read-only `git` command
+runs the programs the repository's configuration names (`core.fsmonitor`, diff and text
+conversion drivers), and a Codex developer's sandbox may write that configuration. The allowed
+forms are narrow, and a command the strict parser (`domain/shell-words.ts`) does not fully
+understand always goes to a human. The read-only rule reads the command's text only: it cannot
+see where a symbolic link in a worktree points. `xargs` takes names only from a lister
+(`git ls-files`, `git diff --name-only`, `grep -l`, `find`, `ls`) through whole-line filters, and
+runs only commands whose options cannot write or run anything (`cat`, `grep`, `wc`, …) or that
+get the names after `--` (`git`, `rg`, `sort`), because a file named like an option would be
+one. The names are taken as found, so a file whose path holds a blank or a newline can still
+split into two items. A Codex member never runs in `bypassPermissions`, where nothing would be
+asked at all.
 
 ## Findings
 

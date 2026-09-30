@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { isWithin, resolveWord } from './command-paths';
+import { isReadOnlyStage } from './read-only-commands';
 import type { ShellCommand } from './shell-words';
 
 /**
@@ -7,6 +8,7 @@ import type { ShellCommand } from './shell-words';
  * asking (PM-77): a lockfile install, `git add`, `git commit` with a message and a fast-forward
  * `git merge`. Codex's sandbox keeps the shared `.git` read-only, so each of these is an
  * escalation for Codex members; nothing here pushes, rewrites history or leaves the worktree.
+ * Read-only commands may sit between them (`git status && git add -A && git commit -m x`).
  */
 
 const INSTALL_FLAGS = new Set(['--prefer-offline', '--no-audit', '--no-fund']);
@@ -25,8 +27,10 @@ export interface WorktreeRoutineContext {
 }
 
 /**
- * Whether the command is an optional `cd` to the working directory followed by routine steps,
- * all joined with `&&`: no pipes, no redirections, no other separators.
+ * Whether the command is an optional `cd` to the working directory followed by steps, all
+ * joined with `&&`: no pipes, no redirections, no other separators. A step is routine, or a
+ * read-only command (the rule for reading, with the working directory as the only directory it
+ * may read), and at least one is routine; a chain of readers alone is for the read-only rule.
  */
 export function isWorktreeRoutine(command: ShellCommand, context: WorktreeRoutineContext): boolean {
   if (command.separators.some((separator) => separator !== '&&')) return false;
@@ -41,7 +45,12 @@ export function isWorktreeRoutine(command: ShellCommand, context: WorktreeRoutin
     if (!staysInPlace(first, context.cwd)) return false;
     steps.shift();
   }
-  return steps.length > 0 && steps.every((words) => isRoutineStep(words, context));
+  const root = path.resolve(context.cwd);
+  const isRoutine = (words: readonly string[]) => isRoutineStep(words, context);
+  return (
+    steps.some(isRoutine) &&
+    steps.every((words) => isRoutine(words) || isReadOnlyStage(words, [root], [root]))
+  );
 }
 
 /** `cd <dir>` where the directory is the working directory itself, however it is spelled. */

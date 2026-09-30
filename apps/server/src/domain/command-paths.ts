@@ -17,9 +17,13 @@ export function isWithinAny(parents: readonly string[], child: string): boolean 
 }
 
 /**
- * `word` resolved against `dir`, or `null` when `..` follows a real directory name. The shell
- * resolves such a `..` on disk, so behind a symbolic link it could lead somewhere the text does
- * not show; a leading `..` (`../other`) has no such doubt.
+ * `word` resolved against `dir`, or `null` when the text cannot show where it leads:
+ * - `..` follows a real directory name. The shell resolves such a `..` on disk, so behind a
+ *   symbolic link it could lead somewhere else; a leading `..` (`../other`) has no such doubt.
+ * - a component starts with a dot and holds a pattern character (`.*`, `.?`, `.[a]`). Before
+ *   bash 5.2 (macOS still ships 3.2) such a pattern also matches `.` and `..`, so `.*` names the
+ *   parent directory, and a few of them in a row climb out of the directory the word is meant
+ *   to stay in.
  */
 export function resolveWord(dir: string, word: string): string | null {
   let named = false;
@@ -27,6 +31,7 @@ export function resolveWord(dir: string, word: string): string | null {
     if (part === '..') {
       if (named) return null;
     } else if (part !== '' && part !== '.') {
+      if (part.startsWith('.') && hasGlobCharacter(part)) return null;
       named = true;
     }
   }
@@ -40,11 +45,13 @@ export function looksLikePath(word: string): boolean {
 
 /**
  * The parts of a word that name a place on disk. A plain word is one path when it looks like
- * one. An option names the path it carries: the value of `--root=apps/web`, and what sits right
- * behind a short option (`-f/etc/passwd`), except a lone slash, which is a delimiter (`cut -d/`).
+ * one or holds a pattern character: the shell expands `*.ts` and `.*` against the directory, so
+ * they name places too. An option names the path it carries: the value of `--root=apps/web`, and
+ * what sits right behind a short option (`-f/etc/passwd`), except a lone slash, which is a
+ * delimiter (`cut -d/`).
  */
 export function pathsIn(word: string): string[] {
-  if (!word.startsWith('-')) return looksLikePath(word) ? [word] : [];
+  if (!word.startsWith('-')) return looksLikePath(word) || hasGlobCharacter(word) ? [word] : [];
   const paths: string[] = [];
   const equals = word.indexOf('=');
   const name = equals < 0 ? word : word.slice(0, equals);
@@ -67,7 +74,7 @@ export function pathsInside(word: string, dirs: readonly string[], roots: readon
   );
 }
 
-/** Whether a word holds characters the shell expands as a pattern. */
+/** Whether a word holds a character the shell expands as a pattern: `*`, `?` or `[`. */
 export function hasGlobCharacter(word: string): boolean {
-  return /[*?[\]]/.test(word);
+  return /[*?[]/.test(word);
 }

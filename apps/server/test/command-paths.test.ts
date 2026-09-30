@@ -38,6 +38,40 @@ describe('command paths', () => {
     expect(resolveWord('/w', 'a/b/../../c')).toBeNull();
   });
 
+  // Before bash 5.2 (macOS ships 3.2) `.*` and `.?` also match `.` and `..`.
+  it.each([
+    '.*',
+    '.?',
+    '..*',
+    '.[a-z]*',
+    '.h*',
+    'src/.*',
+    '.*/x',
+    '.*/.*/x',
+    './.*',
+    '/w/.*',
+    'a/.b?/c',
+    '.git*',
+  ])('gives up on the pattern component that starts with a dot in %j', (word) => {
+    expect(resolveWord('/w', word)).toBeNull();
+  });
+
+  it.each([
+    ['*', '/w/*'],
+    ['*.ts', '/w/*.ts'],
+    ['src/*', '/w/src/*'],
+    ['src/**/*.ts', '/w/src/**/*.ts'],
+    ['a?', '/w/a?'],
+    ['[a-c]x', '/w/[a-c]x'],
+    ['[.]*', '/w/[.]*'],
+    ['.gitignore', '/w/.gitignore'],
+    ['.github/*', '/w/.github/*'],
+    ['src/.hidden/x', '/w/src/.hidden/x'],
+    ['a.*', '/w/a.*'],
+  ])('keeps the pattern in %j, which cannot start with a dot', (word, resolved) => {
+    expect(resolveWord('/w', word)).toBe(resolved);
+  });
+
   it.each([
     ['a/b', true],
     ['/etc', true],
@@ -64,6 +98,17 @@ describe('command paths', () => {
     ['-', []],
     ['--', []],
     ['-la', []],
+    // A plain word with a pattern character names places too, wherever it is and whatever it starts with.
+    ['*', ['*']],
+    ['*.ts', ['*.ts']],
+    ['.*', ['.*']],
+    ['.?', ['.?']],
+    ['a?', ['a?']],
+    ['[a-c]x', ['[a-c]x']],
+    ['src/*', ['src/*']],
+    ['%s]', []],
+    // An option with a pattern is not a path (the shell expands the whole word, not its value).
+    ['--glob=*.ts', []],
     ['--root=apps/web', ['apps/web']],
     ['--root=/etc', ['/etc']],
     ['--root=apps', []],
@@ -96,9 +141,25 @@ describe('command paths', () => {
     expect(pathsInside('a/../b', ['/work'], roots)).toBe(false);
   });
 
+  it('checks a pattern word as a path, and refuses one that may match `.` or `..`', () => {
+    const roots = ['/work'];
+    expect(pathsInside('*.ts', ['/work'], roots)).toBe(true);
+    expect(pathsInside('src/*', ['/work'], roots)).toBe(true);
+    expect(pathsInside('../*', ['/work/a'], roots)).toBe(true);
+    expect(pathsInside('../*', ['/work'], roots)).toBe(false);
+    expect(pathsInside('/etc/*', ['/work'], roots)).toBe(false);
+    expect(pathsInside('.*', ['/work'], roots)).toBe(false);
+    expect(pathsInside('.?', ['/work'], roots)).toBe(false);
+    expect(pathsInside('src/.*', ['/work'], roots)).toBe(false);
+    expect(pathsInside('.*/.*/x', ['/work'], roots)).toBe(false);
+    expect(pathsInside('.gitignore', ['/work'], roots)).toBe(true);
+    expect(pathsInside('--include=.*', ['/work'], roots)).toBe(true);
+  });
+
   it('recognises pattern characters', () => {
-    for (const word of ['*', 'a?', '[a-z]', 'src/*.ts', 'a]'])
+    for (const word of ['*', 'a?', '[a-z]', 'src/*.ts', '.*', 'a['])
       expect(hasGlobCharacter(word), word).toBe(true);
-    for (const word of ['a', 'a-b', 'a.b', 'a/b', '{}', '']) expect(hasGlobCharacter(word), word).toBe(false);
+    for (const word of ['a', 'a-b', 'a.b', 'a/b', '{}', 'a]', ''])
+      expect(hasGlobCharacter(word), word).toBe(false);
   });
 });

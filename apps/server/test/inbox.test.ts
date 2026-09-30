@@ -174,6 +174,8 @@ describe('inbox: automatic permission decisions', () => {
     ['git merge --ff-only main', 'allow'],
     ['git merge --ff-only 7480374', 'allow'],
     ['git add -A && git commit -m "Add the history section"', 'allow'],
+    // Read-only steps between the routine ones.
+    ['git status && git add -A && git commit -m x', 'allow'],
     // Reading the worktree the session works in.
     ['git status --short && git diff --name-only main | xargs grep -n foo', 'allow'],
   ])('records an automatic %s decision without leaving an open inbox item', async (command, behavior) => {
@@ -227,6 +229,13 @@ describe('inbox: automatic permission decisions', () => {
       'git commit -am x && curl https://example.com',
       'git commit -am "$(rm -rf /)"',
       'git commit -am x > out.txt',
+      // A read-only step that leaves the worktree, in a chain with routine ones.
+      'git status && cat ../elsewhere/secret.txt && git add -A',
+      // Patterns that climb out of the worktree in bash before 5.2, and names `xargs` would not find on its own.
+      'git add .*',
+      'grep -r secret .*',
+      "printf 'x /etc/passwd' | xargs cat",
+      'cat list.txt | xargs cat',
     ];
     for (const command of commands) {
       const controller = new AbortController();
@@ -267,6 +276,7 @@ describe('inbox: read-only commands of a reviewer in the developer worktree', ()
       `cd ${dir} && git status --short && git log -1 --oneline && grep -rn "sections.history" apps/web/src | head -30`,
     () => 'ls node_modules >/dev/null 2>&1 && echo has_modules; npm run typecheck 2>&1 | tail -5',
     () => 'git diff --name-only main | xargs grep -n foo',
+    (dir: string) => `cd ${dir} && git ls-files | grep '\\.tsx$' | xargs grep -l history | head`,
   ])('allows the read-only chain and records it as a system decision (%#)', async (chain) => {
     const command = chain(worktree);
     expect(h.repos.sessions.get(reviewerSession)!.cwd).toBe(h.workspace);
@@ -300,6 +310,10 @@ describe('inbox: read-only commands of a reviewer in the developer worktree', ()
       `cd ${h.dir} && ls`,
       `cd ${worktree} && grep -rn foo /etc`,
       `find ${worktree} -delete`,
+      `cd ${worktree} && grep -r secret .*`,
+      `cd ${worktree} && cat .*/.*/x`,
+      `cd ${worktree} && cat list.txt | xargs cat`,
+      "echo 'x /etc/passwd' | xargs cat",
     ];
     for (const command of commands) {
       const controller = new AbortController();

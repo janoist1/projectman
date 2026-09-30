@@ -2,7 +2,13 @@ import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { describe, expect, it } from 'vitest';
-import { forwarderCommand } from './claude-args';
+import {
+  FAST_HOOK_TIMEOUT_S,
+  forwarderCommand,
+  hookUrlFor,
+  permissionHookTimeoutS,
+  shellQuote,
+} from './hook-forwarder';
 
 /** The forwarder variant of command hooks that decide (Codex's PermissionRequest). */
 async function forward(
@@ -76,5 +82,59 @@ describe('forwarderCommand with printResponse', () => {
     expect(forwarderCommand('http://127.0.0.1:1/hooks/t', '/node', { maxTimeS: 30 })).toContain(
       '-m 30 -o /dev/null',
     );
+  });
+});
+
+describe('forwarderCommand without printResponse', () => {
+  async function forward(pathEnv: string): Promise<{ body: string; stdout: string }> {
+    let body = '';
+    const server = createServer((req, res) => {
+      req.setEncoding('utf8');
+      req.on('data', (chunk: string) => (body += chunk));
+      req.on('end', () => {
+        res.writeHead(200, { 'content-type': 'text/plain' });
+        res.end('this must not reach stdout');
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as AddressInfo;
+    const command = forwarderCommand(`http://127.0.0.1:${port}/hooks/tok`);
+    const stdout = await new Promise<string>((resolve, reject) => {
+      const child = execFile('/bin/sh', ['-c', command], { env: { PATH: pathEnv } }, (err, out) =>
+        err ? reject(err) : resolve(out),
+      );
+      child.stdin!.end('{"hook_event_name":"SessionStart","session_id":"s1"}');
+    });
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    return { body, stdout };
+  }
+
+  it('posts the hook payload with curl and prints nothing', async () => {
+    const result = await forward(process.env.PATH ?? '/usr/bin:/bin');
+    expect(JSON.parse(result.body)).toEqual({ hook_event_name: 'SessionStart', session_id: 's1' });
+    expect(result.stdout).toBe('');
+  });
+
+  it('falls back to Node when curl is missing', async () => {
+    // Only /bin on PATH: sh is there, curl (in /usr/bin) is not.
+    const result = await forward('/bin');
+    expect(JSON.parse(result.body)).toEqual({ hook_event_name: 'SessionStart', session_id: 's1' });
+    expect(result.stdout).toBe('');
+  });
+});
+
+describe('helpers', () => {
+  it('builds hook urls', () => {
+    expect(hookUrlFor('http://127.0.0.1:4700/', 'abc')).toBe('http://127.0.0.1:4700/hooks/abc');
+  });
+
+  it('quotes for sh', () => {
+    expect(shellQuote("it's")).toBe(`'it'\\''s'`);
+  });
+
+  it('lets a permission hook wait longer than our own timeout', () => {
+    expect(permissionHookTimeoutS(15 * 60_000)).toBe(15 * 60 + 30);
+    expect(permissionHookTimeoutS(1500)).toBe(32);
+    expect(FAST_HOOK_TIMEOUT_S).toBe(10);
   });
 });

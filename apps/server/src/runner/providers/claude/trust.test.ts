@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
-import { tempDirs } from './test-helpers';
+import { tempDirs } from '../../test-helpers';
 import { defaultClaudeConfigPath, ensureWorkspaceTrusted, isTrusted, trustKeyFor, withTrust } from './trust';
 
 const run = promisify(execFile);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { silentLogger } from '../test-helpers';
-import { CLAUDE_AUTH_ERROR, claudePromptVisible, createClaudeAdapter, detectBlockingScreen } from './claude';
+import { silentLogger } from '../../test-helpers';
+import { CLAUDE_AUTH_ERROR, claudePromptVisible, createClaudeAdapter, detectBlockingScreen } from './index';
 
 const promptBox = [
   '────────────── Anna · AR-1 ──',
@@ -51,6 +51,18 @@ describe('Claude Code screen checks', () => {
     expect(detectBlockingScreen(boxed.join('\n'))).toBeNull();
     // A rule and an input line without a closing rule is not a box.
     expect(claudePromptVisible(['────────', '❯ '].join('\n'))).toBe(false);
+  });
+});
+
+describe('detectBlockingScreen', () => {
+  it('recognises Claude Code dialogs that block input', () => {
+    expect(
+      detectBlockingScreen('Quick safety check: Is this a project you created or one you trust?'),
+    ).toMatch(/trust/);
+    expect(detectBlockingScreen('New MCP server found in this project: db')).toMatch(/MCP/);
+    expect(detectBlockingScreen('3 new MCP servers found in this project')).toMatch(/MCP/);
+    expect(detectBlockingScreen('Select login method:')).toMatch(/not logged in/);
+    expect(detectBlockingScreen('> Try "fix lint errors"\n  ? for shortcuts')).toBeNull();
   });
 });
 

@@ -1,19 +1,20 @@
 import type { FastifyBaseLogger } from 'fastify';
-import type { PermissionDecision, ProviderStatus } from '../../contracts';
-import { buildClaudeArgs, buildSettings, resolveCommand } from '../claude-args';
-import { HookPayload, sessionPermissionUpdates } from '../hook-payload';
-import type { PermissionHookOutput, PermissionUpdate } from '../hook-payload';
-import { createPlanUsageProvider } from '../plan-usage';
-import { INPUT_TOOLS } from '../tools';
-import { TranscriptParser } from '../transcript/parser';
-import { defaultClaudeConfigPath, ensureWorkspaceTrusted } from '../trust';
-import { parseClaudeAuthStatus, runQuietly } from './login';
-import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from './types';
+import type { ProviderStatus } from '../../../contracts';
+import { resolveCommand, runQuietly } from '../../cli';
+import { parseClaudeAuthStatus } from '../login';
+import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from '../types';
+import { buildClaudeArgs, buildSettings } from './args';
+import { ClaudeHookPayload, denyOutput, permissionOutput } from './permissions';
+import { createPlanUsageProvider } from './plan-usage';
+import { TranscriptParser } from './transcript';
+import { defaultClaudeConfigPath, ensureWorkspaceTrusted } from './trust';
 
 /**
  * Claude Code: `--session-id`/`--resume`, `--append-system-prompt`, `--mcp-config` and inline
- * `--settings` with HTTP hooks (see claude-args.ts), workspace trust pre-accepted in its global
- * config (trust.ts), transcripts under ~/.claude/projects, plan usage from a `get_usage` probe.
+ * `--settings` with HTTP hooks (args.ts), permission answers that can remember an "allow for
+ * this session" (permissions.ts), workspace trust pre-accepted in its global config
+ * (trust.ts), transcripts under ~/.claude/projects (transcript.ts), plan usage from a
+ * `get_usage` probe (plan-usage.ts).
  */
 
 /** Timing of the interaction with Claude Code's TUI. */
@@ -33,6 +34,9 @@ export const CLAUDE_TIMING: SessionTiming = {
   stopTimeoutMs: 5_000,
   finalReadMs: 1_000,
 };
+
+/** Claude Code's question tool: it waits for an answer typed in the terminal. */
+const CLAUDE_INPUT_TOOLS: ReadonlySet<string> = new Set(['AskUserQuestion']);
 
 /**
  * Dialogs that block a session: first-run screens before it can take input, and prompts that
@@ -83,30 +87,6 @@ export function detectBlockingScreen(text: string): string | null {
   if (claudePromptVisible(text)) return null;
   for (const [pattern, description] of BLOCKING_SCREENS) if (pattern.test(text)) return description;
   return null;
-}
-
-const DENY_DEFAULT = 'A human denied this permission request.';
-
-export function denyOutput(message: string): PermissionHookOutput {
-  return {
-    hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'deny', message } },
-  };
-}
-
-/** The documented PermissionRequest decision JSON for a broker decision. */
-export function permissionOutput(decision: PermissionDecision, payload: HookPayload): PermissionHookOutput {
-  if (decision.behavior === 'deny') return denyOutput(decision.message?.trim() || DENY_DEFAULT);
-  const allow: { behavior: 'allow'; updatedInput?: unknown; updatedPermissions?: PermissionUpdate[] } = {
-    behavior: 'allow',
-  };
-  // Claude Code only accepts an object here; anything else would void the whole decision.
-  const input = decision.updatedInput;
-  if (input !== null && typeof input === 'object' && !Array.isArray(input)) allow.updatedInput = input;
-  if (decision.rememberForSession) {
-    const updates = sessionPermissionUpdates(payload);
-    if (updates.length > 0) allow.updatedPermissions = updates;
-  }
-  return { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: allow } };
 }
 
 /**
@@ -174,7 +154,7 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
       planUsage: 'probe',
     },
     timing: CLAUDE_TIMING,
-    inputTools: INPUT_TOOLS,
+    inputTools: CLAUDE_INPUT_TOOLS,
 
     async launch({ spec, hookUrl, permissionTimeoutMs }) {
       await trust(spec.cwd);
@@ -189,7 +169,7 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
     },
 
     parseHook(body) {
-      const parsed = HookPayload.safeParse(body);
+      const parsed = ClaudeHookPayload.safeParse(body);
       return parsed.success ? parsed.data : null;
     },
     // Unchanged behaviour: Claude Code's subagent hooks count for the session like any other.

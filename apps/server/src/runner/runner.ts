@@ -11,8 +11,9 @@ import {
   type SessionRunner,
   type StartSessionSpec,
 } from '../contracts';
-import { cliExists, hookUrlFor } from './claude-args';
+import { cliExists } from './cli';
 import { buildChildEnv, buildSessionEnv } from './env';
+import { hookUrlFor } from './hook-forwarder';
 import { createProviderAdapters, type ProviderAdapters } from './providers';
 import { AgentSession } from './session';
 

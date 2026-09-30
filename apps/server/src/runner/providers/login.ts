@@ -1,67 +1,13 @@
-import { spawn } from 'node:child_process';
-import os from 'node:os';
 import type { AgentProvider } from '@projectman/shared';
 import type { ProviderStatus } from '../../contracts';
-import { resolveCommand } from '../claude-args';
+import type { CommandOutput } from '../cli';
 
 /**
  * Login checks. Both CLIs report their login without a model request, so a check spends no
- * usage: `claude auth status` (JSON on stdout) and `codex login status` (a line on stderr).
- * They run with the same billing-safe environment as member sessions. Only a subscription
- * login counts as logged in: an API-key login would bill the API.
+ * usage: `claude auth status` (JSON on stdout) and `codex login status` (a line on stderr),
+ * run with `runQuietly` (cli.ts) and the same billing-safe environment as member sessions.
+ * Only a subscription login counts as logged in: an API-key login would bill the API.
  */
-
-export interface CommandOutput {
-  code: number | null;
-  stdout: string;
-  stderr: string;
-  /** Spawning failed or the command timed out. */
-  error: string | null;
-}
-
-const MAX_OUTPUT = 64 * 1024;
-
-/** Runs a short CLI command (stdin closed) and collects its output. Never rejects. */
-export function runQuietly(
-  bin: string,
-  args: string[],
-  env: Record<string, string>,
-  timeoutMs = 15_000,
-): Promise<CommandOutput> {
-  return new Promise((resolve) => {
-    const { file, args: argv } = resolveCommand(bin, args);
-    let stdout = '';
-    let stderr = '';
-    let settled = false;
-    const finish = (code: number | null, error: string | null) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve({ code, stdout, stderr, error });
-    };
-    let child;
-    try {
-      child = spawn(file, argv, { cwd: os.tmpdir(), env, stdio: ['ignore', 'pipe', 'pipe'] });
-    } catch (err) {
-      resolve({ code: null, stdout, stderr, error: (err as Error).message });
-      return;
-    }
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL');
-      finish(null, `timed out after ${timeoutMs} ms`);
-    }, timeoutMs);
-    child.stdout.setEncoding('utf8');
-    child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => {
-      if (stdout.length < MAX_OUTPUT) stdout += chunk;
-    });
-    child.stderr.on('data', (chunk: string) => {
-      if (stderr.length < MAX_OUTPUT) stderr += chunk;
-    });
-    child.on('error', (err) => finish(null, err.message));
-    child.on('close', (code) => finish(code, null));
-  });
-}
 
 function firstLine(text: string): string {
   return (

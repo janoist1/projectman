@@ -2,9 +2,9 @@ import { spawn } from 'node:child_process';
 import os from 'node:os';
 import type { FastifyBaseLogger } from 'fastify';
 import type { PlanUsage } from '@projectman/shared';
-import type { PlanUsageProvider } from '../contracts';
-import { resolveCommand } from './claude-args';
-import { buildChildEnv } from './env';
+import type { PlanUsageProvider } from '../../../contracts';
+import { resolveCommand } from '../../cli';
+import { buildChildEnv } from '../../env';
 
 /**
  * Plan usage (the 5-hour and weekly limits of the logged-in Claude account), the numbers

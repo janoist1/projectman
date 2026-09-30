@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HookPayload, sessionPermissionUpdates } from './hook-payload';
+import { HookPayload, sessionAllowScope } from './hook-payload';
 
 const payload = (extra: Record<string, unknown>) =>
   HookPayload.parse({ hook_event_name: 'PermissionRequest', session_id: 's', ...extra });
@@ -12,60 +12,21 @@ describe('HookPayload', () => {
   });
 });
 
-describe('sessionPermissionUpdates', () => {
-  it('re-scopes suggested allow rules to the session', () => {
-    const updates = sessionPermissionUpdates(
-      payload({
-        tool_name: 'Bash',
-        tool_input: { command: 'npm run lint' },
-        permission_suggestions: [
-          {
-            type: 'addRules',
-            rules: [{ toolName: 'Bash', ruleContent: 'npm run lint' }],
-            behavior: 'allow',
-            destination: 'localSettings',
-          },
-          { type: 'addDirectories', directories: ['/tmp'], destination: 'localSettings' },
-          { type: 'setMode', mode: 'bypassPermissions', destination: 'session' },
-        ],
-      }),
-    );
-    expect(updates).toEqual([
-      {
-        type: 'addRules',
-        rules: [{ toolName: 'Bash', ruleContent: 'npm run lint' }],
-        behavior: 'allow',
-        destination: 'session',
-      },
-    ]);
+describe('sessionAllowScope', () => {
+  it('covers the same Bash command, or the tool itself for other tools', () => {
+    expect(sessionAllowScope(payload({ tool_name: 'Bash', tool_input: { command: 'git push' } }))).toEqual({
+      toolName: 'Bash',
+      command: 'git push',
+    });
+    expect(sessionAllowScope(payload({ tool_name: 'WebFetch', tool_input: { url: 'https://x' } }))).toEqual({
+      toolName: 'WebFetch',
+    });
   });
 
-  it('keeps an accept-edits mode suggestion, scoped to the session', () => {
-    const updates = sessionPermissionUpdates(
-      payload({
-        tool_name: 'Edit',
-        permission_suggestions: [{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }],
-      }),
-    );
-    expect(updates).toEqual([{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }]);
-  });
-
-  it('allows the exact call again when nothing was suggested', () => {
-    expect(
-      sessionPermissionUpdates(payload({ tool_name: 'Bash', tool_input: { command: 'git push' } })),
-    ).toEqual([
-      {
-        type: 'addRules',
-        rules: [{ toolName: 'Bash', ruleContent: 'git push' }],
-        behavior: 'allow',
-        destination: 'session',
-      },
-    ]);
-    expect(
-      sessionPermissionUpdates(payload({ tool_name: 'WebFetch', tool_input: { url: 'https://x' } })),
-    ).toEqual([
-      { type: 'addRules', rules: [{ toolName: 'WebFetch' }], behavior: 'allow', destination: 'session' },
-    ]);
-    expect(sessionPermissionUpdates(payload({}))).toEqual([]);
+  it('remembers nothing without a tool or for a Bash call without a command', () => {
+    expect(sessionAllowScope(payload({}))).toBeNull();
+    expect(sessionAllowScope(payload({ tool_name: 'Bash' }))).toBeNull();
+    expect(sessionAllowScope(payload({ tool_name: 'Bash', tool_input: { command: '' } }))).toBeNull();
+    expect(sessionAllowScope(payload({ tool_name: 'Bash', tool_input: 'ls' }))).toBeNull();
   });
 });

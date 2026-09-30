@@ -1,9 +1,10 @@
 import { z } from 'zod';
 
 /**
- * Claude Code hook payloads (the JSON body of an HTTP hook, or stdin of a command hook).
- * Parsed permissively: only what the runner uses is typed, unknown fields pass through,
- * so newer Claude Code versions with extra fields keep working.
+ * Hook payloads as the runner handles them (the JSON body of an HTTP hook, or stdin of a
+ * command hook). Every provider validates its own payloads into this shape
+ * (`ProviderAdapter.parseHook`). Parsed permissively: only what the runner uses is typed,
+ * unknown fields pass through, so newer CLI versions with extra fields keep working.
  */
 export const HookPayload = z.looseObject({
   hook_event_name: z.string(),
@@ -19,8 +20,6 @@ export const HookPayload = z.looseObject({
   tool_name: z.string().optional(),
   tool_input: z.unknown().optional(),
   tool_use_id: z.string().optional(),
-  /** PermissionRequest: permission updates Claude Code suggests (same shape as updatedPermissions). */
-  permission_suggestions: z.array(z.unknown()).optional(),
   /** Notification. */
   notification_type: z.string().optional(),
   message: z.string().optional(),
@@ -33,74 +32,26 @@ export const HookPayload = z.looseObject({
 });
 export type HookPayload = z.infer<typeof HookPayload>;
 
-/** One entry of `updatedPermissions` / `permission_suggestions`. */
-export type PermissionUpdate =
-  | {
-      type: 'addRules';
-      rules: Array<{ toolName: string; ruleContent?: string }>;
-      behavior: 'allow';
-      destination: 'session';
-    }
-  | { type: 'setMode'; mode: string; destination: 'session' };
+/** The message of a PermissionRequest denial when the human gave no reason. */
+export const DENY_DEFAULT = 'A human denied this permission request.';
 
-/** Output of a PermissionRequest hook. */
-export interface PermissionHookOutput {
-  hookSpecificOutput: {
-    hookEventName: 'PermissionRequest';
-    decision:
-      | { behavior: 'allow'; updatedInput?: unknown; updatedPermissions?: PermissionUpdate[] }
-      | { behavior: 'deny'; message?: string };
-  };
+/** What an "allow for this session" of a permission request covers (see sessionAllowScope). */
+export interface SessionAllowScope {
+  toolName: string;
+  /** The exact Bash command; absent for other tools. */
+  command?: string;
 }
 
-const Rule = z.object({ toolName: z.string().min(1), ruleContent: z.string().optional() });
-const AddRulesSuggestion = z.looseObject({
-  type: z.literal('addRules'),
-  rules: z.array(Rule).min(1),
-  behavior: z.string().optional(),
-});
-const SetModeSuggestion = z.looseObject({ type: z.literal('setMode'), mode: z.string() });
-
-/** Modes a remembered "allow for this session" may switch to (never bypass or auto modes). */
-const SAFE_SESSION_MODES = new Set(['acceptEdits']);
-
 /**
- * Permission updates that make Claude Code stop asking for the same kind of call in this
- * session: the allow rules (or the accept-edits mode) Claude Code suggested, always scoped to
- * the session so nothing is written to settings files. Without suggestions, the exact call is
- * allowed again: the same Bash command, or the tool itself for other tools.
+ * What an "allow for this session" covers when nothing more specific is known: the same Bash
+ * command again, or the tool itself for any other tool. Null when there is nothing to remember:
+ * no tool, or a Bash call without a command.
  */
-export function sessionPermissionUpdates(payload: HookPayload): PermissionUpdate[] {
-  const updates: PermissionUpdate[] = [];
-  for (const raw of payload.permission_suggestions ?? []) {
-    const add = AddRulesSuggestion.safeParse(raw);
-    if (add.success && (add.data.behavior ?? 'allow') === 'allow') {
-      updates.push({
-        type: 'addRules',
-        rules: add.data.rules.map((r) =>
-          r.ruleContent === undefined
-            ? { toolName: r.toolName }
-            : { toolName: r.toolName, ruleContent: r.ruleContent },
-        ),
-        behavior: 'allow',
-        destination: 'session',
-      });
-      continue;
-    }
-    const mode = SetModeSuggestion.safeParse(raw);
-    if (mode.success && SAFE_SESSION_MODES.has(mode.data.mode)) {
-      updates.push({ type: 'setMode', mode: mode.data.mode, destination: 'session' });
-    }
-  }
-  if (updates.length > 0) return updates;
-
+export function sessionAllowScope(payload: HookPayload): SessionAllowScope | null {
   const toolName = payload.tool_name;
-  if (!toolName) return [];
+  if (!toolName) return null;
+  if (toolName !== 'Bash') return { toolName };
   const input = payload.tool_input;
-  const command =
-    input && typeof input === 'object' && typeof (input as Record<string, unknown>).command === 'string'
-      ? ((input as Record<string, unknown>).command as string)
-      : null;
-  const rule = toolName === 'Bash' && command ? { toolName, ruleContent: command } : { toolName };
-  return [{ type: 'addRules', rules: [rule], behavior: 'allow', destination: 'session' }];
+  const command = input && typeof input === 'object' ? (input as Record<string, unknown>).command : undefined;
+  return typeof command === 'string' && command ? { toolName, command } : null;
 }

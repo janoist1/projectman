@@ -3,9 +3,6 @@ import path from 'node:path';
 /** Tool name of the team tools' send_message, as Claude Code sees it. */
 export const TEAM_SEND_MESSAGE_TOOL = 'mcp__team__send_message';
 
-/** Tools that wait for an answer typed by a human in the terminal. */
-export const INPUT_TOOLS: ReadonlySet<string> = new Set(['AskUserQuestion']);
-
 const FILE_TOOLS = new Set(['Read', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'NotebookRead']);
 
 function asRecord(value: unknown): Record<string, unknown> {

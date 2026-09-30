@@ -8,7 +8,7 @@ import type {
   RunningSessionInfo,
   StartSessionSpec,
 } from '../contracts';
-import type { HookPayload } from './hook-payload';
+import { sessionAllowScope, type HookPayload } from './hook-payload';
 import { CLAUDE_TIMING } from './providers/claude';
 import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from './providers/types';
 import { nextState, type SessionSignal, type StateSnapshot } from './state';
@@ -19,9 +19,6 @@ import { ENTER_KEY, messageKeystrokes } from './typing';
 
 /** Timing of the interaction with Claude Code's TUI (other providers bring their own). */
 export const TIMING: SessionTiming = CLAUDE_TIMING;
-
-// Claude Code's screen and permission answers, kept importable from here.
-export { detectBlockingScreen, permissionOutput } from './providers/claude';
 
 /** Dialogs replace the prompt box at the end of the screen content: only look there. */
 const DIALOG_ROWS = 15;
@@ -55,17 +52,12 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * "Allow for this session" remembered by the runner, for CLIs that cannot be told to remember
- * it: the same Bash command again, or the same tool for other tools (as Claude Code's fallback).
+ * it: the same Bash command again, or the same tool for other tools (see sessionAllowScope).
  */
 function sessionAllowKey(payload: HookPayload): string | null {
-  const tool = payload.tool_name;
-  if (!tool) return null;
-  const input = payload.tool_input;
-  const command =
-    input && typeof input === 'object' && typeof (input as Record<string, unknown>).command === 'string'
-      ? ((input as Record<string, unknown>).command as string)
-      : null;
-  return tool === 'Bash' ? (command === null ? null : `Bash\u0000${command}`) : tool;
+  const scope = sessionAllowScope(payload);
+  if (!scope) return null;
+  return scope.command === undefined ? scope.toolName : `${scope.toolName}\u0000${scope.command}`;
 }
 
 /** One interactive agent CLI process (Claude Code or Codex) in a pseudo-terminal. */

@@ -1,6 +1,6 @@
 import { modelForProvider } from '@projectman/shared';
 import type { StartSessionSpec } from '../../../contracts';
-import { forwarderCommand } from '../../claude-args';
+import { FAST_HOOK_TIMEOUT_S, forwarderCommand, permissionHookTimeoutS } from '../../hook-forwarder';
 import { sanitizeMessage } from '../../typing';
 
 /**
@@ -31,11 +31,6 @@ export const CODEX_HOOK_EVENTS = [
   'Interrupt',
   'SessionEnd',
 ] as const;
-
-/** Timeout (seconds) of hooks the runner answers immediately. */
-const FAST_HOOK_TIMEOUT_S = 10;
-/** Extra time Codex waits beyond our own permission timeout, so we always answer first. */
-const PERMISSION_TIMEOUT_MARGIN_S = 30;
 
 /** `text` with lone surrogates (not valid in TOML) replaced by U+FFFD. */
 function wellFormed(text: string): string {
@@ -159,7 +154,7 @@ export function hookGroups(command: string, timeoutS: number): unknown {
 /** Full argument list for `codex` (interactive TUI). */
 export function buildCodexArgs(input: CodexArgsInput): string[] {
   const { spec, hookUrl } = input;
-  const permissionTimeoutS = Math.ceil(input.permissionTimeoutMs / 1000) + PERMISSION_TIMEOUT_MARGIN_S;
+  const permissionTimeoutS = permissionHookTimeoutS(input.permissionTimeoutMs);
   const args: string[] = [];
   if (spec.resume) args.push('resume');
   args.push('--no-alt-screen', '--no-daemon', '--dangerously-bypass-hook-trust', '--enable', 'hooks');

@@ -2,7 +2,7 @@ import { userTextOrigin } from '@projectman/shared';
 import { createHash } from 'node:crypto';
 import { MemberHandle, TEAM_MESSAGE_PREFIX_RE, type ChatItem } from '@projectman/shared';
 import { TEAM_SEND_MESSAGE_TOOL, compactInput, displayPath, oneLine, toolSummary } from '../../tools';
-import { UNKNOWN_MEMBER } from '../../transcript/parser';
+import { UNKNOWN_MEMBER } from '../claude/transcript';
 import type { TranscriptLineParser, TranscriptParseResult } from '../types';
 
 /**

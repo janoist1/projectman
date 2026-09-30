@@ -4,10 +4,10 @@ import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import { z } from 'zod';
 import type { PermissionDecision, ProviderStatus } from '../../../contracts';
-import { resolveCommand } from '../../claude-args';
-import type { HookPayload } from '../../hook-payload';
+import { resolveCommand, runQuietly } from '../../cli';
+import { DENY_DEFAULT, type HookPayload } from '../../hook-payload';
 import { sanitizeMessage } from '../../typing';
-import { parseCodexLoginStatus, runQuietly } from '../login';
+import { parseCodexLoginStatus } from '../login';
 import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from '../types';
 import { buildCodexArgs } from './args';
 import { CodexPlanUsage } from './plan-usage';
@@ -116,8 +116,6 @@ function decisionOutput(decision: { behavior: 'allow' } | { behavior: 'deny'; me
   // Codex rejects (fails closed on) `updatedInput` and `updatedPermissions`: never sent.
   return { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } };
 }
-
-const DENY_DEFAULT = 'A human denied this permission request.';
 
 export function codexPermissionOutput(decision: PermissionDecision): unknown {
   if (decision.behavior === 'deny') {

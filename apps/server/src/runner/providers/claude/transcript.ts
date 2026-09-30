@@ -1,5 +1,5 @@
 import { MemberHandle, TEAM_MESSAGE_PREFIX_RE, userTextOrigin, type ChatItem } from '@projectman/shared';
-import { TEAM_SEND_MESSAGE_TOOL, compactInput, oneLine, toolSummary } from '../tools';
+import { TEAM_SEND_MESSAGE_TOOL, compactInput, oneLine, toolSummary } from '../../tools';
 
 /**
  * Turns Claude Code transcript entries (one JSON object per JSONL line) into chat items.

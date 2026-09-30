@@ -1,6 +1,7 @@
 import { fireEvent, screen, within } from '@testing-library/react';
 import type { InboxItem } from '@projectman/shared';
 import { describe, expect, it, vi } from 'vitest';
+import { t } from '../../i18n/t';
 import { inbox } from '../../mocks/fixtures';
 import { mockIndexes, renderUi } from '../../test/render';
 import { InboxCard } from './InboxCard';
@@ -33,18 +34,22 @@ describe('InboxCard', () => {
   it('shows a permission request with the command and resolves it with the built-in options', () => {
     const entry = item('inb_perm_push');
     const { onResolve, card } = renderCard(entry);
-    expect(within(card).getByText('Engedély')).toBeTruthy();
-    expect(within(card).getByRole('heading', { name: 'Engedélyt kér: Git' })).toBeTruthy();
+    expect(within(card).getByText(t('inbox.kinds.permission'))).toBeTruthy();
+    expect(
+      within(card).getByRole('heading', {
+        name: t('inbox.permissionHeading', { tool: t('session.tools.git') }),
+      }),
+    ).toBeTruthy();
     expect(within(card).getByText('git push origin 21-order-confirmation').tagName).toBe('CODE');
-    fireEvent.click(within(card).getByRole('button', { name: 'Engedélyezem' }));
+    fireEvent.click(within(card).getByRole('button', { name: t('inbox.options.allow') }));
     expect(onResolve).toHaveBeenCalledWith(entry, { optionId: 'allow' });
-    fireEvent.click(within(card).getByRole('button', { name: 'Mindig, ebben a sessionben' }));
+    fireEvent.click(within(card).getByRole('button', { name: t('inbox.options.allow_session') }));
     expect(onResolve).toHaveBeenLastCalledWith(entry, { optionId: 'allow_session' });
-    fireEvent.click(within(card).getByRole('button', { name: 'Elutasítom' }));
+    fireEvent.click(within(card).getByRole('button', { name: t('inbox.options.deny') }));
     expect(onResolve).toHaveBeenLastCalledWith(entry, { optionId: 'deny' });
     expect(
       within(card)
-        .getByRole('link', { name: /Részletek/ })
+        .getByRole('link', { name: new RegExp(t('inbox.details')) })
         .getAttribute('href'),
     ).toBe('/p/AC/sessions/ses_ac21_fe1');
   });
@@ -56,14 +61,14 @@ describe('InboxCard', () => {
     fireEvent.click(within(card).getByRole('button', { name: 'Kell GA4 is' }));
     expect(onResolve).toHaveBeenCalledWith(entry, { optionId: 'option_2' });
 
-    fireEvent.click(within(card).getByRole('button', { name: 'Saját válasz' }));
-    const field = within(card).getByLabelText('Válaszod');
-    fireEvent.click(within(card).getByRole('button', { name: 'Válasz küldése' }));
-    expect(within(card).getByRole('alert').textContent).toBe('Írj választ, vagy válassz egy lehetőséget.');
+    fireEvent.click(within(card).getByRole('button', { name: t('inbox.options.answer') }));
+    const field = within(card).getByLabelText(t('inbox.answerLabel'));
+    fireEvent.click(within(card).getByRole('button', { name: t('inbox.answerSubmit') }));
+    expect(within(card).getByRole('alert').textContent).toBe(t('inbox.answerRequired'));
     expect(onResolve).toHaveBeenCalledTimes(1);
 
     fireEvent.change(field, { target: { value: '  Elég a süti nélküli, GA4 most nem kell.  ' } });
-    fireEvent.click(within(card).getByRole('button', { name: 'Válasz küldése' }));
+    fireEvent.click(within(card).getByRole('button', { name: t('inbox.answerSubmit') }));
     expect(onResolve).toHaveBeenLastCalledWith(entry, {
       optionId: 'answer',
       note: 'Elég a süti nélküli, GA4 most nem kell.',
@@ -75,15 +80,15 @@ describe('InboxCard', () => {
     const { onResolve, card } = renderCard(entry);
     expect(within(card).getByRole('heading', { name: 'Továbblépés: Merge → Élesítés' })).toBeTruthy();
     expect(within(card).getByText('· Kártyás fizetés átvételkor')).toBeTruthy();
-    fireEvent.click(within(card).getByRole('button', { name: 'Jóváhagyom' }));
+    fireEvent.click(within(card).getByRole('button', { name: t('inbox.options.approve') }));
     expect(onResolve).toHaveBeenCalledWith(entry, { optionId: 'approve' });
-    fireEvent.click(within(card).getByRole('button', { name: 'Elutasítom' }));
+    fireEvent.click(within(card).getByRole('button', { name: t('inbox.options.reject') }));
     expect(onResolve).toHaveBeenLastCalledWith(entry, { optionId: 'reject' });
   });
 
   it('shows items meant for someone else without actions', () => {
     const { card } = renderCard(item('inb_q_variant'));
-    expect(within(card).getByText('Neki szól: Kata')).toBeTruthy();
+    expect(within(card).getByText(t('inbox.assignedTo', { names: 'Kata' }))).toBeTruthy();
     expect(within(card).queryAllByRole('button')).toHaveLength(0);
   });
 
@@ -95,6 +100,6 @@ describe('InboxCard', () => {
       within(card)
         .getAllByRole('button')
         .map((button) => button.textContent),
-    ).toEqual(['Jóváhagyom', 'Elutasítom']);
+    ).toEqual([t('inbox.options.approve'), t('inbox.options.reject')]);
   });
 });

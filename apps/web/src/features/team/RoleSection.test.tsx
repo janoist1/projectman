@@ -1,11 +1,14 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { getLocale } from '@projectman/templates';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
+import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
 import { RoleSection } from './RoleSection';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
+const operator = getLocale('hu').roles.operator.name;
 const steward = {
   id: 'data_steward',
   name: 'Acme steward',
@@ -20,28 +23,40 @@ describe('custom roles', () => {
   it('creates all fields, keeps built-ins read-only, and edits instructions', async () => {
     const project = mockProject();
     project.render(<RoleSection config={project.backend.config} />);
-    await screen.findByText('Operátor');
-    expect(within(screen.getByText('Operátor').closest('li')!).queryByRole('button')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Új szerep' }));
-    fireEvent.change(screen.getByLabelText('Azonosító'), { target: { value: steward.id } });
-    fireEvent.change(screen.getByLabelText('Név'), { target: { value: steward.name } });
-    fireEvent.change(screen.getByLabelText('Feladata'), { target: { value: steward.summary } });
-    fireEvent.change(screen.getByLabelText('Nem az ő feladata'), { target: { value: steward.notTheirJob } });
-    fireEvent.change(screen.getByLabelText('AI-utasítások (angolul)'), {
+    await screen.findByText(operator);
+    expect(within(screen.getByText(operator).closest('li')!).queryByRole('button')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: t('roleCatalogue.create') }));
+    fireEvent.change(screen.getByLabelText(t('roleCatalogue.id')), { target: { value: steward.id } });
+    fireEvent.change(screen.getByLabelText(t('roleCatalogue.name')), { target: { value: steward.name } });
+    fireEvent.change(screen.getByLabelText(t('roleCatalogue.summary')), {
+      target: { value: steward.summary },
+    });
+    fireEvent.change(screen.getByLabelText(t('roleCatalogue.notTheirJob')), {
+      target: { value: steward.notTheirJob },
+    });
+    fireEvent.change(screen.getByLabelText(t('roleCatalogue.instructions')), {
       target: { value: steward.instructions },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Mentés' }));
+    fireEvent.click(screen.getByRole('button', { name: t('memberEdit.save') }));
     await screen.findByText(steward.name);
-    expect(project.backend.config.team.roles).toEqual([steward]);
-    fireEvent.click(screen.getByRole('button', { name: 'Szerkesztés' }));
-    expect((screen.getByLabelText('AI-utasítások (angolul)') as HTMLTextAreaElement).value).toBe(
+    expect(project.requests.find((request) => request.method === 'POST')).toMatchObject({
+      path: '/api/projects/AC/roles',
+      body: steward,
+    });
+    fireEvent.click(screen.getByRole('button', { name: t('memberEdit.edit') }));
+    expect((screen.getByLabelText(t('roleCatalogue.instructions')) as HTMLTextAreaElement).value).toBe(
       steward.instructions,
     );
-    expect((screen.getByLabelText('Azonosító') as HTMLInputElement).readOnly).toBe(true);
-    fireEvent.change(screen.getByLabelText('Feladata'), { target: { value: 'Checks master data too.' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Mentés' }));
+    expect((screen.getByLabelText(t('roleCatalogue.id')) as HTMLInputElement).readOnly).toBe(true);
+    fireEvent.change(screen.getByLabelText(t('roleCatalogue.summary')), {
+      target: { value: 'Checks master data too.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: t('memberEdit.save') }));
     await screen.findByText('Checks master data too.');
-    expect(project.backend.config.team.roles[0]?.instructions).toBe(steward.instructions);
+    expect(project.requests.find((request) => request.method === 'PUT')).toMatchObject({
+      path: `/api/projects/AC/roles/${steward.id}`,
+      body: { ...steward, summary: 'Checks master data too.' },
+    });
   });
   it('shows member handles when deletion conflicts with active membership', async () => {
     const project = mockProject();
@@ -49,19 +64,21 @@ describe('custom roles', () => {
     project.backend.handle('POST', '/api/projects/AC/members', { role: steward.id, handle: 'acme-steward' });
     project.render(<RoleSection config={project.backend.config} />);
     await screen.findByText(steward.name);
-    fireEvent.click(screen.getByRole('button', { name: 'Törlés' }));
+    fireEvent.click(screen.getByRole('button', { name: t('roleCatalogue.delete') }));
     const dialog = screen.getByRole('dialog');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Törlés' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: t('roleCatalogue.delete') }));
     expect((await screen.findByRole('alert')).textContent).toContain('acme-steward');
-    expect(project.backend.config.team.roles).toHaveLength(1);
+    expect(screen.getByText(steward.name)).toBeTruthy();
   });
   it('deletes an unused custom role after confirmation', async () => {
     const project = mockProject();
     project.backend.config.team.roles.push(steward);
     project.render(<RoleSection config={project.backend.config} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Törlés' }));
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Törlés' }));
+    fireEvent.click(await screen.findByRole('button', { name: t('roleCatalogue.delete') }));
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: t('roleCatalogue.delete') }),
+    );
     await waitFor(() => expect(screen.queryByText(steward.name)).toBeNull());
-    expect(project.backend.config.team.roles).toEqual([]);
+    expect(project.requests.some((request) => request.method === 'DELETE')).toBe(true);
   });
 });

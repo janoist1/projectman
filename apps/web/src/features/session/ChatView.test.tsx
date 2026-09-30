@@ -113,7 +113,7 @@ describe('ChatView', () => {
       text: 'Fictional task brief',
     };
     render(<ChatView items={[brief, ...items]} sessionMember="fe-1" members={members} myHandle="owner" />);
-    const card = screen.getByText('Feladatleírás').closest('details')!;
+    const card = screen.getByText(t('session.chat.brief')).closest('details')!;
     expect(card.open).toBe(false);
     expect(within(card).getByText('Fictional task brief')).toBeTruthy();
     expect(screen.getByText('Kérlek, javítsd a gombsort.').closest('details')).toBeNull();
@@ -126,17 +126,17 @@ describe('ChatView', () => {
     expect(screen.getByText('Kérlek, javítsd a gombsort.')).toBeTruthy();
     expect(screen.getByText('javítom').tagName).toBe('STRONG');
     expect(screen.getAllByText('Frontend fejlesztő').length).toBeGreaterThan(0);
-    const tools = screen.getByRole('list', { name: 'Eszközhívások' });
+    const tools = screen.getByRole('list', { name: t('session.chat.toolGroup') });
     const rows = within(tools).getAllByRole('listitem');
     expect(rows).toHaveLength(3);
-    expect(within(rows[0]!).getByText('Olvasás')).toBeTruthy();
+    expect(within(rows[0]!).getByText(t('session.tools.Read'))).toBeTruthy();
     expect(within(rows[0]!).getByText('42 sor')).toBeTruthy();
     expect(within(rows[1]!).getByText('hiba · exit 1')).toBeTruthy();
-    expect(within(rows[2]!).getByText('Git')).toBeTruthy();
-    expect(within(rows[2]!).getByText('fut…')).toBeTruthy();
+    expect(within(rows[2]!).getByText(t('session.tools.git'))).toBeTruthy();
+    expect(within(rows[2]!).getByText(t('session.chat.toolRunning'))).toBeTruthy();
     expect(screen.getByText('Hiba: kilóg a gombsor.')).toBeTruthy();
     expect(screen.getByText('QA')).toBeTruthy();
-    expect(screen.getByText('Csapatüzenet')).toBeTruthy();
+    expect(screen.getByText(t('session.chat.teamMessageOut'))).toBeTruthy();
     expect(screen.getByText('Code review')).toBeTruthy();
     expect(screen.getByText('A session folytatódott.')).toBeTruthy();
   });
@@ -155,12 +155,12 @@ describe('ChatView', () => {
         awaitingPermission
       />,
     );
-    const prompt = screen.getByRole('region', { name: 'Engedélyt kér' });
+    const prompt = screen.getByRole('region', { name: t('session.chat.permissionTitle') });
     expect(within(prompt).getByText('git push origin 21-order-confirmation')).toBeTruthy();
-    expect(screen.getByText('engedélyre vár')).toBeTruthy();
-    fireEvent.click(within(prompt).getByRole('button', { name: 'Mindig, ebben a sessionben' }));
+    expect(screen.getByText(t('session.chat.toolAwaiting'))).toBeTruthy();
+    fireEvent.click(within(prompt).getByRole('button', { name: t('inbox.options.allow_session') }));
     expect(onResolve).toHaveBeenCalledWith(request, { optionId: 'allow_session' });
-    fireEvent.click(within(prompt).getByRole('button', { name: 'Elutasítom' }));
+    fireEvent.click(within(prompt).getByRole('button', { name: t('inbox.options.deny') }));
     expect(onResolve).toHaveBeenLastCalledWith(request, { optionId: 'deny' });
   });
 
@@ -206,7 +206,7 @@ describe('ChatView', () => {
     const { rerender } = render(
       <ChatView items={[]} sessionMember="fe-1" members={members} myHandle="owner" />,
     );
-    expect(screen.getByText('Még nincs üzenet ebben a sessionben.')).toBeTruthy();
+    expect(screen.getByText(t('session.chat.empty'))).toBeTruthy();
     rerender(
       <ChatView
         items={[]}
@@ -217,7 +217,7 @@ describe('ChatView', () => {
       />,
     );
     expect(screen.getByText('Mehet a push?')).toBeTruthy();
-    expect(screen.getByText('Elküldve, sorban áll')).toBeTruthy();
+    expect(screen.getByText(t('session.composer.pending'))).toBeTruthy();
   });
 });
 

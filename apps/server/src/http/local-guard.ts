@@ -2,8 +2,9 @@ import type { IncomingHttpHeaders } from 'node:http';
 import { isIPv4 } from 'node:net';
 
 /**
- * The team MCP endpoint is internal: only Claude Code sessions started by the runner on
- * this machine may call it. These checks run before the token is looked at and reject:
+ * Guard of the internal endpoints (the runner's `/hooks/:token`, the team tools'
+ * `/mcp/:token`): only agent CLI sessions started by the runner on this machine may call
+ * them. These checks run before the token is looked at and reject:
  * - connections that do not come from a loopback address;
  * - requests relayed by a reverse proxy on this machine (e.g. `tailscale serve`), which
  *   arrive from 127.0.0.1 but carry forwarding headers or a non-local Host;

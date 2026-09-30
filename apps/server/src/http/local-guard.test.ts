@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isLoopbackAddress, isLoopbackHostHeader, isLoopbackOrigin, nonLocalReason } from './guard';
+import { isLoopbackAddress, isLoopbackHostHeader, isLoopbackOrigin, nonLocalReason } from './local-guard';
 
 describe('isLoopbackAddress', () => {
   it.each(['127.0.0.1', '127.8.9.10', '::1', '::ffff:127.0.0.1', '::FFFF:127.0.0.1'])(

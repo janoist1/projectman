@@ -59,6 +59,7 @@ export function registerWebsocket(
     return false;
   };
 
+  /** Sends the event if the client's login session is still valid (else closes the socket). */
   const send = (client: Client, event: ServerEvent) => {
     if (!authenticated(client)) return;
     if (client.socket.readyState !== OPEN) return;
@@ -69,26 +70,29 @@ export function registerWebsocket(
     }
   };
 
-  // Resolve current membership before every delivery, including terminal streams.
+  // Every delivery rechecks the current membership and then the login session (in send),
+  // terminal streams included; clients that did not subscribe to the project or attach the
+  // terminal are skipped first, without any lookups.
   let delivery = Promise.resolve();
   const unsubscribe = domain.bus.subscribe((event) => {
     delivery = delivery
       .then(async () => {
         if (event.type === 'hello' || event.type === 'error') return;
         for (const client of clients) {
-          if (!authenticated(client)) continue;
           if (event.type === 'terminal_data' || event.type === 'terminal_snapshot') {
             if (!client.terminals.has(event.sessionId)) continue;
             try {
               await requireTerminalAccess(client, event.sessionId, 'viewer');
-              send(client, event);
             } catch {
               client.terminals.delete(event.sessionId);
+              continue;
             }
-          } else if (client.projects.has(event.projectKey)) {
+            send(client, event);
+          } else {
+            if (!client.projects.has(event.projectKey)) continue;
             const access = await domain.accessFor(event.projectKey, client.user.email).catch(() => null);
-            if (access && canSeeProjectEvent(access, event)) send(client, event);
             if (!access) client.projects.delete(event.projectKey);
+            else if (canSeeProjectEvent(access, event)) send(client, event);
           }
         }
       })

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ServerEvent, TaskDetail } from '@projectman/shared';
 import { createAppHarness, createProject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
@@ -42,6 +42,7 @@ describe('websocket', () => {
     await createProject(h, cookie);
   });
   afterEach(async () => {
+    vi.restoreAllMocks();
     for (const ws of sockets.splice(0)) ws.terminate();
     await h.close();
   });
@@ -202,6 +203,27 @@ describe('websocket', () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(owner.events.some((e) => e.type === 'terminal_data')).toBe(false);
     expect(h.runner.input).toEqual([]);
+  });
+
+  it('looks up the login only for deliveries to subscribers, once per delivery', async () => {
+    const { ws, events } = await connect();
+    await waitFor(events, ofType('hello'));
+    const resolve = vi.spyOn(h.app.projectman.auth, 'resolve');
+    const publish = async (version: string) => {
+      h.app.projectman.domain.bus.publish({ type: 'config_changed', projectKey: 'AR', version });
+      await new Promise((settled) => setTimeout(settled, 20));
+    };
+    await publish('v1');
+    expect(resolve).not.toHaveBeenCalled();
+    ws.send(JSON.stringify({ type: 'subscribe_project', projectKey: 'AR' }));
+    ws.send('not json');
+    await waitFor(events, ofType('error'));
+    resolve.mockClear();
+    await publish('v2');
+    expect(events.filter((e) => e.type === 'config_changed')).toEqual([
+      { type: 'config_changed', projectKey: 'AR', version: 'v2' },
+    ]);
+    expect(resolve).toHaveBeenCalledTimes(1);
   });
 
   it('streams fetched provider usage and changed members to project subscribers', async () => {

@@ -2,7 +2,6 @@ import { existsSync } from 'node:fs';
 import { lstat, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
-import { DAILY_WORKER_SCHEDULE, migrateLegacyConfig } from '@projectman/templates';
 import { ProjectConfig, validateProjectConfig } from '@projectman/shared';
 import type { ConfigVersionEntry } from '@projectman/shared';
 import type { ConfigStore } from '../contracts';
@@ -11,6 +10,7 @@ import { runGit } from './git';
 import type { GitResult } from './git';
 import { mergeProjectFiles, parseYamlFile, PROJECT_FILES, splitProjectConfig } from './layout';
 import type { ProjectFileName } from './layout';
+import { migrateProjectConfig } from './migrations';
 
 export interface GitIdentity {
   name: string;
@@ -75,25 +75,6 @@ function validate(raw: unknown, expectedKey: string): ProjectConfig {
   return parsed.data;
 }
 
-/** Upgrades removed AI roles without rewriting the customization files. */
-function migrateScheduledRole(
-  raw: unknown,
-  projectKey: string,
-  logger: Pick<FastifyBaseLogger, 'warn'>,
-): unknown {
-  if (!raw || typeof raw !== 'object' || !('team' in raw)) return raw;
-  const team = raw.team;
-  if (!team || typeof team !== 'object' || !('members' in team) || !Array.isArray(team.members)) return raw;
-  for (const member of team.members) {
-    if (!member || typeof member !== 'object' || member.kind !== 'ai' || member.role !== 'scheduled')
-      continue;
-    member.role = 'maintainer';
-    if (member.schedule === undefined) member.schedule = { ...DAILY_WORKER_SCHEDULE };
-    logger.warn({ projectKey, member: member.handle }, 'Migrated legacy scheduled role to maintainer');
-  }
-  return raw;
-}
-
 export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
   const rootDir = opts.rootDir;
   const logger = opts.logger ?? {
@@ -103,7 +84,10 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
   let queue: Promise<unknown> = Promise.resolve();
   let initialized: Promise<void> | null = null;
 
-  /** Serializes repository mutations (git's index is not concurrent). */
+  /**
+   * Serializes repository access: git's index is not concurrent, and a save deletes and rewrites
+   * the project directory, so reads of the working tree wait for it too.
+   */
   function exclusive<T>(fn: () => Promise<T>): Promise<T> {
     const run = queue.then(fn, fn);
     queue = run.catch(() => undefined);
@@ -176,6 +160,11 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
     }
   }
 
+  /** Merges, migrates (older shapes) and validates the parsed files of a project. */
+  function toConfig(key: string, files: Record<ProjectFileName, unknown>): ProjectConfig {
+    return validate(migrateProjectConfig(mergeProjectFiles(files), { projectKey: key, logger }), key);
+  }
+
   async function readWorkingTree(key: string): Promise<Record<ProjectFileName, unknown>> {
     await assertProjectPaths(key);
     const dir = join(rootDir, projectPath(key));
@@ -216,11 +205,7 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
       contents[file] = show.stdout;
       parsed[file] = parseYamlFile(file, show.stdout);
     }
-    const config = validate(
-      migrateLegacyConfig(migrateScheduledRole(mergeProjectFiles(parsed), key, logger)),
-      key,
-    );
-    return { commitId, contents, config };
+    return { commitId, contents, config: toConfig(key, parsed) };
   }
 
   return {
@@ -229,28 +214,27 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
 
     async list() {
       await ensureInit();
-      const dir = join(rootDir, 'projects');
-      const entries = await readdir(dir, { withFileTypes: true });
-      return entries
-        .filter((e) => e.isDirectory() && PROJECT_KEY_RE.test(e.name))
-        .filter((e) => existsSync(join(dir, e.name, 'project.yaml')))
-        .map((e) => e.name)
-        .sort();
+      return exclusive(async () => {
+        const dir = join(rootDir, 'projects');
+        const entries = await readdir(dir, { withFileTypes: true });
+        return entries
+          .filter((e) => e.isDirectory() && PROJECT_KEY_RE.test(e.name))
+          .filter((e) => existsSync(join(dir, e.name, 'project.yaml')))
+          .map((e) => e.name)
+          .sort();
+      });
     },
 
     async load(projectKey) {
       assertKey(projectKey);
       await ensureInit();
-      if (!existsSync(join(rootDir, projectPath(projectKey), 'project.yaml'))) {
-        throw new ConfigStoreError('not_found', `no configuration for project ${projectKey}`);
-      }
-      const config = validate(
-        migrateLegacyConfig(
-          migrateScheduledRole(mergeProjectFiles(await readWorkingTree(projectKey)), projectKey, logger),
-        ),
-        projectKey,
-      );
-      return { config, version: await projectVersion(projectKey) };
+      return exclusive(async () => {
+        if (!existsSync(join(rootDir, projectPath(projectKey), 'project.yaml'))) {
+          throw new ConfigStoreError('not_found', `no configuration for project ${projectKey}`);
+        }
+        const config = toConfig(projectKey, await readWorkingTree(projectKey));
+        return { config, version: await projectVersion(projectKey) };
+      });
     },
 
     async save(projectKey, config, meta) {
@@ -290,6 +274,7 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
     async loadVersion(projectKey, version) {
       assertKey(projectKey);
       await ensureInit();
+      // Committed objects are immutable: no need to wait for writes.
       return (await readVersion(projectKey, version)).config;
     },
 

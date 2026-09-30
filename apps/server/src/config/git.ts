@@ -40,22 +40,35 @@ function gitEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
   };
 }
 
-/** Runs git without a shell. Exit codes listed in `okCodes` resolve instead of rejecting. */
+/** A git call on the customization repository that takes longer is killed (it would block every save). */
+export const GIT_TIMEOUT_MS = 120_000;
+
+/**
+ * Runs git without a shell. Exit codes listed in `okCodes` resolve instead of rejecting; a call
+ * running longer than `timeoutMs` is killed and rejects.
+ */
 export function runGit(
   cwd: string,
   args: string[],
-  opts: { env?: Record<string, string>; okCodes?: number[] } = {},
+  opts: { env?: Record<string, string>; okCodes?: number[]; timeoutMs?: number } = {},
 ): Promise<GitResult> {
   return new Promise((resolve, reject) => {
     execFile(
       'git',
       ['-c', `core.hooksPath=${devNull}`, '-c', 'commit.gpgSign=false', ...args],
-      { cwd, env: gitEnv(opts.env ?? {}), maxBuffer: 32 * 1024 * 1024, encoding: 'utf8' },
+      {
+        cwd,
+        env: gitEnv(opts.env ?? {}),
+        maxBuffer: 32 * 1024 * 1024,
+        encoding: 'utf8',
+        timeout: opts.timeoutMs ?? GIT_TIMEOUT_MS,
+      },
       (error, stdout, stderr) => {
         if (!error) return resolve({ stdout, stderr, code: 0 });
         const code = typeof error.code === 'number' ? error.code : -1;
         if (opts.okCodes?.includes(code)) return resolve({ stdout, stderr, code });
-        reject(new GitError(args, code, stderr || error.message));
+        const timedOut = error.killed && code === -1;
+        reject(new GitError(args, code, timedOut ? 'timed out' : stderr || error.message));
       },
     );
   });

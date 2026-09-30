@@ -15,6 +15,7 @@ import { DAILY_WORKER_SCHEDULE } from '@projectman/templates';
 import type { ProjectConfig } from '@projectman/shared';
 import { parseYamlFile } from '../src/config/layout';
 import { ConfigStoreError, createConfigStore } from '../src/config';
+import { runGit } from '../src/config/git';
 import type { GitConfigStore } from '../src/config';
 import { testConfig } from './helpers/test-template';
 
@@ -280,5 +281,53 @@ describe('ConfigStore (customization repository)', () => {
     await Promise.all(configs.map((c, i) => store.save('AR', c, { author, message: `Change ${i}` })));
     expect(await store.history('AR')).toHaveLength(4);
     expect((await store.load('AR')).config.team.limits.maxConcurrentAi).toBe(6);
+  });
+
+  it('never reads a project while a save rewrites its files', async () => {
+    await store.save('AR', testConfig(), { author, message: 'Create' });
+    const operations = Array.from({ length: 24 }, (_, i) => {
+      if (i % 2) return store.load('AR').then(({ config }) => config.team.limits.maxConcurrentAi);
+      const config = testConfig();
+      config.team.limits.maxConcurrentAi = 1 + (i % 5);
+      return store.save('AR', config, { author, message: `Change ${i}` }).then(() => null);
+    });
+    const results = await Promise.allSettled(operations);
+    expect(results.filter((result) => result.status === 'rejected')).toEqual([]);
+    expect(await store.list()).toEqual(['AR']);
+  });
+
+  it('migrates earlier versions like the working tree (revert)', async () => {
+    const created = await store.save('AR', testConfig(), { author, message: 'Create' });
+    const teamYaml = join(store.rootDir, 'projects/AR/team.yaml');
+    writeFileSync(teamYaml, readFileSync(teamYaml, 'utf8').replace('role: developer', 'role: scheduled'));
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', ...args], {
+        cwd: store.rootDir,
+        encoding: 'utf8',
+      });
+    git('commit', '-q', '--no-verify', '-am', 'Hand-edited legacy role');
+    const legacy = git('rev-parse', 'HEAD').trim();
+    await store.save('AR', testConfig(), { author, message: 'Back to current' });
+
+    const expected = { role: 'maintainer', schedule: DAILY_WORKER_SCHEDULE };
+    expect((await store.loadVersion('AR', legacy)).team.members[1]).toMatchObject(expected);
+    expect((await store.loadVersion('AR', created.version)).team.members[1]).toMatchObject({
+      role: 'developer',
+    });
+    await store.revertTo('AR', legacy, { author });
+    expect((await store.load('AR')).config.team.members[1]).toMatchObject(expected);
+    await expectConfigError(store.loadVersion('AR', 'deadbeef'), 'unknown_version');
+  });
+});
+
+describe('git on the customization repository', () => {
+  it('kills a call that runs longer than its timeout', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pm-config-git-'));
+    try {
+      // hash-object waits for stdin, which is never closed.
+      await expect(runGit(dir, ['hash-object', '--stdin'], { timeoutMs: 200 })).rejects.toThrow(/timed out/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

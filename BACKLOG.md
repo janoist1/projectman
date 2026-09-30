@@ -220,6 +220,15 @@ Javaslat:
 
 A tulajdonos kérésére egy felhős munkamenet átnézte a teljes kódot és a tervet, és rendbe tette őket (ág: `claude/determined-faraday-yz17ut`). A terv most a `docs/ROADMAP.md`-ben van: mi készült el, a PM-51 felé vezető út a kártyák sorrendjével, a technikai adósság és 15 nyitott kérdés a tulajdonosnak. A fenti kártyák tartalma nem változott, csak a PM-69, PM-71 és PM-73 állapotsora.
 
+Tudnivaló viselkedésváltozások (mindegyik szándékos, a részletek a commitokban):
+
+- Egy feladatmódosítás (REST PATCH és `update_task`) mindent vagy semmit: ha egy címkét elutasít a szerver, vagy a belépési feltétel nem teljesül, semmi sem mentődik; ha jóváhagyás kell az áthelyezéshez, a többi elmentődik, és a jóváhagyás kérése elindul.
+- Üzenet sosem megy a küldőjének (saját magunknak címzett címke- vagy említésértesítés sem); a csak szóközből álló üzenetet a szerver elutasítja.
+- Ha az AI-munka főkapcsolója ki van kapcsolva, a várakozás oka „AI kikapcsolva” akkor is, ha a tag épp a kapacitása határán van.
+- A figyelő tag (watchdog) a `monitoring` feladatkörű embereknek jelez, a prioritási kérdések a `prioritization` feladatkörűekhez mennek (korábban szerepnév alapján).
+- A címke nélküli, régi konfigurációkból generált címkék neve magyar lett (a séma alapnyelve szerint), eddig angol volt.
+- Mostantól egy build nem nyit meg olyan adatbázist, amelyet nála újabb build migrált. Az ügynökök worktree-jei ezért saját `PROJECTMAN_HOME`-ot használjanak (a `CLAUDE.md` is ezt kéri). A mostani éles példány (a refaktor előtti kód) még megnyitja a migrált adatbázist; az általa rögzített Codex-munkameneteket az új build induláskor helyrehozza.
+
 Javasolt új kártyák (a helyi táblára felvehetők):
 
 - **Döntések a kód-átnézés után.** 15 kérdés a `docs/ROADMAP.md` végén (például mit lásson az ügyfél, hogyan számoljon a kapacitás, szigorúbb legyen-e a kiadási jóváhagyás, átírjuk-e egyszer a régi formátumokat). Mindegyiknek van mostani, biztonságos alapértéke; semmi sem akad el miatta.

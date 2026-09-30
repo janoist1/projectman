@@ -1,20 +1,15 @@
 import os from 'node:os';
 import * as pty from '@lydell/node-pty';
 import type { FastifyBaseLogger } from 'fastify';
-import type {
-  PermissionBroker,
-  PermissionDecision,
-  RunnerEvent,
-  RunningSessionInfo,
-  StartSessionSpec,
-} from '../contracts';
-import { sessionAllowScope, type HookPayload } from './hook-payload';
+import type { PermissionBroker, RunnerEvent, RunningSessionInfo, StartSessionSpec } from '../contracts';
+import type { HookPayload } from './hook-payload';
+import { InputQueue } from './input-queue';
+import { PermissionGate } from './permission-gate';
 import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from './providers/types';
 import { nextState, type SessionSignal, type StateSnapshot } from './state';
 import { HeadlessScreen } from './terminal';
 import { toolActivity } from './tools';
 import { TranscriptTailer } from './transcript/tailer';
-import { ENTER_KEY, messageKeystrokes } from './typing';
 
 /** Dialogs replace the prompt box at the end of the screen content: only look there. */
 const DIALOG_ROWS = 15;
@@ -22,9 +17,26 @@ const DIALOG_ROWS = 15;
 /** A conversation id of the agent CLIs (both use UUIDs). */
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const DENY_TIMEOUT =
-  'No human answered this permission request in time, so it was denied. Continue without it, or ask a human for help.';
-const DENY_FAILED = 'The permission request could not be processed, so it was denied.';
+/** The pseudo-terminal process of a session: node-pty's IPty, or a fake in tests. */
+export interface PtyProcess {
+  readonly pid: number;
+  write(data: string): void;
+  resize(cols: number, rows: number): void;
+  kill(signal?: string): void;
+  onData(listener: (data: string) => void): unknown;
+  onExit(listener: (event: { exitCode: number; signal?: number }) => void): unknown;
+}
+
+export interface PtySpawnOptions {
+  name: string;
+  cols: number;
+  rows: number;
+  cwd: string;
+  env: Record<string, string>;
+}
+
+/** Starts a process in a pseudo-terminal (node-pty's `spawn` by default). */
+export type SpawnPty = (file: string, args: string[], options: PtySpawnOptions) => PtyProcess;
 
 export interface SessionDeps {
   logger: FastifyBaseLogger;
@@ -35,27 +47,11 @@ export interface SessionDeps {
   onExited(session: AgentSession): void;
   /** The CLI lost its login mid-session (before the session is stopped). */
   onAuthError?(session: AgentSession, message: string): void;
+  /** Starts the process (default: node-pty). */
+  spawnPty?: SpawnPty;
 }
-
-interface QueuedMessage {
-  text: string;
-  resolve(): void;
-  reject(err: Error): void;
-}
-
-type PermissionEnd = 'timeout' | 'withdrawn' | 'session_exit';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/**
- * "Allow for this session" remembered by the runner, for CLIs that cannot be told to remember
- * it: the same Bash command again, or the same tool for other tools (see sessionAllowScope).
- */
-function sessionAllowKey(payload: HookPayload): string | null {
-  const scope = sessionAllowScope(payload);
-  if (!scope) return null;
-  return scope.command === undefined ? scope.toolName : `${scope.toolName}\u0000${scope.command}`;
-}
 
 /** One interactive agent CLI process (Claude Code or Codex) in a pseudo-terminal. */
 export class AgentSession {
@@ -70,7 +66,7 @@ export class AgentSession {
   private readonly deps: SessionDeps;
   private readonly log: FastifyBaseLogger;
   private readonly timing: SessionTiming;
-  private proc: pty.IPty | null = null;
+  private proc: PtyProcess | null = null;
   private current: StateSnapshot = { state: 'starting', activity: null };
   private resolveExited!: () => void;
   private hasExited = false;
@@ -87,15 +83,11 @@ export class AgentSession {
   /** The brief went on the command line: its submission is awaited before anything is typed. */
   private readonly initialMessageSent: boolean;
 
-  private readonly queue: QueuedMessage[] = [];
-  private typing = false;
-  private notBefore = 0;
-  private awaitingSubmit: { at: number; retries: number; command: boolean; timeoutMs: number } | null = null;
+  /** Messages waiting to be typed into the prompt. */
+  private readonly input: InputQueue;
   private lastPromptAt = 0;
-
-  private readonly pendingPermissions = new Map<AbortController, { end: PermissionEnd | null }>();
-  /** Runner-side "allow for this session" answers (see sessionAllowKey). */
-  private readonly sessionAllows = new Set<string>();
+  /** Permission requests waiting for a human. */
+  private readonly permissions: PermissionGate;
 
   private transcriptPath: string | null = null;
   private tailer: TranscriptTailer | null = null;
@@ -106,7 +98,6 @@ export class AgentSession {
 
   private readonly timers = new Set<NodeJS.Timeout>();
   private watchTimer: NodeJS.Timeout | null = null;
-  private pumpTimer: NodeJS.Timeout | null = null;
 
   constructor(args: {
     spec: StartSessionSpec;
@@ -131,6 +122,25 @@ export class AgentSession {
     this.screen = new HeadlessScreen(args.spec.cols ?? 120, args.spec.rows ?? 40);
     this.exited = new Promise((resolve) => {
       this.resolveExited = resolve;
+    });
+    this.input = new InputQueue({
+      sessionId: this.id,
+      timing: this.timing,
+      logger: this.log,
+      isIdle: () => !this.hasExited && this.ready && this.current.state === 'idle',
+      checkBeforeTyping: () => this.checkBeforeTyping(),
+      write: (data) => this.write(data),
+    });
+    this.permissions = new PermissionGate({
+      sessionId: this.id,
+      broker: this.deps.broker,
+      timeoutMs: this.deps.permissionTimeoutMs,
+      logger: this.log,
+      remembersSessionAllows: !this.adapter.capabilities.sessionPermissionRules,
+      answer: (decision, payload) => this.adapter.permissionOutput(decision, payload),
+      deny: (message) => this.adapter.denyOutput(message),
+      onWaiting: (activity) => this.apply({ kind: 'permission_request', activity }),
+      onSettled: (pending) => this.apply({ kind: 'permission_resolved', pending }),
     });
     if (args.spec.initialMessage?.trim() && !this.initialMessageSent) {
       this.enqueue(args.spec.initialMessage).catch(() => undefined);
@@ -157,7 +167,8 @@ export class AgentSession {
 
   /** Starts the process. Throws when it cannot be started. */
   spawn(file: string, args: string[], env: Record<string, string>): void {
-    const proc = pty.spawn(file, args, {
+    const spawnPty: SpawnPty = this.deps.spawnPty ?? pty.spawn;
+    const proc = spawnPty(file, args, {
       name: 'xterm-256color',
       cols: this.screen.cols,
       rows: this.screen.rows,
@@ -172,13 +183,7 @@ export class AgentSession {
     proc.onExit(({ exitCode, signal }) => void this.onExit(exitCode, signal ?? null));
     if (this.initialMessageSent) {
       // The CLI submits the brief itself; nothing is typed before it reports the prompt.
-      this.awaitingSubmit = {
-        at: Date.now(),
-        retries: 0,
-        command: true,
-        timeoutMs: this.timing.argumentSubmitTimeoutMs,
-      };
-      this.timer(() => this.checkSubmitted(), this.timing.enterRetryMs);
+      this.input.awaitCommandLinePrompt(this.timing.argumentSubmitTimeoutMs);
     }
     this.startWatch();
     this.emitState();
@@ -215,95 +220,28 @@ export class AgentSession {
 
   /** Queues a user message; it is typed when the session is idle. Resolves once typed. */
   enqueue(text: string): Promise<void> {
-    if (this.hasExited) return Promise.reject(new Error(`Session ${this.id} is not running`));
-    return new Promise<void>((resolve, reject) => {
-      this.queue.push({ text, resolve, reject });
-      this.pump();
-    });
+    return this.input.enqueue(text);
   }
 
-  private schedulePump(delayMs: number): void {
-    this.notBefore = Math.max(this.notBefore, Date.now() + delayMs);
-    if (this.pumpTimer) {
-      clearTimeout(this.pumpTimer);
-      this.timers.delete(this.pumpTimer);
+  /**
+   * Checked by the input queue right before it types: the TUI may not have enabled bracketed
+   * paste yet, and until a first prompt got through, a start-up dialog (e.g. approving the
+   * project's MCP servers) may cover the prompt box; typing would answer the dialog instead.
+   */
+  private checkBeforeTyping(): number | null {
+    if (!this.screen.bracketedPasteMode && Date.now() - this.readyAt < this.timing.pasteModeGraceMs) {
+      return 100;
     }
-    this.pumpTimer = this.timer(() => {
-      this.pumpTimer = null;
-      this.pump();
-    }, delayMs);
-  }
-
-  private pump(): void {
-    if (this.hasExited || this.typing || this.queue.length === 0) return;
-    if (!this.ready || this.current.state !== 'idle' || this.awaitingSubmit) return;
-    const now = Date.now();
-    if (now < this.notBefore) return this.schedulePump(this.notBefore - now);
-    if (!this.screen.bracketedPasteMode && now - this.readyAt < this.timing.pasteModeGraceMs) {
-      return this.schedulePump(100);
-    }
-    // Until a first prompt got through, a start-up dialog (e.g. approving the project's MCP
-    // servers) may cover the prompt box; typing would answer the dialog instead.
     if (!this.promptSeen) {
       const dialog = this.adapter.detectBlockingScreen(this.screen.screenText(DIALOG_ROWS));
       if (dialog) {
         this.blockedReason = dialog;
         this.apply({ kind: 'setup_prompt', description: dialog });
         this.startWatch();
-        return;
+        return null;
       }
     }
-    const message = this.queue.shift()!;
-    void this.type(message);
-  }
-
-  private async type(message: QueuedMessage): Promise<void> {
-    this.typing = true;
-    try {
-      const steps = messageKeystrokes(message.text);
-      if (steps.length === 0) {
-        message.resolve();
-        return;
-      }
-      for (const step of steps) {
-        if (this.hasExited) throw new Error(`Session ${this.id} exited before the message was typed`);
-        this.write(step);
-        await sleep(this.timing.stepDelayMs);
-      }
-      await sleep(this.timing.enterDelayMs);
-      if (this.hasExited) throw new Error(`Session ${this.id} exited before the message was typed`);
-      this.write(ENTER_KEY);
-      this.awaitingSubmit = {
-        at: Date.now(),
-        retries: 0,
-        command: message.text.trim().startsWith('/'),
-        timeoutMs: this.timing.submitTimeoutMs,
-      };
-      this.timer(() => this.checkSubmitted(), this.timing.enterRetryMs);
-      message.resolve();
-    } catch (err) {
-      message.reject(err instanceof Error ? err : new Error(String(err)));
-    } finally {
-      this.typing = false;
-    }
-  }
-
-  /** The CLI did not report the prompt yet: press Enter again, or stop waiting for it. */
-  private checkSubmitted(): void {
-    const pending = this.awaitingSubmit;
-    if (!pending || this.hasExited) return;
-    if (Date.now() - pending.at >= pending.timeoutMs) {
-      this.log.warn({ sessionId: this.id }, 'typed message was not reported as submitted');
-      this.awaitingSubmit = null;
-      this.pump();
-      return;
-    }
-    // A slash command reports no UserPromptSubmit and may open a dialog: never press Enter blindly.
-    if (!pending.command && pending.retries < this.timing.maxEnterRetries && this.current.state === 'idle') {
-      pending.retries += 1;
-      this.write(ENTER_KEY);
-    }
-    this.timer(() => this.checkSubmitted(), this.timing.enterRetryMs);
+    return 0;
   }
 
   // ---------------------------------------------------------------- hooks
@@ -329,8 +267,8 @@ export class AgentSession {
       case 'SessionStart': {
         const first = !this.ready;
         this.markReady();
-        if (payload.source === 'clear') this.awaitingSubmit = null;
-        this.schedulePump(first ? this.timing.readySettleMs : this.timing.stopSettleMs);
+        if (payload.source === 'clear') this.input.submitted();
+        this.input.schedule(first ? this.timing.readySettleMs : this.timing.stopSettleMs);
         this.apply({ kind: 'session_start', source: payload.source ?? null, first });
         return null;
       }
@@ -338,7 +276,7 @@ export class AgentSession {
         this.markReady();
         this.promptSeen = true;
         this.lastPromptAt = Date.now();
-        this.awaitingSubmit = null;
+        this.input.submitted();
         this.apply({ kind: 'prompt_submit' });
         return null;
       case 'PreToolUse': {
@@ -357,7 +295,7 @@ export class AgentSession {
       case 'PermissionRequest':
         return this.permissionRequest(payload, withdrawn);
       case 'Notification':
-        this.schedulePump(this.timing.stopSettleMs);
+        this.input.schedule(this.timing.stopSettleMs);
         this.apply({
           kind: 'notification',
           type: payload.notification_type ?? null,
@@ -365,16 +303,16 @@ export class AgentSession {
         });
         return null;
       case 'Stop':
-        this.schedulePump(this.timing.stopSettleMs);
+        this.input.schedule(this.timing.stopSettleMs);
         this.apply({ kind: 'stop' });
         return null;
       case 'StopFailure':
-        this.schedulePump(this.timing.stopSettleMs);
+        this.input.schedule(this.timing.stopSettleMs);
         this.apply({ kind: 'stop_failure', error: typeof payload.error === 'string' ? payload.error : null });
         return null;
       case 'Interrupt':
         // Codex reports Esc with its own hook (Claude Code only in the transcript).
-        this.schedulePump(this.timing.stopSettleMs);
+        this.input.schedule(this.timing.stopSettleMs);
         this.apply({ kind: 'interrupted' });
         return null;
       default:
@@ -411,51 +349,7 @@ export class AgentSession {
       this.apply({ kind: 'pre_tool', activity, needsInput: true });
       return null;
     }
-    const allowKey = this.adapter.capabilities.sessionPermissionRules ? null : sessionAllowKey(payload);
-    if (allowKey && this.sessionAllows.has(allowKey)) {
-      return this.adapter.permissionOutput({ behavior: 'allow' }, payload);
-    }
-
-    const controller = new AbortController();
-    const entry: { end: PermissionEnd | null } = { end: null };
-    this.pendingPermissions.set(controller, entry);
-    const end = (reason: PermissionEnd) => {
-      if (entry.end) return;
-      entry.end = reason;
-      controller.abort(new Error(`permission request ended: ${reason}`));
-    };
-    const timeout = setTimeout(() => end('timeout'), this.deps.permissionTimeoutMs);
-    const onWithdrawn = () => end('withdrawn');
-    if (withdrawn.aborted) onWithdrawn();
-    else withdrawn.addEventListener('abort', onWithdrawn, { once: true });
-    this.apply({ kind: 'permission_request', activity });
-
-    try {
-      const decision = await new Promise<PermissionDecision>((resolve, reject) => {
-        controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true });
-        this.deps.broker
-          .decide(
-            { sessionId: this.id, toolName, toolInput: payload.tool_input ?? null, raw: payload },
-            controller.signal,
-          )
-          .then(resolve, reject);
-      });
-      if (controller.signal.aborted || this.hasExited) return null;
-      if (allowKey && decision.behavior === 'allow' && decision.rememberForSession) {
-        this.sessionAllows.add(allowKey);
-      }
-      return this.adapter.permissionOutput(decision, payload);
-    } catch (err) {
-      if (entry.end === 'timeout') return this.adapter.denyOutput(DENY_TIMEOUT);
-      if (entry.end) return null; // nobody is waiting for the answer any more
-      this.log.error({ err, sessionId: this.id, toolName }, 'permission broker failed');
-      return this.adapter.denyOutput(DENY_FAILED);
-    } finally {
-      clearTimeout(timeout);
-      withdrawn.removeEventListener('abort', onWithdrawn);
-      this.pendingPermissions.delete(controller);
-      this.apply({ kind: 'permission_resolved', pending: this.pendingPermissions.size });
-    }
+    return this.permissions.request(payload, activity, withdrawn);
   }
 
   // ---------------------------------------------------------------- transcript
@@ -502,7 +396,7 @@ export class AgentSession {
     }
     // Esc during a turn ends it without a Stop hook; the transcript records the interruption.
     if (interruptedAt && Date.parse(interruptedAt) >= this.lastPromptAt && !this.hasExited) {
-      this.schedulePump(this.timing.stopSettleMs);
+      this.input.schedule(this.timing.stopSettleMs);
       this.apply({ kind: 'interrupted' });
     }
   }
@@ -553,7 +447,7 @@ export class AgentSession {
       this.adapter.promptVisible(this.screen.screenText(DIALOG_ROWS))
     ) {
       this.markReady();
-      this.schedulePump(this.timing.readySettleMs);
+      this.input.schedule(this.timing.readySettleMs);
       this.apply({ kind: 'session_start', source: null, first: true });
       return;
     }
@@ -572,7 +466,7 @@ export class AgentSession {
     }
     if (this.blockedReason) {
       this.blockedReason = null;
-      if (this.ready) this.schedulePump(this.timing.readySettleMs);
+      if (this.ready) this.input.schedule(this.timing.readySettleMs);
       this.apply({ kind: 'setup_cleared', ready: this.ready });
     }
     if (this.ready) this.stopWatch();
@@ -605,16 +499,8 @@ export class AgentSession {
     for (const t of this.timers) clearTimeout(t);
     this.timers.clear();
     this.stopWatch();
-
-    for (const [controller, entry] of this.pendingPermissions) {
-      if (!entry.end) {
-        entry.end = 'session_exit';
-        controller.abort(new Error('session exited'));
-      }
-    }
-    for (const message of this.queue.splice(0)) {
-      message.reject(new Error(`Session ${this.id} exited before the message was typed`));
-    }
+    this.permissions.close();
+    this.input.close();
 
     // Pick up the last transcript lines before announcing the exit.
     const tailer = this.tailer;
@@ -653,7 +539,7 @@ export class AgentSession {
     if (next.state === this.current.state && next.activity === this.current.activity) return;
     this.current = next;
     this.emitState();
-    if (next.state === 'idle') this.pump();
+    if (next.state === 'idle') this.input.pump();
   }
 
   private emitState(): void {

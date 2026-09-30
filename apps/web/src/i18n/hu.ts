@@ -390,6 +390,18 @@ export const hu = {
   },
 
   taskStatus: {
+    startWaiting: {
+      ai_limit_reached: 'Indulásra vár: túl sok AI dolgozik',
+      plan_usage_paused: 'Indulásra vár: a {provider}-keret {percent}% fölött szünetel',
+      member_at_capacity: 'Indulásra vár: {name} tele van',
+    },
+    stageOwners: 'minden szakaszfelelős',
+    startHints: {
+      ai_limit_reached: 'Várj, amíg felszabadul egy AI, vagy emeld a korlátot a Beállítások → Keretek alatt.',
+      plan_usage_paused:
+        'Várj a keret megújulására, vagy emeld a szüneteltetési küszöböt a Beállítások → Keretek alatt.',
+      member_at_capacity: 'Szabadíts fel egy tagot: fejezd be vagy add át a többi feladatát.',
+    },
     needsYou: 'Rád vár: {what}',
     needsYouDetail: '{kind} ({detail})',
     working: 'Dolgozik: {activity}',

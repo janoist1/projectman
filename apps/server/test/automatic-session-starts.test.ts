@@ -41,6 +41,13 @@ describe('automatic session admission and retries', () => {
     const second = await h.domain.teamTools.sendMessage(sender, { to: ['cr'], text: 'Also check refunds.' });
     await flush();
     expect(h.runner.started).toHaveLength(0);
+    expect(h.domain.tasks.get('AR', 'AR-1').startWaiting).toMatchObject({
+      reason: 'plan_usage_paused',
+      member: 'cr',
+      provider: 'claude',
+      threshold: 80,
+      since: expect.any(String),
+    });
     expect(h.repos.messages.pending('AR', 'cr').map((m) => m.id)).toEqual([
       first.messageId,
       second.messageId,
@@ -56,6 +63,7 @@ describe('automatic session admission and retries', () => {
       '[team message from dev-1 about AR-1]\nAlso check refunds.',
     ]);
     expect(h.repos.messages.pending('AR', 'cr')).toEqual([]);
+    expect(h.domain.tasks.get('AR', 'AR-1').startWaiting).toBeUndefined();
     await h.domain.scheduler.retryDeferredStarts();
     expect(h.runner.started).toHaveLength(1);
 

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MemberHandle } from './member';
+import { AgentProvider, MemberHandle } from './member';
 import { CheckState, StageId } from './pipeline';
 
 /** Human-friendly task key: project key + sequence number, e.g. "AR-21". */
@@ -38,7 +38,18 @@ export type TaskChecks = z.infer<typeof TaskChecks>;
 export const Visibility = z.enum(['internal', 'shared']);
 export type Visibility = z.infer<typeof Visibility>;
 
+export const TaskStartWaiting = z.object({
+  reason: z.enum(['ai_limit_reached', 'plan_usage_paused', 'member_at_capacity']),
+  member: MemberHandle.optional(),
+  provider: AgentProvider.optional(),
+  /** Admission threshold, rather than current usage. */
+  threshold: z.number().optional(),
+  since: z.string(),
+});
+export type TaskStartWaiting = z.infer<typeof TaskStartWaiting>;
+
 export const Task = z.object({
+  startWaiting: TaskStartWaiting.optional(),
   id: z.string(),
   projectKey: z.string(),
   key: TaskKey,

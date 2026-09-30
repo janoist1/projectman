@@ -1,3 +1,5 @@
+import { nameOf } from '../../lib/members';
+import { mockIndexes } from '../../test/render';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -15,6 +17,29 @@ const drawer = (
 );
 
 describe('task drawer lifecycle', () => {
+  it.each(['ai_limit_reached', 'plan_usage_paused', 'member_at_capacity'] as const)(
+    'shows the waiting label and owner hint for %s',
+    async (reason) => {
+      const project = mockProject();
+      const task = project.backend.findTask('AC-20')!;
+      task.startWaiting = {
+        reason,
+        member: 'be-1',
+        provider: 'claude',
+        threshold: 80,
+        since: task.updatedAt,
+      };
+      project.render(drawer, '/p/AC/tasks/AC-20');
+      await screen.findByText(
+        t(`taskStatus.startWaiting.${reason}`, {
+          provider: t('providers.claude'),
+          percent: 80,
+          name: nameOf('be-1', mockIndexes().members, 'owner'),
+        }),
+      );
+      expect(screen.getByText(t(`taskStatus.startHints.${reason}`))).toBeTruthy();
+    },
+  );
   it('confirms cancellation with a reason, stops live sessions, and reopens unassigned', async () => {
     const project = mockProject();
     project.render(drawer, '/p/AC/tasks/AC-20');

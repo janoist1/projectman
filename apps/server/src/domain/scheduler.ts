@@ -15,6 +15,8 @@ import type { DomainContext } from './context';
 import { encodeWorkItem } from '../db';
 import { conflict, DomainError, invalid, notFound } from './errors';
 import { formatInjectedTeamMessage, stageOwners, roleBundle } from '@projectman/shared';
+import type { TaskStartWaiting } from '@projectman/shared';
+import { isoNow } from './context';
 import { evaluateGates, stageIndex, stagesEntered } from './gates';
 import type { MemberService } from './members';
 import { highestUsagePercent } from './plan-usage';
@@ -29,6 +31,7 @@ import { KeyedMutex, SYSTEM_ACTOR, SYSTEM_AUTHOR } from './util';
 const DEFERRABLE_CODES = new Set(['ai_limit_reached', 'plan_usage_paused', 'member_at_capacity']);
 
 interface DeferredMessageStart {
+  waiting: TaskStartWaiting;
   projectKey: string;
   handle: string;
   workItem: WorkItemRef;
@@ -66,7 +69,7 @@ export class Scheduler {
   private readonly planUsage: PlanUsageCache;
   private readonly locks = new KeyedMutex();
   /** Hand-overs refused by admission limits, by `projectKey:taskKey`. */
-  private readonly deferredHandOffs = new Map<string, StageChange>();
+  private readonly deferredHandOffs = new Map<string, StageChange & { waiting: TaskStartWaiting }>();
   /** Message starts by project, recipient and work item; messages themselves stay in SQLite. */
   private readonly deferredMessages = new Map<string, DeferredMessageStart>();
 
@@ -84,6 +87,51 @@ export class Scheduler {
     this.members = deps.members;
     this.sessions = deps.sessions;
     this.planUsage = deps.planUsage;
+    this.tasks.setStartWaitingReader((task) => this.waitingFor(task));
+  }
+
+  private waitingFor(task: Task): TaskStartWaiting | undefined {
+    const entries = [
+      ...[...this.deferredHandOffs.values()].filter(
+        (entry) =>
+          entry.task.projectKey === task.projectKey &&
+          entry.task.key === task.key &&
+          entry.to === task.stageId &&
+          task.status === 'active',
+      ),
+      ...[...this.deferredMessages.values()].filter(
+        (entry) =>
+          entry.projectKey === task.projectKey &&
+          entry.workItem.type === 'task' &&
+          entry.workItem.taskKey === task.key &&
+          entry.stageId === task.stageId &&
+          isOpenTask(task),
+      ),
+    ];
+    return entries.map((entry) => entry.waiting).sort((a, b) => a.since.localeCompare(b.since))[0];
+  }
+
+  private refusal(err: DomainError, previous?: TaskStartWaiting, member?: string): TaskStartWaiting {
+    const details = err.details as { provider?: AgentProvider; threshold?: number } | undefined;
+    return {
+      reason: err.code as TaskStartWaiting['reason'],
+      member,
+      ...(err.code === 'plan_usage_paused'
+        ? { provider: details?.provider, threshold: details?.threshold }
+        : {}),
+      since: previous?.since ?? isoNow(this.ctx),
+    };
+  }
+
+  private async publishWaitingChanges(taskKey: string | undefined, fn: () => Promise<void>): Promise<void> {
+    const task = taskKey ? this.ctx.repos.tasks.get(taskKey) : null;
+    const before = task ? JSON.stringify(this.waitingFor(task)) : undefined;
+    try {
+      await fn();
+    } finally {
+      const latest = taskKey ? this.ctx.repos.tasks.get(taskKey) : null;
+      if (latest && before !== JSON.stringify(this.waitingFor(latest))) this.tasks.publish(latest);
+    }
   }
 
   /** Open tasks a member carries: tasks it has a session for or is assigned to. */
@@ -168,31 +216,42 @@ export class Scheduler {
   async startQueuedMessageSession(projectKey: string, handle: string, workItem: WorkItemRef): Promise<void> {
     const wi = encodeWorkItem(workItem);
     const key = `${projectKey}:${handle}:${wi.type}:${wi.ref}`;
-    await this.admit(async () => {
-      const previous = this.deferredMessages.get(key);
-      this.deferredMessages.delete(key);
-      const config = await this.projects.config(projectKey);
-      if (!config.team.members.some((m) => m.handle === handle && m.kind === 'ai')) return;
-      const task = workItem.type === 'task' ? this.tasks.get(projectKey, workItem.taskKey) : null;
-      if (task && (!isOpenTask(task) || (previous && previous.stageId !== task.stageId))) return;
-      const pending = this.ctx.repos.messages
-        .pending(projectKey, handle)
-        .filter((m) => m.taskKey === (workItem.type === 'task' ? workItem.taskKey : null));
-      if (pending.length === 0) return;
-      try {
-        const session = await this.startMessageSessionAdmitted(projectKey, handle, workItem);
-        // A concurrently started session may already have queued these messages; delivery is deduplicated.
-        for (const message of pending) {
-          const latest = this.ctx.repos.messages.get(message.id);
-          if (latest && !latest.receipts?.find((r) => r.handle === handle)?.deliveredAt)
-            this.sessions.deliverTeamMessage(session, latest);
+    await this.admit(() =>
+      this.publishWaitingChanges(workItem.type === 'task' ? workItem.taskKey : undefined, async () => {
+        const previous = this.deferredMessages.get(key);
+        this.deferredMessages.delete(key);
+        const config = await this.projects.config(projectKey);
+        if (!config.team.members.some((m) => m.handle === handle && m.kind === 'ai')) return;
+        const task = workItem.type === 'task' ? this.tasks.get(projectKey, workItem.taskKey) : null;
+        if (task && (!isOpenTask(task) || (previous && previous.stageId !== task.stageId))) return;
+        const pending = this.ctx.repos.messages
+          .pending(projectKey, handle)
+          .filter((m) => m.taskKey === (workItem.type === 'task' ? workItem.taskKey : null));
+        if (pending.length === 0) return;
+        try {
+          const session = await this.startMessageSessionAdmitted(projectKey, handle, workItem);
+          // A concurrently started session may already have queued these messages; delivery is deduplicated.
+          for (const message of pending) {
+            const latest = this.ctx.repos.messages.get(message.id);
+            if (latest && !latest.receipts?.find((r) => r.handle === handle)?.deliveredAt)
+              this.sessions.deliverTeamMessage(session, latest);
+          }
+        } catch (err) {
+          if (!(err instanceof DomainError && DEFERRABLE_CODES.has(err.code))) throw err;
+          this.deferredMessages.set(key, {
+            projectKey,
+            handle,
+            workItem,
+            stageId: task?.stageId,
+            waiting: this.refusal(err, previous?.waiting, handle),
+          });
+          this.ctx.logger.info(
+            { projectKey, member: handle, reason: err.code },
+            'team message start deferred',
+          );
         }
-      } catch (err) {
-        if (!(err instanceof DomainError && DEFERRABLE_CODES.has(err.code))) throw err;
-        this.deferredMessages.set(key, { projectKey, handle, workItem, stageId: task?.stageId });
-        this.ctx.logger.info({ projectKey, member: handle, reason: err.code }, 'team message start deferred');
-      }
-    });
+      }),
+    );
   }
 
   /** A task move or closure invalidates waiting starts, even if it later returns to that stage. */
@@ -297,48 +356,56 @@ export class Scheduler {
    * and retried by retryDeferredHandOffs while the task stays in that stage.
    */
   async handOffToStageOwner(change: StageChange): Promise<void> {
-    await this.admit(async () => {
-      const key = `${change.task.projectKey}:${change.task.key}`;
-      this.deferredHandOffs.delete(key);
-      const task = this.tasks.get(change.task.projectKey, change.task.key);
-      if (task.stageId !== change.to || task.status !== 'active') return;
-      change = { ...change, task };
-      const projectKey = task.projectKey;
-      const workItem = { type: 'task', taskKey: task.key } as const;
-      const config = await this.projects.config(projectKey);
-      const stage = config.pipeline.stages.find((s) => s.id === change.to);
-      if (!stage || stage.kind === 'queue' || stage.kind === 'done') return;
-      if (stage.kind === 'work') {
-        // Back to work: startTask resumes the assignee; a live session hears of it.
-        if (task.assignee) await this.notifyStageOwner(change, stage, task.assignee);
-        return;
-      }
-      // The assignee never takes over a later stage: no self-review.
-      const owners = stageOwners(config, stage)
-        .map((handle) => config.team.members.find((m) => m.handle === handle))
-        .filter((m): m is AiMemberConfig => m?.kind === 'ai' && m.handle !== task.assignee);
-      if (owners.length === 0) return;
-      const running = owners.find((m) => this.sessions.findRunning(projectKey, m.handle, workItem));
-      if (running) return this.notifyStageOwner(change, stage, running.handle);
-      try {
-        const free = owners
-          .map((member) => ({ member, load: this.memberLoad(projectKey, member.handle, task.key) }))
-          .filter(({ member, load }) => load < member.capacity)
-          .sort((a, b) => a.load - b.load)[0]?.member;
-        if (!free) throw conflict('member_at_capacity', 'Every stage owner is at capacity');
-        await this.assertCanStartAiWork(config, free.provider ?? DEFAULT_AGENT_PROVIDER);
-        const result = await this.sessions.ensureSession(projectKey, free.handle, workItem);
-        // Resumed sessions get no brief, so tell them which stage the task is in now.
-        if (result.resumed) await this.notifyStageOwner(change, stage, free.handle);
-      } catch (err) {
-        if (!(err instanceof DomainError && DEFERRABLE_CODES.has(err.code))) throw err;
-        this.deferredHandOffs.set(key, change);
-        this.ctx.logger.info(
-          { taskKey: task.key, stage: stage.id, reason: err.code },
-          'stage hand-over deferred',
-        );
-      }
-    });
+    await this.admit(() =>
+      this.publishWaitingChanges(change.task.key, async () => {
+        const key = `${change.task.projectKey}:${change.task.key}`;
+        const previous = this.deferredHandOffs.get(key);
+        this.deferredHandOffs.delete(key);
+        const task = this.tasks.get(change.task.projectKey, change.task.key);
+        if (task.stageId !== change.to || task.status !== 'active') return;
+        change = { ...change, task };
+        const projectKey = task.projectKey;
+        const workItem = { type: 'task', taskKey: task.key } as const;
+        const config = await this.projects.config(projectKey);
+        const stage = config.pipeline.stages.find((s) => s.id === change.to);
+        if (!stage || stage.kind === 'queue' || stage.kind === 'done') return;
+        if (stage.kind === 'work') {
+          // Back to work: startTask resumes the assignee; a live session hears of it.
+          if (task.assignee) await this.notifyStageOwner(change, stage, task.assignee);
+          return;
+        }
+        // The assignee never takes over a later stage: no self-review.
+        const owners = stageOwners(config, stage)
+          .map((handle) => config.team.members.find((m) => m.handle === handle))
+          .filter((m): m is AiMemberConfig => m?.kind === 'ai' && m.handle !== task.assignee);
+        if (owners.length === 0) return;
+        const running = owners.find((m) => this.sessions.findRunning(projectKey, m.handle, workItem));
+        if (running) return this.notifyStageOwner(change, stage, running.handle);
+        let selected: AiMemberConfig | undefined;
+        try {
+          const free = owners
+            .map((member) => ({ member, load: this.memberLoad(projectKey, member.handle, task.key) }))
+            .filter(({ member, load }) => load < member.capacity)
+            .sort((a, b) => a.load - b.load)[0]?.member;
+          selected = free ?? (owners.length === 1 ? owners[0] : undefined);
+          if (!free) throw conflict('member_at_capacity', 'Every stage owner is at capacity');
+          await this.assertCanStartAiWork(config, free.provider ?? DEFAULT_AGENT_PROVIDER);
+          const result = await this.sessions.ensureSession(projectKey, free.handle, workItem);
+          // Resumed sessions get no brief, so tell them which stage the task is in now.
+          if (result.resumed) await this.notifyStageOwner(change, stage, free.handle);
+        } catch (err) {
+          if (!(err instanceof DomainError && DEFERRABLE_CODES.has(err.code))) throw err;
+          this.deferredHandOffs.set(key, {
+            ...change,
+            waiting: this.refusal(err, previous?.waiting, selected?.handle),
+          });
+          this.ctx.logger.info(
+            { taskKey: task.key, stage: stage.id, reason: err.code },
+            'stage hand-over deferred',
+          );
+        }
+      }),
+    );
   }
 
   /** Tells a member's live task session that the task entered its stage, unless it moved it itself. */
@@ -376,6 +443,7 @@ export class Scheduler {
       }
       if (task.stageId !== change.to || task.status !== 'active') {
         this.deferredHandOffs.delete(key);
+        this.tasks.publish(task);
         continue;
       }
       try {

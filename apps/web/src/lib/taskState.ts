@@ -62,6 +62,19 @@ function unmetPrerequisites(task: Task, tasksByKey: ReadonlyMap<string, Task>): 
   });
 }
 
+export function startWaitingHint(task: Task): string | null {
+  return task.startWaiting ? t(`taskStatus.startHints.${task.startWaiting.reason}`) : null;
+}
+
+function startWaitingLabel(task: Task, ctx: TaskStateContext): string {
+  const waiting = task.startWaiting!;
+  return t(`taskStatus.startWaiting.${waiting.reason}`, {
+    provider: t(`providers.${waiting.provider ?? 'claude'}`),
+    percent: waiting.threshold ?? '',
+    name: waiting.member ? nameOf(waiting.member, ctx.members, ctx.myHandle) : t('taskStatus.stageOwners'),
+  });
+}
+
 export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
   const { pipeline, members, myHandle } = ctx;
   const stage = pipeline.stageById.get(task.stageId);
@@ -76,6 +89,15 @@ export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
       phase: 'done',
       label: t('taskStatus.done', { when: formatAge(closed) }),
       since: closed,
+      worker: null,
+    };
+  }
+
+  if (task.startWaiting) {
+    return {
+      phase: 'waiting',
+      label: startWaitingLabel(task, ctx),
+      since: task.startWaiting.since,
       worker: null,
     };
   }

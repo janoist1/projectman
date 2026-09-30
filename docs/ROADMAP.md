@@ -35,22 +35,23 @@ Today Claude (in a Claude Code conversation) and Codex (in separate worktrees) d
 projectman, while the PM project in projectman only shows the cards with AI work switched off.
 Moving the work into projectman is the best test of the product. The path:
 
-1. **PM-72 — the live instance runs from its own directory.** Today it runs with
-   `npm run dev` in the directory development merges into, so every server-side merge
-   restarts it and stops the running AI sessions (an AI would stop itself). Build and run a
-   separate checkout ([DEPLOY.md](DEPLOY.md)) and update it only on the owner's approval.
-   Prerequisite for everything below.
+1. **PM-72 — the live instance runs from its own directory. Done on 2026-09-30.** The
+   owner's instance is a production build in a checkout of its own, updated only on the
+   owner's approval, and `npm run dev` keeps its data elsewhere (decision 20; README, "Live
+   instance next to development"). Merges no longer stop running AI sessions.
 2. **Less permission friction.** PM-75 (merged) lets developers work freely inside their
    worktree. **PM-77** finishes it for Codex: the server's command rule allows well-formed
    `git add`, `git commit -m` and `git merge --ff-only` in the task's own worktree. It also
-   covers PM-71 and the remaining `xargs` case of PM-69.
+   covers PM-71 and the remaining `xargs` case of PM-69. **PM-84** removes Codex's
+   `bypassPermissions` mode, where nothing stops a push from a local-only repository.
 3. **Repositories without GitHub.** **PM-67**: the developer commits on the task branch and
    tells the reviewer; the reviewer reviews the branch against its base; the owner merges.
    This replaces the temporary trial wording in members' instructions. **PM-68**: a task
    without a repo never runs in the workspace root (in a one-repo project it uses that repo's
    worktree), and a task's repo can be set later.
 4. **Session continuity.** **PM-76**: a restarted task session gets a short "continue"
-   message, and readiness detection recognises a resumed Codex prompt.
+   message, and readiness detection recognises a resumed Codex prompt. **PM-81**: deferred
+   starts are rebuilt from the database when the server starts.
 5. **Clear questions.** **PM-74**: `ask_human` questions start with one plain sentence, say
    what the member recommends and why, and describe each option by its consequence; the inbox
    marks the recommended option and folds away the details.
@@ -96,8 +97,8 @@ limits (PM-58); browser notifications, then a PWA (PM-59); a shared queue for he
 
 ## Technical debt
 
-The 2026-09-30 review looked at every module; the clean-up that followed is on the
-`claude/determined-faraday-yz17ut` branch. What it changed, in short:
+The 2026-09-30 review looked at every module; the clean-up that followed was merged into
+`main` the same day (PM-89). What it changed, in short:
 
 - **One place per rule.** Gate evaluation, label change planning, owner-only changes, member
   and stage lookups and the task key sequence moved into `packages/shared`; the server and the
@@ -126,63 +127,35 @@ The 2026-09-30 review looked at every module; the clean-up that followed is on t
 Still open, roughly by value:
 
 - **Storage.** Message receipts are a JSON blob scanned in JavaScript on every session start;
-  a `team_message_recipients` table would fix that. The legacy `tasks.checks` column is
-  converted to labels on every read (see question 9).
+  a `team_message_recipients` table would fix that (PM-88). The legacy `tasks.checks` column
+  is converted to labels on every read (PM-86).
 - **Providers.** The context pack still branches on provider, and the session policy is
   written in Claude Code's rule syntax that Codex parses back; a provider-neutral policy
   (team tools, read-only commands, denied operations, readable and writable directories)
-  rendered by each adapter would remove that. Codex does not enforce denied tools (question 10).
+  rendered by each adapter would remove that (PM-87). Codex does not enforce denied tools;
+  PM-84 takes away the one mode where nothing else stops it.
 - **Tests.** Every domain test builds a full domain with a git-backed configuration store;
   the pure parts (admission checks, label planning) now have fast unit tests, the rest could
   follow. The PTY integration tests of the runner are the slowest part of the suite.
 
 ## Open questions for the owner
 
-From the backlog: the eight phase 2 questions ([design/phase2.md](design/phase2.md)), the
-product name (PM-47), and the separate live instance (PM-72).
+From the backlog: the eight phase 2 questions ([design/phase2.md](design/phase2.md)) and the
+product name (PM-47).
 
-From the review (each has a safe default today; nothing is blocked):
+The fifteen questions of the 2026-09-30 review were answered by the owner the same day: every
+recommendation was accepted (decision 19). The work they call for is on the board:
 
-1. **What should clients see?** The REST timeline shows clients old check events and member
-   statuses; the websocket sends them neither; label changes (review, QA results) are hidden
-   from them. One rule for both, and should label milestones be visible?
-2. **Capacity.** A member's load counts every session it ever had on an open task, including
-   finished review sessions, so a QA member with capacity 1 takes no new task until the last
-   tested one closes. Count only live sessions?
-3. **Human chat bypasses admission.** Writing to a stopped AI session from its chat resumes it
-   without checking concurrency, plan usage or capacity (only the master switch). Keep this as
-   a deliberate human override?
-4. **Deferred starts are in memory.** A restart loses refused hand-overs and queued message
-   wake-ups. Persist them, or rebuild them from SQLite at start?
-5. **Stage-owner notices** are typed into sessions but not stored as messages or timeline
-   events. Record them?
-6. **Unused fields.** `Task.priority` (always empty), task status `blocked` (blocking labels
-   replaced it), member status `invited`, inbox kind `approval`, `BoardView.planUsage`
-   (superseded by the per-provider value). Remove them?
-7. **Names.** `MemberView.role` holds the access level for humans and the role for AI
-   members; the access level `developer` collides with the role `developer`;
-   `Session.claudeSessionId` also stores Codex ids. Rename (needs a migration)?
-8. **Release approvals.** The invariant accepts any human-only label on a release gate,
-   including `setBy: humans`, which admits clients and viewers. Require the release approval
-   duty, as the labels design says?
-9. **Legacy formats.** Old configuration shapes and check values are converted on every load
-   and read. Rewrite them once (a configuration commit and a database migration) and drop the
-   converters? Must reverting to a configuration from before labels keep working?
-10. **Codex and denied tools.** "No push from a local-only repository" is enforced through
-    Claude Code's settings; a Codex member in `bypassPermissions` mode is never asked. Enforce
-    it for Codex too, or disallow that mode for Codex?
-11. **Unused GitHub features.** `isAvailable`, `findPullRequestsForBranch` and
-    `taskKeyFromBranch` exist but nothing uses them (a "GitHub connected" indicator and
-    branch-to-task matching were planned). Wire them up or remove them?
-12. **Pushing.** Agents follow "commit, do not push", so GitHub lagged 150+ commits behind the
-    owner's local `main` until PM-48, and cloud sessions saw an old state. Should the
-    integrating session push `main` after each merge from now on?
-13. **Who hears from the watchdog and whom members ask.** Since the clean-up these follow
-    duties, like everything else: the watchdog flags problems to humans holding `monitoring`
-    (before: the operator role), prioritisation questions go to `prioritization` holders, and
-    release news to `client_communication` holders. Right?
-14. **Duplicate repository names and column ids** are not rejected by the invariants. A new
-    rule would refuse such configurations everywhere, including loading an existing one or
-    reverting to it. Add it, and fix any configuration it catches?
-15. **`PUT /config`** (replace the whole configuration) has no caller any more; the web and
-    the demo use PATCH. Remove it?
+| Question                                                  | Outcome                           |
+| --------------------------------------------------------- | --------------------------------- |
+| 1. What clients see                                       | PM-79                             |
+| 2. Capacity counts only current work                      | PM-80                             |
+| 3. A human's chat resumes a session past the limits       | kept as is: a deliberate override |
+| 4. Deferred starts survive a restart                      | PM-81                             |
+| 5. Stage-owner notices are recorded                       | PM-82                             |
+| 6, 7, 9, 11, 15. Unused fields and code, names, old forms | PM-86                             |
+| 8. Release approval needs the release approval duty       | PM-83                             |
+| 10. No `bypassPermissions` mode for Codex                 | PM-84                             |
+| 12. Pushing `main`                                        | decision 21                       |
+| 13. Duties decide who hears what                          | kept as is                        |
+| 14. Duplicate repository names and column ids             | PM-85                             |

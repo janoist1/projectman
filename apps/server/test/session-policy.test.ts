@@ -979,6 +979,20 @@ describe('the commands of the first trial', () => {
 });
 
 describe('read-only commands for any AI session on a task (PM-69)', () => {
+  it.each(['printf -v PATH ./bin; cat README.md', 'printf -vPATH ./bin && ls', 'cat ""~/.ssh/id_rsa'])(
+    'leaves %s for a human: it could change what later commands run or read',
+    (command) => {
+      expect(commandVerdict({ ...input, readableRoots: [cwd], toolInput: { command } })).toBeNull();
+    },
+  );
+
+  it('still allows printf with a format', () => {
+    const command = "printf '%s\\n' a b";
+    expect(commandVerdict({ ...input, readableRoots: [cwd], toolInput: { command } })).toEqual({
+      behavior: 'allow',
+    });
+  });
+
   it('allows a grep whose double-quoted pattern escapes dots, as a developer wrote it in the first trial', () => {
     const command = `cd ${cwd}/apps/web/src && grep -rnE "task\\.(edit|save|move\\.|labels\\.a)" . | head -40`;
     expect(commandVerdict({ ...input, readableRoots: [cwd], toolInput: { command } })).toEqual({

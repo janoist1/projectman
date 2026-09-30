@@ -67,9 +67,8 @@ describe('shell words: words and quotes', () => {
     ['echo "a\\\\\nb"', ['echo', 'a\\\nb']],
     ["echo 'a\\\nb'", ['echo', 'a\\\nb']],
     // A tilde, hash or equals sign that cannot start an expansion or a comment is plain text.
-    ["echo ''~ ''#x ''=y x~ x~y", ['echo', '~', '#x', '=y', 'x~', 'x~y']],
-    ['echo ""~ ""#x ""=y', ['echo', '~', '#x', '=y']],
-    ["echo a='b'~ 'c'~", ['echo', 'a=b~', 'c~']],
+    ['echo \'\'#x ""#y x~ x~y', ['echo', '#x', '#y', 'x~', 'x~y']],
+    ["echo a='b'x 'c'x", ['echo', 'a=bx', 'cx']],
   ])('reads %j', (command, expected) => {
     expect(words(command)).toEqual(expected);
   });
@@ -237,6 +236,11 @@ describe('shell words: everything unsafe or unclear is refused', () => {
     ['a substitution in double quotes', 'echo "$(ls)"'],
     ['a backtick in double quotes', 'echo "`ls`"'],
     ['a trailing backslash in double quotes', 'echo "a\\'],
+    ['a tilde after an empty quoted part (zsh expands it)', 'cat ""~/.ssh/id_rsa'],
+    ['a tilde after empty single quotes', "cat ''~/x"],
+    ['a tilde right after a quoted part', "echo a='b'~"],
+    ['an equals sign after empty single quotes', "echo ''=y"],
+    ['an equals sign after an empty quoted part (zsh expands =cmd)', 'ls ""=ls'],
     ['a quote left open after a newline', 'echo "a\nb'],
     ['a quote left open after a line continuation', 'echo "a\\\n'],
     ['a parameter after a line continuation', 'echo "\\\n$HOME"'],

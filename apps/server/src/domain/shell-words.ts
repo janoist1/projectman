@@ -172,8 +172,11 @@ function readWord(command: string, start: number): { text: string; end: number }
       const unquoted = String.fromCodePoint(command.codePointAt(i)!);
       if (!UNQUOTED_CHARACTER.test(unquoted)) return null;
       // `#` starts a comment, `=cmd` expands to a path in zsh, and `~` expands to a home directory.
-      if (!started && (unquoted === '#' || unquoted === '=')) return null;
-      if (unquoted === '~' && (!started || previous === '=' || previous === ':')) return null;
+      if (!started && unquoted === '#') return null;
+      // zsh expands `=cmd` and `~` at the start of a word even after an empty quoted part (`""~`),
+      // so both are refused wherever no unquoted character precedes them in the word.
+      if (unquoted === '=' && previous === '') return null;
+      if (unquoted === '~' && (previous === '' || previous === '=' || previous === ':')) return null;
       text += unquoted;
       started = true;
       previous = unquoted;

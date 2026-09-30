@@ -282,6 +282,8 @@ const RULES = new Map<string, Rule>([
   ['file', fileRule],
   ['npm', npmRule],
   ['npx', npxRule],
+  // The shell's `printf -v NAME` assigns a variable (even PATH) for the commands that follow.
+  ['printf', (args) => !args[0]?.startsWith('-v')],
 ]);
 for (const name of [
   'cat',
@@ -290,7 +292,6 @@ for (const name of [
   'ls',
   'pwd',
   'echo',
-  'printf',
   'cut',
   'tr',
   'nl',

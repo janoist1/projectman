@@ -17,8 +17,6 @@ import { PlanUsageMeter } from './PlanUsageMeter';
 import { useProject } from './contexts';
 import styles from './Shell.module.css';
 
-const isMockMode = import.meta.env.VITE_MOCK === '1';
-
 interface NavItem {
   to: string;
   icon: IconName;
@@ -77,11 +75,6 @@ export function NavRail({ inboxCount }: { inboxCount: number }) {
       <Link to={`/p/${key}`} className={styles.logo} aria-label={t('app.name')}>
         <Icon name="logo" size={20} strokeWidth={2.4} />
       </Link>
-      {isMockMode ? (
-        <span className={styles.demo} title={t('app.demoModeHint')}>
-          {t('app.demoMode')}
-        </span>
-      ) : null}
       {main.map((item) => (
         <Link
           key={item.to}

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
 import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
-import { mockProject } from '../../test/mockProject';
+import { createMockFetch, mockProject } from '../../test/mockProject';
 import { BoardPage } from './BoardPage';
 
 afterEach(() => {
@@ -43,14 +43,10 @@ describe('desktop board moving', () => {
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
+    const backendFetch = createMockFetch(project.backend);
     setFetchImplementation(async (path, init) => {
       if (init?.method === 'PATCH') await held;
-      const response = project.backend.handle(
-        init?.method ?? 'GET',
-        new URL(path, 'http://localhost').pathname,
-        typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
-      );
-      return new Response(JSON.stringify(response.body), { status: response.status });
+      return backendFetch(path, init);
     });
     project.render(
       <ToastProvider>

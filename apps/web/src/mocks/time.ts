@@ -1,4 +1,4 @@
-/** Fixture timestamps relative to when the mock backend starts, so the demo always looks fresh. */
+/** Fixture timestamps relative to when the fixtures load, so relative times ("3 napja") stay stable. */
 const START = Date.now();
 
 export function minutesAgo(minutes: number): string {

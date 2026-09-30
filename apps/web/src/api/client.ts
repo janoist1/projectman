@@ -44,7 +44,7 @@ type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 let fetchImpl: FetchLike = (input, init) => globalThis.fetch(input, init);
 
-/** Swaps the transport (mock mode installs an in-memory backend here). */
+/** Swaps the transport (UI tests route requests to the in-memory MockBackend). */
 export function setFetchImplementation(impl: FetchLike): void {
   fetchImpl = impl;
 }

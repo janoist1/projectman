@@ -17,7 +17,7 @@ import {
   TimelineEvent,
   validateProjectConfig,
 } from '@projectman/shared';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { MockBackend } from './backend';
 import type { MockConnection } from './backend';
 import * as fixtures from './fixtures';
@@ -59,10 +59,6 @@ describe('mock fixtures satisfy the shared contracts', () => {
 });
 
 describe('MockBackend', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it('serves responses that match the DTOs', () => {
     const backend = new MockBackend();
     expect(BoardView.safeParse(backend.handle('GET', '/api/projects/AC/board', undefined).body).success).toBe(
@@ -136,7 +132,6 @@ describe('MockBackend', () => {
   });
 
   it('resolves a permission and publishes valid events', () => {
-    vi.useFakeTimers();
     const backend = new MockBackend();
     const events: ServerEvent[] = [];
     const connection: MockConnection = { deliver: (event) => events.push(event) };
@@ -150,18 +145,11 @@ describe('MockBackend', () => {
       optionId: 'allow',
     });
     expect(response.status).toBe(200);
-    vi.advanceTimersByTime(5000);
 
     expect(events.every((event) => ServerEvent.safeParse(event).success)).toBe(true);
     const types = new Set(events.map((event) => event.type));
     expect([...types]).toEqual(
-      expect.arrayContaining([
-        'inbox_upserted',
-        'timeline_appended',
-        'chat_appended',
-        'team_message',
-        'member_state',
-      ]),
+      expect.arrayContaining(['inbox_upserted', 'timeline_appended', 'session_upserted']),
     );
     expect(
       backend.handle('POST', '/api/projects/AC/inbox/inb_perm_push/resolve', { optionId: 'allow' }).status,

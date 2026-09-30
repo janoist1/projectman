@@ -78,17 +78,6 @@
   color: var(--c-on-primary);
 }
 
-.demo {
-  margin: -8px 0 6px;
-  padding: 2px 6px;
-  border-radius: 6px;
-  background: var(--c-accent-bg);
-  color: var(--c-accent-text);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-}
-
 .railItem {
   position: relative;
   width: 64px;

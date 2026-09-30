@@ -27,6 +27,14 @@ export type InboxOption = z.infer<typeof InboxOption>;
 export const InboxState = z.enum(['open', 'resolved', 'expired', 'cancelled']);
 export type InboxState = z.infer<typeof InboxState>;
 
+/**
+ * The rule by which the system resolved an item itself (`resolution.by` is "system"):
+ * `command_policy` is the automatic command policy (no publishing from a local-only
+ * repository, lockfile installs in a task worktree). The UI names the rule via i18n.
+ */
+export const InboxResolutionRule = z.enum(['command_policy']);
+export type InboxResolutionRule = z.infer<typeof InboxResolutionRule>;
+
 export const InboxItem = z.object({
   id: z.string(),
   projectKey: z.string(),
@@ -48,7 +56,10 @@ export const InboxItem = z.object({
       optionId: z.string(),
       by: MemberHandle,
       at: z.string(),
+      /** Free text by the human who resolved it (older automatic resolutions kept a note too). */
       note: z.string().nullable(),
+      /** Set when the system resolved it by a rule. */
+      rule: InboxResolutionRule.optional(),
     })
     .nullable(),
   createdAt: z.string(),

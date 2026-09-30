@@ -336,7 +336,8 @@ export class InboxService {
           optionId: verdict.behavior,
           by: 'system',
           at,
-          note: 'Automatikus: szabály szerint',
+          note: null,
+          rule: 'command_policy',
         },
         at,
       )!;

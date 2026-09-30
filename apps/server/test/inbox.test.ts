@@ -183,7 +183,7 @@ describe('inbox: automatic permission decisions', () => {
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({
       kind: 'permission',
-      resolution: { optionId: behavior, by: 'system', note: expect.any(String) },
+      resolution: { optionId: behavior, by: 'system', note: null, rule: 'command_policy' },
     });
     const events = h.domain.timeline
       .list('AR', { taskKey: 'AR-1' })

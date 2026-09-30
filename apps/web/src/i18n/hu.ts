@@ -29,6 +29,16 @@ export const hu = {
   },
 
   schedules: {
+    /** A member's schedule, in the hire and edit forms. */
+    form: {
+      title: 'Ütemezés',
+      enabled: 'Ütemezett munka',
+      cron: 'Cron',
+      prompt: 'Feladat az ütemezett munkához',
+      preset: 'hétköznap reggel 8',
+      hint: 'A projekt időzónájában fut.',
+      invalid: 'Adj meg cront és feladatot is.',
+    },
     title: 'Ütemezett futások',
     next: 'Következő futás: {time}',
     runNow: 'Futtasd most',
@@ -411,15 +421,21 @@ export const hu = {
     workingPlain: 'Dolgozik',
     waitingOn: 'Másra vár: {who}',
     queuedFor: 'Sorra kerül: {stage}',
-    blocked: 'Elakadt',
     ready: 'Indítható',
     prerequisite: 'Előfeltételre vár',
     done: 'Kész · {when}',
-    cancelled: 'Elvetve',
+    /** The TaskStatus values. */
+    statuses: {
+      active: 'Folyamatban',
+      waiting: 'Vár',
+      blocked: 'Elakadt',
+      done: 'Kész',
+      cancelled: 'Elvetve',
+    },
   },
 
   taskCard: {
-    checks: 'Ellenőrzések',
+    stageRows: 'Ellenőrzések',
     stageProgress: 'Haladás: {stage}, {index}. lépés a {total}-ból',
   },
 
@@ -538,31 +554,11 @@ export const hu = {
     done: 'Kész',
   },
 
-  checks: {
-    names: {
-      code_review: 'Code review',
-      security_review: 'Biztonsági átnézés',
-      qa: 'QA',
-      client_test: 'Ügyfélteszt',
-    },
-    states: {
-      pending: 'vár',
-      passed: 'rendben',
-      blocked: 'blokkol',
-      failed: 'hibát talált',
-      retest_needed: 'újrateszt kell',
-    },
+  /** The stages of a grouped column a card has passed: "QA: folyamatban". */
+  stageRows: {
     line: '{name}: {state}',
-    stageDone: 'kész',
-    stageActive: 'folyamatban',
-  },
-
-  taskStatuses: {
-    active: 'Folyamatban',
-    waiting: 'Vár',
-    blocked: 'Elakadt',
-    done: 'Kész',
-    cancelled: 'Elvetve',
+    done: 'kész',
+    active: 'folyamatban',
   },
 
   links: {
@@ -612,15 +608,6 @@ export const hu = {
     needsYou: 'Rád vár: engedély',
   },
 
-  schedule: {
-    title: 'Ütemezés',
-    enabled: 'Ütemezett munka',
-    cron: 'Cron',
-    prompt: 'Feladat az ütemezett munkához',
-    preset: 'hétköznap reggel 8',
-    hint: 'A projekt időzónájában fut.',
-    invalid: 'Adj meg cront és feladatot is.',
-  },
   memberEdit: {
     title: 'Tag szerkesztése: {name}',
     edit: 'Szerkesztés',
@@ -847,6 +834,22 @@ export const hu = {
     },
     subtaskAdded: 'Alfeladat hozzáadva: {subtaskKey} → {parentKey}',
     subtaskRemoved: 'Alfeladat eltávolítva: {subtaskKey} → {parentKey}',
+    /** Checks were replaced by labels; task_check_changed events recorded before still name them. */
+    legacyChecks: {
+      names: {
+        code_review: 'Code review',
+        security_review: 'Biztonsági átnézés',
+        qa: 'QA',
+        client_test: 'Ügyfélteszt',
+      },
+      states: {
+        pending: 'vár',
+        passed: 'rendben',
+        blocked: 'blokkol',
+        failed: 'hibát talált',
+        retest_needed: 'újrateszt kell',
+      },
+    },
     label: 'Idővonal',
     events: {
       task_cancelled: 'Megszakította a feladatot.',

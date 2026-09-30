@@ -43,7 +43,7 @@ function renderCard(key: string, selected = false) {
 }
 
 describe('TaskCard', () => {
-  it('shows the title, PR, labels, grouped-stage checks and the status line', () => {
+  it('shows the title, PR, labels, grouped-stage rows and the status line', () => {
     const card = renderCard('AC-21');
     expect(card.getAttribute('href')).toBe('/p/AC/tasks/AC-21');
     expect(within(card).getByText('Rendelés-visszaigazoló e-mail')).toBeTruthy();
@@ -51,12 +51,16 @@ describe('TaskCard', () => {
     // Results are labels, named and coloured by their definitions.
     expect(within(card).getByText('Újrateszt kell')).toBeTruthy();
     expect(within(card).getByText('Code review rendben')).toBeTruthy();
-    const progress = within(card).getByRole('list', { name: t('taskCard.checks') });
+    const progress = within(card).getByRole('list', { name: t('taskCard.stageRows') });
     expect(
       within(progress)
         .getAllByRole('listitem')
         .map((row) => row.textContent),
-    ).toEqual(['Code review: kész', 'Integration: kész', 'QA: folyamatban']);
+    ).toEqual([
+      t('stageRows.line', { name: 'Code review', state: t('stageRows.done') }),
+      t('stageRows.line', { name: 'Integration', state: t('stageRows.done') }),
+      t('stageRows.line', { name: 'QA', state: t('stageRows.active') }),
+    ]);
     expect(within(card).getByText('Rád vár: engedély (git push)')).toBeTruthy();
     expect(card.getAttribute('data-phase')).toBe('needs_you');
     expect(within(card).getByRole('img', { name: /QA, 5\. lépés a 9-ból/ })).toBeTruthy();
@@ -66,7 +70,7 @@ describe('TaskCard', () => {
     const card = renderCard('AC-20', true);
     expect(card.getAttribute('aria-current')).toBe('true');
     expect(within(card).getByText('Dolgozik: Visszaállítási próba')).toBeTruthy();
-    expect(within(card).queryByRole('list', { name: 'Ellenőrzések' })).toBeNull();
+    expect(within(card).queryByRole('list', { name: t('taskCard.stageRows') })).toBeNull();
   });
 
   it('shows done tasks with the merged PR', () => {

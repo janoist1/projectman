@@ -67,12 +67,12 @@ const LEGACY_CHECK_STATES = ['pending', 'passed', 'blocked', 'failed', 'retest_n
 /** Checks were replaced by labels; events recorded before that still read as they did. */
 export function checkLine(check: string, state: string): string {
   const name = (LEGACY_CHECKS as readonly string[]).includes(check)
-    ? t(`checks.names.${check as (typeof LEGACY_CHECKS)[number]}`)
+    ? t(`timeline.legacyChecks.names.${check as (typeof LEGACY_CHECKS)[number]}`)
     : check;
   const label = (LEGACY_CHECK_STATES as readonly string[]).includes(state)
-    ? t(`checks.states.${state as (typeof LEGACY_CHECK_STATES)[number]}`)
+    ? t(`timeline.legacyChecks.states.${state as (typeof LEGACY_CHECK_STATES)[number]}`)
     : state;
-  return t('checks.line', { name, state: label });
+  return t('timeline.events.task_check_changed', { check: name, state: label });
 }
 
 const LABEL_REASONS = ['approval', 'moved_back', 'pr_merged', 'pr_updated'] as const;

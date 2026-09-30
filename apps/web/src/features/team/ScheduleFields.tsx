@@ -18,14 +18,14 @@ export function ScheduleFields({
 }) {
   return (
     <fieldset className={styles.schedule}>
-      <legend>{t('schedule.title')}</legend>
+      <legend>{t('schedules.form.title')}</legend>
       <label className={styles.toggle}>
         <input
           type="checkbox"
           checked={value.enabled}
           onChange={(event) => onChange({ ...value, enabled: event.target.checked })}
         />
-        {t('schedule.enabled')}
+        {t('schedules.form.enabled')}
       </label>
       <Button
         type="button"
@@ -33,19 +33,19 @@ export function ScheduleFields({
         size="sm"
         onClick={() => onChange({ ...value, enabled: true, cron: '0 8 * * 1-5' })}
       >
-        {t('schedule.preset')}
+        {t('schedules.form.preset')}
       </Button>
       {value.enabled ? (
         <>
           <TextField
-            label={t('schedule.cron')}
-            hint={t('schedule.hint')}
+            label={t('schedules.form.cron')}
+            hint={t('schedules.form.hint')}
             required
             value={value.cron}
             onChange={(event) => onChange({ ...value, cron: event.target.value })}
           />
           <TextAreaField
-            label={t('schedule.prompt')}
+            label={t('schedules.form.prompt')}
             required
             value={value.prompt}
             onChange={(event) => onChange({ ...value, prompt: event.target.value })}

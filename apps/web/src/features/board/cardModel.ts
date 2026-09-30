@@ -5,16 +5,16 @@ import { labelName } from '../../lib/labels';
 import { stagesInColumn } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
 
-export interface CheckRow {
+export interface StageRow {
   label: string;
-  tone: 'ok' | 'warn' | 'wait';
+  state: 'done' | 'active';
 }
 
 /**
  * Progress rows on a card through the stages of a grouped column (e.g. Code review →
  * Integration → QA). Results are labels, shown as chips.
  */
-export function cardChecks(task: Task, pipeline: PipelineIndex): CheckRow[] {
+export function stageRows(task: Task, pipeline: PipelineIndex): StageRow[] {
   const stage = pipeline.stageById.get(task.stageId);
   if (
     !stage ||
@@ -31,14 +31,11 @@ export function cardChecks(task: Task, pipeline: PipelineIndex): CheckRow[] {
     column ? stagesInColumn(pipeline, column).map((entry) => entry.id) : [task.stageId],
   );
   const grouped = inColumn.size > 1;
-  const rows: CheckRow[] = [];
+  const rows: StageRow[] = [];
   pipeline.stages.forEach((entry, index) => {
     if (!grouped || !inColumn.has(entry.id) || index > current) return;
-    rows.push(
-      index < current
-        ? { label: t('checks.line', { name: entry.name, state: t('checks.stageDone') }), tone: 'ok' }
-        : { label: t('checks.line', { name: entry.name, state: t('checks.stageActive') }), tone: 'wait' },
-    );
+    const state = index < current ? 'done' : 'active';
+    rows.push({ label: t('stageRows.line', { name: entry.name, state: t(`stageRows.${state}`) }), state });
   });
   return rows;
 }

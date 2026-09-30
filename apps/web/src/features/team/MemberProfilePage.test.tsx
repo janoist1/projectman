@@ -59,7 +59,7 @@ describe('member profiles', () => {
     expect(await screen.findByText('Acme uses fictional checkout fixtures.')).toBeTruthy();
     expect(screen.getByRole('heading', { name: t('profile.live') })).toBeTruthy();
     expect(screen.getByRole('heading', { name: t('profile.tasks') })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: t('schedule.title') })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: t('schedules.form.title') })).toBeTruthy();
     expect(screen.getByRole('heading', { name: t('profile.activity') })).toBeTruthy();
     expect(screen.getByRole('heading', { name: t('profile.thread') })).toBeTruthy();
     expect(screen.getByLabelText(t('messages.text'))).toBeTruthy();

@@ -45,7 +45,7 @@ export function TaskSubtasks({
             </Link>
             <Chip>
               {isTaskClosed(child)
-                ? t(`taskStatuses.${child.status}`)
+                ? t(`taskStatus.statuses.${child.status}`)
                 : (pipeline.stageById.get(child.stageId)?.name ?? child.stageId)}
             </Chip>
             <span>{child.assignee ? nameOf(child.assignee, members, myHandle) : t('task.unassigned')}</span>

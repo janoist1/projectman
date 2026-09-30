@@ -207,7 +207,7 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
       </section>
 
       <ScheduleFields value={schedule} onChange={setSchedule} />
-      {scheduleError ? <p role="alert">{t('schedule.invalid')}</p> : null}
+      {scheduleError ? <p role="alert">{t('schedules.form.invalid')}</p> : null}
       {hire.isError ? (
         <p className={styles.error} role="alert">
           {errorMessage(hire.error)}

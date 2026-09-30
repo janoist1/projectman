@@ -63,7 +63,7 @@ function MemberSchedule({ handle }: { handle: string }) {
   if (schedules.error) return <ErrorState compact error={schedules.error} />;
   return (
     <section className={styles.panel}>
-      <h2>{t('schedule.title')}</h2>
+      <h2>{t('schedules.form.title')}</h2>
       {schedule ? (
         <>
           <code>{schedule.cron}</code>

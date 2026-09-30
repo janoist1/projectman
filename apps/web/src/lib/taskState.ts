@@ -89,7 +89,12 @@ export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
   const open = ctx.openInboxByTask.get(task.key) ?? [];
 
   if (task.status === 'cancelled') {
-    return { phase: 'cancelled', label: t('taskStatus.cancelled'), since: task.updatedAt, worker: null };
+    return {
+      phase: 'cancelled',
+      label: t('taskStatus.statuses.cancelled'),
+      since: task.updatedAt,
+      worker: null,
+    };
   }
   if (task.status === 'done' || stage?.kind === 'done') {
     const closed = task.closedAt ?? task.updatedAt;
@@ -116,7 +121,7 @@ export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
   }
 
   if (task.status === 'blocked') {
-    return { phase: 'blocked', label: t('taskStatus.blocked'), since: task.updatedAt, worker: null };
+    return { phase: 'blocked', label: t('taskStatus.statuses.blocked'), since: task.updatedAt, worker: null };
   }
 
   const worker = findWorker(task, members);

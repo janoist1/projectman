@@ -80,7 +80,7 @@ describe('human task checks API', () => {
       expect.objectContaining({
         type: 'task_note',
         actor: { kind: 'human', handle: 'tester' },
-        data: { text: 'Acme checkout verified.' },
+        data: { text: 'Acme checkout verified.', mentions: [] },
       }),
     );
     expect((await move()).statusCode).toBe(200);

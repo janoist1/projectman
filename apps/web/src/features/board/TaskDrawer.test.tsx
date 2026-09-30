@@ -268,3 +268,82 @@ describe('task drawer checks', () => {
     expect((await within(qa).findByRole('alert')).textContent).toBe(t('errors.codes.task_closed'));
   });
 });
+
+describe('task drawer comments', () => {
+  it('filters autocomplete by handle and name, selects with arrows and Enter, and sends', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    const input = await screen.findByLabelText(t('task.comments.label'));
+    fireEvent.change(input, { target: { value: 'Hello @', selectionStart: 7 } });
+    const list = screen.getByRole('listbox', { name: t('task.comments.members') });
+    const options = within(list).getAllByRole('option');
+    const firstHandle = options[0]!.textContent!.split('@').pop()!;
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(options.at(-1)!.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect((input as HTMLTextAreaElement).value).toBe(`Hello @${firstHandle} `);
+    const member = project.backend.config.team.members.find((member) => member.handle === 'fe-1')!;
+    fireEvent.change(input, { target: { value: `Hello @${member.displayName.slice(0, 3)}` } });
+    expect(screen.getByRole('listbox').textContent).toContain(member.displayName);
+    fireEvent.change(input, { target: { value: 'Hello @fe-' } });
+    fireEvent.click(
+      within(screen.getByRole('listbox')).getByRole('button', { name: `${member.displayName} @fe-1` }),
+    );
+    expect((input as HTMLTextAreaElement).value).toBe('Hello @fe-1 ');
+    fireEvent.click(screen.getByRole('button', { name: t('task.comments.send') }));
+    await waitFor(() =>
+      expect(project.requests).toContainEqual({
+        method: 'POST',
+        path: '/api/projects/AC/tasks/AC-20/comments',
+        body: { text: 'Hello @fe-1' },
+      }),
+    );
+    await waitFor(() => expect((input as HTMLTextAreaElement).value).toBe(''));
+    const event = project.backend.timeline.find(
+      (event) => event.taskKey === 'AC-20' && event.data.text === 'Hello @fe-1',
+    )!;
+    expect(event.data.mentions).toEqual(['fe-1']);
+    expect(project.backend.messages.some((message) => message.body === 'Hello @fe-1')).toBe(true);
+  });
+
+  it('preserves line breaks and renders imported attribution and mention chips', async () => {
+    const project = mockProject();
+    const at = '2024-01-02T03:04:05Z';
+    project.backend.handle('POST', '/api/projects/AC/tasks/AC-20/comments', {
+      text: 'History\n@FE-1 and mail@fe-1.test',
+      importedAuthor: 'Morgan Example',
+      importedAt: at,
+    });
+    const count = project.backend.messages.length;
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    const author = await screen.findByText('Morgan Example');
+    const row = author.closest('li')!;
+    expect(within(row).getByText(t('task.comments.imported'), { exact: false })).toBeTruthy();
+    expect(row.querySelector('time')?.getAttribute('dateTime')).toBe(at);
+    const member = project.backend.config.team.members.find((member) => member.handle === 'fe-1')!;
+    expect(within(row).getByText(member.displayName)).toBeTruthy();
+    expect(row.textContent).toContain('History\n');
+    expect(row.textContent).toContain('mail@fe-1.test');
+    expect(project.backend.messages).toHaveLength(count);
+  });
+
+  it('dismisses suggestions with Escape without closing the drawer', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    const input = await screen.findByLabelText(t('task.comments.label'));
+    fireEvent.change(input, { target: { value: '@' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(screen.getByLabelText(t('task.comments.label'))).toBeTruthy();
+  });
+
+  it('hides the composer from viewers', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-20', {
+      can: { createTasks: false, manageTeam: false, workInSessions: false },
+    });
+    await screen.findByText(project.backend.findTask('AC-20')!.title);
+    expect(screen.queryByLabelText(t('task.comments.label'))).toBeNull();
+  });
+});

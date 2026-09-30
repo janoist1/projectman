@@ -86,3 +86,7 @@
   font-size: 13px;
   color: var(--c-ink-4);
 }
+
+.comment {
+  white-space: pre-wrap;
+}

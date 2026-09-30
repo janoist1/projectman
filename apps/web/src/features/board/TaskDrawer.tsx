@@ -30,6 +30,7 @@ import { prChip } from './cardModel';
 import { nextStepText, primarySession } from './taskModel';
 import { TaskLifecycle } from './TaskLifecycle';
 import { useBoardModel } from './useBoardModel';
+import { TaskCommentComposer } from './TaskCommentComposer';
 import { TaskMove } from './TaskMove';
 import { canMoveTask } from './moveTask';
 import type { PipelineIndex } from '../../lib/pipeline';
@@ -368,6 +369,10 @@ export function TaskDrawer() {
               />
             )}
           </section>
+
+          {can.createTasks && myHandle ? (
+            <TaskCommentComposer key={`comments:${task.key}`} taskKey={task.key} members={members} />
+          ) : null}
 
           {sessions.length > 0 ? (
             <section className={styles.section}>

@@ -1,6 +1,8 @@
 import type { PullRequestInfo } from '../contracts';
 import type {
   Actor,
+  CreateTaskCommentRequest,
+  TimelineEvent,
   CancelTaskRequest,
   CheckName,
   CheckState,
@@ -19,7 +21,7 @@ import { isoNow } from './context';
 import type { DomainContext } from './context';
 import { conflict, forbidden, invalid, notFound } from './errors';
 import { hasAccess } from './access';
-import { taskAuthors } from '@projectman/shared';
+import { commentMentions, taskAuthors } from '@projectman/shared';
 import { evaluateGates, stagesEntered } from './gates';
 import type { ApprovalRequirement, GateEvaluation } from './gates';
 import { DECISION_OPTIONS } from './inbox';
@@ -111,6 +113,12 @@ export class TaskService {
     this.timeline = deps.timeline;
     this.projects = deps.projects;
     this.inbox = deps.inbox;
+  }
+
+  private noteNotifier?: (event: TimelineEvent, mentions: string[]) => Promise<void>;
+
+  onNoteAdded(notifier: NonNullable<TaskService['noteNotifier']>): void {
+    this.noteNotifier = notifier;
   }
 
   onStageChanged(listener: StageChangeListener): void {
@@ -478,15 +486,43 @@ export class TaskService {
     return next;
   }
 
-  addNote(
+  async addNote(
     projectKey: string,
     taskKey: string,
     text: string,
     actor: Actor,
     sessionId: string | null = null,
-  ): void {
+    imported: Pick<CreateTaskCommentRequest, 'importedAuthor' | 'importedAt'> = {},
+  ): Promise<TimelineEvent> {
     this.get(projectKey, taskKey);
-    this.timeline.append({ projectKey, taskKey, sessionId, actor, type: 'task_note', data: { text } });
+    const config = await this.projects.config(projectKey);
+    const isImported = imported.importedAuthor !== undefined || imported.importedAt !== undefined;
+    if (
+      isImported &&
+      !config.team.members.some(
+        (member) =>
+          member.handle === actor.handle &&
+          member.kind === 'human' &&
+          member.access === 'owner' &&
+          actor.kind === 'human',
+      )
+    )
+      throw forbidden('insufficient_access', 'imported comments require owner access');
+    const mentions = commentMentions(
+      text,
+      config.team.members.map((member) => member.handle),
+      actor.handle,
+    );
+    const event = this.timeline.append({
+      projectKey,
+      taskKey,
+      sessionId,
+      actor,
+      type: 'task_note',
+      data: { text, mentions, ...imported },
+    });
+    if (!isImported && mentions.length) await this.noteNotifier?.(event, mentions);
+    return event;
   }
 
   assign(

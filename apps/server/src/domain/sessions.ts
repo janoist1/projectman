@@ -1,5 +1,6 @@
 import { DEFAULT_AGENT_PROVIDER, formatInjectedTeamMessage, routes } from '@projectman/shared';
 import type {
+  Actor,
   AgentProvider,
   AiMemberConfig,
   ChatItem,
@@ -256,6 +257,8 @@ export class SessionOrchestrator {
     projectKey: string,
     from: string,
     input: { to: string[]; text: string; taskKey?: string },
+    actor: Actor = humanActor(from),
+    sessionId: string | null = null,
   ): Promise<TeamMessage> {
     const config = await this.deps.projects.config(projectKey);
     const recipients = [...new Set(input.to)];
@@ -270,7 +273,8 @@ export class SessionOrchestrator {
       to: recipients,
       taskKey: input.taskKey ?? null,
       body: input.text,
-      actor: humanActor(from),
+      actor,
+      sessionId,
       humanRecipients: humans,
       delivered: recipients.every((h) => humans.includes(h)),
     });

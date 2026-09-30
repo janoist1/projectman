@@ -73,7 +73,7 @@ export interface TimelineEventData {
   task_assigned: { assignee: string | null; previous?: string | null };
   task_check_changed: { check: string; from: string | null; to: string };
   task_link_added: { kind: string; ref: string; repo?: string };
-  task_note: { text: string };
+  task_note: { text: string; mentions?: string[]; importedAuthor?: string; importedAt?: string };
   schedule_started: { runId: string; member: string; scheduledFor: string };
   schedule_skipped: { runId: string; member: string; scheduledFor: string; reason: string };
   session_started: { member: string; resumed: boolean };

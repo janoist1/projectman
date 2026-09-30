@@ -19,6 +19,7 @@ import type {
   RetireMemberRequest,
   SetupRequest,
   StartTaskRequest,
+  CreateTaskCommentRequest,
   SetTaskCheckRequest,
 } from '@projectman/shared';
 import { isApiError } from './client';
@@ -328,6 +329,11 @@ export function useDeleteRole(key: string) {
 export function useUpdateTask(key: string) {
   return useProjectMutation(key, ({ taskKey, body }: { taskKey: string; body: UpdateTaskRequest }) =>
     api.updateTask(key, taskKey, body),
+  );
+}
+export function useCreateTaskComment(key: string) {
+  return useProjectMutation(key, ({ taskKey, body }: { taskKey: string; body: CreateTaskCommentRequest }) =>
+    api.createTaskComment(key, taskKey, body),
   );
 }
 export function useSetTaskCheck(key: string) {

@@ -1,6 +1,8 @@
 import type { InboxItem, InboxOption } from '@projectman/shared';
 import { t } from '../i18n/t';
 import { toolPresentationFor } from './chat';
+import { nameOf } from './members';
+import type { MemberIndex } from './members';
 import type { PipelineIndex } from './pipeline';
 
 /** Option id used for a free-text answer to a question (the text goes in `note`). */
@@ -113,13 +115,25 @@ export function resolutionLabel(item: InboxItem): string {
   if (!optionId) return t('inbox.resolutions.answer');
   if (
     item.kind === 'permission' &&
-    item.resolution?.by === 'system' &&
+    (item.resolution?.rule !== undefined || item.resolution?.by === 'system') &&
     (optionId === 'allow' || optionId === 'deny')
   )
     return t(`inbox.resolutions.automatic_${optionId}`);
   if (isBuiltIn(optionId)) return t(`inbox.resolutions.${optionId}`);
   const option = item.options.find((entry) => entry.id === optionId);
   return option ? t('inbox.resolutions.option', { label: option.label }) : t('inbox.resolutions.answer');
+}
+
+/** Who decided: the rule the system decided by, "Rendszer" for older automatic decisions, or the member. */
+export function resolverName(item: InboxItem, members: MemberIndex, myHandle: string | null): string {
+  const resolution = item.resolution;
+  if (resolution?.rule) return t(`inbox.resolutionRules.${resolution.rule}`);
+  return nameOf(resolution && resolution.by !== 'system' ? resolution.by : null, members, myHandle);
+}
+
+/** The note written with the decision (an answer, or an older automatic decision's note), or null. */
+export function resolutionNote(item: InboxItem): string | null {
+  return item.resolution?.note?.trim() || null;
 }
 
 export function isPositiveResolution(item: InboxItem): boolean {

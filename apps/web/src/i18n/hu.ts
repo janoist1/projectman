@@ -711,6 +711,10 @@ export const hu = {
       expired: 'Lejárt',
       cancelled: 'Visszavonva',
     },
+    /** Rules by which the system decided an item itself. */
+    resolutionRules: {
+      command_policy: 'Automatikus: szabály szerint',
+    },
     resolutionLine: '{decision}: {title}',
     resolvedBy: '{who} · {time}',
     allDone: 'Ebben a szűrésben minden el van intézve.',

@@ -1,6 +1,7 @@
 import {
   HumanAccess,
   InboxKind,
+  InboxResolutionRule,
   MemberStatus,
   PermissionMode,
   SessionState,
@@ -65,6 +66,7 @@ describe('hu locale', () => {
     expectKeys('visibility', Visibility.options);
     expectKeys('inbox.options', ['allow', 'allow_session', 'deny', 'approve', 'reject', 'answer']);
     expectKeys('inbox.resolutions', ['allow', 'allow_session', 'deny', 'approve', 'reject', 'answer']);
+    expectKeys('inbox.resolutionRules', InboxResolutionRule.options);
   });
 
   it('contains only non-empty strings', () => {

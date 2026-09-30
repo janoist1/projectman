@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { AiMemberConfig, HireMemberRequest, UpdateMemberRequest } from '../index';
-import { modelForProvider } from './provider-model';
+import { AiMemberConfig, HireMemberRequest, PermissionMode, UpdateMemberRequest } from '../index';
+import {
+  FALLBACK_PERMISSION_MODE,
+  modelForProvider,
+  PROVIDER_PERMISSION_MODES,
+  permissionModeFitsProvider,
+} from './provider-model';
 
 describe('provider settings contracts', () => {
   it.each(['low', 'medium', 'high', 'xhigh', 'max'] as const)(
@@ -47,6 +52,24 @@ describe('provider settings contracts', () => {
     for (const model of ['gpt-6.1-sol', 'gpt-6-luna', 'gpt-6-astra', 'fictional-codex-model']) {
       expect(modelForProvider('claude', model)).toBe('opus');
       expect(modelForProvider('codex', model)).toBe(model);
+    }
+  });
+});
+
+describe('permission modes per provider', () => {
+  it('offers Claude members every mode and Codex members every mode but bypassPermissions', () => {
+    expect(PROVIDER_PERMISSION_MODES.claude).toEqual(PermissionMode.options);
+    expect(PROVIDER_PERMISSION_MODES.codex).toEqual(['default', 'acceptEdits', 'plan', 'auto']);
+    expect(permissionModeFitsProvider('claude', 'bypassPermissions')).toBe(true);
+    expect(permissionModeFitsProvider('codex', 'bypassPermissions')).toBe(false);
+    for (const mode of PROVIDER_PERMISSION_MODES.codex) {
+      expect(permissionModeFitsProvider('codex', mode)).toBe(true);
+    }
+  });
+
+  it('has a fallback every provider allows', () => {
+    for (const provider of ['claude', 'codex'] as const) {
+      expect(permissionModeFitsProvider(provider, FALLBACK_PERMISSION_MODE)).toBe(true);
     }
   });
 });

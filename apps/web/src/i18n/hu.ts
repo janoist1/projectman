@@ -1288,6 +1288,7 @@ export const hu = {
       last_stage_not_done: 'Az utolsó lépés kész állapot kell legyen.',
       duplicate_stage: 'A lépések azonosítói nem ismétlődhetnek.',
       sponsor_not_human: 'Az előfizetőnek embernek kell lennie.',
+      codex_bypass_not_allowed: 'A Codex-tag nem kaphat »mindent szabad« módot.',
       unknown_label: 'A kapu olyan címkére hivatkozik, amely nincs megadva a Címkék között.',
       missing_label_setter: 'A kapu által kért címkét senki nem teheti rá.',
       duplicate_label: 'A címkék azonosítói nem ismétlődhetnek.',

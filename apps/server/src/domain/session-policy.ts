@@ -1,6 +1,10 @@
 import path from 'node:path';
 import { DUTIES, roleBundle } from '@projectman/shared';
 import type { RoleId, ProjectConfig, Task } from '@projectman/shared';
+import { isWithin } from './command-paths';
+import { isReadOnlyCommand } from './read-only-commands';
+import { parseShellCommand } from './shell-words';
+import { isWorktreeRoutine } from './worktree-commands';
 
 /**
  * Per-role session settings, kept in one place so they are easy to change.
@@ -64,7 +68,57 @@ export function deniedToolsFor(config: ProjectConfig, task: Pick<Task, 'repo'> |
 
 export type CommandVerdict = { behavior: 'allow' } | { behavior: 'deny'; message: string };
 
-/** Narrow automatic decisions for publishing and lockfile installs; everything else reaches a human. */
+/** Whether the session works in the task's own worktree, inside the worktrees root. */
+function inTaskWorktree(input: {
+  config: ProjectConfig;
+  session: { cwd: string; role: RoleId };
+  task: Pick<Task, 'repo'> | null;
+  worktreesRootDir?: string;
+}): boolean {
+  const { config, session, task, worktreesRootDir } = input;
+  if (!worktreesRootDir || !task?.repo || !sessionPolicyFor(session.role, config).worktree) return false;
+  const relative = path.relative(path.resolve(worktreesRootDir), path.resolve(session.cwd));
+  return (
+    relative !== '' &&
+    relative !== '..' &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
+  );
+}
+
+/**
+ * The directories an AI session on a task may read without asking: its own working directory
+ * and, when the task names a repository, the task's worktree, where the developer's changes are
+ * (a reviewer works elsewhere and reads them there). The worktree is at the location the
+ * worktree manager gives it: `<worktreesRoot>/<PROJECT>/<TASKKEY>-<repo>`.
+ */
+export function readableRootsFor(input: {
+  cwd: string;
+  projectKey: string;
+  task: Pick<Task, 'key' | 'repo'> | null;
+  worktreesRootDir?: string;
+}): string[] {
+  const { cwd, projectKey, task, worktreesRootDir } = input;
+  const roots = [cwd];
+  if (task?.repo && worktreesRootDir) {
+    const projectDir = path.join(path.resolve(worktreesRootDir), projectKey);
+    const worktree = path.join(projectDir, `${task.key}-${task.repo}`);
+    if (worktree !== projectDir && isWithin(projectDir, worktree)) roots.push(worktree);
+  }
+  return roots;
+}
+
+/**
+ * Automatic decisions about shell commands; everything else reaches a human.
+ * - deny: publishing (`git push`, `gh pr create`, `gh pr merge`) from a repository without GitHub;
+ * - allow: a developer's routine steps in the task's own worktree (lockfile install, `git add`,
+ *   `git commit` with a message, `git merge --ff-only`), see `worktree-commands.ts`;
+ * - allow: read-only commands inside `readableRoots`, for any AI session on a task, see
+ *   `read-only-commands.ts`. Without roots this rule gives no verdict.
+ * The allow rules read the command with the strict parser in `shell-words.ts`; a command it
+ * refuses gets no verdict from them. The deny rule works on the raw text and so holds for such
+ * a command too.
+ */
 export function commandVerdict(input: {
   config: ProjectConfig;
   session: { cwd: string; role: RoleId };
@@ -72,8 +126,9 @@ export function commandVerdict(input: {
   toolName: string;
   toolInput: unknown;
   worktreesRootDir?: string;
+  readableRoots?: readonly string[];
 }): CommandVerdict | null {
-  const { config, session, task, toolName, toolInput, worktreesRootDir } = input;
+  const { config, session, task, toolName, toolInput, readableRoots } = input;
   if (toolName !== 'Bash' || !toolInput || typeof toolInput !== 'object') return null;
   const command = (toolInput as Record<string, unknown>).command;
   if (typeof command !== 'string') return null;
@@ -82,23 +137,15 @@ export function commandVerdict(input: {
   if (deniedToolsFor(config, task).length && /\bgit\s+push\b|\bgh\s+pr\s+(create|merge)\b/.test(unquoted)) {
     return { behavior: 'deny', message: 'The owner has not allowed publishing from this repository.' };
   }
-  if (!worktreesRootDir || !task?.repo || !sessionPolicyFor(session.role, config).worktree) return null;
-  const relative = path.relative(path.resolve(worktreesRootDir), path.resolve(session.cwd));
-  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
-    return null;
-  // Accept only literal directories and these exact install commands, with no shell continuations.
-  if (/[\r\n]/.test(command)) return null;
-  let install = command.trim();
-  const cd = /^cd[ \t]+(?:'([^']*)'|"([^"$`\\]*)"|([^\s"'$`\\;&|<>(){}\[\]*?!]+))[ \t]*&&[ \t]*/.exec(
-    install,
-  );
-  if (cd) {
-    const dir = cd[1] ?? cd[2] ?? cd[3]!;
-    if (!dir || path.resolve(session.cwd, dir) !== path.resolve(session.cwd)) return null;
-    install = install.slice(cd[0].length);
+  const parsed = parseShellCommand(command);
+  if (!parsed) return null;
+  if (inTaskWorktree(input)) {
+    const defaultBranch = config.project.repos.find((repo) => repo.name === task?.repo)?.defaultBranch;
+    if (isWorktreeRoutine(parsed, { cwd: session.cwd, defaultBranch })) return { behavior: 'allow' };
   }
-  if (/^npm[ \t]+(?:ci|install)(?:[ \t]+--(?:prefer-offline|no-audit|no-fund))*$/.test(install))
+  if (task && readableRoots && isReadOnlyCommand(parsed, { cwd: session.cwd, roots: readableRoots })) {
     return { behavior: 'allow' };
+  }
   return null;
 }
 

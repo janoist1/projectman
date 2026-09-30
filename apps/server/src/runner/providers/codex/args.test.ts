@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { PermissionMode } from '@projectman/shared';
 import type { StartSessionSpec } from '../../../contracts';
 import {
   buildCodexArgs,
@@ -74,10 +75,17 @@ describe('Codex settings from the member', () => {
     expect(codexPermissions('acceptEdits')).toEqual({ sandbox: 'workspace-write', approval: 'on-request' });
     expect(codexPermissions('auto')).toEqual({ sandbox: 'workspace-write', approval: 'on-request' });
     expect(codexPermissions('plan')).toEqual({ sandbox: 'read-only', approval: 'never' });
+  });
+
+  it('reads bypassPermissions as acceptEdits: the sandbox stays on and escalations are still asked', () => {
+    expect(codexPermissions('bypassPermissions')).toEqual(codexPermissions('acceptEdits'));
     expect(codexPermissions('bypassPermissions')).toEqual({
-      sandbox: 'danger-full-access',
-      approval: 'never',
+      sandbox: 'workspace-write',
+      approval: 'on-request',
     });
+    for (const mode of [...PermissionMode.options, undefined, '', 'something-new']) {
+      expect(codexPermissions(mode).sandbox, String(mode)).not.toBe('danger-full-access');
+    }
   });
 
   it('never passes Claude model names to Codex', () => {
@@ -124,14 +132,14 @@ describe('buildCodexArgs', () => {
     'grants shared git writable roots only in workspace-write with resume=%s',
     (resume) => {
       const writableRoots = ['/workspace/.git', '/other repo/.git'];
-      for (const permissionMode of ['acceptEdits', 'auto']) {
+      for (const permissionMode of ['acceptEdits', 'auto', 'bypassPermissions']) {
         const c = overrides(
           buildCodexArgs({ ...input, spec: { ...spec, resume, permissionMode, writableRoots } }).args,
         );
         expect(c.get('sandbox_workspace_write.writable_roots')).toBe(tomlValue(writableRoots));
         expect(c.has('sandbox_workspace_write.network_access')).toBe(false);
       }
-      for (const permissionMode of ['default', 'plan', 'bypassPermissions']) {
+      for (const permissionMode of ['default', 'plan']) {
         const c = overrides(
           buildCodexArgs({ ...input, spec: { ...spec, resume, permissionMode, writableRoots } }).args,
         );
@@ -222,19 +230,20 @@ describe('buildCodexArgs', () => {
     }
   });
 
-  it('turns off the sandbox and the questions only for bypassPermissions, and passes a Codex model', () => {
+  it('never turns off the sandbox or the questions, even for bypassPermissions, and passes a Codex model', () => {
     const args = buildCodexArgs({
       ...input,
       spec: { ...spec, permissionMode: 'bypassPermissions', model: 'gpt-6.1-codex', allowedTools: [] },
     }).args;
     const c = overrides(args);
-    expect(c.get('notice.hide_full_access_warning')).toBe('true');
+    expect(args).not.toContain('danger-full-access');
+    expect(c.has('notice.hide_full_access_warning')).toBe(false);
     expect(c.get('mcp_servers.team')).toBe('{url="http://127.0.0.1:4700/mcp/tok"}');
     expect(args.slice(args.indexOf('--sandbox'), args.indexOf('--sandbox') + 6)).toEqual([
       '--sandbox',
-      'danger-full-access',
+      'workspace-write',
       '--ask-for-approval',
-      'never',
+      'on-request',
       '--model',
       'gpt-6.1-codex',
     ]);

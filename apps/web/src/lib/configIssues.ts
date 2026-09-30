@@ -28,6 +28,7 @@ export const CONFIG_ISSUE_MESSAGES: Record<ConfigIssue['code'], PlainMessageKey>
   last_stage_not_done: 'settings.issues.last_stage_not_done',
   duplicate_stage: 'settings.issues.duplicate_stage',
   sponsor_not_human: 'settings.issues.sponsor_not_human',
+  codex_bypass_not_allowed: 'settings.issues.codex_bypass_not_allowed',
   unknown_role: 'errors.codes.unknown_role',
   role_not_for_ai: 'errors.codes.role_not_for_ai',
   role_not_for_human: 'errors.codes.role_not_for_human',

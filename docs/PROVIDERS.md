@@ -59,16 +59,22 @@ Permission modes map to Codex's sandbox and approval policy; anything the sandbo
 allow (writes elsewhere, network) is an escalation that reaches the PermissionRequest hook
 and so the inbox:
 
-| Permission mode       | Codex sandbox        | Approval     | Effect                                                  |
-| --------------------- | -------------------- | ------------ | ------------------------------------------------------- |
-| `default`             | `read-only`          | `on-request` | reads freely; every edit and write is asked             |
-| `acceptEdits`, `auto` | `workspace-write`    | `on-request` | edits and commands in the workspace run; the rest asked |
-| `plan`                | `read-only`          | `never`      | research only; nothing is asked or written              |
-| `bypassPermissions`   | `danger-full-access` | `never`      | no sandbox, no questions                                |
+| Permission mode       | Codex sandbox     | Approval     | Effect                                                  |
+| --------------------- | ----------------- | ------------ | ------------------------------------------------------- |
+| `default`             | `read-only`       | `on-request` | reads freely; every edit and write is asked             |
+| `acceptEdits`, `auto` | `workspace-write` | `on-request` | edits and commands in the workspace run; the rest asked |
+| `plan`                | `read-only`       | `never`      | research only; nothing is asked or written              |
+| `bypassPermissions`   | `workspace-write` | `on-request` | not for Codex: read as `acceptEdits`                    |
+
+**A Codex member never runs in `bypassPermissions`** (decision 19, PM-84). The mode would switch
+Codex's sandbox and its questions off, and Codex does not enforce denied tools, so nothing would
+stop a push from a local-only repository. The configuration refuses it (invariant
+`codex_bypass_not_allowed`), an older configuration that names it reads as `acceptEdits` (logged
+as a warning) and the runner maps it to the sandbox of `acceptEdits` should it arrive anyway.
 
 Developers' Codex sessions may write the task worktree's git directory, so commits do not
 escalate, while the network stays off. Codex's own sandbox still keeps `.git` read-only in
-some cases (backlog PM-71 → PM-77).
+some cases, so the server allows the routine git steps itself (see Session policy, PM-77).
 
 ## Session policy
 
@@ -80,11 +86,24 @@ every role. Codex needs no counterpart for the read-only tools: reading and
 `git diff`/`log`/`show` run inside its sandbox without asking (`gh pr view`/`diff` need
 network, so they are asked).
 
-System decisions that never reach a human: publishing from a local-only repository (no
-GitHub in its config) is denied, and a lockfile install inside the task worktree is allowed.
-Both are recorded in the inbox history and the timeline. Denied tools are enforced through
-Claude Code's settings; Codex relies on its sandbox and the PermissionRequest hook, so under
-`bypassPermissions` nothing is asked (see the open questions in [ROADMAP.md](ROADMAP.md)).
+System decisions that never reach a human (`commandVerdict`, recorded in the inbox history and
+the timeline like any other answer):
+
+- publishing from a local-only repository (no GitHub in its config) is denied, whatever else
+  the command says and even when it cannot be parsed;
+- a developer's routine steps in the task's own worktree are allowed: a lockfile install,
+  `git add`, `git commit` with a message and `git merge --ff-only` of the default branch or a
+  commit, joined with `&&` only (PM-77);
+- read-only commands are allowed for every AI session on a task, inside the session's own
+  directory and the task's worktree: `git status`/`diff`/`log`/`show` and similar, `grep`,
+  `ls`, `cat`, `find` without actions, `xargs` of a reader, and the project's test, type and
+  format checks (PM-69).
+
+The allow rules read the command with a strict parser (`domain/shell-words.ts`): quotes are
+understood, every `$`, backtick, subshell, unknown redirection or unclear construct refuses the
+rule, and anything it does not recognise goes to a human. Denied tools are enforced through
+Claude Code's settings; Codex relies on its sandbox and the PermissionRequest hook, which is
+why a Codex member never runs in `bypassPermissions`.
 
 ## Login and plan usage
 

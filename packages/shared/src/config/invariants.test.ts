@@ -166,6 +166,50 @@ describe('validateProjectConfig roles', () => {
   });
 });
 
+describe('validateProjectConfig permission modes', () => {
+  const problems = (change: (input: ProjectConfigInput) => void) =>
+    validateProjectConfig(build(change)).filter((i) => i.severity !== 'warning');
+  const aiMember = (handle: string, settings: Record<string, unknown>) => ({
+    kind: 'ai',
+    handle,
+    displayName: handle,
+    role: 'developer',
+    sponsor: 'owner',
+    ...settings,
+  });
+
+  it('refuses bypassPermissions for a Codex member, at the member`s permission mode', () => {
+    expect(
+      problems((input) => {
+        members(input)[2]!.provider = 'codex';
+        members(input)[2]!.permissionMode = 'bypassPermissions';
+        members(input).push(aiMember('dev-2', { provider: 'codex', permissionMode: 'bypassPermissions' }));
+      }),
+    ).toEqual([
+      { code: 'codex_bypass_not_allowed', path: 'team.members[2].permissionMode' },
+      { code: 'codex_bypass_not_allowed', path: 'team.members[3].permissionMode' },
+    ]);
+  });
+
+  it('leaves bypassPermissions to Claude members, whether or not they name their provider', () => {
+    expect(
+      problems((input) => {
+        members(input)[2]!.permissionMode = 'bypassPermissions';
+        members(input).push(aiMember('dev-2', { provider: 'claude', permissionMode: 'bypassPermissions' }));
+      }),
+    ).toEqual([]);
+  });
+
+  it.each(['default', 'acceptEdits', 'plan', 'auto'])('accepts %s for a Codex member', (permissionMode) => {
+    expect(
+      problems((input) => {
+        members(input)[2]!.provider = 'codex';
+        members(input)[2]!.permissionMode = permissionMode;
+      }),
+    ).toEqual([]);
+  });
+});
+
 function stages(input: ProjectConfigInput) {
   return input.pipeline.stages as Array<Record<string, unknown>>;
 }

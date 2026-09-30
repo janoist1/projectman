@@ -27,6 +27,12 @@ describe('configuration issue messages', () => {
     expect(untranslated).toEqual([]);
   });
 
+  it('explains that a Codex member cannot have the mode that switches its sandbox off', () => {
+    expect(issueMessage({ code: 'codex_bypass_not_allowed', path: 'team.members[2].permissionMode' })).toBe(
+      t('settings.issues.codex_bypass_not_allowed'),
+    );
+  });
+
   it('translates schema issues by their zod code and falls back for unknown ones', () => {
     expect(issueMessage({ code: 'too_small', path: 'team' })).toBe(t('settings.issues.too_small'));
     expect(issueMessage({ code: 'fictional_code', path: 'team' })).toBe(t('settings.issues.invalid_value'));

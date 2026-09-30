@@ -79,7 +79,7 @@ export function override(key: string, value: unknown): string {
 }
 
 export interface CodexPermissions {
-  sandbox: 'read-only' | 'workspace-write' | 'danger-full-access';
+  sandbox: 'read-only' | 'workspace-write';
   approval: 'on-request' | 'never';
 }
 
@@ -95,17 +95,19 @@ export interface CodexPermissions {
  *   run; network and writes elsewhere are asked. (Codex has no classifier mode that reports to
  *   us, so auto behaves like acceptEdits.)
  * - plan: read-only + never. Research only; nothing is ever asked or written.
- * - bypassPermissions: danger-full-access + never. No sandbox, no questions.
+ * - bypassPermissions: read as acceptEdits, never as `danger-full-access` + `never` (decision 19).
+ *   Codex does not enforce denied tools, so without its sandbox and its questions nothing would
+ *   stop a push from a local-only repository. The configuration refuses this mode for Codex
+ *   members; this is the last line of defence should one reach the runner anyway.
  */
 export function codexPermissions(mode: string | undefined): CodexPermissions {
   switch (mode) {
     case 'acceptEdits':
     case 'auto':
+    case 'bypassPermissions':
       return { sandbox: 'workspace-write', approval: 'on-request' };
     case 'plan':
       return { sandbox: 'read-only', approval: 'never' };
-    case 'bypassPermissions':
-      return { sandbox: 'danger-full-access', approval: 'never' };
     default:
       return { sandbox: 'read-only', approval: 'on-request' };
   }
@@ -192,7 +194,6 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
   const permissions = codexPermissions(spec.permissionMode);
   if (permissions.sandbox === 'workspace-write' && spec.writableRoots?.length)
     c('sandbox_workspace_write.writable_roots', spec.writableRoots);
-  if (permissions.sandbox === 'danger-full-access') c('notice.hide_full_access_warning', true);
   args.push('--sandbox', permissions.sandbox, '--ask-for-approval', permissions.approval);
   args.push('--model', codexModel(spec.model));
   c('model_reasoning_effort', spec.effort === 'max' ? 'xhigh' : (spec.effort ?? DEFAULT_CODEX_EFFORT));

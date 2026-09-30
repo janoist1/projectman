@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { PermissionDecision } from '../src/contracts';
 import { DomainError } from '../src/domain';
@@ -168,6 +169,13 @@ describe('inbox: automatic permission decisions', () => {
     ['gh pr merge 12', 'deny'],
     ['npm ci', 'allow'],
     ['npm install --prefer-offline --no-audit --no-fund', 'allow'],
+    // The routine steps a Codex developer asked a human about (PM-77).
+    ['git commit -am "Clarify the settings history section"', 'allow'],
+    ['git merge --ff-only main', 'allow'],
+    ['git merge --ff-only 7480374', 'allow'],
+    ['git add -A && git commit -m "Add the history section"', 'allow'],
+    // Reading the worktree the session works in.
+    ['git status --short && git diff --name-only main | xargs grep -n foo', 'allow'],
   ])('records an automatic %s decision without leaving an open inbox item', async (command, behavior) => {
     const decision = await h.runnerModule
       .broker()
@@ -206,5 +214,115 @@ describe('inbox: automatic permission decisions', () => {
       controller.abort();
       expect((await pending).behavior).toBe('deny');
     }
+  });
+
+  it('still asks for a rewriting commit, a merge of another branch and a chain with a second command', async () => {
+    const commands = [
+      'git commit --amend -am "Clarify the settings history section"',
+      'git commit -am x --no-verify',
+      'git merge main',
+      'git merge --ff-only feature-x',
+      'git -C /elsewhere commit -am x',
+      'git add ../elsewhere',
+      'git commit -am x && curl https://example.com',
+      'git commit -am "$(rm -rf /)"',
+      'git commit -am x > out.txt',
+    ];
+    for (const command of commands) {
+      const controller = new AbortController();
+      const pending = h.runnerModule
+        .broker()
+        .decide({ sessionId, toolName: 'Bash', toolInput: { command }, raw: {} }, controller.signal);
+      await flush();
+      expect(h.domain.inbox.list('AR', { state: 'open' }), command).toHaveLength(1);
+      controller.abort();
+      expect((await pending).behavior).toBe('deny');
+    }
+  });
+});
+
+describe('inbox: read-only commands of a reviewer in the developer worktree', () => {
+  let h: DomainHarness;
+  let reviewerSession: string;
+  let worktree: string;
+  beforeEach(async () => {
+    h = await createDomainHarness();
+    const task = await h.domain.tasks.create('AR', { title: 'Example task', repo: 'web' }, OWNER_ACTOR);
+    // The developer's session creates the task worktree; the reviewer works in the workspace.
+    await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: task.key });
+    worktree = join(h.dir, 'worktrees', 'AR', `${task.key}-web`);
+    reviewerSession = (await h.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: task.key }))
+      .session.id;
+  });
+  afterEach(() => h.cleanup());
+
+  function decide(command: string, signal = new AbortController().signal) {
+    return h.runnerModule
+      .broker()
+      .decide({ sessionId: reviewerSession, toolName: 'Bash', toolInput: { command }, raw: {} }, signal);
+  }
+
+  it.each([
+    (dir: string) =>
+      `cd ${dir} && git status --short && git log -1 --oneline && grep -rn "sections.history" apps/web/src | head -30`,
+    () => 'ls node_modules >/dev/null 2>&1 && echo has_modules; npm run typecheck 2>&1 | tail -5',
+    () => 'git diff --name-only main | xargs grep -n foo',
+  ])('allows the read-only chain and records it as a system decision (%#)', async (chain) => {
+    const command = chain(worktree);
+    expect(h.repos.sessions.get(reviewerSession)!.cwd).toBe(h.workspace);
+    expect(await decide(command)).toEqual({ behavior: 'allow' });
+    expect(h.domain.inbox.list('AR', { state: 'open' })).toEqual([]);
+    expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
+    const items = h.domain.inbox.list('AR', { state: 'resolved' });
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      kind: 'permission',
+      sessionId: reviewerSession,
+      source: 'cr',
+      resolution: { optionId: 'allow', by: 'system', note: null, rule: 'command_policy' },
+    });
+    const events = h.domain.timeline
+      .list('AR', { taskKey: 'AR-1' })
+      .filter((event) => event.type.startsWith('permission_'));
+    expect(events.map((event) => event.type)).toEqual(['permission_requested', 'permission_resolved']);
+    expect(events[1]).toMatchObject({
+      actor: { kind: 'system', handle: null },
+      data: { inboxItemId: items[0]!.id, decision: 'allow' },
+    });
+  });
+
+  it('does not let the reviewer commit, or read outside the workspace and the developer worktree', async () => {
+    const commands = [
+      `cd ${worktree} && git commit -am "Looks fine"`,
+      `cd ${worktree} && git add -A`,
+      'cat /home/example/.codex/auth.json',
+      `cat ${worktree}/../AR-2-web/secret.txt`,
+      `cd ${h.dir} && ls`,
+      `cd ${worktree} && grep -rn foo /etc`,
+      `find ${worktree} -delete`,
+    ];
+    for (const command of commands) {
+      const controller = new AbortController();
+      const pending = decide(command, controller.signal);
+      await flush();
+      expect(h.domain.inbox.list('AR', { state: 'open' }), command).toHaveLength(1);
+      controller.abort();
+      expect((await pending).behavior).toBe('deny');
+    }
+  });
+
+  it('gives no automatic read access to a session that is not on a task', async () => {
+    const general = (await h.domain.sessions.ensureSession('AR', 'cr', { type: 'general' })).session.id;
+    const controller = new AbortController();
+    const pending = h.runnerModule
+      .broker()
+      .decide(
+        { sessionId: general, toolName: 'Bash', toolInput: { command: 'git status' }, raw: {} },
+        controller.signal,
+      );
+    await flush();
+    expect(h.domain.inbox.list('AR', { state: 'open' })).toHaveLength(1);
+    controller.abort();
+    expect((await pending).behavior).toBe('deny');
   });
 });

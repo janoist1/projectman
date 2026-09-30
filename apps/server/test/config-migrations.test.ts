@@ -42,6 +42,48 @@ describe('project configuration migrations', () => {
     expect(warn).toHaveBeenCalledTimes(2);
   });
 
+  it('reads a Codex member in bypassPermissions as acceptEdits and leaves Claude members alone', () => {
+    const legacy = raw();
+    legacy.team.members[1] = {
+      ...legacy.team.members[1],
+      provider: 'codex',
+      permissionMode: 'bypassPermissions',
+    };
+    legacy.team.members[2] = {
+      ...legacy.team.members[2],
+      provider: 'claude',
+      permissionMode: 'bypassPermissions',
+    };
+    legacy.team.members[3] = { ...legacy.team.members[3], permissionMode: 'bypassPermissions' };
+    const { config, warn } = migrate(legacy);
+    expect(config.team.members[1]).toMatchObject({ provider: 'codex', permissionMode: 'acceptEdits' });
+    expect(config.team.members[2]).toMatchObject({ provider: 'claude', permissionMode: 'bypassPermissions' });
+    expect(config.team.members[3]).toMatchObject({ permissionMode: 'bypassPermissions' });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      { projectKey: 'AR', member: 'dev-1' },
+      'Migrated codex member from bypassPermissions to acceptEdits',
+    );
+    expect(validateProjectConfig(config).filter((issue) => issue.severity !== 'warning')).toEqual([]);
+  });
+
+  it.each(['default', 'acceptEdits', 'plan', 'auto'])('keeps %s for a Codex member', (permissionMode) => {
+    const current = raw();
+    current.team.members[1] = { ...current.team.members[1], provider: 'codex', permissionMode };
+    const { config, warn } = migrate(current);
+    expect(config.team.members[1]).toMatchObject({ permissionMode });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('leaves a mode that is no permission mode to the schema', () => {
+    const typo = raw();
+    typo.team.members[1] = { ...typo.team.members[1], provider: 'codex', permissionMode: 'bypass' };
+    const warn = vi.fn();
+    const migrated = migrateProjectConfig(typo, { projectKey: 'AR', logger: { warn } });
+    expect(ProjectConfig.safeParse(migrated).success).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   it('turns gate conditions from before labels into label conditions with defined labels', () => {
     const legacy = raw();
     legacy.pipeline.labels = legacy.pipeline.labels.filter((label) =>

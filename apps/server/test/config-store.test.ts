@@ -181,6 +181,70 @@ describe('ConfigStore (customization repository)', () => {
     expect(warn).toHaveBeenCalledTimes(2);
   });
 
+  it('reads a Codex member in bypassPermissions as acceptEdits, in memory until the next save', async () => {
+    const warn = vi.fn();
+    store = createConfigStore({ rootDir: store.rootDir, logger: { warn } });
+    await store.save('AR', testConfig(), { author, message: 'Create' });
+    const path = join(store.rootDir, 'projects/AR/team.yaml');
+    const member = (handle: string, settings: string[]) =>
+      [
+        '  - kind: ai',
+        `    handle: ${handle}`,
+        `    displayName: ${handle}`,
+        '    role: developer',
+        '    sponsor: owner',
+        ...settings.map((line) => `    ${line}`),
+      ].join('\n');
+    const legacy = `members:
+  - kind: human
+    handle: owner
+    displayName: Owner Person
+    access: owner
+${member('dev-1', ['provider: codex', 'permissionMode: bypassPermissions'])}
+${member('dev-2', ['permissionMode: bypassPermissions'])}
+  - kind: ai
+    handle: cr
+    displayName: Reviewer
+    role: code_review
+    sponsor: owner
+`;
+    writeFileSync(path, legacy);
+
+    const loaded = await store.load('AR');
+    expect(loaded.config.team.members[1]).toMatchObject({ provider: 'codex', permissionMode: 'acceptEdits' });
+    expect(loaded.config.team.members[2]).toMatchObject({ permissionMode: 'bypassPermissions' });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      { projectKey: 'AR', member: 'dev-1' },
+      'Migrated codex member from bypassPermissions to acceptEdits',
+    );
+    expect(readFileSync(path, 'utf8')).toBe(legacy);
+
+    await store.save('AR', loaded.config, { author, message: 'Save migrated configuration' });
+    const saved = parseYamlFile('team.yaml', readFileSync(path, 'utf8')) as {
+      members: Array<Record<string, unknown>>;
+    };
+    expect(saved.members[1]).toMatchObject({ provider: 'codex', permissionMode: 'acceptEdits' });
+    expect(saved.members[2]).toMatchObject({ permissionMode: 'bypassPermissions' });
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses to save a Codex member in bypassPermissions', async () => {
+    const config = testConfig();
+    const developer = config.team.members[1]!;
+    if (developer.kind !== 'ai') throw new Error('expected an AI member');
+    developer.provider = 'codex';
+    developer.permissionMode = 'bypassPermissions';
+    const err = await expectConfigError(
+      store.save('AR', config, { author, message: 'Create' }),
+      'invalid_config',
+    );
+    expect((err.details as { issues: unknown[] }).issues).toContainEqual({
+      code: 'codex_bypass_not_allowed',
+      path: 'team.members[1].permissionMode',
+    });
+  });
+
   it('does not commit when nothing changed', async () => {
     const first = await store.save('AR', testConfig(), { author, message: 'Create' });
     const second = await store.save('AR', testConfig(), { author, message: 'No-op' });

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { permissionModeFitsProvider } from '@projectman/shared';
 import type { AgentProvider, PlanUsage, ProjectConfig } from '@projectman/shared';
 import type { ProviderStatus, RunnerModule } from '../src/contracts';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
@@ -49,6 +50,37 @@ describe('agent providers', () => {
     expect(roster.find((m) => m.handle === hired.handle)?.provider).toBe('codex');
     expect(roster.find((m) => m.handle === 'dev-1')?.provider).toBe('claude');
     expect(roster.find((m) => m.kind === 'human')).not.toHaveProperty('provider');
+  });
+
+  it('never gives a Codex member bypassPermissions, hired or switched', async () => {
+    h = await createDomainHarness({
+      adjust: (config) => {
+        const dev2 = config.team.members.find((m) => m.handle === 'dev-2');
+        if (dev2?.kind === 'ai') dev2.permissionMode = 'bypassPermissions';
+      },
+    });
+    const by = { actor: OWNER_ACTOR, author: OWNER };
+    // A hired member gets the role's default, which every provider allows.
+    for (const role of ['developer', 'code_review', 'qa', 'architect']) {
+      const hired = await h.domain.members.hire(
+        'AR',
+        { role, provider: 'codex' },
+        { ...by, sponsor: 'owner' },
+      );
+      expect(permissionModeFitsProvider('codex', hired.permissionMode), role).toBe(true);
+    }
+    // A Claude member may bypass permissions; it cannot take that mode along to Codex.
+    const refused = await rejection(h.domain.members.update('AR', 'dev-2', { provider: 'codex' }, by));
+    expect(refused).toMatchObject({ code: 'invalid_config' });
+    expect((refused.details as { issues: unknown[] }).issues).toContainEqual({
+      code: 'codex_bypass_not_allowed',
+      path: expect.stringMatching(/^team\.members\[\d+\]\.permissionMode$/),
+    });
+    const config = await h.domain.projects.config('AR');
+    expect(config.team.members.find((m) => m.handle === 'dev-2')).toMatchObject({
+      provider: 'claude',
+      permissionMode: 'bypassPermissions',
+    });
   });
 
   it('switches providers, resets incompatible models and forwards effort to the runner', async () => {

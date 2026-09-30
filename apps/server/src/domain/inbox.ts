@@ -14,7 +14,7 @@ import type { DomainContext } from './context';
 import { conflict, forbidden, invalid, notFound } from './errors';
 import type { ProjectService } from './projects';
 import type { TimelineService } from './timeline';
-import { commandVerdict } from './session-policy';
+import { commandVerdict, readableRootsFor } from './session-policy';
 import { SYSTEM_ACTOR, aiActor, excerpt, humanActor, newId } from './util';
 
 /** Built-in option ids; the web app translates them (labels repeat the id). */
@@ -292,15 +292,22 @@ export class InboxService {
     const summary = summarizeToolInput(request.toolInput);
     const taskKey = session.workItem.type === 'task' ? session.workItem.taskKey : null;
     const member = memberOf(config, session.member);
+    const task = taskKey ? this.ctx.repos.tasks.get(taskKey) : null;
     const verdict =
       member?.kind === 'ai'
         ? commandVerdict({
             config,
             session: { cwd: session.cwd, role: member.role },
-            task: taskKey ? this.ctx.repos.tasks.get(taskKey) : null,
+            task,
             toolName: request.toolName,
             toolInput: request.toolInput,
             worktreesRootDir: this.worktreesRootDir,
+            readableRoots: readableRootsFor({
+              cwd: session.cwd,
+              projectKey: session.projectKey,
+              task,
+              worktreesRootDir: this.worktreesRootDir,
+            }),
           })
         : null;
     const item = this.create({

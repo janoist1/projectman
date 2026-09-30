@@ -61,6 +61,16 @@ tenants into separate OS accounts or machines.
   secrets. Authentication records are not broadcast. Markdown builds escaped React
   elements, permits HTTP(S) links only, and uses `noopener noreferrer`.
 
+## Automatic command decisions
+
+When the server auto-allows a Codex escalation (the routine git steps of a developer, lockfile
+installs), that command runs outside Codex's sandbox with the server user's rights, including
+the repository's git hooks and npm lifecycle scripts; the allowed forms are narrow and a
+command the strict parser (`domain/shell-words.ts`) does not fully understand always goes to a
+human. The read-only rule reads the command's text only: it cannot see where a symbolic link in
+a worktree points or which names flow through a pipe into `xargs`. A Codex member never runs in
+`bypassPermissions`, where nothing would be asked at all.
+
 ## Findings
 
 | Severity | Finding                                                                                                                  | Status                                                                                                                         |

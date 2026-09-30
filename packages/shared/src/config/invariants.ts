@@ -2,6 +2,8 @@ import { DUTIES, DUTY_IDS } from '../domain/duty';
 import { dutyMembers } from './duties';
 import { labelDefinition, labelHolders } from './labels';
 import { isHumanOnlyLabel } from '../domain/label';
+import { DEFAULT_AGENT_PROVIDER } from '../domain/member';
+import { permissionModeFitsProvider } from '../domain/provider-model';
 import { holdersAllow, isBuiltInRole, roleHolders } from '../domain/role';
 import type { ProjectConfig } from './schema';
 
@@ -22,6 +24,7 @@ export interface ConfigIssue {
     | 'last_stage_not_done'
     | 'duplicate_stage'
     | 'sponsor_not_human'
+    | 'codex_bypass_not_allowed'
     | 'unknown_role'
     | 'role_not_for_ai'
     | 'role_not_for_human'
@@ -38,6 +41,8 @@ export interface ConfigIssue {
  * - every handle is unique and at least one owner exists;
  * - stage owners, the members a label names as setters and AI sponsors refer to existing
  *   members; sponsors are humans;
+ * - an AI member's permission mode is one its provider allows: a Codex member never runs in
+ *   `bypassPermissions` (decision 19);
  * - stage and label ids are unique, every stage sits in an existing column, the first stage is
  *   a queue and the last one done;
  * - every label a gate requires is defined and, unless the system sets it, someone may set it;
@@ -76,6 +81,9 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
       const sponsor = members.get(m.sponsor);
       if (!sponsor || sponsor.kind !== 'human') {
         issues.push({ code: 'sponsor_not_human', path: `team.members[${i}].sponsor`, detail: m.sponsor });
+      }
+      if (!permissionModeFitsProvider(m.provider ?? DEFAULT_AGENT_PROVIDER, m.permissionMode)) {
+        issues.push({ code: 'codex_bypass_not_allowed', path: `team.members[${i}].permissionMode` });
       }
       checkRole(m.role, 'ai', `team.members[${i}].role`);
     } else {

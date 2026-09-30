@@ -209,7 +209,10 @@
 }
 
 @media (max-width: 767px) {
+  /* Phones show the bottom tab bar (above this drawer); end the drawer on top of it so the
+     footer actions stay reachable. The tab bar already pads for the safe area. */
   .drawer {
+    bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom));
     width: 100vw;
     border-left: 0;
   }
@@ -219,6 +222,18 @@
     padding-right: 16px;
   }
   .footer {
-    padding: 12px 16px calc(14px + env(safe-area-inset-bottom));
+    padding: 12px 16px 14px;
+  }
+}
+
+/* Too short for a fixed head and footer around a scrolling middle (landscape phones, small
+   windows): scroll the whole drawer instead. */
+@media (max-height: 560px) {
+  .drawer {
+    overflow-y: auto;
+  }
+  .scroll {
+    flex: 0 0 auto;
+    overflow-y: visible;
   }
 }

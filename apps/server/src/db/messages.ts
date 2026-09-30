@@ -1,4 +1,5 @@
 import type { TeamMessage } from '@projectman/shared';
+import type { Statement } from 'better-sqlite3';
 import type { Db } from './database';
 import { parseJson, toJson } from './json';
 
@@ -28,18 +29,39 @@ const toMessage = (r: MessageRow): TeamMessage => ({
 });
 
 export function createMessageRepository(db: Db) {
+  const statements = {
+    get: db.prepare('SELECT * FROM team_messages WHERE id = ?'),
+    insert: db.prepare(
+      `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ),
+    countUnread: db.prepare(
+      `SELECT COUNT(*) AS n FROM team_messages WHERE project_key = ?
+       AND EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)
+       AND NOT EXISTS (SELECT 1 FROM json_each(receipts) WHERE json_extract(value, '$.handle') = ?
+         AND json_extract(value, '$.readAt') IS NOT NULL)`,
+    ),
+    addressedTo: db.prepare(
+      `SELECT * FROM team_messages WHERE project_key = ? AND
+       EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?) ORDER BY seq`,
+    ),
+    updateReceipts: db.prepare('UPDATE team_messages SET receipts = ?, delivered_at = ? WHERE id = ?'),
+    markDelivered: db.prepare(
+      'UPDATE team_messages SET delivered_at = ? WHERE id = ? AND delivered_at IS NULL',
+    ),
+  };
+  /** SELECT statements of `list` per combination of filters. */
+  const lists = new Map<string, Statement>();
+
   const get = (id: string): TeamMessage | null => {
-    const row = db.prepare('SELECT * FROM team_messages WHERE id = ?').get(id) as MessageRow | undefined;
+    const row = statements.get.get(id) as MessageRow | undefined;
     return row ? toMessage(row) : null;
   };
 
   return {
     get,
     insert(m: TeamMessage): void {
-      db.prepare(
-        `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
+      statements.insert.run(
         m.id,
         m.projectKey,
         m.from,
@@ -85,29 +107,19 @@ export function createMessageRepository(db: Db) {
       }
       sql += ' ORDER BY seq DESC LIMIT ?';
       params.push(filter.limit ?? 200);
-      return (db.prepare(sql).all(...params) as MessageRow[]).reverse().map(toMessage);
+      let statement = lists.get(sql);
+      if (!statement) {
+        statement = db.prepare(sql);
+        lists.set(sql, statement);
+      }
+      return (statement.all(...params) as MessageRow[]).reverse().map(toMessage);
     },
     countUnread(projectKey: string, handle: string): number {
-      return (
-        db
-          .prepare(
-            `SELECT COUNT(*) AS n FROM team_messages WHERE project_key = ?
-        AND EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)
-        AND NOT EXISTS (SELECT 1 FROM json_each(receipts) WHERE json_extract(value, '$.handle') = ?
-          AND json_extract(value, '$.readAt') IS NOT NULL)`,
-          )
-          .get(projectKey, handle, handle) as { n: number }
-      ).n;
+      return (statements.countUnread.get(projectKey, handle, handle) as { n: number }).n;
     },
+    /** Messages to an AI recipient that were not typed into one of its sessions yet, oldest first. */
     pending(projectKey: string, handle: string): TeamMessage[] {
-      return (
-        db
-          .prepare(
-            `SELECT * FROM team_messages WHERE project_key = ? AND
-        EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?) ORDER BY seq`,
-          )
-          .all(projectKey, handle) as MessageRow[]
-      )
+      return (statements.addressedTo.all(projectKey, handle) as MessageRow[])
         .map(toMessage)
         .filter((m) =>
           m.receipts
@@ -120,18 +132,11 @@ export function createMessageRepository(db: Db) {
       receipts: NonNullable<TeamMessage['receipts']>,
       deliveredAt: string | null,
     ): TeamMessage | null {
-      db.prepare('UPDATE team_messages SET receipts = ?, delivered_at = ? WHERE id = ?').run(
-        toJson(receipts),
-        deliveredAt,
-        id,
-      );
+      statements.updateReceipts.run(toJson(receipts), deliveredAt, id);
       return get(id);
     },
     markDelivered(id: string, at: string): TeamMessage | null {
-      db.prepare('UPDATE team_messages SET delivered_at = ? WHERE id = ? AND delivered_at IS NULL').run(
-        at,
-        id,
-      );
+      statements.markDelivered.run(at, id);
       return get(id);
     },
   };

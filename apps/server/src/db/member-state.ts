@@ -27,26 +27,25 @@ const toRecord = (r: MemberStateRow): MemberStateRecord => ({
 
 /** Runtime state of members (status, activity). Retired members keep a row, so handles are never reused. */
 export function createMemberStateRepository(db: Db) {
+  const statements = {
+    get: db.prepare('SELECT * FROM member_state WHERE project_key = ? AND handle = ?'),
+    list: db.prepare('SELECT * FROM member_state WHERE project_key = ? ORDER BY handle'),
+    upsert: db.prepare(
+      `INSERT INTO member_state (project_key, handle, status, activity, updated_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (project_key, handle) DO UPDATE SET status = excluded.status, activity = excluded.activity,
+         updated_at = excluded.updated_at`,
+    ),
+  };
   return {
     get(projectKey: string, handle: string): MemberStateRecord | null {
-      const row = db
-        .prepare('SELECT * FROM member_state WHERE project_key = ? AND handle = ?')
-        .get(projectKey, handle) as MemberStateRow | undefined;
+      const row = statements.get.get(projectKey, handle) as MemberStateRow | undefined;
       return row ? toRecord(row) : null;
     },
     list(projectKey: string): MemberStateRecord[] {
-      return (
-        db
-          .prepare('SELECT * FROM member_state WHERE project_key = ? ORDER BY handle')
-          .all(projectKey) as MemberStateRow[]
-      ).map(toRecord);
+      return (statements.list.all(projectKey) as MemberStateRow[]).map(toRecord);
     },
     upsert(r: MemberStateRecord): void {
-      db.prepare(
-        `INSERT INTO member_state (project_key, handle, status, activity, updated_at) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT (project_key, handle) DO UPDATE SET status = excluded.status, activity = excluded.activity,
-           updated_at = excluded.updated_at`,
-      ).run(r.projectKey, r.handle, r.status, r.activity, r.updatedAt);
+      statements.upsert.run(r.projectKey, r.handle, r.status, r.activity, r.updatedAt);
     },
   };
 }

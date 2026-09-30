@@ -656,7 +656,6 @@ describe('REST API', () => {
     });
 
     it('shows client members only what is shared with them', async () => {
-      const { domain } = h.app.projectman;
       const clientCookie = await addHumanAndLogin(h.app, {
         handle: 'client',
         name: 'Client',

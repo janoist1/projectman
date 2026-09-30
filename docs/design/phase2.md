@@ -1,5 +1,10 @@
 # Phase 2: team rituals and bounded adaptation
 
+Status: proposal (backlog PM-44, delivery cards PM-52 to PM-60), waiting for the owner's
+answers to the questions at the end. Nothing here is built yet, except what it reuses:
+duties with their meeting metadata, member schedules, sessions per work item and the team
+tools.
+
 Proposal for discussion. Preserve subscription sessions, the fixed duty catalogue and human
 approvals. Configuration belongs in the customization git repository; meeting activity in SQLite.
 UI labels stay in Hungarian locale files; participant content follows the project language.

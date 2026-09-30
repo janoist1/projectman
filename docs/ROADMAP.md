@@ -85,9 +85,14 @@ observations and retro follow-through (PM-57); "Rendszer", configuration changes
 limits (PM-58); browser notifications, then a PWA (PM-59); a shared queue for heavy commands
 (PM-60). Eight owner decisions gate these steps (listed in the plan).
 
-## Product
+## Product and data
 
-- **PM-47** — product name, then the rename in code.
+- **PM-47** — product name, then the rename in code. The owner's favourite is "Onboard"
+  (AI members are taken on like colleagues); the name collides with existing products and
+  packages, so the decision is still open.
+- **PM-43** — bring over the remaining comments and closed tickets of a client project from
+  ClickUp; waits for the ClickUp rate limit and runs locally.
+- **PM-48** — decided: the whole history went to the public GitHub repository as it was.
 
 ## Technical debt
 
@@ -146,5 +151,5 @@ From the review (each has a safe default today; nothing is blocked):
     `taskKeyFromBranch` exist but nothing uses them (a "GitHub connected" indicator and
     branch-to-task matching were planned). Wire them up or remove them?
 12. **Pushing.** Agents follow "commit, do not push", so GitHub lagged 150+ commits behind the
-    owner's local `main`, and cloud sessions saw an old state. Should the integrating session
-    push `main` after each merge?
+    owner's local `main` until PM-48, and cloud sessions saw an old state. Should the
+    integrating session push `main` after each merge from now on?

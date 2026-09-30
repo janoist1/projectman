@@ -59,20 +59,33 @@ export interface AppModules {
   templates?: TemplateRegistry;
 }
 
+/** Defaults of the server's options, including those index.ts reads from the environment. */
+export const APP_DEFAULTS = {
+  port: 4700,
+  host: '127.0.0.1' satisfies LoopbackHost,
+  claudeBin: 'claude',
+  ghBin: 'gh',
+  logLevel: 'info',
+  permissionTimeoutMs: 10 * 60_000,
+  githubPollIntervalMs: 60_000,
+} as const;
+
 export interface BuildAppOptions {
   /** PROJECTMAN_HOME: database, customization repository, memory, worktrees, cookie secret. */
   home: string;
-  /** How the claude CLI reaches this server (hooks, MCP). Default http://127.0.0.1:4700. */
+  /** How the agent CLIs reach this server (hooks, MCP); default: the default host and port. */
   publicBaseUrl?: string;
   /** Claude Code CLI (default "claude"). */
   claudeBin?: string;
   /** GitHub CLI (default "gh"). */
   ghBin?: string;
+  /** Pino options, or false; default: level "info". */
   logger?: FastifyServerOptions['logger'];
   /** Built web app served with an SPA fallback; null = API only. */
   webDistDir?: string | null;
   /** How long a permission request waits for a human (default 10 minutes). */
   permissionTimeoutMs?: number;
+  /** How often linked pull requests are polled (default 1 minute). */
   githubPollIntervalMs?: number;
   /** Default `${home}/db.sqlite`; ":memory:" works too. */
   dbPath?: string;
@@ -112,10 +125,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
   chmodSync(home, 0o700);
-  const publicBaseUrl = (options.publicBaseUrl ?? 'http://127.0.0.1:4700').replace(/\/+$/, '');
+  const publicBaseUrl = (
+    options.publicBaseUrl ?? loopbackBaseUrl(APP_DEFAULTS.host, APP_DEFAULTS.port)
+  ).replace(/\/+$/, '');
   const modules = options.modules ?? {};
 
-  const logger = options.logger ?? { level: 'info' };
+  const logger = options.logger ?? { level: APP_DEFAULTS.logLevel };
   const app = Fastify({
     logger:
       logger === false
@@ -142,8 +157,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const github =
       modules.github ??
       createGithubService({
-        ghBin: options.ghBin ?? 'gh',
-        pollIntervalMs: options.githubPollIntervalMs ?? 60_000,
+        ghBin: options.ghBin ?? APP_DEFAULTS.ghBin,
+        pollIntervalMs: options.githubPollIntervalMs ?? APP_DEFAULTS.githubPollIntervalMs,
         logger: log.child({ module: 'github' }),
       });
     const contextBuilder = modules.contextPackBuilder ?? createContextPackBuilder();
@@ -160,10 +175,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       publicBaseUrl,
       createRunner: (broker) =>
         makeRunner({
-          claudeBin: options.claudeBin ?? 'claude',
+          claudeBin: options.claudeBin ?? APP_DEFAULTS.claudeBin,
           publicBaseUrl,
           broker,
-          permissionTimeoutMs: options.permissionTimeoutMs ?? 10 * 60_000,
+          permissionTimeoutMs: options.permissionTimeoutMs ?? APP_DEFAULTS.permissionTimeoutMs,
           logger: log.child({ module: 'runner' }),
         }),
       github,

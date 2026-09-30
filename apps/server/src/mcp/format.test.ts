@@ -1,6 +1,6 @@
 import type { TimelineEvent } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
-import { formatSentMessage, formatTaskDetail, truncate } from './format';
+import { formatSentMessage, formatTaskDetail } from './format';
 import { sampleTaskDetail } from './testing';
 
 function note(minute: number, text: string): TimelineEvent {
@@ -27,7 +27,7 @@ describe('formatTaskDetail', () => {
     expect(out).toContain('Recent timeline (last 20 of 25, oldest first):');
     expect(out).not.toContain('note 4\n');
     expect(out.indexOf('note 5')).toBeLessThan(out.indexOf('note 24'));
-    expect(out.trimEnd().endsWith('- 2026-09-29 11:24 qa: note: note 24')).toBe(true);
+    expect(out.trimEnd().endsWith('- 2026-09-29 11:24 UTC · qa: note: note 24')).toBe(true);
   });
 
   it('keeps long free text short', () => {
@@ -60,13 +60,6 @@ describe('formatSentMessage', () => {
     expect(
       formatSentMessage({ messageId: 'msg_1', requested: ['qa', 'cr'], deliveredTo: ['qa'], taskKey: null }),
     ).toBe('Message msg_1 sent to qa. Not delivered to: cr.');
-  });
-});
-
-describe('truncate', () => {
-  it('leaves short text alone and marks cut text', () => {
-    expect(truncate('abc', 3)).toBe('abc');
-    expect(truncate('abcd', 3)).toBe('ab…');
   });
 });
 

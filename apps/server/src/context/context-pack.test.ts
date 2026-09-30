@@ -360,6 +360,28 @@ describe('context pack builder', () => {
     expect(noteLine.length).toBeLessThan(360);
   });
 
+  it('names the labels of label changes in the brief timeline', () => {
+    const changes = [
+      event('2026-09-29T10:00:00.000Z', 'code-review', 'task_labels_changed', {
+        added: ['code-review-changes'],
+        removed: [],
+      }),
+      event('2026-09-29T11:00:00.000Z', null, 'task_labels_changed', {
+        added: [],
+        removed: ['code-review-changes', 'hotfix'],
+        reason: 'moved_back',
+      }),
+    ];
+    const brief = builder.build(input({ timeline: changes })).initialMessage ?? '';
+    expect(brief).toContain(
+      '- 2026-09-29 10:00 UTC · `code-review`: labels added: `code-review-changes` (Code review: changes needed)\n',
+    );
+    // A label without a definition is a plain tag: shown by its id.
+    expect(brief).toContain(
+      '- 2026-09-29 11:00 UTC · system: labels removed: `code-review-changes` (Code review: changes needed), `hotfix`\n',
+    );
+  });
+
   it('cuts very long descriptions', () => {
     const brief =
       builder.build(input({ task: makeTask({ description: 'z'.repeat(20_000) }) })).initialMessage ?? '';

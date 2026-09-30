@@ -1,5 +1,6 @@
 import { isHumanOnlyLabel } from '@projectman/shared';
-import type { Gate, LabelDefinition, Stage } from '@projectman/shared';
+import type { Gate, LabelDefinition, ProjectConfig, Stage } from '@projectman/shared';
+import type { TextStyle } from '../agent-text';
 
 /** Inline-code form of a handle, task key or id: `fe-1`. */
 export function code(value: string): string {
@@ -48,24 +49,14 @@ export function languageName(tag: string): string {
   return FALLBACK_LANGUAGE_NAMES[tag.toLowerCase()] ?? tag;
 }
 
-/** "2026-09-29 14:05 UTC" (independent of the server's time zone); the input if it is not a date. */
-export function formatTimestamp(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  const text = date.toISOString();
-  return `${text.slice(0, 10)} ${text.slice(11, 16)} UTC`;
-}
-
-/** Collapses whitespace to single spaces and shortens the text to `max` characters. */
-export function oneLine(text: string, max: number): string {
-  const flat = text.replace(/\s+/g, ' ').trim();
-  const chars = Array.from(flat);
-  return chars.length > max
-    ? `${chars
-        .slice(0, max - 1)
-        .join('')
-        .trimEnd()}…`
-    : flat;
+/** Markdown with names for prompt text: handles as inline code, stage names, labels with their names. */
+export function promptStyle(project: Pick<ProjectConfig, 'pipeline'>): TextStyle {
+  const { stages, labels } = project.pipeline;
+  return {
+    code,
+    stage: (id) => stages.find((s) => s.id === id)?.name ?? id,
+    label: (id) => labelRef(id, labels),
+  };
 }
 
 /** Lowercases the first character ("Move the task" -> "move the task"). */

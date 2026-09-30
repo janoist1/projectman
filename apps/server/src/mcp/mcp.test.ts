@@ -253,10 +253,10 @@ describe('team tools', () => {
     expect(h.handler.calls[0]).toEqual({ method: 'getTask', ctx: qaContext, args: { taskKey: 'AR-21' } });
     expect(out).toContain('AR-21 — Validate the login form');
     expect(out).toContain('Stage: development · Status: active · Assignee: fe-1 · Labels: frontend');
-    expect(out).toContain('Links: branch ar-21-login-validation (web)');
+    expect(out).toContain('Links: Branch: ar-21-login-validation in web');
     expect(out).toContain('Show an error message when the email address is invalid.');
     expect(out).toContain('Sessions: fe-1 (working)');
-    expect(out).toContain('- 2026-09-29 09:00 owner: moved it backlog → development');
+    expect(out).toContain('- 2026-09-29 09:00 UTC · owner: moved it from backlog to development');
   });
 
   it('update_task records labels, their note and a stage move in one call', async () => {
@@ -380,7 +380,7 @@ describe('team tools', () => {
     );
 
     expect(h.handler.calls[0]?.args).toEqual({ taskKey: 'AR-21', repo: 'acme/web', number: 42 });
-    expect(out).toBe('Linked PR acme/web#42 to AR-21.\nPull requests on AR-21: PR acme/web#42 (open)');
+    expect(out).toBe('Linked PR acme/web#42 to AR-21.\nPull requests on AR-21: acme/web#42 (open)');
   });
 
   it('ask_human queues the question and tells the model not to wait', async () => {

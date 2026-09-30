@@ -1,11 +1,11 @@
-import type { GateCondition, LabelDefinition, StageKind } from '@projectman/shared';
+import type { GateCondition, LabelDefinition } from '@projectman/shared';
 import { getLocale } from './locales';
 import type { StandardLabelId, TemplateLocale } from './locales';
 
 type LabelRules = Omit<LabelDefinition, 'id' | 'name' | 'meaning'>;
 
 /** Rules of the labels templates ship; names and meanings come from the locale. */
-export const STANDARD_LABEL_RULES: Record<StandardLabelId, LabelRules> = {
+const STANDARD_LABEL_RULES: Record<StandardLabelId, LabelRules> = {
   'code-review-ok': {
     color: 'green',
     group: 'code-review',
@@ -90,7 +90,7 @@ export const STANDARD_LABEL_RULES: Record<StandardLabelId, LabelRules> = {
 
 const STANDARD_IDS = Object.keys(STANDARD_LABEL_RULES) as StandardLabelId[];
 
-export function isStandardLabel(id: string): id is StandardLabelId {
+function isStandardLabel(id: string): id is StandardLabelId {
   return (STANDARD_IDS as string[]).includes(id);
 }
 
@@ -111,11 +111,8 @@ export function standardLabelsFor(ids: Iterable<string>, locale: TemplateLocale)
   return STANDARD_IDS.filter((id) => wanted.has(id)).map((id) => standardLabel(id, locale));
 }
 
-export const hasLabel = (label: StandardLabelId | string): GateCondition => ({ type: 'has_label', label });
-export const lacksLabel = (label: StandardLabelId | string): GateCondition => ({
-  type: 'lacks_label',
-  label,
-});
+/** A gate condition templates use: the label must be on the task. */
+export const hasLabel = (label: StandardLabelId): GateCondition => ({ type: 'has_label', label });
 
 /* ---------- configurations and tasks from before labels ---------- */
 

@@ -34,7 +34,7 @@ export const DEFAULT_LIMITS: TeamLimits = {
   tempWorkers: { enabled: false, max: 1, role: 'developer' },
 };
 
-export { hasLabel, lacksLabel } from '../labels';
+export { hasLabel } from '../labels';
 
 export interface HireOptions {
   specialty?: SpecialtyKey;

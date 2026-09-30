@@ -22,7 +22,6 @@ export interface ConfigIssue {
     | 'last_stage_not_done'
     | 'duplicate_stage'
     | 'sponsor_not_human'
-    | 'unknown_repo'
     | 'unknown_role'
     | 'role_not_for_ai'
     | 'role_not_for_human'

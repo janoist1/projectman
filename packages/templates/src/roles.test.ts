@@ -178,7 +178,7 @@ describe('locales', () => {
       ...Object.values(locale.roles).flatMap((r) => [r.name, r.summary, r.notTheirJob]),
       ...Object.values(locale.members),
       ...Object.values(locale.specialties),
-      ...Object.values(locale.templates).flatMap((t) => [t.name, t.description]),
+      ...Object.values(locale.labels).flatMap((l) => [l.name, l.meaning]),
     ];
     for (const text of texts) expect(text.trim()).not.toBe('');
     expect(Object.keys(locale.roles)).toEqual([...BUILT_IN_ROLE_IDS]);
@@ -209,7 +209,7 @@ describe('locales', () => {
       roles: Object.keys(locale.roles).sort(),
       members: Object.keys(locale.members).sort(),
       specialties: Object.keys(locale.specialties).sort(),
-      templates: Object.keys(locale.templates).sort(),
+      labels: Object.keys(locale.labels).sort(),
     });
     expect(keys(hu)).toEqual(keys(en));
   });

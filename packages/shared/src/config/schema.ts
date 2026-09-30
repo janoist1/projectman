@@ -112,6 +112,9 @@ export const RepoConfig = z.object({
 });
 export type RepoConfig = z.infer<typeof RepoConfig>;
 
+/** Language of projects that do not name one (the team's own language). */
+export const DEFAULT_PROJECT_LANGUAGE = 'hu';
+
 export const ProjectConfig = z.object({
   schemaVersion: z.literal(1),
   project: z.object({
@@ -122,7 +125,7 @@ export const ProjectConfig = z.object({
     workspacePath: z.string().min(1),
     repos: z.array(RepoConfig),
     /** Language humans and agents communicate in (BCP 47), e.g. "hu". */
-    language: z.string().default('hu'),
+    language: z.string().default(DEFAULT_PROJECT_LANGUAGE),
     /** IANA time zone of the team, e.g. "Europe/Budapest"; schedules run in it. */
     timezone: z.string().min(1).default('UTC'),
     templateId: z.string().optional(),

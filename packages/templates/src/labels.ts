@@ -1,4 +1,4 @@
-import type { GateCondition, LabelDefinition } from '@projectman/shared';
+import { DEFAULT_PROJECT_LANGUAGE, type GateCondition, type LabelDefinition } from '@projectman/shared';
 import { getLocale } from './locales';
 import type { StandardLabelId, TemplateLocale } from './locales';
 
@@ -176,7 +176,8 @@ export function migrateLegacyConfig<T>(raw: T): T {
     c.type === 'check_passed' || c.type === 'pr_merged' || c.type === 'human_approval';
   if (!stages.some((stage) => stage.gate?.conditions?.some(legacy))) return raw;
 
-  const locale = getLocale(config.project?.language ?? 'en');
+  // Name the labels in the language the configuration loads with (the schema's default when unset).
+  const locale = getLocale(config.project?.language ?? DEFAULT_PROJECT_LANGUAGE);
   const standard = new Set<string>();
   const custom: LabelDefinition[] = [];
   const nextStages = stages.map((stage) => {

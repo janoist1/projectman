@@ -1,6 +1,7 @@
 import { screen, within } from '@testing-library/react';
 import type { Task } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
+import { indexPipeline } from '../../lib/pipeline';
 import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
 import type { TaskStateContext } from '../../lib/taskState';
 import { inbox, tasks } from '../../mocks/fixtures';
@@ -102,5 +103,24 @@ describe('deriveTaskState', () => {
       phase: 'waiting',
       label: `Másra vár: ${members.get(owner)!.displayName}`,
     });
+  });
+
+  it('names an earlier queue stage instead of calling its tasks ready to start', () => {
+    const task = taskByKey('AC-24');
+    const queue = pipeline.stageById.get(task.stageId)!;
+    const incoming = { ...queue, id: 'incoming', name: 'Beérkezett' };
+    const withIncoming = indexPipeline({
+      stages: [incoming, ...pipeline.stages],
+      columns: pipeline.columns.map((column, index) =>
+        index === 0 ? { ...column, stageIds: ['incoming', ...column.stageIds] } : column,
+      ),
+    });
+    expect(
+      deriveTaskState({ ...task, stageId: 'incoming' }, { ...ctx, pipeline: withIncoming }),
+    ).toMatchObject({
+      phase: 'ready',
+      label: 'Beérkezett',
+    });
+    expect(deriveTaskState(task, { ...ctx, pipeline: withIncoming })).toMatchObject({ label: 'Indítható' });
   });
 });

@@ -4,6 +4,7 @@ import { joinNames, t } from '../i18n/t';
 import { newestFirst, permissionCommand, shortCommand } from './inbox';
 import { nameOf } from './members';
 import type { MemberIndex } from './members';
+import { nextStage } from './pipeline';
 import type { PipelineIndex } from './pipeline';
 
 /**
@@ -138,7 +139,9 @@ export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
     if (task.status === 'waiting' || unmetPrerequisites(task, ctx.tasksByKey)) {
       return { phase: 'waiting', label: t('taskStatus.prerequisite'), since: task.updatedAt, worker: null };
     }
-    return { phase: 'ready', label: t('taskStatus.ready'), since: task.createdAt, worker: null };
+    // An earlier queue (e.g. incoming requests before "ready") is not ready to start yet.
+    const label = nextStage(pipeline, stage.id)?.kind === 'queue' ? stage.name : t('taskStatus.ready');
+    return { phase: 'ready', label, since: task.createdAt, worker: null };
   }
 
   const owners = stage?.owners ?? [];

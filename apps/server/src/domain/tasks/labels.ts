@@ -3,7 +3,8 @@ import type { Actor, LabelChangeReason, LabelClearTrigger, ProjectConfig, Task }
 import { isoNow } from '../context';
 import { forbidden, invalid } from '../errors';
 import { SYSTEM_ACTOR } from '../util';
-import type { TaskStore } from './store';
+import { runEffects } from './store';
+import type { Effect, TaskStore } from './store';
 
 /** A planned label change: the task's labels after it, and what it adds, removes and notifies. */
 export interface PlannedLabels {
@@ -11,6 +12,14 @@ export interface PlannedLabels {
   added: string[];
   removed: string[];
   notify: string[];
+}
+
+export interface LabelChangeOptions {
+  /** Why the labels need to change, recorded as a task comment (mentions notify). */
+  comment?: string;
+  sessionId?: string | null;
+  /** An automatic change: what caused it. */
+  reason?: LabelChangeReason;
 }
 
 /** Plans a label change under the project's label rules; a refusal throws the domain error. */
@@ -63,22 +72,45 @@ export class TaskLabels {
     taskKey: string,
     change: { add?: string[]; remove?: string[] },
     actor: Actor,
-    opts: {
-      comment?: string;
-      sessionId?: string | null;
-      reason?: LabelChangeReason;
-    } = {},
+    opts: LabelChangeOptions = {},
   ): Promise<Task> {
-    const { ctx, timeline } = this.store;
     const config = await this.store.projects.config(projectKey);
-    const task = this.store.get(projectKey, taskKey);
+    const effects: Effect[] = [];
+    const task = this.store.ctx.unitOfWork(() =>
+      this.apply(config, this.store.get(projectKey, taskKey), change, actor, opts, effects),
+    );
+    await runEffects(effects);
+    return task;
+  }
+
+  /** Removes the labels that expire on an event (the task moving back, its PR changing). */
+  async clearLabels(projectKey: string, taskKey: string, trigger: LabelClearTrigger): Promise<void> {
+    const config = await this.store.projects.config(projectKey);
+    const effects: Effect[] = [];
+    this.store.ctx.unitOfWork(() =>
+      this.expire(config, this.store.get(projectKey, taskKey), trigger, effects),
+    );
+    await runEffects(effects);
+  }
+
+  /**
+   * Applies a label change to `task`, read in the running unit of work; refused as a whole
+   * before anything is written. Notifications are added to `effects`.
+   */
+  apply(
+    config: ProjectConfig,
+    task: Task,
+    change: { add?: string[]; remove?: string[] },
+    actor: Actor,
+    opts: LabelChangeOptions,
+    effects: Effect[],
+  ): Task {
     const plan = planLabelsOrThrow(config, task, change, actor, opts.comment);
     if (plan.added.length === 0 && plan.removed.length === 0) return task;
-    const next: Task = { ...task, labels: plan.labels, updatedAt: isoNow(ctx) };
-    ctx.repos.tasks.update(next);
-    timeline.append({
-      projectKey,
-      taskKey,
+    const next = this.store.write(task, { labels: plan.labels, updatedAt: isoNow(this.store.ctx) });
+    this.store.timeline.append({
+      projectKey: task.projectKey,
+      taskKey: task.key,
       sessionId: opts.sessionId ?? null,
       actor,
       type: 'task_labels_changed',
@@ -86,19 +118,18 @@ export class TaskLabels {
     });
     this.store.publish(next);
     const comment = opts.comment?.trim();
-    if (comment) await this.store.addNote(projectKey, taskKey, comment, actor, opts.sessionId ?? null);
-    const notify = plan.notify;
-    if (notify.length > 0 && next.assignee && actor.handle && next.assignee !== actor.handle)
-      await this.store.labelNotifier?.(next, notify, actor, comment);
+    if (comment) this.store.recordNote(config, next, comment, actor, opts.sessionId ?? null, effects);
+    if (plan.notify.length > 0 && next.assignee && actor.handle && next.assignee !== actor.handle)
+      effects.push(async () => {
+        await this.store.labelNotifier?.(next, plan.notify, actor, comment);
+      });
     return next;
   }
 
-  /** Removes the labels that expire on an event (the task moving back, its PR changing). */
-  async clearLabels(projectKey: string, taskKey: string, trigger: LabelClearTrigger): Promise<void> {
-    const config = await this.store.projects.config(projectKey);
-    const task = this.store.get(projectKey, taskKey);
+  /** Takes off the labels of `task` that expire on `trigger`, in the running unit of work. */
+  expire(config: ProjectConfig, task: Task, trigger: LabelClearTrigger, effects: Effect[]): Task {
     const expired = expiredLabels(config, task, trigger);
-    if (expired.length > 0)
-      await this.changeLabels(projectKey, taskKey, { remove: expired }, SYSTEM_ACTOR, { reason: trigger });
+    if (expired.length === 0) return task;
+    return this.apply(config, task, { remove: expired }, SYSTEM_ACTOR, { reason: trigger }, effects);
   }
 }

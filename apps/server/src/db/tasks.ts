@@ -1,5 +1,7 @@
+import { taskSeq } from '@projectman/shared';
 import type { Task, TaskLink } from '@projectman/shared';
 import { legacyCheckLabels } from '@projectman/templates';
+import type { Statement } from 'better-sqlite3';
 import type { Db } from './database';
 import { parseJson, toJson } from './json';
 
@@ -44,6 +46,40 @@ export interface PullRequestLinkRef {
   state: string | null;
 }
 
+/** The task fields one write changes; links are written with `upsertLink`. */
+export type TaskPatch = Partial<
+  Pick<
+    Task,
+    | 'title'
+    | 'description'
+    | 'stageId'
+    | 'status'
+    | 'assignee'
+    | 'repo'
+    | 'priority'
+    | 'labels'
+    | 'visibility'
+    | 'updatedAt'
+    | 'closedAt'
+    | 'parentKey'
+  >
+>;
+
+const COLUMNS: Record<keyof TaskPatch, string> = {
+  title: 'title',
+  description: 'description',
+  stageId: 'stage_id',
+  status: 'status',
+  assignee: 'assignee',
+  repo: 'repo',
+  priority: 'priority',
+  labels: 'labels',
+  visibility: 'visibility',
+  updatedAt: 'updated_at',
+  closedAt: 'closed_at',
+  parentKey: 'parent_key',
+};
+
 function toLink(r: LinkRow): TaskLink {
   const link: TaskLink = { kind: r.kind as TaskLink['kind'], ref: r.ref };
   if (r.author) link.author = r.author;
@@ -66,7 +102,7 @@ function toTask(r: TaskRow, links: TaskLink[]): Task {
     assignee: r.assignee,
     repo: r.repo,
     priority: r.priority,
-    // Checks recorded before labels read as their labels; the next write clears the column.
+    // Checks recorded before labels read as their labels; the next label write clears the column.
     labels: [
       ...new Set([
         ...parseJson<string[]>(r.labels, []),
@@ -82,28 +118,80 @@ function toTask(r: TaskRow, links: TaskLink[]): Task {
   };
 }
 
-/** Sequence number of a task key ("AR-21" -> 21). */
-export function taskSeq(key: string): number {
-  return Number(key.slice(key.lastIndexOf('-') + 1));
-}
-
 export function createTaskRepository(db: Db) {
-  const linksOf = db.prepare('SELECT * FROM task_links WHERE task_id = ? ORDER BY id');
+  const statements = {
+    get: db.prepare('SELECT * FROM tasks WHERE key = ?'),
+    list: db.prepare('SELECT * FROM tasks WHERE project_key = ? ORDER BY seq'),
+    listLinks: db.prepare(
+      `SELECT l.* FROM task_links l JOIN tasks t ON t.id = l.task_id
+       WHERE t.project_key = ? ORDER BY l.id`,
+    ),
+    byAssignee: db.prepare('SELECT * FROM tasks WHERE project_key = ? AND assignee = ? ORDER BY seq'),
+    byAssigneeLinks: db.prepare(
+      `SELECT l.* FROM task_links l JOIN tasks t ON t.id = l.task_id
+       WHERE t.project_key = ? AND t.assignee = ? ORDER BY l.id`,
+    ),
+    children: db.prepare('SELECT * FROM tasks WHERE project_key = ? AND parent_key = ? ORDER BY seq'),
+    childrenLinks: db.prepare(
+      `SELECT l.* FROM task_links l JOIN tasks t ON t.id = l.task_id
+       WHERE t.project_key = ? AND t.parent_key = ? ORDER BY l.id`,
+    ),
+    linksOf: db.prepare('SELECT * FROM task_links WHERE task_id = ? ORDER BY id'),
+    insert: db.prepare(
+      `INSERT INTO tasks (id, project_key, key, seq, title, description, stage_id, status, assignee,
+         repo, priority, labels, checks, visibility, created_by, created_at, updated_at, closed_at, parent_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ),
+    findLink: db.prepare('SELECT * FROM task_links WHERE task_id = ? AND kind = ? AND repo = ? AND ref = ?'),
+    insertLink: db.prepare(
+      `INSERT INTO task_links (task_id, kind, ref, repo, title, state, created_at, updated_at, author)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ),
+    updateLink: db.prepare(
+      'UPDATE task_links SET title = ?, state = ?, author = ?, updated_at = ? WHERE id = ?',
+    ),
+    pullRequestLinks: db.prepare(
+      `SELECT l.*, t.key AS task_key FROM task_links l JOIN tasks t ON t.id = l.task_id
+       WHERE l.kind = 'pull_request' AND l.repo = ? AND l.ref = ?`,
+    ),
+    updateLinkState: db.prepare('UPDATE task_links SET state = ?, title = ?, updated_at = ? WHERE id = ?'),
+    pullRequestHeads: db.prepare(
+      `SELECT l.id, l.head_sha, t.project_key AS projectKey, t.key AS taskKey FROM task_links l
+       JOIN tasks t ON t.id = l.task_id
+       WHERE l.kind = 'pull_request' AND l.repo = ? AND l.ref = ? ORDER BY t.seq`,
+    ),
+    updateLinkHead: db.prepare('UPDATE task_links SET head_sha = ?, updated_at = ? WHERE id = ?'),
+    attributeAuthor: db.prepare(
+      `UPDATE task_links SET author = ?, updated_at = ?
+       WHERE kind = 'pull_request' AND repo = ? AND ref = ?
+         AND (author IS NULL OR author <> ?)
+         AND task_id IN (SELECT id FROM tasks WHERE project_key = ?)`,
+    ),
+    findByPullRequest: db.prepare(
+      `SELECT DISTINCT t.project_key AS projectKey, t.key AS taskKey FROM task_links l
+       JOIN tasks t ON t.id = l.task_id
+       WHERE l.kind = 'pull_request' AND l.repo = ? AND l.ref = ? ORDER BY t.seq`,
+    ),
+    watchablePullRequests: db.prepare(
+      `SELECT l.repo, l.ref, l.state, t.key AS task_key, t.project_key FROM task_links l
+       JOIN tasks t ON t.id = l.task_id
+       WHERE l.kind = 'pull_request' AND l.repo <> ''
+         AND (l.state IS NULL OR l.state NOT IN ('merged', 'closed'))
+         AND t.status NOT IN ('done', 'cancelled')`,
+    ),
+  };
+  /** UPDATE statements per set of changed columns. */
+  const updates = new Map<string, Statement>();
 
-  function withLinks(rows: TaskRow[]): Task[] {
+  /** Tasks with their links; `links` reads the links of exactly these tasks in one query. */
+  function withLinks(rows: TaskRow[], links: () => LinkRow[]): Task[] {
     if (rows.length === 0) return [];
     if (rows.length === 1) {
       const row = rows[0]!;
-      return [toTask(row, (linksOf.all(row.id) as LinkRow[]).map(toLink))];
+      return [toTask(row, (statements.linksOf.all(row.id) as LinkRow[]).map(toLink))];
     }
     const byTask = new Map<string, TaskLink[]>();
-    const all = db
-      .prepare(
-        `SELECT l.* FROM task_links l JOIN tasks t ON t.id = l.task_id
-         WHERE t.project_key = ? ORDER BY l.id`,
-      )
-      .all(rows[0]!.project_key) as LinkRow[];
-    for (const link of all) {
+    for (const link of links()) {
       const list = byTask.get(link.task_id) ?? [];
       list.push(toLink(link));
       byTask.set(link.task_id, list);
@@ -114,14 +202,9 @@ export function createTaskRepository(db: Db) {
   /** Adds a link or refreshes its title/state; returns what happened. */
   function upsertLink(taskId: string, link: TaskLink, at: string): 'inserted' | 'updated' | 'unchanged' {
     const repo = link.repo ?? '';
-    const existing = db
-      .prepare('SELECT * FROM task_links WHERE task_id = ? AND kind = ? AND repo = ? AND ref = ?')
-      .get(taskId, link.kind, repo, link.ref) as LinkRow | undefined;
+    const existing = statements.findLink.get(taskId, link.kind, repo, link.ref) as LinkRow | undefined;
     if (!existing) {
-      db.prepare(
-        `INSERT INTO task_links (task_id, kind, ref, repo, title, state, created_at, updated_at, author)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
+      statements.insertLink.run(
         taskId,
         link.kind,
         link.ref,
@@ -139,13 +222,7 @@ export function createTaskRepository(db: Db) {
     const author = existing.author ?? link.author ?? null;
     if (title === existing.title && state === existing.state && author === existing.author)
       return 'unchanged';
-    db.prepare('UPDATE task_links SET title = ?, state = ?, author = ?, updated_at = ? WHERE id = ?').run(
-      title,
-      state,
-      author,
-      at,
-      existing.id,
-    );
+    statements.updateLink.run(title, state, author, at, existing.id);
     return 'updated';
   }
 
@@ -154,11 +231,7 @@ export function createTaskRepository(db: Db) {
 
     insert(task: Task): void {
       db.transaction(() => {
-        db.prepare(
-          `INSERT INTO tasks (id, project_key, key, seq, title, description, stage_id, status, assignee,
-             repo, priority, labels, checks, visibility, created_by, created_at, updated_at, closed_at, parent_key)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        ).run(
+        statements.insert.run(
           task.id,
           task.projectKey,
           task.key,
@@ -184,51 +257,51 @@ export function createTaskRepository(db: Db) {
     },
 
     get(key: string): Task | null {
-      const row = db.prepare('SELECT * FROM tasks WHERE key = ?').get(key) as TaskRow | undefined;
-      return row ? withLinks([row])[0]! : null;
-    },
-
-    getById(id: string): Task | null {
-      const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as TaskRow | undefined;
-      return row ? withLinks([row])[0]! : null;
+      const row = statements.get.get(key) as TaskRow | undefined;
+      return row ? withLinks([row], () => [])[0]! : null;
     },
 
     list(projectKey: string): Task[] {
-      const rows = db
-        .prepare('SELECT * FROM tasks WHERE project_key = ? ORDER BY seq')
-        .all(projectKey) as TaskRow[];
-      return withLinks(rows);
+      return withLinks(
+        statements.list.all(projectKey) as TaskRow[],
+        () => statements.listLinks.all(projectKey) as LinkRow[],
+      );
     },
 
     listByAssignee(projectKey: string, handle: string): Task[] {
-      const rows = db
-        .prepare('SELECT * FROM tasks WHERE project_key = ? AND assignee = ? ORDER BY seq')
-        .all(projectKey, handle) as TaskRow[];
-      return rows.map((r) => toTask(r, (linksOf.all(r.id) as LinkRow[]).map(toLink)));
+      return withLinks(
+        statements.byAssignee.all(projectKey, handle) as TaskRow[],
+        () => statements.byAssigneeLinks.all(projectKey, handle) as LinkRow[],
+      );
     },
 
-    /** Updates the task's own fields (links are managed with upsertLink). */
-    update(task: Task): void {
-      db.prepare(
-        `UPDATE tasks SET title = ?, description = ?, stage_id = ?, status = ?, assignee = ?, repo = ?,
-           priority = ?, labels = ?, checks = ?, visibility = ?, updated_at = ?, closed_at = ?, parent_key = ?
-         WHERE id = ?`,
-      ).run(
-        task.title,
-        task.description,
-        task.stageId,
-        task.status,
-        task.assignee,
-        task.repo,
-        task.priority,
-        toJson(task.labels),
-        '{}',
-        task.visibility,
-        task.updatedAt,
-        task.closedAt,
-        task.parentKey ?? null,
-        task.id,
+    /** The subtasks of a task. */
+    children(projectKey: string, parentKey: string): Task[] {
+      return withLinks(
+        statements.children.all(projectKey, parentKey) as TaskRow[],
+        () => statements.childrenLinks.all(projectKey, parentKey) as LinkRow[],
       );
+    },
+
+    /**
+     * Writes only the fields in `patch`, so concurrent changes of other fields survive. Writing
+     * labels also clears the legacy checks column they were read with.
+     */
+    update(id: string, patch: TaskPatch): void {
+      const fields = (Object.keys(COLUMNS) as Array<keyof TaskPatch>).filter((f) => patch[f] !== undefined);
+      if (fields.length === 0) return;
+      const signature = fields.join(',');
+      let statement = updates.get(signature);
+      if (!statement) {
+        const sets = fields.map((f) => `${COLUMNS[f]} = @${f}`);
+        if (fields.includes('labels')) sets.push(`checks = '{}'`);
+        statement = db.prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE id = @id`);
+        updates.set(signature, statement);
+      }
+      const values: Record<string, unknown> = { id };
+      for (const field of fields) values[field] = patch[field];
+      if (patch.labels) values.labels = toJson(patch.labels);
+      statement.run(values);
     },
 
     /** Updates every link to the same pull request; returns the keys of the tasks that changed. */
@@ -238,22 +311,14 @@ export function createTaskRepository(db: Db) {
       patch: { state: string; title?: string },
       at: string,
     ): string[] {
-      const rows = db
-        .prepare(
-          `SELECT l.*, t.key AS task_key FROM task_links l JOIN tasks t ON t.id = l.task_id
-           WHERE l.kind = 'pull_request' AND l.repo = ? AND l.ref = ?`,
-        )
-        .all(repo, String(number)) as Array<LinkRow & { task_key: string }>;
+      const rows = statements.pullRequestLinks.all(repo, String(number)) as Array<
+        LinkRow & { task_key: string }
+      >;
       const changed: string[] = [];
       for (const row of rows) {
         const title = patch.title ?? row.title;
         if (row.state === patch.state && row.title === title) continue;
-        db.prepare('UPDATE task_links SET state = ?, title = ?, updated_at = ? WHERE id = ?').run(
-          patch.state,
-          title,
-          at,
-          row.id,
-        );
+        statements.updateLinkState.run(patch.state, title, at, row.id);
         changed.push(row.task_key);
       }
       return changed;
@@ -269,13 +334,7 @@ export function createTaskRepository(db: Db) {
       headSha: string,
       at: string,
     ): Array<{ projectKey: string; taskKey: string }> {
-      const rows = db
-        .prepare(
-          `SELECT l.id, l.head_sha, t.project_key AS projectKey, t.key AS taskKey FROM task_links l
-           JOIN tasks t ON t.id = l.task_id
-           WHERE l.kind = 'pull_request' AND l.repo = ? AND l.ref = ? ORDER BY t.seq`,
-        )
-        .all(repo, String(number)) as Array<{
+      const rows = statements.pullRequestHeads.all(repo, String(number)) as Array<{
         id: number;
         head_sha: string | null;
         projectKey: string;
@@ -284,11 +343,7 @@ export function createTaskRepository(db: Db) {
       const moved = new Map<string, { projectKey: string; taskKey: string }>();
       for (const row of rows) {
         if (row.head_sha === headSha) continue;
-        db.prepare('UPDATE task_links SET head_sha = ?, updated_at = ? WHERE id = ?').run(
-          headSha,
-          at,
-          row.id,
-        );
+        statements.updateLinkHead.run(headSha, at, row.id);
         if (row.head_sha !== null)
           moved.set(`${row.projectKey}/${row.taskKey}`, { projectKey: row.projectKey, taskKey: row.taskKey });
       }
@@ -303,39 +358,20 @@ export function createTaskRepository(db: Db) {
       author: string,
       at: string,
     ): boolean {
-      const result = db
-        .prepare(
-          `UPDATE task_links SET author = ?, updated_at = ?
-         WHERE kind = 'pull_request' AND repo = ? AND ref = ?
-           AND (author IS NULL OR author <> ?)
-           AND task_id IN (SELECT id FROM tasks WHERE project_key = ?)`,
-        )
-        .run(author, at, repo, String(number), author, projectKey);
-      return result.changes > 0;
+      return statements.attributeAuthor.run(author, at, repo, String(number), author, projectKey).changes > 0;
     },
 
     /** Tasks (project key + task key) linking a pull request. */
     findByPullRequest(repo: string, number: number): Array<{ projectKey: string; taskKey: string }> {
-      return db
-        .prepare(
-          `SELECT DISTINCT t.project_key AS projectKey, t.key AS taskKey FROM task_links l
-           JOIN tasks t ON t.id = l.task_id
-           WHERE l.kind = 'pull_request' AND l.repo = ? AND l.ref = ? ORDER BY t.seq`,
-        )
-        .all(repo, String(number)) as Array<{ projectKey: string; taskKey: string }>;
+      return statements.findByPullRequest.all(repo, String(number)) as Array<{
+        projectKey: string;
+        taskKey: string;
+      }>;
     },
 
     /** Pull request links of tasks that are still open, whose PR is not merged or closed yet. */
     listWatchablePullRequests(): PullRequestLinkRef[] {
-      const rows = db
-        .prepare(
-          `SELECT l.repo, l.ref, l.state, t.key AS task_key, t.project_key FROM task_links l
-           JOIN tasks t ON t.id = l.task_id
-           WHERE l.kind = 'pull_request' AND l.repo <> ''
-             AND (l.state IS NULL OR l.state NOT IN ('merged', 'closed'))
-             AND t.status NOT IN ('done', 'cancelled')`,
-        )
-        .all() as Array<{
+      const rows = statements.watchablePullRequests.all() as Array<{
         repo: string;
         ref: string;
         state: string | null;

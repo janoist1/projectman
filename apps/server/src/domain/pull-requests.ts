@@ -85,20 +85,23 @@ export class PullRequestRecords {
       additions: pr.additions,
       deletions: pr.deletions,
     };
-    let authorChanged = false;
     if (pr.authorLogin) this.authorLogins.set(`${pr.repo}#${pr.number}`, pr.authorLogin);
-    for (const link of this.ctx.repos.tasks.findByPullRequest(pr.repo, pr.number)) {
-      const author = this.memberForGithubLogin(link.projectKey, pr.authorLogin);
-      if (author)
-        authorChanged =
-          this.ctx.repos.tasks.attributePullRequestAuthor(
-            link.projectKey,
-            pr.repo,
-            pr.number,
-            author,
-            isoNow(this.ctx),
-          ) || authorChanged;
-    }
+    const authorChanged = this.ctx.unitOfWork(() => {
+      let changed = false;
+      for (const link of this.ctx.repos.tasks.findByPullRequest(pr.repo, pr.number)) {
+        const author = this.memberForGithubLogin(link.projectKey, pr.authorLogin);
+        if (author)
+          changed =
+            this.ctx.repos.tasks.attributePullRequestAuthor(
+              link.projectKey,
+              pr.repo,
+              pr.number,
+              author,
+              isoNow(this.ctx),
+            ) || changed;
+      }
+      return changed;
+    });
     const key = `${pr.repo}#${pr.number}`;
     if (!authorChanged && JSON.stringify(this.snapshots.get(key)) === JSON.stringify(snapshot)) return;
     this.snapshots.set(key, snapshot);
@@ -110,22 +113,24 @@ export class PullRequestRecords {
 
   /** A watched pull request changed: refresh every task link to it. Returns the tasks linking it. */
   applyUpdate(repo: string, number: number, patch: { state: string; title?: string }): Task[] {
-    const changed = this.ctx.repos.tasks.updatePullRequestLinks(repo, number, patch, isoNow(this.ctx));
-    const tasks: Task[] = [];
-    for (const key of changed) {
-      const task = this.ctx.repos.tasks.get(key);
-      if (!task) continue;
-      this.timeline.append({
-        projectKey: task.projectKey,
-        taskKey: key,
-        actor: SYSTEM_ACTOR,
-        type: 'task_updated',
-        data: { fields: ['links'], pullRequest: { repo, number, state: patch.state } },
-      });
-      this.publish(task);
-      tasks.push(task);
-    }
-    return tasks;
+    return this.ctx.unitOfWork(() => {
+      const changed = this.ctx.repos.tasks.updatePullRequestLinks(repo, number, patch, isoNow(this.ctx));
+      const tasks: Task[] = [];
+      for (const key of changed) {
+        const task = this.ctx.repos.tasks.get(key);
+        if (!task) continue;
+        this.timeline.append({
+          projectKey: task.projectKey,
+          taskKey: key,
+          actor: SYSTEM_ACTOR,
+          type: 'task_updated',
+          data: { fields: ['links'], pullRequest: { repo, number, state: patch.state } },
+        });
+        this.publish(task);
+        tasks.push(task);
+      }
+      return tasks;
+    });
   }
 
   private memberForGithubLogin(projectKey: string, login: string | undefined): string | undefined {

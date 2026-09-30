@@ -102,7 +102,7 @@ export class TaskService {
     return {
       task,
       parent: task.parentKey ? this.find(projectKey, task.parentKey) : null,
-      subtasks: this.list(projectKey).filter((child) => child.parentKey === taskKey),
+      subtasks: this.ctx.repos.tasks.children(projectKey, taskKey).map((child) => this.store.view(child)),
       pullRequests: this.pullRequests.forTask(task),
       timeline: this.timeline.list(projectKey, { taskKey, limit: timelineLimit }),
       sessions: this.ctx.repos.sessions.list(projectKey, { taskKey }),
@@ -167,20 +167,22 @@ export class TaskService {
     }
     if (req.importedAt === undefined)
       planLabelsOrThrow(config, { ...task, labels: [] }, { add: task.labels }, actor, undefined);
-    task.key = `${projectKey}-${this.ctx.repos.counters.next(projectKey, 'task')}`;
-    this.ctx.repos.tasks.insert(task);
-    this.timeline.append({
-      projectKey,
-      taskKey: task.key,
-      sessionId: opts.sessionId ?? null,
-      actor,
-      type: 'task_created',
-      data: { title, ...(req.importedAt !== undefined ? { imported: true } : {}) },
-      createdAt: at,
+    return this.ctx.unitOfWork(() => {
+      task.key = `${projectKey}-${this.ctx.repos.counters.next(projectKey, 'task')}`;
+      this.ctx.repos.tasks.insert(task);
+      this.timeline.append({
+        projectKey,
+        taskKey: task.key,
+        sessionId: opts.sessionId ?? null,
+        actor,
+        type: 'task_created',
+        data: { title, ...(req.importedAt !== undefined ? { imported: true } : {}) },
+        createdAt: at,
+      });
+      if (task.parentKey) this.recordParentChange(task, null, actor, opts.sessionId);
+      this.publish(task);
+      return task;
     });
-    if (task.parentKey) this.recordParentChange(task, null, actor, opts.sessionId);
-    this.publish(task);
-    return task;
   }
 
   /** Applies a stage move first (gated); other fields are changed only if the move went through. */
@@ -251,39 +253,49 @@ export class TaskService {
     if (req.assignee !== undefined) next.assignee = req.assignee;
     if (fields.length === 0 && !assignmentChanged && !labelChange) return task;
     next.updatedAt = isoNow(this.ctx);
-    this.ctx.repos.tasks.update(next);
-    if (fields.length > 0) {
-      this.timeline.append({
-        projectKey,
-        taskKey,
-        sessionId: opts.sessionId ?? null,
-        actor,
-        type: 'task_updated',
-        data: { fields },
+    this.ctx.unitOfWork(() => {
+      this.store.write(task, {
+        title: next.title,
+        description: next.description,
+        labels: next.labels,
+        visibility: next.visibility,
+        parentKey: next.parentKey ?? null,
+        assignee: next.assignee,
+        updatedAt: next.updatedAt,
       });
-    }
-    if (labelChange) {
-      this.timeline.append({
-        projectKey,
-        taskKey,
-        sessionId: opts.sessionId ?? null,
-        actor,
-        type: 'task_labels_changed',
-        data: labelChange,
-      });
-    }
-    if (assignmentChanged) {
-      this.timeline.append({
-        projectKey,
-        taskKey,
-        actor,
-        type: 'task_assigned',
-        data: { assignee: next.assignee, previous: task.assignee },
-      });
-    }
-    if (next.parentKey !== task.parentKey)
-      this.recordParentChange(next, task.parentKey ?? null, actor, opts.sessionId);
-    this.publish(next);
+      if (fields.length > 0) {
+        this.timeline.append({
+          projectKey,
+          taskKey,
+          sessionId: opts.sessionId ?? null,
+          actor,
+          type: 'task_updated',
+          data: { fields },
+        });
+      }
+      if (labelChange) {
+        this.timeline.append({
+          projectKey,
+          taskKey,
+          sessionId: opts.sessionId ?? null,
+          actor,
+          type: 'task_labels_changed',
+          data: labelChange,
+        });
+      }
+      if (assignmentChanged) {
+        this.timeline.append({
+          projectKey,
+          taskKey,
+          actor,
+          type: 'task_assigned',
+          data: { assignee: next.assignee, previous: task.assignee },
+        });
+      }
+      if (next.parentKey !== task.parentKey)
+        this.recordParentChange(next, task.parentKey ?? null, actor, opts.sessionId);
+      this.publish(next);
+    });
     return next;
   }
 
@@ -294,7 +306,7 @@ export class TaskService {
     if (parent.projectKey !== projectKey)
       throw invalid('subtask_parent_project', 'the parent must belong to the same project');
     if (parent.parentKey) throw invalid('subtask_parent_is_subtask', 'a subtask cannot have subtasks');
-    if (taskKey && this.list(projectKey).some((child) => child.parentKey === taskKey))
+    if (taskKey && this.ctx.repos.tasks.children(projectKey, taskKey).length > 0)
       throw invalid('subtask_has_children', 'a task with subtasks cannot become a subtask');
   }
 
@@ -325,24 +337,26 @@ export class TaskService {
   /** Closes the task and stops its sessions while preserving assignment, stage and files. */
   async cancel(projectKey: string, taskKey: string, req: CancelTaskRequest, actor: Actor): Promise<Task> {
     await this.requireLifecycleAccess(projectKey, actor);
-    const task = this.get(projectKey, taskKey);
-    if (!isOpenTask(task)) throw conflict('task_closed', `task ${taskKey} is ${task.status}`);
-    const at = isoNow(this.ctx);
-    const next: Task = { ...task, status: 'cancelled', closedAt: at, updatedAt: at };
-    this.ctx.repos.tasks.update(next);
-    this.timeline.append({
-      projectKey,
-      taskKey,
-      actor,
-      type: 'task_updated',
-      data: {
-        fields: ['status', 'closedAt'],
-        action: 'cancelled',
-        previousStatus: task.status,
-        ...(req.reason !== undefined ? { reason: req.reason } : {}),
-      },
+    const next = this.ctx.unitOfWork(() => {
+      const task = this.get(projectKey, taskKey);
+      if (!isOpenTask(task)) throw conflict('task_closed', `task ${taskKey} is ${task.status}`);
+      const at = isoNow(this.ctx);
+      const cancelled = this.store.write(task, { status: 'cancelled', closedAt: at, updatedAt: at });
+      this.timeline.append({
+        projectKey,
+        taskKey,
+        actor,
+        type: 'task_updated',
+        data: {
+          fields: ['status', 'closedAt'],
+          action: 'cancelled',
+          previousStatus: task.status,
+          ...(req.reason !== undefined ? { reason: req.reason } : {}),
+        },
+      });
+      this.publish(cancelled);
+      return cancelled;
     });
-    this.publish(next);
     for (const listener of this.cancelListeners) await listener(next);
     return next;
   }
@@ -350,31 +364,31 @@ export class TaskService {
   /** Reopens in the same stage, with no assignee; starting work remains explicit. */
   async reopen(projectKey: string, taskKey: string, actor: Actor): Promise<Task> {
     await this.requireLifecycleAccess(projectKey, actor);
-    const task = this.get(projectKey, taskKey);
-    if (task.status !== 'cancelled') {
-      throw conflict('task_not_cancelled', `task ${taskKey} is not cancelled`);
-    }
-    const next: Task = {
-      ...task,
-      status: 'active',
-      closedAt: null,
-      assignee: null,
-      updatedAt: isoNow(this.ctx),
-    };
-    this.ctx.repos.tasks.update(next);
-    this.timeline.append({
-      projectKey,
-      taskKey,
-      actor,
-      type: 'task_updated',
-      data: {
-        fields: ['status', 'closedAt', 'assignee'],
-        action: 'reopened',
-        previousAssignee: task.assignee,
-      },
+    return this.ctx.unitOfWork(() => {
+      const task = this.get(projectKey, taskKey);
+      if (task.status !== 'cancelled') {
+        throw conflict('task_not_cancelled', `task ${taskKey} is not cancelled`);
+      }
+      const next = this.store.write(task, {
+        status: 'active',
+        closedAt: null,
+        assignee: null,
+        updatedAt: isoNow(this.ctx),
+      });
+      this.timeline.append({
+        projectKey,
+        taskKey,
+        actor,
+        type: 'task_updated',
+        data: {
+          fields: ['status', 'closedAt', 'assignee'],
+          action: 'reopened',
+          previousAssignee: task.assignee,
+        },
+      });
+      this.publish(next);
+      return next;
     });
-    this.publish(next);
-    return next;
   }
 
   private async requireLifecycleAccess(projectKey: string, actor: Actor): Promise<ProjectConfig> {
@@ -434,19 +448,20 @@ export class TaskService {
     actor: Actor,
     extra: Record<string, unknown> = {},
   ): Task {
-    const task = this.get(projectKey, taskKey);
-    if (task.assignee === assignee) return task;
-    const next: Task = { ...task, assignee, updatedAt: isoNow(this.ctx) };
-    this.ctx.repos.tasks.update(next);
-    this.timeline.append({
-      projectKey,
-      taskKey,
-      actor,
-      type: 'task_assigned',
-      data: { assignee, previous: task.assignee, ...extra },
+    return this.ctx.unitOfWork(() => {
+      const task = this.get(projectKey, taskKey);
+      if (task.assignee === assignee) return task;
+      const next = this.store.write(task, { assignee, updatedAt: isoNow(this.ctx) });
+      this.timeline.append({
+        projectKey,
+        taskKey,
+        actor,
+        type: 'task_assigned',
+        data: { assignee, previous: task.assignee, ...extra },
+      });
+      this.publish(next);
+      return next;
     });
-    this.publish(next);
-    return next;
   }
 
   addLink(
@@ -456,22 +471,24 @@ export class TaskService {
     actor: Actor,
     sessionId: string | null = null,
   ): Task {
-    const task = this.get(projectKey, taskKey);
-    // Preserve authorship across reassignment; a linked PR defaults to its task's implementer.
-    if (link.kind === 'pull_request' && !link.author) {
-      const author = this.pullRequests.authorOf(projectKey, link) ?? task.assignee;
-      if (author) link = { ...link, author };
-    }
-    const result = this.ctx.repos.tasks.upsertLink(task.id, link, isoNow(this.ctx));
-    if (result === 'unchanged') return task;
-    const next = this.get(projectKey, taskKey);
-    if (result === 'inserted') {
-      const data: Record<string, unknown> = { kind: link.kind, ref: link.ref };
-      if (link.repo) data.repo = link.repo;
-      this.timeline.append({ projectKey, taskKey, sessionId, actor, type: 'task_link_added', data });
-    }
-    this.publish(next);
-    return next;
+    return this.ctx.unitOfWork(() => {
+      const task = this.get(projectKey, taskKey);
+      // Preserve authorship across reassignment; a linked PR defaults to its task's implementer.
+      if (link.kind === 'pull_request' && !link.author) {
+        const author = this.pullRequests.authorOf(projectKey, link) ?? task.assignee;
+        if (author) link = { ...link, author };
+      }
+      const result = this.ctx.repos.tasks.upsertLink(task.id, link, isoNow(this.ctx));
+      if (result === 'unchanged') return task;
+      const next = this.get(projectKey, taskKey);
+      if (result === 'inserted') {
+        const data: Record<string, unknown> = { kind: link.kind, ref: link.ref };
+        if (link.repo) data.repo = link.repo;
+        this.timeline.append({ projectKey, taskKey, sessionId, actor, type: 'task_link_added', data });
+      }
+      this.publish(next);
+      return next;
+    });
   }
 
   /** Keeps the full snapshot already fetched by GitHub; unknown links remain nullable. */
@@ -486,11 +503,13 @@ export class TaskService {
 
   /** Open tasks of members who left the team lose their assignee. */
   unassignMembers(projectKey: string, handles: Iterable<string>, actor: Actor): void {
-    for (const handle of handles) {
-      for (const task of this.ctx.repos.tasks.listByAssignee(projectKey, handle)) {
-        if (isOpenTask(task)) this.assign(projectKey, task.key, null, actor, { reason: 'member_removed' });
+    this.ctx.unitOfWork(() => {
+      for (const handle of handles) {
+        for (const task of this.ctx.repos.tasks.listByAssignee(projectKey, handle)) {
+          if (isOpenTask(task)) this.assign(projectKey, task.key, null, actor, { reason: 'member_removed' });
+        }
       }
-    }
+    });
   }
 
   publish(task: Task): void {

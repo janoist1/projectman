@@ -37,7 +37,7 @@ describe('release four eyes through the API', () => {
     expect(enabled.statusCode, enabled.body).toBe(200);
 
     const task = await domain.tasks.create('AR', { title: 'Fictional release' }, OWNER_ACTOR);
-    repos.tasks.update({ ...repos.tasks.get(task.key)!, stageId: 'merge' });
+    repos.tasks.update(task.id, { stageId: 'merge' });
     domain.tasks.addLink(
       'AR',
       task.key,

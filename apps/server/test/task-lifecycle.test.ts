@@ -66,7 +66,7 @@ describe('task lifecycle', () => {
 
   it.each(['active', 'waiting', 'blocked'] as const)('cancels a %s task without a reason', async (status) => {
     const task = h.domain.tasks.get('AR', 'AR-1');
-    h.repos.tasks.update({ ...task, status });
+    h.repos.tasks.update(task.id, { status });
     expect(await h.domain.tasks.cancel('AR', task.key, {}, OWNER_ACTOR)).toMatchObject({
       status: 'cancelled',
     });
@@ -158,8 +158,7 @@ describe('task lifecycle', () => {
       await expect(start(h, second.key)).rejects.toMatchObject({ code: 'member_at_capacity' });
       if (status === 'cancelled') await h.domain.tasks.cancel('AR', 'AR-1', {}, OWNER_ACTOR);
       else
-        h.repos.tasks.update({
-          ...h.domain.tasks.get('AR', 'AR-1'),
+        h.repos.tasks.update(h.domain.tasks.get('AR', 'AR-1').id, {
           status,
           closedAt: new Date().toISOString(),
         });
@@ -172,7 +171,7 @@ describe('task lifecycle', () => {
   it.each(['active', 'waiting', 'blocked', 'done'] satisfies TaskStatus[])(
     'rejects reopening a %s task',
     async (status) => {
-      h.repos.tasks.update({ ...h.domain.tasks.get('AR', 'AR-1'), status });
+      h.repos.tasks.update(h.domain.tasks.get('AR', 'AR-1').id, { status });
       await expect(h.domain.tasks.reopen('AR', 'AR-1', OWNER_ACTOR)).rejects.toMatchObject({
         status: 409,
         code: 'task_not_cancelled',
@@ -181,7 +180,7 @@ describe('task lifecycle', () => {
   );
 
   it.each(['done', 'cancelled'] as const)('rejects cancelling a %s task', async (status) => {
-    h.repos.tasks.update({ ...h.domain.tasks.get('AR', 'AR-1'), status });
+    h.repos.tasks.update(h.domain.tasks.get('AR', 'AR-1').id, { status });
     await expect(h.domain.tasks.cancel('AR', 'AR-1', {}, OWNER_ACTOR)).rejects.toMatchObject({
       status: 409,
       code: 'task_closed',

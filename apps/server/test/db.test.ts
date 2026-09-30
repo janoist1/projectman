@@ -121,7 +121,7 @@ describe('database', () => {
     expect(list.map((t) => t.key)).toEqual(['AR-1', 'AR-2']);
     expect(list[0]!.links).toHaveLength(2);
 
-    repos.tasks.update({ ...task, stageId: 'development', assignee: 'dev-1', updatedAt: now });
+    repos.tasks.update(task.id, { stageId: 'development', assignee: 'dev-1', updatedAt: now });
     expect(repos.tasks.listByAssignee('AR', 'dev-1').map((t) => t.key)).toEqual(['AR-1']);
   });
 

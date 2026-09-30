@@ -93,8 +93,7 @@ describe('configuration PATCH', () => {
         });
         expect(response.statusCode).toBe(201);
         const task = response.json<Task>();
-        h.app.projectman.repos.tasks.update({
-          ...task,
+        h.app.projectman.repos.tasks.update(task.id, {
           stageId: 'code_review',
           status,
           closedAt: status === 'active' ? null : new Date().toISOString(),
@@ -112,7 +111,7 @@ describe('configuration PATCH', () => {
       expect((await h.app.projectman.configStore.load('AR')).version).toBe(current.version);
       // Moving all tasks out permits the exact same draft, including closed tasks.
       for (const task of h.app.projectman.repos.tasks.list('AR'))
-        h.app.projectman.repos.tasks.update({ ...task, stageId: 'development' });
+        h.app.projectman.repos.tasks.update(task.id, { stageId: 'development' });
       expect((await patch({ baseVersion: current.version, pipeline })).statusCode).toBe(200);
       expect((await view()).config.pipeline.stages.map((stage) => stage.id)).not.toContain('code_review');
     },
@@ -275,7 +274,7 @@ describe('configuration PATCH', () => {
         headers: { cookie },
         payload: { title: 'Acme task' },
       });
-      h.app.projectman.repos.tasks.update({ ...response.json<Task>(), stageId });
+      h.app.projectman.repos.tasks.update(response.json<Task>().id, { stageId });
     }
 
     it('refuses to remove an occupied stage by replacing the configuration', async () => {

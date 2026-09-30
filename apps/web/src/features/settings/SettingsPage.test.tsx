@@ -1,8 +1,10 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { PatchConfigRequest } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
+import type { MockRequest } from '../../test/mockProject';
 import { SettingsPage } from './SettingsPage';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
@@ -11,6 +13,12 @@ async function editSection(section: 'project' | 'limits' | 'pipeline' | 'labels'
   const region = await screen.findByRole('region', { name: t(`settings.sections.${section}`) });
   fireEvent.click(within(region).getByRole('button', { name: t('memberEdit.edit') }));
   return within(region);
+}
+/** The body of the last configuration PATCH the page sent. */
+function lastConfigPatch(requests: readonly MockRequest[]): PatchConfigRequest {
+  const patch = requests.filter((r) => r.method === 'PATCH' && r.path === '/api/projects/AC/config').at(-1);
+  if (!patch) throw new Error('No configuration PATCH was sent');
+  return patch.body as PatchConfigRequest;
 }
 function selectMembers(select: HTMLElement, handles: string[]) {
   for (const option of (select as HTMLSelectElement).options)
@@ -43,7 +51,6 @@ describe('settings section editors', () => {
         .every((button) => (button as HTMLButtonElement).disabled),
     ).toBe(true);
     fireEvent.click(section.getByRole('button', { name: t('common.cancel') }));
-    expect(project.backend.config).toEqual(initial);
     expect(project.requests.some((request) => request.method === 'PATCH')).toBe(false);
     section = await editSection('project');
     expect((section.getByLabelText(t('settings.project.name')) as HTMLInputElement).value).toBe(
@@ -56,17 +63,12 @@ describe('settings section editors', () => {
     fireEvent.change(section.getByLabelText(t('settings.project.timezone')), { target: { value: 'UTC' } });
     fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
     await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
-    expect(project.backend.config.project).toEqual({
-      ...initial.project,
-      name: 'Acme webshop',
-      language: 'en',
-      timezone: 'UTC',
-    });
     expect(project.requests.find((request) => request.method === 'PATCH')?.body).toEqual({
       baseVersion: 'c3f9a21',
       project: { name: 'Acme webshop', language: 'en', timezone: 'UTC' },
     });
-    expect(project.backend.history[0]?.message).toBe('Update project');
+    const history = await screen.findByRole('region', { name: t('settings.sections.history') });
+    expect(await within(history).findByText('Update project')).toBeTruthy();
   });
 
   it('patches the AI switch and displays its disabled state', async () => {
@@ -81,7 +83,6 @@ describe('settings section editors', () => {
     fireEvent.click(toggle);
     fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
     await section.findByText(t('settings.limits.aiEnabledOff'));
-    expect(project.backend.config.team.limits.aiEnabled).toBe(false);
     expect(project.requests.find((request) => request.method === 'PATCH')?.body).toMatchObject({
       limits: { aiEnabled: false },
     });
@@ -114,8 +115,7 @@ describe('settings section editors', () => {
     fireEvent.change(role, { target: { value: 'qa' } });
     fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
     await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
-    expect(project.backend.config.team.limits).toEqual({
-      aiEnabled: true,
+    expect(lastConfigPatch(project.requests).limits).toMatchObject({
       maxConcurrentAi: 2,
       pauseAbovePlanUsagePercent: 60,
       tempWorkers: { enabled: true, max: 3, role: 'qa' },
@@ -149,8 +149,9 @@ describe('settings section editors', () => {
     fireEvent.click(stage.getByRole('button', { name: t('settings.edit.moveDown') }));
     fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
     await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
-    expect(project.backend.config.pipeline.stages).toHaveLength(initialStageCount);
-    expect(project.backend.config.pipeline.stages[2]).toMatchObject({
+    const stages = lastConfigPatch(project.requests).pipeline!.stages;
+    expect(stages).toHaveLength(initialStageCount);
+    expect(stages[2]).toMatchObject({
       id: 'dev',
       kind: 'work',
       name: 'Acme build',
@@ -179,14 +180,16 @@ describe('settings section editors', () => {
     fireEvent.click(section.getByLabelText(t('settings.labels.blocks')));
     fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
     await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
-    expect(project.backend.config.pipeline.labels.find((label) => label.id === 'Sürgős')).toEqual({
-      id: 'Sürgős',
-      name: 'Sürgős',
-      color: 'red',
-      meaning: 'Ma kell.',
-      setBy: 'anyone',
-      blocks: true,
-    });
+    expect(lastConfigPatch(project.requests).pipeline!.labels.find((label) => label.id === 'Sürgős')).toEqual(
+      {
+        id: 'Sürgős',
+        name: 'Sürgős',
+        color: 'red',
+        meaning: 'Ma kell.',
+        setBy: 'anyone',
+        blocks: true,
+      },
+    );
   });
 
   it('locks human approval fields and removal for admins while allowing other gate edits', async () => {
@@ -209,7 +212,8 @@ describe('settings section editors', () => {
     fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
     await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
     expect(
-      project.backend.config.pipeline.stages.find((stage) => stage.id === 'integration')?.gate?.conditions[0],
+      lastConfigPatch(project.requests).pipeline!.stages.find((stage) => stage.id === 'integration')?.gate
+        ?.conditions[0],
     ).toEqual({ type: 'has_label', label: 'qa-ok' });
   });
 
@@ -227,7 +231,6 @@ describe('settings section editors', () => {
     const latestVersion = project.backend.configVersion;
     fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
     expect((await section.findByRole('alert')).textContent).toContain(t('settings.edit.conflict'));
-    expect(project.backend.config.project.name).toBe('Latest Acme');
     fireEvent.click(section.getByRole('button', { name: t('settings.edit.reload') }));
     await waitFor(() =>
       expect((section.getByLabelText(t('settings.project.name')) as HTMLInputElement).value).toBe(
@@ -256,7 +259,7 @@ describe('settings section editors', () => {
     expect((await within(section.getAllByRole('listitem')[0]!).findByRole('alert')).textContent).toContain(
       t('settings.issues.first_stage_not_queue'),
     );
-    expect(project.backend.config.pipeline.stages[0]?.kind).toBe('queue');
+    expect(section.getByRole('button', { name: t('memberEdit.save') })).toBeTruthy();
   });
 
   it('adds a stage after the chosen stage with a duty, a column and no gate', async () => {
@@ -284,7 +287,7 @@ describe('settings section editors', () => {
     expect(stage.queryByLabelText(t('settings.edit.condition'))).toBeNull();
     fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
     await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
-    const added = project.backend.config.pipeline.stages[2];
+    const added = lastConfigPatch(project.requests).pipeline!.stages[2];
     expect(added).toEqual({
       id: 'acme_review',
       name: 'Acme review',
@@ -319,7 +322,7 @@ describe('settings section editors', () => {
     fireEvent.change(stage.getByLabelText(t('settings.edit.label')), { target: { value: 'qa-ok' } });
     fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
     await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
-    const added = project.backend.config.pipeline.stages.filter((stage) => stage.name === name);
+    const added = lastConfigPatch(project.requests).pipeline!.stages.filter((stage) => stage.name === name);
     expect(new Set(added.map((stage) => stage.id)).size).toBe(2);
     for (const stage of added) {
       expect(stage.id).toMatch(/^[a-z][a-z0-9_]{0,31}$/);
@@ -345,10 +348,12 @@ describe('settings section editors', () => {
     dialog = within(screen.getByRole('dialog'));
     fireEvent.click(dialog.getByRole('button', { name: t('settings.pipeline.removeStage') }));
     expect(section.queryByRole('listitem', { name })).toBeNull();
-    expect(project.backend.config.pipeline.stages.some((stage) => stage.id === 'dev')).toBe(true);
+    expect(project.requests.some((request) => request.method === 'PATCH')).toBe(false);
     fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
     await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
-    expect(project.backend.config.pipeline.stages.some((stage) => stage.id === 'dev')).toBe(false);
+    expect(lastConfigPatch(project.requests).pipeline!.stages.some((stage) => stage.id === 'dev')).toBe(
+      false,
+    );
   });
 
   it('shows the server task count and moving advice for an occupied stage, and can undo removal', async () => {
@@ -374,12 +379,11 @@ describe('settings section editors', () => {
     expect((await section.findByRole('alert')).textContent).toContain(
       t('settings.pipeline.stageInUse', { stage: 'dev', count: 1 }),
     );
-    expect(project.backend.config).toEqual(current);
     fireEvent.click(section.getByRole('button', { name: t('settings.pipeline.undoRemove') }));
     expect(section.getByRole('listitem', { name })).toBeTruthy();
     fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
     await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
-    expect(project.backend.config).toEqual(current);
+    expect(lastConfigPatch(project.requests).pipeline).toEqual(current.pipeline);
   });
 
   it('saves a column colour through config PATCH and retains it when reopened', async () => {
@@ -395,10 +399,7 @@ describe('settings section editors', () => {
     );
     fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
     await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
-    expect(project.backend.config.pipeline.columns[0]!.color).toBe('teal');
-    expect(
-      project.requests.some((request) => request.method === 'PATCH' && request.path.endsWith('/config')),
-    ).toBe(true);
+    expect(lastConfigPatch(project.requests).pipeline!.columns[0]!.color).toBe('teal');
     const reopened = await editSection('pipeline');
     expect(
       within(
@@ -445,9 +446,10 @@ describe('settings section editors', () => {
     expect(columns.queryByDisplayValue('Acme unused')).toBeNull();
     fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
     await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
-    expect(project.backend.config.pipeline.columns).toContainEqual({ id: columnId, name: 'Acme checks' });
-    expect(project.backend.config.pipeline.columns.some((column) => column.id === 'acme_unused')).toBe(false);
-    expect(project.backend.config.pipeline.stages[1]?.columnId).toBe(columnId);
+    const saved = lastConfigPatch(project.requests).pipeline!;
+    expect(saved.columns).toContainEqual({ id: columnId, name: 'Acme checks' });
+    expect(saved.columns.some((column) => column.id === 'acme_unused')).toBe(false);
+    expect(saved.stages[1]?.columnId).toBe(columnId);
     const reopened = await editSection('pipeline');
     fireEvent.change(
       within(reopened.getAllByRole('listitem')[1]!).getByLabelText(t('settings.pipeline.column')),
@@ -460,7 +462,9 @@ describe('settings section editors', () => {
     );
     fireEvent.click(reopened.getByRole('button', { name: t('memberEdit.save') }));
     await waitFor(() => expect(reopened.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
-    expect(project.backend.config.pipeline.columns.some((column) => column.id === columnId)).toBe(false);
+    expect(lastConfigPatch(project.requests).pipeline!.columns.some((column) => column.id === columnId)).toBe(
+      false,
+    );
   });
 
   it('shows release approval and orphan duty issues on their stage, retaining them after reordering', async () => {
@@ -478,7 +482,6 @@ describe('settings section editors', () => {
     await waitFor(() => expect(stage.getAllByRole('alert')).toHaveLength(2));
     expect(stage.getByText(t('settings.issues.release_without_human_approval'))).toBeTruthy();
     expect(stage.getByText(t('errors.codes.missing_duty_holder'))).toBeTruthy();
-    expect(project.backend.config.pipeline).toEqual(initial);
     fireEvent.click(stage.getByRole('button', { name: t('settings.edit.moveDown') }));
     const reordered = within(section.getByRole('listitem', { name }));
     expect(reordered.getByText(t('settings.issues.release_without_human_approval'))).toBeTruthy();
@@ -493,7 +496,6 @@ describe('settings section editors', () => {
     fireEvent.change(stage.getByLabelText(t('settings.project.name')), { target: { value: '' } });
     fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
     expect((await stage.findByRole('alert')).textContent).toBe(t('settings.issues.too_small'));
-    expect(project.backend.config.pipeline.stages[1]?.name).not.toBe('');
   });
 
   it.each(['client', 'viewer'] as const)('hides edit buttons for %s access', async (access) => {

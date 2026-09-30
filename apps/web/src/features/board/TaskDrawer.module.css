@@ -87,6 +87,7 @@
 
 /* The main actions under the head: open the session and write to it (or start the task), and move. */
 .actions {
+  position: relative; /* the move panel opens under the whole row */
   display: flex;
   flex-wrap: wrap;
   align-items: center;

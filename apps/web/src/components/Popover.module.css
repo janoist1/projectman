@@ -27,3 +27,14 @@
   left: auto;
   right: 0;
 }
+
+/* Anchored to the ancestor row (which must be positioned), not to the button. */
+.rowWrap {
+  position: static;
+}
+
+.row {
+  width: auto;
+  max-width: 340px;
+  right: 0;
+}

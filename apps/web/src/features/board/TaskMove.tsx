@@ -35,7 +35,7 @@ export function TaskMove({ task, pipeline }: { task: Task; pipeline: PipelineInd
     ),
   );
   return (
-    <Popover label={t('task.move.open')} iconRight="chevronDown" align="right">
+    <Popover label={t('task.move.open')} iconRight="chevronDown" align="row">
       {(close) => (
         <>
           <SelectField

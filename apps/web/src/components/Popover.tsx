@@ -31,7 +31,11 @@ export function Popover({
   iconOnly?: boolean;
   variant?: ButtonVariant;
   size?: ButtonSize;
-  align?: 'left' | 'right';
+  /**
+   * Which edge the panel lines up with: the button's left or right edge, or (`row`) the nearest
+   * positioned ancestor, so a button that wraps to any place of a row still opens its panel inside it.
+   */
+  align?: 'left' | 'right' | 'row';
   className?: string;
   children: (close: () => void) => ReactNode;
 }) {
@@ -42,7 +46,7 @@ export function Popover({
   const panelId = useId();
   useDismiss(open, () => setOpen(false), refs, triggerRef);
   return (
-    <div ref={wrapRef} className={clsx(styles.wrap, className)}>
+    <div ref={wrapRef} className={clsx(styles.wrap, align === 'row' && styles.rowWrap, className)}>
       <Button
         ref={triggerRef}
         variant={variant}
@@ -61,7 +65,7 @@ export function Popover({
         <div
           id={panelId}
           data-popover-open="true"
-          className={clsx(styles.panel, align === 'right' && styles.right)}
+          className={clsx(styles.panel, align === 'right' && styles.right, align === 'row' && styles.row)}
         >
           {children(() => setOpen(false))}
         </div>

@@ -528,9 +528,15 @@ describe('task drawer layout', () => {
     const follows = (a: Node, b: Node) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(follows(decision, properties)).toBe(true);
-    const open = screen.queryByRole('link', { name: t('task.openSession') });
-    if (open) expect(follows(open, timeline)).toBe(true);
+    const open = await screen.findByRole('link', { name: t('task.openSession') });
+    expect(follows(decision, open)).toBe(true);
+    expect(follows(open, properties)).toBe(true);
     expect(follows(properties, timeline)).toBe(true);
+    // The move panel opens inside the row of the session buttons (the row it is positioned by), so
+    // it stays within the drawer wherever the button wraps to.
+    fireEvent.click(screen.getByRole('button', { name: t('task.move.open') }));
+    expect(open.parentElement!.contains(await screen.findByLabelText(t('task.move.target')))).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: t('task.move.open') }));
     // No full-width action buttons: the rare ones hide in the menu, the move in its small panel.
     expect(screen.getByRole('button', { name: t('taskLifecycle.title') })).toBeTruthy();
     expect(screen.queryByRole('button', { name: t('task.move.submit') })).toBeNull();

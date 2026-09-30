@@ -74,8 +74,8 @@ server later.
   deploy, release, …) by any move, including a human's move or an approved gate, the least
   loaded free owner (never the task's assignee) gets a session for the task unless one of the
   owners already runs one; its kick-off brief carries the stage rules. It runs in the
-  background under the usual admission limits; a refused start is logged and the task waits
-  in the stage. Work stages start through the scheduler's `startTask`.
+  background under the usual admission limits; a start refused by them (AI limit, plan usage,
+  owners at capacity) is retried every 30 s while the task stays in the stage. Work stages start through the scheduler's `startTask`.
 - **Inbox ("Rád vár")** — everything waiting for a human: tool permission requests
   (Claude Code `PermissionRequest` hook, answered from the browser), gate decisions
   (merge, release), questions from AI members (`ask_human`), approvals.

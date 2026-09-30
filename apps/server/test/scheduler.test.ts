@@ -209,6 +209,29 @@ describe('scheduler', () => {
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
     await settle();
     expect(h.runner.started).toHaveLength(1);
+    // Still refused: the retry keeps waiting.
+    await h.domain.scheduler.retryDeferredHandOffs();
+    expect(h.runner.started).toHaveLength(1);
+    // Capacity frees up: the retry starts the reviewer, once.
+    h.runner.setState(dev.session!.id, 'idle');
+    await h.domain.scheduler.retryDeferredHandOffs();
+    expect(h.domain.sessions.findRunning('AR', 'cr', { type: 'task', taskKey: 'AR-1' })).not.toBeNull();
+    await h.domain.scheduler.retryDeferredHandOffs();
+    expect(h.runner.started).toHaveLength(2);
     expect(h.log.errors).toEqual([]);
+  });
+
+  it('drops a deferred hand-over once the task leaves the stage', async () => {
+    h = await createDomainHarness({ adjust: (c) => void (c.team.limits.maxConcurrentAi = 1) });
+    await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
+    const dev = await start(h, 'AR-1');
+    h.runner.setState(dev.session!.id, 'working', 'Bash: npm test');
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+    await settle();
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+    await settle();
+    h.runner.setState(dev.session!.id, 'idle');
+    await h.domain.scheduler.retryDeferredHandOffs();
+    expect(h.runner.started).toHaveLength(1);
   });
 });

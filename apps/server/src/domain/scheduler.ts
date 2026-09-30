@@ -10,7 +10,7 @@ import type {
 } from '@projectman/shared';
 import { ownerHandles } from './access';
 import type { DomainContext } from './context';
-import { conflict, invalid, notFound } from './errors';
+import { conflict, DomainError, invalid, notFound } from './errors';
 import { stageOwners, roleBundle } from '@projectman/shared';
 import { evaluateGates, stageIndex, stagesEntered } from './gates';
 import type { MemberService } from './members';
@@ -21,6 +21,9 @@ import type { SessionOrchestrator } from './sessions';
 import { approvalRequestedError, gateBlockedError, isOpenTask } from './tasks';
 import type { StageChange, TaskService } from './tasks';
 import { KeyedMutex, SYSTEM_ACTOR, SYSTEM_AUTHOR } from './util';
+
+/** Admission refusals that a later retry can overcome. */
+const DEFERRABLE_CODES = new Set(['ai_limit_reached', 'plan_usage_paused']);
 
 export interface StartTaskOptions {
   /** Explicit assignee; omitted = the current assignee, else a free developer, else a temp worker. */
@@ -52,6 +55,8 @@ export class Scheduler {
   private readonly sessions: SessionOrchestrator;
   private readonly planUsage: PlanUsageCache;
   private readonly locks = new KeyedMutex();
+  /** Hand-overs refused by admission limits, by `projectKey:taskKey`. */
+  private readonly deferredHandOffs = new Map<string, StageChange>();
 
   constructor(deps: {
     ctx: DomainContext;
@@ -214,11 +219,13 @@ export class Scheduler {
    * deploy, release, …) gets a session for the least loaded free owner, so work does not stall
    * when a human moved the task or approved the release. The kick-off brief carries the stage
    * rules. An owner already working the task (e.g. reached by a hand-over message) is enough;
-   * work stages start through startTask. Admission limits apply: a refused start is logged and
-   * the task stays queued for the stage.
+   * work stages start through startTask. Admission limits apply: a refused hand-over is kept
+   * and retried by retryDeferredHandOffs while the task stays in that stage.
    */
   async handOffToStageOwner(change: StageChange): Promise<void> {
     const { task } = change;
+    const key = `${task.projectKey}:${task.key}`;
+    this.deferredHandOffs.delete(key);
     if (task.status !== 'active') return;
     const projectKey = task.projectKey;
     const workItem = { type: 'task', taskKey: task.key } as const;
@@ -229,23 +236,45 @@ export class Scheduler {
     const owners = stageOwners(config, stage)
       .map((handle) => config.team.members.find((m) => m.handle === handle))
       .filter((m): m is AiMemberConfig => m?.kind === 'ai' && m.handle !== task.assignee);
+    if (owners.length === 0) return;
     if (owners.some((m) => this.sessions.findRunning(projectKey, m.handle, workItem))) return;
+    const defer = (reason: string) => {
+      this.deferredHandOffs.set(key, change);
+      this.ctx.logger.info({ taskKey: task.key, stage: stage.id, reason }, 'stage hand-over deferred');
+    };
     try {
       await this.admit(async () => {
         const free = owners
           .map((member) => ({ member, load: this.memberLoad(projectKey, member.handle, task.key) }))
           .filter(({ member, load }) => load < member.capacity)
           .sort((a, b) => a.load - b.load)[0]?.member;
-        if (!free) {
-          if (owners.length > 0)
-            this.ctx.logger.info({ taskKey: task.key, stage: stage.id }, 'stage owners are at capacity');
-          return;
-        }
+        if (!free) return defer('member_at_capacity');
         await this.assertCanStartAiWork(config, free.provider ?? DEFAULT_AGENT_PROVIDER);
         await this.sessions.ensureSession(projectKey, free.handle, workItem);
       });
     } catch (err) {
-      this.ctx.logger.info({ err, taskKey: task.key, stage: stage.id }, 'stage hand-over deferred');
+      // Only admission refusals wait for a retry; other failures would fail again.
+      if (err instanceof DomainError && DEFERRABLE_CODES.has(err.code)) return defer(err.code);
+      throw err;
+    }
+  }
+
+  /** Retries refused hand-overs of tasks still in the stage they entered (called periodically). */
+  async retryDeferredHandOffs(): Promise<void> {
+    for (const [key, change] of [...this.deferredHandOffs]) {
+      if (this.deferredHandOffs.get(key) !== change) continue;
+      let task: Task;
+      try {
+        task = this.tasks.get(change.task.projectKey, change.task.key);
+      } catch {
+        this.deferredHandOffs.delete(key);
+        continue;
+      }
+      if (task.stageId !== change.to || task.status !== 'active') {
+        this.deferredHandOffs.delete(key);
+        continue;
+      }
+      await this.handOffToStageOwner({ ...change, task });
     }
   }
 

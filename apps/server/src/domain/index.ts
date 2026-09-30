@@ -84,6 +84,8 @@ export interface DomainOptions {
   scheduleTimer?: ScheduleTimer;
   /** Delay before a done task's sessions stop and its worktrees are removed (default 2 s). */
   doneCleanupDelayMs?: number;
+  /** How often refused stage hand-overs are retried (default 30 s). */
+  handOffRetryMs?: number;
 }
 
 export type Domain = ReturnType<typeof createDomain>;
@@ -180,14 +182,15 @@ export function createDomain(opts: DomainOptions) {
   // Later stages owned by AI members (review, QA, release, …) get their owner started, in the
   // background so a session start does not hold up the move; stop() waits for pending ones.
   const handOffs = new Set<Promise<void>>();
-  tasks.onStageChanged((change) => {
+  const trackHandOff = (work: () => Promise<void>) => {
     if (stopped) return;
-    const handOff = scheduler
-      .handOffToStageOwner(change)
-      .catch((err: unknown) => opts.logger.warn({ err, taskKey: change.task.key }, 'stage hand-over failed'))
+    const handOff = work()
+      .catch((err: unknown) => opts.logger.warn({ err }, 'stage hand-over failed'))
       .finally(() => handOffs.delete(handOff));
     handOffs.add(handOff);
-  });
+  };
+  tasks.onStageChanged((change) => trackHandOff(() => scheduler.handOffToStageOwner(change)));
+  let handOffTimer: ReturnType<typeof setInterval> | undefined;
   tasks.onStageChanged((change) => {
     if (change.task.status === 'done') sessions.scheduleDoneCleanup(change.task.projectKey, change.task.key);
   });
@@ -252,11 +255,18 @@ export function createDomain(opts: DomainOptions) {
       );
       usageTimer.unref();
       schedules.start();
+      // Hand-overs refused by admission limits start once capacity or plan usage allows.
+      handOffTimer = setInterval(
+        () => trackHandOff(() => scheduler.retryDeferredHandOffs()),
+        opts.handOffRetryMs ?? 30_000,
+      );
+      handOffTimer.unref();
     },
 
     async stop(): Promise<void> {
       stopped = true;
       if (usageTimer) clearInterval(usageTimer);
+      if (handOffTimer) clearInterval(handOffTimer);
       const drained = schedules.stop();
       githubSync.stop();
       await Promise.allSettled(handOffs);

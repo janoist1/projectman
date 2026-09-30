@@ -153,7 +153,12 @@ describe('task drawer stage moves', () => {
 });
 
 describe('task drawer labels', () => {
-  const labelsSection = () => screen.findByRole('region', { name: t('task.labels.title') });
+  /** The labels section once it is editable (the label rules come with the configuration). */
+  const labelsSection = async () => {
+    const section = await screen.findByRole('region', { name: t('task.labels.title') });
+    await within(section).findByRole('button', { name: t('task.labels.add') });
+    return section;
+  };
 
   it('adds and removes labels under their rules, asking for the reason where needed', async () => {
     const project = mockProject();
@@ -210,6 +215,19 @@ describe('task drawer labels', () => {
     const option = within(section).getByRole('button', { name: /Csak QA/ });
     expect((option as HTMLButtonElement).disabled).toBe(true);
     expect(option.textContent).toContain(t('task.labels.refusal.not_holder'));
+  });
+
+  it('keeps the assignee from approving the release of their own work under four eyes', async () => {
+    const project = mockProject();
+    project.backend.config.team.releaseFourEyes = true;
+    project.backend.findTask('AC-20')!.assignee = 'owner';
+    const approval = project.backend.config.pipeline.labels.find((label) => label.id === 'release-approved')!;
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    const section = await labelsSection();
+    fireEvent.click(within(section).getByRole('button', { name: t('task.labels.add') }));
+    const option = within(section).getByRole('button', { name: new RegExp(approval.name) });
+    expect((option as HTMLButtonElement).disabled).toBe(true);
+    expect(option.textContent).toContain(t('task.labels.refusal.self_review'));
   });
 
   it('shows label errors from the server inline', async () => {

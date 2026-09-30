@@ -1,21 +1,18 @@
-import { taskAuthors } from '@projectman/shared';
-import type { LabelView, Task } from '@projectman/shared';
+import { labelDefinition, labelRefusal } from '@projectman/shared';
+import type { LabelRefusal, LabelView, ProjectConfig, Task } from '@projectman/shared';
 
-/** Why the viewer may not add or remove a label (the server has the final word). */
-export type LabelRefusalReason = 'system_only' | 'not_holder' | 'self_review';
-
-export function labelRefusalFor(
-  labels: readonly LabelView[],
+/**
+ * Why the viewer (a human) may not add or remove a label on a task, or null when they may. It
+ * is the server's own rule, including four eyes on release approvals, so the picker only
+ * offers what the server accepts.
+ */
+export function viewerLabelRefusal(
+  config: Pick<ProjectConfig, 'team' | 'pipeline'>,
   id: string,
-  me: string | null,
+  me: string,
   task: Pick<Task, 'assignee' | 'links'>,
-): LabelRefusalReason | null {
-  const label = labels.find((entry) => entry.id === id);
-  if (!label) return null; // a plain tag
-  if (label.setBy === 'system') return 'system_only';
-  if (!me || !label.holders.includes(me)) return 'not_holder';
-  if (label.notByAuthor && taskAuthors(task as Task).includes(me)) return 'self_review';
-  return null;
+): LabelRefusal | null {
+  return labelRefusal(config, labelDefinition(config, id), { kind: 'human', handle: me }, task);
 }
 
 /** Defined labels grouped for pickers: each group is one "state"; ungrouped labels come last. */

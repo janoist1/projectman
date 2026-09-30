@@ -484,6 +484,7 @@ export const hu = {
       cancel: 'Mégse',
       refusal: {
         system_only: 'a rendszer teszi rá',
+        humans_only: 'csak ember teheti rá',
         not_holder: 'nem a te feladatköröd',
         self_review: 'saját munkádra nem',
       },

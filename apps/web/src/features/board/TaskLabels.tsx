@@ -1,31 +1,34 @@
 import { useState } from 'react';
 import type { Task } from '@projectman/shared';
-import { useChangeTaskLabels, useLabels } from '../../api/queries';
+import { useChangeTaskLabels, useConfig, useLabels } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { TextAreaField, TextField } from '../../components/Field';
 import { LabelChip } from '../../components/LabelChip';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
-import { labelGroups, labelRefusalFor } from '../../lib/labels';
+import { labelGroups, viewerLabelRefusal } from '../../lib/labels';
 import styles from './TaskLabels.module.css';
 import drawer from './TaskDrawer.module.css';
 
 /**
  * The task's labels: chips in their colours (meaning on hover), removable where the label's
  * rules allow, and a picker. A group is one "state" (picking one replaces the others); a label
- * that needs a reason asks for it before it is added.
+ * that needs a reason asks for it before it is added. Editing waits for the configuration,
+ * which holds the label rules.
  */
 export function TaskLabels({ task }: { task: Task }) {
   const { key, myHandle, can } = useProject();
   const labels = useLabels(key);
+  const config = useConfig(key, can.createTasks).data?.config;
   const change = useChangeTaskLabels(key);
   const [picking, setPicking] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [comment, setComment] = useState('');
   const [tag, setTag] = useState('');
-  const editable = can.createTasks && Boolean(myHandle);
-  const refusal = (id: string) => labelRefusalFor(labels, id, myHandle, task);
+  const editable = can.createTasks && Boolean(myHandle) && Boolean(config);
+  const refusal = (id: string) =>
+    config && myHandle ? viewerLabelRefusal(config, id, myHandle, task) : 'not_holder';
   const submit = (body: { add?: string[]; remove?: string[]; comment?: string }) =>
     change.mutate(
       { taskKey: task.key, body },

@@ -1,15 +1,23 @@
 import { roleBundle } from '@projectman/shared';
 import { createHash, randomBytes } from 'node:crypto';
 import { AcceptInviteRequest, InvitationView } from '@projectman/shared';
-import type { Actor, CreateInviteRequest, CreatedInvitation, PublicInviteView } from '@projectman/shared';
+import type {
+  Actor,
+  CreateInviteRequest,
+  CreatedInvitation,
+  PublicInviteView,
+  ProjectConfig,
+  HumanMemberConfig,
+} from '@projectman/shared';
 import type { AuthService, AuthUser } from '../auth/auth-service';
 import type { InvitationRecord } from '../db/invitations';
 import type { Domain } from './index';
 import { findHumanByEmail } from './access';
-import { conflict, DomainError, forbidden, notFound } from './errors';
+import { conflict, DomainError, forbidden, invalid, notFound } from './errors';
 import { assertRoleFor } from './members';
 import { roleViews } from './roles';
 import { KeyedMutex, newId } from './util';
+import { humanMemberHandle } from './naming';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex');
@@ -26,37 +34,65 @@ export class InvitationService {
   }
 
   async create(projectKey: string, input: CreateInviteRequest, user: AuthUser): Promise<CreatedInvitation> {
-    const config = await this.domain.projects.config(projectKey);
-    const inviter = findHumanByEmail(config, user.email);
-    if (!inviter || !['owner', 'admin'].includes(inviter.access))
-      throw forbidden('insufficient_access', 'owner or admin required');
-    if (input.access === 'admin' && inviter.access !== 'owner')
-      throw forbidden('owner_only', 'only an owner may invite an admin');
-    if (findHumanByEmail(config, input.email))
-      throw conflict('already_member', 'this email is already a human member');
-    for (const role of input.roles) {
-      assertRoleFor(config, role, 'human');
-      if (inviter.access !== 'owner' && roleBundle(config, role).duties.includes('release_approval'))
-        throw forbidden('owner_only', 'only an owner may grant release approval');
-    }
-    const token = randomBytes(32).toString('base64url');
-    const now = this.domain.ctx.now();
-    const invite: InvitationRecord = {
-      id: newId('inv'),
-      projectKey,
-      email: input.email,
-      displayName: input.displayName ?? null,
-      access: input.access,
-      roles: [...new Set(input.roles)],
-      invitedBy: user.id,
-      createdAt: now.toISOString(),
-      expiresAt: new Date(now.getTime() + 7 * DAY_MS).toISOString(),
-      acceptedAt: null,
-      revokedAt: null,
-      tokenHash: tokenHash(token),
-    };
-    this.domain.ctx.repos.invitations.insert(invite);
-    return { ...InvitationView.parse(invite), path: `/invite/${token}` };
+    return this.lock.run('invitations', async () => {
+      const config = await this.domain.projects.config(projectKey);
+      const inviter = findHumanByEmail(config, user.email);
+      if (!inviter || !['owner', 'admin'].includes(inviter.access))
+        throw forbidden('insufficient_access', 'owner or admin required');
+      if (input.access === 'admin' && inviter.access !== 'owner')
+        throw forbidden('owner_only', 'only an owner may invite an admin');
+      const member = input.memberHandle ? this.unclaimedMember(config, input.memberHandle) : undefined;
+      if (findHumanByEmail(config, input.email))
+        throw conflict('already_member', 'this email is already a human member');
+      for (const role of input.roles) {
+        assertRoleFor(config, role, 'human');
+        if (
+          !member &&
+          inviter.access !== 'owner' &&
+          roleBundle(config, role).duties.includes('release_approval')
+        )
+          throw forbidden('owner_only', 'only an owner may grant release approval');
+      }
+      if (
+        member &&
+        this.list(projectKey).some(
+          (invite) =>
+            invite.memberHandle === member.handle &&
+            !invite.acceptedAt &&
+            !invite.revokedAt &&
+            invite.expiresAt > this.domain.ctx.now().toISOString(),
+        )
+      )
+        throw conflict('member_invite_pending', 'this member already has an open invitation');
+      const token = randomBytes(32).toString('base64url');
+      const now = this.domain.ctx.now();
+      const invite: InvitationRecord = {
+        id: newId('inv'),
+        projectKey,
+        email: input.email,
+        displayName: member?.displayName ?? input.displayName ?? null,
+        ...(member ? { memberHandle: member.handle } : {}),
+        access: input.access,
+        roles: [...new Set(member?.roles ?? input.roles)],
+        invitedBy: user.id,
+        createdAt: now.toISOString(),
+        expiresAt: new Date(now.getTime() + 7 * DAY_MS).toISOString(),
+        acceptedAt: null,
+        revokedAt: null,
+        tokenHash: tokenHash(token),
+      };
+      this.domain.ctx.repos.invitations.insert(invite);
+      return { ...InvitationView.parse(invite), path: `/invite/${token}` };
+    });
+  }
+
+  private unclaimedMember(config: ProjectConfig, handle: string): HumanMemberConfig {
+    const member = config.team.members.find((member) => member.handle === handle);
+    if (!member)
+      throw new DomainError('invite_member_not_found', 'invited member does not exist', { status: 404 });
+    if (member.kind !== 'human') throw invalid('invite_member_not_human', 'invited member must be human');
+    if (member.email) throw conflict('member_has_account', 'this member already has an email');
+    return member;
   }
 
   list(projectKey: string): InvitationView[] {
@@ -137,7 +173,13 @@ export class InvitationService {
       const actor: Actor = { kind: 'human', handle: inviter.handle };
       await this.domain.projects.update(
         invite.projectKey,
-        { actor, author: { name: account.name, email: account.email } },
+        {
+          actor,
+          author: { name: account.name, email: account.email },
+          ...(invite.memberHandle
+            ? { invitationBinding: { handle: invite.memberHandle, email: account.email } }
+            : {}),
+        },
         (draft) => {
           this.valid(token);
           const currentInviter = inviterUser ? findHumanByEmail(draft, inviterUser.email) : undefined;
@@ -145,29 +187,35 @@ export class InvitationService {
             throw forbidden('insufficient_access', 'inviter no longer manages this team');
           if (invite.access === 'admin' && currentInviter.access !== 'owner')
             throw forbidden('owner_only', 'only an owner may invite an admin');
+          const member = invite.memberHandle ? this.unclaimedMember(draft, invite.memberHandle) : undefined;
           if (findHumanByEmail(draft, invite.email))
             throw conflict('already_member', 'this email is already a human member');
-          for (const role of invite.roles) assertRoleFor(draft, role, 'human');
-          const base =
-            account.name
-              .normalize('NFKD')
-              .replace(/[\u0300-\u036f]/g, '')
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/g, '-')
-              .replace(/^-+|-+$/g, '')
-              .slice(0, 24) || 'member';
-          const taken = this.domain.members.takenHandles(invite.projectKey, draft);
-          let handle = base;
-          for (let suffix = 2; taken.has(handle); suffix++) handle = `${base}-${suffix}`;
-
-          draft.team.members.push({
-            kind: 'human',
-            handle,
-            displayName: account.name,
-            email: account.email,
-            access: invite.access,
-            roles: invite.roles,
-          });
+          if (member) {
+            for (const role of member.roles) assertRoleFor(draft, role, 'human');
+            member.email = account.email;
+            member.access = invite.access;
+          } else {
+            for (const role of invite.roles) {
+              assertRoleFor(draft, role, 'human');
+              if (
+                currentInviter.access !== 'owner' &&
+                roleBundle(draft, role).duties.includes('release_approval')
+              )
+                throw forbidden('owner_only', 'only an owner may grant release approval');
+            }
+            const handle = humanMemberHandle(
+              account.name,
+              this.domain.members.takenHandles(invite.projectKey, draft),
+            );
+            draft.team.members.push({
+              kind: 'human',
+              handle,
+              displayName: account.name,
+              email: account.email,
+              access: invite.access,
+              roles: invite.roles,
+            });
+          }
           return `Invite accepted: ${account.name}`;
         },
       );

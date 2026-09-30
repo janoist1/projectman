@@ -103,6 +103,15 @@ export const MemberView = z.object({
 });
 export type MemberView = z.infer<typeof MemberView>;
 
+/** Adds an unclaimed human seat, without an account or invitation. */
+export const AddHumanMemberRequest = z.object({
+  displayName: z.string().trim().min(1),
+  handle: MemberHandle.optional(),
+  access: HumanAccess.exclude(['owner']),
+  roles: z.array(RoleId),
+});
+export type AddHumanMemberRequest = z.infer<typeof AddHumanMemberRequest>;
+
 /** Hires an AI member for a role an AI may hold (built-in or custom). */
 export const HireMemberRequest = z.object({
   effort: AgentEffort.optional(),
@@ -210,6 +219,7 @@ export const TaskDetail = z.object({
 export type TaskDetail = z.infer<typeof TaskDetail>;
 
 export const CreateTaskRequest = z.object({
+  importedAt: z.string().datetime().optional(),
   title: z.string().min(1),
   description: z.string().optional(),
   stageId: StageId.optional(),
@@ -319,6 +329,7 @@ export const InviteAccess = HumanAccess.exclude(['owner']);
 export type InviteAccess = z.infer<typeof InviteAccess>;
 
 export const CreateInviteRequest = z.object({
+  memberHandle: MemberHandle.optional(),
   email: z
     .string()
     .trim()
@@ -332,6 +343,7 @@ export type CreateInviteRequest = z.infer<typeof CreateInviteRequest>;
 
 /** Never includes the token or its hash. */
 export const InvitationView = z.object({
+  memberHandle: MemberHandle.optional(),
   id: z.string(),
   projectKey: z.string(),
   email: z.string(),

@@ -32,6 +32,7 @@ import {
   CreateProjectRequest,
   CreateTaskRequest,
   HireMemberRequest,
+  AddHumanMemberRequest,
   LoginRequest,
   ResolveInboxRequest,
   RetireMemberRequest,
@@ -697,6 +698,54 @@ export class MockBackend {
     if ((m = /^\/members\/([a-z0-9-]+)$/.exec(rest)) && method === 'PATCH')
       return this.editMember(m[1]!, body);
 
+    if (rest === '/members/human' && method === 'POST') {
+      const input = parseBody(AddHumanMemberRequest, body);
+      if (!input) return error(400, 'invalid_request', 'Invalid human member');
+      if (input.access === 'admin' && viewer.role !== 'owner')
+        return error(403, 'owner_only', 'Owner required');
+      for (const role of input.roles) {
+        const holders = roleHolders(role, this.config.team.roles, this.config.team.roleOverrides);
+        if (!holders) return error(400, 'unknown_role', 'Unknown role');
+        if (!holdersAllow(holders, 'human')) return error(400, 'role_not_for_human', 'Human role required');
+        if (viewer.role !== 'owner' && roleBundle(this.config, role).duties.includes('release_approval'))
+          return error(403, 'owner_only', 'Owner required');
+      }
+      const base =
+        input.displayName
+          .normalize('NFKD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 24) || 'member';
+      let handle = input.handle ?? base;
+      if (input.handle && this.findMember(handle)) return error(409, 'handle_taken', 'Handle taken');
+      for (let suffix = 2; this.findMember(handle); suffix++) handle = `${base}-${suffix}`;
+      this.config.team.members.push({
+        kind: 'human',
+        handle,
+        displayName: input.displayName,
+        access: input.access,
+        roles: [...new Set(input.roles)],
+      });
+      const member: MemberView = {
+        kind: 'human',
+        handle,
+        displayName: input.displayName,
+        role: input.access,
+        roles: [...new Set(input.roles)],
+        status: 'no_account',
+        activity: null,
+        currentTaskKeys: [],
+        specialty: null,
+        sponsor: null,
+        temp: false,
+      };
+      this.members.push(member);
+      this.commitConfig(`Add human member ${handle} without account`);
+      this.memberChanged(handle);
+      return { status: 201, body: clone(member) };
+    }
     if (rest === '/members') {
       if (method === 'POST') return this.hire(body);
       return ok(clone(this.members.filter((member) => member.status !== 'retired')));
@@ -968,6 +1017,24 @@ export class MockBackend {
       if (!input) return error(400, 'invalid_request', 'Invalid invitation');
       if (input.access === 'admin' && this.findMember(this.viewerHandle)?.role !== 'owner')
         return error(403, 'owner_only', 'Only an owner may invite an admin');
+      const member = input.memberHandle
+        ? this.config.team.members.find((member) => member.handle === input.memberHandle)
+        : undefined;
+      if (input.memberHandle) {
+        if (!member) return error(404, 'invite_member_not_found', 'Unknown member');
+        if (member.kind !== 'human') return error(400, 'invite_member_not_human', 'Human required');
+        if (member.email) return error(409, 'member_has_account', 'Member has email');
+        if (
+          this.invitations.some(
+            (invite) =>
+              invite.memberHandle === member.handle &&
+              !invite.acceptedAt &&
+              !invite.revokedAt &&
+              invite.expiresAt > nowIso(),
+          )
+        )
+          return error(409, 'member_invite_pending', 'Invitation pending');
+      }
       if (
         this.config.team.members.some(
           (member) => member.kind === 'human' && member.email?.trim().toLowerCase() === input.email,
@@ -978,6 +1045,7 @@ export class MockBackend {
         const role = this.roleCatalogue().find((role) => role.id === id);
         if (!role) return error(400, 'unknown_role', 'Unknown role');
         if (
+          !input.memberHandle &&
           this.findMember(this.viewerHandle)?.role !== 'owner' &&
           roleBundle(this.config, id).duties.includes('release_approval')
         )
@@ -987,8 +1055,8 @@ export class MockBackend {
       const token = newInviteToken();
       const invite = {
         ...input,
-        displayName: input.displayName ?? null,
-        roles: [...new Set(input.roles)],
+        displayName: member?.displayName ?? input.displayName ?? null,
+        roles: member?.kind === 'human' ? member.roles : [...new Set(input.roles)],
         id: mockId('inv'),
         projectKey: fixtures.PROJECT_KEY,
         invitedBy: this.user.userId,
@@ -1061,6 +1129,14 @@ export class MockBackend {
       email: invite.email,
       password: input!.password,
     };
+    const seat = invite.memberHandle
+      ? this.config.team.members.find((member) => member.handle === invite.memberHandle)
+      : undefined;
+    if (invite.memberHandle) {
+      if (!seat) return error(404, 'invite_member_not_found', 'Unknown member');
+      if (seat.kind !== 'human') return error(400, 'invite_member_not_human', 'Human required');
+      if (seat.email) return error(409, 'member_has_account', 'Member has email');
+    }
     const base =
       user.name
         .normalize('NFKD')
@@ -1072,27 +1148,36 @@ export class MockBackend {
     let handle = base;
     for (let suffix = 2; this.members.some((member) => member.handle === handle); suffix++)
       handle = `${base}-${suffix}`;
-    this.config.team.members.push({
-      kind: 'human',
-      handle,
-      displayName: user.name,
-      email: user.email,
-      access: invite.access,
-      roles: invite.roles,
-    });
-    this.members.push({
-      kind: 'human',
-      handle,
-      displayName: user.name,
-      role: invite.access,
-      roles: invite.roles,
-      status: 'online',
-      activity: null,
-      currentTaskKeys: [],
-      specialty: null,
-      sponsor: null,
-      temp: false,
-    });
+    if (seat?.kind === 'human') {
+      handle = seat.handle;
+      seat.email = user.email;
+      seat.access = invite.access;
+      const view = this.findMember(handle)!;
+      view.role = invite.access;
+      view.status = 'online';
+    } else {
+      this.config.team.members.push({
+        kind: 'human',
+        handle,
+        displayName: user.name,
+        email: user.email,
+        access: invite.access,
+        roles: invite.roles,
+      });
+      this.members.push({
+        kind: 'human',
+        handle,
+        displayName: user.name,
+        role: invite.access,
+        roles: invite.roles,
+        status: 'online',
+        activity: null,
+        currentTaskKeys: [],
+        specialty: null,
+        sponsor: null,
+        temp: false,
+      });
+    }
     this.accounts.set(user.email, user);
     this.user = { userId: user.userId, name: user.name, email: user.email };
     this.viewerHandle = handle;

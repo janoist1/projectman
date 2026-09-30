@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import {
   HireMemberRequest,
+  AddHumanMemberRequest,
   RetireMemberRequest,
   routes,
   UpdateMemberRequest,
@@ -101,6 +102,17 @@ export function registerMemberRoutes(app: FastifyInstance, domain: Domain): void
     if (handle === access.handle) throw forbidden('cannot_remove_self', 'Cannot remove yourself');
     await domain.members.removeHuman(key, handle, { actor: actorOf(access), author: authorOf(request) });
     return reply.code(204).send();
+  });
+
+  app.post<ProjectParams>(routes.addHumanMember(':key'), async (request, reply) => {
+    const key = request.params.key;
+    const access = await requireAccess(domain, request, key, { minimum: 'admin' });
+    const body = parseBody(AddHumanMemberRequest, request.body);
+    const member = await domain.members.addHuman(key, body, {
+      actor: actorOf(access),
+      author: authorOf(request),
+    });
+    return reply.code(201).send(member);
   });
 
   /** Hires an AI member for a role an AI may hold; the requesting human sponsors it (runs on their subscription). */

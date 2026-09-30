@@ -10,6 +10,7 @@ interface InvitationRow {
   project_key: string;
   email: string;
   display_name: string | null;
+  member_handle: string | null;
   access: InvitationView['access'];
   roles: string;
   invited_by: string;
@@ -22,6 +23,7 @@ interface InvitationRow {
 
 function fromRow(row: InvitationRow): InvitationRecord {
   return {
+    ...(row.member_handle ? { memberHandle: row.member_handle } : {}),
     id: row.id,
     projectKey: row.project_key,
     email: row.email,
@@ -43,7 +45,7 @@ export function createInvitationRepository(db: Db) {
       db.prepare(
         `INSERT INTO invitations
         (id, project_key, email, display_name, access, roles, invited_by, created_at,
-         expires_at, accepted_at, revoked_at, token_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         expires_at, accepted_at, revoked_at, token_hash, member_handle) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         invite.id,
         invite.projectKey,
@@ -57,6 +59,7 @@ export function createInvitationRepository(db: Db) {
         invite.acceptedAt,
         invite.revokedAt,
         invite.tokenHash,
+        invite.memberHandle ?? null,
       );
     },
     get(id: string): InvitationRecord | null {

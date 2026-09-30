@@ -210,6 +210,10 @@ export const hu = {
       too_many_requests: 'Túl sok kérés érkezett. Próbáld újra később.',
       unauthorized: 'Jelentkezz be a folytatáshoz.',
       unsupported_media_type: 'A kérés adatformátuma nem támogatott.',
+      member_has_account: 'Ennek a tagnak már van e-mail-címe és fiókja.',
+      invite_member_not_found: 'A meghívandó tag nem található.',
+      invite_member_not_human: 'Csak emberi tag kaphat meghívót.',
+      member_invite_pending: 'Ennek a tagnak már van érvényes meghívója.',
       already_member: 'Ez a kolléga már a projekt tagja.',
       login_required: 'Jelentkezz be a meghívott e-mail-címhez tartozó fiókkal.',
       invite_invalid: 'A meghívó már nem használható.',
@@ -562,7 +566,13 @@ export const hu = {
     issueLabel: 'Issue #{number}',
   },
 
+  addHuman: {
+    title: 'Kolléga hozzáadása meghívó nélkül',
+    submit: 'Kolléga hozzáadása',
+  },
+
   memberStatus: {
+    no_account: 'Nincs még fiókja',
     idle: 'Pihen',
     working: 'Dolgozik',
     waiting_for_human: 'Emberre vár',
@@ -930,6 +940,7 @@ export const hu = {
       task_cancelled_reason: 'Megszakította a feladatot: {reason}',
       task_reopened: 'Újranyitotta a feladatot.',
       assignment_previous: '{assignment} Előző felelős: {previous}.',
+      task_created_imported: 'Létrehozva (importálva)',
       task_created: 'Létrehozta a feladatot',
       task_updated: 'Módosította: {fields}',
       task_stage_changed: 'Továbbvitte: {from} → {to}',

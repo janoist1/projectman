@@ -221,6 +221,12 @@ export const migrations: Migration[] = [
     name: 'per recipient message receipts',
     sql: `ALTER TABLE team_messages ADD COLUMN receipts TEXT;`,
   },
+  {
+    version: 6,
+    name: 'invitations for unclaimed members',
+    sql: `ALTER TABLE invitations ADD COLUMN member_handle TEXT;
+      CREATE INDEX invitations_member ON invitations(project_key, member_handle);`,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

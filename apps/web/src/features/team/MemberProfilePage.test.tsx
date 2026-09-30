@@ -17,6 +17,28 @@ function page() {
   );
 }
 describe('member profiles', () => {
+  it('creates a seat invitation from an unclaimed human profile and displays the link', async () => {
+    const p = mockProject();
+    p.backend.handle('POST', '/api/projects/AC/members/human', {
+      displayName: 'Fictional Colleague',
+      handle: 'colleague',
+      access: 'viewer',
+      roles: [],
+    });
+    p.render(page(), '/team/colleague');
+    expect(await screen.findByText(t('memberStatus.no_account'))).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: t('invites.create') }));
+    const dialog = within(screen.getByRole('dialog'));
+    fireEvent.change(dialog.getByLabelText(t('invites.email')), { target: { value: 'colleague@acme.test' } });
+    fireEvent.click(await dialog.findByRole('button', { name: t('invites.create') }));
+    expect(((await dialog.findByLabelText(t('invites.link'))) as HTMLInputElement).value).toContain(
+      '/invite/',
+    );
+    expect(
+      p.requests.find((request) => request.method === 'POST' && request.path.endsWith('/invites'))?.body,
+    ).toEqual({ email: 'colleague@acme.test', memberHandle: 'colleague', access: 'viewer', roles: [] });
+  });
+
   it.each([
     ['claude-opus-5-5', t('providerSettings.claudeModels.opus55')],
     ['claude-fictional-model', 'claude-fictional-model'],

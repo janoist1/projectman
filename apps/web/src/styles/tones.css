@@ -84,6 +84,7 @@
   --status-bg: var(--c-ok-bg);
 }
 [data-status='offline'],
+[data-status='no_account'],
 [data-status='invited'],
 [data-status='retired'],
 [data-status='exited'] {

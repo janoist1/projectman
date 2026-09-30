@@ -6,6 +6,7 @@ export const ScheduleSkipReason = z.enum([
   'member_at_capacity',
   'ai_limit_reached',
   'plan_usage_paused',
+  'ai_disabled',
   'provider_not_logged_in',
 ]);
 export type ScheduleSkipReason = z.infer<typeof ScheduleSkipReason>;

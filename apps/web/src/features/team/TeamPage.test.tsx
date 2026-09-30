@@ -11,6 +11,19 @@ afterEach(() => {
 });
 
 describe('TeamPage role catalogue', () => {
+  it.each([true, false])(
+    'shows disabled AI to every member, with an admin settings link (%s)',
+    async (manageTeam) => {
+      const project = mockProject();
+      project.backend.config.team.limits.aiEnabled = false;
+      project.render(<TeamPage />, '/', { can: { manageTeam, createTasks: true, workInSessions: true } });
+      expect(await screen.findByText(t('team.aiDisabled'))).toBeTruthy();
+      const link = screen.queryByRole('link', { name: t('team.aiDisabledSettings') });
+      if (manageTeam) expect(link?.getAttribute('href')).toBe('/p/AC/settings');
+      else expect(link).toBeNull();
+    },
+  );
+
   it('adds a colleague without an invitation, including handle, access and responsibilities', async () => {
     const project = mockProject();
     project.render(<TeamPage />);

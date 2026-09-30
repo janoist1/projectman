@@ -190,6 +190,8 @@ export const LabelView = LabelDefinition.extend({ holders: z.array(z.string()) }
 export type LabelView = z.infer<typeof LabelView>;
 
 export const BoardView = z.object({
+  /** Public project admission switch; omitted by older servers. */
+  aiEnabled: z.boolean().optional(),
   project: ProjectSummary,
   columns: z.array(BoardColumnView),
   stages: z.array(Stage),

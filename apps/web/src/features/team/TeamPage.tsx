@@ -171,6 +171,12 @@ export function TeamPage() {
               : null}
           </p>
         </div>
+        {(board.data?.aiEnabled ?? limits?.aiEnabled) === false ? (
+          <div role="status" className={styles.limit}>
+            <span>{t('team.aiDisabled')}</span>
+            {can.manageTeam ? <Link to={`/p/${key}/settings`}>{t('team.aiDisabledSettings')}</Link> : null}
+          </div>
+        ) : null}
         {limits ? (
           <div className={styles.limit}>
             <span className={styles.limitText}>

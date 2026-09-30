@@ -17,7 +17,7 @@ const drawer = (
 );
 
 describe('task drawer lifecycle', () => {
-  it.each(['ai_limit_reached', 'plan_usage_paused', 'member_at_capacity'] as const)(
+  it.each(['ai_limit_reached', 'plan_usage_paused', 'ai_disabled', 'member_at_capacity'] as const)(
     'shows the waiting label and owner hint for %s',
     async (reason) => {
       const project = mockProject();

@@ -248,6 +248,10 @@ function LimitsAndRepos({ config }: { config: ProjectConfig }) {
         <EditableSection section="limits">
           <dl className={styles.facts}>
             <div>
+              <dt>{t('settings.limits.aiEnabled')}</dt>
+              <dd>{t(limits.aiEnabled ? 'settings.limits.aiEnabledOn' : 'settings.limits.aiEnabledOff')}</dd>
+            </div>
+            <div>
               <dt>{t('settings.limits.maxConcurrentAi')}</dt>
               <dd>{t('settings.limits.maxConcurrentAiValue', { count: limits.maxConcurrentAi })}</dd>
             </div>

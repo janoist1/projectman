@@ -28,6 +28,7 @@ import type { BuildTemplateInput, ProjectTemplate } from '../types';
 
 /** Limits every factory template starts with. */
 export const DEFAULT_LIMITS: TeamLimits = {
+  aiEnabled: true,
   maxConcurrentAi: 3,
   pauseAbovePlanUsagePercent: 80,
   tempWorkers: { enabled: false, max: 1, role: 'developer' },

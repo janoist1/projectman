@@ -44,6 +44,7 @@ export const hu = {
       member_at_capacity: 'A tag elérte a kapacitását.',
       ai_limit_reached: 'Elértük az egyidejű AI-munkák korlátját.',
       plan_usage_paused: 'A szolgáltató előfizetésének használata túl magas.',
+      ai_disabled: 'Az AI-munka ki van kapcsolva ebben a projektben.',
       provider_not_logged_in: 'A szolgáltatónál nincs aktív bejelentkezés.',
       session_start_failed: 'A sessiont nem sikerült elindítani.',
       session_failed: 'A session sikertelenül zárult.',
@@ -255,6 +256,7 @@ export const hu = {
       member_at_capacity: 'Ennek a tagnak most nincs szabad kapacitása.',
       ai_limit_reached: 'Most dolgozik a megengedett számú AI-tag; az új munka később indul.',
       plan_usage_paused: 'A szolgáltatói keret magas, ezért új AI-munka most nem indul.',
+      ai_disabled: 'Ebben a projektben ki van kapcsolva az AI-munka (Beállítások → Keretek).',
       version_conflict: 'Közben valaki más is módosította a beállításokat. Frissíts, és próbáld újra.',
       project_exists: 'Ilyen kulcsú projekt már van.',
       workspace_not_found: 'Ez a munkaterület-útvonal nem létezik ezen a gépen.',
@@ -405,6 +407,7 @@ export const hu = {
     startWaiting: {
       ai_limit_reached: 'Indulásra vár: túl sok AI dolgozik',
       plan_usage_paused: 'Indulásra vár: a {provider}-keret {percent}% fölött szünetel',
+      ai_disabled: 'Indulásra vár: az AI-munka ki van kapcsolva',
       member_at_capacity: 'Indulásra vár: {name} tele van',
     },
     stageOwners: 'minden szakaszfelelős',
@@ -412,6 +415,7 @@ export const hu = {
       ai_limit_reached: 'Várj, amíg felszabadul egy AI, vagy emeld a korlátot a Beállítások → Keretek alatt.',
       plan_usage_paused:
         'Várj a keret megújulására, vagy emeld a szüneteltetési küszöböt a Beállítások → Keretek alatt.',
+      ai_disabled: 'Kapcsold be a Beállítások → Keretek alatt.',
       member_at_capacity: 'Szabadíts fel egy tagot: fejezd be vagy add át a többi feladatát.',
     },
     needsYou: 'Rád vár: {what}',
@@ -1029,6 +1033,8 @@ export const hu = {
     subscriptionYours: 'az AI-tagok a te előfizetéseiden futnak (Claude, ChatGPT)',
     subscriptionMixed: 'minden AI-tag mellett ott van, kinek az előfizetésén fut',
     hire: 'AI-tag felvétele',
+    aiDisabled: 'Az AI-munka ki van kapcsolva ebben a projektben.',
+    aiDisabledSettings: 'Beállítások → Keretek',
     aiLimit: 'AI egyszerre',
     aiLimitValue: '{working} / {max} dolgozik',
     aiLimitHint: '{percent}% keret fölött nem indul új',
@@ -1339,6 +1345,11 @@ export const hu = {
       sponsor: 'Előfizetés',
     },
     limits: {
+      aiEnabled: 'AI-munka engedélyezve',
+      aiEnabledHelp:
+        'Kikapcsolva az AI-tagok nem kezdenek és nem folytatnak munkát ebben a projektben; a futó sessionök tovább működnek, a várakozó munka visszakapcsolás után indul.',
+      aiEnabledOn: 'Bekapcsolva',
+      aiEnabledOff: 'Kikapcsolva',
       maxConcurrentAi: 'AI egyszerre legfeljebb',
       maxConcurrentAiValue: '{count} session',
       pauseAbove: 'Új AI-munka szünetel e fölött',

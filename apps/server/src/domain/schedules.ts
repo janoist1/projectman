@@ -190,6 +190,7 @@ export class ScheduleService {
       };
       ctx.repos.schedules.insert(run, automatic);
       try {
+        if (!config.team.limits.aiEnabled) await scheduler.assertCanStartAiWork(config, member.provider);
         if (
           sessions
             .list(projectKey, { member: handle })

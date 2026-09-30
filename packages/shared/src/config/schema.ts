@@ -76,6 +76,12 @@ export const MemberConfig = z.discriminatedUnion('kind', [HumanMemberConfig, AiM
 export type MemberConfig = z.infer<typeof MemberConfig>;
 
 export const TeamLimits = z.object({
+  /**
+   * When false, no AI session starts or resumes in this project: automatic hand-overs,
+   * message wake-ups, schedules, manual starts and humans writing into a stopped session.
+   * Running sessions keep running.
+   */
+  aiEnabled: z.boolean().default(true),
   /** Global cap on concurrently working AI sessions (protects the subscription). */
   maxConcurrentAi: z.number().int().min(1).max(20).default(3),
   /** Do not start new AI work above this plan usage percentage. */

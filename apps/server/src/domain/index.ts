@@ -232,6 +232,10 @@ export function createDomain(opts: DomainOptions) {
     handOffs.add(handOff);
   };
   tasks.onStageChanged((change) => trackHandOff(() => scheduler.handOffToStageOwner(change)));
+  projects.onConfigChanged((change) => {
+    if (change.previous?.team.limits.aiEnabled === false && change.next.team.limits.aiEnabled)
+      trackHandOff(() => scheduler.retryDeferredStarts());
+  });
   let handOffTimer: ReturnType<typeof setInterval> | undefined;
   tasks.onStageChanged((change) => {
     if (change.task.status === 'done') sessions.scheduleDoneCleanup(change.task.projectKey, change.task.key);

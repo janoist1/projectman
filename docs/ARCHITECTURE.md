@@ -42,7 +42,10 @@ server later.
   Eligibility is the intersection of the duties' holders: release approval and final decision
   require humans; all other duties allow humans and AI. One AI holds one role; humans union
   duties across several roles. Access levels remain separate from responsibilities.
-- **Team limits** — `maxConcurrentAi` caps working AI sessions (protects the
+- **Team limits** — `aiEnabled` (default true) is the per-project master switch: when off,
+  no AI session starts or resumes through any path, while running sessions keep running.
+  Deferred hand-overs and message wake-ups retry after re-enabling; scheduled runs are skipped.
+  `maxConcurrentAi` caps working AI sessions (protects the
   subscription); new AI work pauses above `pauseAbovePlanUsagePercent`. The number of
   delivery sessions is capped by the duty holders' capacity. Optional **temp
   workers**: when every eligible duty holder is busy, a temporary member of the configured

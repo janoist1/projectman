@@ -218,6 +218,7 @@ export function buildConfig(): ProjectConfig {
       ],
       roles: [],
       limits: {
+        aiEnabled: true,
         maxConcurrentAi: 3,
         pauseAbovePlanUsagePercent: 80,
         tempWorkers: { enabled: false, max: 1, role: 'developer' },

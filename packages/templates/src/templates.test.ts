@@ -138,6 +138,7 @@ describe('every template', () => {
 
     it('starts with the standard limits', () => {
       expect(template.build(input('en')).team.limits).toEqual({
+        aiEnabled: true,
         maxConcurrentAi: 3,
         pauseAbovePlanUsagePercent: 80,
         tempWorkers: { enabled: false, max: 1, role: 'developer' },

@@ -28,7 +28,12 @@ import type { StageChange, TaskService } from './tasks';
 import { KeyedMutex, SYSTEM_ACTOR, SYSTEM_AUTHOR } from './util';
 
 /** Admission refusals that a later retry can overcome. */
-const DEFERRABLE_CODES = new Set(['ai_limit_reached', 'plan_usage_paused', 'member_at_capacity']);
+const DEFERRABLE_CODES = new Set([
+  'ai_limit_reached',
+  'plan_usage_paused',
+  'ai_disabled',
+  'member_at_capacity',
+]);
 
 interface DeferredMessageStart {
   waiting: TaskStartWaiting;
@@ -163,6 +168,8 @@ export class Scheduler {
     config: ProjectConfig,
     provider: AgentProvider = DEFAULT_AGENT_PROVIDER,
   ): Promise<void> {
+    if (!config.team.limits.aiEnabled)
+      throw conflict('ai_disabled', 'AI work is switched off in this project');
     const max = config.team.limits.maxConcurrentAi;
     const busy = this.sessions.busyCount();
     if (busy >= max) {

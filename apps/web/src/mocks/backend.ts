@@ -450,6 +450,7 @@ export class MockBackend {
       openInboxCount: this.inbox.filter(
         (item) => item.state === 'open' && item.assignees.includes(this.owner),
       ).length,
+      aiEnabled: this.config.team.limits.aiEnabled,
       planUsage: { ...this.planUsage, fetchedAt: nowIso() },
       planUsageByProvider: Object.fromEntries(
         [
@@ -1617,12 +1618,22 @@ export class MockBackend {
     if (!assignee) return error(409, 'no_developer', 'No developer available');
     if (!eligible.includes(assignee))
       return error(400, 'not_stage_owner', 'Assignee must own the work stage');
+    const running = this.sessions.find(
+      (s) =>
+        s.member === assignee &&
+        s.workItem.type === 'task' &&
+        s.workItem.taskKey === task.key &&
+        !['exited', 'failed'].includes(s.state),
+    );
+    if (this.findMember(assignee)?.kind === 'ai' && !running && !this.config.team.limits.aiEnabled)
+      return error(409, 'ai_disabled', 'AI work is switched off in this project');
     const from = task.stageId;
     this.updateTask(task.key, { assignee, stageId: workStage?.id ?? task.stageId, status: 'active' });
     this.addTimeline(task.key, null, 'task_assigned', { assignee });
     if (workStage) this.addTimeline(task.key, null, 'task_stage_changed', { from, to: workStage.id });
     if (this.findMember(assignee)?.kind === 'human')
       return ok({ task: clone(task), session: null, hired: null });
+    if (running) return ok({ task: clone(task), session: clone(running), hired: null });
     const session: Session = {
       id: mockId('ses'),
       projectKey: fixtures.PROJECT_KEY,
@@ -1775,6 +1786,8 @@ export class MockBackend {
     const session = this.findSession(sessionId);
     if (!session || !input) return error(404, 'not_found', 'Unknown session');
     const taskKey = session.workItem.type === 'task' ? session.workItem.taskKey : null;
+    if (['exited', 'failed'].includes(session.state) && !this.config.team.limits.aiEnabled)
+      return error(409, 'ai_disabled', 'AI work is switched off in this project');
     if (taskKey && ['done', 'cancelled'].includes(this.findTask(taskKey)?.status ?? ''))
       return error(409, 'task_closed', 'Task is closed');
     const stops = this.sessionStops.get(sessionId);
@@ -1862,6 +1875,8 @@ export class MockBackend {
     const existing = this.sessions.find((s) => s.member === handle && s.workItem.type === 'general');
     if (existing && !['exited', 'failed'].includes(existing.state))
       return { status: 202, body: clone(existing) };
+    if (!this.config.team.limits.aiEnabled)
+      return error(409, 'ai_disabled', 'AI work is switched off in this project');
     if (this.memberLoad(handle) >= member.capacity) return error(409, 'member_at_capacity', 'At capacity');
     const provider = member.provider ?? 'claude';
     const plan =
@@ -1947,18 +1962,20 @@ export class MockBackend {
     const provider = member.provider ?? 'claude';
     const plan = this.providerPlanUsage[provider] ?? (provider === 'claude' ? this.planUsage : null);
     const usage = Math.max(plan?.fiveHourPercent ?? 0, plan?.weeklyPercent ?? 0);
-    const reason = live.some((s) => s.member === handle && s.workItem.type === 'schedule')
-      ? 'previous_run_live'
-      : load >= member.capacity
-        ? 'member_at_capacity'
-        : live.filter((s) => ['starting', 'working', 'waiting_permission'].includes(s.state)).length >=
-            this.config.team.limits.maxConcurrentAi
-          ? 'ai_limit_reached'
-          : usage > this.config.team.limits.pauseAbovePlanUsagePercent
-            ? 'plan_usage_paused'
-            : !this.providerLoggedIn[provider]
-              ? 'provider_not_logged_in'
-              : null;
+    const reason = !this.config.team.limits.aiEnabled
+      ? 'ai_disabled'
+      : live.some((s) => s.member === handle && s.workItem.type === 'schedule')
+        ? 'previous_run_live'
+        : load >= member.capacity
+          ? 'member_at_capacity'
+          : live.filter((s) => ['starting', 'working', 'waiting_permission'].includes(s.state)).length >=
+              this.config.team.limits.maxConcurrentAi
+            ? 'ai_limit_reached'
+            : usage > this.config.team.limits.pauseAbovePlanUsagePercent
+              ? 'plan_usage_paused'
+              : !this.providerLoggedIn[provider]
+                ? 'provider_not_logged_in'
+                : null;
     const at = nowIso();
     const run: ScheduleRun = {
       id: mockId('run'),

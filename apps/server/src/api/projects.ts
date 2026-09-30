@@ -49,6 +49,7 @@ export function registerProjectRoutes(app: FastifyInstance, domain: Domain): voi
       providers.map((provider) => [provider, internal ? domain.planUsage.peek(provider) : null]),
     );
     return {
+      aiEnabled: config.team.limits.aiEnabled,
       project: domain.projects.summary(key),
       columns: config.pipeline.columns.map((column) => ({
         ...column,

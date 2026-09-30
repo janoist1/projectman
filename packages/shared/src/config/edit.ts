@@ -23,6 +23,7 @@ export const PatchConfigRequest = z
       .strict()
       .optional(),
     limits: TeamLimits.extend({
+      aiEnabled: TeamLimits.shape.aiEnabled.removeDefault(),
       maxConcurrentAi: TeamLimits.shape.maxConcurrentAi.removeDefault(),
       pauseAbovePlanUsagePercent: TeamLimits.shape.pauseAbovePlanUsagePercent.removeDefault(),
       tempWorkers: tempWorkersSchema

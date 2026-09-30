@@ -126,6 +126,20 @@ export function EditableSection({ section, children }: { section: Section; child
         ) : section === 'limits' ? (
           <>
             <label className={styles.field}>
+              {t('settings.limits.aiEnabled')}
+              <input
+                type="checkbox"
+                checked={draft.team.limits.aiEnabled}
+                aria-describedby="ai-enabled-help"
+                onChange={(event) =>
+                  change((config) => {
+                    config.team.limits.aiEnabled = event.target.checked;
+                  })
+                }
+              />
+            </label>
+            <p id="ai-enabled-help">{t('settings.limits.aiEnabledHelp')}</p>
+            <label className={styles.field}>
               {t('settings.limits.maxConcurrentAi')}
               <input
                 type="number"

@@ -193,6 +193,8 @@ export class SessionOrchestrator {
       if (existing && this.isRunning(existing.id)) {
         return { session: existing, created: false, resumed: false, started: false };
       }
+      if (!config.team.limits.aiEnabled)
+        throw conflict('ai_disabled', 'AI work is switched off in this project');
       return this.start(config, member, workItem, task, existing);
     });
   }
@@ -497,6 +499,9 @@ export class SessionOrchestrator {
       memory,
     });
 
+    // Configuration may change while login, worktree and memory preparation await I/O.
+    if (!(await this.deps.projects.config(projectKey)).team.limits.aiEnabled)
+      throw conflict('ai_disabled', 'AI work is switched off in this project');
     const at = isoNow(this.ctx);
     // Resume only a conversation that exists (the runner reported its transcript) and that
     // belongs to the member's current provider.

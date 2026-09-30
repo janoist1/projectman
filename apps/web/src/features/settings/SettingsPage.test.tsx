@@ -59,6 +59,28 @@ describe('settings section editors', () => {
     expect(project.backend.history[0]?.message).toBe('Update project');
   });
 
+  it('patches the AI switch and displays its disabled state', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    const section = await editSection('limits');
+    const toggle = section.getByRole('checkbox', {
+      name: t('settings.limits.aiEnabled'),
+    }) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    expect(section.getByText(t('settings.limits.aiEnabledHelp'))).toBeTruthy();
+    fireEvent.click(toggle);
+    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
+    await section.findByText(t('settings.limits.aiEnabledOff'));
+    expect(project.backend.config.team.limits.aiEnabled).toBe(false);
+    expect(project.requests.find((request) => request.method === 'PATCH')?.body).toMatchObject({
+      limits: { aiEnabled: false },
+    });
+    const reopened = await editSection('limits');
+    expect(
+      (reopened.getByRole('checkbox', { name: t('settings.limits.aiEnabled') }) as HTMLInputElement).checked,
+    ).toBe(false);
+  });
+
   it('edits limits with a 10–100 slider and AI-capable role choices', async () => {
     const project = mockProject();
     project.render(<SettingsPage />);
@@ -83,6 +105,7 @@ describe('settings section editors', () => {
     fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
     await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
     expect(project.backend.config.team.limits).toEqual({
+      aiEnabled: true,
       maxConcurrentAi: 2,
       pauseAbovePlanUsagePercent: 60,
       tempWorkers: { enabled: true, max: 3, role: 'qa' },

@@ -40,23 +40,27 @@ describe('mock schedules', () => {
     backend.updateSession(second.sessionId!, { state: 'failed' });
     expect(backend.scheduleRuns.at(-1)?.status).toBe('failed');
   });
-  it.each(['member_at_capacity', 'ai_limit_reached', 'plan_usage_paused', 'provider_not_logged_in'])(
-    'records %s',
-    (reason) => {
-      const { backend, handle } = scheduledBackend();
-      const member = backend.config.team.members.find((m) => m.handle === handle)!;
-      if (member.kind !== 'ai') throw new Error('Expected AI member');
-      if (reason === 'member_at_capacity') member.capacity = 0;
-      if (reason === 'ai_limit_reached') backend.config.team.limits.maxConcurrentAi = 0;
-      if (reason === 'plan_usage_paused') backend.planUsage.weeklyPercent = 99;
-      if (reason === 'provider_not_logged_in') backend.providerLoggedIn[member.provider ?? 'claude'] = false;
-      expect(backend.handle('POST', `${base}/members/${handle}/schedule/run`, undefined)).toMatchObject({
-        status: 409,
-        body: { error: { code: reason } },
-      });
-      expect(backend.scheduleRuns.at(-1)).toMatchObject({ status: 'skipped', reason });
-    },
-  );
+  it.each([
+    'member_at_capacity',
+    'ai_limit_reached',
+    'plan_usage_paused',
+    'ai_disabled',
+    'provider_not_logged_in',
+  ])('records %s', (reason) => {
+    const { backend, handle } = scheduledBackend();
+    const member = backend.config.team.members.find((m) => m.handle === handle)!;
+    if (member.kind !== 'ai') throw new Error('Expected AI member');
+    if (reason === 'member_at_capacity') member.capacity = 0;
+    if (reason === 'ai_limit_reached') backend.config.team.limits.maxConcurrentAi = 0;
+    if (reason === 'plan_usage_paused') backend.planUsage.weeklyPercent = 99;
+    if (reason === 'ai_disabled') backend.config.team.limits.aiEnabled = false;
+    if (reason === 'provider_not_logged_in') backend.providerLoggedIn[member.provider ?? 'claude'] = false;
+    expect(backend.handle('POST', `${base}/members/${handle}/schedule/run`, undefined)).toMatchObject({
+      status: 409,
+      body: { error: { code: reason } },
+    });
+    expect(backend.scheduleRuns.at(-1)).toMatchObject({ status: 'skipped', reason });
+  });
   it('uses the scheduled member provider for plan usage', () => {
     const { backend, handle } = scheduledBackend();
     const member = backend.config.team.members.find((m) => m.handle === handle)!;

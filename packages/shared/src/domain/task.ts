@@ -31,7 +31,7 @@ export const Visibility = z.enum(['internal', 'shared']);
 export type Visibility = z.infer<typeof Visibility>;
 
 export const TaskStartWaiting = z.object({
-  reason: z.enum(['ai_limit_reached', 'plan_usage_paused', 'member_at_capacity']),
+  reason: z.enum(['ai_limit_reached', 'plan_usage_paused', 'ai_disabled', 'member_at_capacity']),
   member: MemberHandle.optional(),
   provider: AgentProvider.optional(),
   /** Admission threshold, rather than current usage. */

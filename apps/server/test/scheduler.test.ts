@@ -180,7 +180,7 @@ describe('scheduler', () => {
   it('starts the AI owner of a later stage when a human moves the task there', async () => {
     h = await createDomainHarness();
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
-    await start(h, 'AR-1');
+    const dev = await start(h, 'AR-1');
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
 
     const review = await waitFor(
@@ -191,13 +191,24 @@ describe('scheduler', () => {
       sessionId: review.id,
       initialMessage: 'Brief for AR-1: Login page',
     });
-    // Back to the work stage (the developer resumes through startTask or a message) starts nothing.
+    // Back to the work stage: nothing starts, the developer's live session hears of it.
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
-    await settle();
+    await waitFor(
+      () => h.runner.messages.find((m) => m.sessionId === dev.session!.id && /Development/.test(m.text)),
+      {
+        what: 'the developer notice',
+      },
+    );
     expect(h.runner.started).toHaveLength(2);
-    // Re-entering the stage reuses the reviewer's running session.
+    // Re-entering the stage tells the reviewer's running session instead of starting another one.
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
-    await settle();
+    const notice = await waitFor(
+      () => h.runner.messages.find((m) => m.sessionId === review.id && /Code review/.test(m.text)),
+      { what: 'the reviewer notice' },
+    );
+    expect(notice.text).toMatch(
+      /^\[team message from owner about AR-1\]\nTask AR-1 is now in stage Code review/,
+    );
     expect(h.runner.started).toHaveLength(2);
   });
 

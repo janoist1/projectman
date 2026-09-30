@@ -6,13 +6,14 @@ import type {
   MemberConfig,
   ProjectConfig,
   Session,
+  Stage,
   Task,
   WorkItemRef,
 } from '@projectman/shared';
 import { ownerHandles } from './access';
 import type { DomainContext } from './context';
 import { conflict, DomainError, invalid, notFound } from './errors';
-import { stageOwners, roleBundle } from '@projectman/shared';
+import { formatInjectedTeamMessage, stageOwners, roleBundle } from '@projectman/shared';
 import { evaluateGates, stageIndex, stagesEntered } from './gates';
 import type { MemberService } from './members';
 import { highestUsagePercent } from './plan-usage';
@@ -240,13 +241,21 @@ export class Scheduler {
     const workItem = { type: 'task', taskKey: task.key } as const;
     const config = await this.projects.config(projectKey);
     const stage = config.pipeline.stages.find((s) => s.id === change.to);
-    if (!stage || stage.kind === 'queue' || stage.kind === 'work' || stage.kind === 'done') return;
+    if (!stage || stage.kind === 'queue' || stage.kind === 'done') return;
+    if (stage.kind === 'work') {
+      // Back to the work stage: the assignee resumes through startTask; a live session hears of it.
+      if (task.assignee && this.sessions.findRunning(projectKey, task.assignee, workItem))
+        await this.notifyStageOwner(change, stage, task.assignee);
+      return;
+    }
     // The assignee (usually the developer) never takes over a later stage: no self-review.
     const owners = stageOwners(config, stage)
       .map((handle) => config.team.members.find((m) => m.handle === handle))
       .filter((m): m is AiMemberConfig => m?.kind === 'ai' && m.handle !== task.assignee);
     if (owners.length === 0) return;
-    if (owners.some((m) => this.sessions.findRunning(projectKey, m.handle, workItem))) return;
+    // An owner already works on the task (e.g. from an earlier stage): tell it the task is here.
+    const running = owners.find((m) => this.sessions.findRunning(projectKey, m.handle, workItem));
+    if (running) return this.notifyStageOwner(change, stage, running.handle);
     const defer = (reason: string) => {
       this.deferredHandOffs.set(key, change);
       this.ctx.logger.info({ taskKey: task.key, stage: stage.id, reason }, 'stage hand-over deferred');
@@ -266,6 +275,23 @@ export class Scheduler {
       if (err instanceof DomainError && DEFERRABLE_CODES.has(err.code)) return defer(err.code);
       throw err;
     }
+  }
+
+  /** Tells a member's live task session that the task entered its stage, unless it moved it itself. */
+  private async notifyStageOwner(change: StageChange, stage: Stage, handle: string): Promise<void> {
+    if (change.actor.kind === 'ai' && change.actor.handle === handle) return;
+    const { task } = change;
+    await this.sessions.sendToMember(
+      task.projectKey,
+      handle,
+      { type: 'task', taskKey: task.key },
+      formatInjectedTeamMessage(
+        change.actor.handle ?? 'projectman',
+        `Task ${task.key} is now in stage ${stage.name} (\`${stage.id}\`). ` +
+          'You own this stage: do your part by its rules; get_task shows the latest state.',
+        task.key,
+      ),
+    );
   }
 
   /** Retries refused hand-overs of tasks still in the stage they entered (called periodically). */

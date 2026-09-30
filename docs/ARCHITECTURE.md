@@ -72,8 +72,10 @@ server later.
   `[team message from <handle> about <KEY>]` so transcripts can be parsed.
 - **Stage hand-over** — when a task enters a later stage owned by AI members (review, QA,
   deploy, release, …) by any move, including a human's move or an approved gate, the least
-  loaded free owner (never the task's assignee) gets a session for the task unless one of the
-  owners already runs one; its kick-off brief carries the stage rules. It runs in the
+  loaded free owner (never the task's assignee) gets a session for the task; its kick-off brief
+  carries the stage rules. An owner that already runs a session for the task (and the assignee's
+  live session when the task returns to the work stage) instead gets a notice, typed as a team
+  message from whoever moved it. It runs in the
   background under the usual admission limits; a start refused by them (AI limit, plan usage,
   owners at capacity) is retried every 30 s while the task stays in the stage. Work stages start through the scheduler's `startTask`.
 - **Inbox ("Rád vár")** — everything waiting for a human: tool permission requests

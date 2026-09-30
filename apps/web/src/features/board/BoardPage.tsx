@@ -135,8 +135,8 @@ export function BoardPage() {
     [model, pending],
   );
   const searched = useMemo(
-    () => optimisticEntries.filter((entry) => matchesSearch(entry.task, search)),
-    [optimisticEntries, search],
+    () => optimisticEntries.filter((entry) => matchesSearch(entry.task, search, model?.ctx.labels)),
+    [optimisticEntries, search, model],
   );
   const visible = useMemo(
     () => searched.filter((entry) => matchesFilter(entry.state.phase, filter)),

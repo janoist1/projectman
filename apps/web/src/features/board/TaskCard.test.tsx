@@ -3,6 +3,7 @@ import type { Task } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
 import { indexPipeline } from '../../lib/pipeline';
 import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
+import { matchesSearch } from './cardModel';
 import type { TaskStateContext } from '../../lib/taskState';
 import { buildConfig, inbox, tasks } from '../../mocks/fixtures';
 import { mockIndexes, renderUi } from '../../test/render';
@@ -165,5 +166,16 @@ describe('subtask card chips', () => {
       />,
     );
     expect(screen.getByText('1/2')).toBeTruthy();
+  });
+
+  it('a blocking label holds the task under the label name, and search finds labels by name', () => {
+    const task = { ...taskByKey('AC-24'), labels: ['waiting-answer'] };
+    expect(deriveTaskState(task, ctx).phase).toBe('ready');
+    expect(deriveTaskState(task, { ...ctx, labels: labelViews })).toMatchObject({
+      phase: 'waiting',
+      label: 'Válaszra vár',
+    });
+    expect(matchesSearch(task, 'valaszra', labelViews)).toBe(true);
+    expect(matchesSearch(task, 'valaszra')).toBe(false);
   });
 });

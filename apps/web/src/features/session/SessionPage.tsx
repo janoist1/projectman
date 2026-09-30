@@ -173,6 +173,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
           openInboxByTask: groupOpenInboxByTask(items),
           tasksByKey: new Map([[task.key, task]]),
           myHandle,
+          labels,
         })
       : null;
   const stage = task && pipeline ? pipeline.stageById.get(task.stageId) : undefined;

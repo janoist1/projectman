@@ -26,6 +26,7 @@ export function useBoardModel() {
   const inbox = useInbox(key);
   const { members, pipeline } = useProjectIndexes(key);
   const tasks = board.data?.tasks;
+  const labels = board.data?.labels;
   const items = inbox.data?.items;
 
   const model = useMemo(() => {
@@ -36,6 +37,7 @@ export function useBoardModel() {
       openInboxByTask: groupOpenInboxByTask(items),
       tasksByKey: new Map(tasks.map((task) => [task.key, task])),
       myHandle,
+      labels,
     };
     const subtasksByParent = new Map<string, Task[]>();
     for (const task of tasks) {
@@ -51,7 +53,7 @@ export function useBoardModel() {
       subtasksByParent,
       byKey: new Map(entries.map((entry) => [entry.task.key, entry])),
     };
-  }, [tasks, items, pipeline, members, myHandle]);
+  }, [tasks, labels, items, pipeline, members, myHandle]);
 
   return { board, inbox, members, pipeline, model };
 }

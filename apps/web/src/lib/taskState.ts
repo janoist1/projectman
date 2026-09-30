@@ -1,4 +1,4 @@
-import type { InboxItem, MemberView, Task } from '@projectman/shared';
+import type { InboxItem, LabelView, MemberView, Task } from '@projectman/shared';
 import { formatAge } from '../i18n/format';
 import { joinNames, t } from '../i18n/t';
 import { newestFirst, permissionCommand, shortCommand } from './inbox';
@@ -29,6 +29,8 @@ export interface TaskStateContext {
   openInboxByTask: ReadonlyMap<string, InboxItem[]>;
   tasksByKey: ReadonlyMap<string, Task>;
   myHandle: string | null;
+  /** Label definitions; a blocking label on a task makes it wait under the label's name. */
+  labels?: readonly LabelView[];
 }
 
 export function groupOpenInboxByTask(items: readonly InboxItem[] | undefined): Map<string, InboxItem[]> {
@@ -121,6 +123,17 @@ export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
         : t('taskStatus.workingPlain'),
       since: task.updatedAt,
       worker,
+    };
+  }
+
+  // A blocking label (e.g. "waiting for an answer") holds the task until someone takes it off.
+  const holding = (ctx.labels ?? []).filter((label) => label.blocks && task.labels.includes(label.id));
+  if (holding.length > 0) {
+    return {
+      phase: 'waiting',
+      label: joinNames(holding.map((label) => label.name)),
+      since: task.updatedAt,
+      worker: null,
     };
   }
 

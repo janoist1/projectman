@@ -179,7 +179,7 @@ export const hu: TemplateLocale = {
     },
     security_review: {
       name: 'Biztonsági átnéző',
-      summary: 'A PR-okban a hozzáférést, a titokkezelést és a fizetési útvonalakat nézi át.',
+      summary: 'A PR-okban a hozzáférést, a titokkezelést és a kockázatos részeket nézi át.',
       notTheirJob: 'Nem javít, csak jelez.',
     },
     qa: {
@@ -284,7 +284,7 @@ export const hu: TemplateLocale = {
     },
     'security-ok': {
       name: 'Biztonsági átnézés rendben',
-      meaning: 'A hozzáférést, a titokkezelést és a fizetési útvonalakat átnézték; nincs blokkoló gond.',
+      meaning: 'A hozzáférést, a titokkezelést és a kockázatos részeket átnézték; nincs blokkoló gond.',
     },
     'security-changes': {
       name: 'Biztonsági átnézés: javítandó',

@@ -735,7 +735,7 @@ export const hu = {
     },
     security_review: {
       name: 'Biztonsági átnéző',
-      summary: 'A PR-okban a hozzáférést, a titokkezelést és a fizetési útvonalakat nézi át.',
+      summary: 'A PR-okban a hozzáférést, a titokkezelést és a kockázatos részeket nézi át.',
       notTheirJob: 'Nem javít, csak jelez.',
     },
     qa: {

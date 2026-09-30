@@ -174,7 +174,7 @@ export const en: TemplateLocale = {
     },
     security_review: {
       name: 'Security reviewer',
-      summary: 'Reviews access control, secrets handling and payment flows in pull requests.',
+      summary: 'Reviews access control, secrets handling and risky code paths in pull requests.',
       notTheirJob: 'Does not fix anything, only reports.',
     },
     qa: {
@@ -280,7 +280,7 @@ export const en: TemplateLocale = {
     },
     'security-ok': {
       name: 'Security review ok',
-      meaning: 'Access, secrets and payment paths were reviewed; nothing blocking.',
+      meaning: 'Access, secrets and risky code paths were reviewed; nothing blocking.',
     },
     'security-changes': {
       name: 'Security review: changes needed',

@@ -166,6 +166,7 @@ claude | codex ── transcript JSONL ────────────▶ r
 | `apps/server/src/runner`        | PTY sessions, provider adapters (`providers/claude`, `providers/codex`), hooks, permission waiting, transcripts, plan usage, login checks.                                        |
 | `apps/server/src/mcp`           | The team tools MCP server (`/mcp/:token`): tool definitions and the text the model reads.                                                                                         |
 | `apps/server/src/context`       | Context pack: system prompt, kick-off brief, work-item rules, member memory.                                                                                                      |
+| `apps/server/src/agent-text`    | AI-facing wording shared by the context pack and the team tools: timeline events, links, one-line text.                                                                           |
 | `apps/server/src/worktree`      | Git worktrees and branches for tasks.                                                                                                                                             |
 | `apps/server/src/github`        | `gh`-based pull request lookups and polling.                                                                                                                                      |
 | `apps/server/src/http`          | Request guards shared by the internal endpoints (local-only checks).                                                                                                              |

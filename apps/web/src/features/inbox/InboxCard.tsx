@@ -16,12 +16,14 @@ import {
   optionLabel,
   payloadCode,
   permissionTool,
+  questionExtras,
 } from '../../lib/inbox';
 import { toolPresentationFor } from '../../lib/chat';
 import { nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
 import styles from './InboxCard.module.css';
+import { QuestionChoices, QuestionDetails } from './Question';
 
 const variantFor: Record<InboxOption['style'], ButtonVariant> = {
   primary: 'primary',
@@ -77,6 +79,12 @@ export function InboxCard({
   const Heading = headingLevel === 2 ? 'h2' : 'h3';
   const assignedToOthers = myHandle !== null && !item.assignees.includes(myHandle);
   const buttonSize = mobile ? 'xl' : 'lg';
+  const extras = questionExtras(item);
+  // A question that recommends an option or describes what each one does lists its options with
+  // that text; every other item keeps its row of buttons.
+  const describesChoices =
+    item.kind === 'question' &&
+    (extras.recommendedOptionId !== null || choices.some((option) => option.consequence));
 
   const submitAnswer = () => {
     if (!answer.trim()) {
@@ -114,6 +122,7 @@ export function InboxCard({
           <p className={styles.body}>{item.body}</p>
         )
       ) : null}
+      {extras.details ? <QuestionDetails text={extras.details} /> : null}
       {code ? (
         <div className={styles.codeWrap}>
           {tool ? (
@@ -129,6 +138,18 @@ export function InboxCard({
           <Icon name="user" size={14} />
           {t('inbox.assignedTo', { names: joinNames(namesOf(item.assignees, members, myHandle)) })}
         </p>
+      ) : null}
+      {describesChoices && !assignedToOthers ? (
+        <QuestionChoices
+          choices={choices}
+          recommendedOptionId={extras.recommendedOptionId}
+          recommendationReason={extras.recommendationReason}
+          size={buttonSize}
+          mobile={mobile}
+          disabled={pending}
+          variantOf={(option) => (answering ? 'secondary' : variantFor[option.style])}
+          onPick={(option) => onResolve(item, { optionId: option.id })}
+        />
       ) : null}
       {answering ? (
         <div className={styles.answer}>
@@ -162,17 +183,19 @@ export function InboxCard({
               {t('inbox.answerSubmit')}
             </Button>
           ) : null}
-          {choices.map((option) => (
-            <Button
-              key={option.id}
-              variant={answering ? 'secondary' : variantFor[option.style]}
-              size={buttonSize}
-              disabled={pending}
-              onClick={() => onResolve(item, { optionId: option.id })}
-            >
-              {optionLabel(option)}
-            </Button>
-          ))}
+          {describesChoices
+            ? null
+            : choices.map((option) => (
+                <Button
+                  key={option.id}
+                  variant={answering ? 'secondary' : variantFor[option.style]}
+                  size={buttonSize}
+                  disabled={pending}
+                  onClick={() => onResolve(item, { optionId: option.id })}
+                >
+                  {optionLabel(option)}
+                </Button>
+              ))}
           {allowsFreeAnswer && !answering ? (
             <Button variant="ghost" size={buttonSize} onClick={() => setAnswering(true)} disabled={pending}>
               {answerOption ? optionLabel(answerOption) : t('inbox.answerOwn')}

@@ -1,5 +1,13 @@
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
-import type { MemberHandle, MemberView, Task, TaskDetail, TaskStatus, Visibility } from '@projectman/shared';
+import type {
+  MemberHandle,
+  MemberView,
+  QuestionOptionInput,
+  Task,
+  TaskDetail,
+  TaskStatus,
+  Visibility,
+} from '@projectman/shared';
 
 /**
  * Team tools exposed to AI members through an MCP server ("team"), replacing the
@@ -76,10 +84,24 @@ export interface TeamToolsHandler {
     ctx: ToolContext,
     args: { taskKey: string; repo: string; number: number },
   ): Promise<{ task: Task }>;
-  /** ask_human: create a question in a human's inbox; the answer arrives later as a team message. */
+  /**
+   * ask_human: create a question in a human's inbox; the answer arrives later as a team message.
+   * The question is written for a non-specialist. Each option is a label, or a label with its
+   * `consequence` (what happens if it is picked). `recommended` is the exact label of one option,
+   * with its one-sentence `recommendationReason`; `details` is markdown technical background that
+   * the inbox shows folded. All of these are optional.
+   */
   askHuman(
     ctx: ToolContext,
-    args: { question: string; options?: string[]; taskKey?: string; to?: MemberHandle[] },
+    args: {
+      question: string;
+      options?: QuestionOptionInput[];
+      taskKey?: string;
+      to?: MemberHandle[];
+      recommended?: string;
+      recommendationReason?: string;
+      details?: string;
+    },
   ): Promise<{ inboxItemId: string }>;
   /** save_memory: append a durable learning to this member's memory. */
   saveMemory(ctx: ToolContext, args: { note: string }): Promise<{ ok: true }>;

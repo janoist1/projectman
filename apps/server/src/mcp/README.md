@@ -53,17 +53,17 @@ tests use the SDK's own client, which behaves the same way here):
 
 ## Tools
 
-| Tool                | Input                                                                                                         | Handler call                                                                                     |
-| ------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `send_message`      | `to` (handles, 1–20), `text`, `task_key?`                                                                     | `sendMessage(ctx, { to, text, taskKey? })`                                                       |
-| `list_members`      | none                                                                                                          | `listMembers(ctx)`                                                                               |
-| `list_tasks`        | `status?`, `stage?`, `assignee?`, `limit?`                                                                    | `listTasks(ctx, args)`                                                                           |
-| `get_task`          | `task_key`                                                                                                    | `getTask(ctx, { taskKey })`                                                                      |
-| `update_task`       | `task_key`, `stage_id?`, `add_labels?` (max 10), `remove_labels?` (max 10), `note?`, `title?`, `description?` | `updateTask(ctx, { taskKey, stageId?, addLabels?, removeLabels?, note?, title?, description? })` |
-| `create_task`       | `title` (max 200 chars), `description?`, `labels?` (max 10), `visibility?`, `parent_key?`                     | `createTask(ctx, { title, description?, labels?, visibility?, parentKey? })`                     |
-| `link_pull_request` | `task_key`, `repo` (`owner/name`), `number`                                                                   | `linkPullRequest(ctx, { taskKey, repo, number })`                                                |
-| `ask_human`         | `question`, `options?` (1–10), `task_key?`, `to?` (handles)                                                   | `askHuman(ctx, { question, options?, taskKey?, to? })`                                           |
-| `save_memory`       | `note` (max 2000 chars)                                                                                       | `saveMemory(ctx, { note })`                                                                      |
+| Tool                | Input                                                                                                                                         | Handler call                                                                                          |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `send_message`      | `to` (handles, 1–20), `text`, `task_key?`                                                                                                     | `sendMessage(ctx, { to, text, taskKey? })`                                                            |
+| `list_members`      | none                                                                                                                                          | `listMembers(ctx)`                                                                                    |
+| `list_tasks`        | `status?`, `stage?`, `assignee?`, `limit?`                                                                                                    | `listTasks(ctx, args)`                                                                                |
+| `get_task`          | `task_key`                                                                                                                                    | `getTask(ctx, { taskKey })`                                                                           |
+| `update_task`       | `task_key`, `stage_id?`, `add_labels?` (max 10), `remove_labels?` (max 10), `note?`, `title?`, `description?`                                 | `updateTask(ctx, { taskKey, stageId?, addLabels?, removeLabels?, note?, title?, description? })`      |
+| `create_task`       | `title` (max 200 chars), `description?`, `labels?` (max 10), `visibility?`, `parent_key?`                                                     | `createTask(ctx, { title, description?, labels?, visibility?, parentKey? })`                          |
+| `link_pull_request` | `task_key`, `repo` (`owner/name`), `number`                                                                                                   | `linkPullRequest(ctx, { taskKey, repo, number })`                                                     |
+| `ask_human`         | `question`, `options?` (1–10: labels, or `{ label, consequence? }`), `recommended?`, `recommendation_reason?`, `details?`, `task_key?`, `to?` | `askHuman(ctx, { question, options?, recommended?, recommendationReason?, details?, taskKey?, to? })` |
+| `save_memory`       | `note` (max 2000 chars)                                                                                                                       | `saveMemory(ctx, { note })`                                                                           |
 
 - Inputs are zod schemas (`tools.ts`), strict: an unknown key is an error rather than
   silently dropped. Handles, task keys, stage ids, task statuses and visibility reuse the
@@ -72,6 +72,19 @@ tests use the SDK's own client, which behaves the same way here):
   (`ctx.taskKey`); from a session without a task, an omitted key means a general message.
 - `to` is deduplicated. `send_message` also drops the caller's own handle and refuses a
   message addressed only to the caller.
+- `ask_human` is written for a human who is not a specialist; the tool description (and the
+  system prompt's guardrails) say how. `question` is one plain sentence that names the decision.
+  Each option is a label or `{ label, consequence }` (what happens if it is picked).
+  `recommended` is the exact label of one option and `recommendation_reason` one sentence (it
+  needs `recommended`); `details` is markdown background that the inbox shows folded. The
+  schema checks only what can be wrong beyond doubt, before the handler: `recommended` must
+  name an option, and a reason needs a recommendation. The wording is never refused: a question
+  over 300 characters, or one without a recommendation, is asked all the same, and the result
+  adds a "Tip for your next question" line (`Consider moving detail into details.`; a
+  recommendation is suggested when there is none). The domain stores the fields in the inbox
+  item (`payload.recommended` as the option's id, `recommendationReason`, `details`;
+  `consequence` on the option) and makes the recommended option the primary button, so
+  questions without them stay as they were.
 - `update_task` needs at least one of `stage_id`, `add_labels`, `remove_labels`, `note`,
   `title` and `description`. Labels follow the project's label definitions (who may set them,
   groups, a required note, no self-review, human-only approvals), enforced by the domain; the

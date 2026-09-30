@@ -1,8 +1,15 @@
-import { isOpenTask, memberOf, TaskStatus as TaskStatusSchema, TaskKey } from '@projectman/shared';
+import {
+  isOpenTask,
+  memberOf,
+  questionChoices,
+  TaskStatus as TaskStatusSchema,
+  TaskKey,
+} from '@projectman/shared';
 import type {
   InboxOption,
   MemberView,
   ProjectConfig,
+  QuestionOptionInput,
   Task,
   TaskDetail,
   Visibility,
@@ -319,7 +326,15 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async askHuman(
     ctx: ToolContext,
-    args: { question: string; options?: string[]; taskKey?: string; to?: string[] },
+    args: {
+      question: string;
+      options?: QuestionOptionInput[];
+      taskKey?: string;
+      to?: string[];
+      recommended?: string;
+      recommendationReason?: string;
+      details?: string;
+    },
   ): Promise<{ inboxItemId: string }> {
     return this.guard(async () => {
       const config = await this.caller(ctx);
@@ -338,12 +353,29 @@ export class TeamToolsService implements TeamToolsHandler {
       } else {
         assignees = sponsorOrOwners(config, ctx.member);
       }
-      const labels = (args.options ?? []).map((o) => o.trim()).filter(Boolean);
+      const choices = questionChoices(args.options);
+      const recommended = args.recommended?.trim();
+      const reason = args.recommendationReason?.trim();
+      const details = args.details?.trim();
+      // The team tool checks this at its boundary; a direct caller gets the same answer.
+      const recommendedIndex = recommended ? choices.findIndex((choice) => choice.label === recommended) : -1;
+      if (recommended && recommendedIndex < 0) {
+        throw new TeamToolError(
+          'invalid',
+          `The recommended option "${recommended}" is not one of the options.`,
+        );
+      }
+      if (reason && !recommended) {
+        throw new TeamToolError('invalid', 'A recommendation reason needs a recommended option.');
+      }
+      // The recommended option is the primary button; without a recommendation the first one is.
+      const primary = Math.max(recommendedIndex, 0);
       const options: InboxOption[] = [
-        ...labels.map((label, i): InboxOption => ({
+        ...choices.map((choice, i): InboxOption => ({
           id: `option_${i + 1}`,
-          label,
-          style: i === 0 ? 'primary' : 'secondary',
+          label: choice.label,
+          style: i === primary ? 'primary' : 'secondary',
+          ...(choice.consequence ? { consequence: choice.consequence } : {}),
         })),
         ANSWER_OPTION,
       ];
@@ -355,7 +387,13 @@ export class TeamToolsService implements TeamToolsHandler {
         sessionId: ctx.sessionId,
         taskKey,
         title: question,
-        payload: { question, options: labels },
+        payload: {
+          question,
+          options: choices.map((choice) => choice.label),
+          ...(recommendedIndex >= 0 ? { recommended: options[recommendedIndex]!.id } : {}),
+          ...(reason ? { recommendationReason: reason } : {}),
+          ...(details ? { details } : {}),
+        },
         options,
       });
       this.timeline.append({

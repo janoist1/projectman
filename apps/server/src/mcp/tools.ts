@@ -1,5 +1,5 @@
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
-import { MemberHandle, StageId, TaskKey, TaskStatus, Visibility } from '@projectman/shared';
+import { MemberHandle, questionChoices, StageId, TaskKey, TaskStatus, Visibility } from '@projectman/shared';
 import { z } from 'zod';
 import { TeamToolError, type TeamToolsHandler, type ToolContext } from '../contracts';
 import {
@@ -51,6 +51,9 @@ const MAX_DESCRIPTION_CHARS = 20_000;
 const MAX_LABEL_CHARS = 40;
 const MAX_QUESTION_CHARS = 4_000;
 const MAX_OPTION_CHARS = 200;
+const MAX_CONSEQUENCE_CHARS = 400;
+const MAX_REASON_CHARS = 400;
+const MAX_DETAILS_CHARS = 10_000;
 const MAX_MEMORY_CHARS = 2_000;
 
 export interface ToolRun<Args> {
@@ -77,14 +80,26 @@ function defineTool<Shape extends z.core.$ZodLooseShape>(def: {
   description: string;
   readOnly: boolean;
   input: Shape;
+  /**
+   * Rules that span several parameters (e.g. a recommendation must name one of the options).
+   * `issue` reports a problem with one parameter; the call is refused before `run`, with the
+   * message, like any other invalid input.
+   */
+  check?(args: ToolInput<Shape>, issue: (parameter: string, message: string) => void): void;
   run(call: ToolRun<ToolInput<Shape>>): Promise<string>;
 }): TeamTool {
+  // Strict: an unknown key (e.g. a misspelled parameter) is an error instead of being ignored.
+  const schema = z.strictObject(def.input);
+  const { check } = def;
   return {
     name: def.name,
     title: def.title,
     description: def.description,
-    // Strict: an unknown key (e.g. a misspelled parameter) is an error instead of being ignored.
-    inputSchema: z.strictObject(def.input),
+    inputSchema: check
+      ? schema.superRefine((args, ctx) =>
+          check(args, (parameter, message) => ctx.addIssue({ code: 'custom', path: [parameter], message })),
+        )
+      : schema,
     annotations: {
       title: def.title,
       readOnlyHint: def.readOnly,
@@ -364,22 +379,75 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       'Ask a human for a decision or information you cannot find or decide yourself (requirements, ' +
       'priorities, approvals, access, trade-offs). The question goes to their inbox; the answer arrives ' +
       'later in this session as a team message. Do not wait or poll for it: continue with work that does ' +
-      'not depend on the answer, or end your turn. Ask one clear question.',
+      'not depend on the answer, or end your turn. Ask one clear question. The human who answers is ' +
+      'usually not a specialist and often reads on a phone, so write for them: start the question with ' +
+      'one plain sentence that names the decision in everyday words, and keep it short. Describe each ' +
+      'option by what happens if it is picked, not by technical names, and always recommend one option ' +
+      'with a one-sentence reason. Put code, file names and technical reasoning into details; the inbox ' +
+      'shows it folded.',
     input: {
       question: z
         .string()
         .trim()
         .min(1)
         .max(MAX_QUESTION_CHARS)
-        .describe('The question, with the context needed to answer it without opening anything else.'),
+        .describe(
+          'The decision in everyday words: one plain sentence that names it, then only the context needed ' +
+            'to choose. Keep it short; technical background goes into details.',
+        ),
       options: z
-        .array(z.string().trim().min(1).max(MAX_OPTION_CHARS))
+        .array(
+          z.union([
+            z.string().trim().min(1).max(MAX_OPTION_CHARS),
+            z.strictObject({
+              label: z.string().trim().min(1).max(MAX_OPTION_CHARS).describe('Short button text.'),
+              consequence: z
+                .string()
+                .trim()
+                .min(1)
+                .max(MAX_CONSEQUENCE_CHARS)
+                .optional()
+                .describe(
+                  'What happens if the human picks this option, in everyday words and without technical names.',
+                ),
+            }),
+          ]),
+        )
         .min(1)
         .max(10)
         .optional()
         .describe(
-          'Suggested answers shown as buttons, e.g. ["Yes", "No"]; offer them when you can. Omit for a ' +
-            'free-text answer.',
+          'Suggested answers shown as buttons; offer them whenever the decision has alternatives, and give an ' +
+            'open question your own suggestion as an option. Each option is an object with a short label ' +
+            'and its consequence (a plain label string is accepted too). Omit for a free-text answer.',
+        ),
+      recommended: z
+        .string()
+        .trim()
+        .min(1)
+        .max(MAX_OPTION_CHARS)
+        .optional()
+        .describe(
+          'The option you recommend: the label of one of the options, written exactly the same way. Always ' +
+            'give it, with recommendation_reason; the inbox marks that option as recommended.',
+        ),
+      recommendation_reason: z
+        .string()
+        .trim()
+        .min(1)
+        .max(MAX_REASON_CHARS)
+        .optional()
+        .describe('Why you recommend it, in one plain sentence. Needs recommended.'),
+      details: z
+        .string()
+        .trim()
+        .min(1)
+        .max(MAX_DETAILS_CHARS)
+        .optional()
+        .describe(
+          'Technical background as markdown (code, file names, how you reached your recommendation) for ' +
+            'whoever wants to dig in. The inbox shows it folded, so the question and the options must make ' +
+            'sense without it.',
         ),
       task_key: TaskKey.optional().describe(
         'Task the question is about. Defaults to the task of your current session.',
@@ -393,16 +461,39 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
           'Handles of the humans to ask. Omit to ask the humans responsible for the task or project.',
         ),
     },
+    check(args, issue) {
+      const labels = questionChoices(args.options).map((choice) => choice.label);
+      if (args.recommended !== undefined && !labels.includes(args.recommended)) {
+        issue(
+          'recommended',
+          labels.length > 0
+            ? `recommended must be exactly one of the options: ${labels.map((label) => JSON.stringify(label)).join(', ')}.`
+            : 'recommended must name one of the options, but there are none: offer your suggestion as an option.',
+        );
+      }
+      if (args.recommendation_reason !== undefined && args.recommended === undefined) {
+        issue(
+          'recommendation_reason',
+          'recommendation_reason needs recommended: name the option you recommend.',
+        );
+      }
+    },
     async run({ ctx, args, handler }) {
       const taskKey = args.task_key ?? ctx.taskKey;
       const to = args.to ? unique(args.to) : undefined;
       const { inboxItemId } = await handler.askHuman(ctx, {
         question: args.question,
         ...(args.options ? { options: args.options } : {}),
+        ...(args.recommended ? { recommended: args.recommended } : {}),
+        ...(args.recommendation_reason ? { recommendationReason: args.recommendation_reason } : {}),
+        ...(args.details ? { details: args.details } : {}),
         ...(taskKey ? { taskKey } : {}),
         ...(to ? { to } : {}),
       });
-      return formatQuestionAsked(inboxItemId, to);
+      return formatQuestionAsked(inboxItemId, to, {
+        question: args.question,
+        recommended: args.recommended,
+      });
     },
   }),
 

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { questionPayloadOf } from '@projectman/shared';
 import type { TaskStatus } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
@@ -108,6 +109,107 @@ describe('team tools', () => {
     expect(delivered.text).toBe(
       '[team message from owner about AR-1]\nAnswer to your question "Which font should the login page use?":\n\nRoboto\n\nand bold titles',
     );
+  });
+
+  it('ask_human stores the consequences, the recommendation, its reason and the details', async () => {
+    const details = 'The `session` cookie is `SameSite=Lax`; a toast needs a new provider.';
+    const question = 'Should a wrong email show its error under the field or as a pop-up?';
+    const { inboxItemId } = await h.domain.teamTools.askHuman(dev, {
+      question: `  ${question} `,
+      options: [
+        { label: 'Under the field', consequence: 'The message stays until the address is fixed.' },
+        { label: ' Pop-up ', consequence: ' It disappears after a few seconds, so it can be missed. ' },
+        'Nowhere',
+      ],
+      recommended: 'Pop-up',
+      recommendationReason: ' It is easier to read on a phone. ',
+      details: `  ${details}\n`,
+    });
+
+    // Read back from the database, as the inbox API serves it.
+    const item = h.domain.inbox.get('AR', inboxItemId);
+    expect(item).toMatchObject({ kind: 'question', title: question, source: 'dev-1', taskKey: 'AR-1' });
+    expect(item.options).toEqual([
+      {
+        id: 'option_1',
+        label: 'Under the field',
+        style: 'secondary',
+        consequence: 'The message stays until the address is fixed.',
+      },
+      {
+        id: 'option_2',
+        label: 'Pop-up',
+        style: 'primary',
+        consequence: 'It disappears after a few seconds, so it can be missed.',
+      },
+      { id: 'option_3', label: 'Nowhere', style: 'secondary' },
+      { id: 'answer', label: 'answer', style: 'secondary' },
+    ]);
+    expect(item.payload).toEqual({
+      question,
+      options: ['Under the field', 'Pop-up', 'Nowhere'],
+      recommended: 'option_2',
+      recommendationReason: 'It is easier to read on a phone.',
+      details,
+    });
+    expect(questionPayloadOf(item)).toEqual(item.payload);
+
+    // The timeline and the answer to the asking session work as for any question.
+    expect(
+      h.domain.timeline.list('AR', { taskKey: 'AR-1' }).find((e) => e.type === 'question_asked'),
+    ).toMatchObject({ data: { inboxItemId, question } });
+    await h.domain.inbox.resolve(
+      'AR',
+      inboxItemId,
+      { optionId: 'option_2' },
+      { handle: 'owner', access: 'owner' },
+    );
+    await flush();
+    const delivered = h.runner.messages.filter((m) => m.sessionId === dev.sessionId).pop()!;
+    expect(delivered.text).toBe(
+      `[team message from owner about AR-1]\nAnswer to your question "${question}":\n\nPop-up`,
+    );
+  });
+
+  it('ask_human without the plain-language fields stores the question as it always did', async () => {
+    const { inboxItemId } = await h.domain.teamTools.askHuman(dev, {
+      question: 'Which font should the login page use?',
+      options: ['Inter', 'Roboto', ' Inter '],
+    });
+
+    const item = h.domain.inbox.get('AR', inboxItemId);
+    expect(item.payload).toEqual({
+      question: 'Which font should the login page use?',
+      options: ['Inter', 'Roboto'],
+    });
+    // The first option is the primary button when nothing is recommended.
+    expect(item.options).toEqual([
+      { id: 'option_1', label: 'Inter', style: 'primary' },
+      { id: 'option_2', label: 'Roboto', style: 'secondary' },
+      { id: 'answer', label: 'answer', style: 'secondary' },
+    ]);
+    expect(questionPayloadOf(item)).toEqual({
+      question: 'Which font should the login page use?',
+      options: ['Inter', 'Roboto'],
+    });
+  });
+
+  it('ask_human refuses a recommendation that is not one of the options and asks nothing', async () => {
+    const question = 'Which font should the login page use?';
+    const unknown = await toolError(
+      h.domain.teamTools.askHuman(dev, { question, options: ['Inter', 'Roboto'], recommended: 'Arial' }),
+    );
+    const noOptions = await toolError(h.domain.teamTools.askHuman(dev, { question, recommended: 'Inter' }));
+    const reasonOnly = await toolError(
+      h.domain.teamTools.askHuman(dev, { question, recommendationReason: 'It is clearer.' }),
+    );
+
+    expect(unknown.code).toBe('invalid');
+    expect(unknown.message).toBe('The recommended option "Arial" is not one of the options.');
+    expect(noOptions.code).toBe('invalid');
+    expect(reasonOnly.code).toBe('invalid');
+    expect(reasonOnly.message).toBe('A recommendation reason needs a recommended option.');
+    expect(h.domain.inbox.list('AR', { kind: 'question' })).toEqual([]);
   });
 
   it('link_pull_request links and watches the PR; save_memory appends to the member memory', async () => {

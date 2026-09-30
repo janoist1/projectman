@@ -1,8 +1,9 @@
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
+import { plainLanguageQuestion } from '../../mocks/fixtures';
 import { mockProject } from '../../test/mockProject';
 import { SessionPage } from './SessionPage';
 
@@ -60,5 +61,35 @@ describe('session header public settings', () => {
     project.render(sessionRoute, '/sessions/ses_ac21_fe1');
     expect(await screen.findByText(t('providers.claude'))).toBeTruthy();
     expect(screen.queryByText(t('providers.codex'))).toBeNull();
+  });
+});
+
+describe('questions in the session chat', () => {
+  it('shows a plain-language question inline, next to an old-style one that looks as it did', async () => {
+    const project = mockProject();
+    const question = plainLanguageQuestion();
+    project.backend.inbox.push(question);
+    project.render(sessionRoute, '/sessions/ses_ac22_dev1');
+
+    const card = (await screen.findByRole('heading', { name: question.title, level: 3 })).closest('article')!;
+    expect(within(card).getByText(t('inbox.question.recommended'))).toBeTruthy();
+    expect(within(card).getByText(/^Miért: /)).toBeTruthy();
+    expect(within(card).getByText('A hibaüzenet addig látszik, amíg ki nem javítod a címet.')).toBeTruthy();
+    expect(card.querySelector('details')!.open).toBe(false);
+
+    const oldTitle = project.backend.inbox.find((item) => item.id === 'inb_q_ga4')!.title;
+    const old = screen.getByRole('heading', { name: oldTitle, level: 3 }).closest('article')!;
+    expect(within(old).queryByRole('list')).toBeNull();
+    expect(old.querySelector('details')).toBeNull();
+    expect(within(old).queryByText(t('inbox.question.recommended'))).toBeNull();
+
+    fireEvent.click(within(card).getByRole('button', { name: 'Felugró ablakban' }));
+    await waitFor(() =>
+      expect(project.requests).toContainEqual({
+        method: 'POST',
+        path: `/api/projects/AC/inbox/${question.id}/resolve`,
+        body: { optionId: 'option_2' },
+      }),
+    );
   });
 });

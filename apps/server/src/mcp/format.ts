@@ -139,8 +139,37 @@ export function formatSentMessage(result: {
   return missing.length > 0 ? `${sent} Not delivered to: ${missing.join(', ')}.` : sent;
 }
 
-/** Where the question is; how the answer arrives is in the tool's description. */
-export function formatQuestionAsked(inboxItemId: string, to: string[] | undefined): string {
+/** A question longer than this gets the hint to move detail into `details`. */
+const LONG_QUESTION_CHARS = 300;
+
+/**
+ * A short hint for the asker after a question went through, or null: a long question belongs in
+ * `details`, and a recommendation with its reason is always wanted. It only helps the model write
+ * the next question (the result says so, so that it does not ask this one again); a question is
+ * never refused for it.
+ */
+export function questionHint(asked: { question: string; recommended?: string | undefined }): string | null {
+  const hints = [
+    ...(asked.question.length > LONG_QUESTION_CHARS ? ['Consider moving detail into details.'] : []),
+    ...(asked.recommended
+      ? []
+      : [
+          'Consider adding a recommendation with a one-sentence reason (recommended, recommendation_reason).',
+        ]),
+  ];
+  return hints.length > 0 ? hints.join(' ') : null;
+}
+
+/**
+ * Where the question is, and the hint if it has one; how the answer arrives is in the tool's
+ * description.
+ */
+export function formatQuestionAsked(
+  inboxItemId: string,
+  to: string[] | undefined,
+  asked: { question: string; recommended?: string | undefined },
+): string {
   const whose = to && to.length > 0 ? ` of ${to.join(', ')}` : '';
-  return `Question ${inboxItemId} is waiting in the inbox${whose}.`;
+  const hint = questionHint(asked);
+  return `Question ${inboxItemId} is waiting in the inbox${whose}.${hint ? `\nTip for your next question: ${hint}` : ''}`;
 }

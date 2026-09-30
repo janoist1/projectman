@@ -21,6 +21,9 @@ export const InboxOption = z.object({
    *  free-text labels come from agents (question options) and are data. */
   label: z.string(),
   style: z.enum(['primary', 'secondary', 'danger']),
+  /** What happens if the human picks this option, in everyday words (options of questions from AI
+   *  members); items from before it existed have none. */
+  consequence: z.string().optional(),
 });
 export type InboxOption = z.infer<typeof InboxOption>;
 
@@ -87,4 +90,57 @@ export type GateRequestPayload = z.infer<typeof GateRequestPayload>;
 export function gateRequestOf(item: Pick<InboxItem, 'payload'>): GateRequestPayload | null {
   const parsed = GateRequestPayload.safeParse(item.payload.gate);
   return parsed.success ? parsed.data : null;
+}
+
+/**
+ * `payload` of a `question` item, written by the `ask_human` team tool. The question is also the
+ * item's title; what each option leads to is `consequence` on the item's options. Questions from
+ * before the plain-language fields carry only `question` and `options`, and stay valid: everything
+ * else is optional.
+ */
+export const QuestionPayload = z.object({
+  question: z.string(),
+  /** The suggested answers as plain labels; the item's options (`option_1`, ...) repeat them. */
+  options: z.array(z.string()).optional(),
+  /** Id of the option (in the item's `options`) the asking member recommends. */
+  recommended: z.string().optional(),
+  /** One sentence: why the member recommends that option. */
+  recommendationReason: z.string().optional(),
+  /** Markdown technical background for whoever wants to dig in; shown folded. */
+  details: z.string().optional(),
+});
+export type QuestionPayload = z.infer<typeof QuestionPayload>;
+
+/** The question payload of an item, or null when it has none (or an unreadable one). */
+export function questionPayloadOf(item: Pick<InboxItem, 'payload'>): QuestionPayload | null {
+  const parsed = QuestionPayload.safeParse(item.payload);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
+ * One suggested answer of an `ask_human` question as the asking member wrote it: a label, or a
+ * label with what happens if it is picked.
+ */
+export type QuestionOptionInput = string | { label: string; consequence?: string };
+
+/** A suggested answer, normalized. */
+export interface QuestionChoice {
+  label: string;
+  consequence?: string;
+}
+
+/**
+ * The choices a question offers: trimmed, without empty labels, and without repeats (the first
+ * occurrence of a label wins). The team tool checks a recommendation against these labels and the
+ * domain stores them, so both read the same list.
+ */
+export function questionChoices(options: readonly QuestionOptionInput[] | undefined): QuestionChoice[] {
+  const choices: QuestionChoice[] = [];
+  for (const option of options ?? []) {
+    const label = (typeof option === 'string' ? option : option.label).trim();
+    if (!label || choices.some((choice) => choice.label === label)) continue;
+    const consequence = typeof option === 'string' ? '' : (option.consequence ?? '').trim();
+    choices.push(consequence ? { label, consequence } : { label });
+  }
+  return choices;
 }

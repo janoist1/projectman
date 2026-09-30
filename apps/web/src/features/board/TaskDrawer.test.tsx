@@ -4,6 +4,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
+import { plainLanguageQuestion } from '../../mocks/fixtures';
 import { mockProject } from '../../test/mockProject';
 import { t } from '../../i18n/t';
 import { TaskDrawer } from './TaskDrawer';
@@ -450,5 +451,26 @@ describe('task editing and subtasks', () => {
     await screen.findByText(project.backend.findTask('AC-20')!.title);
     expect(screen.queryByRole('button', { name: t('task.edit') })).toBeNull();
     expect(screen.queryByLabelText(t('task.subtaskTitle'))).toBeNull();
+  });
+});
+
+describe('task drawer questions', () => {
+  it('shows a plain-language question of the task with its recommendation and folded details', async () => {
+    const project = mockProject();
+    const question = plainLanguageQuestion();
+    project.backend.inbox.push(question);
+    project.render(drawer, '/p/AC/tasks/AC-22');
+
+    const card = (await screen.findByRole('heading', { name: question.title, level: 3 })).closest('article')!;
+    expect(within(card).getByText(t('inbox.question.recommended'))).toBeTruthy();
+    expect(within(card).getByText('Pár másodperc múlva eltűnik, ezért könnyű lemaradni róla.')).toBeTruthy();
+    expect(card.querySelector('details')!.open).toBe(false);
+
+    fireEvent.click(within(card).getByRole('button', { name: 'Az űrlap alatt' }));
+    await waitFor(() =>
+      expect(project.backend.inbox.find((item) => item.id === question.id)?.resolution).toMatchObject({
+        optionId: 'option_1',
+      }),
+    );
   });
 });

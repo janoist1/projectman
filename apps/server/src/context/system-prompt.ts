@@ -282,6 +282,7 @@ function guardrailsSection({ project, member }: ContextPackInput): string {
     "- Never approve a gate, a decision or a permission request, and never answer in a human's name: only humans approve.",
     '- Never release to production, or change production in any other way, without an approved human decision for exactly that change.',
     '- When you are blocked or a decision is needed, ask with ask_human instead of guessing.',
+    '- The human who answers ask_human is usually not a specialist and often reads on a phone: start the question with one plain sentence that names the decision, recommend one option with a one-sentence reason, describe each option by what happens if it is picked, and keep code, file names and technical reasoning in the details field, which the inbox shows folded. Keep it short; options, reasons and details follow the language rule above.',
     '- Never put secrets (passwords, tokens, keys, connection strings, personal data) in messages, notes, task text, commits or pull requests; say where they are stored instead.',
     '- Do not ask a teammate to do what you are not allowed to do; tell a human instead.',
     // The self-review rule is per label (notByAuthor), marked in the Labels section.

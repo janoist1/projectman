@@ -732,6 +732,12 @@ export const hu = {
     resolvedBy: '{who} · {time}',
     allDone: 'Ebben a szűrésben minden el van intézve.',
     allDoneEverywhere: 'Minden el van intézve.',
+    /** Questions from AI members: the recommended option, its reason and the folded background. */
+    question: {
+      recommended: 'Javasolt',
+      reason: 'Miért: {reason}',
+      details: 'Részletek',
+    },
     details: 'Részletek',
     tool: 'Eszköz: {tool}',
     permissionHeading: 'Engedélyt kér: {tool}',

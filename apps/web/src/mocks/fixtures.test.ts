@@ -36,6 +36,7 @@ describe('mock fixtures satisfy the shared contracts', () => {
     check(MemberView, fixtures.members, 'members');
     check(Session, fixtures.sessions, 'sessions');
     check(InboxItem, fixtures.inbox, 'inbox');
+    check(InboxItem, [fixtures.plainLanguageQuestion()], 'plain-language question');
     check(TeamMessage, fixtures.teamMessages, 'messages');
     check(TimelineEvent, fixtures.timeline, 'timeline');
     check(ChatItem, Object.values(fixtures.chats).flat(), 'chat');

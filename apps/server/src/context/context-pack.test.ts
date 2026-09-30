@@ -460,6 +460,25 @@ describe('system prompt', () => {
     );
   });
 
+  it('tells every member to write questions to humans in plain language, right after the rule to ask', () => {
+    for (const handle of ['fe-1', 'qa', 'devops', 'communication']) {
+      const guardrails = section(builder.build(input({ handle })).appendSystemPrompt, '# Guardrails');
+      const lines = guardrails.split('\n');
+      const ask = lines.findIndex((line) => line.includes('ask with ask_human instead of guessing'));
+      expect(ask, handle).toBeGreaterThan(0);
+      const writing = lines[ask + 1]!;
+      expect(writing).toContain('usually not a specialist');
+      expect(writing).toContain('one plain sentence that names the decision');
+      expect(writing).toContain('recommend one option with a one-sentence reason');
+      expect(writing).toContain('describe each option by what happens if it is picked');
+      expect(writing).toContain('technical reasoning in the details field');
+      expect(writing).toContain('Keep it short');
+      // The language rule is stated once, in "How the team works"; this only points at it.
+      expect(writing).toContain('follow the language rule above');
+      expect(writing).not.toContain("project's language");
+    }
+  });
+
   it('forbids self-review through the labels marked for it', () => {
     const rule =
       '- Never set a label marked "not on your own work" on a task you are assigned to or whose pull request you authored.';

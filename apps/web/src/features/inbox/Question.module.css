@@ -1,0 +1,110 @@
+.choices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.choice {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  background: var(--c-surface);
+}
+
+.recommended {
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 1px var(--c-accent);
+}
+
+.choiceHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* A label is short, but an agent may write a long one: let the button grow instead of cutting it. */
+.choiceHead > button {
+  height: auto;
+  min-height: 40px;
+  max-width: 100%;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  white-space: normal;
+  line-height: 1.25;
+  text-align: left;
+}
+
+.consequence {
+  font-size: var(--text-md);
+  line-height: 1.45;
+  color: var(--c-ink-2);
+  overflow-wrap: anywhere;
+}
+
+.reason {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--c-accent-text);
+  overflow-wrap: anywhere;
+}
+
+.mobile .choice {
+  padding: 10px;
+}
+
+.mobile .choiceHead > button {
+  flex: 1 1 auto;
+  min-height: 44px;
+  text-align: center;
+}
+
+.fold {
+  min-width: 0;
+}
+
+.foldSummary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--text-sm);
+  font-weight: 800;
+  color: var(--c-ink-3);
+}
+
+.foldSummary::-webkit-details-marker {
+  display: none;
+}
+
+.foldChevron {
+  transition: transform 120ms ease;
+}
+
+.fold[open] .foldChevron {
+  transform: rotate(90deg);
+}
+
+.fold .foldBody {
+  margin-top: 6px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--c-subtle);
+  border: 1px solid var(--c-line-soft);
+  color: var(--c-ink-2);
+  font-size: var(--text-sm);
+}

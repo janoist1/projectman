@@ -104,7 +104,10 @@ Documentation map:
 - **Inbox ("Rád vár")** — everything waiting for a human: tool permission requests (the
   agent's PermissionRequest hook, answered from the browser), approval decisions for gates,
   and questions from AI members (`ask_human`). The answer to a question returns to the asking
-  session as a team message.
+  session as a team message. A question is written for a non-specialist owner: one plain
+  sentence that names the decision, each option described by what happens if it is picked, a
+  recommended option with a one-sentence reason (marked "Javasolt") and the technical
+  background folded away ("Részletek").
 - **Timeline** — append-only, attributed events per task and project ("who did what").
 - **Customization repository** (decision 8) — project configuration (project, team, roles,
   pipeline, labels, limits) is YAML in a separate git repository. Every change is a commit

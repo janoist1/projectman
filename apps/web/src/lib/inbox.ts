@@ -1,3 +1,4 @@
+import { questionPayloadOf } from '@projectman/shared';
 import type { InboxItem, InboxOption } from '@projectman/shared';
 import { t } from '../i18n/t';
 import { toolPresentationFor } from './chat';
@@ -34,6 +35,35 @@ export function inboxHeading(item: InboxItem): string {
     }
   }
   return item.title;
+}
+
+/** What a question from an AI member shows besides its heading and its options' own text. */
+export interface QuestionExtras {
+  /** Id of the option the member recommends; null when it recommends none that exists. */
+  recommendedOptionId: string | null;
+  /** One sentence: why that option. Shown with the recommended option. */
+  recommendationReason: string | null;
+  /** Markdown technical background, shown folded. */
+  details: string | null;
+}
+
+/**
+ * The recommendation and the details of a question. Questions from before these fields existed,
+ * and every other kind of item, have none, and render as they always did.
+ */
+export function questionExtras(item: InboxItem): QuestionExtras {
+  const payload = item.kind === 'question' ? questionPayloadOf(item) : null;
+  const recommended = payload?.recommended;
+  // A recommendation that names no option of the item cannot be marked, so it is left out.
+  const recommendedOptionId =
+    recommended !== undefined && item.options.some((option) => option.id === recommended)
+      ? recommended
+      : null;
+  return {
+    recommendedOptionId,
+    recommendationReason: recommendedOptionId ? payload?.recommendationReason?.trim() || null : null,
+    details: payload?.details?.trim() || null,
+  };
 }
 
 interface GatePayload {

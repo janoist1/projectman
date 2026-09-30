@@ -114,6 +114,13 @@ describe('team MCP endpoint', () => {
     }
     expect(byName.get('ask_human')).toContain('the answer arrives later in this session as a team message');
     expect(byName.get('ask_human')).toContain('Do not wait or poll for it');
+    // Written for a human who is not a specialist: the decision first, the consequences, a
+    // recommendation, and the technical reasoning folded away.
+    expect(byName.get('ask_human')).toContain('usually not a specialist');
+    expect(byName.get('ask_human')).toContain('one plain sentence that names the decision');
+    expect(byName.get('ask_human')).toContain('what happens if it is picked');
+    expect(byName.get('ask_human')).toContain('always recommend one option with a one-sentence reason');
+    expect(byName.get('ask_human')).toContain('Put code, file names and technical reasoning into details');
     expect(byName.get('create_task')).toContain('where humans prioritise it');
     expect(byName.get('create_task')).toContain('note the new key there with update_task');
   });
@@ -150,6 +157,25 @@ describe('team MCP endpoint', () => {
     expect(schema('link_pull_request').required).toEqual(['task_key', 'repo', 'number']);
     expect(schema('link_pull_request').properties.number.type).toBe('integer');
     expect(schema('ask_human').required).toEqual(['question']);
+    // The plain-language fields are all optional; an option is a label or a label with its consequence.
+    expect(Object.keys(schema('ask_human').properties).sort()).toEqual(
+      ['details', 'options', 'question', 'recommendation_reason', 'recommended', 'task_key', 'to'].sort(),
+    );
+    expect(schema('ask_human').properties.options.items.anyOf).toEqual([
+      { type: 'string', minLength: 1, maxLength: 200 },
+      expect.objectContaining({
+        type: 'object',
+        required: ['label'],
+        additionalProperties: false,
+        properties: expect.objectContaining({
+          label: expect.objectContaining({ type: 'string' }),
+          consequence: expect.objectContaining({ type: 'string' }),
+        }),
+      }),
+    ]);
+    expect(schema('ask_human').properties.recommended.type).toBe('string');
+    expect(schema('ask_human').properties.recommendation_reason.type).toBe('string');
+    expect(schema('ask_human').properties.details.type).toBe('string');
     expect(schema('save_memory').required).toEqual(['note']);
     expect(byName.get('get_task')!.annotations?.readOnlyHint).toBe(true);
     expect(byName.get('list_tasks')!.annotations?.readOnlyHint).toBe(true);
@@ -407,6 +433,8 @@ describe('team tools', () => {
       await call(client, 'ask_human', {
         question: 'Should the error be shown inline or as a toast?',
         options: ['Inline', 'Toast'],
+        recommended: 'Inline',
+        recommendation_reason: 'It stays visible until the email is fixed.',
         to: ['owner'],
       }),
     );
@@ -417,11 +445,165 @@ describe('team tools', () => {
       args: {
         question: 'Should the error be shown inline or as a toast?',
         options: ['Inline', 'Toast'],
+        recommended: 'Inline',
+        recommendationReason: 'It stays visible until the email is fixed.',
         taskKey: 'AR-21',
         to: ['owner'],
       },
     });
     expect(out).toBe('Question inbox_1 is waiting in the inbox of owner.');
+  });
+
+  it('ask_human passes options with their consequences, the recommendation and the details on', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+    const details = '`EmailField` already renders `aria-live` errors.\n\nA toast needs a new provider.';
+
+    const result = await call(client, 'ask_human', {
+      question: '  Should a wrong email show its error under the field or as a pop-up?  ',
+      options: [
+        { label: ' Under the field ', consequence: ' The message stays until the address is fixed. ' },
+        { label: 'Pop-up', consequence: 'It disappears after a few seconds, so it can be missed.' },
+        'Nowhere',
+      ],
+      recommended: ' Under the field ',
+      recommendation_reason: 'It is easier to read on a phone.',
+      details,
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(h.handler.calls).toEqual([
+      {
+        method: 'askHuman',
+        ctx: devContext,
+        args: {
+          question: 'Should a wrong email show its error under the field or as a pop-up?',
+          options: [
+            { label: 'Under the field', consequence: 'The message stays until the address is fixed.' },
+            { label: 'Pop-up', consequence: 'It disappears after a few seconds, so it can be missed.' },
+            'Nowhere',
+          ],
+          recommended: 'Under the field',
+          recommendationReason: 'It is easier to read on a phone.',
+          details,
+          taskKey: 'AR-21',
+        },
+      },
+    ]);
+    expect(text(result)).toBe('Question inbox_1 is waiting in the inbox.');
+  });
+
+  it('ask_human refuses a recommendation that is not one of the options, before the handler', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+    const question = 'Should the error be shown inline or as a toast?';
+
+    const unknown = await call(client, 'ask_human', {
+      question,
+      options: ['Inline', { label: 'Toast', consequence: 'It disappears.' }],
+      recommended: 'Dialog',
+    });
+    const noOptions = await call(client, 'ask_human', { question, recommended: 'Inline' });
+    const reasonOnly = await call(client, 'ask_human', { question, recommendation_reason: 'It is clearer.' });
+    const misspelled = await call(client, 'ask_human', {
+      question,
+      options: [{ label: 'Inline', description: 'It is clearer.' }],
+    });
+
+    for (const result of [unknown, noOptions, reasonOnly, misspelled]) {
+      expect(result.isError).toBe(true);
+      expect(text(result)).toContain('Input validation error');
+    }
+    expect(text(unknown)).toContain('recommended must be exactly one of the options: "Inline", "Toast".');
+    expect(text(noOptions)).toContain('recommended must name one of the options, but there are none');
+    expect(text(reasonOnly)).toContain('recommendation_reason needs recommended');
+    expect(h.handler.calls).toEqual([]);
+
+    // A recommendation that matches an option goes through, however the option was written.
+    for (const recommended of ['Inline', 'Toast']) {
+      const ok = await call(client, 'ask_human', {
+        question,
+        options: ['Inline', { label: 'Toast', consequence: 'It disappears.' }],
+        recommended,
+        recommendation_reason: 'It is clearer.',
+      });
+      expect(ok.isError).toBeFalsy();
+    }
+    expect(h.handler.calls.map((c) => (c.args as { recommended: string }).recommended)).toEqual([
+      'Inline',
+      'Toast',
+    ]);
+  });
+
+  it('ask_human keeps every plain-language field optional', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-qa');
+
+    const result = await call(client, 'ask_human', { question: 'Which staging URL should I test?' });
+
+    expect(result.isError).toBeFalsy();
+    expect(h.handler.calls[0]).toEqual({
+      method: 'askHuman',
+      ctx: qaContext,
+      args: { question: 'Which staging URL should I test?' },
+    });
+  });
+
+  describe('ask_human hint', () => {
+    const recommendation = {
+      options: ['Yes', 'No'],
+      recommended: 'Yes',
+      recommendation_reason: 'It is the usual choice.',
+    };
+    const MOVE_DETAIL = 'Consider moving detail into details.';
+    const RECOMMEND =
+      'Consider adding a recommendation with a one-sentence reason (recommended, recommendation_reason).';
+    // The question is already asked; the hint says it is for the next one.
+    const TIP = 'Tip for your next question: ';
+
+    it('says nothing about a short question with a recommendation', async () => {
+      const h = await startServer();
+      const client = await connect(h, 'token-dev');
+
+      const out = text(await call(client, 'ask_human', { question: 'x'.repeat(300), ...recommendation }));
+
+      expect(out).toBe('Question inbox_1 is waiting in the inbox.');
+    });
+
+    it('suggests moving detail into details when the question is long, and still asks it', async () => {
+      const h = await startServer();
+      const client = await connect(h, 'token-dev');
+
+      const result = await call(client, 'ask_human', { question: 'x'.repeat(301), ...recommendation });
+
+      expect(result.isError).toBeFalsy();
+      expect(text(result)).toBe(`Question inbox_1 is waiting in the inbox.\n${TIP}${MOVE_DETAIL}`);
+      expect(h.handler.calls).toHaveLength(1);
+    });
+
+    it('suggests a recommendation when there is none, and still asks the question', async () => {
+      const h = await startServer();
+      const client = await connect(h, 'token-dev');
+
+      const result = await call(client, 'ask_human', {
+        question: 'Should the error be shown inline or as a toast?',
+        options: ['Inline', 'Toast'],
+        to: ['owner'],
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(text(result)).toBe(`Question inbox_1 is waiting in the inbox of owner.\n${TIP}${RECOMMEND}`);
+      expect(h.handler.calls).toHaveLength(1);
+    });
+
+    it('gives both hints in one line when the question is long and has no recommendation', async () => {
+      const h = await startServer();
+      const client = await connect(h, 'token-dev');
+
+      const out = text(await call(client, 'ask_human', { question: 'x'.repeat(301) }));
+
+      expect(out).toBe(`Question inbox_1 is waiting in the inbox.\n${TIP}${MOVE_DETAIL} ${RECOMMEND}`);
+    });
   });
 
   it('save_memory appends to the caller memory', async () => {

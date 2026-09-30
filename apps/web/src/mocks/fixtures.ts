@@ -1647,6 +1647,55 @@ export const inbox: InboxItem[] = [
   },
 ];
 
+/**
+ * An open question as an AI member writes it with the plain-language fields: one plain sentence,
+ * each option described by what happens if it is picked, a recommendation with its reason and
+ * folded technical details. Not part of the default inbox (the other questions stay old-style);
+ * tests put it into `MockBackend.inbox`.
+ */
+export function plainLanguageQuestion(overrides: Partial<InboxItem> = {}): InboxItem {
+  const question = 'A hibás e-mail cím hibaüzenete az űrlap alatt jelenjen meg, vagy felugró ablakban?';
+  return {
+    id: 'inb_q_error_message',
+    projectKey: PROJECT_KEY,
+    kind: 'question',
+    assignees: ['owner'],
+    source: 'dev-1',
+    sessionId: 'ses_ac22_dev1',
+    taskKey: 'AC-22',
+    title: question,
+    body: null,
+    payload: {
+      question,
+      options: ['Az űrlap alatt', 'Felugró ablakban'],
+      recommended: 'option_1',
+      recommendationReason: 'Telefonon is jól olvasható, és nem tűnik el magától.',
+      details:
+        'Az `EmailField` már most kiírja a hibát `aria-live` sávban.\n\n' +
+        'Felugró ablakhoz új `ToastProvider` kellene a `CheckoutPage` köré.',
+    },
+    options: [
+      {
+        id: 'option_1',
+        label: 'Az űrlap alatt',
+        style: 'primary',
+        consequence: 'A hibaüzenet addig látszik, amíg ki nem javítod a címet.',
+      },
+      {
+        id: 'option_2',
+        label: 'Felugró ablakban',
+        style: 'secondary',
+        consequence: 'Pár másodperc múlva eltűnik, ezért könnyű lemaradni róla.',
+      },
+      ANSWER_OPTION,
+    ],
+    state: 'open',
+    resolution: null,
+    createdAt: minutesAgo(5),
+    ...overrides,
+  };
+}
+
 /* ---------- team messages ---------- */
 
 function msg(

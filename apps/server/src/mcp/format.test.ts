@@ -1,6 +1,6 @@
 import type { TimelineEvent } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
-import { formatSentMessage, formatTaskDetail } from './format';
+import { formatQuestionAsked, formatSentMessage, formatTaskDetail, questionHint } from './format';
 import { sampleTaskDetail } from './testing';
 
 function note(minute: number, text: string): TimelineEvent {
@@ -71,6 +71,42 @@ describe('formatSentMessage', () => {
     expect(
       formatSentMessage({ messageId: 'msg_1', requested: ['qa', 'cr'], deliveredTo: ['qa'], taskKey: null }),
     ).toBe('Message msg_1 sent to qa. Not delivered to: cr.');
+  });
+});
+
+describe('questionHint', () => {
+  const MOVE_DETAIL = 'Consider moving detail into details.';
+  const RECOMMEND =
+    'Consider adding a recommendation with a one-sentence reason (recommended, recommendation_reason).';
+
+  it('has no hint for a short question with a recommendation', () => {
+    expect(questionHint({ question: 'x'.repeat(300), recommended: 'Yes' })).toBeNull();
+  });
+
+  it('suggests moving detail into details above 300 characters', () => {
+    expect(questionHint({ question: 'x'.repeat(301), recommended: 'Yes' })).toBe(MOVE_DETAIL);
+  });
+
+  it('suggests a recommendation when there is none', () => {
+    expect(questionHint({ question: 'Ship it?' })).toBe(RECOMMEND);
+    expect(questionHint({ question: 'Ship it?', recommended: undefined })).toBe(RECOMMEND);
+  });
+
+  it('gives both as one line', () => {
+    expect(questionHint({ question: 'x'.repeat(301) })).toBe(`${MOVE_DETAIL} ${RECOMMEND}`);
+  });
+});
+
+describe('formatQuestionAsked', () => {
+  it('says where the question is, for whom, and adds the hint on its own line, meant for the next one', () => {
+    expect(formatQuestionAsked('inb_1', undefined, { question: 'Ship it?', recommended: 'Yes' })).toBe(
+      'Question inb_1 is waiting in the inbox.',
+    );
+    expect(formatQuestionAsked('inb_1', ['owner', 'anna'], { question: 'Ship it?' })).toBe(
+      'Question inb_1 is waiting in the inbox of owner, anna.\n' +
+        'Tip for your next question: Consider adding a recommendation with a one-sentence reason ' +
+        '(recommended, recommendation_reason).',
+    );
   });
 });
 

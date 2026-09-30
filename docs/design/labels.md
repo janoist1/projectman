@@ -117,7 +117,7 @@ Built as `queue`, `work`, `step`, `release` and `done` (`step` rather than `chec
   - `security_review`: ok / javítandó.
 - Existing `Task.checks` values become those labels.
 - Gates are rewritten as the table above shows.
-- Existing free labels stay as they are. The AROOM project's "válaszra vár" (blocking) and "magas prioritás" get definitions.
+- Existing free labels stay as they are, for example an imported "waiting for an answer" or "high priority" tag, until someone gives them a definition.
 
 ## What disappears
 

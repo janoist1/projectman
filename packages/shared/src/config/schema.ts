@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { AgentEffort } from '../domain/member';
 import { AgentProvider, GithubLogin, HumanAccess, MemberHandle, PermissionMode } from '../domain/member';
 import { Pipeline } from '../domain/pipeline';
+import { DEFAULT_PROVIDER_MODELS } from '../domain/provider-model';
 import { CustomRoleDefinition, RoleId, RoleOverrides } from '../domain/role';
 
 /**
@@ -54,7 +55,7 @@ export const AiMemberConfig = z.object({
    * Model alias or id, e.g. "opus", "sonnet" (Claude Code) or a Codex model id. Claude aliases
    * are ignored for Codex members, which then use Codex's default model.
    */
-  model: z.string().default('opus'),
+  model: z.string().default(DEFAULT_PROVIDER_MODELS.claude),
   /** Agent reasoning effort; omitted values use the provider default. */
   effort: AgentEffort.optional(),
   /** Claude Code permission mode; for Codex members it maps to a sandbox and approval policy. */

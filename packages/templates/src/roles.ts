@@ -1,12 +1,16 @@
 import {
+  customRoleDuties,
   isBuiltInRole,
   roleHolders,
   BUILT_IN_ROLE_DUTIES,
+  DEFAULT_PROVIDER_MODELS,
   DUTIES,
-  type RoleOverrides,
   type AiBuiltInRoleId,
+  type BuiltInRoleId,
   type CustomRoleDefinition,
+  type DutyId,
   type PermissionMode,
+  type RoleOverrides,
 } from '@projectman/shared';
 
 /** Defaults used when an AI member is hired for a role. */
@@ -18,48 +22,41 @@ export interface AiRoleDefaults {
   capacity: number;
 }
 
-const ROLE_DEFAULTS: Record<AiBuiltInRoleId, AiRoleDefaults> = {
-  project_manager: { instructions: '', model: 'opus', permissionMode: 'default', capacity: 1 },
-  business_analyst: { instructions: '', model: 'opus', permissionMode: 'default', capacity: 2 },
-  architect: { instructions: '', model: 'opus', permissionMode: 'default', capacity: 2 },
-  designer: { instructions: '', model: 'opus', permissionMode: 'acceptEdits', capacity: 1 },
-  developer: { instructions: '', model: 'opus', permissionMode: 'acceptEdits', capacity: 1 },
-  code_review: { instructions: '', model: 'opus', permissionMode: 'default', capacity: 2 },
-  security_review: { instructions: '', model: 'opus', permissionMode: 'default', capacity: 1 },
-  qa: { instructions: '', model: 'opus', permissionMode: 'default', capacity: 1 },
-  devops: { instructions: '', model: 'opus', permissionMode: 'default', capacity: 1 },
-  communication: { instructions: '', model: 'opus', permissionMode: 'default', capacity: 2 },
-  support: { instructions: '', model: 'opus', permissionMode: 'default', capacity: 1 },
-  researcher: { instructions: '', model: 'opus', permissionMode: 'default', capacity: 2 },
-  maintainer: { instructions: '', model: 'opus', permissionMode: 'acceptEdits', capacity: 1 },
-  coach: { instructions: '', model: 'opus', permissionMode: 'default', capacity: 1 },
-  watchdog: { instructions: '', model: 'opus', permissionMode: 'default', capacity: 1 },
-  content: { instructions: '', model: 'opus', permissionMode: 'acceptEdits', capacity: 1 },
-  translator: { instructions: '', model: 'opus', permissionMode: 'acceptEdits', capacity: 1 },
-  docs: { instructions: '', model: 'opus', permissionMode: 'acceptEdits', capacity: 1 },
+/** Built-in roles whose members run more than one work item at a time by default. */
+const ROLE_CAPACITY: Partial<Record<BuiltInRoleId, number>> = {
+  business_analyst: 2,
+  architect: 2,
+  code_review: 2,
+  communication: 2,
+  researcher: 2,
 };
 
 /**
- * Defaults of AI members hired for a custom role. No instructions are copied: members of a
- * custom role follow the role's own instructions (the context pack reads them from the role,
- * so editing the role reaches every member); a member's `instructions` add to them.
+ * Defaults for a member holding these duties. Members that change files in the task's
+ * worktree accept edits; everyone else asks. No instructions are copied: the context pack
+ * reads the duty fragments and the role's own instructions, so editing the role reaches every
+ * member; a member's `instructions` add to them.
  */
-export const CUSTOM_ROLE_DEFAULTS: Readonly<AiRoleDefaults> = Object.freeze({
-  instructions: '',
-  model: 'opus',
-  permissionMode: 'default',
-  capacity: 1,
-});
+function defaultsFor(duties: readonly DutyId[], capacity = 1): AiRoleDefaults {
+  return {
+    instructions: '',
+    model: DEFAULT_PROVIDER_MODELS.claude,
+    permissionMode: duties.some((id) => DUTIES[id].toolPolicy === 'task_worktree')
+      ? 'acceptEdits'
+      : 'default',
+    capacity,
+  };
+}
 
 /** Defaults for an AI member hired for a built-in role (roles only humans hold have none). */
 export function aiRoleDefaults(role: AiBuiltInRoleId): AiRoleDefaults {
-  return { ...ROLE_DEFAULTS[role], instructions: '' };
+  return defaultsFor(BUILT_IN_ROLE_DUTIES[role], ROLE_CAPACITY[role]);
 }
 
 /**
- * Defaults for an AI member of any role: the built-in role's defaults, or the generic ones for
- * a custom role that AI members may hold. Null when the role is unknown or only humans may
- * hold it.
+ * Defaults for an AI member of any role: the built-in role's defaults (with the team's
+ * override of its duties), or the generic ones for a custom role that AI members may hold.
+ * Null when the role is unknown or only humans may hold it.
  */
 export function aiMemberDefaults(
   role: string,
@@ -68,17 +65,8 @@ export function aiMemberDefaults(
 ): AiRoleDefaults | null {
   const holders = roleHolders(role, customRoles, overrides);
   if (!holders || holders === 'human') return null;
-  const duties = isBuiltInRole(role)
-    ? (overrides[role]?.duties ?? BUILT_IN_ROLE_DUTIES[role])
-    : (customRoles.find((r) => r.id === role)?.duties ?? []);
-  const defaults =
-    isBuiltInRole(role) && Object.hasOwn(ROLE_DEFAULTS, role)
-      ? aiRoleDefaults(role as AiBuiltInRoleId)
-      : { ...CUSTOM_ROLE_DEFAULTS };
-  return {
-    ...defaults,
-    permissionMode: duties.some((id) => DUTIES[id].toolPolicy === 'task_worktree')
-      ? 'acceptEdits'
-      : 'default',
-  };
+  if (isBuiltInRole(role))
+    return defaultsFor(overrides[role]?.duties ?? BUILT_IN_ROLE_DUTIES[role], ROLE_CAPACITY[role]);
+  const custom = customRoles.find((r) => r.id === role);
+  return defaultsFor(custom ? customRoleDuties(custom) : []);
 }

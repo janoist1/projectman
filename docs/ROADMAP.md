@@ -39,11 +39,13 @@ Moving the work into projectman is the best test of the product. The path:
    owner's instance is a production build in a checkout of its own, updated only on the
    owner's approval, and `npm run dev` keeps its data elsewhere (decision 20; README, "Live
    instance next to development"). Merges no longer stop running AI sessions.
-2. **Less permission friction.** PM-75 (merged) lets developers work freely inside their
-   worktree. **PM-77** finishes it for Codex: the server's command rule allows well-formed
-   `git add`, `git commit -m` and `git merge --ff-only` in the task's own worktree. It also
-   covers PM-71 and the remaining `xargs` case of PM-69. **PM-84** removes Codex's
-   `bypassPermissions` mode, where nothing stops a push from a local-only repository.
+2. **Less permission friction. Done on 2026-09-30.** PM-75 lets developers work freely inside
+   their worktree. **PM-77** finished it: the server allows a developer's routine git steps
+   (`git add`, `git commit` with a message, `git merge --ff-only` onto the default branch) in
+   the task's own worktree, and read-only commands inside the directories a session may read,
+   which also covers PM-71 and the rest of PM-69. **PM-84**: Codex members never run in
+   `bypassPermissions` mode. The limits of the text-based rules are in
+   [SECURITY.md](SECURITY.md).
 3. **Repositories without GitHub.** **PM-67**: the developer commits on the task branch and
    tells the reviewer; the reviewer reviews the branch against its base; the owner merges.
    This replaces the temporary trial wording in members' instructions. **PM-68**: a task

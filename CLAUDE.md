@@ -1,6 +1,7 @@
 # projectman — working rules
 
-Read `docs/ARCHITECTURE.md` first. Decisions and their reasons: `docs/DECISIONS.md`.
+Read `docs/ARCHITECTURE.md` first. Decisions and their reasons: `docs/DECISIONS.md`. What
+comes next and the owner's open questions: `docs/ROADMAP.md`.
 
 ## Language
 
@@ -14,10 +15,11 @@ Read `docs/ARCHITECTURE.md` first. Decisions and their reasons: `docs/DECISIONS.
 
 ## Subscription rule
 
-- Never use or set `ANTHROPIC_API_KEY` (or other API-billing variables). The runner
-  strips them from the environment of every session.
-- Never run the real `claude` CLI in automated tests. Use the fake CLI in
-  `apps/server/test/fixtures/`.
+- Never use or set `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CODEX_API_KEY` or other
+  API-billing variables. The runner strips them from the environment of every session.
+- Never run the real `claude`, `codex` or `gh` CLI in automated tests. Use the fakes in
+  `apps/server/test/fixtures/` (`fake-claude.mjs`, `fake-codex.mjs`, sharing
+  `fake-tui.mjs`) and `apps/server/src/github/test-fixtures/fake-gh.mjs`.
 
 ## Contracts
 
@@ -25,19 +27,30 @@ Read `docs/ARCHITECTURE.md` first. Decisions and their reasons: `docs/DECISIONS.
   of truth between modules and between server and web.
 - Prefer adding to contracts over changing them. If a contract must change, keep the
   change minimal and list it in your final report.
+- A rule lives in one place. Pure rules (label refusal, gates, duty resolution,
+  invariants, owner-only changes) belong in `packages/shared`, used by the server and by the
+  web's test fake (`apps/web/src/mocks`); never re-implement one there or in a route handler.
+- Route handlers parse the request, check access and call a domain service; business logic
+  lives in `apps/server/src/domain`. Only `apps/server/src/index.ts` reads the environment.
+- Older configuration shapes, database rows and timeline events exist in real installations.
+  Configuration migrations live in `apps/server/src/config/migrations.ts`, database
+  migrations in `apps/server/src/db/migrations.ts`; timeline events are append-only, so old
+  event types keep rendering.
 
 ## Module ownership (parallel workstreams)
 
-| Workstream | Owns                                                                                                      |
-| ---------- | --------------------------------------------------------------------------------------------------------- |
-| runner     | `apps/server/src/runner/**`, `apps/server/test/fixtures/fake-claude*`                                     |
-| mcp        | `apps/server/src/mcp/**`                                                                                  |
-| core       | `apps/server/src/{db,domain,api,auth,config,ws}/**`, `apps/server/src/app.ts`, `apps/server/src/index.ts` |
-| web        | `apps/web/**`                                                                                             |
-| github     | `apps/server/src/github/**`                                                                               |
-| context    | `packages/templates/**`, `apps/server/src/{context,worktree}/**`                                          |
+| Workstream | Owns                                                                                                                            |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| runner     | `apps/server/src/runner/**`, `apps/server/test/fixtures/fake-{claude,codex,tui}.mjs`                                            |
+| mcp        | `apps/server/src/mcp/**`                                                                                                        |
+| core       | `apps/server/src/{db,domain,api,auth,config,ws,http}/**`, `apps/server/src/{app,index}.ts`, `apps/server/test/**`, `scripts/**` |
+| web        | `apps/web/**`                                                                                                                   |
+| github     | `apps/server/src/github/**`                                                                                                     |
+| context    | `packages/templates/**`, `apps/server/src/{context,worktree,agent-text}/**`                                                     |
 
-Stay inside your paths. Each module exposes the factory declared in its `index.ts`.
+`packages/shared` is everyone's contract: change it additively, and name the change in your
+report. Stay inside your paths otherwise. Each module exposes the factory declared in its
+`index.ts`; import other modules through their `index.ts`, never their internals.
 
 ## Code style
 
@@ -48,6 +61,9 @@ Stay inside your paths. Each module exposes the factory declared in its `index.t
 - Prettier config in `.prettierrc.json` (`npm run format`).
 - Tests: vitest, `*.test.ts` next to the code or under `test/`. Use temp directories;
   never touch real user repositories (e.g. client projects) or `~/.claude` in tests.
+  Server test helpers live in `apps/server/test/helpers/` (domain harness, app harness with
+  the fake CLIs, login and request helpers); reuse them instead of copying setup. Web UI
+  tests run against the in-memory fake backend; assert on requests and rendered output.
 
 ## Commands
 

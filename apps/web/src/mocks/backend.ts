@@ -52,6 +52,7 @@ import {
   stageIndex,
   stageOf,
   stageOwners,
+  subtaskParentRefusal,
   taskSeq,
   validateProjectConfig,
 } from '@projectman/shared';
@@ -1653,15 +1654,12 @@ export class MockBackend {
   }
 
   private validateParent(taskKey: string | null, parentKey: string): MockResponse | null {
-    if (parentKey === taskKey) return error(400, 'subtask_self_parent', 'A task cannot parent itself');
-    const parent = this.findTask(parentKey);
-    if (!parent) return error(400, 'subtask_parent_not_found', 'Parent not found');
-    if (parent.projectKey !== fixtures.PROJECT_KEY)
-      return error(400, 'subtask_parent_project', 'Parent belongs to another project');
-    if (parent.parentKey) return error(400, 'subtask_parent_is_subtask', 'A subtask cannot have subtasks');
-    if (taskKey && this.tasks.some((child) => child.parentKey === taskKey))
-      return error(400, 'subtask_has_children', 'A task with subtasks cannot become a subtask');
-    return null;
+    const refusal = subtaskParentRefusal(parentKey, this.findTask(parentKey), {
+      key: taskKey,
+      projectKey: fixtures.PROJECT_KEY,
+      hasSubtasks: taskKey !== null && this.tasks.some((child) => child.parentKey === taskKey),
+    });
+    return refusal ? error(400, refusal, `The task cannot become a subtask of ${parentKey}`) : null;
   }
 
   private recordParentChange(subtaskKey: string, previous: string | null, next: string | null): void {

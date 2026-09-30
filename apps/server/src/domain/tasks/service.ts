@@ -12,8 +12,8 @@ import type {
   TimelineEventData,
   Visibility,
 } from '@projectman/shared';
-import { evaluateMove, isOpenTask, memberOf } from '@projectman/shared';
-import type { LabelChangeReason, LabelClearTrigger } from '@projectman/shared';
+import { evaluateMove, isOpenTask, memberOf, subtaskParentRefusal } from '@projectman/shared';
+import type { LabelChangeReason, LabelClearTrigger, SubtaskParentRefusal } from '@projectman/shared';
 import type { PullRequestInfo } from '../../contracts';
 import type { TaskPatch } from '../../db';
 import { requireHuman } from '../access';
@@ -31,6 +31,14 @@ import { approvalRequestedError, gateBlockedError, TaskMoves } from './moves';
 import type { MoveResult } from './moves';
 import { requireStage, runEffects, TaskStore } from './store';
 import type { Effect, StartWaitingReader } from './store';
+
+const SUBTASK_PARENT_REFUSALS: Record<SubtaskParentRefusal, string> = {
+  subtask_self_parent: 'a task cannot be its own parent',
+  subtask_parent_not_found: 'the parent task does not exist',
+  subtask_parent_project: 'the parent must belong to the same project',
+  subtask_parent_is_subtask: 'a subtask cannot have subtasks',
+  subtask_has_children: 'a task with subtasks cannot become a subtask',
+};
 
 /**
  * A change of a task in one step. The REST PATCH sends the fields, the assignee and the whole
@@ -317,14 +325,12 @@ export class TaskService {
   }
 
   private validateParent(projectKey: string, taskKey: string | null, parentKey: string): void {
-    if (parentKey === taskKey) throw invalid('subtask_self_parent', 'a task cannot be its own parent');
-    const parent = this.ctx.repos.tasks.get(parentKey);
-    if (!parent) throw invalid('subtask_parent_not_found', 'the parent task does not exist');
-    if (parent.projectKey !== projectKey)
-      throw invalid('subtask_parent_project', 'the parent must belong to the same project');
-    if (parent.parentKey) throw invalid('subtask_parent_is_subtask', 'a subtask cannot have subtasks');
-    if (taskKey && this.ctx.repos.tasks.children(projectKey, taskKey).length > 0)
-      throw invalid('subtask_has_children', 'a task with subtasks cannot become a subtask');
+    const refusal = subtaskParentRefusal(parentKey, this.ctx.repos.tasks.get(parentKey), {
+      key: taskKey,
+      projectKey,
+      hasSubtasks: taskKey !== null && this.ctx.repos.tasks.children(projectKey, taskKey).length > 0,
+    });
+    if (refusal) throw invalid(refusal, SUBTASK_PARENT_REFUSALS[refusal]);
   }
 
   private recordParentChange(

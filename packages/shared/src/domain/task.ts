@@ -77,3 +77,30 @@ export function isOpenTask(task: Pick<Task, 'status'>): boolean {
 export function taskSeq(key: string): number {
   return Number(key.slice(key.lastIndexOf('-') + 1));
 }
+
+/** Why a task may not become a subtask of a parent: codes of the shared error list. */
+export type SubtaskParentRefusal =
+  | 'subtask_self_parent'
+  | 'subtask_parent_not_found'
+  | 'subtask_parent_project'
+  | 'subtask_parent_is_subtask'
+  | 'subtask_has_children';
+
+/**
+ * Why a task may not become a subtask of `parentKey`, or null when it may. Subtasks go one
+ * level deep: the parent is another task of the same project and not a subtask itself, and a
+ * task with subtasks of its own cannot become one. `parent` is the task stored under
+ * `parentKey` (none when it does not exist); the child's `key` is null while it is created.
+ */
+export function subtaskParentRefusal(
+  parentKey: string,
+  parent: Pick<Task, 'projectKey' | 'parentKey'> | null | undefined,
+  child: { key: string | null; projectKey: string; hasSubtasks: boolean },
+): SubtaskParentRefusal | null {
+  if (parentKey === child.key) return 'subtask_self_parent';
+  if (!parent) return 'subtask_parent_not_found';
+  if (parent.projectKey !== child.projectKey) return 'subtask_parent_project';
+  if (parent.parentKey) return 'subtask_parent_is_subtask';
+  if (child.hasSubtasks) return 'subtask_has_children';
+  return null;
+}

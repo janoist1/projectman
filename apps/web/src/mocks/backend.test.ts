@@ -181,6 +181,30 @@ describe('mock task updates', () => {
     });
     expect(open()).toHaveLength(1);
   });
+  it.each([
+    ['four eyes leave only its author', 'release_four_eyes'],
+    ["the label's own rule leaves only its author", 'self_review_forbidden'],
+    ['nobody holds the label', 'missing_duty_holder'],
+  ] as const)('changes nothing when nobody may give the approval: %s', (_case, code) => {
+    const backend = new MockBackend();
+    backend.handle('PATCH', `${base}/tasks/AC-28`, { stageId: 'merge' });
+    backend.findTask('AC-28')!.links[0]!.author = 'owner';
+    const approval = backend.config.pipeline.labels.find((label) => label.id === 'release-approved')!;
+    if (code === 'release_four_eyes') backend.config.team.releaseFourEyes = true;
+    if (code === 'self_review_forbidden') approval.notByAuthor = true;
+    if (code === 'missing_duty_holder') approval.setBy = { members: [], humansOnly: true };
+    const task = structuredClone(backend.findTask('AC-28')!);
+    const before = backend.timeline.length;
+    expect(
+      backend.handle('PATCH', `${base}/tasks/AC-28`, { title: 'Must not save', stageId: 'release' }),
+    ).toMatchObject({
+      status: 409,
+      body: { error: { code, details: { stageId: 'release', label: 'release-approved' } } },
+    });
+    expect(backend.findTask('AC-28')).toEqual(task);
+    expect(backend.timeline).toHaveLength(before);
+    expect(backend.inbox.filter((item) => item.taskKey === 'AC-28' && item.state === 'open')).toEqual([]);
+  });
 });
 
 describe('mock provider settings', () => {

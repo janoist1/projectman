@@ -42,6 +42,7 @@ import {
   memberRoles,
   modelForProvider,
   nextCronRun,
+  noApproverReason,
   ownerOnlyChanges,
   planLabelChange,
   pullRequestsMerged,
@@ -52,6 +53,7 @@ import {
   stageIndex,
   stageOf,
   stageOwners,
+  subtaskParentRefusal,
   taskSeq,
   validateProjectConfig,
 } from '@projectman/shared';
@@ -63,6 +65,7 @@ import type {
   ChatItem,
   ClientCommand,
   ConfigVersionEntry,
+  ErrorCode,
   GateEvaluation,
   GateRequestPayload,
   InboxItem,
@@ -132,7 +135,12 @@ function unique<T>(values: readonly T[]): T[] {
   return [...new Set(values)];
 }
 
-function error(status: number, code: string, message: string, details?: unknown): MockResponse {
+/** Like the server: a team message goes to each recipient once and never to its sender. */
+function teamRecipients(from: string, to: readonly string[]): string[] {
+  return unique(to).filter((handle) => handle !== from);
+}
+
+function error(status: number, code: ErrorCode, message: string, details?: unknown): MockResponse {
   return { status, body: { error: { code, message, ...(details === undefined ? {} : { details }) } } };
 }
 
@@ -369,13 +377,22 @@ export class MockBackend {
     return { id: mockId('chat'), ts: nowIso(), kind, ...fields } as unknown as Extract<ChatItem, { kind: K }>;
   }
 
+  /**
+   * Like the server's one send path (REST, label and @mention notices, answers to questions):
+   * the text trimmed, the sender left out of the recipients. A message the server would refuse
+   * (`teamMessageRefusal`) is a mistake of the caller.
+   */
   sendTeamMessage(
     from: string,
-    to: string[],
+    recipients: readonly string[],
     taskKey: string | null,
-    body: string,
+    text: string,
     sessionId?: string,
   ): TeamMessage {
+    const refusal = this.teamMessageRefusal(from, recipients, text);
+    if (refusal) throw new Error(`The server refuses this team message: ${JSON.stringify(refusal.body)}`);
+    const to = teamRecipients(from, recipients);
+    const body = text.trim();
     const message: TeamMessage = {
       id: mockId('msg'),
       projectKey: fixtures.PROJECT_KEY,
@@ -417,6 +434,25 @@ export class MockBackend {
       if (target) this.flushTeamMessages(target);
     }
     return message;
+  }
+
+  /**
+   * The server's refusal of a team message, or null: 400 invalid_request with `details.field`
+   * "text" or "to" for an empty text or no recipient but the sender, 404 for unknown members.
+   */
+  private teamMessageRefusal(from: string, to: readonly string[], text: string): MockResponse | null {
+    if (!text.trim()) return error(400, 'invalid_request', 'The message text is empty', { field: 'text' });
+    const recipients = teamRecipients(from, to);
+    if (!recipients.length)
+      return error(400, 'invalid_request', 'The message names no recipient but its sender', { field: 'to' });
+    const unknown = recipients.filter((handle) => !memberOf(this.config, handle));
+    if (unknown.length)
+      return error(404, 'not_found', `Unknown member: ${unknown.join(', ')}`, {
+        what: 'member',
+        id: unknown[0],
+        ids: unknown,
+      });
+    return null;
   }
 
   upsertInbox(item: InboxItem): void {
@@ -550,7 +586,7 @@ export class MockBackend {
         const input = parseBody(CreateProjectRequest, body);
         if (!input) return error(400, 'invalid_request', 'Invalid project');
         if (input.key === fixtures.PROJECT_KEY || this.extraProjects.some((p) => p.key === input.key)) {
-          return error(409, 'conflict', 'Project key already exists');
+          return error(409, 'project_exists', 'Project key already exists');
         }
         this.extraProjects.push({ key: input.key, name: input.name, templateId: input.templateId });
         return ok({
@@ -1345,9 +1381,9 @@ export class MockBackend {
 
   /**
    * Like the server's all-or-nothing task update: the whole change is validated first (label
-   * rules, then the gates against the labels the task will have); fields, assignee and labels
-   * are applied before the move, and a move that needs an approval requests it with the rest
-   * applied.
+   * rules, then the gates against the labels the task will have, and whether someone may give
+   * the approvals the move needs); fields, assignee and labels are applied before the move, and
+   * a move that needs an approval requests it with the rest applied.
    */
   private changeTask(task: Task, input: UpdateTaskRequest): MockResponse {
     const actor = this.viewerActor();
@@ -1406,6 +1442,12 @@ export class MockBackend {
         target.id,
       );
       if (evaluation.unmet.length) return gateBlockedError(evaluation);
+      const nobody = this.noApproverError(
+        { ...task, ...patch, labels: labels.labels },
+        target,
+        evaluation.approvals,
+      );
+      if (nobody) return nobody;
     }
 
     const previous = { assignee: task.assignee, parentKey: task.parentKey ?? null };
@@ -1506,6 +1548,30 @@ export class MockBackend {
     );
   }
 
+  /** The open approval request for this move (one decision per missing approval). */
+  private openGateRequests(task: Task, target: Stage): InboxItem[] {
+    return this.openDecisions(task).filter((item) => {
+      const gate = gateRequestOf(item);
+      return gate?.fromStageId === task.stageId && gate.toStageId === target.id;
+    });
+  }
+
+  /**
+   * Like the server: a move needs an approval nobody may give (every holder authored the task,
+   * or nobody holds the label) and no request for it is open yet.
+   */
+  private noApproverError(task: Task, target: Stage, approvals: ApprovalRequirement[]): MockResponse | null {
+    if (this.openGateRequests(task, target).length) return null;
+    const missing = approvals.find((approval) => !approval.approvers.length);
+    if (!missing) return null;
+    return error(
+      409,
+      noApproverReason(this.config, missing.label, task) ?? 'missing_duty_holder',
+      `Nobody may approve the label ${missing.label} on this task`,
+      { stageId: missing.stageId, label: missing.label },
+    );
+  }
+
   /** One decision per missing approval (or the request already open); the task waits. */
   private requestApproval(
     task: Task,
@@ -1513,13 +1579,10 @@ export class MockBackend {
     approvals: ApprovalRequirement[],
     actor: Actor,
   ): MockResponse {
-    const open = this.openDecisions(task).filter((item) => {
-      const gate = gateRequestOf(item);
-      return gate?.fromStageId === task.stageId && gate.toStageId === target.id;
-    });
+    const open = this.openGateRequests(task, target);
     if (open.length) return approvalRequestedError(open);
-    if (approvals.some((approval) => !approval.approvers.length))
-      return error(409, 'release_four_eyes', 'No independent human approver is available');
+    const nobody = this.noApproverError(task, target, approvals);
+    if (nobody) return nobody;
     const requestId = mockId('gat');
     const items = approvals.map((approval): InboxItem => {
       const gate: GateRequestPayload = {
@@ -1653,15 +1716,12 @@ export class MockBackend {
   }
 
   private validateParent(taskKey: string | null, parentKey: string): MockResponse | null {
-    if (parentKey === taskKey) return error(400, 'subtask_self_parent', 'A task cannot parent itself');
-    const parent = this.findTask(parentKey);
-    if (!parent) return error(400, 'subtask_parent_not_found', 'Parent not found');
-    if (parent.projectKey !== fixtures.PROJECT_KEY)
-      return error(400, 'subtask_parent_project', 'Parent belongs to another project');
-    if (parent.parentKey) return error(400, 'subtask_parent_is_subtask', 'A subtask cannot have subtasks');
-    if (taskKey && this.tasks.some((child) => child.parentKey === taskKey))
-      return error(400, 'subtask_has_children', 'A task with subtasks cannot become a subtask');
-    return null;
+    const refusal = subtaskParentRefusal(parentKey, this.findTask(parentKey), {
+      key: taskKey,
+      projectKey: fixtures.PROJECT_KEY,
+      hasSubtasks: taskKey !== null && this.tasks.some((child) => child.parentKey === taskKey),
+    });
+    return refusal ? error(400, refusal, `The task cannot become a subtask of ${parentKey}`) : null;
   }
 
   private recordParentChange(subtaskKey: string, previous: string | null, next: string | null): void {
@@ -1757,7 +1817,7 @@ export class MockBackend {
       input.assignee ??
       [...developers].sort((a, b) => a.currentTaskKeys.length - b.currentTaskKeys.length)[0]?.handle ??
       null;
-    if (!assignee) return error(409, 'no_developer', 'No developer available');
+    if (!assignee) return error(409, 'no_free_member', 'No developer available');
     if (!eligible.includes(assignee))
       return error(400, 'not_stage_owner', 'Assignee must own the work stage');
     const running = this.sessions.find(
@@ -1780,6 +1840,7 @@ export class MockBackend {
       member: assignee,
       workItem: { type: 'task', taskKey: task.key },
       claudeSessionId: mockUuid(Math.floor(Math.random() * 1e9)),
+      provider: this.providerOf(assignee),
       cwd: `/Users/owner/.projectman/worktrees/${fixtures.PROJECT_KEY}/${task.key}`,
       branch: `${taskSeq(task.key)}-work`,
       transcriptPath: null,
@@ -1918,16 +1979,20 @@ export class MockBackend {
     return ok();
   }
 
+  /** A human writes into an AI session's chat: like the server, the text trimmed and not empty. */
   private sessionMessage(sessionId: string, body: unknown): MockResponse {
     const input = parseBody(SendMessageRequest, body);
+    if (!input) return error(400, 'invalid_request', 'Invalid message');
     const session = this.findSession(sessionId);
-    if (!session || !input) return error(404, 'not_found', 'Unknown session');
+    if (!session) return error(404, 'not_found', 'Unknown session');
+    const text = input.text.trim();
+    if (!text) return error(400, 'invalid_request', 'The message text is empty', { field: 'text' });
     const taskKey = session.workItem.type === 'task' ? session.workItem.taskKey : null;
     if (!this.isLive(session) && !this.config.team.limits.aiEnabled)
       return error(409, 'ai_disabled', 'AI work is switched off in this project');
     if (taskKey && this.findTask(taskKey) && !isOpenTask(this.findTask(taskKey)!))
       return error(409, 'task_closed', 'Task is closed');
-    this.appendChat(sessionId, [this.chatItem('user_text', { origin: 'human', text: input.text })]);
+    this.appendChat(sessionId, [this.chatItem('user_text', { origin: 'human', text })]);
     this.updateSession(sessionId, { state: 'working', activity: null, endedAt: null });
     return { status: 202 };
   }
@@ -1943,6 +2008,12 @@ export class MockBackend {
     );
   }
 
+  /** Like the server, a session records the agent CLI it runs: the member's provider. */
+  private providerOf(handle: string): AgentProvider {
+    const member = memberOf(this.config, handle);
+    return (member?.kind === 'ai' ? member.provider : undefined) ?? DEFAULT_AGENT_PROVIDER;
+  }
+
   private planUsageFor(provider: AgentProvider): PlanUsage | null {
     return this.providerPlanUsage[provider] ?? (provider === 'claude' ? this.planUsage : this.codexPlanUsage);
   }
@@ -1952,7 +2023,7 @@ export class MockBackend {
    * live previous schedule run (schedule runs only), the member's capacity, the concurrency
    * limit, the provider's plan usage and its login.
    */
-  private admissionRefusal(member: AiMemberConfig, opts: { scheduleRun?: boolean } = {}): string | null {
+  private admissionRefusal(member: AiMemberConfig, opts: { scheduleRun?: boolean } = {}): ErrorCode | null {
     const limits = this.config.team.limits;
     const live = this.sessions.filter((s) => this.isLive(s));
     const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
@@ -1978,19 +2049,14 @@ export class MockBackend {
       return error(403, 'insufficient_access', 'Developer or client required');
     const input = parseBody(SendTeamMessageRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid message');
-    if (input.to.some((h) => !this.config.team.members.some((m) => m.handle === h)))
-      return error(404, 'not_found', 'Unknown member');
     if (input.taskKey) {
       const task = this.findTask(input.taskKey);
       if (!task || (viewer.role === 'client' && task.visibility !== 'shared'))
         return error(404, 'not_found', 'Unknown task');
     }
-    const message = this.sendTeamMessage(
-      this.viewerHandle,
-      [...new Set(input.to)],
-      input.taskKey ?? null,
-      input.text,
-    );
+    const refusal = this.teamMessageRefusal(this.viewerHandle, input.to, input.text);
+    if (refusal) return refusal;
+    const message = this.sendTeamMessage(this.viewerHandle, input.to, input.taskKey ?? null, input.text);
     return { status: 202, body: clone(message) };
   }
 
@@ -2032,6 +2098,7 @@ export class MockBackend {
       member: handle,
       workItem: { type: 'general' },
       claudeSessionId: mockUuid(this.sessions.length + 1),
+      provider: this.providerOf(handle),
       cwd: this.config.project.workspacePath,
       branch: null,
       transcriptPath: null,
@@ -2043,7 +2110,7 @@ export class MockBackend {
     };
     if (!existing) this.sessions.push(session);
     this.chats[session.id] ??= [];
-    this.updateSession(session.id, { state: 'idle', endedAt: null });
+    this.updateSession(session.id, { state: 'idle', endedAt: null, provider: this.providerOf(handle) });
     this.addTimeline(
       null,
       handle,
@@ -2112,6 +2179,7 @@ export class MockBackend {
       member: handle,
       workItem: { type: 'schedule', runId: run.id },
       claudeSessionId: mockUuid(this.sessions.length + 1),
+      provider: this.providerOf(handle),
       cwd: this.config.project.workspacePath,
       branch: null,
       transcriptPath: null,

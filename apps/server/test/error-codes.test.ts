@@ -3,7 +3,6 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ERROR_CODES } from '@projectman/shared';
-import { hu } from '../../web/src/i18n/hu';
 
 const serverSources = fileURLToPath(new URL('../src/', import.meta.url));
 
@@ -56,12 +55,8 @@ async function serverErrorCodes(): Promise<Set<string>> {
   return codes;
 }
 
+// The web's locale is typed against the same list, so each of these codes has a Hungarian text.
 describe('server error codes', () => {
-  it('provides a Hungarian message for every error code the server may answer with', () => {
-    const messages: Record<string, string> = hu.errors.codes;
-    expect(ERROR_CODES.filter((code) => !messages[code]?.trim())).toEqual([]);
-  });
-
   it('raises only codes of the shared list', async () => {
     const codes = await serverErrorCodes();
     expect(codes.has('gate_blocked')).toBe(true);

@@ -81,6 +81,20 @@ describe('mock configuration PATCH', () => {
       backend.handle('PATCH', path, { baseVersion: backend.configVersion, project: { name: 'Forbidden' } }),
     ).toMatchObject({ status: 403, body: { error: { code: 'insufficient_access' } } });
   });
+
+  it('rejects changes by an AI member like the server', () => {
+    const backend = new MockBackend();
+    backend.viewerHandle = 'fe-1';
+    const initial = structuredClone(backend.config);
+    expect(
+      backend.handle('PATCH', path, { baseVersion: backend.configVersion, project: { name: 'Forbidden' } }),
+    ).toMatchObject({ status: 403, body: { error: { code: 'insufficient_access' } } });
+    expect(backend.handle('PATCH', '/api/projects/AC/members/qa', { specialty: 'Forbidden' })).toMatchObject({
+      status: 403,
+      body: { error: { code: 'insufficient_access' } },
+    });
+    expect(backend.config).toEqual(initial);
+  });
 });
 
 describe('mock owner-only checks on team routes', () => {

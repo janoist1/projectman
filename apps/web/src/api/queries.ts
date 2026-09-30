@@ -8,7 +8,6 @@ import type {
   UpdateMemberRequest,
   UpdateTaskRequest,
   CancelTaskRequest,
-  BoardView,
   CreateProjectRequest,
   CreateTaskRequest,
   HireMemberRequest,

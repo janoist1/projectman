@@ -173,11 +173,6 @@
   color: var(--c-ink-4);
 }
 
-.role {
-  color: var(--c-ink-2);
-  font-weight: 600;
-}
-
 .statusCell {
   display: flex;
   flex-direction: column;

@@ -113,9 +113,9 @@ function Column({
 
 /** "Folyamat": the pipeline board; the task drawer renders through the nested route. */
 export function BoardPage() {
-  const { key, search, can, myHandle } = useProject();
+  const { key, search, can } = useProject();
   const isMobile = useIsMobile();
-  const { board, inbox, pipeline, model, members } = useBoardModel();
+  const { board, inbox, pipeline, model } = useBoardModel();
   const move = useMoveTask(key);
   const toast = useToast();
   const [dragged, setDragged] = useState<Task | null>(null);

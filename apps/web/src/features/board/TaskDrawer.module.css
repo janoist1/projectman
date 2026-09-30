@@ -236,33 +236,6 @@
   }
 }
 
-.check {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid var(--c-line-soft);
-  border-radius: 10px;
-  font-size: 13px;
-}
-
-.checkRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.checkRow h4 {
-  min-width: 0;
-  margin: 0;
-  font-size: inherit;
-}
-
-.checkRow button {
-  flex-shrink: 0;
-}
-
 .subtasks {
   display: grid;
   gap: 10px;

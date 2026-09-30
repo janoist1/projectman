@@ -1,4 +1,4 @@
-import type { GateCondition, LabelDefinition, StageKind } from '@projectman/shared';
+import type { GateCondition, LabelDefinition } from '@projectman/shared';
 import { getLocale } from './locales';
 import type { StandardLabelId, TemplateLocale } from './locales';
 

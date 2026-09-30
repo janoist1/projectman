@@ -108,15 +108,6 @@
   font-weight: 800;
 }
 
-.columns {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
 .column {
   border-radius: 12px;
   background: var(--c-subtle);
@@ -125,18 +116,6 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.columnHead {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.columnName {
-  font-size: 14px;
-  font-weight: 800;
 }
 
 .stages {

@@ -45,9 +45,3 @@ export function nextStage(pipeline: PipelineIndex, stageId: string): Stage | nul
 export function stagesInColumn(pipeline: PipelineIndex, column: BoardColumnView): Stage[] {
   return pipeline.stages.filter((stage) => pipeline.columnOfStage.get(stage.id)?.id === column.id);
 }
-
-/** Kind of the first stage in a column. */
-export function columnKind(pipeline: PipelineIndex, column: BoardColumnView): Stage['kind'] {
-  const first = column.stageIds[0] ? pipeline.stageById.get(column.stageIds[0]) : undefined;
-  return first?.kind ?? 'work';
-}

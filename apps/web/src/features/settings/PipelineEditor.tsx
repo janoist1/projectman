@@ -288,7 +288,6 @@ export function PipelineEditor({
   submitted?: Pipeline;
   issues: IssueRef[];
 }) {
-  const humans = draft.team.members.filter((member) => member.kind === 'human');
   const [adding, setAdding] = useState(false);
   const [columnName, setColumnName] = useState('');
   const [columnError, setColumnError] = useState<string | null>(null);

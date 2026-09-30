@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import type { Task } from '@projectman/shared';
 import { useInbox, useLabels, useResolveInbox, useStartTask, useTaskDetail } from '../../api/queries';
@@ -6,7 +6,7 @@ import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button, ButtonLink } from '../../components/Button';
 import { Chip, StatusDot } from '../../components/Chip';
-import { SelectField, TextAreaField } from '../../components/Field';
+import { SelectField } from '../../components/Field';
 import { Icon } from '../../components/Icon';
 import { Markdown } from '../../components/Markdown';
 import { StageProgress } from '../../components/StageProgress';
@@ -20,7 +20,7 @@ import { errorMessage, isApprovalRequested, isGateBlocked } from '../../lib/erro
 import { unmetGateTexts } from '../../lib/gates';
 import { isApiError } from '../../api/client';
 import { useDocumentTitle } from '../../lib/hooks';
-import { nameOf, namesOf } from '../../lib/members';
+import { nameOf } from '../../lib/members';
 import { isDeveloperRole } from '../../lib/roles';
 import type { MemberIndex } from '../../lib/members';
 import { stagePosition } from '../../lib/pipeline';
@@ -35,11 +35,10 @@ import { TaskEdit } from './TaskEdit';
 import { TaskSubtasks } from './TaskSubtasks';
 import { TaskMove } from './TaskMove';
 import { canMoveTask } from './moveTask';
-import type { PipelineIndex } from '../../lib/pipeline';
 import styles from './TaskDrawer.module.css';
 
 function StartPanel({ task, members }: { task: Task; members: MemberIndex }) {
-  const { key, myHandle } = useProject();
+  const { key } = useProject();
   const labels = useLabels(key);
   const start = useStartTask(key);
   const toast = useToast();
@@ -214,7 +213,7 @@ export function TaskDrawer() {
         <div className={styles.scroll}>
           {task.startWaiting ? <p className={styles.section}>{startWaitingHint(task)}</p> : null}
           {canMoveTask(task, can.createTasks) ? (
-            <TaskMove key={`${task.key}:${task.stageId}`} task={task} pipeline={pipeline} members={members} />
+            <TaskMove key={`${task.key}:${task.stageId}`} task={task} pipeline={pipeline} />
           ) : null}
           {can.manageTeam ? <TaskLifecycle key={task.key} task={task} members={members} /> : null}
           {myItems.length > 0 ? (

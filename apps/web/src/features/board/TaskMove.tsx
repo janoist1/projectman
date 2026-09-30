@@ -8,21 +8,12 @@ import { SelectField } from '../../components/Field';
 import { t } from '../../i18n/t';
 import { isApprovalRequested } from '../../lib/errors';
 import { gateConditionText } from '../../lib/gates';
-import type { MemberIndex } from '../../lib/members';
 import { nextStage } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { enteredStages, moveErrorText } from './moveTask';
 import styles from './TaskDrawer.module.css';
 
-export function TaskMove({
-  task,
-  pipeline,
-  members,
-}: {
-  task: Task;
-  pipeline: PipelineIndex;
-  members: MemberIndex;
-}) {
+export function TaskMove({ task, pipeline }: { task: Task; pipeline: PipelineIndex }) {
   const { key } = useProject();
   const labels = useLabels(key);
   const move = useMoveTask(key);

@@ -10,6 +10,7 @@ import { Button } from '../../components/Button';
 import { TextField } from '../../components/Field';
 import { Dialog } from '../../components/Dialog';
 import { useToast } from '../../components/toastContext';
+import { ErrorBanner } from '../../components/ErrorBanner';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { aiRoleView, hireableRoles, isDeveloperRole } from '../../lib/roles';
@@ -209,11 +210,7 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
 
       <ScheduleFields value={schedule} onChange={setSchedule} />
       {scheduleError ? <p role="alert">{t('schedules.form.invalid')}</p> : null}
-      {hire.isError ? (
-        <p className={form.error} role="alert">
-          {errorMessage(hire.error)}
-        </p>
-      ) : null}
+      {hire.isError ? <ErrorBanner>{errorMessage(hire.error)}</ErrorBanner> : null}
       <div className={form.actions}>
         <Button
           type="submit"

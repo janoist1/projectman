@@ -5,6 +5,7 @@ import { useBoard, useConfig, useInbox, useMembers, useRoles, useTeamMessages } 
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
+import { PageHeader } from '../../components/PageHeader';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
@@ -125,16 +126,18 @@ export function TeamPage() {
 
   return (
     <div className={styles.page}>
-      <header className={styles.header}>
-        <div className={styles.titles}>
-          <h1 className={styles.title}>{t('team.title')}</h1>
-          <p className={styles.subtitle}>
+      <PageHeader
+        className={styles.header}
+        title={t('team.title')}
+        subtitle={
+          <>
             {t('team.subtitle', { humans: humans.length, ai: ai.length, tasks: activeTaskKeys.size })}
             {ai.length > 0
               ? ` · ${allMine ? t('team.subscriptionYours') : t('team.subscriptionMixed')}`
               : null}
-          </p>
-        </div>
+          </>
+        }
+      >
         {(board.data?.aiEnabled ?? limits?.aiEnabled) === false ? (
           <div role="status" className={styles.limit}>
             <span>{t('team.aiDisabled')}</span>
@@ -165,7 +168,7 @@ export function TeamPage() {
             {t('team.hire')}
           </Button>
         ) : null}
-      </header>
+      </PageHeader>
 
       <div className={styles.content}>
         <section className={styles.roster} aria-labelledby="team-roster">

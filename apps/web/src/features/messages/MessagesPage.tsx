@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useBoard, useReadTeamMessage, useTeamMessages, useUnreadTeamMessages } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
+import { PageHeader } from '../../components/PageHeader';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
@@ -49,11 +50,7 @@ export function MessagesPage() {
 
   return (
     <div className={styles.page}>
-      <header className={styles.header}>
-        <div className={styles.titles}>
-          <h1 className={styles.title}>{t('messages.title')}</h1>
-          <p className={styles.subtitle}>{t('messages.subtitle')}</p>
-        </div>
+      <PageHeader title={t('messages.title')} subtitle={t('messages.subtitle')}>
         {canSend ? (
           <Button variant="primary" onClick={() => setCompose({ to: [], task: '' })}>
             {t('messages.new')}
@@ -73,7 +70,7 @@ export function MessagesPage() {
             },
           ]}
         />
-      </header>
+      </PageHeader>
       <section className={styles.panel}>
         {filter === 'unread' && unreadQuery.isError ? (
           <ErrorState error={unreadQuery.error} onRetry={() => void unreadQuery.refetch()} />

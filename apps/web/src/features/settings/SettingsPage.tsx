@@ -1,6 +1,7 @@
 import { useConfig } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Chip } from '../../components/Chip';
+import { PageHeader } from '../../components/PageHeader';
 import { ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { useDocumentTitle } from '../../lib/hooks';
@@ -26,17 +27,13 @@ export function SettingsPage() {
 
   return (
     <div className={styles.page}>
-      <header className={styles.header}>
-        <div className={styles.titles}>
-          <h1 className={styles.title}>{t('settings.title')}</h1>
-          <p className={styles.subtitle}>{t('settings.subtitle')}</p>
-        </div>
+      <PageHeader className={styles.header} title={t('settings.title')} subtitle={t('settings.subtitle')}>
         {config.data ? (
           <Chip tone="outline" size="md" mono>
             {t('settings.version', { version: config.data.version.slice(0, 7) })}
           </Chip>
         ) : null}
-      </header>
+      </PageHeader>
       <div className={styles.grid}>
         <div className={styles.mainCol}>
           {config.isPending ? <LoadingState /> : null}

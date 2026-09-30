@@ -30,7 +30,7 @@
   top: -60px;
   z-index: 100;
   padding: 10px 14px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--c-primary);
   color: var(--c-on-primary);
   font-weight: 800;
@@ -64,7 +64,7 @@
 .logo {
   width: 40px;
   height: 40px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--c-primary);
   color: var(--c-on-primary);
   display: flex;
@@ -83,7 +83,7 @@
   width: 64px;
   height: 58px;
   flex-shrink: 0;
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -105,7 +105,7 @@
 }
 
 .railLabel {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -136,7 +136,7 @@
   width: 44px;
   height: 44px;
   flex-shrink: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   color: var(--c-ink-3);
   display: flex;
   align-items: center;
@@ -196,7 +196,7 @@
   background: transparent;
   flex-grow: 1;
   min-width: 0;
-  font-size: 14px;
+  font-size: var(--text-md);
   color: var(--c-ink);
 }
 
@@ -225,10 +225,10 @@
 }
 
 .kbd {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--c-ink-4);
   border: 1px solid var(--c-line-strong);
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   padding: 1px 6px;
 }
 
@@ -248,7 +248,7 @@
   align-items: center;
   gap: 8px;
   font-weight: 800;
-  font-size: 14px;
+  font-size: var(--text-md);
   flex-shrink: 0;
   white-space: nowrap;
 }
@@ -269,8 +269,8 @@
 .inboxPillCompact {
   height: 34px;
   padding: 0 8px 0 10px;
-  border-radius: 10px;
-  font-size: 13px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
   gap: 6px;
 }
 
@@ -282,7 +282,7 @@
   border-radius: 11px;
   background: var(--c-needs);
   color: var(--c-on-needs);
-  font-size: 12px;
+  font-size: var(--text-xs);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -291,7 +291,7 @@
 .inboxPillCompact .pillCount {
   min-width: 18px;
   height: 18px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .hideNarrow {
@@ -384,7 +384,7 @@
 }
 
 .tabLabel {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 700;
 }
 
@@ -407,7 +407,7 @@
   background: var(--c-needs-soft);
   border-bottom: 1px solid var(--c-needs-border);
   color: var(--c-needs-strong);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 700;
 }
 

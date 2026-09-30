@@ -18,6 +18,16 @@
   --radius-xl: 14px;
   --radius-2xl: 16px;
 
+  /* Type scale. The half steps some labels use (11.5, 12.5, 13.5px) stay literal. */
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-lg: 15px;
+  --text-xl: 16px;
+  --text-2xl: 18px;
+  --text-display: 30px;
+
   --rail-width: 80px;
   --topbar-height: 64px;
   --tabbar-height: 64px;

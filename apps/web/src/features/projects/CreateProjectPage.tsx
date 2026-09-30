@@ -7,11 +7,11 @@ import { Button } from '../../components/Button';
 import { ChoiceCard, TextField } from '../../components/Field';
 import { ErrorState, LoadingState } from '../../components/States';
 import { useToast } from '../../components/toastContext';
+import { ErrorBanner } from '../../components/ErrorBanner';
 import { t, tDynamic } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { useDocumentTitle } from '../../lib/hooks';
 import { AuthLayout } from '../auth/AuthLayout';
-import authStyles from '../auth/AuthLayout.module.css';
 import { KEY_RE, newRepo, reposPayload, suggestKey, validateRepos } from './projectForm';
 import type { RepoErrors, RepoRow } from './projectForm';
 import styles from './CreateProjectPage.module.css';
@@ -81,7 +81,7 @@ export function CreateProjectPage() {
         isFirst ? `${t('projects.emptyBody')} ${t('projects.create.intro')}` : t('projects.create.intro')
       }
     >
-      <form className={authStyles.form} onSubmit={onSubmit} noValidate>
+      <form className={styles.form} onSubmit={onSubmit} noValidate>
         <TextField
           label={t('projects.create.name')}
           placeholder={t('projects.create.namePlaceholder')}
@@ -209,11 +209,7 @@ export function CreateProjectPage() {
             </span>
           ) : null}
         </fieldset>
-        {create.isError ? (
-          <p className={authStyles.formError} role="alert">
-            {errorMessage(create.error)}
-          </p>
-        ) : null}
+        {create.isError ? <ErrorBanner>{errorMessage(create.error)}</ErrorBanner> : null}
         <Button type="submit" variant="primary" size="xl" fullWidth loading={create.isPending}>
           {create.isPending ? t('projects.create.submitting') : t('projects.create.submit')}
         </Button>

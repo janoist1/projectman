@@ -55,7 +55,7 @@
   gap: 10px;
   padding: 8px;
   margin: 0 -8px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   color: var(--c-ink);
 }
 
@@ -105,13 +105,13 @@
 }
 
 .noSession {
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--c-ink-4);
 }
 
 .missing {
   padding: 24px;
-  font-size: 14px;
+  font-size: var(--text-md);
   color: var(--c-ink-3);
 }
 

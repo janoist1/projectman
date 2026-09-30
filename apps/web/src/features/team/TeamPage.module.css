@@ -7,40 +7,14 @@
 }
 
 .header {
-  display: flex;
-  align-items: flex-end;
-  gap: 14px;
-  flex-wrap: wrap;
   padding-bottom: 16px;
   border-bottom: 1px solid var(--c-line);
-}
-
-.titles {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 1 1 360px;
-  min-width: 0;
-}
-
-.title {
-  font-family: var(--font-display);
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: -0.015em;
-  line-height: 1.1;
-}
-
-.subtitle {
-  font-size: 13.5px;
-  color: var(--c-ink-3);
-  line-height: 1.45;
 }
 
 .limit {
   box-sizing: border-box;
   padding: 8px 14px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--c-surface);
   border: 1px solid var(--c-line-strong);
   display: flex;
@@ -55,7 +29,7 @@
 }
 
 .limitTitle {
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 800;
 }
 
@@ -65,7 +39,7 @@
 }
 
 .limitValue {
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 800;
   white-space: nowrap;
 }
@@ -98,7 +72,7 @@
 }
 
 .sectionTitle {
-  font-size: 15px;
+  font-size: var(--text-lg);
   font-weight: 800;
 }
 
@@ -129,7 +103,7 @@
 }
 
 .flowTitle {
-  font-size: 16px;
+  font-size: var(--text-xl);
   font-weight: 800;
 }
 
@@ -138,7 +112,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 800;
   padding-top: 8px;
 }

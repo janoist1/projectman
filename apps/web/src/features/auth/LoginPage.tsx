@@ -5,6 +5,7 @@ import { isApiError } from '../../api/client';
 import { useLogin, useSetupStatus } from '../../api/queries';
 import { Button } from '../../components/Button';
 import { PasswordField, TextField } from '../../components/Field';
+import { ErrorBanner } from '../../components/ErrorBanner';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { useDocumentTitle } from '../../lib/hooks';
@@ -66,11 +67,7 @@ export function LoginPage() {
           error={errors.password}
           required
         />
-        {failure ? (
-          <p className={styles.formError} role="alert">
-            {failure}
-          </p>
-        ) : null}
+        {failure ? <ErrorBanner>{failure}</ErrorBanner> : null}
         <Button type="submit" variant="primary" size="xl" fullWidth loading={login.isPending}>
           {login.isPending ? t('auth.login.submitting') : t('auth.login.submit')}
         </Button>

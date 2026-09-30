@@ -5,7 +5,7 @@
   gap: 10px;
   padding: 40px 20px;
   color: var(--c-ink-3);
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 600;
 }
 
@@ -52,7 +52,7 @@
 
 .code {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--c-ink-4);
   font-weight: 500;
 }
@@ -94,7 +94,7 @@
 }
 
 .emptyTitle {
-  font-size: 15px;
+  font-size: var(--text-lg);
   font-weight: 800;
 }
 

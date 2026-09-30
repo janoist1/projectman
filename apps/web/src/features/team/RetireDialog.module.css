@@ -20,7 +20,7 @@
 }
 
 .error {
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 700;
   color: var(--c-blocked-text);
 }

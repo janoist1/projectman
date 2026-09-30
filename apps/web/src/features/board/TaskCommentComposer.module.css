@@ -12,7 +12,7 @@
   max-height: 200px;
   overflow-y: auto;
   border: 1px solid var(--c-line);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--c-surface);
 }
 .options button {
@@ -21,7 +21,7 @@
   text-align: left;
   padding: 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--c-ink);
   overflow-wrap: anywhere;

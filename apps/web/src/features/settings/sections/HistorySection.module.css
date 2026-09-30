@@ -24,10 +24,10 @@
   height: 20px;
   box-sizing: border-box;
   padding: 0 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: var(--c-accent-bg);
   color: var(--c-accent-text);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   display: inline-flex;
   align-items: center;
 }
@@ -41,7 +41,7 @@
 }
 
 .versionMessage {
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 800;
   line-height: 1.35;
 }

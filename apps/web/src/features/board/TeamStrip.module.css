@@ -13,7 +13,7 @@
   min-width: 190px;
   box-sizing: border-box;
   padding: 10px 12px;
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   background: var(--c-surface);
   border: 1px solid var(--c-line);
   display: flex;
@@ -51,12 +51,12 @@
 
 .name {
   font-weight: 800;
-  font-size: 14px;
+  font-size: var(--text-md);
   white-space: nowrap;
 }
 
 .status {
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 800;
   color: var(--status-text);
   white-space: nowrap;

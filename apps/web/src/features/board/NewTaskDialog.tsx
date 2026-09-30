@@ -9,6 +9,7 @@ import { DescriptionEditor } from '../../components/DescriptionEditor';
 import { Dialog } from '../../components/Dialog';
 import { ChoiceCard, SelectField, TextField } from '../../components/Field';
 import { useToast } from '../../components/toastContext';
+import { ErrorBanner } from '../../components/ErrorBanner';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import styles from './NewTaskDialog.module.css';
@@ -128,11 +129,7 @@ function NewTaskForm({ formId, onDone }: { formId: string; onDone: () => void })
           />
         </div>
       </fieldset>
-      {create.isError ? (
-        <p className={styles.error} role="alert">
-          {errorMessage(create.error)}
-        </p>
-      ) : null}
+      {create.isError ? <ErrorBanner>{errorMessage(create.error)}</ErrorBanner> : null}
       <SubmitState pending={create.isPending} formId={formId} />
     </form>
   );

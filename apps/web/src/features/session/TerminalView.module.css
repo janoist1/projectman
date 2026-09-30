@@ -5,7 +5,7 @@
   margin: 16px;
   box-sizing: border-box;
   padding: 14px 16px 10px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--c-term-bg);
   display: flex;
   flex-direction: column;
@@ -34,10 +34,10 @@
   justify-content: center;
   gap: 10px;
   color: var(--c-term-muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 600;
   background: var(--c-term-bg);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
 }
 
 .hint {
@@ -45,7 +45,7 @@
   padding-top: 8px;
   border-top: 1px solid var(--c-term-line);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--c-term-muted);
 }
 

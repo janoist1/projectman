@@ -14,7 +14,7 @@
 }
 
 .id {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--c-ink-2);
   overflow-wrap: anywhere;
 }
@@ -34,7 +34,7 @@
 
 .stage {
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--c-surface);
   border: 1px solid var(--c-line-soft);
   display: flex;
@@ -60,7 +60,7 @@
   align-items: center;
   gap: 6px 10px;
   flex-wrap: wrap;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .owner {
@@ -77,7 +77,7 @@
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .table th {
@@ -144,7 +144,7 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .field input:not([type='checkbox']):not([type='range']),
@@ -156,7 +156,7 @@
   max-width: 100%;
   padding: 8px;
   border: 1px solid var(--c-line);
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: var(--c-surface);
   color: var(--c-ink-2);
 }
@@ -170,7 +170,7 @@
 .condition {
   padding: 10px;
   border: 1px solid var(--c-line);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -178,7 +178,7 @@
 
 .validation {
   margin-top: 12px;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .editor > button,
@@ -196,5 +196,5 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }

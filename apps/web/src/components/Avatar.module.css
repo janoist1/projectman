@@ -30,13 +30,13 @@
   font-size: 10px;
 }
 .lg {
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 .xl {
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 .xxl {
-  font-size: 16px;
+  font-size: var(--text-xl);
 }
 
 .initials {

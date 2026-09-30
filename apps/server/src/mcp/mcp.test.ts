@@ -150,6 +150,11 @@ describe('team MCP endpoint', () => {
     expect(schema('update_task').properties.check).toBeUndefined();
     expect(schema('update_task').properties.title.maxLength).toBe(200);
     expect(schema('update_task').properties.description.type).toBe('string');
+    // A repository name, or null to clear it.
+    expect(schema('update_task').properties.repo.anyOf).toEqual([
+      { type: 'string', minLength: 1, maxLength: 64 },
+      { type: 'null' },
+    ]);
     expect(schema('create_task').required).toEqual(['title']);
     expect(schema('create_task').properties.visibility.enum).toEqual(['internal', 'shared']);
     expect(schema('create_task').properties.labels.items.type).toBe('string');
@@ -298,6 +303,7 @@ describe('team tools', () => {
     expect(out).toContain('Stage: dev · Status: active · Assignee: fe-1 · Labels: frontend');
     expect(out).toContain('Links: Branch: ar-21-login-validation in web');
     expect(out).toContain('Show an error message when the email address is invalid.');
+    expect(out).toContain('Repo: web · Visibility: internal · Priority: 2');
     expect(out).toContain('Sessions: fe-1 (working)');
     expect(out).toContain('- 2026-09-29 09:00 UTC · owner: moved it from ready to dev');
   });
@@ -338,7 +344,7 @@ describe('team tools', () => {
 
     expect(result.isError).toBe(true);
     expect(text(result)).toBe(
-      'Error [invalid]: Nothing to update: pass stage_id, add_labels, remove_labels, note, title and/or description.',
+      'Error [invalid]: Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description and/or repo.',
     );
     expect(h.handler.calls).toEqual([]);
   });
@@ -371,6 +377,53 @@ describe('team tools', () => {
     const empty = await call(client, 'update_task', { task_key: 'AR-21', description: '   ' });
     expect(empty.isError).toBe(true);
     expect(text(empty)).toContain('Input validation error');
+  });
+
+  it('update_task sets the repository, clears it with null and reports what it did', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+
+    const set = await call(client, 'update_task', { task_key: 'AR-21', repo: ' api ' });
+
+    expect(set.isError).toBeFalsy();
+    expect(h.handler.calls[0]).toEqual({
+      method: 'updateTask',
+      ctx: devContext,
+      args: { taskKey: 'AR-21', repo: 'api' },
+    });
+    expect(text(set)).toBe(
+      'Updated AR-21: repo set to api.\n' +
+        'Now: Stage: dev · Status: active · Assignee: fe-1 · Labels: frontend',
+    );
+    expect(h.handler.tasks.get('AR-21')!.task.repo).toBe('api');
+    expect(h.handler.tasks.get('AR-21')!.timeline.at(-1)).toMatchObject({
+      type: 'task_updated',
+      data: { fields: ['repo'], repo: 'api', previousRepo: 'web' },
+    });
+
+    // null clears the repository and is a change on its own: nothing else has to be passed.
+    const cleared = await call(client, 'update_task', { task_key: 'AR-21', repo: null });
+    expect(cleared.isError).toBeFalsy();
+    expect(h.handler.calls[1]).toMatchObject({ args: { taskKey: 'AR-21', repo: null } });
+    expect(text(cleared)).toContain('Updated AR-21: repo cleared.');
+    expect(h.handler.tasks.get('AR-21')!.task.repo).toBeNull();
+  });
+
+  it('update_task refuses an empty or unknown repository and passes the handler refusal on', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+
+    for (const repo of ['', '   ', 'x'.repeat(65), 42]) {
+      const result = await call(client, 'update_task', { task_key: 'AR-21', repo });
+      expect(result.isError, String(repo)).toBe(true);
+      expect(text(result), String(repo)).toContain('Input validation error');
+    }
+    expect(h.handler.calls).toEqual([]);
+
+    const unknown = await call(client, 'update_task', { task_key: 'AR-21', repo: 'mobile' });
+    expect(unknown.isError).toBe(true);
+    expect(text(unknown)).toBe('Error [invalid]: unknown repository: mobile (the project has: web, api)');
+    expect(h.handler.tasks.get('AR-21')!.task.repo).toBe('web');
   });
 
   it('create_task forwards optional parent_key and describes one-level subtasks', async () => {

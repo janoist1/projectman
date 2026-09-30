@@ -36,6 +36,19 @@ export type TaskSummary = Pick<
   'key' | 'title' | 'stageId' | 'status' | 'assignee' | 'labels' | 'updatedAt'
 >;
 
+/**
+ * What get_task shows of a task: the task with its timeline, and where its work happens. The
+ * repository is not the task's own `repo` alone: a task of a one-repository project works in that
+ * repository (`effectiveRepo` in the shared package). Both fields are optional for handlers that
+ * know nothing about repositories.
+ */
+export interface TaskToolDetail extends TaskDetail {
+  /** The repository the work happens in; null when there is none. */
+  effectiveRepo?: string | null;
+  /** The project has several repositories and the task names none: a person has to choose. */
+  repoChoiceNeeded?: boolean;
+}
+
 export interface TeamToolsHandler {
   /** list_tasks: visible board tasks, newest update first. */
   listTasks(ctx: ToolContext, args: ListTasksInput): Promise<TaskSummary[]>;
@@ -46,12 +59,13 @@ export interface TeamToolsHandler {
   ): Promise<{ messageId: string; deliveredTo: MemberHandle[] }>;
   /** list_members: roster with handles, roles and status. */
   listMembers(ctx: ToolContext): Promise<MemberView[]>;
-  /** get_task: task with recent timeline. */
-  getTask(ctx: ToolContext, args: { taskKey: string }): Promise<TaskDetail>;
+  /** get_task: task with recent timeline, and where its work happens. */
+  getTask(ctx: ToolContext, args: { taskKey: string }): Promise<TaskToolDetail>;
   /**
-   * update_task: rewrite the title or description, add or remove labels (under the labels'
-   * rules), add a note, move stage (gates enforced). Everything else is recorded before the
-   * stage move, so labels added in the same call count for the target stage's gate.
+   * update_task: rewrite the title or description, set or clear the repository, add or remove
+   * labels (under the labels' rules), add a note, move stage (gates enforced). Everything else is
+   * recorded before the stage move, so labels added in the same call count for the target stage's
+   * gate.
    */
   updateTask(
     ctx: ToolContext,
@@ -63,6 +77,8 @@ export interface TeamToolsHandler {
       note?: string;
       title?: string;
       description?: string;
+      /** A repository of the project; null clears it. */
+      repo?: string | null;
     },
   ): Promise<{ task: Task }>;
   /**

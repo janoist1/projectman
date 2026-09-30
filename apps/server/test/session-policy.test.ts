@@ -1615,26 +1615,29 @@ describe('readable roots of a session', () => {
 
   it('are its own directory and the worktree of the task', () => {
     expect(
-      readableRootsFor({ cwd: '/workspace', projectKey: 'AR', task, worktreesRootDir: '/worktrees' }),
+      readableRootsFor({ config, cwd: '/workspace', projectKey: 'AR', task, worktreesRootDir: '/worktrees' }),
     ).toEqual(['/workspace', '/worktrees/AR/AR-1-local']);
-    expect(readableRootsFor({ cwd, projectKey: 'AR', task, worktreesRootDir: '/worktrees/' })).toEqual([
-      cwd,
-      '/worktrees/AR/AR-1-local',
-    ]);
+    expect(
+      readableRootsFor({ config, cwd, projectKey: 'AR', task, worktreesRootDir: '/worktrees/' }),
+    ).toEqual([cwd, '/worktrees/AR/AR-1-local']);
   });
 
   it('are only the directory without a task, a repository or a worktrees root', () => {
+    // `config` has two repositories, so a task that names none has no repository.
     for (const each of [
       { task: null, worktreesRootDir: '/worktrees' },
       { task: { key: 'AR-1', repo: null }, worktreesRootDir: '/worktrees' },
       { task, worktreesRootDir: undefined },
     ])
-      expect(readableRootsFor({ cwd: '/workspace', projectKey: 'AR', ...each })).toEqual(['/workspace']);
+      expect(readableRootsFor({ config, cwd: '/workspace', projectKey: 'AR', ...each })).toEqual([
+        '/workspace',
+      ]);
   });
 
   it('never include a location outside the project folder of the worktrees root', () => {
     for (const repo of ['x/../../..', '../../..', '..', '.', '../x/..', 'x/..', 'x/../..']) {
       const roots = readableRootsFor({
+        config,
         cwd: '/workspace',
         projectKey: 'AR',
         task: { key: 'AR-1', repo },
@@ -1643,5 +1646,99 @@ describe('readable roots of a session', () => {
       for (const root of roots.slice(1))
         expect(root.startsWith('/worktrees/AR/'), `${repo}: ${root}`).toBe(true);
     }
+  });
+});
+
+// A task without a repository of its own works in the project's only repository (PM-68): the rules that
+// decide by the task's repository read the effective one.
+describe('the repository of a task that names none (PM-68)', () => {
+  const allowed = { behavior: 'allow' };
+  const publishing = {
+    behavior: 'deny',
+    message: 'The owner has not allowed publishing from this repository.',
+  };
+  /** A project with one repository, `only`, on GitHub unless `local`. */
+  const oneRepo = (local: boolean, defaultBranch = 'main') => {
+    const project = testTemplate.build({
+      key: 'AR',
+      name: 'Fictional project',
+      workspacePath: '/workspace',
+      language: 'en',
+      owner: { handle: 'owner', displayName: 'Example Owner', email: 'owner@example.com' },
+    });
+    project.project.repos = [
+      { name: 'only', path: 'only', defaultBranch, ...(local ? {} : { github: 'acme/only' }) },
+    ];
+    return project;
+  };
+  const withoutRepos = (local: boolean) => {
+    const project = oneRepo(local);
+    project.project.repos = [];
+    return project;
+  };
+  const withTwoRepos = (local: boolean) => {
+    const project = oneRepo(local);
+    project.project.repos.push({ name: 'other', path: 'other', defaultBranch: 'main' });
+    return project;
+  };
+  const task = { key: 'AR-1', repo: null };
+  const worktree = '/worktrees/AR/AR-1-only';
+  const run = (project: typeof config, command: string, overrides: Partial<typeof input> = {}) =>
+    commandVerdict({
+      ...input,
+      config: project,
+      session: { cwd: worktree, role: 'developer' },
+      task,
+      toolInput: { command },
+      ...overrides,
+    });
+
+  it('denies publishing from a local-only only repository, and only from that', () => {
+    expect(deniedToolsFor(oneRepo(true), task)).toEqual(LOCAL_ONLY_DENIED_TOOLS);
+    expect(deniedToolsFor(oneRepo(false), task)).toEqual([]);
+    expect(run(oneRepo(true), 'git push')).toEqual(publishing);
+    expect(run(oneRepo(true), 'gh pr create --title "Example"')).toEqual(publishing);
+    expect(run(oneRepo(false), 'git push')).toBeNull();
+  });
+
+  it('has nothing to deny when the project has no repository or several', () => {
+    for (const project of [withoutRepos(true), withTwoRepos(true)]) {
+      expect(deniedToolsFor(project, task)).toEqual([]);
+      expect(run(project, 'git push')).toBeNull();
+    }
+    // The task's own repository still decides, whatever the project has.
+    expect(deniedToolsFor(withTwoRepos(true), { repo: 'only' })).toEqual(LOCAL_ONLY_DENIED_TOOLS);
+  });
+
+  it('allows the developer routine steps in the worktree of the only repository, merging its default branch', () => {
+    const project = oneRepo(true, 'develop');
+    expect(run(project, 'git add -A && git commit -m "Example"')).toEqual(allowed);
+    expect(run(project, 'git merge --ff-only origin/develop')).toEqual(allowed);
+    expect(run(project, 'git merge --ff-only main')).toBeNull();
+    // Not in the worktree, and not where the project has no repository to have a worktree of.
+    expect(
+      run(project, 'git commit -m "Example"', { session: { cwd: '/workspace', role: 'developer' } }),
+    ).toBeNull();
+    expect(run(withoutRepos(true), 'git commit -m "Example"')).toBeNull();
+    expect(run(withTwoRepos(true), 'git commit -m "Example"')).toBeNull();
+  });
+
+  it('reads the worktree of the only repository, not of a repository the project does not have', () => {
+    const roots = (project: typeof config, overrides: Partial<Parameters<typeof readableRootsFor>[0]> = {}) =>
+      readableRootsFor({
+        config: project,
+        cwd: '/workspace',
+        projectKey: 'AR',
+        task,
+        worktreesRootDir: '/worktrees',
+        ...overrides,
+      });
+    expect(roots(oneRepo(false))).toEqual(['/workspace', worktree]);
+    expect(roots(withoutRepos(false))).toEqual(['/workspace']);
+    expect(roots(withTwoRepos(false))).toEqual(['/workspace']);
+    expect(roots(withTwoRepos(false), { task: { key: 'AR-1', repo: 'other' } })).toEqual([
+      '/workspace',
+      '/worktrees/AR/AR-1-other',
+    ]);
   });
 });

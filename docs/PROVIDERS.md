@@ -98,6 +98,14 @@ every role. Codex needs no counterpart for the read-only tools: reading and
 `git diff`/`log`/`show` run inside its sandbox without asking (`gh pr view`/`diff` need
 network, so they are asked).
 
+The task worktree belongs to the task's repository: the task's own `repo`, else the project's
+only repository (`effectiveRepo` in `packages/shared`, PM-68). The placement, the denied tools,
+the readable directories and the command rules below all use that one rule. A role
+that edits never runs in the workspace root: when the project has several repositories and the
+task names none, its session does not start (`repo_required`) until a person chooses one. Roles
+that only read may run in the workspace root. A project without repositories has no worktree to
+give, so its tasks work in the workspace root.
+
 System decisions that never reach a human (`commandVerdict`, recorded in the inbox history and
 the timeline like any other answer):
 

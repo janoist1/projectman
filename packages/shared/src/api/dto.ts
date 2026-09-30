@@ -296,6 +296,11 @@ export const UpdateTaskRequest = z.object({
   visibility: Visibility.optional(),
   /** Owner/admin only; null clears the assignee. Starting work is a separate call. */
   assignee: MemberHandle.nullable().optional(),
+  /**
+   * The repository the task works in: the name of a repository of the project's configuration, or
+   * null to clear it. Refused while a session of the task is running (`task_session_live`).
+   */
+  repo: z.string().nullable().optional(),
 });
 export type UpdateTaskRequest = z.infer<typeof UpdateTaskRequest>;
 

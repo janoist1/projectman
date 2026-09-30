@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { DUTIES, roleBundle } from '@projectman/shared';
+import { DUTIES, effectiveRepo, repoOf, roleBundle, roleUsesWorktree } from '@projectman/shared';
 import type { RoleId, ProjectConfig, Task } from '@projectman/shared';
 import { isWithin } from './command-paths';
 import { isReadOnlyCommand } from './read-only-commands';
@@ -61,8 +61,12 @@ export const DEVELOPMENT_TOOLS = [
 
 export const LOCAL_ONLY_DENIED_TOOLS = ['Bash(git push:*)', 'Bash(gh pr create:*)', 'Bash(gh pr merge:*)'];
 
+/**
+ * What the task's repository rules out: publishing from a repository without GitHub. The repository
+ * is the task's effective one (its own, else the project's only repository).
+ */
 export function deniedToolsFor(config: ProjectConfig, task: Pick<Task, 'repo'> | null): string[] {
-  const repo = config.project.repos.find((repo) => repo.name === task?.repo);
+  const repo = repoOf(config, effectiveRepo(config, task));
   return repo && !repo.github ? [...LOCAL_ONLY_DENIED_TOOLS] : [];
 }
 
@@ -76,7 +80,8 @@ function inTaskWorktree(input: {
   worktreesRootDir?: string;
 }): boolean {
   const { config, session, task, worktreesRootDir } = input;
-  if (!worktreesRootDir || !task?.repo || !sessionPolicyFor(session.role, config).worktree) return false;
+  if (!worktreesRootDir || !effectiveRepo(config, task) || !sessionPolicyFor(session.role, config).worktree)
+    return false;
   const relative = path.relative(path.resolve(worktreesRootDir), path.resolve(session.cwd));
   return (
     relative !== '' &&
@@ -88,21 +93,23 @@ function inTaskWorktree(input: {
 
 /**
  * The directories an AI session on a task may read without asking: its own working directory
- * and, when the task names a repository, the task's worktree, where the developer's changes are
- * (a reviewer works elsewhere and reads them there). The worktree is at the location the
- * worktree manager gives it: `<worktreesRoot>/<PROJECT>/<TASKKEY>-<repo>`.
+ * and, when the task has a repository (its own, else the project's only one), the task's worktree,
+ * where the developer's changes are (a reviewer works elsewhere and reads them there). The worktree
+ * is at the location the worktree manager gives it: `<worktreesRoot>/<PROJECT>/<TASKKEY>-<repo>`.
  */
 export function readableRootsFor(input: {
+  config: Pick<ProjectConfig, 'project'>;
   cwd: string;
   projectKey: string;
   task: Pick<Task, 'key' | 'repo'> | null;
   worktreesRootDir?: string;
 }): string[] {
-  const { cwd, projectKey, task, worktreesRootDir } = input;
+  const { config, cwd, projectKey, task, worktreesRootDir } = input;
   const roots = [cwd];
-  if (task?.repo && worktreesRootDir) {
+  const repo = effectiveRepo(config, task);
+  if (task && repo && worktreesRootDir) {
     const projectDir = path.join(path.resolve(worktreesRootDir), projectKey);
-    const worktree = path.join(projectDir, `${task.key}-${task.repo}`);
+    const worktree = path.join(projectDir, `${task.key}-${repo}`);
     if (worktree !== projectDir && isWithin(projectDir, worktree)) roots.push(worktree);
   }
   return roots;
@@ -140,7 +147,7 @@ export function commandVerdict(input: {
   const parsed = parseShellCommand(command);
   if (!parsed) return null;
   if (inTaskWorktree(input)) {
-    const defaultBranch = config.project.repos.find((repo) => repo.name === task?.repo)?.defaultBranch;
+    const defaultBranch = repoOf(config, effectiveRepo(config, task))?.defaultBranch;
     if (isWorktreeRoutine(parsed, { cwd: session.cwd, defaultBranch })) return { behavior: 'allow' };
   }
   if (task && readableRoots && isReadOnlyCommand(parsed, { cwd: session.cwd, roots: readableRoots })) {
@@ -152,16 +159,19 @@ export function commandVerdict(input: {
 export interface RoleSessionPolicy {
   /** Review and research roles: the read-only tools are pre-approved. */
   readOnlyTools: boolean;
-  /** Roles that change files: their task sessions run in the task's own git worktree (when the task names a repo). */
+  /**
+   * Roles that change files: their task sessions run in the task's own worktree and branch, never
+   * in the workspace root. A project with several repositories refuses to start one on a task
+   * without a repository (`assertRepoChosen`).
+   */
   worktree: boolean;
 }
 
 /** Union of the actual duties, including custom roles and project overrides. */
 export function sessionPolicyFor(role: RoleId, config: Pick<ProjectConfig, 'team'>): RoleSessionPolicy {
-  const duties = roleBundle(config, role).duties;
   return {
-    readOnlyTools: duties.some((id) => DUTIES[id].toolPolicy === 'read_only'),
-    worktree: duties.some((id) => DUTIES[id].toolPolicy === 'task_worktree'),
+    readOnlyTools: roleBundle(config, role).duties.some((id) => DUTIES[id].toolPolicy === 'read_only'),
+    worktree: roleUsesWorktree(config, role),
   };
 }
 export function allowedToolsFor(role: RoleId, config: Pick<ProjectConfig, 'team'>): string[] {

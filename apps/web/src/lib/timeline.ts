@@ -39,12 +39,27 @@ function stageName(ctx: TimelineContext, id: string): string {
   return ctx.pipeline?.stageById.get(id)?.name ?? id;
 }
 
-const fieldKeys = ['title', 'description', 'labels', 'visibility', 'stageId', 'parentKey'] as const;
+const fieldKeys = ['title', 'description', 'labels', 'visibility', 'stageId', 'parentKey', 'repo'] as const;
 
 function fieldLabel(field: string): string {
   return (fieldKeys as readonly string[]).includes(field)
     ? t(`timeline.fields.${field as (typeof fieldKeys)[number]}`)
     : field;
+}
+
+/** A repository named in an event: its name, or that the task had or has none. */
+function repoName(value: unknown): string {
+  return typeof value === 'string' && value ? value : t('timeline.noRepo');
+}
+
+/**
+ * A changed field of a task update. A repository change names the repositories it went from and to
+ * (events recorded without them name the field only).
+ */
+function fieldText(field: string, data: Record<string, unknown>): string {
+  return field === 'repo' && 'repo' in data
+    ? t('timeline.repoChange', { previous: repoName(data.previousRepo), repo: repoName(data.repo) })
+    : fieldLabel(field);
 }
 
 export function linkLabel(kind: string, ref: string, repo?: string): string {
@@ -132,7 +147,9 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       if (blocked) return normal(t('timeline.events.gate_blocked', { to: stageName(ctx, str(blocked.to)) }));
       return normal(
         t('timeline.events.task_updated', {
-          fields: strings(d.fields).map(fieldLabel).join(t('common.listSeparator')),
+          fields: strings(d.fields)
+            .map((field) => fieldText(field, d))
+            .join(t('common.listSeparator')),
         }),
       );
     }

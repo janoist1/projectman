@@ -1,6 +1,8 @@
 import {
+  effectiveRepo,
   isOpenTask,
   memberOf,
+  needsRepoChoice,
   questionChoices,
   TaskStatus as TaskStatusSchema,
   TaskKey,
@@ -11,7 +13,6 @@ import type {
   ProjectConfig,
   QuestionOptionInput,
   Task,
-  TaskDetail,
   Visibility,
 } from '@projectman/shared';
 import { TeamToolError } from '../contracts';
@@ -20,6 +21,7 @@ import type {
   ListTasksInput,
   MemberMemoryStore,
   TaskSummary,
+  TaskToolDetail,
   TeamToolsHandler,
   ToolContext,
 } from '../contracts';
@@ -188,10 +190,15 @@ export class TeamToolsService implements TeamToolsHandler {
     });
   }
 
-  async getTask(ctx: ToolContext, args: { taskKey: string }): Promise<TaskDetail> {
+  async getTask(ctx: ToolContext, args: { taskKey: string }): Promise<TaskToolDetail> {
     return this.guard(async () => {
-      await this.caller(ctx);
-      return this.tasks.detail(ctx.projectKey, this.validTaskKey(ctx, args.taskKey), 50);
+      const config = await this.caller(ctx);
+      const detail = this.tasks.detail(ctx.projectKey, this.validTaskKey(ctx, args.taskKey), 50);
+      return {
+        ...detail,
+        effectiveRepo: effectiveRepo(config, detail.task),
+        repoChoiceNeeded: needsRepoChoice(config, detail.task),
+      };
     });
   }
 
@@ -205,6 +212,7 @@ export class TeamToolsService implements TeamToolsHandler {
       note?: string;
       title?: string;
       description?: string;
+      repo?: string | null;
     },
   ): Promise<{ task: Task }> {
     return this.guard(async () => {
@@ -232,6 +240,7 @@ export class TeamToolsService implements TeamToolsHandler {
           {
             title,
             description,
+            repo: args.repo,
             addLabels: args.addLabels,
             removeLabels: args.removeLabels,
             note: args.note,

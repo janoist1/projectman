@@ -10,7 +10,7 @@ import type { EnsureSessionResult, SessionOrchestrator } from '../sessions';
 import type { TaskService } from '../tasks';
 import { KeyedMutex } from '../util';
 import type { AutomaticStart, DeferredStarts, StartSpec } from './deferred-starts';
-import { assertAiEnabled, isDeferrable, waitingOf } from './rules';
+import { assertAiEnabled, assertRepoChosen, isDeferrable, waitingOf } from './rules';
 
 export interface AdmissionRequest {
   config: ProjectConfig;
@@ -30,11 +30,13 @@ export interface AdmissionRequest {
 /**
  * Admission: every AI session start that no person asked for directly (task start, stage
  * hand-over, message wake-up, schedule run) passes the same checks, in this order: the
- * project's AI master switch; for a scheduled run, the member's previous run has ended; the
- * member's capacity (open tasks it carries plus its other running chats); the concurrent AI
- * sessions (`maxConcurrentAi`); the plan usage of the member's provider. Decisions and the
- * starts they allow are serialized. An automatic start refused for a reason that can clear
- * waits in the deferred-start store, which SQLite backs, and is retried.
+ * project's AI master switch; for a task, that a role which changes files has a repository to
+ * work in (`repo_required`: a person has to choose it, so waiting does not help); for a scheduled
+ * run, the member's previous run has ended; the member's capacity (open tasks it carries plus its
+ * other running chats); the concurrent AI sessions (`maxConcurrentAi`); the plan usage of the
+ * member's provider. Decisions and the starts they allow are serialized. An automatic start
+ * refused for a reason that can clear waits in the deferred-start store, which SQLite backs, and
+ * is retried.
  */
 export class Admission {
   private readonly ctx: DomainContext;
@@ -92,6 +94,11 @@ export class Admission {
     const { config, member, workItem } = request;
     const projectKey = config.project.key;
     assertAiEnabled(config);
+    if (workItem?.type === 'task') {
+      // A temp worker yet to be hired has the role the limits name for it.
+      const role = member?.role ?? config.team.limits.tempWorkers.role;
+      assertRepoChosen(config, role, this.ctx.repos.tasks.get(workItem.taskKey));
+    }
     if (member && workItem?.type === 'schedule' && this.hasLiveScheduledRun(projectKey, member.handle))
       throw conflict('previous_run_live', `the previous scheduled run of ${member.handle} is still live`);
     if (member && request.capacity !== false) {

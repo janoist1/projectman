@@ -1,4 +1,4 @@
-import { commentMentions, stageOf } from '@projectman/shared';
+import { commentMentions, isOpenTask, memberOf, repoRequired, stageOf } from '@projectman/shared';
 import type {
   Actor,
   CreateTaskCommentRequest,
@@ -13,6 +13,7 @@ import type { DomainContext } from '../context';
 import { requireHuman } from '../access';
 import { invalid, notFound } from '../errors';
 import type { ProjectService } from '../projects';
+import { LIVE_SESSION_STATES } from '../sessions';
 import type { TimelineService } from '../timeline';
 
 /** Why the start of AI work on a task waits (the admission's deferred starts). */
@@ -53,8 +54,27 @@ export class TaskStore {
 
   view(task: Task): Task {
     const { startWaiting: _, ...rest } = task;
-    const startWaiting = this.startWaiting.waitingFor(task);
+    const startWaiting = this.startWaiting.waitingFor(task) ?? this.repoWaiting(task);
     return startWaiting ? { ...rest, startWaiting } : rest;
+  }
+
+  /**
+   * The task's AI developer cannot start until a person chooses the task's repository (`repo_required`:
+   * the project has several repositories and the task names none). Unlike a deferred start this does
+   * not wait for a retry, so it follows from the task itself: a task in a work stage whose assignee is
+   * an AI member of a role that changes files and has no session running (a session that is running,
+   * for example one from before the repository was cleared, is not waiting).
+   */
+  private repoWaiting(task: Task): TaskStartWaiting | undefined {
+    if (!task.assignee || !isOpenTask(task)) return undefined;
+    const config = this.projects.cachedConfig(task.projectKey);
+    if (!config || stageOf(config, task.stageId)?.kind !== 'work') return undefined;
+    const assignee = memberOf(config, task.assignee);
+    if (assignee?.kind !== 'ai' || !repoRequired(config, assignee.role, task)) return undefined;
+    const running = this.ctx.repos.sessions
+      .list(task.projectKey, { taskKey: task.key, member: assignee.handle })
+      .some((session) => LIVE_SESSION_STATES.includes(session.state));
+    return running ? undefined : { reason: 'repo_required', member: assignee.handle, since: task.updatedAt };
   }
 
   list(projectKey: string): Task[] {

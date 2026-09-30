@@ -13,6 +13,7 @@ import { stagePosition } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
 import type { TaskState } from '../../lib/taskState';
 import { prChip } from './cardModel';
+import { TaskRepo } from './TaskRepo';
 import styles from './TaskHeader.module.css';
 
 /**
@@ -76,7 +77,7 @@ export function TaskHeader({
       </h2>
       <div className={styles.facts}>
         <span className={styles.key}>{task.key}</span>
-        <span>{t('task.repo', { repo: task.repo ?? t('task.workspaceRoot') })}</span>
+        <TaskRepo key={task.key} task={task} />
         {task.assignee ? (
           <span>{t('task.assignee', { name: nameOf(task.assignee, members, myHandle) })}</span>
         ) : null}

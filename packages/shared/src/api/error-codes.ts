@@ -91,6 +91,7 @@ export const ERROR_CODES = [
   'plan_usage_paused',
   'member_at_capacity',
   'previous_run_live',
+  'repo_required',
   'no_free_member',
   'no_work_stage',
   'not_stage_owner',

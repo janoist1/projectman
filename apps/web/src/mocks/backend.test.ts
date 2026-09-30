@@ -270,3 +270,71 @@ describe('mock provider settings', () => {
     expect(backend.config.team.members.find((member) => member.handle === 'qa')).not.toHaveProperty('effort');
   });
 });
+
+describe('mock repository of a task', () => {
+  const sessionsOf = (backend: MockBackend, key: string) =>
+    backend.sessions.filter(
+      (session) => session.workItem.type === 'task' && session.workItem.taskKey === key,
+    );
+
+  it('sets and clears the repository, records the change and refuses unknown names', () => {
+    const backend = new MockBackend();
+    backend.handle('POST', `${base}/sessions/ses_ac20_be1/stop`, {});
+    const before = backend.timeline.length;
+    expect(errorCode(backend.handle('PATCH', `${base}/tasks/AC-20`, { repo: 'mobile' }))).toBe(
+      'unknown_repo',
+    );
+    expect(backend.findTask('AC-20')!.repo).toBe('infra');
+    expect(backend.timeline).toHaveLength(before);
+
+    expect(backend.handle('PATCH', `${base}/tasks/AC-20`, { repo: 'admin' }).body).toMatchObject({
+      repo: 'admin',
+    });
+    expect(backend.timeline.at(-1)).toMatchObject({
+      type: 'task_updated',
+      data: { fields: ['repo'], repo: 'admin', previousRepo: 'infra' },
+    });
+    // The same value is no change.
+    const events = backend.timeline.length;
+    expect(backend.handle('PATCH', `${base}/tasks/AC-20`, { repo: 'admin' }).status).toBe(200);
+    expect(backend.timeline).toHaveLength(events);
+
+    expect(backend.handle('PATCH', `${base}/tasks/AC-20`, { repo: null }).body).toMatchObject({ repo: null });
+    expect(backend.timeline.at(-1)).toMatchObject({
+      data: { fields: ['repo'], repo: null, previousRepo: 'admin' },
+    });
+  });
+
+  it('refuses the change while a session of the task is running, like the server', () => {
+    const backend = new MockBackend();
+    expect(sessionsOf(backend, 'AC-20').some((session) => session.state !== 'exited')).toBe(true);
+    expect(backend.handle('PATCH', `${base}/tasks/AC-20`, { repo: 'admin' })).toMatchObject({
+      status: 409,
+      body: { error: { code: 'task_session_live', details: { sessionId: 'ses_ac20_be1' } } },
+    });
+    expect(backend.findTask('AC-20')!.repo).toBe('infra');
+  });
+
+  it('refuses to start a developer on a task without a repository in a project with several', () => {
+    const backend = new MockBackend();
+    backend.updateTask('AC-24', { repo: null });
+    expect(backend.handle('POST', `${base}/tasks/AC-24/start`, {})).toMatchObject({
+      status: 409,
+      body: { error: { code: 'repo_required', details: { taskKey: 'AC-24' } } },
+    });
+    expect(backend.findTask('AC-24')).toMatchObject({ assignee: null, stageId: 'ready' });
+
+    backend.handle('PATCH', `${base}/tasks/AC-24`, { repo: 'webshop' });
+    expect(backend.handle('POST', `${base}/tasks/AC-24/start`, {}).status).toBe(200);
+    expect(backend.findTask('AC-24')!.assignee).not.toBeNull();
+  });
+
+  it('starts a developer on a task without a repository when the project has one or none', () => {
+    for (const repos of [[{ name: 'shop', path: 'shop', defaultBranch: 'main' }], []]) {
+      const backend = new MockBackend();
+      backend.config.project.repos = repos;
+      backend.updateTask('AC-24', { repo: null });
+      expect(backend.handle('POST', `${base}/tasks/AC-24/start`, {}).status, String(repos.length)).toBe(200);
+    }
+  });
+});

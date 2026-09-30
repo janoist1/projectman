@@ -53,17 +53,17 @@ tests use the SDK's own client, which behaves the same way here):
 
 ## Tools
 
-| Tool                | Input                                                                                                                                         | Handler call                                                                                          |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `send_message`      | `to` (handles, 1–20), `text`, `task_key?`                                                                                                     | `sendMessage(ctx, { to, text, taskKey? })`                                                            |
-| `list_members`      | none                                                                                                                                          | `listMembers(ctx)`                                                                                    |
-| `list_tasks`        | `status?`, `stage?`, `assignee?`, `limit?`                                                                                                    | `listTasks(ctx, args)`                                                                                |
-| `get_task`          | `task_key`                                                                                                                                    | `getTask(ctx, { taskKey })`                                                                           |
-| `update_task`       | `task_key`, `stage_id?`, `add_labels?` (max 10), `remove_labels?` (max 10), `note?`, `title?`, `description?`                                 | `updateTask(ctx, { taskKey, stageId?, addLabels?, removeLabels?, note?, title?, description? })`      |
-| `create_task`       | `title` (max 200 chars), `description?`, `labels?` (max 10), `visibility?`, `parent_key?`                                                     | `createTask(ctx, { title, description?, labels?, visibility?, parentKey? })`                          |
-| `link_pull_request` | `task_key`, `repo` (`owner/name`), `number`                                                                                                   | `linkPullRequest(ctx, { taskKey, repo, number })`                                                     |
-| `ask_human`         | `question`, `options?` (1–10: labels, or `{ label, consequence? }`), `recommended?`, `recommendation_reason?`, `details?`, `task_key?`, `to?` | `askHuman(ctx, { question, options?, recommended?, recommendationReason?, details?, taskKey?, to? })` |
-| `save_memory`       | `note` (max 2000 chars)                                                                                                                       | `saveMemory(ctx, { note })`                                                                           |
+| Tool                | Input                                                                                                                                         | Handler call                                                                                            |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `send_message`      | `to` (handles, 1–20), `text`, `task_key?`                                                                                                     | `sendMessage(ctx, { to, text, taskKey? })`                                                              |
+| `list_members`      | none                                                                                                                                          | `listMembers(ctx)`                                                                                      |
+| `list_tasks`        | `status?`, `stage?`, `assignee?`, `limit?`                                                                                                    | `listTasks(ctx, args)`                                                                                  |
+| `get_task`          | `task_key`                                                                                                                                    | `getTask(ctx, { taskKey })`                                                                             |
+| `update_task`       | `task_key`, `stage_id?`, `add_labels?` (max 10), `remove_labels?` (max 10), `note?`, `title?`, `description?`, `repo?` (name or `null`)       | `updateTask(ctx, { taskKey, stageId?, addLabels?, removeLabels?, note?, title?, description?, repo? })` |
+| `create_task`       | `title` (max 200 chars), `description?`, `labels?` (max 10), `visibility?`, `parent_key?`                                                     | `createTask(ctx, { title, description?, labels?, visibility?, parentKey? })`                            |
+| `link_pull_request` | `task_key`, `repo` (`owner/name`), `number`                                                                                                   | `linkPullRequest(ctx, { taskKey, repo, number })`                                                       |
+| `ask_human`         | `question`, `options?` (1–10: labels, or `{ label, consequence? }`), `recommended?`, `recommendation_reason?`, `details?`, `task_key?`, `to?` | `askHuman(ctx, { question, options?, recommended?, recommendationReason?, details?, taskKey?, to? })`   |
+| `save_memory`       | `note` (max 2000 chars)                                                                                                                       | `saveMemory(ctx, { note })`                                                                             |
 
 - Inputs are zod schemas (`tools.ts`), strict: an unknown key is an error rather than
   silently dropped. Handles, task keys, stage ids, task statuses and visibility reuse the
@@ -86,12 +86,19 @@ tests use the SDK's own client, which behaves the same way here):
   `consequence` on the option) and makes the recommended option the primary button, so
   questions without them stay as they were.
 - `update_task` needs at least one of `stage_id`, `add_labels`, `remove_labels`, `note`,
-  `title` and `description`. Labels follow the project's label definitions (who may set them,
+  `title`, `description` and `repo`. Labels follow the project's label definitions (who may set them,
   groups, a required note, no self-review, human-only approvals), enforced by the domain; the
   note is the comment that explains them. `description` replaces the whole description (the
   analyst's specification, the architect's technical plan); the change is recorded in the
-  timeline as `task_updated`.
+  timeline as `task_updated`. `repo` is the name of one of the project's repositories, or `null`
+  to clear it (PM-68); an unknown name is refused with the names the project has. It is refused
+  while any session of the task runs, the caller's own included (`task_session_live`); the change
+  is recorded as `task_updated` with `fields: ['repo']`, `repo` and `previousRepo`.
 - `get_task` includes the parent and one-level subtasks with keys, titles, stages and statuses.
+  Its `Repo:` line is the repository the work happens in (the task's own, else the project's only
+  one), or says that none is chosen yet (the project has several) or that the work is in the
+  workspace root (the project has none); the handler returns it as `effectiveRepo` and
+  `repoChoiceNeeded` beside the detail.
 - `create_task` accepts optional `parent_key` for a one-level subtask in the same project. It creates the task in the pipeline's first (queue) stage, unassigned and
   attributed to the calling member (`task_created` in the timeline, with the session); humans
   prioritise it. Support turns bug reports into cards with it, the architect proposes a

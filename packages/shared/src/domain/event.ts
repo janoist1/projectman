@@ -64,6 +64,9 @@ export interface TimelineEventData {
     action?: 'cancelled' | 'reopened';
     previousStatus?: string;
     previousAssignee?: string | null;
+    /** `fields` names `repo`: the repository it was set to (null: cleared) and the one it had. */
+    repo?: string | null;
+    previousRepo?: string | null;
     reason?: string;
     /** A linked pull request changed (GitHub sync). */
     pullRequest?: { repo: string; number: number; state: string };

@@ -68,6 +68,20 @@ function buildLocalOnlyProject(repoPath = 'app', templateId?: string): ProjectCo
   return project;
 }
 
+/** The same project without repositories: its tasks work in the workspace root. */
+function buildProjectWithoutRepos(): ProjectConfig {
+  const project = buildProject();
+  project.project.repos = [];
+  return project;
+}
+
+/** The same project with a second repository: a task has to name the one it works in. */
+function buildProjectWithTwoRepos(buildOne: () => ProjectConfig = buildProject): ProjectConfig {
+  const project = buildOne();
+  project.project.repos.push({ name: 'api', path: 'api', github: 'acme/api', defaultBranch: 'main' });
+  return project;
+}
+
 function aiMember(project: ProjectConfig, handle: string): AiMemberConfig {
   const member = project.team.members.find((m) => m.handle === handle);
   if (!member || member.kind !== 'ai') throw new Error(`no AI member ${handle}`);
@@ -705,9 +719,45 @@ describe('kick-off brief', () => {
     expect(brief.length).toBeLessThan(14_000);
   });
 
-  it('names the workspace root when the task has no repo', () => {
-    const brief = builder.build(input({ task: makeTask({ repo: null }) })).initialMessage ?? '';
-    expect(brief).toContain('- Repo: the workspace root');
+  describe('repository', () => {
+    const briefLine = (project: ProjectConfig, repo: string | null) =>
+      (builder.build(input({ project, task: makeTask({ repo }) })).initialMessage ?? '')
+        .split('\n')
+        .find((line) => line.startsWith('- Repo: '));
+    const statusLine = (project: ProjectConfig, repo: string | null) =>
+      builder
+        .build(input({ project, task: makeTask({ repo }) }))
+        .appendSystemPrompt.split('\n')
+        .find((line) => line.startsWith('- Status: '));
+
+    it("names the task's own repository", () => {
+      for (const project of [buildProject(), buildProjectWithTwoRepos(), buildProjectWithoutRepos()])
+        expect(briefLine(project, 'app'), String(project.project.repos.length)).toBe('- Repo: `app`');
+      expect(statusLine(buildProjectWithTwoRepos(), 'api')).toBe(
+        '- Status: active; assignee: `fe-1`; repo: `api`.',
+      );
+    });
+
+    it('names the only repository of the project when the task has none of its own', () => {
+      expect(briefLine(buildProject(), null)).toBe('- Repo: `app`');
+      expect(statusLine(buildProject(), null)).toBe('- Status: active; assignee: `fe-1`; repo: `app`.');
+    });
+
+    it('says that none is chosen yet when the project has several', () => {
+      const none =
+        'none chosen yet (the project has several repositories; ask a human which one if you need to know)';
+      expect(briefLine(buildProjectWithTwoRepos(), null)).toBe(`- Repo: ${none}`);
+      expect(statusLine(buildProjectWithTwoRepos(), null)).toBe(
+        `- Status: active; assignee: \`fe-1\`; repo: ${none}.`,
+      );
+    });
+
+    it('names the workspace root when the project has no repository', () => {
+      expect(briefLine(buildProjectWithoutRepos(), null)).toBe('- Repo: the workspace root');
+      expect(statusLine(buildProjectWithoutRepos(), null)).toBe(
+        '- Status: active; assignee: `fe-1`; repo: the workspace root.',
+      );
+    });
   });
 });
 
@@ -723,8 +773,22 @@ describe('expected steps', () => {
     );
   });
 
-  it('does not mention a worktree when the task has no repo', () => {
-    const steps = stepsOf({ handle: 'fe-1', task: makeTask({ stageId: 'dev', repo: null }) });
+  it('mentions the worktree of the repository the task works in, the project’s only one included', () => {
+    for (const repo of ['app', null]) {
+      const steps = stepsOf({ handle: 'fe-1', task: makeTask({ stageId: 'dev', repo }) });
+      expect(steps, String(repo)).toContain(
+        "2. Implement the change in your working directory (the task's own worktree and branch) and run the project's tests.",
+      );
+    }
+  });
+
+  it('does not mention a worktree when the task works in no repository', () => {
+    // The project has no repository: its tasks work in the workspace root.
+    const steps = stepsOf({
+      project: buildProjectWithoutRepos(),
+      handle: 'fe-1',
+      task: makeTask({ stageId: 'dev', repo: null }),
+    });
     expect(steps).toContain("2. Implement the change in your working directory and run the project's tests.");
   });
 
@@ -1146,6 +1210,7 @@ describe('repositories without GitHub', () => {
         // The reviewer starts in the workspace root and may read the task's worktree.
         const task = { key: 'AR-21', repo: 'app' };
         const readableRoots = readableRootsFor({
+          config: project,
           cwd: '/work/acme',
           projectKey: 'AR',
           task,
@@ -1261,21 +1326,41 @@ describe('repositories without GitHub', () => {
   });
 
   describe('what stays as it is', () => {
-    it('keeps the pull request wording for a task without a repository and for one the configuration does not know', () => {
-      // A task without a repository has its own card (PM-68); an unknown repository is not known to be local-only.
-      const project = buildLocalOnlyProject();
-      for (const repo of [null, 'missing']) {
+    it('keeps the pull request wording for a task that works in no repository and for one the configuration does not know', () => {
+      // Nothing says the work is local-only: the project has no repository, or several and none is
+      // chosen, or the task names one the configuration does not know.
+      const cases: Array<[string, ProjectConfig, string | null]> = [
+        ['no repository in the project', buildProjectWithoutRepos(), null],
+        ['several repositories, none chosen', buildProjectWithTwoRepos(buildLocalOnlyProject), null],
+        ['an unknown repository', buildLocalOnlyProject(), 'missing'],
+      ];
+      for (const [name, project, repo] of cases) {
         const steps = stepsOf({ project, handle: 'fe-1', task: makeTask({ stageId: 'dev', repo }) });
-        expect(steps, String(repo)).toContain(
+        expect(steps, name).toContain(
           '3. Commit, push, open a pull request and attach it with link_pull_request.',
         );
-        expect(
-          roleInstructions({ project, handle: 'fe-1', task: makeTask({ repo }) }),
-          String(repo),
-        ).toContain(DUTIES.implementation.prompt);
+        expect(roleInstructions({ project, handle: 'fe-1', task: makeTask({ repo }) }), name).toContain(
+          DUTIES.implementation.prompt,
+        );
         const review = stepsOf({ project, handle: 'code-review', task: makeTask({ repo }) });
-        expect(review, String(repo)).toContain('1. Review the pull requests linked to the task;');
+        expect(review, name).toContain('1. Review the pull requests linked to the task;');
       }
+    });
+
+    it('uses the local-only wording for a task without a repository when the only repository is local-only', () => {
+      // The repository the task works in is the project's only one (PM-68), which is local-only.
+      const project = buildLocalOnlyProject();
+      const own = makeTask({ stageId: 'dev', repo: 'app' });
+      const none = makeTask({ stageId: 'dev', repo: null });
+      for (const handle of ['fe-1', 'code-review'] as const) {
+        expect(stepsOf({ project, handle, task: none }), handle).toBe(
+          stepsOf({ project, handle, task: own }),
+        );
+        expect(roleInstructions({ project, handle, task: none }), handle).toBe(
+          roleInstructions({ project, handle, task: own }),
+        );
+      }
+      expect(stepsOf({ project, handle: 'fe-1', task: none })).toContain('the repository is local-only');
     });
 
     it('changes only the steps and the role instructions of the pack, and leaves the brief alone', () => {

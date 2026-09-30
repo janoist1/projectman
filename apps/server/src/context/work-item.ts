@@ -2,10 +2,12 @@ import path from 'node:path';
 import {
   DUTIES,
   dutyMembers,
+  effectiveRepo,
   gateLabels,
   isHumanOnlyLabel,
   labelDefinition,
   labelHolders,
+  repoOf,
   resolvedStages,
   roleBundle,
   stageOwners,
@@ -50,16 +52,16 @@ function stageAfter(stages: Stage[], stage: Stage): Stage | null {
 /**
  * The task's repository when it is local-only: configured without a `github` block, so the owner has
  * not allowed anything to go to GitHub (the server denies `git push`, `gh pr create` and `gh pr merge`
- * there, see `deniedToolsFor` in domain/session-policy.ts). The instructions then leave the pull
- * request out: the developer commits on the task's branch and hands the branch over, the reviewer
- * reads it against the default branch, and the owner merges. Null for a repository on GitHub, for a
- * task without a repository (its own card, PM-68) and for work that is not a task: those keep the
- * pull request wording.
+ * there, see `deniedToolsFor` in domain/session-policy.ts). The repository is the task's effective
+ * one (its own, else the project's only one: `effectiveRepo`), the same that the session policy
+ * uses. The instructions then leave the pull request out: the developer commits on the task's branch
+ * and hands the branch over, the reviewer reads it against the default branch, and the owner merges.
+ * Null for a repository on GitHub, for a task without a repository (the project has none, or has
+ * several and nobody chose one) and for work that is not a task: those keep the pull request wording.
  */
 function localOnlyRepo(input: ContextPackInput): RepoConfig | null {
   const task = input.workItem.type === 'task' ? input.task : null;
-  if (!task?.repo) return null;
-  const repo = input.project.project.repos.find((r) => r.name === task.repo);
+  const repo = repoOf(input.project, effectiveRepo(input.project, task));
   return repo && !repo.github ? repo : null;
 }
 
@@ -175,7 +177,7 @@ function building(work: (where: string) => string[], ownerReview?: StepRule): St
     const { input, s, current, inQueue, localOnly } = c;
     if ((inQueue || current.kind === 'work') && (s.ownsStage || s.isAssignee || inQueue)) {
       const working = inQueue ? s.next : current;
-      const where = c.task.repo
+      const where = effectiveRepo(input.project, c.task)
         ? "in your working directory (the task's own worktree and branch)"
         : 'in your working directory';
       return [

@@ -220,6 +220,8 @@ describe('team tools', () => {
       number: 7,
     });
     expect(task.links).toEqual([
+      // The developer's session started in the worktree of the project's only repo.
+      { kind: 'branch', ref: 'task/AR-1', repo: 'acme/web' },
       {
         kind: 'pull_request',
         ref: '7',

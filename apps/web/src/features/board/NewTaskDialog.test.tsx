@@ -8,15 +8,16 @@ import { NewTaskDialog } from './NewTaskDialog';
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
 describe('NewTaskDialog', () => {
-  it('defaults to the workspace root when the project has several repos', async () => {
+  it('defaults to no repo when the project has several repos', async () => {
     const project = mockProject();
     project.render(<NewTaskDialog open onClose={() => {}} />);
     const repo = (await screen.findByLabelText(t('newTask.fields.repo'))) as HTMLSelectElement;
     await screen.findByRole('option', { name: /webshop/ });
     expect(repo.value).toBe('');
+    expect(screen.getByRole('option', { name: t('newTask.fields.repoNone') })).toBe(repo.options[0]);
   });
 
-  it('defaults to the only repo and still lets the user pick the workspace root', async () => {
+  it('defaults to the only repo and still lets the user pick no repo', async () => {
     const project = mockProject();
     project.backend.config.project.repos = [{ name: 'shop', path: 'shop', defaultBranch: 'main' }];
     project.render(<NewTaskDialog open onClose={() => {}} />);

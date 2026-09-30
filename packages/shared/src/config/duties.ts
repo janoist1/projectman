@@ -1,4 +1,5 @@
 import { BUILT_IN_ROLE_DUTIES, customRoleDuties, isBuiltInRole } from '../domain/role';
+import { DUTIES } from '../domain/duty';
 import type { DutyId } from '../domain/duty';
 import type { Stage } from '../domain/pipeline';
 import type { Task } from '../domain/task';
@@ -10,6 +11,13 @@ export function roleBundle(config: Pick<ProjectConfig, 'team'>, role: string) {
     return config.team.roleOverrides?.[role] ?? { duties: BUILT_IN_ROLE_DUTIES[role], instructions: '' };
   const custom = config.team.roles.find((r) => r.id === role);
   return { duties: custom ? customRoleDuties(custom) : [], instructions: custom?.instructions ?? '' };
+}
+/**
+ * Whether a role changes files: one of its duties has the `task_worktree` tool policy, so its task
+ * sessions work in the task's own git worktree (custom roles and project overrides included).
+ */
+export function roleUsesWorktree(config: Pick<ProjectConfig, 'team'>, role: string): boolean {
+  return roleBundle(config, role).duties.some((id) => DUTIES[id].toolPolicy === 'task_worktree');
 }
 export function memberDuties(config: Pick<ProjectConfig, 'team'>, member: MemberConfig): DutyId[] {
   return [...new Set(memberRoles(member).flatMap((role) => roleBundle(config, role).duties))];

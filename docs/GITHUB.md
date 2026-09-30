@@ -65,8 +65,10 @@ title, state }` (built by `pullRequestLink`). When the PR merges, the system lab
 A repo configured without `github` is **local-only**: the owner has not allowed anything to go to
 GitHub. The server denies `git push`, `gh pr create` and `gh pr merge` there (`deniedToolsFor` and
 `commandVerdict` in `apps/server/src/domain/session-policy.ts`), and the context pack words the
-steps without a pull request (PM-67, `apps/server/src/context/work-item.ts`). Repos on GitHub and
-tasks without a repo keep the pull request wording.
+steps without a pull request (PM-67, `apps/server/src/context/work-item.ts`). Repos on GitHub keep
+the pull request wording, and so do tasks that work in no repo. The repo of a task is its own, else
+the project's only repo, so a task without a repo in a one-repo project follows that repo (PM-68);
+in a project with several repos such a task has no repo until a person chooses one.
 
 - The developer, and every duty that changes files, commits on the task's own branch in its
   worktree, makes sure everything is committed, and names the branch and its last commit in the

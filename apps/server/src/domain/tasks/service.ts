@@ -6,13 +6,14 @@ import type {
   CreateTaskRequest,
   InboxItem,
   ProjectConfig,
+  Session,
   Task,
   TaskDetail,
   TaskLink,
   TimelineEventData,
   Visibility,
 } from '@projectman/shared';
-import { evaluateMove, isOpenTask, memberOf, subtaskParentRefusal } from '@projectman/shared';
+import { evaluateMove, isOpenTask, memberOf, repoOf, subtaskParentRefusal } from '@projectman/shared';
 import type { LabelChangeReason, LabelClearTrigger, SubtaskParentRefusal } from '@projectman/shared';
 import type { PullRequestInfo } from '../../contracts';
 import type { TaskPatch } from '../../db';
@@ -40,6 +41,15 @@ const SUBTASK_PARENT_REFUSALS: Record<SubtaskParentRefusal, string> = {
   subtask_has_children: 'a task with subtasks cannot become a subtask',
 };
 
+/** A repository the project's configuration does not have, with the names it does have. */
+function unknownRepo(config: ProjectConfig, repo: string) {
+  const names = config.project.repos.map((r) => r.name);
+  return invalid(
+    'unknown_repo',
+    `unknown repository: ${repo} (${names.length > 0 ? `the project has: ${names.join(', ')}` : 'the project has none'})`,
+  );
+}
+
 /**
  * A change of a task in one step. The REST PATCH sends the fields, the assignee and the whole
  * label set; the update_task team tool sends labels to add and remove and a note.
@@ -49,6 +59,11 @@ export interface TaskUpdate {
   description?: string;
   visibility?: Visibility;
   parentKey?: string | null;
+  /**
+   * The repository the task works in, a repository of the project's configuration; null clears it.
+   * Refused while a session of the task is running: its worktree is in the old repository.
+   */
+  repo?: string | null;
   /** Owner/admin only; null clears the assignee. Starting work is a separate call. */
   assignee?: string | null;
   /** The whole label set: turned into additions and removals. */
@@ -134,9 +149,7 @@ export class TaskService {
     const title = req.title.trim();
     if (!title) throw invalid('invalid_request', 'title must not be empty');
     const repo = req.repo ?? null;
-    if (repo && !config.project.repos.some((r) => r.name === repo)) {
-      throw invalid('unknown_repo', `unknown repository: ${repo}`);
-    }
+    if (repo && !repoOf(config, repo)) throw unknownRepo(config, repo);
     if (req.parentKey) this.validateParent(projectKey, null, req.parentKey);
     const at = req.importedAt ?? isoNow(this.ctx);
     const task: Task = {
@@ -249,12 +262,23 @@ export class TaskService {
       patch.parentKey = change.parentKey;
       fields.push('parentKey');
     }
+    if (change.repo !== undefined && change.repo !== task.repo) {
+      if (change.repo !== null && !repoOf(config, change.repo)) throw unknownRepo(config, change.repo);
+      // The task's worktree and its sessions are in the old repository: they would stay there.
+      const live = this.liveSession(task);
+      if (live)
+        throw conflict(
+          'task_session_live',
+          `the repository of task ${task.key} cannot change while a session of the task is running`,
+          { sessionId: live.id },
+        );
+      patch.repo = change.repo;
+      fields.push('repo');
+    }
     if (change.assignee !== undefined) {
       if (change.assignee !== null && !memberOf(config, change.assignee))
         throw invalid('unknown_member', `unknown member: ${change.assignee}`);
-      const live = this.ctx.repos.sessions
-        .list(task.projectKey, { taskKey: task.key })
-        .find((s) => LIVE_SESSION_STATES.includes(s.state));
+      const live = this.liveSession(task);
       if (live)
         throw conflict('task_session_live', `task ${task.key} has a live session`, { sessionId: live.id });
       if (change.assignee !== task.assignee) patch.assignee = change.assignee;
@@ -300,7 +324,10 @@ export class TaskService {
           sessionId,
           actor,
           type: 'task_updated',
-          data: { fields },
+          data: {
+            fields,
+            ...(patch.repo !== undefined ? { repo: patch.repo, previousRepo: task.repo } : {}),
+          },
         });
       if (labelsChanged)
         this.labels.record(config, next, labels, actor, { comment: note, sessionId }, effects);
@@ -320,6 +347,13 @@ export class TaskService {
     if (!moving) return { task: next };
     const moved = this.moves.move(config, next, change.stageId!, actor, effects);
     return moved.moved ? { task: moved.task } : { task: moved.task, pendingApproval: moved.pendingApproval };
+  }
+
+  /** A live session of the task, if any: one that has not ended, whoever runs it. */
+  private liveSession(task: Task): Session | undefined {
+    return this.ctx.repos.sessions
+      .list(task.projectKey, { taskKey: task.key })
+      .find((s) => LIVE_SESSION_STATES.includes(s.state));
   }
 
   private validateParent(projectKey: string, taskKey: string | null, parentKey: string): void {

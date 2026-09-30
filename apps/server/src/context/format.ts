@@ -1,5 +1,6 @@
-import { isHumanOnlyLabel } from '@projectman/shared';
-import type { Gate, LabelDefinition, ProjectConfig, Stage } from '@projectman/shared';
+import { effectiveRepo, isHumanOnlyLabel, needsRepoChoice } from '@projectman/shared';
+import type { Gate, LabelDefinition, ProjectConfig, Stage, Task } from '@projectman/shared';
+import { describeRepo } from '../agent-text';
 import type { TextStyle } from '../agent-text';
 
 /** Inline-code form of a handle, task key or id: `fe-1`. */
@@ -9,6 +10,17 @@ export function code(value: string): string {
 
 export function codeList(values: readonly string[]): string {
   return values.map(code).join(', ');
+}
+
+/**
+ * Where the task's work happens, worded for the brief and the system prompt: its repository as
+ * inline code (the task's own, else the project's only one), else why it has none.
+ */
+export function repoText(project: Pick<ProjectConfig, 'project'>, task: Pick<Task, 'repo'>): string {
+  return describeRepo(
+    { name: effectiveRepo(project, task), choiceNeeded: needsRepoChoice(project, task) },
+    { code },
+  );
 }
 
 /** "Code review (`code_review`)" */

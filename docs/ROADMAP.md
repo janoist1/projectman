@@ -46,11 +46,14 @@ Moving the work into projectman is the best test of the product. The path:
    which also covers PM-71 and the rest of PM-69. **PM-84**: Codex members never run in
    `bypassPermissions` mode. The limits of the text-based rules are in
    [SECURITY.md](SECURITY.md).
-3. **Repositories without GitHub.** **PM-67**: the developer commits on the task branch and
-   tells the reviewer; the reviewer reviews the branch against its base; the owner merges.
-   This replaces the temporary trial wording in members' instructions. **PM-68**: a task
-   without a repo never runs in the workspace root (in a one-repo project it uses that repo's
-   worktree), and a task's repo can be set later.
+3. **Repositories without GitHub. Done on 2026-10-01.** **PM-67**: the developer commits on
+   the task branch and tells the reviewer; the reviewer reviews the branch against its base;
+   the owner merges. This replaces the temporary trial wording in members' instructions.
+   **PM-68**: a task without a repo never runs in the workspace root. In a one-repo project it
+   uses that repo's worktree (one rule, `effectiveRepo`); in a project with several repos a
+   developer start is refused (`repo_required`) until a person chooses the repo. A task's repo
+   can be set later: in the task drawer, through the REST `PATCH` or the `update_task` tool,
+   and not while a session of the task runs.
 4. **Session continuity. Done on 2026-10-01.** **PM-76**: a restarted task session gets a
    short "continue" message (or the message that woke it) as its first input, on the command
    line of `codex resume`, and the first SessionStart hook also makes a Codex session ready.

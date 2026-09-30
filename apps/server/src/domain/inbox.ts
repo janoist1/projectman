@@ -303,6 +303,7 @@ export class InboxService {
             toolInput: request.toolInput,
             worktreesRootDir: this.worktreesRootDir,
             readableRoots: readableRootsFor({
+              config,
               cwd: session.cwd,
               projectKey: session.projectKey,
               task,

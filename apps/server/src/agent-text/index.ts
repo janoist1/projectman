@@ -5,6 +5,7 @@
  * no dependencies on other server modules.
  */
 export { describeLink, linkTarget, numberedRef } from './links';
+export { describeRepo, type TaskRepoInfo } from './repo';
 export { formatTimestamp, oneLine, PLAIN_STYLE, truncate, type TextStyle } from './text';
 export {
   describeEvent,

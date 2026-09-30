@@ -19,6 +19,8 @@ export interface FakeTeamToolsHandler extends TeamToolsHandler {
   readonly members: MemberView[];
   readonly tasks: Map<string, TaskDetail>;
   readonly memory: Map<string, string[]>;
+  /** The names of the project's repositories; the fake refuses others (default: `web` and `api`). */
+  readonly repos: string[];
   /** The next call of `method` throws `error`, or never settles when given 'hang'. */
   failNext(method: Method, error: Error | 'hang'): void;
 }
@@ -158,6 +160,7 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
   const initial = sampleTaskDetail();
   const tasks = new Map<string, TaskDetail>([[initial.task.key, initial]]);
   const memory = new Map<string, string[]>();
+  const repos = ['web', 'api'];
   let seq = 0;
 
   async function enter(method: Method, ctx: ToolContext, args: unknown): Promise<void> {
@@ -189,6 +192,7 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
     members,
     tasks,
     memory,
+    repos,
     failNext(method, error) {
       failures.set(method, error);
     },
@@ -225,7 +229,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
 
     async getTask(ctx, args) {
       await enter('getTask', ctx, args);
-      return findTask(args.taskKey);
+      // The repository the work happens in is the domain's to work out (`effectiveRepo`); the
+      // fake's project has several, so a task that names none has no repository to work in.
+      const detail = findTask(args.taskKey);
+      return { ...detail, effectiveRepo: detail.task.repo, repoChoiceNeeded: detail.task.repo === null };
     },
 
     async updateTask(ctx, args) {
@@ -242,11 +249,24 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       if (args.stageId === 'qa' && !labels.includes('code-review-ok')) {
         throw new TeamToolError('gate_blocked', 'Stage "qa" requires the label "code-review-ok".');
       }
+      if (args.repo && !repos.includes(args.repo)) {
+        throw new TeamToolError(
+          'invalid',
+          `unknown repository: ${args.repo} (the project has: ${repos.join(', ')})`,
+        );
+      }
+      const repoChanged = args.repo !== undefined && args.repo !== detail.task.repo;
       const fields = [
         ...(args.title !== undefined ? ['title'] : []),
         ...(args.description !== undefined ? ['description'] : []),
+        ...(repoChanged ? ['repo'] : []),
       ];
-      if (fields.length > 0) record(detail, ctx, 'task_updated', { fields });
+      if (fields.length > 0) {
+        record(detail, ctx, 'task_updated', {
+          fields,
+          ...(repoChanged ? { repo: args.repo, previousRepo: detail.task.repo } : {}),
+        });
+      }
       if (args.addLabels?.length || args.removeLabels?.length) {
         record(detail, ctx, 'task_labels_changed', {
           added: args.addLabels ?? [],
@@ -261,6 +281,7 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         ...detail.task,
         title: args.title ?? detail.task.title,
         description: args.description ?? detail.task.description,
+        repo: args.repo !== undefined ? args.repo : detail.task.repo,
         labels,
         stageId: args.stageId ?? detail.task.stageId,
       };

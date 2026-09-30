@@ -71,10 +71,18 @@ Documentation map:
   stage owner), repo, labels, links (PRs with their attributed authors, branches, issues,
   prerequisites), visibility (`internal` or `shared` with clients), optional parent (one level
   of subtasks), and comments with @mentions. Tasks can be imported with their original dates.
+  A task works in one repository: its own `repo`, else the project's only one when it has
+  exactly one (`effectiveRepo`, the one rule in `packages/shared` that placement, the command
+  policy, the context pack and the web read). The repo can be set later (task drawer, REST
+  `PATCH`, `update_task`), but not while a session of the task runs.
 - **Work item and session** — every AI member works in a **fresh session per work item**:
   member × task, member × meeting or member × general chat (decision 5). A task session lives
   through the whole pipeline; later messages about the task resume it. Persistent identity
-  and durable memory carry over between sessions.
+  and durable memory carry over between sessions. A task session of a role that changes files
+  runs in a git worktree of the task's repository and never in the workspace root; with several
+  repositories and none chosen it does not start (`repo_required`). Roles that only read run in
+  the workspace root. A conversation belongs to the directory it ran in: when the task's
+  worktree is elsewhere (its repo changed since), the session starts a new conversation there.
 - **Context pack** — built when a session starts: the project's own `CLAUDE.md`/`AGENTS.md`
   (read by the CLI from the working directory), the member's identity, duty fragments and
   instructions, the team roster, the project's labels, how to use the team tools, the rules
@@ -90,8 +98,9 @@ Documentation map:
   transcripts can be parsed.
 - **Admission** — every automatic session start (task start, stage hand-over, message
   wake-up, schedule run) passes the same checks, in this order: the project's AI master
-  switch (`team.limits.aiEnabled`), for a schedule run that the member's previous run ended,
-  the member's capacity, `maxConcurrentAi`, and the provider's plan usage against
+  switch (`team.limits.aiEnabled`), for a task that a role which changes files has a repository
+  to work in (`repo_required`), for a schedule run that the member's previous run ended, the
+  member's capacity, `maxConcurrentAi`, and the provider's plan usage against
   `pauseAbovePlanUsagePercent`. A refused hand-over or message wake-up is retried every 30 s
   while it is still valid; the task shows why it waits. Such a deferred start is kept in
   SQLite (`deferred_starts`) as well as in memory: the server loads the table back when it
@@ -101,7 +110,10 @@ Documentation map:
   running, the retry timer leaves the starts that wait for the switch alone, and they continue
   once it is back on (or at startup with it on). When every eligible holder is busy, an
   optional **temp worker** of the configured role is hired for one task and retired when it
-  is done.
+  is done. `repo_required` is the one refusal that is not retried, because only a person's
+  choice clears it: the start fails and nothing is kept; the board shows the task of an AI
+  developer that cannot start for that reason ("Válassz repót a feladathoz", derived from the
+  task, see `TaskStore`).
 - **Stage hand-over** — when a task enters a later stage owned by AI members, by anyone's
   move, the least loaded free owner (never the task's assignee) gets a session for the task.
   An owner that already has a session for the task gets a notice instead.
@@ -211,7 +223,7 @@ claude | codex ── transcript JSONL ────────────▶ r
   reads.
 - `context/` — the context pack: system prompt, kick-off brief, work-item rules, member memory.
 - `agent-text/` — AI-facing wording shared by the context pack and the team tools: timeline
-  events, links, one-line text.
+  events, links, the repository of a task, one-line text.
 - `worktree/` — git worktrees and branches for tasks.
 - `github/` — `gh`-based pull request lookups and polling.
 - `http/` — request guards shared by the internal endpoints (local-only checks).

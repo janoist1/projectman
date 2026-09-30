@@ -57,10 +57,10 @@ describe('scheduler', () => {
     });
     expect(h.contextBuilder.inputs[0]).toMatchObject({ task: { key: 'AR-1' }, stage: { id: 'development' } });
 
-    // Without a repo the session starts in the workspace.
+    // A task without a repo of its own works in the worktree of the project's only repo, never in the workspace.
     const other = await h.domain.tasks.create('AR', { title: 'Docs' }, OWNER_ACTOR);
     const second = await start(h, other.key);
-    expect(second.session!.cwd).toBe(h.workspace);
+    expect(second.session!.cwd).toBe(join(h.dir, 'worktrees', 'AR', 'AR-2-web'));
     expect(second.session!.member).toBe('dev-2');
   });
 

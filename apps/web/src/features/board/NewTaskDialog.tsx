@@ -93,7 +93,7 @@ function NewTaskForm({ formId, onDone }: { formId: string; onDone: () => void })
           value={repo}
           onChange={(event) => setRepo(event.target.value)}
         >
-          <option value="">{t('newTask.fields.repoRoot')}</option>
+          <option value="">{t('newTask.fields.repoNone')}</option>
           {repos.map((entry) => (
             <option key={entry.name} value={entry.name}>
               {entry.github ? `${entry.name} · ${entry.github}` : entry.name}

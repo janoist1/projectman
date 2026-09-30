@@ -1,4 +1,5 @@
-import { DEFAULT_AGENT_PROVIDER, routes, stageOf } from '@projectman/shared';
+import path from 'node:path';
+import { DEFAULT_AGENT_PROVIDER, effectiveRepo, repoOf, routes, stageOf } from '@projectman/shared';
 import type {
   AgentProvider,
   AiMemberConfig,
@@ -19,11 +20,12 @@ import type {
   SessionRunner,
   ToolContext,
   TranscriptReader,
+  WorktreeInfo,
   WorktreeManager,
 } from '../contracts';
 import { encodeWorkItem } from '../db';
 import { requireAiMember } from './access';
-import { assertAiEnabled } from './admission/rules';
+import { assertAiEnabled, assertRepoChosen } from './admission/rules';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
 import { conflict, DomainError, notFound } from './errors';
@@ -353,6 +355,9 @@ export class SessionOrchestrator {
     message: string | null,
   ): Promise<EnsureSessionResult> {
     assertAiEnabled(config);
+    // A role that changes files works in the task's worktree: without a repository to make it in, it
+    // would run in the workspace root, so the start is refused until a person chooses one.
+    assertRepoChosen(config, member.role, task);
     const projectKey = config.project.key;
     const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
     // A CLI that is not logged in could only sit at its login screen: refuse before any work.
@@ -361,18 +366,23 @@ export class SessionOrchestrator {
     let branch: string | null = null;
     let writableRoots: string[] | undefined;
     let additionalDirectories: string[] | undefined;
-    if (task?.repo && usesWorktree(member.role, config)) {
+    // The repository the task's work happens in: its own, else the project's only one (see
+    // `effectiveRepo`). Without one the session runs in the workspace root: a project without
+    // repositories, or a role that only reads (the ones that change files were refused above).
+    const repoName = effectiveRepo(config, task);
+    let placed: WorktreeInfo | null = null;
+    if (task && repoName && usesWorktree(member.role, config)) {
       // Code-changing roles work in the task's own worktree and branch; others in the workspace.
       try {
-        const worktree = await this.deps.worktrees.ensureForTask({
+        placed = await this.deps.worktrees.ensureForTask({
           project: config,
-          repoName: task.repo,
+          repoName,
           taskKey: task.key,
           title: task.title,
         });
-        cwd = worktree.path;
-        branch = worktree.branch;
-        if (worktree.gitDir) writableRoots = [worktree.gitDir];
+        cwd = placed.path;
+        branch = placed.branch;
+        if (placed.gitDir) writableRoots = [placed.gitDir];
       } catch (err) {
         throw new DomainError(
           'session_start_failed',
@@ -380,7 +390,7 @@ export class SessionOrchestrator {
           { status: 502, details: { stage: 'worktree', reason: errorCode(err) } },
         );
       }
-      const github = config.project.repos.find((r) => r.name === task.repo)?.github;
+      const github = repoOf(config, repoName)?.github;
       this.deps.tasks.addLink(
         projectKey,
         task.key,
@@ -389,14 +399,15 @@ export class SessionOrchestrator {
       );
     }
     if (
-      task?.repo &&
+      task &&
+      repoName &&
       !usesWorktree(member.role, config) &&
       sessionPolicyFor(member.role, config).readOnlyTools
     ) {
       try {
         const found = await this.deps.worktrees.find({
           project: config,
-          repoName: task.repo,
+          repoName,
           taskKey: task.key,
         });
         if (found) additionalDirectories = [found.path];
@@ -404,7 +415,11 @@ export class SessionOrchestrator {
         this.ctx.logger.warn({ err, taskKey: task.key }, 'could not find the task worktree for review');
       }
     }
-    if (existing) {
+    // The conversation of an earlier start belongs to the directory it ran in. When the task's
+    // worktree is somewhere else (the task had no repository then, or another one) it cannot carry on
+    // there: the session starts a new conversation in the worktree instead of working elsewhere.
+    const relocated = Boolean(existing && placed && path.resolve(existing.cwd) !== path.resolve(placed.path));
+    if (existing && !relocated) {
       // Claude Code keeps conversations per working directory: resume where it started.
       cwd = existing.cwd;
       branch = existing.branch ?? branch;
@@ -426,14 +441,27 @@ export class SessionOrchestrator {
       memory,
     });
 
-    // Configuration may change while login, worktree and memory preparation await I/O.
-    assertAiEnabled(await this.deps.projects.config(projectKey));
+    // Configuration may change while login, worktree and memory preparation await I/O. So may the
+    // task's repository: no live session holds it in place before the session is recorded below.
+    const latestConfig = await this.deps.projects.config(projectKey);
+    assertAiEnabled(latestConfig);
+    if (task) {
+      const latestTask = this.deps.tasks.get(projectKey, task.key);
+      assertRepoChosen(latestConfig, member.role, latestTask);
+      if (placed && effectiveRepo(latestConfig, latestTask) !== repoName) {
+        throw conflict(
+          'session_start_failed',
+          `the repository of task ${task.key} changed while the session was starting: start it again`,
+          { taskKey: task.key },
+        );
+      }
+    }
     const at = isoNow(this.ctx);
-    // Resume only a conversation that exists (the runner reported its transcript) and that
-    // belongs to the member's current provider.
-    const resume = Boolean(
-      existing?.transcriptPath && (existing.provider ?? DEFAULT_AGENT_PROVIDER) === provider,
-    );
+    // Resume only a conversation that exists (the runner reported its transcript), that belongs to
+    // the member's current provider and that ran where the session runs now.
+    const resume =
+      !relocated &&
+      Boolean(existing?.transcriptPath && (existing.provider ?? DEFAULT_AGENT_PROVIDER) === provider);
     let session: Session;
     if (existing) {
       session = this.ctx.repos.sessions.update(existing.id, {
@@ -443,6 +471,7 @@ export class SessionOrchestrator {
         branch,
         lastActivityAt: at,
         endedAt: null,
+        ...(relocated ? { claudeSessionId: newUuid(), transcriptPath: null } : {}),
       })!;
     } else {
       session = {

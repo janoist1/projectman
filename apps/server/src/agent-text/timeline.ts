@@ -132,7 +132,16 @@ function describeTaskUpdate(
     const state = field(pr, 'state');
     return `pull request ${numberedRef(number ?? '', repo)}${state ? ` is ${state}` : ' changed'}`.trim();
   }
-  return list('fields').length > 0 ? `updated ${list('fields').join(', ')}` : 'updated the task';
+  // A repository change names the repositories it went from and to.
+  const repos =
+    'repo' in data ? ` (${repoName(data.previousRepo, style)} -> ${repoName(data.repo, style)})` : '';
+  const fields = list('fields').map((name) => (name === 'repo' ? `repo${repos}` : name));
+  return fields.length > 0 ? `updated ${fields.join(', ')}` : 'updated the task';
+}
+
+/** A repository named in an event, or "none" when the task had or has none. */
+function repoName(value: unknown, style: TextStyle): string {
+  return typeof value === 'string' && value ? style.code(value) : 'none';
 }
 
 /** `- 2026-09-28 08:06 UTC · fe-1: moved it from Ready to Development` */

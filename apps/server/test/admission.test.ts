@@ -9,7 +9,8 @@ import type {
   WorkItemRef,
 } from '@projectman/shared';
 import { createRepositories, openDatabase } from '../src/db';
-import { Admission, DeferredStarts, DomainError } from '../src/domain';
+import { Admission, conflict, DeferredStarts, DomainError } from '../src/domain';
+import { isDeferrable } from '../src/domain/admission';
 import type { AutomaticStart, DomainContext, SessionOrchestrator, TaskService } from '../src/domain';
 import { capturingLogger, planUsage } from './helpers/fakes';
 import { testConfig } from './helpers/test-template';
@@ -144,6 +145,10 @@ const refusal = async (promise: Promise<unknown>): Promise<string | null> =>
 const general: WorkItemRef = { type: 'general' };
 const scheduled: WorkItemRef = { type: 'schedule', runId: 'run_fictional' };
 const onTask = (taskKey: string): WorkItemRef => ({ type: 'task', taskKey });
+/** A second repository: the project then has several, and a task has to name the one it works in. */
+const withTwoRepos = (config: ProjectConfig): void => {
+  config.project.repos.push({ name: 'api', path: 'api', defaultBranch: 'main' });
+};
 
 describe('admission checks', () => {
   it.each<[string, World, { handle?: string; workItem?: WorkItemRef; capacity?: boolean }, string | null]>([
@@ -248,6 +253,83 @@ describe('admission checks', () => {
       {},
       'plan_usage_paused',
     ],
+    [
+      'refuses a role that changes files on a task without a repository when the project has several',
+      { adjust: withTwoRepos, tasks: [task('AR-1')] },
+      { handle: 'dev-1', workItem: onTask('AR-1') },
+      'repo_required',
+    ],
+    [
+      'admits that role once the task names a repository',
+      { adjust: withTwoRepos, tasks: [task('AR-1', { repo: 'api' })] },
+      { handle: 'dev-1', workItem: onTask('AR-1') },
+      null,
+    ],
+    [
+      'admits a reviewer on a task without a repository',
+      { adjust: withTwoRepos, tasks: [task('AR-1')] },
+      { handle: 'cr', workItem: onTask('AR-1') },
+      null,
+    ],
+    [
+      'admits a developer on a task without a repository when the project has one, which it works in',
+      { tasks: [task('AR-1')] },
+      { handle: 'dev-1', workItem: onTask('AR-1') },
+      null,
+    ],
+    [
+      'admits a developer on a task without a repository when the project has none',
+      { adjust: (config) => void (config.project.repos = []), tasks: [task('AR-1')] },
+      { handle: 'dev-1', workItem: onTask('AR-1') },
+      null,
+    ],
+    [
+      'asks for the repository of the task for a temp worker yet to be hired, in the role the limits name',
+      { adjust: withTwoRepos, tasks: [task('AR-1')] },
+      { workItem: onTask('AR-1') },
+      'repo_required',
+    ],
+    [
+      'admits a temp worker of a role that only reads on a task without a repository',
+      {
+        adjust: (config) => {
+          withTwoRepos(config);
+          config.team.limits.tempWorkers.role = 'code_review';
+        },
+        tasks: [task('AR-1')],
+      },
+      { workItem: onTask('AR-1') },
+      null,
+    ],
+    [
+      'asks for a repository for tasks only, not for chats and scheduled runs',
+      { adjust: withTwoRepos, tasks: [task('AR-1')] },
+      { handle: 'dev-1', workItem: scheduled },
+      null,
+    ],
+    [
+      'checks the master switch before the repository',
+      {
+        adjust: (config) => {
+          withTwoRepos(config);
+          config.team.limits.aiEnabled = false;
+        },
+        tasks: [task('AR-1')],
+      },
+      { handle: 'dev-1', workItem: onTask('AR-1') },
+      'ai_disabled',
+    ],
+    [
+      'checks the repository before capacity, the AI limit and plan usage, which waiting would not help',
+      {
+        adjust: withTwoRepos,
+        tasks: [task('AR-1'), task('AR-2', { assignee: 'dev-1' })],
+        busy: 9,
+        usage: { claude: planUsage(99) },
+      },
+      { handle: 'dev-1', workItem: onTask('AR-1') },
+      'repo_required',
+    ],
   ])('%s', async (_name, world, request, expected) => {
     const { admission, config, member } = admissionFor(world);
     const code = await refusal(
@@ -339,7 +421,7 @@ describe('deferred starts', () => {
     expect(deferred.list()).toEqual([]);
   });
 
-  it.each(['no_free_member', 'session_start_failed', 'previous_run_live'])(
+  it.each(['no_free_member', 'session_start_failed', 'previous_run_live', 'repo_required'])(
     'lets the refusal %s through without keeping the start',
     async (code) => {
       const { admission, deferred } = admissionFor({ tasks: [task('AR-1', { stageId: 'code_review' })] });
@@ -348,6 +430,17 @@ describe('deferred starts', () => {
       expect(deferred.list()).toEqual([]);
     },
   );
+
+  it('does not wait for a repository: only the refusals a retry can overcome are deferrable', () => {
+    for (const code of [
+      'ai_limit_reached',
+      'plan_usage_paused',
+      'ai_disabled',
+      'member_at_capacity',
+    ] as const)
+      expect(isDeferrable(conflict(code, 'fictional refusal')), code).toBe(true);
+    expect(isDeferrable(conflict('repo_required', 'fictional refusal'))).toBe(false);
+  });
 
   it('shows the earliest refusal that still applies to the task', () => {
     const deferred = new DeferredStarts();

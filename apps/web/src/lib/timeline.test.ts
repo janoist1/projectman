@@ -47,3 +47,48 @@ it('describes checks recorded before labels replaced them', () => {
     }),
   );
 });
+
+describe('repository changes on the timeline', () => {
+  const updated = (data: Record<string, unknown>): TimelineEvent => ({
+    ...creation,
+    type: 'task_updated',
+    data,
+  });
+  const text = (data: Record<string, unknown>) => describeEvent(updated(data), context).text;
+
+  it('names the repositories a change went from and to', () => {
+    expect(text({ fields: ['repo'], repo: 'admin', previousRepo: 'infra' })).toBe(
+      t('timeline.events.task_updated', {
+        fields: t('timeline.repoChange', { previous: 'infra', repo: 'admin' }),
+      }),
+    );
+    // A task that had or has none says so.
+    expect(text({ fields: ['repo'], repo: 'admin', previousRepo: null })).toBe(
+      t('timeline.events.task_updated', {
+        fields: t('timeline.repoChange', { previous: t('timeline.noRepo'), repo: 'admin' }),
+      }),
+    );
+    expect(text({ fields: ['repo'], repo: null, previousRepo: 'admin' })).toBe(
+      t('timeline.events.task_updated', {
+        fields: t('timeline.repoChange', { previous: 'admin', repo: t('timeline.noRepo') }),
+      }),
+    );
+  });
+
+  it('lists a repository change among the other fields of the update', () => {
+    expect(text({ fields: ['title', 'repo'], repo: 'admin', previousRepo: null })).toBe(
+      t('timeline.events.task_updated', {
+        fields: [
+          t('timeline.fields.title'),
+          t('timeline.repoChange', { previous: t('timeline.noRepo'), repo: 'admin' }),
+        ].join(t('common.listSeparator')),
+      }),
+    );
+  });
+
+  it('names only the field when the event does not say what it changed to', () => {
+    expect(text({ fields: ['repo'] })).toBe(
+      t('timeline.events.task_updated', { fields: t('timeline.fields.repo') }),
+    );
+  });
+});

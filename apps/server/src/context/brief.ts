@@ -1,6 +1,6 @@
 import { describeLink, linkTarget, recentTimeline } from '../agent-text';
 import type { ContextPackInput } from '../contracts';
-import { code, promptStyle, stageLabel } from './format';
+import { code, promptStyle, repoText, stageLabel } from './format';
 import type { Situation } from './work-item';
 
 /** Timeline entries shown in the brief (the most recent ones). */
@@ -41,7 +41,7 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
       '',
       `- Status: ${task.status}`,
       `- Assignee: ${task.assignee ? code(task.assignee) : 'none'}`,
-      `- Repo: ${task.repo ? code(task.repo) : 'the workspace root'}`,
+      `- Repo: ${repoText(input.project, task)}`,
       ...(task.priority !== null ? [`- Priority: ${task.priority}`] : []),
       `- Labels: ${task.labels.length > 0 ? task.labels.map((label) => style.label(label)).join(', ') : 'none'}`,
       `- Visibility: ${task.visibility}`,

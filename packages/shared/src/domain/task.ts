@@ -31,7 +31,18 @@ export const Visibility = z.enum(['internal', 'shared']);
 export type Visibility = z.infer<typeof Visibility>;
 
 export const TaskStartWaiting = z.object({
-  reason: z.enum(['ai_limit_reached', 'plan_usage_paused', 'ai_disabled', 'member_at_capacity']),
+  /**
+   * The admission refusals a retry can overcome (the start waits for them), and `repo_required`:
+   * the task's AI developer cannot start until a person chooses the task's repository, which no
+   * retry does (see the deferrable refusals in the server's admission rules).
+   */
+  reason: z.enum([
+    'ai_limit_reached',
+    'plan_usage_paused',
+    'ai_disabled',
+    'member_at_capacity',
+    'repo_required',
+  ]),
   member: MemberHandle.optional(),
   provider: AgentProvider.optional(),
   /** Admission threshold, rather than current usage. */
@@ -54,7 +65,12 @@ export const Task = z.object({
   status: TaskStatus,
   /** Developer member currently carrying the task (null until started). */
   assignee: MemberHandle.nullable(),
-  /** Repo name from the project config the work happens in; null = the workspace root. */
+  /**
+   * Name of the repository (from the project config) the task's work happens in. Null: the task
+   * names none, and the work happens in the project's only repository when it has exactly one,
+   * else in no repository (`effectiveRepo`): in the workspace root when the project has none, and
+   * not before a person chooses one when it has several.
+   */
   repo: z.string().nullable(),
   priority: z.number().int().nullable(),
   /** Label ids: defined in the pipeline's label vocabulary, or plain tags. */

@@ -49,6 +49,7 @@ const MAX_NOTE_CHARS = 10_000;
 const MAX_TITLE_CHARS = 200;
 const MAX_DESCRIPTION_CHARS = 20_000;
 const MAX_LABEL_CHARS = 40;
+const MAX_REPO_CHARS = 64;
 const MAX_QUESTION_CHARS = 4_000;
 const MAX_OPTION_CHARS = 200;
 const MAX_CONSEQUENCE_CHARS = 400;
@@ -212,14 +213,14 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     readOnly: false,
     description:
       'Record progress on a task: add or remove labels, add a note, rewrite its title or description ' +
-      '(for example a specification with acceptance criteria, or a technical plan) and/or move it to ' +
-      'another stage. The outcome of a review, a test or a client answer is a label from the ' +
-      "project's label list (in your instructions: meaning, who may set it). Some labels require a " +
-      'note, and labels only humans may set (approvals) are refused. Stage gates are enforced: a move is ' +
-      'refused while a label its gate requires is missing or a blocking label is on the task. One call is ' +
-      'all or nothing: labels and the note are recorded before the stage move, and if a label is refused ' +
-      'or the gate blocks the move, nothing is recorded. A move that needs a human approval records the ' +
-      'rest and waits for the approval.',
+      '(for example a specification with acceptance criteria, or a technical plan), set the repository ' +
+      'it works in and/or move it to another stage. The outcome of a review, a test or a client answer ' +
+      "is a label from the project's label list (in your instructions: meaning, who may set it). Some " +
+      'labels require a note, and labels only humans may set (approvals) are refused. Stage gates are ' +
+      'enforced: a move is refused while a label its gate requires is missing or a blocking label is on ' +
+      'the task. One call is all or nothing: labels and the note are recorded before the stage move, and ' +
+      'if a label is refused or the gate blocks the move, nothing is recorded. A move that needs a human ' +
+      'approval records the rest and waits for the approval.',
     input: {
       task_key: taskKeyInput,
       stage_id: StageId.optional().describe(
@@ -265,6 +266,18 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
           'New description (markdown). It replaces the whole description, so include everything that ' +
             'should stay; read the current one with get_task first.',
         ),
+      repo: z
+        .string()
+        .trim()
+        .min(1)
+        .max(MAX_REPO_CHARS)
+        .nullable()
+        .optional()
+        .describe(
+          'Name of the repository the task works in, one of the project repositories (an unknown name is ' +
+            'refused, and the refusal lists them); null clears it. Refused while a session of the task is ' +
+            'running, yours included.',
+        ),
     },
     async run({ ctx, args, handler }) {
       const {
@@ -275,11 +288,20 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         note,
         title,
         description,
+        repo,
       } = args;
-      if (!stageId && !addLabels?.length && !removeLabels?.length && !note && !title && !description) {
+      if (
+        !stageId &&
+        !addLabels?.length &&
+        !removeLabels?.length &&
+        !note &&
+        !title &&
+        !description &&
+        repo === undefined
+      ) {
         throw new TeamToolError(
           'invalid',
-          'Nothing to update: pass stage_id, add_labels, remove_labels, note, title and/or description.',
+          'Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description and/or repo.',
         );
       }
       const { task } = await handler.updateTask(ctx, {
@@ -290,6 +312,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         ...(note ? { note } : {}),
         ...(title ? { title } : {}),
         ...(description ? { description } : {}),
+        ...(repo !== undefined ? { repo } : {}),
       });
       return formatTaskUpdate(task, {
         stageId,
@@ -297,6 +320,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         note: !!note,
         title: !!title,
         description: !!description,
+        repo,
       });
     },
   }),

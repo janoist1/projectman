@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   describeEvent,
   describeLink,
+  describeRepo,
   formatTimestamp,
   linkTarget,
   oneLine,
@@ -150,6 +151,30 @@ describe('describeEvent', () => {
         100,
       ),
     ).toBe('pull request acme/app#12 is merged');
+  });
+
+  it('names the repositories of a repository change, and only the field when it does not say', () => {
+    const updated = (data: Record<string, unknown>, style?: TextStyle) =>
+      describeEvent(event('task_updated', data), 100, style);
+    expect(updated({ fields: ['repo'], repo: 'api', previousRepo: null })).toBe('updated repo (none -> api)');
+    expect(updated({ fields: ['repo'], repo: null, previousRepo: 'api' }, named)).toBe(
+      'updated repo (`api` -> none)',
+    );
+    expect(updated({ fields: ['title', 'repo'], repo: 'web', previousRepo: 'api' }, named)).toBe(
+      'updated title, repo (`api` -> `web`)',
+    );
+    // Recorded without the repositories: the field is all there is to say.
+    expect(updated({ fields: ['repo'] })).toBe('updated repo');
+    expect(updated({ fields: ['title'] })).toBe('updated title');
+  });
+
+  it('describes where the work of a task happens', () => {
+    expect(describeRepo({ name: 'web', choiceNeeded: false })).toBe('web');
+    expect(describeRepo({ name: 'web', choiceNeeded: false }, named)).toBe('`web`');
+    expect(describeRepo({ name: null, choiceNeeded: false })).toBe('the workspace root');
+    expect(describeRepo({ name: null, choiceNeeded: true }, named)).toBe(
+      'none chosen yet (the project has several repositories; ask a human which one if you need to know)',
+    );
   });
 
   it('shortens free text to the limit', () => {

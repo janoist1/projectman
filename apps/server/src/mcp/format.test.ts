@@ -17,6 +17,30 @@ function note(minute: number, text: string): TimelineEvent {
 }
 
 describe('formatTaskDetail', () => {
+  it('names the repository the work happens in, not only the task’s own', () => {
+    const repoLine = (detail: Parameters<typeof formatTaskDetail>[0]) =>
+      formatTaskDetail(detail)
+        .split('\n')
+        .find((line) => line.startsWith('Repo: '));
+    const detail = sampleTaskDetail();
+    detail.task.repo = null;
+    // A handler that does not say falls back to the task's own repository.
+    expect(repoLine(detail)).toBe('Repo: the workspace root · Visibility: internal · Priority: 2');
+    // A task of a one-repository project works in that repository.
+    expect(repoLine({ ...detail, effectiveRepo: 'web', repoChoiceNeeded: false })).toBe(
+      'Repo: web · Visibility: internal · Priority: 2',
+    );
+    // Several repositories and none chosen: the agent is told why there is none.
+    expect(repoLine({ ...detail, effectiveRepo: null, repoChoiceNeeded: true })).toBe(
+      'Repo: none chosen yet (the project has several repositories; ask a human which one if you need to know) · ' +
+        'Visibility: internal · Priority: 2',
+    );
+    // No repositories at all: the workspace root.
+    expect(repoLine({ ...detail, effectiveRepo: null, repoChoiceNeeded: false })).toBe(
+      'Repo: the workspace root · Visibility: internal · Priority: 2',
+    );
+  });
+
   it('lists the labels once, on the status line', () => {
     const detail = sampleTaskDetail();
     detail.task.labels = ['frontend', 'qa-ok'];

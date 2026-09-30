@@ -46,6 +46,8 @@ import {
   ownerOnlyChanges,
   planLabelChange,
   pullRequestsMerged,
+  repoOf,
+  repoRequired,
   resolvedStages,
   roleBundle,
   roleHolders,
@@ -1410,6 +1412,15 @@ export class MockBackend {
       patch.parentKey = input.parentKey;
       fields.push('parentKey');
     }
+    // Like the server: a repository of the project, and not while a session of the task runs.
+    if (input.repo !== undefined && input.repo !== task.repo) {
+      if (input.repo !== null && !repoOf(this.config, input.repo))
+        return error(400, 'unknown_repo', 'Unknown repository');
+      const live = this.taskSessions(task.key).find((session) => this.isLive(session));
+      if (live) return error(409, 'task_session_live', 'A session is still live', { sessionId: live.id });
+      patch.repo = input.repo;
+      fields.push('repo');
+    }
     if (input.assignee !== undefined) {
       if (input.assignee !== null && !memberOf(this.config, input.assignee))
         return error(400, 'unknown_member', 'Unknown member');
@@ -1450,11 +1461,15 @@ export class MockBackend {
       if (nobody) return nobody;
     }
 
-    const previous = { assignee: task.assignee, parentKey: task.parentKey ?? null };
+    const previous = { assignee: task.assignee, parentKey: task.parentKey ?? null, repo: task.repo };
     const labelsChanged = labels.added.length > 0 || labels.removed.length > 0;
     if (fields.length || patch.assignee !== undefined || labelsChanged) {
       this.updateTask(task.key, { ...patch, ...(labelsChanged ? { labels: labels.labels } : {}) });
-      if (fields.length) this.addTimeline(task.key, actor.handle, 'task_updated', { fields });
+      if (fields.length)
+        this.addTimeline(task.key, actor.handle, 'task_updated', {
+          fields,
+          ...(patch.repo !== undefined ? { repo: patch.repo, previousRepo: previous.repo } : {}),
+        });
       if (labelsChanged) this.recordLabels(task, labels, actor, {});
       if (patch.assignee !== undefined)
         this.addTimeline(task.key, actor.handle, 'task_assigned', {
@@ -1748,8 +1763,7 @@ export class MockBackend {
     const title = input.title.trim();
     if (!title) return error(400, 'invalid_request', 'Empty title');
     const repo = input.repo ?? null;
-    if (repo && !this.config.project.repos.some((entry) => entry.name === repo))
-      return error(400, 'unknown_repo', 'Unknown repository');
+    if (repo && !repoOf(this.config, repo)) return error(400, 'unknown_repo', 'Unknown repository');
     if (input.parentKey) {
       const refusal = this.validateParent(null, input.parentKey);
       if (refusal) return refusal;
@@ -1820,6 +1834,12 @@ export class MockBackend {
     if (!assignee) return error(409, 'no_free_member', 'No developer available');
     if (!eligible.includes(assignee))
       return error(400, 'not_stage_owner', 'Assignee must own the work stage');
+    // Like admission: a role that changes files needs the task's repository, and nothing has happened yet.
+    const chosen = memberOf(this.config, assignee);
+    if (chosen?.kind === 'ai' && repoRequired(this.config, chosen.role, task))
+      return error(409, 'repo_required', 'The task needs a repository before a developer starts on it', {
+        taskKey: task.key,
+      });
     const running = this.sessions.find(
       (s) =>
         s.member === assignee &&

@@ -1,5 +1,14 @@
-import type { MemberView, Task, TaskDetail, TimelineEvent } from '@projectman/shared';
-import { describeLink, formatTimestamp, linkTarget, oneLine, recentTimeline, truncate } from '../agent-text';
+import type { MemberView, Task, TimelineEvent } from '@projectman/shared';
+import {
+  describeLink,
+  describeRepo,
+  formatTimestamp,
+  linkTarget,
+  oneLine,
+  recentTimeline,
+  truncate,
+} from '../agent-text';
+import type { TaskToolDetail } from '../contracts';
 
 /**
  * Tool results are short plain text: cheap for the model to read and easy to scan in
@@ -54,13 +63,17 @@ function timelineLines(events: TimelineEvent[]): string[] {
   return [header, ...lines];
 }
 
-export function formatTaskDetail(detail: TaskDetail): string {
+export function formatTaskDetail(detail: TaskToolDetail): string {
   const { task, timeline, sessions } = detail;
   const description = task.description.trim();
+  const repo = describeRepo({
+    name: detail.effectiveRepo ?? task.repo,
+    choiceNeeded: detail.repoChoiceNeeded ?? false,
+  });
   const lines = [
     `${task.key} — ${task.title}`,
     taskStatusLine(task),
-    `Repo: ${task.repo ?? 'workspace root'} · Visibility: ${task.visibility} · Priority: ${task.priority ?? 'none'}`,
+    `Repo: ${repo} · Visibility: ${task.visibility} · Priority: ${task.priority ?? 'none'}`,
     `Links: ${task.links.length > 0 ? task.links.map((l) => describeLink(l)).join('; ') : 'none'}`,
     `Created by ${task.createdBy} at ${formatTimestamp(task.createdAt)} · Updated ${formatTimestamp(task.updatedAt)}`,
     '',
@@ -95,11 +108,15 @@ export function formatTaskUpdate(
     note: boolean;
     title?: boolean;
     description?: boolean;
+    /** The repository the call set (null: cleared); undefined when it did not touch it. */
+    repo?: string | null | undefined;
   },
 ): string {
   const done: string[] = [];
   if (change.title) done.push('title changed');
   if (change.description) done.push('description replaced');
+  if (change.repo !== undefined)
+    done.push(change.repo === null ? 'repo cleared' : `repo set to ${change.repo}`);
   if (change.labels?.added.length) done.push(`labels added: ${change.labels.added.join(', ')}`);
   if (change.labels?.removed.length) done.push(`labels removed: ${change.labels.removed.join(', ')}`);
   if (change.note) done.push('note added');

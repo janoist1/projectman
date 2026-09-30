@@ -1,8 +1,8 @@
-import { isBuiltInRole, roleBundle, DUTIES } from '@projectman/shared';
+import { isBuiltInRole, roleBundle, roleUsesWorktree } from '@projectman/shared';
 import type { BuiltInRoleId, CustomRoleDefinition } from '@projectman/shared';
 import type { ContextPackInput } from '../contracts';
 import { isHumanOnlyLabel, labelHolders } from '@projectman/shared';
-import { code, codeList, describeGate, labelRef, languageName, stageLabel } from './format';
+import { code, codeList, describeGate, labelRef, languageName, repoText, stageLabel } from './format';
 import { recentMemory } from './memory';
 import { dutyPrompt, expectedSteps, type Situation } from './work-item';
 
@@ -257,9 +257,10 @@ function workItemSection(input: ContextPackInput, situation: Situation): string 
     lines.push(`- Stage: ${code(task.stageId)} (not in the pipeline).`);
   }
   lines.push(
-    `- Status: ${task.status}; assignee: ${task.assignee ? code(task.assignee) : 'none'}; repo: ${
-      task.repo ? code(task.repo) : 'the workspace root'
-    }.`,
+    `- Status: ${task.status}; assignee: ${task.assignee ? code(task.assignee) : 'none'}; repo: ${repoText(
+      input.project,
+      task,
+    )}.`,
   );
   if (next) {
     const owners = (next.owners ?? []).length > 0 ? `, owners ${codeList(next.owners ?? [])}` : '';
@@ -294,7 +295,7 @@ function guardrailsSection({ project, member }: ContextPackInput): string {
     '- Do not ask humans again about what they have already decided.',
     '- If you told the team something wrong, correct it yourself and tell everyone who relied on it.',
   ];
-  if (!roleBundle(project, member.role).duties.some((id) => DUTIES[id].toolPolicy === 'task_worktree')) {
+  if (!roleUsesWorktree(project, member.role)) {
     lines.push('- You never edit code, commit or push: you only report.');
   }
   return lines.join('\n');

@@ -6,7 +6,12 @@ import {
   holdersAllow,
   MemberHandle,
   memberDuties,
+  memberOf,
+  memberRoles,
   roleHolders,
+  stageApprovers,
+  stageOf,
+  taskSeq,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -20,11 +25,11 @@ import type {
   UpdateMemberRequest,
 } from '@projectman/shared';
 import { aiMemberDefaults } from '@projectman/templates';
-import { findHumanByEmail, ownerHandles, stageApprovers } from './access';
+import { findHumanByEmail, ownerHandles, requireAiMember, requireHuman } from './access';
 import type { ProjectAccess } from './access';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
-import { conflict, forbidden, invalid, notFound } from './errors';
+import { conflict, invalid, notFound } from './errors';
 import type { InboxService } from './inbox';
 import { defaultMemberHandle, defaultMemberName, humanMemberHandle } from './naming';
 import type { PresenceService } from './presence';
@@ -60,7 +65,6 @@ export class MemberService {
   private readonly projects: ProjectService;
   private readonly timeline: TimelineService;
   private readonly presence: PresenceService;
-  private readonly tasks: TaskService;
   private readonly inbox: InboxService;
 
   constructor(deps: {
@@ -68,14 +72,12 @@ export class MemberService {
     projects: ProjectService;
     timeline: TimelineService;
     presence: PresenceService;
-    tasks: TaskService;
     inbox: InboxService;
   }) {
     this.ctx = deps.ctx;
     this.projects = deps.projects;
     this.timeline = deps.timeline;
     this.presence = deps.presence;
-    this.tasks = deps.tasks;
     this.inbox = deps.inbox;
   }
 
@@ -102,7 +104,7 @@ export class MemberService {
           continue;
         if (openTasks.has(s.workItem.taskKey)) keys.add(s.workItem.taskKey);
       }
-      const currentTaskKeys = [...keys].sort((a, b) => taskNumber(a) - taskNumber(b));
+      const currentTaskKeys = [...keys].sort((a, b) => taskSeq(a) - taskSeq(b));
       if (m.kind === 'human') {
         return {
           handle: m.handle,
@@ -126,7 +128,7 @@ export class MemberService {
         githubLogin: m.githubLogin,
         kind: 'ai',
         role: m.role,
-        roles: [m.role],
+        roles: memberRoles(m),
         specialty: m.specialty ?? null,
         status: state && state.status !== 'retired' ? state.status : 'idle',
         activity: state?.activity ?? null,
@@ -172,9 +174,7 @@ export class MemberService {
   ): Promise<MemberView> {
     let handle = '';
     await this.projects.update(projectKey, by, (draft) => {
-      const actor = draft.team.members.find((member) => member.handle === by.actor.handle);
-      if (by.actor.kind !== 'human' || actor?.kind !== 'human' || !['owner', 'admin'].includes(actor.access))
-        throw forbidden('insufficient_access', 'owner or admin required');
+      requireHuman(draft, by.actor, 'admin', { message: 'owner or admin required' });
       for (const role of req.roles) assertRoleFor(draft, role, 'human');
       const taken = this.takenHandles(projectKey, draft);
       if (req.handle && taken.has(req.handle))
@@ -209,7 +209,7 @@ export class MemberService {
       assertRoleFor(draft, req.role, 'ai');
       const defaults = aiMemberDefaults(req.role, draft.team.roles, draft.team.roleOverrides);
       if (!defaults) throw invalid('role_not_for_ai', `no AI member can hold the role ${req.role}`);
-      const sponsor = draft.team.members.find((m) => m.handle === by.sponsor);
+      const sponsor = memberOf(draft, by.sponsor);
       if (!sponsor || sponsor.kind !== 'human') {
         throw invalid('invalid_sponsor', `sponsor must be a human member: ${by.sponsor}`);
       }
@@ -249,7 +249,7 @@ export class MemberService {
       });
       draft.team.members.push(member);
       if (opts.temp && opts.stageId) {
-        const stage = draft.pipeline.stages.find((s) => s.id === opts.stageId);
+        const stage = stageOf(draft, opts.stageId);
         if (stage?.owners) stage.owners = [...stage.owners, handle];
       }
       hired = member;
@@ -277,7 +277,7 @@ export class MemberService {
     by: { actor: Actor; author: Author },
   ): Promise<MemberView> {
     await this.projects.update(projectKey, by, (draft) => {
-      const member = draft.team.members.find((m) => m.handle === handle);
+      const member = memberOf(draft, handle);
       if (!member) throw notFound('member', handle);
       const fields: string[] = [];
       if (member.kind === 'human') {
@@ -346,8 +346,8 @@ export class MemberService {
   }
 
   /**
-   * Retires an AI member: its open tasks go to `handoverTo` (or become unassigned), its stage
-   * ownerships move to `handoverTo`, its sessions are stopped (config change listener).
+   * Retires an AI member: its stage ownerships move to `handoverTo`; the configuration change
+   * listeners hand its open tasks to `handoverTo` (or unassign them) and stop its sessions.
    */
   async retire(
     projectKey: string,
@@ -356,18 +356,16 @@ export class MemberService {
     by: { actor: Actor; author: Author },
   ): Promise<void> {
     const config = await this.projects.config(projectKey);
-    const member = config.team.members.find((m) => m.handle === handle);
-    if (!member) throw notFound('member', handle);
-    if (member.kind !== 'ai') throw invalid('not_ai_member', 'only AI members can be retired');
+    requireAiMember(config, handle);
     const handoverTo = opts.handoverTo ?? null;
     if (handoverTo !== null) {
       if (handoverTo === handle) throw invalid('invalid_request', 'cannot hand over to the retiring member');
-      if (!config.team.members.some((m) => m.handle === handoverTo)) throw notFound('member', handoverTo);
+      if (!memberOf(config, handoverTo)) throw notFound('member', handoverTo);
     }
 
-    const assignedTasks = this.ctx.repos.tasks.listByAssignee(projectKey, handle);
-    await this.projects.update(projectKey, by, (draft) => {
-      if (!draft.team.members.some((m) => m.handle === handle)) throw notFound('member', handle);
+    const handovers = handoverTo ? { [handle]: handoverTo } : undefined;
+    await this.projects.update(projectKey, { ...by, handovers }, (draft) => {
+      if (!memberOf(draft, handle)) throw notFound('member', handle);
       draft.team.members = draft.team.members.filter((m) => m.handle !== handle);
       for (const stage of draft.pipeline.stages) {
         if (!(stage.owners ?? []).includes(handle)) continue;
@@ -377,10 +375,6 @@ export class MemberService {
       }
       return `Retire ${handle}${handoverTo ? ` (handover to ${handoverTo})` : ''}`;
     });
-    for (const task of assignedTasks) {
-      if (isOpenTask(task))
-        this.tasks.assign(projectKey, task.key, handoverTo, by.actor, { reason: 'handover', from: handle });
-    }
     this.inbox.cancelOpenFromSource(projectKey, handle);
 
     this.timeline.append({
@@ -393,7 +387,7 @@ export class MemberService {
 
   async removeHuman(projectKey: string, handle: string, by: { actor: Actor; author: Author }): Promise<void> {
     await this.projects.update(projectKey, by, (draft) => {
-      const member = draft.team.members.find((m) => m.handle === handle);
+      const member = memberOf(draft, handle);
       if (!member) throw notFound('member', handle);
       if (member.kind !== 'human') throw invalid('not_human_member', 'Only humans can be removed');
       draft.team.members = draft.team.members.filter((m) => m.handle !== handle);
@@ -458,7 +452,7 @@ export class MemberService {
     }
     const previousMembers = new Map((previous?.team.members ?? []).map((m) => [m.handle, m]));
     for (const member of this.rosterFor(next)) {
-      const configMember = next.team.members.find((m) => m.handle === member.handle);
+      const configMember = memberOf(next, member.handle);
       if (JSON.stringify(previousMembers.get(member.handle)) !== JSON.stringify(configMember)) {
         this.ctx.bus.publish({ type: 'member_changed', projectKey, handle: member.handle, member });
       }
@@ -523,7 +517,7 @@ export class MemberProfiles {
 
   async profile(projectKey: string, handle: string, viewer: Viewer): Promise<MemberProfile> {
     const config = await this.projects.config(projectKey);
-    const original = config.team.members.find((m) => m.handle === handle);
+    const original = memberOf(config, handle);
     const member = this.members.rosterFor(config).find((m) => m.handle === handle);
     if (!original || !member) throw notFound('member', handle);
     const internal = !isClient(viewer);
@@ -541,7 +535,7 @@ export class MemberProfiles {
       duties: memberDuties(config, original),
       tasks: visibleTasks.filter(
         (t) =>
-          !['done', 'cancelled'].includes(t.status) &&
+          isOpenTask(t) &&
           (t.assignee === handle ||
             member.currentTaskKeys.includes(t.key) ||
             approverStages.has(t.stageId) ||
@@ -562,8 +556,4 @@ export class MemberProfiles {
         : {}),
     };
   }
-}
-
-function taskNumber(key: string): number {
-  return Number(key.slice(key.lastIndexOf('-') + 1));
 }

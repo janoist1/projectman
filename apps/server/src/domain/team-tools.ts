@@ -1,4 +1,4 @@
-import { TaskStatus as TaskStatusSchema, TaskKey } from '@projectman/shared';
+import { isOpenTask, memberOf, TaskStatus as TaskStatusSchema, TaskKey } from '@projectman/shared';
 import type {
   InboxItem,
   InboxOption,
@@ -6,7 +6,6 @@ import type {
   ProjectConfig,
   Task,
   TaskDetail,
-  TaskStatus,
   Visibility,
   WorkItemRef,
 } from '@projectman/shared';
@@ -21,7 +20,7 @@ import type {
 } from '../contracts';
 import type { DomainContext } from './context';
 import { DomainError } from './errors';
-import type { ApprovalRequirement, UnmetCondition } from './gates';
+import type { ApprovalRequirement, UnmetCondition } from '@projectman/shared';
 import type { GithubSync } from './github-sync';
 import { ANSWER_OPTION, answerText, sponsorOrOwners } from './inbox';
 import type { InboxService } from './inbox';
@@ -121,7 +120,7 @@ export class TeamToolsService implements TeamToolsHandler {
           'invalid',
           'No recipients: name at least one team member other than yourself.',
         );
-      const unknown = recipients.filter((h) => !config.team.members.some((m) => m.handle === h));
+      const unknown = recipients.filter((h) => !memberOf(config, h));
       if (unknown.length > 0)
         throw new TeamToolError(
           'not_found',
@@ -129,9 +128,7 @@ export class TeamToolsService implements TeamToolsHandler {
         );
       const taskKey = this.taskKeyFor(ctx, args.taskKey);
 
-      const aiRecipients = recipients.filter(
-        (h) => config.team.members.find((m) => m.handle === h)?.kind === 'ai',
-      );
+      const aiRecipients = recipients.filter((h) => memberOf(config, h)?.kind === 'ai');
       const message = this.messages.record({
         projectKey: ctx.projectKey,
         from: ctx.member,
@@ -167,12 +164,11 @@ export class TeamToolsService implements TeamToolsHandler {
         throw new TeamToolError('invalid', 'limit must be an integer between 1 and 200.');
       }
       const assignee = args.assignee === 'me' ? ctx.member : args.assignee;
-      const openStatuses: TaskStatus[] = ['active', 'waiting', 'blocked'];
       return this.tasks
         .list(ctx.projectKey)
         .filter(
           (task) =>
-            (status === 'open' ? openStatuses.includes(task.status) : task.status === status) &&
+            (status === 'open' ? isOpenTask(task) : task.status === status) &&
             (args.stage === undefined || task.stageId === args.stage) &&
             (assignee === undefined || task.assignee === assignee),
         )
@@ -212,9 +208,8 @@ export class TeamToolsService implements TeamToolsHandler {
     return this.guard(async () => {
       const config = await this.caller(ctx);
       const taskKey = this.validTaskKey(ctx, args.taskKey);
-      const actor = aiActor(ctx.member);
-      // Validate everything first, then apply: title, description, labels and note before the
-      // stage move, so one call can add "code review ok" and move through the gate that needs it.
+      // The whole call is one change, all or nothing: title, description, labels and note are
+      // recorded before the stage move, so one call can add "code review ok" and pass the gate.
       if (args.stageId && !config.pipeline.stages.some((s) => s.id === args.stageId)) {
         throw new TeamToolError(
           'invalid',
@@ -228,45 +223,33 @@ export class TeamToolsService implements TeamToolsHandler {
       if (args.description !== undefined && !description) {
         throw new TeamToolError('invalid', 'The description is empty; pass the whole new description.');
       }
-      let task = this.tasks.get(ctx.projectKey, taskKey);
-      if (title !== undefined || description !== undefined) {
-        task = await this.tasks.update(
+      try {
+        const task = await this.tasks.update(
           ctx.projectKey,
           taskKey,
           {
-            ...(title !== undefined ? { title } : {}),
-            ...(description !== undefined ? { description } : {}),
+            title,
+            description,
+            addLabels: args.addLabels,
+            removeLabels: args.removeLabels,
+            note: args.note,
+            stageId: args.stageId,
           },
-          actor,
+          aiActor(ctx.member),
           { sessionId: ctx.sessionId },
         );
-      }
-      const note = args.note?.trim();
-      if (args.addLabels?.length || args.removeLabels?.length) {
-        // The note is the comment that explains the labels.
-        task = await this.tasks.changeLabels(
-          ctx.projectKey,
-          taskKey,
-          { add: args.addLabels, remove: args.removeLabels },
-          actor,
-          { comment: note || undefined, sessionId: ctx.sessionId },
-        );
-      } else if (note) {
-        await this.tasks.addNote(ctx.projectKey, taskKey, note, actor, ctx.sessionId);
-      }
-      if (args.stageId && args.stageId !== task.stageId) {
-        const result = await this.tasks.moveToStage(ctx.projectKey, taskKey, args.stageId, actor);
-        if (!result.moved) {
-          const approvers = unique(result.pendingApproval.flatMap((i) => i.assignees));
+        return { task };
+      } catch (err) {
+        if (err instanceof DomainError && err.code === 'approval_requested') {
+          const { approvers } = err.details as { approvers: string[] };
           throw new TeamToolError(
             'gate_blocked',
             `Moving ${taskKey} to ${args.stageId} needs a human approval. It was requested from ` +
               `${approvers.join(', ')}; the task moves automatically once they approve.`,
           );
         }
-        task = result.task;
+        throw err;
       }
-      return { task };
     });
   }
 
@@ -349,9 +332,7 @@ export class TeamToolsService implements TeamToolsHandler {
       const taskKey = this.taskKeyFor(ctx, args.taskKey);
       let assignees: string[];
       if (args.to && args.to.length > 0) {
-        const notHuman = args.to.filter(
-          (h) => config.team.members.find((m) => m.handle === h)?.kind !== 'human',
-        );
+        const notHuman = args.to.filter((h) => memberOf(config, h)?.kind !== 'human');
         if (notHuman.length > 0)
           throw new TeamToolError(
             'invalid',
@@ -408,7 +389,7 @@ export class TeamToolsService implements TeamToolsHandler {
     const resolution = item.resolution;
     if (item.kind !== 'question' || !resolution) return;
     const config = await this.projects.config(item.projectKey);
-    const asker = config.team.members.find((m) => m.handle === item.source);
+    const asker = memberOf(config, item.source);
     if (asker?.kind !== 'ai') return;
     const question = typeof item.payload.question === 'string' ? item.payload.question : item.title;
     const body = `Answer to your question "${question}":\n\n${answerText(item)}`;
@@ -451,7 +432,7 @@ export class TeamToolsService implements TeamToolsHandler {
   /** The caller must still be an AI member of the project. */
   private async caller(ctx: ToolContext): Promise<ProjectConfig> {
     const config = await this.projects.config(ctx.projectKey);
-    const member = config.team.members.find((m) => m.handle === ctx.member);
+    const member = memberOf(config, ctx.member);
     if (member?.kind !== 'ai')
       throw new TeamToolError(
         'forbidden',

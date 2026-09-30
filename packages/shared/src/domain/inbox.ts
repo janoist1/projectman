@@ -1,5 +1,8 @@
 import { z } from 'zod';
+import { Actor } from './event';
+import { LabelId } from './label';
 import { MemberHandle } from './member';
+import { StageId } from './pipeline';
 import { TaskKey } from './task';
 
 /**
@@ -24,6 +27,14 @@ export type InboxOption = z.infer<typeof InboxOption>;
 export const InboxState = z.enum(['open', 'resolved', 'expired', 'cancelled']);
 export type InboxState = z.infer<typeof InboxState>;
 
+/**
+ * The rule by which the system resolved an item itself (`resolution.by` is "system"):
+ * `command_policy` is the automatic command policy (no publishing from a local-only
+ * repository, lockfile installs in a task worktree). The UI names the rule via i18n.
+ */
+export const InboxResolutionRule = z.enum(['command_policy']);
+export type InboxResolutionRule = z.infer<typeof InboxResolutionRule>;
+
 export const InboxItem = z.object({
   id: z.string(),
   projectKey: z.string(),
@@ -45,9 +56,35 @@ export const InboxItem = z.object({
       optionId: z.string(),
       by: MemberHandle,
       at: z.string(),
+      /** Free text by the human who resolved it (older automatic resolutions kept a note too). */
       note: z.string().nullable(),
+      /** Set when the system resolved it by a rule. */
+      rule: InboxResolutionRule.optional(),
     })
     .nullable(),
   createdAt: z.string(),
 });
 export type InboxItem = z.infer<typeof InboxItem>;
+
+/**
+ * `payload.gate` of a `decision` item: one approval a stage move waits for. A move that needs
+ * several approvals opens one item per approval label; they share `requestId`.
+ */
+export const GateRequestPayload = z.object({
+  requestId: z.string(),
+  taskKey: TaskKey,
+  fromStageId: StageId,
+  toStageId: StageId,
+  /** Stage whose gate requires the approval (moving forward may enter several gated stages). */
+  stageId: StageId,
+  /** The human-only label the approver puts on the task by approving; missing on requests from before labels. */
+  label: LabelId.optional(),
+  requestedBy: Actor,
+});
+export type GateRequestPayload = z.infer<typeof GateRequestPayload>;
+
+/** The gate request of a decision item, or null when the item has none (or an unreadable one). */
+export function gateRequestOf(item: Pick<InboxItem, 'payload'>): GateRequestPayload | null {
+  const parsed = GateRequestPayload.safeParse(item.payload.gate);
+  return parsed.success ? parsed.data : null;
+}

@@ -1,12 +1,6 @@
 import path from 'node:path';
-import {
-  isBuiltInRole,
-  BUILT_IN_ROLE_IDS,
-  BUILT_IN_ROLE_DUTIES,
-  DUTIES,
-  roleBundle,
-} from '@projectman/shared';
-import type { BuiltInRoleId, RoleId, ProjectConfig, Task } from '@projectman/shared';
+import { DUTIES, roleBundle } from '@projectman/shared';
+import type { RoleId, ProjectConfig, Task } from '@projectman/shared';
 
 /**
  * Per-role session settings, kept in one place so they are easy to change.
@@ -116,18 +110,14 @@ export interface RoleSessionPolicy {
 }
 
 /** Union of the actual duties, including custom roles and project overrides. */
-export function sessionPolicyFor(role: RoleId, config?: ProjectConfig): RoleSessionPolicy {
-  const duties = config
-    ? roleBundle(config, role).duties
-    : isBuiltInRole(role)
-      ? BUILT_IN_ROLE_DUTIES[role]
-      : [];
+export function sessionPolicyFor(role: RoleId, config: Pick<ProjectConfig, 'team'>): RoleSessionPolicy {
+  const duties = roleBundle(config, role).duties;
   return {
     readOnlyTools: duties.some((id) => DUTIES[id].toolPolicy === 'read_only'),
     worktree: duties.some((id) => DUTIES[id].toolPolicy === 'task_worktree'),
   };
 }
-export function allowedToolsFor(role: RoleId, config?: ProjectConfig): string[] {
+export function allowedToolsFor(role: RoleId, config: Pick<ProjectConfig, 'team'>): string[] {
   const policy = sessionPolicyFor(role, config);
   return [
     ...TEAM_TOOLS_ALLOWED,
@@ -135,16 +125,9 @@ export function allowedToolsFor(role: RoleId, config?: ProjectConfig): string[] 
     ...(policy.worktree ? DEVELOPMENT_TOOLS : []),
   ];
 }
-export function usesWorktree(role: RoleId, config?: ProjectConfig): boolean {
+export function usesWorktree(role: RoleId, config: Pick<ProjectConfig, 'team'>): boolean {
   return sessionPolicyFor(role, config).worktree;
 }
-/** Compatibility exports, derived from duties. */
-export const ROLE_SESSION_POLICIES = Object.fromEntries(
-  BUILT_IN_ROLE_IDS.map((id) => [id, sessionPolicyFor(id)]),
-) as Record<BuiltInRoleId, RoleSessionPolicy>;
-export const WORKTREE_ROLES: ReadonlySet<BuiltInRoleId> = new Set(
-  BUILT_IN_ROLE_IDS.filter((id) => usesWorktree(id)),
-);
 
 /** Delay before a done task's sessions are stopped, so an in-flight tool result still reaches the agent. */
 export const DONE_TASK_CLEANUP_DELAY_MS = 2_000;

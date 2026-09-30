@@ -1,23 +1,26 @@
 import { existsSync, statSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import {
+  DEFAULT_PROJECT_LANGUAGE,
   ProjectConfig,
   applyConfigPatch,
   configSchemaIssues,
-  humanApprovalChanged,
+  memberOf,
+  ownerOnlyChanges,
 } from '@projectman/shared';
 import type {
   Actor,
   ConfigVersionEntry,
   CreateProjectRequest,
   HumanAccess,
+  OwnerOnlyChange,
   PatchConfigRequest,
   ProjectSummary,
 } from '@projectman/shared';
 import { ConfigStoreError } from '../config/errors';
 import type { ConfigStore } from '../contracts';
 import type { ProjectRecord } from '../db';
-import { ownersSignature, projectAccessFor, releaseApproversSignature } from './access';
+import { projectAccessFor } from './access';
 import { isoNow } from './context';
 import type { DomainContext, TemplateRegistry } from './context';
 import { conflict, DomainError, forbidden, invalid, notFound } from './errors';
@@ -40,6 +43,8 @@ export interface ConfigChangeMeta {
   message: string;
   /** Internal invitation acceptance may claim only this previously unbound seat. */
   invitationBinding?: { handle: string; email: string };
+  /** Members who leave in this change and who takes over their open tasks (handle -> handle). */
+  handovers?: Readonly<Record<string, string>>;
 }
 
 /** A human's edit of the configuration (settings: replace, patch or revert). */
@@ -59,14 +64,22 @@ export interface ConfigChange {
   next: ProjectConfig;
   version: string;
   actor: Actor;
+  /** Members who left in this change and who takes over their open tasks (handle -> handle). */
+  handovers?: Readonly<Record<string, string>>;
 }
 
 export type ConfigChangeListener = (change: ConfigChange) => void | Promise<void>;
 
-/** Language of new projects (humans and agents communicate in it). */
-export const DEFAULT_PROJECT_LANGUAGE = 'hu';
 /** Handle of the human who creates a project from a template. */
 export const OWNER_HANDLE = 'owner';
+
+const OWNER_ONLY_MESSAGES: Record<OwnerOnlyChange, string> = {
+  locations: 'only an owner may change filesystem locations',
+  admin_or_account: 'only an owner may grant admin access or change account bindings',
+  approval_policy: 'only an owner may change or remove human approval gates',
+  release_approvers: 'only an owner may change the release approvers',
+  owners: 'only an owner may change who is an owner',
+};
 
 function fromConfigError(err: unknown): never {
   if (err instanceof ConfigStoreError) {
@@ -293,7 +306,7 @@ export class ProjectService {
   /** Read-modify-write of the configuration; `change` edits the draft and returns the commit message. */
   async update(
     key: string,
-    meta: { actor: Actor; author: Author; invitationBinding?: { handle: string; email: string } },
+    meta: Omit<ConfigChangeMeta, 'message'>,
     change: (draft: ProjectConfig) => string,
   ): Promise<LoadedProject> {
     return this.locks.run(`config:${key}`, async () => {
@@ -344,37 +357,8 @@ export class ProjectService {
     invitationBinding?: ConfigChangeMeta['invitationBinding'],
   ): void {
     if (access === 'owner') return;
-    const locations = (config: ProjectConfig) =>
-      JSON.stringify({
-        workspace: config.project.workspacePath,
-        repos: config.project.repos.map((repo) => ({ name: repo.name, path: repo.path })),
-      });
-    if (locations(previous) !== locations(next))
-      throw forbidden('owner_only', 'only an owner may change filesystem locations');
-    for (const member of next.team.members) {
-      if (member.kind !== 'human') continue;
-      const old = previous.team.members.find((m) => m.handle === member.handle);
-      if (
-        (member.access === 'admin' && (old?.kind !== 'human' || old.access !== 'admin')) ||
-        (old?.kind === 'human' &&
-          (old.email ?? '').toLowerCase() !== (member.email ?? '').toLowerCase() &&
-          !(
-            invitationBinding?.handle === member.handle &&
-            !old.email &&
-            member.email === invitationBinding.email
-          ))
-      )
-        throw forbidden('owner_only', 'only an owner may grant admin access or change account bindings');
-    }
-    if (humanApprovalChanged(previous, next)) {
-      throw forbidden('owner_only', 'only an owner may change or remove human approval gates');
-    }
-    if (releaseApproversSignature(previous) !== releaseApproversSignature(next)) {
-      throw forbidden('owner_only', 'only an owner may change the release approvers');
-    }
-    if (ownersSignature(previous) !== ownersSignature(next)) {
-      throw forbidden('owner_only', 'only an owner may change who is an owner');
-    }
+    const [change] = ownerOnlyChanges(previous, next, { invitationBinding });
+    if (change) throw forbidden('owner_only', OWNER_ONLY_MESSAGES[change]);
   }
 
   /**
@@ -423,7 +407,7 @@ export class ProjectService {
     next: ProjectConfig,
     meta: Pick<ConfigChangeMeta, 'actor' | 'invitationBinding'>,
   ): void {
-    const member = previous.team.members.find((m) => m.handle === meta.actor.handle);
+    const member = memberOf(previous, meta.actor.handle);
     if (meta.actor.kind !== 'system') {
       if (meta.actor.kind !== 'human' || member?.kind !== 'human')
         throw forbidden('owner_only', 'AI cannot change configuration');
@@ -461,7 +445,14 @@ export class ProjectService {
     if (version !== current.version) {
       this.touchRecord(key, loaded);
       await this.announce(
-        { projectKey: key, previous: current.config, next: loaded.config, version, actor: meta.actor },
+        {
+          projectKey: key,
+          previous: current.config,
+          next: loaded.config,
+          version,
+          actor: meta.actor,
+          ...(meta.handovers ? { handovers: meta.handovers } : {}),
+        },
         meta.message,
       );
     }

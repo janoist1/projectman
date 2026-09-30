@@ -124,7 +124,7 @@ describe('automatic session admission and retries', () => {
         await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
         await h.domain.tasks.moveToStage('AR', 'AR-1', 'backlog', OWNER_ACTOR);
       } else if (reason === 'done') {
-        h.repos.tasks.update({ ...h.domain.tasks.get('AR', 'AR-1'), status: 'done' });
+        h.repos.tasks.update(h.domain.tasks.get('AR', 'AR-1').id, { status: 'done' });
       } else if (reason === 'cancelled') {
         await h.domain.tasks.cancel('AR', 'AR-1', { reason: 'Fictional scope changed.' }, OWNER_ACTOR);
       } else if (reason === 'delivered') {
@@ -204,7 +204,7 @@ describe('automatic session admission and retries', () => {
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
     await flush();
     if (reason === 'done') {
-      h.repos.tasks.update({ ...h.domain.tasks.get('AR', 'AR-1'), status: 'done' });
+      h.repos.tasks.update(h.domain.tasks.get('AR', 'AR-1').id, { status: 'done' });
     } else if (reason === 'cancelled') {
       await h.domain.tasks.cancel('AR', 'AR-1', { reason: 'Fictional scope changed.' }, OWNER_ACTOR);
     } else {

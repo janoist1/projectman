@@ -1,4 +1,4 @@
-import { roleBundle } from '@projectman/shared';
+import { memberOf, roleBundle } from '@projectman/shared';
 import { createHash, randomBytes } from 'node:crypto';
 import { AcceptInviteRequest, InvitationView } from '@projectman/shared';
 import type {
@@ -11,7 +11,7 @@ import type {
 } from '@projectman/shared';
 import type { AuthService, AuthUser } from '../auth/auth-service';
 import type { InvitationRecord } from '../db/invitations';
-import { findHumanByEmail } from './access';
+import { findHumanByEmail, hasAccess, requireMemberAccess } from './access';
 import type { DomainContext } from './context';
 import { conflict, DomainError, forbidden, invalid, notFound } from './errors';
 import { assertRoleFor } from './members';
@@ -53,10 +53,10 @@ export class InvitationService {
   async create(projectKey: string, input: CreateInviteRequest, user: AuthUser): Promise<CreatedInvitation> {
     return this.lock.run('invitations', async () => {
       const config = await this.projects.config(projectKey);
-      const inviter = findHumanByEmail(config, user.email);
-      if (!inviter || !['owner', 'admin'].includes(inviter.access))
-        throw forbidden('insufficient_access', 'owner or admin required');
-      if (input.access === 'admin' && inviter.access !== 'owner')
+      const inviter = requireMemberAccess(findHumanByEmail(config, user.email), 'admin', {
+        message: 'owner or admin required',
+      });
+      if (input.access === 'admin' && !hasAccess(inviter.access, 'owner'))
         throw forbidden('owner_only', 'only an owner may invite an admin');
       const member = input.memberHandle ? this.unclaimedMember(config, input.memberHandle) : undefined;
       if (findHumanByEmail(config, input.email))
@@ -65,7 +65,7 @@ export class InvitationService {
         assertRoleFor(config, role, 'human');
         if (
           !member &&
-          inviter.access !== 'owner' &&
+          !hasAccess(inviter.access, 'owner') &&
           roleBundle(config, role).duties.includes('release_approval')
         )
           throw forbidden('owner_only', 'only an owner may grant release approval');
@@ -104,7 +104,7 @@ export class InvitationService {
   }
 
   private unclaimedMember(config: ProjectConfig, handle: string): HumanMemberConfig {
-    const member = config.team.members.find((member) => member.handle === handle);
+    const member = memberOf(config, handle);
     if (!member)
       throw new DomainError('invite_member_not_found', 'invited member does not exist', { status: 404 });
     if (member.kind !== 'human') throw invalid('invite_member_not_human', 'invited member must be human');
@@ -176,11 +176,13 @@ export class InvitationService {
       }
       const account = user;
       const inviterUser = this.ctx.repos.users.get(invite.invitedBy);
-      const inviter = inviterUser
-        ? findHumanByEmail(await this.projects.config(invite.projectKey), inviterUser.email)
-        : undefined;
-      if (!inviter || !['owner', 'admin'].includes(inviter.access))
-        throw forbidden('insufficient_access', 'inviter no longer manages this team');
+      const inviter = requireMemberAccess(
+        inviterUser
+          ? findHumanByEmail(await this.projects.config(invite.projectKey), inviterUser.email)
+          : undefined,
+        'admin',
+        { message: 'inviter no longer manages this team' },
+      );
       const actor: Actor = { kind: 'human', handle: inviter.handle };
       await this.projects.update(
         invite.projectKey,
@@ -193,10 +195,12 @@ export class InvitationService {
         },
         (draft) => {
           this.valid(token);
-          const currentInviter = inviterUser ? findHumanByEmail(draft, inviterUser.email) : undefined;
-          if (!currentInviter || !['owner', 'admin'].includes(currentInviter.access))
-            throw forbidden('insufficient_access', 'inviter no longer manages this team');
-          if (invite.access === 'admin' && currentInviter.access !== 'owner')
+          const currentInviter = requireMemberAccess(
+            inviterUser ? findHumanByEmail(draft, inviterUser.email) : undefined,
+            'admin',
+            { message: 'inviter no longer manages this team' },
+          );
+          if (invite.access === 'admin' && !hasAccess(currentInviter.access, 'owner'))
             throw forbidden('owner_only', 'only an owner may invite an admin');
           const member = invite.memberHandle ? this.unclaimedMember(draft, invite.memberHandle) : undefined;
           if (findHumanByEmail(draft, invite.email))
@@ -209,7 +213,7 @@ export class InvitationService {
             for (const role of invite.roles) {
               assertRoleFor(draft, role, 'human');
               if (
-                currentInviter.access !== 'owner' &&
+                !hasAccess(currentInviter.access, 'owner') &&
                 roleBundle(draft, role).duties.includes('release_approval')
               )
                 throw forbidden('owner_only', 'only an owner may grant release approval');
@@ -230,7 +234,7 @@ export class InvitationService {
           return `Invite accepted: ${account.name}`;
         },
       );
-      this.ctx.repos.transaction(() => {
+      this.ctx.unitOfWork(() => {
         if (!existing) this.ctx.repos.users.insert(account);
         this.ctx.repos.invitations.accept(invite.id, this.ctx.now().toISOString());
       });

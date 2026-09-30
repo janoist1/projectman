@@ -1,4 +1,4 @@
-import { labelDefinition, labelHolders, taskAuthors } from '@projectman/shared';
+import { approvalRefusal, gateRequestOf, memberOf } from '@projectman/shared';
 import type {
   HumanAccess,
   InboxItem,
@@ -29,6 +29,12 @@ export const DECISION_OPTIONS: InboxOption[] = [
   { id: 'reject', label: 'reject', style: 'danger' },
 ];
 
+const APPROVAL_REFUSALS = {
+  not_an_assignee: 'the current gate does not authorize this approver',
+  release_four_eyes: 'release approval requires an independent human',
+  self_review_forbidden: 'the assignee and PR authors cannot set this label',
+} as const;
+
 /** Free-text answer to a question (the text is the resolution note). */
 export const ANSWER_OPTION: InboxOption = { id: 'answer', label: 'answer', style: 'secondary' };
 
@@ -53,7 +59,7 @@ export interface Resolver {
 type ResolvedHandler = (item: InboxItem) => void | Promise<void>;
 
 /** One-line summary of a tool call for humans, e.g. the Bash command or the edited file. */
-export function summarizeToolInput(input: unknown): string {
+function summarizeToolInput(input: unknown): string {
   const obj = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
   for (const key of [
     'command',
@@ -77,9 +83,9 @@ export function summarizeToolInput(input: unknown): string {
 
 /** Human assignees for requests raised by an AI member: its sponsor, else the owners. */
 export function sponsorOrOwners(config: ProjectConfig, memberHandle: string): string[] {
-  const member = config.team.members.find((m) => m.handle === memberHandle);
+  const member = memberOf(config, memberHandle);
   if (member?.kind === 'ai') {
-    const sponsor = config.team.members.find((m) => m.handle === member.sponsor);
+    const sponsor = memberOf(config, member.sponsor);
     if (sponsor?.kind === 'human') return [sponsor.handle];
   }
   return ownerHandles(config);
@@ -154,6 +160,16 @@ export class InboxService {
     return this.ctx.repos.inbox.list(projectKey, filter);
   }
 
+  /** The decision items of one gate request of a task, oldest first. */
+  gateRequestItems(projectKey: string, taskKey: string, requestId: string): InboxItem[] {
+    return this.ctx.repos.inbox.listGateRequest(projectKey, taskKey, requestId);
+  }
+
+  /** Open decision items requesting to move a task from one stage to another. */
+  openGateRequests(projectKey: string, taskKey: string, fromStageId: string, toStageId: string): InboxItem[] {
+    return this.ctx.repos.inbox.listOpenGateRequests(projectKey, taskKey, fromStageId, toStageId);
+  }
+
   countOpenFor(projectKey: string, handle: string): number {
     return this.ctx.repos.inbox.countOpenFor(projectKey, handle);
   }
@@ -174,22 +190,14 @@ export class InboxService {
       throw invalid('unknown_option', `unknown option: ${req.optionId}`);
     }
     const config = await this.projects.config(projectKey);
-    if (!config.team.members.some((m) => m.handle === by.handle && m.kind === 'human'))
+    if (memberOf(config, by.handle)?.kind !== 'human')
       throw forbidden('ai_approval_forbidden', 'only human members may resolve inbox items');
-    if (item.kind === 'decision' && req.optionId === 'approve') {
-      const gate = item.payload.gate as { stageId?: string; label?: string } | undefined;
-      const stage = config.pipeline.stages.find((s) => s.id === gate?.stageId);
+    const gate = item.kind === 'decision' && req.optionId === 'approve' ? gateRequestOf(item) : null;
+    if (gate?.label) {
+      // Approving puts the label on in the approver's name: the label rules apply up front.
       const task = item.taskKey ? this.ctx.repos.tasks.get(item.taskKey) : null;
-      const label = gate?.label ? labelDefinition(config, gate.label) : undefined;
-      if (label && !labelHolders(config, label).includes(by.handle))
-        throw forbidden('not_an_assignee', 'the current gate does not authorize this approver');
-      if (
-        stage?.kind === 'release' &&
-        config.team.releaseFourEyes &&
-        task &&
-        taskAuthors(task).includes(by.handle)
-      )
-        throw forbidden('release_four_eyes', 'release approval requires an independent human');
+      const refusal = approvalRefusal(config, gate.label, by.handle, task);
+      if (refusal) throw forbidden(refusal, APPROVAL_REFUSALS[refusal]);
     }
     const isAssignee = item.assignees.includes(by.handle);
     if (!isAssignee && !(item.kind !== 'decision' && by.access === 'owner')) {
@@ -297,7 +305,7 @@ export class InboxService {
     const config = await this.projects.config(session.projectKey);
     const summary = summarizeToolInput(request.toolInput);
     const taskKey = session.workItem.type === 'task' ? session.workItem.taskKey : null;
-    const member = config.team.members.find((member) => member.handle === session.member);
+    const member = memberOf(config, session.member);
     const verdict =
       member?.kind === 'ai'
         ? commandVerdict({
@@ -338,7 +346,8 @@ export class InboxService {
           optionId: verdict.behavior,
           by: 'system',
           at,
-          note: 'Automatikus: szabály szerint',
+          note: null,
+          rule: 'command_policy',
         },
         at,
       )!;
@@ -371,7 +380,7 @@ export class InboxService {
   }
 }
 
-export function toPermissionDecision(item: InboxItem): PermissionDecision {
+function toPermissionDecision(item: InboxItem): PermissionDecision {
   const resolution = item.resolution;
   if (item.state === 'resolved' && resolution) {
     if (resolution.optionId === 'allow') return { behavior: 'allow' };

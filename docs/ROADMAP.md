@@ -96,11 +96,8 @@ the `claude/determined-faraday-yz17ut` branch. Still open, roughly by value:
 
 - **Domain structure.** Automatic session starts (task start, hand-over, message wake-up,
   schedule) should share one admission path and one deferred-start store; team messages
-  should have one send path; `tasks.ts` should split into CRUD, labels, stage moves and PR
-  attribution; late-binding callbacks should become a typed internal event emitter.
-- **Consistency.** Multi-write operations (task creation, approval requests, updates) are
-  not in one SQLite transaction; `tasks.update` writes a whole row from a snapshot taken
-  before awaits (lost-update risk).
+  should have one send path; late-binding callbacks should become a typed internal event
+  emitter.
 - **Storage.** Message receipts are a JSON blob scanned in JavaScript on every session start;
   a `team_message_recipients` table would fix that. The legacy `tasks.checks` column is
   converted to labels on every read.

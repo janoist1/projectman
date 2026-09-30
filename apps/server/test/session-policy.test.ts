@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AI_BUILT_IN_ROLE_IDS, BUILT_IN_ROLE_IDS } from '@projectman/shared';
-import { testTemplate } from './helpers/test-template';
+import { testConfig, testTemplate } from './helpers/test-template';
 import { aiRoleDefaults } from '@projectman/templates';
 import {
   allowedToolsFor,
@@ -9,45 +9,44 @@ import {
   deniedToolsFor,
   commandVerdict,
   READ_ONLY_REVIEW_TOOLS,
-  ROLE_SESSION_POLICIES,
+  sessionPolicyFor,
   TEAM_TOOLS_ALLOWED,
   usesWorktree,
-  WORKTREE_ROLES,
 } from '../src/domain';
 
 describe('role session policy', () => {
+  // The built-in duty bundles: no overrides and no custom roles.
+  const team = testConfig();
+
   it('pre-approves list_tasks alongside get_task for every AI role', () => {
     for (const role of [...AI_BUILT_IN_ROLE_IDS, 'data_steward']) {
-      expect(allowedToolsFor(role)).toContain('mcp__team__*');
+      expect(allowedToolsFor(role, team)).toContain('mcp__team__*');
     }
   });
 
-  it('covers every built-in role', () => {
-    expect(Object.keys(ROLE_SESSION_POLICIES).sort()).toEqual([...BUILT_IN_ROLE_IDS].sort());
-  });
-
   it('pre-approves the read-only tools for review and research roles', () => {
-    const readers = BUILT_IN_ROLE_IDS.filter((role) => ROLE_SESSION_POLICIES[role].readOnlyTools);
+    const readers = BUILT_IN_ROLE_IDS.filter((role) => sessionPolicyFor(role, team).readOnlyTools);
     expect(readers).toContain('code_review');
     expect(readers).toContain('devops');
-    expect(allowedToolsFor('architect')).toEqual([...TEAM_TOOLS_ALLOWED, ...READ_ONLY_REVIEW_TOOLS]);
-    expect(allowedToolsFor('developer')).toEqual([...TEAM_TOOLS_ALLOWED, ...DEVELOPMENT_TOOLS]);
+    expect(allowedToolsFor('architect', team)).toEqual([...TEAM_TOOLS_ALLOWED, ...READ_ONLY_REVIEW_TOOLS]);
+    expect(allowedToolsFor('developer', team)).toEqual([...TEAM_TOOLS_ALLOWED, ...DEVELOPMENT_TOOLS]);
   });
 
   it('runs the roles that change files in the task worktree, with edits accepted', () => {
-    expect([...WORKTREE_ROLES].sort()).toEqual(
+    const worktreeRoles = BUILT_IN_ROLE_IDS.filter((role) => usesWorktree(role, team));
+    expect(worktreeRoles.sort()).toEqual(
       ['content', 'designer', 'developer', 'docs', 'maintainer', 'translator'].sort(),
     );
     for (const role of AI_BUILT_IN_ROLE_IDS) {
-      expect(aiRoleDefaults(role).permissionMode === 'acceptEdits', role).toBe(WORKTREE_ROLES.has(role));
+      expect(aiRoleDefaults(role).permissionMode === 'acceptEdits', role).toBe(worktreeRoles.includes(role));
       // Nobody both changes files and gets the review tools pre-approved.
-      expect(ROLE_SESSION_POLICIES[role].readOnlyTools && usesWorktree(role), role).toBe(false);
+      expect(sessionPolicyFor(role, team).readOnlyTools && usesWorktree(role, team), role).toBe(false);
     }
   });
 
   it('gives custom roles the team tools only, in the workspace', () => {
-    expect(allowedToolsFor('data_steward')).toEqual(TEAM_TOOLS_ALLOWED);
-    expect(usesWorktree('data_steward')).toBe(false);
+    expect(allowedToolsFor('data_steward', team)).toEqual(TEAM_TOOLS_ALLOWED);
+    expect(usesWorktree('data_steward', team)).toBe(false);
   });
 });
 

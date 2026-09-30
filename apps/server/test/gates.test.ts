@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ServerEvent } from '@projectman/shared';
-import { aiActor, gatePayload, SYSTEM_ACTOR } from '../src/domain';
+import { gateRequestOf } from '@projectman/shared';
+import { aiActor, SYSTEM_ACTOR } from '../src/domain';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -72,7 +73,7 @@ describe('stage gates', () => {
       source: 'dev-1',
       taskKey: task.key,
     });
-    expect(gatePayload(decision)).toMatchObject({
+    expect(gateRequestOf(decision)).toMatchObject({
       fromStageId: 'code_review',
       toStageId: 'merge',
       stageId: 'merge',
@@ -261,7 +262,7 @@ describe('stage gates', () => {
     expect(after.labels).toContain('pr-merged');
     expect(after.status).toBe('waiting');
     const decisions = h.domain.inbox.list('AR', { kind: 'decision', state: 'open', taskKey: task.key });
-    expect(decisions.map((d) => gatePayload(d)?.toStageId)).toEqual(['release']);
+    expect(decisions.map((d) => gateRequestOf(d)?.toStageId)).toEqual(['release']);
   });
 
   it('backward moves check only the target stage', async () => {

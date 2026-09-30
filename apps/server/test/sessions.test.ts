@@ -3,6 +3,7 @@ import type { ServerEvent } from '@projectman/shared';
 import { allowedToolsFor, DomainError, LOCAL_ONLY_DENIED_TOOLS } from '../src/domain';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
+import { testConfig } from './helpers/test-template';
 
 describe('session orchestrator', () => {
   let h: DomainHarness;
@@ -148,18 +149,32 @@ describe('session orchestrator', () => {
     expect(h.repos.memberState.get('AR', 'dev-1')?.status).toBe('retired');
   });
 
+  it.each([
+    [{ handoverTo: 'dev-2' }, { assignee: 'dev-2', previous: 'dev-1', reason: 'handover', from: 'dev-1' }],
+    [{}, { assignee: null, previous: 'dev-1', reason: 'member_removed' }],
+  ])('records the hand-over of a retired member’s task once (%j)', async (opts, assigned) => {
+    await h.domain.scheduler.startTask('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
+    const before = h.domain.timeline.list('AR', { taskKey: 'AR-1' }).length;
+    events.length = 0;
+    await h.domain.members.retire('AR', 'dev-1', opts, { actor: OWNER_ACTOR, author: OWNER });
+    const recorded = h.domain.timeline.list('AR', { taskKey: 'AR-1' }).slice(before);
+    expect(recorded.filter((e) => e.type === 'task_assigned').map((e) => e.data)).toEqual([assigned]);
+    const pushed = events.filter((e) => e.type === 'task_upserted' && e.task.key === 'AR-1');
+    expect(pushed.map((e) => e.type === 'task_upserted' && e.task.assignee)).toEqual([assigned.assignee]);
+  });
+
   it('runs reviewers in the workspace with read-only tools, developers in the task worktree', async () => {
     const withRepo = await h.domain.tasks.create('AR', { title: 'With repo', repo: 'web' }, OWNER_ACTOR);
     const review = await h.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: withRepo.key });
     expect(review.session).toMatchObject({ cwd: h.workspace, branch: null });
-    expect(h.runner.lastStarted().allowedTools).toEqual(allowedToolsFor('code_review'));
+    expect(h.runner.lastStarted().allowedTools).toEqual(allowedToolsFor('code_review', testConfig()));
     expect(h.runner.lastStarted().additionalDirectories).toBeUndefined();
     expect(h.worktrees.calls).toEqual([]);
 
     const dev = await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: withRepo.key });
     expect(dev.session.branch).toBe('task/AR-2');
     expect(dev.session.cwd).not.toBe(h.workspace);
-    expect(h.runner.lastStarted().allowedTools).toEqual(allowedToolsFor('developer'));
+    expect(h.runner.lastStarted().allowedTools).toEqual(allowedToolsFor('developer', testConfig()));
     expect(h.runner.lastStarted().writableRoots).toEqual([`${h.workspace}/.git`]);
     expect(h.runner.lastStarted().deniedTools).toEqual([]);
     expect(h.domain.tasks.get('AR', withRepo.key).links).toContainEqual({
@@ -219,7 +234,7 @@ describe('session orchestrator', () => {
     const maintainer = await h.domain.sessions.ensureSession('AR', 'maintainer', item);
     expect(maintainer.session.branch).toBe(`task/${withRepo.key}`);
     expect(h.runner.lastStarted()).toMatchObject({
-      allowedTools: allowedToolsFor('maintainer'),
+      allowedTools: allowedToolsFor('maintainer', testConfig()),
       permissionMode: 'acceptEdits',
     });
 

@@ -16,7 +16,7 @@ export { LATEST_SCHEMA_VERSION, migrations } from './migrations';
 export type { UserRecord, AuthSessionRecord } from './users';
 export type { ProjectRecord } from './projects';
 export type { MemberStateRecord } from './member-state';
-export type { PullRequestLinkRef } from './tasks';
+export type { PullRequestLinkRef, TaskPatch } from './tasks';
 export { encodeWorkItem, decodeWorkItem } from './sessions';
 
 /** All repositories over one database connection. */

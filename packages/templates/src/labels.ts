@@ -1,4 +1,9 @@
-import { DEFAULT_PROJECT_LANGUAGE, type GateCondition, type LabelDefinition } from '@projectman/shared';
+import {
+  DEFAULT_PROJECT_LANGUAGE,
+  PR_MERGED_LABEL,
+  type GateCondition,
+  type LabelDefinition,
+} from '@projectman/shared';
 import { getLocale } from './locales';
 import type { StandardLabelId, TemplateLocale } from './locales';
 
@@ -74,7 +79,7 @@ const STANDARD_LABEL_RULES: Record<StandardLabelId, LabelRules> = {
     requiresComment: true,
     notifyAssignee: true,
   },
-  'pr-merged': { color: 'purple', setBy: 'system' },
+  [PR_MERGED_LABEL]: { color: 'purple', setBy: 'system' },
   'merge-approved': {
     color: 'teal',
     setBy: { duties: ['final_decision'], humansOnly: true },
@@ -189,8 +194,8 @@ export function migrateLegacyConfig<T>(raw: T): T {
         return { type: 'has_label', label };
       }
       if (c.type === 'pr_merged') {
-        standard.add('pr-merged');
-        return { type: 'has_label', label: 'pr-merged' };
+        standard.add(PR_MERGED_LABEL);
+        return { type: 'has_label', label: PR_MERGED_LABEL };
       }
       if (c.type !== 'human_approval') return c;
       const approvers = c.approvers as string[] | undefined;

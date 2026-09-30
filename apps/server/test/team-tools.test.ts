@@ -143,7 +143,7 @@ describe('team tools', () => {
   });
 
   it('list_tasks filters the board, sorts before limiting and uses get_task visibility', async () => {
-    h.repos.tasks.update({ ...h.domain.tasks.get('AR', 'AR-1'), updatedAt: '2026-09-29T09:00:00.000Z' });
+    h.repos.tasks.update(h.domain.tasks.get('AR', 'AR-1').id, { updatedAt: '2026-09-29T09:00:00.000Z' });
     const statuses: TaskStatus[] = ['active', 'waiting', 'blocked', 'done', 'cancelled'];
     for (const [index, status] of statuses.entries()) {
       const task = await h.domain.tasks.create(
@@ -151,8 +151,7 @@ describe('team tools', () => {
         { title: `Board task ${index}`, visibility: index % 2 ? 'shared' : 'internal' },
         OWNER_ACTOR,
       );
-      h.repos.tasks.update({
-        ...task,
+      h.repos.tasks.update(task.id, {
         status,
         stageId: 'backlog',
         assignee: 'dev-2',

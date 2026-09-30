@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { migrations } from './migrations';
+import { LATEST_SCHEMA_VERSION, migrations } from './migrations';
 
 export type Db = Database.Database;
 
@@ -16,9 +16,17 @@ export function openDatabase(path: string): Db {
   return db;
 }
 
-/** Applies every migration newer than `PRAGMA user_version`; returns the resulting version. */
+/**
+ * Applies every migration newer than `PRAGMA user_version`; returns the resulting version.
+ * A database written by a newer build is refused: this build would misread it.
+ */
 export function migrate(db: Db): number {
-  let current = Number(db.pragma('user_version', { simple: true }));
+  let current = schemaVersion(db);
+  if (current > LATEST_SCHEMA_VERSION)
+    throw new Error(
+      `The database is at schema version ${current}, but this build of projectman knows only up to ` +
+        `${LATEST_SCHEMA_VERSION}. Run a newer build, or restore a backup made by this one.`,
+    );
   const pending = [...migrations].filter((m) => m.version > current).sort((a, b) => a.version - b.version);
   for (const migration of pending) {
     db.transaction(() => {

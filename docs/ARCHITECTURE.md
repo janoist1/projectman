@@ -112,7 +112,8 @@ Documentation map:
 ## Invariants
 
 Enforced on every configuration change, whoever makes it
-(`packages/shared/src/config/invariants.ts` and the owner-only checks in the server):
+(`packages/shared/src/config/invariants.ts`; the changes only an owner may make are in
+`packages/shared/src/config/owner-only.ts`):
 
 - handles are unique; at least one human owner exists; AI sponsors are humans;
 - stage owners and members named by labels refer to existing members; every role a member
@@ -155,28 +156,32 @@ claude | codex ── transcript JSONL ────────────▶ r
 - The server's composition root is `apps/server/src/app.ts` (`buildApp`); the domain's is
   `apps/server/src/domain/index.ts` (`createDomain`), which builds the services and wires
   their listeners.
+- Writes that belong together run as one unit of work (`ctx.unitOfWork`): one SQLite
+  transaction, whose websocket events are published only once it commits. Task writes read
+  the task inside it and write only the columns they change.
 
 ## Module map
 
-| Path                            | Responsibility                                                                                                                                                                    |
-| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/shared`               | Contracts: domain types, config schema, invariants, duty catalogue, label rules, REST DTOs, routes, websocket protocol (zod).                                                     |
-| `packages/templates`            | Factory project templates, role defaults, standard label sets, legacy-config migration helpers, template locales.                                                                 |
-| `apps/server/src/contracts`     | Interfaces between server modules (runner, team tools, GitHub, context, config store, event bus).                                                                                 |
-| `apps/server/src/runner`        | PTY sessions, provider adapters (`providers/claude`, `providers/codex`), hooks, permission waiting, transcripts, plan usage, login checks.                                        |
-| `apps/server/src/mcp`           | The team tools MCP server (`/mcp/:token`): tool definitions and the text the model reads.                                                                                         |
-| `apps/server/src/context`       | Context pack: system prompt, kick-off brief, work-item rules, member memory.                                                                                                      |
-| `apps/server/src/agent-text`    | AI-facing wording shared by the context pack and the team tools: timeline events, links, one-line text.                                                                           |
-| `apps/server/src/worktree`      | Git worktrees and branches for tasks.                                                                                                                                             |
-| `apps/server/src/github`        | `gh`-based pull request lookups and polling.                                                                                                                                      |
-| `apps/server/src/http`          | Request guards shared by the internal endpoints (local-only checks).                                                                                                              |
-| `apps/server/src/config`        | The customization repository: YAML load/save, git history, revert, config migrations.                                                                                             |
-| `apps/server/src/db`            | SQLite schema, migrations and repositories.                                                                                                                                       |
-| `apps/server/src/domain`        | Domain services: projects, tasks and labels, gates, members, roles, sessions, admission and scheduling, schedules, messages, inbox, invitations, GitHub sync, team tools handler. |
-| `apps/server/src/{api,auth,ws}` | REST routes, login and invitations, the websocket hub.                                                                                                                            |
-| `apps/web`                      | React UI (board, task drawer, team and profiles, session chat and terminal, inbox, messages, settings), i18n; `src/mocks` is the in-memory fake backend behind the UI tests.      |
+| Path                            | Responsibility                                                                                                                                                                                                                               |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/shared`               | Contracts: domain types, config schema, invariants, duty catalogue, label and gate rules, owner-only changes, REST DTOs, routes, websocket protocol (zod).                                                                                   |
+| `packages/templates`            | Factory project templates, role defaults, standard label sets, legacy-config migration helpers, template locales.                                                                                                                            |
+| `apps/server/src/contracts`     | Interfaces between server modules (runner, team tools, GitHub, context, config store, event bus).                                                                                                                                            |
+| `apps/server/src/runner`        | PTY sessions, provider adapters (`providers/claude`, `providers/codex`), hooks, permission waiting, transcripts, plan usage, login checks.                                                                                                   |
+| `apps/server/src/mcp`           | The team tools MCP server (`/mcp/:token`): tool definitions and the text the model reads.                                                                                                                                                    |
+| `apps/server/src/context`       | Context pack: system prompt, kick-off brief, work-item rules, member memory.                                                                                                                                                                 |
+| `apps/server/src/agent-text`    | AI-facing wording shared by the context pack and the team tools: timeline events, links, one-line text.                                                                                                                                      |
+| `apps/server/src/worktree`      | Git worktrees and branches for tasks.                                                                                                                                                                                                        |
+| `apps/server/src/github`        | `gh`-based pull request lookups and polling.                                                                                                                                                                                                 |
+| `apps/server/src/http`          | Request guards shared by the internal endpoints (local-only checks).                                                                                                                                                                         |
+| `apps/server/src/config`        | The customization repository: YAML load/save, git history, revert, config migrations.                                                                                                                                                        |
+| `apps/server/src/db`            | SQLite schema, migrations and repositories.                                                                                                                                                                                                  |
+| `apps/server/src/domain`        | Domain services: projects, tasks (`tasks/`: CRUD, labels, stage moves and approvals), members, roles, sessions, admission and scheduling, schedules, messages, inbox, invitations, GitHub sync and pull request records, team tools handler. |
+| `apps/server/src/{api,auth,ws}` | REST routes, login and invitations, the websocket hub.                                                                                                                                                                                       |
+| `apps/web`                      | React UI (board, task drawer, team and profiles, session chat and terminal, inbox, messages, settings), i18n; `src/mocks` is the in-memory fake backend behind the UI tests.                                                                 |
 
-Pure rules (label refusal, gates, duty resolution, invariants) belong in `packages/shared`,
+Pure rules (label refusal and label changes, gates, duty resolution, invariants, owner-only
+changes) belong in `packages/shared`,
 so the server and the web's test fake use the same code.
 
 ## Storage
@@ -193,7 +198,8 @@ worktrees/<KEY>/…         git worktrees created for tasks
 
 SQLite tables: `users`, `auth_sessions`, `invitations`, `projects`, `counters`, `tasks`,
 `task_links`, `timeline_events`, `sessions`, `team_messages`, `inbox_items`, `member_state`,
-`schedule_runs`. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`.
+`schedule_runs`. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
+the server refuses a database a newer build migrated.
 
 ## GitHub
 

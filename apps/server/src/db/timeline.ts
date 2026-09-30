@@ -27,12 +27,25 @@ const toEvent = (r: TimelineRow): TimelineEvent => ({
 });
 
 export function createTimelineRepository(db: Db) {
+  const statements = {
+    insert: db.prepare(
+      `INSERT INTO timeline_events (id, project_key, task_key, session_id, actor_kind, actor_handle, type, data, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ),
+    forMember: db.prepare(
+      `SELECT * FROM timeline_events WHERE project_key = ? AND
+        (actor_handle = ? OR json_extract(data, '$.handle') = ? OR json_extract(data, '$.member') = ?
+        OR json_extract(data, '$.assignee') = ? OR EXISTS (SELECT 1 FROM json_each(data, '$.to') WHERE value = ?))
+        ORDER BY seq DESC LIMIT ?`,
+    ),
+    ofTask: db.prepare(
+      'SELECT * FROM timeline_events WHERE project_key = ? AND task_key = ? ORDER BY seq DESC LIMIT ?',
+    ),
+    ofProject: db.prepare('SELECT * FROM timeline_events WHERE project_key = ? ORDER BY seq DESC LIMIT ?'),
+  };
   return {
     insert(e: TimelineEvent): void {
-      db.prepare(
-        `INSERT INTO timeline_events (id, project_key, task_key, session_id, actor_kind, actor_handle, type, data, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
+      statements.insert.run(
         e.id,
         e.projectKey,
         e.taskKey,
@@ -45,14 +58,15 @@ export function createTimelineRepository(db: Db) {
       );
     },
     forMember(projectKey: string, handle: string, limit = 30): TimelineEvent[] {
-      const rows = db
-        .prepare(
-          `SELECT * FROM timeline_events WHERE project_key = ? AND
-        (actor_handle = ? OR json_extract(data, '$.handle') = ? OR json_extract(data, '$.member') = ?
-        OR json_extract(data, '$.assignee') = ? OR EXISTS (SELECT 1 FROM json_each(data, '$.to') WHERE value = ?))
-        ORDER BY seq DESC LIMIT ?`,
-        )
-        .all(projectKey, handle, handle, handle, handle, handle, limit) as TimelineRow[];
+      const rows = statements.forMember.all(
+        projectKey,
+        handle,
+        handle,
+        handle,
+        handle,
+        handle,
+        limit,
+      ) as TimelineRow[];
       return rows.reverse().map(toEvent);
     },
     /** The most recent `limit` events, oldest first. */
@@ -60,14 +74,8 @@ export function createTimelineRepository(db: Db) {
       const limit = opts.limit ?? 200;
       const rows = (
         opts.taskKey
-          ? db
-              .prepare(
-                'SELECT * FROM timeline_events WHERE project_key = ? AND task_key = ? ORDER BY seq DESC LIMIT ?',
-              )
-              .all(projectKey, opts.taskKey, limit)
-          : db
-              .prepare('SELECT * FROM timeline_events WHERE project_key = ? ORDER BY seq DESC LIMIT ?')
-              .all(projectKey, limit)
+          ? statements.ofTask.all(projectKey, opts.taskKey, limit)
+          : statements.ofProject.all(projectKey, limit)
       ) as TimelineRow[];
       return rows.reverse().map(toEvent);
     },

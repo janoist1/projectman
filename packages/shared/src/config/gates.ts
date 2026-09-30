@@ -1,5 +1,8 @@
-import { isHumanOnlyLabel, labelDefinition, labelSetters } from '@projectman/shared';
-import type { GateCondition, Pipeline, Stage, Task, ProjectConfig } from '@projectman/shared';
+import { isHumanOnlyLabel } from '../domain/label';
+import type { GateCondition, Pipeline, Stage } from '../domain/pipeline';
+import type { Task } from '../domain/task';
+import { labelDefinition, labelHolders, labelSetters } from './labels';
+import type { ProjectConfig } from './schema';
 
 /**
  * Gate evaluation. A gate on a stage must hold before a task may ENTER that stage.
@@ -29,11 +32,15 @@ export interface GateEvaluation {
   approvals: ApprovalRequirement[];
 }
 
-export function stageIndex(pipeline: Pipeline, stageId: string): number {
+type GateConfig = Pick<ProjectConfig, 'team' | 'pipeline'>;
+type GateTask = Pick<Task, 'labels' | 'assignee' | 'links'>;
+
+/** Position of a stage in the pipeline, -1 when it does not exist. */
+export function stageIndex(pipeline: Pick<Pipeline, 'stages'>, stageId: string): number {
   return pipeline.stages.findIndex((s) => s.id === stageId);
 }
 
-export function stagesEntered(pipeline: Pipeline, fromStageId: string, toStageId: string): Stage[] {
+function stagesEntered(pipeline: Pick<Pipeline, 'stages'>, fromStageId: string, toStageId: string): Stage[] {
   const to = stageIndex(pipeline, toStageId);
   if (to < 0) return [];
   const from = stageIndex(pipeline, fromStageId);
@@ -41,32 +48,43 @@ export function stagesEntered(pipeline: Pipeline, fromStageId: string, toStageId
   return pipeline.stages.slice(from + 1, to + 1);
 }
 
+function conditionHolds(task: Pick<Task, 'labels'>, condition: GateCondition): boolean {
+  const has = task.labels.includes(condition.label);
+  return condition.type === 'has_label' ? has : !has;
+}
+
+/**
+ * The humans who approve a task into this stage: the holders of every label only humans may
+ * set that its gate requires (one entry per label held).
+ */
+export function stageApprovers(config: Pick<ProjectConfig, 'team' | 'pipeline'>, stage: Stage): string[] {
+  return (stage.gate?.conditions ?? []).flatMap((c) => {
+    const label = c.type === 'has_label' ? labelDefinition(config, c.label) : undefined;
+    return label && isHumanOnlyLabel(label) ? labelHolders(config, label) : [];
+  });
+}
+
 /** At least one linked PR is merged and none is still open (closed ones are ignored). */
-export function pullRequestsMerged(task: Task): boolean {
+export function pullRequestsMerged(task: Pick<Task, 'links'>): boolean {
   const prs = task.links.filter((l) => l.kind === 'pull_request');
   return (
     prs.some((l) => l.state === 'merged') && prs.every((l) => l.state === 'merged' || l.state === 'closed')
   );
 }
 
-export function conditionHolds(task: Pick<Task, 'labels'>, condition: GateCondition): boolean {
-  const has = task.labels.includes(condition.label);
-  return condition.type === 'has_label' ? has : !has;
-}
-
-export function evaluateGates(
-  task: Task,
+/** Evaluates the gates of the entered stages; `forward` moves also respect blocking labels. */
+function evaluateGates(
+  task: GateTask,
   stages: Stage[],
-  config?: ProjectConfig,
+  config: GateConfig,
   opts: { forward?: boolean } = {},
 ): GateEvaluation {
   const evaluation: GateEvaluation = { unmet: [], approvals: [] };
   for (const stage of stages) {
     for (const condition of stage.gate?.conditions ?? []) {
       if (conditionHolds(task, condition)) continue;
-      const label =
-        config && condition.type === 'has_label' ? labelDefinition(config, condition.label) : undefined;
-      if (config && label && isHumanOnlyLabel(label)) {
+      const label = condition.type === 'has_label' ? labelDefinition(config, condition.label) : undefined;
+      if (label && isHumanOnlyLabel(label)) {
         evaluation.approvals.push({
           stageId: stage.id,
           label: label.id,
@@ -77,7 +95,7 @@ export function evaluateGates(
       }
     }
   }
-  if (config && opts.forward && stages[0]) {
+  if (opts.forward && stages[0]) {
     for (const id of task.labels) {
       if (labelDefinition(config, id)?.blocks)
         evaluation.unmet.push({ stageId: stages[0].id, condition: { type: 'lacks_label', label: id } });
@@ -87,7 +105,12 @@ export function evaluateGates(
 }
 
 /** Gates of a move from one stage to another; forward moves also respect blocking labels. */
-export function evaluateMove(task: Task, config: ProjectConfig, fromStageId: string, toStageId: string) {
+export function evaluateMove(
+  task: GateTask,
+  config: GateConfig,
+  fromStageId: string,
+  toStageId: string,
+): GateEvaluation {
   const forward = stageIndex(config.pipeline, toStageId) > stageIndex(config.pipeline, fromStageId);
   return evaluateGates(task, stagesEntered(config.pipeline, fromStageId, toStageId), config, { forward });
 }

@@ -4,12 +4,16 @@ import { getTemplate, templates } from '@projectman/templates';
 import type { ProjectTemplate } from '@projectman/templates';
 import type { EventBus } from '../contracts';
 import type { Repositories } from '../db';
+import { createDomainEvents } from './events';
+import type { DomainEvents } from './events';
 
 /** What every domain service gets. */
 export interface DomainContext {
   repos: Repositories;
   /** Publishes to the websocket; inside a unit of work, events wait for its commit. */
   bus: EventBus;
+  /** What happens inside the domain, for the services that react to it (never sent to clients). */
+  events: DomainEvents;
   logger: FastifyBaseLogger;
   now: () => Date;
   /**
@@ -39,6 +43,7 @@ export function createDomainContext(deps: {
   return {
     repos: deps.repos,
     bus,
+    events: createDomainEvents(deps.logger),
     logger: deps.logger,
     now: deps.now,
     unitOfWork<T>(fn: () => T): T {

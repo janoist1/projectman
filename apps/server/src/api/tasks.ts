@@ -87,7 +87,7 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
     const { key, taskKey } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'developer' });
     const body = parseBody(StartTaskRequest, request.body);
-    await domain.scheduler.startTask(key, taskKey, {
+    await domain.taskStarts.start(key, taskKey, {
       assignee: body.assignee,
       actor: actorOf(access),
       author: authorOf(request),

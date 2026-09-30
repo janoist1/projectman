@@ -15,7 +15,7 @@ describe('human messages wake idle AI members', () => {
     await h.cleanup();
   });
   const send = (taskKey?: string) =>
-    h.domain.sessions.sendTeamMessage('AR', 'owner', {
+    h.domain.messaging.send('AR', 'owner', {
       to: ['cr'],
       text: 'Please check Acme.',
       ...(taskKey ? { taskKey } : {}),

@@ -4,7 +4,6 @@ import type { BoardView, ProjectSummary, TemplateSummary } from '@projectman/sha
 import { summarizeTemplate } from '@projectman/templates';
 import type { AuthService } from '../auth';
 import type { Domain } from '../domain';
-import type { BoardService } from '../domain/board';
 import { forbidden } from '../domain/errors';
 import { authorOf, currentUser, requireAccess } from './context';
 import { parseBody } from './validation';
@@ -13,9 +12,9 @@ type ProjectParams = { Params: { key: string } };
 
 export function registerProjectRoutes(
   app: FastifyInstance,
-  deps: { domain: Domain; auth: AuthService; board: BoardService },
+  deps: { domain: Domain; auth: AuthService },
 ): void {
-  const { domain, auth, board } = deps;
+  const { domain, auth } = deps;
 
   app.get(routes.templates(), async (): Promise<TemplateSummary[]> =>
     domain.templates.list().map(summarizeTemplate),
@@ -43,6 +42,6 @@ export function registerProjectRoutes(
 
   app.get<ProjectParams>(routes.board(':key'), async (request): Promise<BoardView> => {
     const access = await requireAccess(domain, request, request.params.key);
-    return board.view(request.params.key, access);
+    return domain.board.view(request.params.key, access);
   });
 }

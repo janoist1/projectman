@@ -33,8 +33,8 @@ import { conflict, invalid, notFound } from './errors';
 import type { InboxService } from './inbox';
 import { defaultMemberHandle, defaultMemberName, humanMemberHandle } from './naming';
 import type { PresenceService } from './presence';
+import type { Admission } from './admission';
 import type { Author, ConfigChange, ProjectService } from './projects';
-import type { Scheduler } from './scheduler';
 import type { SessionOrchestrator } from './sessions';
 import { isOpenTask } from './tasks';
 import type { TaskService } from './tasks';
@@ -405,51 +405,34 @@ export class MemberService {
     const current = this.ctx.repos.memberState.get(projectKey, handle);
     if (current?.status === 'retired') return;
     if (current && current.status === status && current.activity === activity) return;
-    this.ctx.repos.memberState.upsert({ projectKey, handle, status, activity, updatedAt: isoNow(this.ctx) });
-    this.ctx.bus.publish({ type: 'member_state', projectKey, handle, status, activity });
+    this.writeState(projectKey, handle, status, activity);
+  }
+
+  /** Startup: no session survived the restart, so no AI member is working or waiting. */
+  reconcileAfterRestart(): void {
+    for (const project of this.ctx.repos.projects.list()) {
+      for (const state of this.ctx.repos.memberState.list(project.key)) {
+        this.setState(project.key, state.handle, 'idle', null);
+      }
+    }
   }
 
   /** Config change listener: new AI members start idle, removed ones become retired. */
   reconcile(change: ConfigChange): void {
     const { projectKey, previous, next } = change;
     const nextHandles = new Set(next.team.members.map((m) => m.handle));
-    const at = isoNow(this.ctx);
-    for (const m of next.team.members) {
-      if (m.kind !== 'ai') continue;
-      const state = this.ctx.repos.memberState.get(projectKey, m.handle);
-      if (state && state.status !== 'retired') continue;
-      this.ctx.repos.memberState.upsert({
-        projectKey,
-        handle: m.handle,
-        status: 'idle',
-        activity: null,
-        updatedAt: at,
-      });
-      this.ctx.bus.publish({
-        type: 'member_state',
-        projectKey,
-        handle: m.handle,
-        status: 'idle',
-        activity: null,
-      });
-    }
-    for (const m of previous?.team.members ?? []) {
-      if (m.kind !== 'ai' || nextHandles.has(m.handle)) continue;
-      this.ctx.repos.memberState.upsert({
-        projectKey,
-        handle: m.handle,
-        status: 'retired',
-        activity: null,
-        updatedAt: at,
-      });
-      this.ctx.bus.publish({
-        type: 'member_state',
-        projectKey,
-        handle: m.handle,
-        status: 'retired',
-        activity: null,
-      });
-    }
+    this.ctx.unitOfWork(() => {
+      for (const m of next.team.members) {
+        if (m.kind !== 'ai') continue;
+        const state = this.ctx.repos.memberState.get(projectKey, m.handle);
+        if (state && state.status !== 'retired') continue;
+        this.writeState(projectKey, m.handle, 'idle', null);
+      }
+      for (const m of previous?.team.members ?? []) {
+        if (m.kind !== 'ai' || nextHandles.has(m.handle)) continue;
+        this.writeState(projectKey, m.handle, 'retired', null);
+      }
+    });
     const previousMembers = new Map((previous?.team.members ?? []).map((m) => [m.handle, m]));
     for (const member of this.rosterFor(next)) {
       const configMember = memberOf(next, member.handle);
@@ -461,6 +444,17 @@ export class MemberService {
       if (!nextHandles.has(handle))
         this.ctx.bus.publish({ type: 'member_changed', projectKey, handle, member: null });
     }
+  }
+
+  /** Stores an AI member's runtime status and tells the clients. */
+  private writeState(
+    projectKey: string,
+    handle: string,
+    status: MemberStatus,
+    activity: string | null,
+  ): void {
+    this.ctx.repos.memberState.upsert({ projectKey, handle, status, activity, updatedAt: isoNow(this.ctx) });
+    this.ctx.bus.publish({ type: 'member_state', projectKey, handle, status, activity });
   }
 
   /** Websocket presence changed: publish the human member's online/offline status. */
@@ -485,7 +479,7 @@ export class MemberService {
 /**
  * A member's profile page: the roster entry, duties, open work (assigned, in a session, waiting
  * for their approval or answer), inbox, timeline and sessions, as the viewer may see them.
- * Separate from MemberService because it reads the sessions and the scheduler's load, which
+ * Separate from MemberService because it reads the sessions and the admission's load, which
  * are built after the roster.
  */
 export class MemberProfiles {
@@ -495,7 +489,7 @@ export class MemberProfiles {
   private readonly tasks: TaskService;
   private readonly inbox: InboxService;
   private readonly sessions: Pick<SessionOrchestrator, 'list'>;
-  private readonly scheduler: Pick<Scheduler, 'memberLoad'>;
+  private readonly admission: Pick<Admission, 'memberLoad'>;
 
   constructor(deps: {
     ctx: DomainContext;
@@ -504,7 +498,7 @@ export class MemberProfiles {
     tasks: TaskService;
     inbox: InboxService;
     sessions: Pick<SessionOrchestrator, 'list'>;
-    scheduler: Pick<Scheduler, 'memberLoad'>;
+    admission: Pick<Admission, 'memberLoad'>;
   }) {
     this.ctx = deps.ctx;
     this.projects = deps.projects;
@@ -512,7 +506,7 @@ export class MemberProfiles {
     this.tasks = deps.tasks;
     this.inbox = deps.inbox;
     this.sessions = deps.sessions;
-    this.scheduler = deps.scheduler;
+    this.admission = deps.admission;
   }
 
   async profile(projectKey: string, handle: string, viewer: Viewer): Promise<MemberProfile> {
@@ -550,7 +544,7 @@ export class MemberProfiles {
             .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
         : [],
       capacity: original.kind === 'ai' ? original.capacity : null,
-      capacityUsed: original.kind === 'ai' && internal ? this.scheduler.memberLoad(projectKey, handle) : 0,
+      capacityUsed: original.kind === 'ai' && internal ? this.admission.memberLoad(projectKey, handle) : 0,
       ...(original.kind === 'human' && ['owner', 'admin'].includes(viewer.access) && original.email
         ? { email: original.email }
         : {}),

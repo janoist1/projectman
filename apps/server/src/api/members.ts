@@ -9,18 +9,13 @@ import {
 import type { MemberProfile, MemberView } from '@projectman/shared';
 import { forbidden } from '../domain';
 import type { Domain } from '../domain';
-import type { MemberProfiles } from '../domain/members';
 import { actorOf, authorOf, requireAccess } from './context';
 import { parseBody } from './validation';
 
 type ProjectParams = { Params: { key: string } };
 type MemberParams = { Params: { key: string; handle: string } };
 
-export function registerMemberRoutes(
-  app: FastifyInstance,
-  deps: { domain: Domain; profiles: MemberProfiles },
-): void {
-  const { domain, profiles } = deps;
+export function registerMemberRoutes(app: FastifyInstance, domain: Domain): void {
   app.get<ProjectParams>(routes.members(':key'), async (request): Promise<MemberView[]> => {
     await requireAccess(domain, request, request.params.key);
     return domain.members.roster(request.params.key);
@@ -29,7 +24,7 @@ export function registerMemberRoutes(
   app.get<MemberParams>(routes.memberProfile(':key', ':handle'), async (request): Promise<MemberProfile> => {
     const { key, handle } = request.params;
     const access = await requireAccess(domain, request, key);
-    return profiles.profile(key, handle, access);
+    return domain.profiles.profile(key, handle, access);
   });
 
   app.get<MemberParams>(routes.memberMemories(':key', ':handle'), async (request) => {
@@ -41,7 +36,7 @@ export function registerMemberRoutes(
   app.post<MemberParams>(routes.startConversation(':key', ':handle'), async (request, reply) => {
     const { key, handle } = request.params;
     await requireAccess(domain, request, key, { minimum: 'developer' });
-    return reply.code(202).send(await domain.scheduler.startConversation(key, handle));
+    return reply.code(202).send(await domain.messageStarts.startConversation(key, handle));
   });
 
   app.delete<MemberParams>(routes.removeHuman(':key', ':handle'), async (request, reply) => {

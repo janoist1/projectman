@@ -208,8 +208,8 @@ describe('duty runtime rules', () => {
     expect(roleBundle(config, 'writer_reviewer').duties).toEqual(['docs', 'code_review']);
     expect(sessionPolicyFor('writer_reviewer', config)).toEqual({ readOnlyTools: true, worktree: true });
     expect(allowedToolsFor('writer_reviewer', config)).toContain('Read');
-    expect(
-      (await h.domain.scheduler.startTask('AR', task.key, { ...by, sponsor: 'owner' })).task.assignee,
-    ).toBe('dev-1');
+    expect((await h.domain.taskStarts.start('AR', task.key, { ...by, sponsor: 'owner' })).task.assignee).toBe(
+      'dev-1',
+    );
   });
 });

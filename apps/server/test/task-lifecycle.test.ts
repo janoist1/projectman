@@ -7,7 +7,7 @@ import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harnes
 import type { DomainHarness } from './helpers/domain-harness';
 
 const start = (h: DomainHarness, taskKey: string) =>
-  h.domain.scheduler.startTask('AR', taskKey, { assignee: 'dev-1', actor: OWNER_ACTOR, author: OWNER });
+  h.domain.taskStarts.start('AR', taskKey, { assignee: 'dev-1', actor: OWNER_ACTOR, author: OWNER });
 
 describe('task lifecycle', () => {
   let h: DomainHarness;
@@ -162,7 +162,7 @@ describe('task lifecycle', () => {
           status,
           closedAt: new Date().toISOString(),
         });
-      expect(h.domain.scheduler.memberLoad('AR', 'dev-1')).toBe(0);
+      expect(h.domain.admission.memberLoad('AR', 'dev-1')).toBe(0);
       expect((await start(h, second.key)).task.assignee).toBe('dev-1');
       expect(h.domain.tasks.get('AR', 'AR-1').assignee).toBe('dev-1');
     },

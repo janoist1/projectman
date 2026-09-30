@@ -1,10 +1,9 @@
-import { cronMatches, nextCronRun, ScheduleSkipReason } from '@projectman/shared';
-import type { ScheduleRun, SchedulesView } from '@projectman/shared';
+import { cronMatches, memberOf, nextCronRun, ScheduleSkipReason } from '@projectman/shared';
+import type { ScheduleRun, SchedulesView, Session } from '@projectman/shared';
+import type { Admission } from './admission';
 import type { DomainContext } from './context';
-import { conflict, DomainError, invalid, notFound, unavailable } from './errors';
+import { DomainError, invalid, notFound, unavailable } from './errors';
 import type { ProjectService } from './projects';
-import type { Scheduler } from './scheduler';
-import type { SessionOrchestrator } from './sessions';
 import type { TimelineService } from './timeline';
 import { excerpt, newId, SYSTEM_ACTOR } from './util';
 
@@ -23,7 +22,10 @@ const defaultTimer: ScheduleTimer = {
   },
 };
 
-/** One current-minute attempt per member; missed minutes are never replayed. */
+/**
+ * Member schedules: one current-minute attempt per member, started through admission; missed
+ * minutes are never replayed. A run ends with its session.
+ */
 export class ScheduleService {
   private timerHandle: unknown;
   private active = false;
@@ -31,32 +33,37 @@ export class ScheduleService {
   private readonly unsubscribe: () => void;
   private readonly timer: ScheduleTimer;
   private readonly inFlight = new Set<Promise<unknown>>();
-
-  constructor(privateDeps: {
+  private readonly deps: {
     ctx: DomainContext;
     projects: ProjectService;
-    scheduler: Scheduler;
-    sessions: SessionOrchestrator;
+    admission: Admission;
+    timeline: TimelineService;
+  };
+
+  constructor(deps: {
+    ctx: DomainContext;
+    projects: ProjectService;
+    admission: Admission;
     timeline: TimelineService;
     timer?: ScheduleTimer;
   }) {
-    this.deps = privateDeps;
-    this.timer = privateDeps.timer ?? defaultTimer;
-    this.unsubscribe = privateDeps.ctx.bus.subscribe((event) => {
-      if (event.type !== 'session_upserted' || event.session.workItem.type !== 'schedule') return;
-      const session = event.session;
-      if (session.state !== 'exited' && session.state !== 'failed') return;
-      const run = this.deps.ctx.repos.schedules.get(event.session.workItem.runId);
-      if (!run || run.status !== 'started') return;
-      this.deps.ctx.repos.schedules.update(run.id, {
-        ...run,
-        sessionId: session.id,
-        status: session.state === 'failed' ? 'failed' : 'done',
-        reason: session.state === 'failed' ? (session.activity ?? 'session_failed') : null,
-      });
+    this.deps = deps;
+    this.timer = deps.timer ?? defaultTimer;
+    this.unsubscribe = deps.ctx.events.on('session_ended', (session) => this.finishRun(session));
+  }
+
+  /** A scheduled run is done when its session exits, failed when it fails. */
+  private finishRun(session: Session): void {
+    if (session.workItem.type !== 'schedule') return;
+    const run = this.deps.ctx.repos.schedules.get(session.workItem.runId);
+    if (!run || run.status !== 'started') return;
+    this.deps.ctx.repos.schedules.update(run.id, {
+      ...run,
+      sessionId: session.id,
+      status: session.state === 'failed' ? 'failed' : 'done',
+      reason: session.state === 'failed' ? (session.activity ?? 'session_failed') : null,
     });
   }
-  private readonly deps;
 
   start(): void {
     if (this.active) return;
@@ -162,7 +169,7 @@ export class ScheduleService {
     automatic: boolean,
   ): Promise<ScheduleRun | null> {
     // Shares admission with task starts, including asynchronous usage/login checks.
-    const execution = this.deps.scheduler.admit(async () => {
+    const execution = this.deps.admission.exclusive(async () => {
       if (
         !this.active ||
         (automatic &&
@@ -170,11 +177,11 @@ export class ScheduleService {
             Math.floor(new Date(scheduledFor).getTime() / 60_000))
       )
         return null;
-      const { ctx, projects, sessions, scheduler, timeline } = this.deps;
+      const { ctx, projects, admission, timeline } = this.deps;
       const previous = automatic ? ctx.repos.schedules.occurrence(projectKey, handle, scheduledFor) : null;
       if (previous) return previous;
       const config = await projects.config(projectKey);
-      const member = config.team.members.find((m) => m.handle === handle);
+      const member = memberOf(config, handle);
       if (!member) throw notFound('member', handle);
       if (member.kind !== 'ai' || !member.schedule)
         throw invalid('member_not_scheduled', 'Member has no AI schedule');
@@ -189,60 +196,49 @@ export class ScheduleService {
         reason: null,
       };
       ctx.repos.schedules.insert(run, automatic);
+      const workItem = { type: 'schedule', runId: run.id } as const;
       try {
-        if (!config.team.limits.aiEnabled) await scheduler.assertCanStartAiWork(config, member.provider);
-        if (
-          sessions
-            .list(projectKey, { member: handle })
-            .some((s) => s.workItem.type === 'schedule' && sessions.isRunning(s.id))
-        )
-          throw conflict('previous_run_live', 'Previous scheduled run is still live');
-        if (scheduler.memberLoad(projectKey, handle) >= member.capacity)
-          throw conflict('member_at_capacity', 'Member is at capacity');
-        await scheduler.assertCanStartAiWork(config, member.provider);
-        const { session } = await sessions.ensureSession(projectKey, handle, {
-          type: 'schedule',
-          runId: run.id,
-        });
-        const current = ctx.repos.schedules.get(run.id)!;
-        const updated = ctx.repos.schedules.update(run.id, {
-          ...current,
-          startedAt: session.startedAt,
-          sessionId: session.id,
-        });
-        timeline.append({
-          projectKey,
-          taskKey: null,
-          sessionId: session.id,
-          actor: SYSTEM_ACTOR,
-          type: 'schedule_started',
-          data: { runId: run.id, member: handle, scheduledFor },
-        });
-        return updated;
-      } catch (err) {
-        const code = err instanceof DomainError ? err.code : 'session_start_failed';
-        const skipped = ScheduleSkipReason.safeParse(code).success;
-        const session = ctx.repos.sessions.findByWorkItem(projectKey, handle, {
-          type: 'schedule',
-          runId: run.id,
-        });
-        const updated = ctx.repos.schedules.update(run.id, {
-          ...run,
-          status: skipped ? 'skipped' : 'failed',
-          reason: code,
-          sessionId: session?.id ?? null,
-          startedAt: session?.startedAt ?? null,
-        });
-        if (skipped)
+        const { session } = await admission.start({ config, member, workItem });
+        return ctx.unitOfWork(() => {
+          const current = ctx.repos.schedules.get(run.id)!;
+          const updated = ctx.repos.schedules.update(run.id, {
+            ...current,
+            startedAt: session.startedAt,
+            sessionId: session.id,
+          });
           timeline.append({
             projectKey,
             taskKey: null,
-            sessionId: updated.sessionId,
+            sessionId: session.id,
             actor: SYSTEM_ACTOR,
-            type: 'schedule_skipped',
-            data: { runId: run.id, member: handle, scheduledFor, reason: code },
+            type: 'schedule_started',
+            data: { runId: run.id, member: handle, scheduledFor },
           });
-        return updated;
+          return updated;
+        });
+      } catch (err) {
+        const code = err instanceof DomainError ? err.code : 'session_start_failed';
+        const skipped = ScheduleSkipReason.safeParse(code).success;
+        const session = ctx.repos.sessions.findByWorkItem(projectKey, handle, workItem);
+        return ctx.unitOfWork(() => {
+          const updated = ctx.repos.schedules.update(run.id, {
+            ...run,
+            status: skipped ? 'skipped' : 'failed',
+            reason: code,
+            sessionId: session?.id ?? null,
+            startedAt: session?.startedAt ?? null,
+          });
+          if (skipped)
+            timeline.append({
+              projectKey,
+              taskKey: null,
+              sessionId: updated.sessionId,
+              actor: SYSTEM_ACTOR,
+              type: 'schedule_skipped',
+              data: { runId: run.id, member: handle, scheduledFor, reason: code },
+            });
+          return updated;
+        });
       }
     });
     this.inFlight.add(execution);

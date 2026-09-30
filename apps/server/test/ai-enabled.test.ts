@@ -25,7 +25,7 @@ describe('project AI switch', () => {
     h = await createDomainHarness({ adjust: (c) => void (c.team.limits.aiEnabled = false) });
     const task = await h.domain.tasks.create('AR', { title: 'Fictional feature' }, OWNER_ACTOR);
     await expect(
-      h.domain.scheduler.startTask('AR', task.key, { actor: OWNER_ACTOR, author: OWNER }),
+      h.domain.taskStarts.start('AR', task.key, { actor: OWNER_ACTOR, author: OWNER }),
     ).rejects.toMatchObject(disabled);
     expect(h.domain.tasks.get('AR', task.key)).toEqual(task);
     expect(h.runner.started).toHaveLength(0);
@@ -44,7 +44,7 @@ describe('project AI switch', () => {
     );
     expect((await h.domain.sessions.ensureSession('BR', 'dev-1', { type: 'general' })).started).toBe(true);
     const task = await h.domain.tasks.create('AR', { title: 'Fictional human work' }, OWNER_ACTOR);
-    const result = await h.domain.scheduler.startTask('AR', task.key, {
+    const result = await h.domain.taskStarts.start('AR', task.key, {
       assignee: 'owner',
       actor: OWNER_ACTOR,
       author: OWNER,
@@ -67,7 +67,7 @@ describe('project AI switch', () => {
         return null;
       },
     });
-    await expect(h.domain.scheduler.assertCanStartAiWork(config)).rejects.toMatchObject(disabled);
+    await expect(h.domain.admission.check({ config })).rejects.toMatchObject(disabled);
     expect(usageRequested).toBe(false);
   });
 
@@ -78,19 +78,19 @@ describe('project AI switch', () => {
     const waiting = await waitFor(() => h.domain.tasks.get('AR', task.key).startWaiting);
     expect(waiting).toMatchObject({ reason: 'ai_disabled', member: 'cr' });
     expect(h.runner.started).toHaveLength(0);
-    await h.domain.scheduler.retryDeferredStarts();
+    await h.domain.admission.retryDeferred();
     expect(h.domain.tasks.get('AR', task.key).startWaiting).toEqual(waiting);
     await setEnabled(true);
     await waitFor(() => h.domain.sessions.findRunning('AR', 'cr', { type: 'task', taskKey: task.key }));
     expect(h.domain.tasks.get('AR', task.key).startWaiting).toBeUndefined();
-    await h.domain.scheduler.retryDeferredStarts();
+    await h.domain.admission.retryDeferred();
     expect(h.runner.started).toHaveLength(1);
   });
 
   it('retains queued task messages and delivers them after re-enabling AI', async () => {
     h = await createDomainHarness({ adjust: (c) => void (c.team.limits.aiEnabled = false) });
     const task = await h.domain.tasks.create('AR', { title: 'Fictional question' }, OWNER_ACTOR);
-    const message = await h.domain.sessions.sendTeamMessage('AR', 'owner', {
+    const message = await h.domain.messaging.send('AR', 'owner', {
       to: ['dev-1'],
       text: 'Inspect this fictional task.',
       taskKey: task.key,
@@ -111,8 +111,8 @@ describe('project AI switch', () => {
     await setEnabled(false);
     expect(h.runner.isRunning(session.id)).toBe(true);
     expect((await h.domain.sessions.ensureSession('AR', 'dev-1', workItem)).started).toBe(false);
-    expect((await h.domain.scheduler.startConversation('AR', 'dev-1')).id).toBe(session.id);
-    await h.domain.sessions.sendHumanMessage('AR', session.id, 'Fictional follow-up', 'owner');
+    expect((await h.domain.messageStarts.startConversation('AR', 'dev-1')).id).toBe(session.id);
+    await h.domain.messaging.sendToSession('AR', session.id, 'Fictional follow-up', 'owner');
     h.runner.emit({
       type: 'transcript_path',
       sessionId: session.id,
@@ -121,18 +121,16 @@ describe('project AI switch', () => {
     h.runner.emit({ type: 'exit', sessionId: session.id, exitCode: 0, signal: null });
     const messageCount = h.repos.messages.list('AR').length;
     await expect(
-      h.domain.sessions.sendHumanMessage('AR', session.id, 'Resume please', 'owner'),
+      h.domain.messaging.sendToSession('AR', session.id, 'Resume please', 'owner'),
     ).rejects.toMatchObject(disabled);
     await expect(h.domain.sessions.ensureSession('AR', 'dev-1', workItem)).rejects.toMatchObject(disabled);
-    await expect(
-      h.domain.sessions.sendToMember('AR', 'dev-2', workItem, 'Fictional question'),
-    ).rejects.toMatchObject(disabled);
-    await expect(h.domain.scheduler.startConversation('AR', 'dev-2')).rejects.toMatchObject(disabled);
+    await expect(h.domain.sessions.ensureSession('AR', 'dev-2', workItem)).rejects.toMatchObject(disabled);
+    await expect(h.domain.messageStarts.startConversation('AR', 'dev-2')).rejects.toMatchObject(disabled);
     expect(h.domain.sessions.get('AR', session.id).state).toBe('exited');
     expect(h.repos.messages.list('AR')).toHaveLength(messageCount);
     expect(h.runner.started).toHaveLength(1);
     await setEnabled(true);
-    await h.domain.sessions.sendHumanMessage('AR', session.id, 'Resume please', 'owner');
+    await h.domain.messaging.sendToSession('AR', session.id, 'Resume please', 'owner');
     expect(h.runner.lastStarted()).toMatchObject({ sessionId: session.id, resume: true });
   });
 

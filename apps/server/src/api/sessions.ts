@@ -38,7 +38,7 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
     const { key, sessionId } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'developer' });
     const body = parseBody(SendMessageRequest, request.body);
-    const message = await domain.sessions.sendHumanMessage(key, sessionId, body.text, access.handle);
+    const message = await domain.messaging.sendToSession(key, sessionId, body.text, access.handle);
     return reply.code(202).send(message);
   });
 
@@ -54,7 +54,7 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
     const body = parseBody(SendTeamMessageRequest, request.body);
     if (body.taskKey && !canSeeTask(access, domain.tasks.get(key, body.taskKey)))
       throw notFound('task', body.taskKey);
-    return reply.code(202).send(await domain.sessions.sendTeamMessage(key, access.handle, body));
+    return reply.code(202).send(await domain.messaging.send(key, access.handle, body));
   });
 
   app.post<{ Params: { key: string; id: string } }>(
@@ -78,7 +78,7 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
         limit: query.limit,
         unreadFor: query.unreadOnly === 'true' ? access.handle : undefined,
       }),
-      unreadCount: domain.ctx.repos.messages.countUnread(key, access.handle),
+      unreadCount: domain.messages.countUnread(key, access.handle),
     };
   });
 }

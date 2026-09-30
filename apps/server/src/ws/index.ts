@@ -104,7 +104,7 @@ export function registerWebsocket(
 
   /** Terminals are for internal members; typing and resizing need developer access. */
   const requireTerminalAccess = async (client: Client, sessionId: string, minimum: HumanAccess) => {
-    const session = domain.ctx.repos.sessions.get(sessionId);
+    const session = domain.sessions.find(sessionId);
     if (!session) throw notFound('session', sessionId);
     const access = await domain.accessFor(session.projectKey, client.user.email);
     if (!access || access.access === 'client' || !hasAccess(access.access, minimum)) {

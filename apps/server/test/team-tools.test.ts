@@ -15,7 +15,7 @@ describe('team tools', () => {
   beforeEach(async () => {
     h = await createDomainHarness();
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
-    const started = await h.domain.scheduler.startTask('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
+    const started = await h.domain.taskStarts.start('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
     dev = { sessionId: started.session!.id, projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1' };
   });
   afterEach(() => h.cleanup());

@@ -68,8 +68,6 @@ export interface ConfigChange {
   handovers?: Readonly<Record<string, string>>;
 }
 
-export type ConfigChangeListener = (change: ConfigChange) => void | Promise<void>;
-
 /** Handle of the human who creates a project from a template. */
 export const OWNER_HANDLE = 'owner';
 
@@ -129,7 +127,6 @@ export class ProjectService {
   private readonly templates: TemplateRegistry;
   private readonly timeline: TimelineService;
   private readonly cache = new Map<string, LoadedProject>();
-  private readonly listeners: ConfigChangeListener[] = [];
   private readonly locks = new KeyedMutex();
 
   constructor(deps: {
@@ -142,11 +139,6 @@ export class ProjectService {
     this.configStore = deps.configStore;
     this.templates = deps.templates;
     this.timeline = deps.timeline;
-  }
-
-  /** Called after every committed configuration change (including project creation). */
-  onConfigChanged(listener: ConfigChangeListener): void {
-    this.listeners.push(listener);
   }
 
   summaries(): ProjectSummary[] {
@@ -381,7 +373,7 @@ export class ProjectService {
             createdAt: at,
             updatedAt: at,
           });
-          await this.notify({
+          await this.ctx.events.emit('config_changed', {
             projectKey: key,
             previous: null,
             next: loaded.config,
@@ -475,16 +467,6 @@ export class ProjectService {
       data: { version: change.version, message },
     });
     this.ctx.bus.publish({ type: 'config_changed', projectKey: change.projectKey, version: change.version });
-    await this.notify(change);
-  }
-
-  private async notify(change: ConfigChange): Promise<void> {
-    for (const listener of this.listeners) {
-      try {
-        await listener(change);
-      } catch (err) {
-        this.ctx.logger.error({ err, projectKey: change.projectKey }, 'config change listener failed');
-      }
-    }
+    await this.ctx.events.emit('config_changed', change);
   }
 }

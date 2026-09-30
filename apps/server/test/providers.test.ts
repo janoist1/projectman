@@ -218,7 +218,7 @@ describe('agent providers', () => {
     });
     const first = await h.domain.tasks.create('AR', { title: 'Codex task' }, OWNER_ACTOR);
     const start = (key: string, assignee: string) =>
-      h.domain.scheduler.startTask('AR', key, {
+      h.domain.taskStarts.start('AR', key, {
         assignee,
         actor: OWNER_ACTOR,
         author: OWNER,

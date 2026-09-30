@@ -1,9 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { AuthService } from '../auth';
 import type { Domain } from '../domain';
-import type { BoardService } from '../domain/board';
-import type { InvitationService } from '../domain/invitations';
-import type { MemberProfiles } from '../domain/members';
 import { registerProviderRoutes } from './providers';
 import { registerConfigRoutes } from './config';
 import { registerInboxRoutes } from './inbox';
@@ -18,13 +15,10 @@ import { registerTaskRoutes } from './tasks';
 export { apiError, registerErrorHandling, toApiError } from './errors';
 export { parseBody } from './validation';
 
-/** What the routes call: the domain and the services the composition root builds beside it. */
+/** What the routes call: the domain services and the accounts. */
 export interface ApiServices {
   domain: Domain;
   auth: AuthService;
-  board: BoardService;
-  profiles: MemberProfiles;
-  invitations: InvitationService;
 }
 
 /** Every route of the shared route table except auth (src/auth) and the websocket (src/ws). */
@@ -33,7 +27,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
   registerProviderRoutes(app, domain);
   registerProjectRoutes(app, services);
   registerTaskRoutes(app, domain);
-  registerMemberRoutes(app, services);
+  registerMemberRoutes(app, domain);
   registerRoleRoutes(app, domain);
   registerSessionRoutes(app, domain);
   registerScheduleRoutes(app, domain);

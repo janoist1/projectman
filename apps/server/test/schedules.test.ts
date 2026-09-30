@@ -107,8 +107,7 @@ describe('member schedules', () => {
     const service = new ScheduleService({
       ctx: h.domain.ctx,
       projects: h.domain.projects,
-      scheduler: h.domain.scheduler,
-      sessions: h.domain.sessions,
+      admission: h.domain.admission,
       timeline: h.domain.timeline,
       timer: new FakeTimer(),
     });

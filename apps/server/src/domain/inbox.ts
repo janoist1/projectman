@@ -56,8 +56,6 @@ export interface Resolver {
   access: HumanAccess;
 }
 
-type ResolvedHandler = (item: InboxItem) => void | Promise<void>;
-
 /** One-line summary of a tool call for humans, e.g. the Bash command or the edited file. */
 function summarizeToolInput(input: unknown): string {
   const obj = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
@@ -103,7 +101,6 @@ export class InboxService {
   private readonly projects: ProjectService;
   private readonly worktreesRootDir?: string;
   private readonly waiters = new Map<string, (item: InboxItem) => void>();
-  private readonly handlers = new Map<InboxKind, ResolvedHandler[]>();
 
   constructor(deps: {
     ctx: DomainContext;
@@ -116,11 +113,6 @@ export class InboxService {
     this.projects = deps.projects;
     this.worktreesRootDir = deps.worktreesRootDir;
     this.broker = { decide: (request, signal) => this.decide(request, signal) };
-  }
-
-  /** Runs after an item of `kind` was resolved by a human. */
-  onResolved(kind: InboxKind, handler: ResolvedHandler): void {
-    this.handlers.set(kind, [...(this.handlers.get(kind) ?? []), handler]);
   }
 
   create(input: CreateInboxItemInput): InboxItem {
@@ -242,13 +234,7 @@ export class InboxService {
     }
 
     this.waiters.get(id)?.(resolved);
-    for (const handler of this.handlers.get(resolved.kind) ?? []) {
-      try {
-        await handler(resolved);
-      } catch (err) {
-        this.ctx.logger.error({ err, inboxItemId: id }, 'inbox resolution handler failed');
-      }
-    }
+    await this.ctx.events.emit('inbox_resolved', resolved);
     return resolved;
   }
 

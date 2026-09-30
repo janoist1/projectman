@@ -1,13 +1,11 @@
 import { isOpenTask, memberOf, TaskStatus as TaskStatusSchema, TaskKey } from '@projectman/shared';
 import type {
-  InboxItem,
   InboxOption,
   MemberView,
   ProjectConfig,
   Task,
   TaskDetail,
   Visibility,
-  WorkItemRef,
 } from '@projectman/shared';
 import { TeamToolError } from '../contracts';
 import type {
@@ -22,15 +20,14 @@ import type { DomainContext } from './context';
 import { DomainError } from './errors';
 import type { ApprovalRequirement, UnmetCondition } from '@projectman/shared';
 import type { GithubSync } from './github-sync';
-import { ANSWER_OPTION, answerText, sponsorOrOwners } from './inbox';
+import { ANSWER_OPTION, sponsorOrOwners } from './inbox';
 import type { InboxService } from './inbox';
 import type { MemberService } from './members';
-import type { MessageService } from './messages';
+import type { Messaging } from './messaging';
 import type { ProjectService } from './projects';
-import type { SessionOrchestrator } from './sessions';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
-import { aiActor, humanActor, unique } from './util';
+import { aiActor, unique } from './util';
 
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 
@@ -53,6 +50,22 @@ function describeGateBlock(err: DomainError): string {
   return reasons.length > 0 ? `The stage move is blocked: ${reasons.join('; ')}.` : err.message;
 }
 
+/** The send_message refusals of the messaging module, in the words the agent reads. */
+function toMessageToolError(err: unknown): unknown {
+  if (!(err instanceof DomainError)) return err;
+  const details = (err.details ?? {}) as { field?: string; what?: string; ids?: string[] };
+  if (err.code === 'invalid_request' && details.field === 'text')
+    return new TeamToolError('invalid', 'The message text is empty.');
+  if (err.code === 'invalid_request' && details.field === 'to')
+    return new TeamToolError('invalid', 'No recipients: name at least one team member other than yourself.');
+  if (err.code === 'not_found' && details.what === 'member' && details.ids)
+    return new TeamToolError(
+      'not_found',
+      `Unknown team members: ${details.ids.join(', ')}. Use list_members to see the handles.`,
+    );
+  return err;
+}
+
 function toToolError(err: unknown): unknown {
   if (err instanceof TeamToolError || !(err instanceof DomainError)) return err;
   if (err.code === 'not_found') return new TeamToolError('not_found', err.message);
@@ -64,16 +77,16 @@ function toToolError(err: unknown): unknown {
 }
 
 /**
- * The team tools behind the MCP server (mcp__team__*). Every action is attributed to the
- * calling AI member. Messages about a task reach the recipient's session for that task.
+ * The team tools behind the MCP server (mcp__team__*): they check the arguments, call the
+ * domain services and put their refusals in words the agent reads. Every action is attributed
+ * to the calling AI member.
  */
 export class TeamToolsService implements TeamToolsHandler {
   private readonly ctx: DomainContext;
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
   private readonly members: MemberService;
-  private readonly sessions: SessionOrchestrator;
-  private readonly messages: MessageService;
+  private readonly messaging: Messaging;
   private readonly inbox: InboxService;
   private readonly timeline: TimelineService;
   private readonly memory: MemberMemoryStore;
@@ -85,8 +98,7 @@ export class TeamToolsService implements TeamToolsHandler {
     projects: ProjectService;
     tasks: TaskService;
     members: MemberService;
-    sessions: SessionOrchestrator;
-    messages: MessageService;
+    messaging: Messaging;
     inbox: InboxService;
     timeline: TimelineService;
     memory: MemberMemoryStore;
@@ -97,8 +109,7 @@ export class TeamToolsService implements TeamToolsHandler {
     this.projects = deps.projects;
     this.tasks = deps.tasks;
     this.members = deps.members;
-    this.sessions = deps.sessions;
-    this.messages = deps.messages;
+    this.messaging = deps.messaging;
     this.inbox = deps.inbox;
     this.timeline = deps.timeline;
     this.memory = deps.memory;
@@ -111,40 +122,21 @@ export class TeamToolsService implements TeamToolsHandler {
     args: { to: string[]; text: string; taskKey?: string },
   ): Promise<{ messageId: string; deliveredTo: string[] }> {
     return this.guard(async () => {
-      const config = await this.caller(ctx);
-      const text = args.text.trim();
-      if (!text) throw new TeamToolError('invalid', 'The message text is empty.');
-      const recipients = unique(args.to).filter((h) => h !== ctx.member);
-      if (recipients.length === 0)
-        throw new TeamToolError(
-          'invalid',
-          'No recipients: name at least one team member other than yourself.',
-        );
-      const unknown = recipients.filter((h) => !memberOf(config, h));
-      if (unknown.length > 0)
-        throw new TeamToolError(
-          'not_found',
-          `Unknown team members: ${unknown.join(', ')}. Use list_members to see the handles.`,
-        );
+      await this.caller(ctx);
       const taskKey = this.taskKeyFor(ctx, args.taskKey);
-
-      const aiRecipients = recipients.filter((h) => memberOf(config, h)?.kind === 'ai');
-      const message = this.messages.record({
-        projectKey: ctx.projectKey,
-        from: ctx.member,
-        to: recipients,
-        taskKey,
-        body: text,
-        actor: aiActor(ctx.member),
-        sessionId: ctx.sessionId,
-        delivered: aiRecipients.length === 0,
-        humanRecipients: recipients.filter((h) => !aiRecipients.includes(h)),
-      });
-      const workItem: WorkItemRef = taskKey ? { type: 'task', taskKey } : { type: 'general' };
-      this.deliverInBackground(ctx.projectKey, aiRecipients, workItem, message.id);
       // Humans have it in their messages now; AI recipients get it typed into their session
       // for the work item as soon as that session is idle (queued, never awaited here).
-      return { messageId: message.id, deliveredTo: recipients };
+      const message = await this.messaging
+        .send(
+          ctx.projectKey,
+          ctx.member,
+          { to: args.to, text: args.text, taskKey },
+          { actor: aiActor(ctx.member), sessionId: ctx.sessionId },
+        )
+        .catch((err: unknown) => {
+          throw toMessageToolError(err);
+        });
+      return { messageId: message.id, deliveredTo: message.to };
     });
   }
 
@@ -382,51 +374,6 @@ export class TeamToolsService implements TeamToolsHandler {
       await this.memory.append(ctx.projectKey, ctx.member, note);
       return { ok: true as const };
     });
-  }
-
-  /** Inbox handler: a human answered an ask_human question; the answer goes back to the asking session. */
-  async deliverAnswer(item: InboxItem): Promise<void> {
-    const resolution = item.resolution;
-    if (item.kind !== 'question' || !resolution) return;
-    const config = await this.projects.config(item.projectKey);
-    const asker = memberOf(config, item.source);
-    if (asker?.kind !== 'ai') return;
-    const question = typeof item.payload.question === 'string' ? item.payload.question : item.title;
-    const body = `Answer to your question "${question}":\n\n${answerText(item)}`;
-    const message = this.messages.record({
-      projectKey: item.projectKey,
-      from: resolution.by,
-      to: [asker.handle],
-      taskKey: item.taskKey,
-      body,
-      actor: humanActor(resolution.by),
-      sessionId: item.sessionId,
-    });
-    const session = item.sessionId ? this.ctx.repos.sessions.get(item.sessionId) : null;
-    const workItem: WorkItemRef =
-      session?.member === asker.handle
-        ? session.workItem
-        : item.taskKey
-          ? { type: 'task', taskKey: item.taskKey }
-          : { type: 'general' };
-    this.deliverInBackground(item.projectKey, [asker.handle], workItem, message.id);
-  }
-
-  /**
-   * Wakes each recipient through admission or queues text into its live session; the
-   * message counts as delivered once it was typed into every recipient's session.
-   */
-  private deliverInBackground(
-    projectKey: string,
-    recipients: string[],
-    workItem: WorkItemRef,
-    messageId: string,
-  ): void {
-    if (recipients.length === 0) return;
-
-    for (const handle of recipients) {
-      this.sessions.deliverOrStartMessageSession(projectKey, handle, workItem, messageId);
-    }
   }
 
   /** The caller must still be an AI member of the project. */

@@ -1,6 +1,5 @@
-import { DEFAULT_AGENT_PROVIDER, formatInjectedTeamMessage, routes } from '@projectman/shared';
+import { DEFAULT_AGENT_PROVIDER, routes, stageOf } from '@projectman/shared';
 import type {
-  Actor,
   AgentProvider,
   AiMemberConfig,
   ChatItem,
@@ -10,7 +9,6 @@ import type {
   SessionDetail,
   SessionState,
   Task,
-  TeamMessage,
   WorkItemRef,
 } from '@projectman/shared';
 import { openingTurnOrigin, PROVIDER_NOT_LOGGED_IN } from '../contracts';
@@ -24,11 +22,12 @@ import type {
   WorktreeManager,
 } from '../contracts';
 import { encodeWorkItem } from '../db';
+import { requireAiMember } from './access';
+import { assertAiEnabled } from './admission/rules';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
-import { conflict, DomainError, invalid, notFound } from './errors';
+import { conflict, DomainError, notFound } from './errors';
 import type { MemberService } from './members';
-import type { MessageService } from './messages';
 import type { ConfigChange, ProjectService } from './projects';
 import {
   allowedToolsFor,
@@ -39,7 +38,7 @@ import {
 } from './session-policy';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
-import { aiActor, humanActor, KeyedMutex, newId, newToken, newUuid, SYSTEM_ACTOR } from './util';
+import { aiActor, KeyedMutex, newId, newToken, newUuid, SYSTEM_ACTOR } from './util';
 
 export const LIVE_SESSION_STATES: SessionState[] = [
   'starting',
@@ -67,7 +66,6 @@ export interface SessionOrchestratorDeps {
   projects: ProjectService;
   tasks: TaskService;
   members: MemberService;
-  messages: MessageService;
   timeline: TimelineService;
   runner: SessionRunner;
   transcripts: TranscriptReader;
@@ -104,36 +102,27 @@ function workItemLabel(item: WorkItemRef, member: AiMemberConfig): string {
 }
 
 /**
- * One Claude Code session per (AI member x work item). Starts, reuses and resumes
- * sessions through the runner, maps MCP tokens to tool contexts, and mirrors runner
- * events into the database and the event bus.
+ * The lifecycle of AI sessions, one per (AI member x work item): starts, reuses and resumes
+ * them through the runner, maps MCP tokens to tool contexts, and mirrors runner events into
+ * the database, the event bus (clients) and the domain events (`session_started`,
+ * `session_ended`). Admission (src/domain/admission) decides whether an automatic start may
+ * happen; team messages (src/domain/messaging) are typed in through `typeInto`.
  */
 export class SessionOrchestrator {
   private readonly deps: SessionOrchestratorDeps;
   private readonly ctx: DomainContext;
   private readonly locks = new KeyedMutex();
-  private readonly messageDeliveries = new Set<string>();
   private readonly tokens = new Map<string, ToolContext>();
   private readonly tokenBySession = new Map<string, string>();
   private readonly cleanupTimers = new Set<NodeJS.Timeout>();
   /** The provider each session's current process runs, for the transcript it reports. */
   private readonly processProviders = new Map<string, AgentProvider>();
-  private messageSessionStarter?: (
-    projectKey: string,
-    handle: string,
-    workItem: WorkItemRef,
-    messageId: string,
-  ) => void;
   private readonly unsubscribe: () => void;
 
   constructor(deps: SessionOrchestratorDeps) {
     this.deps = deps;
     this.ctx = deps.ctx;
     this.unsubscribe = deps.runner.onEvent((event) => this.handleRunnerEvent(event));
-  }
-
-  onMessageNeedsSession(starter: NonNullable<SessionOrchestrator['messageSessionStarter']>): void {
-    this.messageSessionStarter = starter;
   }
 
   dispose(): void {
@@ -147,8 +136,13 @@ export class SessionOrchestrator {
     return this.tokens.get(token) ?? null;
   }
 
+  /** A session of any project, or null. */
+  find(sessionId: string): Session | null {
+    return this.ctx.repos.sessions.get(sessionId);
+  }
+
   get(projectKey: string, sessionId: string): Session {
-    const session = this.ctx.repos.sessions.get(sessionId);
+    const session = this.find(sessionId);
     if (!session || session.projectKey !== projectKey) throw notFound('session', sessionId);
     return session;
   }
@@ -177,8 +171,9 @@ export class SessionOrchestrator {
   }
 
   /**
-   * Running -> reuse; exited -> resume the same Claude conversation; none -> create
-   * (worktree or workspace cwd, context pack, MCP token, runner.start).
+   * Running -> reuse; exited -> resume the same conversation; none -> create (worktree or
+   * workspace cwd, context pack, MCP token, runner.start). Only the AI master switch applies
+   * here; automatic starts pass admission first.
    */
   async ensureSession(
     projectKey: string,
@@ -188,142 +183,24 @@ export class SessionOrchestrator {
     const wi = encodeWorkItem(workItem);
     return this.locks.run(`${projectKey}:${handle}:${wi.type}:${wi.ref}`, async () => {
       const config = await this.deps.projects.config(projectKey);
-      const member = config.team.members.find((m) => m.handle === handle);
-      if (!member) throw notFound('member', handle);
-      if (member.kind !== 'ai') throw invalid('not_ai_member', `${handle} is not an AI member`);
+      const member = requireAiMember(config, handle);
       const task = workItem.type === 'task' ? this.deps.tasks.get(projectKey, workItem.taskKey) : null;
       const existing = this.ctx.repos.sessions.findByWorkItem(projectKey, handle, workItem);
       if (existing && this.isRunning(existing.id)) {
         return { session: existing, created: false, resumed: false, started: false };
       }
-      if (!config.team.limits.aiEnabled)
-        throw conflict('ai_disabled', 'AI work is switched off in this project');
       return this.start(config, member, workItem, task, existing);
     });
   }
 
-  /** Types a message into the session (queued by the runner until the session is idle). */
-  deliver(session: Session, text: string, onDelivered?: () => void): void {
-    Promise.resolve()
-      .then(() => this.deps.runner.sendUserMessage(session.id, text))
-      .then(
-        () => onDelivered?.(),
-        (err: unknown) => this.ctx.logger.warn({ err, sessionId: session.id }, 'could not deliver a message'),
-      );
-  }
-
-  /** Delivers a message to a member's session for the work item, starting or resuming it. */
-  async sendToMember(
-    projectKey: string,
-    handle: string,
-    workItem: WorkItemRef,
-    text: string,
-    onDelivered?: () => void,
-  ): Promise<Session> {
-    const { session } = await this.ensureSession(projectKey, handle, workItem);
-    this.deliver(session, text, onDelivered);
-    return session;
-  }
-
-  /** Delivers stored messages once per recipient; failures stay queued for the next session. */
-  deliverTeamMessage(session: Session, message: TeamMessage): void {
-    const claim = `${message.id}:${session.member}`;
-    if (this.messageDeliveries.has(claim)) return;
-    this.messageDeliveries.add(claim);
-    Promise.resolve()
-      .then(() =>
-        this.deps.runner.sendUserMessage(
-          session.id,
-          formatInjectedTeamMessage(message.from, message.body, message.taskKey),
-        ),
-      )
-      .then(() => this.deps.messages.markRecipientDelivered(message.id, session.member))
-      .catch((err: unknown) =>
-        this.ctx.logger.warn({ err, messageId: message.id }, 'team message delivery failed'),
-      )
-      .finally(() => this.messageDeliveries.delete(claim));
-  }
-
-  /** Live recipients receive messages directly; idle recipients wake through admission. */
-  deliverOrStartMessageSession(
-    projectKey: string,
-    handle: string,
-    workItem: WorkItemRef,
-    messageId: string,
-  ): void {
-    const target = this.findRunning(projectKey, handle, workItem);
-    if (target) {
-      const message = this.ctx.repos.messages.get(messageId);
-      if (message) this.deliverTeamMessage(target, message);
-    } else this.messageSessionStarter?.(projectKey, handle, workItem, messageId);
-  }
-
-  async sendTeamMessage(
-    projectKey: string,
-    from: string,
-    input: { to: string[]; text: string; taskKey?: string },
-    actor: Actor = humanActor(from),
-    sessionId: string | null = null,
-  ): Promise<TeamMessage> {
-    const config = await this.deps.projects.config(projectKey);
-    const recipients = [...new Set(input.to)];
-    for (const handle of recipients) {
-      if (!config.team.members.some((m) => m.handle === handle)) throw notFound('member', handle);
-    }
-    if (input.taskKey) this.deps.tasks.get(projectKey, input.taskKey);
-    const humans = config.team.members.filter((m) => m.kind === 'human').map((m) => m.handle);
-    const message = this.deps.messages.record({
-      projectKey,
-      from,
-      to: recipients,
-      taskKey: input.taskKey ?? null,
-      body: input.text,
-      actor,
-      sessionId,
-      humanRecipients: humans,
-      delivered: recipients.every((h) => humans.includes(h)),
-    });
-    for (const handle of recipients.filter((h) => !humans.includes(h))) {
-      const workItem: WorkItemRef = input.taskKey
-        ? { type: 'task', taskKey: input.taskKey }
-        : { type: 'general' };
-      this.deliverOrStartMessageSession(projectKey, handle, workItem, message.id);
-    }
-    return message;
+  /** Types text into a running session (queued by the runner until the session is idle). */
+  typeInto(session: Session, text: string): Promise<void> {
+    return this.deps.runner.sendUserMessage(session.id, text);
   }
 
   async memory(projectKey: string, handle: string): Promise<string> {
-    const member = (await this.deps.projects.config(projectKey)).team.members.find(
-      (m) => m.handle === handle,
-    );
-    if (!member) throw notFound('member', handle);
-    if (member.kind !== 'ai') throw invalid('not_ai_member', 'Memory belongs to AI members');
+    requireAiMember(await this.deps.projects.config(projectKey), handle);
     return this.deps.memory.read(projectKey, handle);
-  }
-
-  /** A human writes into an AI session (plain text); recorded as a team message. */
-  async sendHumanMessage(
-    projectKey: string,
-    sessionId: string,
-    text: string,
-    from: string,
-  ): Promise<TeamMessage> {
-    const session = this.get(projectKey, sessionId);
-    const taskKey = session.workItem.type === 'task' ? session.workItem.taskKey : null;
-    const target = this.isRunning(session.id)
-      ? session
-      : (await this.ensureSession(projectKey, session.member, session.workItem)).session;
-    const message = this.deps.messages.record({
-      projectKey,
-      from,
-      to: [session.member],
-      taskKey,
-      body: text,
-      actor: humanActor(from),
-      sessionId: session.id,
-    });
-    this.deliver(target, text, () => this.deps.messages.markDelivered(message.id));
-    return message;
   }
 
   async stop(projectKey: string, sessionId: string): Promise<Session> {
@@ -352,6 +229,7 @@ export class SessionOrchestrator {
     }
   }
 
+  /** The session with its chat, read from the transcript as its provider wrote it. */
   async detail(projectKey: string, sessionId: string): Promise<SessionDetail> {
     const session = this.get(projectKey, sessionId);
     let chat: ChatItem[] = [];
@@ -434,13 +312,6 @@ export class SessionOrchestrator {
       if (this.isRunning(session.id)) continue;
       this.ctx.repos.sessions.update(session.id, { state: 'exited', activity: null, endedAt: at });
     }
-    for (const project of this.ctx.repos.projects.list()) {
-      for (const state of this.ctx.repos.memberState.list(project.key)) {
-        if (state.status !== 'retired' && state.status !== 'idle') {
-          this.ctx.repos.memberState.upsert({ ...state, status: 'idle', activity: null, updatedAt: at });
-        }
-      }
-    }
   }
 
   private async start(
@@ -450,6 +321,7 @@ export class SessionOrchestrator {
     task: Task | null,
     existing: Session | null,
   ): Promise<EnsureSessionResult> {
+    assertAiEnabled(config);
     const projectKey = config.project.key;
     const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
     // A CLI that is not logged in could only sit at its login screen: refuse before any work.
@@ -507,7 +379,7 @@ export class SessionOrchestrator {
       branch = existing.branch ?? branch;
     }
 
-    const stage = task ? (config.pipeline.stages.find((s) => s.id === task.stageId) ?? null) : null;
+    const stage = task ? (stageOf(config, task.stageId) ?? null) : null;
     const memory = await this.deps.memory.read(projectKey, member.handle).catch((err: unknown) => {
       this.ctx.logger.warn({ err, member: member.handle }, 'could not read member memory');
       return '';
@@ -524,8 +396,7 @@ export class SessionOrchestrator {
     });
 
     // Configuration may change while login, worktree and memory preparation await I/O.
-    if (!(await this.deps.projects.config(projectKey)).team.limits.aiEnabled)
-      throw conflict('ai_disabled', 'AI work is switched off in this project');
+    assertAiEnabled(await this.deps.projects.config(projectKey));
     const at = isoNow(this.ctx);
     // Resume only a conversation that exists (the runner reported its transcript) and that
     // belongs to the member's current provider.
@@ -596,7 +467,10 @@ export class SessionOrchestrator {
         state: 'failed',
         endedAt: isoNow(this.ctx),
       });
-      if (failed) this.publishSession(failed);
+      if (failed) {
+        this.publishSession(failed);
+        void this.ctx.events.emit('session_ended', failed);
+      }
       this.recomputeMemberState(projectKey, member.handle);
       if (errorCode(err) === PROVIDER_NOT_LOGGED_IN) {
         throw providerNotLoggedIn(provider, { sessionId: session.id }, (err as Error).message);
@@ -622,10 +496,7 @@ export class SessionOrchestrator {
     const fresh = this.ctx.repos.sessions.get(session.id)!;
     this.publishSession(fresh);
     this.recomputeMemberState(projectKey, member.handle);
-    for (const message of this.ctx.repos.messages.pending(projectKey, member.handle)) {
-      if (message.taskKey !== (workItem.type === 'task' ? workItem.taskKey : null)) continue;
-      this.deliverTeamMessage(fresh, message);
-    }
+    void this.ctx.events.emit('session_started', fresh);
     return { session: fresh, created: !existing, resumed: resume, started: true };
   }
 
@@ -692,6 +563,7 @@ export class SessionOrchestrator {
       data: { member: ended.member, exitCode, ...(reason ? { reason } : {}) },
     });
     this.publishSession(ended);
+    void this.ctx.events.emit('session_ended', ended);
     this.recomputeMemberState(ended.projectKey, ended.member);
     return ended;
   }

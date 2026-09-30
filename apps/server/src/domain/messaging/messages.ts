@@ -1,9 +1,9 @@
-import type { Actor, TeamMessage } from '@projectman/shared';
-import { isoNow } from './context';
-import type { DomainContext } from './context';
-import type { TimelineService } from './timeline';
-import { forbidden, notFound } from './errors';
-import { excerpt, newId } from './util';
+import type { Actor, TeamMessage, WorkItemRef } from '@projectman/shared';
+import { isoNow } from '../context';
+import type { DomainContext } from '../context';
+import type { TimelineService } from '../timeline';
+import { forbidden, notFound } from '../errors';
+import { excerpt, newId } from '../util';
 
 export interface RecordMessageInput {
   projectKey: string;
@@ -18,7 +18,11 @@ export interface RecordMessageInput {
   humanRecipients?: string[];
 }
 
-/** Stored team messages (between any members, humans and AI), with timeline entries. */
+/**
+ * Stored team messages (between any members, humans and AI) with their timeline entries, and
+ * their receipts: delivered (typed into an AI recipient's session, or at once for a human) and
+ * read (by a human recipient).
+ */
 export class MessageService {
   private readonly ctx: DomainContext;
   private readonly timeline: TimelineService;
@@ -26,6 +30,10 @@ export class MessageService {
   constructor(deps: { ctx: DomainContext; timeline: TimelineService }) {
     this.ctx = deps.ctx;
     this.timeline = deps.timeline;
+  }
+
+  get(id: string): TeamMessage | null {
+    return this.ctx.repos.messages.get(id);
   }
 
   record(input: RecordMessageInput): TeamMessage {
@@ -46,32 +54,25 @@ export class MessageService {
         readAt: null,
       })),
     };
-    this.ctx.repos.messages.insert(message);
-    this.ctx.bus.publish({ type: 'team_message', projectKey: message.projectKey, message });
-    this.timeline.append({
-      projectKey: message.projectKey,
-      taskKey: message.taskKey,
-      sessionId: input.sessionId ?? null,
-      actor: input.actor,
-      type: 'team_message',
-      data: { messageId: message.id, from: message.from, to: message.to, excerpt: excerpt(message.body) },
+    return this.ctx.unitOfWork(() => {
+      this.ctx.repos.messages.insert(message);
+      this.ctx.bus.publish({ type: 'team_message', projectKey: message.projectKey, message });
+      this.timeline.append({
+        projectKey: message.projectKey,
+        taskKey: message.taskKey,
+        sessionId: input.sessionId ?? null,
+        actor: input.actor,
+        type: 'team_message',
+        data: { messageId: message.id, from: message.from, to: message.to, excerpt: excerpt(message.body) },
+      });
+      return message;
     });
-    return message;
   }
 
-  markDelivered(id: string): TeamMessage | null {
-    const before = this.ctx.repos.messages.get(id);
-    if (!before || before.deliveredAt) return before;
-    const at = isoNow(this.ctx);
-    const message = before.receipts
-      ? this.ctx.repos.messages.updateReceipts(
-          id,
-          before.receipts.map((r) => ({ ...r, deliveredAt: r.deliveredAt ?? at })),
-          at,
-        )
-      : this.ctx.repos.messages.markDelivered(id, at);
-    if (message) this.ctx.bus.publish({ type: 'team_message', projectKey: message.projectKey, message });
-    return message;
+  /** Messages an AI recipient has not received yet for a work item (a task's, else its other chats'), oldest first. */
+  waiting(projectKey: string, handle: string, workItem: WorkItemRef): TeamMessage[] {
+    const taskKey = workItem.type === 'task' ? workItem.taskKey : null;
+    return this.ctx.repos.messages.pending(projectKey, handle).filter((m) => m.taskKey === taskKey);
   }
 
   markRecipientDelivered(id: string, handle: string): TeamMessage | null {
@@ -133,5 +134,10 @@ export class MessageService {
     } = {},
   ): TeamMessage[] {
     return this.ctx.repos.messages.list(projectKey, filter);
+  }
+
+  /** Messages to the member that they have not read. */
+  countUnread(projectKey: string, handle: string): number {
+    return this.ctx.repos.messages.countUnread(projectKey, handle);
   }
 }

@@ -25,9 +25,6 @@ import { createRepositories, openDatabase } from './db';
 import type { Repositories } from './db';
 import { createDomain } from './domain';
 import type { Domain, ScheduleTimer, TemplateRegistry } from './domain';
-import { BoardService } from './domain/board';
-import { InvitationService } from './domain/invitations';
-import { MemberProfiles } from './domain/members';
 import { createGithubService } from './github';
 import { createMcpModule } from './mcp';
 import { createRunnerModule } from './runner';
@@ -185,6 +182,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       modules.worktrees ??
       createWorktreeManager({ rootDir: join(home, 'worktrees'), logger: log.child({ module: 'worktree' }) });
     const makeRunner = modules.createRunnerModule ?? createRunnerModule;
+    const auth = new AuthService({ repos, now: options.now });
 
     const domain = createDomain({
       repos,
@@ -207,6 +205,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       contextBuilder,
       memory,
       worktrees,
+      accounts: auth,
       worktreesRootDir: join(home, 'worktrees'),
       templates: modules.templates,
       now: options.now,
@@ -220,34 +219,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       resolveContext: (token) => domain.sessions.resolveToken(token),
       logger: log,
     });
-    const auth = new AuthService({ repos, now: options.now });
-    // Read models and flows beside the domain services, with their explicit dependencies.
-    const services = {
-      domain,
-      auth,
-      board: new BoardService({
-        projects: domain.projects,
-        tasks: domain.tasks,
-        members: domain.members,
-        inbox: domain.inbox,
-        planUsage: domain.planUsage,
-      }),
-      profiles: new MemberProfiles({
-        ctx: domain.ctx,
-        projects: domain.projects,
-        members: domain.members,
-        tasks: domain.tasks,
-        inbox: domain.inbox,
-        sessions: domain.sessions,
-        scheduler: domain.scheduler,
-      }),
-      invitations: new InvitationService({
-        ctx: domain.ctx,
-        projects: domain.projects,
-        members: domain.members,
-        accounts: auth,
-      }),
-    };
 
     const webDistDir =
       options.webDistDir && existsSync(join(options.webDistDir, 'index.html'))
@@ -255,7 +226,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         : null;
     registerErrorHandling(app, { spaIndex: webDistDir !== null });
     registerAuth(app, { auth, domain });
-    registerApiRoutes(app, services);
+    registerApiRoutes(app, { domain, auth });
     registerWebsocket(app, { domain, auth, heartbeatMs: options.wsHeartbeatMs });
     domain.runnerModule.registerHookRoutes(app);
     mcpModule.registerRoutes(app);

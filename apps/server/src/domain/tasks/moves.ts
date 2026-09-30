@@ -8,6 +8,7 @@ import type {
   ProjectConfig,
   Stage,
   Task,
+  TimelineEventData,
 } from '@projectman/shared';
 import type { TaskPatch } from '../../db';
 import { isoNow } from '../context';
@@ -255,7 +256,7 @@ export class TaskMoves {
     task: Task,
     target: Stage,
     actor: Actor,
-    extra: { approvedBy?: string[]; inboxItemIds?: string[] },
+    extra: Pick<TimelineEventData['task_stage_changed'], 'approvedBy' | 'inboxItemIds'>,
     effects: Effect[],
   ): Task {
     const at = isoNow(this.store.ctx);
@@ -303,7 +304,11 @@ export class TaskMoves {
   }
 
   /** Ends the "waiting for approval" status after a rejected or dropped request. */
-  private settleWaiting(task: Task, actor: Actor, data: Record<string, unknown>): void {
+  private settleWaiting(
+    task: Task,
+    actor: Actor,
+    data: Pick<TimelineEventData['task_updated'], 'gateRejected' | 'gateBlocked'>,
+  ): void {
     const waiting = task.status === 'waiting';
     const next = waiting
       ? this.store.write(task, { status: 'active', updatedAt: isoNow(this.store.ctx) })

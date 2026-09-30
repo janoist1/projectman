@@ -10,6 +10,7 @@ import type {
   TaskDetail,
   TaskStartWaiting,
   TaskLink,
+  TimelineEventData,
   Visibility,
 } from '@projectman/shared';
 import { evaluateMove, isOpenTask, memberOf } from '@projectman/shared';
@@ -484,7 +485,7 @@ export class TaskService {
     taskKey: string,
     assignee: string | null,
     actor: Actor,
-    extra: Record<string, unknown> = {},
+    extra: Pick<TimelineEventData['task_assigned'], 'reason' | 'from'> = {},
   ): Task {
     return this.ctx.unitOfWork(() => {
       const task = this.get(projectKey, taskKey);
@@ -520,7 +521,7 @@ export class TaskService {
       if (result === 'unchanged') return task;
       const next = this.get(projectKey, taskKey);
       if (result === 'inserted') {
-        const data: Record<string, unknown> = { kind: link.kind, ref: link.ref };
+        const data: TimelineEventData['task_link_added'] = { kind: link.kind, ref: link.ref };
         if (link.repo) data.repo = link.repo;
         this.timeline.append({ projectKey, taskKey, sessionId, actor, type: 'task_link_added', data });
       }

@@ -217,6 +217,58 @@ describe('settings section editors', () => {
     ).toEqual({ type: 'has_label', label: 'qa-ok' });
   });
 
+  it('offers a release gate only the release approval as approval, and any label to other gates (decision 19)', async () => {
+    const project = mockProject();
+    // A merge approval other duty holders may give: it passes a merge gate, not a release gate.
+    const approval = { id: 'merge-approved', name: 'Merge jóváhagyva' };
+    project.backend.config.pipeline.labels.unshift({
+      ...approval,
+      setBy: { duties: ['final_decision'], humansOnly: true },
+    });
+    project.render(<SettingsPage />);
+    const section = await editSection('pipeline');
+    const release = within(section.getByRole('listitem', { name: 'Élesítés' }));
+    const integration = within(section.getByRole('listitem', { name: 'Integration' }));
+    const choice = (stage: typeof release) =>
+      within(stage.getAllByLabelText(t('settings.edit.label'))[0]!).getByRole('option', {
+        name: approval.name,
+      }) as HTMLOptionElement;
+
+    expect(choice(release).disabled).toBe(true);
+    expect(release.getByText(t('settings.edit.releaseApprovalOnly'))).toBeTruthy();
+    // The rule is about the release gate: the integration gate takes the same label.
+    expect(choice(integration).disabled).toBe(false);
+    expect(integration.queryByText(t('settings.edit.releaseApprovalOnly'))).toBeNull();
+
+    // A new condition starts on a label the gate accepts: the first of the project's labels elsewhere.
+    fireEvent.click(release.getByRole('button', { name: t('settings.edit.addCondition') }));
+    fireEvent.click(integration.getByRole('button', { name: t('settings.edit.addCondition') }));
+    const added = (stage: typeof release) =>
+      (stage.getAllByLabelText(t('settings.edit.label')).at(-1) as HTMLSelectElement).value;
+    expect(added(release)).not.toBe(approval.id);
+    expect(added(integration)).toBe(approval.id);
+  });
+
+  it('tells the owner which rules the stored configuration breaks, and nothing when it breaks none', async () => {
+    const valid = mockProject();
+    valid.render(<SettingsPage />);
+    await screen.findByRole('region', { name: t('settings.sections.project') });
+    expect(screen.queryByRole('region', { name: t('settings.problems.title') })).toBeNull();
+
+    const project = mockProject();
+    const { columns } = project.backend.config.pipeline;
+    columns.push({ ...columns[0]! });
+    project.backend.config.pipeline.labels.find((label) => label.id === 'release-approved')!.setBy = 'humans';
+    project.render(<SettingsPage />);
+    const notice = within(await screen.findByRole('region', { name: t('settings.problems.title') }));
+    expect(notice.getByText(t('settings.problems.intro'))).toBeTruthy();
+    const items = notice.getAllByRole('listitem').map((item) => item.textContent);
+    expect(items).toEqual([
+      `pipeline.columns[${columns.length - 1}].id ${t('settings.issues.duplicate_column')}`,
+      `pipeline.stages[7].gate.conditions[1] ${t('settings.issues.release_approval_needs_duty')}`,
+    ]);
+  });
+
   it('shows a conflict and reloads the latest version before retrying', async () => {
     const project = mockProject();
     project.render(<SettingsPage />);

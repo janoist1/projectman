@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AI_BUILT_IN_ROLE_IDS, BUILT_IN_ROLE_IDS, holdersAllow, roleHolders, RoleId } from '../domain/role';
-import { validateProjectConfig } from './invariants';
+import { isToleratedOnLoad, validateProjectConfig } from './invariants';
 import { AiMemberConfig, ProjectConfig, type ProjectConfigInput } from './schema';
 
 function configInput(): ProjectConfigInput {
@@ -343,15 +343,55 @@ describe('validateProjectConfig team and pipeline', () => {
       [{ code: 'release_without_human_approval', path: 'pipeline.stages[1]' }],
     ],
     [
-      'a release approval no human may give',
+      'a release approval no human may give, because nobody holds the duty',
+      (input) => {
+        members(input)[0]!.roles = [];
+        labels(input, { id: 'go', name: 'Go', setBy: { duties: ['release_approval'], humansOnly: true } });
+        insertStage(input, { id: 'release', kind: 'release', gate: gate(['has_label', 'go']) });
+      },
+      [
+        {
+          code: 'missing_duty_holder',
+          path: 'pipeline.stages[1].gate.conditions[0]',
+          detail: 'release_approval',
+        },
+        { code: 'missing_label_setter', path: 'pipeline.stages[1].gate.conditions[0]', detail: 'go' },
+        { code: 'release_without_human_approval', path: 'pipeline.stages[1]' },
+      ],
+    ],
+    [
+      'a release approval of listed AI members, which no human may give',
       (input) => {
         labels(input, { id: 'go', name: 'Go', setBy: { members: ['dev-1'], humansOnly: true } });
         insertStage(input, { id: 'release', kind: 'release', gate: gate(['has_label', 'go']) });
       },
       [
         { code: 'missing_label_setter', path: 'pipeline.stages[1].gate.conditions[0]', detail: 'go' },
+        { code: 'release_approval_needs_duty', path: 'pipeline.stages[1].gate.conditions[0]', detail: 'go' },
         { code: 'release_without_human_approval', path: 'pipeline.stages[1]' },
       ],
+    ],
+    [
+      'a repository name used twice',
+      (input) => {
+        input.project.repos = [
+          { name: 'web', path: '.' },
+          { name: 'api', path: 'api' },
+          { name: 'web', path: 'web-copy' },
+          { name: 'web', path: 'web-old' },
+        ];
+      },
+      [
+        { code: 'duplicate_repo', path: 'project.repos[2].name', detail: 'web' },
+        { code: 'duplicate_repo', path: 'project.repos[3].name', detail: 'web' },
+      ],
+    ],
+    [
+      'a column id used twice',
+      (input) => {
+        input.pipeline.columns.push({ id: 'todo', name: 'To do again' }, { id: 'later', name: 'Later' });
+      },
+      [{ code: 'duplicate_column', path: 'pipeline.columns[1].id', detail: 'todo' }],
     ],
     [
       'a stage in an unknown column',
@@ -380,17 +420,120 @@ describe('validateProjectConfig team and pipeline', () => {
     expect(errors(change)).toEqual(expected);
   });
 
+  it('accepts a release approved by the holders of the release approval duty, humans only', () => {
+    expect(
+      errors((input) => {
+        labels(input, { id: 'go', name: 'Go', setBy: { duties: ['release_approval'], humansOnly: true } });
+        insertStage(input, { id: 'release', kind: 'release', gate: gate(['has_label', 'go']) });
+      }),
+    ).toEqual([]);
+  });
+
+  // Decision 19: the approval of a release is the release approval duty's alone.
   it.each<[string, unknown]>([
-    ['duty holders, humans only', { duties: ['release_approval'], humansOnly: true }],
-    ['listed humans', { members: ['owner'], humansOnly: true }],
-    // Any human-only label counts, including one every human member (clients too) may set.
+    // A label every human (clients and viewers too) may set.
     ['every human', 'humans'],
-  ])('accepts a release approved by %s', (_name, setBy) => {
+    ['listed humans, whatever their duties', { members: ['owner'], humansOnly: true }],
+    ['the holders of another duty', { duties: ['final_decision'], humansOnly: true }],
+    [
+      'the release approval duty and another duty',
+      { duties: ['release_approval', 'final_decision'], humansOnly: true },
+    ],
+    [
+      'the release approval duty and a listed human',
+      { duties: ['release_approval'], members: ['owner'], humansOnly: true },
+    ],
+  ])('refuses a release gate label that %s may set', (_name, setBy) => {
     expect(
       errors((input) => {
         labels(input, { id: 'go', name: 'Go', setBy });
         insertStage(input, { id: 'release', kind: 'release', gate: gate(['has_label', 'go']) });
       }),
+    ).toEqual([
+      { code: 'release_approval_needs_duty', path: 'pipeline.stages[1].gate.conditions[0]', detail: 'go' },
+    ]);
+  });
+
+  it('refuses the approvals on a release gate that are no release approvals, and only those', () => {
+    expect(
+      errors((input) => {
+        labels(
+          input,
+          { id: 'qa-ok', name: 'QA ok' },
+          { id: 'merged', name: 'Merged', setBy: 'system' },
+          { id: 'go', name: 'Go', setBy: { duties: ['release_approval'], humansOnly: true } },
+          { id: 'sign-off', name: 'Sign-off', setBy: { duties: ['final_decision'], humansOnly: true } },
+          { id: 'hold', name: 'Hold', setBy: 'humans' },
+        );
+        insertStage(input, {
+          id: 'release',
+          kind: 'release',
+          gate: gate(
+            ['has_label', 'qa-ok'],
+            ['has_label', 'merged'],
+            ['has_label', 'go'],
+            ['has_label', 'sign-off'],
+            // Only a required label can be refused: forbidding one is no approval.
+            ['lacks_label', 'hold'],
+          ),
+        });
+      }),
+    ).toEqual([
+      {
+        code: 'release_approval_needs_duty',
+        path: 'pipeline.stages[1].gate.conditions[3]',
+        detail: 'sign-off',
+      },
+    ]);
+  });
+
+  it('leaves the approvals of other stages to their own labels', () => {
+    expect(
+      errors((input) => {
+        labels(
+          input,
+          { id: 'merge-ok', name: 'Merge ok', setBy: { members: ['owner'], humansOnly: true } },
+          { id: 'any-human', name: 'Any human', setBy: 'humans' },
+          { id: 'go', name: 'Go', setBy: { duties: ['release_approval'], humansOnly: true } },
+        );
+        insertStage(input, {
+          id: 'merge',
+          kind: 'step',
+          gate: gate(['has_label', 'merge-ok'], ['has_label', 'any-human']),
+        });
+        insertStage(input, { id: 'release', kind: 'release', gate: gate(['has_label', 'go']) });
+      }),
     ).toEqual([]);
+  });
+
+  it('accepts distinct repository names and column ids', () => {
+    expect(
+      errors((input) => {
+        input.project.repos = [
+          { name: 'web', path: '.' },
+          { name: 'api', path: 'api' },
+        ];
+        input.pipeline.columns.push({ id: 'later', name: 'Later' });
+      }),
+    ).toEqual([]);
+  });
+});
+
+describe('errors a stored configuration may keep', () => {
+  it('tolerates the rules added after configurations were written, and nothing else', () => {
+    const tolerated = ['duplicate_repo', 'duplicate_column', 'release_approval_needs_duty'] as const;
+    for (const code of tolerated) expect(isToleratedOnLoad({ code })).toBe(true);
+    for (const code of [
+      'no_owner',
+      'duplicate_handle',
+      'duplicate_stage',
+      'duplicate_label',
+      'unknown_column',
+      'unknown_label',
+      'release_without_human_approval',
+      'missing_label_setter',
+      'missing_duty_holder',
+    ] as const)
+      expect(isToleratedOnLoad({ code })).toBe(false);
   });
 });

@@ -222,6 +222,21 @@ describe('REST API', () => {
         templateId: 'test',
       });
       expect(missing.body.error.code).toBe('workspace_not_found');
+      // A repository name used twice is the configuration invariant's (decision 19), answered 400.
+      const repeated = await call<ApiError>('POST', '/api/projects', cookie, {
+        key: 'CC',
+        name: 'x',
+        workspacePath: h.workspace,
+        templateId: 'test',
+        repos: [
+          { name: 'web', path: '.' },
+          { name: 'web', path: 'copy' },
+        ],
+      });
+      expect([repeated.status, repeated.body.error.code]).toEqual([400, 'duplicate_repo']);
+      expect((await call<ProjectSummary[]>('GET', '/api/projects', cookie)).body.map((p) => p.key)).toEqual([
+        'AR',
+      ]);
     });
 
     it('serves the board', async () => {
@@ -494,8 +509,9 @@ describe('REST API', () => {
       expect(members.find((m) => m.handle === 'owner')?.roles).toEqual(['operator', 'product_owner', 'qa']);
       expect(members.find((m) => m.handle === 'dev-1')?.roles).toEqual(['developer']);
 
+      // A human may hold a role AI members hold too (the owner keeps the release approval duty).
       const aiOnly = await call<ApiError>('PATCH', '/api/projects/AR/members/owner', cookie, {
-        roles: ['watchdog'],
+        roles: ['operator', 'watchdog'],
       });
       expect(aiOnly.status).toBe(200);
       const aiRoles = await call<ApiError>('PATCH', '/api/projects/AR/members/dev-1', cookie, {

@@ -1,4 +1,11 @@
-import { DEFAULT_PROJECT_LANGUAGE, ProjectConfig, validateProjectConfig } from '@projectman/shared';
+import {
+  DEFAULT_PROJECT_LANGUAGE,
+  isReleaseApprovalLabel,
+  labelDefinition,
+  ProjectConfig,
+  releaseGateAccepts,
+  validateProjectConfig,
+} from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
 import { legacyCheckLabels, migrateLegacyConfig, standardLabelsFor } from './labels';
 import { getLocale } from './locales';
@@ -63,6 +70,19 @@ describe('labels', () => {
     expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([]);
     // Idempotent, and a current configuration passes through untouched.
     expect(migrateLegacyConfig(migrated)).toBe(migrated);
+  });
+
+  it('turns a legacy release approval on the release approval duty into a label that passes a release gate', () => {
+    const config = ProjectConfig.parse(migrateLegacyConfig(legacyConfig()));
+    const release = config.pipeline.stages.find((stage) => stage.kind === 'release')!;
+    expect(release.gate).toEqual({ conditions: [{ type: 'has_label', label: 'release-approved' }] });
+    const approval = labelDefinition(config, 'release-approved')!;
+    expect(approval.setBy).toEqual({ duties: ['release_approval'], humansOnly: true });
+    expect(isReleaseApprovalLabel(approval)).toBe(true);
+    expect(releaseGateAccepts(approval)).toBe(true);
+    // The merge step's approval names members: it would not pass a release gate, and sits on a step, which the rule leaves alone.
+    expect(releaseGateAccepts(labelDefinition(config, 'approval-merge')!)).toBe(false);
+    expect(validateProjectConfig(config).filter((issue) => issue.severity !== 'warning')).toEqual([]);
   });
 
   it('names the labels in the default project language when the configuration has none', () => {

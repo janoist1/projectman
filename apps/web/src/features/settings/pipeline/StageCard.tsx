@@ -77,6 +77,7 @@ export function StageCard({
       </Button>
       <StageOwners stage={stage} config={draft} update={update} />
       <GateConditionsEditor
+        stage={stage}
         conditions={conditions}
         labels={labels}
         isOwner={isOwner}

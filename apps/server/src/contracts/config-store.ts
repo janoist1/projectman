@@ -12,8 +12,12 @@ import type { ConfigVersionEntry, ProjectConfig } from '@projectman/shared';
 export interface ConfigStore {
   /** Project keys present in the repository. */
   list(): Promise<string[]>;
+  /**
+   * The working tree, migrated and validated. A project that breaks a rule added after its
+   * configuration was written (`isToleratedOnLoad`) still loads, with a logged warning.
+   */
   load(projectKey: string): Promise<{ config: ProjectConfig; version: string }>;
-  /** Validates (schema + invariants), writes and commits. */
+  /** Validates (schema + invariants, no exceptions), writes and commits. */
   save(
     projectKey: string,
     config: ProjectConfig,

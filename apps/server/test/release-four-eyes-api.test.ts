@@ -15,14 +15,12 @@ describe('release four eyes through the API', () => {
     h = await createAppHarness();
     owner = await setupOwner(h.app);
     await createProject(h, owner);
+    // A second release approver: the holders of the release approval duty approve a release.
     releaseOwner = await addHumanAndLogin(h.app, {
       handle: 'release-owner',
       name: 'Release Owner',
       access: 'owner',
-      adjust: (draft) => {
-        const label = draft.pipeline.labels.find((l) => l.id === 'release-ok')!;
-        label.setBy = { members: ['owner', 'release-owner'], humansOnly: true };
-      },
+      roles: ['operator'],
     });
   });
   afterEach(async () => h.close());

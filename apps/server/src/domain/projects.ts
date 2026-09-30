@@ -7,6 +7,7 @@ import {
   configSchemaIssues,
   memberOf,
   ownerOnlyChanges,
+  validateProjectConfig,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -200,10 +201,6 @@ export class ProjectService {
         language: DEFAULT_PROJECT_LANGUAGE,
         owner: { handle: OWNER_HANDLE, displayName: creator.name, email: creator.email },
       });
-      const repoNames = (req.repos ?? []).map((r) => r.name);
-      if (new Set(repoNames).size !== repoNames.length) {
-        throw invalid('duplicate_repo', 'repository names must be unique');
-      }
       const parsed = ProjectConfig.safeParse({
         ...built,
         project: {
@@ -222,6 +219,10 @@ export class ProjectService {
         });
       }
       const config = parsed.data;
+      // The rule is the invariant's (one place); creation answers it with a code of its own.
+      if (validateProjectConfig(config).some((issue) => issue.code === 'duplicate_repo')) {
+        throw invalid('duplicate_repo', 'repository names must be unique');
+      }
       if (projectAccessFor(config, creator.email)?.access !== 'owner') {
         throw new DomainError('invalid_config', 'template did not make the creator an owner', {
           status: 422,

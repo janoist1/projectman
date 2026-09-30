@@ -6,7 +6,7 @@ import type { BuildTemplateInput, ProjectTemplate } from '@projectman/templates'
  * A small team and pipeline used by the tests:
  *   backlog (queue) -> development (work) -> code_review (step)
  *   -> merge (gate: labels code-review-ok + merge-ok, an owner approval)
- *   -> release (gate: labels pr-merged + release-ok, an owner approval) -> done
+ *   -> release (gate: labels pr-merged + release-ok, a release approval the owner may give) -> done
  */
 export function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
   return {
@@ -26,6 +26,8 @@ export function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
           handle: input.owner.handle,
           displayName: input.owner.displayName,
           access: 'owner',
+          // The owner approves releases: the release gate takes the release approval duty's label only.
+          roles: ['operator'],
           email: input.owner.email,
         },
         {
@@ -125,7 +127,7 @@ export function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
         {
           id: 'release-ok',
           name: 'Release approved',
-          setBy: { members: [input.owner.handle], humansOnly: true },
+          setBy: { duties: ['release_approval'], humansOnly: true },
           clearedWhen: ['moved_back'],
         },
         { id: 'waiting', name: 'Waiting for an answer', blocks: true },

@@ -1,5 +1,5 @@
-import { isHumanOnlyLabel } from '@projectman/shared';
-import type { GateCondition, LabelDefinition } from '@projectman/shared';
+import { gateAcceptsCondition, isHumanOnlyLabel } from '@projectman/shared';
+import type { GateCondition, LabelDefinition, Stage } from '@projectman/shared';
 import { Button } from '../../../components/Button';
 import { t } from '../../../i18n/t';
 import shared from '../settings.module.css';
@@ -10,18 +10,25 @@ export function isApprovalLabel(labels: readonly LabelDefinition[], id: string):
   return label !== undefined && isHumanOnlyLabel(label);
 }
 
-/** A stage's gate: label conditions that must hold before a task may enter the stage. */
+/**
+ * A stage's gate: label conditions that must hold before a task may enter the stage. A release
+ * stage's gate takes the release approval only as approval (the shared rule the server enforces).
+ */
 export function GateConditionsEditor({
+  stage,
   conditions,
   labels,
   isOwner,
   onChange,
 }: {
+  stage: Pick<Stage, 'kind'>;
   conditions: readonly GateCondition[];
   labels: readonly LabelDefinition[];
   isOwner: boolean;
   onChange: (next: GateCondition[]) => void;
 }) {
+  const accepts = (condition: Pick<GateCondition, 'type'>, label: LabelDefinition) =>
+    gateAcceptsCondition(stage, condition, label);
   // An unknown label (e.g. from an older file) stays selectable so it can be replaced.
   const labelOptions = (current: string) =>
     labels.some((label) => label.id === current)
@@ -61,7 +68,10 @@ export function GateConditionsEditor({
                   <option
                     key={label.id}
                     value={label.id}
-                    disabled={!isOwner && isHumanOnlyLabel(label) && label.id !== condition.label}
+                    disabled={
+                      label.id !== condition.label &&
+                      ((!isOwner && isHumanOnlyLabel(label)) || !accepts(condition, label))
+                    }
                   >
                     {label.name}
                   </option>
@@ -79,10 +89,17 @@ export function GateConditionsEditor({
           </div>
         );
       })}
+      {stage.kind === 'release' ? (
+        <p className={shared.muted}>{t('settings.edit.releaseApprovalOnly')}</p>
+      ) : null}
       {labels.length > 0 ? (
         <Button
           variant="secondary"
-          onClick={() => onChange([...conditions, { type: 'has_label', label: labels[0]!.id }])}
+          onClick={() => {
+            const added = { type: 'has_label' } as const;
+            const label = labels.find((entry) => accepts(added, entry)) ?? labels[0]!;
+            onChange([...conditions, { ...added, label: label.id }]);
+          }}
         >
           {t('settings.edit.addCondition')}
         </Button>

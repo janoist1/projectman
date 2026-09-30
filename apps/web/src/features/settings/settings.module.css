@@ -181,6 +181,17 @@
   font-size: var(--text-sm);
 }
 
+.problems {
+  margin: 0;
+  padding-left: 18px;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.problems li + li {
+  margin-top: 4px;
+}
+
 .editor > button,
 .actions > button {
   max-width: 100%;

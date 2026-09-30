@@ -2,7 +2,7 @@
 
 Status: built (decision 16). Approval gates became labels afterwards (decision 17): where
 this note once said "approval gates name a duty", an approval is now a label that only humans
-holding a duty may set (`setBy: { humans: true, duties: [...] }`).
+holding a duty may set (`setBy: { duties: [...], humansOnly: true }`).
 
 The fixed catalogue contains 26 duties. Testing and acceptance form one quality duty;
 standup, refinement and retro facilitation are separate so teams can delegate each ritual.

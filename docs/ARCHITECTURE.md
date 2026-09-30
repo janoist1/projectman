@@ -118,18 +118,28 @@ Enforced on every configuration change, whoever makes it
 `packages/shared/src/config/owner-only.ts`):
 
 - handles are unique; at least one human owner exists; AI sponsors are humans;
+- repository names, board column ids, stage ids and label ids are unique;
 - stage owners and members named by labels refer to existing members; every role a member
   holds exists and suits the kind of member; custom role ids are unique and never reuse a
   built-in id; a role cannot be removed while anyone holds it;
 - every label a gate requires is defined and can be set by someone; stage and gate duties
   have holders (a missing recommended duty is only a warning);
-- every release stage requires a label only humans may set, so a release happens only on a
-  human's explicit decision; an AI member never sets a human-only label;
+- every release stage requires an approval: a label only humans may set, and only the holders of
+  the release approval duty may set it (decision 19), so a release happens only on an explicit
+  decision of a release approver; an AI member never sets a human-only label;
 - a label marked "not by the author" is refused for the assignee and the linked PRs'
   attributed authors (no self-review); system labels are the integrations' alone;
 - changing who may approve releases (approval labels, release bundles and their membership,
   `team.releaseFourEyes`) is owner-only; so are account bindings, admin grants and
   filesystem locations.
+
+Real installations hold configurations written before a rule existed. They keep loading: the
+migrations (`apps/server/src/config/migrations.ts`) rewrite older shapes in memory, and a release
+approval that more than the release approval duty may give is narrowed to the duty (with a logged
+warning) when someone holds it. The few errors no migration can repair without guessing (a
+repository name or a column id used twice, a release approval while nobody holds the duty) do not
+stop a load: the store logs each one, the settings page lists them, and every change, a revert
+included, is refused until they are fixed (`isToleratedOnLoad`).
 
 ## Runtime architecture
 

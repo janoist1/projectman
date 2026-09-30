@@ -69,6 +69,39 @@ export function isHumanOnlyLabel(label: Pick<LabelDefinition, 'setBy'>): boolean
   return label.setBy === 'humans' || (typeof label.setBy === 'object' && label.setBy.humansOnly === true);
 }
 
+/** The duty whose holders approve releases (decisions 16 and 19). */
+export const RELEASE_APPROVAL_DUTY = 'release_approval' satisfies DutyId;
+
+/** Who may set the approval of a release: the holders of the release approval duty, all of them humans. */
+export function releaseApprovalSetBy(): LabelSetBy {
+  return { duties: [RELEASE_APPROVAL_DUTY], humansOnly: true };
+}
+
+/**
+ * Whether a label is a release approval: an approval (only humans may set it) that only the
+ * holders of the release approval duty may set. No other duty and no named member widens it.
+ */
+export function isReleaseApprovalLabel(label: Pick<LabelDefinition, 'setBy'>): boolean {
+  const { setBy } = label;
+  return (
+    typeof setBy === 'object' &&
+    setBy.humansOnly === true &&
+    (setBy.members?.length ?? 0) === 0 &&
+    (setBy.duties?.length ?? 0) > 0 &&
+    (setBy.duties ?? []).every((duty) => duty === RELEASE_APPROVAL_DUTY)
+  );
+}
+
+/**
+ * Whether the gate of a release stage may require this label (decision 19). A label only humans
+ * may set is an approval, and the approval of a release is the release approval duty's alone: a
+ * label that any human (clients and viewers included), named members or the holders of another duty
+ * may set does not pass a release gate. Labels that are not approvals, such as "PR merged", are free.
+ */
+export function releaseGateAccepts(label: Pick<LabelDefinition, 'setBy'>): boolean {
+  return !isHumanOnlyLabel(label) || isReleaseApprovalLabel(label);
+}
+
 /** Why an actor may not add or remove a label. */
 export const LabelRefusal = z.enum(['system_only', 'humans_only', 'not_holder', 'self_review']);
 export type LabelRefusal = z.infer<typeof LabelRefusal>;

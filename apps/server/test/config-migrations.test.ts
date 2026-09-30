@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ProjectConfig, validateProjectConfig } from '@projectman/shared';
+import { isToleratedOnLoad, ProjectConfig, validateProjectConfig } from '@projectman/shared';
 import { DAILY_WORKER_SCHEDULE } from '@projectman/templates';
 import { migrateProjectConfig } from '../src/config/migrations';
 import { testConfig } from './helpers/test-template';
@@ -7,7 +7,7 @@ import { testConfig } from './helpers/test-template';
 /** The test configuration as a plain object, as it comes out of the YAML files. */
 function raw(): {
   team: { members: Array<Record<string, unknown>> };
-  pipeline: { stages: Array<Record<string, unknown>>; labels: Array<{ id: string }> };
+  pipeline: { stages: Array<Record<string, unknown>>; labels: Array<{ id: string; setBy?: unknown }> };
 } {
   return JSON.parse(JSON.stringify(testConfig()));
 }
@@ -124,5 +124,130 @@ describe('project configuration migrations', () => {
     expect(migrated).toBe(legacy);
     expect(config.pipeline.stages.find((s) => s.id === 'code_review')!.kind).toBe('step');
     expect(validateProjectConfig(config).filter((issue) => issue.severity !== 'warning')).toEqual([]);
+  });
+});
+
+describe('release approval migration (decision 19)', () => {
+  const errorsOf = (config: ProjectConfig) =>
+    validateProjectConfig(config).filter((issue) => issue.severity !== 'warning');
+  const label = (config: { pipeline: { labels: Array<{ id: string; setBy?: unknown }> } }, id: string) =>
+    config.pipeline.labels.find((entry) => entry.id === id)!;
+  const releaseApproval = { duties: ['release_approval'], humansOnly: true };
+
+  it.each<[string, unknown]>([
+    ['every human', 'humans'],
+    ['a named member', { members: ['owner'], humansOnly: true }],
+    ['the holders of another duty', { duties: ['final_decision'], humansOnly: true }],
+    [
+      'the release approval duty and another',
+      { duties: ['release_approval', 'final_decision'], humansOnly: true },
+    ],
+    [
+      'the release approval duty and a named member',
+      { duties: ['release_approval'], members: ['owner'], humansOnly: true },
+    ],
+  ])('narrows a release approval that %s may set to the release approval duty', (_name, setBy) => {
+    const legacy = raw();
+    label(legacy, 'release-ok').setBy = setBy;
+    const { config, warn } = migrate(legacy);
+    expect(label(config, 'release-ok').setBy).toEqual(releaseApproval);
+    expect(errorsOf(config)).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      { projectKey: 'AR', label: 'release-ok', releaseStages: ['release'], otherStages: [], setBy },
+      'Narrowed release approval label to the release approval duty',
+    );
+  });
+
+  it('leaves the other labels, and so the approvals of other stages, as they are', () => {
+    const legacy = raw();
+    label(legacy, 'release-ok').setBy = 'humans';
+    const others = legacy.pipeline.labels.filter((entry) => entry.id !== 'release-ok');
+    const before = structuredClone(others);
+    const { migrated, warn } = migrate(legacy);
+    // The merge approval names the owner and stays so; the release gate's other label is the system's.
+    expect(label(legacy, 'merge-ok').setBy).toEqual({ members: ['owner'], humansOnly: true });
+    expect((migrated as typeof legacy).pipeline.labels.filter((entry) => entry.id !== 'release-ok')).toEqual(
+      before,
+    );
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('narrows a label that another stage requires too, and says which', () => {
+    const legacy = raw();
+    label(legacy, 'release-ok').setBy = { members: ['owner'], humansOnly: true };
+    const merge = legacy.pipeline.stages.find((stage) => stage.id === 'merge')!;
+    (merge.gate as { conditions: unknown[] }).conditions.push({ type: 'has_label', label: 'release-ok' });
+    const { config, warn } = migrate(legacy);
+    expect(label(config, 'release-ok').setBy).toEqual(releaseApproval);
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ label: 'release-ok', releaseStages: ['release'], otherStages: ['merge'] }),
+      'Narrowed release approval label to the release approval duty',
+    );
+  });
+
+  it('narrows the approval a legacy release gate named members for, after converting the gate', () => {
+    const legacy = raw();
+    legacy.pipeline.labels = legacy.pipeline.labels.filter((entry) => entry.id !== 'release-ok');
+    const release = legacy.pipeline.stages.find((stage) => stage.id === 'release')!;
+    release.gate = { conditions: [{ type: 'human_approval', approvers: ['owner'] }] };
+    const { config, warn } = migrate(legacy);
+    expect(config.pipeline.stages.find((stage) => stage.id === 'release')!.gate).toEqual({
+      conditions: [{ type: 'has_label', label: 'approval-release' }],
+    });
+    // The converted label named the owner; it now belongs to the release approval duty.
+    expect(label(config, 'approval-release').setBy).toEqual(releaseApproval);
+    expect(errorsOf(config)).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a label as it is when nobody holds the duty, so the project still loads', () => {
+    const legacy = raw();
+    legacy.team.members[0] = { ...legacy.team.members[0], roles: [] };
+    const setBy = { members: ['owner'], humansOnly: true };
+    label(legacy, 'release-ok').setBy = setBy;
+    const { config, warn } = migrate(legacy);
+    expect(label(config, 'release-ok').setBy).toEqual(setBy);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ projectKey: 'AR', label: 'release-ok', setBy }),
+      expect.stringContaining('nobody holds the duty'),
+    );
+    // What is left breaks only the rule a stored configuration may still break.
+    const errors = errorsOf(config);
+    expect(errors.map((issue) => issue.code)).toEqual(['release_approval_needs_duty']);
+    expect(errors.every(isToleratedOnLoad)).toBe(true);
+  });
+
+  it('is done once', () => {
+    const legacy = raw();
+    label(legacy, 'release-ok').setBy = 'humans';
+    const { migrated } = migrate(legacy);
+    const again = vi.fn();
+    expect(migrateProjectConfig(migrated, { projectKey: 'AR', logger: { warn: again } })).toBe(migrated);
+    expect(again).not.toHaveBeenCalled();
+  });
+
+  it('leaves what it cannot read to the schema', () => {
+    const gate = { conditions: [{ type: 'has_label', label: 'go' }] };
+    const warn = vi.fn();
+    for (const pipeline of [
+      undefined,
+      null,
+      {},
+      { stages: 'release', labels: [] },
+      { stages: [], labels: null },
+      {
+        stages: [7, { kind: 'release', gate: null }, { kind: 'release', gate: {} }],
+        labels: [],
+      },
+      { stages: [{ kind: 'release', gate }], labels: [null, 'go', [], { id: 7 }, { id: 'go', setBy: null }] },
+      { stages: [{ kind: 'release', gate }], labels: [{ id: 'go', setBy: { members: 'owner' } }] },
+    ]) {
+      const config = { team: { members: [] }, pipeline };
+      expect(migrateProjectConfig(config, { projectKey: 'AR', logger: { warn } })).toBe(config);
+    }
+    expect(migrateProjectConfig(null, { projectKey: 'AR', logger: { warn } })).toBeNull();
+    expect(warn).not.toHaveBeenCalled();
   });
 });

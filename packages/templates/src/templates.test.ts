@@ -1,8 +1,13 @@
 import { TEMPLATE_COLUMN_COLORS } from './templates/draft';
 import { describe, expect, it } from 'vitest';
 import {
+  isHumanOnlyLabel,
+  isReleaseApprovalLabel,
+  labelDefinition,
+  labelHolders,
   MemberHandle,
   ProjectConfig,
+  releaseGateAccepts,
   resolvedStages,
   stageOwners,
   validateProjectConfig,
@@ -145,6 +150,24 @@ describe('every template', () => {
       });
     });
 
+    it('releases behind the approval of the release approval duty, which the owner holds (decision 19)', () => {
+      for (const language of ['hu', 'en', 'de']) {
+        const config = template.build(input(language));
+        for (const stage of config.pipeline.stages.filter((s) => s.kind === 'release')) {
+          const required = (stage.gate?.conditions ?? [])
+            .filter((c) => c.type === 'has_label')
+            .map((c) => labelDefinition(config, c.label)!);
+          const approvals = required.filter(isHumanOnlyLabel);
+          expect(approvals.length, stage.id).toBeGreaterThan(0);
+          for (const label of required) expect(releaseGateAccepts(label), label.id).toBe(true);
+          for (const label of approvals) {
+            expect(isReleaseApprovalLabel(label), label.id).toBe(true);
+            expect(labelHolders(config, label), label.id).toEqual(['owner']);
+          }
+        }
+      }
+    });
+
     it('is summarized with i18n keys and counts', () => {
       const config = template.build(input('en'));
       expect(summarizeTemplate(template)).toEqual({
@@ -207,6 +230,16 @@ describe('web-client-project', () => {
       ],
       ['done', 'done', [], [], 'done'],
     ]);
+  });
+
+  it('is the template with a release stage, so the release approval checks above are not vacuous', () => {
+    expect(templates.filter((t) => build(t.id).pipeline.stages.some((s) => s.kind === 'release'))).toEqual([
+      getTemplate('web-client-project'),
+    ]);
+    expect(labelDefinition(config, 'release-approved')!.setBy).toEqual({
+      duties: ['release_approval'],
+      humansOnly: true,
+    });
   });
 
   it('uses display names from the project language', () => {

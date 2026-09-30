@@ -2,8 +2,8 @@ import { existsSync } from 'node:fs';
 import { lstat, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
-import { ProjectConfig, validateProjectConfig } from '@projectman/shared';
-import type { ConfigVersionEntry } from '@projectman/shared';
+import { isToleratedOnLoad, ProjectConfig, validateProjectConfig } from '@projectman/shared';
+import type { ConfigIssue, ConfigVersionEntry } from '@projectman/shared';
 import type { ConfigStore } from '../contracts';
 import { ConfigStoreError } from './errors';
 import { runGit } from './git';
@@ -55,8 +55,17 @@ function assertKey(key: string): void {
   if (!PROJECT_KEY_RE.test(key)) throw new ConfigStoreError('invalid_key', `invalid project key: ${key}`);
 }
 
-/** Parses and validates a merged configuration object (schema + invariants). */
-function validate(raw: unknown, expectedKey: string): ProjectConfig {
+/**
+ * Parses and validates a merged configuration object (schema + invariants). A configuration that
+ * is read back from storage reports the errors it may still carry (`isToleratedOnLoad`, rules
+ * added after it was written) to `tolerated` instead of failing; a change (a save, a revert) may
+ * carry none.
+ */
+function validate(
+  raw: unknown,
+  expectedKey: string,
+  tolerated?: (issue: ConfigIssue) => void,
+): ProjectConfig {
   const parsed = ProjectConfig.safeParse(raw);
   if (!parsed.success) {
     throw new ConfigStoreError('invalid_config', 'configuration does not match the schema', {
@@ -69,9 +78,12 @@ function validate(raw: unknown, expectedKey: string): ProjectConfig {
     });
   }
   const issues = validateProjectConfig(parsed.data);
-  if (issues.some((issue) => issue.severity !== 'warning')) {
+  const errors = issues.filter((issue) => issue.severity !== 'warning');
+  const kept = tolerated ? errors.filter(isToleratedOnLoad) : [];
+  if (errors.length > kept.length) {
     throw new ConfigStoreError('invalid_config', 'configuration violates the team invariants', { issues });
   }
+  kept.forEach((issue) => tolerated?.(issue));
   return parsed.data;
 }
 
@@ -160,9 +172,28 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
     }
   }
 
-  /** Merges, migrates (older shapes) and validates the parsed files of a project. */
-  function toConfig(key: string, files: Record<ProjectFileName, unknown>): ProjectConfig {
-    return validate(migrateProjectConfig(mergeProjectFiles(files), { projectKey: key, logger }), key);
+  /**
+   * Merges, migrates (older shapes) and validates the parsed files of a project. The working tree
+   * is stored configuration: it loads with the errors it may still carry, which are logged (every
+   * change refuses them). An earlier version is read to be restored, which is a change.
+   */
+  function toConfig(
+    key: string,
+    files: Record<ProjectFileName, unknown>,
+    source: 'stored' | 'change',
+  ): ProjectConfig {
+    const migrated = migrateProjectConfig(mergeProjectFiles(files), { projectKey: key, logger });
+    return validate(
+      migrated,
+      key,
+      source === 'stored'
+        ? (issue) =>
+            logger.warn(
+              { projectKey: key, code: issue.code, path: issue.path, detail: issue.detail },
+              'Loaded a stored configuration that breaks a rule added later; changes are refused until it is fixed',
+            )
+        : undefined,
+    );
   }
 
   async function readWorkingTree(key: string): Promise<Record<ProjectFileName, unknown>> {
@@ -205,7 +236,7 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
       contents[file] = show.stdout;
       parsed[file] = parseYamlFile(file, show.stdout);
     }
-    return { commitId, contents, config: toConfig(key, parsed) };
+    return { commitId, contents, config: toConfig(key, parsed, 'change') };
   }
 
   return {
@@ -232,7 +263,7 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
         if (!existsSync(join(rootDir, projectPath(projectKey), 'project.yaml'))) {
           throw new ConfigStoreError('not_found', `no configuration for project ${projectKey}`);
         }
-        const config = toConfig(projectKey, await readWorkingTree(projectKey));
+        const config = toConfig(projectKey, await readWorkingTree(projectKey), 'stored');
         return { config, version: await projectVersion(projectKey) };
       });
     },

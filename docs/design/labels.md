@@ -69,17 +69,17 @@ Gate conditions shrink to two types:
 
 A blocking label adds an implicit `lacks_label` to every forward move. The other condition types become labels:
 
-| Today              | With labels                                                                                                                                                                              |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `check_passed: qa` | `has_label: qa-ok`                                                                                                                                                                       |
-| `pr_merged`        | `has_label: pr-merged`, a `system` label kept in sync by the GitHub integration                                                                                                          |
-| `human_approval`   | `has_label: release-approved`, where the label is `setBy: { humans: true, duties: [release_approval] }`, `clearedWhen: [moved_back, pr_updated]`, and `notByAuthor` when four eyes is on |
+| Today              | With labels                                                                                                                                                                                  |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `check_passed: qa` | `has_label: qa-ok`                                                                                                                                                                           |
+| `pr_merged`        | `has_label: pr-merged`, a `system` label kept in sync by the GitHub integration                                                                                                              |
+| `human_approval`   | `has_label: release-approved`, where the label is `setBy: { duties: [release_approval], humansOnly: true }`, `clearedWhen: [moved_back, pr_updated]`, and `notByAuthor` when four eyes is on |
 
 When a move is refused, the reply names the missing labels and who may set them. For a label only certain humans may set, the move opens an inbox request for them: "Rád vár: Élesítés jóváhagyása". Approving applies the label, with an optional comment. Rejecting requires a comment. The inbox stays the place where humans are asked, but the decision itself is simply a label.
 
 ## Invariants (enforced by config validation and the server)
 
-- **An AI never sets a label whose `setBy` is human-only.** Every `release` stage gate must require at least one such label, settable only by holders of the `release_approval` duty. This keeps today's "releases happen only on a human decision".
+- **An AI never sets a label whose `setBy` is human-only.** Every `release` stage gate must require at least one such label, and every human-only label it requires is settable only by holders of the `release_approval` duty: `setBy: { duties: [release_approval], humansOnly: true }`, no other duty and no named member (decision 19). A label any human may set does not pass a release gate. This keeps today's "releases happen only on a human decision".
 - **No orphan gates.** Every label a gate requires has at least one member able to set it, after `notByAuthor` is applied. Otherwise the config reports an error.
 - **Every change is visible.** Adding and removing labels are timeline events with an actor. The comment is linked, and automatic removal names its reason.
 

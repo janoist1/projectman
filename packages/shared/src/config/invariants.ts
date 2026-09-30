@@ -1,5 +1,6 @@
 import { DUTIES, DUTY_IDS } from '../domain/duty';
 import { dutyMembers } from './duties';
+import { gateAcceptsCondition } from './gates';
 import { labelDefinition, labelHolders } from './labels';
 import { isHumanOnlyLabel } from '../domain/label';
 import { DEFAULT_AGENT_PROVIDER } from '../domain/member';
@@ -19,10 +20,13 @@ export interface ConfigIssue {
     | 'duplicate_label'
     | 'missing_label_setter'
     | 'release_without_human_approval'
+    | 'release_approval_needs_duty'
     | 'unknown_column'
+    | 'duplicate_column'
     | 'first_stage_not_queue'
     | 'last_stage_not_done'
     | 'duplicate_stage'
+    | 'duplicate_repo'
     | 'sponsor_not_human'
     | 'codex_bypass_not_allowed'
     | 'unknown_role'
@@ -43,12 +47,14 @@ export interface ConfigIssue {
  *   members; sponsors are humans;
  * - an AI member's permission mode is one its provider allows: a Codex member never runs in
  *   `bypassPermissions` (decision 19);
- * - stage and label ids are unique, every stage sits in an existing column, the first stage is
- *   a queue and the last one done;
+ * - repository names, column ids, stage ids and label ids are unique, every stage sits in an
+ *   existing column, the first stage is a queue and the last one done;
  * - every label a gate requires is defined and, unless the system sets it, someone may set it;
  *   stage and gate duties have holders;
  * - every release stage requires an approval: a label only humans may set (so an AI can never
- *   approve), with at least one human who may set it;
+ *   approve), with at least one human who may set it; and the approval of a release is the release
+ *   approval duty's alone (decision 19), so a label any human, named members or another duty's
+ *   holders may set is refused on a release gate;
  * - every role a member holds (and the temp workers' role) is a built-in or custom role that
  *   the member's kind may hold; custom role ids are unique and never reuse a built-in id.
  * Unfilled recommended duties are warnings, never errors.
@@ -102,7 +108,19 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
     issues.push({ code: 'no_owner', path: 'team.members' });
   }
 
-  const columns = new Set(config.pipeline.columns.map((c) => c.id));
+  const repoNames = new Set<string>();
+  config.project.repos.forEach((repo, i) => {
+    if (repoNames.has(repo.name))
+      issues.push({ code: 'duplicate_repo', path: `project.repos[${i}].name`, detail: repo.name });
+    repoNames.add(repo.name);
+  });
+
+  const columns = new Set<string>();
+  config.pipeline.columns.forEach((column, i) => {
+    if (columns.has(column.id))
+      issues.push({ code: 'duplicate_column', path: `pipeline.columns[${i}].id`, detail: column.id });
+    columns.add(column.id);
+  });
   const stageIds = new Set<string>();
   config.pipeline.stages.forEach((stage, i) => {
     const path = `pipeline.stages[${i}]`;
@@ -132,6 +150,8 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
               issues.push({ code: 'missing_duty_holder', path: gatePath, detail: duty });
         issues.push({ code: 'missing_label_setter', path: gatePath, detail: label.id });
       }
+      if (!gateAcceptsCondition(stage, condition, label))
+        issues.push({ code: 'release_approval_needs_duty', path: gatePath, detail: label.id });
       if (isHumanOnlyLabel(label) && holders.length > 0) humanApproval = true;
     });
     if (stage.kind === 'release' && !humanApproval) {
@@ -162,4 +182,21 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
       issues.push({ code: 'recommended_duty_unfilled', severity: 'warning', path: 'team', detail: id });
   }
   return issues;
+}
+
+const TOLERATED_ON_LOAD: ReadonlySet<ConfigIssue['code']> = new Set([
+  'duplicate_repo',
+  'duplicate_column',
+  'release_approval_needs_duty',
+]);
+
+/**
+ * Whether a configuration read back from storage may still carry this error. These are rules added
+ * after configurations were written that no migration can repair without guessing: which of two
+ * repositories or columns with the same name is meant, who should hold the release approval duty.
+ * A stored configuration that breaks one still loads (the project stays usable and its owner can
+ * repair it), and every change refuses it like any other error. Every other error stops a load.
+ */
+export function isToleratedOnLoad(issue: Pick<ConfigIssue, 'code'>): boolean {
+  return TOLERATED_ON_LOAD.has(issue.code);
 }

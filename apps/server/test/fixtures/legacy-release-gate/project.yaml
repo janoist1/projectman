@@ -1,0 +1,14 @@
+# A fictional project as it was stored before labels: gates hold check_passed, pr_merged and
+# human_approval conditions, stages carry the old kind names, and there are no labels.
+schemaVersion: 1
+project:
+  key: LG
+  name: Acme legacy webshop
+  workspacePath: /tmp/acme-legacy
+  repos:
+    - name: web
+      path: .
+  language: en
+team:
+  limits:
+    maxConcurrentAi: 3

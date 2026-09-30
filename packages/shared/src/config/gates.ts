@@ -1,4 +1,5 @@
-import { isHumanOnlyLabel } from '../domain/label';
+import { isHumanOnlyLabel, releaseGateAccepts } from '../domain/label';
+import type { LabelDefinition } from '../domain/label';
 import type { GateCondition, Pipeline, Stage } from '../domain/pipeline';
 import type { Task } from '../domain/task';
 import { labelDefinition, labelHolders, labelSetters } from './labels';
@@ -62,6 +63,20 @@ export function stageApprovers(config: Pick<ProjectConfig, 'team' | 'pipeline'>,
     const label = c.type === 'has_label' ? labelDefinition(config, c.label) : undefined;
     return label && isHumanOnlyLabel(label) ? labelHolders(config, label) : [];
   });
+}
+
+/**
+ * Whether the gate of a stage may hold this condition on this label. The approval of a release is
+ * the release approval duty's alone (decision 19), so a release gate may not require a label that
+ * other humans may set (`releaseGateAccepts`). Forbidding a label is no approval, and the gates of
+ * other stages take any label.
+ */
+export function gateAcceptsCondition(
+  stage: Pick<Stage, 'kind'>,
+  condition: Pick<GateCondition, 'type'>,
+  label: Pick<LabelDefinition, 'setBy'>,
+): boolean {
+  return stage.kind !== 'release' || condition.type !== 'has_label' || releaseGateAccepts(label);
 }
 
 /** At least one linked PR is merged and none is still open (closed ones are ignored). */

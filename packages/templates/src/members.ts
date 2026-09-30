@@ -89,3 +89,20 @@ export function uniqueHandle(base: string, taken: ReadonlySet<string>): string {
     if (!taken.has(`${base}-${n}`)) return `${base}-${n}`;
   }
 }
+
+/**
+ * A handle for a new human member, from their name without diacritics ("Zoe Smith" ->
+ * "zoe-smith"), not in `taken`. Pass past members' handles too: a handle never reuses a former
+ * member's identity.
+ */
+export function humanMemberHandle(name: string, taken: ReadonlySet<string>): string {
+  const base =
+    name
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 24) || 'member';
+  return uniqueHandle(base, taken);
+}

@@ -15,9 +15,12 @@ import {
   defaultMemberName,
   en,
   getLocale,
+  getTemplate,
   hu,
+  humanMemberHandle,
   roleHandleStem,
   roleName,
+  roleViews,
   uniqueHandle,
   type TemplateLocale,
 } from './index';
@@ -166,6 +169,39 @@ describe('defaultMemberHandle', () => {
 
   it('keeps free handles as they are', () => {
     expect(uniqueHandle('devops', new Set(['owner']))).toBe('devops');
+  });
+});
+
+describe('humanMemberHandle', () => {
+  it('derives a handle from the name without diacritics and never reuses a taken one', () => {
+    const name = `Zo${String.fromCodePoint(0xeb)} Smith`;
+    expect(humanMemberHandle(name, new Set())).toBe('zoe-smith');
+    expect(humanMemberHandle(name, new Set(['zoe-smith', 'zoe-smith-2']))).toBe('zoe-smith-3');
+    expect(humanMemberHandle('!!!', new Set())).toBe('member');
+  });
+});
+
+describe('roleViews', () => {
+  it('lists the built-in roles in the project language, then the custom roles', () => {
+    const config = getTemplate('small-team')!.build({
+      key: 'EX',
+      name: 'Example',
+      workspacePath: '/tmp/example',
+      language: 'hu',
+      owner: { handle: 'owner', displayName: 'Owner', email: 'owner@example.com' },
+    });
+    config.team.roles.push(dataSteward);
+    config.team.roleOverrides = { developer: { duties: ['implementation', 'docs'], instructions: '' } };
+    const views = roleViews(config);
+    expect(views.map((view) => view.id)).toEqual([...BUILT_IN_ROLE_IDS, dataSteward.id]);
+    expect(views.find((view) => view.id === 'qa')).toMatchObject({ name: hu.roles.qa.name, builtIn: true });
+    expect(views.find((view) => view.id === 'developer')?.duties).toEqual(['implementation', 'docs']);
+    expect(views.at(-1)).toMatchObject({
+      name: dataSteward.name,
+      holders: 'both',
+      instructions: dataSteward.instructions,
+      builtIn: false,
+    });
   });
 });
 

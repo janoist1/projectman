@@ -1,4 +1,4 @@
-import { evaluateMove, gateRequestOf, stageIndex, stageOf } from '@projectman/shared';
+import { evaluateMove, gateRequestOf, noApproverReason, stageIndex, stageOf } from '@projectman/shared';
 import type {
   Actor,
   ApprovalRequirement,
@@ -101,7 +101,7 @@ export class TaskMoves {
     const evaluation = evaluateMove(task, config, task.stageId, target.id);
     if (evaluation.unmet.length > 0) throw gateBlockedError(evaluation);
     if (evaluation.approvals.length > 0) {
-      const requested = this.requestApproval(task, target, evaluation.approvals, actor);
+      const requested = this.requestApproval(config, task, target, evaluation.approvals, actor);
       return { task: requested.task, moved: false, pendingApproval: requested.items };
     }
     return {
@@ -194,6 +194,7 @@ export class TaskMoves {
 
   /** Opens one decision per missing approval (or finds the open request) and marks the task waiting. */
   private requestApproval(
+    config: ProjectConfig,
     task: Task,
     target: Stage,
     approvals: ApprovalRequirement[],
@@ -202,8 +203,15 @@ export class TaskMoves {
     const open = this.inbox.openGateRequests(task.projectKey, task.key, task.stageId, target.id);
     if (open.length > 0) return { task, items: open };
 
-    if (approvals.some((req) => req.approvers.length === 0))
-      throw conflict('release_four_eyes', 'no independent human approver is available');
+    for (const req of approvals) {
+      if (req.approvers.length > 0) continue;
+      // Nobody may give it: the holders authored the task, or nobody holds the label.
+      const reason = noApproverReason(config, req.label, task) ?? 'missing_duty_holder';
+      throw conflict(reason, `nobody may approve the label ${req.label} on this task`, {
+        stageId: req.stageId,
+        label: req.label,
+      });
+    }
     const requestId = newId('gat');
     const items = approvals.map((req) => {
       const payload: GateRequestPayload = {

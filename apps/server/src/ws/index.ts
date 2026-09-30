@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { ClientCommand, routes } from '@projectman/shared';
-import type { HumanAccess, ServerEvent } from '@projectman/shared';
+import type { ErrorCode, HumanAccess, ServerEvent } from '@projectman/shared';
 import { sameOrigin } from '../auth/local-request';
 import type { AuthService, AuthUser } from '../auth/auth-service';
 import type { Domain } from '../domain';
@@ -21,6 +21,9 @@ interface WsSocket {
 
 const OPEN = 1;
 const POLICY_VIOLATION = 1008;
+
+/** A command's refusal: the error code is the message. */
+const errorEvent = (code: ErrorCode): ServerEvent => ({ type: 'error', message: code });
 
 interface Client {
   socket: WsSocket;
@@ -115,14 +118,14 @@ export function registerWebsocket(
     try {
       command = ClientCommand.parse(JSON.parse(messageText(data)));
     } catch {
-      send(client, { type: 'error', message: 'invalid_command' });
+      send(client, errorEvent('invalid_command'));
       return;
     }
     try {
       switch (command.type) {
         case 'subscribe_project': {
           const access = await domain.accessFor(command.projectKey, client.user.email);
-          if (!access) send(client, { type: 'error', message: 'not_a_member' });
+          if (!access) send(client, errorEvent('not_a_member'));
           else client.projects.add(command.projectKey);
           return;
         }
@@ -156,7 +159,7 @@ export function registerWebsocket(
     } catch (err) {
       if (!(err instanceof DomainError))
         app.log.error({ err, command: command.type }, 'websocket command failed');
-      send(client, { type: 'error', message: err instanceof DomainError ? err.code : 'internal_error' });
+      send(client, errorEvent(err instanceof DomainError ? err.code : 'internal_error'));
     }
   };
 

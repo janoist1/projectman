@@ -2,6 +2,7 @@ import { memberOf } from '@projectman/shared';
 import type {
   Actor,
   AiMemberConfig,
+  ErrorCode,
   HumanAccess,
   HumanMemberConfig,
   MemberConfig,
@@ -26,7 +27,7 @@ export function hasAccess(access: HumanAccess, minimum: HumanAccess): boolean {
 
 /** A refusal other than the default 403 insufficient_access "requires <minimum> access". */
 export interface AccessRefusal {
-  code?: string;
+  code?: ErrorCode;
   message?: string;
 }
 

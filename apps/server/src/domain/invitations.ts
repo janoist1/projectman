@@ -162,16 +162,12 @@ export class InvitationService {
       if (existing && caller?.id !== existing.id)
         throw conflict('login_required', 'log in as the account for the invited email');
       if (existing && !AcceptInviteRequest.safeParse(body ?? {}).success)
-        throw new DomainError('invalid_request', 'invalid invitation acceptance body', { status: 400 });
+        throw invalid('invalid_request', 'invalid invitation acceptance body');
       let user = existing;
       if (!user) {
         const input = AcceptInviteRequest.required().safeParse(body ?? {});
         if (!input.success)
-          throw new DomainError(
-            'invalid_request',
-            'name and a password of at least eight characters are required',
-            { status: 400 },
-          );
+          throw invalid('invalid_request', 'name and a password of at least eight characters are required');
         user = await this.accounts.prepareUser({ ...input.data, email: invite.email });
       }
       const account = user;

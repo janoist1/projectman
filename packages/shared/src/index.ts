@@ -11,6 +11,7 @@ export * from './config/schema';
 export * from './config/invariants';
 export * from './api/dto';
 export * from './api/routes';
+export * from './api/error-codes';
 export * from './ws/protocol';
 export * from './domain/role';
 export * from './domain/duty';

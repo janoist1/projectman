@@ -2,6 +2,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { ERROR_CODES } from '@projectman/shared';
 import { hu } from '../../web/src/i18n/hu';
 
 const serverSources = fileURLToPath(new URL('../src/', import.meta.url));
@@ -19,6 +20,10 @@ async function sourceFiles(directory: string): Promise<string[]> {
   return files.flat();
 }
 
+/**
+ * Codes the server sources name where they raise errors. The compiler checks them against
+ * ErrorCode already; this also catches a code smuggled in with a cast.
+ */
 async function serverErrorCodes(): Promise<Set<string>> {
   const codes = new Set<string>();
   const files = await sourceFiles(serverSources);
@@ -32,36 +37,37 @@ async function serverErrorCodes(): Promise<Set<string>> {
   for (const [index, filename] of files.entries()) {
     const source = sources[index]!;
     for (const match of source.matchAll(
-      /\b(?:conflict|invalid|forbidden|DomainError|apiError)\(\s*([A-Z_]+)\b/g,
+      /\b(?:conflict|invalid|forbidden|unavailable|DomainError|apiError|errorEvent)\(\s*([A-Z_]+)\b/g,
     )) {
       expect(constants.has(match[1]!), `Unresolved error constant: ${match[1]}`).toBe(true);
       codes.add(constants.get(match[1]!)!);
     }
     // Helpers and route responses declare their stable code as the first argument.
     for (const match of source.matchAll(
-      /\b(?:conflict|invalid|forbidden|DomainError|apiError)\(\s*['"]([a-z_]+)['"]/g,
+      /\b(?:conflict|invalid|forbidden|unavailable|DomainError|apiError|errorEvent)\(\s*['"]([a-z_]+)['"]/g,
     )) {
       codes.add(match[1]!);
     }
-    // Include framework mappings, status fallbacks and dynamic scheduled-run fallbacks.
-    if (filename.endsWith('/api/errors.ts') || filename.endsWith('/api/schedules.ts')) {
+    // Framework mappings and status fallbacks.
+    if (filename.endsWith('/api/errors.ts')) {
       for (const match of source.matchAll(/['"]([a-z]+(?:_[a-z]+)+)['"]/g)) codes.add(match[1]!);
-    }
-    // WebSocket errors carry their code in message rather than ApiError.code.
-    for (const match of source.matchAll(/type:\s*['"]error['"],\s*message:\s*['"]([a-z_]+)['"]/g)) {
-      codes.add(match[1]!);
     }
   }
   return codes;
 }
 
-describe('server error translations', () => {
-  it('provides a Hungarian message for every source-declared REST and WebSocket error code', async () => {
+describe('server error codes', () => {
+  it('provides a Hungarian message for every error code the server may answer with', () => {
+    const messages: Record<string, string> = hu.errors.codes;
+    expect(ERROR_CODES.filter((code) => !messages[code]?.trim())).toEqual([]);
+  });
+
+  it('raises only codes of the shared list', async () => {
     const codes = await serverErrorCodes();
     expect(codes.has('gate_blocked')).toBe(true);
     expect(codes.has('invalid_command')).toBe(true);
     expect(codes.has('unsupported_media_type')).toBe(true);
-    const messages: Record<string, string> = hu.errors.codes;
-    expect([...codes].filter((code) => !messages[code]?.trim()).sort()).toEqual([]);
+    const known = new Set<string>(ERROR_CODES);
+    expect([...codes].filter((code) => !known.has(code)).sort()).toEqual([]);
   });
 });

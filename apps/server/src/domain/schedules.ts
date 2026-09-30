@@ -1,7 +1,7 @@
 import { cronMatches, nextCronRun, ScheduleSkipReason } from '@projectman/shared';
 import type { ScheduleRun, SchedulesView } from '@projectman/shared';
 import type { DomainContext } from './context';
-import { DomainError, invalid, notFound } from './errors';
+import { conflict, DomainError, invalid, notFound, unavailable } from './errors';
 import type { ProjectService } from './projects';
 import type { Scheduler } from './scheduler';
 import type { SessionOrchestrator } from './sessions';
@@ -151,7 +151,7 @@ export class ScheduleService {
 
   async runNow(projectKey: string, handle: string): Promise<ScheduleRun> {
     const run = await this.run(projectKey, handle, this.deps.ctx.now().toISOString(), false);
-    if (!run) throw invalid('server_stopping', 'Schedule service is stopping');
+    if (!run) throw unavailable('server_stopping', 'Schedule service is stopping');
     return run;
   }
 
@@ -196,9 +196,9 @@ export class ScheduleService {
             .list(projectKey, { member: handle })
             .some((s) => s.workItem.type === 'schedule' && sessions.isRunning(s.id))
         )
-          throw new DomainError('previous_run_live', 'Previous scheduled run is still live', { status: 409 });
+          throw conflict('previous_run_live', 'Previous scheduled run is still live');
         if (scheduler.memberLoad(projectKey, handle) >= member.capacity)
-          throw new DomainError('member_at_capacity', 'Member is at capacity', { status: 409 });
+          throw conflict('member_at_capacity', 'Member is at capacity');
         await scheduler.assertCanStartAiWork(config, member.provider);
         const { session } = await sessions.ensureSession(projectKey, handle, {
           type: 'schedule',

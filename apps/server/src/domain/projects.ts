@@ -90,9 +90,9 @@ function fromConfigError(err: unknown): never {
       case 'not_found':
         throw new DomainError('not_found', err.message, { status: 404 });
       case 'unknown_version':
-        throw new DomainError('unknown_version', err.message, { status: 400 });
+        throw invalid('unknown_version', err.message);
       case 'invalid_key':
-        throw new DomainError('invalid_request', err.message, { status: 400 });
+        throw invalid('invalid_request', err.message);
     }
   }
   throw err;
@@ -410,7 +410,7 @@ export class ProjectService {
     const member = memberOf(previous, meta.actor.handle);
     if (meta.actor.kind !== 'system') {
       if (meta.actor.kind !== 'human' || member?.kind !== 'human')
-        throw forbidden('owner_only', 'AI cannot change configuration');
+        throw forbidden('insufficient_access', 'only human members may change the configuration');
       ProjectService.assertChangeAllowed(previous, next, member.access, meta.invitationBinding);
     } else {
       ProjectService.assertChangeAllowed(previous, next, 'admin');

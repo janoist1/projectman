@@ -1,12 +1,12 @@
 import type { FastifyInstance } from 'fastify';
-import type { ApiError } from '@projectman/shared';
+import type { ApiError, ErrorCode } from '@projectman/shared';
 import { DomainError } from '../domain/errors';
 
-export function apiError(code: string, message: string, details?: unknown): ApiError {
+export function apiError(code: ErrorCode, message: string, details?: unknown): ApiError {
   return { error: { code, message, ...(details !== undefined ? { details } : {}) } };
 }
 
-const FASTIFY_CODES: Record<string, string> = {
+const FASTIFY_CODES: Record<string, ErrorCode> = {
   FST_ERR_CTP_INVALID_MEDIA_TYPE: 'unsupported_media_type',
   FST_ERR_CTP_BODY_TOO_LARGE: 'payload_too_large',
   FST_ERR_CTP_EMPTY_JSON_BODY: 'invalid_request',

@@ -94,3 +94,35 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     communication, final decision); AI instructions follow the duty. The kind is called
     `step` rather than the proposal's `check` so it is not mistaken for the removed checks.
     Configurations with the old kind names still load: they read as `step`.
+19. **The owner's answers to the review questions.** The 2026-09-30 code review left 15
+    questions (`ROADMAP.md`); the owner accepted every recommendation the same day:
+    - Clients: one visibility rule for REST and the websocket. Clients see progress (stage
+      moves) and messages addressed to them, not internal labels, check events or member
+      statuses.
+    - Capacity counts only the work a member is doing now, not finished sessions on open
+      tasks.
+    - A human writing to a stopped AI session resumes it past the concurrency, plan-usage and
+      capacity limits; only the master switch stops it.
+    - Deferred starts are rebuilt from SQLite when the server starts.
+    - Stage-owner notices typed into sessions are recorded where people can see them.
+    - Release approval needs the release approval duty; a label any human may set does not
+      pass a release gate.
+    - Codex members cannot run in `bypassPermissions` mode; routine steps in their own
+      worktree are allowed by the server's command rule (PM-77).
+    - Watchdog alerts, prioritisation questions and release news follow duties
+      (`monitoring`, `prioritization`, `client_communication`), not role names.
+    - The invariants refuse duplicate repository names and column ids.
+    - Clean-up: remove the unused fields, GitHub helpers and `PUT /config`; rename the
+      misleading names with a migration; rewrite legacy configuration and check formats once
+      and drop the converters. Reverting to a configuration from before labels need not work.
+20. **The live instance runs apart from development (PM-72).** Decided by the owner on
+    2026-09-30. The owner's instance runs a production build from its own checkout and is
+    updated only with the owner's approval; development builds (`npm run dev`, agent
+    worktrees) keep their data elsewhere (`~/.projectman-dev` by default). Merges no longer
+    restart the owner's instance or stop its AI sessions, and a newer build never migrates
+    the live database unasked. This is the precondition for projectman developing itself
+    (PM-51).
+21. **The integrating session pushes `main` after each verified merge.** Decided by the owner
+    on 2026-09-30 (review question 12). Cloud sessions then start from the current state.
+    Agents and workstreams still commit on their own branch and do not push. The repository
+    is public, so whatever reaches `main` is published.

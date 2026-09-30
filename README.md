@@ -35,9 +35,26 @@ npm run build && npm start
 ```
 
 Open http://localhost:4700 and create the owner account. Runtime data defaults to
-`~/.projectman` (override with `PROJECTMAN_HOME`). `npm run dev` is for development:
-server on port 4700, Vite on port 5173. Checks: `npm run typecheck`, `npm test` and `npm run smoke:prod`.
-Linux service setup, HTTPS verification and backups: [docs/DEPLOY.md](docs/DEPLOY.md).
+`~/.projectman` (override with `PROJECTMAN_HOME`). `npm run dev` is for development: server
+on port 4700, Vite on port 5173, data in `~/.projectman-dev` unless `PROJECTMAN_HOME` is set.
+Checks: `npm run typecheck`, `npm test` and `npm run smoke:prod`. Linux service setup, HTTPS
+verification and backups: [docs/DEPLOY.md](docs/DEPLOY.md).
+
+### Live instance next to development
+
+If you develop projectman on the machine that runs your team, keep the live instance in a
+checkout of its own. Merges then do not restart it or stop its AI sessions:
+
+```sh
+git clone https://github.com/janoist1/projectman.git ~/projectman-live
+cd ~/projectman-live && npm ci && npm run build
+PORT=4800 npm start
+```
+
+Open it at http://localhost:4800 and development instances at http://127.0.0.1:5173: the two
+hosts keep separate login cookies. To update, stop the server, run
+`git pull --ff-only && npm ci && npm run build`, and start it again. A restart stops running
+AI sessions; their conversations stay resumable.
 
 ## Open it on your phone
 

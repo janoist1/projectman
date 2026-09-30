@@ -74,11 +74,15 @@ npm test             # all workspaces
 npm run dev          # server (4700) + web (5173)
 ```
 
-`npm run dev` keeps its data in `~/.projectman` unless `PROJECTMAN_HOME` is set, the same
-place the owner's live instance uses. In an agent worktree set `PROJECTMAN_HOME` to a
-directory of its own: a database migrated by a newer build is refused by older ones.
+`npm run dev` keeps its data in `~/.projectman-dev` unless `PROJECTMAN_HOME` is set. The
+owner's live instance is a separate checkout (`~/projectman-live`, `npm start` on port 4800,
+data in `~/.projectman`), updated only with the owner's approval. Never run a development
+build against `~/.projectman`: a database migrated by a newer build is refused by older ones.
+Open development instances at `http://127.0.0.1:5173`; the live instance's login cookie is on
+`localhost`.
 
 ## Git
 
 English, imperative commit messages ("Add session runner state machine"). Commit your
-work on your branch; do not push.
+work on your branch; do not push. The integrating session merges verified work into `main`
+and pushes `main` (decision 21); the repository is public.

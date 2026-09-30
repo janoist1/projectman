@@ -1,7 +1,7 @@
 import { Button } from '../../components/Button';
 import { TextAreaField, TextField } from '../../components/Field';
 import { t } from '../../i18n/t';
-import styles from './HireDialog.module.css';
+import styles from './memberForm.module.css';
 
 export interface ScheduleDraft {
   enabled: boolean;

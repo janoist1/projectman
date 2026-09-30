@@ -13,7 +13,7 @@ import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { roleView } from '../../lib/roles';
 import styles from './RoleSection.module.css';
-import formStyles from './HireDialog.module.css';
+import formStyles from './memberForm.module.css';
 
 export function RoleForm({
   role,

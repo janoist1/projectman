@@ -9,7 +9,7 @@ import {
   CODEX_LABELS,
   PROVIDER_MODEL_LABELS,
 } from './providerModels';
-import styles from './HireDialog.module.css';
+import styles from './memberForm.module.css';
 
 /** Shared AI settings for hiring and editing, with live subscription login warnings. */
 export function ProviderFields({

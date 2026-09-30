@@ -14,7 +14,7 @@ import { errorMessage } from '../../lib/errors';
 import { ProviderFields } from './ProviderFields';
 import { ScheduleFields } from './ScheduleFields';
 import type { ScheduleDraft } from './ScheduleFields';
-import styles from './HireDialog.module.css';
+import styles from './memberForm.module.css';
 
 function EditMemberForm({
   member,

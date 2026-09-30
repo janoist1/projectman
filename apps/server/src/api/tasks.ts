@@ -12,7 +12,8 @@ import {
 import type { Task, TaskDetail } from '@projectman/shared';
 import type { Domain } from '../domain';
 import { conflict, isOpenTask, notFound } from '../domain';
-import { actorOf, authorOf, canSeeTask, detailFor, requireAccess, sponsorFor } from './context';
+import { canSeeTask, visibleTaskDetail } from '../domain/visibility';
+import { actorOf, authorOf, requireAccess, sponsorFor } from './context';
 import { parseBody } from './validation';
 
 type ProjectParams = { Params: { key: string } };
@@ -36,7 +37,7 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
     const access = await requireAccess(domain, request, key);
     const detail = domain.tasks.detail(key, taskKey);
     if (!canSeeTask(access, detail.task)) throw notFound('task', taskKey);
-    return detailFor(access, detail);
+    return visibleTaskDetail(access, detail);
   });
 
   /** A stage move is gated: 409 gate_blocked, or 409 approval_requested when approvers were asked. */

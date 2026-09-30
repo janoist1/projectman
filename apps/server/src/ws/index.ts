@@ -3,8 +3,9 @@ import { ClientCommand, routes } from '@projectman/shared';
 import type { HumanAccess, ServerEvent } from '@projectman/shared';
 import { sameOrigin } from '../auth/local-request';
 import type { AuthService, AuthUser } from '../auth/auth-service';
-import type { Domain, ProjectAccess } from '../domain';
+import type { Domain } from '../domain';
 import { DomainError, forbidden, hasAccess, notFound } from '../domain';
+import { canSeeProjectEvent } from '../domain/visibility';
 
 /** The part of the `ws` WebSocket API this module uses. */
 interface WsSocket {
@@ -30,26 +31,6 @@ interface Client {
   /** Sessions whose terminal this client is attached to. */
   terminals: Set<string>;
   alive: boolean;
-}
-
-type ProjectEvent = Exclude<ServerEvent, { type: 'hello' | 'error' | 'terminal_data' | 'terminal_snapshot' }>;
-
-/** Client members only receive what is shared with them. */
-function canSee(access: ProjectAccess, event: ProjectEvent): boolean {
-  if (access.access !== 'client') return true;
-  switch (event.type) {
-    case 'task_upserted':
-      return event.task.visibility === 'shared';
-    case 'inbox_upserted':
-      return event.item.assignees.includes(access.handle);
-    case 'team_message':
-      return event.message.from === access.handle || event.message.to.includes(access.handle);
-    case 'config_changed':
-    case 'member_changed':
-      return true;
-    default:
-      return false;
-  }
 }
 
 function messageText(data: unknown): string {
@@ -106,7 +87,7 @@ export function registerWebsocket(
             }
           } else if (client.projects.has(event.projectKey)) {
             const access = await domain.accessFor(event.projectKey, client.user.email).catch(() => null);
-            if (access && canSee(access, event)) send(client, event);
+            if (access && canSeeProjectEvent(access, event)) send(client, event);
             if (!access) client.projects.delete(event.projectKey);
           }
         }

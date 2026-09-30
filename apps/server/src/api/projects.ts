@@ -5,7 +5,8 @@ import type { BoardView, ProjectSummary, TemplateSummary } from '@projectman/sha
 import { summarizeTemplate } from '@projectman/templates';
 import type { Domain } from '../domain';
 import { forbidden } from '../domain/errors';
-import { authorOf, canSeeTask, currentUser, requireAccess } from './context';
+import { canSeeTask } from '../domain/visibility';
+import { authorOf, currentUser, requireAccess } from './context';
 import { parseBody } from './validation';
 
 type ProjectParams = { Params: { key: string } };

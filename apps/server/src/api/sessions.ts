@@ -10,7 +10,8 @@ import {
 import type { Session, SessionDetail, TeamMessagesView } from '@projectman/shared';
 import { forbidden, notFound } from '../domain';
 import type { Domain } from '../domain';
-import { canSeeTask, requireAccess } from './context';
+import { canSeeTask, teamMessageMember } from '../domain/visibility';
+import { requireAccess } from './context';
 import { parseBody } from './validation';
 
 type ProjectParams = { Params: { key: string } };
@@ -77,12 +78,10 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
     const key = request.params.key;
     const access = await requireAccess(domain, request, key);
     const query = parseBody(MessagesQuery, request.query);
-    // Client members only see messages they are part of.
-    const member = access.access === 'client' ? access.handle : query.member;
     return {
       messages: domain.messages.list(key, {
         taskKey: query.taskKey,
-        member,
+        member: teamMessageMember(access, query.member),
         between: query.threadWith ? [access.handle, query.threadWith] : undefined,
         limit: query.limit,
         unreadFor: query.unreadOnly === 'true' ? access.handle : undefined,

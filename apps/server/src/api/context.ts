@@ -1,5 +1,5 @@
 import type { FastifyRequest } from 'fastify';
-import type { Actor, HumanAccess, Task, TaskDetail } from '@projectman/shared';
+import type { Actor, HumanAccess } from '@projectman/shared';
 import type { AuthUser } from '../auth/auth-service';
 import type { Domain, ProjectAccess } from '../domain';
 import { DomainError, forbidden, hasAccess, humanActor, notFound, ownerHandles } from '../domain';
@@ -49,24 +49,4 @@ export async function sponsorFor(domain: Domain, access: ProjectAccess): Promise
 export function authorOf(request: FastifyRequest): Author {
   const user = currentUser(request);
   return { name: user.name, email: user.email };
-}
-
-/** Internal tasks are hidden from client members. */
-export function canSeeTask(access: ProjectAccess, task: Task): boolean {
-  return access.access !== 'client' || task.visibility === 'shared';
-}
-
-const CLIENT_TIMELINE = new Set(['task_created', 'task_stage_changed', 'task_check_changed']);
-
-/** What a client member may see of a task: the task and its main milestones. */
-export function detailFor(access: ProjectAccess, detail: TaskDetail): TaskDetail {
-  if (access.access !== 'client') return detail;
-  return {
-    task: detail.task,
-    parent: detail.parent && canSeeTask(access, detail.parent) ? detail.parent : null,
-    subtasks: detail.subtasks?.filter((task) => canSeeTask(access, task)),
-    pullRequests: detail.pullRequests,
-    timeline: detail.timeline.filter((e) => CLIENT_TIMELINE.has(e.type)),
-    sessions: [],
-  };
 }

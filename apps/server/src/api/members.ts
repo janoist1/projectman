@@ -13,7 +13,8 @@ import {
 import type { MemberProfile, MemberView } from '@projectman/shared';
 import { notFound, forbidden } from '../domain';
 import type { Domain } from '../domain';
-import { actorOf, authorOf, canSeeTask, requireAccess, sponsorFor } from './context';
+import { canSeeTask } from '../domain/visibility';
+import { actorOf, authorOf, requireAccess, sponsorFor } from './context';
 import { parseBody } from './validation';
 
 type ProjectParams = { Params: { key: string } };

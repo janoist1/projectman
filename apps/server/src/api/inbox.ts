@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { InboxKind, InboxState, ResolveInboxRequest, routes } from '@projectman/shared';
 import type { InboxItem, InboxView } from '@projectman/shared';
 import type { Domain } from '../domain';
+import { canSeeInboxItem } from '../domain/visibility';
 import { requireAccess } from './context';
 import { parseBody } from './validation';
 
@@ -23,10 +24,10 @@ export function registerInboxRoutes(app: FastifyInstance, domain: Domain): void 
     const access = await requireAccess(domain, request, key);
     const query = parseBody(InboxQuery, request.query);
     const state = query.state === 'all' ? undefined : (query.state ?? 'open');
-    const mine = query.mine === 'true' || query.mine === '1' || access.access === 'client';
+    const mine = query.mine === 'true' || query.mine === '1';
     const items = domain.inbox
       .list(key, { state, kind: query.kind, limit: 500 })
-      .filter((item) => !mine || item.assignees.includes(access.handle));
+      .filter((item) => canSeeInboxItem(access, item) && (!mine || item.assignees.includes(access.handle)));
     return { items };
   });
 

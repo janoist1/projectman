@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ChangeTaskLabelsRequest, routes, TaskDetail } from '@projectman/shared';
-import { cookieOf, createAppHarness, createProject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
+import {
+  addHumanAndLogin,
+  createAppHarness,
+  createProject,
+  OWNER_LOGIN,
+  setupOwner,
+} from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { OWNER_ACTOR } from './helpers/domain-harness';
 
@@ -12,42 +18,27 @@ describe('task labels API', () => {
     h = await createAppHarness();
     owner = await setupOwner(h.app);
     await createProject(h, owner);
-    const { domain, repos } = h.app.projectman;
-    repos.users.insert({
-      id: 'qa-user',
+    qa = await addHumanAndLogin(h.app, {
+      handle: 'tester',
       name: 'Tester',
-      email: 'tester@acme.test',
-      passwordHash: repos.users.findByEmail(OWNER_LOGIN.email)!.passwordHash,
-      createdAt: new Date().toISOString(),
+      roles: ['qa'],
+      adjust: (draft) => {
+        const qaRule = { group: 'qa', setBy: { duties: ['testing_acceptance' as const] }, notByAuthor: true };
+        draft.pipeline.labels.push(
+          { id: 'qa-ok', name: 'QA ok', ...qaRule },
+          { id: 'qa-failed', name: 'QA failed', ...qaRule, requiresComment: true },
+          { id: 'client-ok', name: 'Client ok', setBy: { duties: ['testing_acceptance'] } },
+        );
+        draft.pipeline.stages.find((stage) => stage.id === 'merge')!.gate = {
+          conditions: [{ type: 'has_label', label: 'qa-ok' }],
+        };
+      },
     });
-    await domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER_LOGIN }, (draft) => {
-      draft.team.members.push({
-        kind: 'human',
-        handle: 'tester',
-        displayName: 'Tester',
-        access: 'developer',
-        roles: ['qa'],
-        email: 'tester@acme.test',
-      });
-      const qaRule = { group: 'qa', setBy: { duties: ['testing_acceptance' as const] }, notByAuthor: true };
-      draft.pipeline.labels.push(
-        { id: 'qa-ok', name: 'QA ok', ...qaRule },
-        { id: 'qa-failed', name: 'QA failed', ...qaRule, requiresComment: true },
-        { id: 'client-ok', name: 'Client ok', setBy: { duties: ['testing_acceptance'] } },
-      );
-      draft.pipeline.stages.find((stage) => stage.id === 'merge')!.gate = {
-        conditions: [{ type: 'has_label', label: 'qa-ok' }],
-      };
-      return 'Add a human QA holder and a QA gate';
-    });
-    qa = cookieOf(
-      await h.app.inject({
-        method: 'POST',
-        url: routes.login(),
-        payload: { email: 'tester@acme.test', password: OWNER_LOGIN.password },
-      }),
+    await h.app.projectman.domain.tasks.create(
+      'AR',
+      { title: 'Acme checkout', stageId: 'code_review' },
+      OWNER_ACTOR,
     );
-    await domain.tasks.create('AR', { title: 'Acme checkout', stageId: 'code_review' }, OWNER_ACTOR);
   });
   afterEach(async () => h.close());
   const change = (body: unknown, cookie = qa) =>

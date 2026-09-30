@@ -18,17 +18,14 @@ import { ConfigStoreError, createConfigStore } from '../src/config';
 import { runGit } from '../src/config/git';
 import type { GitConfigStore } from '../src/config';
 import { testConfig } from './helpers/test-template';
+import { rejection } from './helpers/errors';
 
 const author = { name: 'Owner Person', email: 'owner@example.com' };
 
 async function expectConfigError(promise: Promise<unknown>, code: string): Promise<ConfigStoreError> {
-  const err = await promise.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(err).toBeInstanceOf(ConfigStoreError);
-  expect((err as ConfigStoreError).code).toBe(code);
-  return err as ConfigStoreError;
+  const err = await rejection(promise, ConfigStoreError);
+  expect(err.code).toBe(code);
+  return err;
 }
 
 describe('ConfigStore (customization repository)', () => {

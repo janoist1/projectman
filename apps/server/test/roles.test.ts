@@ -4,8 +4,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BUILT_IN_ROLE_IDS, CustomRoleDefinition } from '@projectman/shared';
 import type { AiMemberConfig, HumanMemberConfig } from '@projectman/shared';
 import { aiRoleDefaults, en, hu } from '@projectman/templates';
-import { DomainError } from '../src/domain';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
+import { rejection } from './helpers/errors';
 import type { DomainHarness } from './helpers/domain-harness';
 
 const by = { actor: OWNER_ACTOR, author: OWNER };
@@ -19,15 +19,6 @@ const dataSteward = CustomRoleDefinition.parse({
   holders: 'both',
   instructions: 'Check the reference data every morning and report duplicates.',
 });
-
-async function domainError(promise: Promise<unknown>): Promise<DomainError> {
-  const err = await promise.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(err).toBeInstanceOf(DomainError);
-  return err as DomainError;
-}
 
 describe('role catalogue', () => {
   let h: DomainHarness;
@@ -90,22 +81,22 @@ describe('role catalogue', () => {
   });
 
   it('refuses custom roles that clash with built-in or existing roles', async () => {
-    const shadow = await domainError(h.domain.roles.create('AR', { ...dataSteward, id: 'qa' }, by));
+    const shadow = await rejection(h.domain.roles.create('AR', { ...dataSteward, id: 'qa' }, by));
     expect([shadow.code, shadow.status]).toEqual(['custom_role_shadows_builtin', 409]);
     await h.domain.roles.create('AR', dataSteward, by);
-    const duplicate = await domainError(h.domain.roles.create('AR', dataSteward, by));
+    const duplicate = await rejection(h.domain.roles.create('AR', dataSteward, by));
     expect([duplicate.code, duplicate.status]).toEqual(['duplicate_role', 409]);
 
-    const mismatch = await domainError(h.domain.roles.update('AR', 'other_role', dataSteward, by));
+    const mismatch = await rejection(h.domain.roles.update('AR', 'other_role', dataSteward, by));
     expect(mismatch.code).toBe('role_id_mismatch');
-    const builtIn = await domainError(h.domain.roles.update('AR', 'qa', { ...dataSteward, id: 'qa' }, by));
+    const builtIn = await rejection(h.domain.roles.update('AR', 'qa', { ...dataSteward, id: 'qa' }, by));
     expect(builtIn.code).toBe('builtin_role');
-    const missing = await domainError(
+    const missing = await rejection(
       h.domain.roles.update('AR', 'nobody_has', { ...dataSteward, id: 'nobody_has' }, by),
     );
     expect(missing.status).toBe(404);
-    expect((await domainError(h.domain.roles.remove('AR', 'developer', by))).code).toBe('builtin_role');
-    expect((await domainError(h.domain.roles.remove('AR', 'nobody_has', by))).status).toBe(404);
+    expect((await rejection(h.domain.roles.remove('AR', 'developer', by))).code).toBe('builtin_role');
+    expect((await rejection(h.domain.roles.remove('AR', 'nobody_has', by))).status).toBe(404);
   });
 
   it('keeps a custom role while anyone holds it', async () => {
@@ -113,11 +104,11 @@ describe('role catalogue', () => {
     await h.domain.members.hire('AR', { role: 'data_steward' }, sponsor);
     await h.domain.members.update('AR', 'owner', { roles: ['operator', 'data_steward'] }, by);
 
-    const inUse = await domainError(h.domain.roles.remove('AR', 'data_steward', by));
+    const inUse = await rejection(h.domain.roles.remove('AR', 'data_steward', by));
     expect([inUse.code, inUse.status]).toEqual(['role_in_use', 409]);
     expect(inUse.details).toEqual({ members: ['owner', 'data-steward'], tempWorkers: false });
 
-    const humansOnly = await domainError(
+    const humansOnly = await rejection(
       h.domain.roles.update('AR', 'data_steward', { ...dataSteward, holders: 'human' }, by),
     );
     expect(humansOnly.code).toBe('role_in_use');
@@ -129,7 +120,7 @@ describe('role catalogue', () => {
       draft.team.limits.tempWorkers.role = 'data_steward';
       return 'Temp workers are data stewards';
     });
-    const temp = await domainError(h.domain.roles.remove('AR', 'data_steward', by));
+    const temp = await rejection(h.domain.roles.remove('AR', 'data_steward', by));
     expect(temp.details).toEqual({ members: [], tempWorkers: true });
   });
 
@@ -158,12 +149,12 @@ describe('role catalogue', () => {
     const second = await h.domain.members.hire('AR', { role: 'data_steward' }, sponsor);
     expect([second.handle, second.displayName]).toEqual(['data-steward-2', 'Data steward 2']);
 
-    const human = await domainError(h.domain.members.hire('AR', { role: 'product_owner' }, sponsor));
+    const human = await rejection(h.domain.members.hire('AR', { role: 'product_owner' }, sponsor));
     expect([human.code, human.status]).toEqual(['role_not_for_ai', 400]);
-    const unknown = await domainError(h.domain.members.hire('AR', { role: 'scheduled' }, sponsor));
+    const unknown = await rejection(h.domain.members.hire('AR', { role: 'scheduled' }, sponsor));
     expect(unknown.code).toBe('unknown_role');
     await h.domain.roles.create('AR', { ...dataSteward, id: 'client_lead', holders: 'human' }, by);
-    expect((await domainError(h.domain.members.hire('AR', { role: 'client_lead' }, sponsor))).code).toBe(
+    expect((await rejection(h.domain.members.hire('AR', { role: 'client_lead' }, sponsor))).code).toBe(
       'role_not_for_ai',
     );
   });
@@ -181,15 +172,15 @@ describe('role catalogue', () => {
 
     await h.domain.members.update('AR', 'owner', { roles: ['watchdog'] }, by);
     expect(await member('owner')).toMatchObject({ roles: ['watchdog'] });
-    expect((await domainError(h.domain.members.update('AR', 'owner', { roles: ['nope'] }, by))).code).toBe(
+    expect((await rejection(h.domain.members.update('AR', 'owner', { roles: ['nope'] }, by))).code).toBe(
       'unknown_role',
     );
-    expect((await domainError(h.domain.members.update('AR', 'owner', { model: 'sonnet' }, by))).code).toBe(
+    expect((await rejection(h.domain.members.update('AR', 'owner', { model: 'sonnet' }, by))).code).toBe(
       'not_ai_member',
     );
-    expect(
-      (await domainError(h.domain.members.update('AR', 'nobody', { displayName: 'X' }, by))).status,
-    ).toBe(404);
+    expect((await rejection(h.domain.members.update('AR', 'nobody', { displayName: 'X' }, by))).status).toBe(
+      404,
+    );
   });
 
   it('changes an AI member but never its one role', async () => {
@@ -211,7 +202,7 @@ describe('role catalogue', () => {
     expect(cleared.specialty).toBeUndefined();
     expect(cleared.schedule).toBeUndefined();
 
-    const roles = await domainError(h.domain.members.update('AR', 'dev-1', { roles: ['qa'] }, by));
+    const roles = await rejection(h.domain.members.update('AR', 'dev-1', { roles: ['qa'] }, by));
     expect(roles.code).toBe('not_human_member');
   });
 

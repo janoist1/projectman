@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ServerEvent, TaskDetail } from '@projectman/shared';
-import { createAppHarness, createProject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
+import {
+  addHumanAndLogin,
+  createAppHarness,
+  createProject,
+  OWNER_LOGIN,
+  setupOwner,
+} from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
 interface TestSocket {
@@ -148,33 +154,11 @@ describe('websocket', () => {
       payload: {},
     });
     const sessionId = started.json<TaskDetail>().sessions[0]!.id;
-    const user = await h.app.projectman.auth.prepareUser({
+    const viewerCookie = await addHumanAndLogin(h.app, {
+      handle: 'viewer',
       name: 'Viewer',
-      email: 'viewer@example.com',
-      password: 'fictional password',
+      access: 'viewer',
     });
-    h.app.projectman.repos.users.insert(user);
-    const login = await h.app.inject({
-      method: 'POST',
-      url: '/api/auth/login',
-      payload: { email: user.email, password: 'fictional password' },
-    });
-    const viewerCookie = String(login.headers['set-cookie']).split(';')[0]!;
-    await h.app.projectman.domain.projects.update(
-      'AR',
-      { actor: { kind: 'human', handle: 'owner' }, author: OWNER_LOGIN },
-      (draft) => {
-        draft.team.members.push({
-          kind: 'human',
-          handle: 'viewer',
-          displayName: 'Viewer',
-          email: user.email,
-          access: 'viewer',
-          roles: [],
-        });
-        return 'Add viewer';
-      },
-    );
     const { ws, events } = await connect({ cookie: viewerCookie });
     await waitFor(events, ofType('hello'));
     ws.send(JSON.stringify({ type: 'terminal_attach', sessionId }));

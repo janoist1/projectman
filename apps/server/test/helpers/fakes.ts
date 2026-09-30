@@ -342,6 +342,18 @@ export function capturingLogger(): CapturingLogger {
   return { logger: logger as unknown as FastifyBaseLogger, errors, warnings };
 }
 
+/** A plan usage probe result: `percent` of the five-hour window used. */
+export function planUsage(percent: number, overrides: Partial<PlanUsage> = {}): PlanUsage {
+  return {
+    fiveHourPercent: percent,
+    weeklyPercent: null,
+    fiveHourResetsAt: null,
+    weeklyResetsAt: null,
+    fetchedAt: '2026-09-30T10:00:00.000Z',
+    ...overrides,
+  };
+}
+
 /** Lets pending promise callbacks (background deliveries) run. */
 export async function flush(times = 5): Promise<void> {
   for (let i = 0; i < times; i++) await new Promise((resolve) => setImmediate(resolve));

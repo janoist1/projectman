@@ -2,8 +2,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ServerEvent } from '@projectman/shared';
 import type { ProjectConfig, Task } from '@projectman/shared';
-import { DomainError } from '../src/domain';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
+import { rejection } from './helpers/errors';
 import type { DomainHarness } from './helpers/domain-harness';
 import { settle } from './helpers/fakes';
 import { waitFor } from '../src/runner/test-helpers';
@@ -11,14 +11,7 @@ import { waitFor } from '../src/runner/test-helpers';
 const start = (h: DomainHarness, key: string, assignee?: string) =>
   h.domain.scheduler.startTask('AR', key, { assignee, actor: OWNER_ACTOR, author: OWNER, sponsor: 'owner' });
 
-async function code(promise: Promise<unknown>): Promise<string> {
-  const err = await promise.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(err).toBeInstanceOf(DomainError);
-  return (err as DomainError).code;
-}
+const code = async (promise: Promise<unknown>): Promise<string> => (await rejection(promise)).code;
 
 /** Removes every gate so tasks can move straight to done. */
 function withoutGates(config: ProjectConfig): void {

@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { routes, TaskDetail } from '@projectman/shared';
-import { cookieOf, createAppHarness, createProject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
+import {
+  addHumanAndLogin,
+  createAppHarness,
+  createProject,
+  OWNER_LOGIN,
+  setupOwner,
+} from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { OWNER_ACTOR } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
@@ -13,33 +19,8 @@ describe('task comments API', () => {
     h = await createAppHarness();
     owner = await setupOwner(h.app);
     await createProject(h, owner);
-    const { domain, repos } = h.app.projectman;
-    repos.users.insert({
-      id: 'reader',
-      name: 'Robin',
-      email: 'robin@example.test',
-      passwordHash: repos.users.findByEmail(OWNER_LOGIN.email)!.passwordHash,
-      createdAt: new Date().toISOString(),
-    });
-    await domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER_LOGIN }, (draft) => {
-      draft.team.members.push({
-        kind: 'human',
-        handle: 'robin',
-        displayName: 'Robin',
-        access: 'developer',
-        roles: ['developer'],
-        email: 'robin@example.test',
-      });
-      return 'Add fictional developer';
-    });
-    developer = cookieOf(
-      await h.app.inject({
-        method: 'POST',
-        url: routes.login(),
-        payload: { email: 'robin@example.test', password: OWNER_LOGIN.password },
-      }),
-    );
-    await domain.tasks.create('AR', { title: 'Fictional checkout' }, OWNER_ACTOR);
+    developer = await addHumanAndLogin(h.app, { handle: 'robin', name: 'Robin', roles: ['developer'] });
+    await h.app.projectman.domain.tasks.create('AR', { title: 'Fictional checkout' }, OWNER_ACTOR);
   });
   afterEach(async () => h.close());
   const comment = (body: unknown, cookie = owner, taskKey = 'AR-1') =>

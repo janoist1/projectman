@@ -1,7 +1,12 @@
-import { hash } from '@node-rs/argon2';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ConfigView, HumanAccess, ServerEvent, Task } from '@projectman/shared';
-import { cookieOf, createAppHarness, createProject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
+import {
+  addHumanAndLogin,
+  createAppHarness,
+  createProject,
+  OWNER_LOGIN,
+  setupOwner,
+} from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
 describe('configuration PATCH', () => {
@@ -27,37 +32,8 @@ describe('configuration PATCH', () => {
       payload,
     });
   }
-  async function memberLogin(access: HumanAccess) {
-    h.app.projectman.repos.users.insert({
-      id: 'kata',
-      name: 'Kata',
-      email: 'kata@example.com',
-      passwordHash: await hash('test password'),
-      createdAt: new Date().toISOString(),
-    });
-    await h.app.projectman.domain.projects.update(
-      'AR',
-      { actor: { kind: 'human', handle: 'owner' }, author: OWNER_LOGIN },
-      (draft) => {
-        draft.team.members.push({
-          kind: 'human',
-          handle: 'kata',
-          displayName: 'Kata',
-          access,
-          roles: [],
-          email: 'kata@example.com',
-        });
-        return 'Add Kata';
-      },
-    );
-    return cookieOf(
-      await h.app.inject({
-        method: 'POST',
-        url: '/api/auth/login',
-        payload: { email: 'kata@example.com', password: 'test password' },
-      }),
-    );
-  }
+  const memberLogin = (access: HumanAccess) =>
+    addHumanAndLogin(h.app, { handle: 'kata', name: 'Kata', access });
 
   it('commits one attributed version, preserves fixed fields and broadcasts', async () => {
     const current = await view();

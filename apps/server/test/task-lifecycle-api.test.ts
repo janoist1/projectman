@@ -1,8 +1,13 @@
-import { hash } from '@node-rs/argon2';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CancelTaskRequest, ReopenTaskRequest, routes, UpdateTaskRequest } from '@projectman/shared';
 import type { Task, TaskDetail } from '@projectman/shared';
-import { cookieOf, createAppHarness, createProject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
+import {
+  addHumanAndLogin,
+  createAppHarness,
+  createProject,
+  OWNER_LOGIN,
+  setupOwner,
+} from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { OWNER_ACTOR } from './helpers/domain-harness';
 
@@ -125,31 +130,7 @@ describe('task lifecycle API', () => {
   it.each(['viewer', 'client', 'developer', 'admin'] as const)(
     'checks %s access for all lifecycle actions',
     async (access) => {
-      const { domain, repos } = h.app.projectman;
-      repos.users.insert({
-        id: 'usr_kata',
-        name: 'Kata',
-        email: 'kata@example.com',
-        passwordHash: await hash('another password'),
-        createdAt: new Date().toISOString(),
-      });
-      await domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER_LOGIN }, (draft) => {
-        draft.team.members.push({
-          kind: 'human',
-          handle: 'kata',
-          displayName: 'Kata',
-          email: 'kata@example.com',
-          roles: [],
-          access,
-        });
-        return 'Add Kata';
-      });
-      const login = await h.app.inject({
-        method: 'POST',
-        url: routes.login(),
-        payload: { email: 'kata@example.com', password: 'another password' },
-      });
-      const kataCookie = cookieOf(login);
+      const kataCookie = await addHumanAndLogin(h.app, { handle: 'kata', name: 'Kata', access });
       const assigned = await call(
         'PATCH',
         routes.task('AR', 'AR-1'),
@@ -167,7 +148,7 @@ describe('task lifecycle API', () => {
       if (access !== 'admin') {
         expect(assigned.json().error.code).toBe('insufficient_access');
         expect(cancelled.json().error.code).toBe('insufficient_access');
-        await domain.tasks.cancel('AR', 'AR-1', {}, OWNER_ACTOR);
+        await h.app.projectman.domain.tasks.cancel('AR', 'AR-1', {}, OWNER_ACTOR);
       }
       const reopened = await call('POST', routes.reopenTask('AR', 'AR-1'), {}, kataCookie);
       expect(reopened.statusCode).toBe(access === 'admin' ? 200 : 403);

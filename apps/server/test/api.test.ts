@@ -1,7 +1,6 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { hash } from '@node-rs/argon2';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type {
   ApiError,
@@ -22,7 +21,14 @@ import type {
   TemplateSummary,
 } from '@projectman/shared';
 import { hu } from '@projectman/templates';
-import { cookieOf, createAppHarness, createProject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
+import {
+  addHumanAndLogin,
+  cookieOf,
+  createAppHarness,
+  createProject,
+  OWNER_LOGIN,
+  setupOwner,
+} from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { flush } from './helpers/fakes';
 
@@ -564,19 +570,13 @@ describe('REST API', () => {
 
     it('enforces membership and access levels', async () => {
       // A second user (inviting people is a later phase; insert the account directly).
-      const { repos, domain } = h.app.projectman;
-      repos.users.insert({
-        id: 'usr_dev',
+      const { domain } = h.app.projectman;
+      const devCookie = await addHumanAndLogin(h.app, {
+        handle: 'dev',
         name: 'Dev Human',
         email: 'dev@example.com',
-        passwordHash: await hash('another password'),
-        createdAt: new Date().toISOString(),
+        projectKey: null,
       });
-      const login = await call('POST', '/api/auth/login', undefined, {
-        email: 'dev@example.com',
-        password: 'another password',
-      });
-      const devCookie = cookieOf(login.res);
       expect(
         (
           await call('POST', '/api/projects', devCookie, {
@@ -660,36 +660,14 @@ describe('REST API', () => {
     });
 
     it('shows client members only what is shared with them', async () => {
-      const { repos, domain } = h.app.projectman;
-      repos.users.insert({
-        id: 'usr_client',
+      const { domain } = h.app.projectman;
+      const clientCookie = await addHumanAndLogin(h.app, {
+        handle: 'client',
         name: 'Client',
-        email: 'client@example.com',
-        passwordHash: await hash('client password'),
-        createdAt: new Date().toISOString(),
+        access: 'client',
       });
-      await domain.projects.update(
-        'AR',
-        { actor: { kind: 'human', handle: 'owner' }, author: OWNER_LOGIN },
-        (draft) => {
-          draft.team.members.push({
-            kind: 'human',
-            handle: 'client',
-            displayName: 'Client',
-            access: 'client',
-            roles: [],
-            email: 'client@example.com',
-          });
-          return 'Add the client';
-        },
-      );
       await call('POST', '/api/projects/AR/tasks', cookie, { title: 'Internal work' });
       await call('POST', '/api/projects/AR/tasks', cookie, { title: 'Shared work', visibility: 'shared' });
-      const login = await call('POST', '/api/auth/login', undefined, {
-        email: 'client@example.com',
-        password: 'client password',
-      });
-      const clientCookie = cookieOf(login.res);
 
       const tasks = await call<Task[]>('GET', '/api/projects/AR/tasks', clientCookie);
       expect(tasks.body.map((t) => t.title)).toEqual(['Shared work']);

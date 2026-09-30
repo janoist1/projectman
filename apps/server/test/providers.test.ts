@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AgentProvider, PlanUsage, ProjectConfig } from '@projectman/shared';
 import type { ProviderStatus, RunnerModule } from '../src/contracts';
-import { DomainError } from '../src/domain';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
+import { rejection } from './helpers/errors';
 import type { DomainHarness } from './helpers/domain-harness';
 
 /** Members run on Claude Code or Codex: the domain passes the member's provider through. */
@@ -23,15 +23,6 @@ function status(provider: AgentProvider, loggedIn: boolean | null): ProviderStat
     checkedAt: '2026-01-01T00:00:00.000Z',
     ...(loggedIn ? {} : { detail: `${provider} is not logged in` }),
   };
-}
-
-async function failure(promise: Promise<unknown>): Promise<DomainError> {
-  const err = await promise.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(err).toBeInstanceOf(DomainError);
-  return err as DomainError;
 }
 
 /** The fake runner module the domain was built with (the same object on every call). */
@@ -105,7 +96,7 @@ describe('agent providers', () => {
     ).toMatchObject({ provider: 'codex', model: 'fictional-codex-model' });
     for (const body of [{ provider: 'codex' }, { effort: 'high' }] as const) {
       expect(
-        await failure(h.domain.members.update('AR', 'owner', body, { actor: OWNER_ACTOR, author: OWNER })),
+        await rejection(h.domain.members.update('AR', 'owner', body, { actor: OWNER_ACTOR, author: OWNER })),
       ).toMatchObject({ code: 'not_ai_member' });
     }
   });
@@ -123,7 +114,7 @@ describe('agent providers', () => {
     Object.assign(h.runner, {
       providerStatus: async (provider: AgentProvider) => status(provider, provider !== 'codex'),
     });
-    const err = await failure(h.domain.sessions.ensureSession('AR', 'dev-2', general));
+    const err = await rejection(h.domain.sessions.ensureSession('AR', 'dev-2', general));
     expect(err).toMatchObject({
       code: 'provider_not_logged_in',
       status: 409,
@@ -141,7 +132,7 @@ describe('agent providers', () => {
     h.runner.failNextStart = Object.assign(new Error('Codex is not logged in with a subscription'), {
       code: 'provider_not_logged_in',
     });
-    const err = await failure(h.domain.sessions.ensureSession('AR', 'dev-2', general));
+    const err = await rejection(h.domain.sessions.ensureSession('AR', 'dev-2', general));
     expect(err).toMatchObject({ code: 'provider_not_logged_in', details: { provider: 'codex' } });
   });
 
@@ -221,7 +212,7 @@ describe('agent providers', () => {
         author: OWNER,
         sponsor: 'owner',
       });
-    const err = await failure(start(first.key, 'dev-2'));
+    const err = await rejection(start(first.key, 'dev-2'));
     expect(err).toMatchObject({ code: 'plan_usage_paused', details: { percent: 95, provider: 'codex' } });
 
     // Claude's plan is unknown here, so a Claude member may start.

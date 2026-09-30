@@ -1,4 +1,4 @@
-import { roleBundle, DUTIES } from '@projectman/shared';
+import { roleBundle, DEFAULT_PROVIDER_MODELS, DUTIES } from '@projectman/shared';
 import { aiMemberDefaults } from '@projectman/templates';
 import type { AiMemberConfig, RoleId, ProjectConfig } from '@projectman/shared';
 
@@ -17,7 +17,7 @@ export function previewFor(
   const wanted = specialty.trim().toLowerCase();
   const match = ai.find((member) => wanted && member.specialty?.toLowerCase().includes(wanted)) ?? ai[0];
   return {
-    model: match?.model ?? 'opus',
+    model: match?.model ?? DEFAULT_PROVIDER_MODELS.claude,
     permissionMode: config
       ? (aiMemberDefaults(role, config.team.roles, config.team.roleOverrides)?.permissionMode ?? 'default')
       : (match?.permissionMode ?? 'default'),

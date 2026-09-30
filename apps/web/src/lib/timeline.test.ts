@@ -33,3 +33,17 @@ it.each(['allow', 'deny'] as const)('describes automatic permission %s on the ti
   };
   expect(describeEvent(event, context).text).toBe(t(`timeline.events.permission_automatic_${decision}`));
 });
+
+it('describes checks recorded before labels replaced them', () => {
+  const event: TimelineEvent = {
+    ...creation,
+    type: 'task_check_changed',
+    data: { check: 'qa', from: 'pending', to: 'retest_needed' },
+  };
+  expect(describeEvent(event, context).text).toBe(
+    t('timeline.events.task_check_changed', {
+      check: t('timeline.legacyChecks.names.qa'),
+      state: t('timeline.legacyChecks.states.retest_needed'),
+    }),
+  );
+});

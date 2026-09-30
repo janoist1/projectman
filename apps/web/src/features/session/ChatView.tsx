@@ -18,6 +18,7 @@ import {
   payloadCode,
   permissionCommand,
   resolutionLabel,
+  resolverName,
   shortCommand,
 } from '../../lib/inbox';
 import { nameOf, namesOf, toneFor } from '../../lib/members';
@@ -285,7 +286,7 @@ export function ChatView(props: ChatViewProps) {
           {t('session.chat.decisionLine', {
             decision: resolutionLabel(item),
             summary,
-            who: nameOf(item.resolution.by === 'system' ? null : item.resolution.by, members, myHandle),
+            who: resolverName(item, members, myHandle),
             time: formatStamp(item.resolution.at),
           })}
         </p>

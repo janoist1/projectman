@@ -254,7 +254,6 @@ export const hu = {
       ai_limit_reached: 'Most dolgozik a megengedett számú AI-tag; az új munka később indul.',
       plan_usage_paused: 'A szolgáltatói keret magas, ezért új AI-munka most nem indul.',
       ai_disabled: 'Ebben a projektben ki van kapcsolva az AI-munka (Beállítások → Keretek).',
-      version_conflict: 'Közben valaki más is módosította a beállításokat. Frissíts, és próbáld újra.',
       project_exists: 'Ilyen kulcsú projekt már van.',
       workspace_not_found: 'Ez a munkaterület-útvonal nem létezik ezen a gépen.',
       unknown_template: 'Ismeretlen sablon.',
@@ -710,6 +709,10 @@ export const hu = {
       option: 'Válasz: {label}',
       expired: 'Lejárt',
       cancelled: 'Visszavonva',
+    },
+    /** Rules by which the system decided an item itself. */
+    resolutionRules: {
+      command_policy: 'Automatikus: szabály szerint',
     },
     resolutionLine: '{decision}: {title}',
     resolvedBy: '{who} · {time}',

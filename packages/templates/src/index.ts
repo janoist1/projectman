@@ -12,7 +12,15 @@ import type { ProjectTemplate } from './types';
 
 export type { BuildTemplateInput, ProjectTemplate, TemplateOwner } from './types';
 export { aiMemberDefaults, aiRoleDefaults, type AiRoleDefaults } from './roles';
-export { defaultMemberHandle, defaultMemberName, roleHandleStem, roleName, uniqueHandle } from './members';
+export {
+  defaultMemberHandle,
+  defaultMemberName,
+  humanMemberHandle,
+  roleHandleStem,
+  roleName,
+  uniqueHandle,
+} from './members';
+export { roleViews } from './role-views';
 export { DAILY_WORKER_SCHEDULE } from './templates/daily-routine';
 export { legacyCheckLabels, migrateLegacyConfig, standardLabel, standardLabelsFor } from './labels';
 export {

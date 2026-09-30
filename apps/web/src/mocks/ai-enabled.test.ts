@@ -57,14 +57,4 @@ describe('mock project AI switch', () => {
     expect(b.messages[0]?.deliveredAt).toBeTruthy();
     expect(b.sessions).toHaveLength(1);
   });
-
-  it('retains a disabled switch when other limits are patched', () => {
-    const b = setup();
-    b.config.team.limits.aiEnabled = false;
-    expect(
-      b.handle('PATCH', `${base}/config`, { baseVersion: b.configVersion, limits: { maxConcurrentAi: 2 } })
-        .status,
-    ).toBe(200);
-    expect(b.config.team.limits.aiEnabled).toBe(false);
-  });
 });

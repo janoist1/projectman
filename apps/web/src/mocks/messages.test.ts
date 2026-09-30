@@ -81,24 +81,15 @@ describe('mock team messaging and profiles', () => {
     }
     expect(b.messages).toHaveLength(1);
   });
-  it.each([
-    'member_at_capacity',
-    'ai_limit_reached',
-    'plan_usage_paused',
-    'ai_disabled',
-    'provider_not_logged_in',
-  ])('enforces %s before starting a conversation', (reason) => {
+  // Conversations and schedule runs share one admission check; schedules.test covers every reason.
+  it('admits a conversation like any other AI work', () => {
     const b = backend();
     const member = b.config.team.members.find((m) => m.handle === 'fe-1')!;
     if (member.kind !== 'ai') throw new Error('Expected AI member');
-    if (reason === 'member_at_capacity') member.capacity = 0;
-    if (reason === 'ai_limit_reached') b.config.team.limits.maxConcurrentAi = 0;
-    if (reason === 'plan_usage_paused') b.planUsage.weeklyPercent = 99;
-    if (reason === 'ai_disabled') b.config.team.limits.aiEnabled = false;
-    if (reason === 'provider_not_logged_in') b.providerLoggedIn[member.provider ?? 'claude'] = false;
+    member.capacity = 0;
     expect(b.handle('POST', `${base}/members/fe-1/conversation`, {})).toMatchObject({
       status: 409,
-      body: { error: { code: reason } },
+      body: { error: { code: 'member_at_capacity' } },
     });
     expect(b.sessions).toEqual([]);
   });

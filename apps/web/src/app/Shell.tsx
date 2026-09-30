@@ -1,6 +1,7 @@
 import clsx from 'clsx';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
+import { DEFAULT_AGENT_PROVIDER } from '@projectman/shared';
 import type { BoardView } from '@projectman/shared';
 import { useTeamMessages } from '../api/queries';
 import { unreadMessages } from '../features/messages/receipts';
@@ -263,8 +264,9 @@ export function TopBar({
       <span className={styles.hideNarrow}>
         {[
           ...new Set(
-            board?.members.flatMap((member) => (member.kind === 'ai' ? [member.provider ?? 'claude'] : [])) ??
-              [],
+            board?.members.flatMap((member) =>
+              member.kind === 'ai' ? [member.provider ?? DEFAULT_AGENT_PROVIDER] : [],
+            ) ?? [],
           ),
         ].map((provider) => (
           <PlanUsageMeter

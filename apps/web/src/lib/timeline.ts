@@ -1,3 +1,4 @@
+import { LabelChangeReason } from '@projectman/shared';
 import type { LabelView, TimelineEvent } from '@projectman/shared';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { labelName } from './labels';
@@ -75,8 +76,6 @@ export function checkLine(check: string, state: string): string {
   return t('timeline.events.task_check_changed', { check: name, state: label });
 }
 
-const LABEL_REASONS = ['approval', 'moved_back', 'pr_merged', 'pr_updated'] as const;
-
 function labelsChanged(d: Record<string, unknown>, ctx: TimelineContext): string {
   const names = (key: string) =>
     ((d[key] as string[] | undefined) ?? []).map((id) => labelName(id, ctx.labels ?? [])).join(', ');
@@ -84,11 +83,8 @@ function labelsChanged(d: Record<string, unknown>, ctx: TimelineContext): string
     names('added') && t('timeline.labelsAdded', { labels: names('added') }),
     names('removed') && t('timeline.labelsRemoved', { labels: names('removed') }),
   ].filter(Boolean);
-  const reason = d.reason as string | undefined;
-  const why =
-    reason && (LABEL_REASONS as readonly string[]).includes(reason)
-      ? ` (${t(`timeline.labelReasons.${reason as (typeof LABEL_REASONS)[number]}`)})`
-      : '';
+  const reason = LabelChangeReason.safeParse(d.reason);
+  const why = reason.success ? ` (${t(`timeline.labelReasons.${reason.data}`)})` : '';
   return `${parts.join('; ')}${why}`;
 }
 

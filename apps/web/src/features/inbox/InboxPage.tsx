@@ -19,8 +19,9 @@ import {
   isPositiveResolution,
   newestFirst,
   resolutionLabel,
+  resolutionNote,
+  resolverName,
 } from '../../lib/inbox';
-import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import { InboxCard } from './InboxCard';
 import styles from './InboxPage.module.css';
@@ -45,6 +46,7 @@ function RecentDecisions({
       <ul className={styles.recentList}>
         {items.map((item) => {
           const positive = isPositiveResolution(item);
+          const note = resolutionNote(item);
           return (
             <li key={item.id} className={styles.recentItem}>
               <span
@@ -63,15 +65,12 @@ function RecentDecisions({
                 <span className={styles.recentMeta}>
                   {item.resolution
                     ? t('inbox.resolvedBy', {
-                        who: nameOf(
-                          item.resolution.by === 'system' ? null : item.resolution.by,
-                          members,
-                          myHandle,
-                        ),
+                        who: resolverName(item, members, myHandle),
                         time: formatAgo(item.resolution.at),
                       })
                     : formatAgo(item.createdAt)}
                 </span>
+                {note ? <span className={styles.recentNote}>{note}</span> : null}
               </span>
             </li>
           );

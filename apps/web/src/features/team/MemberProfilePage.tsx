@@ -2,6 +2,7 @@ import { InviteDialog } from './InviteDialog';
 import { useState } from 'react';
 import { providerModelLabel } from './providerModels';
 import { Link, useNavigate, useParams } from 'react-router';
+import { DEFAULT_AGENT_PROVIDER } from '@projectman/shared';
 import type { TeamMessage } from '@projectman/shared';
 import {
   useBoard,
@@ -173,7 +174,7 @@ export function MemberProfilePage() {
             <ProviderBadge provider={member.provider} />
             <p>
               {member.model
-                ? providerModelLabel(member.provider ?? 'claude', member.model)
+                ? providerModelLabel(member.provider ?? DEFAULT_AGENT_PROVIDER, member.model)
                 : t('common.dash')}{' '}
               ·{' '}
               {member.effort
@@ -184,8 +185,8 @@ export function MemberProfilePage() {
             </p>
             <p>{t('profile.capacity', { used: data.capacityUsed, max: data.capacity ?? 0 })}</p>
             <PlanUsageMeter
-              provider={member.provider ?? 'claude'}
-              usage={board.data?.planUsageByProvider[member.provider ?? 'claude']}
+              provider={member.provider ?? DEFAULT_AGENT_PROVIDER}
+              usage={board.data?.planUsageByProvider[member.provider ?? DEFAULT_AGENT_PROVIDER]}
               pauseAbove={config.data?.config.team.limits.pauseAbovePlanUsagePercent}
             />
           </>

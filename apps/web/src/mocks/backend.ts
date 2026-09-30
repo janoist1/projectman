@@ -1,73 +1,95 @@
 import {
-  commentMentions,
-  CreateTaskCommentRequest,
-  SendTeamMessageRequest,
-  memberDuties,
-  AgentProvider,
-  modelForProvider,
-  roleBundle,
-  roleHolders,
-  customRoleDuties,
-  resolvedStages,
-  isHumanOnlyLabel,
-  labelDefinition,
-  labelHolders,
-  labelRefusal,
-  labelSetters,
-  stageOwners,
-  taskAuthors,
-} from '@projectman/shared';
-import {
-  nextCronRun,
-  PatchConfigRequest,
-  applyConfigPatch,
-  configSchemaIssues,
-  humanApprovalChanged,
-  validateProjectConfig,
   AcceptInviteRequest,
-  CreateInviteRequest,
-  InvitationView,
-  CancelTaskRequest,
-  ReopenTaskRequest,
-  CustomRoleRequest,
-  UpdateMemberRequest,
-  holdersAllow,
-  isBuiltInRole,
-  CreateProjectRequest,
-  CreateTaskRequest,
-  HireMemberRequest,
   AddHumanMemberRequest,
+  AgentProvider,
+  CancelTaskRequest,
+  ChangeTaskLabelsRequest,
+  CreateInviteRequest,
+  CreateProjectRequest,
+  CreateTaskCommentRequest,
+  CreateTaskRequest,
+  CustomRoleRequest,
+  DEFAULT_AGENT_PROVIDER,
+  HireMemberRequest,
+  InvitationView,
   LoginRequest,
+  PR_MERGED_LABEL,
+  PatchConfigRequest,
+  ReopenTaskRequest,
   ResolveInboxRequest,
   RetireMemberRequest,
   RevertConfigRequest,
   SendMessageRequest,
+  SendTeamMessageRequest,
   SetupRequest,
   StartTaskRequest,
-  ChangeTaskLabelsRequest,
+  UpdateMemberRequest,
   UpdateTaskRequest,
+  applyConfigPatch,
+  approvalRefusal,
+  commentMentions,
+  configSchemaIssues,
+  evaluateMove,
+  expiredLabels,
+  gateRequestOf,
+  holdersAllow,
+  isBuiltInRole,
+  isOpenTask,
+  labelDefinition,
+  labelHolders,
+  memberDuties,
+  memberOf,
+  memberRoles,
+  modelForProvider,
+  nextCronRun,
+  ownerOnlyChanges,
+  planLabelChange,
+  pullRequestsMerged,
+  resolvedStages,
+  roleBundle,
+  roleHolders,
+  stageApprovers,
+  stageIndex,
+  stageOf,
+  stageOwners,
+  taskSeq,
+  validateProjectConfig,
 } from '@projectman/shared';
 import type {
-  PlanUsage,
-  ScheduleRun,
-  InvitationView as Invitation,
+  Actor,
   AiMemberConfig,
+  ApprovalRequirement,
   BoardView,
   ChatItem,
   ClientCommand,
   ConfigVersionEntry,
-  GateCondition,
+  GateEvaluation,
+  GateRequestPayload,
   InboxItem,
+  InvitationView as Invitation,
+  LabelChangeReason,
+  LabelChangeRefusal,
+  LabelClearTrigger,
   MemberView,
+  PlanUsage,
   ProjectConfig,
-  RoleView,
+  ScheduleRun,
   ServerEvent,
   Session,
+  Stage,
   Task,
   TeamMessage,
   TimelineEvent,
+  TimelineEventData,
   TimelineEventType,
 } from '@projectman/shared';
+import {
+  aiMemberDefaults,
+  defaultMemberHandle,
+  defaultMemberName,
+  humanMemberHandle,
+  roleViews,
+} from '@projectman/templates';
 import * as fixtures from './fixtures';
 import { mockId, mockUuid, nowIso } from './time';
 
@@ -94,17 +116,20 @@ function newInviteToken(): string {
 }
 
 /** Like the GitHub integration: the system label "pr-merged" follows the linked pull requests. */
-function withPrMergedLabel(task: Task, labels: readonly { id: string }[]): Task {
-  if (!labels.some((label) => label.id === 'pr-merged')) return task;
-  const prs = task.links.filter((link) => link.kind === 'pull_request');
-  const merged =
-    prs.some((pr) => pr.state === 'merged') &&
-    prs.every((pr) => pr.state === 'merged' || pr.state === 'closed');
-  if (merged === task.labels.includes('pr-merged')) return task;
+function withPrMergedLabel(task: Task, config: Pick<ProjectConfig, 'pipeline'>): Task {
+  if (!labelDefinition(config, PR_MERGED_LABEL)) return task;
+  const merged = pullRequestsMerged(task);
+  if (merged === task.labels.includes(PR_MERGED_LABEL)) return task;
   return {
     ...task,
-    labels: merged ? [...task.labels, 'pr-merged'] : task.labels.filter((label) => label !== 'pr-merged'),
+    labels: merged
+      ? [...task.labels, PR_MERGED_LABEL]
+      : task.labels.filter((label) => label !== PR_MERGED_LABEL),
   };
+}
+
+function unique<T>(values: readonly T[]): T[] {
+  return [...new Set(values)];
 }
 
 function error(status: number, code: string, message: string, details?: unknown): MockResponse {
@@ -114,6 +139,39 @@ function error(status: number, code: string, message: string, details?: unknown)
 function ok(body?: unknown): MockResponse {
   return body === undefined ? { status: 204 } : { status: 200, body };
 }
+
+/** The server's answer to a refused label change. */
+function labelChangeError(refusal: LabelChangeRefusal): MockResponse {
+  switch (refusal.code) {
+    case 'self_review_forbidden':
+      return error(403, refusal.code, 'The assignee and PR authors cannot set this label', {
+        label: refusal.label,
+      });
+    case 'label_not_allowed':
+      return error(403, refusal.code, 'The label rules forbid this', {
+        label: refusal.label,
+        reason: refusal.reason,
+      });
+    case 'comment_required':
+      return error(400, refusal.code, 'These labels need a comment', { labels: refusal.labels });
+  }
+}
+
+function gateBlockedError(evaluation: GateEvaluation): MockResponse {
+  return error(409, 'gate_blocked', 'Gate conditions are not met', {
+    unmet: evaluation.unmet,
+    approvals: evaluation.approvals,
+  });
+}
+
+function approvalRequestedError(items: readonly InboxItem[]): MockResponse {
+  return error(409, 'approval_requested', 'Approvers were asked', {
+    inboxItemIds: items.map((item) => item.id),
+    approvers: unique(items.flatMap((item) => item.assignees)),
+  });
+}
+
+const SYSTEM_ACTOR: Actor = { kind: 'system', handle: null };
 
 function parseBody<T>(
   schema: { safeParse(data: unknown): { success: true; data: T } | { success: false } },
@@ -135,7 +193,7 @@ export class MockBackend {
   config: ProjectConfig = fixtures.buildConfig();
   configVersion = fixtures.projectSummary.configVersion;
   history: ConfigVersionEntry[] = clone(fixtures.configHistory);
-  tasks: Task[] = clone(fixtures.tasks).map((task) => withPrMergedLabel(task, this.config.pipeline.labels));
+  tasks: Task[] = clone(fixtures.tasks).map((task) => withPrMergedLabel(task, this.config));
   members: MemberView[] = clone(fixtures.members);
   timeline: TimelineEvent[] = clone(fixtures.timeline);
   scheduleRuns: ScheduleRun[] = [];
@@ -158,15 +216,15 @@ export class MockBackend {
   private inviteAttempts = { count: 0, resetAt: 0 };
   /** Connected listeners and the projects each subscribed to. */
   private readonly connections = new Map<MockConnection, Set<string>>();
-  private taskSeq = Math.max(0, ...fixtures.tasks.map((task) => Number(task.key.split('-')[1] ?? 0)));
+  private lastTaskSeq = Math.max(0, ...fixtures.tasks.map((task) => taskSeq(task.key)));
 
   constructor(auth: MockAuthState = 'ready') {
     this.auth = auth;
     for (const member of this.members) {
-      const config = this.config.team.members.find((entry) => entry.handle === member.handle);
+      const config = memberOf(this.config, member.handle);
       if (config?.kind === 'ai')
         Object.assign(member, {
-          provider: config.provider ?? 'claude',
+          provider: config.provider ?? DEFAULT_AGENT_PROVIDER,
           model: config.model,
           effort: config.effort,
           permissionMode: config.permissionMode,
@@ -233,12 +291,17 @@ export class MockBackend {
     return this.members.find((member) => member.handle === handle);
   }
 
+  /** A session that has not exited or failed. */
+  isLive(session: Session): boolean {
+    return session.state !== 'exited' && session.state !== 'failed';
+  }
+
   updateTask(key: string, patch: Partial<Task>, actor = this.viewerHandle): Task | undefined {
     const task = this.findTask(key);
     if (!task) return undefined;
     void actor;
     Object.assign(task, patch, { updatedAt: nowIso() });
-    if (patch.links) Object.assign(task, withPrMergedLabel(task, this.config.pipeline.labels));
+    if (patch.links) Object.assign(task, withPrMergedLabel(task, this.config));
     this.emit({ type: 'task_upserted', projectKey: task.projectKey, task: clone(task) });
     return task;
   }
@@ -249,6 +312,7 @@ export class MockBackend {
     type: TimelineEventType,
     data: Record<string, unknown>,
     sessionId: string | null = null,
+    createdAt = nowIso(),
   ): TimelineEvent {
     const member = who ? this.findMember(who) : undefined;
     const event: TimelineEvent = {
@@ -259,7 +323,7 @@ export class MockBackend {
       actor: who ? { kind: member?.kind ?? 'system', handle: who } : { kind: 'system', handle: null },
       type,
       data,
-      createdAt: nowIso(),
+      createdAt,
     };
     this.timeline.push(event);
     this.emit({ type: 'timeline_appended', projectKey: event.projectKey, event: clone(event) });
@@ -277,11 +341,11 @@ export class MockBackend {
   updateSession(id: string, patch: Partial<Session>): Session | undefined {
     const session = this.findSession(id);
     if (!session) return undefined;
-    const wasEnded = ['exited', 'failed'].includes(session.state);
+    const wasEnded = !this.isLive(session);
     Object.assign(session, patch, { lastActivityAt: nowIso() });
     if (wasEnded || session.state === 'idle' || session.state === 'waiting_input')
       this.flushTeamMessages(session);
-    if (session.workItem.type === 'schedule' && ['exited', 'failed'].includes(session.state)) {
+    if (session.workItem.type === 'schedule' && !this.isLive(session)) {
       const run = this.scheduleRuns.find((r) => r.sessionId === session.id);
       if (run) {
         run.status = session.state === 'failed' ? 'failed' : 'done';
@@ -347,9 +411,7 @@ export class MockBackend {
     if (sessionId)
       this.appendChat(sessionId, [this.chatItem('team_message', { direction: 'out', from, to, text: body })]);
     for (const handle of to) {
-      const live = this.sessions.filter(
-        (s) => s.member === handle && !['exited', 'failed'].includes(s.state),
-      );
+      const live = this.sessions.filter((s) => s.member === handle && this.isLive(s));
       const target =
         live.find((s) => s.workItem.type === 'task' && s.workItem.taskKey === taskKey) ?? live[0];
       if (target) this.flushTeamMessages(target);
@@ -413,7 +475,7 @@ export class MockBackend {
           ...new Set(
             this.members
               .filter((member) => member.kind === 'ai' && member.status !== 'retired')
-              .map((member) => member.provider ?? 'claude'),
+              .map((member) => member.provider ?? DEFAULT_AGENT_PROVIDER),
           ),
         ].map((provider) => [
           provider,
@@ -513,7 +575,7 @@ export class MockBackend {
   }
 
   private me() {
-    const member = this.config.team.members.find((entry) => entry.handle === this.viewerHandle);
+    const member = memberOf(this.config, this.viewerHandle);
     return {
       ...this.user,
       handles: this.viewerHandle ? { [fixtures.PROJECT_KEY]: this.owner } : {},
@@ -574,70 +636,22 @@ export class MockBackend {
       if (method === 'PATCH') {
         const input = parseBody(UpdateTaskRequest, body);
         if (!input) return error(400, 'invalid_request', 'Invalid task update');
-        if (input.parentKey) {
-          const refusal = this.validateParent(task.key, input.parentKey);
-          if (refusal) return refusal;
-        }
-        if (input.stageId !== undefined) {
-          if (viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))
-            return error(403, 'insufficient_access', 'Developer access required');
-          const result = this.moveTask(task, input.stageId);
-          if (result.status !== 200) return result;
-        }
-        if (input.assignee !== undefined) {
-          if (
-            input.assignee !== null &&
-            !this.config.team.members.some((member) => member.handle === input.assignee)
-          )
-            return error(400, 'unknown_member', 'Unknown member');
-          const live = this.taskSessions(task.key).find(
-            (session) => !['exited', 'failed'].includes(session.state),
-          );
-          if (live) return error(409, 'task_session_live', 'A session is still live', { sessionId: live.id });
-          if (input.assignee !== task.assignee)
-            this.addTimeline(task.key, this.owner, 'task_assigned', {
-              assignee: input.assignee,
-              previous: task.assignee,
-            });
-        }
-        if (input.parentKey !== undefined && input.parentKey !== (task.parentKey ?? null))
-          this.recordParentChange(task.key, task.parentKey ?? null, input.parentKey);
-        const fields = Object.keys(input).filter((field) => field !== 'assignee' && field !== 'stageId');
-        if (fields.length) this.addTimeline(task.key, this.owner, 'task_updated', { fields });
-        const { stageId: _stageId, ...fieldsToUpdate } = input;
-        this.updateTask(task.key, fieldsToUpdate);
+        return this.changeTask(task, input);
       }
-      return ok({
-        task: clone(task),
-        parent: task.parentKey ? clone(this.findTask(task.parentKey) ?? null) : null,
-        subtasks: clone(this.tasks.filter((child) => child.parentKey === task.key)),
-        pullRequests: this.taskPullRequests(task),
-        timeline: clone(this.timeline.filter((event) => event.taskKey === task.key)),
-        sessions: clone(
-          this.sessions.filter((s) => s.workItem.type === 'task' && s.workItem.taskKey === task.key),
-        ),
-      });
+      return ok(this.taskDetail(task));
     }
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/comments$/.exec(rest)) && method === 'POST') {
       if (viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))
         return error(403, 'insufficient_access', 'Developer access required');
       const input = parseBody(CreateTaskCommentRequest, body);
       if (!input) return error(400, 'invalid_request', 'Invalid comment');
-      const imported = input.importedAuthor !== undefined || input.importedAt !== undefined;
-      if (imported && viewer.role !== 'owner')
+      if ((input.importedAuthor !== undefined || input.importedAt !== undefined) && viewer.role !== 'owner')
         return error(403, 'insufficient_access', 'Owner access required');
       const task = this.findTask(m[1]!);
       if (!task) return error(404, 'not_found', 'Unknown task');
-      const mentions = commentMentions(
-        input.text,
-        this.config.team.members.map((member) => member.handle),
-        this.viewerHandle,
-      );
-      this.addTimeline(task.key, this.viewerHandle, 'task_note', { ...input, mentions });
-      if (!imported && mentions.length)
-        this.sendTeamMessage(this.viewerHandle, mentions, task.key, input.text);
-      const response = this.handleProject('GET', `/tasks/${task.key}`, undefined, query);
-      return { ...response, status: 201 };
+      const { text, ...importedFrom } = input;
+      this.recordNote(task, text, this.viewerActor(), importedFrom);
+      return { status: 201, body: this.taskDetail(task) };
     }
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/labels$/.exec(rest)) && method === 'POST') {
       if (viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))
@@ -646,15 +660,8 @@ export class MockBackend {
       if (!input) return error(400, 'invalid_request', 'Invalid label change');
       const task = this.findTask(m[1]!);
       if (!task) return error(404, 'not_found', 'Unknown task');
-      const refused = this.changeLabels(
-        task,
-        input.add ?? [],
-        input.remove ?? [],
-        this.viewerHandle,
-        input.comment,
-      );
-      if (refused) return refused;
-      return this.handleProject('GET', `/tasks/${task.key}`, undefined, query);
+      const refused = this.applyLabels(task, input, this.viewerActor(), { comment: input.comment });
+      return refused ?? ok(this.taskDetail(task));
     }
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/start$/.exec(rest)) && method === 'POST') {
       return this.startTask(m[1]!, body);
@@ -664,7 +671,7 @@ export class MockBackend {
       return this.taskLifecycle(m[1]!, m[2]!, body);
     }
     if (rest === '/roles') {
-      if (method === 'GET') return ok({ roles: this.roleCatalogue() });
+      if (method === 'GET') return ok({ roles: roleViews(this.config) });
       if (method === 'POST') return this.saveRole(undefined, body);
     }
     if ((m = /^\/roles\/([a-z][a-z0-9_]+)$/.exec(rest))) {
@@ -674,54 +681,7 @@ export class MockBackend {
     if ((m = /^\/members\/([a-z0-9-]+)$/.exec(rest)) && method === 'PATCH')
       return this.editMember(m[1]!, body);
 
-    if (rest === '/members/human' && method === 'POST') {
-      const input = parseBody(AddHumanMemberRequest, body);
-      if (!input) return error(400, 'invalid_request', 'Invalid human member');
-      if (input.access === 'admin' && viewer.role !== 'owner')
-        return error(403, 'owner_only', 'Owner required');
-      for (const role of input.roles) {
-        const holders = roleHolders(role, this.config.team.roles, this.config.team.roleOverrides);
-        if (!holders) return error(400, 'unknown_role', 'Unknown role');
-        if (!holdersAllow(holders, 'human')) return error(400, 'role_not_for_human', 'Human role required');
-        if (viewer.role !== 'owner' && roleBundle(this.config, role).duties.includes('release_approval'))
-          return error(403, 'owner_only', 'Owner required');
-      }
-      const base =
-        input.displayName
-          .normalize('NFKD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-+|-+$/g, '')
-          .slice(0, 24) || 'member';
-      let handle = input.handle ?? base;
-      if (input.handle && this.findMember(handle)) return error(409, 'handle_taken', 'Handle taken');
-      for (let suffix = 2; this.findMember(handle); suffix++) handle = `${base}-${suffix}`;
-      this.config.team.members.push({
-        kind: 'human',
-        handle,
-        displayName: input.displayName,
-        access: input.access,
-        roles: [...new Set(input.roles)],
-      });
-      const member: MemberView = {
-        kind: 'human',
-        handle,
-        displayName: input.displayName,
-        role: input.access,
-        roles: [...new Set(input.roles)],
-        status: 'no_account',
-        activity: null,
-        currentTaskKeys: [],
-        specialty: null,
-        sponsor: null,
-        temp: false,
-      };
-      this.members.push(member);
-      this.commitConfig(`Add human member ${handle} without account`);
-      this.memberChanged(handle);
-      return { status: 201, body: clone(member) };
-    }
+    if (rest === '/members/human' && method === 'POST') return this.addHuman(body);
     if (rest === '/members') {
       if (method === 'POST') return this.hire(body);
       return ok(clone(this.members.filter((member) => member.status !== 'retired')));
@@ -795,7 +755,7 @@ export class MockBackend {
     if ((m = /^\/members\/([a-z0-9-]+)\/(profile|memories|conversation|remove)$/.exec(rest))) {
       const handle = m[1]!;
       const member = this.findMember(handle);
-      const original = this.config.team.members.find((entry) => entry.handle === handle);
+      const original = memberOf(this.config, handle);
       if (!member || !original || member.status === 'retired')
         return error(404, 'not_found', 'Unknown member');
       if (m[2] === 'conversation' && method === 'POST') return this.startConversation(handle);
@@ -832,20 +792,13 @@ export class MockBackend {
       }
       if (m[2] === 'profile' && method === 'GET') {
         const internal = viewer.role !== 'client';
-        const visible = this.tasks.filter(
-          (t) => !['done', 'cancelled'].includes(t.status) && (internal || t.visibility === 'shared'),
-        );
+        const visible = this.tasks.filter((t) => isOpenTask(t) && (internal || t.visibility === 'shared'));
         const awaiting = new Set(
           this.inbox.filter((i) => i.state === 'open' && i.assignees.includes(handle)).map((i) => i.taskKey),
         );
         const stages = this.config.pipeline.stages
-          .filter((s) =>
-            s.gate?.conditions.some((c) => {
-              const label = c.type === 'has_label' ? labelDefinition(this.config, c.label) : undefined;
-              return !!label && isHumanOnlyLabel(label) && labelHolders(this.config, label).includes(handle);
-            }),
-          )
-          .map((s) => s.id);
+          .filter((stage) => stageApprovers(this.config, stage).includes(handle))
+          .map((stage) => stage.id);
         return ok({
           member: {
             ...clone(member),
@@ -911,7 +864,7 @@ export class MockBackend {
       if (!input) return error(400, 'invalid_request', 'Invalid revert request');
       const target = this.history.find((entry) => entry.version === input.version);
       if (!target) return error(404, 'not_found', 'Unknown version');
-      this.commitConfig(`Visszaállítva: ${target.version} (${target.message})`);
+      this.commitConfig(`Revert to ${target.version}`);
       return ok({ version: this.configVersion });
     }
     return error(404, 'not_found', `No route for ${method} ${rest}`);
@@ -919,12 +872,22 @@ export class MockBackend {
 
   /* ---------- mutations ---------- */
 
+  /** The server's checks on every configuration change: access, owner-only changes, invariants. */
   private configChangeFailure(next: ProjectConfig): MockResponse | null {
-    const viewer = this.config.team.members.find((m) => m.handle === this.viewerHandle);
+    const viewer = memberOf(this.config, this.viewerHandle);
     if (viewer?.kind !== 'human' || !['owner', 'admin'].includes(viewer.access))
       return error(403, 'insufficient_access', 'Requires admin access');
-    if (viewer.access !== 'owner' && humanApprovalChanged(this.config, next))
-      return error(403, 'owner_only', 'Only owners may change release approval');
+    const [ownerOnly] = viewer.access === 'owner' ? [] : ownerOnlyChanges(this.config, next);
+    if (ownerOnly) return error(403, 'owner_only', `Only an owner may make this change (${ownerOnly})`);
+    const stageIds = new Set(next.pipeline.stages.map((stage) => stage.id));
+    for (const stage of this.config.pipeline.stages.filter((stage) => !stageIds.has(stage.id))) {
+      const count = this.tasks.filter((task) => task.stageId === stage.id).length;
+      if (count)
+        return error(409, 'stage_in_use', 'Tasks still occupy the removed stage', {
+          stageId: stage.id,
+          tasks: count,
+        });
+    }
     const issues = validateProjectConfig(next);
     return issues.some((i) => i.severity !== 'warning')
       ? error(400, 'config_invalid', 'Invalid configuration', { issues })
@@ -932,7 +895,7 @@ export class MockBackend {
   }
 
   private patchConfig(body: unknown): MockResponse {
-    const member = this.config.team.members.find((member) => member.handle === this.viewerHandle);
+    const member = memberOf(this.config, this.viewerHandle);
     if (member?.kind !== 'human' || !['owner', 'admin'].includes(member.access)) {
       return error(403, 'insufficient_access', 'Requires admin access');
     }
@@ -947,21 +910,8 @@ export class MockBackend {
       return error(409, 'config_conflict', 'Configuration changed', { currentVersion: this.configVersion });
     }
     const next = applyConfigPatch(this.config, input);
-    if (member.access !== 'owner' && humanApprovalChanged(this.config, next)) {
-      return error(403, 'owner_only', 'Only owners may change human approval gates');
-    }
-    const stageIds = new Set(next.pipeline.stages.map((stage) => stage.id));
-    for (const stage of this.config.pipeline.stages.filter((stage) => !stageIds.has(stage.id))) {
-      const count = this.tasks.filter((task) => task.stageId === stage.id).length;
-      if (count)
-        return error(409, 'stage_in_use', 'Tasks still occupy the removed stage', {
-          stageId: stage.id,
-          tasks: count,
-        });
-    }
-    const issues = validateProjectConfig(next);
-    if (issues.some((issue) => issue.severity !== 'warning'))
-      return error(400, 'config_invalid', 'Invalid configuration', { issues });
+    const failure = this.configChangeFailure(next);
+    if (failure) return failure;
     if (JSON.stringify(next) !== JSON.stringify(this.config)) {
       this.config = next;
       const message =
@@ -971,6 +921,56 @@ export class MockBackend {
       this.addTimeline(null, this.viewerHandle, 'config_changed', { version: this.configVersion, message });
     }
     return ok({ config: clone(this.config), version: this.configVersion, history: clone(this.history) });
+  }
+
+  /** Handles in use now or in the past (the configuration, retired members, sessions): never reused. */
+  private takenHandles(config: ProjectConfig = this.config): Set<string> {
+    return new Set([
+      ...config.team.members.map((member) => member.handle),
+      ...this.members.map((member) => member.handle),
+      ...this.sessions.map((session) => session.member),
+    ]);
+  }
+
+  private addHuman(body: unknown): MockResponse {
+    const input = parseBody(AddHumanMemberRequest, body);
+    if (!input) return error(400, 'invalid_request', 'Invalid human member');
+    for (const role of input.roles) {
+      const failure = this.validateRole(role, 'human');
+      if (failure) return failure;
+    }
+    const taken = this.takenHandles();
+    if (input.handle && taken.has(input.handle)) return error(409, 'handle_taken', 'Handle taken');
+    const handle = input.handle ?? humanMemberHandle(input.displayName, taken);
+    const roles = unique(input.roles);
+    const next = clone(this.config);
+    next.team.members.push({
+      kind: 'human',
+      handle,
+      displayName: input.displayName,
+      access: input.access,
+      roles,
+    });
+    const failure = this.configChangeFailure(next);
+    if (failure) return failure;
+    this.config = next;
+    const member: MemberView = {
+      kind: 'human',
+      handle,
+      displayName: input.displayName,
+      role: input.access,
+      roles,
+      status: 'no_account',
+      activity: null,
+      currentTaskKeys: [],
+      specialty: null,
+      sponsor: null,
+      temp: false,
+    };
+    this.members.push(member);
+    this.commitConfig(`Add human member ${handle} without account`);
+    this.memberChanged(handle);
+    return { status: 201, body: clone(member) };
   }
 
   private handleInvitations(method: string, rest: string, body: unknown): MockResponse {
@@ -994,9 +994,7 @@ export class MockBackend {
       if (!input) return error(400, 'invalid_request', 'Invalid invitation');
       if (input.access === 'admin' && this.findMember(this.viewerHandle)?.role !== 'owner')
         return error(403, 'owner_only', 'Only an owner may invite an admin');
-      const member = input.memberHandle
-        ? this.config.team.members.find((member) => member.handle === input.memberHandle)
-        : undefined;
+      const member = input.memberHandle ? memberOf(this.config, input.memberHandle) : undefined;
       if (input.memberHandle) {
         if (!member) return error(404, 'invite_member_not_found', 'Unknown member');
         if (member.kind !== 'human') return error(400, 'invite_member_not_human', 'Human required');
@@ -1019,7 +1017,7 @@ export class MockBackend {
       )
         return error(409, 'already_member', 'Already a human member');
       for (const id of input.roles) {
-        const role = this.roleCatalogue().find((role) => role.id === id);
+        const role = roleViews(this.config).find((role) => role.id === id);
         if (!role) return error(400, 'unknown_role', 'Unknown role');
         if (
           !input.memberHandle &&
@@ -1078,7 +1076,9 @@ export class MockBackend {
         displayName: invite.displayName,
         access: invite.access,
         roles: invite.roles,
-        roleNames: invite.roles.map((id) => this.roleCatalogue().find((role) => role.id === id)?.name ?? id),
+        roleNames: invite.roles.map(
+          (id) => roleViews(this.config).find((role) => role.id === id)?.name ?? id,
+        ),
         expiresAt: invite.expiresAt,
         requiresLogin: !!account,
       });
@@ -1096,9 +1096,8 @@ export class MockBackend {
     )
       return error(409, 'already_member', 'Already a human member');
     for (const id of invite.roles) {
-      const role = this.roleCatalogue().find((role) => role.id === id);
-      if (!role) return error(400, 'unknown_role', 'Unknown role');
-      if (!holdersAllow(role.holders, 'human')) return error(400, 'role_not_for_human', 'AI-only role');
+      const failure = this.validateRole(id, 'human');
+      if (failure) return failure;
     }
     const user = account ?? {
       userId: mockId('usr'),
@@ -1106,25 +1105,13 @@ export class MockBackend {
       email: invite.email,
       password: input!.password,
     };
-    const seat = invite.memberHandle
-      ? this.config.team.members.find((member) => member.handle === invite.memberHandle)
-      : undefined;
+    const seat = invite.memberHandle ? memberOf(this.config, invite.memberHandle) : undefined;
     if (invite.memberHandle) {
       if (!seat) return error(404, 'invite_member_not_found', 'Unknown member');
       if (seat.kind !== 'human') return error(400, 'invite_member_not_human', 'Human required');
       if (seat.email) return error(409, 'member_has_account', 'Member has email');
     }
-    const base =
-      user.name
-        .normalize('NFKD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(0, 24) || 'member';
-    let handle = base;
-    for (let suffix = 2; this.members.some((member) => member.handle === handle); suffix++)
-      handle = `${base}-${suffix}`;
+    let handle = humanMemberHandle(user.name, this.takenHandles());
     if (seat?.kind === 'human') {
       handle = seat.handle;
       seat.email = user.email;
@@ -1165,24 +1152,8 @@ export class MockBackend {
     return ok(this.me());
   }
 
-  private roleCatalogue(): RoleView[] {
-    return [
-      ...clone(fixtures.builtInRoles).map((role) => ({
-        ...role,
-        ...roleBundle(this.config, role.id),
-        holders: roleHolders(role.id, this.config.team.roles, this.config.team.roleOverrides)!,
-      })),
-      ...this.config.team.roles.map((role) => ({
-        ...role,
-        duties: customRoleDuties(role),
-        holders: roleHolders(role.id, this.config.team.roles)!,
-        builtIn: false,
-      })),
-    ];
-  }
-
   private validateRole(id: string, kind: 'human' | 'ai'): MockResponse | null {
-    const role = this.roleCatalogue().find((entry) => entry.id === id);
+    const role = roleViews(this.config).find((entry) => entry.id === id);
     if (!role) return error(400, 'unknown_role', 'Unknown role');
     if (!holdersAllow(role.holders, kind))
       return error(
@@ -1197,9 +1168,7 @@ export class MockBackend {
     return {
       members: this.config.team.members
         .filter(
-          (member) =>
-            (member.kind === 'ai' ? member.role === id : member.roles.includes(id)) &&
-            (!holders || !holdersAllow(holders, member.kind)),
+          (member) => memberRoles(member).includes(id) && (!holders || !holdersAllow(holders, member.kind)),
         )
         .map((member) => member.handle),
       tempWorkers:
@@ -1226,7 +1195,7 @@ export class MockBackend {
     if (id) this.config.team.roles[index] = input;
     else this.config.team.roles.push(input);
     this.commitConfig(`${id ? 'Update' : 'Add'} role ${input.id}`);
-    return { status: id ? 200 : 201, body: this.roleCatalogue().find((role) => role.id === input.id) };
+    return { status: id ? 200 : 201, body: roleViews(this.config).find((role) => role.id === input.id) };
   }
 
   private deleteRole(id: string): MockResponse {
@@ -1248,7 +1217,7 @@ export class MockBackend {
     const input = parseBody(UpdateMemberRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid member update');
     const member = this.findMember(handle);
-    const config = this.config.team.members.find((entry) => entry.handle === handle);
+    const config = memberOf(this.config, handle);
     if (!member || !config) return error(404, 'not_found', 'Unknown member');
     if (input.roles !== undefined) {
       if (config.kind !== 'human') return error(400, 'not_human_member', 'Not a human member');
@@ -1267,7 +1236,7 @@ export class MockBackend {
     )
       return error(400, 'not_ai_member', 'Not an AI member');
     const next = clone(this.config);
-    const nextMember = next.team.members.find((m) => m.handle === handle)!;
+    const nextMember = memberOf(next, handle)!;
     if (input.access !== undefined && nextMember.kind !== 'human')
       return error(400, 'not_human_member', 'Access is for humans');
     if (nextMember.kind === 'human' && input.access !== undefined) nextMember.access = input.access;
@@ -1284,7 +1253,7 @@ export class MockBackend {
         member.specialty = config.specialty ?? null;
       }
       if (input.model !== undefined) member.model = config.model = input.model;
-      if (input.provider !== undefined && input.provider !== (config.provider ?? 'claude')) {
+      if (input.provider !== undefined && input.provider !== (config.provider ?? DEFAULT_AGENT_PROVIDER)) {
         member.provider = config.provider = input.provider;
         member.model = config.model = modelForProvider(input.provider, config.model);
       }
@@ -1330,7 +1299,7 @@ export class MockBackend {
     const task = this.findTask(taskKey);
     if (!task) return error(404, 'not_found', 'Unknown task');
     if (action === 'cancel') {
-      if (['done', 'cancelled'].includes(task.status)) return error(409, 'task_closed', 'Task is closed');
+      if (!isOpenTask(task)) return error(409, 'task_closed', 'Task is closed');
       const previousStatus = task.status;
       const reason = 'reason' in input ? input.reason : undefined;
       this.updateTask(taskKey, { status: 'cancelled', closedAt: nowIso() });
@@ -1341,7 +1310,7 @@ export class MockBackend {
         ...(reason === undefined ? {} : { reason }),
       });
       for (const session of this.taskSessions(taskKey))
-        if (!['exited', 'failed'].includes(session.state)) this.stopSession(session.id);
+        if (this.isLive(session)) this.stopSession(session.id);
       for (const item of this.inbox.filter((entry) => entry.taskKey === taskKey && entry.state === 'open'))
         this.upsertInbox({ ...item, state: 'cancelled' });
       for (const member of this.members)
@@ -1359,142 +1328,328 @@ export class MockBackend {
     return ok(clone(task));
   }
 
-  private moveTask(task: Task, stageId: string): MockResponse {
-    if (['done', 'cancelled'].includes(task.status)) return error(409, 'task_closed', 'Task is closed');
-    const stages = resolvedStages(this.config);
-    const to = stages.findIndex((stage) => stage.id === stageId);
-    if (to < 0) return error(400, 'unknown_stage', 'Unknown stage');
-    if (task.stageId === stageId) return ok(task);
-    const from = stages.findIndex((stage) => stage.id === task.stageId);
-    const entered = to > from ? stages.slice(from + 1, to + 1) : [stages[to]!];
-    const unmet: Array<{ stageId: string; condition: GateCondition }> = [];
-    const approvals: Array<{ stageId: string; label: string; approvers: string[] }> = [];
-    for (const stage of entered) {
-      for (const condition of stage.gate?.conditions ?? []) {
-        const has = task.labels.includes(condition.label);
-        if (condition.type === 'has_label' ? has : !has) continue;
-        const label =
-          condition.type === 'has_label' ? labelDefinition(this.config, condition.label) : undefined;
-        if (label && isHumanOnlyLabel(label))
-          approvals.push({
-            stageId: stage.id,
-            label: label.id,
-            approvers: labelSetters(this.config, label, task),
-          });
-        else unmet.push({ stageId: stage.id, condition });
-      }
-    }
-    // A blocking label (e.g. "waiting for an answer") holds every forward move.
-    if (to > from)
-      for (const id of task.labels)
-        if (labelDefinition(this.config, id)?.blocks)
-          unmet.push({ stageId: entered[0]!.id, condition: { type: 'lacks_label', label: id } });
-    if (unmet.length) return error(409, 'gate_blocked', 'Gate conditions are not met', { unmet, approvals });
-    if (approvals.some((a) => !a.approvers.length))
-      return error(409, 'release_four_eyes', 'No independent human approver is available');
-    if (approvals.length) {
-      const items: InboxItem[] = [];
-      const requestId = mockId('gate');
-      for (const requirement of approvals) {
-        const existing = this.inbox.find((item) => {
-          const gate = item.payload.gate as
-            { fromStageId?: string; toStageId?: string; stageId?: string; label?: string } | undefined;
-          return (
-            item.state === 'open' &&
-            item.taskKey === task.key &&
-            gate?.fromStageId === task.stageId &&
-            gate.toStageId === stageId &&
-            gate.stageId === requirement.stageId &&
-            gate.label === requirement.label
-          );
-        });
-        const item: InboxItem = existing ?? {
-          id: mockId('inb'),
-          projectKey: task.projectKey,
-          kind: 'decision',
-          assignees: requirement.approvers,
-          source: this.viewerHandle,
-          sessionId: null,
-          taskKey: task.key,
-          title: task.title,
-          body: null,
-          payload: {
-            gate: {
-              requestId,
-              taskKey: task.key,
-              fromStageId: task.stageId,
-              toStageId: stageId,
-              stageId: requirement.stageId,
-              label: requirement.label,
-              requestedBy: { kind: 'human', handle: this.viewerHandle },
-            },
-          },
-          options: fixtures.DECISION_OPTIONS,
-          state: 'open',
-          resolution: null,
-          createdAt: nowIso(),
-        };
-        if (!existing) this.upsertInbox(item);
-        items.push(item);
-      }
-      this.updateTask(task.key, { status: 'waiting' });
-      return error(409, 'approval_requested', 'Approvers were asked', {
-        inboxItemIds: items.map((item) => item.id),
-        approvers: [...new Set(items.flatMap((item) => item.assignees))],
-      });
-    }
-    const previous = task.stageId;
-    const done = stages[to]!.kind === 'done';
-    this.updateTask(task.key, {
-      stageId,
-      status: done ? 'done' : 'active',
-      closedAt: done ? nowIso() : null,
-    });
-    this.addTimeline(task.key, this.viewerHandle, 'task_stage_changed', { from: previous, to: stageId });
-    if (to < from) this.clearLabels(task, 'moved_back');
-    return ok(task);
+  private viewerActor(): Actor {
+    return { kind: 'human', handle: this.viewerHandle };
   }
 
-  /** Mirrors the server's label rules: who may set, no self-review, comment required, groups. */
-  private changeLabels(
-    task: Task,
-    addRaw: string[],
-    removeRaw: string[],
-    actor: string,
-    comment?: string,
-  ): MockResponse | null {
-    const who = { kind: 'human' as const, handle: actor };
-    const add = [...new Set(addRaw.map((l) => l.trim()).filter((l) => l && !task.labels.includes(l)))];
-    const remove = removeRaw.filter((l) => task.labels.includes(l) && !add.includes(l));
-    for (const id of [...add, ...remove]) {
-      const refusal = labelRefusal(this.config, labelDefinition(this.config, id), who, task);
-      if (refusal === 'self_review')
-        return error(403, 'self_review_forbidden', 'The assignee and PR authors cannot set this label');
-      if (refusal)
-        return error(403, 'label_not_allowed', 'The label rules forbid this', { label: id, reason: refusal });
+  private taskDetail(task: Task) {
+    return {
+      task: clone(task),
+      parent: task.parentKey ? clone(this.findTask(task.parentKey) ?? null) : null,
+      subtasks: clone(this.tasks.filter((child) => child.parentKey === task.key)),
+      pullRequests: this.taskPullRequests(task),
+      timeline: clone(this.timeline.filter((event) => event.taskKey === task.key)),
+      sessions: clone(this.taskSessions(task.key)),
+    };
+  }
+
+  /**
+   * Like the server's all-or-nothing task update: the whole change is validated first (label
+   * rules, then the gates against the labels the task will have); fields, assignee and labels
+   * are applied before the move, and a move that needs an approval requests it with the rest
+   * applied.
+   */
+  private changeTask(task: Task, input: UpdateTaskRequest): MockResponse {
+    const actor = this.viewerActor();
+    const patch: Partial<Task> = {};
+    const fields: string[] = [];
+    if (input.title !== undefined && input.title.trim() !== task.title) {
+      patch.title = input.title.trim();
+      if (!patch.title) return error(400, 'invalid_request', 'Empty title');
+      fields.push('title');
     }
-    if (add.some((id) => labelDefinition(this.config, id)?.requiresComment) && !comment?.trim())
-      return error(400, 'comment_required', 'These labels need a comment');
-    const groups = new Set(add.map((id) => labelDefinition(this.config, id)?.group).filter(Boolean));
-    const replaced = task.labels.filter(
-      (l) => !add.includes(l) && groups.has(labelDefinition(this.config, l)?.group),
+    if (input.description !== undefined && input.description !== task.description) {
+      patch.description = input.description;
+      fields.push('description');
+    }
+    if (input.visibility !== undefined && input.visibility !== task.visibility) {
+      patch.visibility = input.visibility;
+      fields.push('visibility');
+    }
+    if (input.parentKey) {
+      const refusal = this.validateParent(task.key, input.parentKey);
+      if (refusal) return refusal;
+    }
+    if (input.parentKey !== undefined && input.parentKey !== (task.parentKey ?? null)) {
+      patch.parentKey = input.parentKey;
+      fields.push('parentKey');
+    }
+    if (input.assignee !== undefined) {
+      if (input.assignee !== null && !memberOf(this.config, input.assignee))
+        return error(400, 'unknown_member', 'Unknown member');
+      const live = this.taskSessions(task.key).find((session) => this.isLive(session));
+      if (live) return error(409, 'task_session_live', 'A session is still live', { sessionId: live.id });
+      if (input.assignee !== task.assignee) patch.assignee = input.assignee;
+    }
+    const wanted = input.labels && unique(input.labels.map((label) => label.trim()).filter(Boolean));
+    const labels = planLabelChange(
+      this.config,
+      { ...task, ...patch },
+      wanted
+        ? {
+            add: wanted.filter((label) => !task.labels.includes(label)),
+            remove: task.labels.filter((label) => !wanted.includes(label)),
+          }
+        : {},
+      actor,
     );
-    const removed = [...new Set([...remove, ...replaced])];
-    if (!add.length && !removed.length) return null;
-    this.updateTask(task.key, { labels: [...task.labels.filter((l) => !removed.includes(l)), ...add] });
-    this.addTimeline(task.key, actor, 'task_labels_changed', { added: add, removed });
-    if (comment?.trim())
-      this.addTimeline(task.key, actor, 'task_note', { text: comment.trim(), mentions: [] });
+    if (!labels.ok) return labelChangeError(labels.refusal);
+    const moving = input.stageId !== undefined && input.stageId !== task.stageId;
+    if (moving) {
+      if (task.status === 'cancelled') return error(409, 'task_closed', 'Task is cancelled');
+      const target = stageOf(this.config, input.stageId!);
+      if (!target) return error(400, 'unknown_stage', 'Unknown stage');
+      const evaluation = evaluateMove(
+        { ...task, ...patch, labels: labels.labels },
+        this.config,
+        task.stageId,
+        target.id,
+      );
+      if (evaluation.unmet.length) return gateBlockedError(evaluation);
+    }
+
+    const previous = { assignee: task.assignee, parentKey: task.parentKey ?? null };
+    const labelsChanged = labels.added.length > 0 || labels.removed.length > 0;
+    if (fields.length || patch.assignee !== undefined || labelsChanged) {
+      this.updateTask(task.key, { ...patch, ...(labelsChanged ? { labels: labels.labels } : {}) });
+      if (fields.length) this.addTimeline(task.key, actor.handle, 'task_updated', { fields });
+      if (labelsChanged) this.recordLabels(task, labels, actor, {});
+      if (patch.assignee !== undefined)
+        this.addTimeline(task.key, actor.handle, 'task_assigned', {
+          assignee: task.assignee,
+          previous: previous.assignee,
+        });
+      if (patch.parentKey !== undefined)
+        this.recordParentChange(task.key, previous.parentKey, task.parentKey ?? null);
+    }
+    return moving ? this.move(task, input.stageId!, actor) : ok(clone(task));
+  }
+
+  /** Adds a comment; the members it mentions get it as a team message (imported ones do not). */
+  private recordNote(
+    task: Task,
+    text: string,
+    actor: Actor,
+    imported: Pick<CreateTaskCommentRequest, 'importedAuthor' | 'importedAt'> = {},
+  ): void {
+    const mentions = commentMentions(
+      text,
+      this.config.team.members.map((member) => member.handle),
+      actor.handle,
+    );
+    this.addTimeline(task.key, actor.handle, 'task_note', { text, mentions, ...imported });
+    const isImported = imported.importedAuthor !== undefined || imported.importedAt !== undefined;
+    if (!isImported && mentions.length && actor.handle)
+      this.sendTeamMessage(actor.handle, mentions, task.key, text);
+  }
+
+  /** Records a label change already written to the task: the event, the comment, the assignee's notice. */
+  private recordLabels(
+    task: Task,
+    plan: { added: string[]; removed: string[]; notify: string[] },
+    actor: Actor,
+    opts: { comment?: string; reason?: LabelChangeReason },
+  ): void {
+    const data: TimelineEventData['task_labels_changed'] = { added: plan.added, removed: plan.removed };
+    if (opts.reason) data.reason = opts.reason;
+    this.addTimeline(task.key, actor.handle, 'task_labels_changed', { ...data });
+    const comment = opts.comment?.trim();
+    if (comment) this.recordNote(task, comment, actor);
+    if (plan.notify.length && task.assignee && actor.handle && task.assignee !== actor.handle) {
+      const names = plan.notify.map((id) => labelDefinition(this.config, id)?.name ?? id);
+      this.sendTeamMessage(
+        actor.handle,
+        [task.assignee],
+        task.key,
+        [names.join(', '), comment].filter(Boolean).join('\n\n'),
+      );
+    }
+  }
+
+  /** Adds and removes labels under the project's label rules; a refusal changes nothing. */
+  private applyLabels(
+    task: Task,
+    change: { add?: string[]; remove?: string[] },
+    actor: Actor,
+    opts: { comment?: string; reason?: LabelChangeReason },
+  ): MockResponse | null {
+    const plan = planLabelChange(this.config, task, change, actor, opts.comment);
+    if (!plan.ok) return labelChangeError(plan.refusal);
+    if (!plan.added.length && !plan.removed.length) return null;
+    this.updateTask(task.key, { labels: plan.labels });
+    this.recordLabels(task, plan, actor, opts);
     return null;
   }
 
-  private clearLabels(task: Task, trigger: 'moved_back' | 'pr_updated'): void {
-    const expired = task.labels.filter((l) =>
-      labelDefinition(this.config, l)?.clearedWhen?.includes(trigger),
+  /** Takes off the labels that expire on an event (the task moving back, its PR changing). */
+  private expireLabels(task: Task, trigger: LabelClearTrigger): void {
+    const expired = expiredLabels(this.config, task, trigger);
+    if (expired.length) this.applyLabels(task, { remove: expired }, SYSTEM_ACTOR, { reason: trigger });
+  }
+
+  /** A stage move under the gates: blocked, an approval request in the inbox, or the move itself. */
+  private move(task: Task, stageId: string, actor: Actor): MockResponse {
+    if (task.status === 'cancelled') return error(409, 'task_closed', 'Task is cancelled');
+    const target = stageOf(this.config, stageId);
+    if (!target) return error(400, 'unknown_stage', 'Unknown stage');
+    if (task.stageId === target.id) return ok(clone(task));
+    const evaluation = evaluateMove(task, this.config, task.stageId, target.id);
+    if (evaluation.unmet.length) return gateBlockedError(evaluation);
+    if (evaluation.approvals.length) return this.requestApproval(task, target, evaluation.approvals, actor);
+    this.applyMove(task, target, actor, {});
+    return ok(clone(task));
+  }
+
+  private openDecisions(task: Task): InboxItem[] {
+    return this.inbox.filter(
+      (item) => item.state === 'open' && item.kind === 'decision' && item.taskKey === task.key,
     );
-    if (!expired.length) return;
-    this.updateTask(task.key, { labels: task.labels.filter((l) => !expired.includes(l)) });
-    this.addTimeline(task.key, null, 'task_labels_changed', { added: [], removed: expired, reason: trigger });
+  }
+
+  /** One decision per missing approval (or the request already open); the task waits. */
+  private requestApproval(
+    task: Task,
+    target: Stage,
+    approvals: ApprovalRequirement[],
+    actor: Actor,
+  ): MockResponse {
+    const open = this.openDecisions(task).filter((item) => {
+      const gate = gateRequestOf(item);
+      return gate?.fromStageId === task.stageId && gate.toStageId === target.id;
+    });
+    if (open.length) return approvalRequestedError(open);
+    if (approvals.some((approval) => !approval.approvers.length))
+      return error(409, 'release_four_eyes', 'No independent human approver is available');
+    const requestId = mockId('gat');
+    const items = approvals.map((approval): InboxItem => {
+      const gate: GateRequestPayload = {
+        requestId,
+        taskKey: task.key,
+        fromStageId: task.stageId,
+        toStageId: target.id,
+        stageId: approval.stageId,
+        label: approval.label,
+        requestedBy: actor,
+      };
+      const item: InboxItem = {
+        id: mockId('inb'),
+        projectKey: task.projectKey,
+        kind: 'decision',
+        assignees: approval.approvers,
+        source: actor.handle ?? 'system',
+        sessionId: null,
+        taskKey: task.key,
+        title: task.title,
+        body: null,
+        payload: { gate },
+        options: fixtures.DECISION_OPTIONS,
+        state: 'open',
+        resolution: null,
+        createdAt: nowIso(),
+      };
+      this.upsertInbox(item);
+      return item;
+    });
+    const waiting = task.status === 'active';
+    if (waiting) this.updateTask(task.key, { status: 'waiting' });
+    this.addTimeline(task.key, actor.handle, 'task_updated', {
+      fields: waiting ? ['status'] : [],
+      gateRequest: {
+        requestId,
+        from: task.stageId,
+        to: target.id,
+        inboxItemIds: items.map((item) => item.id),
+      },
+    });
+    return approvalRequestedError(items);
+  }
+
+  private applyMove(
+    task: Task,
+    target: Stage,
+    actor: Actor,
+    extra: Pick<TimelineEventData['task_stage_changed'], 'approvedBy' | 'inboxItemIds'>,
+  ): void {
+    const from = task.stageId;
+    const patch: Partial<Task> = { stageId: target.id };
+    if (target.kind === 'done') Object.assign(patch, { status: 'done', closedAt: nowIso() });
+    else if (task.status === 'done' || task.status === 'waiting')
+      Object.assign(patch, { status: 'active', closedAt: null });
+    this.updateTask(task.key, patch);
+    this.addTimeline(task.key, actor.handle, 'task_stage_changed', { from, to: target.id, ...extra });
+    if (stageIndex(this.config.pipeline, target.id) < stageIndex(this.config.pipeline, from))
+      this.expireLabels(task, 'moved_back');
+    // Requests made from the previous stage are stale now.
+    for (const item of this.openDecisions(task)) this.upsertInbox({ ...item, state: 'cancelled' });
+  }
+
+  /** Ends the "waiting for approval" status after a rejected or dropped request. */
+  private settleWaiting(
+    task: Task,
+    by: string,
+    data: Pick<TimelineEventData['task_updated'], 'gateRejected' | 'gateBlocked'>,
+  ): void {
+    const waiting = task.status === 'waiting';
+    if (waiting) this.updateTask(task.key, { status: 'active' });
+    this.addTimeline(task.key, by, 'task_updated', { fields: waiting ? ['status'] : [], ...data });
+  }
+
+  /** Completes (or drops) the stage move an approver decided on, like the server. */
+  private decideGate(item: InboxItem, gate: GateRequestPayload): void {
+    const task = this.findTask(gate.taskKey);
+    const by = item.resolution?.by;
+    if (!task || !by) return;
+    const siblings = this.inbox.filter(
+      (entry) => entry.taskKey === task.key && gateRequestOf(entry)?.requestId === gate.requestId,
+    );
+    if (item.resolution?.optionId !== 'approve') {
+      for (const sibling of siblings)
+        if (sibling.state === 'open') this.upsertInbox({ ...sibling, state: 'cancelled' });
+      this.settleWaiting(task, by, {
+        gateRejected: { requestId: gate.requestId, to: gate.toStageId, inboxItemId: item.id },
+      });
+      return;
+    }
+    if (siblings.some((sibling) => sibling.state === 'open')) return;
+    if (!siblings.every((s) => s.state === 'resolved' && s.resolution?.optionId === 'approve')) return;
+    if (task.stageId !== gate.fromStageId || task.status === 'cancelled') return;
+    const target = stageOf(this.config, gate.toStageId);
+    if (!target) {
+      this.settleWaiting(task, by, { gateBlocked: { to: gate.toStageId, reason: 'unknown_stage' } });
+      return;
+    }
+    // Approving puts each requested human-only label on the task in the approver's name.
+    for (const sibling of siblings) {
+      const label = gateRequestOf(sibling)?.label;
+      if (!label) {
+        // A request from before approvals were labels names no label to put on.
+        this.settleWaiting(task, by, { gateBlocked: { to: target.id } });
+        return;
+      }
+      const approver: Actor = { kind: 'human', handle: sibling.resolution!.by };
+      const refused = this.applyLabels(task, { add: [label] }, approver, { reason: 'approval' });
+      if (refused) {
+        const code = (refused.body as { error: { code: string } }).error.code;
+        this.settleWaiting(task, by, { gateBlocked: { to: target.id, label, reason: code } });
+        return;
+      }
+    }
+    const evaluation = evaluateMove(task, this.config, task.stageId, target.id);
+    if (evaluation.unmet.length || evaluation.approvals.length) {
+      this.settleWaiting(task, by, {
+        gateBlocked: { to: target.id, unmet: evaluation.unmet, approvals: evaluation.approvals },
+      });
+      return;
+    }
+    this.applyMove(
+      task,
+      target,
+      { kind: 'human', handle: by },
+      {
+        approvedBy: unique(siblings.map((sibling) => sibling.resolution!.by)),
+        inboxItemIds: siblings.map((sibling) => sibling.id),
+      },
+    );
   }
 
   private validateParent(taskKey: string | null, parentKey: string): MockResponse | null {
@@ -1520,39 +1675,70 @@ export class MockBackend {
     }
   }
 
+  /** Like the server: a new task may start in any stage its gates let it enter (imports skip them). */
   private createTask(body: unknown): MockResponse {
     const input = parseBody(CreateTaskRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid task');
+    const actor = this.viewerActor();
+    if (input.importedAt !== undefined && this.findMember(this.viewerHandle)?.role !== 'owner')
+      return error(403, 'owner_only', 'Only an owner may import tasks');
+    const first = this.config.pipeline.stages[0]!;
+    const target = input.stageId ? stageOf(this.config, input.stageId) : first;
+    if (!target) return error(400, 'unknown_stage', 'Unknown stage');
+    const title = input.title.trim();
+    if (!title) return error(400, 'invalid_request', 'Empty title');
+    const repo = input.repo ?? null;
+    if (repo && !this.config.project.repos.some((entry) => entry.name === repo))
+      return error(400, 'unknown_repo', 'Unknown repository');
     if (input.parentKey) {
       const refusal = this.validateParent(null, input.parentKey);
       if (refusal) return refusal;
     }
-    if (!input.title.trim()) return error(400, 'invalid_request', 'Empty title');
-    this.taskSeq += 1;
-    const now = nowIso();
+    const at = input.importedAt ?? nowIso();
     const task: Task = {
       parentKey: input.parentKey ?? null,
       id: mockId('tsk'),
       projectKey: fixtures.PROJECT_KEY,
-      key: `${fixtures.PROJECT_KEY}-${this.taskSeq}`,
-      title: input.title.trim(),
+      key: `${fixtures.PROJECT_KEY}-0`,
+      title,
       description: input.description ?? '',
-      stageId: input.stageId ?? this.config.pipeline.stages[0]!.id,
+      stageId: first.id,
       status: 'active',
       assignee: null,
-      repo: input.repo ?? null,
+      repo,
       priority: null,
-      labels: input.labels ?? [],
+      labels: unique((input.labels ?? []).map((label) => label.trim()).filter(Boolean)),
       links: [],
       visibility: input.visibility ?? 'internal',
-      createdBy: this.owner,
-      createdAt: now,
-      updatedAt: now,
+      createdBy: this.viewerHandle,
+      createdAt: at,
+      updatedAt: at,
       closedAt: null,
     };
+    if (target.id !== first.id) {
+      if (input.importedAt === undefined) {
+        const evaluation = evaluateMove(task, this.config, first.id, target.id);
+        if (evaluation.unmet.length || evaluation.approvals.length) return gateBlockedError(evaluation);
+      }
+      task.stageId = target.id;
+    }
+    if (target.kind === 'done') Object.assign(task, { status: 'done', closedAt: at });
+    if (input.importedAt === undefined) {
+      const plan = planLabelChange(this.config, { ...task, labels: [] }, { add: task.labels }, actor);
+      if (!plan.ok) return labelChangeError(plan.refusal);
+    }
+    this.lastTaskSeq += 1;
+    task.key = `${fixtures.PROJECT_KEY}-${this.lastTaskSeq}`;
     this.tasks.push(task);
     this.emit({ type: 'task_upserted', projectKey: task.projectKey, task: clone(task) });
-    this.addTimeline(task.key, this.owner, 'task_created', { title: task.title });
+    this.addTimeline(
+      task.key,
+      actor.handle,
+      'task_created',
+      { title, ...(input.importedAt !== undefined ? { imported: true } : {}) },
+      null,
+      at,
+    );
     if (task.parentKey) this.recordParentChange(task.key, null, task.parentKey);
     return { status: 201, body: clone(task) };
   }
@@ -1561,7 +1747,7 @@ export class MockBackend {
     const input = parseBody(StartTaskRequest, body);
     const task = this.findTask(taskKey);
     if (!task || !input) return error(404, 'not_found', 'Unknown task');
-    if (['done', 'cancelled'].includes(task.status)) return error(409, 'task_closed', 'Task is closed');
+    if (!isOpenTask(task)) return error(409, 'task_closed', 'Task is closed');
     const workStage = this.config.pipeline.stages.find((stage) => stage.kind === 'work');
     const eligible = workStage ? stageOwners(this.config, workStage) : [];
     const developers = this.members.filter(
@@ -1579,7 +1765,7 @@ export class MockBackend {
         s.member === assignee &&
         s.workItem.type === 'task' &&
         s.workItem.taskKey === task.key &&
-        !['exited', 'failed'].includes(s.state),
+        this.isLive(s),
     );
     if (this.findMember(assignee)?.kind === 'ai' && !running && !this.config.team.limits.aiEnabled)
       return error(409, 'ai_disabled', 'AI work is switched off in this project');
@@ -1587,9 +1773,7 @@ export class MockBackend {
     this.updateTask(task.key, { assignee, stageId: workStage?.id ?? task.stageId, status: 'active' });
     this.addTimeline(task.key, null, 'task_assigned', { assignee });
     if (workStage) this.addTimeline(task.key, null, 'task_stage_changed', { from, to: workStage.id });
-    if (this.findMember(assignee)?.kind === 'human')
-      return ok({ task: clone(task), session: null, hired: null });
-    if (running) return ok({ task: clone(task), session: clone(running), hired: null });
+    if (this.findMember(assignee)?.kind === 'human' || running) return ok(this.taskDetail(task));
     const session: Session = {
       id: mockId('ses'),
       projectKey: fixtures.PROJECT_KEY,
@@ -1597,7 +1781,7 @@ export class MockBackend {
       workItem: { type: 'task', taskKey: task.key },
       claudeSessionId: mockUuid(Math.floor(Math.random() * 1e9)),
       cwd: `/Users/owner/.projectman/worktrees/${fixtures.PROJECT_KEY}/${task.key}`,
-      branch: `${task.key.split('-')[1]}-work`,
+      branch: `${taskSeq(task.key)}-work`,
       transcriptPath: null,
       state: 'starting',
       activity: null,
@@ -1613,64 +1797,89 @@ export class MockBackend {
     const member = this.findMember(assignee);
     if (member) member.currentTaskKeys = [...member.currentTaskKeys, task.key];
     this.setMemberState(assignee, 'working', `Indul: ${task.key}`);
-    return ok({
-      task: clone(task),
-      pullRequests: this.taskPullRequests(task),
-      timeline: clone(this.timeline.filter((event) => event.taskKey === task.key)),
-      sessions: clone(
-        this.sessions.filter((s) => s.workItem.type === 'task' && s.workItem.taskKey === task.key),
-      ),
-    });
+    return ok(this.taskDetail(task));
   }
 
+  /** Hires an AI member with the role's defaults, named and handled like the server does. */
   private hire(body: unknown): MockResponse {
     const input = parseBody(HireMemberRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid hire request');
     const failure = this.validateRole(input.role, 'ai');
     if (failure) return failure;
-    const taken = (candidate: string) => this.members.some((member) => member.handle === candidate);
-    if (input.handle && taken(input.handle)) return error(409, 'handle_taken', 'Handle already taken');
-    const base = input.role === 'developer' ? 'dev' : input.role.replace(/_/g, '-');
-    let handle = input.handle ?? base;
-    for (let n = 2; taken(handle); n += 1) handle = `${base}-${n}`;
+    const defaults = aiMemberDefaults(input.role, this.config.team.roles, this.config.team.roleOverrides);
+    if (!defaults) return error(400, 'role_not_for_ai', 'No AI member can hold this role');
+    const taken = this.takenHandles();
+    if (input.handle && taken.has(input.handle)) return error(409, 'handle_taken', 'Handle already taken');
+    const handle = input.handle ?? defaultMemberHandle(input.role, taken, input.specialty);
+    const specialty = input.specialty?.trim() ?? '';
+    const index =
+      this.config.team.members.filter(
+        (m) => m.kind === 'ai' && m.role === input.role && (m.specialty ?? '').trim() === specialty,
+      ).length + 1;
+    const config: AiMemberConfig = {
+      kind: 'ai',
+      handle,
+      displayName:
+        input.displayName?.trim() ||
+        defaultMemberName(input.role, this.config.project.language, index, {
+          specialty: specialty || undefined,
+          customRoles: this.config.team.roles,
+        }),
+      role: input.role,
+      ...(input.specialty ? { specialty: input.specialty } : {}),
+      ...(input.provider ? { provider: input.provider } : {}),
+      model:
+        input.provider === 'codex' ? modelForProvider('codex', input.model) : (input.model ?? defaults.model),
+      ...(input.effort ? { effort: input.effort } : {}),
+      permissionMode: defaults.permissionMode,
+      capacity: defaults.capacity,
+      instructions: defaults.instructions,
+      sponsor: this.sponsor(),
+      temp: false,
+      ...(input.schedule ? { schedule: input.schedule } : {}),
+    };
+    const next = clone(this.config);
+    next.team.members.push(config);
+    const refused = this.configChangeFailure(next);
+    if (refused) return refused;
+    this.config = next;
     const member: MemberView = {
       handle,
-      displayName: input.displayName ?? this.roleCatalogue().find((role) => role.id === input.role)!.name,
+      displayName: config.displayName,
       kind: 'ai',
-      provider: input.provider ?? 'claude',
-      model: input.provider === 'codex' ? modelForProvider('codex', input.model) : (input.model ?? 'opus'),
-      effort: input.effort,
-      permissionMode: 'default',
-      role: input.role,
-      roles: [input.role],
-      specialty: input.specialty ?? null,
+      provider: config.provider ?? DEFAULT_AGENT_PROVIDER,
+      model: config.model,
+      effort: config.effort,
+      permissionMode: config.permissionMode,
+      role: config.role,
+      roles: memberRoles(config),
+      specialty: config.specialty ?? null,
       status: 'idle',
       activity: null,
       currentTaskKeys: [],
-      sponsor: this.owner,
+      sponsor: config.sponsor,
       temp: false,
     };
     this.members.push(member);
-    const config: AiMemberConfig = {
-      kind: 'ai',
-      provider: input.provider ?? 'claude',
+    this.commitConfig(`Hire ${input.role} ${handle}`);
+    this.addTimeline(null, this.viewerHandle, 'member_hired', {
       handle,
-      displayName: member.displayName,
-      role: input.role,
-      specialty: input.specialty,
-      model: input.provider === 'codex' ? modelForProvider('codex', input.model) : (input.model ?? 'opus'),
-      effort: input.effort,
-      permissionMode: 'default',
-      capacity: 1,
-      instructions: '',
-      schedule: input.schedule,
-      sponsor: this.owner,
+      role: config.role,
       temp: false,
-    };
-    this.config.team.members.push(config);
-    this.commitConfig(`Felvéve: ${member.displayName} (${handle})`);
+      sponsor: config.sponsor,
+    });
     this.memberChanged(handle);
     return { status: 201, body: clone(member) };
+  }
+
+  /** The sponsor of an AI member a human hires: the requester when an owner, else the first owner. */
+  private sponsor(): string {
+    const viewer = memberOf(this.config, this.viewerHandle);
+    if (viewer?.kind === 'human' && viewer.access === 'owner') return viewer.handle;
+    return (
+      this.config.team.members.find((m) => m.kind === 'human' && m.access === 'owner')?.handle ??
+      this.viewerHandle
+    );
   }
 
   private retire(handle: string, body: unknown): MockResponse {
@@ -1704,7 +1913,7 @@ export class MockBackend {
     member.currentTaskKeys = [];
     this.config.team.members = this.config.team.members.filter((entry) => entry.handle !== handle);
     this.addTimeline(null, this.owner, 'member_retired', { handle, handoverTo: target?.handle ?? null });
-    this.commitConfig(`Elbocsátva: ${member.displayName} (${handle})`);
+    this.commitConfig(`Retire ${handle}${target ? ` (handover to ${target.handle})` : ''}`);
     this.memberChanged(handle);
     return ok();
   }
@@ -1714,25 +1923,53 @@ export class MockBackend {
     const session = this.findSession(sessionId);
     if (!session || !input) return error(404, 'not_found', 'Unknown session');
     const taskKey = session.workItem.type === 'task' ? session.workItem.taskKey : null;
-    if (['exited', 'failed'].includes(session.state) && !this.config.team.limits.aiEnabled)
+    if (!this.isLive(session) && !this.config.team.limits.aiEnabled)
       return error(409, 'ai_disabled', 'AI work is switched off in this project');
-    if (taskKey && ['done', 'cancelled'].includes(this.findTask(taskKey)?.status ?? ''))
+    if (taskKey && this.findTask(taskKey) && !isOpenTask(this.findTask(taskKey)!))
       return error(409, 'task_closed', 'Task is closed');
     this.appendChat(sessionId, [this.chatItem('user_text', { origin: 'human', text: input.text })]);
     this.updateSession(sessionId, { state: 'working', activity: null, endedAt: null });
     return { status: 202 };
   }
 
+  /** Open tasks the member is assigned to or has a session for, plus its live other sessions. */
   private memberLoad(handle: string): number {
     const keys = new Set(this.tasks.filter((t) => t.assignee === handle).map((t) => t.key));
     for (const s of this.sessions)
       if (s.member === handle && s.workItem.type === 'task') keys.add(s.workItem.taskKey);
     return (
-      this.tasks.filter((t) => keys.has(t.key) && !['done', 'cancelled'].includes(t.status)).length +
-      this.sessions.filter(
-        (s) => s.member === handle && s.workItem.type !== 'task' && !['exited', 'failed'].includes(s.state),
-      ).length
+      this.tasks.filter((t) => keys.has(t.key) && isOpenTask(t)).length +
+      this.sessions.filter((s) => s.member === handle && s.workItem.type !== 'task' && this.isLive(s)).length
     );
+  }
+
+  private planUsageFor(provider: AgentProvider): PlanUsage | null {
+    return this.providerPlanUsage[provider] ?? (provider === 'claude' ? this.planUsage : this.codexPlanUsage);
+  }
+
+  /**
+   * Why an automatic start of the member's AI work must wait, or null: the project's AI switch, a
+   * live previous schedule run (schedule runs only), the member's capacity, the concurrency
+   * limit, the provider's plan usage and its login.
+   */
+  private admissionRefusal(member: AiMemberConfig, opts: { scheduleRun?: boolean } = {}): string | null {
+    const limits = this.config.team.limits;
+    const live = this.sessions.filter((s) => this.isLive(s));
+    const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
+    const plan = this.planUsageFor(provider);
+    if (!limits.aiEnabled) return 'ai_disabled';
+    if (opts.scheduleRun && live.some((s) => s.member === member.handle && s.workItem.type === 'schedule'))
+      return 'previous_run_live';
+    if (this.memberLoad(member.handle) >= member.capacity) return 'member_at_capacity';
+    if (
+      live.filter((s) => ['starting', 'working', 'waiting_permission'].includes(s.state)).length >=
+      limits.maxConcurrentAi
+    )
+      return 'ai_limit_reached';
+    if (Math.max(plan?.fiveHourPercent ?? 0, plan?.weeklyPercent ?? 0) > limits.pauseAbovePlanUsagePercent)
+      return 'plan_usage_paused';
+    if (!this.providerLoggedIn[provider]) return 'provider_not_logged_in';
+    return null;
   }
 
   private humanTeamMessage(body: unknown): MockResponse {
@@ -1781,30 +2018,13 @@ export class MockBackend {
   private startConversation(handle: string): MockResponse {
     if (!['owner', 'admin', 'developer'].includes(this.findMember(this.viewerHandle)?.role ?? ''))
       return error(403, 'insufficient_access', 'Developer access required');
-    const member = this.config.team.members.find((m) => m.handle === handle);
+    const member = memberOf(this.config, handle);
     if (!member) return error(404, 'not_found', 'Unknown member');
     if (member.kind !== 'ai') return error(400, 'not_ai_member', 'Only AI conversations');
     const existing = this.sessions.find((s) => s.member === handle && s.workItem.type === 'general');
-    if (existing && !['exited', 'failed'].includes(existing.state))
-      return { status: 202, body: clone(existing) };
-    if (!this.config.team.limits.aiEnabled)
-      return error(409, 'ai_disabled', 'AI work is switched off in this project');
-    if (this.memberLoad(handle) >= member.capacity) return error(409, 'member_at_capacity', 'At capacity');
-    const provider = member.provider ?? 'claude';
-    const plan =
-      this.providerPlanUsage[provider] ?? (provider === 'claude' ? this.planUsage : this.codexPlanUsage);
-    if (
-      this.sessions.filter((s) => ['starting', 'working', 'waiting_permission'].includes(s.state)).length >=
-      this.config.team.limits.maxConcurrentAi
-    )
-      return error(409, 'ai_limit_reached', 'Too many sessions');
-    if (
-      Math.max(plan?.fiveHourPercent ?? 0, plan?.weeklyPercent ?? 0) >
-      this.config.team.limits.pauseAbovePlanUsagePercent
-    )
-      return error(409, 'plan_usage_paused', 'Plan usage paused');
-    if (!this.providerLoggedIn[provider])
-      return error(409, 'provider_not_logged_in', 'Provider not logged in', { provider });
+    if (existing && this.isLive(existing)) return { status: 202, body: clone(existing) };
+    const refusal = this.admissionRefusal(member);
+    if (refusal) return error(409, refusal, 'The conversation cannot start now');
     const at = nowIso();
     const session: Session = existing ?? {
       id: mockId('ses'),
@@ -1860,34 +2080,11 @@ export class MockBackend {
   }
 
   private runSchedule(handle: string): MockResponse {
-    const member = this.config.team.members.find((m) => m.handle === handle);
+    const member = memberOf(this.config, handle);
     if (!member) return error(404, 'not_found', 'Unknown member');
     if (member.kind !== 'ai' || !member.schedule)
       return error(400, 'member_not_scheduled', 'Member has no AI schedule');
-    const live = this.sessions.filter((s) => !['exited', 'failed'].includes(s.state));
-    const keys = new Set(this.tasks.filter((t) => t.assignee === handle).map((t) => t.key));
-    for (const session of this.sessions)
-      if (session.member === handle && session.workItem.type === 'task') keys.add(session.workItem.taskKey);
-    const load =
-      this.tasks.filter((t) => keys.has(t.key) && !['done', 'cancelled'].includes(t.status)).length +
-      live.filter((s) => s.member === handle && s.workItem.type !== 'task').length;
-    const provider = member.provider ?? 'claude';
-    const plan = this.providerPlanUsage[provider] ?? (provider === 'claude' ? this.planUsage : null);
-    const usage = Math.max(plan?.fiveHourPercent ?? 0, plan?.weeklyPercent ?? 0);
-    const reason = !this.config.team.limits.aiEnabled
-      ? 'ai_disabled'
-      : live.some((s) => s.member === handle && s.workItem.type === 'schedule')
-        ? 'previous_run_live'
-        : load >= member.capacity
-          ? 'member_at_capacity'
-          : live.filter((s) => ['starting', 'working', 'waiting_permission'].includes(s.state)).length >=
-              this.config.team.limits.maxConcurrentAi
-            ? 'ai_limit_reached'
-            : usage > this.config.team.limits.pauseAbovePlanUsagePercent
-              ? 'plan_usage_paused'
-              : !this.providerLoggedIn[provider]
-                ? 'provider_not_logged_in'
-                : null;
+    const reason = this.admissionRefusal(member, { scheduleRun: true });
     const at = nowIso();
     const run: ScheduleRun = {
       id: mockId('run'),
@@ -1965,109 +2162,65 @@ export class MockBackend {
     if (!item.options.some((option) => option.id === input.optionId)) {
       return error(400, 'unknown_option', `Unknown option ${input.optionId}`);
     }
-    if (item.kind === 'question' && input.optionId === 'answer' && !input.note?.trim()) {
-      return error(400, 'answer_required', 'A free-text answer needs a note');
-    }
-    const viewer = this.config.team.members.find((m) => m.handle === this.viewerHandle);
+    const viewer = memberOf(this.config, this.viewerHandle);
     if (viewer?.kind !== 'human') return error(403, 'ai_approval_forbidden', 'Only humans may approve');
+    const gate = item.kind === 'decision' && input.optionId === 'approve' ? gateRequestOf(item) : null;
+    if (gate?.label) {
+      // Approving puts the label on in the approver's name: the label rules apply up front.
+      const task = item.taskKey ? (this.findTask(item.taskKey) ?? null) : null;
+      const refusal = approvalRefusal(this.config, gate.label, viewer.handle, task);
+      if (refusal) return error(403, refusal, 'The approval is not allowed');
+    }
     if (!item.assignees.includes(viewer.handle) && !(item.kind !== 'decision' && viewer.access === 'owner'))
       return error(403, 'not_an_assignee', 'Only assignees may decide');
-    const gate = item.payload.gate as { stageId?: string; label?: string } | undefined;
-    const stage = this.config.pipeline.stages.find((s) => s.id === gate?.stageId);
-    const approvalLabel = gate?.label ? labelDefinition(this.config, gate.label) : undefined;
-    const task = item.taskKey ? this.findTask(item.taskKey) : undefined;
-    if (
-      input.optionId === 'approve' &&
-      stage?.kind === 'release' &&
-      this.config.team.releaseFourEyes &&
-      task &&
-      taskAuthors(task).includes(viewer.handle)
-    )
-      return error(403, 'release_four_eyes', 'Independent approval required');
-    if (
-      input.optionId === 'approve' &&
-      approvalLabel &&
-      !labelHolders(this.config, approvalLabel).includes(viewer.handle)
-    )
-      return error(403, 'not_an_assignee', 'Current gate changed');
+    const note = input.note?.trim() || null;
+    if (item.kind === 'question' && input.optionId === 'answer' && !note) {
+      return error(400, 'answer_required', 'A free-text answer needs a note');
+    }
     const resolved: InboxItem = {
       ...item,
       state: 'resolved',
-      resolution: { optionId: input.optionId, by: this.viewerHandle, at: nowIso(), note: input.note ?? null },
+      resolution: { optionId: input.optionId, by: viewer.handle, at: nowIso(), note },
     };
     this.upsertInbox(resolved);
-    this.afterResolve(resolved, input);
+    this.afterResolve(resolved);
     return ok(clone(resolved));
   }
 
   /** What the server does with a decision: record it, answer the asker, apply a gate decision. */
-  private afterResolve(item: InboxItem, input: ResolveInboxRequest): void {
+  private afterResolve(item: InboxItem): void {
+    const resolution = item.resolution!;
     const sessionId = item.sessionId;
-    if (item.taskKey && this.findTask(item.taskKey)?.status === 'cancelled') return;
-    if (sessionId && this.findSession(sessionId)?.state === 'exited') return;
     if (item.kind === 'permission') {
-      const allowed = input.optionId !== 'deny';
-      if (item.taskKey) {
-        this.addTimeline(
-          item.taskKey,
-          this.owner,
-          'permission_resolved',
-          { inboxItemId: item.id, decision: allowed ? 'allow' : 'deny' },
-          sessionId,
-        );
-      }
-      if (sessionId) this.updateSession(sessionId, { state: allowed ? 'working' : 'idle', activity: null });
+      const allowed = resolution.optionId !== 'deny';
+      this.addTimeline(
+        item.taskKey,
+        resolution.by,
+        'permission_resolved',
+        { inboxItemId: item.id, decision: allowed ? 'allow' : 'deny', optionId: resolution.optionId },
+        sessionId,
+      );
+      const session = sessionId ? this.findSession(sessionId) : undefined;
+      if (session && this.isLive(session))
+        this.updateSession(session.id, { state: allowed ? 'working' : 'idle', activity: null });
       return;
     }
-
     if (item.kind === 'question') {
       const answer =
-        input.note ?? item.options.find((option) => option.id === input.optionId)?.label ?? input.optionId;
-      if (item.taskKey) {
-        this.addTimeline(
-          item.taskKey,
-          this.owner,
-          'question_answered',
-          { inboxItemId: item.id, answer },
-          sessionId,
-        );
-      }
-      this.sendTeamMessage(this.owner, [item.source], item.taskKey, answer);
+        resolution.note ??
+        item.options.find((option) => option.id === resolution.optionId)?.label ??
+        resolution.optionId;
+      this.addTimeline(
+        item.taskKey,
+        resolution.by,
+        'question_answered',
+        { inboxItemId: item.id, answer },
+        sessionId,
+      );
+      this.sendTeamMessage(resolution.by, [item.source], item.taskKey, answer);
       return;
     }
-
-    const approved = input.optionId === 'approve';
-    const gate = item.payload.gate as
-      { requestId?: string; fromStageId?: string; toStageId?: string; label?: string } | undefined;
-    if (item.kind === 'decision' && gate?.toStageId && item.taskKey) {
-      const task = this.findTask(item.taskKey);
-      if (!task) return;
-      if (!approved) {
-        this.updateTask(task.key, { status: 'active' });
-        this.addTimeline(task.key, this.owner, 'task_updated', {
-          fields: ['status'],
-          gateRejected: { requestId: gate.requestId, to: gate.toStageId, inboxItemId: item.id },
-        });
-        return;
-      }
-      const from = task.stageId;
-      const to = gate.toStageId;
-      if (gate.label && !task.labels.includes(gate.label)) {
-        this.updateTask(task.key, { labels: [...task.labels, gate.label] });
-        this.addTimeline(task.key, this.owner, 'task_labels_changed', {
-          added: [gate.label],
-          removed: [],
-          reason: 'approval',
-        });
-      }
-      this.updateTask(task.key, { stageId: to, status: 'active' });
-      this.addTimeline(task.key, this.owner, 'task_stage_changed', { from, to, approvedBy: [this.owner] });
-      return;
-    }
-    if (item.taskKey) {
-      this.addTimeline(item.taskKey, this.owner, 'task_note', {
-        text: approved ? `Jóváhagyva: ${item.title}` : `Elhalasztva: ${item.title}`,
-      });
-    }
+    const gate = item.kind === 'decision' ? gateRequestOf(item) : null;
+    if (gate) this.decideGate(item, gate);
   }
 }

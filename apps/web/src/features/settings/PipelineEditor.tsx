@@ -14,23 +14,12 @@ import { Dialog } from '../../components/Dialog';
 import { t } from '../../i18n/t';
 import { issueMessage } from '../../lib/configIssues';
 import type { IssueRef } from '../../lib/configIssues';
+import { slugId } from '../../lib/ids';
 import styles from './SettingsPage.module.css';
 
-/** IDs follow the config's 32-character, lowercase underscore format. */
+/** Stage and column ids follow the config's 32-character, lowercase underscore format. */
 function uniqueId(name: string, ids: string[]): string {
-  const slug = name
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '');
-  const base = (/^[a-z]/.test(slug) ? slug : `stage_${slug}`).slice(0, 32);
-  let id = base;
-  for (let suffix = 2; ids.includes(id); suffix++) {
-    const tail = `_${suffix}`;
-    id = `${base.slice(0, 32 - tail.length)}${tail}`;
-  }
-  return id;
+  return slugId(name, ids, { separator: '_', maxLength: 32, letterPrefix: 'stage_' });
 }
 
 function StageFields({

@@ -1,4 +1,5 @@
 import { t } from '../../i18n/t';
+import { stripAccents } from '../../lib/ids';
 
 export const KEY_RE = /^[A-Z][A-Z0-9]{0,9}$/;
 const REPO_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
@@ -55,9 +56,7 @@ export const newRepo = (): RepoRow => ({
 
 /** Project key suggestion from the name: "Acme webshop" → "AW", "Kosár" → "KO". */
 export function suggestKey(name: string): string {
-  const letters = name
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+  const letters = stripAccents(name)
     .toUpperCase()
     .replace(/[^A-Z0-9 ]/g, '')
     .trim();

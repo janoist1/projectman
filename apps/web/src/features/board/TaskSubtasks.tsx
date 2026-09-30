@@ -11,6 +11,7 @@ import { errorMessage } from '../../lib/errors';
 import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
+import { isTaskClosed } from '../../lib/taskState';
 import styles from './TaskDrawer.module.css';
 
 export function TaskSubtasks({
@@ -43,7 +44,7 @@ export function TaskSubtasks({
               {child.key} – {child.title}
             </Link>
             <Chip>
-              {['done', 'cancelled'].includes(child.status)
+              {isTaskClosed(child)
                 ? t(`taskStatuses.${child.status}`)
                 : (pipeline.stageById.get(child.stageId)?.name ?? child.stageId)}
             </Chip>

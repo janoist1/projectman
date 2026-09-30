@@ -11,6 +11,7 @@ import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import type { MemberIndex } from '../../lib/members';
 import { nameOf } from '../../lib/members';
+import { isTaskClosed } from '../../lib/taskState';
 import styles from './TaskDrawer.module.css';
 import formStyles from '../team/HireDialog.module.css';
 
@@ -38,7 +39,7 @@ export function TaskLifecycle({ task, members }: { task: Task; members: MemberIn
   const [assignee, setAssignee] = useState(task.assignee ?? '');
   useEffect(() => setAssignee(task.assignee ?? ''), [task.assignee]);
   const sessionId = liveSessionId(update.error);
-  const open = task.status !== 'done' && task.status !== 'cancelled';
+  const open = !isTaskClosed(task);
   return (
     <section className={styles.section}>
       <h3 className={styles.sectionTitle}>{t('taskLifecycle.title')}</h3>

@@ -29,6 +29,7 @@ import { t } from '../../i18n/t';
 import { formatStamp } from '../../i18n/format';
 import { errorMessage } from '../../lib/errors';
 import { memberStatusView } from '../../lib/members';
+import { isLiveSession } from '../../lib/sessions';
 import { aiRoleView, humanRoleName } from '../../lib/roles';
 import { useDocumentTitle } from '../../lib/hooks';
 import { MessageComposer } from '../messages/MessageComposer';
@@ -106,7 +107,7 @@ export function MemberProfilePage() {
   const member = data.member;
   const ai = member.kind === 'ai';
   const status = memberStatusView(member, data.inbox, myHandle);
-  const live = data.sessions.filter((s) => !['exited', 'failed'].includes(s.state));
+  const live = data.sessions.filter(isLiveSession);
   const titles = new Map((board.data?.tasks ?? []).map((task) => [task.key, task.title]));
   const thread = (messages.data?.messages ?? []).filter((m) =>
     handle === myHandle

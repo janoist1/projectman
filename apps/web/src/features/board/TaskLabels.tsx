@@ -7,7 +7,7 @@ import { TextAreaField, TextField } from '../../components/Field';
 import { LabelChip } from '../../components/LabelChip';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
-import { labelGroups, viewerLabelRefusal } from '../../lib/labels';
+import { labelGroups, labelName, viewerLabelRefusal } from '../../lib/labels';
 import styles from './TaskLabels.module.css';
 import drawer from './TaskDrawer.module.css';
 
@@ -66,9 +66,7 @@ export function TaskLabels({ task }: { task: Task }) {
                   <button
                     type="button"
                     className={styles.remove}
-                    aria-label={t('task.labels.remove', {
-                      label: labels.find((l) => l.id === id)?.name ?? id,
-                    })}
+                    aria-label={t('task.labels.remove', { label: labelName(id, labels) })}
                     disabled={change.isPending}
                     onClick={() => submit({ remove: [id] })}
                   >

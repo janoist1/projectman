@@ -1,5 +1,6 @@
 import type { LabelView, TimelineEvent } from '@projectman/shared';
 import { joinNames, t, tDynamic } from '../i18n/t';
+import { labelName } from './labels';
 import { nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
 import type { PipelineIndex } from './pipeline';
@@ -78,9 +79,7 @@ const LABEL_REASONS = ['approval', 'moved_back', 'pr_merged', 'pr_updated'] as c
 
 function labelsChanged(d: Record<string, unknown>, ctx: TimelineContext): string {
   const names = (key: string) =>
-    ((d[key] as string[] | undefined) ?? [])
-      .map((id) => ctx.labels?.find((label) => label.id === id)?.name ?? id)
-      .join(', ');
+    ((d[key] as string[] | undefined) ?? []).map((id) => labelName(id, ctx.labels ?? [])).join(', ');
   const parts = [
     names('added') && t('timeline.labelsAdded', { labels: names('added') }),
     names('removed') && t('timeline.labelsRemoved', { labels: names('removed') }),

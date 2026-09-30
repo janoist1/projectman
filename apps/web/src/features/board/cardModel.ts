@@ -1,5 +1,7 @@
 import type { LabelView, Task, TaskLink } from '@projectman/shared';
 import { t } from '../../i18n/t';
+import { stripAccents } from '../../lib/ids';
+import { labelName } from '../../lib/labels';
 import { stagesInColumn } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
 
@@ -75,22 +77,22 @@ export function prChip(task: Task): PrChip | null {
 
 /** Accent-insensitive search over key, title, labels (by name) and PR numbers. */
 export function normalizeSearch(value: string): string {
-  return value.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+  return stripAccents(value).toLowerCase().trim();
 }
 
 export function matchesSearch(task: Task, query: string, labels: readonly LabelView[] = []): boolean {
   const needle = normalizeSearch(query);
   if (!needle) return true;
-  const haystack = [
-    task.key,
-    task.title,
-    ...task.labels.map((id) => labels.find((label) => label.id === id)?.name ?? id),
-    ...task.links.filter((link) => link.kind === 'pull_request').map((link) => `#${link.ref} pr ${link.ref}`),
-    task.repo ?? '',
-  ]
-    .join(' ')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase();
+  const haystack = normalizeSearch(
+    [
+      task.key,
+      task.title,
+      ...task.labels.map((id) => labelName(id, labels)),
+      ...task.links
+        .filter((link) => link.kind === 'pull_request')
+        .map((link) => `#${link.ref} pr ${link.ref}`),
+      task.repo ?? '',
+    ].join(' '),
+  );
   return haystack.includes(needle);
 }

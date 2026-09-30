@@ -7,6 +7,7 @@ import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { LabelChip } from '../../components/LabelChip';
 import { t } from '../../i18n/t';
+import { slugId } from '../../lib/ids';
 import { MemberSelect } from './PipelineEditor';
 import styles from './SettingsPage.module.css';
 
@@ -19,17 +20,7 @@ function whoOf(setBy: LabelSetBy): Who {
 
 /** A label id from its name: lowercase ascii words joined by dashes, unique in the project. */
 function labelId(name: string, taken: string[]): string {
-  const base =
-    name
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 36) || 'label';
-  let id = base;
-  for (let i = 2; taken.includes(id); i++) id = `${base}-${i}`;
-  return id;
+  return slugId(name, taken, { separator: '-', maxLength: 36, fallback: 'label' });
 }
 
 /**

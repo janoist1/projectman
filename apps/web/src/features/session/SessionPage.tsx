@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import { Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
-import type { Session, SessionDetail } from '@projectman/shared';
+import type { SessionDetail } from '@projectman/shared';
 import {
   useBoard,
   useInbox,
@@ -28,7 +28,9 @@ import { t } from '../../i18n/t';
 import type { PlainMessageKey } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile, useMediaQuery } from '../../lib/hooks';
 import { formatScheduleTime } from '../../lib/schedules';
+import { openItemIds, openItemsFor } from '../../lib/inbox';
 import { nameOf } from '../../lib/members';
+import { isLiveSession, sessionStatus } from '../../lib/sessions';
 import { stagePosition } from '../../lib/pipeline';
 import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
 import { prChip } from '../board/cardModel';
@@ -50,10 +52,6 @@ const tabLabels: Record<Tab, PlainMessageKey> = {
   timeline: 'session.tabs.timeline',
   details: 'session.tabs.details',
 };
-
-function isRunning(session: Session): boolean {
-  return session.state !== 'exited' && session.state !== 'failed';
-}
 
 function shortPath(path: string): string {
   const parts = path.split('/').filter(Boolean);
@@ -114,16 +112,11 @@ function SessionView({ detail }: { detail: SessionDetail }) {
     () => (items ?? []).filter((item) => item.sessionId === session.id),
     [items, session.id],
   );
-  const openItems = sessionItems.filter(
-    (item) => item.state === 'open' && (!myHandle || item.assignees.includes(myHandle)),
-  );
+  const openItems = openItemsFor(sessionItems, myHandle);
   const resolvedPermissions = sessionItems.filter(
     (item) => item.kind === 'permission' && item.state !== 'open' && item.resolution,
   );
-  const openIds = useMemo(
-    () => new Set((items ?? []).filter((item) => item.state === 'open').map((item) => item.id)),
-    [items],
-  );
+  const openIds = useMemo(() => openItemIds(items), [items]);
 
   // Drop local echoes once the transcript shows the message (allowing for clock skew).
   useEffect(() => {
@@ -154,17 +147,9 @@ function SessionView({ detail }: { detail: SessionDetail }) {
   }, [chat.length, pending.length, openItems.length, tab]);
 
   const memberConfig = members.get(session.member);
-  const running = isRunning(session);
+  const running = isLiveSession(session);
   const needsMe = openItems.some((item) => item.kind === 'permission');
-  const liveStatus = needsMe
-    ? 'needs_you'
-    : session.state === 'working'
-      ? 'working'
-      : running
-        ? 'idle'
-        : session.state === 'failed'
-          ? 'failed'
-          : 'exited';
+  const liveStatus = sessionStatus(session, needsMe);
   const liveLabel = needsMe ? t('sessionState.needsYou') : t(`sessionState.${session.state}`);
 
   const taskState =

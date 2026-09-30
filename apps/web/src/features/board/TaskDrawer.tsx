@@ -18,6 +18,9 @@ import { startWaitingHint } from '../../lib/taskState';
 import { joinNames, t } from '../../i18n/t';
 import { errorMessage, isApprovalRequested, isGateBlocked } from '../../lib/errors';
 import { unmetGateTexts } from '../../lib/gates';
+import { openItemIds, openItemsFor } from '../../lib/inbox';
+import { sessionStatus } from '../../lib/sessions';
+import { isTaskClosed } from '../../lib/taskState';
 import { isApiError } from '../../api/client';
 import { useDocumentTitle } from '../../lib/hooks';
 import { nameOf } from '../../lib/members';
@@ -125,14 +128,8 @@ export function TaskDrawer() {
     return () => document.removeEventListener('keydown', onKey);
   }, [key, navigate]);
 
-  const openIds = useMemo(
-    () => new Set((inbox.data?.items ?? []).filter((item) => item.state === 'open').map((item) => item.id)),
-    [inbox.data],
-  );
-  const myItems = (inbox.data?.items ?? []).filter(
-    (item) =>
-      item.state === 'open' && item.taskKey === taskKey && (!myHandle || item.assignees.includes(myHandle)),
-  );
+  const openIds = useMemo(() => openItemIds(inbox.data?.items), [inbox.data]);
+  const myItems = openItemsFor(inbox.data?.items, myHandle).filter((item) => item.taskKey === taskKey);
 
   const body = (() => {
     if (!task) {
@@ -156,8 +153,7 @@ export function TaskDrawer() {
     const pr = prChip(task);
     const sessions = detail.data?.sessions ?? [];
     const session = primarySession(task, sessions);
-    const isQueued =
-      stage?.kind === 'queue' && task.status !== 'done' && task.status !== 'cancelled' && !task.assignee;
+    const isQueued = stage?.kind === 'queue' && !isTaskClosed(task) && !task.assignee;
     return (
       <>
         <div className={styles.head}>
@@ -291,16 +287,7 @@ export function TaskDrawer() {
                   .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
                   .map((entrySession) => {
                     const member = members.get(entrySession.member);
-                    const status =
-                      entrySession.state === 'waiting_permission'
-                        ? 'needs_you'
-                        : entrySession.state === 'working'
-                          ? 'working'
-                          : entrySession.state === 'exited'
-                            ? 'exited'
-                            : entrySession.state === 'failed'
-                              ? 'failed'
-                              : 'idle';
+                    const status = sessionStatus(entrySession, entrySession.state === 'waiting_permission');
                     return (
                       <li key={entrySession.id}>
                         <Link to={`/p/${key}/sessions/${entrySession.id}`} className={styles.sessionRow}>

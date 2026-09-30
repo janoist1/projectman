@@ -1,6 +1,7 @@
 import clsx from 'clsx';
 import type { CSSProperties, ReactNode } from 'react';
 import type { LabelView } from '@projectman/shared';
+import { labelName } from '../lib/labels';
 import styles from './LabelChip.module.css';
 
 /** A label in its colour, with its meaning on hover; plain tags (no definition) stay neutral. */
@@ -29,7 +30,7 @@ export function LabelChip({
       title={label?.meaning ?? undefined}
       data-label={id}
     >
-      <span className={styles.name}>{label?.name ?? id}</span>
+      <span className={styles.name}>{labelName(id, labels)}</span>
       {children}
     </span>
   );

@@ -1,6 +1,11 @@
 import { labelDefinition, labelRefusal } from '@projectman/shared';
 import type { LabelRefusal, LabelView, ProjectConfig, Task } from '@projectman/shared';
 
+/** Display name of a label: its definition's name, or the plain tag itself. */
+export function labelName(id: string, labels: readonly LabelView[]): string {
+  return labels.find((label) => label.id === id)?.name ?? id;
+}
+
 /**
  * Why the viewer (a human) may not add or remove a label on a task, or null when they may. It
  * is the server's own rule, including four eyes on release approvals, so the picker only

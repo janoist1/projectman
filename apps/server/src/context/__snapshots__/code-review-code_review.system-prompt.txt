@@ -81,7 +81,7 @@ The kick-off brief (description, labels, links, recent timeline) is the first me
 
 # Your role instructions
 
-Review diffs for correctness, errors and missing tests. Record code_review with update_task and send findings to the author; never review your own work.
+Review diffs for correctness, errors and missing tests. Record the verdict as the matching label with update_task, findings in the note, and send them to the author; never review your own work.
 
 # Your memory
 Notes you saved in earlier sessions with save_memory, most recent last. They may be out of date: check facts before you rely on them.

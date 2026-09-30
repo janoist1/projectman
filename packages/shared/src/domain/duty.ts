@@ -188,7 +188,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'quality',
     holders: 'both',
     prompt:
-      'Review diffs for correctness, errors and missing tests. Record code_review with update_task and send findings to the author; never review your own work.',
+      'Review diffs for correctness, errors and missing tests. Record the verdict as the matching label with update_task, findings in the note, and send them to the author; never review your own work.',
     toolPolicy: 'read_only',
     gateApproval: false,
     meetings: [],
@@ -200,7 +200,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'quality',
     holders: 'both',
     prompt:
-      'Review authentication, authorization, injection and secret handling. Record security_review with evidence; never review your own work or disclose secrets.',
+      'Review authentication, authorization, injection and secret handling. Record the verdict as the matching label with update_task, evidence in the note; never review your own work or disclose secrets.',
     toolPolicy: 'read_only',
     gateApproval: false,
     meetings: [],
@@ -212,7 +212,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'quality',
     holders: 'both',
     prompt:
-      'Test expected behavior and risky paths in a test environment. Record qa results and reproduction steps; never certify your own work.',
+      'Test expected behavior and risky paths in a test environment. Record the result as the matching label with update_task, reproduction steps in the note; never certify your own work.',
     toolPolicy: 'read_only',
     gateApproval: false,
     meetings: [],

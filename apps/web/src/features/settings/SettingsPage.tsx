@@ -5,6 +5,7 @@ import { PageHeader } from '../../components/PageHeader';
 import { ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { useDocumentTitle } from '../../lib/hooks';
+import { ConfigProblems } from './ConfigProblems';
 import { DutiesMatrix } from './DutiesMatrix';
 import { SettingsEditingProvider } from './SettingsEditor';
 import shared from './settings.module.css';
@@ -45,6 +46,7 @@ export function SettingsPage() {
           ) : null}
           {config.data ? (
             <SettingsEditingProvider view={config.data} reload={async () => (await config.refetch()).data}>
+              <ConfigProblems config={config.data.config} />
               <ProjectSection config={config.data.config} />
               <PipelineSection config={config.data.config} />
               <LabelsSection config={config.data.config} />

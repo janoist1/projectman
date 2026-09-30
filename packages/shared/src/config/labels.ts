@@ -1,5 +1,5 @@
 import type { Actor } from '../domain/event';
-import { isHumanOnlyLabel } from '../domain/label';
+import { isHumanOnlyLabel, RELEASE_APPROVAL_DUTY } from '../domain/label';
 import type { LabelClearTrigger, LabelDefinition, LabelRefusal } from '../domain/label';
 import type { Stage } from '../domain/pipeline';
 import type { Task } from '../domain/task';
@@ -24,6 +24,13 @@ export function releaseGateLabels(config: Pick<ProjectConfig, 'pipeline'>): Set<
       .filter((condition) => condition.type === 'has_label')
       .map((condition) => condition.label),
   );
+}
+
+/** The humans who may give the approval of a release: the holders of the release approval duty. */
+export function releaseApprovers(config: Pick<ProjectConfig, 'team'>): string[] {
+  return dutyMembers(config, RELEASE_APPROVAL_DUTY)
+    .filter((member) => member.kind === 'human')
+    .map((member) => member.handle);
 }
 
 /** Members who may set a label, before the self-review rule (system labels: nobody). */

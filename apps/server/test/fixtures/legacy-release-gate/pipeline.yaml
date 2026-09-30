@@ -1,0 +1,49 @@
+columns:
+  - id: ready
+    name: Ready
+  - id: review
+    name: Review
+  - id: ship
+    name: Ready to ship
+  - id: done
+    name: Done
+stages:
+  - id: ready
+    name: Ready
+    kind: queue
+    duty: prioritization
+    columnId: ready
+  - id: dev
+    name: Development
+    kind: work
+    duty: implementation
+    columnId: ready
+  - id: code_review
+    name: Code review
+    kind: review
+    duty: code_review
+    columnId: review
+  - id: merge
+    name: Merge
+    kind: merge
+    duty: final_decision
+    columnId: ship
+    gate:
+      conditions:
+        - type: check_passed
+          check: code_review
+        - type: human_approval
+          duty: final_decision
+  - id: release
+    name: Release
+    kind: release
+    duty: deployment
+    columnId: ship
+    gate:
+      conditions:
+        - type: human_approval
+          duty: release_approval
+  - id: done
+    name: Done
+    kind: done
+    columnId: done

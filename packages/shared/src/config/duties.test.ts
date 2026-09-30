@@ -194,6 +194,8 @@ describe('duty bundles', () => {
     ];
     c.pipeline.stages[1] = { ...c.pipeline.stages[1]!, duty: undefined, owners: ['owner'] };
     c.pipeline.labels = [{ id: 'ok', name: 'Ok', setBy: { members: ['owner'], humansOnly: true } }];
+    // An explicit list still approves any stage but a release, whose approval is the duty's alone.
+    c.pipeline.stages[2] = { ...c.pipeline.stages[2]!, kind: 'step' };
     c.pipeline.stages[2]!.gate = { conditions: [{ type: 'has_label', label: 'ok' }] };
     const old = ProjectConfig.parse(JSON.parse(JSON.stringify(c)));
     expect(roleBundle(old, 'legacy_writer')).toEqual({ duties: [], instructions: 'Keep notes.' });

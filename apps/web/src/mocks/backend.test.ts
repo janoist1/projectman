@@ -24,7 +24,10 @@ describe('mock role catalogue and member mutations', () => {
     expect(errorCode(backend.handle('POST', `${base}/members`, { role: 'operator' }))).toBe(
       'role_not_for_ai',
     );
-    expect(backend.handle('PATCH', `${base}/members/owner`, { roles: ['watchdog'] }).status).toBe(200);
+    // A human may hold a role AI members hold too; the owner keeps the release approval duty.
+    expect(backend.handle('PATCH', `${base}/members/owner`, { roles: ['operator', 'watchdog'] }).status).toBe(
+      200,
+    );
     expect(errorCode(backend.handle('PATCH', `${base}/members/owner`, { roles: ['missing_role'] }))).toBe(
       'unknown_role',
     );

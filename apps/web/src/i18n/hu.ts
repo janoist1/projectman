@@ -1271,6 +1271,8 @@ export const hu = {
       lacksLabel: 'Ne legyen rajta',
       label: 'Címke',
       approvalOwnerOnly: 'Jóváhagyási feltétel: csak a tulajdonos módosíthatja.',
+      releaseApprovalOnly:
+        'Kiadási lépésnél jóváhagyásként csak olyan címke választható, amelyet kizárólag a „Kiadás jóváhagyása” feladatkör felelősei tehetnek rá.',
       noLabels: 'Kapufeltételhez előbb vegyél fel címkéket a Címkék részben.',
       addCondition: 'Feltétel hozzáadása',
       removeCondition: 'Feltétel eltávolítása',
@@ -1289,7 +1291,10 @@ export const hu = {
       duplicate_handle: 'A tagok azonosítói nem ismétlődhetnek.',
       no_owner: 'Legalább egy emberi tulajdonos szükséges.',
       release_without_human_approval: 'A kiadási lépéshez emberi jóváhagyás szükséges.',
+      release_approval_needs_duty:
+        'A kiadás jóváhagyását csak a „Kiadás jóváhagyása” feladatkör felelősei adhatják.',
       unknown_column: 'A megadott oszlop nem létezik.',
+      duplicate_column: 'Az oszlopok azonosítói nem ismétlődhetnek.',
       first_stage_not_queue: 'Az első lépés várólista kell legyen.',
       last_stage_not_done: 'Az utolsó lépés kész állapot kell legyen.',
       duplicate_stage: 'A lépések azonosítói nem ismétlődhetnek.',
@@ -1298,6 +1303,11 @@ export const hu = {
       unknown_label: 'A kapu olyan címkére hivatkozik, amely nincs megadva a Címkék között.',
       missing_label_setter: 'A kapu által kért címkét senki nem teheti rá.',
       duplicate_label: 'A címkék azonosítói nem ismétlődhetnek.',
+    },
+    problems: {
+      title: 'Javítandó a beállításokban',
+      intro:
+        'A projekt így is használható, de a beállítások módosítását a szerver addig elutasítja, amíg ezek ki nem javulnak.',
     },
     unavailable: 'A projekt beállításai most nem érhetők el.',
   },

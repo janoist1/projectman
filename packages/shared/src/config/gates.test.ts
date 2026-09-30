@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import type { LabelDefinition } from '../domain/label';
+import type { GateCondition, Stage } from '../domain/pipeline';
 import type { Task, TaskLink } from '../domain/task';
-import { evaluateMove, pullRequestsMerged, stageApprovers, stageIndex } from './gates';
+import { evaluateMove, gateAcceptsCondition, pullRequestsMerged, stageApprovers, stageIndex } from './gates';
 import type { GateEvaluation } from './gates';
 import { ProjectConfig } from './schema';
 
@@ -54,7 +56,7 @@ function config(fourEyes = false) {
       labels: [
         { id: 'review-ok', name: 'Review ok', setBy: { duties: ['code_review'] }, notByAuthor: true },
         { id: 'merged', name: 'Merged', setBy: 'system' },
-        { id: 'release-ok', name: 'Release ok', setBy: { members: ['owner', 'ann'], humansOnly: true } },
+        { id: 'release-ok', name: 'Release ok', setBy: { duties: ['release_approval'], humansOnly: true } },
         { id: 'waiting', name: 'Waiting', blocks: true },
         { id: 'wip', name: 'Work in progress' },
       ],
@@ -190,5 +192,36 @@ describe('pullRequestsMerged', () => {
     ['branches do not count', [pr('merged'), { kind: 'branch', ref: 'feature' }], true],
   ])('%s: %s', (_name, links, expected) => {
     expect(pullRequestsMerged({ links })).toBe(expected);
+  });
+});
+
+describe('gateAcceptsCondition (decision 19)', () => {
+  type Case = [
+    string,
+    Pick<Stage, 'kind'>,
+    Pick<GateCondition, 'type'>,
+    Pick<LabelDefinition, 'setBy'>,
+    boolean,
+  ];
+  const release = { kind: 'release' } as const;
+  const merge = { kind: 'step' } as const;
+  const has = { type: 'has_label' } as const;
+  const lacks = { type: 'lacks_label' } as const;
+  const approval: Pick<LabelDefinition, 'setBy'> = {
+    setBy: { duties: ['release_approval'], humansOnly: true },
+  };
+  const everyHuman: Pick<LabelDefinition, 'setBy'> = { setBy: 'humans' };
+  const namedHumans: Pick<LabelDefinition, 'setBy'> = { setBy: { members: ['ann'], humansOnly: true } };
+  const fact: Pick<LabelDefinition, 'setBy'> = { setBy: 'anyone' };
+
+  it.each<Case>([
+    ['a release gate requires the release approval', release, has, approval, true],
+    ['a release gate requires a fact', release, has, fact, true],
+    ['a release gate requires what every human may set', release, has, everyHuman, false],
+    ['a release gate requires what named humans may set', release, has, namedHumans, false],
+    ['a release gate forbids what every human may set', release, lacks, everyHuman, true],
+    ['a merge gate requires what every human may set', merge, has, everyHuman, true],
+  ])('%s: %s', (_name, stage, condition, label, expected) => {
+    expect(gateAcceptsCondition(stage, condition, label)).toBe(expected);
   });
 });

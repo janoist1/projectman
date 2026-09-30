@@ -170,8 +170,9 @@ describe('role catalogue', () => {
     expect(view.roles).toEqual(['operator', 'product_owner', 'qa']);
     expect(((await member('owner')) as HumanMemberConfig).roles).toEqual(['operator', 'product_owner', 'qa']);
 
-    await h.domain.members.update('AR', 'owner', { roles: ['watchdog'] }, by);
-    expect(await member('owner')).toMatchObject({ roles: ['watchdog'] });
+    // A human may hold a role AI members hold too (the owner keeps the release approval duty).
+    await h.domain.members.update('AR', 'owner', { roles: ['operator', 'watchdog'] }, by);
+    expect(await member('owner')).toMatchObject({ roles: ['operator', 'watchdog'] });
     expect((await rejection(h.domain.members.update('AR', 'owner', { roles: ['nope'] }, by))).code).toBe(
       'unknown_role',
     );

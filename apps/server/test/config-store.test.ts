@@ -11,7 +11,15 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stringify } from 'yaml';
 import { DAILY_WORKER_SCHEDULE } from '@projectman/templates';
+import {
+  isReleaseApprovalLabel,
+  labelDefinition,
+  labelHolders,
+  releaseGateAccepts,
+  validateProjectConfig,
+} from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import { parseYamlFile } from '../src/config/layout';
 import { ConfigStoreError, createConfigStore } from '../src/config';
@@ -145,10 +153,26 @@ describe('ConfigStore (customization repository)', () => {
     );
     const projectYaml = join(store.rootDir, 'projects/AR/project.yaml');
     writeFileSync(projectYaml, readFileSync(projectYaml, 'utf8').replace(/\n\s+timezone: .*/, ''));
+    // Before roles, releases were approved by named members; nobody holds the duty in such a file.
+    const pipelineYaml = join(store.rootDir, 'projects/AR/pipeline.yaml');
+    const pipeline = parseYamlFile('pipeline.yaml', readFileSync(pipelineYaml, 'utf8')) as {
+      labels: Array<{ id: string; setBy: unknown }>;
+    };
+    const approval = { members: ['owner'], humansOnly: true };
+    pipeline.labels.find((label) => label.id === 'release-ok')!.setBy = approval;
+    writeFileSync(pipelineYaml, stringify(pipeline));
+    const warn = vi.fn();
+    store = createConfigStore({ rootDir: store.rootDir, logger: { warn } });
     const legacy = (await store.load('AR')).config;
     expect(legacy.team.roles).toEqual([]);
     expect(legacy.team.members[0]).toMatchObject({ kind: 'human', roles: [] });
     expect(legacy.project.timezone).toBe('UTC');
+    // The project loads as it always did (the approval stays with the owner) and the log says what to fix.
+    expect(legacy.pipeline.labels.find((label) => label.id === 'release-ok')!.setBy).toEqual(approval);
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ projectKey: 'AR', label: 'release-ok' }),
+      expect.stringContaining('nobody holds the duty'),
+    );
   });
 
   it('migrates legacy scheduled members in memory and persists them on the next save', async () => {
@@ -200,6 +224,8 @@ describe('ConfigStore (customization repository)', () => {
     handle: owner
     displayName: Owner Person
     access: owner
+    roles:
+      - operator
 ${member('dev-1', ['provider: codex', 'permissionMode: bypassPermissions'])}
 ${member('dev-2', ['permissionMode: bypassPermissions'])}
   - kind: ai
@@ -378,6 +404,238 @@ ${member('dev-2', ['permissionMode: bypassPermissions'])}
     await store.revertTo('AR', legacy, { author });
     expect((await store.load('AR')).config.team.members[1]).toMatchObject(expected);
     await expectConfigError(store.loadVersion('AR', 'deadbeef'), 'unknown_version');
+  });
+});
+
+/**
+ * Rules added after real installations wrote their configuration (decisions 16 and 19): a stored
+ * configuration that breaks one still loads, and every change to it is refused.
+ */
+describe('ConfigStore: configurations that predate a rule', () => {
+  type DocumentName = 'project.yaml' | 'team.yaml' | 'pipeline.yaml';
+  let dir: string;
+  let store: GitConfigStore;
+  let warn: ReturnType<typeof vi.fn>;
+  const releaseApproval = { duties: ['release_approval'], humansOnly: true };
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'pm-config-old-'));
+    warn = vi.fn();
+    store = createConfigStore({ rootDir: join(dir, 'customization'), logger: { warn } });
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  /** A hand edit of a stored file, as real installations may hold them. */
+  function handEdit(file: DocumentName, change: (document: any) => void) {
+    const path = join(store.rootDir, 'projects/AR', file);
+    const document = parseYamlFile(file, readFileSync(path, 'utf8'));
+    change(document);
+    writeFileSync(path, stringify(document));
+  }
+  /** Commits the hand edits as a version of their own and returns it. */
+  function commitHandEdits(message: string): string {
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', ...args], {
+        cwd: store.rootDir,
+        encoding: 'utf8',
+      });
+    git('commit', '-q', '--no-verify', '-am', message);
+    return git('rev-parse', 'HEAD').trim();
+  }
+  const releaseLabel = (config: ProjectConfig) =>
+    config.pipeline.labels.find((label) => label.id === 'release-ok')!;
+  /** The codes of the errors a refused change reports (warnings come with them). */
+  const issueCodes = (err: ConfigStoreError) =>
+    (err.details as { issues: Array<{ code: string; severity?: string }> }).issues
+      .filter((issue) => issue.severity !== 'warning')
+      .map((issue) => issue.code);
+
+  it('loads repository names and column ids used twice with a warning, and refuses to write or restore them', async () => {
+    await store.save('AR', testConfig(), { author, message: 'Create' });
+    handEdit('project.yaml', (document) => document.project.repos.push({ name: 'web', path: 'web-copy' }));
+    handEdit('pipeline.yaml', (document) => document.columns.push({ id: 'todo', name: 'To do again' }));
+    const duplicated = commitHandEdits('Hand-edited duplicates');
+
+    const loaded = await store.load('AR');
+    expect(loaded.version).toBe(duplicated);
+    expect(loaded.config.project.repos.map((repo) => repo.name)).toEqual(['web', 'web']);
+    expect(loaded.config.pipeline.columns.map((column) => column.id)).toEqual([
+      'todo',
+      'doing',
+      'review',
+      'done',
+      'todo',
+    ]);
+    expect(warn).toHaveBeenCalledTimes(2);
+    for (const [code, path, detail] of [
+      ['duplicate_repo', 'project.repos[1].name', 'web'],
+      ['duplicate_column', 'pipeline.columns[4].id', 'todo'],
+    ]) {
+      expect(warn).toHaveBeenCalledWith(
+        { projectKey: 'AR', code, path, detail },
+        expect.stringContaining('breaks a rule added later'),
+      );
+    }
+
+    // Saving what was loaded is a change, and changes refuse what a stored configuration may keep.
+    const refused = await expectConfigError(
+      store.save('AR', loaded.config, { author, message: 'Save it back' }),
+      'invalid_config',
+    );
+    expect(issueCodes(refused)).toEqual(['duplicate_repo', 'duplicate_column']);
+    expect((await store.history('AR')).map((entry) => entry.message)).toEqual([
+      'Hand-edited duplicates',
+      'Create',
+    ]);
+
+    // Fixed, it saves; restoring the version that had the duplicates is refused like any change.
+    const repaired = await store.save('AR', testConfig(), { author, message: 'Remove the duplicates' });
+    await expectConfigError(store.loadVersion('AR', duplicated), 'invalid_config');
+    await expectConfigError(store.revertTo('AR', duplicated, { author }), 'invalid_config');
+    expect((await store.load('AR')).version).toBe(repaired.version);
+    expect((await store.load('AR')).config).toEqual(testConfig());
+  });
+
+  it('narrows a release approval any human may set when it loads, persists that on the next save and refuses the wide right', async () => {
+    await store.save('AR', testConfig(), { author, message: 'Create' });
+    const pipelineYaml = join(store.rootDir, 'projects/AR/pipeline.yaml');
+    handEdit('pipeline.yaml', (document) => {
+      document.labels.find((label: { id: string }) => label.id === 'release-ok').setBy = 'humans';
+    });
+    const wide = commitHandEdits('Let every human approve releases');
+
+    const loaded = await store.load('AR');
+    expect(releaseLabel(loaded.config).setBy).toEqual(releaseApproval);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      { projectKey: 'AR', label: 'release-ok', releaseStages: ['release'], otherStages: [], setBy: 'humans' },
+      'Narrowed release approval label to the release approval duty',
+    );
+    // The file keeps its content until the next save, like every migration.
+    expect(readFileSync(pipelineYaml, 'utf8')).toContain('setBy: humans');
+    await store.save('AR', loaded.config, { author, message: 'Save the migrated configuration' });
+    expect(readFileSync(pipelineYaml, 'utf8')).not.toContain('setBy: humans');
+    warn.mockClear();
+    expect(releaseLabel((await store.load('AR')).config).setBy).toEqual(releaseApproval);
+    expect(warn).not.toHaveBeenCalled();
+
+    // A change may not bring the wide right back.
+    const again = structuredClone(loaded.config);
+    releaseLabel(again).setBy = 'humans';
+    const refused = await expectConfigError(
+      store.save('AR', again, { author, message: 'Every human again' }),
+      'invalid_config',
+    );
+    expect((refused.details as { issues: unknown[] }).issues).toContainEqual({
+      code: 'release_approval_needs_duty',
+      path: 'pipeline.stages[4].gate.conditions[1]',
+      detail: 'release-ok',
+    });
+
+    // An earlier version is read like the working tree, so restoring it keeps the narrowed right.
+    expect(releaseLabel(await store.loadVersion('AR', wide)).setBy).toEqual(releaseApproval);
+    await store.revertTo('AR', wide, { author });
+    warn.mockClear();
+    expect(releaseLabel((await store.load('AR')).config).setBy).toEqual(releaseApproval);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a project loading whose release approval nobody could hold the duty for, and takes the fix as one change', async () => {
+    await store.save('AR', testConfig(), { author, message: 'Create' });
+    // The owner approves releases by name and holds no duty, as in a file from before roles.
+    handEdit('team.yaml', (document) => {
+      delete document.members[0].roles;
+    });
+    handEdit('pipeline.yaml', (document) => {
+      document.labels.find((label: { id: string }) => label.id === 'release-ok').setBy = {
+        members: ['owner'],
+        humansOnly: true,
+      };
+    });
+    commitHandEdits('Name the owner as the release approver');
+
+    const loaded = await store.load('AR');
+    expect(releaseLabel(loaded.config).setBy).toEqual({ members: ['owner'], humansOnly: true });
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ projectKey: 'AR', label: 'release-ok' }),
+      expect.stringContaining('nobody holds the duty'),
+    );
+    expect(warn).toHaveBeenCalledWith(
+      {
+        projectKey: 'AR',
+        code: 'release_approval_needs_duty',
+        path: 'pipeline.stages[4].gate.conditions[1]',
+        detail: 'release-ok',
+      },
+      expect.stringContaining('breaks a rule added later'),
+    );
+
+    // Neither half of the fix saves alone: the label would have no holder, or the rule stays broken.
+    const owner = loaded.config.team.members[0]!;
+    if (owner.kind !== 'human') throw new Error('expected the owner');
+    const granted = structuredClone(loaded.config);
+    Object.assign(granted.team.members[0]!, { roles: ['operator'] });
+    const grantOnly = await expectConfigError(
+      store.save('AR', granted, { author, message: 'Grant the duty' }),
+      'invalid_config',
+    );
+    expect(issueCodes(grantOnly)).toContain('release_approval_needs_duty');
+    const narrowed = structuredClone(loaded.config);
+    releaseLabel(narrowed).setBy = structuredClone(releaseApproval) as never;
+    const narrowOnly = await expectConfigError(
+      store.save('AR', narrowed, { author, message: 'Narrow the label' }),
+      'invalid_config',
+    );
+    expect(issueCodes(narrowOnly)).toContain('missing_duty_holder');
+    releaseLabel(granted).setBy = structuredClone(releaseApproval) as never;
+    await store.save('AR', granted, { author, message: 'Grant the duty and narrow the label' });
+    warn.mockClear();
+    expect((await store.load('AR')).config).toEqual(granted);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('loads a release stage in the legacy shape, and its gate satisfies the release approval rule', async () => {
+    // A fictional project as it was stored before labels (fixtures/legacy-release-gate): the release
+    // stage has a human_approval condition on the release approval duty and there are no labels.
+    await store.init();
+    const projectDir = join(store.rootDir, 'projects/LG');
+    mkdirSync(projectDir, { recursive: true });
+    for (const file of ['project.yaml', 'team.yaml', 'pipeline.yaml']) {
+      const source = new URL(`./fixtures/legacy-release-gate/${file}`, import.meta.url);
+      writeFileSync(join(projectDir, file), readFileSync(source, 'utf8'));
+    }
+    const pipelineYaml = join(projectDir, 'pipeline.yaml');
+    const stored = readFileSync(pipelineYaml, 'utf8');
+    expect(stored).toContain('type: human_approval');
+
+    const { config } = await store.load('LG');
+    const release = config.pipeline.stages.find((stage) => stage.id === 'release')!;
+    expect(release).toMatchObject({
+      kind: 'release',
+      duty: 'deployment',
+      gate: { conditions: [{ type: 'has_label', label: 'release-approved' }] },
+    });
+    const approval = labelDefinition(config, 'release-approved')!;
+    expect(approval.setBy).toEqual(releaseApproval);
+    expect(isReleaseApprovalLabel(approval)).toBe(true);
+    expect(labelHolders(config, approval)).toEqual(['owner']);
+    for (const condition of release.gate!.conditions)
+      expect(releaseGateAccepts(labelDefinition(config, condition.label)!)).toBe(true);
+    expect(validateProjectConfig(config).filter((issue) => issue.severity !== 'warning')).toEqual([]);
+    // Nothing had to be narrowed or tolerated, and the file is as it was.
+    expect(warn).not.toHaveBeenCalled();
+    expect(readFileSync(pipelineYaml, 'utf8')).toBe(stored);
+
+    // The rest of the old gates became labels too, and saving writes the current shape.
+    expect(config.pipeline.stages.find((stage) => stage.id === 'merge')!.gate).toEqual({
+      conditions: [
+        { type: 'has_label', label: 'code-review-ok' },
+        { type: 'has_label', label: 'merge-approved' },
+      ],
+    });
+    await store.save('LG', config, { author, message: 'Save the converted configuration' });
+    expect(readFileSync(pipelineYaml, 'utf8')).not.toContain('human_approval');
+    expect((await store.load('LG')).config).toEqual(config);
   });
 });
 

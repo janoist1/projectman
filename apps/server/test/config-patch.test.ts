@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { labelHolders, releaseApprovers } from '@projectman/shared';
 import type { ConfigView, HumanAccess, ServerEvent, Task } from '@projectman/shared';
 import {
   addHumanAndLogin,
@@ -227,13 +228,88 @@ describe('configuration PATCH', () => {
     });
     expect(replacedResponse.statusCode).toBe(403);
     expect(replacedResponse.json().error.code).toBe('owner_only');
-    // An owner can delegate approval to another human.
+    // An owner can delegate a merge approval to another human by name.
     const pipeline = structuredClone(current.config.pipeline);
-    pipeline.labels.find((label) => label.id === 'release-ok')!.setBy = {
+    pipeline.labels.find((label) => label.id === 'merge-ok')!.setBy = {
       members: ['kata'],
       humansOnly: true,
     };
     expect((await patch({ baseVersion: current.version, pipeline })).statusCode).toBe(200);
+  });
+
+  describe('release approval and unique names (decisions 16 and 19)', () => {
+    const releaseLabel = (config: ConfigView['config']) =>
+      config.pipeline.labels.find((label) => label.id === 'release-ok')!;
+    const gateIssue = {
+      code: 'release_approval_needs_duty',
+      path: 'pipeline.stages[4].gate.conditions[1]',
+      detail: 'release-ok',
+    };
+    function put(payload: object) {
+      return h.app.inject({ method: 'PUT', url: '/api/projects/AR/config', headers: { cookie }, payload });
+    }
+    /** What a refused edit reports as errors (warnings come with them). */
+    function refusedIssues(response: { statusCode: number; json: () => any }) {
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error.code).toBe('config_invalid');
+      return (response.json().error.details.issues as Array<{ severity?: string }>).filter(
+        (issue) => issue.severity !== 'warning',
+      );
+    }
+
+    it.each([
+      // Kata is a client: a label every human may set would let her approve a release.
+      ['every human', 'humans'],
+      ['a listed human', { members: ['kata'], humansOnly: true }],
+      ['another duty', { duties: ['final_decision'], humansOnly: true }],
+    ] as const)(
+      'refuses a release gate label that %s may set, and writes no commit',
+      async (_name, setBy) => {
+        await memberLogin('client');
+        const current = await view();
+        const pipeline = structuredClone(current.config.pipeline);
+        releaseLabel({ ...current.config, pipeline }).setBy = structuredClone(setBy) as never;
+        expect(refusedIssues(await patch({ baseVersion: current.version, pipeline }))).toEqual([gateIssue]);
+        const replaced = await put({ config: { ...current.config, pipeline }, baseVersion: current.version });
+        expect(refusedIssues(replaced)).toEqual([gateIssue]);
+        expect(await view()).toEqual(current);
+      },
+    );
+
+    it('leaves the release approval as it is and hands it to whoever holds the duty', async () => {
+      await memberLogin('developer');
+      const current = await view();
+      expect(current.config.pipeline.stages[4]).toMatchObject({ id: 'release', kind: 'release' });
+      expect(releaseApprovers(current.config)).toEqual(['owner']);
+      const granted = await h.app.inject({
+        method: 'PATCH',
+        url: '/api/projects/AR/members/kata',
+        headers: { cookie },
+        payload: { roles: ['operator'] },
+      });
+      expect(granted.statusCode, granted.body).toBe(200);
+      const after = (await view()).config;
+      expect(releaseLabel(after).setBy).toEqual({ duties: ['release_approval'], humansOnly: true });
+      expect(labelHolders(after, releaseLabel(after))).toEqual(['owner', 'kata']);
+    });
+
+    it('refuses a repository name or a column id used twice, in every kind of edit', async () => {
+      const current = await view();
+      const pipeline = structuredClone(current.config.pipeline);
+      pipeline.columns.push({ ...pipeline.columns[0]!, name: 'Copy' });
+      const column = {
+        code: 'duplicate_column',
+        path: `pipeline.columns[${pipeline.columns.length - 1}].id`,
+        detail: pipeline.columns[0]!.id,
+      };
+      expect(refusedIssues(await patch({ baseVersion: current.version, pipeline }))).toEqual([column]);
+
+      const config = structuredClone(current.config);
+      config.project.repos.push({ ...config.project.repos[0]!, path: 'copy' });
+      const repo = { code: 'duplicate_repo', path: 'project.repos[1].name', detail: 'web' };
+      expect(refusedIssues(await put({ config, baseVersion: current.version }))).toEqual([repo]);
+      expect(await view()).toEqual(current);
+    });
   });
 
   it.each(['developer', 'client', 'viewer'] as const)('denies writes to %s access', async (access) => {

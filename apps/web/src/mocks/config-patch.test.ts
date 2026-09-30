@@ -72,6 +72,30 @@ describe('mock configuration PATCH', () => {
     expect(backend.config).toEqual(initial);
   });
 
+  it('applies the shared invariants of release approval and unique names, like the server', () => {
+    const backend = new MockBackend();
+    const before = structuredClone(backend.config);
+    const refused = (pipeline: typeof before.pipeline) =>
+      backend.handle('PATCH', path, { baseVersion: backend.configVersion, pipeline });
+    const issuesOf = (response: { body?: unknown }) =>
+      (
+        response.body as { error: { details: { issues: Array<{ code: string; severity?: string }> } } }
+      ).error.details.issues
+        .filter((issue) => issue.severity !== 'warning')
+        .map((issue) => issue.code);
+
+    // Kata is a client: a label every human may set would let her approve a release.
+    const wide = structuredClone(before.pipeline);
+    wide.labels.find((label) => label.id === 'release-approved')!.setBy = 'humans';
+    expect(refused(wide)).toMatchObject({ status: 400, body: { error: { code: 'config_invalid' } } });
+    expect(issuesOf(refused(wide))).toEqual(['release_approval_needs_duty']);
+
+    const columns = structuredClone(before.pipeline);
+    columns.columns.push({ ...columns.columns[0]! });
+    expect(issuesOf(refused(columns))).toEqual(['duplicate_column']);
+    expect(backend.config).toEqual(before);
+  });
+
   it.each(['client', 'viewer', 'developer'] as const)('rejects %s writes', (access) => {
     const backend = new MockBackend();
     backend.viewerHandle = 'kata';

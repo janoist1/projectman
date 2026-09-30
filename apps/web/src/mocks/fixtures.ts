@@ -283,10 +283,8 @@ export function buildConfig(): ProjectConfig {
       ],
       labels: [
         ...standardLabelsFor(['code-review-ok', 'qa-ok', 'client-accepted', 'pr-merged'], getLocale('hu')),
-        {
-          ...standardLabel('release-approved', getLocale('hu')),
-          setBy: { members: ['owner'], humansOnly: true },
-        },
+        // The release approval duty's label; the owner holds the duty through the operator role.
+        standardLabel('release-approved', getLocale('hu')),
       ],
     },
   };

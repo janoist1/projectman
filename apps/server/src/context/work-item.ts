@@ -1,4 +1,6 @@
+import path from 'node:path';
 import {
+  DUTIES,
   dutyMembers,
   gateLabels,
   isHumanOnlyLabel,
@@ -8,7 +10,7 @@ import {
   roleBundle,
   stageOwners,
 } from '@projectman/shared';
-import type { DutyId, Stage, Task } from '@projectman/shared';
+import type { DutyId, RepoConfig, Stage, Task } from '@projectman/shared';
 import type { ContextPackInput } from '../contracts';
 import { code, codeList, labelRef, lowerFirst, stageLabel } from './format';
 
@@ -41,6 +43,76 @@ export function assess(input: ContextPackInput): Situation {
 function stageAfter(stages: Stage[], stage: Stage): Stage | null {
   const index = stages.findIndex((s) => s.id === stage.id);
   return index >= 0 ? (stages[index + 1] ?? null) : null;
+}
+
+/* ---------- repositories without GitHub (PM-67) ---------- */
+
+/**
+ * The task's repository when it is local-only: configured without a `github` block, so the owner has
+ * not allowed anything to go to GitHub (the server denies `git push`, `gh pr create` and `gh pr merge`
+ * there, see `deniedToolsFor` in domain/session-policy.ts). The instructions then leave the pull
+ * request out: the developer commits on the task's branch and hands the branch over, the reviewer
+ * reads it against the default branch, and the owner merges. Null for a repository on GitHub, for a
+ * task without a repository (its own card, PM-68) and for work that is not a task: those keep the
+ * pull request wording.
+ */
+function localOnlyRepo(input: ContextPackInput): RepoConfig | null {
+  const task = input.workItem.type === 'task' ? input.task : null;
+  if (!task?.repo) return null;
+  const repo = input.project.project.repos.find((r) => r.name === task.repo);
+  return repo && !repo.github ? repo : null;
+}
+
+/** Why there is no pull request; every local-only text says it, so each reads on its own. */
+const LOCAL_ONLY_REASON = 'the repository is local-only (the owner has not allowed publishing from it)';
+
+/** What the developer's hand-over message holds for a local-only repository: no pull request link. */
+const LOCAL_ONLY_FACTS = 'the branch and its last commit, what changed, what to check';
+
+/**
+ * The folder of the repository inside the workspace root, where a session outside the task's
+ * worktree (a reviewer) starts; null when the workspace root is the repository itself.
+ */
+function repositoryFolder(repo: RepoConfig): string | null {
+  const folder = path.posix.normalize(repo.path).replace(/\/+$/, '');
+  return folder === '' || folder === '.' ? null : folder;
+}
+
+/**
+ * The review step for a local-only repository: there is no pull request, so the reviewer reads the
+ * task's branch against the default branch. Every worktree shares one git repository, so this works
+ * from the reviewer's own directory. The commands are the read-only ones the server allows without
+ * asking (plain `git branch --list`, `git log` and `git diff`, never `-C`; a repository in a folder of
+ * the workspace is entered with `cd`). The worktree manager names the branch after the task key and
+ * the title, `<TASKKEY>-<slug of the title>` (worktree/branch-name.ts).
+ */
+function reviewBranch(repo: RepoConfig, taskKey: string): string {
+  const base = repo.defaultBranch;
+  const folder = repositoryFolder(repo);
+  const run = (command: string) => code(folder ? `cd ${folder} && ${command}` : command);
+  const from = folder ? `the folder ${code(folder)} of your working directory` : 'your working directory';
+  return [
+    `Review the task's branch against ${code(base)}: there is no pull request, because ${LOCAL_ONLY_REASON}.`,
+    `Every worktree shares one git repository, so you can read the task's branch from ${from}:`,
+    `find it with ${run(`git branch --list '${taskKey}-*'`)} (it is named ${code(`${taskKey}-`)} followed by the title as a lowercase slug),`,
+    `then read ${run(`git log ${base}..<branch>`)} and ${run(`git diff ${base}...<branch>`)}.`,
+    'Do not edit, commit, merge or push.',
+  ].join(' ');
+}
+
+/**
+ * Duty fragments that tell the member to open and link a pull request. A local-only repository has
+ * none, so a member working there gets these instead (the catalogue's own text stays as it is).
+ */
+const LOCAL_ONLY_DUTY_PROMPTS: Partial<Record<DutyId, string>> = {
+  implementation:
+    "Implement the task and tests only in its worktree; run checks and commit the work on the task's branch. The repository is local-only: never push or open a pull request.",
+  docs: "Write accurate documentation in the task worktree; verify examples against the code and commit it on the task's branch. The repository is local-only: never push or open a pull request.",
+};
+
+/** The prompt fragment of a duty for this work item; see `LOCAL_ONLY_DUTY_PROMPTS`. */
+export function dutyPrompt(input: ContextPackInput, duty: DutyId): string {
+  return (localOnlyRepo(input) && LOCAL_ONLY_DUTY_PROMPTS[duty]) || DUTIES[duty].prompt;
 }
 
 /**
@@ -83,6 +155,8 @@ interface StepContext {
   /** The task's assignee as inline code, else "the author of the change". */
   author: string;
   inQueue: boolean;
+  /** The task's repository when it is local-only (see `localOnlyRepo`), else null. */
+  localOnly: RepoConfig | null;
   /** The step of a member who does not own the current stage. */
   notOwner: string;
 }
@@ -92,11 +166,13 @@ type StepRule = (c: StepContext) => string[];
 /**
  * Duties that change files: in the queue or the work stage the member builds the change and opens
  * a pull request (`work` says what building means for the duty); later the assignee fixes what
- * teammates report. `ownerReview` is what an owner of a later stage does (the designer's check).
+ * teammates report. In a local-only repository there is no pull request: the member commits on the
+ * task's branch and hands the branch over, and the fixes are new commits on it. `ownerReview` is
+ * what an owner of a later stage does (the designer's check).
  */
 function building(work: (where: string) => string[], ownerReview?: StepRule): StepRule {
   return (c) => {
-    const { input, s, current, inQueue } = c;
+    const { input, s, current, inQueue, localOnly } = c;
     if ((inQueue || current.kind === 'work') && (s.ownsStage || s.isAssignee || inQueue)) {
       const working = inQueue ? s.next : current;
       const where = c.task.repo
@@ -107,40 +183,61 @@ function building(work: (where: string) => string[], ownerReview?: StepRule): St
           ? [`Move the task to ${stageLabel(working)} with update_task as you start.`]
           : []),
         ...work(where),
-        'Commit, push, open a pull request and attach it with link_pull_request.',
-        handover(input, working ? stageAfter(s.stages, working) : null),
+        localOnly
+          ? `Commit the work on the task's own branch in your worktree. Never push and never open a pull request: ${LOCAL_ONLY_REASON}. Before you hand over, make sure everything is committed: \`git status\` shows nothing left to commit.`
+          : 'Commit, push, open a pull request and attach it with link_pull_request.',
+        handover(
+          input,
+          working ? stageAfter(s.stages, working) : null,
+          localOnly ? LOCAL_ONLY_FACTS : undefined,
+        ),
       ];
     }
     if (ownerReview && s.ownsStage) return ownerReview(c);
     if (s.isAssignee) {
+      const past = `The task is past development (now in ${stageLabel(current)}).`;
       return [
-        `The task is past development (now in ${stageLabel(current)}). Fix what teammates report in the same branch and pull request, push, and ask the reporter for a re-review or a retest with send_message.`,
+        localOnly
+          ? `${past} Fix what teammates report on the same branch and commit the fixes; never push, because ${LOCAL_ONLY_REASON}. Then ask the reporter for a re-review or a retest with send_message, naming the new commits.`
+          : `${past} Fix what teammates report in the same branch and pull request, push, and ask the reporter for a re-review or a retest with send_message.`,
       ];
     }
     return [c.notOwner];
   };
 }
 
-/** A code or security review. */
-const reviewing: StepRule = ({ input, s, duty, author }) => {
+/** A code or security review; in a local-only repository of the task's branch, not of a pull request. */
+const reviewing: StepRule = ({ input, s, task, duty, author, localOnly }) => {
   if (!s.ownsStage) {
     return [
       `Review what you were asked to review. ${recordResult(input, duty, 'your findings')} Report to the sender with send_message.`,
     ];
   }
   return [
-    'Review the pull requests linked to the task; do not edit, commit or push.',
+    localOnly
+      ? reviewBranch(localOnly, task.key)
+      : 'Review the pull requests linked to the task; do not edit, commit or push.',
     recordResult(input, duty, 'a one-line summary of the findings'),
     `Send "Blocking" / "Not blocking" findings with file:line to ${author} with send_message; review again when they report a fix.`,
-    `When the review passes, ${lowerFirst(handover(input, s.next))}`,
+    // After a review a local-only branch is merged by the owner and nobody else.
+    `When the review passes, ${lowerFirst(handover(input, s.next))}${
+      localOnly ? ` The owner merges the branch into ${code(localOnly.defaultBranch)}.` : ''
+    }`,
   ];
 };
 
-/** Duties that prepare work in the queue (or their own stage) and leave it for prioritisation. */
-function preparing(askedStep: string, steps: string[]): StepRule {
-  return ({ input, s, current, inQueue }) => {
+/**
+ * Duties that prepare work in the queue (or their own stage) and leave it for prioritisation. The
+ * steps are a list, or a function of the situation when their wording depends on it.
+ */
+function preparing(askedStep: string, steps: string[] | ((c: StepContext) => string[])): StepRule {
+  return (c) => {
+    const { input, s, current, inQueue } = c;
     if (!s.ownsStage && !inQueue) return [askedStep];
-    return [...steps, inQueue ? readyForPriority(input, current) : handover(input, s.next)];
+    return [
+      ...(typeof steps === 'function' ? steps(c) : steps),
+      inQueue ? readyForPriority(input, current) : handover(input, s.next),
+    ];
   };
 }
 
@@ -191,10 +288,10 @@ const DUTY_STEPS: Partial<Record<DutyId, StepRule>> = {
     ];
   },
 
-  deployment: ({ input, s, current }) => {
+  deployment: ({ input, s, current, localOnly }) => {
     if (s.ownsStage && current.kind === 'step' && current.duty === 'deployment') {
       return [
-        "Deploy the task's branch or pull request to the test environment and verify that it works.",
+        `Deploy the task's ${localOnly ? 'branch' : 'branch or pull request'} to the test environment and verify that it works.`,
         'Record what is deployed where as a note with update_task.',
         handover(input, s.next),
       ];
@@ -241,10 +338,10 @@ const DUTY_STEPS: Partial<Record<DutyId, StepRule>> = {
 
   technical_direction: preparing(
     'Answer the design question you were asked with send_message; leave the line-by-line review to the code reviewer.',
-    [
+    ({ localOnly }) => [
       'Read the task with get_task and the code it touches; read only, never edit, commit or push.',
       'Add the technical plan to the description with update_task, under its own heading: approach, affected parts, data or API changes, risks, how to test.',
-      'If the work is bigger than one pull request, create the parts with create_task and note the order and dependencies on this task.',
+      `If the work is bigger than one ${localOnly ? 'branch' : 'pull request'}, create the parts with create_task and note the order and dependencies on this task.`,
     ],
   ),
 
@@ -326,6 +423,7 @@ export function expectedSteps(input: ContextPackInput, s: Situation): string[] {
     duty,
     author: task.assignee ? code(task.assignee) : 'the author of the change',
     inQueue: current.kind === 'queue',
+    localOnly: localOnlyRepo(input),
     notOwner,
   });
 }
@@ -337,8 +435,15 @@ function ownerSteps(input: ContextPackInput, s: Situation): string[] {
   ];
 }
 
-/** How to pass the task on to the given stage (or close the work item without one). */
-export function handover(input: ContextPackInput, target: Stage | null): string {
+/**
+ * How to pass the task on to the given stage (or close the work item without one); `facts` is what
+ * the hand-over message holds.
+ */
+export function handover(
+  input: ContextPackInput,
+  target: Stage | null,
+  facts = 'links, what changed, what to check',
+): string {
   if (!target) return 'Tell whoever asked that your part is done.';
   const approvals = gateLabels(input.project, target).approvals;
   if (approvals.length > 0) {
@@ -357,7 +462,7 @@ export function handover(input: ContextPackInput, target: Stage | null): string 
   if (target.kind === 'done' || owners.length === 0) {
     return `Move the task to ${stageLabel(target)} with update_task.`;
   }
-  return `Move the task to ${stageLabel(target)} with update_task and hand over to ${codeList(owners)} with send_message: the facts they need (links, what changed, what to check).`;
+  return `Move the task to ${stageLabel(target)} with update_task and hand over to ${codeList(owners)} with send_message: the facts they need (${facts}).`;
 }
 
 /** A task that waits in the queue is prioritised by humans: tell them instead of moving it on. */

@@ -4,7 +4,7 @@ import type { ContextPackInput } from '../contracts';
 import { isHumanOnlyLabel, labelHolders } from '@projectman/shared';
 import { code, codeList, describeGate, labelRef, languageName, stageLabel } from './format';
 import { recentMemory } from './memory';
-import { expectedSteps, type Situation } from './work-item';
+import { dutyPrompt, expectedSteps, type Situation } from './work-item';
 
 /** English names of the built-in roles for prompt text. */
 const ROLE_LABELS: Record<BuiltInRoleId, string> = {
@@ -300,11 +300,12 @@ function guardrailsSection({ project, member }: ContextPackInput): string {
 }
 
 /** Duty fragments are followed by prompt-only role extras, then personal instructions. */
-function roleSection({ project, member }: ContextPackInput): string {
+function roleSection(input: ContextPackInput): string {
+  const { project, member } = input;
   const bundle = roleBundle(project, member.role);
   return [
     '# Your role instructions',
-    ...bundle.duties.map((id) => DUTIES[id].prompt).filter(Boolean),
+    ...bundle.duties.map((id) => dutyPrompt(input, id)).filter(Boolean),
     bundle.instructions.trim(),
     member.instructions.trim(),
   ]

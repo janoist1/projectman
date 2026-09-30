@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AI_BUILT_IN_ROLE_IDS, DUTIES } from '@projectman/shared';
+import { AI_BUILT_IN_ROLE_IDS, DUTIES, DUTY_IDS } from '@projectman/shared';
 import type {
   Actor,
   AiMemberConfig,
@@ -13,6 +13,7 @@ import type {
 } from '@projectman/shared';
 import { aiMemberDefaults, getTemplate } from '@projectman/templates';
 import type { ContextPackInput } from '../contracts';
+import { commandVerdict, readableRootsFor } from '../domain';
 import { TEAM_TOOL_NAMES } from '../mcp';
 import { createContextPackBuilder } from './context-pack';
 import { formatMemoryEntry, MEMORY_LIMIT_BYTES } from './memory';
@@ -55,6 +56,15 @@ function buildProject(templateId = 'web-client-project', language = 'en'): Proje
   });
   config.project.repos.push({ name: 'app', path: 'app', github: 'acme/app', defaultBranch: 'main' });
   return config;
+}
+
+/** The same project with its `app` repository local-only: no GitHub name, at `repoPath` in the workspace. */
+function buildLocalOnlyProject(repoPath = 'app', templateId?: string): ProjectConfig {
+  const project = buildProject(templateId);
+  const repo = project.project.repos.find((r) => r.name === 'app')!;
+  delete repo.github;
+  repo.path = repoPath;
+  return project;
 }
 
 function aiMember(project: ProjectConfig, handle: string): AiMemberConfig {
@@ -208,6 +218,18 @@ function doneSteps(prompt: string): string {
   return steps.slice(0, steps.indexOf('\n\n'));
 }
 
+/** The sections a repository without GitHub words differently: the steps and the role instructions. */
+const LOCAL_ONLY_HEADINGS = ['# Current work item', '# Your role instructions'];
+
+function localOnlyParts(prompt: string): string {
+  return LOCAL_ONLY_HEADINGS.map((heading) => section(prompt, heading)).join('\n');
+}
+
+/** The system prompt without those sections. */
+function withoutLocalOnlyParts(prompt: string): string {
+  return LOCAL_ONLY_HEADINGS.reduce((text, heading) => text.replace(section(text, heading), ''), prompt);
+}
+
 const dataSteward = {
   id: 'data_steward',
   name: 'Data steward',
@@ -245,6 +267,39 @@ describe('context pack snapshots', () => {
       '__snapshots__/code-review-code_review.system-prompt.txt',
     );
     await expect(pack.initialMessage).toMatchFileSnapshot('__snapshots__/code-review-code_review.brief.txt');
+  });
+
+  // The repository's GitHub name is all that differs from the two packs above, so the snapshots of a
+  // local-only repository hold the two sections that change (see 'repositories without GitHub', which
+  // also checks that the rest of the pack and the brief stay as they are).
+  it('developer starting development in a local-only repository', async () => {
+    const pack = builder.build(
+      input({
+        project: buildLocalOnlyProject('.'),
+        handle: 'fe-1',
+        task: makeTask({
+          stageId: 'dev',
+          links: [{ kind: 'prerequisite', ref: 'AR-19', title: 'Update mail templates', state: 'done' }],
+        }),
+        timeline: timeline.slice(0, 4),
+      }),
+    );
+    await expect(localOnlyParts(pack.appendSystemPrompt)).toMatchFileSnapshot(
+      '__snapshots__/developer-dev-local-only.instructions.txt',
+    );
+  });
+
+  it('code reviewer reviewing the branch of a local-only repository', async () => {
+    const pack = builder.build(
+      input({
+        project: buildLocalOnlyProject('.'),
+        handle: 'code-review',
+        task: makeTask({ links: [{ kind: 'branch', ref: 'AR-21-fix-the-booking-confirmation-email' }] }),
+      }),
+    );
+    await expect(localOnlyParts(pack.appendSystemPrompt)).toMatchFileSnapshot(
+      '__snapshots__/code-review-code_review-local-only.instructions.txt',
+    );
   });
 
   it('custom role member in a general chat', async () => {
@@ -843,5 +898,349 @@ describe('duty prompt composition', () => {
     ).appendSystemPrompt;
     expect(custom).toContain(DUTIES.docs.prompt);
     expect(custom).toContain('Keep a glossary.');
+  });
+});
+
+/**
+ * A repository without a `github` block is local-only (PM-67): nothing goes to GitHub, so the
+ * developer commits on the task's branch and hands the branch over, the reviewer reads it against the
+ * default branch, and the owner merges. Repositories on GitHub keep the pull request wording.
+ */
+describe('repositories without GitHub', () => {
+  const localTask = (overrides: Partial<Task> = {}) =>
+    makeTask({ links: [{ kind: 'branch', ref: 'AR-21-fix-the-booking-confirmation-email' }], ...overrides });
+  const stepsOf = (overrides: Parameters<typeof input>[0]) =>
+    doneSteps(builder.build(input(overrides)).appendSystemPrompt);
+  const roleInstructions = (overrides: Parameters<typeof input>[0]) =>
+    section(builder.build(input(overrides)).appendSystemPrompt, '# Your role instructions');
+
+  describe('developer', () => {
+    it('commits on the task branch, never pushes, and hands over the branch and its last commit', () => {
+      const steps = stepsOf({
+        project: buildLocalOnlyProject(),
+        handle: 'fe-1',
+        task: localTask({ stageId: 'dev' }),
+      });
+      expect(steps).toBe(
+        [
+          '1. Read the task, its links and prerequisites; ask with ask_human if the goal or a decision is unclear.',
+          "2. Implement the change in your working directory (the task's own worktree and branch) and run the project's tests.",
+          "3. Commit the work on the task's own branch in your worktree. Never push and never open a pull request: the repository is local-only (the owner has not allowed publishing from it). Before you hand over, make sure everything is committed: `git status` shows nothing left to commit.",
+          '4. Move the task to Code review (`code_review`) with update_task and hand over to `code-review` with send_message: the facts they need (the branch and its last commit, what changed, what to check).',
+        ].join('\n'),
+      );
+    });
+
+    it('opens and links a pull request when the repository is on GitHub', () => {
+      const steps = stepsOf({ handle: 'fe-1', task: makeTask({ stageId: 'dev' }) });
+      expect(steps).toBe(
+        [
+          '1. Read the task, its links and prerequisites; ask with ask_human if the goal or a decision is unclear.',
+          "2. Implement the change in your working directory (the task's own worktree and branch) and run the project's tests.",
+          '3. Commit, push, open a pull request and attach it with link_pull_request.',
+          '4. Move the task to Code review (`code_review`) with update_task and hand over to `code-review` with send_message: the facts they need (links, what changed, what to check).',
+        ].join('\n'),
+      );
+    });
+
+    it('works the same way when it starts a task from the queue', () => {
+      const steps = stepsOf({
+        project: buildLocalOnlyProject(),
+        handle: 'be-1',
+        task: localTask({ stageId: 'ready', assignee: 'be-1' }),
+      }).split('\n');
+      expect(steps).toHaveLength(5);
+      expect(steps[0]).toBe('1. Move the task to Development (`dev`) with update_task as you start.');
+      expect(steps[3]).toContain("4. Commit the work on the task's own branch in your worktree. Never push");
+      expect(steps[4]).toContain(
+        '5. Move the task to Code review (`code_review`) with update_task and hand over to `code-review`',
+      );
+      expect(steps[4]).toContain('(the branch and its last commit, what changed, what to check)');
+    });
+
+    it('keeps the pull request out of every duty that changes files', () => {
+      for (const role of ['maintainer', 'docs', 'content', 'translator', 'designer']) {
+        const project = buildLocalOnlyProject();
+        addMember(project, 'member', role);
+        (project.pipeline.stages.find((s) => s.id === 'dev')!.owners ??= []).push('member');
+        const steps = stepsOf({
+          project,
+          handle: 'member',
+          task: localTask({ stageId: 'dev', assignee: 'member' }),
+        });
+        expect(steps, role).toContain(
+          "Commit the work on the task's own branch in your worktree. Never push",
+        );
+        expect(steps, role).not.toMatch(/link_pull_request|open a pull request and/);
+      }
+    });
+
+    it('fixes what teammates report with new commits and names them in the request for a re-review', () => {
+      const steps = stepsOf({
+        project: buildLocalOnlyProject(),
+        handle: 'fe-1',
+        task: localTask({ stageId: 'qa' }),
+      });
+      expect(steps).toBe(
+        '1. The task is past development (now in QA (`qa`)). Fix what teammates report on the same branch and commit the fixes; never push, because the repository is local-only (the owner has not allowed publishing from it). Then ask the reporter for a re-review or a retest with send_message, naming the new commits.',
+      );
+    });
+
+    it('fixes what teammates report in the same pull request when the repository is on GitHub', () => {
+      const steps = stepsOf({ handle: 'fe-1', task: makeTask({ stageId: 'qa' }) });
+      expect(steps).toBe(
+        '1. The task is past development (now in QA (`qa`)). Fix what teammates report in the same branch and pull request, push, and ask the reporter for a re-review or a retest with send_message.',
+      );
+    });
+  });
+
+  describe('reviewer', () => {
+    const reviewSteps = (project: ProjectConfig, handle = 'code-review') =>
+      stepsOf({ project, handle, task: localTask() }).split('\n');
+
+    it('reads the task branch against the default branch instead of a pull request', () => {
+      const local = reviewSteps(buildLocalOnlyProject('.'));
+      const github = stepsOf({ handle: 'code-review', task: makeTask() }).split('\n');
+      expect(github[0]).toBe('1. Review the pull requests linked to the task; do not edit, commit or push.');
+      expect(local[0]).toBe(
+        "1. Review the task's branch against `main`: there is no pull request, because the repository is local-only (the owner has not allowed publishing from it). Every worktree shares one git repository, so you can read the task's branch from your working directory: find it with `git branch --list 'AR-21-*'` (it is named `AR-21-` followed by the title as a lowercase slug), then read `git log main..<branch>` and `git diff main...<branch>`. Do not edit, commit, merge or push.",
+      );
+      // Recording the result and sending the findings are the same.
+      expect(local.slice(1, 3)).toEqual(github.slice(1, 3));
+    });
+
+    it('leaves the merge to the owner where it says what happens after the review', () => {
+      const local = reviewSteps(buildLocalOnlyProject('.'));
+      const github = stepsOf({ handle: 'code-review', task: makeTask() }).split('\n');
+      expect(github[3]).toMatch(/^4\. When the review passes, move the task to Integration/);
+      expect(local[3]).toBe(`${github[3]} The owner merges the branch into \`main\`.`);
+      // Also when the review ends in a request for a human approval.
+      const small = reviewSteps(buildLocalOnlyProject('.', 'small-team'));
+      expect(small.at(-1)).toMatch(
+        /never set that label yourself\. The owner merges the branch into `main`\.$/,
+      );
+    });
+
+    it("names the repository's default branch and enters a repository in a folder of the workspace", () => {
+      const project = buildLocalOnlyProject('app');
+      project.project.repos.find((r) => r.name === 'app')!.defaultBranch = 'develop';
+      const steps = reviewSteps(project);
+      expect(steps[0]).toBe(
+        "1. Review the task's branch against `develop`: there is no pull request, because the repository is local-only (the owner has not allowed publishing from it). Every worktree shares one git repository, so you can read the task's branch from the folder `app` of your working directory: find it with `cd app && git branch --list 'AR-21-*'` (it is named `AR-21-` followed by the title as a lowercase slug), then read `cd app && git log develop..<branch>` and `cd app && git diff develop...<branch>`. Do not edit, commit, merge or push.",
+      );
+      expect(steps[3]).toMatch(/ The owner merges the branch into `develop`\.$/);
+    });
+
+    it.each(['.', './', ''])(
+      'reads a repository at the workspace root (%j) from the working directory',
+      (repoPath) => {
+        const [review] = reviewSteps(buildLocalOnlyProject(repoPath));
+        expect(review).toContain('from your working directory: find it with `git branch --list');
+        expect(review).not.toContain('cd ');
+      },
+    );
+
+    it.each([
+      ['app/', 'app'],
+      ['./app', 'app'],
+      ['services/app', 'services/app'],
+    ])('enters the repository folder %j as %j', (repoPath, folder) => {
+      const [review] = reviewSteps(buildLocalOnlyProject(repoPath));
+      expect(review).toContain(`from the folder \`${folder}\` of your working directory`);
+      expect(review).toContain(`\`cd ${folder} && git branch --list 'AR-21-*'\``);
+    });
+
+    it('gives a security reviewer the same steps', () => {
+      const project = buildLocalOnlyProject('.');
+      addMember(project, 'security', 'security_review');
+      (project.pipeline.stages.find((s) => s.id === 'code_review')!.owners ??= []).push('security');
+      const steps = reviewSteps(project, 'security');
+      expect(steps[0]).toContain("Review the task's branch against `main`: there is no pull request");
+      expect(steps[3]).toMatch(/ The owner merges the branch into `main`\.$/);
+    });
+
+    it('asks a member who does not own the review stage what it was asked, as before', () => {
+      const project = buildLocalOnlyProject('.');
+      addMember(project, 'security', 'security_review');
+      const steps = reviewSteps(project, 'security');
+      expect(steps).toHaveLength(1);
+      expect(steps[0]).toMatch(/^1\. Review what you were asked to review\./);
+    });
+
+    it('tells the reviewer only commands that the server allows without asking', () => {
+      for (const repoPath of ['.', 'app']) {
+        const project = buildLocalOnlyProject(repoPath);
+        const [review] = reviewSteps(project);
+        const commands = [...review!.matchAll(/`([^`]+)`/g)]
+          .map((match) => match[1]!.replace('<branch>', 'AR-21-fix-the-booking-confirmation-email'))
+          .filter((text) => /\bgit (branch|log|diff)\b/.test(text));
+        expect(commands, repoPath).toHaveLength(3);
+        // The reviewer starts in the workspace root and may read the task's worktree.
+        const task = { key: 'AR-21', repo: 'app' };
+        const readableRoots = readableRootsFor({
+          cwd: '/work/acme',
+          projectKey: 'AR',
+          task,
+          worktreesRootDir: '/worktrees',
+        });
+        for (const command of commands) {
+          expect(
+            commandVerdict({
+              config: project,
+              session: { cwd: '/work/acme', role: 'code_review' },
+              task,
+              toolName: 'Bash',
+              toolInput: { command },
+              readableRoots,
+            }),
+            command,
+          ).toEqual({ behavior: 'allow' });
+        }
+      }
+    });
+  });
+
+  describe('other members', () => {
+    it('has DevOps deploy the task branch, not a pull request', () => {
+      const deploy = (project: ProjectConfig) =>
+        stepsOf({ project, handle: 'devops', task: makeTask({ stageId: 'integration' }) });
+      expect(deploy(buildLocalOnlyProject())).toContain(
+        "1. Deploy the task's branch to the test environment and verify that it works.",
+      );
+      expect(deploy(buildProject())).toContain(
+        "1. Deploy the task's branch or pull request to the test environment and verify that it works.",
+      );
+    });
+
+    it('has the architect size the work by branch, not by pull request', () => {
+      const plan = (project: ProjectConfig) => {
+        addMember(project, 'architect-1', 'architect');
+        return stepsOf({
+          project,
+          handle: 'architect-1',
+          task: makeTask({ stageId: 'ready', assignee: null }),
+        });
+      };
+      expect(plan(buildLocalOnlyProject())).toContain(
+        'If the work is bigger than one branch, create the parts with create_task',
+      );
+      expect(plan(buildProject())).toContain(
+        'If the work is bigger than one pull request, create the parts with create_task',
+      );
+    });
+  });
+
+  describe('role instructions', () => {
+    it('ask a developer to commit on the task branch instead of opening a pull request', () => {
+      const local = roleInstructions({ project: buildLocalOnlyProject(), handle: 'fe-1', task: localTask() });
+      expect(local).toContain(
+        "Implement the task and tests only in its worktree; run checks and commit the work on the task's branch. The repository is local-only: never push or open a pull request.",
+      );
+      expect(local).not.toContain(DUTIES.implementation.prompt);
+      expect(roleInstructions({ handle: 'fe-1' })).toContain(DUTIES.implementation.prompt);
+    });
+
+    it('ask a technical writer to commit on the task branch instead of linking a pull request', () => {
+      const local = buildLocalOnlyProject();
+      const github = buildProject();
+      for (const project of [local, github]) addMember(project, 'writer', 'docs');
+      const localRole = roleInstructions({ project: local, handle: 'writer', task: localTask() });
+      expect(localRole).toContain(
+        "Write accurate documentation in the task worktree; verify examples against the code and commit it on the task's branch. The repository is local-only: never push or open a pull request.",
+      );
+      expect(localRole).not.toContain(DUTIES.docs.prompt);
+      expect(roleInstructions({ project: github, handle: 'writer' })).toContain(DUTIES.docs.prompt);
+    });
+
+    it('leave no duty fragment about pull requests for a member working in a local-only repository', () => {
+      // A new fragment that mentions a pull request or a push needs a local-only variant.
+      const mentioning = DUTY_IDS.filter((id) => /pull request|\bpush/i.test(DUTIES[id].prompt));
+      expect(mentioning).toContain('implementation');
+      for (const id of mentioning) {
+        const project = buildLocalOnlyProject();
+        project.team.roles.push({
+          id: `only_${id}`,
+          name: `Only ${id}`,
+          summary: 'Holds a single duty.',
+          notTheirJob: '',
+          holders: 'both',
+          duties: [id],
+          instructions: '',
+        });
+        addMember(project, 'member', `only_${id}`);
+        const role = roleInstructions({
+          project,
+          handle: 'member',
+          task: localTask({ stageId: 'dev', assignee: 'member' }),
+        });
+        expect(role, id).not.toContain(DUTIES[id].prompt);
+        expect(role, id).toContain('The repository is local-only');
+      }
+    });
+
+    it('stay as they are outside a task', () => {
+      const project = buildLocalOnlyProject();
+      const role = roleInstructions({
+        project,
+        handle: 'fe-1',
+        workItem: { type: 'general' },
+        task: null,
+        stage: null,
+        timeline: [],
+      });
+      expect(role).toContain(DUTIES.implementation.prompt);
+    });
+  });
+
+  describe('what stays as it is', () => {
+    it('keeps the pull request wording for a task without a repository and for one the configuration does not know', () => {
+      // A task without a repository has its own card (PM-68); an unknown repository is not known to be local-only.
+      const project = buildLocalOnlyProject();
+      for (const repo of [null, 'missing']) {
+        const steps = stepsOf({ project, handle: 'fe-1', task: makeTask({ stageId: 'dev', repo }) });
+        expect(steps, String(repo)).toContain(
+          '3. Commit, push, open a pull request and attach it with link_pull_request.',
+        );
+        expect(
+          roleInstructions({ project, handle: 'fe-1', task: makeTask({ repo }) }),
+          String(repo),
+        ).toContain(DUTIES.implementation.prompt);
+        const review = stepsOf({ project, handle: 'code-review', task: makeTask({ repo }) });
+        expect(review, String(repo)).toContain('1. Review the pull requests linked to the task;');
+      }
+    });
+
+    it('changes only the steps and the role instructions of the pack, and leaves the brief alone', () => {
+      const cases = [
+        ['fe-1', 'ready'],
+        ['fe-1', 'dev'],
+        ['fe-1', 'qa'],
+        ['code-review', 'code_review'],
+        ['devops', 'integration'],
+        ['qa', 'qa'],
+        ['communication', 'client_test'],
+      ] as const;
+      const differing: string[] = [];
+      for (const [handle, stageId] of cases) {
+        const task = makeTask({ stageId });
+        const github = builder.build(input({ handle, task }));
+        const local = builder.build(input({ project: buildLocalOnlyProject(), handle, task }));
+        expect(withoutLocalOnlyParts(local.appendSystemPrompt), `${handle} in ${stageId}`).toBe(
+          withoutLocalOnlyParts(github.appendSystemPrompt),
+        );
+        expect(local.initialMessage, `${handle} in ${stageId}`).toBe(github.initialMessage);
+        if (localOnlyParts(local.appendSystemPrompt) !== localOnlyParts(github.appendSystemPrompt)) {
+          differing.push(`${handle} in ${stageId}`);
+        }
+      }
+      // Only where a pull request plays a part: building, fixing, reviewing and deploying.
+      expect(differing).toEqual([
+        'fe-1 in ready',
+        'fe-1 in dev',
+        'fe-1 in qa',
+        'code-review in code_review',
+        'devops in integration',
+      ]);
+    });
   });
 });

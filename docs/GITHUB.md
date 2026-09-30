@@ -60,6 +60,26 @@ title, state }` (built by `pullRequestLink`). When the PR merges, the system lab
   review or a merge approval of the previous code. The first head seen for a link (a new
   link, or the first poll after this was introduced) changes nothing.
 
+## Repositories without GitHub
+
+A repo configured without `github` is **local-only**: the owner has not allowed anything to go to
+GitHub. The server denies `git push`, `gh pr create` and `gh pr merge` there (`deniedToolsFor` and
+`commandVerdict` in `apps/server/src/domain/session-policy.ts`), and the context pack words the
+steps without a pull request (PM-67, `apps/server/src/context/work-item.ts`). Repos on GitHub and
+tasks without a repo keep the pull request wording.
+
+- The developer, and every duty that changes files, commits on the task's own branch in its
+  worktree, makes sure everything is committed, and names the branch and its last commit in the
+  hand-over message. Fixes after a review are new commits on the same branch; the request for a
+  re-review names them. The duty fragments of implementation and documentation say the same.
+- The reviewer reviews the branch against the repo's `defaultBranch`, not a pull request, with
+  commands the server allows without asking: `git branch --list '<TASKKEY>-*'` (the worktree
+  manager names the branch `<TASKKEY>-<slug of the title>`), `git log <base>..<branch>` and
+  `git diff <base>...<branch>`. Every worktree shares one git repository, so this works from the
+  reviewer's own directory (the workspace root; a repo in a folder of it is entered with `cd`).
+  The reviewer never edits, commits, merges or pushes.
+- The owner merges the branch into the default branch. A deployment step names the branch only.
+
 ## Polling
 
 A local app cannot receive GitHub webhooks, so `watch(targets, onChange)` polls:

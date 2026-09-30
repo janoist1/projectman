@@ -5,6 +5,7 @@ import type { PlanUsage } from '@projectman/shared';
 import type { PlanUsageProvider } from '../../../contracts';
 import { resolveCommand } from '../../cli';
 import { buildChildEnv } from '../../env';
+import { rec, type Json } from '../../transcript/json';
 
 /**
  * Plan usage (the 5-hour and weekly limits of the logged-in Claude account), the numbers
@@ -45,12 +46,6 @@ const PROBE_ARGS = [
 ];
 
 const REQUEST_ID = 'projectman-usage';
-
-type Json = Record<string, unknown>;
-
-function rec(value: unknown): Json | null {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Json) : null;
-}
 
 function percent(window: Json | null): number | null {
   const value = window?.utilization;

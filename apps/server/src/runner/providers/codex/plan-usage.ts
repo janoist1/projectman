@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import type { PlanUsage } from '@projectman/shared';
 import type { PlanUsageProvider } from '../../../contracts';
-import { rateLimitsOf, type CodexRateLimits, type CodexRateWindow } from './transcript';
+import { num, rec, str, type Json } from '../../transcript/json';
 
 /**
  * Plan usage of the ChatGPT account Codex runs on. Codex writes the plan's rate limits
@@ -12,6 +12,39 @@ import { rateLimitsOf, type CodexRateLimits, type CodexRateWindow } from './tran
  * record among the most recently written rollouts wins (Codex use outside projectman counts
  * too, as it shares the plan). Transcripts are only read, never changed.
  */
+
+export interface CodexRateWindow {
+  usedPercent: number;
+  windowMinutes: number | null;
+  /** Unix seconds. */
+  resetsAt: number | null;
+}
+
+/** The plan's rate limits, as Codex records them with every `token_count` event. */
+export interface CodexRateLimits {
+  /** When the record was written (ISO). */
+  at: string;
+  limitId: string | null;
+  primary: CodexRateWindow | null;
+  secondary: CodexRateWindow | null;
+}
+
+function rateWindow(value: unknown): CodexRateWindow | null {
+  const w = rec(value);
+  const used = num(w?.used_percent);
+  if (!w || used === null) return null;
+  return { usedPercent: used, windowMinutes: num(w.window_minutes), resetsAt: num(w.resets_at) };
+}
+
+/** The rate limits of a `token_count` event payload, or null. */
+export function rateLimitsOf(payload: Json, at: string): CodexRateLimits | null {
+  const limits = rec(payload.rate_limits);
+  if (!limits) return null;
+  const primary = rateWindow(limits.primary);
+  const secondary = rateWindow(limits.secondary);
+  if (!primary && !secondary) return null;
+  return { at, limitId: str(limits.limit_id), primary, secondary };
+}
 
 /** How many day folders ($CODEX_HOME/sessions/YYYY/MM/DD) are looked at, newest first. */
 const MAX_DAY_DIRS = 14;

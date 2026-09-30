@@ -33,6 +33,12 @@ export function displayPath(filePath: string, cwd?: string | null): string {
   return rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel : filePath;
 }
 
+/** First file an apply_patch touches: "*** Update File: src/app.ts" -> "src/app.ts". */
+export function patchSummary(patch: string): string | null {
+  const m = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/m.exec(patch);
+  return m ? m[1]!.trim() : null;
+}
+
 /** "mcp__team__send_message" -> "team: send_message". */
 function mcpName(name: string): string | null {
   const m = /^mcp__(.+?)__(.+)$/.exec(name);
@@ -66,7 +72,7 @@ export function toolSummary(name: string, input: unknown, cwd?: string | null, m
   if (name === 'apply_patch') {
     // Codex edits files with a patch: "*** Update File: src/app.ts".
     const patch = str(i.command) ?? str(i.input) ?? str(i.patch);
-    const file = patch ? /^\*\*\* (?:Add|Update|Delete) File: (.+)$/m.exec(patch)?.[1]?.trim() : undefined;
+    const file = patch ? patchSummary(patch) : null;
     return file ? oneLine(displayPath(file, cwd), max) : name;
   }
   return mcpName(name) ?? name;

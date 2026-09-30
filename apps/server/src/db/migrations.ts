@@ -238,6 +238,18 @@ export const migrations: Migration[] = [
     name: 'pull request head commit',
     sql: `ALTER TABLE task_links ADD COLUMN head_sha TEXT;`,
   },
+  {
+    version: 9,
+    name: 'session provider',
+    // Earlier rows are Codex conversations when their transcript is a Codex rollout file
+    // (rollout-*.jsonl, compressed .jsonl.zst): the file name is what follows the last "/".
+    sql: `ALTER TABLE sessions ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude';
+      UPDATE sessions SET provider = 'codex'
+      WHERE substr(transcript_path, length(rtrim(transcript_path, replace(transcript_path, '/', ''))) + 1)
+        GLOB 'rollout-*.jsonl'
+        OR substr(transcript_path, length(rtrim(transcript_path, replace(transcript_path, '/', ''))) + 1)
+        GLOB 'rollout-*.jsonl.zst';`,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

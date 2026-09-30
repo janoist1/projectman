@@ -47,6 +47,16 @@ export interface ContextPackBuilder {
   build(input: ContextPackInput): ContextPack;
 }
 
+/**
+ * Who opens a conversation, by its work item: tasks and scheduled runs start with the context
+ * pack's initial message (the kick-off brief, the scheduled prompt), which the system types;
+ * general chats and meetings start with what a person writes. The chat labels the first user
+ * turn with it, live and when a transcript is read again.
+ */
+export function openingTurnOrigin(workItem: WorkItemRef): 'brief' | 'human' {
+  return workItem.type === 'task' || workItem.type === 'schedule' ? 'brief' : 'human';
+}
+
 export interface MemberMemoryStore {
   read(projectKey: string, handle: string): Promise<string>;
   append(projectKey: string, handle: string, note: string): Promise<void>;

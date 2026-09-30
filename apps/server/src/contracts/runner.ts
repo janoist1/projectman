@@ -30,6 +30,11 @@ export interface StartSessionSpec {
   appendSystemPrompt: string;
   /** First user message typed once the session is ready (e.g. the task brief). */
   initialMessage?: string | null;
+  /**
+   * Who writes the first user turn of a new conversation (`openingTurnOrigin`); the chat labels
+   * it. Default: "brief" when there is an initial message, else "human".
+   */
+  firstUserOrigin?: 'brief' | 'human';
   /** Team tools endpoint for this session, e.g. http://127.0.0.1:4700/mcp/<token>. */
   mcpUrl: string;
   /** Tools pre-approved for this session, e.g. ["mcp__team__*"]. */
@@ -142,14 +147,20 @@ export interface PermissionBroker {
 export interface TranscriptReader {
   /**
    * Parses a whole transcript (Claude Code JSONL or Codex rollout JSONL) into chat items.
-   * `self` is the handle of the session's member (sender of outgoing team messages;
-   * "unknown" when omitted). General chats have no brief: their first user turn is human.
-   * `cwd` is the session's working directory: file paths inside it are shown relative to it,
-   * as in the live chat (absolute when omitted).
+   * `provider` is the agent CLI that wrote it (default: guessed from the file name, Codex
+   * rollouts are rollout-*.jsonl). `self` is the handle of the session's member (sender of
+   * outgoing team messages; "unknown" when omitted). `firstUserOrigin` labels the first user
+   * turn (`openingTurnOrigin`; default "brief"). `cwd` is the session's working directory: file
+   * paths inside it are shown relative to it, as in the live chat (absolute when omitted).
    */
   read(
     path: string,
-    opts?: { self?: string; firstUserOrigin?: 'brief' | 'human'; cwd?: string | null },
+    opts?: {
+      provider?: AgentProvider;
+      self?: string;
+      firstUserOrigin?: 'brief' | 'human';
+      cwd?: string | null;
+    },
   ): Promise<ChatItem[]>;
 }
 

@@ -1,4 +1,6 @@
-import type { Session, SessionState, WorkItemRef } from '@projectman/shared';
+import { DEFAULT_AGENT_PROVIDER } from '@projectman/shared';
+import type { AgentProvider, Session, SessionState, WorkItemRef } from '@projectman/shared';
+import type { Statement } from 'better-sqlite3';
 import type { Db } from './database';
 
 interface SessionRow {
@@ -8,6 +10,7 @@ interface SessionRow {
   work_item_type: string;
   work_item_ref: string;
   claude_session_id: string;
+  provider: string;
   cwd: string;
   branch: string | null;
   transcript_path: string | null;
@@ -45,6 +48,7 @@ const toSession = (r: SessionRow): Session => ({
   member: r.member,
   workItem: decodeWorkItem(r.work_item_type, r.work_item_ref),
   claudeSessionId: r.claude_session_id,
+  provider: r.provider as AgentProvider,
   cwd: r.cwd,
   branch: r.branch,
   transcriptPath: r.transcript_path,
@@ -59,6 +63,7 @@ export type SessionPatch = Partial<
   Pick<
     Session,
     | 'claudeSessionId'
+    | 'provider'
     | 'cwd'
     | 'branch'
     | 'transcriptPath'
@@ -72,6 +77,7 @@ export type SessionPatch = Partial<
 
 const COLUMNS: Record<keyof SessionPatch, string> = {
   claudeSessionId: 'claude_session_id',
+  provider: 'provider',
   cwd: 'cwd',
   branch: 'branch',
   transcriptPath: 'transcript_path',
@@ -83,8 +89,35 @@ const COLUMNS: Record<keyof SessionPatch, string> = {
 };
 
 export function createSessionRepository(db: Db) {
+  const statements = {
+    get: db.prepare('SELECT * FROM sessions WHERE id = ?'),
+    insert: db.prepare(
+      `INSERT INTO sessions (id, project_key, member, work_item_type, work_item_ref, claude_session_id, provider,
+         cwd, branch, transcript_path, state, activity, started_at, last_activity_at, ended_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ),
+    findByWorkItem: db.prepare(
+      'SELECT * FROM sessions WHERE project_key = ? AND member = ? AND work_item_type = ? AND work_item_ref = ?',
+    ),
+    list: db.prepare('SELECT * FROM sessions WHERE project_key = ? ORDER BY started_at, id'),
+    listByMember: db.prepare(
+      'SELECT * FROM sessions WHERE project_key = ? AND member = ? ORDER BY started_at, id',
+    ),
+    listByTask: db.prepare(
+      `SELECT * FROM sessions WHERE project_key = ? AND work_item_type = 'task' AND work_item_ref = ?
+       ORDER BY started_at, id`,
+    ),
+    listByMemberAndTask: db.prepare(
+      `SELECT * FROM sessions WHERE project_key = ? AND member = ? AND work_item_type = 'task'
+         AND work_item_ref = ? ORDER BY started_at, id`,
+    ),
+  };
+  /** SELECT statements per number of states, UPDATE statements per set of changed columns. */
+  const inStates = new Map<number, Statement>();
+  const updates = new Map<string, Statement>();
+
   const get = (id: string): Session | null => {
-    const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as SessionRow | undefined;
+    const row = statements.get.get(id) as SessionRow | undefined;
     return row ? toSession(row) : null;
   };
 
@@ -92,17 +125,14 @@ export function createSessionRepository(db: Db) {
     get,
     insert(s: Session): void {
       const wi = encodeWorkItem(s.workItem);
-      db.prepare(
-        `INSERT INTO sessions (id, project_key, member, work_item_type, work_item_ref, claude_session_id, cwd, branch,
-           transcript_path, state, activity, started_at, last_activity_at, ended_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
+      statements.insert.run(
         s.id,
         s.projectKey,
         s.member,
         wi.type,
         wi.ref,
         s.claudeSessionId,
+        s.provider ?? DEFAULT_AGENT_PROVIDER,
         s.cwd,
         s.branch,
         s.transcriptPath,
@@ -115,36 +145,31 @@ export function createSessionRepository(db: Db) {
     },
     findByWorkItem(projectKey: string, member: string, item: WorkItemRef): Session | null {
       const wi = encodeWorkItem(item);
-      const row = db
-        .prepare(
-          'SELECT * FROM sessions WHERE project_key = ? AND member = ? AND work_item_type = ? AND work_item_ref = ?',
-        )
-        .get(projectKey, member, wi.type, wi.ref) as SessionRow | undefined;
+      const row = statements.findByWorkItem.get(projectKey, member, wi.type, wi.ref) as
+        SessionRow | undefined;
       return row ? toSession(row) : null;
     },
     list(projectKey: string, filter: { member?: string; taskKey?: string } = {}): Session[] {
-      let sql = 'SELECT * FROM sessions WHERE project_key = ?';
-      const params: string[] = [projectKey];
-      if (filter.member) {
-        sql += ' AND member = ?';
-        params.push(filter.member);
-      }
-      if (filter.taskKey) {
-        sql += " AND work_item_type = 'task' AND work_item_ref = ?";
-        params.push(filter.taskKey);
-      }
-      sql += ' ORDER BY started_at, id';
-      return (db.prepare(sql).all(...params) as SessionRow[]).map(toSession);
+      const rows =
+        filter.member && filter.taskKey
+          ? statements.listByMemberAndTask.all(projectKey, filter.member, filter.taskKey)
+          : filter.member
+            ? statements.listByMember.all(projectKey, filter.member)
+            : filter.taskKey
+              ? statements.listByTask.all(projectKey, filter.taskKey)
+              : statements.list.all(projectKey);
+      return (rows as SessionRow[]).map(toSession);
     },
     /** Sessions in any of the given states, across all projects. */
     listInStates(states: SessionState[]): Session[] {
       if (states.length === 0) return [];
-      const placeholders = states.map(() => '?').join(', ');
-      return (
-        db
-          .prepare(`SELECT * FROM sessions WHERE state IN (${placeholders}) ORDER BY started_at`)
-          .all(...states) as SessionRow[]
-      ).map(toSession);
+      let statement = inStates.get(states.length);
+      if (!statement) {
+        const placeholders = states.map(() => '?').join(', ');
+        statement = db.prepare(`SELECT * FROM sessions WHERE state IN (${placeholders}) ORDER BY started_at`);
+        inStates.set(states.length, statement);
+      }
+      return (statement.all(...states) as SessionRow[]).map(toSession);
     },
     update(id: string, patch: SessionPatch): Session | null {
       const entries = Object.entries(patch).filter(([, v]) => v !== undefined) as Array<
@@ -152,7 +177,12 @@ export function createSessionRepository(db: Db) {
       >;
       if (entries.length > 0) {
         const set = entries.map(([k]) => `${COLUMNS[k]} = ?`).join(', ');
-        db.prepare(`UPDATE sessions SET ${set} WHERE id = ?`).run(...entries.map(([, v]) => v), id);
+        let statement = updates.get(set);
+        if (!statement) {
+          statement = db.prepare(`UPDATE sessions SET ${set} WHERE id = ?`);
+          updates.set(set, statement);
+        }
+        statement.run(...entries.map(([, v]) => v), id);
       }
       return get(id);
     },

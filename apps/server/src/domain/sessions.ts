@@ -13,7 +13,7 @@ import type {
   TeamMessage,
   WorkItemRef,
 } from '@projectman/shared';
-import { PROVIDER_NOT_LOGGED_IN } from '../contracts';
+import { openingTurnOrigin, PROVIDER_NOT_LOGGED_IN } from '../contracts';
 import type {
   ContextPackBuilder,
   MemberMemoryStore,
@@ -89,11 +89,6 @@ function errorCode(err: unknown): string | null {
   return typeof code === 'string' ? code : null;
 }
 
-/** Codex keeps conversations in rollout files; any other transcript is Claude Code's. */
-function transcriptProvider(path: string): AgentProvider {
-  return /(?:^|\/)rollout-[^/]*\.jsonl(?:\.zst)?$/.test(path) ? 'codex' : 'claude';
-}
-
 function providerNotLoggedIn(provider: AgentProvider, details: Record<string, unknown>, detail?: string) {
   return conflict(
     PROVIDER_NOT_LOGGED_IN,
@@ -121,6 +116,8 @@ export class SessionOrchestrator {
   private readonly tokens = new Map<string, ToolContext>();
   private readonly tokenBySession = new Map<string, string>();
   private readonly cleanupTimers = new Set<NodeJS.Timeout>();
+  /** The provider each session's current process runs, for the transcript it reports. */
+  private readonly processProviders = new Map<string, AgentProvider>();
   private messageSessionStarter?: (
     projectKey: string,
     handle: string,
@@ -361,8 +358,10 @@ export class SessionOrchestrator {
     if (session.transcriptPath) {
       try {
         chat = await this.deps.transcripts.read(session.transcriptPath, {
+          provider: session.provider ?? DEFAULT_AGENT_PROVIDER,
           self: session.member,
-          firstUserOrigin: session.workItem.type === 'task' ? 'brief' : 'human',
+          cwd: session.cwd,
+          firstUserOrigin: openingTurnOrigin(session.workItem),
         });
       } catch (err) {
         this.ctx.logger.warn({ err, sessionId }, 'could not read the transcript');
@@ -531,7 +530,7 @@ export class SessionOrchestrator {
     // Resume only a conversation that exists (the runner reported its transcript) and that
     // belongs to the member's current provider.
     const resume = Boolean(
-      existing?.transcriptPath && transcriptProvider(existing.transcriptPath) === provider,
+      existing?.transcriptPath && (existing.provider ?? DEFAULT_AGENT_PROVIDER) === provider,
     );
     let session: Session;
     if (existing) {
@@ -550,6 +549,7 @@ export class SessionOrchestrator {
         member: member.handle,
         workItem,
         claudeSessionId: newUuid(),
+        provider,
         cwd,
         branch,
         transcriptPath: null,
@@ -562,6 +562,7 @@ export class SessionOrchestrator {
       this.ctx.repos.sessions.insert(session);
     }
     const token = this.issueToken(session);
+    this.processProviders.set(session.id, provider);
 
     try {
       const info = await this.deps.runner.start({
@@ -576,6 +577,7 @@ export class SessionOrchestrator {
         permissionMode: member.permissionMode,
         appendSystemPrompt: pack.appendSystemPrompt,
         initialMessage: resume ? null : pack.initialMessage,
+        firstUserOrigin: openingTurnOrigin(workItem),
         mcpUrl: `${this.deps.publicBaseUrl}${routes.mcp(token)}`,
         allowedTools: allowedToolsFor(member.role, config),
         deniedTools: deniedToolsFor(config, task),
@@ -589,6 +591,7 @@ export class SessionOrchestrator {
       }
     } catch (err) {
       this.revokeToken(session.id);
+      this.processProviders.delete(session.id);
       const failed = this.ctx.repos.sessions.update(session.id, {
         state: 'failed',
         endedAt: isoNow(this.ctx),
@@ -670,6 +673,7 @@ export class SessionOrchestrator {
   ): Session | null {
     const session = this.ctx.repos.sessions.get(sessionId);
     this.revokeToken(sessionId);
+    this.processProviders.delete(sessionId);
     if (!session || ENDED.has(session.state)) return null;
     const at = isoNow(this.ctx);
     const state: SessionState = exitCode !== null && exitCode !== 0 ? 'failed' : 'exited';
@@ -725,8 +729,12 @@ export class SessionOrchestrator {
           return;
         }
         case 'transcript_path': {
-          if (session.transcriptPath === event.path) return;
-          this.publishSession(this.ctx.repos.sessions.update(session.id, { transcriptPath: event.path })!);
+          // The conversation at this path is the one the current process runs.
+          const provider = this.processProviders.get(session.id) ?? session.provider;
+          if (session.transcriptPath === event.path && session.provider === provider) return;
+          this.publishSession(
+            this.ctx.repos.sessions.update(session.id, { transcriptPath: event.path, provider })!,
+          );
           return;
         }
         case 'chat': {

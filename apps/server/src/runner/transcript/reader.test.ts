@@ -103,3 +103,26 @@ describe('whole transcript paths', () => {
     },
   );
 });
+
+describe('whole transcript providers', () => {
+  it('parses a transcript as the provider that wrote it, whatever its file name', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pm-provider-'));
+    try {
+      const path = join(dir, 'fictional.jsonl');
+      const line = {
+        timestamp: at,
+        type: 'response_item',
+        payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Done.' }] },
+      };
+      await writeFile(path, JSON.stringify(line));
+      const reader = createTranscriptReader();
+      expect(await reader.read(path, { provider: 'codex' })).toMatchObject([
+        { kind: 'assistant_text', text: 'Done.' },
+      ]);
+      // Guessed from the name, it is a Claude Code transcript, whose format this is not.
+      expect(await reader.read(path)).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

@@ -4,11 +4,12 @@ import type {
   ChatItem,
   InboxView,
   Me,
+  MemberProfile,
   MemberView,
   ServerEvent,
   SessionDetail,
+  Task,
   TaskDetail,
-  TeamMessagesView,
 } from '@projectman/shared';
 import { openItemsFor } from '../lib/inbox';
 import { queryKeys } from './queryKeys';
@@ -53,6 +54,25 @@ function patchMembers(
   return members.map((member) => (member.handle === handle ? { ...member, ...patch } : member));
 }
 
+/** A changed task: on the board, in its detail and in the sessions that work on it. */
+function writeTask(client: QueryClient, key: string, task: Task): void {
+  client.setQueryData<BoardView>(queryKeys.board(key), (board) =>
+    board ? { ...board, tasks: upsertBy(board.tasks, task, (entry) => entry.key) } : board,
+  );
+  client.setQueryData<TaskDetail>(queryKeys.task(key, task.key), (detail) =>
+    detail ? { ...detail, task } : detail,
+  );
+  client.setQueriesData<SessionDetail>({ queryKey: queryKeys.sessionDetails(key) }, (detail) =>
+    detail && detail.task?.key === task.key ? { ...detail, task } : detail,
+  );
+}
+
+/** A task detail the server returned from a mutation (labels, comments). */
+export function writeTaskDetail(client: QueryClient, key: string, detail: TaskDetail): void {
+  writeTask(client, key, detail.task);
+  client.setQueryData<TaskDetail>(queryKeys.task(key, detail.task.key), detail);
+}
+
 /**
  * Applies a websocket event to the query cache so every screen updates live. Events for
  * data that is not in the cache are ignored; it is fetched fresh when a screen needs it.
@@ -66,7 +86,6 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       'session_upserted',
       'inbox_upserted',
       'member_changed',
-      'member_state',
       'config_changed',
     ].includes(event.type)
   ) {
@@ -75,18 +94,10 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
   switch (event.type) {
     case 'task_upserted': {
       const { projectKey: key, task } = event;
-      client.setQueryData<BoardView>(queryKeys.board(key), (board) =>
-        board ? { ...board, tasks: upsertBy(board.tasks, task, (entry) => entry.key) } : board,
-      );
-      client.setQueryData<TaskDetail>(queryKeys.task(key, task.key), (detail) =>
-        detail ? { ...detail, task } : detail,
-      );
+      writeTask(client, key, task);
       if (task.links.some((link) => link.kind === 'pull_request')) {
         void client.invalidateQueries({ queryKey: queryKeys.task(key, task.key) });
       }
-      client.setQueriesData<SessionDetail>({ queryKey: queryKeys.sessions(key) }, (detail) =>
-        detail && detail.task?.key === task.key ? { ...detail, task } : detail,
-      );
       return;
     }
     case 'timeline_appended': {
@@ -145,6 +156,10 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       client.setQueryData<MemberView[]>(queryKeys.members(key), (members) =>
         members ? patchMembers(members, handle, { status, activity }) : members,
       );
+      // Activity ticks often: patch the member's profile instead of refetching every profile.
+      client.setQueryData<MemberProfile>(queryKeys.profile(key, handle), (profile) =>
+        profile ? { ...profile, member: { ...profile.member, status, activity } } : profile,
+      );
       return;
     }
     case 'inbox_upserted': {
@@ -156,11 +171,8 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       return;
     }
     case 'team_message': {
-      const { projectKey: key, message } = event;
-      void client.invalidateQueries({ queryKey: queryKeys.messages(key) });
-      client.setQueryData<TeamMessagesView>(queryKeys.messages(key), (view) =>
-        view ? { ...view, messages: upsertBy(view.messages, message, (entry) => entry.id) } : view,
-      );
+      // The feed, its unread count, the threads and the unread list all change: refetch them.
+      void client.invalidateQueries({ queryKey: queryKeys.messages(event.projectKey) });
       return;
     }
     case 'chat_appended': {

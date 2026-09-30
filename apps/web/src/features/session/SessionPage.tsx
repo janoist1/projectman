@@ -8,12 +8,12 @@ import {
   useInbox,
   useLabels,
   useResolveInbox,
+  useSchedules,
   useSendSessionMessage,
   useSessionDetail,
   useStopSession,
   useTaskDetail,
 } from '../../api/queries';
-import { useSchedules } from '../../api/schedules';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Chip, StatusDot } from '../../components/Chip';

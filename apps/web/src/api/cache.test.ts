@@ -1,5 +1,13 @@
 import { QueryClient } from '@tanstack/react-query';
-import type { BoardView, InboxView, Me, MemberView, SessionDetail, TaskDetail } from '@projectman/shared';
+import type {
+  BoardView,
+  InboxView,
+  Me,
+  MemberProfile,
+  MemberView,
+  SessionDetail,
+  TaskDetail,
+} from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
 import {
   chats,
@@ -12,7 +20,8 @@ import {
   tasks,
   timeline,
 } from '../mocks/fixtures';
-import { appendUnique, applyServerEvent, upsertBy } from './cache';
+import { MockBackend } from '../mocks/backend';
+import { appendUnique, applyServerEvent, upsertBy, writeTaskDetail } from './cache';
 import { queryKeys } from './queryKeys';
 
 const KEY = 'AC';
@@ -135,6 +144,60 @@ describe('applyServerEvent', () => {
     expect(
       client.getQueryData<MemberView[]>(queryKeys.members(KEY))!.find((m) => m.handle === 'qa')!.status,
     ).toBe('idle');
+  });
+
+  it("patches the member's profile on activity ticks instead of refetching every profile", () => {
+    const client = seed();
+    const profile = new MockBackend().handle('GET', `/api/projects/${KEY}/members/qa/profile`, undefined)
+      .body as MemberProfile;
+    client.setQueryData(queryKeys.profile(KEY, 'qa'), profile);
+    client.setQueryData(queryKeys.profile(KEY, 'fe-1'), { ...profile, member: { ...profile.member } });
+    applyServerEvent(client, {
+      type: 'member_state',
+      projectKey: KEY,
+      handle: 'qa',
+      status: 'working',
+      activity: 'Fictional check',
+    });
+    expect(client.getQueryData<MemberProfile>(queryKeys.profile(KEY, 'qa'))!.member).toMatchObject({
+      status: 'working',
+      activity: 'Fictional check',
+    });
+    expect(client.getQueryState(queryKeys.profile(KEY, 'qa'))!.isInvalidated).toBe(false);
+    expect(client.getQueryState(queryKeys.profile(KEY, 'fe-1'))!.isInvalidated).toBe(false);
+  });
+
+  it('refetches the message feed, threads and unread list on a team message', () => {
+    const client = seed();
+    const view = { messages: [], unreadCount: 0 };
+    client.setQueryData(queryKeys.messages(KEY), view);
+    client.setQueryData(queryKeys.messageThread(KEY, 'qa'), view);
+    client.setQueryData(queryKeys.unreadMessages(KEY), view);
+    const message = new MockBackend().messages[0]!;
+    applyServerEvent(client, { type: 'team_message', projectKey: KEY, message });
+    for (const key of [
+      queryKeys.messages(KEY),
+      queryKeys.messageThread(KEY, 'qa'),
+      queryKeys.unreadMessages(KEY),
+    ])
+      expect(client.getQueryState(key)!.isInvalidated).toBe(true);
+  });
+
+  it('writes a task detail returned by a mutation to the board, the detail and its sessions', () => {
+    const client = seed();
+    const detail = client.getQueryData<TaskDetail>(queryKeys.task(KEY, 'AC-21'))!;
+    const task = { ...detail.task, labels: [...detail.task.labels, 'fictional-tag'] };
+    writeTaskDetail(client, KEY, { ...detail, task, timeline: [] });
+    expect(
+      client.getQueryData<BoardView>(queryKeys.board(KEY))!.tasks.find((entry) => entry.key === 'AC-21')!
+        .labels,
+    ).toContain('fictional-tag');
+    expect(client.getQueryData<TaskDetail>(queryKeys.task(KEY, 'AC-21'))).toMatchObject({
+      task,
+      timeline: [],
+    });
+    expect(client.getQueryData<SessionDetail>(queryKeys.session(KEY, 'ses_ac21_fe1'))!.task).toEqual(task);
+    expect(client.getQueryState(queryKeys.board(KEY))!.isInvalidated).toBe(false);
   });
 
   it('appends timeline events and upserts sessions of the task', () => {

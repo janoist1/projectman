@@ -6,6 +6,7 @@ import type { TeamMessage } from '@projectman/shared';
 import {
   useBoard,
   useConfig,
+  useSchedules,
   useLabels,
   useMemberMemories,
   useMemberProfile,
@@ -16,7 +17,6 @@ import {
   useStartConversation,
   useMemberMessages,
 } from '../../api/queries';
-import { useSchedules } from '../../api/schedules';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { PlanUsageMeter } from '../../app/PlanUsageMeter';
 import { Avatar } from '../../components/Avatar';

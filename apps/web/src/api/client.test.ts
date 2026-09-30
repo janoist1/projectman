@@ -1,6 +1,6 @@
 import { SetupStatus } from '@projectman/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, apiRequest, onUnauthorized, setFetchImplementation, unwrapList } from './client';
+import { ApiError, apiRequest, onUnauthorized, setFetchImplementation } from './client';
 import { errorMessage, isApprovalRequested } from '../lib/errors';
 
 function respond(status: number, body: unknown) {
@@ -75,11 +75,16 @@ describe('apiRequest', () => {
   });
 });
 
-describe('unwrapList', () => {
-  const schema = SetupStatus;
-  it('accepts a bare array or a wrapper object', () => {
-    expect(unwrapList([{ needsSetup: true }], 'items', schema, '/x')).toHaveLength(1);
-    expect(unwrapList({ items: [{ needsSetup: true }] }, 'items', schema, '/x')).toHaveLength(1);
-    expect(() => unwrapList({ other: [] }, 'items', schema, '/x')).toThrow(ApiError);
+describe('list responses', () => {
+  it('validates a bare array item by item and rejects anything else', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    respond(200, [{ needsSetup: true }]);
+    await expect(apiRequest('/x', { schema: SetupStatus.array() })).resolves.toHaveLength(1);
+    respond(200, { items: [{ needsSetup: true }] });
+    await expect(apiRequest('/x', { schema: SetupStatus.array() })).rejects.toMatchObject({
+      code: 'invalid_response',
+    });
+    respond(200, [{ needsSetup: 'yes' }]);
+    await expect(apiRequest('/x', { schema: SetupStatus.array() })).rejects.toBeInstanceOf(ApiError);
   });
 });

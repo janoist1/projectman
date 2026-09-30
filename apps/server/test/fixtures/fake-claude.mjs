@@ -63,15 +63,27 @@
  *
  * DIAGNOSTICS: FAKE_CLAUDE_ARGS_FILE, when set, receives {argv, cwd, env} at start-up (env
  * without values of variables whose name contains KEY, TOKEN or SECRET, which are "<set>").
+ *
+ * The terminal input, dialogs, command hooks and exit sequence shared with fake-codex live in
+ * fake-tui.mjs.
  */
-import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-
-const VERSION = '0.0.0';
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+import {
+  VERSION,
+  awaitTrust,
+  createKeyWaiter,
+  createPasteStore,
+  exitOnSignals,
+  line,
+  out,
+  readTerminalInput,
+  runCommandHook,
+  sleep,
+  writeArgsFile,
+} from './fake-tui.mjs';
 
 // ------------------------------------------------------------------ arguments
 
@@ -163,14 +175,7 @@ function parseArgs(argv) {
 
 const opts = parseArgs(process.argv.slice(2));
 
-if (process.env.FAKE_CLAUDE_ARGS_FILE) {
-  const env = {};
-  for (const [k, v] of Object.entries(process.env)) env[k] = /KEY|TOKEN|SECRET/.test(k) ? '<set>' : v;
-  writeFileSync(
-    process.env.FAKE_CLAUDE_ARGS_FILE,
-    JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), env }, null, 2),
-  );
-}
+if (process.env.FAKE_CLAUDE_ARGS_FILE) writeArgsFile(process.env.FAKE_CLAUDE_ARGS_FILE);
 
 if (opts.version) {
   process.stdout.write(`${VERSION} (Fake Claude Code)\n`);
@@ -252,8 +257,6 @@ if (opts.print) {
 // ------------------------------------------------------------------ interactive mode
 
 async function interactive() {
-  const out = (text) => process.stdout.write(text);
-  const line = (text = '') => out(`${text}\r\n`);
   const cwd = process.cwd();
   // Both change on /clear, which starts a new conversation.
   let sessionId = opts.resume ?? opts.sessionId ?? randomUUID();
@@ -336,33 +339,6 @@ async function interactive() {
     }
   }
 
-  function runCommandHook(hook, payload) {
-    return new Promise((resolve) => {
-      const child = Array.isArray(hook.args)
-        ? spawn(hook.command, hook.args, { cwd, env: process.env })
-        : spawn('/bin/sh', ['-c', hook.command], { cwd, env: process.env });
-      let stdout = '';
-      const timer = setTimeout(() => child.kill('SIGKILL'), (hook.timeout ?? 600) * 1000);
-      child.stdout.on('data', (d) => (stdout += d));
-      child.stderr.on('data', () => undefined);
-      child.on('error', () => {
-        clearTimeout(timer);
-        resolve(null);
-      });
-      child.on('close', () => {
-        clearTimeout(timer);
-        const text = stdout.trim();
-        try {
-          resolve(text.startsWith('{') ? JSON.parse(text) : null);
-        } catch {
-          resolve(null);
-        }
-      });
-      child.stdin.on('error', () => undefined);
-      child.stdin.end(JSON.stringify(payload));
-    });
-  }
-
   async function runHooks(event, extra = {}, matchValue) {
     const payload = {
       session_id: sessionId,
@@ -377,7 +353,7 @@ async function interactive() {
       if (!matcherMatches(group.matcher, matchValue)) continue;
       for (const hook of group.hooks ?? []) {
         if (hook.type === 'http') runs.push(runHttpHook(hook, payload));
-        else if (hook.type === 'command') runs.push(runCommandHook(hook, payload));
+        else if (hook.type === 'command') runs.push(runCommandHook(hook, payload, { cwd, execForm: true }));
       }
     }
     return (await Promise.all(runs)).filter((r) => r && typeof r === 'object');
@@ -420,34 +396,27 @@ async function interactive() {
   // --- screen & input state
   let input = '';
   let shellMode = false;
-  const pastes = new Map();
-  let pasteCounter = 0;
+  // Claude Code submits a collapsed paste wrapped in <pasted_content> lines.
+  const pastes = createPasteStore({
+    placeholder: (id, text) => {
+      const breaks = (text.match(/\n/g) ?? []).length;
+      return breaks === 0 ? `[Pasted text #${id}]` : `[Pasted text #${id} +${breaks} lines]`;
+    },
+    expand: (id, text) => `<pasted_content id="${id}">\n${text}\n</pasted_content id="${id}">`,
+  });
   let busy = false;
   let turn = 0;
   let mode = 'prompt'; // prompt | trust | question
-  let pendingKey = null;
+  const keys = createKeyWaiter();
   let lastCtrlC = 0;
-  let exiting = false;
 
   const progress = (on) => out(on ? '\x1b]9;4;3;\x07' : '\x1b]9;4;0;\x07');
   const showPrompt = () => out(`${shellMode ? '! ' : '> '}${input.replace(/\n/g, '\r\n  ')}`);
 
-  function waitKey() {
-    return new Promise((resolve) => {
-      pendingKey = resolve;
-    });
-  }
-
-  async function exit(reason) {
-    if (exiting) return;
-    exiting = true;
-    await Promise.race([runHooks('SessionEnd', { reason }), sleep(1500)]);
-    out('\x1b]9;4;0;\x07\x1b[?2004l');
-    line();
-    process.exit(0);
-  }
-  process.on('SIGTERM', () => void exit('other'));
-  process.on('SIGHUP', () => void exit('other'));
+  const exit = exitOnSignals({
+    sessionEnd: (reason) => runHooks('SessionEnd', { reason }),
+    restore: '\x1b]9;4;0;\x07\x1b[?2004l',
+  });
 
   function insertPaste(raw) {
     const text = raw.replace(/\r\n?/g, '\n').replace(/\t/g, '    ');
@@ -459,9 +428,7 @@ async function interactive() {
     const breaks = (text.match(/\n/g) ?? []).length;
     const rows = process.stdout.rows || 24;
     if (text.length > 800 || breaks > Math.max(0, Math.min(rows - 10, 2))) {
-      const id = ++pasteCounter;
-      pastes.set(id, text);
-      const placeholder = breaks === 0 ? `[Pasted text #${id}]` : `[Pasted text #${id} +${breaks} lines]`;
+      const placeholder = pastes.add(text);
       input += placeholder;
       out(placeholder);
     } else {
@@ -470,22 +437,13 @@ async function interactive() {
     }
   }
 
-  function expandPastes(text) {
-    return text.replace(/\[Pasted text #(\d+)(?: \+\d+ lines)?\]/g, (match, id) => {
-      const content = pastes.get(Number(id));
-      return content === undefined
-        ? match
-        : `<pasted_content id="${id}">\n${content}\n</pasted_content id="${id}">`;
-    });
-  }
-
   async function submit() {
     const raw = input;
     const wasShell = shellMode;
     input = '';
     shellMode = false;
     line();
-    const text = expandPastes(raw).trim();
+    const text = pastes.expand(raw).trim();
     pastes.clear();
     if (!text) return showPrompt();
     if (wasShell) {
@@ -541,7 +499,7 @@ async function interactive() {
       } else {
         line(`Allow ${name}? (y/n)`);
         mode = 'question';
-        const key = await waitKey();
+        const key = await keys.wait();
         mode = 'prompt';
         allowed = key === 'y' || key === '1' || key === '\r';
       }
@@ -640,7 +598,7 @@ async function interactive() {
       );
       line('Which option? 1. One  2. Two');
       mode = 'question';
-      const key = await waitKey();
+      const key = await keys.wait();
       mode = 'prompt';
       if (!busy || turn !== myTurn) return;
       const answer = key === '2' ? 'Two' : 'One';
@@ -674,11 +632,9 @@ async function interactive() {
     if (!busy) return;
     busy = false;
     turn += 1; // abandons the running turn
-    if (pendingKey) {
-      const resolve = pendingKey;
-      pendingKey = null;
+    if (keys.waiting) {
       mode = 'prompt';
-      resolve('\x1b');
+      keys.deliver('\x1b');
     }
     userEntry([{ type: 'text', text: '[Request interrupted by user]' }]);
     progress(false);
@@ -687,19 +643,10 @@ async function interactive() {
     showPrompt();
   }
 
-  // --- raw input parsing
-  let pending = '';
-  let inPaste = false;
-  let pasteBuffer = '';
-  let escTimer = null;
-
+  // --- raw input
   function handleKey(key) {
     if (mode === 'trust' || mode === 'question') {
-      if (pendingKey) {
-        const resolve = pendingKey;
-        pendingKey = null;
-        resolve(key);
-      }
+      keys.deliver(key);
       return;
     }
     switch (key) {
@@ -744,69 +691,12 @@ async function interactive() {
     }
   }
 
-  function feed(data) {
-    pending += data;
-    while (pending.length > 0) {
-      if (inPaste) {
-        const end = pending.indexOf('\x1b[201~');
-        if (end < 0) {
-          pasteBuffer += pending;
-          pending = '';
-          return;
-        }
-        pasteBuffer += pending.slice(0, end);
-        pending = pending.slice(end + 6);
-        inPaste = false;
-        const content = pasteBuffer;
-        pasteBuffer = '';
-        if (mode === 'prompt') insertPaste(content);
-        continue;
-      }
-      if (pending.startsWith('\x1b[200~')) {
-        inPaste = true;
-        pending = pending.slice(6);
-        continue;
-      }
-      if (pending.startsWith('\x1b')) {
-        if (pending.length < 6 && '\x1b[200~'.startsWith(pending)) {
-          // Possibly the start of a paste split across reads: wait briefly for the rest.
-          if (!escTimer) {
-            escTimer = setTimeout(() => {
-              escTimer = null;
-              if (pending.startsWith('\x1b') && !pending.startsWith('\x1b[200~')) {
-                pending = pending.slice(1);
-                handleKey('\x1b');
-                feed('');
-              }
-            }, 30);
-          }
-          return;
-        }
-        const seq = /^\x1b\[[0-9;]*[A-Za-z~]/.exec(pending);
-        if (seq) {
-          pending = pending.slice(seq[0].length); // cursor keys etc.: ignored
-          continue;
-        }
-        pending = pending.slice(1);
-        handleKey('\x1b');
-        continue;
-      }
-      const ch = String.fromCodePoint(pending.codePointAt(0));
-      pending = pending.slice(ch.length);
-      handleKey(ch);
-    }
-  }
-
-  if (process.stdin.isTTY) process.stdin.setRawMode(true);
-  process.stdin.setEncoding('utf8');
-  process.stdin.on('data', (data) => {
-    if (escTimer) {
-      clearTimeout(escTimer);
-      escTimer = null;
-    }
-    feed(data);
+  readTerminalInput({
+    onKey: handleKey,
+    onPaste: (content) => {
+      if (mode === 'prompt') insertPaste(content);
+    },
   });
-  process.stdin.resume();
 
   // --- start-up
   out('\x1b[?2004h');
@@ -818,14 +708,7 @@ async function interactive() {
     line('❯ 1. Yes, I trust this folder');
     line('  2. No, exit');
     mode = 'trust';
-    for (;;) {
-      const key = await waitKey();
-      if (key === '\r' || key === '1') break;
-      if (key === '2' || key === '\x1b') {
-        line('Exiting');
-        process.exit(1);
-      }
-    }
+    await awaitTrust(keys);
     mode = 'prompt';
     out('\x1b[3A\x1b[J'); // an answered dialog disappears, as in Claude Code's UI
   }
@@ -844,7 +727,7 @@ async function interactive() {
     line('❯ 1. Use this and all future MCP servers in this project');
     line('  2. Continue without using this MCP server');
     mode = 'question';
-    await waitKey();
+    await keys.wait();
     mode = 'prompt';
     out('\x1b[3A\x1b[J');
   }

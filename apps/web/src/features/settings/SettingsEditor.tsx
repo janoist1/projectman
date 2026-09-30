@@ -1,18 +1,22 @@
-import { getLocale } from '@projectman/templates';
 import { createContext, useContext, useState } from 'react';
 import type { ReactNode } from 'react';
-import { CheckName, DUTY_IDS, DutyId } from '@projectman/shared';
-import type { ProjectConfig, GateCondition, PatchConfigRequest, MemberConfig } from '@projectman/shared';
+import type { ProjectConfig, PatchConfigRequest } from '@projectman/shared';
 import { usePatchConfig, useRoles } from '../../api/queries';
 import { isApiError } from '../../api/client';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
-import { t, tDynamic } from '../../i18n/t';
-import { codeMessage, errorMessage } from '../../lib/errors';
+import { t } from '../../i18n/t';
+import { errorMessage } from '../../lib/errors';
 import styles from './SettingsPage.module.css';
+import { PipelineEditor, issueMessage } from './PipelineEditor';
 
 type Section = 'project' | 'limits' | 'pipeline';
-type Edit = { section: Section; draft: ProjectConfig; version: string };
+type Edit = {
+  section: Section;
+  draft: ProjectConfig;
+  version: string;
+  originalPipeline: ProjectConfig['pipeline'];
+};
 type View = { config: ProjectConfig; version: string };
 const EditingContext = createContext<{
   edit: Edit | null;
@@ -33,249 +37,6 @@ export function SettingsEditingProvider({
   const [edit, setEdit] = useState<Edit | null>(null);
   return (
     <EditingContext.Provider value={{ edit, setEdit, view, reload }}>{children}</EditingContext.Provider>
-  );
-}
-
-function MemberSelect({
-  label,
-  members,
-  value,
-  onChange,
-  disabled = false,
-}: {
-  label: string;
-  members: MemberConfig[];
-  value: string[];
-  onChange: (handles: string[]) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <label className={styles.field}>
-      {label}
-      <select
-        multiple
-        value={value}
-        disabled={disabled}
-        onChange={(event) => onChange(Array.from(event.target.selectedOptions, (option) => option.value))}
-      >
-        {members.map((member) => (
-          <option key={member.handle} value={member.handle}>
-            {member.displayName}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function PipelineEditor({
-  draft,
-  change,
-  isOwner,
-}: {
-  draft: ProjectConfig;
-  change: (update: (draft: ProjectConfig) => void) => void;
-  isOwner: boolean;
-}) {
-  const humans = draft.team.members.filter((member) => member.kind === 'human');
-  return (
-    <ol className={styles.stages}>
-      {draft.pipeline.stages.map((stage, index) => {
-        const conditions = stage.gate?.conditions ?? [];
-        const updateConditions = (next: GateCondition[]) =>
-          change((config) => {
-            config.pipeline.stages[index]!.gate = next.length ? { conditions: next } : undefined;
-          });
-        return (
-          <li key={stage.id} className={styles.stage}>
-            <p>{t('settings.pipeline.kind', { kind: t(`stageKinds.${stage.kind}`) })}</p>
-            <label className={styles.field}>
-              {t('settings.project.name')}
-              <input
-                value={stage.name}
-                onChange={(event) =>
-                  change((config) => {
-                    config.pipeline.stages[index]!.name = event.target.value;
-                  })
-                }
-              />
-            </label>
-            <label className={styles.field}>
-              {t('settings.edit.description')}
-              <textarea
-                value={stage.description ?? ''}
-                onChange={(event) =>
-                  change((config) => {
-                    config.pipeline.stages[index]!.description = event.target.value;
-                  })
-                }
-              />
-            </label>
-            <div className={styles.actions}>
-              {([-1, 1] as const).map((offset) => (
-                <Button
-                  key={offset}
-                  variant="secondary"
-                  disabled={index + offset < 0 || index + offset >= draft.pipeline.stages.length}
-                  onClick={() =>
-                    change((config) => {
-                      const stages = config.pipeline.stages;
-                      [stages[index], stages[index + offset]] = [stages[index + offset]!, stages[index]!];
-                    })
-                  }
-                >
-                  {t(offset === -1 ? 'settings.edit.moveUp' : 'settings.edit.moveDown')}
-                </Button>
-              ))}
-            </div>
-            <label className={styles.field}>
-              {t('duties.duty')}
-              <select
-                value={stage.duty ?? ''}
-                onChange={(event) =>
-                  change((config) => {
-                    config.pipeline.stages[index]!.duty = event.target.value
-                      ? DutyId.parse(event.target.value)
-                      : undefined;
-                  })
-                }
-              >
-                <option value="">{t('duties.noDuty')}</option>
-                {DUTY_IDS.map((id) => (
-                  <option key={id} value={id}>
-                    {getLocale(draft.project.language).duties[id].name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {stage.duty && (
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  change((config) => {
-                    delete config.pipeline.stages[index]!.owners;
-                  })
-                }
-              >
-                {t('duties.defaultOwners')}
-              </Button>
-            )}
-            <MemberSelect
-              label={t('settings.pipeline.owners')}
-              members={draft.team.members}
-              value={stage.owners ?? []}
-              onChange={(owners) =>
-                change((config) => {
-                  config.pipeline.stages[index]!.owners = owners;
-                })
-              }
-            />
-            <fieldset className={styles.conditions}>
-              <legend>{t('settings.pipeline.gate')}</legend>
-              {conditions.map((condition, conditionIndex) => {
-                const locked = condition.type === 'human_approval' && !isOwner;
-                const replace = (next: GateCondition) =>
-                  updateConditions(conditions.map((value, i) => (i === conditionIndex ? next : value)));
-                return (
-                  <div key={conditionIndex} className={styles.condition}>
-                    <label className={styles.field}>
-                      {t('settings.edit.condition')}
-                      <select
-                        value={condition.type}
-                        disabled={locked}
-                        onChange={(event) => {
-                          const type = event.target.value as GateCondition['type'];
-                          replace(
-                            type === 'check_passed'
-                              ? { type, check: 'code_review' }
-                              : type === 'pr_merged'
-                                ? { type }
-                                : { type, approvers: [] },
-                          );
-                        }}
-                      >
-                        <option value="check_passed">{t('settings.edit.checkPassed')}</option>
-                        <option value="pr_merged">{t('settings.pipeline.gatePrMerged')}</option>
-                        <option value="human_approval" disabled={!isOwner}>
-                          {t('settings.edit.humanApproval')}
-                        </option>
-                      </select>
-                    </label>
-                    {condition.type === 'check_passed' ? (
-                      <label className={styles.field}>
-                        {t('settings.edit.check')}
-                        <select
-                          value={condition.check}
-                          onChange={(event) =>
-                            replace({ ...condition, check: CheckName.parse(event.target.value) })
-                          }
-                        >
-                          {CheckName.options.map((check) => (
-                            <option key={check} value={check}>
-                              {t(`checks.names.${check}`)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    ) : null}
-                    {condition.type === 'human_approval' ? (
-                      <>
-                        <label className={styles.field}>
-                          {t('duties.duty')}
-                          <select
-                            disabled={!isOwner}
-                            value={condition.duty ?? ''}
-                            onChange={(event) =>
-                              replace(
-                                event.target.value
-                                  ? { type: 'human_approval', duty: DutyId.parse(event.target.value) }
-                                  : { type: 'human_approval', approvers: humans.map((m) => m.handle) },
-                              )
-                            }
-                          >
-                            <option value="">{t('duties.explicitOwners')}</option>
-                            {DUTY_IDS.map((id) => (
-                              <option key={id} value={id}>
-                                {getLocale(draft.project.language).duties[id].name}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <MemberSelect
-                          label={t('settings.edit.approvers')}
-                          members={humans}
-                          value={condition.approvers ?? []}
-                          disabled={!isOwner}
-                          onChange={(approvers) => replace({ type: 'human_approval', approvers })}
-                        />
-                        {!isOwner ? (
-                          <p className={styles.muted}>{t('settings.edit.approversOwnerOnly')}</p>
-                        ) : null}
-                      </>
-                    ) : null}
-                    <Button
-                      variant="secondary"
-                      disabled={locked}
-                      onClick={() => updateConditions(conditions.filter((_, i) => i !== conditionIndex))}
-                    >
-                      {t('settings.edit.removeCondition')}
-                    </Button>
-                  </div>
-                );
-              })}
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  updateConditions([...conditions, { type: 'check_passed', check: 'code_review' }])
-                }
-              >
-                {t('settings.edit.addCondition')}
-              </Button>
-            </fieldset>
-          </li>
-        );
-      })}
-    </ol>
   );
 }
 
@@ -304,7 +65,12 @@ export function EditableSection({ section, children }: { section: Section; child
               disabled={edit !== null}
               onClick={() => {
                 save.reset();
-                setEdit({ section, draft: structuredClone(view.config), version: view.version });
+                setEdit({
+                  section,
+                  draft: structuredClone(view.config),
+                  version: view.version,
+                  originalPipeline: view.config.pipeline,
+                });
               }}
             >
               {t('memberEdit.edit')}
@@ -439,7 +205,14 @@ export function EditableSection({ section, children }: { section: Section; child
             {roles.isError ? <p role="alert">{errorMessage(roles.error)}</p> : null}
           </>
         ) : (
-          <PipelineEditor draft={draft} change={change} isOwner={isOwner} />
+          <PipelineEditor
+            draft={draft}
+            change={change}
+            isOwner={isOwner}
+            original={active.originalPipeline}
+            submitted={save.variables?.pipeline}
+            issues={details?.issues ?? []}
+          />
         )}
         <div className={styles.actions}>
           <Button type="submit" variant="primary" loading={save.isPending}>
@@ -467,9 +240,7 @@ export function EditableSection({ section, children }: { section: Section; child
             <ul>
               {details.issues.map((issue, i) => (
                 <li key={i}>
-                  {issue.path}:{' '}
-                  {codeMessage(issue.code) ??
-                    tDynamic(`settings.issues.${issue.code}`, t('settings.issues.invalid_value'))}
+                  {issue.path}: {issueMessage(issue)}
                 </li>
               ))}
             </ul>
@@ -485,7 +256,12 @@ export function EditableSection({ section, children }: { section: Section; child
                   const latest = await reload();
                   if (latest) {
                     save.reset();
-                    setEdit({ section, draft: structuredClone(latest.config), version: latest.version });
+                    setEdit({
+                      section,
+                      draft: structuredClone(latest.config),
+                      version: latest.version,
+                      originalPipeline: latest.config.pipeline,
+                    });
                   }
                 } finally {
                   setReloading(false);

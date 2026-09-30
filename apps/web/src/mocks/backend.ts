@@ -901,6 +901,15 @@ export class MockBackend {
     if (member.access !== 'owner' && humanApprovalChanged(this.config, next)) {
       return error(403, 'owner_only', 'Only owners may change human approval gates');
     }
+    const stageIds = new Set(next.pipeline.stages.map((stage) => stage.id));
+    for (const stage of this.config.pipeline.stages.filter((stage) => !stageIds.has(stage.id))) {
+      const count = this.tasks.filter((task) => task.stageId === stage.id).length;
+      if (count)
+        return error(409, 'stage_in_use', 'Tasks still occupy the removed stage', {
+          stageId: stage.id,
+          tasks: count,
+        });
+    }
     const issues = validateProjectConfig(next);
     if (issues.some((issue) => issue.severity !== 'warning'))
       return error(400, 'config_invalid', 'Invalid configuration', { issues });

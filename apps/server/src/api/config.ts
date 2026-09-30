@@ -14,7 +14,7 @@ import type { Domain } from '../domain';
 import { ProjectService } from '../domain';
 import { actorOf, authorOf, requireAccess } from './context';
 import { parseBody } from './validation';
-import { DomainError, invalid } from '../domain/errors';
+import { conflict, DomainError, invalid } from '../domain/errors';
 
 type ProjectParams = { Params: { key: string } };
 
@@ -65,6 +65,20 @@ export function registerConfigRoutes(app: FastifyInstance, domain: Domain): void
           (body.pipeline ? 'Update pipeline' : body.limits ? 'Update limits' : 'Update project'),
         check: (previous, draft) => {
           ProjectService.assertChangeAllowed(previous, draft, access.access);
+          const stageIds = new Set(draft.pipeline.stages.map((stage) => stage.id));
+          const removed = previous.pipeline.stages.filter((stage) => !stageIds.has(stage.id));
+          if (removed.length) {
+            const tasks = domain.tasks.list(key);
+            for (const stage of removed) {
+              const count = tasks.filter((task) => task.stageId === stage.id).length;
+              if (count) {
+                throw conflict('stage_in_use', 'tasks still occupy the removed stage', {
+                  stageId: stage.id,
+                  tasks: count,
+                });
+              }
+            }
+          }
           const issues = validateProjectConfig(draft);
           if (issues.some((issue) => issue.severity !== 'warning'))
             throw invalid('config_invalid', 'configuration violates invariants', { issues });

@@ -15,9 +15,8 @@ import { cliExists } from './cli';
 import { buildChildEnv, buildSessionEnv } from './env';
 import { hookUrlFor } from './hook-forwarder';
 import { createProviderAdapters, type ProviderAdapters } from './providers';
-import { AgentSession } from './session';
+import { AgentSession, UUID_RE } from './session';
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Exited sessions kept for a last look at their terminal. */
 const MAX_FINISHED = 20;
 /** A login check is reused this long when it said "logged in", and this long otherwise. */

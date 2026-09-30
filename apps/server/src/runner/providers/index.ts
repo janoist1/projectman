@@ -22,5 +22,3 @@ export function createProviderAdapters(opts: RunnerModuleOptions): ProviderAdapt
     }),
   };
 }
-
-export type { ProviderAdapter, ProviderCapabilities } from './types';

@@ -9,7 +9,6 @@ import type {
   StartSessionSpec,
 } from '../contracts';
 import { sessionAllowScope, type HookPayload } from './hook-payload';
-import { CLAUDE_TIMING } from './providers/claude';
 import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from './providers/types';
 import { nextState, type SessionSignal, type StateSnapshot } from './state';
 import { HeadlessScreen } from './terminal';
@@ -17,13 +16,11 @@ import { toolActivity } from './tools';
 import { TranscriptTailer } from './transcript/tailer';
 import { ENTER_KEY, messageKeystrokes } from './typing';
 
-/** Timing of the interaction with Claude Code's TUI (other providers bring their own). */
-export const TIMING: SessionTiming = CLAUDE_TIMING;
-
 /** Dialogs replace the prompt box at the end of the screen content: only look there. */
 const DIALOG_ROWS = 15;
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** A conversation id of the agent CLIs (both use UUIDs). */
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const DENY_TIMEOUT =
   'No human answered this permission request in time, so it was denied. Continue without it, or ask a human for help.';
@@ -677,9 +674,6 @@ export class AgentSession {
     return t;
   }
 }
-
-/** The session class under its original name (Claude Code was the first provider). */
-export type ClaudeSession = AgentSession;
 
 function expandHome(path: string): string {
   return path === '~' || path.startsWith('~/') ? `${os.homedir()}${path.slice(1)}` : path;

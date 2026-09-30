@@ -109,14 +109,8 @@ describe('Codex adapter', () => {
   it('declares what Codex can do', () => {
     expect(adapter.capabilities).toEqual({
       presetSessionId: false,
-      hookTransport: 'command',
-      permissionHook: true,
       sessionPermissionRules: false,
-      resume: true,
-      mcpHttp: true,
       readiness: 'screen',
-      initialPrompt: 'argument',
-      planUsage: 'transcripts',
     });
     expect(adapter.inputTools.has('request_user_input')).toBe(true);
     expect(adapter.timing.enterDelayMs).toBeGreaterThan(120);

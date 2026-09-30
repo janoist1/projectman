@@ -112,11 +112,11 @@ describe('Codex settings from the member', () => {
 
 describe('buildCodexArgs', () => {
   it.each([false, true])('maps max to xhigh with resume=%s', (resume) => {
-    const args = buildCodexArgs({ ...input, spec: { ...spec, resume, effort: 'max' } });
+    const args = buildCodexArgs({ ...input, spec: { ...spec, resume, effort: 'max' } }).args;
     expect(overrides(args).get('model_reasoning_effort')).toBe(JSON.stringify('xhigh'));
   });
   it.each(['low', 'medium', 'high', 'xhigh'] as const)('uses the member reasoning effort %s', (effort) => {
-    const args = buildCodexArgs({ ...input, spec: { ...spec, effort } });
+    const args = buildCodexArgs({ ...input, spec: { ...spec, effort } }).args;
     expect(overrides(args).get('model_reasoning_effort')).toBe(JSON.stringify(effort));
   });
 
@@ -126,14 +126,14 @@ describe('buildCodexArgs', () => {
       const writableRoots = ['/workspace/.git', '/other repo/.git'];
       for (const permissionMode of ['acceptEdits', 'auto']) {
         const c = overrides(
-          buildCodexArgs({ ...input, spec: { ...spec, resume, permissionMode, writableRoots } }),
+          buildCodexArgs({ ...input, spec: { ...spec, resume, permissionMode, writableRoots } }).args,
         );
         expect(c.get('sandbox_workspace_write.writable_roots')).toBe(tomlValue(writableRoots));
         expect(c.has('sandbox_workspace_write.network_access')).toBe(false);
       }
       for (const permissionMode of ['default', 'plan', 'bypassPermissions']) {
         const c = overrides(
-          buildCodexArgs({ ...input, spec: { ...spec, resume, permissionMode, writableRoots } }),
+          buildCodexArgs({ ...input, spec: { ...spec, resume, permissionMode, writableRoots } }).args,
         );
         expect(c.has('sandbox_workspace_write.writable_roots')).toBe(false);
       }
@@ -142,7 +142,7 @@ describe('buildCodexArgs', () => {
           buildCodexArgs({
             ...input,
             spec: { ...spec, permissionMode: 'acceptEdits', writableRoots: roots },
-          }),
+          }).args,
         );
         expect(c.has('sandbox_workspace_write.writable_roots')).toBe(false);
       }
@@ -150,7 +150,7 @@ describe('buildCodexArgs', () => {
   );
 
   it('runs the TUI inline, without the daemon, with our hooks trusted and the brief as the prompt', () => {
-    const args = buildCodexArgs(input);
+    const args = buildCodexArgs(input).args;
     expect(args.slice(0, 6)).toEqual([
       '--no-alt-screen',
       '--no-daemon',
@@ -175,7 +175,7 @@ describe('buildCodexArgs', () => {
   });
 
   it('sets everything with -c overrides whose keys never contain a path', () => {
-    const c = overrides(buildCodexArgs(input));
+    const c = overrides(buildCodexArgs(input).args);
     for (const key of c.keys()) expect(key).toMatch(/^[A-Za-z_]+(?:\.[A-Za-z_]+)*$/);
     expect(c.get('check_for_update_on_startup')).toBe('false');
     expect(c.get('projects')).toBe('{"/Users/anna/.projectman/worktrees/AR/AR-1"={trust_level="trusted"}}');
@@ -189,7 +189,7 @@ describe('buildCodexArgs', () => {
   });
 
   it('prints only the PermissionRequest answer, and waits longer than our own permission timeout', () => {
-    const c = overrides(buildCodexArgs(input));
+    const c = overrides(buildCodexArgs(input).args);
     const permission = c.get('hooks.PermissionRequest')!;
     expect(permission).toContain('timeout=70}');
     expect(permission).toContain("curl -q --noproxy '*' -sSf -m 70");
@@ -201,21 +201,32 @@ describe('buildCodexArgs', () => {
   });
 
   it('resumes by id, with or without a message, and sanitises the prompt', () => {
-    const resumed = buildCodexArgs({ ...input, spec: { ...spec, resume: true, initialMessage: null } });
+    const resumed = buildCodexArgs({ ...input, spec: { ...spec, resume: true, initialMessage: null } }).args;
     expect(resumed[0]).toBe('resume');
     expect(resumed.slice(-2)).toEqual(['--', spec.claudeSessionId]);
     const withMessage = buildCodexArgs({
       ...input,
       spec: { ...spec, resume: true, initialMessage: '!ls\u001b[2J now' },
-    });
+    }).args;
     expect(withMessage.slice(-3)).toEqual(['--', spec.claudeSessionId, ' !ls[2J now']);
+  });
+
+  it('reports whether the brief went on the command line', () => {
+    expect(buildCodexArgs(input).initialMessageSent).toBe(true);
+    for (const initialMessage of [null, undefined, '', ' \u001b\u0007 \n ']) {
+      for (const resume of [false, true]) {
+        expect(
+          buildCodexArgs({ ...input, spec: { ...spec, resume, initialMessage } }).initialMessageSent,
+        ).toBe(false);
+      }
+    }
   });
 
   it('turns off the sandbox and the questions only for bypassPermissions, and passes a Codex model', () => {
     const args = buildCodexArgs({
       ...input,
       spec: { ...spec, permissionMode: 'bypassPermissions', model: 'gpt-6.1-codex', allowedTools: [] },
-    });
+    }).args;
     const c = overrides(args);
     expect(c.get('notice.hide_full_access_warning')).toBe('true');
     expect(c.get('mcp_servers.team')).toBe('{url="http://127.0.0.1:4700/mcp/tok"}');

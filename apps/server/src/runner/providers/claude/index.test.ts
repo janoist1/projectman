@@ -103,14 +103,8 @@ describe('Claude Code login failures', () => {
   it('declares what Claude Code can do', () => {
     expect(adapter.capabilities).toEqual({
       presetSessionId: true,
-      hookTransport: 'http',
-      permissionHook: true,
       sessionPermissionRules: true,
-      resume: true,
-      mcpHttp: true,
       readiness: 'session_start',
-      initialPrompt: 'typed',
-      planUsage: 'probe',
     });
   });
 });

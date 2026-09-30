@@ -151,8 +151,14 @@ export function hookGroups(command: string, timeoutS: number): unknown {
   return [{ hooks: [{ type: 'command', command, timeout: timeoutS }] }];
 }
 
+export interface CodexCommandLine {
+  args: string[];
+  /** A non-empty kick-off brief went on the command line (new and resumed sessions). */
+  initialMessageSent: boolean;
+}
+
 /** Full argument list for `codex` (interactive TUI). */
-export function buildCodexArgs(input: CodexArgsInput): string[] {
+export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
   const { spec, hookUrl } = input;
   const permissionTimeoutS = permissionHookTimeoutS(input.permissionTimeoutMs);
   const args: string[] = [];
@@ -197,5 +203,5 @@ export function buildCodexArgs(input: CodexArgsInput): string[] {
   const prompt = sanitizeMessage(spec.initialMessage ?? '');
   if (prompt) positional.push(prompt);
   if (positional.length > 0) args.push('--', ...positional);
-  return args;
+  return { args, initialMessageSent: prompt.length > 0 };
 }

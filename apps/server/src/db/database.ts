@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { LATEST_SCHEMA_VERSION, migrations } from './migrations';
+import { LATEST_SCHEMA_VERSION, migrations, SESSION_PROVIDER_REPAIR } from './migrations';
 
 export type Db = Database.Database;
 
@@ -35,6 +35,8 @@ export function migrate(db: Db): number {
     })();
     current = migration.version;
   }
+  // Rows written by an older build that shares this database (see SESSION_PROVIDER_REPAIR).
+  if (current >= 9) db.exec(SESSION_PROVIDER_REPAIR);
   return current;
 }
 

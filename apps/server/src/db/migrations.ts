@@ -9,6 +9,20 @@ export interface Migration {
   sql: string;
 }
 
+/**
+ * Marks sessions whose transcript is a Codex rollout file (rollout-*.jsonl, compressed
+ * .jsonl.zst; the file name is what follows the last "/") as Codex sessions. Migration 9 runs
+ * it once; `migrate` repeats it on every start, because a build from before migration 9 run
+ * on the same database leaves the column at its default for the Codex sessions it records.
+ * A Claude Code transcript is never named like that, so repeating it is safe.
+ */
+export const SESSION_PROVIDER_REPAIR = `UPDATE sessions SET provider = 'codex'
+      WHERE provider = 'claude' AND (
+        substr(transcript_path, length(rtrim(transcript_path, replace(transcript_path, '/', ''))) + 1)
+          GLOB 'rollout-*.jsonl'
+        OR substr(transcript_path, length(rtrim(transcript_path, replace(transcript_path, '/', ''))) + 1)
+          GLOB 'rollout-*.jsonl.zst');`;
+
 export const migrations: Migration[] = [
   {
     version: 1,
@@ -241,14 +255,9 @@ export const migrations: Migration[] = [
   {
     version: 9,
     name: 'session provider',
-    // Earlier rows are Codex conversations when their transcript is a Codex rollout file
-    // (rollout-*.jsonl, compressed .jsonl.zst): the file name is what follows the last "/".
+    // Earlier rows are Codex conversations when their transcript is a Codex rollout file.
     sql: `ALTER TABLE sessions ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude';
-      UPDATE sessions SET provider = 'codex'
-      WHERE substr(transcript_path, length(rtrim(transcript_path, replace(transcript_path, '/', ''))) + 1)
-        GLOB 'rollout-*.jsonl'
-        OR substr(transcript_path, length(rtrim(transcript_path, replace(transcript_path, '/', ''))) + 1)
-        GLOB 'rollout-*.jsonl.zst';`,
+      ${SESSION_PROVIDER_REPAIR}`,
   },
 ];
 

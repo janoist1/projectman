@@ -195,6 +195,24 @@ describe('database', () => {
     }
   });
 
+  it('repairs the provider of Codex sessions an older build recorded after the migration', () => {
+    const db = openDatabase(':memory:');
+    try {
+      // A build from before migration 9 knows nothing of the column and leaves it at its default.
+      db.prepare(
+        `INSERT INTO sessions (id, project_key, member, work_item_type, work_item_ref, claude_session_id, cwd,
+           transcript_path, state, started_at, last_activity_at)
+         VALUES ('ses_cx', 'AR', 'cx-1', 'general', '', '0b7c6a1e-8f7b-4c1e-9d55-0d8c0f4e7a11', '/w',
+           '/home/anna/.codex/sessions/2026/01/01/rollout-2026-01-01T00-00-00-a.jsonl', 'exited', ?, ?)`,
+      ).run(now, now);
+      expect(createRepositories(db).sessions.get('ses_cx')?.provider).toBe('claude');
+      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+      expect(createRepositories(db).sessions.get('ses_cx')?.provider).toBe('codex');
+    } finally {
+      db.close();
+    }
+  });
+
   it('refuses a database written by a newer build', () => {
     const db = openDatabase(':memory:');
     db.pragma(`user_version = ${LATEST_SCHEMA_VERSION + 1}`);

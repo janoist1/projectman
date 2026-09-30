@@ -74,6 +74,10 @@ npm test             # all workspaces
 npm run dev          # server (4700) + web (5173)
 ```
 
+`npm run dev` keeps its data in `~/.projectman` unless `PROJECTMAN_HOME` is set, the same
+place the owner's live instance uses. In an agent worktree set `PROJECTMAN_HOME` to a
+directory of its own: a database migrated by a newer build is refused by older ones.
+
 ## Git
 
 English, imperative commit messages ("Add session runner state machine"). Commit your

@@ -11,17 +11,10 @@ import {
 import type { ProjectConfig, GateCondition, MemberConfig, Stage, Pipeline } from '@projectman/shared';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
-import { t, tDynamic } from '../../i18n/t';
-import { codeMessage } from '../../lib/errors';
+import { t } from '../../i18n/t';
+import { issueMessage } from '../../lib/configIssues';
+import type { IssueRef } from '../../lib/configIssues';
 import styles from './SettingsPage.module.css';
-
-export type PipelineIssue = { code: string; path: string };
-
-export function issueMessage(issue: PipelineIssue): string {
-  return (
-    codeMessage(issue.code) ?? tDynamic(`settings.issues.${issue.code}`, t('settings.issues.invalid_value'))
-  );
-}
 
 /** IDs follow the config's 32-character, lowercase underscore format. */
 function uniqueId(name: string, ids: string[]): string {
@@ -293,7 +286,7 @@ export function PipelineEditor({
   isOwner: boolean;
   original: Pipeline;
   submitted?: Pipeline;
-  issues: PipelineIssue[];
+  issues: IssueRef[];
 }) {
   const humans = draft.team.members.filter((member) => member.kind === 'human');
   const [adding, setAdding] = useState(false);

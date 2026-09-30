@@ -9,7 +9,8 @@ import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import styles from './SettingsPage.module.css';
 import { LabelsEditor } from './LabelsEditor';
-import { PipelineEditor, issueMessage } from './PipelineEditor';
+import { issueMessage } from '../../lib/configIssues';
+import { PipelineEditor } from './PipelineEditor';
 
 type Section = 'project' | 'limits' | 'pipeline' | 'labels';
 type Edit = {

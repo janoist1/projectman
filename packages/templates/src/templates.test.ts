@@ -43,15 +43,7 @@ function build(id: string, language = 'hu', ownerHandle = 'owner') {
 
 /** [id, kind, owners, gate conditions, column] per stage. */
 function shape(stages: Stage[]) {
-  return stages.map((s) => [
-    s.id,
-    s.kind,
-    s.owners,
-    s.gate?.conditions.map((c) =>
-      c.type === 'human_approval' ? { type: c.type, approvers: c.approvers } : c,
-    ) ?? [],
-    s.columnId,
-  ]);
+  return stages.map((s) => [s.id, s.kind, s.owners, s.gate?.conditions ?? [], s.columnId]);
 }
 
 describe('every template', () => {
@@ -192,13 +184,13 @@ describe('web-client-project', () => {
       ['ready', 'queue', ['owner'], [], 'ready'],
       ['dev', 'work', ['fe-1', 'be-1'], [], 'development'],
       ['code_review', 'review', ['code-review'], [], 'review'],
-      ['integration', 'deploy', ['devops'], [{ type: 'check_passed', check: 'code_review' }], 'review'],
+      ['integration', 'deploy', ['devops'], [{ type: 'has_label', label: 'code-review-ok' }], 'review'],
       ['qa', 'test', ['owner', 'qa'], [], 'review'],
       [
         'client_test',
         'client_test',
         ['communication'],
-        [{ type: 'check_passed', check: 'qa' }],
+        [{ type: 'has_label', label: 'qa-ok' }],
         'client_test',
       ],
       [
@@ -206,8 +198,8 @@ describe('web-client-project', () => {
         'merge',
         ['owner'],
         [
-          { type: 'check_passed', check: 'client_test' },
-          { type: 'human_approval', approvers: ['owner'] },
+          { type: 'has_label', label: 'client-accepted' },
+          { type: 'has_label', label: 'merge-approved' },
         ],
         'awaiting_release',
       ],
@@ -215,7 +207,7 @@ describe('web-client-project', () => {
         'release',
         'release',
         ['devops'],
-        [{ type: 'human_approval', approvers: ['owner'] }],
+        [{ type: 'has_label', label: 'release-approved' }],
         'awaiting_release',
       ],
       ['done', 'done', [], [], 'done'],
@@ -292,8 +284,8 @@ describe('small-team', () => {
         'done',
         [],
         [
-          { type: 'check_passed', check: 'code_review' },
-          { type: 'human_approval', approvers: ['owner'] },
+          { type: 'has_label', label: 'code-review-ok' },
+          { type: 'has_label', label: 'merge-approved' },
         ],
         'done',
       ],
@@ -321,14 +313,14 @@ describe('internal-tool', () => {
       ['ready', 'queue', ['owner'], [], 'ready'],
       ['dev', 'work', ['dev-1', 'dev-2'], [], 'development'],
       ['code_review', 'review', ['code-review'], [], 'review'],
-      ['qa', 'test', ['owner', 'qa'], [{ type: 'check_passed', check: 'code_review' }], 'review'],
+      ['qa', 'test', ['owner', 'qa'], [{ type: 'has_label', label: 'code-review-ok' }], 'review'],
       [
         'merge',
         'merge',
         ['owner'],
         [
-          { type: 'check_passed', check: 'qa' },
-          { type: 'human_approval', approvers: ['owner'] },
+          { type: 'has_label', label: 'qa-ok' },
+          { type: 'has_label', label: 'merge-approved' },
         ],
         'awaiting_merge',
       ],

@@ -52,22 +52,22 @@ describe('team tools', () => {
     );
   });
 
-  it('update_task records the check before moving, so one call can pass the gate', async () => {
+  it('update_task adds labels before moving, so one call can pass the gate', async () => {
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
     const reviewer: ToolContext = { ...dev, member: 'cr', sessionId: 'ses_cr' };
     const err = await toolError(
       h.domain.teamTools.updateTask(reviewer, {
         taskKey: 'AR-1',
-        check: { name: 'code_review', state: 'passed' },
+        addLabels: ['code-review-ok'],
         note: 'Looks good',
         stageId: 'merge',
       }),
     );
-    // The check passed; the merge gate still needs the owner's approval, which was requested.
+    // The review label is on; the merge gate still needs the owner's approval, which was requested.
     expect(err.code).toBe('gate_blocked');
     expect(err.message).toContain('needs a human approval');
     const task = h.domain.tasks.get('AR', 'AR-1');
-    expect(task.checks.code_review).toBe('passed');
+    expect(task.labels).toContain('code-review-ok');
     expect(task.status).toBe('waiting');
     const timeline = h.domain.timeline.list('AR', { taskKey: 'AR-1' });
     expect(timeline.find((e) => e.type === 'task_note')).toMatchObject({
@@ -88,7 +88,7 @@ describe('team tools', () => {
       h.domain.teamTools.updateTask(reviewer, { taskKey: 'AR-1', stageId: 'release' }),
     );
     expect(blocked.code).toBe('gate_blocked');
-    expect(blocked.message).toContain('pull request is not merged');
+    expect(blocked.message).toContain('the label "pr-merged" is missing');
   });
 
   it('ask_human creates a question and delivers the answer back to the asking session', async () => {

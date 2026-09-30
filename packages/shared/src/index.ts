@@ -1,5 +1,6 @@
 export * from './domain/member';
 export * from './domain/pipeline';
+export * from './domain/label';
 export * from './domain/task';
 export * from './domain/session';
 export * from './domain/event';
@@ -14,6 +15,7 @@ export * from './ws/protocol';
 export * from './domain/role';
 export * from './domain/duty';
 export * from './config/duties';
+export * from './config/labels';
 export * from './config/edit';
 export * from './domain/schedule';
 export * from './schedule/cron';

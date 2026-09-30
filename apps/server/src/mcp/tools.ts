@@ -1,13 +1,5 @@
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
-import {
-  CheckName,
-  CheckState,
-  MemberHandle,
-  StageId,
-  TaskKey,
-  TaskStatus,
-  Visibility,
-} from '@projectman/shared';
+import { MemberHandle, StageId, TaskKey, TaskStatus, Visibility } from '@projectman/shared';
 import { z } from 'zod';
 import { TeamToolError, type TeamToolsHandler, type ToolContext } from '../contracts';
 import {
@@ -206,26 +198,32 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     title: 'Update a task',
     readOnly: false,
     description:
-      'Record progress on a task: record a check result, add a note, rewrite its title or description ' +
+      'Record progress on a task: add or remove labels, add a note, rewrite its title or description ' +
       '(for example a specification with acceptance criteria, or a technical plan) and/or move it to ' +
-      'another stage. Always record the outcome of a code review, security review, QA or client test here ' +
-      '(check + a short note with the findings): saying it only in text does not update the task. Stage ' +
-      'gates are enforced: a move is refused while its gate (a passed check, a merged PR or a human ' +
-      'approval) is not met. In one call everything else is recorded before the stage move.',
+      'another stage. Labels are how results are recorded: the outcome of a review, a test or a client ' +
+      "answer is a label from the project's label list (in your instructions: meaning, who may set it), " +
+      'with the findings in `note`; saying it only in text does not update the task. Some labels require ' +
+      'a note, and labels only humans may set (approvals) are refused. Stage gates are enforced: a move is ' +
+      'refused while a label its gate requires is missing or a blocking label is on the task. In one call ' +
+      'everything else is recorded before the stage move.',
     input: {
       task_key: taskKeyInput,
       stage_id: StageId.optional().describe(
         'Stage to move the task to, e.g. "qa" (a stage id of the project pipeline).',
       ),
-      check: z
-        .strictObject({
-          name: CheckName.describe('Which check.'),
-          state: CheckState.describe(
-            'Result: passed, failed (problems found), blocked (cannot be done now), retest_needed or pending.',
-          ),
-        })
+      add_labels: z
+        .array(z.string().trim().min(1).max(MAX_LABEL_CHARS))
+        .max(10)
         .optional()
-        .describe('Check result to record, e.g. {"name": "code_review", "state": "passed"}.'),
+        .describe(
+          'Label ids to add, e.g. ["qa-failed"]. A label of a group replaces the other labels of that ' +
+            'group (e.g. "qa-ok" replaces "qa-failed").',
+        ),
+      remove_labels: z
+        .array(z.string().trim().min(1).max(MAX_LABEL_CHARS))
+        .max(10)
+        .optional()
+        .describe('Label ids to remove.'),
       note: z
         .string()
         .trim()
@@ -233,7 +231,8 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         .max(MAX_NOTE_CHARS)
         .optional()
         .describe(
-          "Note for the task timeline, in the project's language: findings, decisions, what changed.",
+          "Note for the task timeline, in the project's language: findings, decisions, what changed. " +
+            'With labels it is the comment explaining them.',
         ),
       title: z
         .string()
@@ -254,24 +253,33 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         ),
     },
     async run({ ctx, args, handler }) {
-      const { task_key: taskKey, stage_id: stageId, check, note, title, description } = args;
-      if (!stageId && !check && !note && !title && !description) {
+      const {
+        task_key: taskKey,
+        stage_id: stageId,
+        add_labels: addLabels,
+        remove_labels: removeLabels,
+        note,
+        title,
+        description,
+      } = args;
+      if (!stageId && !addLabels?.length && !removeLabels?.length && !note && !title && !description) {
         throw new TeamToolError(
           'invalid',
-          'Nothing to update: pass stage_id, check, note, title and/or description.',
+          'Nothing to update: pass stage_id, add_labels, remove_labels, note, title and/or description.',
         );
       }
       const { task } = await handler.updateTask(ctx, {
         taskKey,
         ...(stageId ? { stageId } : {}),
-        ...(check ? { check } : {}),
+        ...(addLabels?.length ? { addLabels } : {}),
+        ...(removeLabels?.length ? { removeLabels } : {}),
         ...(note ? { note } : {}),
         ...(title ? { title } : {}),
         ...(description ? { description } : {}),
       });
       return formatTaskUpdate(task, {
         stageId,
-        check,
+        labels: { added: addLabels ?? [], removed: removeLabels ?? [] },
         note: !!note,
         title: !!title,
         description: !!description,

@@ -1,0 +1,84 @@
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.none {
+  margin: 0;
+  font-size: 13px;
+  color: var(--c-ink-3);
+}
+
+.remove {
+  border: 0;
+  padding: 0 0 0 2px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.picker {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--c-line-soft);
+  border-radius: 10px;
+}
+
+.group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.option {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: none;
+  cursor: pointer;
+}
+
+.option[aria-pressed='true'] {
+  border-color: var(--c-ink-3);
+}
+
+.option:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.reason {
+  padding-left: 6px;
+  font-size: 11px;
+  color: var(--c-ink-3);
+}
+
+.tag,
+.reasonForm {
+  display: grid;
+  gap: 8px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}

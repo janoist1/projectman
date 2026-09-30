@@ -9,20 +9,19 @@ import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import styles from './TaskDrawer.module.css';
 
+/** Edits the title and description; labels have their own section with the label rules. */
 export function TaskEdit({ task }: { task: Task }) {
   const { key } = useProject();
   const update = useUpdateTask(key);
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description);
-  const [labels, setLabels] = useState(task.labels.join(', '));
   if (!editing)
     return (
       <Button
         onClick={() => {
           setTitle(task.title);
           setDescription(task.description);
-          setLabels(task.labels.join(', '));
           update.reset();
           setEditing(true);
         }}
@@ -42,10 +41,6 @@ export function TaskEdit({ task }: { task: Task }) {
             body: {
               title: title.trim(),
               description,
-              labels: labels
-                .split(',')
-                .map((label) => label.trim())
-                .filter(Boolean),
             },
           },
           { onSuccess: () => setEditing(false) },
@@ -64,12 +59,6 @@ export function TaskEdit({ task }: { task: Task }) {
         value={description}
         onChange={setDescription}
         disabled={update.isPending}
-      />
-      <TextField
-        label={t('newTask.fields.labels')}
-        value={labels}
-        disabled={update.isPending}
-        onChange={(event) => setLabels(event.target.value)}
       />
       {update.isError ? (
         <p role="alert" className={styles.error}>

@@ -20,7 +20,6 @@ function sampleTask(overrides: Partial<Task> = {}): Task {
     repo: null,
     priority: null,
     labels: ['frontend'],
-    checks: { code_review: 'pending' },
     links: [{ kind: 'branch', ref: 'feature/login' }],
     visibility: 'internal',
     createdBy: 'owner',
@@ -82,7 +81,11 @@ describe('database', () => {
     repos.tasks.insert(sampleTask({ id: 'tsk_2', key: 'AR-2', title: 'Second', links: [] }));
     const task = repos.tasks.get('AR-1')!;
     expect(task.labels).toEqual(['frontend']);
-    expect(task.checks).toEqual({ code_review: 'pending' });
+    // Checks recorded before labels read as their labels.
+    repos.db
+      .prepare(`UPDATE tasks SET checks = ? WHERE key = 'AR-2'`)
+      .run('{"code_review":"passed","qa":"pending"}');
+    expect(repos.tasks.get('AR-2')!.labels).toEqual(['frontend', 'code-review-ok']);
     expect(task.links).toEqual([{ kind: 'branch', ref: 'feature/login' }]);
 
     expect(

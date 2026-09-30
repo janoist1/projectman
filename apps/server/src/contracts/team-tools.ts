@@ -1,14 +1,5 @@
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
-import type {
-  CheckName,
-  CheckState,
-  MemberHandle,
-  MemberView,
-  Task,
-  TaskDetail,
-  TaskStatus,
-  Visibility,
-} from '@projectman/shared';
+import type { MemberHandle, MemberView, Task, TaskDetail, TaskStatus, Visibility } from '@projectman/shared';
 
 /**
  * Team tools exposed to AI members through an MCP server ("team"), replacing the
@@ -58,7 +49,8 @@ export interface TeamToolsHandler {
     args: {
       taskKey: string;
       stageId?: string;
-      check?: { name: CheckName; state: CheckState };
+      addLabels?: string[];
+      removeLabels?: string[];
       note?: string;
       title?: string;
       description?: string;

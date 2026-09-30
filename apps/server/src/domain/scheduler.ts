@@ -17,7 +17,7 @@ import { conflict, DomainError, invalid, notFound } from './errors';
 import { formatInjectedTeamMessage, stageOwners, roleBundle } from '@projectman/shared';
 import type { TaskStartWaiting } from '@projectman/shared';
 import { isoNow } from './context';
-import { evaluateGates, stageIndex, stagesEntered } from './gates';
+import { evaluateMove, stageIndex } from './gates';
 import type { MemberService } from './members';
 import { highestUsagePercent } from './plan-usage';
 import type { PlanUsageCache } from './plan-usage';
@@ -294,11 +294,7 @@ export class Scheduler {
         );
 
       if (needsMove) {
-        const evaluation = evaluateGates(
-          task,
-          stagesEntered(config.pipeline, task.stageId, workStage.id),
-          config,
-        );
+        const evaluation = evaluateMove(task, config, task.stageId, workStage.id);
         if (evaluation.unmet.length > 0) throw gateBlockedError(evaluation);
         if (evaluation.approvals.length > 0) {
           const result = await this.tasks.moveToStage(projectKey, taskKey, workStage.id, opts.actor);

@@ -13,13 +13,14 @@ import { join } from 'node:path';
 import { hash } from '@node-rs/argon2';
 import type { FastifyInstance } from 'fastify';
 import {
-  gateApprovers,
+  isHumanOnlyLabel,
+  labelDefinition,
+  labelSetters,
   roleBundle,
   routes,
   stageOwners,
   type Actor,
   type BoardView,
-  type CheckName,
   type ConfigView,
   type InboxItem,
   type InboxView,
@@ -183,7 +184,7 @@ async function startTask(h: Harness) {
   const events: ExpectedEvent[] = [{ type: 'task_created', actor: owner, data: { title } }];
   const decisions: InboxItem[] = [];
   const sessions = new Map<string, string>();
-  const checks: Task['checks'] = {};
+  const labels: string[] = [];
   let assignee: string | null = null;
 
   async function assertState(stageId: string, status = 'active') {
@@ -195,7 +196,7 @@ async function startTask(h: Harness) {
     expect(response.statusCode).toBe(200);
     const detail = response.json<TaskDetail>();
     expect(detail.task).toMatchObject({ stageId, status, assignee });
-    expect(detail.task.checks).toEqual(checks);
+    expect(detail.task.labels).toEqual(labels);
     if (status === 'done') expect(detail.task.closedAt).toEqual(expect.any(String));
     const businessEvents = detail.timeline.filter((event) => !event.type.startsWith('session_'));
     expect(businessEvents).toHaveLength(events.length);
@@ -282,7 +283,7 @@ async function startTask(h: Harness) {
     await waitForBrief(h, session.id);
     return { projectKey, taskKey: task.key, member, sessionId: session.id };
   }
-  return { task, developer, events, decisions, sessions, checks, assertState, context };
+  return { task, developer, events, decisions, sessions, labels, assertState, context };
 }
 
 type Journey = Awaited<ReturnType<typeof startTask>>;
@@ -295,23 +296,36 @@ function holder(config: ProjectConfig, stage: Stage): string {
   return member!.handle;
 }
 
-async function recordCheck(
-  h: Harness,
-  j: Journey,
-  member: string,
-  name: CheckName,
-  state: 'pending' | 'passed' = 'passed',
-) {
+/** A member records a result as a label; a label of a group replaces the group's other label. */
+async function recordLabel(h: Harness, j: Journey, member: string, label: string) {
   const ctx = await j.context(member);
-  const previous = h.domain.tasks.get(projectKey, j.task.key).checks[name] ?? null;
-  const result = await h.domain.teamTools.updateTask(ctx, { taskKey: j.task.key, check: { name, state } });
-  expect(result.task.checks[name]).toBe(state);
-  j.checks[name] = state;
+  const config = (await h.configView()).config;
+  const group = labelDefinition(config, label)?.group;
+  const removed = group
+    ? j.labels.filter((l) => l !== label && labelDefinition(config, l)?.group === group)
+    : [];
+  const result = await h.domain.teamTools.updateTask(ctx, { taskKey: j.task.key, addLabels: [label] });
+  expect(result.task.labels).toContain(label);
+  j.labels.splice(0, j.labels.length, ...j.labels.filter((l) => !removed.includes(l)), label);
   j.events.push({
-    type: 'task_check_changed',
+    type: 'task_labels_changed',
     actor: ai(member),
     sessionId: ctx.sessionId,
-    data: { check: name, from: previous, to: state },
+    data: { added: [label], removed },
+  });
+  await j.assertState(result.task.stageId);
+}
+
+async function removeLabel(h: Harness, j: Journey, member: string, label: string) {
+  const ctx = await j.context(member);
+  const result = await h.domain.teamTools.updateTask(ctx, { taskKey: j.task.key, removeLabels: [label] });
+  expect(result.task.labels).not.toContain(label);
+  j.labels.splice(j.labels.indexOf(label), 1);
+  j.events.push({
+    type: 'task_labels_changed',
+    actor: ai(member),
+    sessionId: ctx.sessionId,
+    data: { added: [], removed: [label] },
   });
   await j.assertState(result.task.stageId);
 }
@@ -334,9 +348,12 @@ async function approve(h: Harness, j: Journey, member: string, target: string, c
   const gate = item.payload.gate as { stageId: string; toStageId: string };
   const config = (await h.configView()).config;
   const gatedStage = config.pipeline.stages.find((stage) => stage.id === gate.stageId)!;
-  const condition = gatedStage.gate!.conditions.find((condition) => condition.type === 'human_approval')!;
-  expect(condition).toMatchObject({
-    duty: gatedStage.kind === 'release' ? 'release_approval' : 'final_decision',
+  const approval = gatedStage
+    .gate!.conditions.map((condition) => labelDefinition(config, condition.label))
+    .find((label) => label !== undefined && isHumanOnlyLabel(label))!;
+  expect(approval.setBy).toMatchObject({
+    duties: [gatedStage.kind === 'release' ? 'release_approval' : 'final_decision'],
+    humansOnly: true,
   });
   expect(item).toMatchObject({
     kind: 'decision',
@@ -345,7 +362,7 @@ async function approve(h: Harness, j: Journey, member: string, target: string, c
     taskKey: j.task.key,
     payload: { gate: { fromStageId: from, toStageId: target } },
   });
-  expect(item.assignees).toEqual(gateApprovers(config, condition));
+  expect(item.assignees).toEqual(labelSetters(config, approval, h.domain.tasks.get(projectKey, j.task.key)));
   j.decisions.push(item);
   j.events.push({
     type: 'task_updated',
@@ -372,6 +389,13 @@ async function approve(h: Harness, j: Journey, member: string, target: string, c
   const resolved = response.json<InboxItem>();
   expect(resolved).toMatchObject({ state: 'resolved', resolution: { optionId: 'approve', by: 'owner' } });
   j.decisions[j.decisions.length - 1] = resolved;
+  // Approving puts the approval label on the task in the approver's name, then moves it.
+  j.labels.push(approval.id);
+  j.events.push({
+    type: 'task_labels_changed',
+    actor: owner,
+    data: { added: [approval.id], removed: [], reason: 'approval' },
+  });
   j.events.push({
     type: 'task_stage_changed',
     actor: owner,
@@ -408,8 +432,9 @@ async function rebundle(h: Harness, j: Journey) {
   expect(stageOwners(config, review)).not.toContain(original);
   await j.assertState('code_review');
   await refuseOrphan(h, j, qa.handle, 'code_review', 'pipeline.stages[2].duty');
-  await recordCheck(h, j, qa.handle, 'code_review', 'pending');
-  await recordCheck(h, j, qa.handle, 'code_review');
+  // The QA member now holds code review: it may take the review label off and put it back.
+  await removeLabel(h, j, qa.handle, 'code-review-ok');
+  await recordLabel(h, j, qa.handle, 'code-review-ok');
 }
 
 async function refuseOrphan(h: Harness, j: Journey, member: string, duty: string, path: string) {
@@ -450,20 +475,15 @@ async function throughQuality(h: Harness, j: Journey, rebundled = false) {
   expect(review.owners).toBeUndefined();
   await move(h, j, j.developer, review.id);
   const developerContext = await j.context(j.developer);
-  for (const name of ['code_review', 'qa'] as const) {
-    expect(() => h.domain.tasks.setCheck(projectKey, j.task.key, name, 'passed', ai(j.developer))).toThrow(
-      expect.objectContaining({ code: 'self_review_forbidden' }),
-    );
+  // Only defined labels have rules; in a pipeline without QA, "qa-ok" would be a plain tag.
+  for (const label of ['code-review-ok', 'qa-ok'].filter((l) => labelDefinition(config, l))) {
+    await expect(
+      h.domain.tasks.changeLabels(projectKey, j.task.key, { add: [label] }, ai(j.developer)),
+    ).rejects.toMatchObject({ code: expect.stringMatching(/^(self_review_forbidden|label_not_allowed)$/) });
     // The team-tool contract maps domain 403 errors to its public "forbidden" category.
     await expect(
-      h.domain.teamTools.updateTask(developerContext, {
-        taskKey: j.task.key,
-        check: { name, state: 'passed' },
-      }),
-    ).rejects.toMatchObject({
-      code: 'forbidden',
-      message: expect.stringContaining('cannot record review or QA results'),
-    });
+      h.domain.teamTools.updateTask(developerContext, { taskKey: j.task.key, addLabels: [label] }),
+    ).rejects.toMatchObject({ code: 'forbidden', message: expect.stringContaining('cannot') });
     await j.assertState(review.id);
   }
   const next = config.pipeline.stages[3]!;
@@ -471,7 +491,7 @@ async function throughQuality(h: Harness, j: Journey, rebundled = false) {
     h.domain.teamTools.updateTask(developerContext, { taskKey: j.task.key, stageId: next.id }),
   ).rejects.toMatchObject({ code: 'gate_blocked' });
   await j.assertState(review.id);
-  await recordCheck(h, j, holder(config, review), 'code_review');
+  await recordLabel(h, j, holder(config, review), 'code-review-ok');
   if (rebundled) {
     await rebundle(h, j);
     config = (await h.configView()).config;
@@ -508,7 +528,7 @@ async function throughQuality(h: Harness, j: Journey, rebundled = false) {
       ).rejects.toMatchObject({ code: 'gate_blocked' });
       await j.assertState(qa.id);
     }
-    await recordCheck(h, j, holder(config, qa), 'qa');
+    await recordLabel(h, j, holder(config, qa), 'qa-ok');
     if (clientTest) {
       expect(clientTest.duty).toBe('client_communication');
       const communication = holder(config, clientTest);
@@ -520,7 +540,7 @@ async function throughQuality(h: Harness, j: Journey, rebundled = false) {
         }),
       ).rejects.toMatchObject({ code: 'gate_blocked' });
       await j.assertState(clientTest.id);
-      await recordCheck(h, j, communication, 'client_test');
+      await recordLabel(h, j, communication, 'client-accepted');
     }
   }
 }
@@ -681,6 +701,12 @@ describe('factory pipeline golden paths', () => {
       });
       expect(approved.statusCode, approved.body).toBe(200);
       j.decisions[j.decisions.length - 1] = approved.json<InboxItem>();
+      j.labels.push('release-approved');
+      j.events.push({
+        type: 'task_labels_changed',
+        actor: { kind: 'human', handle: 'release-owner' },
+        data: { added: ['release-approved'], removed: [], reason: 'approval' },
+      });
       j.events.push({
         type: 'task_stage_changed',
         actor: { kind: 'human', handle: 'release-owner' },

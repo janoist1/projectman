@@ -222,13 +222,13 @@ describe('ConfigStore (customization repository)', () => {
     await store.save('AR', testConfig(), { author, message: 'Create' });
     const bad: ProjectConfig = testConfig();
     const merge = bad.pipeline.stages.find((s) => s.id === 'merge')!;
-    merge.gate = { conditions: [{ type: 'human_approval', approvers: ['dev-1'] }] };
+    merge.gate = { conditions: [{ type: 'has_label', label: 'nobody-knows' }] };
     const err = await expectConfigError(
-      store.save('AR', bad, { author, message: 'AI approver' }),
+      store.save('AR', bad, { author, message: 'Unknown gate label' }),
       'invalid_config',
     );
     expect((err.details as { issues: Array<{ code: string }> }).issues.map((i) => i.code)).toContain(
-      'approver_not_human',
+      'unknown_label',
     );
 
     const noOwner: ProjectConfig = testConfig();

@@ -1,18 +1,25 @@
 import { DutiesMatrix } from './DutiesMatrix';
-import { resolvedStages } from '@projectman/shared';
+import { isHumanOnlyLabel, resolvedStages } from '@projectman/shared';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import type { ConfigVersionEntry, MemberConfig, ProjectConfig, RoleView } from '@projectman/shared';
-import { useConfig, useLogout, useRevertConfig, useRoles } from '../../api/queries';
+import type {
+  ConfigVersionEntry,
+  LabelView,
+  MemberConfig,
+  ProjectConfig,
+  RoleView,
+} from '@projectman/shared';
+import { useConfig, useLabels, useLogout, useRevertConfig, useRoles } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { Chip } from '../../components/Chip';
+import { LabelChip } from '../../components/LabelChip';
 import { Dialog } from '../../components/Dialog';
 import { ErrorState, LoadingState } from '../../components/States';
 import { useToast } from '../../components/toastContext';
 import { formatStamp } from '../../i18n/format';
-import { t } from '../../i18n/t';
+import { joinNames, t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { useDocumentTitle } from '../../lib/hooks';
 import { gateConditionText } from '../../lib/gates';
@@ -44,9 +51,56 @@ function memberRole(member: MemberConfig, roles: readonly RoleView[]): string {
       );
 }
 
+/** The label vocabulary: each label's meaning and who may set it (editable by admins; approvals by owners). */
+function LabelsSection({ config }: { config: ProjectConfig }) {
+  const { key, myHandle } = useProject();
+  const { members } = useProjectIndexes(key);
+  const labels = useLabels(key);
+  const who = (label: LabelView) =>
+    label.setBy === 'anyone' || label.setBy === 'humans' || label.setBy === 'system'
+      ? t(`settings.labels.whoOptions.${label.setBy}`)
+      : t('settings.labels.setters', {
+          names: joinNames(label.holders.map((handle) => nameOf(handle, members, myHandle))),
+        });
+  return (
+    <section className={styles.card} aria-labelledby="settings-labels">
+      <div className={styles.cardHead}>
+        <h2 id="settings-labels" className={styles.cardTitle}>
+          {t('settings.sections.labels')}
+        </h2>
+        <span className={styles.muted}>
+          {t('settings.labels.count', { count: config.pipeline.labels.length })}
+        </span>
+      </div>
+      <p className={styles.muted}>{t('settings.labels.intro')}</p>
+      <EditableSection section="labels">
+        <ul className={styles.stages}>
+          {labels.map((label) => (
+            <li key={label.id} className={styles.stage}>
+              <div className={styles.stageTop}>
+                <LabelChip id={label.id} labels={labels} />
+                <span className={styles.muted}>
+                  {[
+                    who(label),
+                    ...(isHumanOnlyLabel(label) ? [t('settings.labels.approval')] : []),
+                    ...(label.requiresComment ? [t('settings.labels.requiresComment')] : []),
+                    ...(label.blocks ? [t('settings.labels.blocks')] : []),
+                  ].join(' · ')}
+                </span>
+              </div>
+              {label.meaning ? <p className={styles.muted}>{label.meaning}</p> : null}
+            </li>
+          ))}
+        </ul>
+      </EditableSection>
+    </section>
+  );
+}
+
 function PipelineSection({ config }: { config: ProjectConfig }) {
   const { key, myHandle } = useProject();
   const { members } = useProjectIndexes(key);
+  const labels = useLabels(key);
   const byHandle = new Map(config.team.members.map((member) => [member.handle, member]));
   return (
     <section className={styles.card} aria-labelledby="settings-pipeline">
@@ -107,7 +161,7 @@ function PipelineSection({ config }: { config: ProjectConfig }) {
                   <span className={styles.label}>{t('settings.pipeline.gate')}</span>
                   {stage.gate.conditions.map((condition, index) => (
                     <Chip key={index} tone="needs" icon="lock">
-                      {gateConditionText(condition, members, myHandle)}
+                      {gateConditionText(condition, labels)}
                     </Chip>
                   ))}
                 </div>
@@ -433,6 +487,7 @@ export function SettingsPage() {
                 </EditableSection>
               </section>
               <PipelineSection config={config.data.config} />
+              <LabelsSection config={config.data.config} />
               <DutiesMatrix
                 key={config.data.version}
                 config={config.data.config}

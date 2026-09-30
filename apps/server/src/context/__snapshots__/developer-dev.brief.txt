@@ -5,7 +5,7 @@ You are picking up this task at stage Development (`dev`).
 - Assignee: `fe-1`
 - Repo: `app`
 - Priority: 2
-- Labels: bug, email
+- Labels: `bug`, `email`
 - Visibility: shared
 
 ## Description
@@ -13,9 +13,6 @@ The confirmation email shows the wrong room name.
 
 - Steps: book any room as a guest
 - Expected: the email names the booked room
-
-## Checks
-None recorded yet.
 
 ## Links
 None.

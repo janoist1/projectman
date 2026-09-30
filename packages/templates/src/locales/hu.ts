@@ -269,5 +269,55 @@ export const hu: TemplateLocale = {
       description: 'Egy ütemezett munkatárs visszatérő, napi feladatokhoz.',
     },
   },
+  labels: {
+    'code-review-ok': {
+      name: 'Code review rendben',
+      meaning: 'Valaki más átnézte a változtatást, és nem talált blokkoló hibát.',
+    },
+    'code-review-changes': {
+      name: 'Code review: javítandó',
+      meaning: 'Az átnézés javítandót talált; a kommentben áll, mit kell javítani.',
+    },
+    'code-review-blocked': {
+      name: 'Code review: elakadt',
+      meaning: 'Az átnézést most nem lehet elvégezni; a kommentben áll, miért.',
+    },
+    'security-ok': {
+      name: 'Biztonsági átnézés rendben',
+      meaning: 'A hozzáférést, a titokkezelést és a fizetési útvonalakat átnézték; nincs blokkoló gond.',
+    },
+    'security-changes': {
+      name: 'Biztonsági átnézés: javítandó',
+      meaning: 'Biztonsági gond van; a kommentben áll, mi.',
+    },
+    'qa-ok': { name: 'QA rendben', meaning: 'Tesztelve, és az elfogadási feltételek teljesülnek.' },
+    'qa-failed': {
+      name: 'QA: hibás',
+      meaning: 'A teszt hibát talált; a kommentben áll, hol és hogyan reprodukálható.',
+    },
+    'qa-retest': { name: 'Újrateszt kell', meaning: 'Javítás után újra tesztelni kell.' },
+    'client-accepted': { name: 'Ügyfél elfogadta', meaning: 'Az ügyfél kipróbálta, és elfogadta.' },
+    'client-changes': {
+      name: 'Ügyfél: javítást kér',
+      meaning: 'Az ügyfél kipróbálta, és változtatást kér; a kommentben áll, mit.',
+    },
+    'pr-merged': {
+      name: 'PR merge-elve',
+      meaning: 'A feladat pull requestje be van olvasztva; a GitHub alapján automatikusan kerül rá.',
+    },
+    'merge-approved': {
+      name: 'Merge jóváhagyva',
+      meaning: 'Egy arra jogosult ember jóváhagyta a beolvasztást. Csak ember teheti rá.',
+    },
+    'release-approved': {
+      name: 'Élesítés jóváhagyva',
+      meaning: 'Egy arra jogosult ember jóváhagyta az élesítést. Csak ember teheti rá.',
+    },
+    'waiting-answer': {
+      name: 'Válaszra vár',
+      meaning: 'Külső válaszra vár; amíg rajta van, a feladat nem léphet tovább.',
+    },
+  },
+  stageApproval: (stageName) => `${stageName}: jóváhagyva`,
   specialist: (specialty, roleName) => `${specialty} ${lowerFirstWord(roleName)}`,
 };

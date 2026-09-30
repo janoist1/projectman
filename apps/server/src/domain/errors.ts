@@ -28,7 +28,8 @@ export class DomainError extends Error {
 export const notFound = (what: string, id: string) =>
   new DomainError('not_found', `${what} not found: ${id}`, { status: 404, details: { what, id } });
 
-export const forbidden = (code: string, message: string) => new DomainError(code, message, { status: 403 });
+export const forbidden = (code: string, message: string, details?: unknown) =>
+  new DomainError(code, message, { status: 403, details });
 
 export const invalid = (code: string, message: string, details?: unknown) =>
   new DomainError(code, message, { status: 400, details });

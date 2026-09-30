@@ -9,7 +9,11 @@ import {
   roleHolders,
   customRoleDuties,
   resolvedStages,
-  gateApprovers,
+  isHumanOnlyLabel,
+  labelDefinition,
+  labelHolders,
+  labelRefusal,
+  labelSetters,
   stageOwners,
   taskAuthors,
 } from '@projectman/shared';
@@ -40,7 +44,7 @@ import {
   SendMessageRequest,
   SetupRequest,
   StartTaskRequest,
-  SetTaskCheckRequest,
+  ChangeTaskLabelsRequest,
   UpdateTaskRequest,
 } from '@projectman/shared';
 import type {
@@ -90,6 +94,20 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
+/** Like the GitHub integration: the system label "pr-merged" follows the linked pull requests. */
+function withPrMergedLabel(task: Task, labels: readonly { id: string }[]): Task {
+  if (!labels.some((label) => label.id === 'pr-merged')) return task;
+  const prs = task.links.filter((link) => link.kind === 'pull_request');
+  const merged =
+    prs.some((pr) => pr.state === 'merged') &&
+    prs.every((pr) => pr.state === 'merged' || pr.state === 'closed');
+  if (merged === task.labels.includes('pr-merged')) return task;
+  return {
+    ...task,
+    labels: merged ? [...task.labels, 'pr-merged'] : task.labels.filter((label) => label !== 'pr-merged'),
+  };
+}
+
 function error(status: number, code: string, message: string, details?: unknown): MockResponse {
   return { status, body: { error: { code, message, ...(details === undefined ? {} : { details }) } } };
 }
@@ -118,7 +136,7 @@ export class MockBackend {
   config: ProjectConfig = fixtures.buildConfig();
   configVersion = fixtures.projectSummary.configVersion;
   history: ConfigVersionEntry[] = clone(fixtures.configHistory);
-  tasks: Task[] = clone(fixtures.tasks);
+  tasks: Task[] = clone(fixtures.tasks).map((task) => withPrMergedLabel(task, this.config.pipeline.labels));
   members: MemberView[] = clone(fixtures.members);
   timeline: TimelineEvent[] = clone(fixtures.timeline);
   scheduleRuns: ScheduleRun[] = [];
@@ -261,19 +279,9 @@ export class MockBackend {
   updateTask(key: string, patch: Partial<Task>, actor = this.viewerHandle): Task | undefined {
     const task = this.findTask(key);
     if (!task) return undefined;
-    if (
-      patch.checks &&
-      Object.keys(patch.checks).some(
-        (check) =>
-          check !== 'client_test' &&
-          patch.checks![check as keyof Task['checks']] !== task.checks[check as keyof Task['checks']],
-      ) &&
-      taskAuthors(task).includes(actor)
-    )
-      throw Object.assign(new Error('The assignee and PR author cannot review their task'), {
-        code: 'self_review_forbidden',
-      });
+    void actor;
     Object.assign(task, patch, { updatedAt: nowIso() });
+    if (patch.links) Object.assign(task, withPrMergedLabel(task, this.config.pipeline.labels));
     this.emit({ type: 'task_upserted', projectKey: task.projectKey, task: clone(task) });
     return task;
   }
@@ -429,6 +437,10 @@ export class MockBackend {
         stageIds: stages.filter((stage) => stage.columnId === column.id).map((stage) => stage.id),
       })),
       stages: clone(stages),
+      labels: this.config.pipeline.labels.map((label) => ({
+        ...clone(label),
+        holders: labelHolders(this.config, label),
+      })),
       tasks: clone(
         this.tasks.filter(
           (task) => this.findMember(this.viewerHandle)?.role !== 'client' || task.visibility === 'shared',
@@ -670,26 +682,21 @@ export class MockBackend {
       const response = this.handleProject('GET', `/tasks/${task.key}`, undefined, query);
       return { ...response, status: 201 };
     }
-    if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/checks$/.exec(rest)) && method === 'POST') {
+    if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/labels$/.exec(rest)) && method === 'POST') {
       if (viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))
         return error(403, 'insufficient_access', 'Developer access required');
-      const input = parseBody(SetTaskCheckRequest, body);
-      if (!input) return error(400, 'invalid_request', 'Invalid check result');
+      const input = parseBody(ChangeTaskLabelsRequest, body);
+      if (!input) return error(400, 'invalid_request', 'Invalid label change');
       const task = this.findTask(m[1]!);
       if (!task) return error(404, 'not_found', 'Unknown task');
-      if (['done', 'cancelled'].includes(task.status)) return error(409, 'task_closed', 'Task is closed');
-      if (input.check !== 'client_test' && taskAuthors(task).includes(this.viewerHandle))
-        return error(403, 'self_review_forbidden', 'The assignee and PR authors cannot review their task');
-      const from = task.checks[input.check] ?? null;
-      this.updateTask(task.key, { checks: { ...task.checks, [input.check]: input.state } });
-      if (from !== input.state)
-        this.addTimeline(task.key, this.viewerHandle, 'task_check_changed', {
-          check: input.check,
-          from,
-          to: input.state,
-        });
-      if (input.note !== undefined)
-        this.addTimeline(task.key, this.viewerHandle, 'task_note', { text: input.note });
+      const refused = this.changeLabels(
+        task,
+        input.add ?? [],
+        input.remove ?? [],
+        this.viewerHandle,
+        input.comment,
+      );
+      if (refused) return refused;
       return this.handleProject('GET', `/tasks/${task.key}`, undefined, query);
     }
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/start$/.exec(rest)) && method === 'POST') {
@@ -876,9 +883,10 @@ export class MockBackend {
         );
         const stages = this.config.pipeline.stages
           .filter((s) =>
-            s.gate?.conditions.some(
-              (c) => c.type === 'human_approval' && gateApprovers(this.config, c).includes(handle),
-            ),
+            s.gate?.conditions.some((c) => {
+              const label = c.type === 'has_label' ? labelDefinition(this.config, c.label) : undefined;
+              return !!label && isHumanOnlyLabel(label) && labelHolders(this.config, label).includes(handle);
+            }),
           )
           .map((s) => s.id);
         return ok({
@@ -1403,33 +1411,27 @@ export class MockBackend {
     const from = stages.findIndex((stage) => stage.id === task.stageId);
     const entered = to > from ? stages.slice(from + 1, to + 1) : [stages[to]!];
     const unmet: Array<{ stageId: string; condition: GateCondition }> = [];
-    const approvals: Array<{ stageId: string; conditionIndex: number; approvers: string[] }> = [];
+    const approvals: Array<{ stageId: string; label: string; approvers: string[] }> = [];
     for (const stage of entered) {
-      (stage.gate?.conditions ?? []).forEach((condition, conditionIndex) => {
-        if (condition.type === 'human_approval') {
+      for (const condition of stage.gate?.conditions ?? []) {
+        const has = task.labels.includes(condition.label);
+        if (condition.type === 'has_label' ? has : !has) continue;
+        const label =
+          condition.type === 'has_label' ? labelDefinition(this.config, condition.label) : undefined;
+        if (label && isHumanOnlyLabel(label))
           approvals.push({
             stageId: stage.id,
-            conditionIndex,
-            approvers: gateApprovers(this.config, condition).filter(
-              (h) =>
-                !(
-                  stage.kind === 'release' &&
-                  this.config.team.releaseFourEyes &&
-                  taskAuthors(task).includes(h)
-                ),
-            ),
+            label: label.id,
+            approvers: labelSetters(this.config, label, task),
           });
-        } else {
-          const prs = task.links.filter((link) => link.kind === 'pull_request');
-          const holds =
-            condition.type === 'check_passed'
-              ? task.checks[condition.check] === 'passed'
-              : prs.some((pr) => pr.state === 'merged') &&
-                prs.every((pr) => pr.state === 'merged' || pr.state === 'closed');
-          if (!holds) unmet.push({ stageId: stage.id, condition });
-        }
-      });
+        else unmet.push({ stageId: stage.id, condition });
+      }
     }
+    // A blocking label (e.g. "waiting for an answer") holds every forward move.
+    if (to > from)
+      for (const id of task.labels)
+        if (labelDefinition(this.config, id)?.blocks)
+          unmet.push({ stageId: entered[0]!.id, condition: { type: 'lacks_label', label: id } });
     if (unmet.length) return error(409, 'gate_blocked', 'Gate conditions are not met', { unmet, approvals });
     if (approvals.some((a) => !a.approvers.length))
       return error(409, 'release_four_eyes', 'No independent human approver is available');
@@ -1439,15 +1441,14 @@ export class MockBackend {
       for (const requirement of approvals) {
         const existing = this.inbox.find((item) => {
           const gate = item.payload.gate as
-            | { fromStageId?: string; toStageId?: string; stageId?: string; conditionIndex?: number }
-            | undefined;
+            { fromStageId?: string; toStageId?: string; stageId?: string; label?: string } | undefined;
           return (
             item.state === 'open' &&
             item.taskKey === task.key &&
             gate?.fromStageId === task.stageId &&
             gate.toStageId === stageId &&
             gate.stageId === requirement.stageId &&
-            gate.conditionIndex === requirement.conditionIndex
+            gate.label === requirement.label
           );
         });
         const item: InboxItem = existing ?? {
@@ -1467,7 +1468,7 @@ export class MockBackend {
               fromStageId: task.stageId,
               toStageId: stageId,
               stageId: requirement.stageId,
-              conditionIndex: requirement.conditionIndex,
+              label: requirement.label,
               requestedBy: { kind: 'human', handle: this.viewerHandle },
             },
           },
@@ -1493,7 +1494,50 @@ export class MockBackend {
       closedAt: done ? nowIso() : null,
     });
     this.addTimeline(task.key, this.viewerHandle, 'task_stage_changed', { from: previous, to: stageId });
+    if (to < from) this.clearLabels(task, 'moved_back');
     return ok(task);
+  }
+
+  /** Mirrors the server's label rules: who may set, no self-review, comment required, groups. */
+  private changeLabels(
+    task: Task,
+    addRaw: string[],
+    removeRaw: string[],
+    actor: string,
+    comment?: string,
+  ): MockResponse | null {
+    const who = { kind: 'human' as const, handle: actor };
+    const add = [...new Set(addRaw.map((l) => l.trim()).filter((l) => l && !task.labels.includes(l)))];
+    const remove = removeRaw.filter((l) => task.labels.includes(l) && !add.includes(l));
+    for (const id of [...add, ...remove]) {
+      const refusal = labelRefusal(this.config, labelDefinition(this.config, id), who, task);
+      if (refusal === 'self_review')
+        return error(403, 'self_review_forbidden', 'The assignee and PR authors cannot set this label');
+      if (refusal)
+        return error(403, 'label_not_allowed', 'The label rules forbid this', { label: id, reason: refusal });
+    }
+    if (add.some((id) => labelDefinition(this.config, id)?.requiresComment) && !comment?.trim())
+      return error(400, 'comment_required', 'These labels need a comment');
+    const groups = new Set(add.map((id) => labelDefinition(this.config, id)?.group).filter(Boolean));
+    const replaced = task.labels.filter(
+      (l) => !add.includes(l) && groups.has(labelDefinition(this.config, l)?.group),
+    );
+    const removed = [...new Set([...remove, ...replaced])];
+    if (!add.length && !removed.length) return null;
+    this.updateTask(task.key, { labels: [...task.labels.filter((l) => !removed.includes(l)), ...add] });
+    this.addTimeline(task.key, actor, 'task_labels_changed', { added: add, removed });
+    if (comment?.trim())
+      this.addTimeline(task.key, actor, 'task_note', { text: comment.trim(), mentions: [] });
+    return null;
+  }
+
+  private clearLabels(task: Task, trigger: 'moved_back' | 'pr_updated'): void {
+    const expired = task.labels.filter((l) =>
+      labelDefinition(this.config, l)?.clearedWhen?.includes(trigger),
+    );
+    if (!expired.length) return;
+    this.updateTask(task.key, { labels: task.labels.filter((l) => !expired.includes(l)) });
+    this.addTimeline(task.key, null, 'task_labels_changed', { added: [], removed: expired, reason: trigger });
   }
 
   private validateParent(taskKey: string | null, parentKey: string): MockResponse | null {
@@ -1542,7 +1586,6 @@ export class MockBackend {
       repo: input.repo ?? null,
       priority: null,
       labels: input.labels ?? [],
-      checks: {},
       links: [],
       visibility: input.visibility ?? 'internal',
       createdBy: this.owner,
@@ -2001,9 +2044,9 @@ export class MockBackend {
     if (viewer?.kind !== 'human') return error(403, 'ai_approval_forbidden', 'Only humans may approve');
     if (!item.assignees.includes(viewer.handle) && !(item.kind !== 'decision' && viewer.access === 'owner'))
       return error(403, 'not_an_assignee', 'Only assignees may decide');
-    const gate = item.payload.gate as { stageId?: string; conditionIndex?: number } | undefined;
+    const gate = item.payload.gate as { stageId?: string; label?: string } | undefined;
     const stage = this.config.pipeline.stages.find((s) => s.id === gate?.stageId);
-    const condition = stage?.gate?.conditions[Number(gate?.conditionIndex)];
+    const approvalLabel = gate?.label ? labelDefinition(this.config, gate.label) : undefined;
     const task = item.taskKey ? this.findTask(item.taskKey) : undefined;
     if (
       input.optionId === 'approve' &&
@@ -2015,8 +2058,8 @@ export class MockBackend {
       return error(403, 'release_four_eyes', 'Independent approval required');
     if (
       input.optionId === 'approve' &&
-      condition?.type === 'human_approval' &&
-      !gateApprovers(this.config, condition).includes(viewer.handle)
+      approvalLabel &&
+      !labelHolders(this.config, approvalLabel).includes(viewer.handle)
     )
       return error(403, 'not_an_assignee', 'Current gate changed');
     const resolved: InboxItem = {
@@ -2190,6 +2233,15 @@ export class MockBackend {
       }
       const from = task.stageId;
       const to = gate.toStageId;
+      const label = (item.payload.gate as { label?: string }).label;
+      if (label && !task.labels.includes(label)) {
+        this.updateTask(task.key, { labels: [...task.labels, label] });
+        this.addTimeline(task.key, this.owner, 'task_labels_changed', {
+          added: [label],
+          removed: [],
+          reason: 'approval',
+        });
+      }
       this.updateTask(task.key, { stageId: to, status: 'active' });
       this.addTimeline(task.key, this.owner, 'task_stage_changed', { from, to, approvedBy: [this.owner] });
       if (to !== 'release') {

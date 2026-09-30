@@ -17,7 +17,7 @@ import { TaskCard } from './TaskCard';
 import { TeamStrip } from './TeamStrip';
 import { sortEntries, useBoardModel } from './useBoardModel';
 import type { BoardEntry } from './useBoardModel';
-import { useMoveTask } from '../../api/queries';
+import { useLabels, useMoveTask } from '../../api/queries';
 import { useToast } from '../../components/toastContext';
 import { isApprovalRequested } from '../../lib/errors';
 import { canMoveTask, dropStage, moveErrorText } from './moveTask';
@@ -51,6 +51,7 @@ function Column({
     drop: (event: DragEvent, column: BoardColumnView) => void;
   };
 }) {
+  const labels = useLabels(projectKey);
   const headingId = `col-${column.id}`;
   return (
     <section
@@ -101,6 +102,7 @@ function Column({
               pipeline={pipeline}
               to={`/p/${projectKey}/tasks/${task.key}`}
               selected={task.key === selectedKey}
+              labels={labels}
             />
           </div>
         ))}
@@ -184,7 +186,10 @@ export function BoardPage() {
       move.mutate(variables, {
         onSuccess: () => toast.show(t('task.move.success')),
         onError: (error) =>
-          toast.show(moveErrorText(error, members, myHandle), isApprovalRequested(error) ? 'info' : 'error'),
+          toast.show(
+            moveErrorText(error, board.data?.labels ?? []),
+            isApprovalRequested(error) ? 'info' : 'error',
+          ),
         onSettled: () => setPending(null),
       });
     },

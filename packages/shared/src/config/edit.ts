@@ -1,5 +1,7 @@
 import { z } from 'zod';
-import { gateApprovers, dutyMembers, roleBundle } from './duties';
+import { dutyMembers, roleBundle } from './duties';
+import { labelDefinition, labelHolders } from './labels';
+import { isHumanOnlyLabel } from '../domain/label';
 import { BUILT_IN_ROLE_IDS } from '../domain/role';
 import { Pipeline } from '../domain/pipeline';
 import { ProjectConfig, TeamLimits } from './schema';
@@ -70,18 +72,18 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
 
 /** Stage and condition ordering do not alter the approval policy. Removal does. */
 export function humanApprovalChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
+  // Approvals are gate labels only humans may set; their holders are part of the policy.
   const signature = (config: ProjectConfig) =>
     JSON.stringify(
       config.pipeline.stages
         .map((stage) => ({
           id: stage.id,
           approvals: (stage.gate?.conditions ?? [])
-            .filter((condition) => condition.type === 'human_approval')
-            .map((condition) => ({
-              duty: condition.duty,
-              approvers: gateApprovers(config, condition).sort(),
-            }))
-            .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+            .filter((condition) => condition.type === 'has_label')
+            .map((condition) => labelDefinition(config, condition.label))
+            .filter((label) => label !== undefined && isHumanOnlyLabel(label))
+            .map((label) => ({ label: label!.id, holders: labelHolders(config, label!).sort() }))
+            .sort((a, b) => a.label.localeCompare(b.label)),
         }))
         .filter((stage) => stage.approvals.length)
         .sort((a, b) => a.id.localeCompare(b.id)),

@@ -1,4 +1,4 @@
-import { TaskStatus as TaskStatusSchema, CheckName, CheckState, TaskKey } from '@projectman/shared';
+import { TaskStatus as TaskStatusSchema, TaskKey } from '@projectman/shared';
 import type {
   InboxItem,
   InboxOption,
@@ -38,19 +38,16 @@ const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 /** Explains a blocked stage move to the agent in plain English. */
 function describeGateBlock(err: DomainError): string {
   const details = (err.details ?? {}) as { unmet?: UnmetCondition[]; approvals?: ApprovalRequirement[] };
-  const reasons = (details.unmet ?? []).map((u) => {
-    if (u.condition.type === 'check_passed') {
-      return `the "${u.condition.check}" check has not passed (required to enter stage "${u.stageId}")`;
-    }
-    if (u.condition.type === 'pr_merged') {
-      return `the linked pull request is not merged (required to enter stage "${u.stageId}")`;
-    }
-    return `a condition of stage "${u.stageId}" is not met`;
-  });
+  const reasons = (details.unmet ?? []).map((u) =>
+    u.condition.type === 'has_label'
+      ? `the label "${u.condition.label}" is missing (required to enter stage "${u.stageId}")`
+      : `the label "${u.condition.label}" is on the task and holds it back (stage "${u.stageId}")`,
+  );
   if (reasons.length === 0 && details.approvals?.length) {
     reasons.push(
       ...details.approvals.map(
-        (a) => `stage "${a.stageId}" needs an approval from ${a.approvers.join(' or ')}`,
+        (a) =>
+          `stage "${a.stageId}" needs a human approval (label "${a.label}", from ${a.approvers.join(' or ')})`,
       ),
     );
   }
@@ -205,7 +202,8 @@ export class TeamToolsService implements TeamToolsHandler {
     args: {
       taskKey: string;
       stageId?: string;
-      check?: { name: CheckName; state: CheckState };
+      addLabels?: string[];
+      removeLabels?: string[];
       note?: string;
       title?: string;
       description?: string;
@@ -215,17 +213,8 @@ export class TeamToolsService implements TeamToolsHandler {
       const config = await this.caller(ctx);
       const taskKey = this.validTaskKey(ctx, args.taskKey);
       const actor = aiActor(ctx.member);
-      // Validate everything first, then apply: title, description, check and note before the
-      // stage move, so one call can record "passed" and move through the gate that needs it.
-      const name = args.check ? CheckName.safeParse(args.check.name) : null;
-      const state = args.check ? CheckState.safeParse(args.check.state) : null;
-      if (args.check && (!name?.success || !state?.success)) {
-        throw new TeamToolError(
-          'invalid',
-          'Invalid check: name must be code_review, security_review, qa or client_test; ' +
-            'state must be pending, passed, blocked, failed or retest_needed.',
-        );
-      }
+      // Validate everything first, then apply: title, description, labels and note before the
+      // stage move, so one call can add "code review ok" and move through the gate that needs it.
       if (args.stageId && !config.pipeline.stages.some((s) => s.id === args.stageId)) {
         throw new TeamToolError(
           'invalid',
@@ -252,11 +241,18 @@ export class TeamToolsService implements TeamToolsHandler {
           { sessionId: ctx.sessionId },
         );
       }
-      if (name?.success && state?.success) {
-        task = this.tasks.setCheck(ctx.projectKey, taskKey, name.data, state.data, actor, ctx.sessionId);
-      }
-      if (args.note?.trim()) {
-        await this.tasks.addNote(ctx.projectKey, taskKey, args.note.trim(), actor, ctx.sessionId);
+      const note = args.note?.trim();
+      if (args.addLabels?.length || args.removeLabels?.length) {
+        // The note is the comment that explains the labels.
+        task = await this.tasks.changeLabels(
+          ctx.projectKey,
+          taskKey,
+          { add: args.addLabels, remove: args.removeLabels },
+          actor,
+          { comment: note || undefined, sessionId: ctx.sessionId },
+        );
+      } else if (note) {
+        await this.tasks.addNote(ctx.projectKey, taskKey, note, actor, ctx.sessionId);
       }
       if (args.stageId && args.stageId !== task.stageId) {
         const result = await this.tasks.moveToStage(ctx.projectKey, taskKey, args.stageId, actor);

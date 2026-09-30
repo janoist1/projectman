@@ -1,6 +1,10 @@
 import { z } from 'zod';
-import { MemberHandle } from './member';
 import { DutyId } from './duty';
+import { MemberHandle } from './member';
+import { LabelDefinition, LabelId } from './label';
+import { BoardColumnColor } from './palette';
+
+export { BoardColumnColor, defaultBoardColumnColor } from './palette';
 
 export const StageId = z.string().regex(/^[a-z][a-z0-9_]{0,31}$/);
 export type StageId = z.infer<typeof StageId>;
@@ -22,52 +26,19 @@ export const StageKind = z.enum([
 ]);
 export type StageKind = z.infer<typeof StageKind>;
 
-/** Named checks recorded on a task while it moves through the pipeline. */
-export const CheckName = z.enum(['code_review', 'security_review', 'qa', 'client_test']);
-export type CheckName = z.infer<typeof CheckName>;
-
-export const CheckState = z.enum(['pending', 'passed', 'blocked', 'failed', 'retest_needed']);
-export type CheckState = z.infer<typeof CheckState>;
-
 /**
- * Gate conditions come from a fixed catalogue. Anything that customises the
- * pipeline (humans or the system agent) may only combine these.
- * A gate on a stage must be satisfied before a task may ENTER that stage.
+ * Gate conditions: a gate on a stage must hold before a task may ENTER that stage. Every
+ * condition is about labels (see ./label.ts): facts like "code review ok", "PR merged" (a system
+ * label) or "release approved" (a label only humans may set, requested in the inbox).
  */
 export const GateCondition = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('check_passed'), check: CheckName }),
-  z.object({ type: z.literal('pr_merged') }),
-  /** Approvers must be human members; delegating the release gate is an owner-only change. */
-  z
-    .object({
-      type: z.literal('human_approval'),
-      approvers: z.array(MemberHandle).min(1).optional(),
-      duty: DutyId.optional(),
-    })
-    .refine((c) => c.approvers !== undefined || c.duty !== undefined, 'approvers or duty required'),
+  z.object({ type: z.literal('has_label'), label: LabelId }),
+  z.object({ type: z.literal('lacks_label'), label: LabelId }),
 ]);
 export type GateCondition = z.infer<typeof GateCondition>;
 
 export const Gate = z.object({ conditions: z.array(GateCondition).min(1) });
 export type Gate = z.infer<typeof Gate>;
-
-export const BoardColumnColor = z.enum([
-  'gray',
-  'blue',
-  'teal',
-  'green',
-  'yellow',
-  'orange',
-  'red',
-  'pink',
-  'purple',
-]);
-export type BoardColumnColor = z.infer<typeof BoardColumnColor>;
-
-/** Stable positional fallback; omitted colours remain omitted in stored configuration. */
-export function defaultBoardColumnColor(position: number): BoardColumnColor {
-  return BoardColumnColor.options[position % BoardColumnColor.options.length] ?? 'gray';
-}
 
 export const BoardColumn = z.object({
   id: z.string().regex(/^[a-z][a-z0-9_]{0,31}$/),
@@ -98,5 +69,7 @@ export const Pipeline = z.object({
   columns: z.array(BoardColumn).min(1),
   /** Ordered: the first stage must be a queue, the last one done. */
   stages: z.array(Stage).min(2),
+  /** The project's label vocabulary: meanings and rules; gates refer to these ids. */
+  labels: z.array(LabelDefinition).default([]),
 });
 export type Pipeline = z.infer<typeof Pipeline>;

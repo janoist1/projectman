@@ -69,3 +69,15 @@ Agreed with the owner on 2026-09-29, while designing the first version.
     old custom-role YAML continue loading, with in-memory duty defaults. This supersedes
     decision 14's hard-coded holder restrictions and prompt responsibilities. Meetings and
     monitoring execution remain future work; their attachment metadata is already defined.
+
+17. **Meaningful labels replace checks and gate condition types.** Approved by the owner on
+    2026-09-30 (`docs/design/labels.md`). The fixed checks (code review, security review,
+    QA, client test with five states) and the three gate condition types mirrored one kind
+    of team. A project now defines its labels once, with a meaning that humans and AI
+    members read and rules the server enforces (who may set, no self-review, comment
+    required, auto-clear, blocking). Gates only say which labels must or must not be on the
+    task; comments carry the reasons. Approvals are labels only humans may set, requested in
+    the inbox; the GitHub integration keeps the `pr-merged` system label. A failing label
+    notifies the assignee but does not move the task back. Plain labels without a meaning
+    stay allowed and are offered for definition in settings. Simplifying stage kinds to
+    queue / work / check / release / done is deferred.

@@ -1,3 +1,4 @@
+import { getLocale, standardLabel, standardLabelsFor } from '@projectman/templates';
 import { BUILT_IN_ROLE_IDS, BUILT_IN_ROLE_HOLDERS } from '@projectman/shared';
 import { t } from '../i18n/t';
 import type {
@@ -247,7 +248,7 @@ export function buildConfig(): ProjectConfig {
           kind: 'deploy',
           owners: ['devops'],
           columnId: 'review',
-          gate: { conditions: [{ type: 'check_passed', check: 'code_review' }] },
+          gate: { conditions: [{ type: 'has_label', label: 'code-review-ok' }] },
         },
         { id: 'qa', name: 'QA', kind: 'test', owners: ['qa'], columnId: 'review' },
         {
@@ -256,7 +257,7 @@ export function buildConfig(): ProjectConfig {
           kind: 'client_test',
           owners: ['communication', 'kata', 'bence'],
           columnId: 'client',
-          gate: { conditions: [{ type: 'check_passed', check: 'qa' }] },
+          gate: { conditions: [{ type: 'has_label', label: 'qa-ok' }] },
         },
         {
           id: 'merge',
@@ -264,7 +265,7 @@ export function buildConfig(): ProjectConfig {
           kind: 'merge',
           owners: ['owner'],
           columnId: 'ship',
-          gate: { conditions: [{ type: 'check_passed', check: 'client_test' }] },
+          gate: { conditions: [{ type: 'has_label', label: 'client-accepted' }] },
         },
         {
           id: 'release',
@@ -272,9 +273,21 @@ export function buildConfig(): ProjectConfig {
           kind: 'release',
           owners: ['owner', 'devops'],
           columnId: 'ship',
-          gate: { conditions: [{ type: 'pr_merged' }, { type: 'human_approval', approvers: ['owner'] }] },
+          gate: {
+            conditions: [
+              { type: 'has_label', label: 'pr-merged' },
+              { type: 'has_label', label: 'release-approved' },
+            ],
+          },
         },
         { id: 'done', name: 'Kész', kind: 'done', owners: [], columnId: 'done' },
+      ],
+      labels: [
+        ...standardLabelsFor(['code-review-ok', 'qa-ok', 'client-accepted', 'pr-merged'], getLocale('hu')),
+        {
+          ...standardLabel('release-approved', getLocale('hu')),
+          setBy: { members: ['owner'], humansOnly: true },
+        },
       ],
     },
   };
@@ -463,7 +476,6 @@ function task(partial: Partial<Task> & Pick<Task, 'key' | 'title' | 'stageId' | 
     repo: null,
     priority: null,
     labels: [],
-    checks: {},
     links: [],
     visibility: 'internal',
     createdBy: OWNER,
@@ -541,7 +553,6 @@ export const tasks: Task[] = [
       },
       { kind: 'branch', ref: '25-invoice-pdf', repo: 'acme/webshop' },
     ],
-    checks: { code_review: 'pending' },
     createdAt: daysAgo(4, 9, 0),
     updatedAt: minutesAgo(12),
   }),
@@ -556,7 +567,7 @@ export const tasks: Task[] = [
     links: [
       { kind: 'pull_request', ref: '4', repo: 'acme/webshop', title: 'Faster cart page', state: 'open' },
     ],
-    checks: { code_review: 'passed' },
+    labels: ['code-review-ok'],
     createdAt: daysAgo(5, 14, 0),
     updatedAt: minutesAgo(95),
   }),
@@ -569,8 +580,7 @@ export const tasks: Task[] = [
     status: 'active',
     assignee: 'fe-1',
     repo: 'webshop',
-    labels: ['Újrateszt kell'],
-    checks: { code_review: 'passed', qa: 'retest_needed' },
+    labels: ['code-review-ok', 'qa-retest'],
     links: [
       {
         kind: 'pull_request',
@@ -594,8 +604,7 @@ export const tasks: Task[] = [
     status: 'waiting',
     assignee: 'fe-1',
     repo: 'infra',
-    labels: ['Válaszra vár'],
-    checks: { code_review: 'passed', qa: 'passed', client_test: 'pending' },
+    labels: ['waiting-answer', 'code-review-ok', 'qa-ok'],
     links: [
       {
         kind: 'pull_request',
@@ -617,8 +626,7 @@ export const tasks: Task[] = [
     status: 'waiting',
     assignee: 'dev-1',
     repo: 'webshop',
-    labels: ['Válaszra vár'],
-    checks: { code_review: 'passed', qa: 'passed', client_test: 'pending' },
+    labels: ['waiting-answer', 'code-review-ok', 'qa-ok'],
     links: [
       {
         kind: 'pull_request',
@@ -640,7 +648,7 @@ export const tasks: Task[] = [
     status: 'waiting',
     assignee: 'fe-1',
     repo: 'webshop',
-    checks: { code_review: 'passed', qa: 'passed', client_test: 'passed' },
+    labels: ['code-review-ok', 'qa-ok', 'client-accepted'],
     links: [
       { kind: 'pull_request', ref: '15', repo: 'acme/webshop', title: 'Newsletter signup', state: 'open' },
     ],
@@ -657,7 +665,7 @@ export const tasks: Task[] = [
     status: 'waiting',
     assignee: 'be-1',
     repo: 'webshop',
-    checks: { code_review: 'passed', qa: 'passed', client_test: 'passed' },
+    labels: ['code-review-ok', 'qa-ok', 'client-accepted'],
     links: [
       {
         kind: 'pull_request',
@@ -679,7 +687,7 @@ export const tasks: Task[] = [
     status: 'active',
     assignee: 'fe-1',
     repo: 'webshop',
-    checks: { code_review: 'passed', qa: 'passed', client_test: 'passed' },
+    labels: ['code-review-ok', 'qa-ok', 'client-accepted'],
     links: [
       {
         kind: 'pull_request',
@@ -700,7 +708,7 @@ export const tasks: Task[] = [
     status: 'done',
     assignee: 'be-1',
     repo: 'admin',
-    checks: { code_review: 'passed', qa: 'passed' },
+    labels: ['code-review-ok', 'qa-ok'],
     links: [
       {
         kind: 'pull_request',

@@ -1,0 +1,26 @@
+.chip {
+  --label-fg: var(--c-ink-2);
+  --label-bg: var(--c-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--label-bg);
+  color: var(--label-fg);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
+}
+
+.plain {
+  font-weight: 600;
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { DUTIES, DUTY_IDS } from '../domain/duty';
 import { dutyHolders, roleHolders, RoleOverrides } from '../domain/role';
 import { ProjectConfig } from './schema';
-import { dutyMembers, gateApprovers, memberDuties, roleBundle, stageOwners } from './duties';
+import { dutyMembers, memberDuties, roleBundle, stageOwners } from './duties';
+import { labelHolders } from './labels';
 import { applyConfigPatch, humanApprovalChanged, PatchConfigRequest } from './edit';
 import { validateProjectConfig } from './invariants';
 
@@ -33,9 +34,16 @@ function config() {
           name: 'Release',
           kind: 'release',
           columnId: 'all',
-          gate: { conditions: [{ type: 'human_approval', duty: 'release_approval' }] },
+          gate: { conditions: [{ type: 'has_label', label: 'release-ok' }] },
         },
         { id: 'done', name: 'Done', kind: 'done', columnId: 'all' },
+      ],
+      labels: [
+        {
+          id: 'release-ok',
+          name: 'Release ok',
+          setBy: { duties: ['release_approval'], humansOnly: true },
+        },
       ],
     },
   });
@@ -60,8 +68,15 @@ describe('duty bundles', () => {
       expect.arrayContaining(['final_decision', 'prioritization', 'release_approval']),
     );
     expect(stageOwners(c, c.pipeline.stages[1]!)).toEqual(['builder']);
-    expect(gateApprovers(c, { type: 'human_approval', duty: 'release_approval' })).toEqual(['owner']);
-    expect(gateApprovers(c, { type: 'human_approval', approvers: ['builder', 'owner'] })).toEqual(['owner']);
+    const approval = {
+      id: 'x',
+      name: 'X',
+      setBy: { duties: ['release_approval' as const], humansOnly: true },
+    };
+    expect(labelHolders(c, approval)).toEqual(['owner']);
+    expect(
+      labelHolders(c, { ...approval, setBy: { members: ['builder', 'owner'], humansOnly: true } }),
+    ).toEqual(['owner']);
     c.pipeline.stages[1]!.owners = [];
     expect(stageOwners(c, c.pipeline.stages[1]!)).toEqual([]);
   });
@@ -152,8 +167,13 @@ describe('duty bundles', () => {
       expect(roleHolders('legacy_notes', c.team.roles)).toBe(holders);
       expect(roleBundle(c, 'legacy_notes')).toEqual({ duties: [], instructions: 'Write notes.' });
       expect(memberDuties(c, c.team.members[0]!)).toEqual([]);
-      expect(gateApprovers(c, { type: 'human_approval', duty: 'final_decision' })).toEqual([]);
-      expect(gateApprovers(c, { type: 'human_approval', duty: 'release_approval' })).toEqual([]);
+      const decision = {
+        id: 'x',
+        name: 'X',
+        setBy: { duties: ['final_decision' as const], humansOnly: true },
+      };
+      expect(labelHolders(c, decision)).toEqual([]);
+      expect(labelHolders(c, { ...decision, setBy: { duties: ['release_approval' as const] } })).toEqual([]);
       c.team.roles[0]!.duties = [];
       expect(roleHolders('legacy_notes', c.team.roles)).toBe('both');
     },
@@ -171,11 +191,12 @@ describe('duty bundles', () => {
       },
     ];
     c.pipeline.stages[1] = { ...c.pipeline.stages[1]!, duty: undefined, owners: ['owner'] };
-    c.pipeline.stages[2]!.gate = { conditions: [{ type: 'human_approval', approvers: ['owner'] }] };
+    c.pipeline.labels = [{ id: 'ok', name: 'Ok', setBy: { members: ['owner'], humansOnly: true } }];
+    c.pipeline.stages[2]!.gate = { conditions: [{ type: 'has_label', label: 'ok' }] };
     const old = ProjectConfig.parse(JSON.parse(JSON.stringify(c)));
     expect(roleBundle(old, 'legacy_writer')).toEqual({ duties: [], instructions: 'Keep notes.' });
     expect(stageOwners(old, old.pipeline.stages[1]!)).toEqual(['owner']);
-    expect(gateApprovers(old, { type: 'human_approval', approvers: ['owner'] })).toEqual(['owner']);
+    expect(labelHolders(old, old.pipeline.labels[0]!)).toEqual(['owner']);
     expect(validateProjectConfig(old).filter((i) => i.severity !== 'warning')).toEqual([]);
   });
 });

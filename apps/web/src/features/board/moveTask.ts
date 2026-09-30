@@ -1,9 +1,9 @@
+import type { LabelView } from '@projectman/shared';
 import type { BoardColumnView, Task } from '@projectman/shared';
 import { isApiError } from '../../api/client';
 import { joinNames, t } from '../../i18n/t';
 import { errorMessage, isGateBlocked } from '../../lib/errors';
 import { unmetGateTexts } from '../../lib/gates';
-import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
 
 export function canMoveTask(task: Task, allowed: boolean): boolean {
@@ -23,9 +23,8 @@ export function dropStage(task: Task, column: BoardColumnView, pipeline: Pipelin
   return pipeline.stages.find((stage) => pipeline.columnOfStage.get(stage.id)?.id === column.id)?.id ?? null;
 }
 
-export function moveErrorText(error: unknown, members: MemberIndex, myHandle: string | null): string {
-  const unmet =
-    isGateBlocked(error) && isApiError(error) ? unmetGateTexts(error.details, members, myHandle) : [];
+export function moveErrorText(error: unknown, labels: readonly LabelView[]): string {
+  const unmet = isGateBlocked(error) && isApiError(error) ? unmetGateTexts(error.details, labels) : [];
   return [errorMessage(error), unmet.length ? t('errors.gateUnmet', { conditions: joinNames(unmet) }) : '']
     .filter(Boolean)
     .join(' ');

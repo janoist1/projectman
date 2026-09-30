@@ -1,3 +1,4 @@
+import { useLabels } from '../../api/queries';
 import type { Task } from '@projectman/shared';
 import { StatusDot } from '../../components/Chip';
 import { t } from '../../i18n/t';
@@ -29,6 +30,7 @@ export function MobileBoardList({
   pipeline: PipelineIndex;
   projectKey: string;
 }) {
+  const labels = useLabels(projectKey);
   return (
     <div className={styles.wrap}>
       <ul className={styles.stages} aria-label={t('board.stagesLabel')}>
@@ -66,6 +68,7 @@ export function MobileBoardList({
                 state={state}
                 pipeline={pipeline}
                 to={`/p/${projectKey}/tasks/${task.key}`}
+                labels={labels}
                 compact
               />
             ))}

@@ -48,13 +48,23 @@ server later.
   workers**: when every eligible duty holder is busy, a temporary member of the configured
   role (developer by default) is hired for one task and retired when it is done.
 - **Pipeline** — ordered **stages** (id, display name, kind, optional duty, optional owners override, optional **gate**)
-  grouped into **board columns**. Owners can be humans, AI members or both. Gates use a
-  fixed catalogue of conditions: `check_passed(check)`, `pr_merged`,
-  `human_approval(approvers | duty)`. Duty gates resolve only human holders. Explicit member
-  lists, including empty stage owner overrides, retain their existing meaning. A gate must hold before a task may enter the stage.
+  grouped into **board columns**. Owners can be humans, AI members or both. A gate is a
+  list of label conditions, `has_label` / `lacks_label`, and must hold before a task may
+  enter the stage. Explicit member lists, including empty stage owner overrides, retain
+  their existing meaning.
+- **Labels** — the one way to state facts about a task (`docs/design/labels.md`). The
+  pipeline defines each label once: name, colour, meaning (shown to humans and put into
+  every AI member's instructions), group (labels of a group exclude each other), who may set
+  it (anyone, humans, the system, duty holders or members, optionally humans only), no
+  self-review, comment required, notify the assignee, cleared when the task moves back, and
+  blocking (the task may not move forward). A missing label only humans may set is an
+  approval: the move opens an inbox decision, and approving puts the label on in the
+  approver's name. `pr-merged` is a system label kept by the GitHub integration. Labels
+  without a definition are plain tags. Configurations from before labels (check_passed,
+  pr_merged, human_approval) and recorded checks are migrated on load.
 - **Task** — key (`AR-21`), title, markdown description, stage, status, assignee
-  (work stage owner), repo, checks (`code_review`, `security_review`, `qa`, `client_test`),
-  links (PRs, branches, issues, prerequisites), visibility (internal/shared).
+  (work stage owner), repo, labels, links (PRs, branches, issues, prerequisites),
+  visibility (internal/shared), optional parent (one level of subtasks).
 - **Work item & session** — every AI member works in a **fresh Claude Code session per
   work item**: (member × task), (member × meeting) or (member × general). A developer's
   task session lives through the whole pipeline; feedback about that task resumes the
@@ -95,11 +105,15 @@ server later.
 - handles are unique; at least one human owner exists;
 - stage owners, gate approvers and AI sponsors refer to existing members;
 - gate approvers and sponsors are humans — an AI never approves a gate;
-- every release stage requires a human approval; changing its approvers, release approval
-  bundles or their membership is owner-only; `team.releaseFourEyes` (default off) is also
-  owner-only and excludes assignees and PR authors from release approval;
-- code review, security review and QA results from the assignee or a linked PR's attributed
-  author fail with `self_review_forbidden`, regardless of their duties;
+- every release stage gate requires a label only humans may set (an approval); changing who
+  may set approval labels, release approval bundles or their membership is owner-only;
+  `team.releaseFourEyes` (default off) is also owner-only and excludes assignees and PR
+  authors from release approval;
+- a label marked "not by the author" set by the assignee or a linked PR's attributed author
+  fails with `self_review_forbidden`, regardless of their duties; labels only humans may set
+  are refused for AI members; system labels are the integrations' alone;
+- every label a gate requires is defined and can be set by someone (`unknown_label`,
+  `missing_label_setter`);
 - missing stage/gate duty holders are errors; missing recommended duties (retro facilitation)
   are warnings, returned with additive issue severity and never blocking config loading;
 - releases happen only on an approver's explicit decision;

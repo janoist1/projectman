@@ -6,7 +6,9 @@ import {
   routes,
   UpdateMemberRequest,
   memberDuties,
-  gateApprovers,
+  isHumanOnlyLabel,
+  labelDefinition,
+  labelHolders,
 } from '@projectman/shared';
 import type { MemberProfile, MemberView } from '@projectman/shared';
 import { notFound, forbidden } from '../domain';
@@ -33,9 +35,12 @@ export function registerMemberRoutes(app: FastifyInstance, domain: Domain): void
     const internal = access.access !== 'client';
     const approverStages = config.pipeline.stages
       .filter((s) =>
-        s.gate?.conditions.some(
-          (c) => c.type === 'human_approval' && gateApprovers(config, c).includes(handle),
-        ),
+        s.gate?.conditions.some((c) => {
+          const label = c.type === 'has_label' ? labelDefinition(config, c.label) : undefined;
+          return (
+            label !== undefined && isHumanOnlyLabel(label) && labelHolders(config, label).includes(handle)
+          );
+        }),
       )
       .map((s) => s.id);
     const awaitingKeys = new Set(

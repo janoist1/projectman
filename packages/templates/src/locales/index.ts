@@ -7,6 +7,7 @@ export type {
   RoleText,
   SpecialtyKey,
   StageKey,
+  StandardLabelId,
   TemplateId,
   TemplateLocale,
   TemplateMemberKey,

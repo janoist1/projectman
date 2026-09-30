@@ -20,8 +20,22 @@ async function setup(fourEyes = false) {
       });
       c.team.releaseFourEyes = fourEyes;
       c.pipeline.stages.find((s) => s.id === 'merge')!.gate = undefined;
+      c.pipeline.labels.push(
+        {
+          id: 'release-approved',
+          name: 'Release approved',
+          setBy: { duties: ['release_approval'], humansOnly: true },
+          clearedWhen: ['moved_back'],
+        },
+        ...(['code_review', 'security_review', 'qa'] as const).map((check) => ({
+          id: `${check}-ok`,
+          name: `${check} ok`,
+          setBy: 'anyone' as const,
+          notByAuthor: true,
+        })),
+      );
       c.pipeline.stages.find((s) => s.id === 'release')!.gate = {
-        conditions: [{ type: 'human_approval', duty: 'release_approval' }],
+        conditions: [{ type: 'has_label', label: 'release-approved' }],
       };
     },
   });
@@ -42,12 +56,19 @@ describe('duty runtime rules', () => {
       );
       h.domain.tasks.assign('AR', task.key, 'dev-2', OWNER_ACTOR);
       for (const handle of ['dev-1', 'dev-2'])
-        expect(() =>
-          h.domain.tasks.setCheck('AR', task.key, check, 'passed', { kind: 'ai', handle }),
-        ).toThrow(expect.objectContaining({ code: 'self_review_forbidden' }));
+        await expect(
+          h.domain.tasks.changeLabels('AR', task.key, { add: [`${check}-ok`] }, { kind: 'ai', handle }),
+        ).rejects.toMatchObject({ code: 'self_review_forbidden' });
       expect(
-        h.domain.tasks.setCheck('AR', task.key, check, 'passed', { kind: 'ai', handle: 'cr' }).checks[check],
-      ).toBe('passed');
+        (
+          await h.domain.tasks.changeLabels(
+            'AR',
+            task.key,
+            { add: [`${check}-ok`] },
+            { kind: 'ai', handle: 'cr' },
+          )
+        ).labels,
+      ).toContain(`${check}-ok`);
       expect(h.domain.tasks.get('AR', task.key).links[0]!.author).toBe('dev-1');
     },
   );

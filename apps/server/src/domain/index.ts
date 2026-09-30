@@ -121,6 +121,21 @@ export function createDomain(opts: DomainOptions) {
     publicBaseUrl: opts.publicBaseUrl,
     doneCleanupDelayMs: opts.doneCleanupDelayMs,
   });
+  // A label that notifies the assignee (e.g. "QA: failed") reaches them as a team message.
+  tasks.onLabelNotify(async (task, labels, actor, comment) => {
+    const config = await projects.config(task.projectKey);
+    const names = labels.map((id) => config.pipeline.labels.find((l) => l.id === id)?.name ?? id);
+    await sessions.sendTeamMessage(
+      task.projectKey,
+      actor.handle!,
+      {
+        to: [task.assignee!],
+        text: [names.join(', '), comment].filter(Boolean).join('\n\n'),
+        taskKey: task.key,
+      },
+      actor,
+    );
+  });
   tasks.onNoteAdded(async (event, mentions) => {
     await sessions.sendTeamMessage(
       event.projectKey,

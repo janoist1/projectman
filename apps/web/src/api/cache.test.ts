@@ -22,6 +22,7 @@ function seed(): QueryClient {
     project: projectSummary,
     columns: [],
     stages: [],
+    labels: [],
     tasks: structuredClone(tasks),
     members: structuredClone(members),
     openInboxCount: 0,

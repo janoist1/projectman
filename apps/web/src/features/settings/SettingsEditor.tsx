@@ -8,9 +8,10 @@ import { Button } from '../../components/Button';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import styles from './SettingsPage.module.css';
+import { LabelsEditor } from './LabelsEditor';
 import { PipelineEditor, issueMessage } from './PipelineEditor';
 
-type Section = 'project' | 'limits' | 'pipeline';
+type Section = 'project' | 'limits' | 'pipeline' | 'labels';
 type Edit = {
   section: Section;
   draft: ProjectConfig;
@@ -88,9 +89,10 @@ export function EditableSection({ section, children }: { section: Section; child
     <form
       onSubmit={(event) => {
         event.preventDefault();
+        // Labels live in the pipeline configuration.
         const body: PatchConfigRequest = {
           baseVersion: active.version,
-          [section]:
+          [section === 'labels' ? 'pipeline' : section]:
             section === 'limits'
               ? draft.team.limits
               : section === 'project'
@@ -204,6 +206,8 @@ export function EditableSection({ section, children }: { section: Section; child
             </label>
             {roles.isError ? <p role="alert">{errorMessage(roles.error)}</p> : null}
           </>
+        ) : section === 'labels' ? (
+          <LabelsEditor draft={draft} change={change} isOwner={isOwner} />
         ) : (
           <PipelineEditor
             draft={draft}

@@ -21,7 +21,8 @@ import type {
   SetupRequest,
   StartTaskRequest,
   CreateTaskCommentRequest,
-  SetTaskCheckRequest,
+  ChangeTaskLabelsRequest,
+  LabelView,
 } from '@projectman/shared';
 import { isApiError } from './client';
 import { countOpenInbox, upsertBy } from './cache';
@@ -356,11 +357,17 @@ export function useCreateTaskComment(key: string) {
     api.createTaskComment(key, taskKey, body),
   );
 }
-export function useSetTaskCheck(key: string) {
-  return useProjectMutation(key, ({ taskKey, body }: { taskKey: string; body: SetTaskCheckRequest }) =>
-    api.setTaskCheck(key, taskKey, body),
+export function useChangeTaskLabels(key: string) {
+  return useProjectMutation(key, ({ taskKey, body }: { taskKey: string; body: ChangeTaskLabelsRequest }) =>
+    api.changeTaskLabels(key, taskKey, body),
   );
 }
+
+/** The project's label vocabulary (with who may set each label), from the board. */
+export function useLabels(key: string): LabelView[] {
+  return useBoard(key).data?.labels ?? EMPTY_LABELS;
+}
+const EMPTY_LABELS: LabelView[] = [];
 export function useCancelTask(key: string) {
   return useProjectMutation(key, ({ taskKey, body }: { taskKey: string; body: CancelTaskRequest }) =>
     api.cancelTask(key, taskKey, body),

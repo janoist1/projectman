@@ -1,4 +1,5 @@
-import type { Gate, Stage } from '@projectman/shared';
+import { isHumanOnlyLabel } from '@projectman/shared';
+import type { Gate, LabelDefinition, Stage } from '@projectman/shared';
 
 /** Inline-code form of a handle, task key or id: `fe-1`. */
 export function code(value: string): string {
@@ -14,19 +15,22 @@ export function stageLabel(stage: Stage): string {
   return `${stage.name} (${code(stage.id)})`;
 }
 
-/** "code_review check passed and human approval by `owner`", or null without a gate. */
-export function describeGate(gate: Gate | undefined): string | null {
+/** "`qa-ok` (QA ok)": a label by id and name. */
+export function labelRef(id: string, labels: readonly LabelDefinition[]): string {
+  const label = labels.find((l) => l.id === id);
+  return label && label.name !== id ? `${code(id)} (${label.name})` : code(id);
+}
+
+/** "label `code-review-ok` (Code review ok) and no label `waiting-answer` (...)", or null without a gate. */
+export function describeGate(gate: Gate | undefined, labels: readonly LabelDefinition[]): string | null {
   if (!gate || gate.conditions.length === 0) return null;
   return gate.conditions
     .map((condition) => {
-      switch (condition.type) {
-        case 'check_passed':
-          return `${condition.check} check passed`;
-        case 'pr_merged':
-          return 'pull request merged';
-        case 'human_approval':
-          return `human approval by ${codeList(condition.approvers ?? [condition.duty ?? ''])}`;
-      }
+      const label = labels.find((l) => l.id === condition.label);
+      const approval = label && isHumanOnlyLabel(label) ? ', a human approval' : '';
+      return condition.type === 'has_label'
+        ? `label ${labelRef(condition.label, labels)}${approval}`
+        : `no label ${labelRef(condition.label, labels)}`;
     })
     .join(' and ');
 }

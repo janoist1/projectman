@@ -60,8 +60,13 @@ describe('mock configuration PATCH', () => {
     backend.viewerHandle = 'kata';
     const admin = backend.config.team.members.find((member) => member.handle === 'kata')!;
     if (admin.kind === 'human') admin.access = 'admin';
+    backend.config.pipeline.labels.push({
+      id: 'merge-approved',
+      name: 'Merge jóváhagyva',
+      setBy: { members: ['owner'], humansOnly: true },
+    });
     backend.config.pipeline.stages.find((stage) => stage.id === 'merge')!.gate = {
-      conditions: [{ type: 'human_approval', approvers: ['owner'] }],
+      conditions: [{ type: 'has_label', label: 'merge-approved' }],
     };
     expect(
       backend.handle('PATCH', path, { baseVersion: backend.configVersion, limits: { maxConcurrentAi: 2 } })
@@ -73,7 +78,12 @@ describe('mock configuration PATCH', () => {
         const pipeline = structuredClone(initial.pipeline);
         const stage = pipeline.stages.find((stage) => stage.id === id)!;
         if (operation === 'change')
-          stage.gate = { conditions: [{ type: 'human_approval', approvers: ['kata'] }] };
+          pipeline.labels.find(
+            (label) => label.id === `${id === 'merge' ? 'merge' : 'release'}-approved`,
+          )!.setBy = {
+            members: ['kata'],
+            humansOnly: true,
+          };
         if (operation === 'remove') stage.gate = undefined;
         if (operation === 'removeStage') pipeline.stages = pipeline.stages.filter((stage) => stage.id !== id);
         expect(backend.handle('PATCH', path, { baseVersion: backend.configVersion, pipeline })).toMatchObject(
@@ -137,22 +147,40 @@ describe('mock duty configuration', () => {
 describe('mock duty runtime rules', () => {
   it('rejects self-review by assignee and PR author, accepting independent results', () => {
     const backend = new MockBackend();
+    backend.config.pipeline.labels.push({
+      id: 'reviewed',
+      name: 'Átnézve',
+      setBy: 'anyone',
+      notByAuthor: true,
+    });
+    for (const member of backend.config.team.members)
+      if (member.kind === 'human' && ['kata', 'bence'].includes(member.handle)) member.access = 'developer';
+    for (const member of backend.members)
+      if (['kata', 'bence'].includes(member.handle)) member.role = 'developer';
     const task = backend.tasks[0]!;
-    task.assignee = 'fe-1';
-    task.links.push({ kind: 'pull_request', ref: '999', author: 'be-1' });
-    for (const actor of ['fe-1', 'be-1'])
-      expect(() => backend.updateTask(task.key, { checks: { qa: 'passed' } }, actor)).toThrow(
-        expect.objectContaining({ code: 'self_review_forbidden' }),
-      );
-    expect(backend.updateTask(task.key, { checks: { qa: 'passed' } }, 'qa')?.checks.qa).toBe('passed');
+    task.assignee = 'kata';
+    task.links.push({ kind: 'pull_request', ref: '999', author: 'bence' });
+    const label = (viewer: string) => {
+      backend.viewerHandle = viewer;
+      return backend.handle('POST', `/api/projects/AC/tasks/${task.key}/labels`, { add: ['reviewed'] });
+    };
+    for (const viewer of ['kata', 'bence'])
+      expect(label(viewer)).toMatchObject({ body: { error: { code: 'self_review_forbidden' } } });
+    expect(label('owner').status).toBe(200);
+    expect(task.labels).toContain('reviewed');
   });
   it('resolves duty approvers and prevents AI approval and stale four-eyes approval', () => {
     const backend = new MockBackend();
     const task = backend.tasks[0]!;
     task.stageId = 'merge';
     task.assignee = 'owner';
+    backend.config.pipeline.labels = backend.config.pipeline.labels.map((label) =>
+      label.id === 'release-approved'
+        ? { ...label, setBy: { duties: ['release_approval'], humansOnly: true } }
+        : label,
+    );
     backend.config.pipeline.stages.find((s) => s.id === 'release')!.gate = {
-      conditions: [{ type: 'human_approval', duty: 'release_approval' }],
+      conditions: [{ type: 'has_label', label: 'release-approved' }],
     };
     const moved = backend.handle('PATCH', `/api/projects/AC/tasks/${task.key}`, { stageId: 'release' });
     expect(moved.status).toBe(409);

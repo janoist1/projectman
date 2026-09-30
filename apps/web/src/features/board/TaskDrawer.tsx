@@ -1,8 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { CheckState, taskAuthors } from '@projectman/shared';
-import type { CheckName, Task } from '@projectman/shared';
-import { useInbox, useResolveInbox, useStartTask, useTaskDetail, useSetTaskCheck } from '../../api/queries';
+import type { Task } from '@projectman/shared';
+import { useInbox, useLabels, useResolveInbox, useStartTask, useTaskDetail } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button, ButtonLink } from '../../components/Button';
@@ -24,7 +23,8 @@ import { useDocumentTitle } from '../../lib/hooks';
 import { nameOf, namesOf } from '../../lib/members';
 import { isDeveloperRole } from '../../lib/roles';
 import type { MemberIndex } from '../../lib/members';
-import { checkForStage, stagePosition } from '../../lib/pipeline';
+import { stagePosition } from '../../lib/pipeline';
+import { TaskLabels } from './TaskLabels';
 import { InboxCard } from '../inbox/InboxCard';
 import { prChip } from './cardModel';
 import { nextStepText, primarySession } from './taskModel';
@@ -40,6 +40,7 @@ import styles from './TaskDrawer.module.css';
 
 function StartPanel({ task, members }: { task: Task; members: MemberIndex }) {
   const { key, myHandle } = useProject();
+  const labels = useLabels(key);
   const start = useStartTask(key);
   const toast = useToast();
   const [assignee, setAssignee] = useState('');
@@ -65,8 +66,8 @@ function StartPanel({ task, members }: { task: Task; members: MemberIndex }) {
           {errorMessage(start.error)}
           {isGateBlocked(start.error) &&
           isApiError(start.error) &&
-          unmetGateTexts(start.error.details, members, myHandle).length > 0
-            ? ` ${t('errors.gateUnmet', { conditions: joinNames(unmetGateTexts(start.error.details, members, myHandle)) })}`
+          unmetGateTexts(start.error.details, labels).length > 0
+            ? ` ${t('errors.gateUnmet', { conditions: joinNames(unmetGateTexts(start.error.details, labels)) })}`
             : null}
         </p>
       ) : null}
@@ -92,125 +93,6 @@ function StartPanel({ task, members }: { task: Task; members: MemberIndex }) {
         {start.isPending ? t('task.starting') : t('task.start')}
       </Button>
     </div>
-  );
-}
-
-function CheckResult({
-  task,
-  check,
-  open,
-  onToggle,
-  onClose,
-}: {
-  task: Task;
-  check: CheckName;
-  open: boolean;
-  onToggle: () => void;
-  onClose: () => void;
-}) {
-  const { key, myHandle, can } = useProject();
-  const mutation = useSetTaskCheck(key);
-  const current = task.checks[check] ?? 'pending';
-  const [state, setState] = useState<CheckState>(current);
-  const [note, setNote] = useState('');
-  const formId = useId();
-  useEffect(() => setState(current), [current]);
-  const selfReview = check !== 'client_test' && taskAuthors(task).includes(myHandle ?? '');
-  const editable = can.createTasks && Boolean(myHandle) && !['done', 'cancelled'].includes(task.status);
-  return (
-    <section className={styles.check} aria-label={t(`checks.names.${check}`)}>
-      <div className={styles.checkRow}>
-        <h4>
-          {t('checks.line', { name: t(`checks.names.${check}`), state: t(`checks.states.${current}`) })}
-        </h4>
-        {editable && !selfReview ? (
-          <Button size="sm" aria-expanded={open} aria-controls={open ? formId : undefined} onClick={onToggle}>
-            {t('task.checks.record')}
-          </Button>
-        ) : null}
-      </div>
-      {editable && selfReview ? (
-        <p>{t('errors.codes.self_review_forbidden')}</p>
-      ) : editable && open ? (
-        <form
-          id={formId}
-          className={styles.section}
-          onSubmit={(event) => {
-            event.preventDefault();
-            mutation.mutate(
-              { taskKey: task.key, body: { check, state, ...(note.trim() ? { note: note.trim() } : {}) } },
-              {
-                onSuccess: () => {
-                  setNote('');
-                  onClose();
-                },
-              },
-            );
-          }}
-        >
-          <SelectField
-            label={t('task.checks.state')}
-            value={state}
-            disabled={mutation.isPending}
-            onChange={(event) => setState(CheckState.parse(event.target.value))}
-          >
-            {CheckState.options.map((option) => (
-              <option key={option} value={option}>
-                {t(`checks.states.${option}`)}
-              </option>
-            ))}
-          </SelectField>
-          <TextAreaField
-            label={t('task.checks.note')}
-            optional
-            value={note}
-            rows={2}
-            disabled={mutation.isPending}
-            onChange={(event) => setNote(event.target.value)}
-          />
-          {mutation.isError ? (
-            <p className={styles.error} role="alert">
-              {errorMessage(mutation.error)}
-            </p>
-          ) : null}
-          <Button type="submit" loading={mutation.isPending}>
-            {t('task.checks.save')}
-          </Button>
-        </form>
-      ) : null}
-    </section>
-  );
-}
-
-function TaskChecks({ task, pipeline }: { task: Task; pipeline: PipelineIndex }) {
-  const stage = pipeline.stageById.get(task.stageId);
-  const stageCheck = stage ? checkForStage(stage) : null;
-  const [openCheck, setOpenCheck] = useState<CheckName | null>(stageCheck);
-  const checks = [
-    ...new Set([
-      ...(stageCheck ? [stageCheck] : []),
-      ...pipeline.stages.flatMap((stage) =>
-        (stage.gate?.conditions ?? []).flatMap((condition) =>
-          condition.type === 'check_passed' ? [condition.check] : [],
-        ),
-      ),
-    ]),
-  ];
-  if (!checks.length) return null;
-  return (
-    <section className={styles.section} aria-label={t('task.checks.title')}>
-      <h3 className={styles.sectionTitle}>{t('task.checks.title')}</h3>
-      {checks.map((check) => (
-        <CheckResult
-          key={`${task.key}:${check}`}
-          task={task}
-          check={check}
-          open={openCheck === check}
-          onToggle={() => setOpenCheck(openCheck === check ? null : check)}
-          onClose={() => setOpenCheck(null)}
-        />
-      ))}
-    </section>
   );
 }
 
@@ -358,7 +240,7 @@ export function TaskDrawer() {
             </section>
           ) : null}
 
-          <TaskChecks key={`checks:${task.key}:${task.stageId}`} task={task} pipeline={pipeline} />
+          <TaskLabels task={task} />
 
           {can.createTasks ? (
             <section className={styles.section}>

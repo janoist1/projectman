@@ -1,3 +1,4 @@
+import type { LabelView } from '@projectman/shared';
 import clsx from 'clsx';
 import { Link } from 'react-router';
 import type { Task } from '@projectman/shared';
@@ -9,6 +10,7 @@ import { t } from '../../i18n/t';
 import type { PipelineIndex } from '../../lib/pipeline';
 import type { TaskState } from '../../lib/taskState';
 import { cardChecks, prChip } from './cardModel';
+import { LabelChip } from '../../components/LabelChip';
 import styles from './TaskCard.module.css';
 
 interface TaskCardProps {
@@ -20,6 +22,8 @@ interface TaskCardProps {
   selected?: boolean;
   /** Phone list: no checks, stage name next to the status. */
   compact?: boolean;
+  /** The project's label definitions (names, colours, meanings). */
+  labels?: readonly LabelView[];
 }
 
 export function TaskCard({
@@ -30,6 +34,7 @@ export function TaskCard({
   selected = false,
   compact = false,
   subtasks = [],
+  labels = [],
 }: TaskCardProps) {
   const pr = prChip(task);
   const checks = compact ? [] : cardChecks(task, pipeline);
@@ -77,9 +82,7 @@ export function TaskCard({
             </span>
           ) : null}
           {task.labels.map((label) => (
-            <span key={label} className={styles.label}>
-              {label}
-            </span>
+            <LabelChip key={label} id={label} labels={labels} />
           ))}
         </span>
       ) : null}

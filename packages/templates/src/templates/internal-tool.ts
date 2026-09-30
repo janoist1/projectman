@@ -1,4 +1,4 @@
-import { checkPassed, defineTemplate, humanApproval } from './draft';
+import { defineTemplate, hasLabel } from './draft';
 
 /** Two developers, code review and QA for an internal tool: no client test, the owner merges. */
 export const internalTool = defineTemplate('internal-tool', (t) => {
@@ -19,8 +19,8 @@ export const internalTool = defineTemplate('internal-tool', (t) => {
       t.stage('ready', 'queue', 'ready', []),
       t.stage('dev', 'work', 'development', [first, second]),
       t.stage('code_review', 'review', 'review', [codeReview]),
-      t.stage('qa', 'test', 'review', [qa], checkPassed('code_review')),
-      t.stage('merge', 'merge', 'awaiting_merge', [t.owner], checkPassed('qa'), humanApproval(t.owner)),
+      t.stage('qa', 'test', 'review', [qa], hasLabel('code-review-ok')),
+      t.stage('merge', 'merge', 'awaiting_merge', [t.owner], hasLabel('qa-ok'), hasLabel('merge-approved')),
       t.stage('done', 'done', 'done', []),
     ],
   });

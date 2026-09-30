@@ -91,7 +91,6 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     repo: 'app',
     priority: 2,
     labels: ['bug', 'email'],
-    checks: { code_review: 'pending' },
     links: [
       {
         kind: 'pull_request',
@@ -197,7 +196,6 @@ describe('context pack snapshots', () => {
         handle: 'fe-1',
         task: makeTask({
           stageId: 'dev',
-          checks: {},
           links: [{ kind: 'prerequisite', ref: 'AR-19', title: 'Update mail templates', state: 'done' }],
         }),
         timeline: timeline.slice(0, 4),
@@ -223,7 +221,7 @@ describe('context pack snapshots', () => {
         handle: 'devops',
         task: makeTask({
           stageId: 'release',
-          checks: { code_review: 'passed', qa: 'passed', client_test: 'passed' },
+          labels: ['code-review-ok', 'qa-ok', 'client-accepted', 'release-approved'],
           links: makeTask().links.map((l) => (l.kind === 'pull_request' ? { ...l, state: 'merged' } : l)),
         }),
         memory: '',
@@ -299,10 +297,10 @@ describe('context pack builder', () => {
     const prompt = builder.build(input()).appendSystemPrompt;
     expect(prompt).toContain('3. Code review (`code_review`, review) — owners `code-review` ← current stage');
     expect(prompt).toContain(
-      '- Next stage: Integration (`integration`), owners `devops`; gate: code_review check passed.',
+      '- Next stage: Integration (`integration`), owners `devops`; gate: label `code-review-ok` (Code review ok).',
     );
     expect(prompt).toContain(
-      '7. Merge (`merge`, merge) — owners `owner` — gate: client_test check passed and human approval by `owner`',
+      '7. Merge (`merge`, merge) — owners `owner` — gate: label `client-accepted` (Client accepted) and label `merge-approved` (Merge approved), a human approval',
     );
   });
 
@@ -401,7 +399,7 @@ describe('context pack builder', () => {
     const project = buildProject('small-team');
     const pack = builder.build(input({ project, handle: 'code-review' }));
     expect(pack.initialMessage).toContain(
-      'When the review passes, request the move to Done (`done`) with update_task: it needs a human approval, so the system opens a decision for `owner` and the task waits until they approve. Do not message them separately and never approve it yourself.',
+      'When the review passes, request the move to Done (`done`) with update_task: it needs a human approval (`merge-approved` (Merge approved)), so the system opens a decision for `owner` and the task waits until they approve. Do not message them separately and never set that label yourself.',
     );
   });
 
@@ -410,7 +408,7 @@ describe('context pack builder', () => {
       input({ handle: 'communication', task: makeTask({ stageId: 'client_test' }) }),
     );
     expect(pack.initialMessage).toContain('Hand the draft to a human with send_message');
-    expect(pack.initialMessage).toContain('record the client_test check with update_task');
+    expect(pack.initialMessage).toContain('record the result with update_task as `client-accepted`');
   });
 
   it('describes a temporary stand-in and leaves retired members out', () => {
@@ -453,7 +451,7 @@ describe('context pack for the role catalogue', () => {
       input({
         project,
         handle: 'analyst',
-        task: makeTask({ stageId: 'ready', assignee: null, checks: {}, links: [] }),
+        task: makeTask({ stageId: 'ready', assignee: null, links: [] }),
         timeline: timeline.slice(0, 1),
         memory: '',
       }),

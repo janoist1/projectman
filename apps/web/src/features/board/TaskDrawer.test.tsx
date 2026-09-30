@@ -115,9 +115,9 @@ describe('task drawer stage moves', () => {
     fireEvent.click(screen.getByRole('button', { name: t('task.move.submit') }));
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain(
-      t('settings.pipeline.gateCheck', { check: t('checks.names.code_review') }),
+      t('settings.pipeline.gateHasLabel', { label: 'Code review rendben' }),
     );
-    expect(alert.textContent).toContain(t('settings.pipeline.gateCheck', { check: t('checks.names.qa') }));
+    expect(alert.textContent).toContain(t('settings.pipeline.gateHasLabel', { label: 'QA rendben' }));
     expect(project.backend.findTask('AC-20')?.stageId).toBe('dev');
   });
   it('reports requested approval as information and stays in the original stage', async () => {
@@ -152,120 +152,75 @@ describe('task drawer stage moves', () => {
   });
 });
 
-describe('task drawer checks', () => {
-  it('shows gate checks and saves a result with a note, refreshing the state and timeline', async () => {
+describe('task drawer labels', () => {
+  const labelsSection = () => screen.findByRole('region', { name: t('task.labels.title') });
+
+  it('adds and removes labels under their rules, asking for the reason where needed', async () => {
     const project = mockProject();
+    project.backend.config.pipeline.labels.push({
+      id: 'needs-info',
+      name: 'Infó kell',
+      setBy: 'anyone',
+      requiresComment: true,
+    });
     project.render(drawer, '/p/AC/tasks/AC-20');
-    const section = await screen.findByRole('region', { name: t('task.checks.title') });
-    const qa = within(section).getByRole('region', { name: t('checks.names.qa') });
-    expect(within(qa).getByRole('heading').textContent).toBe(
-      t('checks.line', { name: t('checks.names.qa'), state: t('checks.states.pending') }),
+    const section = await labelsSection();
+    fireEvent.click(within(section).getByRole('button', { name: t('task.labels.add') }));
+    fireEvent.click(within(section).getByRole('button', { name: /Válaszra vár/ }));
+    await waitFor(() => expect(project.backend.findTask('AC-20')?.labels).toContain('waiting-answer'));
+    fireEvent.click(
+      await within(section).findByRole('button', {
+        name: t('task.labels.remove', { label: 'Válaszra vár' }),
+      }),
     );
-    expect(within(section).queryByRole('region', { name: t('checks.names.security_review') })).toBeNull();
-    expect(within(section).queryByRole('combobox')).toBeNull();
-    fireEvent.click(within(qa).getByRole('button', { name: t('task.checks.record') }));
-    fireEvent.change(within(qa).getByLabelText(t('task.checks.state')), { target: { value: 'passed' } });
-    fireEvent.change(within(qa).getByLabelText(t('task.checks.note'), { exact: false }), {
-      target: { value: 'Acme behavior verified.' },
+    await waitFor(() => expect(project.backend.findTask('AC-20')?.labels).not.toContain('waiting-answer'));
+
+    // A label that needs a reason asks for it and records it as a comment.
+    fireEvent.click(within(section).getByRole('button', { name: /Infó kell/ }));
+    const reason = within(section).getByLabelText(t('task.labels.comment', { label: 'Infó kell' }), {
+      exact: false,
     });
-    fireEvent.click(within(qa).getByRole('button', { name: t('task.checks.save') }));
-    await waitFor(() => expect(project.backend.findTask('AC-20')?.checks.qa).toBe('passed'));
-    await waitFor(() =>
-      expect(within(qa).getByRole('heading').textContent).toContain(t('checks.states.passed')),
+    fireEvent.change(reason, { target: { value: 'Which Acme market?' } });
+    fireEvent.click(
+      within(section)
+        .getAllByRole('button', { name: t('task.labels.apply') })
+        .at(-1)!,
     );
-    expect(await screen.findByText('Acme behavior verified.')).toBeTruthy();
-    expect(project.requests).toContainEqual({
-      method: 'POST',
-      path: '/api/projects/AC/tasks/AC-20/checks',
-      body: { check: 'qa', state: 'passed', note: 'Acme behavior verified.' },
-    });
+    await waitFor(() => expect(project.backend.findTask('AC-20')?.labels).toContain('needs-info'));
+    expect(
+      project.backend.timeline.some(
+        (event) =>
+          event.taskKey === 'AC-20' && event.type === 'task_note' && event.data.text === 'Which Acme market?',
+      ),
+    ).toBe(true);
   });
 
-  it.each([
-    ['code_review', 'code_review'],
-    ['qa', 'qa'],
-    ['client_test', 'client_test'],
-  ] as const)(
-    'opens the current %s check and switches to only the selected editor',
-    async (stageId, check) => {
-      const project = mockProject();
-      project.backend.updateTask('AC-20', { stageId });
-      project.render(drawer, '/p/AC/tasks/AC-20');
-      const section = await screen.findByRole('region', { name: t('task.checks.title') });
-      const current = within(section).getByRole('region', { name: t(`checks.names.${check}`) });
-      expect(within(current).getByLabelText(t('task.checks.state'))).toBeTruthy();
-      expect(
-        within(current)
-          .getByRole('button', { name: t('task.checks.record') })
-          .getAttribute('aria-expanded'),
-      ).toBe('true');
-      const otherCheck = check === 'qa' ? 'client_test' : 'qa';
-      const other = within(section).getByRole('region', { name: t(`checks.names.${otherCheck}`) });
-      fireEvent.click(within(other).getByRole('button', { name: t('task.checks.record') }));
-      expect(within(current).queryByRole('combobox')).toBeNull();
-      expect(within(section).getAllByRole('combobox')).toHaveLength(1);
-      fireEvent.click(within(other).getByRole('button', { name: t('task.checks.record') }));
-      expect(within(section).queryByRole('combobox')).toBeNull();
-    },
-  );
-
-  it.each(['assignee', 'pr_author'] as const)(
-    'explains self-review to the %s and keeps client testing available',
-    async (kind) => {
-      const project = mockProject();
-      const task = project.backend.findTask('AC-20')!;
-      project.backend.updateTask(
-        task.key,
-        kind === 'assignee'
-          ? { assignee: 'owner' }
-          : {
-              links: [...task.links, { kind: 'pull_request', ref: '42', repo: 'acme/web', author: 'owner' }],
-            },
-      );
-      project.render(drawer, '/p/AC/tasks/AC-20');
-      const section = await screen.findByRole('region', { name: t('task.checks.title') });
-      const qa = within(section).getByRole('region', { name: t('checks.names.qa') });
-      expect(within(qa).getByText(t('errors.codes.self_review_forbidden'))).toBeTruthy();
-      expect(within(qa).queryByRole('button')).toBeNull();
-      const client = within(section).getByRole('region', { name: t('checks.names.client_test') });
-      fireEvent.click(within(client).getByRole('button', { name: t('task.checks.record') }));
-      fireEvent.change(within(client).getByLabelText(t('task.checks.state')), {
-        target: { value: 'passed' },
-      });
-      fireEvent.click(within(client).getByRole('button', { name: t('task.checks.save') }));
-      await waitFor(() => expect(project.backend.findTask(task.key)?.checks.client_test).toBe('passed'));
-      expect(project.requests).toContainEqual({
-        method: 'POST',
-        path: '/api/projects/AC/tasks/AC-20/checks',
-        body: { check: 'client_test', state: 'passed' },
-      });
-    },
-  );
-
-  it.each(['viewer', 'done', 'cancelled'])('shows checks read-only for %s', async (reason) => {
+  it('explains why a label cannot be set and keeps viewers read-only', async () => {
     const project = mockProject();
-    if (reason === 'done' || reason === 'cancelled') project.backend.updateTask('AC-20', { status: reason });
-    project.render(
-      drawer,
-      '/p/AC/tasks/AC-20',
-      reason === 'viewer' ? { can: { createTasks: false, manageTeam: false, workInSessions: false } } : {},
-    );
-    const section = await screen.findByRole('region', { name: t('task.checks.title') });
-    expect(within(section).getAllByRole('heading').length).toBeGreaterThan(1);
-    expect(within(section).queryByRole('combobox')).toBeNull();
-    expect(within(section).queryByRole('button')).toBeNull();
+    project.backend.config.pipeline.labels.push({
+      id: 'qa-only',
+      name: 'Csak QA',
+      setBy: { members: ['qa'] },
+    });
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    const section = await labelsSection();
+    fireEvent.click(within(section).getByRole('button', { name: t('task.labels.add') }));
+    const option = within(section).getByRole('button', { name: /Csak QA/ });
+    expect((option as HTMLButtonElement).disabled).toBe(true);
+    expect(option.textContent).toContain(t('task.labels.refusal.not_holder'));
   });
 
-  it('shows errors from a check request inline', async () => {
+  it('shows label errors from the server inline', async () => {
     const project = mockProject();
     project.render(drawer, '/p/AC/tasks/AC-20');
-    const section = await screen.findByRole('region', { name: t('task.checks.title') });
-    const qa = within(section).getByRole('region', { name: t('checks.names.qa') });
-    fireEvent.click(within(qa).getByRole('button', { name: t('task.checks.record') }));
-    // The task closes after the drawer has loaded, before the human submits.
-    project.backend.findTask('AC-20')!.status = 'done';
-    fireEvent.click(within(qa).getByRole('button', { name: t('task.checks.save') }));
-    expect((await within(qa).findByRole('alert')).textContent).toBe(t('errors.codes.task_closed'));
+    const section = await labelsSection();
+    fireEvent.click(within(section).getByRole('button', { name: t('task.labels.add') }));
+    // The label rules change after the drawer has loaded, before the human picks.
+    project.backend.config.pipeline.labels = project.backend.config.pipeline.labels.map((label) =>
+      label.id === 'waiting-answer' ? { ...label, setBy: 'system' as const } : label,
+    );
+    fireEvent.click(within(section).getByRole('button', { name: /Válaszra vár/ }));
+    expect((await within(section).findByRole('alert')).textContent).toBe(t('errors.codes.label_not_allowed'));
   });
 });
 
@@ -349,7 +304,7 @@ describe('task drawer comments', () => {
 });
 
 describe('task editing and subtasks', () => {
-  it('edits title, markdown and labels through PATCH and cancels a later draft', async () => {
+  it('edits title and markdown through PATCH and cancels a later draft', async () => {
     const project = mockProject();
     project.render(drawer, '/p/AC/tasks/AC-20');
     fireEvent.click(await screen.findByRole('button', { name: t('task.edit') }));
@@ -359,15 +314,11 @@ describe('task editing and subtasks', () => {
     fireEvent.change(screen.getByLabelText(t('task.description')), {
       target: { value: '**Example description**' },
     });
-    fireEvent.change(screen.getByLabelText(t('newTask.fields.labels')), {
-      target: { value: 'bug, example' },
-    });
     fireEvent.click(screen.getByRole('button', { name: t('task.save') }));
     await waitFor(() =>
       expect(project.backend.findTask('AC-20')).toMatchObject({
         title: 'Example updated task',
         description: '**Example description**',
-        labels: ['bug', 'example'],
       }),
     );
     expect(project.requests).toContainEqual({
@@ -376,7 +327,6 @@ describe('task editing and subtasks', () => {
       body: {
         title: 'Example updated task',
         description: '**Example description**',
-        labels: ['bug', 'example'],
       },
     });
     fireEvent.click(await screen.findByRole('button', { name: t('task.edit') }));

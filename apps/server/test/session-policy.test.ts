@@ -459,7 +459,6 @@ describe('routine git steps in the developer worktree (PM-77)', () => {
     'git commit -m x\nrm -rf /',
     'git commit -m "one\ntwo"',
     'git commit -m "$HOME"',
-    'git commit -m "a\\nb"',
     'git commit -m unbalanced"',
     'git add ~/notes',
     'git add $HOME',
@@ -589,7 +588,24 @@ describe('routine git steps in the developer worktree (PM-77)', () => {
   });
 });
 
+describe('escapes inside double quotes', () => {
+  it.each([
+    'git commit -m "a\\nb"',
+    'git commit -m "costs \\$5, not \\`free\\`"',
+    'git commit -m "a\\$(rm -rf /)"',
+  ])('allows %s: the shell keeps it as literal message text', (command) => {
+    expect(verdict(command)).toEqual({ behavior: 'allow' });
+  });
+});
+
 describe('read-only commands for any AI session on a task (PM-69)', () => {
+  it('allows a grep whose double-quoted pattern escapes dots, as a developer wrote it in the first trial', () => {
+    const command = `cd ${cwd}/apps/web/src && grep -rnE "task\\.(edit|save|move\\.|labels\\.a)" . | head -40`;
+    expect(commandVerdict({ ...input, readableRoots: [cwd], toolInput: { command } })).toEqual({
+      behavior: 'allow',
+    });
+  });
+
   const allowed = { behavior: 'allow' };
   const reviewerCwd = '/workspace';
   const roots = [reviewerCwd, cwd];

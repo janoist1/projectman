@@ -34,6 +34,14 @@ describe('shell words: words and quotes', () => {
     // Double quotes hide operators and unquoted specials, and allow \" and \\.
     ['echo "a && b; c | d > e < f ( ) { } ~ # ! * ?"', ['echo', 'a && b; c | d > e < f ( ) { } ~ # ! * ?']],
     [String.raw`echo "say \"hi\" \\ done"`, ['echo', String.raw`say "hi" \ done`]],
+    // Other backslashes stay literal in double quotes, and an escaped $ or backtick is plain text.
+    [String.raw`echo "\$HOME"`, ['echo', '$HOME']],
+    [String.raw`echo "\`ls\`"`, ['echo', '`ls`']],
+    [String.raw`echo "a\nb"`, ['echo', String.raw`a\nb`]],
+    [
+      String.raw`grep -rnE "task\.(edit|save|move\.)" apps/web/src`,
+      ['grep', '-rnE', String.raw`task\.(edit|save|move\.)`, 'apps/web/src'],
+    ],
     ['echo "tab\there"', ['echo', 'tab\there']],
     ['echo "emoji 🙂 é — →"', ['echo', 'emoji 🙂 é — →']],
     // A tilde, hash or equals sign that cannot start an expansion or a comment is plain text.
@@ -181,9 +189,6 @@ describe('shell words: everything unsafe or unclear is refused', () => {
     ['a braced parameter in double quotes', 'echo "${HOME}"'],
     ['a substitution in double quotes', 'echo "$(ls)"'],
     ['a backtick in double quotes', 'echo "`ls`"'],
-    ['an escaped dollar in double quotes', 'echo "\\$HOME"'],
-    ['an escaped backtick in double quotes', 'echo "\\`ls\\`"'],
-    ['an escaped letter in double quotes', 'echo "a\\nb"'],
     ['a trailing backslash in double quotes', 'echo "a\\'],
     // Characters outside the safe set.
     ['a no-break space', 'echo a b'],

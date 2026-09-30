@@ -6,8 +6,9 @@
  *
  * - Words are made of unquoted "safe" characters (letters, digits and `_ - . / , : = + @ % * ? [ ]
  *   ^ #`, where the shell expands `* ? [ ]` inside the current directory), single-quoted text
- *   (literal) and double-quoted text. Inside double quotes `$`, a backtick and every backslash
- *   other than `\"` and `\\` are refused.
+ *   (literal) and double-quoted text. Inside double quotes an unescaped `$` or backtick is
+ *   refused; a backslash escapes only `$`, a backtick, `"` and `\\` (as in POSIX shells) and
+ *   stays literal before anything else, so `"task\.(edit|save)"` reads as `task\.(edit|save)`.
  * - Segments are separated by `&&`, `||` and `;`; the stages of a pipeline by `|`.
  * - The only redirections are `2>&1`, `>/dev/null`, `1>/dev/null` and `2>/dev/null`, each a word
  *   of its own.
@@ -145,8 +146,10 @@ function readWord(command: string, start: number): { text: string; end: number }
         if (inner === '"') break;
         if (inner === '\\') {
           const escaped = command[j + 1];
-          if (escaped !== '"' && escaped !== '\\') return null;
-          text += escaped;
+          if (escaped === undefined) return null;
+          // POSIX: inside double quotes a backslash escapes only $ ` " \ (and a newline, refused
+          // above); before anything else both characters are kept.
+          text += '$`"\\'.includes(escaped) ? escaped : `\\${escaped}`;
           j += 2;
         } else {
           text += inner;

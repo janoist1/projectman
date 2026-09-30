@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { holdersAllow } from '@projectman/shared';
-import type { InviteAccess } from '@projectman/shared';
+import type { InviteAccess, MemberView } from '@projectman/shared';
 import { useCreateInvite, useRoles } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
@@ -12,22 +12,30 @@ import { t } from '../../i18n/t';
 import { humanRoleName } from '../../lib/roles';
 import styles from '../invites/Invites.module.css';
 
-export function InviteDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function InviteDialog({
+  open,
+  onClose,
+  member,
+}: {
+  open: boolean;
+  onClose: () => void;
+  member?: MemberView;
+}) {
   return (
     <Dialog open={open} onClose={onClose} title={t('invites.title')}>
-      <InviteForm />
+      <InviteForm key={member?.handle ?? 'new'} member={member} />
     </Dialog>
   );
 }
 
-function InviteForm() {
+function InviteForm({ member }: { member?: MemberView }) {
   const { key, isOwner } = useProject();
   const roles = useRoles(key);
   const create = useCreateInvite(key);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
-  const [access, setAccess] = useState<InviteAccess>('developer');
-  const [selected, setSelected] = useState<string[]>([]);
+  const [access, setAccess] = useState<InviteAccess>(member ? (member.role as InviteAccess) : 'developer');
+  const [selected, setSelected] = useState<string[]>(member?.roles ?? []);
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const levels: InviteAccess[] = isOwner
@@ -37,6 +45,7 @@ function InviteForm() {
     event.preventDefault();
     create.mutate({
       email: email.trim(),
+      ...(member ? { memberHandle: member.handle } : {}),
       ...(name.trim() ? { displayName: name.trim() } : {}),
       access,
       roles: selected,
@@ -81,12 +90,14 @@ function InviteForm() {
         required
         autoFocus
       />
-      <TextField
-        label={t('invites.name')}
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-        optional
-      />
+      {member ? null : (
+        <TextField
+          label={t('invites.name')}
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          optional
+        />
+      )}
       <fieldset className={styles.choices}>
         <legend>{t('invites.access')}</legend>
         {levels.map((level) => (
@@ -101,31 +112,33 @@ function InviteForm() {
           />
         ))}
       </fieldset>
-      <fieldset className={styles.choices}>
-        <legend>{t('invites.roles')}</legend>
-        {roles.isPending ? (
-          <LoadingState compact />
-        ) : roles.isError ? (
-          <ErrorState compact error={roles.error} onRetry={() => void roles.refetch()} />
-        ) : (
-          roles.data.roles
-            .filter((role) => holdersAllow(role.holders, 'human'))
-            .map((role) => (
-              <label key={role.id}>
-                <input
-                  type="checkbox"
-                  checked={selected.includes(role.id)}
-                  onChange={(event) =>
-                    setSelected((current) =>
-                      event.target.checked ? [...current, role.id] : current.filter((id) => id !== role.id),
-                    )
-                  }
-                />{' '}
-                {role.name}
-              </label>
-            ))
-        )}
-      </fieldset>
+      {member ? null : (
+        <fieldset className={styles.choices}>
+          <legend>{t('invites.roles')}</legend>
+          {roles.isPending ? (
+            <LoadingState compact />
+          ) : roles.isError ? (
+            <ErrorState compact error={roles.error} onRetry={() => void roles.refetch()} />
+          ) : (
+            roles.data.roles
+              .filter((role) => holdersAllow(role.holders, 'human'))
+              .map((role) => (
+                <label key={role.id}>
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(role.id)}
+                    onChange={(event) =>
+                      setSelected((current) =>
+                        event.target.checked ? [...current, role.id] : current.filter((id) => id !== role.id),
+                      )
+                    }
+                  />{' '}
+                  {role.name}
+                </label>
+              ))
+          )}
+        </fieldset>
+      )}
       {create.isError ? <ErrorState compact error={create.error} /> : null}
       <Button variant="primary" type="submit" loading={create.isPending} disabled={!roles.data}>
         {t('invites.create')}

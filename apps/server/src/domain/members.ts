@@ -1,5 +1,6 @@
 import {
   AiMemberConfig,
+  HumanMemberConfig,
   DEFAULT_AGENT_PROVIDER,
   modelForProvider,
   holdersAllow,
@@ -8,6 +9,7 @@ import {
 } from '@projectman/shared';
 import type {
   Actor,
+  AddHumanMemberRequest,
   HireMemberRequest,
   MemberStatus,
   MemberView,
@@ -19,9 +21,9 @@ import { aiMemberDefaults } from '@projectman/templates';
 import { findHumanByEmail, ownerHandles } from './access';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
-import { conflict, invalid, notFound } from './errors';
+import { conflict, forbidden, invalid, notFound } from './errors';
 import type { InboxService } from './inbox';
-import { defaultMemberHandle, defaultMemberName } from './naming';
+import { defaultMemberHandle, defaultMemberName, humanMemberHandle } from './naming';
 import type { PresenceService } from './presence';
 import type { Author, ConfigChange, ProjectService } from './projects';
 import { isOpenTask } from './tasks';
@@ -103,7 +105,7 @@ export class MemberService {
           role: m.access,
           roles: m.roles,
           specialty: null,
-          status: this.presence.isOnline(m.email) ? 'online' : 'offline',
+          status: !m.email ? 'no_account' : this.presence.isOnline(m.email) ? 'online' : 'offline',
           activity: null,
           currentTaskKeys,
           sponsor: null,
@@ -138,6 +140,35 @@ export class MemberService {
     for (const s of this.ctx.repos.memberState.list(projectKey)) taken.add(s.handle);
     for (const s of this.ctx.repos.sessions.list(projectKey)) taken.add(s.member);
     return taken;
+  }
+
+  async addHuman(
+    projectKey: string,
+    req: AddHumanMemberRequest,
+    by: { actor: Actor; author: Author },
+  ): Promise<MemberView> {
+    let handle = '';
+    await this.projects.update(projectKey, by, (draft) => {
+      const actor = draft.team.members.find((member) => member.handle === by.actor.handle);
+      if (by.actor.kind !== 'human' || actor?.kind !== 'human' || !['owner', 'admin'].includes(actor.access))
+        throw forbidden('insufficient_access', 'owner or admin required');
+      for (const role of req.roles) assertRoleFor(draft, role, 'human');
+      const taken = this.takenHandles(projectKey, draft);
+      if (req.handle && taken.has(req.handle))
+        throw conflict('handle_taken', `handle already used: ${req.handle}`);
+      handle = req.handle ?? humanMemberHandle(req.displayName, taken);
+      draft.team.members.push(
+        HumanMemberConfig.parse({
+          kind: 'human',
+          handle,
+          displayName: req.displayName,
+          access: req.access,
+          roles: unique(req.roles),
+        }),
+      );
+      return `Add human member ${handle} without account`;
+    });
+    return (await this.roster(projectKey)).find((member) => member.handle === handle)!;
   }
 
   /**

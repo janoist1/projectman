@@ -40,7 +40,7 @@ export const PROVIDER_EFFORT_OPTIONS: Record<AgentProvider, readonly AgentEffort
   codex: ['low', 'medium', 'high', 'xhigh'],
 };
 
-/** Runtime status shown on member avatars. Humans: online/offline/invited; AI: idle/working/waiting. */
+/** Runtime status shown on member avatars. Humans: online/offline/invited/no_account; AI: idle/working/waiting. */
 export const MemberStatus = z.enum([
   'idle',
   'working',
@@ -48,6 +48,7 @@ export const MemberStatus = z.enum([
   'online',
   'offline',
   'invited',
+  'no_account',
   'retired',
 ]);
 export type MemberStatus = z.infer<typeof MemberStatus>;

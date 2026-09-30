@@ -1,0 +1,25 @@
+import { describe, expect, it } from 'vitest';
+import type { TimelineEvent } from '@projectman/shared';
+import { t } from '../i18n/t';
+import { describeEvent } from './timeline';
+
+const creation: TimelineEvent = {
+  id: 'fictional-event',
+  projectKey: 'AC',
+  taskKey: 'AC-1',
+  sessionId: null,
+  actor: { kind: 'human', handle: 'owner' },
+  type: 'task_created',
+  data: { title: 'Fictional ticket' },
+  createdAt: '2024-03-12T09:15:00.000Z',
+};
+const context = { pipeline: null, members: new Map(), myHandle: 'owner', openInboxIds: new Set<string>() };
+
+describe('creation timeline labels', () => {
+  it('distinguishes imported history from normal creation', () => {
+    expect(describeEvent(creation, context).text).toBe(t('timeline.events.task_created'));
+    expect(describeEvent({ ...creation, data: { ...creation.data, imported: true } }, context).text).toBe(
+      t('timeline.events.task_created_imported'),
+    );
+  });
+});

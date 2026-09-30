@@ -32,6 +32,8 @@ export interface ConfigChangeMeta {
   actor: Actor;
   author: Author;
   message: string;
+  /** Internal invitation acceptance may claim only this previously unbound seat. */
+  invitationBinding?: { handle: string; email: string };
 }
 
 export interface ConfigChange {
@@ -240,7 +242,7 @@ export class ProjectService {
   /** Read-modify-write of the configuration; `change` edits the draft and returns the commit message. */
   async update(
     key: string,
-    meta: { actor: Actor; author: Author },
+    meta: { actor: Actor; author: Author; invitationBinding?: { handle: string; email: string } },
     change: (draft: ProjectConfig) => string,
   ): Promise<LoadedProject> {
     return this.locks.run(`config:${key}`, async () => {
@@ -275,7 +277,12 @@ export class ProjectService {
   }
 
   /** Owner-only rules for configuration edits by humans. */
-  static assertChangeAllowed(previous: ProjectConfig, next: ProjectConfig, access: HumanAccess): void {
+  static assertChangeAllowed(
+    previous: ProjectConfig,
+    next: ProjectConfig,
+    access: HumanAccess,
+    invitationBinding?: ConfigChangeMeta['invitationBinding'],
+  ): void {
     if (access === 'owner') return;
     const locations = (config: ProjectConfig) =>
       JSON.stringify({
@@ -289,7 +296,13 @@ export class ProjectService {
       const old = previous.team.members.find((m) => m.handle === member.handle);
       if (
         (member.access === 'admin' && (old?.kind !== 'human' || old.access !== 'admin')) ||
-        (old?.kind === 'human' && (old.email ?? '').toLowerCase() !== (member.email ?? '').toLowerCase())
+        (old?.kind === 'human' &&
+          (old.email ?? '').toLowerCase() !== (member.email ?? '').toLowerCase() &&
+          !(
+            invitationBinding?.handle === member.handle &&
+            !old.email &&
+            member.email === invitationBinding.email
+          ))
       )
         throw forbidden('owner_only', 'only an owner may grant admin access or change account bindings');
     }
@@ -350,7 +363,7 @@ export class ProjectService {
     if (meta.actor.kind !== 'system') {
       if (meta.actor.kind !== 'human' || member?.kind !== 'human')
         throw forbidden('owner_only', 'AI cannot change configuration');
-      ProjectService.assertChangeAllowed(current.config, next, member.access);
+      ProjectService.assertChangeAllowed(current.config, next, member.access, meta.invitationBinding);
     } else {
       ProjectService.assertChangeAllowed(current.config, next, 'admin');
     }

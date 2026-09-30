@@ -1,3 +1,4 @@
+import { InviteDialog } from './InviteDialog';
 import { useState } from 'react';
 import { providerModelLabel } from './providerModels';
 import { Link, useNavigate, useParams } from 'react-router';
@@ -87,6 +88,7 @@ export function MemberProfilePage() {
   const start = useStartConversation(key);
   const remove = useRemoveHuman(key);
   const read = useReadTeamMessage(key);
+  const [inviting, setInviting] = useState(false);
   const [editing, setEditing] = useState(false);
   const [retiring, setRetiring] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -128,6 +130,9 @@ export function MemberProfilePage() {
             <Button disabled={!roles.data || (ai && !config.data)} onClick={() => setEditing(true)}>
               {t('memberEdit.edit')}
             </Button>
+          ) : null}
+          {!ai && can.manageTeam && member.status === 'no_account' ? (
+            <Button onClick={() => setInviting(true)}>{t('invites.create')}</Button>
           ) : null}
           {ai && can.manageTeam ? (
             <Button onClick={() => setRetiring(true)}>{t('team.retire')}</Button>
@@ -306,6 +311,7 @@ export function MemberProfilePage() {
           onSent={() => setReply(null)}
         />
       </section>
+      <InviteDialog open={inviting} member={member} onClose={() => setInviting(false)} />
       <EditMemberDialog
         member={editing ? member : null}
         config={config.data?.config}

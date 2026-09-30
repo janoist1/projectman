@@ -10,6 +10,7 @@ export interface AppendTimelineInput {
   actor: Actor;
   type: TimelineEventType;
   data: Record<string, unknown>;
+  createdAt?: string;
 }
 
 /** Append-only, attributed audit trail ("who did what"), per task and project. */
@@ -29,7 +30,7 @@ export class TimelineService {
       actor: input.actor,
       type: input.type,
       data: input.data,
-      createdAt: isoNow(this.ctx),
+      createdAt: input.createdAt ?? isoNow(this.ctx),
     };
     this.ctx.repos.timeline.insert(event);
     this.ctx.bus.publish({ type: 'timeline_appended', projectKey: event.projectKey, event });

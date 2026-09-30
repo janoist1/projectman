@@ -12,6 +12,7 @@ import type {
   CreateProjectRequest,
   CreateTaskRequest,
   HireMemberRequest,
+  AddHumanMemberRequest,
   InboxItem,
   InboxView,
   LoginRequest,
@@ -146,6 +147,20 @@ export function useStartTask(key: string) {
 
 export function useMembers(key: string) {
   return useQuery({ queryKey: queryKeys.members(key), queryFn: () => api.members(key) });
+}
+
+export function useAddHumanMember(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: AddHumanMemberRequest) => api.addHumanMember(key, body),
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.members(key) }),
+        client.invalidateQueries({ queryKey: queryKeys.board(key) }),
+        client.invalidateQueries({ queryKey: queryKeys.config(key) }),
+      ]);
+    },
+  });
 }
 
 export function useHireMember(key: string) {

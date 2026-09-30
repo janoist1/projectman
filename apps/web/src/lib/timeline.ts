@@ -71,7 +71,9 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
   const normal = (text: string): DescribedEvent => ({ text, emphasis: 'normal' });
   switch (event.type) {
     case 'task_created':
-      return normal(t('timeline.events.task_created'));
+      return normal(
+        t(d.imported === true ? 'timeline.events.task_created_imported' : 'timeline.events.task_created'),
+      );
     case 'task_updated': {
       if (d.action === 'cancelled')
         return normal(

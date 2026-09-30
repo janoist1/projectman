@@ -31,6 +31,7 @@ export const routes = {
   schedules: (key: string) => `/api/projects/${key}/schedules`,
   runSchedule: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/schedule/run`,
 
+  addHumanMember: (key: string) => `/api/projects/${key}/members/human`,
   members: (key: string) => `/api/projects/${key}/members`,
   member: (key: string, handle: string) => `/api/projects/${key}/members/${handle}`,
 
@@ -85,6 +86,7 @@ export const routeMethods = {
   acceptInvite: 'POST',
   schedules: 'GET',
   runSchedule: 'POST',
+  addHumanMember: 'POST',
   members: 'GET | POST',
   member: 'PATCH | DELETE',
   roles: 'GET | POST',

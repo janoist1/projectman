@@ -39,6 +39,200 @@ describe('colleague invitation API', () => {
   }
   const publicPath = (invite: CreatedInvitation) => invite.path.replace('/invite/', '/api/invites/');
 
+  const colleague = { displayName: 'Kata Kovacs', handle: 'colleague', access: 'viewer', roles: ['qa'] };
+  async function addColleague(input = colleague, cookie = owner) {
+    return call('POST', '/api/projects/AR/members/human', cookie, input);
+  }
+
+  it('adds an unclaimed human seat with validation, attribution and unique derived handles', async () => {
+    const added = await addColleague();
+    expect(added.statusCode, added.body).toBe(201);
+    expect(added.json()).toMatchObject({
+      handle: 'colleague',
+      displayName: colleague.displayName,
+      roles: ['qa'],
+      status: 'no_account',
+    });
+    const config = await h.app.projectman.domain.projects.config('AR');
+    expect(config.team.members.at(-1)).not.toHaveProperty('email');
+    expect(h.app.projectman.repos.users.count()).toBe(1);
+    expect((await call('GET', '/api/projects/AR/invites', owner)).json().invitations).toEqual([]);
+    expect((await h.app.projectman.configStore.history('AR'))[0]).toMatchObject({
+      author: ownerLogin.name,
+      message: 'Add human member colleague without account',
+    });
+    for (const expected of ['kata-kovacs', 'kata-kovacs-2']) {
+      const result = await call('POST', '/api/projects/AR/members/human', owner, {
+        displayName: 'Kata Kovacs',
+        access: 'developer',
+        roles: [],
+      });
+      expect(result.statusCode, result.body).toBe(201);
+      expect(result.json().handle).toBe(expected);
+    }
+    for (const [input, code] of [
+      [colleague, 'handle_taken'],
+      [{ ...colleague, handle: 'bad_handle' }, 'invalid_request'],
+      [{ ...colleague, displayName: ' ' }, 'invalid_request'],
+      [{ ...colleague, access: 'owner' }, 'invalid_request'],
+      [{ ...colleague, roles: ['unknown'] }, 'unknown_role'],
+    ] as const) {
+      const response = await call('POST', '/api/projects/AR/members/human', owner, input);
+      expect(response.json().error.code).toBe(code);
+    }
+    expect((await addColleague(colleague, '')).statusCode).toBe(401);
+  });
+
+  it.each([false, true])(
+    'binds the saved seat and preserves its identity and history (existing account: %s)',
+    async (existing) => {
+      await addColleague();
+      const { domain, repos } = h.app.projectman;
+      const task = await domain.tasks.create(
+        'AR',
+        { title: 'Fictional migrated task' },
+        { kind: 'human', handle: 'owner' },
+      );
+      domain.tasks.assign('AR', task.key, 'colleague', { kind: 'human', handle: 'owner' });
+      domain.tasks.addNote('AR', task.key, 'Fictional history', { kind: 'human', handle: 'colleague' });
+      const history = domain.timeline.list('AR', { taskKey: task.key });
+      let caller: string | undefined;
+      if (existing) {
+        repos.users.insert(
+          await h.app.projectman.auth.prepareUser({ ...newAccount, email: invitation.email }),
+        );
+        caller = cookieOf(
+          await call('POST', '/api/auth/login', undefined, {
+            email: invitation.email,
+            password: newAccount.password,
+          }),
+        );
+      }
+      const createdResponse = await call('POST', '/api/projects/AR/invites', owner, {
+        ...invitation,
+        memberHandle: 'colleague',
+      });
+      expect(createdResponse.statusCode, createdResponse.body).toBe(201);
+      const created = createdResponse.json<CreatedInvitation>();
+      expect(created).toMatchObject({
+        memberHandle: 'colleague',
+        displayName: colleague.displayName,
+        roles: ['qa'],
+      });
+      const accepted = await call(
+        'POST',
+        `${publicPath(created)}/accept`,
+        caller,
+        existing ? {} : newAccount,
+      );
+      expect(accepted.statusCode, accepted.body).toBe(200);
+      expect(accepted.json().handles).toEqual({ AR: 'colleague' });
+      expect(
+        (await domain.projects.config('AR')).team.members.filter((member) => member.handle === 'colleague'),
+      ).toEqual([{ kind: 'human', ...colleague, email: invitation.email, access: invitation.access }]);
+      expect(domain.tasks.get('AR', task.key).assignee).toBe('colleague');
+      expect(domain.timeline.list('AR', { taskKey: task.key })).toEqual(history);
+      expect(
+        (await domain.members.roster('AR')).find((member) => member.handle === 'colleague')?.status,
+      ).toBe('offline');
+    },
+  );
+
+  it('rejects missing, AI, claimed and already invited seats, including concurrent invites', async () => {
+    for (const [memberHandle, code, status] of [
+      ['missing', 'invite_member_not_found', 404],
+      ['dev-1', 'invite_member_not_human', 400],
+      ['owner', 'member_has_account', 409],
+    ] as const) {
+      const response = await call('POST', '/api/projects/AR/invites', owner, { ...invitation, memberHandle });
+      expect([response.statusCode, response.json().error.code]).toEqual([status, code]);
+    }
+    await addColleague();
+    const responses = await Promise.all(
+      [1, 2].map(() =>
+        call('POST', '/api/projects/AR/invites', owner, { ...invitation, memberHandle: 'colleague' }),
+      ),
+    );
+    expect(responses.map((response) => response.statusCode).sort()).toEqual([201, 409]);
+    const rejected = responses.find((response) => response.statusCode === 409)!;
+    expect(rejected.json().error.code).toBe('member_invite_pending');
+    const created = responses.find((response) => response.statusCode === 201)!.json<CreatedInvitation>();
+    await call('DELETE', `/api/projects/AR/invites/${created.id}`, owner);
+    expect(
+      (await call('POST', '/api/projects/AR/invites', owner, { ...invitation, memberHandle: 'colleague' }))
+        .statusCode,
+    ).toBe(201);
+  });
+
+  it.each(['removed', 'claimed', 'same_email', 'ai'])(
+    'rechecks the seat on acceptance after it is %s',
+    async (change) => {
+      await addColleague();
+      const created = (
+        await call('POST', '/api/projects/AR/invites', owner, { ...invitation, memberHandle: 'colleague' })
+      ).json<CreatedInvitation>();
+      await h.app.projectman.domain.projects.update(
+        'AR',
+        { actor: { kind: 'human', handle: 'owner' }, author: ownerLogin },
+        (draft) => {
+          if (change === 'ai') {
+            draft.team.members = draft.team.members.filter((member) => member.handle !== 'colleague');
+            draft.team.members.push({
+              kind: 'ai',
+              handle: 'colleague',
+              displayName: 'Fictional agent',
+              role: 'qa',
+              model: 'opus',
+              permissionMode: 'default',
+              capacity: 1,
+              instructions: '',
+              sponsor: 'owner',
+              temp: false,
+            });
+          } else if (change === 'removed')
+            draft.team.members = draft.team.members.filter((member) => member.handle !== 'colleague');
+          else {
+            const member = draft.team.members.find((member) => member.handle === 'colleague')!;
+            if (member.kind === 'human')
+              member.email = change === 'same_email' ? invitation.email : 'other@acme.test';
+          }
+          return 'Change fictional unclaimed seat';
+        },
+      );
+      const response = await call('POST', `${publicPath(created)}/accept`, undefined, newAccount);
+      expect(response.json().error.code).toBe(
+        change === 'removed'
+          ? 'invite_member_not_found'
+          : change === 'ai'
+            ? 'invite_member_not_human'
+            : 'member_has_account',
+      );
+      expect(h.app.projectman.repos.users.count()).toBe(1);
+      expect(h.app.projectman.repos.invitations.get(created.id)?.acceptedAt).toBeNull();
+    },
+  );
+
+  it('allows admins to add and invite unclaimed seats without granting privileged access', async () => {
+    const adminInvite = await invite({ ...invitation, email: 'admin@acme.test', access: 'admin', roles: [] });
+    const admin = cookieOf(await call('POST', `${publicPath(adminInvite)}/accept`, undefined, newAccount));
+    expect((await addColleague(colleague, admin)).statusCode).toBe(201);
+    for (const input of [
+      { ...colleague, handle: 'new-admin', access: 'admin' },
+      { ...colleague, handle: 'approver', roles: ['operator'] },
+    ]) {
+      const result = await addColleague(input, admin);
+      expect(result.statusCode, result.body).toBe(403);
+    }
+    const created = (
+      await call('POST', '/api/projects/AR/invites', admin, { ...invitation, memberHandle: 'colleague' })
+    ).json<CreatedInvitation>();
+    const accepted = await call('POST', `${publicPath(created)}/accept`, undefined, newAccount);
+    expect(accepted.statusCode, accepted.body).toBe(200);
+    expect(accepted.json().handles.AR).toBe('colleague');
+    const developer = cookieOf(accepted);
+    expect((await addColleague({ ...colleague, handle: 'forbidden' }, developer)).statusCode).toBe(403);
+  });
+
   it('returns a one-time path, stores only SHA-256, lists without secrets and exposes public details', async () => {
     const created = await invite({ ...invitation, email: ' KATA@acme.test ' });
     const token = created.path.split('/').at(-1)!;

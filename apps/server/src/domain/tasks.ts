@@ -185,6 +185,11 @@ export class TaskService {
     opts: { sessionId?: string | null } = {},
   ): Promise<Task> {
     const config = await this.projects.config(projectKey);
+    if (req.importedAt !== undefined) {
+      const member = config.team.members.find((member) => member.handle === actor.handle);
+      if (actor.kind !== 'human' || member?.kind !== 'human' || member.access !== 'owner')
+        throw forbidden('owner_only', 'only an owner may import tasks');
+    }
     const first = config.pipeline.stages[0]!;
     const target = req.stageId ? findStage(config, req.stageId) : first;
     const title = req.title.trim();
@@ -193,7 +198,7 @@ export class TaskService {
     if (repo && !config.project.repos.some((r) => r.name === repo)) {
       throw invalid('unknown_repo', `unknown repository: ${repo}`);
     }
-    const at = isoNow(this.ctx);
+    const at = req.importedAt ?? isoNow(this.ctx);
     const task: Task = {
       id: newId('tsk'),
       projectKey,
@@ -216,13 +221,16 @@ export class TaskService {
     };
     if (target.id !== first.id) {
       // A new task has no checks or links: it may start in any stage up to the first gated one.
-      const evaluation = evaluateGates(task, stagesEntered(config.pipeline, first.id, target.id), config);
-      if (evaluation.unmet.length > 0 || evaluation.approvals.length > 0) throw gateBlockedError(evaluation);
-      task.stageId = target.id;
-      if (target.kind === 'done') {
-        task.status = 'done';
-        task.closedAt = at;
+      if (req.importedAt === undefined) {
+        const evaluation = evaluateGates(task, stagesEntered(config.pipeline, first.id, target.id), config);
+        if (evaluation.unmet.length > 0 || evaluation.approvals.length > 0)
+          throw gateBlockedError(evaluation);
       }
+      task.stageId = target.id;
+    }
+    if (target.kind === 'done') {
+      task.status = 'done';
+      task.closedAt = at;
     }
     task.key = `${projectKey}-${this.ctx.repos.counters.next(projectKey, 'task')}`;
     this.ctx.repos.tasks.insert(task);
@@ -232,7 +240,8 @@ export class TaskService {
       sessionId: opts.sessionId ?? null,
       actor,
       type: 'task_created',
-      data: { title },
+      data: { title, ...(req.importedAt !== undefined ? { imported: true } : {}) },
+      createdAt: at,
     });
     this.publish(task);
     return task;

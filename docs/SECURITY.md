@@ -32,7 +32,11 @@ tenants into separate OS accounts or machines.
   terminal operations. API responses are not cached; pages suppress referrers.
 - REST and team tools check membership, access, project/resource ownership and
   current gate eligibility. Initial host owner alone creates projects. Account
-  bindings, filesystem locations, admin grants and release approvers are owner-only.
+  rebinding, filesystem locations, admin grants and release approvers are owner-only.
+  Owners and admins may invite an existing human seat without an email; acceptance
+  binds only that still-unclaimed seat to the invited account, preserving its identity
+  and roles. Inviter privileges are checked again under the config lock. Task import
+  mode (original dates and bypassed stage gates) is owner-only and starts no work.
 - Hook/MCP capabilities have 192 random bits and map to live sessions. Lookup is by
   complete random token, with no prefix comparison; signed cookies use the cookie
   library's signature verification. Hook permissions bind to the token-selected

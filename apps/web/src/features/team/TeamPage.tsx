@@ -18,6 +18,7 @@ import { humanRoleName, aiRoleView } from '../../lib/roles';
 import { MemberScheduleControl, RecentScheduleRuns } from './ScheduledRuns';
 import { EditMemberDialog } from './EditMemberDialog';
 import { RoleSection } from './RoleSection';
+import { AddHumanDialog } from './AddHumanDialog';
 import { InviteDialog } from './InviteDialog';
 import { PendingInvites } from './PendingInvites';
 import { HireDialog } from './HireDialog';
@@ -33,6 +34,7 @@ const statusRank: Record<string, number> = {
   online: 3,
   idle: 4,
   offline: 5,
+  no_account: 6,
   invited: 6,
   retired: 7,
 };
@@ -50,6 +52,8 @@ export function TeamPage() {
   const messages = useTeamMessages(key);
   const indexes = useProjectIndexes(key);
   const [filter, setFilter] = useState<MemberFilter>('all');
+  const [addHumanOpen, setAddHumanOpen] = useState(false);
+  const [inviting, setInviting] = useState<MemberView | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [hireOpen, setHireOpen] = useState(false);
   const [retiring, setRetiring] = useState<MemberView | null>(null);
@@ -86,7 +90,8 @@ export function TeamPage() {
   const allMine = sponsors.size === 1 && myHandle !== null && sponsors.has(myHandle);
 
   const sponsorText = (member: MemberView) => {
-    if (member.kind === 'human') return t('team.ownAccount');
+    if (member.kind === 'human')
+      return t(member.status === 'no_account' ? 'memberStatus.no_account' : 'team.ownAccount');
     if (!member.sponsor) return t('common.dash');
     return member.sponsor === myHandle
       ? t('team.sponsorYou')
@@ -132,6 +137,11 @@ export function TeamPage() {
           {t('memberEdit.edit')}
         </Button>
       ) : null}
+      {can.manageTeam && member.kind === 'human' && member.status === 'no_account' ? (
+        <Button variant="ghost" size="sm" onClick={() => setInviting(member)}>
+          {t('invites.create')}
+        </Button>
+      ) : null}
       {retireButton(member)}
     </>
   );
@@ -174,6 +184,7 @@ export function TeamPage() {
             </span>
           </div>
         ) : null}
+        {can.manageTeam ? <Button onClick={() => setAddHumanOpen(true)}>{t('addHuman.title')}</Button> : null}
         {can.manageTeam ? <Button onClick={() => setInviteOpen(true)}>{t('invites.title')}</Button> : null}
         {can.manageTeam ? (
           <Button variant="primary" icon="plus" onClick={() => setHireOpen(true)}>
@@ -354,6 +365,12 @@ export function TeamPage() {
 
       <RecentScheduleRuns />
       <PendingInvites />
+      <AddHumanDialog open={addHumanOpen} onClose={() => setAddHumanOpen(false)} />
+      <InviteDialog
+        open={inviting !== null}
+        member={inviting ?? undefined}
+        onClose={() => setInviting(null)}
+      />
       <InviteDialog open={inviteOpen} onClose={() => setInviteOpen(false)} />
       <RoleSection config={config.data?.config} />
       <EditMemberDialog

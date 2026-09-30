@@ -106,18 +106,20 @@ export async function createAppHarness(
 
   const cli = opts.runner === 'fake-cli';
   const userHome = join(home, 'user');
+  const claudeConfig = join(userHome, '.claude.json');
+  const codexHome = join(userHome, '.codex');
   const port = cli ? await freePort() : 0;
   if (cli) {
     mkdirSync(userHome);
-    const claudeConfig = join(userHome, '.claude.json');
     const projects = opts.trustAll ? { [home]: { hasTrustDialogAccepted: true } } : {};
     writeFileSync(claudeConfig, JSON.stringify({ numStartups: 1, projects }));
+    // The fake CLIs read their locations from the environment they inherit.
     vi.stubEnv('HOME', userHome);
-    vi.stubEnv('CODEX_HOME', join(userHome, '.codex'));
+    vi.stubEnv('CODEX_HOME', codexHome);
     vi.stubEnv('FAKE_CLAUDE_CONFIG_FILE', claudeConfig);
     vi.stubEnv('FAKE_CLAUDE_TRANSCRIPT_DIR', join(userHome, 'transcripts'));
     modules.createRunnerModule = (options) => {
-      const module = createRunnerModule({ ...options, codexBin: FAKE_CODEX, claudeConfigPath: claudeConfig });
+      const module = createRunnerModule(options);
       // Plan usage would start `claude -p`; the fake CLIs have no plan.
       return { ...module, planUsage: { get: async () => null } };
     };
@@ -132,7 +134,15 @@ export async function createAppHarness(
     planUsageTtlMs: 0,
     doneCleanupDelayMs: 0,
     ...opts.app,
-    ...(cli ? { claudeBin: FAKE_CLAUDE, publicBaseUrl: `http://127.0.0.1:${port}` } : {}),
+    ...(cli
+      ? {
+          claudeBin: FAKE_CLAUDE,
+          codexBin: FAKE_CODEX,
+          codexHome,
+          claudeConfigPath: claudeConfig,
+          publicBaseUrl: `http://127.0.0.1:${port}`,
+        }
+      : {}),
     modules,
   });
   if (cli) await app.listen({ host: '127.0.0.1', port });

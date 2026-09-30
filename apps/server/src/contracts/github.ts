@@ -44,6 +44,8 @@ export interface GithubService {
 export interface GithubModuleOptions {
   /** Path or name of the GitHub CLI (default "gh"). Tests pass a fake. */
   ghBin: string;
+  /** Host whose `gh` login `isAvailable` checks (default "github.com"). */
+  ghHost?: string;
   pollIntervalMs: number;
   logger: FastifyBaseLogger;
 }

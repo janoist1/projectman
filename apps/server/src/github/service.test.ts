@@ -78,6 +78,14 @@ describe('isAvailable', () => {
     expect(call?.argv).toContain('--hostname=github.example.com');
   });
 
+  it('checks the host the server was configured with, not its own environment', async () => {
+    vi.stubEnv('GH_HOST', 'ignored.example.com');
+    const github = await service({}, { ghHost: 'github.example.com' });
+    await expect(github.isAvailable()).resolves.toBe(true);
+    const [call] = await fake.calls();
+    expect(call?.argv).toContain('--hostname=github.example.com');
+  });
+
   it('is false when gh is not logged in', async () => {
     const github = await service({
       auth: {

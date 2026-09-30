@@ -42,7 +42,7 @@ export function createGithubService(opts: GithubServiceOptions): GithubService {
     logger,
   });
   const jsonFields = `--json=${PULL_REQUEST_JSON_FIELDS.join(',')}`;
-  const host = opts.env?.GH_HOST || process.env.GH_HOST || 'github.com';
+  const host = opts.ghHost || opts.env?.GH_HOST || 'github.com';
 
   function assertRepo(repo: string): void {
     if (!isValidRepo(repo)) {

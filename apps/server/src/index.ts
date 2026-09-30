@@ -7,13 +7,14 @@ import type { BuildAppOptions, LoopbackHost } from './app';
 
 /**
  * Server entry point. The environment is read here, once, into the app's options (defaults:
- * APP_DEFAULTS in app.ts):
+ * APP_DEFAULTS in app.ts and the modules' own):
  *   PORT (4700), HOST (127.0.0.1; loopback only), PROJECTMAN_HOME (~/.projectman),
- *   CLAUDE_BIN (claude), GH_BIN (gh), LOG_LEVEL (info)
- * The modules still read these themselves, and the CLIs they start inherit them:
- *   CODEX_BIN (codex) and CODEX_HOME (~/.codex): the runner's Codex provider
- *   CLAUDE_CONFIG_DIR (~): where the runner finds Claude Code's .claude.json (workspace trust)
- *   GH_HOST (github.com): the GitHub module
+ *   CLAUDE_BIN (claude), CODEX_BIN (codex), GH_BIN (gh), LOG_LEVEL (info),
+ *   CODEX_HOME (~/.codex): where the runner reads Codex's transcripts and plan usage,
+ *   CLAUDE_CONFIG_DIR (~): where the runner finds Claude Code's .claude.json (workspace trust),
+ *   GH_HOST (github.com): the host whose `gh` login the GitHub module checks.
+ * The agent CLIs start with this environment, minus billing and host-session variables (the
+ * runner removes them); the git and gh commands the server runs inherit it.
  * Remote access goes through Tailscale (`tailscale serve`), not by binding publicly.
  */
 
@@ -38,7 +39,12 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
       home: resolve(env.PROJECTMAN_HOME ?? join(homedir(), '.projectman')),
       publicBaseUrl: loopbackBaseUrl(host, port),
       claudeBin: env.CLAUDE_BIN,
+      codexBin: env.CODEX_BIN,
+      codexHome: env.CODEX_HOME || undefined,
+      claudeConfigPath: env.CLAUDE_CONFIG_DIR ? join(env.CLAUDE_CONFIG_DIR, '.claude.json') : undefined,
+      agentEnv: env,
       ghBin: env.GH_BIN,
+      ghHost: env.GH_HOST || undefined,
       logger: env.LOG_LEVEL === undefined ? undefined : { level: env.LOG_LEVEL },
       webDistDir: existsSync(join(webDist, 'index.html')) ? webDist : null,
     },

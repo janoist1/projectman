@@ -66,7 +66,9 @@ export const APP_DEFAULTS = {
   port: 4700,
   host: '127.0.0.1' satisfies LoopbackHost,
   claudeBin: 'claude',
+  codexBin: 'codex',
   ghBin: 'gh',
+  ghHost: 'github.com',
   logLevel: 'info',
   permissionTimeoutMs: 10 * 60_000,
   githubPollIntervalMs: 60_000,
@@ -79,8 +81,21 @@ export interface BuildAppOptions {
   publicBaseUrl?: string;
   /** Claude Code CLI (default "claude"). */
   claudeBin?: string;
+  /** OpenAI Codex CLI (default "codex"). */
+  codexBin?: string;
+  /** Codex's home, where it keeps transcripts (default: the runner's, ~/.codex). */
+  codexHome?: string;
+  /** Claude Code's global config file, where workspace trust is recorded (default: ~/.claude.json). */
+  claudeConfigPath?: string;
+  /**
+   * The environment the agent CLIs start with (the runner removes billing and host-session
+   * variables); index.ts passes the server's. Default: the runner's own default.
+   */
+  agentEnv?: NodeJS.ProcessEnv;
   /** GitHub CLI (default "gh"). */
   ghBin?: string;
+  /** Host whose `gh` login is checked (default "github.com"). */
+  ghHost?: string;
   /** Pino options, or false; default: level "info". */
   logger?: FastifyServerOptions['logger'];
   /** Built web app served with an SPA fallback; null = API only. */
@@ -160,6 +175,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       modules.github ??
       createGithubService({
         ghBin: options.ghBin ?? APP_DEFAULTS.ghBin,
+        ghHost: options.ghHost ?? APP_DEFAULTS.ghHost,
         pollIntervalMs: options.githubPollIntervalMs ?? APP_DEFAULTS.githubPollIntervalMs,
         logger: log.child({ module: 'github' }),
       });
@@ -178,6 +194,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       createRunner: (broker) =>
         makeRunner({
           claudeBin: options.claudeBin ?? APP_DEFAULTS.claudeBin,
+          codexBin: options.codexBin ?? APP_DEFAULTS.codexBin,
+          codexHome: options.codexHome,
+          claudeConfigPath: options.claudeConfigPath,
+          env: options.agentEnv,
           publicBaseUrl,
           broker,
           permissionTimeoutMs: options.permissionTimeoutMs ?? APP_DEFAULTS.permissionTimeoutMs,

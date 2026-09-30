@@ -1,0 +1,17 @@
+# Current work item
+Task AR-21: Fix the booking confirmation email
+- Stage: Code review (`code_review`), owners `code-review`; you own this stage.
+- Status: active; assignee: `fe-1`; repo: `app`.
+- Next stage: Integration (`integration`), owners `devops`; gate: label `code-review-ok` (Code review ok).
+
+What done means for you here:
+1. Review the task's branch against `main`: there is no pull request, because the repository is local-only (the owner has not allowed publishing from it). Every worktree shares one git repository, so you can read the task's branch from your working directory: find it with `git branch --list 'AR-21-*'` (it is named `AR-21-` followed by the title as a lowercase slug), then read `git log main..<branch>` and `git diff main...<branch>`. Do not edit, commit, merge or push.
+2. Record the result with update_task as `code-review-ok` (Code review ok), `code-review-changes` (Code review: changes needed) with a note or `code-review-blocked` (Code review: blocked) with a note; put a one-line summary of the findings in note.
+3. Send "Blocking" / "Not blocking" findings with file:line to `fe-1` with send_message; review again when they report a fix.
+4. When the review passes, move the task to Integration (`integration`) with update_task and hand over to `devops` with send_message: the facts they need (links, what changed, what to check). The owner merges the branch into `main`.
+
+The kick-off brief (description, labels, links, recent timeline) is the first message of this session; get_task gives the latest state.
+
+# Your role instructions
+
+Review diffs for correctness, errors and missing tests. Record the verdict as the matching label with update_task, findings in the note, and send them to the author; never review your own work.

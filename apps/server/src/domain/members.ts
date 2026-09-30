@@ -5,12 +5,14 @@ import {
   modelForProvider,
   holdersAllow,
   MemberHandle,
+  memberDuties,
   roleHolders,
 } from '@projectman/shared';
 import type {
   Actor,
   AddHumanMemberRequest,
   HireMemberRequest,
+  MemberProfile,
   MemberStatus,
   MemberView,
   ProjectConfig,
@@ -18,7 +20,8 @@ import type {
   UpdateMemberRequest,
 } from '@projectman/shared';
 import { aiMemberDefaults } from '@projectman/templates';
-import { findHumanByEmail, ownerHandles } from './access';
+import { findHumanByEmail, ownerHandles, stageApprovers } from './access';
+import type { ProjectAccess } from './access';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
 import { conflict, forbidden, invalid, notFound } from './errors';
@@ -26,10 +29,14 @@ import type { InboxService } from './inbox';
 import { defaultMemberHandle, defaultMemberName, humanMemberHandle } from './naming';
 import type { PresenceService } from './presence';
 import type { Author, ConfigChange, ProjectService } from './projects';
+import type { Scheduler } from './scheduler';
+import type { SessionOrchestrator } from './sessions';
 import { isOpenTask } from './tasks';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
 import { unique } from './util';
+import { canSeeTask, isClient } from './visibility';
+import type { Viewer } from './visibility';
 
 const ENDED_SESSION_STATES = new Set<SessionState>(['exited', 'failed']);
 
@@ -132,6 +139,22 @@ export class MemberService {
         permissionMode: m.permissionMode,
       };
     });
+  }
+
+  /**
+   * Sponsor of an AI member hired (or a temp worker started) on a human's request: the requester
+   * when they are an owner, otherwise the first owner (in v1 every AI member runs on the owner's
+   * subscription).
+   */
+  async sponsorFor(requester: ProjectAccess): Promise<string> {
+    if (requester.access === 'owner') return requester.handle;
+    return ownerHandles(await this.projects.config(requester.projectKey))[0] ?? requester.handle;
+  }
+
+  /** Handles of the team's human members. */
+  async humanHandles(projectKey: string): Promise<string[]> {
+    const config = await this.projects.config(projectKey);
+    return config.team.members.filter((m) => m.kind === 'human').map((m) => m.handle);
   }
 
   /** Handles in use now or in the past (config, runtime state incl. retired, sessions). */
@@ -462,6 +485,82 @@ export class MemberService {
         });
       }
     }
+  }
+}
+
+/**
+ * A member's profile page: the roster entry, duties, open work (assigned, in a session, waiting
+ * for their approval or answer), inbox, timeline and sessions, as the viewer may see them.
+ * Separate from MemberService because it reads the sessions and the scheduler's load, which
+ * are built after the roster.
+ */
+export class MemberProfiles {
+  private readonly ctx: DomainContext;
+  private readonly projects: ProjectService;
+  private readonly members: MemberService;
+  private readonly tasks: TaskService;
+  private readonly inbox: InboxService;
+  private readonly sessions: Pick<SessionOrchestrator, 'list'>;
+  private readonly scheduler: Pick<Scheduler, 'memberLoad'>;
+
+  constructor(deps: {
+    ctx: DomainContext;
+    projects: ProjectService;
+    members: MemberService;
+    tasks: TaskService;
+    inbox: InboxService;
+    sessions: Pick<SessionOrchestrator, 'list'>;
+    scheduler: Pick<Scheduler, 'memberLoad'>;
+  }) {
+    this.ctx = deps.ctx;
+    this.projects = deps.projects;
+    this.members = deps.members;
+    this.tasks = deps.tasks;
+    this.inbox = deps.inbox;
+    this.sessions = deps.sessions;
+    this.scheduler = deps.scheduler;
+  }
+
+  async profile(projectKey: string, handle: string, viewer: Viewer): Promise<MemberProfile> {
+    const config = await this.projects.config(projectKey);
+    const original = config.team.members.find((m) => m.handle === handle);
+    const member = this.members.rosterFor(config).find((m) => m.handle === handle);
+    if (!original || !member) throw notFound('member', handle);
+    const internal = !isClient(viewer);
+    const approverStages = new Set(
+      config.pipeline.stages.filter((s) => stageApprovers(config, s).includes(handle)).map((s) => s.id),
+    );
+    const openInbox = this.inbox
+      .list(projectKey)
+      .filter((i) => i.state === 'open' && i.assignees.includes(handle));
+    const awaitingKeys = new Set(openInbox.map((i) => i.taskKey));
+    const visibleTasks = this.tasks.list(projectKey).filter((t) => canSeeTask(viewer, t));
+    const visibleKeys = new Set(visibleTasks.map((t) => t.key));
+    return {
+      member: { ...member, currentTaskKeys: member.currentTaskKeys.filter((k) => visibleKeys.has(k)) },
+      duties: memberDuties(config, original),
+      tasks: visibleTasks.filter(
+        (t) =>
+          !['done', 'cancelled'].includes(t.status) &&
+          (t.assignee === handle ||
+            member.currentTaskKeys.includes(t.key) ||
+            approverStages.has(t.stageId) ||
+            awaitingKeys.has(t.key)),
+      ),
+      // A client sees only their own open inbox.
+      inbox: internal || handle === viewer.handle ? openInbox : [],
+      timeline: internal ? this.ctx.repos.timeline.forMember(projectKey, handle) : [],
+      sessions: internal
+        ? this.sessions
+            .list(projectKey, { member: handle })
+            .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
+        : [],
+      capacity: original.kind === 'ai' ? original.capacity : null,
+      capacityUsed: original.kind === 'ai' && internal ? this.scheduler.memberLoad(projectKey, handle) : 0,
+      ...(original.kind === 'human' && ['owner', 'admin'].includes(viewer.access) && original.email
+        ? { email: original.email }
+        : {}),
+    };
   }
 }
 

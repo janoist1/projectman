@@ -11,9 +11,9 @@ import {
 } from '@projectman/shared';
 import type { Task, TaskDetail } from '@projectman/shared';
 import type { Domain } from '../domain';
-import { conflict, isOpenTask, notFound } from '../domain';
+import { notFound } from '../domain';
 import { canSeeTask, visibleTaskDetail } from '../domain/visibility';
-import { actorOf, authorOf, requireAccess, sponsorFor } from './context';
+import { actorOf, authorOf, requireAccess } from './context';
 import { parseBody } from './validation';
 
 type ProjectParams = { Params: { key: string } };
@@ -52,9 +52,8 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
   app.post<TaskParams>(routes.taskComments(':key', ':taskKey'), async (request, reply) => {
     const { key, taskKey } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'developer' });
+    // Imported comments (author and time from elsewhere) are owner-only; the domain enforces it.
     const { text, ...imported } = parseBody(CreateTaskCommentRequest, request.body);
-    if (imported.importedAuthor !== undefined || imported.importedAt !== undefined)
-      await requireAccess(domain, request, key, { minimum: 'owner' });
     await domain.tasks.addNote(key, taskKey, text, actorOf(access), null, imported);
     return reply.code(201).send(domain.tasks.detail(key, taskKey));
   });
@@ -92,7 +91,7 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
       assignee: body.assignee,
       actor: actorOf(access),
       author: authorOf(request),
-      sponsor: await sponsorFor(domain, access),
+      sponsor: await domain.members.sponsorFor(access),
     });
     return domain.tasks.detail(key, taskKey);
   });

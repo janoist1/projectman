@@ -38,6 +38,14 @@ export class AuthService {
     return this.repos.users.count() === 0;
   }
 
+  /**
+   * The initial host owner: the account created by the first-run setup, the only one trusted
+   * with host operations such as choosing a workspace directory for a new project.
+   */
+  isHostOwner(userId: string): boolean {
+    return this.repos.users.list()[0]?.id === userId;
+  }
+
   /** First-run setup: creates the owner account; refused once any user exists. */
   async createFirstUser(input: { name: string; email: string; password: string }): Promise<UserRecord> {
     if (!this.needsSetup()) throw conflict('already_set_up', 'the owner account already exists');

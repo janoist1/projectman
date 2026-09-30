@@ -8,7 +8,7 @@ import {
   TaskKey,
 } from '@projectman/shared';
 import type { Session, SessionDetail, TeamMessagesView } from '@projectman/shared';
-import { forbidden, notFound } from '../domain';
+import { notFound } from '../domain';
 import type { Domain } from '../domain';
 import { canSeeTask, teamMessageMember } from '../domain/visibility';
 import { requireAccess } from './context';
@@ -50,9 +50,7 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
 
   app.post<ProjectParams>(routes.sendTeamMessage(':key'), async (request, reply) => {
     const key = request.params.key;
-    const access = await requireAccess(domain, request, key);
-    if (!['owner', 'admin', 'developer', 'client'].includes(access.access))
-      throw forbidden('insufficient_access', 'Developer or client access required');
+    const access = await requireAccess(domain, request, key, { messaging: true });
     const body = parseBody(SendTeamMessageRequest, request.body);
     if (body.taskKey && !canSeeTask(access, domain.tasks.get(key, body.taskKey)))
       throw notFound('task', body.taskKey);
@@ -64,13 +62,7 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
     async (request) => {
       const { key, id } = request.params;
       const access = await requireAccess(domain, request, key);
-      const config = await domain.projects.config(key);
-      return domain.messages.markRead(
-        key,
-        id,
-        access.handle,
-        config.team.members.filter((m) => m.kind === 'human').map((m) => m.handle),
-      );
+      return domain.messages.markRead(key, id, access.handle, await domain.members.humanHandles(key));
     },
   );
 

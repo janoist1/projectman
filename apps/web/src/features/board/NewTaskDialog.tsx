@@ -31,11 +31,13 @@ function NewTaskForm({ formId, onDone }: { formId: string; onDone: () => void })
   const navigate = useNavigate();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [repo, setRepo] = useState('');
+  // null until the user picks one; a project with a single repo defaults to it.
+  const [pickedRepo, setRepo] = useState<string | null>(null);
   const [visibility, setVisibility] = useState<Visibility>('internal');
   const [labels, setLabels] = useState('');
   const [titleError, setTitleError] = useState<string | null>(null);
   const repos = config.data?.config.project.repos ?? [];
+  const repo = pickedRepo ?? (repos.length === 1 ? repos[0]!.name : '');
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();

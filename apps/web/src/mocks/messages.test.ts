@@ -132,6 +132,7 @@ describe('mock team messaging and profiles', () => {
     member.provider = 'codex';
     b.planUsage.weeklyPercent = 99;
     const first = Session.parse(b.handle('POST', `${base}/members/fe-1/conversation`, {}).body);
+    expect(first.provider).toBe('codex');
     b.handle('POST', `${base}/sessions/${first.id}/stop`, {});
     b.handle('POST', `${base}/messages`, { to: ['fe-1'], text: 'Acme resume' });
     const resumed = Session.parse(b.handle('POST', `${base}/members/fe-1/conversation`, {}).body);

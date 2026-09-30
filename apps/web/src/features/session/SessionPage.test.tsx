@@ -52,4 +52,13 @@ describe('session header public settings', () => {
     expect(project.requests.some((request) => request.path.endsWith('/config'))).toBe(false);
     expect(screen.getByText(t('session.chat.brief'))).toBeTruthy();
   });
+
+  it('names the agent CLI the session ran, even after the member switched', async () => {
+    const project = mockProject();
+    project.backend.findSession('ses_ac21_fe1')!.provider = 'claude';
+    project.backend.findMember('fe-1')!.provider = 'codex';
+    project.render(sessionRoute, '/sessions/ses_ac21_fe1');
+    expect(await screen.findByText(t('providers.claude'))).toBeTruthy();
+    expect(screen.queryByText(t('providers.codex'))).toBeNull();
+  });
 });

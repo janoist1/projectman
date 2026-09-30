@@ -20,7 +20,10 @@ import { prChip } from '../board/cardModel';
 import { shortPath } from './sessionModel';
 import styles from './SessionHeader.module.css';
 
-/** The session's crumbs, live status and stop, its title, and chips for stage, PR, branch and model. */
+/**
+ * The session's crumbs, live status and stop, its title, and chips for stage, PR, branch, the
+ * agent CLI the session runs (the member's for sessions from before it was recorded) and model.
+ */
 export function SessionHeader({
   session,
   task,
@@ -101,7 +104,7 @@ export function SessionHeader({
         <Chip tone="outline" size="md" mono title={t('session.chips.cwd', { cwd: session.cwd })}>
           {shortPath(session.cwd)}
         </Chip>
-        <ProviderBadge provider={member?.provider} />
+        <ProviderBadge provider={session.provider ?? member?.provider} />
         {member?.model ? <Chip size="md">{t('session.chips.model', { model: member.model })}</Chip> : null}
         {member?.permissionMode ? (
           <Chip size="md">

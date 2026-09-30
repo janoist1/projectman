@@ -1840,6 +1840,7 @@ export class MockBackend {
       member: assignee,
       workItem: { type: 'task', taskKey: task.key },
       claudeSessionId: mockUuid(Math.floor(Math.random() * 1e9)),
+      provider: this.providerOf(assignee),
       cwd: `/Users/owner/.projectman/worktrees/${fixtures.PROJECT_KEY}/${task.key}`,
       branch: `${taskSeq(task.key)}-work`,
       transcriptPath: null,
@@ -2007,6 +2008,12 @@ export class MockBackend {
     );
   }
 
+  /** Like the server, a session records the agent CLI it runs: the member's provider. */
+  private providerOf(handle: string): AgentProvider {
+    const member = memberOf(this.config, handle);
+    return (member?.kind === 'ai' ? member.provider : undefined) ?? DEFAULT_AGENT_PROVIDER;
+  }
+
   private planUsageFor(provider: AgentProvider): PlanUsage | null {
     return this.providerPlanUsage[provider] ?? (provider === 'claude' ? this.planUsage : this.codexPlanUsage);
   }
@@ -2091,6 +2098,7 @@ export class MockBackend {
       member: handle,
       workItem: { type: 'general' },
       claudeSessionId: mockUuid(this.sessions.length + 1),
+      provider: this.providerOf(handle),
       cwd: this.config.project.workspacePath,
       branch: null,
       transcriptPath: null,
@@ -2102,7 +2110,7 @@ export class MockBackend {
     };
     if (!existing) this.sessions.push(session);
     this.chats[session.id] ??= [];
-    this.updateSession(session.id, { state: 'idle', endedAt: null });
+    this.updateSession(session.id, { state: 'idle', endedAt: null, provider: this.providerOf(handle) });
     this.addTimeline(
       null,
       handle,
@@ -2171,6 +2179,7 @@ export class MockBackend {
       member: handle,
       workItem: { type: 'schedule', runId: run.id },
       claudeSessionId: mockUuid(this.sessions.length + 1),
+      provider: this.providerOf(handle),
       cwd: this.config.project.workspacePath,
       branch: null,
       transcriptPath: null,

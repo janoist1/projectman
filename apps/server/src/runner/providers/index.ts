@@ -6,18 +6,23 @@ import type { ProviderAdapter } from './types';
 
 export type ProviderAdapters = Record<AgentProvider, ProviderAdapter>;
 
-/** The adapters of every provider, configured from the runner options. */
+/**
+ * The adapters of every provider, configured from the runner options; what they leave out
+ * comes from the environment (`opts.env`, else `process.env`).
+ */
 export function createProviderAdapters(opts: RunnerModuleOptions): ProviderAdapters {
+  const env = opts.env ?? process.env;
   return {
     claude: createClaudeAdapter({
       bin: opts.claudeBin,
       logger: opts.logger,
       claudeConfigPath: opts.claudeConfigPath,
       trustWorkspaces: opts.trustWorkspaces,
+      env,
     }),
     codex: createCodexAdapter({
-      bin: opts.codexBin ?? process.env.CODEX_BIN ?? 'codex',
-      codexHome: opts.codexHome ?? defaultCodexHome(),
+      bin: opts.codexBin ?? env.CODEX_BIN ?? 'codex',
+      codexHome: opts.codexHome ?? defaultCodexHome(env),
       logger: opts.logger,
     }),
   };

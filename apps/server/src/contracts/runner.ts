@@ -183,6 +183,12 @@ export interface RunnerModuleOptions {
   codexBin?: string;
   /** Codex's home, where it keeps transcripts (default: $CODEX_HOME, else ~/.codex). Read only. */
   codexHome?: string;
+  /**
+   * The environment the runner reads its defaults from ($CODEX_BIN, $CODEX_HOME,
+   * $CLAUDE_CONFIG_DIR, PATH) and starts the CLIs with, after removing billing and host-session
+   * variables. Explicit options above take precedence. Default: `process.env`.
+   */
+  env?: NodeJS.ProcessEnv;
 }
 
 export interface RunnerModule {

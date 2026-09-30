@@ -117,15 +117,18 @@ function claudeTranscriptParser(opts: {
 export interface ClaudeAdapterOptions {
   bin: string;
   logger: FastifyBaseLogger;
+  /** Default: `$CLAUDE_CONFIG_DIR/.claude.json` of `env`, else `~/.claude.json`. */
   claudeConfigPath?: string;
   trustWorkspaces?: boolean;
+  /** Where CLAUDE_CONFIG_DIR is read and the usage probe's environment comes from (default: process.env). */
+  env?: NodeJS.ProcessEnv;
 }
 
 export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter {
   const log = opts.logger;
   const trust = async (cwd: string): Promise<void> => {
     if (opts.trustWorkspaces === false) return;
-    const configPath = opts.claudeConfigPath ?? defaultClaudeConfigPath();
+    const configPath = opts.claudeConfigPath ?? defaultClaudeConfigPath(opts.env);
     try {
       const outcome = await ensureWorkspaceTrusted(configPath, cwd);
       if (outcome.result === 'trusted')
@@ -182,6 +185,6 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
     async checkLogin(env): Promise<ProviderStatus> {
       return parseClaudeAuthStatus(await runQuietly(opts.bin, ['auth', 'status'], env));
     },
-    planUsage: createPlanUsageProvider({ claudeBin: opts.bin, logger: log }),
+    planUsage: createPlanUsageProvider({ claudeBin: opts.bin, logger: log, env: opts.env }),
   };
 }

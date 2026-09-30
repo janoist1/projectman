@@ -71,7 +71,7 @@ export class SessionManager implements SessionRunner {
     if (this.sessions.has(spec.sessionId)) throw new Error(`session ${spec.sessionId} is already running`);
     const dir = await stat(spec.cwd).catch(() => null);
     if (!dir?.isDirectory()) throw new Error(`working directory does not exist: ${spec.cwd}`);
-    const env = buildSessionEnv(process.env, spec.sessionId);
+    const env = buildSessionEnv(this.opts.env ?? process.env, spec.sessionId);
     if (!(await cliExists(adapter.bin, env.PATH))) {
       throw new Error(`${adapter.label} CLI not found: ${adapter.bin}`);
     }
@@ -135,7 +135,7 @@ export class SessionManager implements SessionRunner {
     let pending = this.statusChecks.get(provider);
     if (!pending) {
       pending = (async (): Promise<ProviderStatus> => {
-        const env = buildChildEnv(process.env);
+        const env = buildChildEnv(this.opts.env ?? process.env);
         if (!(await cliExists(adapter.bin, env.PATH))) {
           return {
             provider,

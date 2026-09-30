@@ -18,6 +18,7 @@ import { TeamMessage } from '../domain/message';
 import { LabelDefinition, LabelId } from '../domain/label';
 import { BoardColumn, Stage, StageId } from '../domain/pipeline';
 import { CustomRoleDefinition, RoleHolders, RoleId } from '../domain/role';
+import { ScheduleRun } from '../domain/schedule';
 import { Session } from '../domain/session';
 import { Task, TaskKey, Visibility } from '../domain/task';
 
@@ -47,6 +48,20 @@ export type Me = z.infer<typeof Me>;
 
 export const SetupStatus = z.object({ needsSetup: z.boolean() });
 export type SetupStatus = z.infer<typeof SetupStatus>;
+
+/* ---------- providers ---------- */
+
+/** Subscription login status of each supported runner provider. */
+export const ProviderLoginStatus = z.object({
+  provider: AgentProvider,
+  loggedIn: z.boolean().nullable(),
+  method: z.string().nullable(),
+  checkedAt: z.string(),
+  detail: z.string().optional(),
+});
+export type ProviderLoginStatus = z.infer<typeof ProviderLoginStatus>;
+export const ProvidersView = z.object({ providers: z.array(ProviderLoginStatus) });
+export type ProvidersView = z.infer<typeof ProvidersView>;
 
 /* ---------- projects ---------- */
 
@@ -147,6 +162,37 @@ export type UpdateMemberRequest = z.infer<typeof UpdateMemberRequest>;
 
 export const RetireMemberRequest = z.object({ handoverTo: MemberHandle.optional() });
 export type RetireMemberRequest = z.infer<typeof RetireMemberRequest>;
+
+export const MemberProfile = z.object({
+  member: MemberView,
+  duties: z.array(DutyId),
+  tasks: z.array(Task),
+  inbox: z.array(InboxItem),
+  timeline: z.array(TimelineEvent),
+  sessions: z.array(Session),
+  capacity: z.number().nullable(),
+  capacityUsed: z.number(),
+  email: z.string().optional(),
+});
+export type MemberProfile = z.infer<typeof MemberProfile>;
+export const MemberMemories = z.object({ memory: z.string() });
+export type MemberMemories = z.infer<typeof MemberMemories>;
+
+/* ---------- schedules ---------- */
+
+export const SchedulesView = z.object({
+  timezone: z.string(),
+  members: z.array(
+    z.object({
+      member: MemberHandle,
+      cron: z.string(),
+      promptSummary: z.string(),
+      nextRun: z.string().nullable(),
+    }),
+  ),
+  runs: z.array(ScheduleRun),
+});
+export type SchedulesView = z.infer<typeof SchedulesView>;
 
 /* ---------- roles ---------- */
 
@@ -298,6 +344,13 @@ export type SessionDetail = z.infer<typeof SessionDetail>;
 export const SendMessageRequest = z.object({ text: z.string().min(1) });
 export type SendMessageRequest = z.infer<typeof SendMessageRequest>;
 
+export const SendTeamMessageRequest = z.object({
+  to: z.array(MemberHandle).min(1).max(100),
+  text: z.string().trim().min(1).max(20000),
+  taskKey: TaskKey.optional(),
+});
+export type SendTeamMessageRequest = z.infer<typeof SendTeamMessageRequest>;
+
 export const TeamMessagesView = z.object({
   messages: z.array(TeamMessage),
   unreadCount: z.number().int().nonnegative().optional(),
@@ -401,37 +454,3 @@ export const AcceptInviteRequest = z.object({
   password: SetupRequest.shape.password.optional(),
 });
 export type AcceptInviteRequest = z.infer<typeof AcceptInviteRequest>;
-
-/** Subscription login status of each supported runner provider. */
-export const ProviderLoginStatus = z.object({
-  provider: AgentProvider,
-  loggedIn: z.boolean().nullable(),
-  method: z.string().nullable(),
-  checkedAt: z.string(),
-  detail: z.string().optional(),
-});
-export type ProviderLoginStatus = z.infer<typeof ProviderLoginStatus>;
-export const ProvidersView = z.object({ providers: z.array(ProviderLoginStatus) });
-export type ProvidersView = z.infer<typeof ProvidersView>;
-
-export const SendTeamMessageRequest = z.object({
-  to: z.array(MemberHandle).min(1).max(100),
-  text: z.string().trim().min(1).max(20000),
-  taskKey: TaskKey.optional(),
-});
-export type SendTeamMessageRequest = z.infer<typeof SendTeamMessageRequest>;
-
-export const MemberProfile = z.object({
-  member: MemberView,
-  duties: z.array(DutyId),
-  tasks: z.array(Task),
-  inbox: z.array(InboxItem),
-  timeline: z.array(TimelineEvent),
-  sessions: z.array(Session),
-  capacity: z.number().nullable(),
-  capacityUsed: z.number(),
-  email: z.string().optional(),
-});
-export type MemberProfile = z.infer<typeof MemberProfile>;
-export const MemberMemories = z.object({ memory: z.string() });
-export type MemberMemories = z.infer<typeof MemberMemories>;

@@ -1,0 +1,29 @@
+.card {
+  box-sizing: border-box;
+  padding: 16px 18px;
+  border-radius: var(--radius-2xl);
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.cardHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.cardTitle {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+@media (max-width: 767px) {
+  .card {
+    padding: 14px;
+  }
+}

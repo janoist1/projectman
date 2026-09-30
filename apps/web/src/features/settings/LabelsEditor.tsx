@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { DUTY_IDS, isHumanOnlyLabel, LabelColor } from '@projectman/shared';
-import type { DutyId, LabelDefinition, LabelSetBy, ProjectConfig } from '@projectman/shared';
+import type { DutyId, LabelDefinition, LabelSetBy } from '@projectman/shared';
 import { getLocale } from '@projectman/templates';
 import { useBoard } from '../../api/queries';
 import { useProject } from '../../app/contexts';
@@ -9,7 +9,8 @@ import { LabelChip } from '../../components/LabelChip';
 import { t } from '../../i18n/t';
 import { slugId } from '../../lib/ids';
 import { MemberSelect } from './PipelineEditor';
-import styles from './SettingsPage.module.css';
+import type { SectionEditorProps } from './SettingsEditor';
+import styles from './settings.module.css';
 
 type Who = 'anyone' | 'humans' | 'system' | 'duties' | 'members';
 
@@ -31,11 +32,7 @@ export function LabelsEditor({
   draft,
   change,
   isOwner,
-}: {
-  draft: ProjectConfig;
-  change: (update: (draft: ProjectConfig) => void) => void;
-  isOwner: boolean;
-}) {
+}: Pick<SectionEditorProps, 'draft' | 'change' | 'isOwner'>) {
   const { key } = useProject();
   const board = useBoard(key);
   const [open, setOpen] = useState<string | null>(null);

@@ -1,16 +1,15 @@
 import { createContext, useContext, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { ProjectConfig, PatchConfigRequest } from '@projectman/shared';
-import { usePatchConfig, useRoles } from '../../api/queries';
+import type { ProjectConfig, PatchConfigRequest, Pipeline } from '@projectman/shared';
+import { usePatchConfig } from '../../api/queries';
 import { isApiError } from '../../api/client';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { t } from '../../i18n/t';
-import { errorMessage } from '../../lib/errors';
-import styles from './SettingsPage.module.css';
-import { LabelsEditor } from './LabelsEditor';
 import { issueMessage } from '../../lib/configIssues';
-import { PipelineEditor } from './PipelineEditor';
+import type { IssueRef } from '../../lib/configIssues';
+import { errorMessage } from '../../lib/errors';
+import styles from './settings.module.css';
 
 type Section = 'project' | 'limits' | 'pipeline' | 'labels';
 type Edit = {
@@ -27,6 +26,18 @@ const EditingContext = createContext<{
   reload: () => Promise<View | undefined>;
 } | null>(null);
 
+/** What a section's editor gets: the draft, a way to change it, and the server's issues. */
+export interface SectionEditorProps {
+  draft: ProjectConfig;
+  change: (update: (draft: ProjectConfig) => void) => void;
+  isOwner: boolean;
+  /** The pipeline when editing began (removed stages can be restored from it). */
+  original: Pipeline;
+  /** The pipeline last sent, which issue paths refer to. */
+  submitted?: Pipeline;
+  issues: IssueRef[];
+}
+
 export function SettingsEditingProvider({
   view,
   reload,
@@ -42,10 +53,36 @@ export function SettingsEditingProvider({
   );
 }
 
-export function EditableSection({ section, children }: { section: Section; children: ReactNode }) {
+/** The part of the configuration a section saves (labels live in the pipeline). */
+function patchBody(section: Section, draft: ProjectConfig, baseVersion: string): PatchConfigRequest {
+  if (section === 'limits') return { baseVersion, limits: draft.team.limits };
+  if (section === 'project')
+    return {
+      baseVersion,
+      project: {
+        name: draft.project.name,
+        language: draft.project.language,
+        timezone: draft.project.timezone,
+      },
+    };
+  return { baseVersion, pipeline: draft.pipeline };
+}
+
+/**
+ * A section of the settings that admins can edit: its read-only view with an edit button, or
+ * while editing, the section's editor with save and cancel, and the server's refusal.
+ */
+export function EditableSection({
+  section,
+  editor,
+  children,
+}: {
+  section: Section;
+  editor: (props: SectionEditorProps) => ReactNode;
+  children: ReactNode;
+}) {
   const context = useContext(EditingContext);
   const { key, can, isOwner } = useProject();
-  const roles = useRoles(key);
   const save = usePatchConfig(key);
   const [reloading, setReloading] = useState(false);
   if (!context) return children;
@@ -82,157 +119,25 @@ export function EditableSection({ section, children }: { section: Section; child
         {children}
       </>
     );
-  const draft = active.draft;
   const details = isApiError(save.error)
-    ? (save.error.details as { issues?: { code: string; path: string }[] } | undefined)
+    ? (save.error.details as { issues?: IssueRef[] } | undefined)
     : undefined;
   return (
     <form
       onSubmit={(event) => {
         event.preventDefault();
-        // Labels live in the pipeline configuration.
-        const body: PatchConfigRequest = {
-          baseVersion: active.version,
-          [section === 'labels' ? 'pipeline' : section]:
-            section === 'limits'
-              ? draft.team.limits
-              : section === 'project'
-                ? {
-                    name: draft.project.name,
-                    language: draft.project.language,
-                    timezone: draft.project.timezone,
-                  }
-                : draft.pipeline,
-        };
-        save.mutate(body, { onSuccess: () => setEdit(null) });
+        save.mutate(patchBody(section, active.draft, active.version), { onSuccess: () => setEdit(null) });
       }}
     >
       <fieldset className={styles.editor} disabled={save.isPending || reloading}>
-        {section === 'project' ? (
-          <>
-            {(['name', 'language', 'timezone'] as const).map((field) => (
-              <label key={field} className={styles.field}>
-                {t(`settings.project.${field}`)}
-                <input
-                  value={draft.project[field]}
-                  onChange={(event) =>
-                    change((config) => {
-                      config.project[field] = event.target.value;
-                    })
-                  }
-                />
-              </label>
-            ))}
-          </>
-        ) : section === 'limits' ? (
-          <>
-            <label className={styles.field}>
-              {t('settings.limits.aiEnabled')}
-              <input
-                type="checkbox"
-                checked={draft.team.limits.aiEnabled}
-                aria-describedby="ai-enabled-help"
-                onChange={(event) =>
-                  change((config) => {
-                    config.team.limits.aiEnabled = event.target.checked;
-                  })
-                }
-              />
-            </label>
-            <p id="ai-enabled-help">{t('settings.limits.aiEnabledHelp')}</p>
-            <label className={styles.field}>
-              {t('settings.limits.maxConcurrentAi')}
-              <input
-                type="number"
-                min={1}
-                max={20}
-                value={draft.team.limits.maxConcurrentAi}
-                onChange={(event) =>
-                  change((config) => {
-                    config.team.limits.maxConcurrentAi = Number(event.target.value);
-                  })
-                }
-              />
-            </label>
-            <label className={styles.field}>
-              {t('settings.limits.pauseAbove')}
-              <input
-                type="range"
-                min={10}
-                max={100}
-                value={draft.team.limits.pauseAbovePlanUsagePercent}
-                onChange={(event) =>
-                  change((config) => {
-                    config.team.limits.pauseAbovePlanUsagePercent = Number(event.target.value);
-                  })
-                }
-              />
-              <output>
-                {t('settings.limits.pauseAboveValue', {
-                  percent: draft.team.limits.pauseAbovePlanUsagePercent,
-                })}
-              </output>
-            </label>
-            <label className={styles.field}>
-              {t('settings.limits.tempWorkers')}
-              <input
-                type="checkbox"
-                checked={draft.team.limits.tempWorkers.enabled}
-                onChange={(event) =>
-                  change((config) => {
-                    config.team.limits.tempWorkers.enabled = event.target.checked;
-                  })
-                }
-              />
-            </label>
-            <label className={styles.field}>
-              {t('settings.edit.tempMax')}
-              <input
-                type="number"
-                min={0}
-                max={5}
-                value={draft.team.limits.tempWorkers.max}
-                onChange={(event) =>
-                  change((config) => {
-                    config.team.limits.tempWorkers.max = Number(event.target.value);
-                  })
-                }
-              />
-            </label>
-            <label className={styles.field}>
-              {t('settings.team.role')}
-              <select
-                value={draft.team.limits.tempWorkers.role}
-                disabled={!roles.data}
-                onChange={(event) =>
-                  change((config) => {
-                    config.team.limits.tempWorkers.role = event.target.value;
-                  })
-                }
-              >
-                {(roles.data?.roles ?? [])
-                  .filter((role) => role.holders !== 'human')
-                  .map((role) => (
-                    <option key={role.id} value={role.id}>
-                      {role.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            {roles.isError ? <p role="alert">{errorMessage(roles.error)}</p> : null}
-          </>
-        ) : section === 'labels' ? (
-          <LabelsEditor draft={draft} change={change} isOwner={isOwner} />
-        ) : (
-          <PipelineEditor
-            draft={draft}
-            change={change}
-            isOwner={isOwner}
-            original={active.originalPipeline}
-            submitted={save.variables?.pipeline}
-            issues={details?.issues ?? []}
-          />
-        )}
+        {editor({
+          draft: active.draft,
+          change,
+          isOwner,
+          original: active.originalPipeline,
+          submitted: save.variables?.pipeline,
+          issues: details?.issues ?? [],
+        })}
         <div className={styles.actions}>
           <Button type="submit" variant="primary" loading={save.isPending}>
             {t('memberEdit.save')}

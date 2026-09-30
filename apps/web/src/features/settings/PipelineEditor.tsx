@@ -13,9 +13,10 @@ import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
 import { t } from '../../i18n/t';
 import { issueMessage } from '../../lib/configIssues';
-import type { IssueRef } from '../../lib/configIssues';
 import { slugId } from '../../lib/ids';
-import styles from './SettingsPage.module.css';
+import styles from './PipelineEditor.module.css';
+import type { SectionEditorProps } from './SettingsEditor';
+import shared from './settings.module.css';
 
 /** Stage and column ids follow the config's 32-character, lowercase underscore format. */
 function uniqueId(name: string, ids: string[]): string {
@@ -33,7 +34,7 @@ function StageFields({
 }) {
   return (
     <>
-      <label className={styles.field}>
+      <label className={shared.field}>
         {t('settings.project.name')}
         <input
           value={stage.name}
@@ -44,7 +45,7 @@ function StageFields({
           }
         />
       </label>
-      <label className={styles.field}>
+      <label className={shared.field}>
         {t('settings.pipeline.kindLabel')}
         <select
           value={stage.kind}
@@ -61,8 +62,8 @@ function StageFields({
           ))}
         </select>
       </label>
-      <p className={styles.muted}>{t(`settings.pipeline.kindHelp.${stage.kind}`)}</p>
-      <label className={styles.field}>
+      <p className={shared.muted}>{t(`settings.pipeline.kindHelp.${stage.kind}`)}</p>
+      <label className={shared.field}>
         {t('settings.pipeline.column')}
         <select
           value={stage.columnId}
@@ -79,7 +80,7 @@ function StageFields({
           ))}
         </select>
       </label>
-      <label className={styles.field}>
+      <label className={shared.field}>
         {t('settings.edit.description')}
         <textarea
           value={stage.description ?? ''}
@@ -105,7 +106,7 @@ function StageOwners({
 }) {
   return (
     <>
-      <label className={styles.field}>
+      <label className={shared.field}>
         {t('duties.duty')}
         <select
           value={stage.duty ?? ''}
@@ -124,7 +125,7 @@ function StageOwners({
           ))}
         </select>
       </label>
-      <p className={styles.muted}>
+      <p className={shared.muted}>
         {t(
           stage.duty && stage.owners === undefined
             ? 'settings.pipeline.dutyOwners'
@@ -208,7 +209,7 @@ function AddStage({
     >
       <legend>{t('settings.pipeline.addStage')}</legend>
       <StageFields stage={stage} pipeline={config.pipeline} update={update} />
-      <label className={styles.field}>
+      <label className={shared.field}>
         {t('settings.pipeline.afterStage')}
         <select value={after} onChange={(event) => setAfter(event.target.value)}>
           <option value="">{t('settings.pipeline.atStart')}</option>
@@ -220,7 +221,7 @@ function AddStage({
         </select>
       </label>
       <StageOwners stage={stage} config={config} update={update} />
-      <div className={styles.actions}>
+      <div className={shared.actions}>
         <Button disabled={!canAdd} onClick={add}>
           {t('settings.pipeline.createStage')}
         </Button>
@@ -244,7 +245,7 @@ export function MemberSelect({
   disabled?: boolean;
 }) {
   return (
-    <label className={styles.field}>
+    <label className={shared.field}>
       {label}
       <select
         multiple
@@ -262,21 +263,7 @@ export function MemberSelect({
   );
 }
 
-export function PipelineEditor({
-  draft,
-  change,
-  isOwner,
-  original,
-  submitted,
-  issues,
-}: {
-  draft: ProjectConfig;
-  change: (update: (draft: ProjectConfig) => void) => void;
-  isOwner: boolean;
-  original: Pipeline;
-  submitted?: Pipeline;
-  issues: IssueRef[];
-}) {
+export function PipelineEditor({ draft, change, isOwner, original, submitted, issues }: SectionEditorProps) {
   const [adding, setAdding] = useState(false);
   const [columnName, setColumnName] = useState('');
   const [columnError, setColumnError] = useState<string | null>(null);
@@ -300,11 +287,11 @@ export function PipelineEditor({
   );
   return (
     <>
-      <fieldset className={styles.conditions}>
+      <fieldset className={shared.conditions}>
         <legend>{t('settings.pipeline.columns')}</legend>
         {draft.pipeline.columns.map((column, index) => (
           <div key={column.id} className={styles.column}>
-            <label className={styles.field}>
+            <label className={shared.field}>
               {t('settings.pipeline.columnName')}
               <input
                 value={column.name}
@@ -356,7 +343,7 @@ export function PipelineEditor({
           </div>
         ))}
         {columnError && <p role="alert">{columnError}</p>}
-        <label className={styles.field}>
+        <label className={shared.field}>
           {t('settings.pipeline.columnName')}
           <input
             value={columnName}
@@ -377,7 +364,7 @@ export function PipelineEditor({
         {t('settings.pipeline.addStage')}
       </Button>
       {adding && <AddStage config={draft} change={change} close={() => setAdding(false)} />}
-      <ol className={styles.stages}>
+      <ol className={shared.stages}>
         {draft.pipeline.stages.map((stage, index) => {
           const conditions = stage.gate?.conditions ?? [];
           const isApproval = (id: string) => {
@@ -394,7 +381,7 @@ export function PipelineEditor({
               config.pipeline.stages[index]!.gate = next.length ? { conditions: next } : undefined;
             });
           return (
-            <li key={stage.id} className={styles.stage} aria-label={stage.name}>
+            <li key={stage.id} className={shared.stage} aria-label={stage.name}>
               <StageFields
                 stage={stage}
                 pipeline={draft.pipeline}
@@ -409,11 +396,11 @@ export function PipelineEditor({
                   );
                 })
                 .map((issue, i) => (
-                  <p key={i} className={styles.validation} role="alert">
+                  <p key={i} className={shared.validation} role="alert">
                     {issueMessage(issue)}
                   </p>
                 ))}
-              <div className={styles.actions}>
+              <div className={shared.actions}>
                 {([-1, 1] as const).map((offset) => (
                   <Button
                     key={offset}
@@ -442,7 +429,7 @@ export function PipelineEditor({
                 config={draft}
                 update={(update) => change((config) => update(config.pipeline.stages[index]!))}
               />
-              <fieldset className={styles.conditions}>
+              <fieldset className={shared.conditions}>
                 <legend>{t('settings.pipeline.gate')}</legend>
                 {conditions.map((condition, conditionIndex) => {
                   // Approvals (labels only humans may set) are the owner's to change.
@@ -450,8 +437,8 @@ export function PipelineEditor({
                   const replace = (next: GateCondition) =>
                     updateConditions(conditions.map((value, i) => (i === conditionIndex ? next : value)));
                   return (
-                    <div key={conditionIndex} className={styles.condition}>
-                      <label className={styles.field}>
+                    <div key={conditionIndex} className={shared.condition}>
+                      <label className={shared.field}>
                         {t('settings.edit.condition')}
                         <select
                           value={condition.type}
@@ -464,7 +451,7 @@ export function PipelineEditor({
                           <option value="lacks_label">{t('settings.edit.lacksLabel')}</option>
                         </select>
                       </label>
-                      <label className={styles.field}>
+                      <label className={shared.field}>
                         {t('settings.edit.label')}
                         <select
                           value={condition.label}
@@ -482,7 +469,7 @@ export function PipelineEditor({
                           ))}
                         </select>
                       </label>
-                      {locked ? <p className={styles.muted}>{t('settings.edit.approvalOwnerOnly')}</p> : null}
+                      {locked ? <p className={shared.muted}>{t('settings.edit.approvalOwnerOnly')}</p> : null}
                       <Button
                         variant="secondary"
                         disabled={locked}
@@ -506,7 +493,7 @@ export function PipelineEditor({
                     {t('settings.edit.addCondition')}
                   </Button>
                 ) : (
-                  <p className={styles.muted}>{t('settings.edit.noLabels')}</p>
+                  <p className={shared.muted}>{t('settings.edit.noLabels')}</p>
                 )}
               </fieldset>
             </li>
@@ -514,7 +501,7 @@ export function PipelineEditor({
         })}
       </ol>
       {removed.map((stage) => (
-        <div key={stage.id} className={styles.stage}>
+        <div key={stage.id} className={shared.stage}>
           <p>{t('settings.pipeline.removedStage', { stage: stage.name })}</p>
           <Button
             onClick={() =>

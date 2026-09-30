@@ -94,7 +94,7 @@ describe('colleague invitation API', () => {
         { kind: 'human', handle: 'owner' },
       );
       domain.tasks.assign('AR', task.key, 'colleague', { kind: 'human', handle: 'owner' });
-      domain.tasks.addNote('AR', task.key, 'Fictional history', { kind: 'human', handle: 'colleague' });
+      await domain.tasks.addNote('AR', task.key, 'Fictional history', { kind: 'human', handle: 'colleague' });
       const history = domain.timeline.list('AR', { taskKey: task.key });
       let caller: string | undefined;
       if (existing) {

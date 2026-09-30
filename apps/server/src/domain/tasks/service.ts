@@ -10,11 +10,12 @@ import type {
   TaskDetail,
   TaskStartWaiting,
   TaskLink,
-  UpdateTaskRequest,
+  Visibility,
 } from '@projectman/shared';
-import { evaluateMove, isOpenTask } from '@projectman/shared';
+import { evaluateMove, isOpenTask, memberOf } from '@projectman/shared';
 import type { LabelChangeReason, LabelClearTrigger } from '@projectman/shared';
 import type { PullRequestInfo } from '../../contracts';
+import type { TaskPatch } from '../../db';
 import { hasAccess } from '../access';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
@@ -25,11 +26,31 @@ import { PullRequestRecords } from '../pull-requests';
 import { LIVE_SESSION_STATES } from '../sessions';
 import type { TimelineService } from '../timeline';
 import { actorHandle, newId, unique } from '../util';
-import { planLabelsOrThrow, TaskLabels } from './labels';
+import { labelsChange, planLabelsOrThrow, TaskLabels } from './labels';
 import { approvalRequestedError, gateBlockedError, TaskMoves } from './moves';
 import type { MoveResult, StageChangeListener } from './moves';
-import { requireStage, TaskStore } from './store';
-import type { LabelNotifier, NoteNotifier } from './store';
+import { requireStage, runEffects, TaskStore } from './store';
+import type { Effect, LabelNotifier, NoteNotifier } from './store';
+
+/**
+ * A change of a task in one step. The REST PATCH sends the fields, the assignee and the whole
+ * label set; the update_task team tool sends labels to add and remove and a note.
+ */
+export interface TaskUpdate {
+  title?: string;
+  description?: string;
+  visibility?: Visibility;
+  parentKey?: string | null;
+  /** Owner/admin only; null clears the assignee. Starting work is a separate call. */
+  assignee?: string | null;
+  /** The whole label set: turned into additions and removals. */
+  labels?: string[];
+  addLabels?: string[];
+  removeLabels?: string[];
+  /** A comment for the timeline; with a label change it is the labels' comment. */
+  note?: string;
+  stageId?: string;
+}
 
 /**
  * Tasks: creation (keys KEY-n), edits, checks, links, notes, assignment and stage moves.
@@ -185,118 +206,135 @@ export class TaskService {
     });
   }
 
-  /** Applies a stage move first (gated); other fields are changed only if the move went through. */
+  /**
+   * Changes a task in one step, all or nothing (the REST PATCH and the update_task team tool):
+   * fields, assignee, labels and a note first, then the stage move, so one change can add the
+   * label a gate needs and pass it. Everything is validated before anything is written: label
+   * refusals, then the gates against the labels the task will have. A move that needs a human
+   * approval requests it with the rest applied and throws `approval_requested`.
+   */
   async update(
     projectKey: string,
     taskKey: string,
-    req: UpdateTaskRequest,
+    change: TaskUpdate,
     actor: Actor,
     opts: { sessionId?: string | null } = {},
   ): Promise<Task> {
-    if (req.assignee !== undefined) {
-      const config = await this.requireLifecycleAccess(projectKey, actor);
-      this.get(projectKey, taskKey);
-      if (req.assignee !== null && !config.team.members.some((m) => m.handle === req.assignee)) {
-        throw invalid('unknown_member', `unknown member: ${req.assignee}`);
-      }
-      const live = this.ctx.repos.sessions
-        .list(projectKey, { taskKey })
-        .find((s) => LIVE_SESSION_STATES.includes(s.state));
-      if (live) {
-        throw conflict('task_session_live', `task ${taskKey} has a live session`, { sessionId: live.id });
-      }
-    }
-    let task = this.get(projectKey, taskKey);
-    if (req.parentKey) this.validateParent(projectKey, taskKey, req.parentKey);
-    if (req.stageId !== undefined && req.stageId !== task.stageId) {
-      const result = await this.moveToStage(projectKey, taskKey, req.stageId, actor);
-      if (!result.moved) throw approvalRequestedError(result.pendingApproval);
-      task = result.task;
-    }
-    const next: Task = { ...task };
+    const config =
+      change.assignee !== undefined
+        ? await this.requireLifecycleAccess(projectKey, actor)
+        : await this.projects.config(projectKey);
+    const effects: Effect[] = [];
+    const result = this.ctx.unitOfWork(() =>
+      this.applyUpdate(config, this.get(projectKey, taskKey), change, actor, opts.sessionId ?? null, effects),
+    );
+    await runEffects(effects);
+    if (result.pendingApproval) throw approvalRequestedError(result.pendingApproval);
+    return result.task;
+  }
+
+  private applyUpdate(
+    config: ProjectConfig,
+    task: Task,
+    change: TaskUpdate,
+    actor: Actor,
+    sessionId: string | null,
+    effects: Effect[],
+  ): { task: Task; pendingApproval?: InboxItem[] } {
+    // Validate the whole change against the task as it will be.
+    const patch: TaskPatch = {};
     const fields: string[] = [];
-    if (req.title !== undefined && req.title.trim() !== task.title) {
-      if (!req.title.trim()) throw invalid('invalid_request', 'title must not be empty');
-      next.title = req.title.trim();
+    if (change.title !== undefined && change.title.trim() !== task.title) {
+      patch.title = change.title.trim();
+      if (!patch.title) throw invalid('invalid_request', 'title must not be empty');
       fields.push('title');
     }
-    if (req.description !== undefined && req.description !== task.description) {
-      next.description = req.description;
+    if (change.description !== undefined && change.description !== task.description) {
+      patch.description = change.description;
       fields.push('description');
     }
-    let labelChange: { added: string[]; removed: string[] } | null = null;
-    if (req.labels !== undefined && JSON.stringify(req.labels) !== JSON.stringify(task.labels)) {
-      const wanted = unique(req.labels.map((label) => label.trim()).filter(Boolean));
-      const plan = planLabelsOrThrow(
-        await this.projects.config(projectKey),
-        task,
-        {
-          add: wanted.filter((label) => !task.labels.includes(label)),
-          remove: task.labels.filter((label) => !wanted.includes(label)),
-        },
-        actor,
-        undefined,
-      );
-      next.labels = plan.labels;
-      labelChange = { added: plan.added, removed: plan.removed };
-    }
-    if (req.visibility !== undefined && req.visibility !== task.visibility) {
-      next.visibility = req.visibility;
+    if (change.visibility !== undefined && change.visibility !== task.visibility) {
+      patch.visibility = change.visibility;
       fields.push('visibility');
     }
-    if (req.parentKey !== undefined && req.parentKey !== (task.parentKey ?? null)) {
-      if (req.parentKey) this.validateParent(projectKey, taskKey, req.parentKey);
-      next.parentKey = req.parentKey;
+    if (change.parentKey) this.validateParent(task.projectKey, task.key, change.parentKey);
+    if (change.parentKey !== undefined && change.parentKey !== (task.parentKey ?? null)) {
+      patch.parentKey = change.parentKey;
       fields.push('parentKey');
     }
-    const assignmentChanged = req.assignee !== undefined && req.assignee !== task.assignee;
-    if (req.assignee !== undefined) next.assignee = req.assignee;
-    if (fields.length === 0 && !assignmentChanged && !labelChange) return task;
-    next.updatedAt = isoNow(this.ctx);
-    this.ctx.unitOfWork(() => {
-      this.store.write(task, {
-        title: next.title,
-        description: next.description,
-        labels: next.labels,
-        visibility: next.visibility,
-        parentKey: next.parentKey ?? null,
-        assignee: next.assignee,
-        updatedAt: next.updatedAt,
+    if (change.assignee !== undefined) {
+      if (change.assignee !== null && !memberOf(config, change.assignee))
+        throw invalid('unknown_member', `unknown member: ${change.assignee}`);
+      const live = this.ctx.repos.sessions
+        .list(task.projectKey, { taskKey: task.key })
+        .find((s) => LIVE_SESSION_STATES.includes(s.state));
+      if (live)
+        throw conflict('task_session_live', `task ${task.key} has a live session`, { sessionId: live.id });
+      if (change.assignee !== task.assignee) patch.assignee = change.assignee;
+    }
+    const note = change.note?.trim() || undefined;
+    const wanted = change.labels && unique(change.labels.map((label) => label.trim()).filter(Boolean));
+    const labels = planLabelsOrThrow(
+      config,
+      { ...task, ...patch },
+      wanted
+        ? {
+            add: wanted.filter((label) => !task.labels.includes(label)),
+            remove: task.labels.filter((label) => !wanted.includes(label)),
+          }
+        : { add: change.addLabels, remove: change.removeLabels },
+      actor,
+      note,
+    );
+    const moving = change.stageId !== undefined && change.stageId !== task.stageId;
+    if (moving) {
+      if (task.status === 'cancelled') throw conflict('task_closed', `task ${task.key} is cancelled`);
+      const prospective = { ...task, ...patch, labels: labels.labels };
+      const evaluation = evaluateMove(
+        prospective,
+        config,
+        task.stageId,
+        requireStage(config, change.stageId!).id,
+      );
+      if (evaluation.unmet.length > 0) throw gateBlockedError(evaluation);
+    }
+
+    // Apply it.
+    let next = task;
+    const labelsChanged = labelsChange(labels);
+    if (fields.length > 0 || patch.assignee !== undefined || labelsChanged) {
+      next = this.store.write(task, {
+        ...patch,
+        ...(labelsChanged ? { labels: labels.labels } : {}),
+        updatedAt: isoNow(this.ctx),
       });
-      if (fields.length > 0) {
+      if (fields.length > 0)
         this.timeline.append({
-          projectKey,
-          taskKey,
-          sessionId: opts.sessionId ?? null,
+          projectKey: task.projectKey,
+          taskKey: task.key,
+          sessionId,
           actor,
           type: 'task_updated',
           data: { fields },
         });
-      }
-      if (labelChange) {
+      if (labelsChanged)
+        this.labels.record(config, next, labels, actor, { comment: note, sessionId }, effects);
+      if (patch.assignee !== undefined)
         this.timeline.append({
-          projectKey,
-          taskKey,
-          sessionId: opts.sessionId ?? null,
-          actor,
-          type: 'task_labels_changed',
-          data: labelChange,
-        });
-      }
-      if (assignmentChanged) {
-        this.timeline.append({
-          projectKey,
-          taskKey,
+          projectKey: task.projectKey,
+          taskKey: task.key,
           actor,
           type: 'task_assigned',
           data: { assignee: next.assignee, previous: task.assignee },
         });
-      }
-      if (next.parentKey !== task.parentKey)
-        this.recordParentChange(next, task.parentKey ?? null, actor, opts.sessionId);
+      if (patch.parentKey !== undefined)
+        this.recordParentChange(next, task.parentKey ?? null, actor, sessionId);
       this.publish(next);
-    });
-    return next;
+    }
+    if (note && !labelsChanged) this.store.recordNote(config, next, note, actor, sessionId, effects);
+    if (!moving) return { task: next };
+    const moved = this.moves.move(config, next, change.stageId!, actor, effects);
+    return moved.moved ? { task: moved.task } : { task: moved.task, pendingApproval: moved.pendingApproval };
   }
 
   private validateParent(projectKey: string, taskKey: string | null, parentKey: string): void {

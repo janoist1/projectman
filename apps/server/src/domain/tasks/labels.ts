@@ -22,6 +22,11 @@ export interface LabelChangeOptions {
   reason?: LabelChangeReason;
 }
 
+/** Whether a planned change adds or removes anything. */
+export function labelsChange(plan: PlannedLabels): boolean {
+  return plan.added.length > 0 || plan.removed.length > 0;
+}
+
 /** Plans a label change under the project's label rules; a refusal throws the domain error. */
 export function planLabelsOrThrow(
   config: ProjectConfig,
@@ -106,8 +111,25 @@ export class TaskLabels {
     effects: Effect[],
   ): Task {
     const plan = planLabelsOrThrow(config, task, change, actor, opts.comment);
-    if (plan.added.length === 0 && plan.removed.length === 0) return task;
+    if (!labelsChange(plan)) return task;
     const next = this.store.write(task, { labels: plan.labels, updatedAt: isoNow(this.store.ctx) });
+    this.store.publish(next);
+    this.record(config, next, plan, actor, opts, effects);
+    return next;
+  }
+
+  /**
+   * Records a planned change already written to `task`: the timeline event, the comment, and
+   * (in `effects`) the notice to the assignee.
+   */
+  record(
+    config: ProjectConfig,
+    task: Task,
+    plan: PlannedLabels,
+    actor: Actor,
+    opts: LabelChangeOptions,
+    effects: Effect[],
+  ): void {
     this.store.timeline.append({
       projectKey: task.projectKey,
       taskKey: task.key,
@@ -116,14 +138,12 @@ export class TaskLabels {
       type: 'task_labels_changed',
       data: { added: plan.added, removed: plan.removed, ...(opts.reason ? { reason: opts.reason } : {}) },
     });
-    this.store.publish(next);
     const comment = opts.comment?.trim();
-    if (comment) this.store.recordNote(config, next, comment, actor, opts.sessionId ?? null, effects);
-    if (plan.notify.length > 0 && next.assignee && actor.handle && next.assignee !== actor.handle)
+    if (comment) this.store.recordNote(config, task, comment, actor, opts.sessionId ?? null, effects);
+    if (plan.notify.length > 0 && task.assignee && actor.handle && task.assignee !== actor.handle)
       effects.push(async () => {
-        await this.store.labelNotifier?.(next, plan.notify, actor, comment);
+        await this.store.labelNotifier?.(task, plan.notify, actor, comment);
       });
-    return next;
   }
 
   /** Takes off the labels of `task` that expire on `trigger`, in the running unit of work. */

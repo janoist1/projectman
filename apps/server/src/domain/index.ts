@@ -59,7 +59,7 @@ export type { StartTaskOptions, StartTaskResult } from './scheduler';
 export * from './session-policy';
 export { SessionOrchestrator, BUSY_SESSION_STATES, LIVE_SESSION_STATES } from './sessions';
 export { TaskService, isOpenTask } from './tasks';
-export type { MoveResult } from './tasks';
+export type { MoveResult, TaskUpdate } from './tasks';
 export { TeamToolsService } from './team-tools';
 export { TimelineService } from './timeline';
 export { SYSTEM_ACTOR, SYSTEM_AUTHOR, humanActor, aiActor } from './util';

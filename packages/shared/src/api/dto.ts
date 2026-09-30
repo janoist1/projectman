@@ -15,7 +15,7 @@ import {
   PermissionMode,
 } from '../domain/member';
 import { TeamMessage } from '../domain/message';
-import { BoardColumn, Stage, StageId } from '../domain/pipeline';
+import { BoardColumn, CheckName, CheckState, Stage, StageId } from '../domain/pipeline';
 import { CustomRoleDefinition, RoleHolders, RoleId } from '../domain/role';
 import { Session } from '../domain/session';
 import { Task, TaskKey, Visibility } from '../domain/task';
@@ -229,6 +229,13 @@ export const UpdateTaskRequest = z.object({
   assignee: MemberHandle.nullable().optional(),
 });
 export type UpdateTaskRequest = z.infer<typeof UpdateTaskRequest>;
+
+export const SetTaskCheckRequest = z.object({
+  check: CheckName,
+  state: CheckState,
+  note: z.string().optional(),
+});
+export type SetTaskCheckRequest = z.infer<typeof SetTaskCheckRequest>;
 
 export const CancelTaskRequest = z.object({ reason: z.string().optional() });
 export type CancelTaskRequest = z.infer<typeof CancelTaskRequest>;

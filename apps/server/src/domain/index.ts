@@ -177,6 +177,26 @@ export function createDomain(opts: DomainOptions) {
   tasks.onCancelled((task) => sessions.stopTask(task.projectKey, task.key));
   // Done tasks: temp workers leave; sessions stop and clean worktrees go away.
   tasks.onStageChanged((change) => scheduler.retireFinishedTempWorker(change));
+  // Human messages wake idle recipients in the background; stop() drains pending starts.
+  const messageStarts = new Set<Promise<void>>();
+  sessions.onMessageNeedsSession((projectKey, handle, workItem, messageId) => {
+    if (stopped) return;
+    const start = scheduler
+      .startMessageSession(projectKey, handle, workItem)
+      .then((session) => {
+        const message = ctx.repos.messages.get(messageId);
+        if (message && !message.receipts?.find((receipt) => receipt.handle === handle)?.deliveredAt)
+          sessions.deliverTeamMessage(session, message);
+      })
+      .catch((err: unknown) =>
+        opts.logger.info(
+          { err, projectKey, member: handle, messageId },
+          'team message session start deferred',
+        ),
+      )
+      .finally(() => messageStarts.delete(start));
+    messageStarts.add(start);
+  });
   // Later stages owned by AI members (review, QA, release, …) get their owner started, in the
   // background so a session start does not hold up the move; stop() waits for pending ones.
   const handOffs = new Set<Promise<void>>();
@@ -259,7 +279,7 @@ export function createDomain(opts: DomainOptions) {
       if (usageTimer) clearInterval(usageTimer);
       const drained = schedules.stop();
       githubSync.stop();
-      await Promise.allSettled(handOffs);
+      await Promise.allSettled([...handOffs, ...messageStarts]);
       sessions.dispose();
       await drained;
       await usageRefresh;

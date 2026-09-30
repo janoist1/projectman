@@ -37,6 +37,7 @@ import {
   SendMessageRequest,
   SetupRequest,
   StartTaskRequest,
+  SetTaskCheckRequest,
   UpdateTaskRequest,
 } from '@projectman/shared';
 import type {
@@ -632,6 +633,28 @@ export class MockBackend {
           this.sessions.filter((s) => s.workItem.type === 'task' && s.workItem.taskKey === task.key),
         ),
       });
+    }
+    if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/checks$/.exec(rest)) && method === 'POST') {
+      if (viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))
+        return error(403, 'insufficient_access', 'Developer access required');
+      const input = parseBody(SetTaskCheckRequest, body);
+      if (!input) return error(400, 'invalid_request', 'Invalid check result');
+      const task = this.findTask(m[1]!);
+      if (!task) return error(404, 'not_found', 'Unknown task');
+      if (['done', 'cancelled'].includes(task.status)) return error(409, 'task_closed', 'Task is closed');
+      if (input.check !== 'client_test' && taskAuthors(task).includes(this.viewerHandle))
+        return error(403, 'self_review_forbidden', 'The assignee and PR authors cannot review their task');
+      const from = task.checks[input.check] ?? null;
+      this.updateTask(task.key, { checks: { ...task.checks, [input.check]: input.state } });
+      if (from !== input.state)
+        this.addTimeline(task.key, this.viewerHandle, 'task_check_changed', {
+          check: input.check,
+          from,
+          to: input.state,
+        });
+      if (input.note !== undefined)
+        this.addTimeline(task.key, this.viewerHandle, 'task_note', { text: input.note });
+      return this.handleProject('GET', `/tasks/${task.key}`, undefined, query);
     }
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/start$/.exec(rest)) && method === 'POST') {
       return this.startTask(m[1]!, body);

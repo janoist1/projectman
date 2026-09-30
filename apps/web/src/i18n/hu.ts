@@ -413,6 +413,12 @@ export const hu = {
   },
 
   task: {
+    checks: {
+      title: 'Ellenőrzések',
+      state: 'Eredmény',
+      note: 'Megjegyzés',
+      save: 'Eredmény mentése',
+    },
     move: {
       target: 'Áthelyezés szakaszba',
       submit: 'Áthelyezés',

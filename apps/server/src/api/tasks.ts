@@ -5,11 +5,12 @@ import {
   ReopenTaskRequest,
   routes,
   StartTaskRequest,
+  SetTaskCheckRequest,
   UpdateTaskRequest,
 } from '@projectman/shared';
 import type { Task, TaskDetail } from '@projectman/shared';
 import type { Domain } from '../domain';
-import { notFound } from '../domain';
+import { conflict, isOpenTask, notFound } from '../domain';
 import { actorOf, authorOf, canSeeTask, detailFor, requireAccess, sponsorFor } from './context';
 import { parseBody } from './validation';
 
@@ -44,6 +45,18 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
     const body = parseBody(UpdateTaskRequest, request.body);
     if (body.assignee !== undefined) await requireAccess(domain, request, key, { minimum: 'admin' });
     return domain.tasks.update(key, taskKey, body, actorOf(access));
+  });
+
+  app.post<TaskParams>(routes.taskChecks(':key', ':taskKey'), async (request): Promise<TaskDetail> => {
+    const { key, taskKey } = request.params;
+    const access = await requireAccess(domain, request, key, { minimum: 'developer' });
+    const body = parseBody(SetTaskCheckRequest, request.body);
+    const task = domain.tasks.get(key, taskKey);
+    if (!isOpenTask(task)) throw conflict('task_closed', `task ${taskKey} is ${task.status}`);
+    const actor = actorOf(access);
+    domain.tasks.setCheck(key, taskKey, body.check, body.state, actor);
+    if (body.note !== undefined) domain.tasks.addNote(key, taskKey, body.note, actor);
+    return domain.tasks.detail(key, taskKey);
   });
 
   app.post<TaskParams>(routes.cancelTask(':key', ':taskKey'), async (request): Promise<Task> => {

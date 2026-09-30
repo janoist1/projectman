@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import type { Task } from '@projectman/shared';
-import { useInbox, useResolveInbox, useStartTask, useTaskDetail } from '../../api/queries';
+import { CheckState, taskAuthors } from '@projectman/shared';
+import type { CheckName, Task } from '@projectman/shared';
+import { useInbox, useResolveInbox, useStartTask, useTaskDetail, useSetTaskCheck } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button, ButtonLink } from '../../components/Button';
 import { Chip, StatusDot } from '../../components/Chip';
-import { SelectField } from '../../components/Field';
+import { SelectField, TextAreaField } from '../../components/Field';
 import { Icon } from '../../components/Icon';
 import { Markdown } from '../../components/Markdown';
 import { StageProgress } from '../../components/StageProgress';
@@ -30,6 +31,7 @@ import { TaskLifecycle } from './TaskLifecycle';
 import { useBoardModel } from './useBoardModel';
 import { TaskMove } from './TaskMove';
 import { canMoveTask } from './moveTask';
+import type { PipelineIndex } from '../../lib/pipeline';
 import styles from './TaskDrawer.module.css';
 
 function StartPanel({ task, members }: { task: Task; members: MemberIndex }) {
@@ -86,6 +88,88 @@ function StartPanel({ task, members }: { task: Task; members: MemberIndex }) {
         {start.isPending ? t('task.starting') : t('task.start')}
       </Button>
     </div>
+  );
+}
+
+function CheckResult({ task, check }: { task: Task; check: CheckName }) {
+  const { key, myHandle, can } = useProject();
+  const mutation = useSetTaskCheck(key);
+  const current = task.checks[check] ?? 'pending';
+  const [state, setState] = useState<CheckState>(current);
+  const [note, setNote] = useState('');
+  useEffect(() => setState(current), [current]);
+  const selfReview = check !== 'client_test' && taskAuthors(task).includes(myHandle ?? '');
+  const editable = can.createTasks && Boolean(myHandle) && !['done', 'cancelled'].includes(task.status);
+  return (
+    <section className={styles.check} aria-label={t(`checks.names.${check}`)}>
+      <h4>{t('checks.line', { name: t(`checks.names.${check}`), state: t(`checks.states.${current}`) })}</h4>
+      {editable && selfReview ? (
+        <p>{t('errors.codes.self_review_forbidden')}</p>
+      ) : editable ? (
+        <form
+          className={styles.section}
+          onSubmit={(event) => {
+            event.preventDefault();
+            mutation.mutate(
+              { taskKey: task.key, body: { check, state, ...(note.trim() ? { note: note.trim() } : {}) } },
+              {
+                onSuccess: () => setNote(''),
+              },
+            );
+          }}
+        >
+          <SelectField
+            label={t('task.checks.state')}
+            value={state}
+            disabled={mutation.isPending}
+            onChange={(event) => setState(CheckState.parse(event.target.value))}
+          >
+            {CheckState.options.map((option) => (
+              <option key={option} value={option}>
+                {t(`checks.states.${option}`)}
+              </option>
+            ))}
+          </SelectField>
+          <TextAreaField
+            label={t('task.checks.note')}
+            optional
+            value={note}
+            rows={2}
+            disabled={mutation.isPending}
+            onChange={(event) => setNote(event.target.value)}
+          />
+          {mutation.isError ? (
+            <p className={styles.error} role="alert">
+              {errorMessage(mutation.error)}
+            </p>
+          ) : null}
+          <Button type="submit" loading={mutation.isPending}>
+            {t('task.checks.save')}
+          </Button>
+        </form>
+      ) : null}
+    </section>
+  );
+}
+
+function TaskChecks({ task, pipeline }: { task: Task; pipeline: PipelineIndex }) {
+  const checks = [
+    ...new Set(
+      pipeline.stages.flatMap((stage) =>
+        (stage.gate?.conditions ?? []).flatMap((condition) =>
+          condition.type === 'check_passed' ? [condition.check] : [],
+        ),
+      ),
+    ),
+  ];
+  if (!checks.length) return null;
+  return (
+    <section className={styles.section} aria-label={t('task.checks.title')}>
+      <h3 className={styles.sectionTitle}>{t('task.checks.title')}</h3>
+      {checks.map((check) => (
+        <CheckResult key={`${task.key}:${check}`} task={task} check={check} />
+      ))}
+    </section>
   );
 }
 
@@ -222,6 +306,8 @@ export function TaskDrawer() {
             </section>
           ) : null}
 
+          <TaskChecks task={task} pipeline={pipeline} />
+
           {task.description ? (
             <section className={styles.section}>
               <h3 className={styles.sectionTitle}>{t('task.description')}</h3>
@@ -283,29 +369,28 @@ export function TaskDrawer() {
               </ul>
             </section>
           ) : null}
-        </div>
-
-        <div className={styles.footer}>
-          {isQueued && can.createTasks ? (
-            <StartPanel task={task} members={members} />
-          ) : session && can.workInSessions ? (
-            <>
-              <ButtonLink
-                to={`/p/${key}/sessions/${session.id}`}
-                variant="primary"
-                size="xl"
-                iconRight="arrowRight"
-                className={styles.grow}
-              >
-                {t('task.openSession')}
-              </ButtonLink>
-              <ButtonLink to={`/p/${key}/sessions/${session.id}?compose=1`} variant="secondary" size="xl">
-                {t('task.message')}
-              </ButtonLink>
-            </>
-          ) : (
-            <p className={styles.noSession}>{t('task.noSessions')}</p>
-          )}
+          <div className={styles.actions}>
+            {isQueued && can.createTasks ? (
+              <StartPanel task={task} members={members} />
+            ) : session && can.workInSessions ? (
+              <>
+                <ButtonLink
+                  to={`/p/${key}/sessions/${session.id}`}
+                  variant="primary"
+                  size="xl"
+                  iconRight="arrowRight"
+                  className={styles.grow}
+                >
+                  {t('task.openSession')}
+                </ButtonLink>
+                <ButtonLink to={`/p/${key}/sessions/${session.id}?compose=1`} variant="secondary" size="xl">
+                  {t('task.message')}
+                </ButtonLink>
+              </>
+            ) : (
+              <p className={styles.noSession}>{t('task.noSessions')}</p>
+            )}
+          </div>
         </div>
       </>
     );

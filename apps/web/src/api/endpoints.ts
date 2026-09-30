@@ -40,6 +40,7 @@ import type {
   SendMessageRequest,
   SetupRequest,
   StartTaskRequest,
+  SetTaskCheckRequest,
 } from '@projectman/shared';
 import { apiRequest, unwrapList } from './client';
 
@@ -77,6 +78,8 @@ export const api = {
     apiRequest<unknown>(routes.projects(), { method: 'POST', body }),
 
   board: (key: string) => apiRequest(routes.board(key), { schema: BoardView }),
+  setTaskCheck: (key: string, taskKey: string, body: SetTaskCheckRequest) =>
+    apiRequest(routes.taskChecks(key, taskKey), { method: 'POST', body, schema: TaskDetail }),
   task: (key: string, taskKey: string) => apiRequest(routes.task(key, taskKey), { schema: TaskDetail }),
   createTask: (key: string, body: CreateTaskRequest) =>
     apiRequest<unknown>(routes.tasks(key), { method: 'POST', body }),

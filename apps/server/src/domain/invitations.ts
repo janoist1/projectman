@@ -230,7 +230,7 @@ export class InvitationService {
           return `Invite accepted: ${account.name}`;
         },
       );
-      this.ctx.repos.transaction(() => {
+      this.ctx.unitOfWork(() => {
         if (!existing) this.ctx.repos.users.insert(account);
         this.ctx.repos.invitations.accept(invite.id, this.ctx.now().toISOString());
       });

@@ -13,7 +13,7 @@ import type {
 import type { Repositories } from '../db';
 import { projectAccessFor } from './access';
 import type { ProjectAccess } from './access';
-import { defaultTemplateRegistry } from './context';
+import { createDomainContext, defaultTemplateRegistry } from './context';
 import type { DomainContext, TemplateRegistry } from './context';
 import { createEventBus } from './event-bus';
 import { GithubSync } from './github-sync';
@@ -95,7 +95,7 @@ export type Domain = ReturnType<typeof createDomain>;
 export function createDomain(opts: DomainOptions) {
   const now = opts.now ?? (() => new Date());
   const bus = opts.bus ?? createEventBus(opts.logger);
-  const ctx: DomainContext = { repos: opts.repos, bus, logger: opts.logger, now };
+  const ctx: DomainContext = createDomainContext({ repos: opts.repos, bus, logger: opts.logger, now });
   const templates = opts.templates ?? defaultTemplateRegistry;
 
   const timeline = new TimelineService(ctx);

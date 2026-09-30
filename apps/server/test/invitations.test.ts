@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CreatedInvitation, Me, PublicInviteView } from '@projectman/shared';
-import { cookieOf, createAppHarness, createProject } from './helpers/app-harness';
+import { cookieOf, createAppHarness, createProject, inject } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
 const ownerLogin = { name: 'Te', email: 'owner@acme.test', password: 'correct horse battery' };
@@ -29,11 +29,8 @@ describe('colleague invitation API', () => {
     await h.close();
   });
 
-  async function call(method: 'GET' | 'POST' | 'DELETE', url: string, cookie?: string, payload?: object) {
-    return h.app.inject({ method, url, headers: cookie ? { cookie } : {}, ...(payload ? { payload } : {}) });
-  }
   async function invite(input = invitation, cookie = owner): Promise<CreatedInvitation> {
-    const response = await call('POST', '/api/projects/AR/invites', cookie, input);
+    const response = await inject(h.app, 'POST', '/api/projects/AR/invites', cookie, input);
     expect(response.statusCode, response.body).toBe(201);
     return response.json();
   }
@@ -41,7 +38,7 @@ describe('colleague invitation API', () => {
 
   const colleague = { displayName: 'Kata Kovacs', handle: 'colleague', access: 'viewer', roles: ['qa'] };
   async function addColleague(input = colleague, cookie = owner) {
-    return call('POST', '/api/projects/AR/members/human', cookie, input);
+    return inject(h.app, 'POST', '/api/projects/AR/members/human', cookie, input);
   }
 
   it('adds an unclaimed human seat with validation, attribution and unique derived handles', async () => {
@@ -56,13 +53,13 @@ describe('colleague invitation API', () => {
     const config = await h.app.projectman.domain.projects.config('AR');
     expect(config.team.members.at(-1)).not.toHaveProperty('email');
     expect(h.app.projectman.repos.users.count()).toBe(1);
-    expect((await call('GET', '/api/projects/AR/invites', owner)).json().invitations).toEqual([]);
+    expect((await inject(h.app, 'GET', '/api/projects/AR/invites', owner)).json().invitations).toEqual([]);
     expect((await h.app.projectman.configStore.history('AR'))[0]).toMatchObject({
       author: ownerLogin.name,
       message: 'Add human member colleague without account',
     });
     for (const expected of ['kata-kovacs', 'kata-kovacs-2']) {
-      const result = await call('POST', '/api/projects/AR/members/human', owner, {
+      const result = await inject(h.app, 'POST', '/api/projects/AR/members/human', owner, {
         displayName: 'Kata Kovacs',
         access: 'developer',
         roles: [],
@@ -77,7 +74,7 @@ describe('colleague invitation API', () => {
       [{ ...colleague, access: 'owner' }, 'invalid_request'],
       [{ ...colleague, roles: ['unknown'] }, 'unknown_role'],
     ] as const) {
-      const response = await call('POST', '/api/projects/AR/members/human', owner, input);
+      const response = await inject(h.app, 'POST', '/api/projects/AR/members/human', owner, input);
       expect(response.json().error.code).toBe(code);
     }
     expect((await addColleague(colleague, '')).statusCode).toBe(401);
@@ -102,13 +99,13 @@ describe('colleague invitation API', () => {
           await h.app.projectman.auth.prepareUser({ ...newAccount, email: invitation.email }),
         );
         caller = cookieOf(
-          await call('POST', '/api/auth/login', undefined, {
+          await inject(h.app, 'POST', '/api/auth/login', undefined, {
             email: invitation.email,
             password: newAccount.password,
           }),
         );
       }
-      const createdResponse = await call('POST', '/api/projects/AR/invites', owner, {
+      const createdResponse = await inject(h.app, 'POST', '/api/projects/AR/invites', owner, {
         ...invitation,
         memberHandle: 'colleague',
       });
@@ -119,7 +116,8 @@ describe('colleague invitation API', () => {
         displayName: colleague.displayName,
         roles: ['qa'],
       });
-      const accepted = await call(
+      const accepted = await inject(
+        h.app,
         'POST',
         `${publicPath(created)}/accept`,
         caller,
@@ -144,23 +142,33 @@ describe('colleague invitation API', () => {
       ['dev-1', 'invite_member_not_human', 400],
       ['owner', 'member_has_account', 409],
     ] as const) {
-      const response = await call('POST', '/api/projects/AR/invites', owner, { ...invitation, memberHandle });
+      const response = await inject(h.app, 'POST', '/api/projects/AR/invites', owner, {
+        ...invitation,
+        memberHandle,
+      });
       expect([response.statusCode, response.json().error.code]).toEqual([status, code]);
     }
     await addColleague();
     const responses = await Promise.all(
       [1, 2].map(() =>
-        call('POST', '/api/projects/AR/invites', owner, { ...invitation, memberHandle: 'colleague' }),
+        inject(h.app, 'POST', '/api/projects/AR/invites', owner, {
+          ...invitation,
+          memberHandle: 'colleague',
+        }),
       ),
     );
     expect(responses.map((response) => response.statusCode).sort()).toEqual([201, 409]);
     const rejected = responses.find((response) => response.statusCode === 409)!;
     expect(rejected.json().error.code).toBe('member_invite_pending');
     const created = responses.find((response) => response.statusCode === 201)!.json<CreatedInvitation>();
-    await call('DELETE', `/api/projects/AR/invites/${created.id}`, owner);
+    await inject(h.app, 'DELETE', `/api/projects/AR/invites/${created.id}`, owner);
     expect(
-      (await call('POST', '/api/projects/AR/invites', owner, { ...invitation, memberHandle: 'colleague' }))
-        .statusCode,
+      (
+        await inject(h.app, 'POST', '/api/projects/AR/invites', owner, {
+          ...invitation,
+          memberHandle: 'colleague',
+        })
+      ).statusCode,
     ).toBe(201);
   });
 
@@ -169,7 +177,10 @@ describe('colleague invitation API', () => {
     async (change) => {
       await addColleague();
       const created = (
-        await call('POST', '/api/projects/AR/invites', owner, { ...invitation, memberHandle: 'colleague' })
+        await inject(h.app, 'POST', '/api/projects/AR/invites', owner, {
+          ...invitation,
+          memberHandle: 'colleague',
+        })
       ).json<CreatedInvitation>();
       await h.app.projectman.domain.projects.update(
         'AR',
@@ -199,7 +210,7 @@ describe('colleague invitation API', () => {
           return 'Change fictional unclaimed seat';
         },
       );
-      const response = await call('POST', `${publicPath(created)}/accept`, undefined, newAccount);
+      const response = await inject(h.app, 'POST', `${publicPath(created)}/accept`, undefined, newAccount);
       expect(response.json().error.code).toBe(
         change === 'removed'
           ? 'invite_member_not_found'
@@ -214,7 +225,9 @@ describe('colleague invitation API', () => {
 
   it('allows admins to add and invite unclaimed seats without granting privileged access', async () => {
     const adminInvite = await invite({ ...invitation, email: 'admin@acme.test', access: 'admin', roles: [] });
-    const admin = cookieOf(await call('POST', `${publicPath(adminInvite)}/accept`, undefined, newAccount));
+    const admin = cookieOf(
+      await inject(h.app, 'POST', `${publicPath(adminInvite)}/accept`, undefined, newAccount),
+    );
     expect((await addColleague(colleague, admin)).statusCode).toBe(201);
     for (const input of [
       { ...colleague, handle: 'new-admin', access: 'admin' },
@@ -224,9 +237,12 @@ describe('colleague invitation API', () => {
       expect(result.statusCode, result.body).toBe(403);
     }
     const created = (
-      await call('POST', '/api/projects/AR/invites', admin, { ...invitation, memberHandle: 'colleague' })
+      await inject(h.app, 'POST', '/api/projects/AR/invites', admin, {
+        ...invitation,
+        memberHandle: 'colleague',
+      })
     ).json<CreatedInvitation>();
-    const accepted = await call('POST', `${publicPath(created)}/accept`, undefined, newAccount);
+    const accepted = await inject(h.app, 'POST', `${publicPath(created)}/accept`, undefined, newAccount);
     expect(accepted.statusCode, accepted.body).toBe(200);
     expect(accepted.json().handles.AR).toBe('colleague');
     const developer = cookieOf(accepted);
@@ -243,11 +259,11 @@ describe('colleague invitation API', () => {
     expect(stored.tokenHash).toBe(createHash('sha256').update(token).digest('hex'));
     expect(JSON.stringify(stored)).not.toContain(token);
     expect(created.email).toBe('kata@acme.test');
-    const list = await call('GET', '/api/projects/AR/invites', owner);
+    const list = await inject(h.app, 'GET', '/api/projects/AR/invites', owner);
     expect(list.json().invitations).toEqual([expect.objectContaining({ id: created.id })]);
     expect(list.body).not.toContain(token);
     expect(list.body).not.toContain('tokenHash');
-    const inspected = await call('GET', publicPath(created));
+    const inspected = await inject(h.app, 'GET', publicPath(created));
     expect(inspected.statusCode).toBe(200);
     expect(inspected.json<PublicInviteView>()).toMatchObject({
       projectKey: 'AR',
@@ -278,7 +294,7 @@ describe('colleague invitation API', () => {
         return 'Add fictional viewer';
       },
     );
-    const accepted = await call('POST', `${publicPath(created)}/accept`, undefined, newAccount);
+    const accepted = await inject(h.app, 'POST', `${publicPath(created)}/accept`, undefined, newAccount);
     expect(accepted.statusCode, accepted.body).toBe(200);
     expect(accepted.json<Me>()).toMatchObject({
       name: 'Kata',
@@ -288,7 +304,7 @@ describe('colleague invitation API', () => {
     expect(accepted.headers['set-cookie']).toContain('HttpOnly');
     expect(accepted.headers['set-cookie']).toContain('SameSite=Lax');
     const cookie = cookieOf(accepted);
-    expect((await call('GET', '/api/me', cookie)).json().email).toBe('kata@acme.test');
+    expect((await inject(h.app, 'GET', '/api/me', cookie)).json().email).toBe('kata@acme.test');
     expect((await h.app.projectman.domain.projects.config('AR')).team.members.at(-1)).toEqual({
       kind: 'human',
       handle: 'kata-2',
@@ -302,16 +318,16 @@ describe('colleague invitation API', () => {
       author: 'Kata',
     });
     expect(h.app.projectman.repos.invitations.get(created.id)?.acceptedAt).toBe(now.toISOString());
-    const login = await call('POST', '/api/auth/login', undefined, {
+    const login = await inject(h.app, 'POST', '/api/auth/login', undefined, {
       email: 'KATA@acme.test',
       password: newAccount.password,
     });
     expect(login.statusCode).toBe(200);
-    expect((await call('GET', publicPath(created))).json().error.code).toBe('invite_invalid');
-    expect((await call('POST', `${publicPath(created)}/accept`, cookie, {})).json().error.code).toBe(
+    expect((await inject(h.app, 'GET', publicPath(created))).json().error.code).toBe('invite_invalid');
+    expect((await inject(h.app, 'POST', `${publicPath(created)}/accept`, cookie, {})).json().error.code).toBe(
       'invite_invalid',
     );
-    const revokeUsed = await call('DELETE', `/api/projects/AR/invites/${created.id}`, owner);
+    const revokeUsed = await inject(h.app, 'DELETE', `/api/projects/AR/invites/${created.id}`, owner);
     expect([revokeUsed.statusCode, revokeUsed.json().error.code]).toEqual([409, 'invite_used']);
   });
 
@@ -319,17 +335,17 @@ describe('colleague invitation API', () => {
     const account = await h.app.projectman.auth.prepareUser({ ...newAccount, email: invitation.email });
     h.app.projectman.repos.users.insert(account);
     const created = await invite();
-    expect((await call('GET', publicPath(created))).json().requiresLogin).toBe(true);
+    expect((await inject(h.app, 'GET', publicPath(created))).json().requiresLogin).toBe(true);
     for (const cookie of [undefined, owner]) {
-      const response = await call('POST', `${publicPath(created)}/accept`, cookie, newAccount);
+      const response = await inject(h.app, 'POST', `${publicPath(created)}/accept`, cookie, newAccount);
       expect([response.statusCode, response.json().error.code]).toEqual([409, 'login_required']);
     }
     expect(h.app.projectman.repos.invitations.get(created.id)?.acceptedAt).toBeNull();
-    const login = await call('POST', '/api/auth/login', undefined, {
+    const login = await inject(h.app, 'POST', '/api/auth/login', undefined, {
       email: invitation.email,
       password: newAccount.password,
     });
-    const accepted = await call('POST', `${publicPath(created)}/accept`, cookieOf(login), {});
+    const accepted = await inject(h.app, 'POST', `${publicPath(created)}/accept`, cookieOf(login), {});
     expect(accepted.statusCode, accepted.body).toBe(200);
     expect(accepted.json().userId).toBe(account.id);
     expect(h.app.projectman.repos.users.count()).toBe(2);
@@ -338,9 +354,9 @@ describe('colleague invitation API', () => {
 
   it('allows only owners and admins to manage invites and only owners to offer admin access', async () => {
     const created = await invite({ ...invitation, access: 'admin' });
-    const adminAccept = await call('POST', `${publicPath(created)}/accept`, undefined, newAccount);
+    const adminAccept = await inject(h.app, 'POST', `${publicPath(created)}/accept`, undefined, newAccount);
     const admin = cookieOf(adminAccept);
-    const inviteAdmin = await call('POST', '/api/projects/AR/invites', admin, {
+    const inviteAdmin = await inject(h.app, 'POST', '/api/projects/AR/invites', admin, {
       ...invitation,
       email: 'bence@acme.test',
       access: 'admin',
@@ -349,8 +365,8 @@ describe('colleague invitation API', () => {
     for (const access of ['developer', 'client', 'viewer']) {
       const input = { ...invitation, email: `${access}@acme.test`, access };
       const allowed = await invite(input, admin);
-      expect((await call('GET', '/api/projects/AR/invites', admin)).statusCode).toBe(200);
-      const accepted = await call('POST', `${publicPath(allowed)}/accept`, undefined, {
+      expect((await inject(h.app, 'GET', '/api/projects/AR/invites', admin)).statusCode).toBe(200);
+      const accepted = await inject(h.app, 'POST', `${publicPath(allowed)}/accept`, undefined, {
         name: 'Bence',
         password: newAccount.password,
       });
@@ -360,16 +376,19 @@ describe('colleague invitation API', () => {
         ['POST', '/api/projects/AR/invites', invitation],
         ['DELETE', `/api/projects/AR/invites/${allowed.id}`, undefined],
       ] as const) {
-        const forbidden = await call(method, path, cookie, payload);
+        const forbidden = await inject(h.app, method, path, cookie, payload);
         expect([forbidden.statusCode, forbidden.json().error.code]).toEqual([403, 'insufficient_access']);
       }
     }
     const pending = await invite({ ...invitation, email: 'pending@acme.test' });
-    expect((await call('DELETE', `/api/projects/AR/invites/${pending.id}`, admin)).statusCode).toBe(204);
+    expect((await inject(h.app, 'DELETE', `/api/projects/AR/invites/${pending.id}`, admin)).statusCode).toBe(
+      204,
+    );
     for (const method of ['GET', 'POST', 'DELETE'] as const) {
       expect(
         (
-          await call(
+          await inject(
+            h.app,
             method,
             method === 'DELETE' ? `/api/projects/AR/invites/${pending.id}` : '/api/projects/AR/invites',
           )
@@ -383,14 +402,17 @@ describe('colleague invitation API', () => {
       { ...invitation, email: 'invalid' },
       { ...invitation, access: 'owner' },
     ]) {
-      const response = await call('POST', '/api/projects/AR/invites', owner, input);
+      const response = await inject(h.app, 'POST', '/api/projects/AR/invites', owner, input);
       expect([response.statusCode, response.json().error.code]).toEqual([400, 'invalid_request']);
     }
     for (const [roles, code] of [[['unknown_role'], 'unknown_role']] as const) {
-      const response = await call('POST', '/api/projects/AR/invites', owner, { ...invitation, roles });
+      const response = await inject(h.app, 'POST', '/api/projects/AR/invites', owner, {
+        ...invitation,
+        roles,
+      });
       expect([response.statusCode, response.json().error.code]).toEqual([400, code]);
     }
-    const duplicate = await call('POST', '/api/projects/AR/invites', owner, {
+    const duplicate = await inject(h.app, 'POST', '/api/projects/AR/invites', owner, {
       ...invitation,
       email: ' OWNER@acme.test ',
     });
@@ -401,7 +423,7 @@ describe('colleague invitation API', () => {
       { name: 'Kata', password: 'short' },
       { name: ' ', password: newAccount.password },
     ]) {
-      const response = await call('POST', `${publicPath(created)}/accept`, undefined, body);
+      const response = await inject(h.app, 'POST', `${publicPath(created)}/accept`, undefined, body);
       expect([response.statusCode, response.json().error.code]).toEqual([400, 'invalid_request']);
     }
     expect(h.app.projectman.repos.users.count()).toBe(1);
@@ -424,7 +446,7 @@ describe('colleague invitation API', () => {
       },
     );
     const created = await invite({ ...invitation, roles: ['client_tester'] });
-    expect((await call('GET', publicPath(created))).json().roleNames).toEqual(['Acme tester']);
+    expect((await inject(h.app, 'GET', publicPath(created))).json().roleNames).toEqual(['Acme tester']);
     await h.app.projectman.domain.projects.update(
       'AR',
       { actor: { kind: 'human', handle: 'owner' }, author: ownerLogin },
@@ -433,7 +455,7 @@ describe('colleague invitation API', () => {
         return 'Remove test role';
       },
     );
-    const accepted = await call('POST', `${publicPath(created)}/accept`, undefined, newAccount);
+    const accepted = await inject(h.app, 'POST', `${publicPath(created)}/accept`, undefined, newAccount);
     expect([accepted.statusCode, accepted.json().error.code]).toEqual([400, 'unknown_role']);
     expect(h.app.projectman.repos.users.findByEmail(invitation.email)).toBeNull();
     expect(h.app.projectman.repos.invitations.get(created.id)?.acceptedAt).toBeNull();
@@ -441,7 +463,8 @@ describe('colleague invitation API', () => {
 
   it('rejects unknown, revoked and expired tokens at the exact expiry boundary', async () => {
     for (const method of ['GET', 'POST'] as const) {
-      const response = await call(
+      const response = await inject(
+        h.app,
         method,
         `/api/invites/unknown${method === 'POST' ? '/accept' : ''}`,
         undefined,
@@ -450,13 +473,18 @@ describe('colleague invitation API', () => {
       expect([response.statusCode, response.json().error.code]).toEqual([404, 'invite_invalid']);
     }
     const revoked = await invite();
-    expect((await call('DELETE', `/api/projects/AR/invites/${revoked.id}`, owner)).statusCode).toBe(204);
-    expect((await call('DELETE', `/api/projects/AR/invites/${revoked.id}`, owner)).statusCode).toBe(204);
+    expect((await inject(h.app, 'DELETE', `/api/projects/AR/invites/${revoked.id}`, owner)).statusCode).toBe(
+      204,
+    );
+    expect((await inject(h.app, 'DELETE', `/api/projects/AR/invites/${revoked.id}`, owner)).statusCode).toBe(
+      204,
+    );
     const expired = await invite({ ...invitation, email: 'bence@acme.test' });
     now = new Date(expired.expiresAt);
     for (const created of [revoked, expired]) {
       for (const method of ['GET', 'POST'] as const) {
-        const response = await call(
+        const response = await inject(
+          h.app,
           method,
           `${publicPath(created)}${method === 'POST' ? '/accept' : ''}`,
           undefined,
@@ -465,14 +493,14 @@ describe('colleague invitation API', () => {
         expect([response.statusCode, response.json().error.code]).toEqual([404, 'invite_invalid']);
       }
     }
-    expect((await call('DELETE', '/api/projects/AR/invites/unknown', owner)).statusCode).toBe(404);
+    expect((await inject(h.app, 'DELETE', '/api/projects/AR/invites/unknown', owner)).statusCode).toBe(404);
     expect(h.app.projectman.repos.users.count()).toBe(1);
   });
 
   it('consumes a token once even with simultaneous acceptance requests', async () => {
     const created = await invite();
     const responses = await Promise.all(
-      [1, 2].map(() => call('POST', `${publicPath(created)}/accept`, undefined, newAccount)),
+      [1, 2].map(() => inject(h.app, 'POST', `${publicPath(created)}/accept`, undefined, newAccount)),
     );
     expect(responses.map((response) => response.statusCode).sort()).toEqual([200, 404]);
     expect(h.app.projectman.repos.users.count()).toBe(2);
@@ -486,18 +514,21 @@ describe('colleague invitation API', () => {
   it('leaves the invite reusable and creates no account when the config commit fails', async () => {
     const created = await invite();
     vi.spyOn(h.app.projectman.configStore, 'save').mockRejectedValueOnce(new Error('fictional disk failure'));
-    const failed = await call('POST', `${publicPath(created)}/accept`, undefined, newAccount);
+    const failed = await inject(h.app, 'POST', `${publicPath(created)}/accept`, undefined, newAccount);
     expect(failed.statusCode).toBe(500);
     expect(h.app.projectman.repos.invitations.get(created.id)?.acceptedAt).toBeNull();
     expect(h.app.projectman.repos.users.findByEmail(invitation.email)).toBeNull();
-    expect((await call('POST', `${publicPath(created)}/accept`, undefined, newAccount)).statusCode).toBe(200);
+    expect(
+      (await inject(h.app, 'POST', `${publicPath(created)}/accept`, undefined, newAccount)).statusCode,
+    ).toBe(200);
   });
 
   it('rate-limits public inspection and acceptance like login', async () => {
     for (let attempt = 0; attempt < 10; attempt++)
-      expect((await call('GET', '/api/invites/unknown')).statusCode).toBe(404);
+      expect((await inject(h.app, 'GET', '/api/invites/unknown')).statusCode).toBe(404);
     for (const method of ['GET', 'POST'] as const) {
-      const response = await call(
+      const response = await inject(
+        h.app,
         method,
         `/api/invites/unknown${method === 'POST' ? '/accept' : ''}`,
         undefined,
@@ -510,11 +541,13 @@ describe('colleague invitation API', () => {
   it('does not count successful inspections against the shared limit', async () => {
     const created = await invite();
     for (let attempt = 0; attempt < 12; attempt++)
-      expect((await call('GET', publicPath(created))).statusCode).toBe(200);
+      expect((await inject(h.app, 'GET', publicPath(created))).statusCode).toBe(200);
     for (let attempt = 0; attempt < 9; attempt++)
-      expect((await call('GET', '/api/invites/unknown')).statusCode).toBe(404);
-    expect((await call('POST', `${publicPath(created)}/accept`, undefined, newAccount)).statusCode).toBe(200);
-    expect((await call('GET', '/api/invites/unknown')).statusCode).toBe(404);
-    expect((await call('GET', '/api/invites/unknown')).statusCode).toBe(429);
+      expect((await inject(h.app, 'GET', '/api/invites/unknown')).statusCode).toBe(404);
+    expect(
+      (await inject(h.app, 'POST', `${publicPath(created)}/accept`, undefined, newAccount)).statusCode,
+    ).toBe(200);
+    expect((await inject(h.app, 'GET', '/api/invites/unknown')).statusCode).toBe(404);
+    expect((await inject(h.app, 'GET', '/api/invites/unknown')).statusCode).toBe(429);
   });
 });

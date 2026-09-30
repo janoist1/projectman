@@ -168,7 +168,7 @@ export function cookieOf(res: LightMyRequestResponse): string {
 }
 
 /** A request as the user with this login cookie (none: anonymous), with an optional JSON body. */
-export function call(
+export function inject(
   app: FastifyInstance,
   method: NonNullable<InjectOptions['method']>,
   url: string,
@@ -253,7 +253,7 @@ export async function addHumanAndLogin(app: FastifyInstance, human: HumanLogin):
       return `Add fictional member ${human.handle}`;
     });
   }
-  const login = await call(app, 'POST', routes.login(), null, { email, password: OWNER_LOGIN.password });
+  const login = await inject(app, 'POST', routes.login(), null, { email, password: OWNER_LOGIN.password });
   if (login.statusCode !== 200) throw new Error(`login failed: ${login.statusCode} ${login.body}`);
   return cookieOf(login);
 }

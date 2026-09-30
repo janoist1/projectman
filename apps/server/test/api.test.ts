@@ -26,6 +26,7 @@ import {
   cookieOf,
   createAppHarness,
   createProject,
+  inject,
   OWNER_LOGIN,
   setupOwner,
 } from './helpers/app-harness';
@@ -44,12 +45,7 @@ describe('REST API', () => {
   });
 
   async function call<T>(method: Method, url: string, cookie?: string, payload?: unknown) {
-    const res = await h.app.inject({
-      method,
-      url,
-      headers: cookie ? { cookie } : {},
-      ...(payload !== undefined ? { payload: payload as object } : {}),
-    });
+    const res = await inject(h.app, method, url, cookie, payload);
     return { status: res.statusCode, body: (res.body ? res.json() : null) as T, res };
   }
 

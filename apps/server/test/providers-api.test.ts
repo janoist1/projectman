@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProvidersView } from '@projectman/shared';
 import type { AgentProvider } from '@projectman/shared';
-import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';
+import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
 describe('provider API', () => {
@@ -72,7 +72,7 @@ describe('provider API', () => {
     const cookie = await setupOwner(h.app);
     await createProject(h, cookie);
     const call = (method: 'POST' | 'PATCH', url: string, payload: object) =>
-      h.app.inject({ method, url, headers: { cookie }, payload });
+      inject(h.app, method, url, cookie, payload);
     expect(
       (await call('PATCH', '/api/projects/AR/members/dev-1', { effort: 'unsupported' })).statusCode,
     ).toBe(400);

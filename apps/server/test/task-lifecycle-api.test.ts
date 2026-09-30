@@ -5,6 +5,7 @@ import {
   addHumanAndLogin,
   createAppHarness,
   createProject,
+  inject,
   OWNER_LOGIN,
   setupOwner,
 } from './helpers/app-harness';
@@ -23,7 +24,7 @@ describe('task lifecycle API', () => {
   afterEach(async () => h.close());
 
   const call = (method: 'POST' | 'PATCH', url: string, payload?: object, auth: string | null = cookie) =>
-    h.app.inject({ method, url, headers: auth ? { cookie: auth } : {}, ...(payload ? { payload } : {}) });
+    inject(h.app, method, url, auth, payload);
 
   it('exports additive lifecycle schemas and routes', () => {
     expect(CancelTaskRequest.parse({})).toEqual({});

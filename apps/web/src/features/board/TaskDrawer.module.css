@@ -245,3 +245,20 @@
   border-radius: 10px;
   font-size: 13px;
 }
+
+.checkRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.checkRow h4 {
+  min-width: 0;
+  margin: 0;
+  font-size: inherit;
+}
+
+.checkRow button {
+  flex-shrink: 0;
+}

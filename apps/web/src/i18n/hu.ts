@@ -417,6 +417,7 @@ export const hu = {
       title: 'Ellenőrzések',
       state: 'Eredmény',
       note: 'Megjegyzés',
+      record: 'Eredmény rögzítése',
       save: 'Eredmény mentése',
     },
     move: {

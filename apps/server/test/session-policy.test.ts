@@ -184,7 +184,6 @@ describe('automatic command policy', () => {
     'cd /elsewhere && npm ci',
     'cd .. && npm ci',
     'cd "$PWD" && npm ci',
-    'npm ci; echo done',
     'npm ci | cat',
     'npm ci > /elsewhere/log',
     'npm ci\necho done',
@@ -317,9 +316,8 @@ describe('routine git steps in the developer worktree (PM-77)', () => {
     'git commit -qam x',
     'git commit --message',
     'git commit --mess=x',
-    // Options before the subcommand.
+    // Options before the subcommand, but a `-C` to the working directory itself (see `git -C` below).
     'git -C /other commit -m x',
-    'git -C . commit -m x',
     'git -c user.name=x commit -m x',
     'git --git-dir=/other/.git commit -m x',
     'git --work-tree=/other commit -m x',
@@ -380,7 +378,7 @@ describe('routine git steps in the developer worktree (PM-77)', () => {
     'npm i',
     'npm ci-foo',
     'npm',
-    // Anywhere but the first segment, or joined with anything but &&.
+    // A `cd` anywhere but first and to the working directory, and a pipe or a redirection on a routine step.
     'cd /tmp && git add .',
     "cd '' && git add .",
     'cd "" && npm ci',
@@ -392,8 +390,6 @@ describe('routine git steps in the developer worktree (PM-77)', () => {
     `cd ${cwd} cd && git add .`,
     `cd ${cwd} && cd ${cwd} && git add .`,
     'git add . && cd . && git add .',
-    'git add . ; git commit -m x',
-    'git add . || git commit -m x',
     'git add . | cat',
     'git commit -m x | cat',
     'git commit -m x 2>&1',
@@ -430,11 +426,6 @@ describe('routine git steps in the developer worktree (PM-77)', () => {
     'git status && cd apps && git add -A',
     'git status && cd .. && git add -A',
     'git status && xargs cat && git add -A',
-    'git ls-files | xargs cat && git add -A',
-    'git status | head && git add -A',
-    'git status 2>&1 && git add -A',
-    'git status ; git add -A',
-    'git status || git add -A',
     'git status & git add -A',
     // Patterns that can match `.` and `..` climb out of the worktree (bash before 5.2).
     'git add .*',
@@ -457,7 +448,6 @@ describe('routine git steps in the developer worktree (PM-77)', () => {
     'git commit -m x < f',
     'git commit -m x &',
     'git commit -m x\nrm -rf /',
-    'git commit -m "one\ntwo"',
     'git commit -m "$HOME"',
     'git commit -m unbalanced"',
     'git add ~/notes',
@@ -595,6 +585,396 @@ describe('escapes inside double quotes', () => {
     'git commit -m "a\\$(rm -rf /)"',
   ])('allows %s: the shell keeps it as literal message text', (command) => {
     expect(verdict(command)).toEqual({ behavior: 'allow' });
+  });
+});
+
+// The first real trial stalled on three harmless commands: a commit with a message of several lines,
+// a chain that mixed `&&`, `;` and a pipeline, and `git -C` to the worktree itself.
+describe('the commands of the first trial', () => {
+  const allowed = { behavior: 'allow' };
+  const publishing = {
+    behavior: 'deny',
+    message: 'The owner has not allowed publishing from this repository.',
+  };
+  const commit =
+    'git add apps && git commit -q -m "Subject line (PM-93)\n\nCo-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"';
+  const chain = `${commit} && git log --oneline | head -1; git status --short`;
+  /** The session may read its own worktree too, so the read-only rule has its say. */
+  const withRoots = (command: string, roots = [cwd]) =>
+    commandVerdict({ ...input, readableRoots: roots, toolInput: { command } });
+
+  it('allows the commit with a message of several lines, and the chain that went on from it', () => {
+    for (const command of [commit, chain, `cd ${cwd} && ${chain}`]) {
+      expect(verdict(command), command).toEqual(allowed);
+      expect(withRoots(command), command).toEqual(allowed);
+    }
+  });
+
+  it('allows `git -C` to the worktree of the session', () => {
+    const command = `git -C ${cwd} log --oneline -1`;
+    expect(withRoots(command)).toEqual(allowed);
+    expect(withRoots(`${command} && git -C ${cwd} status --short`)).toEqual(allowed);
+    // The routine rule has no step in it: a reader alone waits for the read-only rule and its roots.
+    expect(verdict(command)).toBeNull();
+  });
+
+  describe('a newline inside quotes', () => {
+    it.each([
+      'git commit -m "one\ntwo"',
+      "git commit -m 'one\ntwo'",
+      'git commit -m "Subject\n\nBody line\n\nCo-Authored-By: A <a@example.com>"',
+      'git commit -m "a" -m "b\nc"',
+      'git commit --message="one\ntwo"',
+      'git commit -am "one\ntwo" && git merge --ff-only main',
+      'git add -A && git commit -m "a && b;\nc | d > e\n(f) {g} ~h #i !j"',
+      // A line continuation in double quotes joins the lines.
+      'git commit -m "one \\\ntwo"',
+    ])('allows a commit message of several lines: %j', (command) => {
+      expect(verdict(command)).toEqual(allowed);
+    });
+
+    it.each([
+      // A newline outside quotes ends a command in a shell.
+      'git status\nrm -rf /',
+      'git add -A\ngit commit -m x',
+      'git commit -m x\nrm -rf /',
+      'git commit -m "one\ntwo"\nrm -rf /',
+      'git add -A &&\ngit commit -m x',
+      'git add -A\n&& git commit -m x',
+      'git add -A;\ngit commit -m x',
+      'git add -A\n',
+      '\ngit add -A',
+      'npm ci\necho done',
+      // A backslash before a newline outside quotes.
+      'git add -A \\\n&& git commit -m x',
+      'git commit -m x \\\n-m y',
+      // A carriage return and every other control character, inside quotes too.
+      'git commit -m "one\r\ntwo"',
+      'git commit -m "one\rtwo"',
+      "git commit -m 'one\rtwo'",
+      'git commit -m "one\u0000two"',
+      'git commit -m "one\u000btwo"',
+      'git commit -m "one\u001btwo"',
+      'git commit -m "one\u007ftwo"',
+      'git commit -m "one\u0085two"',
+      // Quotes that do not close, however many lines follow.
+      'git commit -m "one\ntwo',
+      "git commit -m 'one\ntwo",
+      'git commit -m "one\\\n',
+      // An expansion hides in a message of several lines as it does in one.
+      'git commit -m "one\n$(rm -rf /)"',
+      'git commit -m "one\n`rm -rf /`"',
+      'git commit -m "one\n$HOME"',
+      'git commit -m "one\\\n$HOME"',
+    ])('leaves %j for a human', (command) => {
+      expect(verdict(command)).toBeNull();
+      expect(withRoots(command)).toBeNull();
+    });
+
+    it('still denies publishing next to a message of several lines', () => {
+      for (const command of [
+        'git commit -m "one\ntwo" && git push',
+        "git commit -m 'one\ntwo' && gh pr create --title x",
+        'git commit -m "one\ntwo"\ngit push',
+        // The quotes must pair up as the shell pairs them, or a `git push` hides between two strings.
+        'git commit -m "one\\\ntwo" && git push && echo "x"',
+        'git commit -m "one\\\ntwo" && gh pr merge 12 || echo "x"',
+      ])
+        expect(verdict(command), command).toEqual(publishing);
+    });
+
+    it('does not take prose of several lines for publishing', () => {
+      for (const command of [
+        'git commit -m "Document\ngit push"',
+        "git commit -m 'Document\ngh pr create and gh pr merge'",
+        'git commit -m "Document \\\ngit push"',
+        'git commit -m "a\\\nb" -m "git push"',
+      ])
+        expect(verdict(command), command).toEqual(allowed);
+    });
+
+    it('reads a line continuation as the shell does, so a path is checked where it leads', () => {
+      // The shell runs `cat ../etc/passwd`, which is outside the worktree.
+      for (const command of [
+        'cat "..\\\n/etc/passwd"',
+        'git add -A && cat "..\\\n/etc/passwd"',
+        'cat "..\\\n/etc/passwd" | head ; git add -A',
+        'git add "..\\\n/outside"',
+        'git add -A && ls "..\\\n/"',
+        'cat ".\\\n./x" | head',
+        `cd "${cwd}/..\\\n" && git add -A`,
+      ]) {
+        expect(verdict(command), command).toBeNull();
+        expect(withRoots(command), command).toBeNull();
+      }
+      // The two characters are removed, not kept: the `cd` names the working directory, the paths lie inside it.
+      expect(verdict(`cd "${cwd}\\\n" && git add -A`)).toEqual(allowed);
+      expect(verdict('git add "apps\\\n/web"')).toEqual(allowed);
+      expect(withRoots('cat "README\\\n.md" | head')).toEqual(allowed);
+    });
+  });
+
+  describe('a chain of routine and read-only steps joined with &&, || and ;', () => {
+    it.each([
+      `${chain}`,
+      'git add -A ; git commit -m x',
+      'git add . || git commit -m x',
+      'git add -A; git commit -m x; git log -1 --oneline',
+      'git add -A && git commit -m x || git status',
+      'npm ci; echo done',
+      'npm ci && npm run typecheck 2>&1 | tail -5; git add -A',
+      // Read-only steps may be whole pipelines, with the redirections the parser knows.
+      'git status | head && git add -A',
+      'git status 2>&1 && git add -A',
+      'git status ; git add -A',
+      'git status || git add -A',
+      'git ls-files | xargs cat && git add -A',
+      'git diff --stat | tail -3; git add -A && git commit -m x',
+      'git diff --name-only | sort -u | head -5 ; git add -A',
+      'git add -A && echo done >/dev/null 2>&1',
+      'git add -A; ls apps | wc -l || true',
+      // The first segment may still be a `cd` that stays where it is.
+      `cd ${cwd} ; git add -A`,
+      `cd ${cwd} && git status | head -3; git add -A; git log --oneline | head -1`,
+      `cd . || git add -A`,
+    ])('allows %j', (command) => {
+      expect(verdict(command)).toEqual(allowed);
+    });
+
+    it.each([
+      // A pipe into a routine step, or out of one, is no routine step.
+      'git status | git add -A',
+      'git log | git commit -m x',
+      'echo x | git commit -m y',
+      'git add -A | git status',
+      'git add -A | cat',
+      'git commit -m x | cat',
+      'git add -A && git status | git commit -m x',
+      'git add -A; git log -1 | git merge --ff-only main',
+      'git add -A; git ls-files | xargs git add --',
+      // A routine step keeps no redirection.
+      'git add -A 2>&1; git status',
+      'git commit -m x >/dev/null || git status',
+      'git commit -m x 2>&1',
+      'npm ci 2>&1 ; git add -A',
+      // The first segment is the only `cd`, and it stays in place.
+      'git status ; cd . ; git add -A',
+      'git status || cd apps ; git add -A',
+      'git add -A ; cd .. ; git status',
+      `cd ${cwd} ; cd ${cwd} ; git add -A`,
+      'cd . ; cd . ; git add -A',
+      'cd /tmp ; git add -A',
+      'cd apps ; git add -A',
+      'cd .. || git add -A',
+      'cd . 2>&1 ; git add -A',
+      'cd . | cat ; git add -A',
+      'git add -A ; git status | cd apps',
+      'git add -A ; pushd apps',
+      // A read-only pipeline that leaves the worktree, or writes.
+      'git add -A; cat ../outside | head -1',
+      'git add -A ; ls .. | wc -l',
+      'git commit -m x && git ls-files /etc | head',
+      'git add -A || ls /worktrees | wc -l',
+      'git status | cat /etc/passwd ; git add -A',
+      'git status | sort -o out ; git add -A',
+      'git status | tee out ; git add -A',
+      'git add -A; git ls-files | xargs cat /etc/passwd',
+      'git add -A; git ls-files | xargs rm',
+      'git add -A; find . -delete | head',
+      'git add -A; cat /workspace/README.md | head',
+      // Nothing runs in the background or is cut off.
+      'git add -A & git status',
+      'git add -A ;',
+      'git add -A ||',
+      '; git add -A',
+    ])('leaves %j for a human', (command) => {
+      expect(verdict(command)).toBeNull();
+      expect(withRoots(command)).toBeNull();
+    });
+
+    it('leaves a chain of readers alone to the read-only rule, whatever joins them', () => {
+      for (const command of [
+        'git status ; git log -1',
+        'git status | head || git log -1',
+        'ls && cat README.md | head',
+        'git log --oneline | head -1; git status --short',
+      ]) {
+        expect(verdict(command), command).toBeNull();
+        expect(withRoots(command), command).toEqual(allowed);
+      }
+    });
+
+    it('reads the read-only steps with the worktree as the only directory, pipelines included', () => {
+      const roots = ['/workspace', cwd];
+      expect(withRoots('git status | head ; git add -A', roots)).toEqual(allowed);
+      expect(withRoots('git add -A || cat /workspace/README.md | head', roots)).toBeNull();
+      expect(withRoots('git add -A ; ls /workspace | wc -l', roots)).toBeNull();
+      expect(withRoots('git add -A ; git ls-files /workspace | xargs cat', roots)).toBeNull();
+      // The same pipeline alone is for the read-only rule, which has both directories.
+      expect(withRoots('cat /workspace/README.md | head', roots)).toEqual(allowed);
+    });
+
+    it('keeps a chain from publishing', () => {
+      expect(verdict('git add -A ; git push')).toEqual(publishing);
+      expect(verdict('git status | head ; git push || git add -A')).toEqual(publishing);
+      // A repository on GitHub: a human decides about the push, not about the rest.
+      const onGithub = (command: string) =>
+        commandVerdict({ ...input, task: { repo: 'web' }, toolInput: { command } });
+      expect(onGithub('git add -A ; git push')).toBeNull();
+      expect(onGithub('git add -A ; git log -1 | head; git status')).toEqual(allowed);
+    });
+  });
+
+  describe('git -C to the directory the command runs in', () => {
+    const asReviewer = (command: string) =>
+      commandVerdict({
+        ...input,
+        session: { cwd: '/workspace', role: 'code_review' },
+        readableRoots: ['/workspace', cwd],
+        toolInput: { command },
+      });
+
+    it.each([
+      `git -C ${cwd} log --oneline -1`,
+      `git -C ${cwd} status --short`,
+      `git -C ${cwd}/ log -1`,
+      `git -C '${cwd}' log -1`,
+      `git -C "${cwd}" diff --stat | head -5`,
+      'git -C . log --oneline -1',
+      'git -C ./ status',
+      `git -C ${cwd} ls-files | wc -l`,
+      `git -C ${cwd} log -1 && git -C . status`,
+      `git -C ${cwd} rev-parse HEAD 2>&1 | head -1`,
+      `git -C ${cwd} branch --show-current`,
+      // After a `cd` the command runs in its target.
+      `cd ${cwd}/apps && git -C ${cwd}/apps log -1`,
+      'cd apps && git -C . log -1',
+      `cd ${cwd}/apps ; git -C . log -1`,
+    ])('allows a reader to name its own directory: %j', (command) => {
+      expect(withRoots(command)).toEqual(allowed);
+    });
+
+    it.each([
+      // To another directory, inside the worktree or not.
+      'git -C /elsewhere log',
+      `git -C ${cwd}/apps log`,
+      'git -C apps log',
+      'git -C .. log',
+      `git -C ${cwd}/.. log`,
+      `git -C ${cwd}/apps/.. log`,
+      'git -C / log',
+      `git -C ${cwd}-other log`,
+      // Twice, and with other options before the subcommand.
+      `git -C ${cwd} -C /elsewhere log`,
+      `git -C /elsewhere -C ${cwd} log`,
+      `git -C ${cwd} -C ${cwd} log`,
+      'git -C . -C . log',
+      'git -c x=y log',
+      'git -c core.pager=x log',
+      `git -c x=y -C ${cwd} log`,
+      `git -C ${cwd} -c x=y log`,
+      'git --git-dir=/elsewhere/.git log',
+      `git -C ${cwd} --git-dir=/elsewhere/.git log`,
+      'git --work-tree=/elsewhere status',
+      `git -C ${cwd} --work-tree=/elsewhere status`,
+      `git -C ${cwd} --no-pager log`,
+      // No directory, no subcommand, or a directory the text cannot tell.
+      'git -C',
+      'git -C .',
+      `git -C ${cwd}`,
+      'git -C "" log',
+      "git -C '' log",
+      'git -C $PWD log',
+      'git -C ~ log',
+      'git -C * log',
+      'git -C .* log',
+      'git -C .[a-z]* log',
+      `git -C${cwd} log`,
+      'git -C. log',
+      // The rest is judged as if `-C` were absent.
+      `git -C ${cwd} log --output=/tmp/x`,
+      `git -C ${cwd} log -- /etc/passwd`,
+      `git -C ${cwd} checkout main`,
+      `git -C ${cwd} status && rm -rf x`,
+      `git -C ${cwd} cat-file --batch`,
+      `git -C ${cwd} grep -O vi foo`,
+      // What `xargs` runs, and feeds it, is read as written.
+      'git ls-files | xargs git -C . log --',
+      `git ls-files | xargs -I X git -C ${cwd} log -1 -- X`,
+      'git -C . ls-files | xargs cat',
+      `git -C ${cwd} diff --name-only | xargs cat`,
+    ])('leaves %j for a human', (command) => {
+      expect(withRoots(command)).toBeNull();
+    });
+
+    it('takes the directory from the session: a reviewer runs in the workspace, not in the worktree', () => {
+      expect(asReviewer('git -C /workspace log -1')).toEqual(allowed);
+      expect(asReviewer('git -C . log -1')).toEqual(allowed);
+      // The worktree is among its roots, but it is not where the command runs.
+      expect(asReviewer(`git -C ${cwd} log -1`)).toBeNull();
+      // Every separator so far is `&&`: the command runs where the `cd` led.
+      expect(asReviewer(`cd ${cwd} && git -C ${cwd} log -1`)).toEqual(allowed);
+      expect(asReviewer(`cd ${cwd} && git -C . log -1`)).toEqual(allowed);
+      expect(asReviewer(`cd ${cwd} && git -C /workspace log -1`)).toBeNull();
+      // After `;` or `||` it may run in either directory, and only `.` names both.
+      expect(asReviewer(`cd ${cwd} ; git -C . log -1`)).toEqual(allowed);
+      expect(asReviewer(`cd ${cwd} || git -C . log -1`)).toEqual(allowed);
+      expect(asReviewer(`cd ${cwd} ; git -C ${cwd} log -1`)).toBeNull();
+      expect(asReviewer(`cd ${cwd} ; git -C /workspace log -1`)).toBeNull();
+    });
+
+    it.each([
+      `git -C ${cwd} add -A`,
+      `git -C ${cwd} commit -m x`,
+      `git -C ${cwd} commit -am "one\ntwo"`,
+      `git -C ${cwd} merge --ff-only main`,
+      `git -C ${cwd} add apps/web docs`,
+      'git -C . commit -m x',
+      'git -C ./ add -A',
+      `git -C ${cwd}/ commit -m x`,
+      `git -C '${cwd}' add -A`,
+      `git -C "${cwd}" commit -m x`,
+      'git -C . add -A && git -C . commit -m x',
+      `cd ${cwd} && git -C ${cwd} add -A && git -C ${cwd} commit -m x`,
+      `git -C ${cwd} status && git -C ${cwd} add -A && git -C ${cwd} commit -m x && git -C ${cwd} log --oneline -1`,
+      `git -C ${cwd} add -A ; git commit -m x`,
+    ])('allows the routine step with `-C` to the worktree: %j', (command) => {
+      expect(verdict(command)).toEqual(allowed);
+    });
+
+    it.each([
+      'git -C /other commit -m x',
+      `git -C ${cwd}/apps commit -m x`,
+      'git -C apps add -A',
+      'git -C .. add -A',
+      `git -C ${cwd} -C . commit -m x`,
+      `git -C . -C ${cwd} add -A`,
+      `git -C ${cwd} -C /elsewhere commit -m x`,
+      `git -C /elsewhere -C ${cwd} commit -m x`,
+      `git -C ${cwd} -c user.name=x commit -m x`,
+      `git -c user.name=x -C ${cwd} commit -m x`,
+      `git -C ${cwd} --git-dir=/other/.git commit -m x`,
+      `git -C ${cwd} --work-tree=/other add -A`,
+      `git -C ${cwd} --no-pager commit -m x`,
+      // The rest is judged as if `-C` were absent.
+      'git -C . commit',
+      'git -C . commit --amend -m x',
+      `git -C ${cwd} commit --no-verify -m x`,
+      `git -C ${cwd} add ../outside`,
+      `git -C ${cwd} merge main`,
+      // No directory, no subcommand, or a directory the text cannot tell.
+      'git -C .',
+      'git -C',
+      "git -C '' commit -m x",
+      'git -C $PWD commit -m x',
+      'git -C .* add -A',
+      'git -C * add -A',
+      `git -C ${cwd}/../AR-1-local commit -m x`,
+      'git add -A && git -C /other commit -m x',
+      'git status && git -C /other log && git add -A',
+    ])('leaves the step %j for a human', (command) => {
+      expect(verdict(command)).toBeNull();
+    });
   });
 });
 
@@ -1293,7 +1673,6 @@ describe('read-only commands for any AI session on a task (PM-69)', () => {
     'git cat-file --filters HEAD:x',
     'git cat-file',
     'git -C /other status',
-    'git -C . status',
     'git -c core.pager=x log',
     'git --git-dir=/other/.git log',
     'git --work-tree=/other status',

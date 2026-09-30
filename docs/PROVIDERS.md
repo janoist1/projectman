@@ -113,17 +113,28 @@ the timeline like any other answer):
   the command says and even when it cannot be parsed;
 - a developer's routine steps in the task's own worktree are allowed: a lockfile install,
   `git add`, `git commit` with a message and `git merge --ff-only` of the default branch or a
-  commit, joined with `&&` only, with read-only commands between them as long as those stay
-  in the worktree (`git status && git add -A && git commit -m …`, PM-77);
+  commit, each a single command (no pipe, no redirection). They may be joined with `&&`, `||`
+  or `;` and mixed with read-only steps, which may be whole pipelines, as long as those stay
+  in the worktree (`git status && git add -A && git commit -m …; git log --oneline | head -1`,
+  PM-77). Every step is judged on its own and the directory never changes: the only `cd` is a
+  first one that stays in the worktree. A chain of read-only steps alone is for the next rule;
 - read-only commands are allowed for every AI session on a task, inside the session's own
   directory and the task's worktree: `git status`/`diff`/`log`/`show` and similar, `grep`,
   `ls`, `cat`, `find` without actions, `xargs` fed only by a lister (`git ls-files`,
   `git diff --name-only`, `grep -l`, `find`, …), and the project's test, type and format
   checks (PM-69). Patterns that can match `.` and `..` (`.*`) are not followed.
 
+`git -C <dir>` counts as plain `git` when `<dir>` is the directory the command runs in (the
+session's working directory, or where a `cd` of the chain has led), however it is spelled. A
+`-C` to any other directory, a second `-C`, `-c`, `--git-dir` and `--work-tree` are not
+followed, and neither is a `-C` in front of what `xargs` runs.
+
 The allow rules read the command with a strict parser (`domain/shell-words.ts`): quotes are
 understood, every `$`, backtick, subshell, unknown redirection or unclear construct refuses the
-rule, and anything it does not recognise goes to a human. Denied tools are enforced through
+rule, and anything it does not recognise goes to a human. A newline inside quotes is text (a
+commit message of several lines); a backslash before one in double quotes is a line
+continuation, removed as the shell removes it. A newline outside quotes, a carriage return and
+every other control character are refused. Denied tools are enforced through
 Claude Code's settings; Codex relies on its sandbox and the PermissionRequest hook, which is
 why a Codex member never runs in `bypassPermissions`.
 

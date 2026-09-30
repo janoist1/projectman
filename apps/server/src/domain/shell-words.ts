@@ -9,13 +9,17 @@
  *   (literal) and double-quoted text. Inside double quotes an unescaped `$` or backtick is
  *   refused; a backslash escapes only `$`, a backtick, `"` and `\\` (as in POSIX shells) and
  *   stays literal before anything else, so `"task\.(edit|save)"` reads as `task\.(edit|save)`.
+ * - A newline inside quotes is text of the word, as in a commit message of several lines. A
+ *   backslash right before one inside double quotes is a line continuation: the shell removes
+ *   both characters, so the word does not have them either (`"..\<newline>/x"` is `../x`).
  * - Segments are separated by `&&`, `||` and `;`; the stages of a pipeline by `|`.
  * - The only redirections are `2>&1`, `>/dev/null`, `1>/dev/null` and `2>/dev/null`, each a word
  *   of its own.
- * - Refused (`null`): a newline or any other control character, a single `&`, any other `<` or
- *   `>`, an unquoted `$`, backtick, `(`, `)`, `{`, `}`, `\` or `!`, a word that starts with `~`
- *   (or has `~` right after an unquoted `=` or `:`), `=` or `#`, an unbalanced quote, and an
- *   empty segment or stage.
+ * - Refused (`null`): a newline outside quotes (it would end a command), a carriage return or any
+ *   other control character anywhere, a single `&`, any other `<` or `>`, an unquoted `$`,
+ *   backtick, `(`, `)`, `{`, `}`, `\` or `!` (so a backslash before a newline outside quotes), a
+ *   word that starts with `~` (or has `~` right after an unquoted `=` or `:`), `=` or `#`, an
+ *   unbalanced quote, and an empty segment or stage.
  *
  * Nothing is expanded or interpreted: the result tells what was written, not what it would do.
  */
@@ -43,8 +47,12 @@ export interface ShellCommand {
   separators: ShellSeparator[];
 }
 
-/** Every control character but the tab: newlines, carriage returns, NUL, escapes, DEL, C1. */
-const CONTROL_CHARACTER = /[\u0000-\u0008\u000a-\u001f\u007f-\u009f]/;
+/**
+ * Every control character but the tab and the newline: carriage returns, NUL, escapes, DEL, C1.
+ * A newline is let through here because inside quotes it is text; outside quotes `readWord`
+ * refuses it, for no newline is an unquoted character of a word (or a blank between words).
+ */
+const CONTROL_CHARACTER = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/;
 
 /** One unquoted character of a word (quotes, operators and whitespace are handled apart). */
 const UNQUOTED_CHARACTER = /^[\p{L}\p{M}\p{N}_./,:=+@%*?[\]^#~-]$/u;
@@ -147,9 +155,10 @@ function readWord(command: string, start: number): { text: string; end: number }
         if (inner === '\\') {
           const escaped = command[j + 1];
           if (escaped === undefined) return null;
-          // POSIX: inside double quotes a backslash escapes only $ ` " \ (and a newline, refused
-          // above); before anything else both characters are kept.
-          text += '$`"\\'.includes(escaped) ? escaped : `\\${escaped}`;
+          // POSIX: inside double quotes a backslash escapes only $ ` " \ and a newline. The
+          // newline is a line continuation, which the shell removes together with its backslash;
+          // before anything else both characters are kept.
+          if (escaped !== '\n') text += '$`"\\'.includes(escaped) ? escaped : `\\${escaped}`;
           j += 2;
         } else {
           text += inner;

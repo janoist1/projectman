@@ -1,7 +1,7 @@
 import path from 'node:path';
-import { isWithin, resolveWord } from './command-paths';
-import { isReadOnlyStage } from './read-only-commands';
-import type { ShellCommand } from './shell-words';
+import { isWithin, namesDirectory, resolveWord, withoutOwnDirectory } from './command-paths';
+import { isReadOnlyCommand } from './read-only-commands';
+import type { ShellCommand, ShellSegment } from './shell-words';
 
 /**
  * The routine steps of a developer in the task's own worktree, which the server allows without
@@ -27,44 +27,61 @@ export interface WorktreeRoutineContext {
 }
 
 /**
- * Whether the command is an optional `cd` to the working directory followed by steps, all
- * joined with `&&`: no pipes, no redirections, no other separators. A step is routine, or a
- * read-only command (the rule for reading, with the working directory as the only directory it
- * may read), and at least one is routine; a chain of readers alone is for the read-only rule.
+ * Whether the command is an optional `cd` to the working directory followed by steps, joined
+ * with `&&`, `||` or `;`. Each step is judged on its own, and the directory never changes: the
+ * only `cd` is the first segment, and it stays in place.
+ * - A routine step is a single command: no pipe, no redirection.
+ * - A read-only step may be a whole pipeline with the redirections the parser knows; the rule
+ *   for reading checks it with the working directory as the only directory it may read.
+ * At least one step is routine; a chain of readers alone is for the read-only rule.
  */
 export function isWorktreeRoutine(command: ShellCommand, context: WorktreeRoutineContext): boolean {
-  if (command.separators.some((separator) => separator !== '&&')) return false;
-  const steps: string[][] = [];
-  for (const segment of command.segments) {
-    const [stage] = segment.stages;
-    if (segment.stages.length !== 1 || !stage || stage.redirections.length > 0) return false;
-    steps.push(stage.words);
-  }
+  const root = path.resolve(context.cwd);
+  const steps = [...command.segments];
   const [first] = steps;
-  if (first?.[0] === 'cd') {
+  if (first && isChangeDirectory(first)) {
     if (!staysInPlace(first, context.cwd)) return false;
     steps.shift();
   }
-  const root = path.resolve(context.cwd);
-  const isRoutine = (words: readonly string[]) => isRoutineStep(words, context);
-  return (
-    steps.some(isRoutine) &&
-    steps.every((words) => isRoutine(words) || isReadOnlyStage(words, [root], [root]))
-  );
+  let routine = false;
+  for (const step of steps) {
+    // Any other `cd` could leave the directory the rest of the chain is checked in.
+    if (isChangeDirectory(step)) return false;
+    const words = singleCommand(step);
+    if (words && isRoutineStep(words, context)) {
+      routine = true;
+    } else if (!isReadOnlyCommand({ segments: [step], separators: [] }, { cwd: root, roots: [root] })) {
+      return false;
+    }
+  }
+  return routine;
+}
+
+/** The words of a segment that is one command: no pipe, no redirection. */
+function singleCommand(segment: ShellSegment): readonly string[] | null {
+  const [stage] = segment.stages;
+  return segment.stages.length === 1 && stage && stage.redirections.length === 0 ? stage.words : null;
+}
+
+/** A segment that is one command starting with `cd`, with or without redirections. */
+function isChangeDirectory(segment: ShellSegment): boolean {
+  return segment.stages.length === 1 && segment.stages[0]?.words[0] === 'cd';
 }
 
 /** `cd <dir>` where the directory is the working directory itself, however it is spelled. */
-function staysInPlace(words: readonly string[], cwd: string): boolean {
-  const dir = words[1];
-  return words.length === 2 && Boolean(dir) && resolveWord(cwd, dir!) === path.resolve(cwd);
+function staysInPlace(segment: ShellSegment, cwd: string): boolean {
+  const words = singleCommand(segment);
+  return words !== null && words.length === 2 && namesDirectory(cwd, words[1]!);
 }
 
 function isRoutineStep(words: readonly string[], context: WorktreeRoutineContext): boolean {
-  const [program, subcommand, ...args] = words;
+  // A `-C` to the working directory changes nothing, and the rest is judged as if it were absent.
+  // The word after `git` must then be the subcommand: `git -C dir …` to another directory, a second
+  // `-C`, `git -c key=value …`, `--git-dir` and `--work-tree` are not routine.
+  const [program, subcommand, ...args] = withoutOwnDirectory(words, [context.cwd]);
   if (program === 'npm') {
     return (subcommand === 'ci' || subcommand === 'install') && args.every((flag) => INSTALL_FLAGS.has(flag));
   }
-  // The word after `git` must be the subcommand: `git -C dir …` and `git -c key=value …` are not routine.
   if (program !== 'git') return false;
   switch (subcommand) {
     case 'add':

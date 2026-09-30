@@ -4,9 +4,11 @@ import {
   isWithin,
   isWithinAny,
   looksLikePath,
+  namesDirectory,
   pathsIn,
   pathsInside,
   resolveWord,
+  withoutOwnDirectory,
 } from '../src/domain/command-paths';
 
 describe('command paths', () => {
@@ -154,6 +156,89 @@ describe('command paths', () => {
     expect(pathsInside('.*/.*/x', ['/work'], roots)).toBe(false);
     expect(pathsInside('.gitignore', ['/work'], roots)).toBe(true);
     expect(pathsInside('--include=.*', ['/work'], roots)).toBe(true);
+  });
+
+  it.each([
+    ['.', true],
+    ['./', true],
+    ['./.', true],
+    ['/work', true],
+    ['/work/', true],
+    ['/work/.', true],
+    // However it is spelled: a leading `..` that leads back in is the same directory.
+    ['../work', true],
+    ['', false],
+    ['..', false],
+    ['a', false],
+    ['./a', false],
+    ['/work/a', false],
+    ['/', false],
+    ['/elsewhere', false],
+    ['/work-other', false],
+    ['/work/..', false],
+    ['/work/a/..', false],
+    ['work', false],
+    // A pattern may expand to another name, and `.*` may match `..`.
+    ['*', false],
+    ['.*', false],
+    ['[.]', false],
+    ['/wor?', false],
+    ['/work*', false],
+  ])('%j names the directory /work it runs in: %s', (word, expected) => {
+    expect(namesDirectory('/work', word)).toBe(expected);
+  });
+
+  it('names a directory that holds a pattern character only by a word without one', () => {
+    expect(namesDirectory('/work/[x]', '.')).toBe(true);
+    expect(namesDirectory('/work/[x]', '/work/[x]')).toBe(false);
+  });
+
+  it('drops a leading `git -C` to each directory the command runs in', () => {
+    const log = ['git', 'log', '-1'];
+    expect(withoutOwnDirectory(['git', '-C', '.', 'log', '-1'], ['/work'])).toEqual(log);
+    expect(withoutOwnDirectory(['git', '-C', '/work', 'log', '-1'], ['/work'])).toEqual(log);
+    expect(withoutOwnDirectory(['git', '-C', './', 'log', '-1'], ['/work/'])).toEqual(log);
+    // Every directory it may run in must be the one the word names: `.` is each of them.
+    expect(withoutOwnDirectory(['git', '-C', '.', 'log', '-1'], ['/work', '/work/a'])).toEqual(log);
+    expect(withoutOwnDirectory(['git', '-C', '/work', 'log', '-1'], ['/work', '/work/a'])).toEqual([
+      'git',
+      '-C',
+      '/work',
+      'log',
+      '-1',
+    ]);
+    expect(withoutOwnDirectory(['git', '-C', '/work', 'log', '-1'], ['/work', '/work'])).toEqual(log);
+  });
+
+  it('leaves every other spelling as it is', () => {
+    for (const words of [
+      ['git', '-C', '/elsewhere', 'log'],
+      ['git', '-C', 'a', 'log'],
+      ['git', '-C', '..', 'log'],
+      ['git', '-C', '', 'log'],
+      ['git', '-C', '.*', 'log'],
+      ['git', '-C', '*', 'log'],
+      ['git', '-C'],
+      ['git', '-c', 'x=y', 'log'],
+      ['git', '--git-dir=.git', 'log'],
+      ['git', '--work-tree=.', 'log'],
+      ['git', '-C.', 'log'],
+      ['git', 'log', '-C', '.'],
+      ['npm', '-C', '.', 'ci'],
+      ['env', 'git', '-C', '.', 'log'],
+      ['git'],
+      [],
+    ])
+      expect(withoutOwnDirectory(words, ['/work']), words.join(' ')).toEqual(words);
+    // Only the first `-C` goes: a second one stays, for the rule that follows to refuse.
+    expect(withoutOwnDirectory(['git', '-C', '.', '-C', '/elsewhere', 'log'], ['/work'])).toEqual([
+      'git',
+      '-C',
+      '/elsewhere',
+      'log',
+    ]);
+    // No directory, no claim.
+    expect(withoutOwnDirectory(['git', '-C', '.', 'log'], [])).toEqual(['git', '-C', '.', 'log']);
   });
 
   it('recognises pattern characters', () => {

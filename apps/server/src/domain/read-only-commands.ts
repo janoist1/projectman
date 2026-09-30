@@ -1,6 +1,12 @@
 import path from 'node:path';
 import { hasShortOption, namesOption } from './command-options';
-import { hasGlobCharacter, isWithinAny, pathsInside, resolveWord } from './command-paths';
+import {
+  hasGlobCharacter,
+  isWithinAny,
+  pathsInside,
+  resolveWord,
+  withoutOwnDirectory,
+} from './command-paths';
 import type { ShellCommand, ShellStage } from './shell-words';
 import { isXargsFeed } from './xargs-feed';
 
@@ -58,7 +64,8 @@ const CAT_FILE_OPTIONS = new Set(['-p', '-t', '-s', '-e']);
 const BRANCH_OPTIONS = new Set(['--show-current', '-a', '-r', '-v', '-vv']);
 
 const gitRule: Rule = (args) => {
-  // The word after `git` must be the subcommand: no `-C`, `-c`, `--git-dir`, `--work-tree`, …
+  // The word after `git` must be the subcommand: no `-c`, `--git-dir`, `--work-tree`, … and no
+  // `-C` but the one to the directory the command runs in, which `isReadOnlyStage` has dropped.
   const [subcommand, ...rest] = args;
   if (subcommand === undefined || !READ_ONLY_GIT.has(subcommand)) return false;
   // `--output` writes the diff to a file; `--ext-diff` runs the configured external program.
@@ -308,12 +315,20 @@ function hasPatternOption(args: readonly string[]): boolean {
  * program, and every path in it stays inside `roots` from each directory it may run in. `cd`
  * and `xargs` are not readers of their own: `isReadOnlyCommand` follows the first, and
  * `isReadOnlyPipeline` the second.
+ *
+ * A `git -C <dir>` counts as plain `git` when `<dir>` is each of `dirs` itself, the directories
+ * the command runs in; any other `-C` is an option the rule does not know.
  */
 export function isReadOnlyStage(
   words: readonly string[],
   dirs: readonly string[],
   roots: readonly string[],
 ): boolean {
+  return isReader(withoutOwnDirectory(words, dirs), dirs, roots);
+}
+
+/** `isReadOnlyStage` for the words exactly as they are, with no `-C` dropped. */
+function isReader(words: readonly string[], dirs: readonly string[], roots: readonly string[]): boolean {
   const [program, ...args] = words;
   const rule = program === undefined ? undefined : RULES.get(program);
   if (!rule || hasPatternOption(args) || !rule(args)) return false;
@@ -338,7 +353,10 @@ function isReadOnlyPipeline(
   if (!run || isRewritten(run.command, run.replaced) || !isSafeWithNames(run.command, run.replaced))
     return false;
   if (!isXargsFeed(stages.slice(0, at).map((stage) => stage.words))) return false;
-  return stages.every((stage, i) => reader(i === at ? run.command : stage.words));
+  // What `xargs` runs is read as written, with no `-C` dropped: with `-I` a name could take the
+  // place of the directory word, or of the subcommand behind it, and the checks above look at
+  // neither.
+  return stages.every((stage, i) => (i === at ? isReader(run.command, dirs, roots) : reader(stage.words)));
 }
 
 /**

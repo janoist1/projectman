@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { parseShellCommand, SHELL_REDIRECTIONS } from '../src/domain/shell-words';
 
+/** A commit message of several lines, with the trailer every commit of an AI member ends in. */
+const MESSAGE = 'Subject line (PM-93)\n\nCo-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>';
+
 /** The words of the only stage of a single command. */
 function words(command: string): string[] | null {
   const parsed = parseShellCommand(command);
@@ -44,6 +47,25 @@ describe('shell words: words and quotes', () => {
     ],
     ['echo "tab\there"', ['echo', 'tab\there']],
     ['echo "emoji 🙂 é — →"', ['echo', 'emoji 🙂 é — →']],
+    // A newline inside quotes is text of the word: a commit message of several lines, a blank
+    // line, and operators that would mean something outside quotes.
+    ["git commit -m 'one\ntwo'", ['git', 'commit', '-m', 'one\ntwo']],
+    ['git commit -m "one\ntwo"', ['git', 'commit', '-m', 'one\ntwo']],
+    [`git commit -q -m "${MESSAGE}"`, ['git', 'commit', '-q', '-m', MESSAGE]],
+    ['echo "a\n&& b;\nc | d > e" \'f\ng\'', ['echo', 'a\n&& b;\nc | d > e', 'f\ng']],
+    ['echo "\n" \'\n\'', ['echo', '\n', '\n']],
+    ['echo x"a\nb"y\'c\nd\'z', ['echo', 'xa\nbyc\ndz']],
+    // A backslash before a newline: in double quotes a line continuation, which the shell removes
+    // together with the backslash; in single quotes both stay.
+    ['echo "a\\\nb"', ['echo', 'ab']],
+    ['echo "..\\\n/x"', ['echo', '../x']],
+    ['echo "\\\n"', ['echo', '']],
+    ['echo "a\\\n\\\nb"', ['echo', 'ab']],
+    ['echo "a\\\n\\\\b"', ['echo', 'a\\b']],
+    ['echo "\\\n\\$HOME"', ['echo', '$HOME']],
+    // An escaped backslash is no continuation: it stays, and the newline after it is text.
+    ['echo "a\\\\\nb"', ['echo', 'a\\\nb']],
+    ["echo 'a\\\nb'", ['echo', 'a\\\nb']],
     // A tilde, hash or equals sign that cannot start an expansion or a comment is plain text.
     ["echo ''~ ''#x ''=y x~ x~y", ['echo', '~', '#x', '=y', 'x~', 'x~y']],
     ['echo ""~ ""#x ""=y', ['echo', '~', '#x', '=y']],
@@ -124,15 +146,37 @@ describe('shell words: segments, pipes and redirections', () => {
 
 describe('shell words: everything unsafe or unclear is refused', () => {
   it.each<[string, string]>([
-    // Newlines and other control characters, even inside quotes.
+    // A newline outside quotes would end the command. Every other control character is refused
+    // everywhere, inside quotes too.
     ['a newline', 'git status\nrm -rf /'],
-    ['a newline inside quotes', "git commit -m 'one\ntwo'"],
+    ['a newline inside a word', 'echo a\nb'],
+    ['a newline after a separator', 'git status &&\nls'],
+    ['a newline before a separator', 'git status\n&& ls'],
+    ['a newline after a semicolon', 'git status;\nls'],
+    ['a newline after a pipe', 'git log |\nhead'],
+    ['a leading newline', '\ngit status'],
+    ['a trailing newline', 'git status\n'],
+    ['a newline after a double-quoted word', 'echo "a"\nrm x'],
+    ['a newline after a single-quoted word', "echo 'a'\nrm x"],
+    ['a newline after a message that holds one', 'git commit -m "a\nb"\nrm -rf /'],
+    ['a newline after a redirection', 'ls >/dev/null\nrm x'],
     ['a carriage return', 'git status\r'],
+    ['a carriage return inside double quotes', 'echo "a\rb"'],
+    ['a carriage return inside single quotes', "echo 'a\rb'"],
+    ['a carriage return and a newline inside quotes', 'echo "a\r\nb"'],
+    ['a carriage return and a newline after a quote', 'echo "a"\r\nls'],
+    ['a carriage return after a backslash in double quotes', 'echo "a\\\r\nb"'],
     ['a NUL', 'git status\u0000'],
+    ['a NUL inside quotes', "echo 'a\u0000b'"],
     ['an escape', 'echo \u001b[31m'],
+    ['an escape inside quotes', 'echo "\u001b[31m"'],
     ['a vertical tab', 'echo a\u000bb'],
+    ['a vertical tab inside quotes', 'echo "a\u000bb"'],
+    ['a form feed inside quotes', "echo 'a\u000cb'"],
     ['a DEL', 'echo a\u007fb'],
+    ['a DEL inside quotes', 'echo "a\u007fb"'],
     ['a C1 control', 'echo a\u0085b'],
+    ['a C1 control inside quotes', 'echo "a\u0085b"'],
     // Background jobs and other redirections.
     ['a single &', 'sleep 1 & echo x'],
     ['a trailing &', 'npm ci &'],
@@ -171,6 +215,9 @@ describe('shell words: everything unsafe or unclear is refused', () => {
     // Escapes, history, home directories, comments and assignments of commands.
     ['an unquoted backslash', 'echo a\\ b'],
     ['an escaped newline', 'echo a\\\nb'],
+    ['an escaped newline after a quote', 'echo "a"\\\nb'],
+    ['an escaped newline in front of a word', 'echo \\\nb'],
+    ['an escaped newline at the end', 'echo a \\\n'],
     ['an escaped semicolon', 'find . -exec ls {} \\;'],
     ['an exclamation mark', 'echo hi!'],
     ['a negation', '! ls'],
@@ -190,6 +237,11 @@ describe('shell words: everything unsafe or unclear is refused', () => {
     ['a substitution in double quotes', 'echo "$(ls)"'],
     ['a backtick in double quotes', 'echo "`ls`"'],
     ['a trailing backslash in double quotes', 'echo "a\\'],
+    ['a quote left open after a newline', 'echo "a\nb'],
+    ['a quote left open after a line continuation', 'echo "a\\\n'],
+    ['a parameter after a line continuation', 'echo "\\\n$HOME"'],
+    ['a parameter before a line continuation', 'echo "$\\\nHOME"'],
+    ['a backtick after a line continuation', 'echo "\\\n`ls`"'],
     // Characters outside the safe set.
     ['a no-break space', 'echo a b'],
     ['a zero-width space', 'echo a​b'],
@@ -216,7 +268,20 @@ describe('shell words: everything unsafe or unclear is refused', () => {
   });
 
   it('refuses each refusal in every position of a longer command', () => {
-    for (const fragment of ['$HOME', '`ls`', '$(ls)', '(ls)', '{a,b}', 'a\\ b', '~/x', '> f', '< f', '&']) {
+    for (const fragment of [
+      '$HOME',
+      '`ls`',
+      '$(ls)',
+      '(ls)',
+      '{a,b}',
+      'a\\ b',
+      '~/x',
+      '> f',
+      '< f',
+      '&',
+      '\nrm -rf /',
+      'a\\\nb',
+    ]) {
       for (const command of [
         `${fragment} && git status`,
         `git status && ${fragment}`,
@@ -226,5 +291,51 @@ describe('shell words: everything unsafe or unclear is refused', () => {
         expect(parseShellCommand(command), command).toBeNull();
       }
     }
+  });
+
+  it('refuses every control character but the tab and the newline, in quotes or not', () => {
+    for (let code = 0; code <= 0x9f; code += 1) {
+      const printable = code >= 0x20 && code < 0x7f;
+      if (printable || code === 0x09 || code === 0x0a) continue;
+      const char = String.fromCharCode(code);
+      for (const command of [`echo a${char}b`, `echo "a${char}b"`, `echo 'a${char}b'`, `git status${char}`]) {
+        expect(parseShellCommand(command), JSON.stringify(command)).toBeNull();
+      }
+    }
+  });
+});
+
+describe('shell words: a newline is text only inside quotes', () => {
+  it('keeps the commands around a quoted newline apart from it', () => {
+    const parsed = parseShellCommand(
+      `git add apps && git commit -q -m "${MESSAGE}" && git log --oneline | head -1`,
+    );
+    expect(parsed?.separators).toEqual(['&&', '&&']);
+    expect(parsed?.segments.map((segment) => segment.stages.map((stage) => stage.words))).toEqual([
+      [['git', 'add', 'apps']],
+      [['git', 'commit', '-q', '-m', MESSAGE]],
+      [
+        ['git', 'log', '--oneline'],
+        ['head', '-1'],
+      ],
+    ]);
+  });
+
+  it('reads a quoted newline in every position of a longer command', () => {
+    for (const command of [
+      'echo "a\nb" && git status',
+      'git status && echo "a\nb"',
+      'git status | echo "a\nb"',
+      "git commit -m 'a\nb' 2>&1",
+    ]) {
+      expect(parseShellCommand(command), command).not.toBeNull();
+    }
+  });
+
+  it('removes a line continuation before the words are compared with anything', () => {
+    // What the shell runs is `cat ../x`: the text must say so, or a path check reads another place.
+    expect(words('cat "..\\\n/x"')).toEqual(['cat', '../x']);
+    expect(words('cat ".\\\n./x"')).toEqual(['cat', '../x']);
+    expect(words('cat "a\\\nb" \'a\\\nb\'')).toEqual(['cat', 'ab', 'a\\\nb']);
   });
 });

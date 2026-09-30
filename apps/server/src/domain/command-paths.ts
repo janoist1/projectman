@@ -38,6 +38,27 @@ export function resolveWord(dir: string, word: string): string | null {
   return path.resolve(dir, word);
 }
 
+/**
+ * `word`, read as a directory by a command that runs in `dir`, is `dir` itself however it is
+ * spelled (`.`, `./`, `dir`'s own absolute path). An empty word names nothing, a pattern may
+ * expand to another name, and a word whose place the text cannot show is never `dir`.
+ */
+export function namesDirectory(dir: string, word: string): boolean {
+  return word !== '' && !hasGlobCharacter(word) && resolveWord(dir, word) === path.resolve(dir);
+}
+
+/**
+ * The words of a `git` command without a leading `-C <dir>` that names each of `dirs`, the
+ * directories the command runs in: git then stays where it is, and what is left is what it does.
+ * Every other spelling comes back as it is (`-C` to another directory or twice, `-c`,
+ * `--git-dir`, `--work-tree`, …), so a rule that expects the subcommand after `git` refuses it.
+ */
+export function withoutOwnDirectory(words: readonly string[], dirs: readonly string[]): readonly string[] {
+  const [program, option, dir] = words;
+  if (program !== 'git' || option !== '-C' || dir === undefined || dirs.length === 0) return words;
+  return dirs.every((each) => namesDirectory(each, dir)) ? ['git', ...words.slice(3)] : words;
+}
+
 /** A word that looks like a path: it has a slash, or is `.` or `..`. */
 export function looksLikePath(word: string): boolean {
   return word.includes('/') || word === '.' || word === '..';

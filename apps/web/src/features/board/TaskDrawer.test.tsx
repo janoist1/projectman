@@ -138,6 +138,21 @@ describe('task drawer stage moves', () => {
       ),
     ).toBe(true);
   });
+  it('says why nobody may approve the move when the only approver authored the task', async () => {
+    const project = mockProject();
+    project.backend.config.team.releaseFourEyes = true;
+    const task = project.backend.findTask('AC-28')!;
+    task.stageId = 'merge';
+    task.links[0]!.author = 'owner';
+    project.render(drawer, '/p/AC/tasks/AC-28');
+    await screen.findByLabelText(t('task.move.target'));
+    fireEvent.click(screen.getByRole('button', { name: t('task.move.submit') }));
+    expect((await screen.findByRole('alert')).textContent).toBe(t('errors.codes.release_four_eyes'));
+    expect(project.backend.findTask('AC-28')?.stageId).toBe('merge');
+    expect(project.backend.inbox.some((item) => item.taskKey === 'AC-28' && item.state === 'open')).toBe(
+      false,
+    );
+  });
   it.each(['client', 'viewer'])('hides moving from %s access', async (access) => {
     const project = mockProject();
     project.render(drawer, '/p/AC/tasks/AC-20', {

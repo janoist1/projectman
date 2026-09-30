@@ -81,6 +81,38 @@ describe('mock team messaging and profiles', () => {
     }
     expect(b.messages).toHaveLength(1);
   });
+  it('trims messages and never sends one to its sender', () => {
+    const b = backend();
+    expect(b.handle('POST', `${base}/messages`, { to: ['owner'], text: 'Acme' })).toMatchObject({
+      status: 400,
+      body: { error: { code: 'invalid_request', details: { field: 'to' } } },
+    });
+    expect(
+      b.handle('POST', `${base}/messages`, { to: ['kata', 'nobody', 'ghost'], text: 'Acme' }),
+    ).toMatchObject({
+      status: 404,
+      body: { error: { code: 'not_found', details: { ids: ['nobody', 'ghost'] } } },
+    });
+    const sent = TeamMessage.parse(
+      b.handle('POST', `${base}/messages`, { to: ['kata', 'owner'], text: '  Acme notes \n' }).body,
+    );
+    expect(sent).toMatchObject({ to: ['kata'], body: 'Acme notes' });
+    expect(b.messages).toHaveLength(1);
+  });
+  it('trims a human chat message and refuses a blank one', () => {
+    const b = backend();
+    const session = Session.parse(b.handle('POST', `${base}/members/fe-1/conversation`, {}).body);
+    const path = `${base}/sessions/${session.id}/messages`;
+    expect(b.handle('POST', path, { text: ' \n ' })).toMatchObject({
+      status: 400,
+      body: { error: { code: 'invalid_request', details: { field: 'text' } } },
+    });
+    expect(b.chats[session.id]).toEqual([]);
+    expect(b.handle('POST', path, { text: ' Acme follow-up \n' }).status).toBe(202);
+    expect(b.chats[session.id]).toEqual([
+      expect.objectContaining({ kind: 'user_text', origin: 'human', text: 'Acme follow-up' }),
+    ]);
+  });
   // Conversations and schedule runs share one admission check; schedules.test covers every reason.
   it('admits a conversation like any other AI work', () => {
     const b = backend();

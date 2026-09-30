@@ -738,7 +738,7 @@ export const hu = {
       reason: 'Miért: {reason}',
       details: 'Részletek',
     },
-    details: 'Részletek',
+    details: 'Megnyitás',
     tool: 'Eszköz: {tool}',
     permissionHeading: 'Engedélyt kér: {tool}',
     gateMove: 'Továbblépés: {from} → {to}',
@@ -1226,7 +1226,7 @@ export const hu = {
       sponsor: 'Előfizetés',
     },
     limits: {
-      aiEnabled: 'AI-munka engedélyezve',
+      aiEnabled: 'AI-munka',
       aiEnabledHelp:
         'Kikapcsolva az AI-tagok nem kezdenek és nem folytatnak munkát ebben a projektben; a futó sessionök tovább működnek, a várakozó munka visszakapcsolás után indul.',
       aiEnabledOn: 'Bekapcsolva',

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MemberHandle } from './member';
+import { AgentProvider, MemberHandle } from './member';
 import { TaskKey } from './task';
 
 /**
@@ -34,6 +34,11 @@ export const Session = z.object({
   workItem: WorkItemRef,
   /** Claude Code session UUID (used with --session-id / --resume). */
   claudeSessionId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/),
+  /**
+   * The agent CLI whose conversation the session holds (its transcript and conversation id).
+   * The server always sets it; it is optional for data from before it existed.
+   */
+  provider: AgentProvider.optional(),
   cwd: z.string(),
   branch: z.string().nullable(),
   transcriptPath: z.string().nullable(),

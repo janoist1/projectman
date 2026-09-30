@@ -15,8 +15,10 @@ import { invalid, notFound } from '../errors';
 import type { ProjectService } from '../projects';
 import type { TimelineService } from '../timeline';
 
-export type LabelNotifier = (task: Task, labels: string[], actor: Actor, comment?: string) => Promise<void>;
-export type NoteNotifier = (event: TimelineEvent, mentions: string[]) => Promise<void>;
+/** Why the start of AI work on a task waits (the admission's deferred starts). */
+export interface StartWaitingReader {
+  waitingFor(task: Task): TaskStartWaiting | undefined;
+}
 
 /** Work that follows a committed unit of work: notifications and listeners. */
 export type Effect = () => Promise<void>;
@@ -26,28 +28,32 @@ export async function runEffects(effects: Effect[]): Promise<void> {
 }
 
 /**
- * What the parts of the task service share: reading tasks as clients see them, writing and
- * publishing them, recording notes, and the notifiers the composition root wires to team
- * messages. Writes happen inside a unit of work on a task read in that same unit, so no
- * concurrent change is lost; the notifications they cause run after it committed.
+ * What the parts of the task service share: reading tasks as clients see them (with why their
+ * AI work waits), writing and publishing them, and recording notes. Writes happen inside a unit
+ * of work on a task read in that same unit, so no concurrent change is lost; the domain events
+ * they cause are emitted after it committed.
  */
 export class TaskStore {
   readonly ctx: DomainContext;
   readonly timeline: TimelineService;
   readonly projects: ProjectService;
-  startWaitingReader: (task: Task) => TaskStartWaiting | undefined = () => undefined;
-  labelNotifier?: LabelNotifier;
-  noteNotifier?: NoteNotifier;
+  private readonly startWaiting: StartWaitingReader;
 
-  constructor(deps: { ctx: DomainContext; timeline: TimelineService; projects: ProjectService }) {
+  constructor(deps: {
+    ctx: DomainContext;
+    timeline: TimelineService;
+    projects: ProjectService;
+    startWaiting: StartWaitingReader;
+  }) {
     this.ctx = deps.ctx;
     this.timeline = deps.timeline;
     this.projects = deps.projects;
+    this.startWaiting = deps.startWaiting;
   }
 
   view(task: Task): Task {
     const { startWaiting: _, ...rest } = task;
-    const startWaiting = this.startWaitingReader(task);
+    const startWaiting = this.startWaiting.waitingFor(task);
     return startWaiting ? { ...rest, startWaiting } : rest;
   }
 
@@ -121,9 +127,7 @@ export class TaskStore {
       data: { text, mentions, ...imported },
     });
     if (!isImported && mentions.length)
-      effects.push(async () => {
-        await this.noteNotifier?.(event, mentions);
-      });
+      effects.push(() => this.ctx.events.emit('task_note_added', { event, mentions }));
     return event;
   }
 }

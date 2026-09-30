@@ -171,6 +171,18 @@ describe('agent providers', () => {
     });
     await h.domain.sessions.ensureSession('AR', 'dev-2', general);
     expect(h.runner.lastStarted()).toMatchObject({ provider: 'codex', resume: false });
+    // Until Codex reports its own conversation, the session keeps the Claude one.
+    expect(h.domain.sessions.get('AR', session.id).provider).toBe('claude');
+    h.runner.emit({ type: 'provider_session_id', sessionId: session.id, providerSessionId: CODEX_ID });
+    h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: `/tmp/rollout-${CODEX_ID}.jsonl` });
+    expect(h.domain.sessions.get('AR', session.id).provider).toBe('codex');
+    h.runner.emit({ type: 'exit', sessionId: session.id, exitCode: 0, signal: null });
+    await h.domain.sessions.ensureSession('AR', 'dev-2', general);
+    expect(h.runner.lastStarted()).toMatchObject({
+      provider: 'codex',
+      resume: true,
+      claudeSessionId: CODEX_ID,
+    });
   });
 
   it('keeps the reason of a session that lost its login', async () => {
@@ -206,7 +218,7 @@ describe('agent providers', () => {
     });
     const first = await h.domain.tasks.create('AR', { title: 'Codex task' }, OWNER_ACTOR);
     const start = (key: string, assignee: string) =>
-      h.domain.scheduler.startTask('AR', key, {
+      h.domain.taskStarts.start('AR', key, {
         assignee,
         actor: OWNER_ACTOR,
         author: OWNER,

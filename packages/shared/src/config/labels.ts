@@ -191,3 +191,21 @@ export function approvalRefusal(
       : 'self_review_forbidden';
   return refusal ? 'not_an_assignee' : null;
 }
+
+/**
+ * Why nobody may approve a gate request for the label on this task, or null when someone may:
+ * every holder authored the task (four eyes on a release approval, or the label's own rule), or
+ * nobody holds the label.
+ */
+export function noApproverReason(
+  config: LabelConfig,
+  labelId: string,
+  task: Pick<Task, 'assignee' | 'links'>,
+): 'release_four_eyes' | 'self_review_forbidden' | 'missing_duty_holder' | null {
+  const label = labelDefinition(config, labelId);
+  if (!label || labelSetters(config, label, task).length > 0) return null;
+  if (labelHolders(config, label).length === 0) return 'missing_duty_holder';
+  return config.team.releaseFourEyes === true && releaseGateLabels(config).has(label.id)
+    ? 'release_four_eyes'
+    : 'self_review_forbidden';
+}

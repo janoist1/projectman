@@ -8,7 +8,6 @@ import type {
   ProjectConfig,
   Task,
   TaskDetail,
-  TaskStartWaiting,
   TaskLink,
   TimelineEventData,
   Visibility,
@@ -29,9 +28,9 @@ import type { TimelineService } from '../timeline';
 import { actorHandle, newId, unique } from '../util';
 import { labelsChange, planLabelsOrThrow, TaskLabels } from './labels';
 import { approvalRequestedError, gateBlockedError, TaskMoves } from './moves';
-import type { MoveResult, StageChangeListener } from './moves';
+import type { MoveResult } from './moves';
 import { requireStage, runEffects, TaskStore } from './store';
-import type { Effect, LabelNotifier, NoteNotifier } from './store';
+import type { Effect, StartWaitingReader } from './store';
 
 /**
  * A change of a task in one step. The REST PATCH sends the fields, the assignee and the whole
@@ -66,13 +65,14 @@ export class TaskService {
   private readonly labels: TaskLabels;
   private readonly moves: TaskMoves;
   private readonly pullRequests: PullRequestRecords;
-  private readonly cancelListeners: Array<(task: Task) => Promise<void>> = [];
 
   constructor(deps: {
     ctx: DomainContext;
     timeline: TimelineService;
     projects: ProjectService;
     inbox: InboxService;
+    /** Why a task's AI work waits, shown on the task. */
+    startWaiting: StartWaitingReader;
   }) {
     this.ctx = deps.ctx;
     this.timeline = deps.timeline;
@@ -85,27 +85,6 @@ export class TaskService {
       find: (projectKey, taskKey) => this.store.find(projectKey, taskKey),
       publish: (task) => this.store.publish(task),
     });
-  }
-
-  onNoteAdded(notifier: NoteNotifier): void {
-    this.store.noteNotifier = notifier;
-  }
-
-  /** Called when an added label notifies the task's assignee (wired to team messages). */
-  onLabelNotify(notifier: LabelNotifier): void {
-    this.store.labelNotifier = notifier;
-  }
-
-  onStageChanged(listener: StageChangeListener): void {
-    this.moves.onStageChanged(listener);
-  }
-
-  onCancelled(listener: (task: Task) => Promise<void>): void {
-    this.cancelListeners.push(listener);
-  }
-
-  setStartWaitingReader(reader: (task: Task) => TaskStartWaiting | undefined): void {
-    this.store.startWaitingReader = reader;
   }
 
   list(projectKey: string): Task[] {
@@ -395,7 +374,7 @@ export class TaskService {
       this.publish(cancelled);
       return cancelled;
     });
-    for (const listener of this.cancelListeners) await listener(next);
+    await this.ctx.events.emit('task_cancelled', next);
     return next;
   }
 

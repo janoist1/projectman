@@ -219,9 +219,9 @@ describe('role catalogue', () => {
     for (const title of ['One', 'Two', 'Three']) {
       await h.domain.tasks.create('AR', { title }, OWNER_ACTOR);
     }
-    await h.domain.scheduler.startTask('AR', 'AR-1', by);
-    await h.domain.scheduler.startTask('AR', 'AR-2', by);
-    const started = await h.domain.scheduler.startTask('AR', 'AR-3', by);
+    await h.domain.taskStarts.start('AR', 'AR-1', by);
+    await h.domain.taskStarts.start('AR', 'AR-2', by);
+    const started = await h.domain.taskStarts.start('AR', 'AR-3', by);
 
     expect(started.hired).toMatchObject({ handle: 'fullstack', role: 'fullstack', temp: true });
     expect(started.task.assignee).toBe('fullstack');

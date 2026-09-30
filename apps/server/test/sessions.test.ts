@@ -53,6 +53,30 @@ describe('session orchestrator', () => {
     expect(timeline).toContainEqual(['session_ended', null]);
   });
 
+  it('reads a reloaded chat as its provider wrote it, relative to the session directory', async () => {
+    const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
+    expect(session.provider).toBe('claude');
+    expect(h.runner.lastStarted()).toMatchObject({ provider: 'claude', firstUserOrigin: 'brief' });
+    h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: '/tmp/fictional.jsonl' });
+    h.runnerModule.transcripts.set('/tmp/fictional.jsonl', []);
+    await h.domain.sessions.detail('AR', session.id);
+    const general = (await h.domain.sessions.ensureSession('AR', 'cr', { type: 'general' })).session;
+    expect(h.runner.lastStarted()).toMatchObject({ firstUserOrigin: 'human' });
+    h.runner.emit({ type: 'transcript_path', sessionId: general.id, path: '/tmp/general.jsonl' });
+    h.runnerModule.transcripts.set('/tmp/general.jsonl', []);
+    await h.domain.sessions.detail('AR', general.id);
+    expect(h.runnerModule.transcriptReads).toEqual([
+      {
+        path: '/tmp/fictional.jsonl',
+        opts: { provider: 'claude', self: 'cr', cwd: session.cwd, firstUserOrigin: 'brief' },
+      },
+      {
+        path: '/tmp/general.jsonl',
+        opts: { provider: 'claude', self: 'cr', cwd: general.cwd, firstUserOrigin: 'human' },
+      },
+    ]);
+  });
+
   it('starts over with the brief when the first start never produced a conversation', async () => {
     h.runner.failNextStart = new Error('spawn failed');
     const err = await h.domain.sessions.ensureSession('AR', 'cr', task).catch((e: unknown) => e);
@@ -112,7 +136,7 @@ describe('session orchestrator', () => {
 
   it('delivers human messages into the session and records them as team messages', async () => {
     const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
-    const message = await h.domain.sessions.sendHumanMessage(
+    const message = await h.domain.messaging.sendToSession(
       'AR',
       session.id,
       'Please check the tests',
@@ -126,12 +150,12 @@ describe('session orchestrator', () => {
     // A stopped session is resumed for the message.
     await h.domain.sessions.stop('AR', session.id);
     expect(h.domain.sessions.get('AR', session.id).state).toBe('exited');
-    await h.domain.sessions.sendHumanMessage('AR', session.id, 'Are you there?', 'owner');
+    await h.domain.messaging.sendToSession('AR', session.id, 'Are you there?', 'owner');
     expect(h.runner.started).toHaveLength(2);
   });
 
   it('stops the sessions of a retired member and hands its tasks over', async () => {
-    const started = await h.domain.scheduler.startTask('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
+    const started = await h.domain.taskStarts.start('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
     expect(started.task.assignee).toBe('dev-1');
     await h.domain.members.retire(
       'AR',
@@ -153,7 +177,7 @@ describe('session orchestrator', () => {
     [{ handoverTo: 'dev-2' }, { assignee: 'dev-2', previous: 'dev-1', reason: 'handover', from: 'dev-1' }],
     [{}, { assignee: null, previous: 'dev-1', reason: 'member_removed' }],
   ])('records the hand-over of a retired member’s task once (%j)', async (opts, assigned) => {
-    await h.domain.scheduler.startTask('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
+    await h.domain.taskStarts.start('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
     const before = h.domain.timeline.list('AR', { taskKey: 'AR-1' }).length;
     events.length = 0;
     await h.domain.members.retire('AR', 'dev-1', opts, { actor: OWNER_ACTOR, author: OWNER });

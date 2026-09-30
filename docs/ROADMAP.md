@@ -99,17 +99,15 @@ limits (PM-58); browser notifications, then a PWA (PM-59); a shared queue for he
 The 2026-09-30 review looked at every module. Fixed in that clean-up: see the commit log of
 the `claude/determined-faraday-yz17ut` branch. Still open, roughly by value:
 
-- **Domain structure.** Automatic session starts (task start, hand-over, message wake-up,
-  schedule) should share one admission path and one deferred-start store; team messages
-  should have one send path; late-binding callbacks should become a typed internal event
-  emitter.
 - **Storage.** Message receipts are a JSON blob scanned in JavaScript on every session start;
   a `team_message_recipients` table would fix that. The legacy `tasks.checks` column is
   converted to labels on every read.
-- **Providers.** Provider knowledge leaks outside the adapters (the domain guesses a session's
-  provider from its transcript path; the context pack branches on provider), and the session
-  policy is written in Claude Code's rule syntax that Codex parses back.
-- **Tests.** Admission scenarios are spread over five test files; every domain test builds a
+- **Providers.** Provider knowledge leaks outside the adapters (the context pack branches on
+  provider), and the session policy is written in Claude Code's rule syntax that Codex parses
+  back. The runner still falls back to `process.env` when its caller passes no environment
+  (only its own tests do).
+- **Tests.** Admission scenarios are spread over five domain test files (the checks and the
+  deferred-start store also have unit tests in `admission.test.ts`); every domain test builds a
   full domain with a git-backed config store.
 
 ## Open questions for the owner

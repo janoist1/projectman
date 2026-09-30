@@ -1,4 +1,4 @@
-import { evaluateMove, gateRequestOf, stageIndex, stageOf } from '@projectman/shared';
+import { evaluateMove, gateRequestOf, noApproverReason, stageIndex, stageOf } from '@projectman/shared';
 import type {
   Actor,
   ApprovalRequirement,
@@ -34,8 +34,6 @@ export interface StageChange {
   actor: Actor;
 }
 
-export type StageChangeListener = (change: StageChange) => void | Promise<void>;
-
 export function gateBlockedError(evaluation: GateEvaluation) {
   return conflict('gate_blocked', 'the gate conditions of the target stage are not met', {
     unmet: evaluation.unmet,
@@ -56,23 +54,18 @@ export function approvalRequestedError(items: InboxItem[]) {
 
 /**
  * Stage moves: gates, approval requests in the inbox and the approvers' decisions. Moving a
- * task back takes off the labels that expire then; listeners hear of every move once it is
- * committed.
+ * task back takes off the labels that expire then; every move is a `task_stage_changed` domain
+ * event once it is committed.
  */
 export class TaskMoves {
   private readonly store: TaskStore;
   private readonly labels: TaskLabels;
   private readonly inbox: InboxService;
-  private readonly stageListeners: StageChangeListener[] = [];
 
   constructor(deps: { store: TaskStore; labels: TaskLabels; inbox: InboxService }) {
     this.store = deps.store;
     this.labels = deps.labels;
     this.inbox = deps.inbox;
-  }
-
-  onStageChanged(listener: StageChangeListener): void {
-    this.stageListeners.push(listener);
   }
 
   /**
@@ -101,7 +94,7 @@ export class TaskMoves {
     const evaluation = evaluateMove(task, config, task.stageId, target.id);
     if (evaluation.unmet.length > 0) throw gateBlockedError(evaluation);
     if (evaluation.approvals.length > 0) {
-      const requested = this.requestApproval(task, target, evaluation.approvals, actor);
+      const requested = this.requestApproval(config, task, target, evaluation.approvals, actor);
       return { task: requested.task, moved: false, pendingApproval: requested.items };
     }
     return {
@@ -194,6 +187,7 @@ export class TaskMoves {
 
   /** Opens one decision per missing approval (or finds the open request) and marks the task waiting. */
   private requestApproval(
+    config: ProjectConfig,
     task: Task,
     target: Stage,
     approvals: ApprovalRequirement[],
@@ -202,8 +196,15 @@ export class TaskMoves {
     const open = this.inbox.openGateRequests(task.projectKey, task.key, task.stageId, target.id);
     if (open.length > 0) return { task, items: open };
 
-    if (approvals.some((req) => req.approvers.length === 0))
-      throw conflict('release_four_eyes', 'no independent human approver is available');
+    for (const req of approvals) {
+      if (req.approvers.length > 0) continue;
+      // Nobody may give it: the holders authored the task, or nobody holds the label.
+      const reason = noApproverReason(config, req.label, task) ?? 'missing_duty_holder';
+      throw conflict(reason, `nobody may approve the label ${req.label} on this task`, {
+        stageId: req.stageId,
+        label: req.label,
+      });
+    }
     const requestId = newId('gat');
     const items = approvals.map((req) => {
       const payload: GateRequestPayload = {
@@ -282,18 +283,8 @@ export class TaskMoves {
       this.inbox.cancel(item.id);
     }
     const change: StageChange = { task: next, from: task.stageId, to: target.id, actor };
-    effects.push(() => this.notifyStageChanged(change));
+    effects.push(() => this.store.ctx.events.emit('task_stage_changed', change));
     return next;
-  }
-
-  private async notifyStageChanged(change: StageChange): Promise<void> {
-    for (const listener of this.stageListeners) {
-      try {
-        await listener(change);
-      } catch (err) {
-        this.store.ctx.logger.error({ err, taskKey: change.task.key }, 'stage change listener failed');
-      }
-    }
   }
 
   /** Ends the "waiting for approval" status after a rejected or dropped request. */

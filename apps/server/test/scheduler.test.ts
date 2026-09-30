@@ -9,7 +9,7 @@ import { settle } from './helpers/fakes';
 import { waitFor } from '../src/runner/test-helpers';
 
 const start = (h: DomainHarness, key: string, assignee?: string) =>
-  h.domain.scheduler.startTask('AR', key, { assignee, actor: OWNER_ACTOR, author: OWNER, sponsor: 'owner' });
+  h.domain.taskStarts.start('AR', key, { assignee, actor: OWNER_ACTOR, author: OWNER, sponsor: 'owner' });
 
 const code = async (promise: Promise<unknown>): Promise<string> => (await rejection(promise)).code;
 
@@ -255,18 +255,18 @@ describe('scheduler', () => {
     expect(snapshots.at(-1)?.startWaiting).toEqual(waiting);
     const snapshotCount = snapshots.length;
     // Still refused: the retry keeps waiting.
-    await h.domain.scheduler.retryDeferredHandOffs();
+    await h.domain.admission.retryDeferred();
     expect(h.runner.started).toHaveLength(1);
     expect(h.domain.tasks.get('AR', 'AR-1').startWaiting).toEqual(waiting);
     expect(snapshots).toHaveLength(snapshotCount);
     // Capacity frees up: the retry starts the reviewer, once.
     h.runner.setState(dev.session!.id, 'idle');
-    await h.domain.scheduler.retryDeferredHandOffs();
+    await h.domain.admission.retryDeferred();
     expect(h.domain.tasks.get('AR', 'AR-1').startWaiting).toBeUndefined();
     expect(snapshots.length).toBeGreaterThan(snapshotCount);
     expect(snapshots.at(-1)?.startWaiting).toBeUndefined();
     expect(h.domain.sessions.findRunning('AR', 'cr', { type: 'task', taskKey: 'AR-1' })).not.toBeNull();
-    await h.domain.scheduler.retryDeferredHandOffs();
+    await h.domain.admission.retryDeferred();
     expect(h.runner.started).toHaveLength(2);
     expect(h.log.errors).toEqual([]);
   });
@@ -281,7 +281,7 @@ describe('scheduler', () => {
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
     await settle();
     h.runner.setState(dev.session!.id, 'idle');
-    await h.domain.scheduler.retryDeferredHandOffs();
+    await h.domain.admission.retryDeferred();
     expect(h.runner.started).toHaveLength(1);
   });
 });

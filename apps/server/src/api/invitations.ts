@@ -4,7 +4,6 @@ import type { Me } from '@projectman/shared';
 import { createAttemptLimiter, meOf, startSession } from '../auth';
 import type { AuthService } from '../auth';
 import type { Domain } from '../domain';
-import type { InvitationService } from '../domain/invitations';
 import { currentUser, requireAccess } from './context';
 import { parseBody } from './validation';
 
@@ -14,9 +13,10 @@ type TokenParams = { Params: { token: string } };
 /** Admins manage a project's invitations; the invite link itself is public (and rate-limited). */
 export function registerInvitationRoutes(
   app: FastifyInstance,
-  deps: { domain: Domain; invitations: InvitationService; auth: AuthService },
+  deps: { domain: Domain; auth: AuthService },
 ): void {
-  const { domain, invitations, auth } = deps;
+  const { domain, auth } = deps;
+  const { invitations } = domain;
   // Invitation tokens can only be guessed by trying: failed inspections and acceptances count.
   const attempts = createAttemptLimiter({
     max: 10,

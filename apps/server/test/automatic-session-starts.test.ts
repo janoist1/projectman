@@ -13,7 +13,7 @@ const sender: ToolContext = {
 };
 
 const humanMessage = (h: DomainHarness, taskKey = 'AR-1') =>
-  h.domain.sessions.sendTeamMessage('AR', 'owner', {
+  h.domain.messaging.send('AR', 'owner', {
     to: ['cr'],
     text: 'Please review the fictional checkout.',
     taskKey,
@@ -52,7 +52,7 @@ describe('automatic session admission and retries', () => {
       first.messageId,
       second.messageId,
     ]);
-    await h.domain.scheduler.retryDeferredStarts();
+    await h.domain.admission.retryDeferred();
     expect(h.runner.started).toHaveLength(0);
 
     h.runnerModule.planUsage.value = planUsage(30);
@@ -64,7 +64,7 @@ describe('automatic session admission and retries', () => {
     ]);
     expect(h.repos.messages.pending('AR', 'cr')).toEqual([]);
     expect(h.domain.tasks.get('AR', 'AR-1').startWaiting).toBeUndefined();
-    await h.domain.scheduler.retryDeferredStarts();
+    await h.domain.admission.retryDeferred();
     expect(h.runner.started).toHaveLength(1);
 
     // A live recipient receives new messages even while new AI work is paused.
@@ -78,14 +78,14 @@ describe('automatic session admission and retries', () => {
   it('defers human messages on the global AI limit and delivers after capacity frees', async () => {
     h = await createDomainHarness({ adjust: (c) => void (c.team.limits.maxConcurrentAi = 1) });
     await h.domain.tasks.create('AR', { title: 'Fictional checkout' }, OWNER_ACTOR);
-    const busy = await h.domain.scheduler.startConversation('AR', 'dev-1');
+    const busy = await h.domain.messageStarts.startConversation('AR', 'dev-1');
     const message = await humanMessage(h);
     await flush();
-    await h.domain.scheduler.retryDeferredStarts();
+    await h.domain.admission.retryDeferred();
     expect(h.runner.started).toHaveLength(1);
     expect(h.repos.messages.get(message.id)?.deliveredAt).toBeNull();
     h.runner.setState(busy.id, 'idle');
-    await h.domain.scheduler.retryDeferredStarts();
+    await h.domain.admission.retryDeferred();
     await flush();
     expect(h.runner.started).toHaveLength(2);
     expect(h.runner.messages).toEqual([
@@ -106,7 +106,7 @@ describe('automatic session admission and retries', () => {
     await flush();
     expect(h.runner.started).toHaveLength(0);
     h.domain.tasks.assign('AR', 'AR-1', null, OWNER_ACTOR);
-    await h.domain.scheduler.retryDeferredStarts();
+    await h.domain.admission.retryDeferred();
     await flush();
     expect(h.runner.started).toHaveLength(1);
     expect(h.repos.messages.get(message.id)?.deliveredAt).toBeTruthy();
@@ -134,10 +134,10 @@ describe('automatic session admission and retries', () => {
       }
       await flush();
       h.runnerModule.planUsage.value = planUsage(30);
-      await h.domain.scheduler.retryDeferredStarts();
+      await h.domain.admission.retryDeferred();
       expect(h.runner.started).toHaveLength(0);
-      const retry = vi.spyOn(h.domain.scheduler, 'startQueuedMessageSession');
-      await h.domain.scheduler.retryDeferredStarts();
+      const retry = vi.spyOn(h.domain.messageStarts, 'wake');
+      await h.domain.admission.retryDeferred();
       expect(retry).not.toHaveBeenCalled();
     },
   );
@@ -149,7 +149,7 @@ describe('automatic session admission and retries', () => {
     const message = await humanMessage(h);
     await flush();
     expect(h.repos.messages.get(message.id)?.deliveredAt).toBeNull();
-    await h.domain.scheduler.retryDeferredStarts();
+    await h.domain.admission.retryDeferred();
     expect(h.runner.started).toHaveLength(0);
   });
 
@@ -168,7 +168,7 @@ describe('automatic session admission and retries', () => {
     await flush();
     expect(h.runner.started).toHaveLength(1);
     h.runnerModule.planUsage.value = planUsage(30);
-    await h.domain.scheduler.retryDeferredStarts();
+    await h.domain.admission.retryDeferred();
     await flush();
     expect(h.runner.lastStarted()).toMatchObject({
       sessionId: session.id,
@@ -179,7 +179,7 @@ describe('automatic session admission and retries', () => {
       '[team message from owner about AR-1]\nPlease review the fictional checkout.',
       expect.stringContaining('Task AR-1 is now in stage Code review'),
     ]);
-    await h.domain.scheduler.retryDeferredStarts();
+    await h.domain.admission.retryDeferred();
     expect(h.runner.started).toHaveLength(2);
     expect(h.runner.messages).toHaveLength(2);
   });
@@ -193,7 +193,7 @@ describe('automatic session admission and retries', () => {
     await flush();
     expect(h.runner.started).toHaveLength(0);
     h.domain.tasks.assign('AR', 'AR-1', null, OWNER_ACTOR);
-    await h.domain.scheduler.retryDeferredStarts();
+    await h.domain.admission.retryDeferred();
     expect(h.runner.lastStarted()).toMatchObject({ initialMessage: 'Brief for AR-2: Next review' });
   });
 
@@ -211,10 +211,10 @@ describe('automatic session admission and retries', () => {
       await h.domain.members.retire('AR', 'cr', {}, { actor: OWNER_ACTOR, author: OWNER });
     }
     h.runnerModule.planUsage.value = planUsage(30);
-    await h.domain.scheduler.retryDeferredStarts();
+    await h.domain.admission.retryDeferred();
     expect(h.runner.started).toHaveLength(0);
-    const retry = vi.spyOn(h.domain.scheduler, 'handOffToStageOwner');
-    await h.domain.scheduler.retryDeferredStarts();
+    const retry = vi.spyOn(h.domain.handOver, 'handOff');
+    await h.domain.admission.retryDeferred();
     expect(retry).not.toHaveBeenCalled();
   });
 

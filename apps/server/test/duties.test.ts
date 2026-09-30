@@ -157,6 +157,17 @@ describe('duty runtime rules', () => {
     await expect(h.domain.members.update('AR', 'approver', { roles: [] }, admin)).rejects.toMatchObject({
       code: 'owner_only',
     });
+    // An AI member never changes the configuration, whatever the change.
+    await expect(
+      h.domain.projects.update(
+        'AR',
+        { actor: { kind: 'ai', handle: 'dev-1' }, author: admin.author },
+        (c) => {
+          c.project.name = 'Renamed by an AI';
+          return 'Rename';
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'insufficient_access', status: 403 });
   });
   it('rejects retiring the last pipeline duty holder before changing runtime work', async () => {
     const task = await setup();
@@ -197,8 +208,8 @@ describe('duty runtime rules', () => {
     expect(roleBundle(config, 'writer_reviewer').duties).toEqual(['docs', 'code_review']);
     expect(sessionPolicyFor('writer_reviewer', config)).toEqual({ readOnlyTools: true, worktree: true });
     expect(allowedToolsFor('writer_reviewer', config)).toContain('Read');
-    expect(
-      (await h.domain.scheduler.startTask('AR', task.key, { ...by, sponsor: 'owner' })).task.assignee,
-    ).toBe('dev-1');
+    expect((await h.domain.taskStarts.start('AR', task.key, { ...by, sponsor: 'owner' })).task.assignee).toBe(
+      'dev-1',
+    );
   });
 });

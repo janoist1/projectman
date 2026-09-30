@@ -18,7 +18,7 @@ describe('owner task import API', () => {
   it('skips all gates in later and done stages, records original dates and has no delivery side effects', async () => {
     const { domain, repos } = h.app.projectman;
     const moved = vi.fn();
-    domain.tasks.onStageChanged(moved);
+    domain.ctx.events.on('task_stage_changed', moved);
     const start = vi.spyOn(h.runner, 'start');
     const createInbox = vi.spyOn(domain.inbox, 'create');
     const sendMessage = vi.spyOn(domain.messages, 'record');

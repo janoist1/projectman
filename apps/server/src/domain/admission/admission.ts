@@ -1,0 +1,192 @@
+import { DEFAULT_AGENT_PROVIDER, isOpenTask } from '@projectman/shared';
+import type { AiMemberConfig, ProjectConfig, Task, WorkItemRef } from '@projectman/shared';
+import { isoNow } from '../context';
+import type { DomainContext } from '../context';
+import { conflict } from '../errors';
+import { highestUsagePercent } from '../plan-usage';
+import type { PlanUsageCache } from '../plan-usage';
+import type { EnsureSessionResult, SessionOrchestrator } from '../sessions';
+import type { TaskService } from '../tasks';
+import { KeyedMutex } from '../util';
+import type { AutomaticStart, DeferredStarts } from './deferred-starts';
+import { assertAiEnabled, isDeferrable, waitingOf } from './rules';
+
+export interface AdmissionRequest {
+  config: ProjectConfig;
+  /** The AI member that would work; none for a temp worker yet to be hired (the default provider runs it). */
+  member?: AiMemberConfig;
+  /** What the session is for: its task is not counted in the member's load. */
+  workItem?: WorkItemRef;
+  /** Whether the member's capacity applies (default true); a task's assignee keeps working on it. */
+  capacity?: boolean;
+}
+
+/**
+ * Admission: every AI session start that no person asked for directly (task start, stage
+ * hand-over, message wake-up, schedule run) passes the same checks, in this order: the
+ * project's AI master switch; for a scheduled run, the member's previous run has ended; the
+ * member's capacity (open tasks it carries plus its other running chats); the concurrent AI
+ * sessions (`maxConcurrentAi`); the plan usage of the member's provider. Decisions and the
+ * starts they allow are serialized. An automatic start refused for a reason that can clear
+ * waits in the deferred-start store and is retried.
+ */
+export class Admission {
+  private readonly ctx: DomainContext;
+  private readonly sessions: SessionOrchestrator;
+  private readonly planUsage: Pick<PlanUsageCache, 'get'>;
+  private readonly tasks: TaskService;
+  private readonly deferred: DeferredStarts;
+  private readonly locks = new KeyedMutex();
+
+  constructor(deps: {
+    ctx: DomainContext;
+    sessions: SessionOrchestrator;
+    planUsage: Pick<PlanUsageCache, 'get'>;
+    tasks: TaskService;
+    deferred: DeferredStarts;
+  }) {
+    this.ctx = deps.ctx;
+    this.sessions = deps.sessions;
+    this.planUsage = deps.planUsage;
+    this.tasks = deps.tasks;
+    this.deferred = deps.deferred;
+  }
+
+  /** Runs `fn` alone among admission decisions and the starts they allow (across projects). */
+  exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    return this.locks.run('ai-admission', fn);
+  }
+
+  /** Open tasks a member carries (tasks it has a session for or is assigned to) plus its other running chats. */
+  memberLoad(projectKey: string, handle: string, excludeTaskKey?: string): number {
+    const keys = new Set<string>();
+    for (const s of this.sessions.list(projectKey, { member: handle })) {
+      if (s.workItem.type === 'task') keys.add(s.workItem.taskKey);
+    }
+    for (const t of this.ctx.repos.tasks.listByAssignee(projectKey, handle)) keys.add(t.key);
+    if (excludeTaskKey) keys.delete(excludeTaskKey);
+    let load = 0;
+    for (const key of keys) {
+      const task = this.ctx.repos.tasks.get(key);
+      if (task && isOpenTask(task)) load++;
+    }
+    return (
+      load +
+      this.sessions
+        .list(projectKey, { member: handle })
+        .filter((s) => s.workItem.type !== 'task' && this.sessions.isRunning(s.id)).length
+    );
+  }
+
+  /** Throws the refusal when the work must wait (see the class comment for the checks). */
+  async check(request: AdmissionRequest): Promise<void> {
+    const { config, member, workItem } = request;
+    const projectKey = config.project.key;
+    assertAiEnabled(config);
+    if (member && workItem?.type === 'schedule' && this.hasLiveScheduledRun(projectKey, member.handle))
+      throw conflict('previous_run_live', `the previous scheduled run of ${member.handle} is still live`);
+    if (member && request.capacity !== false) {
+      const excluded = workItem?.type === 'task' ? workItem.taskKey : undefined;
+      if (this.memberLoad(projectKey, member.handle, excluded) >= member.capacity)
+        throw conflict('member_at_capacity', `${member.handle} is at capacity (${member.capacity})`, {
+          capacity: member.capacity,
+        });
+    }
+    const max = config.team.limits.maxConcurrentAi;
+    const busy = this.sessions.busyCount();
+    if (busy >= max) {
+      throw conflict('ai_limit_reached', `${busy} AI sessions are working (limit ${max})`, { busy, max });
+    }
+    const provider = member?.provider ?? DEFAULT_AGENT_PROVIDER;
+    const percent = highestUsagePercent(await this.planUsage.get(provider));
+    const threshold = config.team.limits.pauseAbovePlanUsagePercent;
+    if (percent !== null && percent > threshold) {
+      throw conflict(
+        'plan_usage_paused',
+        `${provider} plan usage is ${percent}% (pause above ${threshold}%)`,
+        { percent, threshold, provider },
+      );
+    }
+  }
+
+  /** The member's session for the work item: the running one, else one admission allows. */
+  async start(
+    request: AdmissionRequest & { member: AiMemberConfig; workItem: WorkItemRef },
+  ): Promise<EnsureSessionResult> {
+    const projectKey = request.config.project.key;
+    const running = this.sessions.findRunning(projectKey, request.member.handle, request.workItem);
+    if (running) return { session: running, created: false, resumed: false, started: false };
+    await this.check(request);
+    return this.sessions.ensureSession(projectKey, request.member.handle, request.workItem);
+  }
+
+  /**
+   * One attempt of an automatic start, alone among admission decisions. A refusal that can
+   * clear keeps the start, with why it waits, for the retry loop; other failures propagate.
+   * Its task is published again when why it waits changed.
+   */
+  async attempt(start: AutomaticStart): Promise<void> {
+    await this.exclusive(() =>
+      this.publishingWaitingChanges(start.taskKey, async () => {
+        const previous = this.deferred.take(start.key);
+        const since = previous?.start.stillValid(this.taskOf(start)) ? previous.waiting : undefined;
+        try {
+          await start.run();
+        } catch (err) {
+          if (!isDeferrable(err)) throw err;
+          this.deferred.keep({
+            start,
+            waiting: waitingOf(err, { member: start.waitsFor(), previous: since, at: isoNow(this.ctx) }),
+          });
+          this.ctx.logger.info({ ...start.log.fields(), reason: err.code }, start.log.deferred);
+        }
+      }),
+    );
+  }
+
+  /** Retries the deferred starts that still apply; the others are dropped. */
+  async retryDeferred(): Promise<void> {
+    for (const entry of this.deferred.list()) {
+      if (!this.deferred.holds(entry)) continue;
+      const { start } = entry;
+      const task = this.taskOf(start);
+      if (start.taskKey !== null && (!task || !start.stillValid(task))) {
+        this.deferred.drop(start.key);
+        if (task) this.tasks.publish(task);
+        continue;
+      }
+      try {
+        await start.retry();
+      } catch (err) {
+        this.ctx.logger.warn({ err, ...start.log.fields() }, start.log.retryFailed);
+      }
+    }
+  }
+
+  /** A task move or closure drops the starts it made obsolete, even if the task later returns. */
+  discardStale(task: Task): void {
+    this.deferred.discardStale(task);
+  }
+
+  private hasLiveScheduledRun(projectKey: string, handle: string): boolean {
+    return this.sessions
+      .list(projectKey, { member: handle })
+      .some((s) => s.workItem.type === 'schedule' && this.sessions.isRunning(s.id));
+  }
+
+  private taskOf(start: AutomaticStart): Task | null {
+    const task = start.taskKey ? this.ctx.repos.tasks.get(start.taskKey) : null;
+    return task && task.projectKey === start.projectKey ? task : null;
+  }
+
+  private async publishingWaitingChanges(taskKey: string | null, fn: () => Promise<void>): Promise<void> {
+    const task = taskKey ? this.ctx.repos.tasks.get(taskKey) : null;
+    const before = task ? JSON.stringify(this.deferred.waitingFor(task)) : undefined;
+    try {
+      await fn();
+    } finally {
+      const latest = taskKey ? this.ctx.repos.tasks.get(taskKey) : null;
+      if (latest && before !== JSON.stringify(this.deferred.waitingFor(latest))) this.tasks.publish(latest);
+    }
+  }
+}

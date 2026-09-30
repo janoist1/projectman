@@ -8,6 +8,7 @@ import {
   labelDefinition,
   labelRefusal,
   labelSetters,
+  noApproverReason,
   planLabelChange,
 } from './labels';
 import type { LabelChangePlan } from './labels';
@@ -299,5 +300,39 @@ describe('approvalRefusal', () => {
     ['a missing task has no authors', true, 'release-ok', 'owner', null, null],
   ])('%s', (_name, fourEyes, label, approver, target, expected) => {
     expect(approvalRefusal(config(fourEyes), label, approver, target)).toBe(expected);
+  });
+});
+
+describe('noApproverReason', () => {
+  const authoredBy = (...handles: string[]) => ({
+    assignee: handles[0] ?? null,
+    links: handles.map((author, i) => ({ kind: 'pull_request' as const, ref: String(i), author })),
+  });
+  const unheld = (c: ProjectConfig) => {
+    c.team.members = c.team.members.filter((m) => m.handle !== 'owner' || m.kind !== 'human');
+    return c;
+  };
+
+  it.each<[string, ProjectConfig, string, Pick<Task, 'assignee' | 'links'>, string | null]>([
+    ['a holder who did not author the task may approve', config(true), 'release-ok', task, null],
+    [
+      'four eyes leaves only the author',
+      config(true),
+      'release-ok',
+      authoredBy('owner'),
+      'release_four_eyes',
+    ],
+    ['without four eyes the author approves', config(false), 'release-ok', authoredBy('owner'), null],
+    [
+      "the label's own rule leaves only authors",
+      config(),
+      'review-ok',
+      authoredBy('ann', 'rev'),
+      'self_review_forbidden',
+    ],
+    ['nobody holds the label', unheld(config()), 'release-ok', task, 'missing_duty_holder'],
+    ['an unknown label needs no approver', config(), 'gone', task, null],
+  ])('%s', (_name, c, label, target, expected) => {
+    expect(noApproverReason(c, label, target)).toBe(expected);
   });
 });

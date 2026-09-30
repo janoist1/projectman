@@ -107,8 +107,7 @@ describe('member schedules', () => {
     const service = new ScheduleService({
       ctx: h.domain.ctx,
       projects: h.domain.projects,
-      scheduler: h.domain.scheduler,
-      sessions: h.domain.sessions,
+      admission: h.domain.admission,
       timeline: h.domain.timeline,
       timer: new FakeTimer(),
     });
@@ -121,6 +120,15 @@ describe('member schedules', () => {
     } finally {
       await service.stop();
     }
+  });
+  it('refuses a manual run while the service is stopping, as a temporary condition', async () => {
+    await setup();
+    await h.domain.schedules.stop();
+    await expect(h.domain.schedules.runNow('AR', 'dev-1')).rejects.toMatchObject({
+      code: 'server_stopping',
+      status: 503,
+    });
+    expect(h.runner.started).toHaveLength(0);
   });
   it('records the previous-live-run reason without starting twice', async () => {
     await setup();

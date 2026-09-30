@@ -141,9 +141,9 @@ export class TaskLabels {
     const comment = opts.comment?.trim();
     if (comment) this.store.recordNote(config, task, comment, actor, opts.sessionId ?? null, effects);
     if (plan.notify.length > 0 && task.assignee && actor.handle && task.assignee !== actor.handle)
-      effects.push(async () => {
-        await this.store.labelNotifier?.(task, plan.notify, actor, comment);
-      });
+      effects.push(() =>
+        this.store.ctx.events.emit('task_labels_notice', { task, labels: plan.notify, actor, comment }),
+      );
   }
 
   /** Takes off the labels of `task` that expire on `trigger`, in the running unit of work. */

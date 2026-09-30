@@ -104,6 +104,7 @@ describe('human team messages and member profiles', () => {
 
   it('waits for the runner paste before acknowledging each AI recipient', async () => {
     const domain = h.app.projectman.domain;
+    await human('bence');
     await domain.sessions.ensureSession(key, 'dev-1', { type: 'general' });
     const typed: Array<() => void> = [];
     vi.spyOn(h.runner, 'sendUserMessage').mockImplementation(
@@ -112,7 +113,9 @@ describe('human team messages and member profiles', () => {
           typed.push(resolve);
         }),
     );
-    const response = TeamMessage.parse((await send(['dev-1', 'dev-2', 'owner'])).json());
+    // The sender is never a recipient of their own message.
+    const response = TeamMessage.parse((await send(['dev-1', 'dev-2', 'bence', 'owner'])).json());
+    expect(response.to).toEqual(['dev-1', 'dev-2', 'bence']);
     await flush();
     expect(h.app.projectman.repos.messages.get(response.id)?.receipts).toMatchObject([
       { deliveredAt: null },
@@ -125,6 +128,24 @@ describe('human team messages and member profiles', () => {
     expect(stored.receipts?.[0]?.deliveredAt).toBeTruthy();
     expect(stored.receipts?.[1]?.deliveredAt).toBeNull();
     expect(stored.deliveredAt).toBeNull();
+  });
+
+  it('trims messages and never sends one to its sender', async () => {
+    await human('bence');
+    const toSelf = await send(['owner']);
+    expect(toSelf.statusCode).toBe(400);
+    expect(toSelf.json()).toMatchObject({ error: { code: 'invalid_request', details: { field: 'to' } } });
+    const blank = await send(['bence'], owner, { text: '  \n ' });
+    expect([blank.statusCode, blank.json().error.code]).toEqual([400, 'invalid_request']);
+    const unknown = await send(['bence', 'nobody', 'ghost']);
+    expect(unknown.statusCode).toBe(404);
+    expect(unknown.json()).toMatchObject({
+      error: { code: 'not_found', details: { ids: ['nobody', 'ghost'] } },
+    });
+    const sent = TeamMessage.parse(
+      (await send(['bence', 'owner'], owner, { text: '  Acme notes \n' })).json(),
+    );
+    expect(sent).toMatchObject({ to: ['bence'], body: 'Acme notes' });
   });
 
   it('keeps human unread counts and read receipts independent and checks the recipient', async () => {
@@ -231,8 +252,8 @@ describe('human team messages and member profiles', () => {
       draft.team.limits.maxConcurrentAi = 1;
       return 'Pause fictional work';
     });
-    const busy = await domain.scheduler.startConversation(key, 'dev-2');
-    await expect(domain.scheduler.startConversation(key, 'dev-1')).rejects.toMatchObject({
+    const busy = await domain.messageStarts.startConversation(key, 'dev-2');
+    await expect(domain.messageStarts.startConversation(key, 'dev-1')).rejects.toMatchObject({
       code: 'ai_limit_reached',
     });
     await domain.sessions.stop(key, busy.id);
@@ -247,16 +268,16 @@ describe('human team messages and member profiles', () => {
       weeklyResetsAt: null,
       fetchedAt: new Date().toISOString(),
     };
-    await expect(domain.scheduler.startConversation(key, 'dev-1')).rejects.toMatchObject({
+    await expect(domain.messageStarts.startConversation(key, 'dev-1')).rejects.toMatchObject({
       code: 'plan_usage_paused',
     });
     h.runnerModule.planUsage.value = null;
-    const first = await domain.scheduler.startConversation(key, 'dev-1');
-    expect((await domain.scheduler.startConversation(key, 'dev-1')).id).toBe(first.id);
+    const first = await domain.messageStarts.startConversation(key, 'dev-1');
+    expect((await domain.messageStarts.startConversation(key, 'dev-1')).id).toBe(first.id);
     await domain.sessions.stop(key, first.id);
     await domain.tasks.create(key, { title: 'Acme task' }, actor);
     domain.tasks.assign(key, 'AR-1', 'dev-1', actor);
-    await expect(domain.scheduler.startConversation(key, 'dev-1')).rejects.toMatchObject({
+    await expect(domain.messageStarts.startConversation(key, 'dev-1')).rejects.toMatchObject({
       code: 'member_at_capacity',
     });
   });
@@ -346,7 +367,7 @@ describe('human team messages and member profiles', () => {
 
   it('counts unread messages and fetches a member thread beyond the latest project page', async () => {
     const domain = h.app.projectman.domain;
-    const first = await domain.sessions.sendTeamMessage(key, 'owner', {
+    const first = await domain.messaging.send(key, 'owner', {
       to: ['dev-1'],
       text: 'Older Acme thread',
     });
@@ -383,7 +404,7 @@ describe('human team messages and member profiles', () => {
       ).json(),
     );
     expect(thread.messages.map((m) => m.id)).toEqual([first.id]);
-    await domain.scheduler.startConversation(key, 'dev-1');
+    await domain.messageStarts.startConversation(key, 'dev-1');
     await flush();
     expect(h.runner.messages).toHaveLength(1);
   });

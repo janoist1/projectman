@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { routes } from '@projectman/shared';
+import { isErrorCode, routes } from '@projectman/shared';
 import type { Domain } from '../domain';
 import { DomainError } from '../domain';
 import { requireAccess } from './context';
@@ -16,10 +16,14 @@ export function registerScheduleRoutes(app: FastifyInstance, domain: Domain): vo
       await requireAccess(domain, request, key, { minimum: 'admin' });
       const run = await domain.schedules.runNow(key, handle);
       if (run.status === 'skipped' || run.status === 'failed')
-        throw new DomainError(run.reason ?? 'session_start_failed', 'Scheduled run refused', {
-          status: run.status === 'skipped' ? 409 : 502,
-          details: { reason: run.reason, run },
-        });
+        throw new DomainError(
+          isErrorCode(run.reason) ? run.reason : 'session_start_failed',
+          'Scheduled run refused',
+          {
+            status: run.status === 'skipped' ? 409 : 502,
+            details: { reason: run.reason, run },
+          },
+        );
       return reply.code(201).send(run);
     },
   );

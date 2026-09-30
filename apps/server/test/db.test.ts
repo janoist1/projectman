@@ -3,7 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { InboxItem, Session, Task } from '@projectman/shared';
+import Database from 'better-sqlite3';
 import { createRepositories, LATEST_SCHEMA_VERSION, migrate, openDatabase, schemaVersion } from '../src/db';
+import { migrations } from '../src/db/migrations';
 
 const now = '2026-09-29T10:00:00.000Z';
 
@@ -163,6 +165,36 @@ describe('database', () => {
     expect(repos.tasks.children('AR', 'AR-2')).toEqual([]);
   });
 
+  it("records each earlier session's provider from its transcript file name", () => {
+    const db = new Database(':memory:');
+    try {
+      for (const migration of migrations.filter((item) => item.version <= 8)) db.exec(migration.sql);
+      db.pragma('user_version = 8');
+      const insert = db.prepare(
+        `INSERT INTO sessions (id, project_key, member, work_item_type, work_item_ref, claude_session_id, cwd,
+           transcript_path, state, started_at, last_activity_at)
+         VALUES (?, 'AR', ?, 'general', '', '0b7c6a1e-8f7b-4c1e-9d55-0d8c0f4e7a11', '/w', ?, 'exited', ?, ?)`,
+      );
+      const transcripts: Array<[string, string | null, string]> = [
+        ['dev-1', '/home/anna/.codex/sessions/2026/01/01/rollout-2026-01-01T00-00-00-a.jsonl', 'codex'],
+        ['dev-2', '/home/anna/.codex/sessions/2025/12/01/rollout-2025-12-01T00-00-00-b.jsonl.zst', 'codex'],
+        ['dev-3', 'rollout-local.jsonl', 'codex'],
+        ['dev-4', '/home/anna/.claude/projects/-w/0b7c6a1e.jsonl', 'claude'],
+        ['dev-5', '/home/anna/rollout-notes/session.jsonl', 'claude'],
+        ['dev-6', '/home/anna/rollout-a.jsonl.bak', 'claude'],
+        ['dev-7', null, 'claude'],
+      ];
+      for (const [member, path] of transcripts) insert.run(`ses_${member}`, member, path, now, now);
+      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+      const repos = createRepositories(db);
+      expect(transcripts.map(([member]) => repos.sessions.get(`ses_${member}`)?.provider)).toEqual(
+        transcripts.map(([, , provider]) => provider),
+      );
+    } finally {
+      db.close();
+    }
+  });
+
   it('refuses a database written by a newer build', () => {
     const db = openDatabase(':memory:');
     db.pragma(`user_version = ${LATEST_SCHEMA_VERSION + 1}`);
@@ -178,6 +210,7 @@ describe('database', () => {
       member: 'dev-1',
       workItem: { type: 'task', taskKey: 'AR-1' },
       claudeSessionId: '0b7c6a1e-8f7b-4c1e-9d55-0d8c0f4e7a11',
+      provider: 'codex',
       cwd: '/tmp/work',
       branch: null,
       transcriptPath: null,
@@ -193,6 +226,14 @@ describe('database', () => {
     expect(() => repos.sessions.insert({ ...session, id: 'ses_2' })).toThrow();
     const updated = repos.sessions.update('ses_1', { state: 'working', activity: 'Bash: npm test' })!;
     expect(updated.state).toBe('working');
+    expect(repos.sessions.update('ses_1', { provider: 'claude' })?.provider).toBe('claude');
+    const { provider: _, ...withoutProvider } = { ...session, id: 'ses_3', member: 'dev-2' };
+    repos.sessions.insert(withoutProvider);
+    expect(repos.sessions.get('ses_3')?.provider).toBe('claude');
+    expect(repos.sessions.list('AR', { member: 'dev-1', taskKey: 'AR-1' }).map((s) => s.id)).toEqual([
+      'ses_1',
+    ]);
+    expect(repos.sessions.list('AR', { taskKey: 'AR-1' }).map((s) => s.id)).toEqual(['ses_1', 'ses_3']);
     expect(repos.sessions.listInStates(['working']).map((s) => s.id)).toEqual(['ses_1']);
 
     for (let i = 1; i <= 3; i++) {

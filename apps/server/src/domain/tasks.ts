@@ -10,6 +10,7 @@ import type {
   Stage,
   Task,
   TaskDetail,
+  TaskStartWaiting,
   TaskPullRequest,
   TaskLink,
   UpdateTaskRequest,
@@ -96,6 +97,7 @@ export class TaskService {
   private readonly inbox: InboxService;
   private readonly pullRequestLogins = new Map<string, string>();
   private readonly pullRequests = new Map<string, TaskPullRequest>();
+  private startWaitingReader: (task: Task) => TaskStartWaiting | undefined = () => undefined;
   private readonly stageListeners: StageChangeListener[] = [];
   private readonly cancelListeners: Array<(task: Task) => Promise<void>> = [];
 
@@ -119,19 +121,29 @@ export class TaskService {
     this.cancelListeners.push(listener);
   }
 
+  setStartWaitingReader(reader: (task: Task) => TaskStartWaiting | undefined): void {
+    this.startWaitingReader = reader;
+  }
+
+  private view(task: Task): Task {
+    const { startWaiting: _, ...rest } = task;
+    const startWaiting = this.startWaitingReader(task);
+    return startWaiting ? { ...rest, startWaiting } : rest;
+  }
+
   list(projectKey: string): Task[] {
-    return this.ctx.repos.tasks.list(projectKey);
+    return this.ctx.repos.tasks.list(projectKey).map((task) => this.view(task));
   }
 
   get(projectKey: string, taskKey: string): Task {
     const task = this.ctx.repos.tasks.get(taskKey);
     if (!task || task.projectKey !== projectKey) throw notFound('task', taskKey);
-    return task;
+    return this.view(task);
   }
 
   find(projectKey: string, taskKey: string): Task | null {
     const task = this.ctx.repos.tasks.get(taskKey);
-    return task && task.projectKey === projectKey ? task : null;
+    return task && task.projectKey === projectKey ? this.view(task) : null;
   }
 
   detail(projectKey: string, taskKey: string, timelineLimit = 100): TaskDetail {
@@ -606,7 +618,7 @@ export class TaskService {
   }
 
   publish(task: Task): void {
-    this.ctx.bus.publish({ type: 'task_upserted', projectKey: task.projectKey, task });
+    this.ctx.bus.publish({ type: 'task_upserted', projectKey: task.projectKey, task: this.view(task) });
   }
 
   private requestApproval(

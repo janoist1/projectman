@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { ProjectConfig } from '@projectman/shared';
+import { ServerEvent } from '@projectman/shared';
+import type { ProjectConfig, Task } from '@projectman/shared';
 import { DomainError } from '../src/domain';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -243,16 +244,34 @@ describe('scheduler', () => {
     h = await createDomainHarness({ adjust: (c) => void (c.team.limits.maxConcurrentAi = 1) });
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
     const dev = await start(h, 'AR-1');
+    const snapshots: Task[] = [];
+    h.domain.bus.subscribe((event) => {
+      if (event.type === 'task_upserted') {
+        const parsed = ServerEvent.parse(event);
+        if (parsed.type === 'task_upserted') snapshots.push(parsed.task);
+      }
+    });
     h.runner.setState(dev.session!.id, 'working', 'Bash: npm test');
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
     await settle();
     expect(h.runner.started).toHaveLength(1);
+    const waiting = h.domain.tasks.get('AR', 'AR-1').startWaiting;
+    expect(waiting).toMatchObject({ reason: 'ai_limit_reached', member: 'cr', since: expect.any(String) });
+    expect(h.domain.tasks.list('AR')[0]?.startWaiting).toEqual(waiting);
+    expect(h.domain.tasks.detail('AR', 'AR-1').task.startWaiting).toEqual(waiting);
+    expect(snapshots.at(-1)?.startWaiting).toEqual(waiting);
+    const snapshotCount = snapshots.length;
     // Still refused: the retry keeps waiting.
     await h.domain.scheduler.retryDeferredHandOffs();
     expect(h.runner.started).toHaveLength(1);
+    expect(h.domain.tasks.get('AR', 'AR-1').startWaiting).toEqual(waiting);
+    expect(snapshots).toHaveLength(snapshotCount);
     // Capacity frees up: the retry starts the reviewer, once.
     h.runner.setState(dev.session!.id, 'idle');
     await h.domain.scheduler.retryDeferredHandOffs();
+    expect(h.domain.tasks.get('AR', 'AR-1').startWaiting).toBeUndefined();
+    expect(snapshots.length).toBeGreaterThan(snapshotCount);
+    expect(snapshots.at(-1)?.startWaiting).toBeUndefined();
     expect(h.domain.sessions.findRunning('AR', 'cr', { type: 'task', taskKey: 'AR-1' })).not.toBeNull();
     await h.domain.scheduler.retryDeferredHandOffs();
     expect(h.runner.started).toHaveLength(2);

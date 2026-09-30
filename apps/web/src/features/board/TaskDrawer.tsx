@@ -15,6 +15,7 @@ import { ErrorState, LoadingState } from '../../components/States';
 import { Timeline } from '../../components/Timeline';
 import { useToast } from '../../components/toastContext';
 import { formatAgo } from '../../i18n/format';
+import { startWaitingHint } from '../../lib/taskState';
 import { joinNames, t } from '../../i18n/t';
 import { errorMessage, isApprovalRequested, isGateBlocked } from '../../lib/errors';
 import { unmetGateTexts } from '../../lib/gates';
@@ -315,6 +316,7 @@ export function TaskDrawer() {
         </div>
 
         <div className={styles.scroll}>
+          {task.startWaiting ? <p className={styles.section}>{startWaitingHint(task)}</p> : null}
           {canMoveTask(task, can.createTasks) ? (
             <TaskMove key={`${task.key}:${task.stageId}`} task={task} pipeline={pipeline} members={members} />
           ) : null}

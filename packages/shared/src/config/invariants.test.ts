@@ -165,3 +165,188 @@ describe('validateProjectConfig roles', () => {
     ]);
   });
 });
+
+function stages(input: ProjectConfigInput) {
+  return input.pipeline.stages as Array<Record<string, unknown>>;
+}
+
+function labels(input: ProjectConfigInput, ...defined: Array<Record<string, unknown>>) {
+  input.pipeline.labels = defined as ProjectConfigInput['pipeline']['labels'];
+}
+
+/** Inserts a stage before the done stage (index 1 of the base pipeline). */
+function insertStage(input: ProjectConfigInput, stage: Record<string, unknown>) {
+  stages(input).splice(1, 0, { name: stage.id, owners: [], columnId: 'todo', ...stage });
+}
+
+function gate(...conditions: Array<[type: 'has_label' | 'lacks_label', label: string]>) {
+  return { conditions: conditions.map(([type, label]) => ({ type, label })) };
+}
+
+function errors(change: (input: ProjectConfigInput) => void) {
+  return validateProjectConfig(build(change)).filter((i) => i.severity !== 'warning');
+}
+
+describe('validateProjectConfig team and pipeline', () => {
+  it('accepts the base configuration', () => {
+    expect(errors(() => {})).toEqual([]);
+  });
+
+  it.each<[string, (input: ProjectConfigInput) => void, unknown[]]>([
+    [
+      'a handle used twice',
+      (input) =>
+        members(input).push({ kind: 'human', handle: 'ann', displayName: 'Ann 2', access: 'viewer' }),
+      [{ code: 'duplicate_handle', path: 'team.members[3]', detail: 'ann' }],
+    ],
+    [
+      'a team without a human owner',
+      (input) => {
+        members(input)[0]!.access = 'admin';
+      },
+      [{ code: 'no_owner', path: 'team.members' }],
+    ],
+    [
+      'an AI sponsored by an unknown member or by another AI',
+      (input) => {
+        members(input)[2]!.sponsor = 'nobody';
+        members(input).push({
+          kind: 'ai',
+          handle: 'dev-2',
+          displayName: 'Dev 2',
+          role: 'developer',
+          sponsor: 'dev-1',
+        });
+      },
+      [
+        { code: 'sponsor_not_human', path: 'team.members[2].sponsor', detail: 'nobody' },
+        { code: 'sponsor_not_human', path: 'team.members[3].sponsor', detail: 'dev-1' },
+      ],
+    ],
+    [
+      'an unknown stage owner',
+      (input) => {
+        stages(input)[0]!.owners = ['owner', 'ghost'];
+      },
+      [{ code: 'unknown_member', path: 'pipeline.stages[0].owners', detail: 'ghost' }],
+    ],
+    [
+      'an unknown member allowed to set a label',
+      (input) => labels(input, { id: 'ok', name: 'Ok', setBy: { members: ['ann', 'ghost'] } }),
+      [{ code: 'unknown_member', path: 'pipeline.labels[0].setBy', detail: 'ghost' }],
+    ],
+    [
+      'gate labels that are not defined, required or forbidden',
+      (input) => {
+        stages(input)[1]!.gate = gate(['has_label', 'missing'], ['lacks_label', 'absent']);
+      },
+      [
+        { code: 'unknown_label', path: 'pipeline.stages[1].gate.conditions[0]', detail: 'missing' },
+        { code: 'unknown_label', path: 'pipeline.stages[1].gate.conditions[1]', detail: 'absent' },
+      ],
+    ],
+    [
+      'a label defined twice',
+      (input) => labels(input, { id: 'ok', name: 'Ok' }, { id: 'ok', name: 'Ok again' }),
+      [{ code: 'duplicate_label', path: 'pipeline.labels[1]', detail: 'ok' }],
+    ],
+    [
+      'required labels nobody may set, naming unfilled duties',
+      (input) => {
+        labels(
+          input,
+          { id: 'secure', name: 'Secure', setBy: { duties: ['security_review'] } },
+          { id: 'human-dev', name: 'Human dev', setBy: { members: ['dev-1'], humansOnly: true } },
+          { id: 'merged', name: 'Merged', setBy: 'system' },
+        );
+        stages(input)[1]!.gate = gate(
+          ['has_label', 'secure'],
+          ['has_label', 'human-dev'],
+          ['has_label', 'merged'],
+          ['lacks_label', 'human-dev'],
+        );
+      },
+      [
+        {
+          code: 'missing_duty_holder',
+          path: 'pipeline.stages[1].gate.conditions[0]',
+          detail: 'security_review',
+        },
+        { code: 'missing_label_setter', path: 'pipeline.stages[1].gate.conditions[0]', detail: 'secure' },
+        { code: 'missing_label_setter', path: 'pipeline.stages[1].gate.conditions[1]', detail: 'human-dev' },
+      ],
+    ],
+    [
+      'a stage duty nobody holds',
+      (input) => insertStage(input, { id: 'security', kind: 'step', duty: 'security_review' }),
+      [{ code: 'missing_duty_holder', path: 'pipeline.stages[1].duty', detail: 'security_review' }],
+    ],
+    [
+      'a release without a gate',
+      (input) => insertStage(input, { id: 'release', kind: 'release' }),
+      [{ code: 'release_without_human_approval', path: 'pipeline.stages[1]' }],
+    ],
+    [
+      'a release gated only on labels AI members may set',
+      (input) => {
+        labels(input, { id: 'ok', name: 'Ok' }, { id: 'merged', name: 'Merged', setBy: 'system' });
+        insertStage(input, {
+          id: 'release',
+          kind: 'release',
+          gate: gate(['has_label', 'ok'], ['has_label', 'merged']),
+        });
+      },
+      [{ code: 'release_without_human_approval', path: 'pipeline.stages[1]' }],
+    ],
+    [
+      'a release approval no human may give',
+      (input) => {
+        labels(input, { id: 'go', name: 'Go', setBy: { members: ['dev-1'], humansOnly: true } });
+        insertStage(input, { id: 'release', kind: 'release', gate: gate(['has_label', 'go']) });
+      },
+      [
+        { code: 'missing_label_setter', path: 'pipeline.stages[1].gate.conditions[0]', detail: 'go' },
+        { code: 'release_without_human_approval', path: 'pipeline.stages[1]' },
+      ],
+    ],
+    [
+      'a stage in an unknown column',
+      (input) => {
+        stages(input)[0]!.columnId = 'nowhere';
+      },
+      [{ code: 'unknown_column', path: 'pipeline.stages[0]', detail: 'nowhere' }],
+    ],
+    [
+      'a stage id used twice',
+      (input) => insertStage(input, { id: 'ready', kind: 'queue' }),
+      [{ code: 'duplicate_stage', path: 'pipeline.stages[1]', detail: 'ready' }],
+    ],
+    [
+      'a pipeline that neither starts with a queue nor ends done',
+      (input) => {
+        stages(input)[0]!.kind = 'work';
+        stages(input)[1]!.kind = 'step';
+      },
+      [
+        { code: 'first_stage_not_queue', path: 'pipeline.stages[0]' },
+        { code: 'last_stage_not_done', path: 'pipeline.stages[1]' },
+      ],
+    ],
+  ])('reports %s', (_name, change, expected) => {
+    expect(errors(change)).toEqual(expected);
+  });
+
+  it.each<[string, unknown]>([
+    ['duty holders, humans only', { duties: ['release_approval'], humansOnly: true }],
+    ['listed humans', { members: ['owner'], humansOnly: true }],
+    // Any human-only label counts, including one every human member (clients too) may set.
+    ['every human', 'humans'],
+  ])('accepts a release approved by %s', (_name, setBy) => {
+    expect(
+      errors((input) => {
+        labels(input, { id: 'go', name: 'Go', setBy });
+        insertStage(input, { id: 'release', kind: 'release', gate: gate(['has_label', 'go']) });
+      }),
+    ).toEqual([]);
+  });
+});

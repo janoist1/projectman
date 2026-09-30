@@ -1,6 +1,6 @@
 import { hash } from '@node-rs/argon2';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { ConfigView, HumanAccess, ServerEvent } from '@projectman/shared';
+import type { ConfigView, HumanAccess, ServerEvent, Task } from '@projectman/shared';
 import { cookieOf, createAppHarness, createProject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
@@ -103,6 +103,44 @@ describe('configuration PATCH', () => {
     await patch({ baseVersion: next.version, limits: { maxConcurrentAi: 1 } });
     expect((await view()).config.pipeline.stages[1]).toMatchObject({ description: 'Implement the webshop.' });
   });
+
+  it.each(['active', 'done', 'cancelled'] as const)(
+    'refuses removal of a stage occupied by %s tasks without writing a version',
+    async (status) => {
+      const current = await view();
+      for (let index = 0; index < 2; index++) {
+        const response = await h.app.inject({
+          method: 'POST',
+          url: '/api/projects/AR/tasks',
+          headers: { cookie },
+          payload: { title: `Acme task ${index}` },
+        });
+        expect(response.statusCode).toBe(201);
+        const task = response.json<Task>();
+        h.app.projectman.repos.tasks.update({
+          ...task,
+          stageId: 'code_review',
+          status,
+          closedAt: status === 'active' ? null : new Date().toISOString(),
+        });
+      }
+      const pipeline = structuredClone(current.config.pipeline);
+      pipeline.stages = pipeline.stages.filter((stage) => stage.id !== 'code_review');
+      const response = await patch({ baseVersion: current.version, pipeline });
+      expect(response.statusCode).toBe(409);
+      expect(response.json().error).toMatchObject({
+        code: 'stage_in_use',
+        details: { stageId: 'code_review', tasks: 2 },
+      });
+      expect(await view()).toEqual(current);
+      expect((await h.app.projectman.configStore.load('AR')).version).toBe(current.version);
+      // Moving all tasks out permits the exact same draft, including closed tasks.
+      for (const task of h.app.projectman.repos.tasks.list('AR'))
+        h.app.projectman.repos.tasks.update({ ...task, stageId: 'development' });
+      expect((await patch({ baseVersion: current.version, pipeline })).statusCode).toBe(200);
+      expect((await view()).config.pipeline.stages.map((stage) => stage.id)).not.toContain('code_review');
+    },
+  );
 
   it('preserves omitted settings instead of reapplying schema defaults', async () => {
     const current = await view();

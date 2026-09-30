@@ -1,20 +1,20 @@
-# Meaningful labels in place of checks: proposal
+# Labels and gates
 
-Status: implemented (decision 17). The owner answered the open questions below:
-approvals are labels; a failing label only notifies; stage kinds are simplified later; plain
-labels stay allowed. The `pr_updated` clear trigger fires when the head commit of a linked
-pull request changes (see `docs/GITHUB.md`).
+Status: built (decisions 17 and 18). This started as a proposal; the owner's answers are at
+the end. The `pr_updated` clear trigger fires when the head commit of a linked pull request
+changes (see [GITHUB.md](../GITHUB.md)). The code: `packages/shared/src/domain/label.ts`,
+`packages/shared/src/config/labels.ts`, and the gate evaluation in the server's domain.
 
 ## Why
 
-Three parts of today's model are hard-wired, and one is missing.
+Before labels, three parts of the model were hard-wired, and one was missing.
 
-- **Checks** are a fixed catalogue: `code_review`, `security_review`, `qa` and `client_test`. Each takes one of five fixed states.
-- **Gates** combine three fixed condition types: `check_passed`, `pr_merged` and `human_approval`.
-- **The drawer** has a dedicated "checks" section, with its own endpoint and team-tool parameter.
-- **Labels** are free strings that nothing understands.
+- **Checks** were a fixed catalogue: `code_review`, `security_review`, `qa` and `client_test`. Each took one of five fixed states.
+- **Gates** combined three fixed condition types: `check_passed`, `pr_merged` and `human_approval`.
+- **The drawer** had a dedicated "checks" section, with its own endpoint and team-tool parameter.
+- **Labels** were free strings that nothing understood.
 
-Together this mirrors one kind of team: a web agency with review, QA and client test. A content team, operations, legal or research work cannot say what "done" means for them. Their words, such as "legal ok", "copy approved", "waiting for an answer" or "invoice sent", end up as meaningless labels, next to a checks section that does not fit them.
+Together this mirrored one kind of team: a web agency with review, QA and client test. A content team, operations, legal or research work cannot say what "done" means for them. Their words, such as "legal ok", "copy approved", "waiting for an answer" or "invoice sent", end up as meaningless labels, next to a checks section that does not fit them.
 
 ## The model in one sentence
 
@@ -125,9 +125,9 @@ Built as `queue`, `work`, `step`, `release` and `done` (`step` rather than `chec
 - The `check` parameter of `update_task`, and the role-to-check mapping in the prompts.
 - The gate condition types `check_passed`, `pr_merged` and `human_approval`.
 
-## Open questions for the owner
+## The owner's answers (2026-09-30)
 
-1. **Approvals as labels.** Should release and merge approval also be human-only labels with an inbox request, as proposed? Or should approvals keep a separate mechanism?
-2. **Failure effects.** Should a failing label such as "QA: hibás" also send the task back to development automatically? The alternative is that it only notifies the assignee.
-3. **Stage kinds.** Should the simplification to five kinds happen together with labels, or later?
-4. **Meaningless labels.** Should they be allowed freely, or should adding a new label to a task ask for its meaning the first time?
+1. **Approvals are labels** only humans may set, requested in the inbox; no separate mechanism.
+2. **A failing label only notifies** the assignee; it does not move the task back.
+3. **Stage kinds were simplified afterwards**, as a second step (decision 18).
+4. **Plain labels stay allowed**; settings offers to define them.

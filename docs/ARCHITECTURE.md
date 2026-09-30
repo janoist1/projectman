@@ -1,291 +1,202 @@
 # projectman — architecture
 
-projectman is a browser app that runs and tracks a team made of humans and AI members
-(Claude Code sessions). The team works through a configurable pipeline of stages
-(e.g. development → code review → integration → QA → client test → merge → release),
-every step is attributed, and everything that waits for a human lands in one inbox.
-It starts on the owner's Mac (reachable from a phone through Tailscale) and moves to a
-server later.
+projectman is a browser app that runs and tracks a team made of humans and AI members.
+AI members are real, interactive agent CLI sessions (Claude Code or OpenAI Codex) running
+on a human sponsor's subscription. The team works through a configurable pipeline of stages
+(for example development → code review → QA → client test → merge → release). Every step is
+attributed, and everything that waits for a human lands in one inbox ("Rád vár"). It runs on
+the owner's machine, reachable from a phone through Tailscale; [DEPLOY.md](DEPLOY.md) covers
+running it on a server.
+
+Documentation map:
+
+| Document                                                                   | What it answers                                                     |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| this file                                                                  | concepts, invariants, runtime structure, module map, storage        |
+| [DECISIONS.md](DECISIONS.md)                                               | what the owner decided and why (numbered, append-only)              |
+| [ROADMAP.md](ROADMAP.md)                                                   | what is built, what comes next, open questions for the owner        |
+| [PROVIDERS.md](PROVIDERS.md)                                               | Claude Code and Codex: flags, hooks, permissions, login, plan usage |
+| [design/labels.md](design/labels.md), [design/duties.md](design/duties.md) | labels and gates; roles as duty bundles (reference, built)          |
+| [design/phase2.md](design/phase2.md)                                       | the phase 2 proposal (meetings, retro loop, "Rendszer", notices)    |
+| [GITHUB.md](GITHUB.md), [SECURITY.md](SECURITY.md), [DEPLOY.md](DEPLOY.md) | GitHub integration; threat model and protections; server deployment |
 
 ## Hard constraints
 
-1. **Subscription, never API billing.** AI members are real, interactive Claude Code
-   sessions (the `claude` CLI in a pseudo-terminal) logged in with the owner's Claude
-   subscription. The runner removes `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
-   `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX` from the
-   child environment. We do not use the Agent SDK or `claude -p` for member work
-   (Anthropic announced, then paused, moving those off plan limits). The app never
-   collects or stores Claude credentials; a colleague who runs AI members does it on
-   their own Claude login (a later phase). Codex members (see Providers) run on the
-   owner's ChatGPT login the same way; the runner also removes `CODEX_API_KEY` and
-   `OPENAI_API_KEY`, for every session.
-2. **English source code.** Identifiers, comments, file names, commit messages: English.
-   Hungarian (the UI language) lives only in locale files
+1. **Subscription, never API billing** (decisions 1, 15). Agents run as interactive TUIs in
+   a pseudo-terminal, logged in with the sponsor's Claude or ChatGPT plan. No Agent SDK,
+   `claude -p`, `codex exec` or app server for member work. The runner strips API keys and
+   endpoint overrides from every session, and refuses to start a CLI that is not logged in
+   with a subscription. The app never collects or stores agent credentials.
+2. **English source code** (decision 10). Identifiers, comments, file names, commit
+   messages, prompts for AI members: English. The Hungarian UI lives only in locale files
    (`apps/web/src/i18n/hu.ts`, `packages/templates/src/locales/hu.ts`). Data written by
-   people and agents (task titles, notes, messages) is in the project's language.
-3. **No real `claude` or `codex` in automated tests.** Tests use fake CLIs that speak the
-   same protocol (hooks, transcript, stdin): `apps/server/test/fixtures/fake-claude.mjs`
-   and `fake-codex.mjs`.
+   people and agents (task titles, notes, messages, label names) is in the project's language.
+3. **No real agent or `gh` CLI in automated tests.** Tests use fakes that speak the same
+   protocol: `apps/server/test/fixtures/fake-claude.mjs`, `fake-codex.mjs`, and
+   `apps/server/src/github/test-fixtures/fake-gh.mjs`.
 
 ## Concepts
 
-- **Project** — a workspace directory with one or more git repos, a team and a pipeline.
-- **Member** — human or AI, identified by a unique **handle** (`fe-1`, `qa`, `owner`) and
-  a display name ("Anna · fe-1"). AI members have one role, a model, a permission mode, a
-  capacity, role instructions, an optional **schedule** (cron in the project's time zone,
-  e.g. a "daily worker") and a **sponsor**: the human whose subscription runs them.
-- **Duties and roles** — a fixed code-backed catalogue of 26 duties defines holder eligibility,
-  English AI prompt fragments, tool policy and stage/gate/meeting/event integration metadata.
-  Roles bundle duty ids and prompt-only extra responsibilities. The 20 built-in roles have
-  default bundles; `team.roleOverrides` replaces a built-in bundle, and deleting its entry
-  restores the default. Custom roles store `duties` and `instructions` in `team.yaml`.
-  Eligibility is the intersection of the duties' holders: release approval and final decision
-  require humans; all other duties allow humans and AI. One AI holds one role; humans union
-  duties across several roles. Access levels remain separate from responsibilities.
-- **Team limits** — `aiEnabled` (default true) is the per-project master switch: when off,
-  no AI session starts or resumes through any path, while running sessions keep running.
-  Deferred hand-overs and message wake-ups retry after re-enabling; scheduled runs are skipped.
-  `maxConcurrentAi` caps working AI sessions (protects the
-  subscription); new AI work pauses above `pauseAbovePlanUsagePercent`. The number of
-  delivery sessions is capped by the duty holders' capacity. Optional **temp
-  workers**: when every eligible duty holder is busy, a temporary member of the configured
-  role (developer by default) is hired for one task and retired when it is done.
-- **Pipeline** — ordered **stages** (id, display name, kind, optional duty, optional owners override, optional **gate**)
-  grouped into **board columns**. The kind is one of `queue` (waiting to start), `work` (the
-  assignee builds it), `step` (the owners do one thing, such as a review, deploy, test,
-  client test or merge, as the stage's duty says, and record the result with a label),
-  `release` (always behind a human approval) and `done`; older kind names read as `step`. Owners can be humans, AI members or both. A gate is a
-  list of label conditions, `has_label` / `lacks_label`, and must hold before a task may
-  enter the stage. Explicit member lists, including empty stage owner overrides, retain
-  their existing meaning.
-- **Labels** — the one way to state facts about a task (`docs/design/labels.md`). The
-  pipeline defines each label once: name, colour, meaning (shown to humans and put into
-  every AI member's instructions), group (labels of a group exclude each other), who may set
-  it (anyone, humans, the system, duty holders or members, optionally humans only), no
-  self-review, comment required, notify the assignee, cleared when the task moves back or
-  when new commits land on its pull request, and blocking (the task may not move forward). A missing label only humans may set is an
-  approval: the move opens an inbox decision, and approving puts the label on in the
-  approver's name. `pr-merged` is a system label kept by the GitHub integration. Labels
-  without a definition are plain tags. Configurations from before labels (check_passed,
-  pr_merged, human_approval) and recorded checks are migrated on load.
-- **Task** — key (`AR-21`), title, markdown description, stage, status, assignee
-  (work stage owner), repo, labels, links (PRs, branches, issues, prerequisites),
-  visibility (internal/shared), optional parent (one level of subtasks).
-- **Work item & session** — every AI member works in a **fresh Claude Code session per
-  work item**: (member × task), (member × meeting) or (member × general). A developer's
-  task session lives through the whole pipeline; feedback about that task resumes the
-  same session (`claude --resume`). Standing roles (code review, QA, devops, …) work the
-  same way: persistent identity and memory, fresh session per work item. Compaction is
-  only a fallback inside a long session.
-- **Context pack** — assembled when a session starts: the project's own `CLAUDE.md`
-  (loaded by Claude Code from the working directory), the member's identity and role
-  instructions (duty fragments, role extra responsibilities, then member instructions), the team roster, how to use the team tools, the rules of the current
-  stage, the member's memory (`--append-system-prompt`), and for tasks a kick-off brief
-  (title, description, links, prerequisites, recent timeline) typed as the first message.
-- **Team messages** — members message each other through the team tools (MCP). A message
-  about a task is delivered to the recipient's session for that task (created or resumed);
-  to humans it goes to their inbox/notifications. Injected messages are prefixed
-  `[team message from <handle> about <KEY>]` so transcripts can be parsed. Human and AI messages
-  wake idle recipients through scheduler admission; AI-limit, plan-usage and capacity refusals
-  retry every 30 s while the message remains queued, the task stays open in its stage and the recipient remains a member.
-- **Stage hand-over** — when a task enters a later stage owned by AI members (review, QA,
-  deploy, release, …) by any move, including a human's move or an approved gate, the least
-  loaded free owner (never the task's assignee) gets a session for the task; its kick-off brief
-  carries the stage rules. An owner that already runs a session for the task (and the assignee's
-  live session when the task returns to the work stage) instead gets a notice, typed as a team
-  message from whoever moved it. It runs in the
-  background under the usual admission limits; a start refused by them (AI limit, plan usage,
-  owners at capacity) shares the message-start retry every 30 s while the task stays active in
-  the stage and an AI owner remains on the team. Work stages start through the scheduler's `startTask`.
-- **Inbox ("Rád vár")** — everything waiting for a human: tool permission requests
-  (Claude Code `PermissionRequest` hook, answered from the browser), gate decisions
-  (merge, release), questions from AI members (`ask_human`), approvals.
-- **Timeline** — append-only attributed events per task and project ("who did what").
-- **Customization repository** — project configuration (team, custom roles, pipeline,
-  limits, role instructions) is YAML in a **separate git repository**, independent from the
-  app source. Every change is a commit (author + reason); an admin can revert any version.
-  Runtime state (tasks, sessions, events, inbox) lives in SQLite.
+- **Project** — a workspace directory with one or more git repos (`repos[]`, each optionally
+  on GitHub), a team, a pipeline with labels, and limits. Its configuration is YAML in the
+  customization repository; its runtime state is in SQLite.
+- **Member** — human or AI, identified by a unique **handle** (`fe-1`, `qa`, `owner`) and a
+  display name. Humans have an **access level** (`owner`, `admin`, `developer`, `client`,
+  `viewer`) that governs what they may do in the app, and may hold several roles. An AI
+  member holds exactly one role and has a provider (`claude` or `codex`), a model and effort,
+  a permission mode, a capacity, optional instructions, an optional **schedule** (cron in the
+  project's time zone, e.g. a daily worker) and a **sponsor**: the human whose subscription
+  runs it. Colleagues can be added as unclaimed seats and invited with single-use links.
+- **Duties and roles** (decision 16, [design/duties.md](design/duties.md)) — a fixed,
+  code-backed catalogue of 26 duties (implementation, code review, testing and acceptance,
+  release approval, …) defines who may hold them, the English prompt fragment an AI holder
+  receives and its tool policy. A **role** is a named bundle of duties: 20 built-in roles with
+  default bundles (`team.roleOverrides` replaces one) and custom roles defined in `team.yaml`.
+  Release approval and final decision are human-only.
+- **Pipeline** — ordered **stages** grouped into **board columns**. A stage has a kind:
+  `queue` (waiting to start), `work` (the assignee builds it), `step` (the owners do one thing
+  — review, deploy, test, client test, merge — as the stage's duty says, and record the result
+  with a label), `release` (always behind a human approval) or `done` (decision 18). A stage's
+  owners are the holders of its duty unless it lists members explicitly. A **gate** is a list
+  of label conditions (`has_label`, `lacks_label`) that must hold before a task may enter the
+  stage.
+- **Labels** (decision 17, [design/labels.md](design/labels.md)) — the one way to state facts
+  about a task. The pipeline defines each label once: name, colour, meaning (given to AI
+  members), group (mutually exclusive states), who may set it, no self-review, comment
+  required, notify the assignee, cleared when the task moves back or its PR gets new commits,
+  and blocking. A missing label only humans may set is an **approval**: the move opens an
+  inbox decision, and approving puts the label on. `pr-merged` is a system label kept by the
+  GitHub integration. Labels without a definition are plain tags.
+- **Task** — key (`AR-21`), title, markdown description, stage, status, assignee (the work
+  stage owner), repo, labels, links (PRs with their attributed authors, branches, issues,
+  prerequisites), visibility (`internal` or `shared` with clients), optional parent (one level
+  of subtasks), and comments with @mentions. Tasks can be imported with their original dates.
+- **Work item and session** — every AI member works in a **fresh session per work item**:
+  member × task, member × meeting or member × general chat (decision 5). A task session lives
+  through the whole pipeline; later messages about the task resume it. Persistent identity
+  and durable memory carry over between sessions.
+- **Context pack** — built when a session starts: the project's own `CLAUDE.md`/`AGENTS.md`
+  (read by the CLI from the working directory), the member's identity, duty fragments and
+  instructions, the team roster, the project's labels, how to use the team tools, the rules
+  of the current stage, the member's memory, and for tasks a kick-off brief (title,
+  description, links, prerequisites, recent timeline) sent as the first message.
+- **Team tools** — an MCP server (`/mcp/:token`) through which AI members message teammates,
+  read and update tasks (labels, notes, stage moves, subtasks), create tasks, link PRs, ask
+  humans and save memories. Text an agent writes in its own session reaches nobody.
+- **Team messages** — a message about a task goes to the recipient's session for that task
+  (typed in when idle, queued otherwise; a stopped session is started or resumed through
+  admission); messages to humans go to the web app. Injected messages carry the prefix
+  `[team message from <handle> about <KEY>]` so transcripts can be parsed.
+- **Admission** — every automatic session start (task start, stage hand-over, message
+  wake-up, schedule run) passes the same checks: the project's AI master switch
+  (`team.limits.aiEnabled`), `maxConcurrentAi`, the provider's plan usage against
+  `pauseAbovePlanUsagePercent`, and the member's capacity. A refused hand-over or message
+  wake-up is retried every 30 s while it is still valid; the task shows why it waits. While
+  the master switch is off, no AI session starts or resumes and schedule runs are skipped;
+  running sessions keep running, and deferred starts continue once it is back on. When
+  every eligible holder is busy, an optional **temp worker** of the configured role is hired
+  for one task and retired when it is done.
+- **Stage hand-over** — when a task enters a later stage owned by AI members, by anyone's
+  move, the least loaded free owner (never the task's assignee) gets a session for the task.
+  An owner that already has a session for the task gets a notice instead.
+- **Inbox ("Rád vár")** — everything waiting for a human: tool permission requests (the
+  agent's PermissionRequest hook, answered from the browser), approval decisions for gates,
+  and questions from AI members (`ask_human`). The answer to a question returns to the asking
+  session as a team message.
+- **Timeline** — append-only, attributed events per task and project ("who did what").
+- **Customization repository** (decision 8) — project configuration (project, team, roles,
+  pipeline, labels, limits) is YAML in a separate git repository. Every change is a commit
+  with author and reason; admins can revert to any version. Older configuration shapes are
+  migrated on load (`apps/server/src/config`).
 
-## Invariants (always enforced, whoever changes the configuration)
+## Invariants
 
-- handles are unique; at least one human owner exists;
-- stage owners, gate approvers and AI sponsors refer to existing members;
-- gate approvers and sponsors are humans — an AI never approves a gate;
-- every release stage gate requires a label only humans may set (an approval); changing who
-  may set approval labels, release approval bundles or their membership is owner-only;
-  `team.releaseFourEyes` (default off) is also owner-only and excludes assignees and PR
-  authors from release approval;
-- a label marked "not by the author" set by the assignee or a linked PR's attributed author
-  fails with `self_review_forbidden`, regardless of their duties; labels only humans may set
-  are refused for AI members; system labels are the integrations' alone;
-- every label a gate requires is defined and can be set by someone (`unknown_label`,
-  `missing_label_setter`);
-- missing stage/gate duty holders are errors; missing recommended duties (retro facilitation)
-  are warnings, returned with additive issue severity and never blocking config loading;
-- releases happen only on an approver's explicit decision;
-- every role a member holds (and the temp workers' role) is a built-in or custom role that
-  this kind of member may hold; custom role ids are unique and never reuse a built-in id; a
-  custom role cannot be removed while anyone holds it.
+Enforced on every configuration change, whoever makes it
+(`packages/shared/src/config/invariants.ts` and the owner-only checks in the server):
 
-See `packages/shared/src/config/invariants.ts`.
+- handles are unique; at least one human owner exists; AI sponsors are humans;
+- stage owners and members named by labels refer to existing members; every role a member
+  holds exists and suits the kind of member; custom role ids are unique and never reuse a
+  built-in id; a role cannot be removed while anyone holds it;
+- every label a gate requires is defined and can be set by someone; stage and gate duties
+  have holders (a missing recommended duty is only a warning);
+- every release stage requires a label only humans may set, so a release happens only on a
+  human's explicit decision; an AI member never sets a human-only label;
+- a label marked "not by the author" is refused for the assignee and the linked PRs'
+  attributed authors (no self-review); system labels are the integrations' alone;
+- changing who may approve releases (approval labels, release bundles and their membership,
+  `team.releaseFourEyes`) is owner-only; so are account bindings, admin grants and
+  filesystem locations.
 
 ## Runtime architecture
 
 ```
-browser (React) ── REST /api, websocket /ws ──▶ server (Fastify, Node)
+browser (React) ── REST /api, websocket /ws ──▶ server (Fastify, Node, 127.0.0.1:4700)
                                                  ├─ domain services ─▶ SQLite (runtime state)
                                                  ├─ config store ────▶ customization git repo (YAML)
-                                                 ├─ github ──────────▶ gh CLI (owner's login)
+                                                 ├─ github ──────────▶ gh CLI (owner's login, read-only)
                                                  └─ runner ──▶ node-pty ──▶ claude | codex (interactive TUI)
 claude ── HTTP hooks  POST /hooks/:token ─────▶ runner (state machine, permission broker)
 codex ─── command hooks ─▶ forwarder ─▶ POST /hooks/:token ─▶ runner
 claude | codex ── MCP (http)  /mcp/:token ────▶ team tools ─▶ domain
-claude | codex ── transcript JSONL ────────────▶ runner transcript watcher ─▶ chat events
+claude | codex ── transcript JSONL ────────────▶ runner transcript tailer ─▶ chat events
 ```
 
-- One HTTP port (default 4700, bound to 127.0.0.1). `/hooks` and `/mcp` accept only
-  localhost connections with a per-session random token. Everything under `/api` and
-  `/ws` requires a login cookie. Remote access goes through Tailscale (`tailscale serve`).
-- `claude` is started with: `--session-id <uuid>` (new) or `--resume <uuid>`,
-  `--append-system-prompt`, `--mcp-config` (team server), `--settings` (HTTP hooks and
-  pre-allowed team tools), `--model`, `--permission-mode`, `-n <display name>`.
+- One HTTP port, bound to loopback. `/hooks` and `/mcp` accept only local connections with a
+  per-session random token. Everything under `/api` and `/ws` requires a login cookie.
+  Remote access goes through `tailscale serve` ([SECURITY.md](SECURITY.md)).
 - Session states come from hooks: SessionStart → idle, UserPromptSubmit → working,
-  PermissionRequest → waiting_permission (blocking HTTP call answered by the inbox
-  decision, with a timeout), Stop → idle, SessionEnd/exit → exited.
-- User and team messages are typed into the PTY with bracketed paste only when the
-  session is idle; otherwise they queue.
-- v1: sessions do not survive a server restart; the conversation does (transcript), and
-  a later message resumes it with `--resume`.
-
-## Providers
-
-An AI member runs in one of two agent CLIs, set per member (`provider` in `team.yaml`,
-default `claude`): **Claude Code** on the sponsor's Claude plan, or **OpenAI Codex CLI**
-on the sponsor's ChatGPT plan. Both run as interactive TUIs in a PTY. The runner drives
-them through provider adapters (`apps/server/src/runner/providers`); the PTY session,
-message queue, state machine, permission broker and transcript tailer are shared, and
-each adapter declares its capabilities.
-
-|                   | Claude Code                                     | Codex (codex-cli 0.159.1)                                                          |
-| ----------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Conversation id   | ours (`--session-id`), resume with `--resume`   | Codex's own, learned from the first hook (`provider_session_id`); `codex resume`   |
-| Hooks             | HTTP hooks (SessionStart through the forwarder) | command hooks running the forwarder; the PermissionRequest one prints the decision |
-| Ready for input   | first SessionStart hook                         | composer on screen (SessionStart only fires with the first turn)                   |
-| Kick-off brief    | typed with bracketed paste                      | the prompt argument; later messages typed, Enter more than 120 ms after the paste  |
-| System prompt     | `--append-system-prompt`                        | `-c developer_instructions=…`                                                      |
-| Project rules     | `CLAUDE.md`                                     | `AGENTS.md`, else `CLAUDE.md` (`project_doc_fallback_filenames`)                   |
-| Allow for session | session rules in the hook answer                | remembered by the runner (Codex rejects `updatedPermissions`)                      |
-| Transcript        | `~/.claude/projects/…/<id>.jsonl`               | `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-…-<id>.jsonl`                             |
-| Plan usage        | `get_usage` probe of `claude -p`                | rate limits of the newest `token_count` records in the transcripts                 |
-| Login check       | `claude auth status`                            | `codex login status`                                                               |
-
-Codex is started as `codex [resume] --no-alt-screen --no-daemon
---dangerously-bypass-hook-trust --enable hooks -c … --sandbox <s> --ask-for-approval <a>
-[--model <m>] -- [<id>] [<brief>]`. Every setting is a per-process `-c` override (update
-check off, the directory trusted, hooks, the team MCP server with its tools pre-approved,
-developer instructions); nothing is written to `~/.codex`. The bypass flag lets our own
-hooks run without the one-time review in `/hooks`; it also runs any other enabled hooks
-of the user's Codex config and of the trusted project's `.codex/` folder, the same
-exposure as pre-trusting a Claude Code workspace. Claude model aliases (`opus`, …) are
-not passed to Codex; such members get projectman's default, `gpt-6.1-sol` at `medium`
-reasoning effort, rather than the owner's interactive Codex default (which may be the most
-expensive model at the highest effort). A member may name any Codex model explicitly.
-The CLI is `CODEX_BIN` (default
-`codex` on `PATH`); transcripts are read from `CODEX_HOME` (default `~/.codex`).
-
-Claude members may choose a fixed model id, a latest-family alias, or a custom id.
-Their optional effort (`low`, `medium`, `high`, `xhigh`, `max`) is passed via `--effort`
-on new and resumed sessions; unset effort uses Claude Code's own default. Clearing
-effort with a member PATCH (`null`) restores that default. Codex maps `max` to `xhigh`.
-
-Permission modes map to Codex's sandbox and approval policy; anything the sandbox does
-not allow (writes elsewhere, network) is an escalation that reaches the PermissionRequest
-hook and so the inbox:
-
-| Permission mode       | Codex sandbox        | Approval     | Effect                                                  |
-| --------------------- | -------------------- | ------------ | ------------------------------------------------------- |
-| `default`             | `read-only`          | `on-request` | reads freely; every edit and write is asked             |
-| `acceptEdits`, `auto` | `workspace-write`    | `on-request` | edits and commands in the workspace run; the rest asked |
-| `plan`                | `read-only`          | `never`      | research only; nothing is asked or written              |
-| `bypassPermissions`   | `danger-full-access` | `never`      | no sandbox, no questions                                |
-
-The session policy unions the actual duties: editing duties use the task worktree and
-read-only duties pre-approve reading tools. The policy needs no Codex counterpart for its read-only tools: reading and
-`git diff`/`log`/`show` run inside the sandbox without asking (`gh pr view`/`diff` need
-network, so they are asked). The team tools are pre-approved for every role.
-
-Login: before spawning, the runner checks the provider's login (cached briefly). A CLI
-that is not logged in with a subscription, or is logged in with an API key, is refused
-with `provider_not_logged_in` (the domain answers 409 with `details.provider`). A login
-lost mid-session (Claude Code: "Login expired · Please run /login"; Codex: a turn failing
-with `unauthorized`) emits an `auth_error` runner event, stops the session and leaves it
-`failed` with the message as its activity.
-
-Plan usage is per provider: new AI work pauses above `pauseAbovePlanUsagePercent` of the
-plan of the member's own provider.
-
-## Storage
-
-`PROJECTMAN_HOME` (default `~/.projectman`):
-
-```
-db.sqlite            runtime state
-customization/       git repo: projects/<KEY>/{project,team,pipeline}.yaml
-memory/<KEY>/<handle>.md   AI member memory (durable learnings)
-worktrees/<KEY>/…    git worktrees created for tasks (when a task names a repo)
-logs/
-```
-
-SQLite tables: users, auth_sessions, projects (key, config version), tasks, task_links,
-timeline_events, sessions, team_messages, inbox_items, member_state, counters.
-
-## GitHub
-
-Tasks live in our database; GitHub is used for what it does best: pull requests,
-reviews, checks, merges, releases, branch protection. v1 tracks PRs linked to tasks
-(`gh` polling). Later: create an issue from a task, optional mirror to a GitHub Project.
+  PermissionRequest → waiting_permission (a blocking call answered by the inbox decision,
+  with a timeout), Stop → idle, SessionEnd or exit → exited; a lost login → failed.
+- Messages are typed into the PTY with bracketed paste only while the session is idle;
+  otherwise they queue.
+- Sessions do not survive a server restart; conversations do (the CLI's transcript), and a
+  later message resumes them.
+- The server's composition root is `apps/server/src/app.ts` (`buildApp`); the domain's is
+  `apps/server/src/domain/index.ts` (`createDomain`), which builds the services and wires
+  their listeners.
 
 ## Module map
 
-| Path                                                                           | Responsibility                                                                                                             |
-| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
-| `packages/shared`                                                              | Domain types, config schema + invariants, REST DTOs, route table, websocket protocol (zod). Source of truth for contracts. |
-| `packages/templates`                                                           | Factory team + pipeline templates; locale files for default display names.                                                 |
-| `apps/server/src/contracts`                                                    | Interfaces between server modules.                                                                                         |
-| `apps/server/src/runner`                                                       | PTY sessions, provider adapters (Claude Code, Codex), hooks, permission waiting, transcripts, plan usage, login checks.    |
-| `apps/server/src/mcp`                                                          | Team tools MCP server (`/mcp/:token`).                                                                                     |
-| `apps/server/src/github`                                                       | `gh`-based PR lookups and polling.                                                                                         |
-| `apps/server/src/context`, `src/worktree`                                      | Context pack, member memory, git worktrees.                                                                                |
-| `apps/server/src/{db,domain,api,auth,config,ws}`, `src/app.ts`, `src/index.ts` | Persistence, domain services, scheduler, REST, websocket, auth, customization repo, composition.                           |
-| `apps/web`                                                                     | React UI (board, team, session chat + terminal, inbox, settings), i18n.                                                    |
+| Path                            | Responsibility                                                                                                                                                                    |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/shared`               | Contracts: domain types, config schema, invariants, duty catalogue, label rules, REST DTOs, routes, websocket protocol (zod).                                                     |
+| `packages/templates`            | Factory project templates, role defaults, standard label sets, legacy-config migration helpers, template locales.                                                                 |
+| `apps/server/src/contracts`     | Interfaces between server modules (runner, team tools, GitHub, context, config store, event bus).                                                                                 |
+| `apps/server/src/runner`        | PTY sessions, provider adapters (`providers/claude`, `providers/codex`), hooks, permission waiting, transcripts, plan usage, login checks.                                        |
+| `apps/server/src/mcp`           | The team tools MCP server (`/mcp/:token`): tool definitions and the text the model reads.                                                                                         |
+| `apps/server/src/context`       | Context pack: system prompt, kick-off brief, work-item rules, member memory.                                                                                                      |
+| `apps/server/src/worktree`      | Git worktrees and branches for tasks.                                                                                                                                             |
+| `apps/server/src/github`        | `gh`-based pull request lookups and polling.                                                                                                                                      |
+| `apps/server/src/http`          | Request guards shared by the internal endpoints (local-only checks).                                                                                                              |
+| `apps/server/src/config`        | The customization repository: YAML load/save, git history, revert, config migrations.                                                                                             |
+| `apps/server/src/db`            | SQLite schema, migrations and repositories.                                                                                                                                       |
+| `apps/server/src/domain`        | Domain services: projects, tasks and labels, gates, members, roles, sessions, admission and scheduling, schedules, messages, inbox, invitations, GitHub sync, team tools handler. |
+| `apps/server/src/{api,auth,ws}` | REST routes, login and invitations, the websocket hub.                                                                                                                            |
+| `apps/web`                      | React UI (board, task drawer, team and profiles, session chat and terminal, inbox, messages, settings), i18n; `src/mocks` is the in-memory fake backend behind the UI tests.      |
 
-## Later phases (not in v1)
+Pure rules (label refusal, gates, duty resolution, invariants) belong in `packages/shared`,
+so the server and the web's test fake use the same code.
 
-Meetings (standup, refinement, planning, demo, retro with per-meeting screens; led by the
-project manager or whoever starts the meeting); the scheduler that runs members' schedules;
-the watchdog's monitoring; observations and the retro feedback loop run by the coach
-(humans and optionally AI members, evidence-based, internal by default) — these roles
-already exist and work with the team tools; the system agent that changes configuration
-through a fixed list of typed operations within owner-set limits; inviting humans and
-colleagues' own subscriptions; GitHub issue creation and project mirroring; web push
-notifications; surviving server restarts; server deployment.
+## Storage
 
-## Duty customization and compatibility
+`PROJECTMAN_HOME` (default `~/.projectman`, mode 0700):
 
-The settings matrix groups duties by direction, delivery, quality, release, communication
-and team. Columns show roles in use and custom roles, their holders and prompt-only extras.
-Missing coverage is red, incompatible cells show why they are disabled, and a read-only
-people view shows the union of each person's duties. Config PATCH accepts `roleOverrides`,
-`roles` and `releaseFourEyes` atomically, using the existing version conflict check. The role
-catalogue API adds resolved `duties` and `instructions`.
+```
+db.sqlite                 runtime state
+secret                    cookie signing key
+customization/            git repo: projects/<KEY>/{project,team,pipeline}.yaml
+memory/<KEY>/<handle>.md  AI member memory (durable learnings)
+worktrees/<KEY>/…         git worktrees created for tasks
+```
 
-Schema version remains 1. Old explicit owners and approvers load unchanged. Old custom
-roles without duties resolve in memory to an empty duty bundle, retaining their declared
-`holders` eligibility; explicit duties determine eligibility for newer roles.
-Existing member instructions remain prompt-only text. New hires do not copy role prompts.
-PR links persist member authors in SQLite so reassignment cannot enable self-review.
-A link without explicit attribution defaults to the assignee when it is attached. GitHub
-authors are matched case-insensitively to members with an optional `githubLogin` in
-`team.yaml`; the matched handle is persisted for self-review checks. Other external
-authors retain the existing explicit attribution or assignee fallback. See
-[the design note](design/duties.md) for defaults and integration boundaries.
+SQLite tables: `users`, `auth_sessions`, `invitations`, `projects`, `counters`, `tasks`,
+`task_links`, `timeline_events`, `sessions`, `team_messages`, `inbox_items`, `member_state`,
+`schedule_runs`. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`.
+
+## GitHub
+
+Tasks live in our database (decision 9); GitHub is used for pull requests, reviews, checks
+and merges. projectman only reads from GitHub: it polls the PRs linked to tasks, keeps the
+`pr-merged` label, clears `pr_updated` labels when new commits land, and attributes PR authors
+to members (`githubLogin`). See [GITHUB.md](GITHUB.md).

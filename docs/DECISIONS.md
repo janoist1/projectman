@@ -1,6 +1,9 @@
 # Decisions
 
-Agreed with the owner on 2026-09-29, while designing the first version.
+What the owner decided and why, numbered and append-only. Decisions 1–13 were agreed on
+2026-09-29 while designing the first version; the later ones carry their own dates. When a
+later decision refines or replaces an earlier one, the earlier text stays and gets a note.
+Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
 
 1. **Run on the owner's Claude subscription, never on API billing.** Interactive Claude
    Code in a PTY instead of the Agent SDK / `claude -p`: Anthropic announced (then paused)
@@ -12,14 +15,16 @@ Agreed with the owner on 2026-09-29, while designing the first version.
    pipeline stage has owners: a human, an AI or both. Every AI member shows whose
    subscription it runs on.
 4. **Members have unique handles.** Developer sessions are capped by the hired developers'
-   capacity. Optional temp workers ("beugró") for one task each.
+   capacity. Optional temp workers ("beugró") for one task each. _Refined by 16: capacity
+   counts the holders of the stage's duty, and the temp workers' role is configurable._
 5. **Fresh session per work item** for every AI member (developers and standing roles),
    with persistent identity and memory; follow-ups resume the same session. A context
    pack gives each new session the right context.
 6. **Configurable pipeline.** For the first team (a client web project) the order is code review → integration →
    QA → client test → merge → release: bad code is not worth deploying.
 7. **Gatekeeping can be delegated** (release and other approvals) to other humans; an AI
-   never approves; changing the release approvers is owner-only.
+   never approves; changing the release approvers is owner-only. _Refined by 16 and 17:
+   approvals are labels only humans may set; release approval is a duty._
 8. **Customizations live in a separate git repository** (independent from the app
    source): every change is a commit; the main admin can revert.
 9. **Our own database is the source of truth for tasks.** GitHub Projects would constrain
@@ -27,7 +32,7 @@ Agreed with the owner on 2026-09-29, while designing the first version.
    GitHub accounts, and a local app gets no webhooks. GitHub is used for PRs, reviews,
    checks, merges and releases; issue creation and project mirroring come later.
 10. **English source code; Hungarian UI** through locale files.
-11. **Self-shaping within limits (later phase).** A system agent may change configuration
+11. **Self-shaping within limits (later phase, "Rendszer" in `design/phase2.md`).** A system agent may change configuration
     only through a fixed list of typed operations; invariants always hold; only the owner
     widens the limits.
 12. **Project manager (later phase)**: an optional member (human or AI). An intake
@@ -40,7 +45,8 @@ Agreed with the owner on 2026-09-29, while designing the first version.
     defines in its configuration. "Daily worker" is a schedule any AI member can have, not a
     role. The project manager (scheduling: standups, planning, deadlines, reminders, weekly
     report) and the coach (retros, role and process improvement) are separate roles; the
-    watchdog's monitoring and the coach's retro come in a later phase.
+    watchdog's monitoring and the coach's retro come in a later phase. _Partly superseded by
+    16: who may hold a role and what an AI holder is told now come from its duties._
 15. **OpenAI Codex CLI as a second provider, through its interactive TUI and hooks, on the
     subscription only.** Each AI member runs in Claude Code or Codex (default Claude Code),
     on its sponsor's plan: Codex members use the owner's ChatGPT login. Codex runs like
@@ -55,7 +61,6 @@ Agreed with the owner on 2026-09-29, while designing the first version.
     Code's usage probe, ChatGPT's from the rate limits Codex records in its transcripts
     (nothing is spent to read either), and new work pauses on the plan of the member's own
     provider.
-
 16. **Roles are configurable bundles of fixed duties.** Approved by the owner on 2026-09-30.
     Duties, rather than role names, determine who owns stages, who may approve gates and
     which prompt fragments and session tools an AI receives. Teams may change built-in
@@ -69,7 +74,6 @@ Agreed with the owner on 2026-09-29, while designing the first version.
     old custom-role YAML continue loading, with in-memory duty defaults. This supersedes
     decision 14's hard-coded holder restrictions and prompt responsibilities. Meetings and
     monitoring execution remain future work; their attachment metadata is already defined.
-
 17. **Meaningful labels replace checks and gate condition types.** Approved by the owner on
     2026-09-30 (`docs/design/labels.md`). The fixed checks (code review, security review,
     QA, client test with five states) and the three gate condition types mirrored one kind

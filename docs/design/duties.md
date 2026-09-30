@@ -1,5 +1,9 @@
 # Roles as bundles of duties
 
+Status: built (decision 16). Approval gates became labels afterwards (decision 17): where
+this note once said "approval gates name a duty", an approval is now a label that only humans
+holding a duty may set (`setBy: { humans: true, duties: [...] }`).
+
 The fixed catalogue contains 26 duties. Testing and acceptance form one quality duty;
 standup, refinement and retro facilitation are separate so teams can delegate each ritual.
 Release approval and final decision are human-only. All other duties admit humans and AI,
@@ -14,9 +18,9 @@ resolve to an empty duty bundle. They receive no approval or other code-backed d
 Explicit duties determine eligibility for newer roles.
 
 Stages may name a duty. An explicit owners array, including an empty array, overrides the
-resolved holders. Approval gates may name a duty instead of explicit approvers; only human
-holders qualify. Explicit old owners and approvers remain unchanged. Template stages use
-duties. Gate and stage dependencies without holders are errors; missing recommended retro
+resolved holders. Labels name who may set them (`setBy`), by duty or by member; an approval
+label is one only humans may set, and only human holders qualify. Template stages and labels
+use duties. Gate and stage dependencies without holders are errors; missing recommended retro
 facilitation is a warning. Issues add severity without changing their existing codes.
 
 Release approval membership, bundles containing it, effective release approvers, and the
@@ -30,10 +34,27 @@ a task worktree; read-only duties grant read tools. Mixed roles union these poli
 self-review remains forbidden. Ritual and event attachment metadata describe future hooks;
 this change does not implement meeting orchestration or monitoring execution.
 
-The settings matrix groups duties and shows role holders, missing coverage and incompatible
-cells, with a read-only people view. Existing config PATCH handles atomic bundle edits and
-reset; custom role creation continues through the roles API. Server and mock use shared
-resolution and validation helpers.
+The settings matrix groups duties by direction, delivery, quality, release, communication
+and team. Columns show roles in use and custom roles, their holders and prompt-only extras.
+Missing coverage is red, incompatible cells show why they are disabled, and a read-only
+people view shows the union of each person's duties. Config PATCH accepts `roleOverrides`,
+`roles` and `releaseFourEyes` atomically, with the usual version conflict check; custom role
+creation goes through the roles API, whose catalogue adds resolved `duties` and
+`instructions`. Server and the web's test fake use the shared resolution and validation
+helpers.
+
+## Compatibility
+
+The config schema version remains 1. Old explicit stage owners load unchanged. Old custom
+roles without duties resolve in memory to an empty duty bundle and keep their declared
+`holders` eligibility; explicit duties determine eligibility for newer roles. Existing member
+instructions remain prompt-only text; new hires do not copy role prompts.
+
+PR links persist their member authors in SQLite, so reassigning a task cannot enable
+self-review. A link without explicit attribution defaults to the assignee when it is
+attached. GitHub authors are matched case-insensitively to members with an optional
+`githubLogin` in `team.yaml`; the matched handle is persisted. Other external authors keep
+the explicit attribution or the assignee fallback.
 
 ## Default bundles
 

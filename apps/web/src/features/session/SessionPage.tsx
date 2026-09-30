@@ -4,6 +4,7 @@ import type { KeyboardEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import type { Session, SessionDetail } from '@projectman/shared';
 import {
+  useBoard,
   useInbox,
   useLabels,
   useResolveInbox,
@@ -78,6 +79,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
       ? schedules.data?.runs.find((run) => run.sessionId === session.id)
       : undefined;
   const taskDetail = useTaskDetail(key, task?.key);
+  const boardTasks = useBoard(key).data?.tasks;
   const inbox = useInbox(key);
   const { members, pipeline } = useProjectIndexes(key);
   const resolve = useResolveInbox(key, myHandle);
@@ -171,7 +173,11 @@ function SessionView({ detail }: { detail: SessionDetail }) {
           pipeline,
           members,
           openInboxByTask: groupOpenInboxByTask(items),
-          tasksByKey: new Map([[task.key, task]]),
+          // Prerequisites are other tasks: look them up on the board.
+          tasksByKey: new Map([
+            ...(boardTasks ?? []).map((entry) => [entry.key, entry] as const),
+            [task.key, task],
+          ]),
           myHandle,
           labels,
         })

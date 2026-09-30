@@ -140,17 +140,13 @@ async function seed() {
       repos: [{ name: 'webshop', path: '.' }],
     });
   }
-  const { config, version } = await api('/projects/AC/config');
-  const developers = config.team.members.filter(
+  const developers = (await api('/projects/AC/members')).filter(
     (member) => member.kind === 'ai' && member.role === 'developer',
   );
-  developers[0].displayName = 'Kata';
-  developers[1].displayName = 'Bence';
-  developers[1].provider = 'codex';
-  await api('/projects/AC/config', 'PUT', {
-    config,
-    baseVersion: version,
-    message: 'Configure demo developers and providers',
+  await api(`/projects/AC/members/${developers[0].handle}`, 'PATCH', { displayName: 'Kata' });
+  await api(`/projects/AC/members/${developers[1].handle}`, 'PATCH', {
+    displayName: 'Bence',
+    provider: 'codex',
   });
   const titles = [
     'Build the product catalogue',

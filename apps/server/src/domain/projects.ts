@@ -1,11 +1,17 @@
 import { existsSync, statSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
-import { ProjectConfig, humanApprovalChanged } from '@projectman/shared';
+import {
+  ProjectConfig,
+  applyConfigPatch,
+  configSchemaIssues,
+  humanApprovalChanged,
+} from '@projectman/shared';
 import type {
   Actor,
   ConfigVersionEntry,
   CreateProjectRequest,
   HumanAccess,
+  PatchConfigRequest,
   ProjectSummary,
 } from '@projectman/shared';
 import { ConfigStoreError } from '../config/errors';
@@ -34,6 +40,16 @@ export interface ConfigChangeMeta {
   message: string;
   /** Internal invitation acceptance may claim only this previously unbound seat. */
   invitationBinding?: { handle: string; email: string };
+}
+
+/** A human's edit of the configuration (settings: replace, patch or revert). */
+export interface ConfigEditMeta {
+  actor: Actor;
+  author: Author;
+  /** Commit message; a default describes the change. */
+  message?: string;
+  /** Rejects the edit with 409 config_conflict unless the configuration is still at this version. */
+  expectedVersion?: string;
 }
 
 export interface ConfigChange {
@@ -66,6 +82,23 @@ function fromConfigError(err: unknown): never {
         throw new DomainError('invalid_request', err.message, { status: 400 });
     }
   }
+  throw err;
+}
+
+/** An invalid configuration in a settings edit: 400 config_invalid with `{ issues }`. */
+export function configInvalid(message: string, details: unknown): DomainError {
+  const schemaIssues = (details as { schemaIssues?: unknown } | undefined)?.schemaIssues;
+  return invalid(
+    'config_invalid',
+    message,
+    Array.isArray(schemaIssues) ? { issues: configSchemaIssues(schemaIssues) } : details,
+  );
+}
+
+/** Settings edits answer with the codes the settings editor handles (config_invalid). */
+function asConfigEditError(err: unknown): never {
+  if (err instanceof DomainError && err.code === 'invalid_config')
+    throw configInvalid(err.message, err.details);
   throw err;
 }
 
@@ -213,29 +246,47 @@ export class ProjectService {
     });
   }
 
-  /**
-   * Validates and commits a whole configuration. `check` runs against the current
-   * configuration inside the lock (e.g. owner-only rules); `expectedVersion` rejects
-   * stale edits.
-   */
-  async save(
+  /** Replaces the whole configuration (a settings edit). */
+  async save(key: string, config: ProjectConfig, meta: ConfigEditMeta): Promise<LoadedProject> {
+    return this.edit(key, meta, () => ({ next: config, message: 'Update configuration' }));
+  }
+
+  /** Changes the sections present in `patch` (a settings edit); `patch.baseVersion` rejects stale edits. */
+  async patch(
     key: string,
-    config: ProjectConfig,
-    meta: ConfigChangeMeta & {
-      check?: (previous: ProjectConfig, next: ProjectConfig) => void;
-      expectedVersion?: string;
-    },
+    patch: PatchConfigRequest,
+    meta: Omit<ConfigEditMeta, 'message' | 'expectedVersion'>,
+  ): Promise<LoadedProject> {
+    return this.edit(
+      key,
+      { ...meta, message: patch.message, expectedVersion: patch.baseVersion },
+      (current) => ({
+        next: applyConfigPatch(current, patch),
+        message: patch.pipeline ? 'Update pipeline' : patch.limits ? 'Update limits' : 'Update project',
+      }),
+    );
+  }
+
+  /** Settings edits: stale edits are 409 config_conflict, invalid results 400 config_invalid. */
+  private async edit(
+    key: string,
+    meta: ConfigEditMeta,
+    change: (current: ProjectConfig) => { next: ProjectConfig; message: string },
   ): Promise<LoadedProject> {
     return this.locks.run(`config:${key}`, async () => {
       const current = await this.load(key);
       if (meta.expectedVersion && meta.expectedVersion !== current.version) {
-        throw conflict('version_conflict', 'the configuration changed since it was loaded', {
+        throw conflict('config_conflict', 'the configuration changed since it was loaded', {
           currentVersion: current.version,
         });
       }
-      if (config.project.key !== key) throw invalid('invalid_request', 'project key cannot be changed');
-      meta.check?.(current.config, config);
-      return this.commitLocked(key, current, config, meta);
+      const { next, message } = change(current.config);
+      if (next.project.key !== key) throw invalid('invalid_request', 'project key cannot be changed');
+      return this.commitLocked(key, current, next, {
+        actor: meta.actor,
+        author: meta.author,
+        message: meta.message ?? message,
+      }).catch(asConfigEditError);
     });
   }
 
@@ -253,10 +304,19 @@ export class ProjectService {
     });
   }
 
+  /** Restores an earlier version in a new commit (a settings edit, under the same rules as any commit). */
   async revert(key: string, version: string, meta: { actor: Actor; author: Author }): Promise<LoadedProject> {
     return this.locks.run(`config:${key}`, async () => {
       const current = await this.load(key);
-      await this.configStore.revertTo(key, version, { author: meta.author }).catch(fromConfigError);
+      const target = await this.configStore
+        .loadVersion(key, version)
+        .catch(fromConfigError)
+        .catch(asConfigEditError);
+      this.assertCommitAllowed(key, current.config, target, meta);
+      await this.configStore
+        .revertTo(key, version, { author: meta.author })
+        .catch(fromConfigError)
+        .catch(asConfigEditError);
       const loaded = await this.configStore.load(key).catch(fromConfigError);
       this.cache.set(key, loaded);
       if (loaded.version !== current.version) {
@@ -353,20 +413,46 @@ export class ProjectService {
     }
   }
 
+  /**
+   * Rules for every configuration commit, whoever makes it: the actor's owner-only rules, and
+   * no stage may disappear while tasks occupy it (409 stage_in_use).
+   */
+  private assertCommitAllowed(
+    key: string,
+    previous: ProjectConfig,
+    next: ProjectConfig,
+    meta: Pick<ConfigChangeMeta, 'actor' | 'invitationBinding'>,
+  ): void {
+    const member = previous.team.members.find((m) => m.handle === meta.actor.handle);
+    if (meta.actor.kind !== 'system') {
+      if (meta.actor.kind !== 'human' || member?.kind !== 'human')
+        throw forbidden('owner_only', 'AI cannot change configuration');
+      ProjectService.assertChangeAllowed(previous, next, member.access, meta.invitationBinding);
+    } else {
+      ProjectService.assertChangeAllowed(previous, next, 'admin');
+    }
+    const stageIds = new Set(next.pipeline.stages.map((stage) => stage.id));
+    const removed = previous.pipeline.stages.filter((stage) => !stageIds.has(stage.id));
+    if (!removed.length) return;
+    const tasks = this.ctx.repos.tasks.list(key);
+    for (const stage of removed) {
+      const count = tasks.filter((task) => task.stageId === stage.id).length;
+      if (count) {
+        throw conflict('stage_in_use', 'tasks still occupy the removed stage', {
+          stageId: stage.id,
+          tasks: count,
+        });
+      }
+    }
+  }
+
   private async commitLocked(
     key: string,
     current: LoadedProject,
     next: ProjectConfig,
     meta: ConfigChangeMeta,
   ): Promise<LoadedProject> {
-    const member = current.config.team.members.find((m) => m.handle === meta.actor.handle);
-    if (meta.actor.kind !== 'system') {
-      if (meta.actor.kind !== 'human' || member?.kind !== 'human')
-        throw forbidden('owner_only', 'AI cannot change configuration');
-      ProjectService.assertChangeAllowed(current.config, next, member.access, meta.invitationBinding);
-    } else {
-      ProjectService.assertChangeAllowed(current.config, next, 'admin');
-    }
+    this.assertCommitAllowed(key, current.config, next, meta);
     const { version } = await this.configStore
       .save(key, next, { author: meta.author, message: meta.message })
       .catch(fromConfigError);

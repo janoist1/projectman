@@ -20,6 +20,8 @@ export interface ConfigStore {
     meta: { author: { name: string; email: string }; message: string },
   ): Promise<{ version: string }>;
   history(projectKey: string, limit?: number): Promise<ConfigVersionEntry[]>;
+  /** The configuration as of `version` (migrated and validated), without changing anything. */
+  loadVersion(projectKey: string, version: string): Promise<ProjectConfig>;
   /** Restores the project's files as of `version` in a new commit. */
   revertTo(
     projectKey: string,

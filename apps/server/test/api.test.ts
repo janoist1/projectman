@@ -538,7 +538,7 @@ describe('REST API', () => {
         config: changed,
         baseVersion: first,
       });
-      expect(stale.body.error.code).toBe('version_conflict');
+      expect(stale.body.error.code).toBe('config_conflict');
 
       const bare = structuredClone(saved.body.config);
       bare.team.limits.maxConcurrentAi = 4;
@@ -552,8 +552,8 @@ describe('REST API', () => {
         conditions: [{ type: 'has_label', label: 'nobody-defined-this' }],
       };
       const rejected = await call<ApiError>('PUT', '/api/projects/AR/config', cookie, invalidConfig);
-      expect(rejected.status).toBe(422);
-      expect(rejected.body.error.code).toBe('invalid_config');
+      expect(rejected.status).toBe(400);
+      expect(rejected.body.error.code).toBe('config_invalid');
 
       const reverted = await call<ConfigView>('POST', '/api/projects/AR/config/revert', cookie, {
         version: first,

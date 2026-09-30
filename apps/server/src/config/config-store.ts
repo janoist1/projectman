@@ -195,6 +195,34 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
     for (const file of PROJECT_FILES) await writeFile(join(dir, file), contents[file]);
   }
 
+  /** The project's files and validated configuration as of a commit. */
+  async function readVersion(
+    key: string,
+    version: string,
+  ): Promise<{ commitId: string; contents: Record<ProjectFileName, string>; config: ProjectConfig }> {
+    if (!VERSION_RE.test(version))
+      throw new ConfigStoreError('unknown_version', `unknown version: ${version}`);
+    const resolved = await git(['rev-parse', '--verify', '-q', `${version}^{commit}`], [1, 128]);
+    if (resolved.code !== 0) throw new ConfigStoreError('unknown_version', `unknown version: ${version}`);
+    const commitId = resolved.stdout.trim();
+    const path = projectPath(key);
+    const contents = {} as Record<ProjectFileName, string>;
+    const parsed = {} as Record<ProjectFileName, unknown>;
+    for (const file of PROJECT_FILES) {
+      const show = await git(['show', `${commitId}:${path}/${file}`], [128]);
+      if (show.code !== 0) {
+        throw new ConfigStoreError('unknown_version', `version ${version} has no ${file} for ${key}`);
+      }
+      contents[file] = show.stdout;
+      parsed[file] = parseYamlFile(file, show.stdout);
+    }
+    const config = validate(
+      migrateLegacyConfig(migrateScheduledRole(mergeProjectFiles(parsed), key, logger)),
+      key,
+    );
+    return { commitId, contents, config };
+  }
+
   return {
     rootDir,
     init: ensureInit,
@@ -259,35 +287,18 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
         });
     },
 
+    async loadVersion(projectKey, version) {
+      assertKey(projectKey);
+      await ensureInit();
+      return (await readVersion(projectKey, version)).config;
+    },
+
     async revertTo(projectKey, version, meta) {
       assertKey(projectKey);
       await ensureInit();
-      if (!VERSION_RE.test(version))
-        throw new ConfigStoreError('unknown_version', `unknown version: ${version}`);
       return exclusive(async () => {
-        const resolved = await git(['rev-parse', '--verify', '-q', `${version}^{commit}`], [1, 128]);
-        if (resolved.code !== 0) throw new ConfigStoreError('unknown_version', `unknown version: ${version}`);
-        const commitId = resolved.stdout.trim();
+        const { commitId, contents } = await readVersion(projectKey, version);
         const path = projectPath(projectKey);
-
-        const contents = {} as Record<ProjectFileName, string>;
-        const parsed = {} as Record<ProjectFileName, unknown>;
-        for (const file of PROJECT_FILES) {
-          const show = await git(['show', `${commitId}:${path}/${file}`], [128]);
-          if (show.code !== 0) {
-            throw new ConfigStoreError(
-              'unknown_version',
-              `version ${version} has no ${file} for ${projectKey}`,
-            );
-          }
-          contents[file] = show.stdout;
-          parsed[file] = parseYamlFile(file, show.stdout);
-        }
-        validate(
-          migrateLegacyConfig(migrateScheduledRole(mergeProjectFiles(parsed), projectKey, logger)),
-          projectKey,
-        );
-
         await writeProject(projectKey, contents);
         await git(['add', '-A', '--', path]);
         if (!(await hasStagedChanges(path))) return { version: await projectVersion(projectKey) };

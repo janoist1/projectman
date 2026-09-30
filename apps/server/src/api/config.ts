@@ -1,26 +1,18 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import {
-  ProjectConfig,
-  RevertConfigRequest,
-  routes,
-  PatchConfigRequest,
-  applyConfigPatch,
-  configSchemaIssues,
-  validateProjectConfig,
-} from '@projectman/shared';
+import { ProjectConfig, RevertConfigRequest, routes, PatchConfigRequest } from '@projectman/shared';
 import type { ConfigView } from '@projectman/shared';
 import type { Domain } from '../domain';
-import { ProjectService } from '../domain';
+import { configInvalid } from '../domain/projects';
 import { actorOf, authorOf, requireAccess } from './context';
 import { parseBody } from './validation';
-import { conflict, DomainError, invalid } from '../domain/errors';
 
 type ProjectParams = { Params: { key: string } };
 
 /**
  * PUT body: either the whole ProjectConfig, or
- * { config, message? (commit message), baseVersion? (rejects stale edits with 409 version_conflict) }.
+ * { config, message? (commit message), baseVersion? (rejects stale edits with 409 config_conflict) }.
+ * Only scripts use PUT; the settings UI patches (PATCH) and could replace it.
  */
 const UpdateConfigBody = z.object({
   config: ProjectConfig,
@@ -32,6 +24,20 @@ function isWrapped(body: unknown): boolean {
   return typeof body === 'object' && body !== null && 'config' in body && !('schemaVersion' in body);
 }
 
+/** Parses a configuration edit; schema violations are 400 config_invalid, like every invalid edit. */
+function parseEdit<S extends z.ZodType>(schema: S, body: unknown): z.output<S> {
+  const parsed = schema.safeParse(body ?? {});
+  if (!parsed.success) {
+    throw configInvalid('configuration does not match the schema', { schemaIssues: parsed.error.issues });
+  }
+  return parsed.data;
+}
+
+/**
+ * Configuration edits (PUT, PATCH, revert) share one commit path in ProjectService: owner-only
+ * rules, removed stages still in use (409 stage_in_use), invariants (400 config_invalid) and
+ * stale versions (409 config_conflict).
+ */
 export function registerConfigRoutes(app: FastifyInstance, domain: Domain): void {
   const view = async (key: string): Promise<ConfigView> => {
     const { config, version } = await domain.projects.load(key);
@@ -46,50 +52,8 @@ export function registerConfigRoutes(app: FastifyInstance, domain: Domain): void
   app.patch<ProjectParams>(routes.patchConfig(':key'), async (request): Promise<ConfigView> => {
     const key = request.params.key;
     const access = await requireAccess(domain, request, key, { minimum: 'admin' });
-    const parsed = PatchConfigRequest.safeParse(request.body);
-    if (!parsed.success) {
-      throw invalid('config_invalid', 'configuration does not match the schema', {
-        issues: configSchemaIssues(parsed.error.issues),
-      });
-    }
-    const body = parsed.data;
-    const current = await domain.projects.load(key);
-    const next = applyConfigPatch(current.config, body);
-    try {
-      await domain.projects.save(key, next, {
-        actor: actorOf(access),
-        author: authorOf(request),
-        expectedVersion: body.baseVersion,
-        message:
-          body.message ??
-          (body.pipeline ? 'Update pipeline' : body.limits ? 'Update limits' : 'Update project'),
-        check: (previous, draft) => {
-          ProjectService.assertChangeAllowed(previous, draft, access.access);
-          const stageIds = new Set(draft.pipeline.stages.map((stage) => stage.id));
-          const removed = previous.pipeline.stages.filter((stage) => !stageIds.has(stage.id));
-          if (removed.length) {
-            const tasks = domain.tasks.list(key);
-            for (const stage of removed) {
-              const count = tasks.filter((task) => task.stageId === stage.id).length;
-              if (count) {
-                throw conflict('stage_in_use', 'tasks still occupy the removed stage', {
-                  stageId: stage.id,
-                  tasks: count,
-                });
-              }
-            }
-          }
-          const issues = validateProjectConfig(draft);
-          if (issues.some((issue) => issue.severity !== 'warning'))
-            throw invalid('config_invalid', 'configuration violates invariants', { issues });
-        },
-      });
-    } catch (error) {
-      if (error instanceof DomainError && error.code === 'version_conflict') {
-        throw new DomainError('config_conflict', error.message, { status: 409, details: error.details });
-      }
-      throw error;
-    }
+    const patch = parseEdit(PatchConfigRequest, request.body);
+    await domain.projects.patch(key, patch, { actor: actorOf(access), author: authorOf(request) });
     return view(key);
   });
 
@@ -98,14 +62,13 @@ export function registerConfigRoutes(app: FastifyInstance, domain: Domain): void
     const key = request.params.key;
     const access = await requireAccess(domain, request, key, { minimum: 'admin' });
     const body = isWrapped(request.body)
-      ? parseBody(UpdateConfigBody, request.body)
-      : { config: parseBody(ProjectConfig, request.body), message: undefined, baseVersion: undefined };
+      ? parseEdit(UpdateConfigBody, request.body)
+      : { config: parseEdit(ProjectConfig, request.body), message: undefined, baseVersion: undefined };
     await domain.projects.save(key, body.config, {
       actor: actorOf(access),
       author: authorOf(request),
-      message: body.message ?? 'Update configuration',
+      message: body.message,
       expectedVersion: body.baseVersion,
-      check: (previous, next) => ProjectService.assertChangeAllowed(previous, next, access.access),
     });
     return view(key);
   });

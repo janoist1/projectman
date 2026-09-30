@@ -279,4 +279,84 @@ describe('configuration PATCH', () => {
     expect(responses.map((response) => response.statusCode).sort()).toEqual([200, 409]);
     expect((await view()).history).toHaveLength(current.history.length + 1);
   });
+
+  describe('replace (PUT) and revert share the commit rules', () => {
+    function put(payload: object) {
+      return h.app.inject({ method: 'PUT', url: '/api/projects/AR/config', headers: { cookie }, payload });
+    }
+    function revert(version: string) {
+      return h.app.inject({
+        method: 'POST',
+        url: '/api/projects/AR/config/revert',
+        headers: { cookie },
+        payload: { version },
+      });
+    }
+    async function occupy(stageId: string) {
+      const response = await h.app.inject({
+        method: 'POST',
+        url: '/api/projects/AR/tasks',
+        headers: { cookie },
+        payload: { title: 'Acme task' },
+      });
+      h.app.projectman.repos.tasks.update({ ...response.json<Task>(), stageId });
+    }
+
+    it('refuses to remove an occupied stage by replacing the configuration', async () => {
+      const current = await view();
+      await occupy('code_review');
+      const config = structuredClone(current.config);
+      config.pipeline.stages = config.pipeline.stages.filter((stage) => stage.id !== 'code_review');
+      const response = await put({ config, baseVersion: current.version });
+      expect(response.statusCode).toBe(409);
+      expect(response.json().error).toMatchObject({
+        code: 'stage_in_use',
+        details: { stageId: 'code_review', tasks: 1 },
+      });
+      expect(await view()).toEqual(current);
+    });
+
+    it('refuses a revert to a version without a stage that tasks occupy', async () => {
+      const original = await view();
+      const pipeline = structuredClone(original.config.pipeline);
+      pipeline.stages.splice(2, 0, { ...pipeline.stages[2]!, id: 'design_review', name: 'Design review' });
+      const added = (await patch({ baseVersion: original.version, pipeline })).json<ConfigView>();
+      await occupy('design_review');
+      const response = await revert(original.version);
+      expect(response.statusCode).toBe(409);
+      expect(response.json().error).toMatchObject({
+        code: 'stage_in_use',
+        details: { stageId: 'design_review', tasks: 1 },
+      });
+      expect(await view()).toEqual(added);
+    });
+
+    it('answers stale and invalid replacements with the codes of PATCH', async () => {
+      const current = await view();
+      const stale = await put({ config: current.config, baseVersion: 'outdated' });
+      expect([stale.statusCode, stale.json().error.code]).toEqual([409, 'config_conflict']);
+      expect(stale.json().error.details).toEqual({ currentVersion: current.version });
+
+      const invalid = structuredClone(current.config);
+      invalid.pipeline.stages[1]!.owners = ['missing'];
+      const rejected = await put({ config: invalid, baseVersion: current.version });
+      expect(rejected.statusCode).toBe(400);
+      expect(rejected.json().error).toMatchObject({
+        code: 'config_invalid',
+        details: {
+          issues: expect.arrayContaining([
+            { code: 'unknown_member', path: 'pipeline.stages[1].owners', detail: 'missing' },
+          ]),
+        },
+      });
+
+      const schema = await put({ config: { ...current.config, team: {} } });
+      expect(schema.statusCode).toBe(400);
+      expect(schema.json().error).toMatchObject({
+        code: 'config_invalid',
+        details: { issues: expect.arrayContaining([{ code: 'invalid_type', path: 'config.team.members' }]) },
+      });
+      expect(await view()).toEqual(current);
+    });
+  });
 });

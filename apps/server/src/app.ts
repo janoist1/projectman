@@ -163,6 +163,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       contextBuilder,
       memory,
       worktrees,
+      worktreesRootDir: join(home, 'worktrees'),
       templates: modules.templates,
       now: options.now,
       scheduleTimer: options.scheduleTimer,

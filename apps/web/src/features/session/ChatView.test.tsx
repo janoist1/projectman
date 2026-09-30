@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { ChatItem, InboxItem } from '@projectman/shared';
 import { describe, expect, it, vi } from 'vitest';
+import { t } from '../../i18n/t';
 import { Markdown } from '../../components/Markdown';
 import { groupChatItems } from '../../lib/chat';
 import { inbox } from '../../mocks/fixtures';
@@ -179,6 +180,26 @@ describe('ChatView', () => {
       />,
     );
     expect(screen.getByText(/Engedélyezve: git push · Te/)).toBeTruthy();
+  });
+
+  it.each(['allow', 'deny'] as const)('attributes automatic %s decisions to the system', (optionId) => {
+    const resolved: InboxItem = {
+      ...(inbox.find((item) => item.id === 'inb_perm_push') as InboxItem),
+      state: 'resolved',
+      resolution: { optionId, by: 'system', at: at(9), note: null },
+    };
+    render(
+      <ChatView
+        items={items}
+        sessionMember="fe-1"
+        members={members}
+        myHandle="owner"
+        resolvedItems={[resolved]}
+      />,
+    );
+    const label = t(`inbox.resolutions.automatic_${optionId}`);
+    const line = screen.getByText((text) => text.startsWith(label));
+    expect(line.textContent).toContain(t('common.system'));
   });
 
   it('shows an empty state and pending messages', () => {

@@ -178,7 +178,12 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
 
     async launch({ spec, hookUrl, permissionTimeoutMs }) {
       await trust(spec.cwd);
-      const settings = buildSettings({ hookUrl, allowedTools: spec.allowedTools, permissionTimeoutMs });
+      const settings = buildSettings({
+        hookUrl,
+        allowedTools: spec.allowedTools,
+        deniedTools: spec.deniedTools,
+        permissionTimeoutMs,
+      });
       const command = resolveCommand(opts.bin, buildClaudeArgs(spec, settings));
       return { ...command, initialMessageSent: false };
     },

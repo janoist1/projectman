@@ -49,8 +49,9 @@ interface ListedWorktree {
  * - ensureForTask reuses what exists: the worktree at that path, or the task's branch
  *   (a local `<TASKKEY>` / `<TASKKEY>-*` branch, then `origin/<TASKKEY>-*`) wherever it is
  *   checked out. Only a brand-new branch fetches `origin <defaultBranch>` (failures are
- *   logged and tolerated, e.g. offline) and starts from `origin/<defaultBranch>`, or from the
- *   local default branch when there is no remote; it gets no upstream until it is pushed.
+ *   logged and tolerated, e.g. offline). It starts from the local default when it is equal to
+ *   or ahead of origin, otherwise from origin (including diverged histories), falling back
+ *   to the local default when origin is absent; it gets no upstream until it is pushed.
  * - remove only touches worktrees under rootDir, refuses dirty ones unless forced and never
  *   deletes the branch.
  */
@@ -59,13 +60,8 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
   const log = opts.logger;
   const withLock = createKeyedLock();
 
-  async function ensureForTask(args: {
-    project: ProjectConfig;
-    repoName: string;
-    taskKey: string;
-    title: string;
-  }): Promise<WorktreeInfo> {
-    const { project, repoName, taskKey, title } = args;
+  async function taskLocation(args: { project: ProjectConfig; repoName: string; taskKey: string }) {
+    const { project, repoName, taskKey } = args;
     if (!TaskKey.safeParse(taskKey).success) {
       throw new WorktreeError('invalid_task_key', `invalid task key: ${JSON.stringify(taskKey)}`);
     }
@@ -97,6 +93,38 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
     )
       throw new WorktreeError('outside_root', 'worktree must stay inside its project folder');
     await assertRepositoryRoot(repoPath);
+    return { repo, repoPath, target };
+  }
+
+  async function worktreeInfo(dir: string, branch: string, repo: string): Promise<WorktreeInfo> {
+    const commonDir =
+      (await tryGit(['-C', dir, 'rev-parse', '--path-format=absolute', '--git-common-dir'])) ??
+      (await git(['-C', dir, 'rev-parse', '--git-common-dir']));
+    return { path: dir, branch, repo, gitDir: path.resolve(dir, commonDir.trim()) };
+  }
+
+  async function find(args: {
+    project: ProjectConfig;
+    repoName: string;
+    taskKey: string;
+  }): Promise<WorktreeInfo | null> {
+    const { repo, repoPath, target } = await taskLocation(args);
+    return withLock(await canonical(repoPath), async () => {
+      const found = await findByPath(await listWorktrees(repoPath), target);
+      if (!found) return null;
+      const branch = found.branch ?? (await git(['-C', target, 'rev-parse', '--abbrev-ref', 'HEAD'])).trim();
+      return worktreeInfo(target, branch, repo.name);
+    });
+  }
+
+  async function ensureForTask(args: {
+    project: ProjectConfig;
+    repoName: string;
+    taskKey: string;
+    title: string;
+  }): Promise<WorktreeInfo> {
+    const { project, taskKey, title } = args;
+    const { repo, repoPath, target } = await taskLocation(args);
     return withLock(await canonical(repoPath), async () => {
       await git(['-C', repoPath, 'worktree', 'prune']);
       const worktrees = await listWorktrees(repoPath);
@@ -106,7 +134,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
         const branch =
           atTarget.branch ?? (await git(['-C', target, 'rev-parse', '--abbrev-ref', 'HEAD'])).trim();
         log.debug({ repo: repo.name, taskKey, path: target, branch }, 'reusing task worktree');
-        return { path: target, branch, repo: repo.name };
+        return worktreeInfo(target, branch, repo.name);
       }
 
       const wanted = taskBranchName(taskKey, title);
@@ -126,7 +154,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
           { repo: repo.name, taskKey, path: holder.path, branch },
           'reusing the worktree of the task branch',
         );
-        return { path: holder.path, branch, repo: repo.name };
+        return worktreeInfo(holder.path, branch, repo.name);
       }
 
       await assertFreeDirectory(target, repoPath);
@@ -138,7 +166,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
           { repo: repo.name, taskKey, path: target, branch },
           'created task worktree on its existing branch',
         );
-        return { path: target, branch, repo: repo.name };
+        return worktreeInfo(target, branch, repo.name);
       }
 
       const remote = await findTaskBranch(repoPath, 'refs/remotes/origin/', taskKey, wanted);
@@ -161,7 +189,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
           { repo: repo.name, taskKey, path: target, branch: remote },
           'created task worktree from origin',
         );
-        return { path: target, branch: remote, repo: repo.name };
+        return worktreeInfo(target, remote, repo.name);
       }
 
       const startPoint = await startPointFor(repoPath, repo.defaultBranch);
@@ -169,7 +197,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
         timeoutMs: CHECKOUT_TIMEOUT_MS,
       });
       log.info({ repo: repo.name, taskKey, path: target, branch, startPoint }, 'created task worktree');
-      return { path: target, branch, repo: repo.name };
+      return worktreeInfo(target, branch, repo.name);
     });
   }
 
@@ -186,10 +214,18 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
           'git fetch failed; starting from the last known state of the default branch',
         );
       }
-      if (await refExists(repoPath, remoteRef)) return remoteRef;
     }
     const localRef = `refs/heads/${defaultBranch}`;
-    if (await refExists(repoPath, localRef)) return localRef;
+    const localExists = await refExists(repoPath, localRef);
+    if (await refExists(repoPath, remoteRef)) {
+      if (
+        localExists &&
+        (await gitSucceeds(['-C', repoPath, 'merge-base', '--is-ancestor', remoteRef, localRef]))
+      )
+        return localRef;
+      return remoteRef;
+    }
+    if (localExists) return localRef;
     throw new WorktreeError(
       'no_start_point',
       `neither origin/${defaultBranch} nor ${defaultBranch} exists in ${repoPath}`,
@@ -238,7 +274,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
     });
   }
 
-  return { ensureForTask, status, remove };
+  return { ensureForTask, find, status, remove };
 }
 
 async function assertRepositoryRoot(repoPath: string): Promise<void> {

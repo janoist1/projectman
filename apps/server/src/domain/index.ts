@@ -77,6 +77,8 @@ export interface DomainOptions {
   contextBuilder: ContextPackBuilder;
   memory: MemberMemoryStore;
   worktrees: WorktreeManager;
+  /** Root used to constrain automatic lockfile installs; unset means no install auto-approval. */
+  worktreesRootDir?: string;
   templates?: TemplateRegistry;
   bus?: EventBus;
   now?: () => Date;
@@ -99,7 +101,7 @@ export function createDomain(opts: DomainOptions) {
 
   const timeline = new TimelineService(ctx);
   const projects = new ProjectService({ ctx, configStore: opts.configStore, templates, timeline });
-  const inbox = new InboxService({ ctx, timeline, projects });
+  const inbox = new InboxService({ ctx, timeline, projects, worktreesRootDir: opts.worktreesRootDir });
   const runnerModule = opts.createRunner(inbox.broker);
   const presence = new PresenceService();
   const messages = new MessageService({ ctx, timeline });

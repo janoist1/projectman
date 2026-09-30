@@ -846,6 +846,8 @@ export const hu = {
       answer: 'Saját válasz',
     },
     resolutions: {
+      automatic_allow: 'Szabály szerint engedélyezve',
+      automatic_deny: 'Szabály szerint elutasítva',
       allow: 'Engedélyezve',
       allow_session: 'Mindig engedélyezve ebben a sessionben',
       deny: 'Elutasítva',
@@ -1006,6 +1008,8 @@ export const hu = {
       team_message: 'Üzenet → {to}: {excerpt}',
       permission_requested: 'Engedélyt kér: {summary}',
       permission_allowed: 'Engedélyezve',
+      permission_automatic_allow: 'Szabály szerint engedélyezve',
+      permission_automatic_deny: 'Szabály szerint elutasítva',
       permission_denied: 'Elutasítva',
       question_asked: 'Kérdés: {question}',
       question_answered: 'Válasz: {answer}',

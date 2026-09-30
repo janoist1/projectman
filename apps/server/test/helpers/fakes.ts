@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
-import type { ChatItem, PlanUsage, SessionState } from '@projectman/shared';
+import type { ChatItem, PlanUsage, SessionState, ProjectConfig } from '@projectman/shared';
 import type {
   ContextPack,
   ContextPackBuilder,
@@ -192,6 +192,7 @@ export class FakeMemoryStore implements MemberMemoryStore {
 export class FakeWorktreeManager implements WorktreeManager {
   readonly calls: Array<{ repoName: string; taskKey: string }> = [];
   readonly removed: string[] = [];
+  readonly existing = new Map<string, WorktreeInfo>();
   /** Status per worktree path (default: clean). */
   readonly statuses = new Map<string, { dirty: boolean; unpushedCommits: number }>();
   private readonly root: string;
@@ -199,15 +200,30 @@ export class FakeWorktreeManager implements WorktreeManager {
     this.root = root;
   }
   async ensureForTask(args: {
-    project: { project: { key: string } };
+    project: ProjectConfig;
     repoName: string;
     taskKey: string;
     title: string;
   }): Promise<WorktreeInfo> {
     this.calls.push({ repoName: args.repoName, taskKey: args.taskKey });
-    const path = join(this.root, args.project.project.key, args.taskKey);
+    const path = join(this.root, args.project.project.key, `${args.taskKey}-${args.repoName}`);
     mkdirSync(path, { recursive: true });
-    return { path, branch: `task/${args.taskKey}`, repo: args.repoName };
+    const repo = args.project.project.repos.find((repo) => repo.name === args.repoName)!;
+    const info = {
+      path,
+      branch: `task/${args.taskKey}`,
+      repo: args.repoName,
+      gitDir: join(args.project.project.workspacePath, repo.path, '.git'),
+    };
+    this.existing.set(`${args.project.project.key}/${args.taskKey}/${args.repoName}`, info);
+    return info;
+  }
+  async find(args: {
+    project: ProjectConfig;
+    repoName: string;
+    taskKey: string;
+  }): Promise<WorktreeInfo | null> {
+    return this.existing.get(`${args.project.project.key}/${args.taskKey}/${args.repoName}`) ?? null;
   }
   async status(path: string): Promise<{ dirty: boolean; unpushedCommits: number }> {
     return this.statuses.get(path) ?? { dirty: false, unpushedCommits: 0 };

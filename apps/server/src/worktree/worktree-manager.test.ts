@@ -143,12 +143,60 @@ describe('worktree manager', { timeout: 30_000 }, () => {
       path: path.join(rootDir, 'AR', 'AR-21-app'),
       branch: 'AR-21-fix-the-booking-confirmation-email',
       repo: 'app',
+      gitDir: path.join(clone, '.git'),
     });
     expect(await git('-C', info.path, 'rev-parse', 'HEAD')).toBe(remoteHead);
     expect(await git('-C', info.path, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe(info.branch);
     await expect(git('-C', info.path, 'rev-parse', '--abbrev-ref', '@{upstream}')).rejects.toThrow();
     expect(await git('-C', clone, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('main');
     expect(await git('-C', clone, 'status', '--porcelain')).toBe('');
+  });
+
+  it('starts from an unpushed commit on the local default branch', async () => {
+    const head = await commitFile(clone, 'local.md', 'local work\n', 'Add local work');
+    const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+    const info = await manager.ensureForTask(task('AR-22', 'Example change'));
+    expect(await git('-C', info.path, 'rev-parse', 'HEAD')).toBe(head);
+    expect(await git('-C', clone, 'rev-parse', 'origin/main')).not.toBe(head);
+  });
+
+  it('uses origin when the local default has diverged', async () => {
+    await commitFile(clone, 'local.md', 'local\n', 'Add local work');
+    const other = path.join(base, 'other');
+    await git('clone', '--quiet', remote, other);
+    const remoteHead = await commitFile(other, 'remote.md', 'remote\n', 'Add remote work');
+    await git('-C', other, 'push', '--quiet', 'origin', 'main');
+    const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+    const info = await manager.ensureForTask(task('AR-22', 'Example change'));
+    expect(await git('-C', info.path, 'rev-parse', 'HEAD')).toBe(remoteHead);
+  });
+
+  it('finds only the existing deterministic worktree, without creating directories or branches', async () => {
+    const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+    expect(await manager.find(task('AR-22', 'Example change'))).toBeNull();
+    expect(await exists(rootDir)).toBe(false);
+    expect(await git('-C', clone, 'branch', '--list', 'AR-22-*')).toBe('');
+    const info = await manager.ensureForTask(task('AR-22', 'Example change'));
+    expect(info.gitDir).toBe(path.join(clone, '.git'));
+    expect(await git('-C', info.path, 'rev-parse', '--path-format=absolute', '--git-common-dir')).toBe(
+      info.gitDir,
+    );
+    expect(await manager.find(task('AR-22', 'Changed title'))).toEqual(info);
+    await manager.remove({ path: info.path });
+    expect(await manager.find(task('AR-22', 'Example change'))).toBeNull();
+  });
+
+  it('applies task path validation to find, including symlink escapes', async () => {
+    const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+    await expect(manager.find(task('../AR-1', 'Example'))).rejects.toMatchObject({
+      code: 'invalid_task_key',
+    });
+    await expect(manager.find(task('AR-1', 'Example', 'missing'))).rejects.toMatchObject({
+      code: 'unknown_repo',
+    });
+    await mkdir(rootDir);
+    await symlink(workspace, path.join(rootDir, 'AR'));
+    await expect(manager.find(task('AR-1', 'Example'))).rejects.toMatchObject({ code: 'outside_root' });
   });
 
   it('rejects traversal, symlink escapes and branch options before creating a worktree', async () => {
@@ -279,6 +327,7 @@ describe('worktree manager', { timeout: 30_000 }, () => {
       path: path.join(rootDir, 'AR', 'AR-5-solo'),
       branch: 'AR-5-local-only',
       repo: 'solo',
+      gitDir: path.join(solo, '.git'),
     });
     expect(await manager.status(info.path)).toEqual({ dirty: false, unpushedCommits: 0 });
 

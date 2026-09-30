@@ -46,11 +46,11 @@ describe('scheduler', () => {
       displayName: 'Dev One · AR-1',
       model: 'opus',
       permissionMode: 'default',
-      allowedTools: ['mcp__team__*'],
+      allowedTools: expect.arrayContaining(['mcp__team__*', 'Bash(git commit:*)']),
       initialMessage: 'Brief for AR-1: Login page',
     });
     expect(h.worktrees.calls).toEqual([{ repoName: 'web', taskKey: 'AR-1' }]);
-    expect(spec.cwd).toBe(join(h.dir, 'worktrees', 'AR', 'AR-1'));
+    expect(spec.cwd).toBe(join(h.dir, 'worktrees', 'AR', 'AR-1-web'));
     expect(result.session!.cwd).toBe(spec.cwd);
     expect(result.session!.branch).toBe('task/AR-1');
     expect(result.task.links).toEqual([{ kind: 'branch', ref: 'task/AR-1', repo: 'acme/web' }]);

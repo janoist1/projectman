@@ -120,6 +120,35 @@ describe('buildCodexArgs', () => {
     expect(overrides(args).get('model_reasoning_effort')).toBe(JSON.stringify(effort));
   });
 
+  it.each([false, true])(
+    'grants shared git writable roots only in workspace-write with resume=%s',
+    (resume) => {
+      const writableRoots = ['/workspace/.git', '/other repo/.git'];
+      for (const permissionMode of ['acceptEdits', 'auto']) {
+        const c = overrides(
+          buildCodexArgs({ ...input, spec: { ...spec, resume, permissionMode, writableRoots } }),
+        );
+        expect(c.get('sandbox_workspace_write.writable_roots')).toBe(tomlValue(writableRoots));
+        expect(c.has('sandbox_workspace_write.network_access')).toBe(false);
+      }
+      for (const permissionMode of ['default', 'plan', 'bypassPermissions']) {
+        const c = overrides(
+          buildCodexArgs({ ...input, spec: { ...spec, resume, permissionMode, writableRoots } }),
+        );
+        expect(c.has('sandbox_workspace_write.writable_roots')).toBe(false);
+      }
+      for (const roots of [undefined, []]) {
+        const c = overrides(
+          buildCodexArgs({
+            ...input,
+            spec: { ...spec, permissionMode: 'acceptEdits', writableRoots: roots },
+          }),
+        );
+        expect(c.has('sandbox_workspace_write.writable_roots')).toBe(false);
+      }
+    },
+  );
+
   it('runs the TUI inline, without the daemon, with our hooks trusted and the brief as the prompt', () => {
     const args = buildCodexArgs(input);
     expect(args.slice(0, 6)).toEqual([

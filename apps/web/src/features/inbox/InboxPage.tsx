@@ -62,7 +62,11 @@ function RecentDecisions({
                 <span className={styles.recentMeta}>
                   {item.resolution
                     ? t('inbox.resolvedBy', {
-                        who: nameOf(item.resolution.by, members, myHandle),
+                        who: nameOf(
+                          item.resolution.by === 'system' ? null : item.resolution.by,
+                          members,
+                          myHandle,
+                        ),
                         time: formatAgo(item.resolution.at),
                       })
                     : formatAgo(item.createdAt)}

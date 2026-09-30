@@ -36,6 +36,7 @@ const SESSION_END_TIMEOUT_S = 3;
 export interface HookSettingsInput {
   hookUrl: string;
   allowedTools: string[];
+  deniedTools?: string[];
   permissionTimeoutMs: number;
   /** Node binary used when curl is missing (defaults to the running Node). */
   nodePath?: string;
@@ -49,7 +50,7 @@ interface HookHandler {
 }
 
 export interface ClaudeSettings {
-  permissions: { allow: string[] };
+  permissions: { allow: string[]; deny?: string[] };
   hooks: Record<string, Array<{ hooks: HookHandler[] }>>;
 }
 
@@ -147,7 +148,13 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
   }
   // Rules pass through unchanged: both the server-level "mcp__team" and "mcp__team__*" are
   // valid allow rules for every tool of the team MCP server.
-  return { permissions: { allow: [...new Set(input.allowedTools)] }, hooks };
+  return {
+    permissions: {
+      allow: [...new Set(input.allowedTools)],
+      ...(input.deniedTools?.length ? { deny: [...new Set(input.deniedTools)] } : {}),
+    },
+    hooks,
+  };
 }
 
 /** The `--mcp-config` object: the team tools server of this session. */
@@ -163,6 +170,7 @@ export function buildClaudeArgs(spec: StartSessionSpec, settings: ClaudeSettings
   if (spec.appendSystemPrompt) args.push('--append-system-prompt', spec.appendSystemPrompt);
   args.push('--mcp-config', JSON.stringify(buildMcpConfig(spec.mcpUrl)));
   args.push('--settings', JSON.stringify(settings));
+  for (const dir of spec.additionalDirectories ?? []) args.push('--add-dir', dir);
   if (spec.model) args.push('--model', spec.model);
   if (spec.effort) args.push('--effort', spec.effort);
   if (spec.permissionMode) args.push('--permission-mode', spec.permissionMode);

@@ -26,7 +26,7 @@ export async function createAppHarness(opts: { webDistDir?: string; now?: () => 
   const github = new FakeGithub();
   const contextBuilder = new FakeContextBuilder();
   const memory = new FakeMemoryStore();
-  const worktrees = new FakeWorktreeManager(join(home, 'fake-worktrees'));
+  const worktrees = new FakeWorktreeManager(join(home, 'worktrees'));
 
   const app = await buildApp({
     home,

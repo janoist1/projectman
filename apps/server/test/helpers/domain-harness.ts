@@ -59,6 +59,7 @@ export async function createDomainHarness(
     contextBuilder,
     memory,
     worktrees,
+    worktreesRootDir: join(dir, 'worktrees'),
     templates: createTemplateRegistry([testTemplate]),
     planUsageTtlMs: 0,
     now: opts.now,

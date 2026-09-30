@@ -46,6 +46,8 @@ export interface MemberMemoryStore {
 }
 
 export interface WorktreeInfo {
+  /** Absolute shared git directory where commits and branches are written. */
+  gitDir?: string;
   path: string;
   branch: string;
   /** Repo name from the project config. */
@@ -60,6 +62,8 @@ export interface WorktreeManager {
     taskKey: string;
     title: string;
   }): Promise<WorktreeInfo>;
+  /** Finds the existing worktree at the task's deterministic path without creating anything. */
+  find(args: { project: ProjectConfig; repoName: string; taskKey: string }): Promise<WorktreeInfo | null>;
   status(path: string): Promise<{ dirty: boolean; unpushedCommits: number }>;
   /** Refuses to remove a dirty worktree unless force is set. Keeps the branch. */
   remove(args: { path: string; force?: boolean }): Promise<void>;

@@ -30,7 +30,13 @@ import { conflict, DomainError, invalid, notFound } from './errors';
 import type { MemberService } from './members';
 import type { MessageService } from './messages';
 import type { ConfigChange, ProjectService } from './projects';
-import { allowedToolsFor, DONE_TASK_CLEANUP_DELAY_MS, usesWorktree } from './session-policy';
+import {
+  allowedToolsFor,
+  deniedToolsFor,
+  sessionPolicyFor,
+  DONE_TASK_CLEANUP_DELAY_MS,
+  usesWorktree,
+} from './session-policy';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
 import { aiActor, humanActor, KeyedMutex, newId, newToken, newUuid, SYSTEM_ACTOR } from './util';
@@ -451,6 +457,8 @@ export class SessionOrchestrator {
     await this.assertProviderReady(provider);
     let cwd = config.project.workspacePath;
     let branch: string | null = null;
+    let writableRoots: string[] | undefined;
+    let additionalDirectories: string[] | undefined;
     if (task?.repo && usesWorktree(member.role, config)) {
       // Code-changing roles work in the task's own worktree and branch; others in the workspace.
       try {
@@ -462,6 +470,7 @@ export class SessionOrchestrator {
         });
         cwd = worktree.path;
         branch = worktree.branch;
+        if (worktree.gitDir) writableRoots = [worktree.gitDir];
       } catch (err) {
         throw new DomainError(
           'session_start_failed',
@@ -476,6 +485,22 @@ export class SessionOrchestrator {
         { kind: 'branch', ref: branch, ...(github ? { repo: github } : {}) },
         SYSTEM_ACTOR,
       );
+    }
+    if (
+      task?.repo &&
+      !usesWorktree(member.role, config) &&
+      sessionPolicyFor(member.role, config).readOnlyTools
+    ) {
+      try {
+        const found = await this.deps.worktrees.find({
+          project: config,
+          repoName: task.repo,
+          taskKey: task.key,
+        });
+        if (found) additionalDirectories = [found.path];
+      } catch (err) {
+        this.ctx.logger.warn({ err, taskKey: task.key }, 'could not find the task worktree for review');
+      }
     }
     if (existing) {
       // Claude Code keeps conversations per working directory: resume where it started.
@@ -553,6 +578,9 @@ export class SessionOrchestrator {
         initialMessage: resume ? null : pack.initialMessage,
         mcpUrl: `${this.deps.publicBaseUrl}${routes.mcp(token)}`,
         allowedTools: allowedToolsFor(member.role, config),
+        deniedTools: deniedToolsFor(config, task),
+        writableRoots,
+        additionalDirectories,
         provider,
       });
       const current = this.ctx.repos.sessions.get(session.id);

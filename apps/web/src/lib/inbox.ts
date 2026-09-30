@@ -89,7 +89,11 @@ export function payloadCode(item: InboxItem): string | null {
 /** "git push" out of "git push origin 21-confirmation-pages". */
 export function shortCommand(command: string | null): string | null {
   if (!command) return null;
-  const words = command.trim().split(/\s+/);
+  // A directory change only sets up the command people are being asked to approve.
+  const substantive = command
+    .trim()
+    .replace(/^(?:cd\s+(?:'[^']*'|"(?:\\.|[^"\\])*"|(?:\\.|[^\s'";&|])+)[ \t]*&&\s*)+/, '');
+  const words = substantive.split(/\s+/);
   const first = words[0] ?? '';
   if (
     words.length > 1 &&
@@ -107,6 +111,12 @@ export function resolutionLabel(item: InboxItem): string {
   if (item.state === 'cancelled') return t('inbox.resolutions.cancelled');
   const optionId = item.resolution?.optionId;
   if (!optionId) return t('inbox.resolutions.answer');
+  if (
+    item.kind === 'permission' &&
+    item.resolution?.by === 'system' &&
+    (optionId === 'allow' || optionId === 'deny')
+  )
+    return t(`inbox.resolutions.automatic_${optionId}`);
   if (isBuiltIn(optionId)) return t(`inbox.resolutions.${optionId}`);
   const option = item.options.find((entry) => entry.id === optionId);
   return option ? t('inbox.resolutions.option', { label: option.label }) : t('inbox.resolutions.answer');

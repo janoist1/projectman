@@ -23,3 +23,13 @@ describe('creation timeline labels', () => {
     );
   });
 });
+
+it.each(['allow', 'deny'] as const)('describes automatic permission %s on the timeline', (decision) => {
+  const event: TimelineEvent = {
+    ...creation,
+    type: 'permission_resolved',
+    actor: { kind: 'system', handle: null },
+    data: { decision, inboxItemId: 'fictional-inbox' },
+  };
+  expect(describeEvent(event, context).text).toBe(t(`timeline.events.permission_automatic_${decision}`));
+});

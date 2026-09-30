@@ -34,6 +34,12 @@ export interface StartSessionSpec {
   mcpUrl: string;
   /** Tools pre-approved for this session, e.g. ["mcp__team__*"]. */
   allowedTools: string[];
+  /** Claude Code tool rules refused without asking. */
+  deniedTools?: string[];
+  /** Extra directories the session may read and work in (Claude Code --add-dir). */
+  additionalDirectories?: string[];
+  /** Extra writable roots for sandboxed agents, such as the shared git directory. */
+  writableRoots?: string[];
   cols?: number;
   rows?: number;
   /**

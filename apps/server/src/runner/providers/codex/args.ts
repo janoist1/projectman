@@ -189,6 +189,8 @@ export function buildCodexArgs(input: CodexArgsInput): string[] {
   }
 
   const permissions = codexPermissions(spec.permissionMode);
+  if (permissions.sandbox === 'workspace-write' && spec.writableRoots?.length)
+    c('sandbox_workspace_write.writable_roots', spec.writableRoots);
   if (permissions.sandbox === 'danger-full-access') c('notice.hide_full_access_warning', true);
   args.push('--sandbox', permissions.sandbox, '--ask-for-approval', permissions.approval);
   args.push('--model', codexModel(spec.model));

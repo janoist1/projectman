@@ -1,3 +1,4 @@
+import path from 'node:path';
 import {
   isBuiltInRole,
   BUILT_IN_ROLE_IDS,
@@ -5,7 +6,7 @@ import {
   DUTIES,
   roleBundle,
 } from '@projectman/shared';
-import type { BuiltInRoleId, RoleId, ProjectConfig } from '@projectman/shared';
+import type { BuiltInRoleId, RoleId, ProjectConfig, Task } from '@projectman/shared';
 
 /**
  * Per-role session settings, kept in one place so they are easy to change.
@@ -24,7 +25,88 @@ export const READ_ONLY_REVIEW_TOOLS = [
   'Bash(git show:*)',
   'Bash(gh pr view:*)',
   'Bash(gh pr diff:*)',
+  'Bash(git status:*)',
+  'Bash(git rev-parse:*)',
+  'Bash(git merge-base:*)',
+  'Bash(git branch --list:*)',
+  'Bash(npm test:*)',
+  'Bash(npm run test:*)',
+  'Bash(npm run typecheck:*)',
+  'Bash(npx vitest run:*)',
+  'Bash(npx tsc --noEmit:*)',
+  'Bash(npx prettier --check:*)',
 ];
+
+/** Ordinary development in the task branch; package additions still require permission. */
+export const DEVELOPMENT_TOOLS = [
+  'Bash(git status:*)',
+  'Bash(git diff:*)',
+  'Bash(git log:*)',
+  'Bash(git show:*)',
+  'Bash(git add:*)',
+  'Bash(git commit:*)',
+  'Bash(git merge --ff-only:*)',
+  'Bash(git rev-parse:*)',
+  'Bash(git branch --show-current)',
+  'Bash(npm install)',
+  'Bash(npm ci)',
+  'Bash(npm test:*)',
+  'Bash(npm run test:*)',
+  'Bash(npm run typecheck:*)',
+  'Bash(npm run build:*)',
+  'Bash(npm run format:*)',
+  'Bash(npm run lint:*)',
+  'Bash(npx vitest:*)',
+  'Bash(npx tsc:*)',
+  'Bash(npx prettier:*)',
+];
+
+export const LOCAL_ONLY_DENIED_TOOLS = ['Bash(git push:*)', 'Bash(gh pr create:*)', 'Bash(gh pr merge:*)'];
+
+export function deniedToolsFor(config: ProjectConfig, task: Pick<Task, 'repo'> | null): string[] {
+  const repo = config.project.repos.find((repo) => repo.name === task?.repo);
+  return repo && !repo.github ? [...LOCAL_ONLY_DENIED_TOOLS] : [];
+}
+
+export type CommandVerdict = { behavior: 'allow' } | { behavior: 'deny'; message: string };
+
+/** Narrow automatic decisions for publishing and lockfile installs; everything else reaches a human. */
+export function commandVerdict(input: {
+  config: ProjectConfig;
+  session: { cwd: string; role: RoleId };
+  task: Pick<Task, 'repo'> | null;
+  toolName: string;
+  toolInput: unknown;
+  worktreesRootDir?: string;
+}): CommandVerdict | null {
+  const { config, session, task, toolName, toolInput, worktreesRootDir } = input;
+  if (toolName !== 'Bash' || !toolInput || typeof toolInput !== 'object') return null;
+  const command = (toolInput as Record<string, unknown>).command;
+  if (typeof command !== 'string') return null;
+  // Quoted prose (e.g. a commit message mentioning git push) is not a publishing command.
+  const unquoted = command.replace(/'[^']*'|"(?:\\.|[^"\\])*"/g, '');
+  if (deniedToolsFor(config, task).length && /\bgit\s+push\b|\bgh\s+pr\s+(create|merge)\b/.test(unquoted)) {
+    return { behavior: 'deny', message: 'The owner has not allowed publishing from this repository.' };
+  }
+  if (!worktreesRootDir || !task?.repo || !sessionPolicyFor(session.role, config).worktree) return null;
+  const relative = path.relative(path.resolve(worktreesRootDir), path.resolve(session.cwd));
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+    return null;
+  // Accept only literal directories and these exact install commands, with no shell continuations.
+  if (/[\r\n]/.test(command)) return null;
+  let install = command.trim();
+  const cd = /^cd[ \t]+(?:'([^']*)'|"([^"$`\\]*)"|([^\s"'$`\\;&|<>(){}\[\]*?!]+))[ \t]*&&[ \t]*/.exec(
+    install,
+  );
+  if (cd) {
+    const dir = cd[1] ?? cd[2] ?? cd[3]!;
+    if (!dir || path.resolve(session.cwd, dir) !== path.resolve(session.cwd)) return null;
+    install = install.slice(cd[0].length);
+  }
+  if (/^npm[ \t]+(?:ci|install)(?:[ \t]+--(?:prefer-offline|no-audit|no-fund))*$/.test(install))
+    return { behavior: 'allow' };
+  return null;
+}
 
 export interface RoleSessionPolicy {
   /** Review and research roles: the read-only tools are pre-approved. */
@@ -46,9 +128,11 @@ export function sessionPolicyFor(role: RoleId, config?: ProjectConfig): RoleSess
   };
 }
 export function allowedToolsFor(role: RoleId, config?: ProjectConfig): string[] {
+  const policy = sessionPolicyFor(role, config);
   return [
     ...TEAM_TOOLS_ALLOWED,
-    ...(sessionPolicyFor(role, config).readOnlyTools ? READ_ONLY_REVIEW_TOOLS : []),
+    ...(policy.readOnlyTools ? READ_ONLY_REVIEW_TOOLS : []),
+    ...(policy.worktree ? DEVELOPMENT_TOOLS : []),
   ];
 }
 export function usesWorktree(role: RoleId, config?: ProjectConfig): boolean {

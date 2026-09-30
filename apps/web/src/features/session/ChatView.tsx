@@ -285,7 +285,7 @@ export function ChatView(props: ChatViewProps) {
           {t('session.chat.decisionLine', {
             decision: resolutionLabel(item),
             summary,
-            who: nameOf(item.resolution.by, members, myHandle),
+            who: nameOf(item.resolution.by === 'system' ? null : item.resolution.by, members, myHandle),
             time: formatStamp(item.resolution.at),
           })}
         </p>

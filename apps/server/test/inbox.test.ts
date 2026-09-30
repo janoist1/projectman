@@ -146,3 +146,65 @@ describe('inbox: permission requests', () => {
     expect(h.domain.inbox.get('AR', item.id).state).toBe('expired');
   });
 });
+
+describe('inbox: automatic permission decisions', () => {
+  let h: DomainHarness;
+  let sessionId: string;
+  beforeEach(async () => {
+    h = await createDomainHarness({
+      adjust: (config) => {
+        delete config.project.repos[0]!.github;
+      },
+    });
+    const task = await h.domain.tasks.create('AR', { title: 'Example task', repo: 'web' }, OWNER_ACTOR);
+    sessionId = (await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: task.key }))
+      .session.id;
+  });
+  afterEach(() => h.cleanup());
+
+  it.each([
+    ['git push origin HEAD', 'deny'],
+    ['gh pr create --title "Example"', 'deny'],
+    ['gh pr merge 12', 'deny'],
+    ['npm ci', 'allow'],
+    ['npm install --prefer-offline --no-audit --no-fund', 'allow'],
+  ])('records an automatic %s decision without leaving an open inbox item', async (command, behavior) => {
+    const decision = await h.runnerModule
+      .broker()
+      .decide({ sessionId, toolName: 'Bash', toolInput: { command }, raw: {} }, new AbortController().signal);
+    expect(decision.behavior).toBe(behavior);
+    if (behavior === 'deny')
+      expect(decision).toMatchObject({
+        message: 'The owner has not allowed publishing from this repository.',
+      });
+    expect(h.domain.inbox.list('AR', { state: 'open' })).toEqual([]);
+    expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
+    const items = h.domain.inbox.list('AR', { state: 'resolved' });
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      kind: 'permission',
+      resolution: { optionId: behavior, by: 'system', note: expect.any(String) },
+    });
+    const events = h.domain.timeline
+      .list('AR', { taskKey: 'AR-1' })
+      .filter((event) => event.type.startsWith('permission_'));
+    expect(events.map((event) => event.type)).toEqual(['permission_requested', 'permission_resolved']);
+    expect(events[1]).toMatchObject({
+      actor: { kind: 'system', handle: null },
+      data: { inboxItemId: items[0]!.id, decision: behavior },
+    });
+  });
+
+  it('still asks for a package addition and an install in another directory', async () => {
+    for (const command of ['npm install left-pad', 'cd /elsewhere && npm ci']) {
+      const controller = new AbortController();
+      const pending = h.runnerModule
+        .broker()
+        .decide({ sessionId, toolName: 'Bash', toolInput: { command }, raw: {} }, controller.signal);
+      await flush();
+      expect(h.domain.inbox.list('AR', { state: 'open' })).toHaveLength(1);
+      controller.abort();
+      expect((await pending).behavior).toBe('deny');
+    }
+  });
+});

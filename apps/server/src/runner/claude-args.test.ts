@@ -40,6 +40,15 @@ describe('buildSettings', () => {
     expect(settings.permissions.allow).toEqual(['mcp__team', 'mcp__team__*']);
   });
 
+  it('passes non-empty deny rules and omits empty ones', () => {
+    const input = { hookUrl: 'http://h/hooks/t', allowedTools: [], permissionTimeoutMs: 1000 };
+    expect(buildSettings(input).permissions).not.toHaveProperty('deny');
+    expect(buildSettings({ ...input, deniedTools: [] }).permissions).not.toHaveProperty('deny');
+    expect(
+      buildSettings({ ...input, deniedTools: ['Bash(git push:*)', 'Bash(git push:*)'] }).permissions.deny,
+    ).toEqual(['Bash(git push:*)']);
+  });
+
   it('registers an HTTP hook for every event except SessionStart, which uses a command', () => {
     for (const event of HTTP_HOOK_EVENTS) {
       expect(settings.hooks[event]).toEqual([
@@ -88,6 +97,15 @@ describe('buildClaudeArgs', () => {
     expect(flag('-n')).toBe('Anna · fe-1');
     // The variadic --mcp-config value must be followed by another option, never by a value.
     expect(args[args.indexOf('--mcp-config') + 2]).toMatch(/^-/);
+  });
+
+  it('passes every additional directory on both new and resumed sessions', () => {
+    for (const resume of [false, true]) {
+      const dirs = ['/worktrees/AR/AR-1-web', '/worktrees/AR/AR-2 with spaces'];
+      const args = buildClaudeArgs({ ...spec, resume, additionalDirectories: dirs }, settings);
+      expect(args.filter((arg, index) => args[index - 1] === '--add-dir')).toEqual(dirs);
+    }
+    expect(buildClaudeArgs(spec, settings)).not.toContain('--add-dir');
   });
 
   it('resumes an existing conversation and leaves out unset options', () => {

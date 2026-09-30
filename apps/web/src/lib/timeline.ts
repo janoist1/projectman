@@ -198,6 +198,14 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         emphasis: ctx.openInboxIds.has(str(d.inboxItemId)) ? 'needs' : 'normal',
       };
     case 'permission_resolved':
+      if (event.actor.kind === 'system')
+        return normal(
+          t(
+            d.decision === 'deny'
+              ? 'timeline.events.permission_automatic_deny'
+              : 'timeline.events.permission_automatic_allow',
+          ),
+        );
       return normal(
         d.decision === 'deny'
           ? t('timeline.events.permission_denied')

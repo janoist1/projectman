@@ -14,7 +14,8 @@ import type { DomainContext } from './context';
 import { conflict, forbidden, invalid, notFound } from './errors';
 import type { ProjectService } from './projects';
 import type { TimelineService } from './timeline';
-import { aiActor, excerpt, humanActor, newId } from './util';
+import { commandVerdict } from './session-policy';
+import { SYSTEM_ACTOR, aiActor, excerpt, humanActor, newId } from './util';
 
 /** Built-in option ids; the web app translates them (labels repeat the id). */
 export const PERMISSION_OPTIONS: InboxOption[] = [
@@ -94,13 +95,20 @@ export class InboxService {
   private readonly ctx: DomainContext;
   private readonly timeline: TimelineService;
   private readonly projects: ProjectService;
+  private readonly worktreesRootDir?: string;
   private readonly waiters = new Map<string, (item: InboxItem) => void>();
   private readonly handlers = new Map<InboxKind, ResolvedHandler[]>();
 
-  constructor(deps: { ctx: DomainContext; timeline: TimelineService; projects: ProjectService }) {
+  constructor(deps: {
+    ctx: DomainContext;
+    timeline: TimelineService;
+    projects: ProjectService;
+    worktreesRootDir?: string;
+  }) {
     this.ctx = deps.ctx;
     this.timeline = deps.timeline;
     this.projects = deps.projects;
+    this.worktreesRootDir = deps.worktreesRootDir;
     this.broker = { decide: (request, signal) => this.decide(request, signal) };
   }
 
@@ -289,6 +297,18 @@ export class InboxService {
     const config = await this.projects.config(session.projectKey);
     const summary = summarizeToolInput(request.toolInput);
     const taskKey = session.workItem.type === 'task' ? session.workItem.taskKey : null;
+    const member = config.team.members.find((member) => member.handle === session.member);
+    const verdict =
+      member?.kind === 'ai'
+        ? commandVerdict({
+            config,
+            session: { cwd: session.cwd, role: member.role },
+            task: taskKey ? this.ctx.repos.tasks.get(taskKey) : null,
+            toolName: request.toolName,
+            toolInput: request.toolInput,
+            worktreesRootDir: this.worktreesRootDir,
+          })
+        : null;
     const item = this.create({
       projectKey: session.projectKey,
       kind: 'permission',
@@ -308,6 +328,31 @@ export class InboxService {
       type: 'permission_requested',
       data: { inboxItemId: item.id, toolName: request.toolName, summary },
     });
+
+    if (verdict) {
+      const at = isoNow(this.ctx);
+      const resolved = this.ctx.repos.inbox.close(
+        item.id,
+        'resolved',
+        {
+          optionId: verdict.behavior,
+          by: 'system',
+          at,
+          note: 'Automatikus: szabály szerint',
+        },
+        at,
+      )!;
+      this.publish(resolved);
+      this.timeline.append({
+        projectKey: session.projectKey,
+        taskKey,
+        sessionId: session.id,
+        actor: SYSTEM_ACTOR,
+        type: 'permission_resolved',
+        data: { inboxItemId: item.id, decision: verdict.behavior, optionId: verdict.behavior },
+      });
+      return verdict;
+    }
 
     return new Promise<PermissionDecision>((resolve) => {
       const onAbort = () => {

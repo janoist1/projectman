@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ServerEvent } from '@projectman/shared';
-import { DomainError } from '../src/domain';
+import { allowedToolsFor, DomainError, LOCAL_ONLY_DENIED_TOOLS } from '../src/domain';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 
@@ -152,28 +152,49 @@ describe('session orchestrator', () => {
     const withRepo = await h.domain.tasks.create('AR', { title: 'With repo', repo: 'web' }, OWNER_ACTOR);
     const review = await h.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: withRepo.key });
     expect(review.session).toMatchObject({ cwd: h.workspace, branch: null });
-    expect(h.runner.lastStarted().allowedTools).toEqual([
-      'mcp__team__*',
-      'Read',
-      'Grep',
-      'Glob',
-      'Bash(git diff:*)',
-      'Bash(git log:*)',
-      'Bash(git show:*)',
-      'Bash(gh pr view:*)',
-      'Bash(gh pr diff:*)',
-    ]);
+    expect(h.runner.lastStarted().allowedTools).toEqual(allowedToolsFor('code_review'));
+    expect(h.runner.lastStarted().additionalDirectories).toBeUndefined();
     expect(h.worktrees.calls).toEqual([]);
 
     const dev = await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: withRepo.key });
     expect(dev.session.branch).toBe('task/AR-2');
     expect(dev.session.cwd).not.toBe(h.workspace);
-    expect(h.runner.lastStarted().allowedTools).toEqual(['mcp__team__*']);
+    expect(h.runner.lastStarted().allowedTools).toEqual(allowedToolsFor('developer'));
+    expect(h.runner.lastStarted().writableRoots).toEqual([`${h.workspace}/.git`]);
+    expect(h.runner.lastStarted().deniedTools).toEqual([]);
     expect(h.domain.tasks.get('AR', withRepo.key).links).toContainEqual({
       kind: 'branch',
       ref: 'task/AR-2',
       repo: 'acme/web',
     });
+  });
+
+  it('grants reviewers the existing developer worktree and propagates local-only deny rules', async () => {
+    await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
+      delete draft.project.repos[0]!.github;
+      return 'Use a local-only repository';
+    });
+    const withRepo = await h.domain.tasks.create('AR', { title: 'Example change', repo: 'web' }, OWNER_ACTOR);
+    const item = { type: 'task' as const, taskKey: withRepo.key };
+    const developer = await h.domain.sessions.ensureSession('AR', 'dev-1', item);
+    expect(h.runner.lastStarted().deniedTools).toEqual(LOCAL_ONLY_DENIED_TOOLS);
+    await h.domain.sessions.ensureSession('AR', 'cr', item);
+    expect(h.runner.lastStarted()).toMatchObject({
+      additionalDirectories: [developer.session.cwd],
+      deniedTools: LOCAL_ONLY_DENIED_TOOLS,
+    });
+    expect(h.runner.lastStarted().writableRoots).toBeUndefined();
+    expect(h.worktrees.calls).toHaveLength(1);
+  });
+
+  it('logs worktree lookup failures and starts the reviewer anyway', async () => {
+    h.worktrees.find = async () => {
+      throw new Error('Example lookup failure');
+    };
+    const withRepo = await h.domain.tasks.create('AR', { title: 'Example change', repo: 'web' }, OWNER_ACTOR);
+    await h.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: withRepo.key });
+    expect(h.runner.lastStarted().additionalDirectories).toBeUndefined();
+    expect(h.log.warnings).toHaveLength(1);
   });
 
   it('applies the session policy of the new roles and of custom roles', async () => {
@@ -198,7 +219,7 @@ describe('session orchestrator', () => {
     const maintainer = await h.domain.sessions.ensureSession('AR', 'maintainer', item);
     expect(maintainer.session.branch).toBe(`task/${withRepo.key}`);
     expect(h.runner.lastStarted()).toMatchObject({
-      allowedTools: ['mcp__team__*'],
+      allowedTools: allowedToolsFor('maintainer'),
       permissionMode: 'acceptEdits',
     });
 

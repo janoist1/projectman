@@ -5,6 +5,7 @@ import {
   ProjectConfig,
   applyConfigPatch,
   configSchemaIssues,
+  memberOf,
   ownerOnlyChanges,
 } from '@projectman/shared';
 import type {
@@ -406,7 +407,7 @@ export class ProjectService {
     next: ProjectConfig,
     meta: Pick<ConfigChangeMeta, 'actor' | 'invitationBinding'>,
   ): void {
-    const member = previous.team.members.find((m) => m.handle === meta.actor.handle);
+    const member = memberOf(previous, meta.actor.handle);
     if (meta.actor.kind !== 'system') {
       if (meta.actor.kind !== 'human' || member?.kind !== 'human')
         throw forbidden('owner_only', 'AI cannot change configuration');

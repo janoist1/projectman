@@ -1,4 +1,4 @@
-import { TaskStatus as TaskStatusSchema, TaskKey } from '@projectman/shared';
+import { isOpenTask, memberOf, TaskStatus as TaskStatusSchema, TaskKey } from '@projectman/shared';
 import type {
   InboxItem,
   InboxOption,
@@ -6,7 +6,6 @@ import type {
   ProjectConfig,
   Task,
   TaskDetail,
-  TaskStatus,
   Visibility,
   WorkItemRef,
 } from '@projectman/shared';
@@ -121,7 +120,7 @@ export class TeamToolsService implements TeamToolsHandler {
           'invalid',
           'No recipients: name at least one team member other than yourself.',
         );
-      const unknown = recipients.filter((h) => !config.team.members.some((m) => m.handle === h));
+      const unknown = recipients.filter((h) => !memberOf(config, h));
       if (unknown.length > 0)
         throw new TeamToolError(
           'not_found',
@@ -129,9 +128,7 @@ export class TeamToolsService implements TeamToolsHandler {
         );
       const taskKey = this.taskKeyFor(ctx, args.taskKey);
 
-      const aiRecipients = recipients.filter(
-        (h) => config.team.members.find((m) => m.handle === h)?.kind === 'ai',
-      );
+      const aiRecipients = recipients.filter((h) => memberOf(config, h)?.kind === 'ai');
       const message = this.messages.record({
         projectKey: ctx.projectKey,
         from: ctx.member,
@@ -167,12 +164,11 @@ export class TeamToolsService implements TeamToolsHandler {
         throw new TeamToolError('invalid', 'limit must be an integer between 1 and 200.');
       }
       const assignee = args.assignee === 'me' ? ctx.member : args.assignee;
-      const openStatuses: TaskStatus[] = ['active', 'waiting', 'blocked'];
       return this.tasks
         .list(ctx.projectKey)
         .filter(
           (task) =>
-            (status === 'open' ? openStatuses.includes(task.status) : task.status === status) &&
+            (status === 'open' ? isOpenTask(task) : task.status === status) &&
             (args.stage === undefined || task.stageId === args.stage) &&
             (assignee === undefined || task.assignee === assignee),
         )
@@ -336,9 +332,7 @@ export class TeamToolsService implements TeamToolsHandler {
       const taskKey = this.taskKeyFor(ctx, args.taskKey);
       let assignees: string[];
       if (args.to && args.to.length > 0) {
-        const notHuman = args.to.filter(
-          (h) => config.team.members.find((m) => m.handle === h)?.kind !== 'human',
-        );
+        const notHuman = args.to.filter((h) => memberOf(config, h)?.kind !== 'human');
         if (notHuman.length > 0)
           throw new TeamToolError(
             'invalid',
@@ -395,7 +389,7 @@ export class TeamToolsService implements TeamToolsHandler {
     const resolution = item.resolution;
     if (item.kind !== 'question' || !resolution) return;
     const config = await this.projects.config(item.projectKey);
-    const asker = config.team.members.find((m) => m.handle === item.source);
+    const asker = memberOf(config, item.source);
     if (asker?.kind !== 'ai') return;
     const question = typeof item.payload.question === 'string' ? item.payload.question : item.title;
     const body = `Answer to your question "${question}":\n\n${answerText(item)}`;
@@ -438,7 +432,7 @@ export class TeamToolsService implements TeamToolsHandler {
   /** The caller must still be an AI member of the project. */
   private async caller(ctx: ToolContext): Promise<ProjectConfig> {
     const config = await this.projects.config(ctx.projectKey);
-    const member = config.team.members.find((m) => m.handle === ctx.member);
+    const member = memberOf(config, ctx.member);
     if (member?.kind !== 'ai')
       throw new TeamToolError(
         'forbidden',

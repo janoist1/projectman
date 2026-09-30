@@ -3,6 +3,7 @@ import type { ServerEvent } from '@projectman/shared';
 import { allowedToolsFor, DomainError, LOCAL_ONLY_DENIED_TOOLS } from '../src/domain';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
+import { testConfig } from './helpers/test-template';
 
 describe('session orchestrator', () => {
   let h: DomainHarness;
@@ -166,14 +167,14 @@ describe('session orchestrator', () => {
     const withRepo = await h.domain.tasks.create('AR', { title: 'With repo', repo: 'web' }, OWNER_ACTOR);
     const review = await h.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: withRepo.key });
     expect(review.session).toMatchObject({ cwd: h.workspace, branch: null });
-    expect(h.runner.lastStarted().allowedTools).toEqual(allowedToolsFor('code_review'));
+    expect(h.runner.lastStarted().allowedTools).toEqual(allowedToolsFor('code_review', testConfig()));
     expect(h.runner.lastStarted().additionalDirectories).toBeUndefined();
     expect(h.worktrees.calls).toEqual([]);
 
     const dev = await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: withRepo.key });
     expect(dev.session.branch).toBe('task/AR-2');
     expect(dev.session.cwd).not.toBe(h.workspace);
-    expect(h.runner.lastStarted().allowedTools).toEqual(allowedToolsFor('developer'));
+    expect(h.runner.lastStarted().allowedTools).toEqual(allowedToolsFor('developer', testConfig()));
     expect(h.runner.lastStarted().writableRoots).toEqual([`${h.workspace}/.git`]);
     expect(h.runner.lastStarted().deniedTools).toEqual([]);
     expect(h.domain.tasks.get('AR', withRepo.key).links).toContainEqual({
@@ -233,7 +234,7 @@ describe('session orchestrator', () => {
     const maintainer = await h.domain.sessions.ensureSession('AR', 'maintainer', item);
     expect(maintainer.session.branch).toBe(`task/${withRepo.key}`);
     expect(h.runner.lastStarted()).toMatchObject({
-      allowedTools: allowedToolsFor('maintainer'),
+      allowedTools: allowedToolsFor('maintainer', testConfig()),
       permissionMode: 'acceptEdits',
     });
 

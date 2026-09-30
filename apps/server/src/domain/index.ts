@@ -37,13 +37,7 @@ export * from './context';
 export * from './errors';
 export { createEventBus } from './event-bus';
 export { GithubSync } from './github-sync';
-export {
-  InboxService,
-  PERMISSION_OPTIONS,
-  DECISION_OPTIONS,
-  ANSWER_OPTION,
-  summarizeToolInput,
-} from './inbox';
+export { InboxService, PERMISSION_OPTIONS, DECISION_OPTIONS, ANSWER_OPTION } from './inbox';
 export { MemberService } from './members';
 export { MessageService } from './messages';
 export { RoleService, roleUsage, roleViews } from './roles';
@@ -105,7 +99,7 @@ export function createDomain(opts: DomainOptions) {
   const presence = new PresenceService();
   const messages = new MessageService({ ctx, timeline });
   const tasks = new TaskService({ ctx, timeline, projects, inbox });
-  const members = new MemberService({ ctx, projects, timeline, presence, tasks, inbox });
+  const members = new MemberService({ ctx, projects, timeline, presence, inbox });
   const roles = new RoleService({ projects });
   const sessions = new SessionOrchestrator({
     ctx,

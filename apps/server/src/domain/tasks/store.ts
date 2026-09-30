@@ -10,7 +10,8 @@ import type {
 } from '@projectman/shared';
 import type { TaskPatch } from '../../db';
 import type { DomainContext } from '../context';
-import { forbidden, invalid, notFound } from '../errors';
+import { requireHuman } from '../access';
+import { invalid, notFound } from '../errors';
 import type { ProjectService } from '../projects';
 import type { TimelineService } from '../timeline';
 
@@ -87,18 +88,8 @@ export class TaskStore {
   ): Promise<TimelineEvent> {
     const task = this.get(projectKey, taskKey);
     const config = await this.projects.config(projectKey);
-    const isImported = imported.importedAuthor !== undefined || imported.importedAt !== undefined;
-    if (
-      isImported &&
-      !config.team.members.some(
-        (member) =>
-          member.handle === actor.handle &&
-          member.kind === 'human' &&
-          member.access === 'owner' &&
-          actor.kind === 'human',
-      )
-    )
-      throw forbidden('insufficient_access', 'imported comments require owner access');
+    if (imported.importedAuthor !== undefined || imported.importedAt !== undefined)
+      requireHuman(config, actor, 'owner', { message: 'imported comments require owner access' });
     const effects: Effect[] = [];
     const event = this.recordNote(config, task, text, actor, sessionId, effects, imported);
     await runEffects(effects);

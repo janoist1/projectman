@@ -65,11 +65,5 @@ export function createCounterRepository(db: Db) {
     next(projectKey: string, name: string): number {
       return (next.get(projectKey, name) as { value: number }).value;
     },
-    current(projectKey: string, name: string): number {
-      const row = db
-        .prepare('SELECT value FROM counters WHERE project_key = ? AND name = ?')
-        .get(projectKey, name) as { value: number } | undefined;
-      return row?.value ?? 0;
-    },
   };
 }

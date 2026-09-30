@@ -1,4 +1,4 @@
-import { approvalRefusal, gateRequestOf } from '@projectman/shared';
+import { approvalRefusal, gateRequestOf, memberOf } from '@projectman/shared';
 import type {
   HumanAccess,
   InboxItem,
@@ -59,7 +59,7 @@ export interface Resolver {
 type ResolvedHandler = (item: InboxItem) => void | Promise<void>;
 
 /** One-line summary of a tool call for humans, e.g. the Bash command or the edited file. */
-export function summarizeToolInput(input: unknown): string {
+function summarizeToolInput(input: unknown): string {
   const obj = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
   for (const key of [
     'command',
@@ -83,9 +83,9 @@ export function summarizeToolInput(input: unknown): string {
 
 /** Human assignees for requests raised by an AI member: its sponsor, else the owners. */
 export function sponsorOrOwners(config: ProjectConfig, memberHandle: string): string[] {
-  const member = config.team.members.find((m) => m.handle === memberHandle);
+  const member = memberOf(config, memberHandle);
   if (member?.kind === 'ai') {
-    const sponsor = config.team.members.find((m) => m.handle === member.sponsor);
+    const sponsor = memberOf(config, member.sponsor);
     if (sponsor?.kind === 'human') return [sponsor.handle];
   }
   return ownerHandles(config);
@@ -180,7 +180,7 @@ export class InboxService {
       throw invalid('unknown_option', `unknown option: ${req.optionId}`);
     }
     const config = await this.projects.config(projectKey);
-    if (!config.team.members.some((m) => m.handle === by.handle && m.kind === 'human'))
+    if (memberOf(config, by.handle)?.kind !== 'human')
       throw forbidden('ai_approval_forbidden', 'only human members may resolve inbox items');
     const gate = item.kind === 'decision' && req.optionId === 'approve' ? gateRequestOf(item) : null;
     if (gate?.label) {
@@ -295,7 +295,7 @@ export class InboxService {
     const config = await this.projects.config(session.projectKey);
     const summary = summarizeToolInput(request.toolInput);
     const taskKey = session.workItem.type === 'task' ? session.workItem.taskKey : null;
-    const member = config.team.members.find((member) => member.handle === session.member);
+    const member = memberOf(config, session.member);
     const verdict =
       member?.kind === 'ai'
         ? commandVerdict({
@@ -369,7 +369,7 @@ export class InboxService {
   }
 }
 
-export function toPermissionDecision(item: InboxItem): PermissionDecision {
+function toPermissionDecision(item: InboxItem): PermissionDecision {
   const resolution = item.resolution;
   if (item.state === 'resolved' && resolution) {
     if (resolution.optionId === 'allow') return { behavior: 'allow' };

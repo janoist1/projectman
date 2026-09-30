@@ -5,7 +5,13 @@ import { DomainError } from './errors';
 import type { ProjectService } from './projects';
 import type { TaskService } from './tasks';
 import { SYSTEM_ACTOR } from './util';
-import { labelDefinition, PR_MERGED_LABEL, pullRequestsMerged } from '@projectman/shared';
+import {
+  isOpenTask,
+  labelDefinition,
+  PR_MERGED_LABEL,
+  pullRequestsMerged,
+  stageIndex,
+} from '@projectman/shared';
 
 /**
  * Keeps pull request links up to date: every linked PR that is not merged or closed yet is
@@ -81,7 +87,7 @@ export class GithubSync {
     const moved = this.ctx.repos.tasks.recordPullRequestHead(repo, number, headSha, isoNow(this.ctx));
     for (const { projectKey, taskKey } of moved) {
       const task = this.tasks.find(projectKey, taskKey);
-      if (!task || task.status === 'done' || task.status === 'cancelled') continue;
+      if (!task || !isOpenTask(task)) continue;
       await this.tasks.clearLabels(projectKey, taskKey, 'pr_updated');
     }
   }
@@ -110,7 +116,7 @@ export class GithubSync {
       await this.tasks.changeLabels(projectKey, taskKey, { add: [PR_MERGED_LABEL] }, SYSTEM_ACTOR, {
         reason: 'pr_merged',
       });
-    const index = config.pipeline.stages.findIndex((s) => s.id === task.stageId);
+    const index = stageIndex(config.pipeline, task.stageId);
     const next = config.pipeline.stages[index + 1];
     if (!next?.gate?.conditions.some((c) => c.type === 'has_label' && c.label === PR_MERGED_LABEL)) return;
     try {

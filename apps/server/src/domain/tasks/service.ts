@@ -17,10 +17,10 @@ import { evaluateMove, isOpenTask, memberOf } from '@projectman/shared';
 import type { LabelChangeReason, LabelClearTrigger } from '@projectman/shared';
 import type { PullRequestInfo } from '../../contracts';
 import type { TaskPatch } from '../../db';
-import { hasAccess } from '../access';
+import { requireHuman } from '../access';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
-import { conflict, forbidden, invalid } from '../errors';
+import { conflict, invalid } from '../errors';
 import type { InboxService } from '../inbox';
 import type { ProjectService } from '../projects';
 import { PullRequestRecords } from '../pull-requests';
@@ -54,8 +54,9 @@ export interface TaskUpdate {
 }
 
 /**
- * Tasks: creation (keys KEY-n), edits, checks, links, notes, assignment and stage moves.
- * Every action is attributed to an Actor in the timeline. Stage moves evaluate the gates.
+ * Tasks: creation (keys KEY-n), edits, subtasks, links, notes, assignment, cancel and reopen;
+ * labels (TaskLabels) and stage moves (TaskMoves) are separate parts. Every action is
+ * attributed to an Actor in the timeline.
  */
 export class TaskService {
   private readonly ctx: DomainContext;
@@ -139,11 +140,8 @@ export class TaskService {
     opts: { sessionId?: string | null } = {},
   ): Promise<Task> {
     const config = await this.projects.config(projectKey);
-    if (req.importedAt !== undefined) {
-      const member = config.team.members.find((member) => member.handle === actor.handle);
-      if (actor.kind !== 'human' || member?.kind !== 'human' || member.access !== 'owner')
-        throw forbidden('owner_only', 'only an owner may import tasks');
-    }
+    if (req.importedAt !== undefined)
+      requireHuman(config, actor, 'owner', { code: 'owner_only', message: 'only an owner may import tasks' });
     const first = config.pipeline.stages[0]!;
     const target = req.stageId ? requireStage(config, req.stageId) : first;
     const title = req.title.trim();
@@ -175,7 +173,8 @@ export class TaskService {
       closedAt: null,
     };
     if (target.id !== first.id) {
-      // A new task has no checks or links: it may start in any stage up to the first gated one.
+      // A new task has only the labels it is created with and no links: it may start in any
+      // stage its gates let it enter.
       if (req.importedAt === undefined) {
         const evaluation = evaluateMove(task, config, first.id, target.id);
         if (evaluation.unmet.length > 0 || evaluation.approvals.length > 0)
@@ -432,10 +431,7 @@ export class TaskService {
 
   private async requireLifecycleAccess(projectKey: string, actor: Actor): Promise<ProjectConfig> {
     const config = await this.projects.config(projectKey);
-    const member = config.team.members.find((m) => m.handle === actor.handle);
-    if (actor.kind !== 'human' || member?.kind !== 'human' || !hasAccess(member.access, 'admin')) {
-      throw forbidden('insufficient_access', 'requires admin access');
-    }
+    requireHuman(config, actor, 'admin');
     return config;
   }
 

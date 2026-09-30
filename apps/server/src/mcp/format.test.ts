@@ -17,6 +17,17 @@ function note(minute: number, text: string): TimelineEvent {
 }
 
 describe('formatTaskDetail', () => {
+  it('lists the labels once, on the status line', () => {
+    const detail = sampleTaskDetail();
+    detail.task.labels = ['frontend', 'qa-ok'];
+    const out = formatTaskDetail(detail);
+    expect(out.split('\n').slice(1, 3)).toEqual([
+      'Stage: development · Status: active · Assignee: fe-1 · Labels: frontend, qa-ok',
+      'Repo: web · Visibility: internal · Priority: 2',
+    ]);
+    expect(out.match(/Labels:/g)).toHaveLength(1);
+  });
+
   it('shows the most recent timeline events, oldest first', () => {
     const detail = sampleTaskDetail();
     // Out of order on purpose: the formatter sorts by time.

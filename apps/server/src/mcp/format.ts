@@ -60,8 +60,7 @@ export function formatTaskDetail(detail: TaskDetail): string {
   const lines = [
     `${task.key} — ${task.title}`,
     taskStatusLine(task),
-    `Repo: ${task.repo ?? 'workspace root'} · Visibility: ${task.visibility} · Priority: ${task.priority ?? 'none'}` +
-      (task.labels.length > 0 ? ` · Labels: ${task.labels.join(', ')}` : ''),
+    `Repo: ${task.repo ?? 'workspace root'} · Visibility: ${task.visibility} · Priority: ${task.priority ?? 'none'}`,
     `Links: ${task.links.length > 0 ? task.links.map((l) => describeLink(l)).join('; ') : 'none'}`,
     `Created by ${task.createdBy} at ${formatTimestamp(task.createdAt)} · Updated ${formatTimestamp(task.updatedAt)}`,
     '',

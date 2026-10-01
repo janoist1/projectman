@@ -169,7 +169,10 @@ unchanged, so every rollback starts from a known state.
   accept the loss. The migrated database is **never** given to an older build (it refuses it); a rollback always
   returns to the untouched old database.
 - **A failed `apply` or `verify`.** The target is left as it is (a standby, never active) for diagnosis; delete only
-  that directory (it is a copy) and start again from the package.
+  that directory (it is a copy) and start again from the package. `apply` writes the `standby` marker first and
+  `migrated/report.json` last: `verify` names a `migrated/` folder without the report (`apply_incomplete`) and a
+  migrated copy without a marker that was never activated (`migrated_home_active`), and `instance activate` refuses an
+  unfinished copy.
 
 ## Acceptance matrix: the evidence
 

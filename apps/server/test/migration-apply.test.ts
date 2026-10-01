@@ -11,7 +11,7 @@ import { parsePathMapping } from '../../../scripts/migrate/paths';
 import { verifyHome } from '../../../scripts/migrate/verify';
 import { buildApp } from '../src/app';
 import { LATEST_SCHEMA_VERSION, migrations } from '../src/db';
-import { instanceRole } from '../src/instance';
+import { instanceRole, writeInstanceMarker } from '../src/instance';
 import { createTranscriptReader } from '../src/runner/transcript/reader';
 import { createFakeMcp, createFakeRunnerModule, FakeGithub } from './helpers/fakes';
 import { createSourceHome, git, OWNER_LOGIN } from './helpers/migration-source';
@@ -194,6 +194,63 @@ describe('applying a package', () => {
     expect(verified.findings.map((f) => f.code)).toEqual(
       expect.arrayContaining(['workspace_missing', 'repo_missing']),
     );
+  });
+
+  it('applies a package without repositories, work or transcripts', async () => {
+    const manifestPath = join(pkg, 'manifest.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    manifest.repos = [];
+    manifest.work = [];
+    manifest.transcripts = [];
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    const report = await applyPackage({ packageDir: pkg, targetHome: target, mappings: mapping() });
+    expect(report).toMatchObject({ pendingWork: 0, transcriptsCarried: 0, reposRestored: [] });
+    expect(readPendingWork(target)).toEqual([]);
+    expect(existsSync(join(target, 'migrated', 'report.json'))).toBe(true);
+    expect(instanceRole(target)).toBe('standby');
+    expect((await verifyHome({ home: target, checkPaths: false })).ok).toBe(true);
+  });
+
+  it('leaves a standby copy that verify refuses when the apply is interrupted', async () => {
+    // A repository cannot be placed below a regular file: the apply fails after it copied the home.
+    const blocker = join(src.root, 'vm', 'blocker');
+    mkdirSync(join(src.root, 'vm'), { recursive: true });
+    writeFileSync(blocker, 'a file, not a directory');
+    await expect(
+      applyPackage({
+        packageDir: pkg,
+        targetHome: target,
+        mappings: [parsePathMapping(`${src.workspace}=${join(blocker, 'repo')}`)],
+      }),
+    ).rejects.toThrow();
+
+    // The copy never had the active role: no server works on it next to the old machine.
+    expect(instanceRole(target)).toBe('standby');
+    expect(existsSync(join(target, 'migrated', 'report.json'))).toBe(false);
+    const verified = await verifyHome({ home: target, checkPaths: false });
+    expect(verified.ok).toBe(false);
+    expect(verified.findings.map((f) => f.code)).toContain('apply_incomplete');
+    // Nor can a person release it.
+    expect(() => activateHome({ home: target, confirmSourceRetired: true })).toThrow(/did not finish/);
+
+    // Even when the marker is gone, a migrated copy that nobody activated is refused.
+    rmSync(join(target, 'instance.json'));
+    const unmarked = await verifyHome({ home: target, checkPaths: false });
+    expect(unmarked.findings.map((f) => f.code)).toEqual(
+      expect.arrayContaining(['apply_incomplete', 'migrated_home_active']),
+    );
+  });
+
+  it('accepts a finished copy after it was activated, and refuses one whose marker was removed by hand', async () => {
+    await applyPackage({ packageDir: pkg, targetHome: target, mappings: mapping() });
+    rmSync(join(target, 'instance.json'));
+    const removed = await verifyHome({ home: target, checkPaths: false });
+    expect(removed.findings.map((f) => f.code)).toContain('migrated_home_active');
+
+    writeInstanceMarker(target, 'standby', 'back to standby');
+    activateHome({ home: target, confirmSourceRetired: true });
+    const activated = await verifyHome({ home: target, checkPaths: false });
+    expect(activated).toMatchObject({ ok: true, role: 'active' });
   });
 
   it('refuses a damaged package before it writes anything', async () => {

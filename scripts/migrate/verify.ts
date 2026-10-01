@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { createConfigStore } from '../../apps/server/src/config';
 import { LATEST_SCHEMA_VERSION } from '../../apps/server/src/db';
 import { instanceRole, InstanceMarkerError } from '../../apps/server/src/instance';
+import { ACTIVATED_FILE, APPLY_REPORT_FILE, MIGRATED_DIR } from './apply';
 import { databaseInUse, snapshotDatabase } from './database';
 import { git, isGitRepository } from './git';
 import { readProjectFiles } from './inventory';
@@ -50,6 +51,24 @@ export async function verifyHome(options: VerifyOptions): Promise<VerifyResult> 
       'instance.json',
       error instanceof InstanceMarkerError ? error.message : String(error),
     );
+  }
+  // --- a home made by `apply`: finished, and never active unless a person released it
+  const migrated = join(home, MIGRATED_DIR);
+  if (existsSync(migrated)) {
+    if (!existsSync(join(migrated, APPLY_REPORT_FILE)))
+      add(
+        'blocker',
+        'apply_incomplete',
+        MIGRATED_DIR,
+        `the apply did not finish (no ${join(MIGRATED_DIR, APPLY_REPORT_FILE)}): the copy is incomplete, apply the package again into a new home`,
+      );
+    if (role === 'active' && !existsSync(join(migrated, ACTIVATED_FILE)))
+      add(
+        'blocker',
+        'migrated_home_active',
+        'instance.json',
+        'a migrated copy has no role marker and was never activated: it would work next to the old machine',
+      );
   }
   const mode = statSync(home).mode & 0o777;
   if ((mode & 0o077) !== 0)

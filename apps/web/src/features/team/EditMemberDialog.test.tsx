@@ -37,6 +37,35 @@ describe('EditMemberDialog', () => {
     expect(project.backend.findMember('qa')?.effort).toBeUndefined();
   });
 
+  it('sets the mode and the approver of an AI member at once, apart from the form, for an owner only', async () => {
+    const project = mockProject();
+    const dialog = (
+      <EditMemberDialog
+        member={project.backend.findMember('qa')!}
+        config={project.backend.config}
+        roles={builtInRoles}
+        onClose={() => {}}
+      />
+    );
+    const view = project.render(dialog);
+    const mode = (await screen.findByLabelText(t('permissionControls.mode'))) as HTMLSelectElement;
+    fireEvent.change(mode, { target: { value: 'plan' } });
+    await waitFor(() =>
+      expect(project.requests.filter((r) => r.method === 'PATCH').at(-1)?.body).toEqual({
+        permissionMode: 'plan',
+      }),
+    );
+    await waitFor(() => expect(mode.value).toBe('plan'));
+    fireEvent.change(screen.getByLabelText(t('permissionControls.approver')), { target: { value: 'none' } });
+    await waitFor(() =>
+      expect(project.requests.filter((r) => r.method === 'PATCH').at(-1)?.body).toEqual({ approver: 'none' }),
+    );
+    view.unmount();
+    project.render(dialog, '/', { isOwner: false });
+    await screen.findByLabelText(t('hire.displayName'));
+    expect(screen.queryAllByLabelText(t('permissionControls.mode'))).toHaveLength(0);
+  });
+
   it('edits multiple human roles and includes roles with monitoring duties', async () => {
     const project = mockProject();
     const onClose = vi.fn();

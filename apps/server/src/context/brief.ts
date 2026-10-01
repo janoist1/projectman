@@ -19,6 +19,8 @@ const QUIET_EVENTS = new Set<string>([
   'session_ended',
   'permission_requested',
   'permission_resolved',
+  'permission_refused',
+  'permission_escalated',
 ]);
 
 /**

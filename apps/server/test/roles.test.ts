@@ -168,7 +168,7 @@ describe('role catalogue', () => {
       role: 'data_steward',
       instructions: '',
       model: 'opus',
-      permissionMode: 'default',
+      permissionMode: 'auto',
       capacity: 1,
       schedule,
     });

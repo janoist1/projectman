@@ -90,3 +90,9 @@
 .comment {
   white-space: pre-wrap;
 }
+
+.detail {
+  font-size: var(--text-xs);
+  color: var(--c-ink-4);
+  overflow-wrap: anywhere;
+}

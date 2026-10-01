@@ -8,6 +8,8 @@ import {
   memberDuties,
   memberOf,
   memberRoles,
+  approverBlocker,
+  permissionView,
   roleHolders,
   stageApprovers,
   stageOf,
@@ -29,7 +31,7 @@ import { findHumanByEmail, ownerHandles, requireAiMember, requireHuman } from '.
 import type { ProjectAccess } from './access';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
-import { conflict, invalid, notFound } from './errors';
+import { conflict, DomainError, invalid, notFound } from './errors';
 import type { InboxService } from './inbox';
 import { defaultMemberHandle, defaultMemberName, humanMemberHandle } from './naming';
 import type { PresenceService } from './presence';
@@ -138,7 +140,7 @@ export class MemberService {
         provider: m.provider ?? DEFAULT_AGENT_PROVIDER,
         model: m.model,
         effort: m.effort,
-        permissionMode: m.permissionMode,
+        ...permissionView(config, m),
         ...(m.onLeave ? { onLeave: true } : {}),
       };
     });
@@ -242,6 +244,7 @@ export class MemberService {
           req.provider === 'codex' ? modelForProvider('codex', req.model) : (req.model ?? defaults.model),
         ...(req.effort ? { effort: req.effort } : {}),
         permissionMode: defaults.permissionMode,
+        ...(defaults.approver ? { approver: defaults.approver } : {}),
         capacity: defaults.capacity,
         instructions: defaults.instructions,
         sponsor: sponsor.handle,
@@ -293,11 +296,13 @@ export class MemberService {
           req.provider !== undefined ||
           req.effort !== undefined ||
           req.onLeave !== undefined ||
-          req.instructions !== undefined
+          req.instructions !== undefined ||
+          req.permissionMode !== undefined ||
+          req.approver !== undefined
         ) {
           throw invalid(
             'not_ai_member',
-            'specialty, provider, model, effort, schedule, leave and instructions apply to AI members only',
+            'specialty, provider, model, effort, schedule, leave, instructions, permission mode and approver apply to AI members only',
           );
         }
         if (req.roles !== undefined) {
@@ -339,6 +344,24 @@ export class MemberService {
         if (req.instructions !== undefined) {
           member.instructions = req.instructions.trim();
           fields.push('instructions');
+        }
+        // Who may change the mode and the approver is `ownerOnlyChanges` (category `permissions`),
+        // checked on the commit.
+        if (req.permissionMode !== undefined) {
+          member.permissionMode = req.permissionMode;
+          fields.push('permission mode');
+        }
+        if (req.approver !== undefined) {
+          const blocker = approverBlocker(draft, handle, req.approver);
+          if (blocker) {
+            throw new DomainError(
+              'approver_unavailable',
+              `the approver ${req.approver} is not available: ${blocker}`,
+              { status: 422, details: { blocker } },
+            );
+          }
+          member.approver = req.approver;
+          fields.push('approver');
         }
         if (req.onLeave !== undefined) {
           if (req.onLeave) member.onLeave = true;
@@ -446,9 +469,19 @@ export class MemberService {
       }
     });
     const previousMembers = new Map((previous?.team.members ?? []).map((m) => [m.handle, m]));
+    const previousBlockers = new Map(
+      (previous ? this.rosterFor(previous) : []).map((view) => [view.handle, view.aiApproverBlocker]),
+    );
     for (const member of this.rosterFor(next)) {
       const configMember = memberOf(next, member.handle);
-      if (JSON.stringify(previousMembers.get(member.handle)) !== JSON.stringify(configMember)) {
+      // The AI approver blocker depends on other members and on the delegation settings.
+      const blockerChanged = previousBlockers.has(member.handle)
+        ? previousBlockers.get(member.handle) !== member.aiApproverBlocker
+        : false;
+      if (
+        blockerChanged ||
+        JSON.stringify(previousMembers.get(member.handle)) !== JSON.stringify(configMember)
+      ) {
         this.ctx.bus.publish({ type: 'member_changed', projectKey, handle: member.handle, member });
       }
     }

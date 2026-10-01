@@ -55,6 +55,74 @@ it.each(['allow', 'deny'] as const)('describes automatic permission %s on the ti
   expect(describeEvent(event, context).text).toBe(t(`timeline.events.permission_automatic_${decision}`));
 });
 
+it.each([
+  ['allow', 'allowed'],
+  ['deny', 'denied'],
+] as const)('says an AI decider answered a permission request: %s', (decision, word) => {
+  const event: TimelineEvent = {
+    ...creation,
+    type: 'permission_resolved',
+    actor: { kind: 'ai', handle: 'lead' },
+    data: { decision, inboxItemId: 'fictional-inbox' },
+  };
+  expect(describeEvent(event, context).text).toBe(t(`timeline.events.permission_ai_${word}`));
+});
+
+it.each([
+  ['level', 'permission_refused_level'],
+  ['classifier', 'permission_refused_classifier'],
+] as const)('describes a refused permission request (by %s) with the reason folded away', (by, key) => {
+  const event: TimelineEvent = {
+    ...creation,
+    type: 'permission_refused',
+    actor: { kind: 'ai', handle: 'dev' },
+    data: { toolName: 'Bash', summary: 'curl example.test', by, reason: 'Not allowed here' },
+  };
+  expect(describeEvent(event, context)).toMatchObject({
+    text: t(`timeline.events.${key}`, { summary: 'curl example.test' }),
+    emphasis: 'normal',
+    detail: 'Not allowed here',
+  });
+  expect(describeEvent({ ...event, data: { ...event.data, reason: undefined } }, context).detail).toBe(
+    undefined,
+  );
+});
+
+it('shows the AI decider reason as a detail, and an escalation to a person', () => {
+  const resolved: TimelineEvent = {
+    ...creation,
+    type: 'permission_resolved',
+    actor: { kind: 'ai', handle: 'lead' },
+    data: { decision: 'deny', inboxItemId: 'inb', delegated: true, reason: 'Unsafe target' },
+  };
+  expect(describeEvent(resolved, context)).toMatchObject({
+    text: t('timeline.events.permission_ai_denied'),
+    detail: 'Unsafe target',
+  });
+  const escalated: TimelineEvent = {
+    ...creation,
+    type: 'permission_escalated',
+    actor: { kind: 'ai', handle: 'lead' },
+    data: { inboxItemId: 'inb', cause: 'lead', assignees: ['owner'], reason: 'Needs the owner' },
+  };
+  expect(describeEvent(escalated, context)).toMatchObject({
+    text: t('timeline.events.permission_escalated_lead'),
+    emphasis: 'normal',
+    detail: 'Needs the owner',
+  });
+  const open = { ...context, openInboxIds: new Set(['inb']) };
+  expect(
+    describeEvent(
+      {
+        ...escalated,
+        actor: { kind: 'system', handle: null },
+        data: { ...escalated.data, cause: 'timeout' },
+      },
+      open,
+    ),
+  ).toMatchObject({ text: t('timeline.events.permission_escalated_timeout'), emphasis: 'needs' });
+});
+
 it('describes checks recorded before labels replaced them', () => {
   const event: TimelineEvent = {
     ...creation,

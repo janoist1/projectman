@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { AgentEffort } from '../domain/member';
-import { AgentProvider, GithubLogin, HumanAccess, MemberHandle, PermissionMode } from '../domain/member';
+import {
+  AgentProvider,
+  Approver,
+  GithubLogin,
+  HumanAccess,
+  MemberHandle,
+  PermissionMode,
+} from '../domain/member';
 import { Pipeline } from '../domain/pipeline';
 import { DEFAULT_PROVIDER_MODELS } from '../domain/provider-model';
 import { CustomRoleDefinition, RoleId, RoleOverrides } from '../domain/role';
@@ -60,6 +67,11 @@ export const AiMemberConfig = z.object({
   effort: AgentEffort.optional(),
   /** Claude Code permission mode; for Codex members it maps to a sandbox and approval policy. */
   permissionMode: PermissionMode.default('default'),
+  /**
+   * Who answers when the CLI asks for a permission (set by an owner). Absent means a person
+   * (`approverOf`), which is how members behaved before the setting existed.
+   */
+  approver: Approver.optional(),
   /** How many work items this member may run at the same time. */
   capacity: z.number().int().min(1).max(5).default(1),
   /** Role instructions (English prompt text) appended to the system prompt. */

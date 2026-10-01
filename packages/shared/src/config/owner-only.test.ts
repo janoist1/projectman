@@ -70,6 +70,12 @@ const human = (config: ProjectConfig, handle: string) => {
   return member;
 };
 
+const ai = (config: ProjectConfig, handle: string) => {
+  const member = config.team.members.find((m) => m.handle === handle);
+  if (member?.kind !== 'ai') throw new Error(`no AI member ${handle}`);
+  return member;
+};
+
 describe('ownerOnlyChanges', () => {
   it.each<[string, (next: ProjectConfig) => void, OwnerOnlyChange[]]>([
     ['no change', () => {}, []],
@@ -97,6 +103,41 @@ describe('ownerOnlyChanges', () => {
       "an owner's account",
       (c) => void (human(c, 'owner').email = 'boss@example.com'),
       ['admin_or_account', 'owners'],
+    ],
+    ['an AI member mode', (c) => void (ai(c, 'dev-1').permissionMode = 'plan'), ['permissions']],
+    [
+      'freeing the mode to bypassPermissions',
+      (c) => void (ai(c, 'dev-1').permissionMode = 'bypassPermissions'),
+      ['permissions'],
+    ],
+    ['an AI member approver', (c) => void (ai(c, 'dev-1').approver = 'none'), ['permissions']],
+    ['the AI approver', (c) => void (ai(c, 'dev-1').approver = 'ai'), ['permissions']],
+    [
+      // An absent approver already means a person.
+      'restating the default approver',
+      (c) => void (ai(c, 'dev-1').approver = 'human'),
+      [],
+    ],
+    [
+      'a new AI member on the default mode and approver',
+      (c) => void c.team.members.push({ ...ai(c, 'dev-1'), handle: 'dev-2', permissionMode: 'auto' }),
+      [],
+    ],
+    [
+      'a new AI member on another mode',
+      (c) => void c.team.members.push({ ...ai(c, 'dev-1'), handle: 'dev-2', permissionMode: 'acceptEdits' }),
+      ['permissions'],
+    ],
+    [
+      'a new AI member with another approver',
+      (c) =>
+        void c.team.members.push({
+          ...ai(c, 'dev-1'),
+          handle: 'dev-2',
+          permissionMode: 'auto',
+          approver: 'none',
+        }),
+      ['permissions'],
     ],
   ])('%s', (_name, edit, expected) => {
     expect(changed(edit)).toEqual(expected);

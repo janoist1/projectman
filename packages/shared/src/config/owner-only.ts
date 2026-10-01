@@ -1,9 +1,11 @@
 import { isHumanOnlyLabel } from '../domain/label';
+import { DEFAULT_NEW_MEMBER_APPROVER, DEFAULT_PERMISSION_MODE } from '../domain/member';
 import { BUILT_IN_ROLE_IDS } from '../domain/role';
 import { dutyMembers, roleBundle } from './duties';
 import { stageApprovers } from './gates';
 import { labelDefinition, labelHolders } from './labels';
-import type { ProjectConfig } from './schema';
+import { approverOf } from './permission-level';
+import type { AiMemberConfig, ProjectConfig } from './schema';
 
 /**
  * Configuration changes only an owner may make (checked on every configuration commit by a
@@ -14,10 +16,12 @@ import type { ProjectConfig } from './schema';
  * - `approval_policy`: approvals (gate labels only humans may set) and who may give them,
  *   release four eyes, boundary delegation settings, and who holds or grants authorization duties;
  * - `release_approvers`: who approves the release stages;
- * - `owners`: who is an owner.
+ * - `owners`: who is an owner;
+ * - `permissions`: an AI member's permission mode or approver (who answers when the CLI asks), or
+ *   a new AI member that starts with other than the defaults.
  */
 export type OwnerOnlyChange =
-  'locations' | 'admin_or_account' | 'approval_policy' | 'release_approvers' | 'owners';
+  'locations' | 'admin_or_account' | 'approval_policy' | 'release_approvers' | 'owners' | 'permissions';
 
 /** The owner-only changes from `previous` to `next`, in the order above; empty when there are none. */
 export function ownerOnlyChanges(
@@ -32,7 +36,24 @@ export function ownerOnlyChanges(
   if (releaseApproversSignature(previous) !== releaseApproversSignature(next))
     changes.push('release_approvers');
   if (ownersSignature(previous) !== ownersSignature(next)) changes.push('owners');
+  if (permissionsChanged(previous, next)) changes.push('permissions');
   return changes;
+}
+
+/**
+ * An existing AI member's mode or approver differs, or a new AI member does not start with the
+ * default mode and approver. An absent approver counts as `human`, so restating it changes nothing.
+ */
+function permissionsChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
+  const signature = (member: AiMemberConfig | undefined) =>
+    member
+      ? `${member.permissionMode}:${approverOf(member)}`
+      : `${DEFAULT_PERMISSION_MODE}:${approverOf({ approver: DEFAULT_NEW_MEMBER_APPROVER })}`;
+  return next.team.members.some((member) => {
+    if (member.kind !== 'ai') return false;
+    const old = previous.team.members.find((m) => m.handle === member.handle);
+    return signature(member) !== signature(old?.kind === 'ai' ? old : undefined);
+  });
 }
 
 /** Stage and condition ordering do not alter the approval policy. Removal does. */

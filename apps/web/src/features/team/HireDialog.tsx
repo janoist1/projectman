@@ -187,6 +187,10 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
             <dd>{t(`permissionModes.${preview.permissionMode}`)}</dd>
           </div>
           <div>
+            <dt>{t('hire.approver')}</dt>
+            <dd>{t(`permissionControls.approvers.${preview.approver}`)}</dd>
+          </div>
+          <div>
             <dt>{t('hire.capacity')}</dt>
             <dd>{t('hire.capacityValue', { count: preview.capacity })}</dd>
           </div>

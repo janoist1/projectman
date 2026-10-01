@@ -7,12 +7,14 @@ import { InboxItem } from '../domain/inbox';
 import {
   AgentProvider,
   AgentEffort,
+  Approver,
   GithubLogin,
   HumanAccess,
   MemberHandle,
   MemberKind,
   MemberStatus,
   PermissionMode,
+  SelectablePermissionMode,
 } from '../domain/member';
 import { TeamMessage } from '../domain/message';
 import { LabelDefinition, LabelId } from '../domain/label';
@@ -115,6 +117,12 @@ export const MemberView = z.object({
   /** AI members only: public session settings, available to every project member. */
   model: z.string().optional(),
   permissionMode: PermissionMode.optional(),
+  /** AI members only: who answers when the CLI asks (the effective value: absent in the configuration reads `human`). */
+  approver: Approver.optional(),
+  /** AI members only: still on the historical "everything allowed" mode, which cannot be chosen any more. */
+  permissionLegacy: z.boolean().optional(),
+  /** AI members only: why the AI approver cannot be chosen now; absent when it can. */
+  aiApproverBlocker: z.enum(['delegation_off', 'no_ai_decider']).optional(),
   effort: AgentEffort.optional(),
   /** AI members only: on leave, nothing starts a session for the member (omitted: at work). */
   onLeave: z.boolean().optional(),
@@ -163,6 +171,10 @@ export const UpdateMemberRequest = z.object({
   onLeave: z.boolean().optional(),
   /** AI only; the member's own instructions (English prompt text); an empty string clears them. */
   instructions: z.string().optional(),
+  /** AI only, owners only: the CLI permission mode (not `bypassPermissions`). */
+  permissionMode: SelectablePermissionMode.optional(),
+  /** AI only, owners only: who answers when the CLI asks. */
+  approver: Approver.optional(),
 });
 export type UpdateMemberRequest = z.infer<typeof UpdateMemberRequest>;
 

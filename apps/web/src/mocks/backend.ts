@@ -53,6 +53,7 @@ import {
   isHandleOnLeave,
   isOnLeave,
   isOpenTask,
+  openPrerequisites,
   isWorkingOnTask,
   labelDefinition,
   labelHolders,
@@ -2190,6 +2191,12 @@ export class MockBackend {
     const task = this.findTask(taskKey);
     if (!task || !input) return error(404, 'not_found', 'Unknown task');
     if (!isOpenTask(task)) return error(409, 'task_closed', 'Task is closed');
+    // A person's start of a card with an open prerequisite needs the warning accepted (PM-204).
+    const open = openPrerequisites(task, this.tasks).map((card) => card.key);
+    if (open.length > 0 && !input.despitePrerequisites)
+      return error(409, 'prerequisite_open', `Task ${task.key} waits for ${open.join(', ')}`, {
+        prerequisites: open,
+      });
     const workStage = this.config.pipeline.stages.find((stage) => stage.kind === 'work');
     const eligible = workStage ? stageOwners(this.config, workStage) : [];
     const developers = this.members.filter(

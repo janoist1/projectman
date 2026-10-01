@@ -566,6 +566,83 @@ describe('task drawer layout', () => {
   });
 });
 
+describe('starting a card whose prerequisite is open (PM-204)', () => {
+  const startButton = async () => screen.findByRole('button', { name: t('task.start') });
+  const startRequests = (project: ReturnType<typeof mockProject>) =>
+    project.requests.filter((request) => request.method === 'POST' && request.path.endsWith('/start'));
+
+  it('warns first, naming the open prerequisite, and starts nothing until it is accepted', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-23');
+
+    fireEvent.click(await startButton());
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(t('prerequisiteWarning.title'))).toBeTruthy();
+    expect(dialog.textContent).toContain('AC-17');
+    expect(startRequests(project)).toEqual([]);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: t('common.cancel') }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(startRequests(project)).toEqual([]);
+    expect(project.backend.findTask('AC-23')).toMatchObject({ assignee: null, stageId: 'ready' });
+  });
+
+  it('starts with the warning accepted, and says so in the request', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-23');
+
+    fireEvent.click(await startButton());
+    fireEvent.click(await screen.findByRole('button', { name: t('prerequisiteWarning.confirm') }));
+
+    await waitFor(() => expect(project.backend.findTask('AC-23')!.assignee).not.toBeNull());
+    expect(startRequests(project).map((request) => request.body)).toEqual([{ despitePrerequisites: true }]);
+  });
+
+  it('asks nothing of a card without an open prerequisite', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-24');
+
+    fireEvent.click(await startButton());
+
+    await waitFor(() => expect(project.backend.findTask('AC-24')!.assignee).not.toBeNull());
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(startRequests(project).map((request) => request.body)).toEqual([{}]);
+  });
+
+  it('shows the same warning when the server refuses a start the board did not see coming', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-24');
+    const button = await startButton();
+    // The prerequisite was added after the board loaded.
+    project.backend.findTask('AC-24')!.links.push({ kind: 'prerequisite', ref: 'AC-17' });
+
+    fireEvent.click(button);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toContain('AC-17');
+    expect(project.backend.findTask('AC-24')!.assignee).toBeNull();
+    fireEvent.click(within(dialog).getByRole('button', { name: t('prerequisiteWarning.confirm') }));
+    await waitFor(() => expect(project.backend.findTask('AC-24')!.assignee).not.toBeNull());
+  });
+
+  it('shows the card waiting for its prerequisites, by key', async () => {
+    const project = mockProject();
+    const task = project.backend.findTask('AC-20')!;
+    task.startWaiting = {
+      reason: 'prerequisite_open',
+      prerequisites: ['AC-17', 'AC-19'],
+      since: task.updatedAt,
+    };
+    project.render(drawer, '/p/AC/tasks/AC-20');
+
+    await screen.findByText(
+      t('taskStatus.startWaiting.prerequisite_open', { prerequisites: 'AC-17, AC-19' }),
+    );
+    expect(screen.getByText(t('taskStatus.startHints.prerequisite_open'))).toBeTruthy();
+  });
+});
+
 describe('task drawer questions', () => {
   it('shows a plain-language question of the task with its recommendation and folded details', async () => {
     const project = mockProject();

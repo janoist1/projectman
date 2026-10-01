@@ -23,6 +23,7 @@ import { nameOf } from '../../lib/members';
 import { isDeveloperRole } from '../../lib/roles';
 import type { MemberIndex } from '../../lib/members';
 import { InboxCard } from '../inbox/InboxCard';
+import { openPrerequisiteKeys, PrerequisiteWarning, refusedPrerequisites } from './PrerequisiteWarning';
 import { nextStepText, primarySession } from './taskModel';
 import { useBoardModel } from './useBoardModel';
 import { TaskAttachments } from './TaskAttachments';
@@ -36,12 +37,37 @@ import drawer from './drawer.module.css';
 import styles from './TaskDrawer.module.css';
 import { TaskHeader } from './TaskHeader';
 
-function StartPanel({ task, members }: { task: Task; members: MemberIndex }) {
+function StartPanel({ task, members, tasks }: { task: Task; members: MemberIndex; tasks: readonly Task[] }) {
   const { key } = useProject();
   const labels = useLabels(key);
   const start = useStartTask(key);
   const toast = useToast();
   const [assignee, setAssignee] = useState('');
+  // The open prerequisites the person is warned about before the start goes ahead (PM-204).
+  const [warning, setWarning] = useState<string[] | null>(null);
+  const send = (despitePrerequisites: boolean) =>
+    start.mutate(
+      {
+        taskKey: task.key,
+        body: {
+          ...(assignee ? { assignee } : {}),
+          ...(despitePrerequisites ? { despitePrerequisites } : {}),
+        },
+      },
+      {
+        onSuccess: () => {
+          setWarning(null);
+          toast.show(t('task.started', { key: task.key }));
+        },
+        onError: (error) => {
+          // Not a failure: the approvers were asked, and the task waits for them.
+          if (isApprovalRequested(error)) toast.show(t('errors.approvalRequested'), 'info');
+          // The card gained a prerequisite the board has not shown yet: the same warning.
+          else setWarning(refusedPrerequisites(error));
+        },
+      },
+    );
+  const openKeys = openPrerequisiteKeys(task, tasks);
   const developers = [...members.values()].filter(
     (member) => member.kind === 'ai' && isDeveloperRole(member.role) && member.status !== 'retired',
   );
@@ -59,7 +85,7 @@ function StartPanel({ task, members }: { task: Task; members: MemberIndex }) {
           </option>
         ))}
       </SelectField>
-      {start.isError && !isApprovalRequested(start.error) ? (
+      {start.isError && !isApprovalRequested(start.error) && !refusedPrerequisites(start.error) ? (
         <p className={drawer.error} role="alert">
           {errorMessage(start.error)}
           {isGateBlocked(start.error) &&
@@ -74,21 +100,17 @@ function StartPanel({ task, members }: { task: Task; members: MemberIndex }) {
         size="md"
         icon="play"
         loading={start.isPending}
-        onClick={() =>
-          start.mutate(
-            { taskKey: task.key, body: assignee ? { assignee } : {} },
-            {
-              onSuccess: () => toast.show(t('task.started', { key: task.key })),
-              // Not a failure: the approvers were asked, and the task waits for them.
-              onError: (error) => {
-                if (isApprovalRequested(error)) toast.show(t('errors.approvalRequested'), 'info');
-              },
-            },
-          )
-        }
+        onClick={() => (openKeys.length > 0 ? setWarning(openKeys) : send(false))}
       >
         {start.isPending ? t('task.starting') : t('task.start')}
       </Button>
+      <PrerequisiteWarning
+        keys={warning}
+        tasks={tasks}
+        loading={start.isPending}
+        onConfirm={() => send(true)}
+        onClose={() => setWarning(null)}
+      />
     </div>
   );
 }
@@ -187,7 +209,7 @@ export function TaskDrawer() {
           {task.startWaiting ? <p className={drawer.section}>{startWaitingHint(task)}</p> : null}
           <div className={styles.actions} hidden={!hasActions}>
             {isQueued && can.createTasks ? (
-              <StartPanel task={task} members={members} />
+              <StartPanel task={task} members={members} tasks={board.data?.tasks ?? []} />
             ) : session && can.workInSessions ? (
               <>
                 <ButtonLink

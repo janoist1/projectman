@@ -26,6 +26,7 @@ import { approvalRequestedError, gateBlockedError } from '../tasks';
 import type { StageChange, TaskService } from '../tasks';
 import { SYSTEM_ACTOR, SYSTEM_AUTHOR } from '../util';
 import type { Admission } from './admission';
+import { assertPrerequisitesClosed } from './rules';
 
 export interface StartTaskOptions {
   /** Explicit assignee; omitted = the current assignee, else a free developer, else a temp worker. */
@@ -34,6 +35,11 @@ export interface StartTaskOptions {
   author: Author;
   /** Human who sponsors a temp worker hired for this task (defaults to the first owner). */
   sponsor?: string;
+  /**
+   * A person starts the task although a prerequisite is open, after the warning (PM-204). Honored
+   * for a human actor only; without it an open prerequisite refuses the start.
+   */
+  despitePrerequisites?: boolean;
 }
 
 export interface StartTaskResult {
@@ -84,6 +90,8 @@ export class TaskStarts {
       if (!isOpenTask(task)) throw conflict('task_closed', `task ${taskKey} is ${task.status}`);
       const workStage = workStageOf(config, task);
       if (!workStage) throw invalid('no_work_stage', 'the pipeline has no work stage');
+      if (!(opts.despitePrerequisites && opts.actor.kind === 'human'))
+        assertPrerequisitesClosed(task, this.tasks.list(projectKey));
       const needsMove = stageIndex(config.pipeline, task.stageId) < stageIndex(config.pipeline, workStage.id);
 
       let member: MemberConfig | null = this.chooseMember(config, task, workStage, opts.assignee);

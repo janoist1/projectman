@@ -49,7 +49,7 @@ import { RoleService } from './roles';
 import { ScheduleService } from './schedules';
 import type { ScheduleTimer } from './schedules';
 import { SessionOrchestrator } from './sessions';
-import { TaskService } from './tasks';
+import { PrerequisiteClosures, TaskService } from './tasks';
 import { TeamToolsService } from './team-tools';
 import { TimelineService } from './timeline';
 import { AgentQuestions } from './agent-question';
@@ -459,6 +459,10 @@ export function createDomain(opts: DomainOptions) {
   // Cancelled tasks stop their sessions; moves and closures drop the starts they made obsolete.
   events.on('task_cancelled', (task) => sessions.stopTask(task.projectKey, task.key));
   events.on('task_cancelled', (task) => admission.discardStale(task));
+  // A card that closes (done or withdrawn) frees the cards that need it first (PM-204).
+  const prerequisites = new PrerequisiteClosures({ ctx, timeline });
+  events.on('task_cancelled', (task) => void prerequisites.closed(task));
+  events.on('task_stage_changed', (change) => void prerequisites.closed(change.task));
   events.on('task_stage_changed', (change) => admission.discardStale(change.task));
   // A task entering a stage hands its work over anew: reviewers and testers get a new round.
   events.on('task_stage_changed', (change) => {

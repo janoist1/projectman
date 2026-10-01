@@ -1,4 +1,4 @@
-import { isOnLeave, repoRequired } from '@projectman/shared';
+import { isOnLeave, openPrerequisites, repoRequired } from '@projectman/shared';
 import type {
   AgentProvider,
   ErrorCode,
@@ -40,6 +40,19 @@ export function assertRepoChosen(config: ProjectConfig, role: string, task: Task
       `choose one before a ${role} session starts on it`,
     { taskKey: task.key },
   );
+}
+
+/**
+ * A card whose prerequisite (PM-192) is not closed does not start by itself (`prerequisite_open`,
+ * with the open keys in the details): an automatic start waits for the last one to close
+ * (`DEFERRABLE`), and a person's start is refused until they start despite the warning.
+ */
+export function assertPrerequisitesClosed(task: Task, tasks: readonly Task[]): void {
+  const open = openPrerequisites(task, tasks).map((card) => card.key);
+  if (open.length > 0)
+    throw conflict('prerequisite_open', `task ${task.key} waits for ${open.join(', ')}`, {
+      prerequisites: open,
+    });
 }
 
 /**

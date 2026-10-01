@@ -364,6 +364,7 @@ export const hu = {
       task_not_cancelled: 'Csak megszakított feladat nyitható újra.',
       task_session_live: 'Még fut egy munkamenet. A módosítás előtt állítsd le.',
       repo_required: 'Válassz repót a feladathoz: nélküle az AI-fejlesztő nem indulhat el.',
+      prerequisite_open: 'A feladat előfeltétele még nincs lezárva.',
       unknown_member: 'Ismeretlen csapattag.',
       task_closed: 'Ez a feladat már lezárult.',
       no_free_member: 'Most nincs szabad fejlesztő.',
@@ -544,6 +545,7 @@ export const hu = {
       workspace_busy: 'Indulásra vár: {name} munkaállomásán más feladat fut',
       workspace_dirty: 'Indulásra vár: {name} munkaállomásán befejezetlen munka van',
       workspace_fetch_failed: 'Indulásra vár: a friss alapágat nem sikerült letölteni',
+      prerequisite_open: 'Előfeltételre vár: {prerequisites}',
     },
     stageOwners: 'a lépés összes felelőse',
     startHints: {
@@ -561,6 +563,8 @@ export const hu = {
         'A tag munkaállomásán el nem mentett változás vagy félbehagyott git-művelet van. Kérd meg a tagot (vagy nézd meg magad), hogy mentse el vagy fejezze be; automatikusan semmit nem törlünk.',
       workspace_fetch_failed:
         'Az új feladatág csak friss alapról indulhat. Ellenőrizd a hálózatot és a repó elérését; az indítás magától újrapróbálkozik.',
+      prerequisite_open:
+        'A munka magától elindul, amikor az utolsó előfeltétel is lezárul (kész vagy visszavont). Ember az Indítás gombbal előbb is elindíthatja.',
     },
     needsYou: 'Rád vár: {what}',
     needsYouDetail: '{kind} ({detail})',
@@ -858,6 +862,13 @@ export const hu = {
       megabytes: '{value} MB',
     },
   },
+  /** The warning before a person starts a card whose prerequisite is open (PM-204). */
+  prerequisiteWarning: {
+    title: 'Az előfeltétel még nincs lezárva',
+    description:
+      'Ez a kártya erre vár: {keys}. Ha most elindítod, a munka az előfeltétel lezárása nélkül kezdődik.',
+    confirm: 'Indítás mégis',
+  },
   taskLifecycle: {
     title: 'További műveletek',
     cancel: 'Feladat megszakítása',
@@ -1152,6 +1163,10 @@ export const hu = {
     },
     relationAdded: 'Kapcsolat hozzáadva: {kind} · {ref}',
     relationRemoved: 'Kapcsolat törölve: {kind} · {ref}',
+    prerequisiteDone: 'Az előfeltétel, {ref}, elkészült.',
+    prerequisiteWithdrawn: 'Az előfeltételt, {ref}, visszavonták, így már nem kell rá várni.',
+    prerequisiteRemaining: 'Még vár erre: {remaining}.',
+    prerequisiteFree: 'Már egy előfeltétel sem nyitott.',
     subtaskAdded: 'Alfeladat hozzáadva: {subtaskKey} → {parentKey}',
     subtaskRemoved: 'Alfeladat eltávolítva: {subtaskKey} → {parentKey}',
     attachmentAdded: 'Csatolmány hozzáadva: {fileName}',

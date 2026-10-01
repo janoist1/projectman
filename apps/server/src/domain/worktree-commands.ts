@@ -30,7 +30,8 @@ export interface WorktreeRoutineContext {
  * Whether the command is an optional `cd` to the working directory followed by steps, joined
  * with `&&`, `||` or `;`. Each step is judged on its own, and the directory never changes: the
  * only `cd` is the first segment, and it stays in place.
- * - A routine step is a single command: no pipe, no redirection.
+ * - A routine step is one command, which may be followed by a pipe into readers that only filter
+ *   its output (`| tail -3`) and carry the redirections the parser knows (`2>&1`).
  * - A read-only step may be a whole pipeline with the redirections the parser knows; the rule
  *   for reading checks it with the working directory as the only directory it may read.
  * At least one step is routine; a chain of readers alone is for the read-only rule.
@@ -47,8 +48,7 @@ export function isWorktreeRoutine(command: ShellCommand, context: WorktreeRoutin
   for (const step of steps) {
     // Any other `cd` could leave the directory the rest of the chain is checked in.
     if (isChangeDirectory(step)) return false;
-    const words = singleCommand(step);
-    if (words && isRoutineStep(words, context)) {
+    if (isRoutinePipeline(step, context, root)) {
       routine = true;
     } else if (!isReadOnlyCommand({ segments: [step], separators: [] }, { cwd: root, roots: [root] })) {
       return false;
@@ -57,7 +57,22 @@ export function isWorktreeRoutine(command: ShellCommand, context: WorktreeRoutin
   return routine;
 }
 
-/** The words of a segment that is one command: no pipe, no redirection. */
+/**
+ * A routine step that is the first stage of its pipeline, with the redirections the parser knows,
+ * and only readers after it (`npm install 2>&1 | tail -3`, PM-105). Filtering the output of a
+ * step changes nothing it does; a `tee` or any other writer after it is no reader, so it waits for
+ * a human. A routine step in any later stage of a pipeline is not routine either.
+ */
+function isRoutinePipeline(segment: ShellSegment, context: WorktreeRoutineContext, root: string): boolean {
+  const [first, ...rest] = segment.stages;
+  if (!first || !isRoutineStep(first.words, context)) return false;
+  return (
+    rest.length === 0 ||
+    isReadOnlyCommand({ segments: [{ stages: rest }], separators: [] }, { cwd: root, roots: [root] })
+  );
+}
+
+/** The words of a segment that is one command: no pipe, no redirection (for `cd`). */
 function singleCommand(segment: ShellSegment): readonly string[] | null {
   const [stage] = segment.stages;
   return segment.stages.length === 1 && stage && stage.redirections.length === 0 ? stage.words : null;

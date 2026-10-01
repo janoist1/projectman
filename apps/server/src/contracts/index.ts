@@ -1,5 +1,6 @@
 export * from './attachments';
 export * from './runner';
+export * from './session-policy';
 export * from './team-tools';
 export * from './github';
 export * from './context';

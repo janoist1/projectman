@@ -158,6 +158,7 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
       const settings = buildSettings({
         hookUrl,
         allowedTools: spec.allowedTools,
+        policy: spec.policy,
         deniedTools: spec.deniedTools,
         permissionTimeoutMs,
         sandbox: spec.sandbox,

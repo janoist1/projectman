@@ -1,5 +1,6 @@
 import type { AgentSandbox, StartSessionSpec } from '../../../contracts';
 import { FAST_HOOK_TIMEOUT_S, forwarderCommand, permissionHookTimeoutS } from '../../hook-forwarder';
+import { claudeToolRules } from './policy';
 
 /**
  * Command line and inline settings for an interactive Claude Code session.
@@ -29,6 +30,7 @@ export interface HookSettingsInput {
   hookUrl: string;
   allowedTools: string[];
   deniedTools?: string[];
+  policy?: StartSessionSpec['policy'];
   permissionTimeoutMs: number;
   /** Node binary used when curl is missing (defaults to the running Node). */
   nodePath?: string;
@@ -83,6 +85,11 @@ export function buildSandboxSettings(sandbox: AgentSandbox): ClaudeSandboxSettin
 
 /** The `--settings` object: hooks for every event we need and pre-allowed tools. */
 export function buildSettings(input: HookSettingsInput): ClaudeSettings {
+  if (input.policy?.enforcement === 'strict')
+    throw new Error('Strict Claude sandbox enforcement is not available yet; refusing to start.');
+  const rules = input.policy
+    ? claudeToolRules(input.policy)
+    : { allow: input.allowedTools, deny: input.deniedTools ?? [] };
   const permissionTimeoutS = permissionHookTimeoutS(input.permissionTimeoutMs);
   const http = (timeout: number): HookHandler => ({ type: 'http', url: input.hookUrl, timeout });
   const hooks: ClaudeSettings['hooks'] = {
@@ -111,8 +118,8 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
   // valid allow rules for every tool of the team MCP server.
   return {
     permissions: {
-      allow: [...new Set(input.allowedTools)],
-      ...(input.deniedTools?.length ? { deny: [...new Set(input.deniedTools)] } : {}),
+      allow: [...new Set(rules.allow)],
+      ...(rules.deny.length ? { deny: [...new Set(rules.deny)] } : {}),
     },
     hooks,
     ...(input.sandbox ? { sandbox: buildSandboxSettings(input.sandbox) } : {}),
@@ -132,10 +139,14 @@ export function buildClaudeArgs(spec: StartSessionSpec, settings: ClaudeSettings
   if (spec.appendSystemPrompt) args.push('--append-system-prompt', spec.appendSystemPrompt);
   args.push('--mcp-config', JSON.stringify(buildMcpConfig(spec.mcpUrl)));
   args.push('--settings', JSON.stringify(settings));
-  for (const dir of spec.additionalDirectories ?? []) args.push('--add-dir', dir);
+  const directories = spec.policy
+    ? spec.policy.filesystem.readableRoots.filter((dir) => dir !== spec.cwd)
+    : (spec.additionalDirectories ?? []);
+  for (const dir of directories) args.push('--add-dir', dir);
   if (spec.model) args.push('--model', spec.model);
   if (spec.effort) args.push('--effort', spec.effort);
-  if (spec.permissionMode) args.push('--permission-mode', spec.permissionMode);
+  const permissionMode = spec.policy?.permissions.claude ?? spec.permissionMode;
+  if (permissionMode) args.push('--permission-mode', permissionMode);
   if (spec.displayName) args.push('-n', spec.displayName);
   return args;
 }

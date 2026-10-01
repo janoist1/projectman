@@ -239,9 +239,9 @@ describe('commands that run without asking: the section', () => {
     expect(codex).not.toContain('Every other shell command');
     expect(codex).toContain('Your sandbox runs commands on its own');
     expect(codex).toContain('an escalation waits in a human inbox');
-    // The session makes the repository's `.git` writable: it is not named as an escalation.
+    // Shared git metadata is not granted as a writable root (PM-131).
     expect(codex).toContain(
-      "(the network, a write anywhere but your working directory and the repository's own .git)",
+      '(the network or a write outside your working directory, including shared git metadata)',
     );
     expect(codex).not.toContain('such as the shared .git');
     expect(codex).not.toContain('shared .git is read-only');

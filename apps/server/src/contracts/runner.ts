@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import type { AgentEffort, AgentProvider, ChatItem, PlanUsage, SessionState } from '@projectman/shared';
+import type { SessionPolicy } from './session-policy';
 
 /**
  * Runs real, interactive agent CLI sessions (Claude Code or OpenAI Codex CLI) in
@@ -57,9 +58,11 @@ export interface StartSessionSpec {
   firstUserOrigin?: 'brief' | 'human';
   /** Team tools endpoint for this session, e.g. http://127.0.0.1:4700/mcp/<token>. */
   mcpUrl: string;
-  /** Tools pre-approved for this session, e.g. ["mcp__team__*"]. */
+  /** Provider-neutral policy; domain starts always supply it, including resumes. */
+  policy?: SessionPolicy;
+  /** Legacy Claude inputs; when policy is present the adapter renders its semantic grants instead. */
   allowedTools: string[];
-  /** Claude Code tool rules refused without asking. */
+  /** Legacy Claude deny rules; superseded by policy.deniedOperations. */
   deniedTools?: string[];
   /** Extra directories the session may read and work in (Claude Code --add-dir). */
   additionalDirectories?: string[];

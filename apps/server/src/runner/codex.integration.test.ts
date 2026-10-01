@@ -13,6 +13,8 @@ import type {
   StartSessionSpec,
 } from '../contracts';
 import { createRunnerModule } from './index';
+import { buildSessionPolicy } from '../domain';
+import { testConfig } from '../../test/helpers/test-template';
 import { FAKE_CLAUDE, FAKE_CODEX, freePort, silentLogger, tempDirs, waitFor } from './test-helpers';
 
 /**
@@ -105,6 +107,13 @@ function spec(extra: Partial<StartSessionSpec> = {}): StartSessionSpec {
     initialMessage: null,
     mcpUrl: 'http://127.0.0.1:1/mcp/token',
     allowedTools: ['mcp__team__*'],
+    policy: buildSessionPolicy({
+      config: testConfig(),
+      role: 'developer',
+      task: { repo: 'web' },
+      permissionMode: extra.permissionMode ?? 'acceptEdits',
+      placement: { kind: 'task_worktree', path: cwd },
+    }),
     member: 'fe-1',
     model: 'opus',
     permissionMode: 'acceptEdits',

@@ -172,6 +172,19 @@ common OpenAI/Azure endpoint overrides from every session's environment.
 
 ## Sandboxes: what the CLIs enforce (PM-126 probe)
 
+The PM-127 policy migration uses semantic grants for both providers. All domain starts,
+including resumed, scheduled and non-task starts, supply `SessionPolicy`; the Codex adapter
+no longer parses Claude tool patterns. Historical `permissionMode` configuration still loads
+and maps centrally. A read-only placement does not become writable through `acceptEdits`,
+`auto` or `bypassPermissions`; explicit `default`/`plan` remain stricter.
+
+This is preparatory: active policies use legacy enforcement. Strict policies currently fail
+before spawning either CLI, rather than silently using legacy settings. The probe versions
+below are evidence for that probe, not certified minimum versions for full PM-87 isolation.
+PM-126 review and PM-49 hook isolation remain activation prerequisites. Decision 24 accepts
+local port binding for tests; it also accepts the resulting local-port reachability described
+below. No live instance settings are changed by this migration.
+
 Probed on 2026-10-01 on macOS 14.6 (arm64) with Claude Code 2.1.284 and codex-cli 0.159.1;
 Linux is not probed yet. `scripts/sandbox-probe.sh` builds the probe area with fictional data
 in the layout projectman uses: a repository with a linked worktree (the agent's working

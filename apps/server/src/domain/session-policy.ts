@@ -1,6 +1,17 @@
 import path from 'node:path';
-import { DUTIES, effectiveRepo, repoOf, roleBundle, roleUsesWorktree } from '@projectman/shared';
+import {
+  effectiveRepo,
+  repoOf,
+  roleSessionAccess,
+  roleSessionTools,
+  sessionPermissions,
+  REVIEW_SHELL_TOOLS,
+  DEVELOPMENT_SHELL_TOOLS,
+  LOCAL_PUBLISHING_OPERATIONS,
+} from '@projectman/shared';
 import type { RoleId, ProjectConfig, Task } from '@projectman/shared';
+import type { SessionPolicy } from '../contracts';
+import { claudeShellRule, claudeToolRules } from '../runner';
 import type { AgentSandbox } from '../contracts';
 import { isWithin } from './command-paths';
 import { editsFilesInPlace, IN_PLACE_EDIT_MESSAGE } from './in-place-edits';
@@ -16,52 +27,15 @@ import { isWorktreeRoutine } from './worktree-commands';
 export const TEAM_TOOLS_ALLOWED = ['mcp__team__*'];
 
 /** Read-only tools reviewers need constantly; pre-approving them avoids a stream of permission requests. */
-export const READ_ONLY_REVIEW_TOOLS = [
-  'Read',
-  'Grep',
-  'Glob',
-  'Bash(git diff:*)',
-  'Bash(git log:*)',
-  'Bash(git show:*)',
-  'Bash(gh pr view:*)',
-  'Bash(gh pr diff:*)',
-  'Bash(git status:*)',
-  'Bash(git rev-parse:*)',
-  'Bash(git merge-base:*)',
-  'Bash(git branch --list:*)',
-  'Bash(npm test:*)',
-  'Bash(npm run test:*)',
-  'Bash(npm run typecheck:*)',
-  'Bash(npx vitest run:*)',
-  'Bash(npx tsc --noEmit:*)',
-  'Bash(npx prettier --check:*)',
-];
+export const READ_ONLY_REVIEW_TOOLS = ['Read', 'Grep', 'Glob', ...REVIEW_SHELL_TOOLS.map(claudeShellRule)];
 
 /** Ordinary development in the task branch; package additions still require permission. */
-export const DEVELOPMENT_TOOLS = [
-  'Bash(git status:*)',
-  'Bash(git diff:*)',
-  'Bash(git log:*)',
-  'Bash(git show:*)',
-  'Bash(git add:*)',
-  'Bash(git commit:*)',
-  'Bash(git merge --ff-only:*)',
-  'Bash(git rev-parse:*)',
-  'Bash(git branch --show-current)',
-  'Bash(npm install)',
-  'Bash(npm ci)',
-  'Bash(npm test:*)',
-  'Bash(npm run test:*)',
-  'Bash(npm run typecheck:*)',
-  'Bash(npm run build:*)',
-  'Bash(npm run format:*)',
-  'Bash(npm run lint:*)',
-  'Bash(npx vitest:*)',
-  'Bash(npx tsc:*)',
-  'Bash(npx prettier:*)',
-];
+export const DEVELOPMENT_TOOLS = DEVELOPMENT_SHELL_TOOLS.map(claudeShellRule);
 
-export const LOCAL_ONLY_DENIED_TOOLS = ['Bash(git push:*)', 'Bash(gh pr create:*)', 'Bash(gh pr merge:*)'];
+export const LOCAL_ONLY_DENIED_TOOLS = claudeToolRules({
+  tools: { team: { all: false, names: [] }, files: [], shell: [] },
+  deniedOperations: [...LOCAL_PUBLISHING_OPERATIONS],
+}).deny;
 
 /**
  * What the task's repository rules out: publishing from a repository without GitHub. The repository
@@ -193,21 +167,62 @@ export interface RoleSessionPolicy {
 
 /** Union of the actual duties, including custom roles and project overrides. */
 export function sessionPolicyFor(role: RoleId, config: Pick<ProjectConfig, 'team'>): RoleSessionPolicy {
-  return {
-    readOnlyTools: roleBundle(config, role).duties.some((id) => DUTIES[id].toolPolicy === 'read_only'),
-    worktree: roleUsesWorktree(config, role),
-  };
+  const { readOnlyTools, worktree } = roleSessionAccess(config, role);
+  return { readOnlyTools, worktree };
 }
 export function allowedToolsFor(role: RoleId, config: Pick<ProjectConfig, 'team'>): string[] {
-  const policy = sessionPolicyFor(role, config);
-  return [
-    ...TEAM_TOOLS_ALLOWED,
-    ...(policy.readOnlyTools ? READ_ONLY_REVIEW_TOOLS : []),
-    ...(policy.worktree ? DEVELOPMENT_TOOLS : []),
-  ];
+  return claudeToolRules({ tools: roleSessionTools(config, role), deniedOperations: [] }).allow;
 }
 export function usesWorktree(role: RoleId, config: Pick<ProjectConfig, 'team'>): boolean {
   return sessionPolicyFor(role, config).worktree;
+}
+
+/** Build intent from actual placement. Strict sandbox enforcement is a separate activation. */
+export function buildSessionPolicy(input: {
+  config: ProjectConfig;
+  role: RoleId;
+  task: Pick<Task, 'repo'> | null;
+  placement: SessionPolicy['placement'];
+  permissionMode?: string;
+  readableRoots?: string[];
+  protectedPaths?: string[];
+}): SessionPolicy {
+  const role = roleSessionAccess(input.config, input.role);
+  const placement = input.placement;
+  if (
+    placement.kind === 'task_worktree' &&
+    (!role.worktree || !input.task || !effectiveRepo(input.config, input.task))
+  )
+    throw new Error('Task worktree placement requires a file-changing duty and a task repository.');
+  if (
+    placement.kind === 'review_copy' &&
+    (!role.reviewCopy || !input.task || !effectiveRepo(input.config, input.task))
+  )
+    throw new Error('Review copy placement requires a review/testing duty and a task repository.');
+  const permissions = sessionPermissions(input.permissionMode, placement.kind);
+  const repo = repoOf(input.config, effectiveRepo(input.config, input.task));
+  return {
+    version: 1,
+    enforcement: 'legacy',
+    access: placement.kind,
+    placement,
+    tools: roleSessionTools(input.config, input.role),
+    filesystem: {
+      readableRoots: [...new Set([placement.path, ...(input.readableRoots ?? [])])],
+      writableRoots: permissions.sandbox === 'workspace-write' ? [placement.path] : [],
+      protectedPaths: [
+        ...new Set([
+          ...(input.protectedPaths ?? []),
+          ...(placement.kind === 'task_worktree' && placement.gitDir ? [placement.gitDir] : []),
+        ]),
+      ],
+    },
+    deniedOperations: repo && !repo.github ? [...LOCAL_PUBLISHING_OPERATIONS] : [],
+    // No network widening: adapters retain their current enforcement until PM-128/129/130.
+    network: { allowedDomains: [], allowLocalBinding: false },
+    outsideSandbox: 'ask',
+    permissions,
+  };
 }
 
 /** Delay before a done task's sessions are stopped, so an in-flight tool result still reaches the agent. */

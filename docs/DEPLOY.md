@@ -117,6 +117,15 @@ that opens their PRs. Restart after a manual config edit. GitHub polling matches
 login case-insensitively and persists that member as PR author for the no-self-review
 rule. The login is returned in `MemberView`; editing it currently uses config only.
 
+## Sandbox rollout prerequisite (PM-87)
+
+The provider-neutral policy migration does not activate strict sandboxes or change the live
+instance. Current policies retain legacy enforcement; strict intent fails startup instead of
+falling back. Do not treat the PM-126 probe versions as certified deployment minimums: its
+review, provider adapters, hook isolation (PM-49), disposable copies and the final PM-130
+matrix must pass before activation. The documented local-port exception is decision 24.
+Changing the owner's live instance still requires approval for that exact update.
+
 ## Backups and updates
 
 For a consistent backup, stop the service and archive **all of `PROJECTMAN_HOME`**,

@@ -304,6 +304,21 @@ SQLite tables: `users`, `auth_sessions`, `invitations`, `projects`, `counters`, 
 `schedule_runs`, `deferred_starts`, `attachments`. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
 the server refuses a database a newer build migrated.
 
+## Session policy migration (PM-87 / PM-127)
+
+`contracts/session-policy.ts` is the provider-neutral session intent: placement, semantic team,
+file and shell tool grants, roots, protected paths, denied operations, network intent and
+outside-sandbox handling. Pure duty/access rules and the historical `permissionMode` mapping
+live in `packages/shared/src/config/session-policy.ts`. The domain builds a fresh policy from
+the actual placement on every start/resume and supplies the same object to the context pack
+and runner. Claude renders its tool syntax; Codex consumes team tool names directly.
+
+The active enforcement remains `legacy`; this migration does not enable strict isolation or
+remove the command broker. `strict` intent is refused by both adapters until their verified
+implementation is available. A reading placement caps edit modes to `default` (preserving
+`plan`), and never receives a writable root. A review-copy placement carries its independent
+git directory, source commit and round id; creation/cleanup belongs to PM-132.
+
 ## GitHub
 
 Tasks live in our database (decision 9); GitHub is used for pull requests, reviews, checks

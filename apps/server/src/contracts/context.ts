@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
+import type { SessionPolicy } from './session-policy';
 import type {
   AiMemberConfig,
   MemberView,
@@ -15,6 +16,8 @@ import type {
  */
 
 export interface ContextPackInput {
+  /** Rebuilt from actual placement for every start, including resumes. */
+  sessionPolicy?: SessionPolicy;
   project: ProjectConfig;
   member: AiMemberConfig;
   workItem: WorkItemRef;

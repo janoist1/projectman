@@ -23,7 +23,7 @@ const ROLE_LABELS: Record<BuiltInRoleId, string> = {
   project_manager: 'project manager',
   business_analyst: 'business analyst',
   architect: 'architect',
-  designer: 'designer',
+  designer: 'UI/UX designer',
   developer: 'developer',
   lead_developer: 'lead developer',
   code_review: 'code reviewer',

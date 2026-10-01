@@ -1133,6 +1133,17 @@ describe('expected steps', () => {
     );
   });
 
+  it('names the built-in designer role UI/UX designer in the system prompt', () => {
+    const project = buildProject();
+    const member = addMember(project, 'member', 'designer', { displayName: 'Member' });
+    (project.pipeline.stages.find((s) => s.id === 'dev')!.owners ??= []).push(member.handle);
+    const pack = builder.build(
+      input({ project, handle: 'member', task: makeTask({ stageId: 'dev', assignee: 'member' }) }),
+    );
+    expect(roleLabel('designer')).toBe('UI/UX designer');
+    expect(pack.appendSystemPrompt).toContain('the UI/UX designer of the Acme Web team');
+  });
+
   it.each(AI_BUILT_IN_ROLE_IDS)('gives the %s concrete steps with the team tools', (role) => {
     const project = buildProject();
     const member = addMember(project, 'member', role, { displayName: 'Member' });

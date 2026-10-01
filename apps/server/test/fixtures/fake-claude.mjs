@@ -35,7 +35,8 @@
  *   "[Request interrupted by user]" and sends no Stop hook, like Claude Code).
  * - A submitted prompt: UserPromptSubmit hook (a "block" decision drops it), user entry, then
  *   after FAKE_CLAUDE_WORK_DELAY_MS (default 50; 800 if the prompt contains "SLOW"):
- *   - contains "PERMISSION": tool_use Bash {command:"git push"}, PreToolUse, then (unless an
+ *   - contains "PERMISSION": tool_use Bash {command:"git push", or FAKE_CLAUDE_PERMISSION_COMMAND},
+ *     PreToolUse, then (unless an
  *     allow rule matches) a PermissionRequest hook with permission_suggestions; "allow" runs
  *     it (tool_result "Everything up-to-date", PostToolUse), "deny" writes an error
  *     tool_result with the message; no decision asks in the terminal (y/n).
@@ -573,7 +574,7 @@ async function interactive() {
     if (text.includes('PERMISSION')) {
       const ok = await toolCall(
         'Bash',
-        { command: 'git push', description: 'Push the branch' },
+        { command: process.env.FAKE_CLAUDE_PERMISSION_COMMAND ?? 'git push', description: 'Push the branch' },
         'Everything up-to-date',
         {
           stdout: 'Everything up-to-date',

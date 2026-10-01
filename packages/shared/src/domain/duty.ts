@@ -50,7 +50,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'direction',
     holders: 'both',
     prompt:
-      'Decide delegated external operations with decide_boundary_request after checking the exact target and scope. Never decide your own request. Cost, production or release or main publication, new accounts or secrets, and permanent host boundary expansion belong to the owner. Gates and release approvals remain human-only. Use get_boundary_request to inspect requests; late decisions are refused.',
+      'Decide delegated external operations with decide_boundary_request after checking the exact target and scope. Never decide your own request. Cost, production or release or main publication, new accounts or secrets, and permanent host boundary expansion belong to the owner. Gates and release approvals remain human-only. Use get_boundary_request to inspect requests; late decisions are refused. A team message may also hand you a permission request of another member (a tool call its CLI asks about): read its exact content and answer it with decide_permission_request, always with a reason. Allow only a routine step that plainly belongs to the task, deny what plainly does not, and escalate the rest to a person. Always escalate: spending money; new accounts, tokens or secrets; a lasting widening of what the host reaches; the live system, a release, publishing or main; a request you cannot read completely or fully understand; your own requests. A request that is cut off or unclear is never allowed.',
     toolPolicy: 'read_only',
     meetings: [],
     events: [],

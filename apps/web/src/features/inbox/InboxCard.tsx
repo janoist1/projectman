@@ -13,6 +13,7 @@ import { joinNames, t } from '../../i18n/t';
 import {
   FREE_ANSWER_OPTION_ID,
   boundaryOf,
+  delegationNote,
   gateMoveText,
   inboxHeading,
   optionLabel,
@@ -83,6 +84,7 @@ export function InboxCard({
   const buttonSize = mobile ? 'xl' : 'lg';
   const extras = questionExtras(item);
   const boundary = boundaryOf(item);
+  const delegation = delegationNote(item, members, myHandle);
   const [boundaryReason, setBoundaryReason] = useState<BoundaryReason>('scope_verified');
   // A question that recommends an option or describes what each one does lists its options with
   // that text; every other item keeps its row of buttons.
@@ -171,6 +173,7 @@ export function InboxCard({
           <code className={styles.code}>{code}</code>
         </div>
       ) : null}
+      {delegation ? <p className={styles.others}>{delegation}</p> : null}
       {assignedToOthers ? (
         <p className={styles.others}>
           <Icon name="user" size={14} />

@@ -71,10 +71,32 @@ on its own only where the CLI does not cover a case or the owner asked for it.
 - **When the CLI asks anyway** (the `PermissionRequest` hook), `InboxService.decide` answers:
   1. `commandVerdict` first (publishing denied, routine steps and read-only commands allowed);
   2. then the member's `approver`: `human` (or none stored) puts the question in the sponsor's or
-     owner's inbox, as before; `ai` is decided like `human` until PM-169; `none` refuses at once with
+     owner's inbox, as before; `none` refuses at once with
      no inbox item, and the agent is told not to retry in another form and to use `ask_human` with
      a reason if it really needs it (`APPROVER_NONE_REFUSAL`). The refusal is a `permission_refused`
-     timeline event (`by: 'approver_none'`).
+     timeline event (`by: 'approver_none'`); `ai` (PM-169) is the next section.
+- **The AI decider (PM-169, `approver: 'ai'`).** `routePermissionRequest` (`packages/shared`) sends
+  the question to the AI members holding `boundary_authorization` (never the member itself, never one
+  on leave, only with `team.boundary.enabled`), unless it is one of the owner's categories: then,
+  and when no such decider is at work, it goes to the sponsor or an owner exactly as for `human`.
+  `permissionOwnerCategory` reads the text of the request (publishing, a release or deploy, the
+  live instance and its port, credentials, `sudo`/`launchctl`/`brew`/`chmod` and other lasting
+  changes of the host, a file tool writing outside the session's directories); it is a cautious
+  filter, not proof, and the decider's duty text sends doubtful cases to a person anyway. The
+  item is a `permission` item assigned to the decider, with `payload.delegation` (`pending_lead`,
+  `leads`, `leadDeadline` after `team.boundary.leadTimeoutSeconds`); the owner does not see it as
+  waiting, may still answer it, and sees the decision under the recent items. The decider is woken
+  by a team message with the exact input (`permission_delegated` domain event) and answers with the
+  team tool `decide_permission_request` (`allow`, `deny` or `escalate`, a reason is required;
+  `InboxService.resolveDelegated`, the one way an AI resolves an inbox item, only for a delegated
+  permission item and only for a chosen, live, independent decider before the deadline,
+  `canDecidePermission`). The hook keeps waiting up to `permissionTimeoutMs`; an `escalate`, the
+  deadline, a decider that went on leave or delegation switched off hand the item to the
+  sponsor or owners (`payload.delegation.state` `pending_owner`, a `permission_escalated` event;
+  `InboxService.sweepDelegations` runs every second and on configuration changes). Nothing
+  here is ever an allowance by itself. The decision is a `permission_resolved` event in the
+  decider's name with `delegated: true` and the reason, and the inbox item's resolution carries
+  who, when and the reason.
 - **Auto mode's own refusals.** The `PermissionDenied` hook (in `HTTP_HOOK_EVENTS`; payload
   `tool_name`, `tool_input`, `denial_reason`) fires when the classifier refuses a call; the
   runner passes it to `PermissionBroker.refused`, which writes a `permission_refused` event

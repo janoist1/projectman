@@ -60,6 +60,11 @@ still waiting for a lead. Human REST decisions use `routes.decideBoundary`, insp
 cannot decide boundary requests and remains human-only. Reasons are structured codes rather
 than free text, so no credentials enter an explanation or audit record.
 
+The same duty holders also decide a CLI's own permission question for a member whose approver is
+`ai` (PM-169): that is a `permission` inbox item, not a boundary request, and has its own tool,
+`decide_permission_request`, with a free-text reason (shown on the timeline and the inbox item), the
+same lead deadline and the same owner exceptions as categories. See PROVIDERS.md.
+
 Requests wait for a lead or an owner, then become allowed/denied/expired/revoked. The deadline
 sweep runs at startup and once per second, and decision/read/consume revalidate immediately.
 The absolute deadline never resets on retries or restart. Escalation never grants permission.

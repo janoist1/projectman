@@ -42,6 +42,7 @@ export const TEAM_TOOL_NAMES = [
   'submit_boundary_request',
   'get_boundary_request',
   'decide_boundary_request',
+  'decide_permission_request',
   'list_network_denials',
   'send_message',
   'list_members',
@@ -183,6 +184,27 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     async run({ ctx, args, handler }) {
       return JSON.stringify(
         await handler.decideBoundaryRequest(ctx, {
+          requestId: args.request_id,
+          decision: args.decision,
+          reason: args.reason,
+        }),
+      );
+    },
+  }),
+  defineTool({
+    name: 'decide_permission_request',
+    title: 'Decide a delegated permission request',
+    readOnly: false,
+    description:
+      "Answer a member's permission request that a team message handed to you as its decider: the tool call its CLI asks about, with its exact input. Read it completely first. allow only a routine step that plainly belongs to the task; deny what plainly does not; escalate everything else, which hands it to a person. Always escalate spending, new accounts, tokens or secrets, a lasting widening of what the host reaches, the live system, a release, publishing or main, a request that is cut off or unclear, and your own requests. The reason is required, short and without secrets: it is shown to the owner and the member. Only the decider of that request may answer, before its deadline; late answers are refused and never mean permission.",
+    input: {
+      request_id: BoundaryId,
+      decision: z.enum(['allow', 'deny', 'escalate']),
+      reason: z.string().trim().min(1).max(MAX_REASON_CHARS),
+    },
+    async run({ ctx, args, handler }) {
+      return JSON.stringify(
+        await handler.decidePermissionRequest(ctx, {
           requestId: args.request_id,
           decision: args.decision,
           reason: args.reason,

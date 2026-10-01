@@ -125,6 +125,38 @@ describe('the message storm alert', () => {
       ).toBeNull();
     });
 
+    /** The alerts raised for a conversation entry by entry, each seen (closed) at once. */
+    const alertsFor = (minutes: number[]) => {
+      const raised: string[] = [];
+      const written: { createdAt: string; actor: string }[] = [];
+      for (const m of minutes) {
+        const now = new Date(NOW.getTime() + m * 60_000);
+        written.push({ createdAt: now.toISOString(), actor: 'owner' });
+        const alert = messageBurstAlertFor({
+          taskKey: 'AR-1',
+          burst: DEFAULT_MESSAGE_BURST,
+          now,
+          entries: written,
+          earlier: raised.map((at) => ({ open: false, at })),
+        });
+        if (alert) raised.push(alert.at);
+      }
+      return raised;
+    };
+
+    it('stays quiet for a storm near the threshold, whose old entries keep the windows hot', () => {
+      // One entry every 95 seconds for about two hours: 9 or 10 in every window.
+      expect(alertsFor(Array.from({ length: 80 }, (_, i) => (i * 95) / 60))).toHaveLength(1);
+      // Ten at once every quarter of an hour.
+      expect(alertsFor(Array.from({ length: 80 }, (_, i) => Math.floor(i / 10) * 15))).toHaveLength(1);
+    });
+
+    it('speaks again for a storm after a whole quiet window', () => {
+      const storm = (from: number) => Array.from({ length: 10 }, (_, i) => from + i);
+      expect(alertsFor([...storm(0), ...storm(40)])).toHaveLength(2);
+      expect(alertsFor([...storm(0), ...storm(20)])).toHaveLength(1);
+    });
+
     it('does not take a list cut short for a quiet one', () => {
       // The list begins at 12:50: what came before is unknown, and the storm there may be on.
       const at = (m: number) => new Date(NOW.getTime() + m * 60_000);

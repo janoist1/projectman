@@ -47,13 +47,16 @@ export class MessageBurstWatch {
       const payload = alertPayloadOf(item);
       return payload?.alert === 'message_burst' ? [{ open: item.state === 'open', at: payload.at }] : [];
     });
-    // With an earlier alert the whole conversation since it is needed, to find a quiet window in it;
-    // a list cut short begins later, and the rule is told where.
+    // With an earlier alert the whole conversation since it is needed, to find a quiet window in it,
+    // and the window before it too, as those entries keep the windows after the alert hot; a list
+    // cut short begins later, and the rule is told where.
     const lastAlert = earlier.reduce<string | null>((at, a) => (at === null || a.at > at ? a.at : at), null);
     const entries = this.ctx.repos.timeline.talkSince(
       projectKey,
       taskKey,
-      lastAlert ?? messageBurstSince(burst, now),
+      lastAlert === null
+        ? messageBurstSince(burst, now)
+        : messageBurstSince(burst, new Date(Date.parse(lastAlert))),
       TALK_LIMIT,
     );
     const payload = messageBurstAlertFor({

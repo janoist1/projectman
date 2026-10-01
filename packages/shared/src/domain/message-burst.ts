@@ -58,15 +58,16 @@ function hadQuietWindow(times: readonly number[], from: number, burst: MessageBu
 /**
  * The alert a card's conversation calls for now, or null. `entries` are the card's, the most
  * recent ones, oldest first, at least those of the window ending at `now` and, when there is an
- * earlier alert, those since the last one was raised; `coveredFrom` (ISO time) is where they begin
- * when the list was cut short, else they are taken to cover everything. `earlier` are the card's
- * message storm alerts so far (open or not, `at` being the `at` of their payload).
+ * earlier alert, those since a window before the last one was raised; `coveredFrom` (ISO time) is
+ * where they begin when the list was cut short, else they are taken to cover everything.
+ * `earlier` are the card's message storm alerts so far (open or not, `at` being the `at` of their
+ * payload).
  *
  * One alert per storm: none while an earlier one is open. Once it is closed the next one comes
- * only when the entries since the last alert was raised show a whole window of quiet (a stretch of
- * `minutes` minutes in which fewer than `count` entries fell in any window) before the storm that
- * is on now; the entries before that alert belong to its storm and do not count. A storm that goes
- * on after the owner has seen its alert therefore raises nothing more.
+ * only when a whole window of quiet followed the last alert (a stretch of `minutes` minutes in
+ * which fewer than `count` entries fell in any window) before the storm that is on now. The
+ * entries up to that alert are not counted in the new one, but they keep the windows just after it
+ * hot. A storm that goes on after the owner has seen its alert therefore raises nothing more.
  */
 export function messageBurstAlertFor(input: {
   taskKey: string;
@@ -79,16 +80,18 @@ export function messageBurstAlertFor(input: {
   const { burst, earlier } = input;
   if (earlier.some((alert) => alert.open)) return null;
   const lastAlert = Math.max(...earlier.map((alert) => Date.parse(alert.at)));
-  // Only what was written after the last alert counts (the entry that raised it belongs to it).
-  const entries = earlier.length
-    ? input.entries.filter((entry) => Date.parse(entry.createdAt) > lastAlert)
-    : input.entries;
+  // Only what was written after the last alert is counted (the entry that raised it belongs to it).
   const windowStart = Date.parse(messageBurstSince(burst, input.now));
-  const counted = entries.filter((entry) => Date.parse(entry.createdAt) >= windowStart);
+  const counted = input.entries.filter((entry) => {
+    const at = Date.parse(entry.createdAt);
+    return at >= windowStart && (earlier.length === 0 || at > lastAlert);
+  });
   if (counted.length < burst.count) return null;
   if (earlier.length) {
+    // The quiet is looked for from the alert on, but the entries before it still make the windows
+    // after it hot for up to a window, so they are in the list the walk goes through.
     const covered = input.coveredFrom ? Date.parse(input.coveredFrom) : lastAlert;
-    const times = entries.map((entry) => Date.parse(entry.createdAt));
+    const times = input.entries.map((entry) => Date.parse(entry.createdAt)).sort((a, b) => a - b);
     if (!hadQuietWindow(times, Math.max(lastAlert, covered), burst)) return null;
   }
   return {

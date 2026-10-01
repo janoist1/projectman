@@ -12,7 +12,8 @@ import { MAX_CLIENT_HELLO_BYTES, parseClientHello } from './sni';
 /** The account and session of a connection, or why it has none. */
 export type ProxyIdentity<I> = { identity: I } | { denial: EgressDenial };
 export type ProxyDecision =
-  { allowed: true } | { allowed: false; denial: EgressDenial; operationId: string | null };
+  /** `tag` groups tunnels that one revocable permission opened (an allowance id). */
+  { allowed: true; tag?: string } | { allowed: false; denial: EgressDenial; operationId: string | null };
 
 export interface PeerAddress {
   remoteAddress: string;
@@ -90,6 +91,8 @@ export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
   let listening = false;
   /** CONNECT sockets leave the HTTP server's bookkeeping: closing the proxy ends them here. */
   const open = new Set<Duplex>();
+  /** Open tunnels by the permission that opened them, so revoking it ends them. */
+  const byTag = new Map<string, Set<Duplex>>();
 
   const server = http.createServer((req, res) => {
     // Plain HTTP proxying is not offered: only TLS tunnels, whose server name is checked.
@@ -194,11 +197,21 @@ export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
     }
     socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
     tunnels += 1;
+    const tag = decision.tag ?? null;
+    if (tag) {
+      const tagged = byTag.get(tag) ?? new Set<Duplex>();
+      tagged.add(socket);
+      byTag.set(tag, tagged);
+    }
     let released = false;
     const release = () => {
       if (!released) {
         released = true;
         tunnels -= 1;
+        if (tag) {
+          byTag.get(tag)?.delete(socket);
+          if (byTag.get(tag)?.size === 0) byTag.delete(tag);
+        }
       }
     };
     socket.on('close', release);
@@ -259,5 +272,12 @@ export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
     },
     listening: () => listening && server.listening,
     address: () => server.address(),
+    /** Ends every open tunnel a revoked permission opened. */
+    closeTagged(tag: string): number {
+      const tagged = [...(byTag.get(tag) ?? [])];
+      for (const socket of tagged) socket.destroy();
+      byTag.delete(tag);
+      return tagged.length;
+    },
   };
 }

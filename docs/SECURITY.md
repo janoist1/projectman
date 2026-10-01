@@ -257,7 +257,8 @@ run a fixed probe as a worker in its real unit, with root's positive controls):
 
 What it does not establish: a worker can read its own session's tokens and its own login (the CLI
 runs as the worker), and reach other workers' loopback listeners; data can leave to an allowed
-destination; a revoked allowance does not cut a tunnel already open; the readiness report is at
+destination; an expiring allowance does not cut a tunnel open at that moment (a revoked one
+does); the readiness report is at
 most two hours old, so a change made in between shows on the next report; the boundary does not
 defend against root, the admin, the hypervisor or a kernel flaw. Each worker's subscription login
 is the owner's choice pending on PM-140 (per-worker logins as implemented).

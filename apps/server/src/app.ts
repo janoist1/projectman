@@ -276,13 +276,25 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       planUsageTtlMs: options.planUsageTtlMs,
       doneCleanupDelayMs: options.doneCleanupDelayMs,
     });
-    if (boundaryConfig)
-      egressProxy = createManagedEgressProxy({
+    if (boundaryConfig) {
+      const proxy = createManagedEgressProxy({
         config: boundaryConfig,
         logger: log.child({ module: 'egress' }),
         resolveToken: (token) => domain.sessions.resolveEgressToken(token),
-        authorize: (identity, destination) => domain.egress.authorize(identity, destination),
+        async authorize(identity, destination) {
+          const decision = await domain.egress.authorize(identity, destination);
+          if (!decision.allowed) return decision;
+          return decision.allowanceId ? { allowed: true, tag: decision.allowanceId } : { allowed: true };
+        },
       });
+      // A revoked allowance ends its open tunnels too, not only new connections.
+      domain.ctx.events.on('egress_allowance_revoked', (allowance) => {
+        const closed = proxy.closeTagged(allowance.id);
+        if (closed > 0)
+          log.info({ allowanceId: allowance.id, closed }, 'closed egress tunnels of a revoked allowance');
+      });
+      egressProxy = proxy;
+    }
     const mcpModule = (modules.createMcpModule ?? createMcpModule)({
       handler: domain.teamTools,
       // O(1) in-memory lookup: runs on every MCP request.

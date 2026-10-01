@@ -318,8 +318,8 @@ the human steps above, with two workers logged in. Record each result on the car
     operation id. A lead (or the owner in the inbox) allows it. Then the same `curl` works, but
     `curl -m 5 https://example.com:8443` and `curl -m 5 https://www.example.com` are refused, and
     another member's session is refused too. `GET /api/projects/<key>/egress` lists the allowance;
-    `POST /api/projects/<key>/egress/<id>/revoke` closes it, and the next `curl` is refused
-    (a tunnel already open stays until it closes). Restart the service: an unrevoked allowance still
+    `POST /api/projects/<key>/egress/<id>/revoke` closes it: a download still running through it
+    stops, and the next `curl` is refused. Restart the service: an unrevoked allowance still
     works. With `EGRESS_GRANT_HOURS=1` (bootstrap again), it is refused after an hour.
 16. **Fail closed**: `sudo systemctl stop projectman-launcher.socket projectman-launcher.service`;
     a new session start in the browser is refused (`runtime_boundary_not_ready`); start the socket
@@ -369,8 +369,8 @@ changing `profile.env`, the shared `VM_PROFILE_VERSION` if a check changed, and 
   HTTPS from `tailscale0`), but it is reachable from loopback by every account of the machine.
 - An allowed destination can carry anything the session sends it; a base destination such as
   GitHub can be read anonymously but takes nothing without a login, and no GitHub login is in a
-  worker home. Revoking an allowance refuses new connections; a tunnel already open stays until it
-  closes (at most 10 minutes idle).
+  worker home. Expiry refuses new connections; a tunnel open at that moment runs on until it closes
+  (at most 10 minutes idle). Revoking ends it at once.
 - Only TLS goes through the proxy (no plain HTTP, no SSH): a tool that needs another protocol is a
   case for the owner. Programs that ignore the proxy settings fail.
 - Points to confirm on the real guest (the trial records them): the exit status `systemd-run --pty

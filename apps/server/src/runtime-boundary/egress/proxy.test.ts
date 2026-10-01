@@ -134,6 +134,22 @@ describe('the egress proxy', () => {
     socket.destroy();
   });
 
+  it('ends the open tunnels of a revoked permission, and only those', async () => {
+    const hello = await captureClientHello('docs.example.org');
+    decision = { allowed: true, tag: 'egw_1' };
+    const tagged = await connectThrough('docs.example.org:443');
+    tagged.socket.write(hello);
+    decision = { allowed: true };
+    const base = await connectThrough('docs.example.org:443');
+    base.socket.write(hello);
+    await until(() => received.length >= hello.length * 2);
+    expect(proxy.closeTagged('egw_1')).toBe(1);
+    await closed(tagged.socket);
+    expect(base.socket.destroyed).toBe(false);
+    expect(proxy.closeTagged('egw_1')).toBe(0);
+    base.socket.destroy();
+  });
+
   it('keeps the bytes a client sends right after its ClientHello (early data)', async () => {
     const hello = await captureClientHello('docs.example.org');
     const { socket } = await connectThrough('docs.example.org:443');

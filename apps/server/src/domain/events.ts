@@ -1,5 +1,13 @@
 import type { FastifyBaseLogger } from 'fastify';
-import type { Actor, InboxItem, Session, Task, TimelineEvent, WorkItemRef } from '@projectman/shared';
+import type {
+  Actor,
+  EgressAllowance,
+  InboxItem,
+  Session,
+  Task,
+  TimelineEvent,
+  WorkItemRef,
+} from '@projectman/shared';
 import type { ConfigChange } from './projects';
 import type { StageChange } from './tasks';
 
@@ -26,6 +34,8 @@ export interface DomainEventMap {
   session_ended: Session;
   /** A stored message waits for an AI recipient that has no running session for its work item. */
   message_waiting: { projectKey: string; handle: string; workItem: WorkItemRef; messageId: string };
+  /** An owner closed a network allowance (PM-140): the egress proxy ends its open tunnels. */
+  egress_allowance_revoked: EgressAllowance;
 }
 
 export type DomainEventType = keyof DomainEventMap;

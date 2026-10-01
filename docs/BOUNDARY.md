@@ -21,7 +21,8 @@ destination, it consumes the allowed grant through `BoundaryService.consume` and
 allowance (`egress_allowances`) in the same transaction. The allowance opens that host and port for
 the member in the project, in any of its later sessions, until the expiry. Owners list allowances
 with `routes.egressAllowances` and close one with `routes.revokeEgressAllowance`, which appends a
-`boundary_changed` event (`revoked`, `owner_revoked`). A member on leave, removed, or with AI work
+`boundary_changed` event (`revoked`, `owner_revoked`) and ends the tunnels the allowance opened
+(domain event `egress_allowance_revoked`). A member on leave, removed, or with AI work
 switched off is refused whatever it was allowed.
 
 The additive shared contracts are `BoundaryTarget`, `BoundaryRequest`, `BoundaryGrant`,

@@ -153,7 +153,7 @@ export class EgressService {
     this.requireOwner(await this.projects.config(projectKey), handle);
     const current = this.ctx.repos.egress.allowance(id);
     if (!current || current.projectKey !== projectKey) throw notFound('egress allowance', id);
-    return this.ctx.unitOfWork(() => {
+    const closed = this.ctx.unitOfWork(() => {
       const at = this.ctx.now().toISOString();
       const revoked = this.ctx.repos.egress.revokeAllowance(id, at, handle);
       if (!revoked) throw conflict('inbox_item_closed', 'the allowance is already closed');
@@ -177,6 +177,9 @@ export class EgressService {
       });
       return revoked;
     });
+    // The proxy ends the tunnels the allowance opened (after the commit, so nothing reopens them).
+    void this.ctx.events.emit('egress_allowance_revoked', closed);
+    return closed;
   }
 
   private memberActive(config: ProjectConfig, handle: string): boolean {

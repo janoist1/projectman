@@ -55,6 +55,8 @@ export interface ClaudeSandboxSettings {
   failIfUnavailable: true;
   filesystem: { allowWrite: string[]; denyWrite?: string[]; denyRead?: string[]; allowRead?: string[] };
   network: { allowedDomains: string[]; strictAllowlist: true; allowLocalBinding: boolean };
+  /** Environment variables unset for sandboxed commands (`mode: "deny"`, PM-153). */
+  credentials?: { envVars: Array<{ name: string; mode: 'deny' }> };
   /** Commands run outside the sandbox, asked or allowed by the permission rules as any other. */
   excludedCommands?: string[];
 }
@@ -126,6 +128,13 @@ export function buildSandboxSettings(sandbox: AgentSandbox): ClaudeSandboxSettin
       strictAllowlist: true,
       allowLocalBinding: sandbox.allowLocalBinding,
     },
+    ...(sandbox.deniedEnvVars?.length
+      ? {
+          credentials: {
+            envVars: [...new Set(sandbox.deniedEnvVars)].map((name) => ({ name, mode: 'deny' as const })),
+          },
+        }
+      : {}),
     ...(sandbox.excludedCommands?.length ? { excludedCommands: [...sandbox.excludedCommands] } : {}),
   };
 }
@@ -134,17 +143,19 @@ export function buildSandboxSettings(sandbox: AgentSandbox): ClaudeSandboxSettin
 const PLAIN_RULE_PATH = /^\/[\w./@+~ -]*$/;
 
 /**
- * Deny rules for the built-in file tools on the sandbox's `denyWrite` directories (PM-167): the
- * sandbox binds only the shell, so `Edit` (which also covers `Write` and `NotebookEdit`) is denied
- * there by a rule, in every mode. A path a rule cannot name as it is refuses the start: it would
- * leave the directory writable for the file tools.
+ * Deny rules for the built-in file tools on the sandbox's `denyWrite` paths (PM-167): the sandbox
+ * binds only the shell, so `Edit` (which also covers `Write` and `NotebookEdit`) is denied there by
+ * a rule, in every mode. A path is a directory (a reader's working directory) or a file (a shared
+ * git directory's `HEAD`, PM-153), so both the path and everything below it are named. A path a
+ * rule cannot name as it is refuses the start: it would stay writable for the file tools.
  */
 export function denyWriteRules(sandbox: AgentSandbox | undefined): string[] {
-  return (sandbox?.denyWrite ?? []).map((dir) => {
-    if (!PLAIN_RULE_PATH.test(dir))
-      throw new Error(`Cannot keep ${JSON.stringify(dir)} read-only with a rule; refusing to start.`);
+  return (sandbox?.denyWrite ?? []).flatMap((target) => {
+    if (!PLAIN_RULE_PATH.test(target))
+      throw new Error(`Cannot keep ${JSON.stringify(target)} read-only with a rule; refusing to start.`);
     // An absolute path in a rule starts with `//`; `**` takes everything below.
-    return `Edit(/${dir.replace(/\/+$/, '')}/**)`;
+    const rulePath = `/${target.replace(/\/+$/, '')}`;
+    return [`Edit(${rulePath})`, `Edit(${rulePath}/**)`];
   });
 }
 

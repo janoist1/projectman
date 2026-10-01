@@ -151,6 +151,8 @@ export interface DomainOptions {
   memberWorkspaces?: MemberWorkspaceManager;
   /** The installation's home (PROJECTMAN_HOME); its sensitive parts are denied to the agents' file tools. */
   appHome?: string;
+  /** The user's home (default `os.homedir()`); a developer's sandbox reads nothing below it but its own (PM-153). */
+  userHome?: string;
   /** Where member workspaces live: a developer's routine steps there run without asking, as in a worktree. */
   workspacesRootDir?: string;
   /** Whether a process group still runs (tests replace it): a workspace reservation outlives a restart until it is gone. */
@@ -252,6 +254,7 @@ export function createDomain(opts: DomainOptions) {
     managedVm: opts.managedVm,
     standby: opts.standby,
     appHome: opts.appHome,
+    userHome: opts.userHome,
     // `boundary` is built below; the callback only runs when a session starts.
     onExecutionProfileChange: (projectKey, sessionId) => boundary.invalidateSession(projectKey, sessionId),
     usageAlerts: new UsageAlerts({ ctx, projects, inbox }),

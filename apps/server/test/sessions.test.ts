@@ -1,6 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { execFile } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { realpath } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ServerEvent } from '@projectman/shared';
-import { allowedToolsFor, DomainError, LOCAL_ONLY_DENIED_TOOLS, WORKTREE_SANDBOX } from '../src/domain';
+import type { AttachmentStorage } from '../src/contracts';
+import {
+  allowedToolsFor,
+  DomainError,
+  LOCAL_ONLY_DENIED_TOOLS,
+  SANDBOX_DENIED_ENV_VARS,
+  sensitivePaths,
+} from '../src/domain';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { testConfig } from './helpers/test-template';
@@ -225,10 +238,14 @@ describe('session orchestrator', () => {
       filesystem: { readableRoots: [dev.session.cwd], writableRoots: [] },
     });
     // Work in its own worktree runs in the OS sandbox, so its shell commands do not ask; the shell
-    // does not read the credentials and the live data either (PM-167).
+    // does not read the credentials and the live data either (PM-167). Its paths: see below (PM-153).
     const deniedPaths = h.runner.lastStarted().policy!.filesystem.deniedPaths!;
     expect(deniedPaths).toContainEqual(expect.stringMatching(/\/\.ssh$/));
-    expect(h.runner.lastStarted().sandbox).toEqual({ ...WORKTREE_SANDBOX, denyRead: deniedPaths });
+    expect(h.runner.lastStarted().sandbox).toMatchObject({
+      denyRead: expect.arrayContaining(deniedPaths),
+      allowedDomains: ['registry.npmjs.org'],
+      allowLocalBinding: true,
+    });
     expect(h.runner.lastStarted().deniedTools).toEqual(files.deny);
     expect(h.domain.tasks.get('AR', withRepo.key).links).toContainEqual({
       kind: 'branch',
@@ -351,5 +368,126 @@ describe('session orchestrator', () => {
     h.repos.sessions.update(session.id, { state: 'working' }); // simulate a crash: the row still says working
     h.domain.sessions.reconcileAfterRestart();
     expect(h.domain.sessions.get('AR', session.id).state).toBe('exited');
+  });
+});
+
+describe("a developer's sandbox reads only its own work (PM-153)", () => {
+  let h: DomainHarness | undefined;
+  let home: string;
+  let appHome: string;
+  beforeEach(() => {
+    // Fictional homes: nothing is read from or written to them, the paths only go into the spec.
+    home = mkdtempSync(join(tmpdir(), 'pm-user-home-'));
+    appHome = mkdtempSync(join(tmpdir(), 'pm-app-home-'));
+  });
+  afterEach(async () => {
+    await h?.cleanup();
+    h = undefined;
+    rmSync(home, { recursive: true, force: true });
+    rmSync(appHome, { recursive: true, force: true });
+  });
+
+  /** What every developer reads below its home besides its own directories. */
+  const homeReads = () =>
+    ['.gitconfig', '.config/git', '.npm', '.projectman-dev', '.claude/shell-snapshots'].map((name) =>
+      join(home, name),
+    );
+  const common = () => ({
+    allowWrite: [join(home, '.npm'), join(home, '.projectman-dev')],
+    deniedEnvVars: SANDBOX_DENIED_ENV_VARS,
+    allowedDomains: ['registry.npmjs.org'],
+    allowLocalBinding: true,
+  });
+
+  it('closes the homes, opens its worktree, the attachments and the shared git, and never writes the default branch', async () => {
+    h = await createDomainHarness({ userHome: home, appHome });
+    const task = await h.domain.tasks.create('AR', { title: 'With repo', repo: 'web' }, OWNER_ACTOR);
+    await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: task.key });
+    const spec = h.runner.lastStarted();
+    const gitDir = join(h.workspace, '.git');
+    const attachments = await h.attachmentStorage.taskDirectory('AR', task.key);
+    expect(spec.policy!.placement).toMatchObject({ kind: 'task_worktree', path: spec.cwd, gitDir });
+    expect(spec.sandbox).toEqual({
+      ...common(),
+      denyWrite: [
+        join(gitDir, 'refs/heads/main'),
+        join(gitDir, 'refs/heads/main.lock'),
+        join(gitDir, 'HEAD'),
+        join(gitDir, 'HEAD.lock'),
+        join(gitDir, 'index'),
+        join(gitDir, 'index.lock'),
+        join(gitDir, 'packed-refs'),
+        join(gitDir, 'packed-refs.lock'),
+      ],
+      // The app home is not below the user's home here, so it is closed on its own; the credentials
+      // and the live data stay closed too: the narrower path wins over any re-opened one.
+      denyRead: [home, appHome, ...sensitivePaths({ userHome: home, appHome })],
+      allowRead: [spec.cwd, attachments, gitDir, ...homeReads()],
+    });
+  });
+
+  it('opens no attachment directory it cannot name, and lists an app home inside the home once', async () => {
+    const inside = join(home, '.projectman');
+    h = await createDomainHarness({
+      userHome: home,
+      appHome: inside,
+      attachmentStorage: (inner) =>
+        new Proxy(inner, {
+          get: (target, prop, receiver) =>
+            prop === 'taskDirectory'
+              ? async () => '/fictional/attach(ments)'
+              : (Reflect.get(target, prop, receiver) as unknown),
+        }) as AttachmentStorage,
+    });
+    const task = await h.domain.tasks.create('AR', { title: 'With repo', repo: 'web' }, OWNER_ACTOR);
+    await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: task.key });
+    const spec = h.runner.lastStarted();
+    expect(spec.sandbox!.denyRead).toEqual([home, ...sensitivePaths({ userHome: home, appHome: inside })]);
+    expect(spec.sandbox!.allowRead).toEqual([spec.cwd, join(h.workspace, '.git'), ...homeReads()]);
+  });
+
+  describe('in a member workstation (PM-138)', () => {
+    const exec = promisify(execFile);
+    const git = async (cwd: string, ...args: string[]) => {
+      const env = { ...process.env };
+      for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR']) delete env[name];
+      await exec('git', ['-C', cwd, ...args], { env });
+    };
+    let configDir: string;
+    beforeAll(() => {
+      configDir = mkdtempSync(join(tmpdir(), 'pm-gitconfig-'));
+      const file = join(configDir, 'gitconfig');
+      writeFileSync(
+        file,
+        '[user]\n\tname = projectman test\n\temail = test@example.com\n[commit]\n\tgpgsign = false\n',
+      );
+      vi.stubEnv('GIT_CONFIG_GLOBAL', file);
+      vi.stubEnv('GIT_CONFIG_NOSYSTEM', '1');
+    });
+    afterAll(() => {
+      vi.unstubAllEnvs();
+      rmSync(configDir, { recursive: true, force: true });
+    });
+
+    it('has no shared git directory to protect: its own clone is in the working directory', async () => {
+      h = await createDomainHarness({ userHome: home, appHome, memberWorkspaces: true });
+      await git(h.workspace, 'init', '--quiet', '-b', 'main');
+      writeFileSync(join(h.workspace, 'README.md'), 'hello\n');
+      await git(h.workspace, 'add', 'README.md');
+      await git(h.workspace, 'commit', '--quiet', '-m', 'Add README');
+      await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
+      await h.domain.taskStarts.start('AR', 'AR-1', { assignee: 'dev-1', actor: OWNER_ACTOR, author: OWNER });
+      const spec = h.runner.lastStarted();
+      expect(spec.member).toBe('dev-1');
+      expect(spec.cwd).toBe(join(await realpath(h.workspacesDir), 'AR', 'dev-1', 'web', 'repo'));
+      expect(spec.policy!.placement).toMatchObject({ kind: 'task_worktree', path: spec.cwd });
+      expect(spec.policy!.placement).not.toHaveProperty('gitDir');
+      const attachments = await h.attachmentStorage.taskDirectory('AR', 'AR-1');
+      expect(spec.sandbox).toEqual({
+        ...common(),
+        denyRead: [home, appHome, ...sensitivePaths({ userHome: home, appHome })],
+        allowRead: [spec.cwd, attachments, ...homeReads()],
+      });
+    });
   });
 });

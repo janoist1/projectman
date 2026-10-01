@@ -167,23 +167,45 @@ What the server adds, in every mode and on the legacy (Mac) profile:
 - The managed VM profile is unchanged: its limits are outside the CLI.
 
 **The CLI's sandbox (PM-167, decision 28).** Every legacy Claude session runs its shell in Claude
-Code's own sandbox: a developer's in its worktree (`WORKTREE_SANDBOX`), every reading session (the
-reviewer, QA, security, analyst, architect, designer, devops, chats, scheduled runs) in one that
-writes only the temp directory, with its working directory (the project's main checkout or its
-review copy) and every extra directory (the developer's worktree) in `denyWrite`. Both put the
-same `sensitivePaths` in `denyRead`, so a shell command cannot read the credential files or the
-live data either. The built-in file tools are outside the sandbox: `Edit` deny rules keep a
-reader's directories read-only for them, and the PM-165 `Read` rules keep the credentials out of
-reach. A reader runs in its own mode (Auto too) and asks nothing for what the sandbox allows.
-`gh pr view` and `gh pr diff` run outside the sandbox (`excludedCommands`), pre-approved by the
-reader's allow list, because they need the GitHub CLI's login.
+Code's own sandbox: a developer's in its worktree, every reading session (the reviewer, QA,
+security, analyst, architect, designer, devops, chats, scheduled runs) in one that writes only the
+temp directory, with its working directory (the project's main checkout or its review copy) and
+every extra directory (the developer's worktree) in `denyWrite`. Both put the same
+`sensitivePaths` in `denyRead`, so a shell command cannot read the credential files or the live
+data either. The built-in file tools are outside the sandbox: `Edit` deny rules keep a reader's
+directories read-only for them, and the PM-165 `Read` rules keep the credentials out of reach. A
+reader runs in its own mode (Auto too) and asks nothing for what the sandbox allows. `gh pr view`
+and `gh pr diff` run outside the sandbox (`excludedCommands`), pre-approved by the reader's allow
+list, because they need the GitHub CLI's login.
+
+**A developer reads only its own work (PM-153).** A developer's sandbox reads nothing below the
+user's home and the app home but its worktree, its task's attachments, the shared git directory,
+`~/.gitconfig`, `~/.config/git`, `~/.npm`, `~/.projectman-dev` and Claude Code's shell snapshots
+(`~/.claude/shell-snapshots`, sourced before every command; they hold the shell's functions,
+aliases and options). Other worktrees, the app's data, the integrating checkout and the
+credentials stay closed; a credential path stays in `denyRead` as well, and the narrower path
+wins, so nothing re-opens it. Its commands never write the default branch and the integrating
+checkout's `HEAD`, `index` and `packed-refs` (with their lock files) in the shared git directory,
+neither from the shell nor with the file tools (`Edit` rules), and never see `GH_TOKEN`,
+`GITHUB_TOKEN`, `NPM_TOKEN`, `NODE_AUTH_TOKEN` and `SSH_AUTH_SOCK`. Claude Code still asks for a
+command with a here-document it cannot analyse (PM-142, 12:44), sandbox or not; the context pack
+tells the member to write files with the editing tools instead.
 
 **Residual risk (owner's decision, decision 24 and PM-156).** Sandboxed commands may listen on
 local ports, so they also reach the live instance's port 4800, readers included; the owner decided
 that port stays reachable up to the VM (PM-156). A reader's sandbox reaches the npm registry. A
 Codex member is not bound by the Claude rules at all before the VM; its own sandbox (`read-only`
 for a reader) is its limit. The sandbox's denials are not yet verified on the owner's machine: the
-PM-167 manual run in `SANDBOX-PROBE.md` records them.
+PM-167 and PM-153 manual runs in `SANDBOX-PROBE.md` record them.
+
+**Residual risk (PM-153, accepted until per-member workstations or the VM).** The shared git
+directory of the worktrees is the integrating checkout's `.git`, and the sandbox lets a developer
+write everything in it but `hooks`, `config` and the PM-153 files. So a developer's commands can
+still change other tasks' branches and their `worktrees/<name>` metadata, other refs (tags,
+remote-tracking refs), the reflogs and the object store (a `git gc` or `git prune` there acts on
+the shared objects). They cannot move the default branch, which is what reaches the public
+repository, or change the integrating checkout's `HEAD` and `index`. A per-member workstation has
+its own clone and nothing shared.
 
 `~/.claude` is not denied as a whole, because the members run with the user's own `~/.claude`
 (the runner sets no `CLAUDE_CONFIG_DIR`) and Claude Code saves large tool outputs under

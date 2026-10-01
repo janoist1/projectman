@@ -47,12 +47,14 @@ pre-allowed and denied tools), `--model`, `--effort`, `--permission-mode`, `--ad
 directories.
 
 A session in a task's own worktree (a developer's) runs its shell commands in Claude Code's
-sandbox, the first step of PM-87: the session spec carries `sandbox` (`WORKTREE_SANDBOX` in
-`domain/session-policy.ts`) and the runner turns it into the `sandbox` settings probed in
-PM-126 (see Sandboxes below). Commands then run without asking as long as they write only the
-worktree (with the shared git directory, minus hooks and config), the temp directory, the npm
-cache and `~/.projectman-dev`, and reach only the npm registry; a command that fails there is
-not retried outside the sandbox. The tests may listen on local ports (decision 24). The sandbox
+sandbox, the first step of PM-87: the session spec carries `sandbox` (`sessionSandbox` in
+`domain/session-policy.ts`, computed per session) and the runner turns it into the `sandbox`
+settings probed in PM-126 (see Sandboxes below). Commands then run without asking as long as they
+read only their own work below the home (PM-153), write only the worktree (with the shared git
+directory, minus hooks, config, the default branch and the integrating checkout's `HEAD` and
+`index`), the temp directory, the npm cache and `~/.projectman-dev`, and reach only the npm
+registry; a command that fails there is not retried outside the sandbox. The tests may listen on
+local ports (decision 24). The sandbox
 cannot open pseudo-terminals, so the server's PTY tests (`*.integration.test.ts`,
 `golden-path-*`) are left out there with a notice (`apps/server/vitest.config.ts`); the
 integrating session runs the full suite.
@@ -448,8 +450,8 @@ The old settings used Claude `denyRead` for sibling live/secret folders, `allowW
 `allowUnsandboxedCommands: false` worked where the string `"deny"` caused prompts; acceptance
 and enforcement of either type remain version-specific observations to reproduce.
 
-Current source differs from that probe: `WORKTREE_SANDBOX` allows npm/development-data writes
-and local binding. Codex's normal session spec
+Current source differs from that probe: the developer sandbox allows npm/development-data writes
+and local binding, and closes the home but its own work (PM-153). Codex's normal session spec
 no longer grants the shared git root (PM-131), but its legacy sandbox does not implement the
 required restricted-read policy. Command-rule approval of Codex escalations is host execution,
 not strict isolation. PM-134's transitional Claude setup is not the final PM-128/129 proof.
@@ -460,17 +462,41 @@ not strict isolation. PM-134's transitional Claude setup is not the final PM-128
 paths; `buildSandboxSettings` renders them, and `test/cli-sandbox.integration.test.ts` checks the
 exact `--settings` the fake CLI receives:
 
-| Session                                               | `filesystem`                                                                                                               | `network`                                   | `excludedCommands`         | Extra deny rules                   |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | -------------------------- | ---------------------------------- |
-| Developer (`task_worktree`)                           | `allowWrite: ~/.npm, ~/.projectman-dev`; `denyRead`: `sensitivePaths`                                                      | `registry.npmjs.org`, local binding allowed | none                       | none                               |
-| Reader (`read_only`, review copy without test opt-in) | `allowWrite: []` (temp only); `denyWrite`: working directory and every `--add-dir` directory; `denyRead`: `sensitivePaths` | `registry.npmjs.org`, local binding allowed | `gh pr view`, `gh pr diff` | `Edit(//<dir>/**)` per `denyWrite` |
-| Managed VM profile, sessions behind the VM boundary   | none (the boundary is outside the CLI)                                                                                     |                                             |                            |                                    |
-| Codex                                                 | not rendered: Codex's own `--sandbox` (`read-only` for a reader, unchanged)                                                |                                             |                            |                                    |
+| Session                                               | `filesystem`                                                                                                                                                                                                                                                                                                                   | `network`                                   | `excludedCommands`         | `credentials.envVars` (`mode: "deny"`)                                      | Extra deny rules                                      |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------- | -------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Developer (`task_worktree`, PM-153)                   | `allowWrite`: `~/.npm`, `~/.projectman-dev`; `denyRead`: the user's home, the app home (when not below it), `sensitivePaths`; `allowRead`: the worktree, the task's attachments, the shared git directory, `~/.gitconfig`, `~/.config/git`, `~/.npm`, `~/.projectman-dev`, `~/.claude/shell-snapshots`; `denyWrite`: see below | `registry.npmjs.org`, local binding allowed | none                       | `GH_TOKEN`, `GITHUB_TOKEN`, `NPM_TOKEN`, `NODE_AUTH_TOKEN`, `SSH_AUTH_SOCK` | `Edit(//<path>)`, `Edit(//<path>/**)` per `denyWrite` |
+| Reader (`read_only`, review copy without test opt-in) | `allowWrite: []` (temp only); `denyWrite`: working directory and every `--add-dir` directory; `denyRead`: `sensitivePaths`                                                                                                                                                                                                     | `registry.npmjs.org`, local binding allowed | `gh pr view`, `gh pr diff` | none                                                                        | `Edit(//<path>)`, `Edit(//<path>/**)` per `denyWrite` |
+| Managed VM profile, sessions behind the VM boundary   | none (the boundary is outside the CLI)                                                                                                                                                                                                                                                                                         |                                             |                            |                                                                             |                                                       |
+| Codex                                                 | not rendered: Codex's own `--sandbox` (`read-only` for a reader, unchanged)                                                                                                                                                                                                                                                    |                                             |                            |                                                                             |                                                       |
+
+All paths are absolute, from the actual user home and app home. A developer in a task worktree
+gets `denyWrite` in the shared git directory (`sharedGitDenials`): `refs/heads/<default branch>`,
+`HEAD`, `index`, `packed-refs` and each one's `.lock`, so git fails at the lock and leaves no
+stale lock for the integrating session. A member workspace (PM-138) is an independent clone with
+its own `.git` in the working directory: no `gitDir`, no git `denyWrite`. An `allowRead` path
+inside a `sensitivePaths` entry is left out; Claude Code 2.1.284's Seatbelt profile puts `allowRead`
+after `denyRead` and denies the narrower `denyRead` paths again, so the credentials stay closed.
 
 Every one also has `enabled`, `autoAllowBashIfSandboxed`, `allowUnsandboxedCommands: false`,
-`failIfUnavailable` and `strictAllowlist`. A `denyWrite` directory a rule cannot name as it is
-refuses the start. The temp directory is the sandbox's own `$TMPDIR`. **Manual run on the owner's
-machine: pending** (the PM-167 part of `SANDBOX-PROBE.md`); record its result here.
+`failIfUnavailable` and `strictAllowlist`. A `denyWrite` path a rule cannot name as it is refuses
+the start. The temp directory is the sandbox's own `$TMPDIR`. **Manual run on the owner's
+machine: pending** (the PM-167 and PM-153 parts of `SANDBOX-PROBE.md`); record their results
+here.
+
+### Commands Claude Code asks about in the sandbox (PM-153)
+
+`autoAllowBashIfSandboxed` does not cover every command. The PM-142 developer asked at 12:44 on
+2026-10-01 (inbox `inb_mupj09dy200e8fe2a4`) for
+`cd apps/server/src/domain && cat > /dev/null <<'EOF'` + an empty body + `EOF` + `grep -n …`; it was
+the only one of its 84 shell commands that asked (transcript: one `PermissionRequest` hook
+decision). In Claude Code 2.1.284 (read from its bundled source): the bash parser gives up on a
+here-document whose body it did not see (an empty one: "Heredoc body was not scanned by the
+parser"), as on an unquoted delimiter; for such a "too complex" command the only sandbox
+auto-allow path returns nothing when the command contains `<<` (not `<<<`), so the command goes
+the usual way and asks. A command the parser handles takes the other auto-allow path, which has no
+such exception, and the same session's `cd <worktree> && pwd` ran without asking. So `cd` is not
+the cause; a here-document the parser cannot follow is. The context pack's "Your sandbox" section tells a
+member to write files with the editing tools and pass text as quoted arguments instead.
 
 Current [Claude documentation](https://code.claude.com/docs/en/sandboxing) describes Seatbelt
 on macOS and bubblewrap/socat on Linux, with an additional seccomp filter for Unix sockets.

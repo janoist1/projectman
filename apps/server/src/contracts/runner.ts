@@ -35,10 +35,15 @@ export interface AgentSandbox {
    * the adapter denies their edits of these paths with permission rules.
    */
   denyWrite?: string[];
-  /** Paths commands never read: the credentials and the live instance's data (PM-167). */
+  /**
+   * Paths commands never read: the credentials and the live instance's data (PM-167); for a
+   * developer the whole user home and the app home (PM-153).
+   */
   denyRead?: string[];
-  /** Paths inside `denyRead` that commands may read after all. */
+  /** Paths inside `denyRead` that commands may read after all; a narrower `denyRead` still wins. */
   allowRead?: string[];
+  /** Environment variables commands never see (unset in the sandbox, PM-153): tokens, the SSH agent. */
+  deniedEnvVars?: string[];
   /** Commands that run outside the sandbox, through the usual permission path (`gh pr view`). */
   excludedCommands?: string[];
 }

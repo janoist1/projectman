@@ -124,8 +124,59 @@ describe('buildSettings', () => {
     // The sandbox binds only the shell: `Edit` (also Write and NotebookEdit) is denied by rules.
     expect(sandboxed.permissions.deny).toEqual([
       'Bash(git push:*)',
+      'Edit(//work)',
       'Edit(//work/**)',
+      'Edit(//worktrees/AR/AR-1-web)',
       'Edit(//worktrees/AR/AR-1-web/**)',
+    ]);
+  });
+
+  it("renders a developer's sandbox exactly: closed homes, its own reads, the protected shared git, no tokens (PM-153)", () => {
+    const git = '/src/app/.git';
+    const sandboxed = buildSettings({
+      hookUrl: 'http://h/hooks/t',
+      allowedTools: [],
+      permissionTimeoutMs: 1000,
+      sandbox: {
+        allowWrite: ['/home/a/.npm', '/home/a/.projectman-dev'],
+        denyWrite: [`${git}/refs/heads/main`, `${git}/HEAD`, `${git}/index`, `${git}/packed-refs`],
+        denyRead: ['/home/a', '/pm', '/home/a/.ssh', '/pm/secret'],
+        allowRead: ['/pm/worktrees/AR/AR-1-web', '/pm/attachments/AR/AR-1', git, '/home/a/.gitconfig'],
+        deniedEnvVars: ['GH_TOKEN', 'SSH_AUTH_SOCK', 'GH_TOKEN'],
+        allowedDomains: ['registry.npmjs.org'],
+        allowLocalBinding: true,
+      },
+    });
+    expect(sandboxed.sandbox).toEqual({
+      enabled: true,
+      autoAllowBashIfSandboxed: true,
+      allowUnsandboxedCommands: false,
+      failIfUnavailable: true,
+      filesystem: {
+        allowWrite: ['/home/a/.npm', '/home/a/.projectman-dev'],
+        denyWrite: [`${git}/refs/heads/main`, `${git}/HEAD`, `${git}/index`, `${git}/packed-refs`],
+        denyRead: ['/home/a', '/pm', '/home/a/.ssh', '/pm/secret'],
+        allowRead: ['/pm/worktrees/AR/AR-1-web', '/pm/attachments/AR/AR-1', git, '/home/a/.gitconfig'],
+      },
+      network: { allowedDomains: ['registry.npmjs.org'], strictAllowlist: true, allowLocalBinding: true },
+      // Claude Code 2.1.284's schema: `deny` unsets the variable for sandboxed commands.
+      credentials: {
+        envVars: [
+          { name: 'GH_TOKEN', mode: 'deny' },
+          { name: 'SSH_AUTH_SOCK', mode: 'deny' },
+        ],
+      },
+    });
+    // A file of the shared git directory is named itself, so the file tools cannot rewrite it.
+    expect(sandboxed.permissions.deny).toEqual([
+      `Edit(/${git}/refs/heads/main)`,
+      `Edit(/${git}/refs/heads/main/**)`,
+      `Edit(/${git}/HEAD)`,
+      `Edit(/${git}/HEAD/**)`,
+      `Edit(/${git}/index)`,
+      `Edit(/${git}/index/**)`,
+      `Edit(/${git}/packed-refs)`,
+      `Edit(/${git}/packed-refs/**)`,
     ]);
   });
 

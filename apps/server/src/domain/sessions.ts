@@ -1038,15 +1038,13 @@ export class SessionOrchestrator {
       task,
     );
     const relatedSessions = task ? this.relatedSessions(projectKey, member.handle, task) : [];
+    const userHome = this.deps.userHome ?? homedir();
     const policy = buildSessionPolicy({
       config,
       role: member.role,
       task,
       permissionMode,
-      deniedPaths: sensitivePaths({
-        userHome: this.deps.userHome ?? homedir(),
-        appHome: this.deps.appHome,
-      }),
+      deniedPaths: sensitivePaths({ userHome, appHome: this.deps.appHome }),
       placement: vm
         ? memberWorkspacePlacement(ws, cwd)
         : ws
@@ -1058,7 +1056,14 @@ export class SessionOrchestrator {
       ...(attachmentDir ? { readOnlyPaths: [attachmentDir] } : {}),
       ...(vm ? { managedVm: { boundary: vm.profile } } : {}),
     });
-    const sandbox = vm || this.managed ? undefined : sessionSandbox(policy);
+    const sandbox =
+      vm || this.managed
+        ? undefined
+        : sessionSandbox(policy, {
+            userHome,
+            ...(this.deps.appHome ? { appHome: this.deps.appHome } : {}),
+            ...(repoName ? { defaultBranch: repoOf(config, repoName)?.defaultBranch } : {}),
+          });
     const pack = this.deps.contextBuilder.build({
       project: config,
       // The settings that apply to this session: the system prompt tells the agent who answers.

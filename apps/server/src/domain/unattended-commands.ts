@@ -1,4 +1,5 @@
 import type { AgentSandbox } from '../contracts';
+import { isWithin } from './command-paths';
 import { SHELL_REDIRECTIONS } from './shell-words';
 import {
   NPM_CHECKS,
@@ -75,15 +76,35 @@ export function describeSandbox(input: {
   localOnly: boolean;
 }): string[] {
   const { sandbox, cwd, localOnly } = input;
-  const readOnly = (sandbox.denyWrite ?? []).length > 0;
+  // A reader's working directory is `denyWrite`; a developer's `denyWrite` holds only files of the
+  // shared git directory (PM-153).
+  const readOnly = (sandbox.denyWrite ?? []).includes(cwd);
   const extra = (sandbox.denyWrite ?? []).filter((dir) => dir !== cwd);
+  const denyRead = sandbox.denyRead ?? [];
+  // The directories closed as a whole (the user's home, the app home), not the paths inside them.
+  const closed = denyRead.filter((dir) => !denyRead.some((other) => other !== dir && isWithin(other, dir)));
   const lines = [
     "Your shell commands run in Claude Code's own sandbox, in your own permission mode: what the sandbox allows runs without asking, and no particular form of command is needed.",
     readOnly
       ? `- Writing: only the temp directory (${code('$TMPDIR')}). Your working directory ${code(cwd)}${extra.length > 0 ? ` and ${extra.map(code).join(', ')}` : ''} are read-only, for the shell (the sandbox) and for the file tools (deny rules). Read, query git, run the tests and the type checks there, but change nothing. Send caches and output files to ${code('$TMPDIR')}; a Vite or Vitest configuration loads with ${code('--configLoader runner')} (the project's ${code('npm test')} may already pass it).`
-      : `- Writing: your working directory ${code(cwd)} with its git metadata (not its hooks or configuration), the temp directory (${code('$TMPDIR')})${sandbox.allowWrite.length > 0 ? ` and ${sandbox.allowWrite.map(code).join(', ')}` : ''}.`,
-    `- Reading: everything${sandbox.denyRead?.length ? `, except the credentials and the live instance's data: ${sandbox.denyRead.map(code).join(', ')}` : ''}.`,
+      : `- Writing: your working directory ${code(cwd)} with its git metadata (not its hooks or configuration), the temp directory (${code('$TMPDIR')})${sandbox.allowWrite.length > 0 ? ` and ${sandbox.allowWrite.map(code).join(', ')}` : ''}.${
+          extra.length > 0
+            ? ` Never the default branch and the integrating checkout of the shared git directory: ${extra
+                .filter((file) => !file.endsWith('.lock'))
+                .map(code)
+                .join(', ')} (and their lock files); commit on your own branch.`
+            : ''
+        }`,
+    sandbox.allowRead?.length
+      ? `- Reading: nothing below ${closed.map(code).join(' and ')} except ${sandbox.allowRead.map(code).join(', ')}; everything outside them (the system, the installed tools). Other worktrees, the app's data and the credentials stay closed: do not look for them.`
+      : `- Reading: everything${denyRead.length ? `, except the credentials and the live instance's data: ${denyRead.map(code).join(', ')}` : ''}.`,
+    ...(sandbox.deniedEnvVars?.length
+      ? [`- Environment: ${sandbox.deniedEnvVars.map(code).join(', ')} are unset for your commands.`]
+      : []),
     `- Network: only ${sandbox.allowedDomains.length > 0 ? sandbox.allowedDomains.map(code).join(', ') : 'nothing'}${sandbox.allowLocalBinding ? '; tests may listen on local ports' : ''}.`,
+    // Claude Code 2.1.284 asks for a command with a here-document whenever it cannot analyse the
+    // command, sandbox or not (PM-153: an empty here-document at 12:44 on PM-142).
+    `- One exception that still waits for a human: a here-document (${code('<<')}). Write files with your file-editing tools and pass text as a quoted argument (${code("git commit -m '…'")}).`,
   ];
   if (sandbox.excludedCommands?.length) {
     lines.push(

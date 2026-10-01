@@ -1733,7 +1733,8 @@ describe("the CLI's own sandbox (PM-167)", () => {
     readableRoots: ['/worktrees/AR/AR-21-app'],
     deniedPaths: ['/home/anna/.ssh', '/pm/db.sqlite*'],
   });
-  const sandbox = sessionSandbox(readerPolicy)!;
+  const sandboxPaths = { userHome: '/home/anna', appHome: '/pm', defaultBranch: 'main' };
+  const sandbox = sessionSandbox(readerPolicy, sandboxPaths)!;
 
   it('tells a sandboxed Claude reader its boundary instead of the command forms', () => {
     const prompt = builder.build(
@@ -1757,8 +1758,8 @@ describe("the CLI's own sandbox (PM-167)", () => {
       role: 'developer',
       task,
       permissionMode: 'auto',
-      placement: { kind: 'task_worktree', path: '/worktrees/AR/AR-21-app' },
-      deniedPaths: ['/home/anna/.ssh'],
+      placement: { kind: 'task_worktree', path: '/pm/worktrees/AR/AR-21-app', gitDir: '/src/app/.git' },
+      deniedPaths: ['/home/anna/.ssh', '/pm/secret'],
     });
     const text = section(
       builder.build(
@@ -1767,13 +1768,23 @@ describe("the CLI's own sandbox (PM-167)", () => {
           handle: 'fe-1',
           task,
           sessionPolicy: developerPolicy,
-          sandbox: sessionSandbox(developerPolicy)!,
+          sandbox: sessionSandbox(developerPolicy, sandboxPaths)!,
         }),
       ).appendSystemPrompt,
       '# Your sandbox',
     );
-    expect(text).toContain('Writing: your working directory `/worktrees/AR/AR-21-app`');
-    expect(text).toContain('`~/.npm`, `~/.projectman-dev`');
+    expect(text).toContain('Writing: your working directory `/pm/worktrees/AR/AR-21-app`');
+    expect(text).toContain('and `/home/anna/.npm`, `/home/anna/.projectman-dev`');
+    expect(text).toContain(
+      'Never the default branch and the integrating checkout of the shared git directory: `/src/app/.git/refs/heads/main`, `/src/app/.git/HEAD`, `/src/app/.git/index`, `/src/app/.git/packed-refs` (and their lock files)',
+    );
+    expect(text).toContain(
+      'Reading: nothing below `/home/anna` and `/pm` except `/pm/worktrees/AR/AR-21-app`, `/src/app/.git`, `/home/anna/.gitconfig`',
+    );
+    expect(text).toContain(
+      '`GH_TOKEN`, `GITHUB_TOKEN`, `NPM_TOKEN`, `NODE_AUTH_TOKEN`, `SSH_AUTH_SOCK` are unset',
+    );
+    expect(text).toContain('a here-document (`<<`)');
     const chat = builder.build(
       input({
         project,

@@ -236,6 +236,41 @@ file is only counted (`wc -c`), so the evidence holds its size at most.
 5. Record each line as `pass`, `fail` or `unverified` with the raw output in the task, and the
    summary in PROVIDERS.md (the PM-167 table's "Manual run" line).
 
+## PM-153: a developer's read boundary and the protected shared git
+
+The developer sandbox of PM-153 (PROVIDERS.md, "The sandboxes the server hands out") on the
+owner's Mac, interactively with Claude Code 2.1.284, against a **development** instance as in
+PM-167. Use fictional data: a fictional file in the development app home (e.g.
+`~/.projectman-dev/probe-secret.txt`, which the developer _may_ read, so make a second one in a
+fictional app home outside `~/.projectman-dev` if `PROJECTMAN_HOME` points elsewhere) and a second
+task's worktree with a `private.txt`. Credential files are only counted (`wc -c`), never printed.
+
+1. Record the commit, `claude --version`, macOS version and the developer's effective sandbox
+   (`/sandbox` in its terminal): `denyRead`, `allowRead`, `denyWrite`, `credentials.envVars`.
+2. In the developer's chat, refused by the sandbox (operation not permitted):
+   - `wc -c <app home>/<fictional file>` (a file of the app home outside the developer's
+     worktree and attachments), `cat <the other task's worktree>/private.txt`;
+   - `ls ~/.ssh`, `wc -c ~/.config/gh/hosts.yml`, `wc -c ~/.claude.json`;
+   - `cat <the integrating checkout>/package.json` (the main checkout next to the shared `.git`);
+   - `git update-ref refs/heads/main HEAD`; `touch <shared .git>/HEAD`, `touch <shared .git>/index`;
+     afterwards no `main.lock`, `HEAD.lock` or `index.lock` is left in the shared `.git`, and the
+     integrating checkout's `git status` and `git log -1 main` are unchanged;
+   - `printenv GH_TOKEN SSH_AUTH_SOCK` prints nothing (start the instance with a fictional
+     `GH_TOKEN=probe` in its environment to see the difference).
+3. In the developer's chat, without a question:
+   - `ls`, `git status`, `git log -1` in its worktree; `cat` of a file in the task's attachment
+     directory (attach one first);
+   - `npm cache clean --force`, then `npm install <a small new package>` (fresh cache, from the
+     registry), then `npm test` (the PTY tests are skipped there) and `npm run typecheck`;
+   - `git add -A`, `git commit -m "Probe"`, then `git gc --auto`: the commit stays (`git log -1`),
+     whatever `gc` reports about `packed-refs`.
+4. A command with a here-document (`cat > /dev/null <<'EOF'` with an empty body) still asks: the
+   12:44 case of PM-142 (PROVIDERS.md, "Commands Claude Code asks about in the sandbox").
+5. Record each line as `pass`, `fail` or `unverified` with the raw output in the task, and the
+   summary in PROVIDERS.md (the "Manual run" line under the sandbox table). A command the sandbox
+   refuses but the developer needs is a finding: `allowRead` may grow by it, never by the app home,
+   `~/.ssh`, `~/.config/gh`, `~/.codex`, another `~/.claude` path or `~/.npmrc`.
+
 ## Acceptance record and alternatives
 
 Fill one row per CLI version / OS / effective policy. For each capability record `pass`,

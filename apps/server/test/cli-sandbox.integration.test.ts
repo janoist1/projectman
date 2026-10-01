@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { routes } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import { afterEach, expect, it, vi } from 'vitest';
-import { sensitivePaths, WORKTREE_SANDBOX } from '../src/domain';
+import { SANDBOX_DENIED_ENV_VARS, sensitivePaths } from '../src/domain';
 import { waitFor } from '../src/runner/test-helpers';
 import { createAppHarness, createProject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
 import type { CliAppHarness } from './helpers/app-harness';
@@ -79,16 +79,31 @@ it(
     expect(worktree).not.toBe(workspace);
     expect(option(developerArgs, '--permission-mode')).toBe('auto');
     const developer = settingsOf(developerArgs);
+    // PM-153: nothing below the user's home and the app home is read but its own work; the default
+    // branch and the integrating checkout of the shared git directory are not written; no tokens.
+    const shared = ['refs/heads/main', 'HEAD', 'index', 'packed-refs'];
     expect(developer.sandbox).toEqual({
       enabled: true,
       autoAllowBashIfSandboxed: true,
       allowUnsandboxedCommands: false,
       failIfUnavailable: true,
-      filesystem: { allowWrite: WORKTREE_SANDBOX.allowWrite, denyRead },
+      filesystem: {
+        allowWrite: [join(userHome, '.npm'), join(userHome, '.projectman-dev')],
+        denyWrite: shared.flatMap((file) => [
+          expect.stringMatching(new RegExp(`/\\.git/${file}$`)),
+          expect.stringMatching(new RegExp(`/\\.git/${file}\\.lock$`)),
+        ]),
+        denyRead: [userHome, home, ...denyRead],
+        allowRead: expect.arrayContaining([worktree, join(userHome, '.gitconfig'), join(userHome, '.npm')]),
+      },
       network: { allowedDomains: ['registry.npmjs.org'], strictAllowlist: true, allowLocalBinding: true },
+      credentials: { envVars: SANDBOX_DENIED_ENV_VARS.map((name) => ({ name, mode: 'deny' })) },
     });
-    // The developer edits its worktree: no rule takes that away.
+    // The developer edits its worktree: no rule takes that away; the shared git files it cannot.
     expect(developer.permissions.deny).not.toContain(`Edit(/${worktree}/**)`);
+    expect(developer.permissions.deny).toEqual(
+      expect.arrayContaining([expect.stringMatching(/^Edit\(\/\/.*\/\.git\/refs\/heads\/main\)$/)]),
+    );
 
     const readerArgs = await start('cr');
     expect(option(readerArgs, '--permission-mode')).toBe('auto');
@@ -107,6 +122,7 @@ it(
     // the credentials out of reach.
     expect(reader.permissions.deny).toEqual(
       expect.arrayContaining([
+        `Edit(/${workspace})`,
         `Edit(/${workspace}/**)`,
         `Edit(/${worktree}/**)`,
         `Read(/${join(userHome, '.ssh')})`,

@@ -470,12 +470,19 @@ preserves it and does not certify it as the strict filesystem and network bounda
 The CLI's own sandbox of a legacy session (PM-167, decision 28) is `sessionSandbox(policy)` in
 `domain/session-policy.ts`, from the policy's actual paths; the runner gets it as
 `StartSessionSpec.sandbox` and the context pack as `ContextPackInput.sandbox`. A developer's
-worktree session gets `WORKTREE_SANDBOX`; a reading placement gets a sandbox that writes only the
-temp directory, with its working directory and every `--add-dir` directory in `denyWrite`. Both
-have the credentials and the live data (`deniedPaths`) in `denyRead`. The Claude adapter also
-denies `Edit` of the `denyWrite` directories with rules, since the sandbox does not bind the
-built-in file tools. Codex ignores the spec's sandbox (its own is `read-only` for readers); the
-managed VM profile gets none.
+worktree session (PM-134) gets one computed per session from `SandboxPaths` too (PM-153: the user's
+home, the app home, the repository's default branch): `denyRead` closes the user's home and the
+app home, `allowRead` re-opens only its own directories (the worktree, the task's attachments),
+the shared git directory and git's and npm's own files, `denyWrite` keeps the default branch and
+the integrating checkout's `HEAD`, `index` and `packed-refs` (with their lock files) in the shared
+git directory unwritten, and `deniedEnvVars` unsets the publishing tokens and the SSH agent. In a
+member workspace (its own clone) nothing is shared, so the git part is left out. A reading
+placement gets a sandbox that writes only the temp directory, with its working directory and
+every `--add-dir` directory in `denyWrite`. Both have the credentials and the live data
+(`deniedPaths`) in `denyRead`. The Claude adapter also denies `Edit` of the `denyWrite` paths
+(and everything below them) with rules, since the sandbox does not bind the built-in file tools.
+Codex ignores the spec's sandbox (its own is `read-only` for readers); the managed VM profile gets
+none.
 
 ## Managed VM profile (PM-137, part of PM-135)
 

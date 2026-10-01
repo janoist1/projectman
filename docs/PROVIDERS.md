@@ -148,8 +148,20 @@ The agents' readers tell an image or a PDF by the path's extension (Claude Code'
 `read_attachment` gives such a file as `<id>.<ext>`, a hard link to the stored file made on the
 first request and removed with it (recovery removes one left behind). Opening an attachment of
 another task may ask a human first. Automated tests run the fake CLIs only
-(`test/attachment-permissions.integration.test.ts`); the hand check with the real CLIs, opening
-an attached image on each provider, is recorded on PM-113.
+(`test/attachment-permissions.integration.test.ts`).
+
+Checked by hand on 2026-10-01 (macOS, a development instance with its own home, a developer member
+on each provider in `acceptEdits` mode, a task with an owner's PNG attached):
+
+| Step                                      | Claude Code                          | Codex                                    |
+| ----------------------------------------- | ------------------------------------ | ---------------------------------------- |
+| Open the attached image                   | `Read` on `<id>.png`, without asking | `view_image` on the path, without asking |
+| Describe it (text, colours, shape)        | exact                                | exact                                    |
+| Attach a picture of its working directory | yes, in its own name                 | yes, in its own name                     |
+| Delete its own attachment / the owner's   | yes / refused                        | yes / refused                            |
+| Attach `/etc/hosts`, `../logo.png`        | refused (`forbidden`)                | refused (`forbidden`)                    |
+
+No permission request reached the inbox in either session.
 
 `git -C <dir>` counts as plain `git` when `<dir>` is the directory the command runs in (the
 session's working directory, or where a `cd` of the chain has led), however it is spelled. A

@@ -58,7 +58,8 @@ export const hu: TemplateLocale = {
     },
     ux_design: {
       name: 'UX-tervezés',
-      description: 'Képernyőket és interakciókat tervez. Ellenőrzi a megvalósult élményt.',
+      description:
+        'Megtervezi a felhasználói folyamatot, a képernyőket és az interakciókat. Ellenőrzi a megvalósult élményt.',
     },
     implementation: {
       name: 'Megvalósítás',
@@ -176,11 +177,12 @@ export const hu: TemplateLocale = {
         'Ha műszaki kérdésed van (felépítés, átalakítás, gyorsaság), vagy egy nagyobb ötletet kell műszakilag felbontani.',
     },
     designer: {
-      name: 'Designer',
+      name: 'UI/UX tervező',
       summary:
-        'Képernyőterveket és kattintható mockupot készít, és ellenőrzi, hogy a kész felület a terv szerint készült-e.',
+        'Megtervezi a felhasználói élményt és a felületet: a folyamatot, a képernyőket és a kattintható mockupot. Utána ellenőrzi, hogy a kész felület a terv szerint, csiszoltan készült-e.',
       notTheirJob: 'Nem programozza le a felületet.',
-      whenToAsk: 'Ha felületet, elrendezést vagy szöveget terveztetnél, mielőtt a fejlesztés indul.',
+      whenToAsk:
+        'Ha felületet, felhasználói folyamatot, elrendezést vagy szöveget terveztetnél a fejlesztés előtt, vagy ha egy kész képernyő nehezen használható.',
     },
     developer: {
       name: 'Fejlesztő',

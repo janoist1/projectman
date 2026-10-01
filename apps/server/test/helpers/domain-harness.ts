@@ -57,6 +57,7 @@ export async function createDomainHarness(
     now?: () => Date;
     scheduleTimer?: ScheduleTimer;
     handOffRetryMs?: number;
+    doneTurnLimitMs?: number;
     /** The database lives in a file, so that a restart can open it again. */
     persistent?: boolean;
     /** Plan usage (percent of the five-hour window) the fake probe reports from the start (default: unknown). */
@@ -144,6 +145,7 @@ export async function createDomainHarness(
     now: opts.now,
     scheduleTimer: opts.scheduleTimer,
     doneCleanupDelayMs: 0,
+    doneTurnLimitMs: opts.doneTurnLimitMs,
     handOffRetryMs: opts.handOffRetryMs,
     // Tests call `domain.reviewWatch.check()` themselves: the timer must not fire on its own.
     reviewWatchMs: 3_600_000,

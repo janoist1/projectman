@@ -35,7 +35,7 @@ export interface AppHarnessOptions {
   /** Modules that stay real instead of being replaced by the fakes the harness returns. */
   real?: { context?: boolean; memory?: boolean; worktrees?: boolean; mcp?: boolean; templates?: boolean };
   /** Further buildApp options. */
-  app?: Pick<BuildAppOptions, 'doneCleanupDelayMs'>;
+  app?: Pick<BuildAppOptions, 'doneCleanupDelayMs' | 'doneTurnLimitMs'>;
 }
 
 /**

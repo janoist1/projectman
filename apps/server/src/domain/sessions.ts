@@ -64,6 +64,7 @@ import {
   buildSessionPolicy,
   sessionPolicyFor,
   DONE_TASK_CLEANUP_DELAY_MS,
+  DONE_TASK_TURN_LIMIT_MS,
   sensitivePaths,
   sessionSandbox,
   usesWorktree,
@@ -171,6 +172,8 @@ export interface SessionOrchestratorDeps {
   publicBaseUrl: string;
   /** Delay before a done task's sessions are stopped and its worktrees removed. */
   doneCleanupDelayMs?: number;
+  /** How long the session that moved a task to done may take to finish its turn (PM-190). */
+  doneTurnLimitMs?: number;
   /** The task's attachments, listed in the kick-off brief (as the member may read them). */
   attachments?: Pick<AttachmentOperations, 'list'>;
   /** The attachment directory of a task (`AttachmentStorage.taskDirectory`): its session reads it without asking. */
@@ -309,6 +312,14 @@ export class SessionOrchestrator {
   private readonly egressTokens = new Map<string, ToolContext>();
   private readonly egressTokenBySession = new Map<string, string>();
   private readonly cleanupTimers = new Set<NodeJS.Timeout>();
+  /**
+   * Sessions that moved their task to done in the middle of a turn (PM-190): the task's cleanup
+   * runs once the turn ends, or at the limit.
+   */
+  private readonly finishingTurns = new Map<
+    string,
+    { projectKey: string; taskKey: string; timer: NodeJS.Timeout }
+  >();
   /** The provider each session's current process runs, for the transcript it reports. */
   private readonly processProviders = new Map<string, AgentProvider>();
   /** Sessions whose first input (with messages in it) is not known to have reached them: settles it. */
@@ -340,6 +351,8 @@ export class SessionOrchestrator {
     this.unsubscribe();
     for (const timer of this.cleanupTimers) clearTimeout(timer);
     this.cleanupTimers.clear();
+    for (const { timer } of this.finishingTurns.values()) clearTimeout(timer);
+    this.finishingTurns.clear();
   }
 
   /** MCP: maps /mcp/:token to the calling session; null rejects the call. */
@@ -720,25 +733,45 @@ export class SessionOrchestrator {
   /**
    * Stage change listener for done tasks: after a short delay (so an in-flight tool result
    * still reaches the agent) the task's sessions stop and its clean worktrees are removed.
+   * `mover` is the AI member that made the move: its session finishes the turn it is in first.
    */
-  scheduleDoneCleanup(projectKey: string, taskKey: string): void {
+  scheduleDoneCleanup(projectKey: string, taskKey: string, mover: string | null = null): void {
     const timer = setTimeout(() => {
       this.cleanupTimers.delete(timer);
-      this.cleanupDoneTask(projectKey, taskKey).catch((err: unknown) =>
-        this.ctx.logger.warn({ err, taskKey }, 'cleanup of a done task failed'),
-      );
+      this.runDoneCleanup(projectKey, taskKey, mover);
     }, this.deps.doneCleanupDelayMs ?? DONE_TASK_CLEANUP_DELAY_MS);
     timer.unref();
     this.cleanupTimers.add(timer);
   }
 
-  /** Stops a done task's sessions and removes its worktrees unless they hold uncommitted or unpushed work. */
-  async cleanupDoneTask(projectKey: string, taskKey: string): Promise<void> {
+  private runDoneCleanup(projectKey: string, taskKey: string, mover: string | null = null): void {
+    this.cleanupDoneTask(projectKey, taskKey, { mover }).catch((err: unknown) =>
+      this.ctx.logger.warn({ err, taskKey }, 'cleanup of a done task failed'),
+    );
+  }
+
+  /**
+   * Stops a done task's sessions and removes its worktrees unless they hold uncommitted or unpushed
+   * work. The session of `mover` that is still in a turn (it moved the task, and its messages and
+   * notes may follow) is left to finish it: the cleanup runs again when it is idle or ended, or
+   * after `DONE_TASK_TURN_LIMIT_MS` (PM-190).
+   */
+  async cleanupDoneTask(
+    projectKey: string,
+    taskKey: string,
+    opts: { mover?: string | null } = {},
+  ): Promise<void> {
     const task = this.ctx.repos.tasks.get(taskKey);
     if (!task || task.projectKey !== projectKey || task.status !== 'done') return; // reopened meanwhile
     const sessions = this.ctx.repos.sessions.list(projectKey, { taskKey });
+    let finishing = false;
     for (const session of sessions) {
       if (!this.isRunning(session.id)) continue;
+      if (opts.mover && session.member === opts.mover && session.state !== 'idle') {
+        this.finishTurnThenCleanUp(session, taskKey);
+        finishing = true;
+        continue;
+      }
       try {
         await this.deps.runner.stop(session.id);
       } catch (err) {
@@ -746,6 +779,8 @@ export class SessionOrchestrator {
       }
       this.markEnded(session.id, null);
     }
+    // The worktrees go once the finishing session is done with them too.
+    if (finishing) return;
     // A member workspace outlives its tasks (PM-138): only per-task worktrees are removed.
     const worktreePaths = [
       ...new Set(
@@ -769,6 +804,27 @@ export class SessionOrchestrator {
         this.ctx.logger[expected ? 'info' : 'warn']({ err, path, taskKey, code }, 'worktree not removed');
       }
     }
+  }
+
+  /** Waits for the session's turn to end (`turnEnded`), at most `DONE_TASK_TURN_LIMIT_MS`. */
+  private finishTurnThenCleanUp(session: Session, taskKey: string): void {
+    if (this.finishingTurns.has(session.id)) return; // the first deadline stands
+    const timer = setTimeout(() => {
+      this.ctx.logger.info({ sessionId: session.id, taskKey }, 'done task: the turn limit passed');
+      this.turnEnded(session.id);
+    }, this.deps.doneTurnLimitMs ?? DONE_TASK_TURN_LIMIT_MS);
+    timer.unref();
+    this.finishingTurns.set(session.id, { projectKey: session.projectKey, taskKey, timer });
+    this.ctx.logger.info({ sessionId: session.id, taskKey }, 'done task: the mover finishes its turn first');
+  }
+
+  /** A finishing session is idle, ended or out of time: its done task is cleaned up now. */
+  private turnEnded(sessionId: string): void {
+    const finishing = this.finishingTurns.get(sessionId);
+    if (!finishing) return;
+    this.finishingTurns.delete(sessionId);
+    clearTimeout(finishing.timer);
+    this.runDoneCleanup(finishing.projectKey, finishing.taskKey);
   }
 
   /**
@@ -1392,6 +1448,7 @@ export class SessionOrchestrator {
     this.processProviders.delete(sessionId);
     this.processModes.delete(sessionId);
     this.processGrants.delete(sessionId);
+    this.turnEnded(sessionId);
     if (!session || ENDED.has(session.state)) return null;
     const at = isoNow(this.ctx);
     const state: SessionState = exitCode !== null && exitCode !== 0 ? 'failed' : 'exited';
@@ -1453,6 +1510,7 @@ export class SessionOrchestrator {
           this.publishSession(updated);
           this.recomputeMemberState(session.projectKey, session.member);
           this.wakeForNewRound(updated);
+          if (updated.state === 'idle') this.turnEnded(updated.id);
           if (updated.state === 'idle' && updated.permissionRestartPending) this.restartWhenIdle(updated);
           return;
         }

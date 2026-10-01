@@ -175,6 +175,8 @@ export interface DomainOptions {
   scheduleTimer?: ScheduleTimer;
   /** Delay before a done task's sessions stop and its worktrees are removed (default 2 s). */
   doneCleanupDelayMs?: number;
+  /** How long the session that moved a task to done may take to finish its turn (default 10 min). */
+  doneTurnLimitMs?: number;
   /** How often refused automatic session starts are retried (default 30 s). */
   handOffRetryMs?: number;
   /** How often the branch of a task in review is compared with its pinned commit (default 30 s). */
@@ -240,6 +242,7 @@ export function createDomain(opts: DomainOptions) {
     worktrees: opts.worktrees,
     publicBaseUrl: opts.publicBaseUrl,
     doneCleanupDelayMs: opts.doneCleanupDelayMs,
+    doneTurnLimitMs: opts.doneTurnLimitMs,
     attachments,
     attachmentDirectory,
     memberWorkspaces: opts.memberWorkspaces,
@@ -440,7 +443,10 @@ export function createDomain(opts: DomainOptions) {
     );
   });
   events.on('task_stage_changed', (change) => {
-    if (change.task.status === 'done') sessions.scheduleDoneCleanup(change.task.projectKey, change.task.key);
+    if (change.task.status !== 'done') return;
+    // An AI member that moved the task finishes its turn first (its messages and notes, PM-190).
+    const mover = change.actor.kind === 'ai' ? change.actor.handle : null;
+    sessions.scheduleDoneCleanup(change.task.projectKey, change.task.key, mover);
   });
   // Labels that notify the assignee and @mentions reach members as team messages.
   events.on('task_labels_notice', (notice) => messaging.labelNotice(notice));

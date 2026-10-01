@@ -45,6 +45,10 @@
  *     "Tool", "Tool(exact)", "Tool(glob*)", "Tool(prefix:*)", "mcp__server", "mcp__server__*".
  *   - contains "TEAM": tool_use mcp__team__send_message {to:["qa"], text:"Ready for review"}
  *     (same permission flow; `permissions.allow` "mcp__team" or "mcp__team__*" pre-allows it).
+ *   - contains "CALLS": the calls in FAKE_CLAUDE_MCP_CALLS (JSON: [{tool, arguments, delayMs?}]),
+ *     in order and in this one turn, each after its delay: tool_use mcp__team__<tool>, the same
+ *     permission flow, then a real tools/call to the "team" server of --mcp-config; its answer
+ *     (or the HTTP error) is the tool_result.
  *   - contains "ASK": tool_use AskUserQuestion, PreToolUse, waits for a key in the terminal.
  *   - contains "SUBAGENT": a subagent's own transcript
  *     `<transcript dir>/<session id>/subagents/agent-<id>.jsonl` (model "claude-fake-haiku",
@@ -193,6 +197,41 @@ function parseArgs(argv) {
 const opts = parseArgs(process.argv.slice(2));
 
 if (process.env.FAKE_CLAUDE_ARGS_FILE) writeArgsFile(process.env.FAKE_CLAUDE_ARGS_FILE);
+
+/** One tools/call on the "team" server of --mcp-config (stateless streamable HTTP, JSON answers). */
+async function callTeamTool(tool, args) {
+  let url = null;
+  for (const raw of opts.mcpConfig) {
+    try {
+      url = JSON.parse(raw)?.mcpServers?.team?.url ?? url;
+    } catch {
+      // not JSON: Claude Code would read a file; the runner always passes JSON
+    }
+  }
+  if (typeof url !== 'string') return { text: 'No team MCP server is configured', isError: true };
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: randomUUID(),
+        method: 'tools/call',
+        params: { name: tool, arguments: args },
+      }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || !body?.result)
+      return { text: body?.error?.message ?? `HTTP ${res.status}`, isError: true };
+    const text = (body.result.content ?? [])
+      .filter((c) => c.type === 'text')
+      .map((c) => c.text)
+      .join('\n');
+    return { text, isError: body.result.isError === true };
+  } catch (err) {
+    return { text: `MCP call failed: ${err instanceof Error ? err.message : String(err)}`, isError: true };
+  }
+}
 
 /**
  * Like Claude Code, refuses to start with `--agents` that is not a JSON object of subagents, each
@@ -579,7 +618,11 @@ async function interactive() {
     await runTurn(text);
   }
 
-  async function toolCall(name, toolInput, okResult, toolResponse) {
+  /**
+   * One tool call: tool_use, PreToolUse, the permission flow, then the result (PostToolUse) or the
+   * denial. `run`, when given, does the call once it is allowed and answers `{ text, isError }`.
+   */
+  async function toolCall(name, toolInput, okResult, toolResponse, run) {
     const toolUseId = `toolu_fake_${turn}_${name}`;
     assistantEntry([{ type: 'tool_use', id: toolUseId, name, input: toolInput }]);
     line(`● ${name}(${JSON.stringify(toolInput).slice(0, 60)})`);
@@ -623,7 +666,23 @@ async function interactive() {
       }
     }
     if (!busy) return false; // interrupted meanwhile
-    if (allowed) {
+    if (allowed && run) {
+      const result = await run();
+      userEntry(
+        [{ type: 'tool_result', tool_use_id: toolUseId, content: result.text, is_error: result.isError }],
+        {
+          toolUseResult: result.isError ? `Error: ${result.text}` : [{ type: 'text', text: result.text }],
+        },
+      );
+      line(`  ⎿ ${result.text}`);
+      if (!result.isError) {
+        await runHooks(
+          'PostToolUse',
+          { tool_name: name, tool_input: toolInput, tool_use_id: toolUseId, tool_response: result.text },
+          name,
+        );
+      }
+    } else if (allowed) {
       userEntry([{ type: 'tool_result', tool_use_id: toolUseId, content: okResult, is_error: false }], {
         toolUseResult: toolResponse,
       });
@@ -702,6 +761,16 @@ async function interactive() {
         [{ type: 'text', text: 'Delivered to qa' }],
       );
       if (!ok || !busy || turn !== myTurn) return;
+    }
+    if (text.includes('CALLS')) {
+      for (const call of JSON.parse(process.env.FAKE_CLAUDE_MCP_CALLS ?? '[]')) {
+        await sleep(call.delayMs ?? 0);
+        if (!busy || turn !== myTurn) return;
+        const ok = await toolCall(`mcp__team__${call.tool}`, call.arguments, '', null, () =>
+          callTeamTool(call.tool, call.arguments),
+        );
+        if (!ok || !busy || turn !== myTurn) return;
+      }
     }
     if (text.includes('ASK')) {
       const toolUseId = `toolu_fake_${turn}_ask`;

@@ -284,7 +284,7 @@ describe('context pack snapshots', () => {
 
   it('code reviewer reviewing a pull request', async () => {
     const pack = builder.build(input({ handle: 'code-review' }));
-    await expect(pack.appendSystemPrompt).toMatchFileSnapshot(
+    await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
       '__snapshots__/code-review-code_review.system-prompt.txt',
     );
     await expect(pack.initialMessage).toMatchFileSnapshot('__snapshots__/code-review-code_review.brief.txt');

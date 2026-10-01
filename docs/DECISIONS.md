@@ -137,3 +137,8 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     »szabadságra küldünk«". There is no project-wide cap on concurrent AI sessions, and a
     member sent on leave does not work. PM-106 builds it; until then the PM project's
     `maxConcurrentAi` is set to its maximum.
+24. **Sandboxed tests may listen on local ports.** Decided by the owner on 2026-10-01, answering
+    the PM-126 probe: the agents' sandbox allows local binding, so the test suite runs inside it,
+    although sandboxed commands then also reach the live instance's port on the same machine.
+    The live instance stays protected by its login and the per-session tokens of the MCP and
+    hook endpoints; the question goes away once the server runs on its own machine (PM-45).

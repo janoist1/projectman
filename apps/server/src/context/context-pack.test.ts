@@ -1839,6 +1839,9 @@ describe("the CLI's own sandbox (PM-167)", () => {
     expect(text).toContain(
       '`npm_config_cache` is `/pm/member-caches/AR/fe-1/npm-cache`, `PROJECTMAN_HOME` is `/pm/member-caches/AR/fe-1/projectman-dev`',
     );
+    // PM-194: the PTY tests are left out on this signal, which is not one of its own directories.
+    expect(text).not.toContain('`PROJECTMAN_SKIP_PTY_TESTS` is');
+    expect(text).toContain('`PROJECTMAN_SKIP_PTY_TESTS=1` is set here');
     expect(text).toContain(
       'Never these paths of the shared git directory (the default branch, the integrating checkout, replacements and grafts): `/src/app/.git/refs/heads/main`, `/src/app/.git/HEAD`, `/src/app/.git/index`, `/src/app/.git/packed-refs`, `/src/app/.git/refs/replace`, `/src/app/.git/info/grafts` (and their lock files)',
     );

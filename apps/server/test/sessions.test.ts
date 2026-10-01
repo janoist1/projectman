@@ -12,6 +12,7 @@ import {
   DomainError,
   LOCAL_ONLY_DENIED_TOOLS,
   SANDBOX_DENIED_ENV_VARS,
+  SANDBOX_PTY_ENV,
   sensitivePaths,
 } from '../src/domain';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
@@ -281,6 +282,7 @@ describe('session orchestrator', () => {
       denyRead: reviewer.policy!.filesystem.deniedPaths,
       allowedDomains: ['registry.npmjs.org'],
       allowLocalBinding: true,
+      env: SANDBOX_PTY_ENV,
     });
     expect(h.worktrees.calls).toHaveLength(1);
   });
@@ -406,7 +408,7 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
   const common = () => ({
     // Neither `~/.npm` (the host's `npx` runs code from its `_npx`) nor `~/.projectman-dev`.
     allowWrite: memberDirs(),
-    env: { npm_config_cache: memberDirs()[0], PROJECTMAN_HOME: memberDirs()[1] },
+    env: { npm_config_cache: memberDirs()[0], PROJECTMAN_HOME: memberDirs()[1], ...SANDBOX_PTY_ENV },
     deniedEnvVars: SANDBOX_DENIED_ENV_VARS,
     allowedDomains: ['registry.npmjs.org'],
     allowLocalBinding: true,
@@ -476,7 +478,7 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
     await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: task.key });
     const sandbox = h.runner.lastStarted().sandbox!;
     expect(sandbox.allowWrite).toEqual([]);
-    expect(sandbox).not.toHaveProperty('env');
+    expect(sandbox.env).toEqual(SANDBOX_PTY_ENV);
   });
 
   it("gives a reader no npm cache or development data of the member's (PM-193)", async () => {
@@ -485,7 +487,8 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
     await h.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: task.key });
     const sandbox = h.runner.lastStarted().sandbox!;
     expect(sandbox.allowWrite).toEqual([]);
-    expect(sandbox).not.toHaveProperty('env');
+    // Only the PTY-test signal (PM-194), none of the developer's directories.
+    expect(sandbox.env).toEqual(SANDBOX_PTY_ENV);
     expect(existsSync(join(appHome, 'member-caches'))).toBe(false);
   });
 

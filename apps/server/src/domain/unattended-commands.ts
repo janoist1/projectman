@@ -1,5 +1,6 @@
 import type { AgentSandbox } from '../contracts';
 import { isWithin } from './command-paths';
+import { PTY_SKIP_VARIABLE } from './session-policy';
 import { SHELL_REDIRECTIONS } from './shell-words';
 import {
   NPM_CHECKS,
@@ -81,6 +82,8 @@ export function describeSandbox(input: {
   const readOnly = (sandbox.denyWrite ?? []).includes(cwd);
   const extra = (sandbox.denyWrite ?? []).filter((dir) => dir !== cwd);
   const denyRead = sandbox.denyRead ?? [];
+  const ownDirectories = Object.entries(sandbox.env ?? {}).filter(([name]) => name !== PTY_SKIP_VARIABLE);
+  const skipsPtyTests = sandbox.env?.[PTY_SKIP_VARIABLE] === '1';
   // The directories closed as a whole (the user's home, the app home), not the paths inside them.
   const closed = denyRead.filter((dir) => !denyRead.some((other) => other !== dir && isWithin(other, dir)));
   const lines = [
@@ -98,13 +101,19 @@ export function describeSandbox(input: {
     sandbox.allowRead?.length
       ? `- Reading: nothing below ${closed.map(code).join(' and ')} except ${sandbox.allowRead.map(code).join(', ')}; everything outside them (the system, the installed tools). Other worktrees, the app's data and the credentials stay closed: do not look for them.`
       : `- Reading: everything${denyRead.length ? `, except the credentials and the live instance's data: ${denyRead.map(code).join(', ')}` : ''}.`,
-    ...(sandbox.env && Object.keys(sandbox.env).length > 0
+    ...(ownDirectories.length > 0
       ? [
-          `- Your own npm cache and development data: ${Object.entries(sandbox.env)
+          `- Your own npm cache and development data: ${ownDirectories
             .map(([name, value]) => `${code(name)} is ${code(value)}`)
             .join(
               ', ',
             )}. Leave them set: npm, ${code('npx')} and ${code('npm run dev')} use them, and the user's ${code('~/.npm')} and ${code('~/.projectman-dev')} are not writable.`,
+        ]
+      : []),
+    // PM-194: the sandbox cannot open a pseudo-terminal, so the PTY tests are left out of this run.
+    ...(skipsPtyTests
+      ? [
+          `- Tests: ${code('npm test')} leaves out the server's tests that need a pseudo-terminal (${code('*.integration.test.ts')}, ${code('golden-path-*.test.ts')}), because ${code(`${PTY_SKIP_VARIABLE}=1`)} is set here and the sandbox cannot open one; report the skipped files to the reviewer, and do not unset the variable.`,
         ]
       : []),
     ...(sandbox.deniedEnvVars?.length

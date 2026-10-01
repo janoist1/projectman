@@ -277,7 +277,7 @@ Credential files are only counted (`wc -c`), never printed.
    - `ls`, `git status`, `git log -1` in its worktree; `cat` of a file in the task's attachment
      directory (attach one first);
    - `npm cache clean --force`, then `npm install <a small new package>` (fresh cache, from the
-     registry), then `npm test` (the PTY tests are skipped there) and `npm run typecheck`; the
+     registry), then `npm test` (the PTY tests are skipped there, with the notice that `PROJECTMAN_SKIP_PTY_TESTS=1` is set; PM-194) and `npm run typecheck`; the
      cache fills the member's `npm-cache` (`ls $npm_config_cache`), not `~/.npm`;
    - `npx <a package not installed in the worktree> --version`: runs, its `_npx` is in the
      member's `npm-cache`;

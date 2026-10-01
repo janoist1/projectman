@@ -59,6 +59,12 @@ tenants into separate OS accounts or machines.
   unknown files) is an `application/octet-stream` download. All responses carry
   `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`,
   `Cross-Origin-Resource-Policy: same-origin` and an encoded `Content-Disposition`.
+  Checked in Chrome against a local development server (2026-10-01): the PDF viewer opens a
+  PDF served with that sandbox CSP, both as a page of its own and inside an iframe, a PNG
+  loads in an `<img>`, HTML and SVG uploads are not rendered (they are downloads), and
+  every content and download response carried exactly the headers listed here. Repeat the
+  check after a Chrome major update or a change of these headers: the sandbox directive
+  is what a browser may one day refuse to show a PDF under.
 - Git/gh and agents receive argument arrays. Task branches are sanitized; default
   branches pass git validation and fetch uses an option terminator. Repository
   paths stay inside their workspace; task worktrees stay inside their project

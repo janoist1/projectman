@@ -127,9 +127,10 @@ export function readableRootsFor(input: {
  * - allow: read-only commands inside `readableRoots`, for any AI session on a task, see
  *   `read-only-commands.ts`. Without roots this rule gives no verdict.
  * The allow rules and the in-place deny rule read the command with the strict parser in
- * `shell-words.ts`; a command it refuses gets no verdict from them. The publishing deny rule works on the raw text and so holds for such
- * a command too. It leaves quoted text out, read as the parser reads it: a backslash in double
- * quotes also covers the newline after it (a line continuation).
+ * `shell-words.ts`; a command it refuses gets no verdict from them. The publishing deny rule
+ * works on the raw text and so holds for such a command too. It leaves quoted text out, read as
+ * the parser reads it: a backslash in double quotes also covers the newline after it (a line
+ * continuation).
  */
 export function commandVerdict(input: {
   config: ProjectConfig;

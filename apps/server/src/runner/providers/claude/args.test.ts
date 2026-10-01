@@ -47,6 +47,25 @@ describe('buildSettings', () => {
     expect(start.command).toContain("'http://127.0.0.1:4700/hooks/abc'");
   });
 
+  it("listens to Claude Code's auto mode refusals (PermissionDenied)", () => {
+    expect(settings.hooks.PermissionDenied).toEqual([
+      { hooks: [{ type: 'http', url: 'http://127.0.0.1:4700/hooks/abc', timeout: expect.any(Number) }] },
+    ]);
+  });
+
+  it('guides the auto mode classifier with prose and keeps the defaults', () => {
+    expect(settings.autoMode?.environment[0]).toBe('$defaults');
+    expect(settings.autoMode?.hard_deny[0]).toBe('$defaults');
+    expect(settings.autoMode?.hard_deny.join(' ')).toMatch(/git push/);
+  });
+
+  it('hands the mode of the member to the CLI as it is, whatever it is', () => {
+    for (const mode of ['default', 'acceptEdits', 'auto', 'plan'] as const) {
+      const args = buildClaudeArgs({ ...spec, permissionMode: mode }, settings);
+      expect(args[args.indexOf('--permission-mode') + 1]).toBe(mode);
+    }
+  });
+
   it('lets a permission request wait longer than our own timeout', () => {
     const timeout = settings.hooks.PermissionRequest![0]!.hooks[0]!.timeout;
     expect(timeout * 1000).toBeGreaterThan(15 * 60_000);
@@ -217,6 +236,23 @@ describe('the managed VM profile (PM-141)', () => {
     expect(buildSettings({ ...input, policy: policy('plan') })).not.toHaveProperty(
       'skipDangerousModePermissionPrompt',
     );
+  });
+
+  it('keeps no hard denials and no classifier guidance: its limits are outside the CLI (PM-165)', () => {
+    const settings = buildSettings({
+      ...input,
+      policy: policy('bypassPermissions', {
+        filesystem: {
+          readableRoots: ['/work'],
+          writableRoots: ['/work'],
+          protectedPaths: [],
+          deniedPaths: ['/Users/anna/.ssh'],
+        },
+        network: { allowedDomains: [], allowLocalBinding: false, deniedHosts: ['localhost'] },
+      }),
+    });
+    expect(settings.permissions).toEqual({ allow: ['mcp__team__*'] });
+    expect(settings).not.toHaveProperty('autoMode');
   });
 
   it('does not touch a legacy start: no protected flags, the old rules and the sandbox stay', () => {

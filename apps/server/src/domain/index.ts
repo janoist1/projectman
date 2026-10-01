@@ -145,6 +145,8 @@ export interface DomainOptions {
    * `worktrees` as before.
    */
   memberWorkspaces?: MemberWorkspaceManager;
+  /** The installation's home (PROJECTMAN_HOME); its sensitive parts are denied to the agents' file tools. */
+  appHome?: string;
   /** Where member workspaces live: a developer's routine steps there run without asking, as in a worktree. */
   workspacesRootDir?: string;
   /** Whether a process group still runs (tests replace it): a workspace reservation outlives a restart until it is gone. */
@@ -232,6 +234,7 @@ export function createDomain(opts: DomainOptions) {
     executionProfile: opts.executionProfile,
     managedVm: opts.managedVm,
     standby: opts.standby,
+    appHome: opts.appHome,
     // `boundary` is built below; the callback only runs when a session starts.
     onExecutionProfileChange: (projectKey, sessionId) => boundary.invalidateSession(projectKey, sessionId),
   });

@@ -69,7 +69,7 @@ it.each([
 });
 
 it.each([
-  ['level', 'permission_refused_level'],
+  ['approver_none', 'permission_refused_approver_none'],
   ['classifier', 'permission_refused_classifier'],
 ] as const)('describes a refused permission request (by %s) with the reason folded away', (by, key) => {
   const event: TimelineEvent = {

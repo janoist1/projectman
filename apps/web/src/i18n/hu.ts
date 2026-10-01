@@ -1081,7 +1081,7 @@ export const hu = {
       permission_automatic_deny: 'Szabály szerint elutasítva',
       permission_ai_allowed: 'AI-döntnök engedélyezte',
       permission_ai_denied: 'AI-döntnök elutasította',
-      permission_refused_level: 'Elutasítva, Auto fokozatban nem kérhető: {summary}',
+      permission_refused_approver_none: 'Elutasítva, senki nem dönt a kérdésekről: {summary}',
       permission_refused_classifier: 'A Claude Code elutasította: {summary}',
       permission_escalated_lead: 'Továbbküldve emberi döntésre',
       permission_escalated_timeout: 'A döntnök nem döntött időben, emberi döntésre vár',

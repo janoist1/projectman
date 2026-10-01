@@ -80,9 +80,21 @@ export interface SessionPolicy {
     protectedPaths: string[];
     /** Directories outside the placement the session reads but never changes (a task's attachments). */
     readOnlyPaths?: string[];
+    /**
+     * Files and directories the built-in file tools never read or change, in every permission mode
+     * (the credentials of the user and the sensitive parts of the live instance, PM-165). Claude
+     * Code renders them as deny rules, which hold in Auto too; the shell is bounded by the CLI's
+     * sandbox (`denyRead`, PM-167), not by these. Absent in the managed VM profile.
+     */
+    deniedPaths?: string[];
   };
   deniedOperations: DeniedSessionOperation[];
-  network: { allowedDomains: string[]; allowLocalBinding: boolean };
+  network: {
+    allowedDomains: string[];
+    allowLocalBinding: boolean;
+    /** Hosts the built-in web fetch tool never reaches (the live instance on localhost, PM-165). */
+    deniedHosts?: string[];
+  };
   outsideSandbox: 'ask' | 'deny';
   permissions: {
     claude: 'default' | 'acceptEdits' | 'auto' | 'plan' | 'bypassPermissions';

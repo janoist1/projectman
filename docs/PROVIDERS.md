@@ -60,6 +60,58 @@ optional effort (`low`, `medium`, `high`, `xhigh`, `max`) is passed via `--effor
 resumed sessions; unset effort uses Claude Code's own default. Clearing effort with a member
 PATCH (`null`) restores that default.
 
+### Permission mode and who decides (PM-165)
+
+The owner's principle (PM-162): the philosophy of the CLIs is the base, and the server decides
+on its own only where the CLI does not cover a case or the owner asked for it.
+
+- **The mode is the CLI's.** The member's `permissionMode` (`default`, `acceptEdits`, `auto`,
+  `plan`) goes to `--permission-mode` as it is; there is no mapping of our own, and Claude Code
+  enforces it, `auto` included (its classifier, PM-134's sandbox for the shell).
+- **When the CLI asks anyway** (the `PermissionRequest` hook), `InboxService.decide` answers:
+  1. `commandVerdict` first (publishing denied, routine steps and read-only commands allowed);
+  2. then the member's `approver`: `human` (or none stored) puts the question in the sponsor's or
+     owner's inbox, as before; `ai` is decided like `human` until PM-169; `none` refuses at once with
+     no inbox item, and the agent is told not to retry in another form and to use `ask_human` with
+     a reason if it really needs it (`APPROVER_NONE_REFUSAL`). The refusal is a `permission_refused`
+     timeline event (`by: 'approver_none'`).
+- **Auto mode's own refusals.** The `PermissionDenied` hook (in `HTTP_HOOK_EVENTS`; payload
+  `tool_name`, `tool_input`, `denial_reason`) fires when the classifier refuses a call; the
+  runner passes it to `PermissionBroker.refused`, which writes a `permission_refused` event
+  (`by: 'classifier'`, `reason` from `denial_reason`). It cannot block and has no answer.
+- **Hard denials, in every mode.** `permissions.deny` in `--settings` holds in `auto` and
+  `bypassPermissions` too: `git push`, `gh pr create`, `gh pr merge` (a repository without GitHub),
+  `Read` and `Edit` of the user's credentials (`~/.ssh`, `~/.config/gh`, `~/.claude/.credentials.json`,
+  `~/.claude/settings.json`, `~/.claude/settings.local.json`, `~/.claude/hooks`, `~/.claude.json`,
+  `~/.codex`, `~/.npmrc`; not the whole `~/.claude`: the member's saved tool outputs under
+  `projects/` and the plan mode's `plans/` live there) and of the sensitive parts of the app home (database,
+  cookie secret, logs, customization repository, members' memory, publishing identity, spool), and
+  `WebFetch` of `localhost` and `127.0.0.1`. `domain/session-policy.ts` (`sensitivePaths`,
+  `HARD_DENIED_HOSTS`) lists them, `SessionPolicy.filesystem.deniedPaths` and
+  `network.deniedHosts` carry them, `runner/providers/claude/policy.ts` renders the rules. The
+  whole app home is not denied: worktrees, workspaces and attachments live there, and deny wins
+  over allow. Read rules also cover Grep and Glob (best effort, per the Claude Code docs).
+- **Codex members too:** `decide` is provider-neutral, so approver `none` refuses a Codex member's
+  escalation the same way (after `commandVerdict`). Only the deny rules and `autoMode` are Claude's.
+- **`autoMode` in `--settings`** (`environment`, `hard_deny`, both with `$defaults`) is prose for
+  the classifier only; the deny rules are what hold.
+- **The managed VM profile is unchanged:** no deny rules, no `autoMode`, no approver path (decision 26).
+
+Server-side decisions, with the reason each exists (the CLI covers none of them):
+
+| Decision                                       | Why the CLI does not cover it                                                                                                                                     |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `commandVerdict` before anything else          | The CLI cannot know the team's routine steps (a worktree's install, `git add`/`commit`, read-only commands) or that this repository is local-only                 |
+| The approver (`human` / `ai` / `none`)         | The CLI asks "the user"; who that is on a team (sponsor, owner, a deciding AI member, nobody) is the app's concept, and the owner asked for nobody as the default |
+| The `none` refusal text and its timeline event | The CLI has no "nobody answers" mode; the agent must learn the refusal is final and where to go next                                                              |
+| The list of denied files and hosts             | The CLI has no list of the credentials and the live instance's data of this installation; the owner decided they stay out of reach                                |
+| `PermissionDenied` to the timeline             | The CLI's classifier decisions are otherwise invisible to the people following the work                                                                           |
+| Managed VM profile: no inner limits            | The boundary is outside the CLI (decisions 25 and 26)                                                                                                             |
+
+Residual risk: a shell command reads the credential files until the CLI sandbox's `denyRead`
+covers them (PM-167), and port 4800 stays reachable from the shell up to the VM (decision 24).
+Codex ignores the deny rules (its sandbox is its own, PM-166). See `SECURITY.md`.
+
 ## Codex
 
 Codex is started as `codex [resume] --no-alt-screen --no-daemon

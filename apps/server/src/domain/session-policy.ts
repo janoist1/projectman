@@ -60,6 +60,37 @@ export const WORKTREE_SANDBOX: AgentSandbox = {
   allowLocalBinding: true,
 };
 
+/**
+ * What the built-in file tools never read or change, whatever the permission mode (PM-165): the
+ * credentials of the user (`userHome`) and the sensitive parts of the live instance (`appHome`:
+ * the database, the cookie secret, the logs, the customization repository, the members' memory,
+ * the publishing identity and the spool). Not the whole app home: the members' worktrees,
+ * workspaces and the task attachments live there, and a deny rule wins over an allow rule.
+ */
+export function sensitivePaths(input: { userHome: string; appHome?: string }): string[] {
+  // Not the whole `.claude`: the member's own saved tool outputs (`projects/.../tool-results`) and the
+  // plan file of the plan mode (`plans`) live there. Only the credentials and the settings.
+  const user = [
+    '.ssh',
+    '.config/gh',
+    '.claude/.credentials.json',
+    '.claude/settings.json',
+    '.claude/settings.local.json',
+    '.claude/hooks',
+    '.claude.json',
+    '.codex',
+    '.npmrc',
+  ];
+  const app = ['db.sqlite*', 'secret', 'logs', 'customization', 'memory', 'github-publish', 'spool'];
+  return [
+    ...user.map((name) => path.join(input.userHome, name)),
+    ...(input.appHome ? app.map((name) => path.join(input.appHome!, name)) : []),
+  ];
+}
+
+/** Hosts the web fetch tool never reaches: the live instance and anything else on this machine. */
+export const HARD_DENIED_HOSTS = ['localhost', '127.0.0.1'];
+
 export type CommandVerdict = { behavior: 'allow' } | { behavior: 'deny'; message: string };
 
 /**
@@ -221,6 +252,8 @@ export function buildSessionPolicy(input: {
   protectedPaths?: string[];
   /** Directories read but never changed, outside the placement (the task's attachments). */
   readOnlyPaths?: string[];
+  /** Files and directories the file tools never touch (`sensitivePaths`); the legacy profile only. */
+  deniedPaths?: string[];
   /**
    * The managed VM profile (PM-141), given only after its boundary was verified for this start:
    * the placement is the member's own workspace and the CLI asks nothing locally.
@@ -270,10 +303,11 @@ export function buildSessionPolicy(input: {
         ]),
       ],
       ...(input.readOnlyPaths?.length ? { readOnlyPaths: [...new Set(input.readOnlyPaths)] } : {}),
+      ...(input.deniedPaths?.length ? { deniedPaths: [...new Set(input.deniedPaths)] } : {}),
     },
     deniedOperations: repo && !repo.github ? [...LOCAL_PUBLISHING_OPERATIONS] : [],
     // No network widening: adapters retain their current enforcement until PM-128/129/130.
-    network: { allowedDomains: [], allowLocalBinding: false },
+    network: { allowedDomains: [], allowLocalBinding: false, deniedHosts: [...HARD_DENIED_HOSTS] },
     outsideSandbox: enforcement === 'strict' ? 'deny' : 'ask',
     permissions,
   };

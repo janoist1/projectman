@@ -388,6 +388,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       attachmentStorage: modules.attachmentStorage ?? createAttachmentStorage(attachmentsDir),
       accounts: auth,
       worktreesRootDir: join(home, 'worktrees'),
+      appHome: home,
       memberWorkspaces,
       workspacesRootDir: workspacesDir,
       // Behind the boundary a session's pid is the launcher's (root's) process, and the launcher

@@ -1,4 +1,5 @@
 import {
+  approverOf,
   effectiveRepo,
   isBuiltInRole,
   repoOf,
@@ -331,7 +332,17 @@ function unattendedCommandsSection({
   ].join('\n');
 }
 
-function sessionPolicySection({ sessionPolicy: policy }: ContextPackInput): string {
+/** Who decides when the CLI asks for a permission (the member's approver, PM-165). */
+function approverText(member: ContextPackInput['member']): string {
+  const approver = approverOf(member);
+  if (approver === 'none')
+    return 'Permission questions: nobody approves them in this session. A request the CLI would ask about is refused at once, and the refusal is final: do not retry it in another form. If you really need it, ask a human with ask_human and say why.';
+  if (approver === 'ai')
+    return 'Permission questions: when the CLI asks for a permission, a teammate or a human decides. Wait for the answer and do not ask again in another form.';
+  return 'Permission questions: when the CLI asks for a permission, a human decides in their inbox. Wait for the answer and do not ask again in another form.';
+}
+
+function sessionPolicySection({ sessionPolicy: policy, member }: ContextPackInput): string {
   if (!policy) return '';
   if (policy.execution?.profile === 'managed_vm') {
     const research = policy.permissions.sandbox === 'read-only';
@@ -354,7 +365,13 @@ function sessionPolicySection({ sessionPolicy: policy }: ContextPackInput): stri
     `Writable workspace roots: ${codeList(policy.filesystem.writableRoots)}.`,
     `Protected paths: ${codeList(policy.filesystem.protectedPaths)}.`,
     `Denied operations: ${codeList(policy.deniedOperations)}.`,
+    ...(policy.filesystem.deniedPaths?.length
+      ? [
+          `The file tools never read or change credential files and the live instance's data (${codeList(policy.filesystem.deniedPaths)}), and web fetch never reaches ${codeList(policy.network.deniedHosts ?? [])}, in any mode: do not look for a way around it.`,
+        ]
+      : []),
     'Enforcement is the existing provider and command policy. These roots do not establish strict read or network isolation yet; outside-sandbox execution still requires permission.',
+    approverText(member),
   ].join('\n');
 }
 

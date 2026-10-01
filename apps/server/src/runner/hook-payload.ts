@@ -27,6 +27,8 @@ export const HookPayload = z.looseObject({
   error: z.unknown().optional(),
   /** SessionEnd. */
   reason: z.string().optional(),
+  /** PermissionDenied (Claude Code's auto mode): why the call was refused. */
+  denial_reason: z.string().optional(),
   /** Present when the hook fires inside a subagent. */
   agent_id: z.string().optional(),
 });

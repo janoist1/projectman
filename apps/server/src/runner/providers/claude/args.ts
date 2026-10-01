@@ -20,6 +20,7 @@ export const HTTP_HOOK_EVENTS = [
   'PostToolUse',
   'PostToolUseFailure',
   'PermissionRequest',
+  'PermissionDenied',
   'Notification',
   'Stop',
   'StopFailure',
@@ -61,8 +62,32 @@ interface HookHandler {
   timeout: number;
 }
 
+/**
+ * Claude Code's `autoMode` settings (prose the auto mode's classifier reads, Claude Code docs
+ * "auto-mode-config"; `$defaults` keeps the built-in entries). It only steers the classifier: the
+ * deny rules are what hold, in every mode (PM-165).
+ */
+export interface ClaudeAutoModeSettings {
+  environment: string[];
+  hard_deny: string[];
+}
+
+export const AUTO_MODE_SETTINGS: ClaudeAutoModeSettings = {
+  environment: [
+    '$defaults',
+    "This is a development machine of an AI team's member. The work is done in the task's own working directory; the repository is local-only and nothing is published from it.",
+  ],
+  hard_deny: [
+    '$defaults',
+    'Never publish: no git push, no gh pr create, no gh pr merge, whatever the target.',
+    "Never read or copy credential files (SSH keys, the GitHub CLI's and the agents' own configuration, .npmrc) or the data of the live projectman instance (its database, secret, logs and customization).",
+    'Never call the live projectman instance on localhost port 4800.',
+  ],
+};
+
 export interface ClaudeSettings {
   permissions: { allow: string[]; deny?: string[] };
+  autoMode?: ClaudeAutoModeSettings;
   hooks: Record<string, Array<{ hooks: HookHandler[] }>>;
   sandbox?: ClaudeSandboxSettings;
   /** Managed VM profile: no first-use confirmation of the bypass mode (it would wait in the terminal). */
@@ -157,6 +182,8 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
       allow: [...new Set(rules.allow)],
       ...(rules.deny.length ? { deny: [...new Set(rules.deny)] } : {}),
     },
+    // The managed VM profile keeps no inner limits, the classifier's guidance included.
+    ...(managed ? {} : { autoMode: AUTO_MODE_SETTINGS }),
     hooks,
     ...(sandbox ? { sandbox: buildSandboxSettings(sandbox) } : {}),
     ...(managed && input.policy!.permissions.claude === 'bypassPermissions'

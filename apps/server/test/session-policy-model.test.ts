@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { roleSessionAccess, sessionPermissions } from '@projectman/shared';
 import type { SessionPolicy, StartSessionSpec } from '../src/contracts';
-import { buildSessionPolicy } from '../src/domain/session-policy';
+import { buildSessionPolicy, sensitivePaths } from '../src/domain/session-policy';
 import { buildSettings, buildClaudeArgs } from '../src/runner/providers/claude/args';
 import { buildCodexArgs, tomlValue } from '../src/runner/providers/codex/args';
 import { testConfig } from './helpers/test-template';
@@ -291,7 +291,65 @@ describe('provider-neutral session policy', () => {
     expect(
       buildSettings({ hookUrl: 'http://fake/hooks', permissionTimeoutMs: 1000, allowedTools: [], policy: p })
         .permissions.deny,
-    ).toEqual(['Bash(git push:*)', 'Bash(gh pr create:*)', 'Bash(gh pr merge:*)']);
+    ).toEqual([
+      'Bash(git push:*)',
+      'Bash(gh pr create:*)',
+      'Bash(gh pr merge:*)',
+      'WebFetch(domain:localhost)',
+      'WebFetch(domain:127.0.0.1)',
+    ]);
+  });
+
+  it('denies the credentials, the live instance data and local web fetches in every permission mode (PM-165)', () => {
+    const deniedPaths = sensitivePaths({ userHome: '/Users/anna', appHome: '/Users/anna/.projectman' });
+    expect(deniedPaths).toEqual(
+      expect.arrayContaining([
+        '/Users/anna/.ssh',
+        '/Users/anna/.config/gh',
+        '/Users/anna/.claude/.credentials.json',
+        '/Users/anna/.claude/settings.json',
+        '/Users/anna/.claude.json',
+        '/Users/anna/.codex',
+        '/Users/anna/.npmrc',
+        '/Users/anna/.projectman/db.sqlite*',
+        '/Users/anna/.projectman/secret',
+        '/Users/anna/.projectman/logs',
+        '/Users/anna/.projectman/customization',
+        '/Users/anna/.projectman/memory',
+      ]),
+    );
+    // The whole home is not denied: worktrees, workspaces and attachments live there.
+    expect(deniedPaths).not.toContain('/Users/anna/.projectman');
+    // The member's own saved tool outputs and the plan mode's plan file stay reachable.
+    expect(deniedPaths).not.toContain('/Users/anna/.claude');
+    for (const permissionMode of ['default', 'acceptEdits', 'auto', 'plan', undefined]) {
+      const p = buildSessionPolicy({
+        config: testConfig(),
+        role: 'developer',
+        task: { repo: 'web' },
+        placement: development().placement,
+        permissionMode,
+        deniedPaths,
+      });
+      const deny = buildSettings({
+        hookUrl: 'http://fake/hooks',
+        permissionTimeoutMs: 1000,
+        allowedTools: [],
+        policy: p,
+      }).permissions.deny;
+      expect(deny, String(permissionMode)).toEqual(
+        expect.arrayContaining([
+          'Read(//Users/anna/.ssh)',
+          'Read(//Users/anna/.ssh/**)',
+          'Edit(//Users/anna/.ssh/**)',
+          'Read(//Users/anna/.claude.json)',
+          'Edit(//Users/anna/.projectman/db.sqlite*)',
+          'Read(//Users/anna/.projectman/secret/**)',
+          'WebFetch(domain:localhost)',
+          'WebFetch(domain:127.0.0.1)',
+        ]),
+      );
+    }
   });
 
   it.each([false, true])('renders semantic grants on both providers with resume=%s', (resume) => {

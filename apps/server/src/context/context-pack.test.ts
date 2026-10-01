@@ -1539,6 +1539,45 @@ function reviewPolicy(project: ProjectConfig, task: Task) {
   });
 }
 
+describe('who decides a permission question (the approver, PM-165)', () => {
+  const project = buildLocalOnlyProject('.');
+  const task = makeTask({ stageId: 'dev', repo: 'app' });
+  const policySection = (approver: 'human' | 'ai' | 'none' | undefined) => {
+    const member = aiMember(project, 'fe-1');
+    const withApprover = { ...member, ...(approver ? { approver } : { approver: undefined }) };
+    const sessionPolicy = buildSessionPolicy({
+      config: project,
+      role: 'developer',
+      task,
+      placement: { kind: 'task_worktree', path: '/work' },
+      deniedPaths: ['/Users/anna/.ssh'],
+    });
+    return section(
+      builder.build({ ...input({ project, handle: 'fe-1', task, sessionPolicy }), member: withApprover })
+        .appendSystemPrompt,
+      '# Session policy',
+    );
+  };
+
+  it('says the refusal is final and ask_human is the way forward, when nobody decides', () => {
+    const text = policySection('none');
+    expect(text).toContain('nobody approves them in this session');
+    expect(text).toContain('the refusal is final');
+    expect(text).toContain('ask_human');
+  });
+
+  it('says a human decides for a member with no approver set, and a teammate or a human for the AI approver', () => {
+    expect(policySection(undefined)).toContain('a human decides in their inbox');
+    expect(policySection('human')).toContain('a human decides in their inbox');
+    expect(policySection('ai')).toContain('a teammate or a human decides');
+  });
+
+  it('names what the file tools and web fetch never reach', () => {
+    expect(policySection('none')).toContain('`/Users/anna/.ssh`');
+    expect(policySection('none')).toContain('web fetch never reaches `localhost`, `127.0.0.1`');
+  });
+});
+
 describe('member workspaces (PM-138)', () => {
   it('tells a developer which branch of its own workspace it works on, and that switching needs committed work', () => {
     const project = buildLocalOnlyProject('.');

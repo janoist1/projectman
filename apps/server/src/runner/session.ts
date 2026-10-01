@@ -284,7 +284,7 @@ export class AgentSession {
       return null;
     }
     // A subagent's approval still needs an answer; its other hooks say nothing about the session.
-    if (subagent && payload.hook_event_name !== 'PermissionRequest') return null;
+    if (subagent && !['PermissionRequest', 'PermissionDenied'].includes(payload.hook_event_name)) return null;
     // The typing delay is set before any transition to idle, which starts the queue.
     switch (payload.hook_event_name) {
       case 'SessionStart': {
@@ -317,6 +317,15 @@ export class AgentSession {
         return null;
       case 'PermissionRequest':
         return this.permissionRequest(payload, withdrawn);
+      case 'PermissionDenied':
+        // The agent's auto mode refused a tool call on its own: recorded, nothing to answer.
+        this.deps.broker.refused?.({
+          sessionId: this.id,
+          toolName: payload.tool_name ?? 'unknown',
+          toolInput: payload.tool_input ?? null,
+          ...(payload.denial_reason ? { reason: payload.denial_reason } : {}),
+        });
+        return null;
       case 'Notification':
         this.input.schedule(this.timing.stopSettleMs);
         this.apply({

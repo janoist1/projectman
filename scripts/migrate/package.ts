@@ -45,7 +45,14 @@ const run = promisify(execFile);
 export const PACKAGE_VERSION = 1;
 
 /** Not carried from the home: old worktrees and workspaces (their work is captured separately), the publishing identity, the old role marker and temporary files. */
-export const EXCLUDED_ENTRIES = ['worktrees', 'workspaces', 'github-publish', 'instance.json'] as const;
+export const EXCLUDED_ENTRIES = [
+  'worktrees',
+  'workspaces',
+  'github-publish',
+  // The hand-over bundles of the VM boundary (PM-140) belong to the old machine's workers.
+  'spool',
+  'instance.json',
+] as const;
 const isTemporary = (name: string) => name.startsWith('.secret-') || name.endsWith('.tmp');
 
 export interface PackageManifest {

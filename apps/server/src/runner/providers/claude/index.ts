@@ -163,12 +163,13 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
         permissionTimeoutMs,
         sandbox: spec.sandbox,
       });
-      const command = resolveCommand(opts.bin, buildClaudeArgs(spec, settings));
+      const cliArgs = buildClaudeArgs(spec, settings);
+      const command = resolveCommand(opts.bin, cliArgs);
       // The first message (the brief; for a resumed conversation, the message that caused the
       // resume or the continue message) is typed once SessionStart arrives, which Claude Code
       // reports at launch, for a resume too: nothing depends on the screen, so it is not passed
       // as a prompt argument as Codex's is.
-      return { ...command, initialMessageSent: false };
+      return { ...command, cliArgs, initialMessageSent: false };
     },
 
     parseHook(body) {
@@ -191,6 +192,8 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
     async checkLogin(env): Promise<ProviderStatus> {
       return parseClaudeAuthStatus(await runQuietly(opts.bin, ['auth', 'status'], env));
     },
+    loginCommand: ['auth', 'status'],
+    parseLogin: (out) => parseClaudeAuthStatus(out),
     planUsage: createPlanUsageProvider({ claudeBin: opts.bin, logger: log, env: opts.env }),
   };
 }

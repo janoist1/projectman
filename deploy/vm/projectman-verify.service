@@ -1,0 +1,11 @@
+# Measures the managed VM profile and writes the readiness report the server reads (PM-137,
+# PM-140). Run by projectman-verify.timer; the server refuses sessions when the newest report is
+# missing, not ready or older than READINESS_MAX_AGE_SECONDS.
+[Unit]
+Description=projectman readiness report
+After=projectman.service projectman-launcher.socket
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /srv/projectman/deploy/vm/verify.sh --out /var/lib/projectman-boundary/readiness.json
+TimeoutStartSec=15min

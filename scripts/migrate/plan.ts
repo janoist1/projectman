@@ -81,7 +81,7 @@ export function renderCutoverSheet(inventory: Inventory, options: PlanOptions): 
   out.push(
     `- Not carried, on purpose: ${
       inventory.entries
-        .filter((e) => ['worktrees', 'workspaces', 'github-publish'].includes(e.name))
+        .filter((e) => ['worktrees', 'workspaces', 'github-publish', 'spool'].includes(e.name))
         .map((e) => e.name)
         .join(', ') || 'nothing of that kind'
     } (old worktrees stay where they are and are never deleted by the move), the personal CLI homes of the Mac, the publishing identity.`,

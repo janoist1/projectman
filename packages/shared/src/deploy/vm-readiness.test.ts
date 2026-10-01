@@ -28,10 +28,20 @@ function report(
 }
 
 describe('VM readiness contract', () => {
-  it('is ready when every required check passed; the later parts stay pending', () => {
+  it('is ready when every required check passed; the reported-only ones stay pending', () => {
     const result = evaluateVmReadiness(report());
     expect(result).toMatchObject({ ready: true, missing: [], failed: [], unverified: [], problems: [] });
-    expect(result.pending).toEqual(['egress-open', 'domain-gate', 'launcher', 'tailscale']);
+    expect(result.pending).toEqual(['egress-open', 'tailscale']);
+  });
+
+  it('requires the protected launcher and the egress gate (PM-140)', () => {
+    for (const id of ['launcher', 'domain-gate']) {
+      expect(evaluateVmReadiness(report({}, [id])).missing).toEqual([id]);
+      expect(evaluateVmReadiness(report({}, [], { [id]: 'unverified' }))).toMatchObject({
+        ready: false,
+        unverified: [id],
+      });
+    }
   });
 
   it('is not ready when a required check is missing, failed or not measured', () => {
@@ -50,9 +60,7 @@ describe('VM readiness contract', () => {
   });
 
   it('does not need the reported-only checks', () => {
-    expect(
-      evaluateVmReadiness(report({}, ['tailscale', 'domain-gate', 'launcher', 'egress-open'])).ready,
-    ).toBe(true);
+    expect(evaluateVmReadiness(report({}, ['tailscale', 'egress-open'])).ready).toBe(true);
   });
 
   it('refuses a report of another profile version, a duplicated check and a stale report', () => {

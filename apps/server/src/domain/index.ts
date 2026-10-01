@@ -15,9 +15,12 @@ import type {
   MemberWorkspaceManager,
   PermissionBroker,
   RunnerModule,
+  RuntimeBoundary,
   WorktreeManager,
 } from '../contracts';
 import type { Repositories } from '../db';
+import { EgressService } from './egress';
+import type { EgressSettings } from './egress';
 import type { ProcessProbe } from './workspaces';
 import { projectAccessFor } from './access';
 import type { ProjectAccess } from './access';
@@ -75,6 +78,8 @@ export type { WorkspaceFile, WorkspaceFileHooks, WorkspaceFileRefusalReason } fr
 export { BackgroundTasks } from './background';
 export { BoardService } from './board';
 export { BoundaryService } from './boundary';
+export { EgressService } from './egress';
+export type { EgressDecision, EgressIdentity, EgressSession, EgressSettings } from './egress';
 export { GithubSync } from './github-sync';
 export { InboxService, PERMISSION_OPTIONS, DECISION_OPTIONS, ANSWER_OPTION } from './inbox';
 export { InvitationService } from './invitations';
@@ -109,6 +114,10 @@ export { SYSTEM_ACTOR, SYSTEM_AUTHOR, humanActor, aiActor } from './util';
 
 export interface DomainOptions {
   boundaryAdapter?: BoundaryOperationAdapter;
+  /** The VM boundary (PM-140); absent or `off` everywhere but in the managed VM. */
+  runtimeBoundary?: RuntimeBoundary;
+  /** The network gate's base destinations and grant length (managed VM). */
+  egress?: EgressSettings;
   repos: Repositories;
   configStore: ConfigStore;
   logger: FastifyBaseLogger;
@@ -219,6 +228,7 @@ export function createDomain(opts: DomainOptions) {
     attachmentDirectory,
     memberWorkspaces: opts.memberWorkspaces,
     processExists: opts.processExists,
+    runtimeBoundary: opts.runtimeBoundary,
     executionProfile: opts.executionProfile,
     managedVm: opts.managedVm,
     standby: opts.standby,
@@ -239,12 +249,20 @@ export function createDomain(opts: DomainOptions) {
   const admission = new Admission({ ctx, sessions, planUsage, tasks, projects, deferred: deferredStarts });
   const delivery = new MessageDelivery({ ctx, sessions, messages });
   const messaging = new Messaging({ ctx, projects, tasks, sessions, messages, delivery });
+  // The network gate's egress operations are one registry of the protected adapter; another
+  // adapter (PM-142's publishing) answers the operation ids that are not egress ones.
+  const egress = new EgressService({ ctx, projects, timeline, settings: opts.egress });
   const boundary = new BoundaryService({
     ctx,
     projects,
     inbox,
     timeline,
-    adapter: opts.boundaryAdapter,
+    adapter: {
+      resolve: (requester, operationId) =>
+        egress.resolve(requester, operationId) ??
+        opts.boundaryAdapter?.resolve(requester, operationId) ??
+        null,
+    },
     notify(request, recipients) {
       const config = projects.cachedConfig(request.projectKey);
       // Humans receive the localized inbox/timeline; this English message is an agent prompt.
@@ -268,6 +286,7 @@ export function createDomain(opts: DomainOptions) {
       );
     },
   });
+  egress.attach(boundary);
   const taskStarts = new TaskStarts({ projects, tasks, members, sessions, admission });
   const handOver = new StageHandOver({ projects, tasks, sessions, admission, delivery });
   const messageStarts = new MessageStarts({ projects, tasks, admission, messages, delivery });
@@ -285,9 +304,11 @@ export function createDomain(opts: DomainOptions) {
     tasks,
     githubSync,
     publisher: opts.githubPublisher,
+    memberWorkspaces: opts.memberWorkspaces,
   });
   const teamTools = new TeamToolsService({
     boundary,
+    egress,
     publishing,
     ctx,
     projects,
@@ -326,6 +347,7 @@ export function createDomain(opts: DomainOptions) {
   });
   events.on('config_changed', (change) => sessions.handleConfigChange(change));
   events.on('config_changed', () => boundary.sweep());
+  events.on('config_changed', (change) => egress.handleConfigChange(change));
   events.on('task_cancelled', () => boundary.sweep());
   // AI work switched back on: the deferred starts continue.
   events.on('config_changed', (change) => {
@@ -392,6 +414,8 @@ export function createDomain(opts: DomainOptions) {
     projects,
     inbox,
     boundary,
+    egress,
+    runtimeBoundary: opts.runtimeBoundary ?? null,
     runnerModule,
     presence,
     messages,

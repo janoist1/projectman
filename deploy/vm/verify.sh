@@ -157,10 +157,22 @@ check_paths_owner_mode() {
     "$SERVICE_HOME|$SERVICE_USER:$SERVICE_USER 700"
     "$PROJECTMAN_HOME|$SERVICE_USER:$SERVICE_USER 700"
     "$WORKER_HOME_ROOT|root:root 755"
+    "$BOUNDARY_CONFIG|root:root 644"
+    "$SPOOL_ROOT|root:root 755"
     "/etc/systemd/system/projectman.service|root:root 644"
+    "/etc/systemd/system/projectman.service.d/boundary.conf|root:root 644"
     "/etc/systemd/system/projectman-gate.service|root:root 644"
+    "/etc/systemd/system/projectman-launcher.socket|root:root 644"
+    "/etc/systemd/system/projectman-launcher.service|root:root 644"
+    "/etc/systemd/system/projectman-verify.service|root:root 644"
+    "/etc/systemd/system/projectman-verify.timer|root:root 644"
   )
-  for w in "${WORKERS[@]}"; do specs+=("$WORKER_HOME_ROOT/$w|$w:$w 750"); done
+  for w in "${WORKERS[@]}"; do
+    specs+=("$WORKER_HOME_ROOT/$w|$w:$w 750")
+    specs+=("$SPOOL_ROOT/${w#"$WORKER_PREFIX"}|root:root 755")
+    specs+=("$SPOOL_ROOT/${w#"$WORKER_PREFIX"}/in|$SERVICE_USER:$w 2750")
+    specs+=("$SPOOL_ROOT/${w#"$WORKER_PREFIX"}/out|$w:$w 750")
+  done
   for path in "$PROJECTMAN_HOME/secret" "$PROJECTMAN_HOME/db.sqlite"; do
     [ -e "$path" ] && specs+=("$path|$SERVICE_USER:$SERVICE_USER 600")
   done
@@ -193,9 +205,11 @@ check_worker_denied_read() {
 check_worker_denied_write() {
   local u p bad= n=0
   local -a paths=(
-    "$APP_DIR" "$APP_DIR/apps/server/dist/index.js" "$CONFIG_DIR" "$CONFIG_DIR/gate.nft" "$CONFIG_DIR/profile.env"
-    "$STATE_DIR" "$CLI_PREFIX" "/etc/systemd/system/projectman.service" "/etc/systemd/system/projectman-gate.service"
-    "/etc/ssh/sshd_config.d" "$WORKER_HOME_ROOT"
+    "$APP_DIR" "$APP_DIR/apps/server/dist/index.js" "$APP_DIR/apps/server/dist/launcher.js" "$CONFIG_DIR"
+    "$CONFIG_DIR/gate.nft" "$CONFIG_DIR/profile.env" "$BOUNDARY_CONFIG" "$STATE_DIR" "$CLI_PREFIX"
+    "/etc/systemd/system/projectman.service" "/etc/systemd/system/projectman-gate.service"
+    "/etc/systemd/system/projectman-launcher.service" "/etc/systemd/system/projectman-launcher.socket"
+    "/etc/ssh/sshd_config.d" "$WORKER_HOME_ROOT" "$SPOOL_ROOT"
   )
   # The service is held to the same limit for everything that is root's: it must not change the app
   # or the boundary either. Control: root-owned paths exist, and the service can write its own data.
@@ -221,17 +235,36 @@ check_worker_isolation() {
       [ "$a" = "$b" ] && continue
       n=$((n + 1))
       if can "$a" -r "$WORKER_HOME_ROOT/$b" || can "$a" -x "$WORKER_HOME_ROOT/$b" || can "$a" -w "$WORKER_HOME_ROOT/$b"; then bad="$bad $a->$b"; fi
+      # Nor each other's hand-over spool (PM-140).
+      for d in in out; do
+        if can "$a" -x "$SPOOL_ROOT/${b#"$WORKER_PREFIX"}/$d" || can "$a" -w "$SPOOL_ROOT/${b#"$WORKER_PREFIX"}/$d"; then bad="$bad $a->$b:$d"; fi
+      done
     done
   done
-  if [ -n "$bad" ]; then record worker-isolation fail "access across workers:$bad"; else record worker-isolation pass "$n ordered worker pairs have no access to each other's home"; fi
+  if [ -n "$bad" ]; then record worker-isolation fail "access across workers:$bad"; else record worker-isolation pass "$n ordered worker pairs have no access to each other's home or spool"; fi
 }
 
+# A worker may hold its own subscription login (made by a person for that worker, PM-140), never a
+# copy of another account's: a login file in a worker home must be the worker's, mode 600, and not
+# the same bytes as the service's (compared by hash; nothing is printed). GitHub and SSH keys are
+# never allowed in a worker home (publishing is the protected gate's, PM-142).
+WORKER_OWN_LOGINS=".claude/.credentials.json .codex/auth.json"
 check_no_credential_copies() {
-  local w f found= n=0 loose=
+  local w f path found= own=0 n=0 loose=
   for w in "${WORKERS[@]}"; do
     for f in $CREDENTIAL_FILES; do
       n=$((n + 1))
-      [ -e "$WORKER_HOME_ROOT/$w/$f" ] && found="$found $w:$f"
+      path=$WORKER_HOME_ROOT/$w/$f
+      [ -e "$path" ] || continue
+      case " $WORKER_OWN_LOGINS " in
+        *" $f "*)
+          if [ "$(stat -c '%U %a' "$path" 2>/dev/null)" != "$w 600" ]; then found="$found $w:$f(owner/mode)"
+          elif [ -e "$SERVICE_HOME/$f" ] && [ "$(sha256sum < "$path")" = "$(sha256sum < "$SERVICE_HOME/$f")" ]; then found="$found $w:$f(copy of the service's)"
+          else own=$((own + 1)); fi ;;
+        # Claude Code's settings file (workspace trust, no token): the worker's own only.
+        .claude.json) [ "$(stat -c '%U' "$path" 2>/dev/null)" = "$w" ] || found="$found $w:$f(owner)" ;;
+        *) found="$found $w:$f" ;;
+      esac
     done
   done
   for f in $CREDENTIAL_FILES; do
@@ -239,7 +272,7 @@ check_no_credential_copies() {
   done
   if [ -n "$found" ]; then record no-credential-copies fail "login files in worker homes:$found"
   elif [ -n "$loose" ]; then record no-credential-copies fail "service login files not mode 600:$loose"
-  else record no-credential-copies pass "no login file in any worker home ($n names tried); the service's own login files are mode 600 where present"; fi
+  else record no-credential-copies pass "no copied login, GitHub or SSH key in any worker home ($n names tried; $own worker-own subscription logins, each the worker's, mode 600, not the service's bytes); the service's login files are mode 600 where present"; fi
 }
 
 check_proc_hidden() {
@@ -292,7 +325,9 @@ check_worker_sockets() {
   for p in $paths; do
     [ -S "$p" ] || continue
     matches_any "$p" "$WORKER_ALLOWED_SOCKETS" && continue
-    # The service is held to the same limit: until PM-140 it runs the CLIs.
+    # The service is held to the same limit. The launcher's socket is the one it may use (the
+    # launcher check holds the workers away from it), so it is skipped here.
+    [ "$p" = "$LAUNCHER_SOCKET" ] && continue
     for w in "$SERVICE_USER" "${WORKERS[@]}"; do
       n=$((n + 1))
       if can "$w" -w "$p"; then bad="$bad $w:$p"; fi
@@ -325,7 +360,7 @@ check_gate_loaded() {
   local rules bad=
   rules=$(nft list table inet projectman_gate 2>/dev/null)
   [ -n "$rules" ] || { record gate-loaded fail "table inet projectman_gate is not loaded"; return; }
-  for want in 'chain worker_egress' 'chain egress' 'chain ingress' "$SERVICE_UID" "$WORKER_UID_MIN-$WORKER_UID_MAX" 'nfproto ipv6' '169.254.0.0/16' 'iifname "tailscale0"' 'tcp dport 22'; do
+  for want in 'chain worker_egress' 'chain service_egress' 'chain egress' 'chain ingress' "skuid $SERVICE_UID jump service_egress" "skuid $WORKER_UID_MIN-$WORKER_UID_MAX jump worker_egress" 'nfproto ipv6' '169.254.0.0/16' 'iifname "tailscale0"' 'tcp dport 22' "ip daddr 127.0.0.1 tcp dport $EGRESS_PORT accept"; do
     printf '%s\n' "$rules" | grep -qF "$want" || bad="$bad '$want'"
   done
   [ "$(systemctl is-enabled projectman-gate 2>/dev/null)" = enabled ] || bad="$bad unit-not-enabled"
@@ -402,9 +437,96 @@ check_gate_blocks_host() {
 }
 
 check_egress_open() {
-  local host=${EGRESS_OPEN_PROBE%:*} port=${EGRESS_OPEN_PROBE##*:}
-  if [ "${#WORKERS[@]}" -gt 0 ] && tcp_connect "${WORKERS[0]}" "$host" "$port"; then record egress-open pass "${WORKERS[0]} reached $EGRESS_OPEN_PROBE"
-  else record egress-open unverified "${WORKERS[0]:-no worker} could not reach $EGRESS_OPEN_PROBE (no internet from this network, or a gate that is too tight)"; fi
+  local host=${EGRESS_OPEN_PROBE%:*} code
+  # A base destination, through the egress proxy (the workers' only way out since PM-140).
+  code=$( [ "${#WORKERS[@]}" -gt 0 ] && as_user "${WORKERS[0]}" curl -q -sS -o /dev/null -w '%{http_code}' --max-time 15 \
+    --proxy "http://127.0.0.1:$EGRESS_PORT" "https://$host/" 2>/dev/null)
+  case $code in
+    [1-5][0-9][0-9]) record egress-open pass "${WORKERS[0]} reached $EGRESS_OPEN_PROBE through the egress proxy (HTTP $code)" ;;
+    *) record egress-open unverified "${WORKERS[0]:-no worker} could not reach $EGRESS_OPEN_PROBE through the egress proxy (no internet, the service is down, or a gate that is too tight)" ;;
+  esac
+}
+
+# --- the VM boundary (PM-140) -----------------------------------------------------------------
+
+# The boundary probe: root's positive controls, then the launcher runs the probe as the first
+# worker in a real sandboxed unit (dist/boundary-probe.js). Its lines are kept for both checks.
+boundary_probe() {
+  [ -n "${PROBE_OUT+x}" ] && return
+  local worker=${WORKERS[0]#"$WORKER_PREFIX"} peer=
+  [ "${#WORKERS[@]}" -ge 2 ] && peer=${WORKERS[1]#"$WORKER_PREFIX"}
+  PROBE_OUT=$(timeout 300 node "$APP_DIR/apps/server/dist/boundary-probe.js" --config "$BOUNDARY_CONFIG" \
+    --worker "$worker" --peer "${peer:-$worker}" --service-home "$SERVICE_HOME" --public-name "$PROBE_PUBLIC_NAME" \
+    --dns-server "$PROBE_DNS_SERVER" --ipv6 "$PROBE_IPV6_PUBLIC" --base "$EGRESS_OPEN_PROBE" \
+    --denied "$PROBE_DENIED_DESTINATION" --ssh-port "$SSH_PORT" 2>/dev/null)
+}
+# probe_word KIND ID: ok | fail | skip of a line, or nothing.
+probe_word() { printf '%s\n' "$PROBE_OUT" | awk -v k="$1" -v id="$2" '$1 == k && $2 == id { print $3; exit }'; }
+
+check_launcher() {
+  local got bad= w id word
+  got=$(stat -c '%U:%G %a' "$LAUNCHER_SOCKET" 2>/dev/null)
+  [ "$got" = "root:$SERVICE_USER 660" ] || bad="$bad socket(${got:-missing}, want root:$SERVICE_USER 660)"
+  [ "$(systemctl is-enabled projectman-launcher.socket 2>/dev/null)" = enabled ] || bad="$bad socket-unit-not-enabled"
+  # Control: the service may use the socket; then no worker may.
+  if ! can "$SERVICE_USER" -w "$LAUNCHER_SOCKET"; then record launcher fail "control failed: $SERVICE_USER cannot use $LAUNCHER_SOCKET"; return; fi
+  for w in "${WORKERS[@]}"; do can "$w" -w "$LAUNCHER_SOCKET" && bad="$bad $w(can use the launcher socket)"; done
+  boundary_probe
+  [ "$(probe_word LAUNCHER ping)" = ok ] || bad="$bad ping"
+  [ "$(probe_word LAUNCHER run)" = ok ] || bad="$bad run-as-worker"
+  for id in identity environment system-bus resolver-socket launcher-socket transient-units service-data peer-home processes write-outside; do
+    word=$(probe_word PROBE "$id")
+    [ "$word" = ok ] || bad="$bad $id(${word:-missing})"
+  done
+  if [ -n "$bad" ]; then record launcher fail "$bad"; else record launcher pass "socket root:$SERVICE_USER 660, no worker can use it; the launcher ran the probe as ${WORKERS[0]} in a sandboxed unit: own uid and group only, no privileges, no key or agent variable, no system bus, resolver, launcher socket, transient units, service data, other worker's home or other processes, app and configuration read-only"; fi
+}
+
+check_domain_gate() {
+  local bad= open= id word control rules hostloop
+  rules=$(nft list chain inet projectman_gate worker_egress 2>/dev/null)
+  printf '%s\n' "$rules" | grep -q 'reject' || bad="$bad worker-chain"
+  boundary_probe
+  if [ "$(probe_word LAUNCHER run)" != ok ]; then record domain-gate fail "the probe did not run as a worker (see launcher)"; return; fi
+  # Each refusal counts only where root's control reached the same thing.
+  for id in dns direct-tcp direct-udp ipv6 foreign-loopback; do
+    control=$(probe_word CONTROL "$id")
+    word=$(probe_word PROBE "$id")
+    if [ "$control" = ok ]; then [ "$word" = ok ] || bad="$bad $id(${word:-missing})"
+    elif [ "$id" != ipv6 ]; then open="$open $id"; fi
+  done
+  for id in network-namespace loopback-ssh loopback-dns proxy-denied proxy-private app-api; do
+    word=$(probe_word PROBE "$id")
+    [ "$word" = ok ] || bad="$bad $id(${word:-missing})"
+  done
+  [ "$(probe_word PROBE proxy-base)" = ok ] || open="$open proxy-base"
+  # Outside a unit (a person's `sudo -u` login), a worker reaches no loopback port but the proxy's:
+  # not another account's listener, not the app's port.
+  hostloop=$(host_loopback_probe)
+  case $hostloop in
+    ok) ;;
+    nolistener) open="$open host-loopback" ;;
+    *) bad="$bad host-loopback($hostloop)" ;;
+  esac
+  if [ -n "$bad" ]; then record domain-gate fail "a worker got around the egress proxy, or it let something through:$bad"
+  elif [ -n "$open" ]; then record domain-gate unverified "no positive control for:$open (no internet from this guest, or the service is down)"
+  else record domain-gate pass "from a worker's unit (its own network namespace, only its own loopback): no name resolves, no direct TCP, UDP or IPv6 leaves, no listener of the host's loopback answers; through the bridge a base destination answers, $PROBE_DENIED_DESTINATION and the metadata address are refused, the app answers 401 without a login; outside a unit a worker reaches only the proxy port"; fi
+}
+
+# host_loopback_probe: a listener of root on 127.0.0.1 and the app's port, tried by every worker in
+# the host namespace. Prints ok, nolistener, or leak:<what connected>.
+host_loopback_probe() {
+  local tmp pid port w bad=
+  tmp=$(mktemp)
+  timeout 20 node -e 'const s=require("net").createServer(c=>c.end()).listen(0,"127.0.0.1",()=>console.log(s.address().port))' > "$tmp" 2>/dev/null &
+  pid=$!
+  for _ in 1 2 3 4 5 6 7 8 9 10; do port=$(head -n 1 "$tmp"); [ -n "$port" ] && break; sleep 0.3; done
+  if [ -z "$port" ] || ! root_connect 127.0.0.1 "$port"; then kill "$pid" 2>/dev/null; rm -f "$tmp"; echo nolistener; return; fi
+  for w in "${WORKERS[@]}"; do
+    tcp_connect "$w" 127.0.0.1 "$port" && bad="$bad $w->$port"
+    tcp_connect "$w" 127.0.0.1 "$APP_PORT" && bad="$bad $w->$APP_PORT"
+  done
+  kill "$pid" 2>/dev/null; rm -f "$tmp"
+  if [ -n "$bad" ]; then echo "leak:$bad"; else echo ok; fi
 }
 
 # --- service ----------------------------------------------------------------------------------
@@ -451,8 +573,8 @@ check_gate_loaded
 check_gate_control
 check_gate_blocks_host
 check_egress_open
-record domain-gate unverified "not implemented: the domain-level network gate is part of PM-140"
-record launcher unverified "not implemented: the protected launcher is part of PM-140; the runner still starts sessions as $SERVICE_USER"
+check_domain_gate
+check_launcher
 check_service_active
 check_tailscale
 

@@ -75,6 +75,16 @@ export interface LocatedAttachmentForTool {
   readableWithoutAsking: boolean;
 }
 
+/** A refused destination the session may ask for with submit_boundary_request. */
+export interface NetworkDenial {
+  operationId: string;
+  /** `host:port`. */
+  destination: string;
+  refusedAt: string;
+  /** Asking (and the allowance it may open) is possible until then. */
+  expiresAt: string;
+}
+
 /** The result of `publish_task_branch`. */
 export interface PublishedTaskBranch {
   repo: string;
@@ -105,6 +115,8 @@ export interface TeamToolsHandler {
     ctx: ToolContext,
     args: DecideBoundaryRequest & { requestId: string },
   ): Promise<BoundaryRequest>;
+  /** list_network_denials: destinations the egress proxy refused this session (PM-140), newest first. */
+  listNetworkDenials(ctx: ToolContext): Promise<NetworkDenial[]>;
   /** list_tasks: visible board tasks, newest update first. */
   listTasks(ctx: ToolContext, args: ListTasksInput): Promise<TaskSummary[]>;
   /** send_message: deliver a message to team members (AI sessions or human inboxes). */

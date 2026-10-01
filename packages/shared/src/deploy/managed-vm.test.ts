@@ -40,8 +40,10 @@ describe('managed VM activation', () => {
     expect(evaluateManagedVmActivation(report(full))).toMatchObject({ active: true, notPassed: [] });
   });
 
-  it('is not active on the baseline, where the launcher and the domain gate are still unverified', () => {
-    expect(evaluateManagedVmActivation(report())).toMatchObject({
+  it('is not active while the launcher and the domain gate are unverified', () => {
+    expect(
+      evaluateManagedVmActivation(report({ launcher: 'unverified', 'domain-gate': 'unverified' })),
+    ).toMatchObject({
       active: false,
       notPassed: ['launcher', 'domain-gate'],
     });
@@ -51,7 +53,7 @@ describe('managed VM activation', () => {
     expect(evaluateManagedVmActivation(report({ ...full, launcher: 'fail' })).notPassed).toEqual([
       'launcher',
     ]);
-    expect(evaluateManagedVmActivation(report({ 'domain-gate': 'pass' }))).toMatchObject({
+    expect(evaluateManagedVmActivation(report({ launcher: 'unverified' }))).toMatchObject({
       active: false,
       notPassed: ['launcher'],
     });

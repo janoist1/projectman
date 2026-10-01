@@ -81,7 +81,7 @@ fi
 [ "$(id -u "$SERVICE_USER")" = "$SERVICE_UID" ] || { echo "$SERVICE_USER exists with another uid than $SERVICE_UID" >&2; exit 1; }
 install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0700 "$SERVICE_HOME" "$PROJECTMAN_HOME"
 
-install -d -o root -g root -m 0755 "$WORKER_HOME_ROOT" "$CONFIG_DIR" "$STATE_DIR" "$APP_DIR"
+install -d -o root -g root -m 0755 "$WORKER_HOME_ROOT" "$CONFIG_DIR" "$STATE_DIR" "$APP_DIR" "$SPOOL_ROOT"
 
 next_uid() {
   local uid=$WORKER_UID_MIN
@@ -107,6 +107,11 @@ for handle in $WORKERS_ARG; do
   # the CLIs write in the worker's home. A worker is in no other group.
   install -d -o "$name" -g "$name" -m 0750 "$WORKER_HOME_ROOT/$name"
   usermod -aG "$name" "$SERVICE_USER"
+  # Hand-over bundles (PM-140): `in` is the service's to write and the worker's to read (set-group-id,
+  # so each bundle is in the worker's group); `out` the reverse. Nothing else crosses accounts.
+  install -d -o root -g root -m 0755 "$SPOOL_ROOT/$handle"
+  install -d -o "$SERVICE_USER" -g "$name" -m 2750 "$SPOOL_ROOT/$handle/in"
+  install -d -o "$name" -g "$name" -m 0750 "$SPOOL_ROOT/$handle/out"
   count=$((count + 1))
 done
 [ "$count" -ge 2 ] || { echo "at least two workers are needed to measure the isolation between them" >&2; exit 2; }
@@ -173,17 +178,86 @@ printf '[Service]\nRuntimeDirectoryMode=0700\n' > /etc/systemd/system/tailscaled
 chmod 0644 /etc/systemd/system/tailscaled.service.d/projectman.conf
 install -m 0644 -o root -g root "$here/projectman-gate.service" /etc/systemd/system/projectman-gate.service
 install -m 0644 -o root -g root "$here/../projectman.service" /etc/systemd/system/projectman.service
+
+# --- the VM boundary (PM-140): its configuration, the launcher and the readiness timer ----------
+log "boundary"
+base_json=
+for destination in $EGRESS_BASE; do
+  printf '%s' "$destination" | grep -Eq '^[a-z0-9]([a-z0-9.-]*[a-z0-9])?:[0-9]{1,5}$' \
+    || { echo "bad EGRESS_BASE entry (want host:port): $destination" >&2; exit 1; }
+  base_json="$base_json{\"host\":\"${destination%:*}\",\"port\":${destination##*:}},"
+done
+cat > "$work/boundary.json" <<EOF
+{
+  "schemaVersion": 1,
+  "profile": "$PROFILE_NAME",
+  "profileVersion": $PROFILE_VERSION,
+  "serviceUser": "$SERVICE_USER",
+  "launcher": { "socket": "$LAUNCHER_SOCKET", "maxSessions": $LAUNCHER_MAX_SESSIONS },
+  "workers": {
+    "prefix": "$WORKER_PREFIX",
+    "homeRoot": "$WORKER_HOME_ROOT",
+    "uidMin": $WORKER_UID_MIN,
+    "uidMax": $WORKER_UID_MAX,
+    "spoolRoot": "$SPOOL_ROOT"
+  },
+  "programs": {
+    "git": "/usr/bin/git",
+    "mkdir": "/usr/bin/mkdir",
+    "rm": "/usr/bin/rm",
+    "mv": "/usr/bin/mv",
+    "claude": "$CLI_PREFIX/bin/claude",
+    "codex": "$CLI_PREFIX/bin/codex",
+    "node": "/usr/local/bin/node"
+  },
+  "appDir": "$APP_DIR",
+  "bridgeRoot": "/run/$BRIDGE_DIR",
+  "systemdRun": "/usr/bin/systemd-run",
+  "systemctl": "/usr/bin/systemctl",
+  "workerPath": "$CLI_PREFIX/bin:/usr/local/bin:/usr/bin:/bin",
+  "egress": { "host": "127.0.0.1", "port": $EGRESS_PORT, "grantHours": $EGRESS_GRANT_HOURS, "base": [${base_json%,}] },
+  "readiness": { "report": "$STATE_DIR/readiness.json", "maxAgeSeconds": $READINESS_MAX_AGE_SECONDS },
+  "appPort": $APP_PORT
+}
+EOF
+# Well-formed JSON at least; the server and the launcher check it against their schema at start.
+/usr/local/bin/node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$work/boundary.json" \
+  || { echo "the generated boundary configuration is not valid JSON" >&2; exit 1; }
+install -m 0644 -o root -g root "$work/boundary.json" "$BOUNDARY_CONFIG"
+for unit in projectman-launcher.socket projectman-launcher.service projectman-verify.service projectman-verify.timer; do
+  install -m 0644 -o root -g root "$here/$unit" "/etc/systemd/system/$unit"
+done
+# The service runs behind the boundary: sessions only through the launcher, workspaces per member.
+install -d -m 0755 /etc/systemd/system/projectman.service.d
+cat > /etc/systemd/system/projectman.service.d/boundary.conf <<EOF
+# Managed by projectman bootstrap.sh (PM-140).
+[Unit]
+Wants=projectman-launcher.socket
+After=projectman-launcher.socket
+
+[Service]
+Environment=PROJECTMAN_BOUNDARY_CONFIG=$BOUNDARY_CONFIG
+Environment=PROJECTMAN_WORKSPACES=member
+# The members' bridge sockets: /run/$BRIDGE_DIR/<handle>/{app,egress}.sock, made by the service.
+RuntimeDirectory=$BRIDGE_DIR
+RuntimeDirectoryMode=0755
+EOF
+chmod 0644 /etc/systemd/system/projectman.service.d/boundary.conf
+
 nft -c -f "$CONFIG_DIR/gate.nft"
 systemctl daemon-reload
 systemctl enable projectman-gate >/dev/null
 systemctl restart projectman-gate
+systemctl enable --now projectman-launcher.socket >/dev/null
+systemctl enable projectman-launcher.service >/dev/null
+systemctl enable --now projectman-verify.timer >/dev/null
 systemctl enable projectman >/dev/null
 # If Tailscale was installed before this run, restart it so the directory mode applies.
 if systemctl cat tailscaled >/dev/null 2>&1; then systemctl restart tailscaled; fi
 
 log "done"
 cat <<EOF
-Bootstrap finished: node $node_found, $count workers, egress gate loaded.
-Next (docs/VM.md): install-app.sh, the subscription logins as $SERVICE_USER, the first owner over
-the ssh forward, then 'sudo bash $APP_DIR/deploy/vm/verify.sh --out $STATE_DIR/readiness.json'.
+Bootstrap finished: node $node_found, $count workers, egress gate, launcher socket and readiness timer.
+Next (docs/VM.md): install-app.sh, the subscription logins, the first owner over the ssh forward,
+then 'sudo bash $APP_DIR/deploy/vm/verify.sh --out $STATE_DIR/readiness.json'.
 EOF

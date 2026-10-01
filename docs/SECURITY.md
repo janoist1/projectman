@@ -177,8 +177,9 @@ repository or a teammate; only committed branches travel, fetched by the server 
 The server's git commands in a member workspace (or reading a teammate's) run with
 `core.hooksPath=/dev/null`, no fsmonitor, no system or global configuration and only the local
 `file` transport. Clean/smudge filters that a repository's own configuration names still run on
-the server's checkouts there: until the VM boundary (PM-140) separates the server's account from
-the members', they run as the same user the sessions already are. Workspaces are reserved for one
+the server's checkouts there: outside the VM they run as the same user the sessions already are;
+behind the VM boundary (PM-140) every command in a workspace runs as its member's worker instead,
+and commits cross accounts only as bundles. Workspaces are reserved for one
 session's process group at a time, so no session can switch the branch under another.
 
 **Publishing from the managed VM (PM-142).** The only way a task branch leaves the VM is the
@@ -213,9 +214,8 @@ it (`deploy/vm/verify.sh`, verdict `evaluateVmReadiness()`):
   accounts' processes or arguments (`hidepid`). No account of the profile has sudo, and the service
   runs with `NoNewPrivileges`.
 - Workers are per-member unprivileged accounts (uids 20000+, own group, `nologin`, locked password,
-  not allowed to ssh). The provider login is made once by a person, as the service account in the
-  VM, and no worker home holds a login file: the subscription login is not a standing copy handed
-  to every account (a design for worker sessions that need authentication is PM-140's).
+  not allowed to ssh). Each worker's subscription login is made once by a person for that worker
+  (PM-140); no worker home holds a copy of another account's login, a GitHub login or an SSH key.
 - Nothing of the host is shared in (no 9p, virtiofs, sshfs or similar mount), ssh agent forwarding is
   off, no worker can write a control socket outside a short list (Tailscale's LocalAPI socket
   included: its directory is root-only), and only loopback, the SSH port and tailscaled's own
@@ -230,13 +230,72 @@ it (`deploy/vm/verify.sh`, verdict `evaluateVmReadiness()`):
   Serve (HTTPS only, never Funnel) from a phone, and the unchanged login, Origin, hook and MCP
   protections.
 
-What it does not establish: the protected launcher that runs sessions as the workers and the
-domain-level network gate and publishing gate are PM-140; until then the CLIs still run as the
-service account, which holds the login and the data, so a compromised session is the service.
-The egress rules do not restrict internet destinations, root or the admin. A mere environment
-flag or a VM label never counts: the report schema is strict and a missing check fails.
-Decision 24's local-port exception does not apply inside the VM profile beyond what VM.md states
-(loopback, with the app's token checks).
+A mere environment flag or a VM label never counts: the report schema is strict and a missing check
+fails. Decision 24's local-port exception does not apply inside the VM profile beyond what VM.md
+states (loopback, with the app's token checks).
+
+## The VM boundary (PM-140)
+
+The server behind the boundary (`PROJECTMAN_BOUNDARY_CONFIG`) starts nothing as itself. What holds,
+and how the readiness report proves it on the real guest (the `launcher` and `domain-gate` checks
+run a fixed probe as a worker in its real unit, with root's positive controls):
+
+- **Sessions and workspace commands run as the member's worker**, through the root launcher, each in
+  a transient unit with no capability, `NoNewPrivileges`, a read-only system, only the worker's home
+  writable, other processes invisible, no further namespaces, a network namespace of its own (only
+  its own loopback; a bridge carries the app's and the egress proxy's ports to the member's own
+  unix sockets of the service), a loopback-only IP filter, and no access to the
+  system bus, the resolver, systemd's transient unit files, container or Tailscale sockets or the
+  service's data. The launcher takes no shell, environment or uid from the service: a registered
+  member, a pinned program and a directory in that member's home. Its socket is the service's
+  group's only; it holds no secret and writes no audit. A repository's hooks, filters and
+  configuration run only as its member (workspace git goes through the launcher; commits cross
+  accounts as bundles), never as the service.
+- **Workers reach the network only through the egress proxy**: their units have no network but
+  their own loopback and the bridge; in the host namespace the nft rules give a worker the proxy's
+  port only (no other member's server, no service port, no resolver, no sshd). No member can bind a
+  port of the service. The proxy allows the base list and exact, expiring allowances.
+  Direct IP, IPv6, UDP and DNS, QUIC, another proxy, an SSH tunnel, a DNS answer pointing inside
+  (rebinding), a redirect to another host (a new CONNECT, checked again) and a TLS name other than
+  the allowed host do not get through. The service's own egress keeps the baseline rules (no
+  private side).
+- **The service reads a worker's files only defensively**: transcripts and hand-over bundles are
+  opened without following a symlink, without blocking on a FIFO, as regular files only, checked
+  against their real path in the worker's home (transcripts, on every read) or their owner (bundles),
+  and read from the checked descriptor.
+- **A grant is an authorization, not a widening**: an allowed boundary request for an egress
+  operation opens one host and one port for one member in one project until its expiry; the proxy
+  consumes the grant (PM-139's single-operation consumption) and records the allowance in the same
+  transaction; an owner can revoke it. A refused destination registers an operation once per session
+  and destination and never asks anyone by itself. An allowed domain is not permission to pay,
+  create secrets or deploy: those stay operations of the protected adapters (PM-142 and later).
+- **Fail closed**: an invalid boundary configuration stops the server; a missing, failing, foreign
+  or stale readiness report, an unreachable launcher or a proxy that does not listen refuses every
+  new session (`runtime_boundary_not_ready`); a session whose service connection drops is stopped.
+- **Identity**: the proxy takes the member from the bridge socket a connection came through (on its
+  loopback port, from the kernel's socket table) and the session from its proxy credentials (a
+  per-session token, not the MCP token, revoked when the session ends); a token presented by
+  another member is refused. The hook and MCP endpoints keep their per-session tokens.
+
+What it does not establish:
+
+- A worker reads its own login and the tokens of its own sessions (the CLI runs as the worker), in
+  every project: all of a member's sessions share its uid, and `ProtectProc=invisible` hides only
+  other accounts' processes, so one session can read another live session's egress token from
+  `/proc` and use that session's project allowances. A handle's worker is shared by every project
+  of the instance (one `pmw-<handle>`): accounts per member and project are an open question for
+  the owner ([ROADMAP.md](ROADMAP.md)).
+- A CLI can still read a billing variable from a file the member controls (its own
+  `~/.claude/settings.json`); the launcher refuses one only on the command line. The subscription
+  check of the login and the provider profile (PM-141) cover that.
+- Data can leave to an allowed destination. The readiness report is at most two hours old, so a
+  change of the rules made in between shows on the next report (the units' own IP filters and
+  network namespaces hold meanwhile). `/api/providers` reports the service's own CLI logins, not
+  each worker's (a session start checks the worker's). Codex plan usage is not read from worker
+  transcripts.
+- The boundary does not defend against root, the admin, the hypervisor or a kernel flaw.
+
+Each worker has its own subscription login (the owner's choice on PM-140, 2026-10-01).
 
 ## The question-free profile (PM-141)
 

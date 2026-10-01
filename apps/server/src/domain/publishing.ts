@@ -1,7 +1,13 @@
 import { checkPublishTarget, effectiveRepo, memberOf, repoOf } from '@projectman/shared';
 import type { PublishRefusal } from '@projectman/shared';
 import { PublishError, TeamToolError } from '../contracts';
-import type { GithubPublisher, PublishedTaskBranch, PublishedTaskState, ToolContext } from '../contracts';
+import type {
+  GithubPublisher,
+  MemberWorkspaceManager,
+  PublishedTaskBranch,
+  PublishedTaskState,
+  ToolContext,
+} from '../contracts';
 import type { DomainContext } from './context';
 import type { GithubSync } from './github-sync';
 import type { ProjectService } from './projects';
@@ -44,6 +50,7 @@ export class PublishingGate {
   private readonly tasks: TaskService;
   private readonly githubSync: GithubSync;
   private readonly publisher: GithubPublisher | undefined;
+  private readonly memberWorkspaces: MemberWorkspaceManager | undefined;
 
   constructor(deps: {
     ctx: DomainContext;
@@ -51,12 +58,15 @@ export class PublishingGate {
     tasks: TaskService;
     githubSync: GithubSync;
     publisher?: GithubPublisher;
+    /** Hands the branch over from the member's workspace (a worker's bundle behind the VM boundary). */
+    memberWorkspaces?: MemberWorkspaceManager;
   }) {
     this.ctx = deps.ctx;
     this.projects = deps.projects;
     this.tasks = deps.tasks;
     this.githubSync = deps.githubSync;
     this.publisher = deps.publisher;
+    this.memberWorkspaces = deps.memberWorkspaces;
   }
 
   /** Whether this installation can publish at all (the tools say so in their refusal otherwise). */
@@ -101,16 +111,29 @@ export class PublishingGate {
       const body =
         args.body?.trim() ||
         `${task.title}\n\nTask ${taskKey}, published by ${ctx.member} (AI member) from its own workspace.`;
-      const result = await publisher.publish({
-        repo: repo!.github!,
-        branch: decision.branch,
-        baseBranch: repo!.defaultBranch,
-        commit: decision.commit,
-        sourcePath: workspace!.path,
-        title,
-        body,
-        taskKey,
-      });
+      const workspaces = this.requireWorkspaces();
+      // The server never runs git in the member's workspace itself: behind the VM boundary the
+      // member's worker bundles the branch and the server publishes from that copy (PM-140).
+      const source = await workspaces.exportBranch(
+        { project: config, repoName: repoName!, member: ctx.member },
+        decision.branch,
+      );
+      let result: Awaited<ReturnType<GithubPublisher['publish']>>;
+      try {
+        result = await publisher.publish({
+          repo: repo!.github!,
+          branch: decision.branch,
+          baseBranch: repo!.defaultBranch,
+          commit: decision.commit,
+          sourcePath: source.path,
+          sourceKind: source.bundle ? 'bundle' : 'repository',
+          title,
+          body,
+          taskKey,
+        });
+      } finally {
+        await source.done().catch(() => undefined);
+      }
       // The author is the authenticated member, whoever the pull request's GitHub login is.
       const recorded = this.tasks.recordPublication(
         ctx.projectKey,
@@ -180,6 +203,15 @@ export class PublishingGate {
           'Commit on the task branch and hand it over as usual.',
       );
     return this.publisher;
+  }
+
+  private requireWorkspaces(): MemberWorkspaceManager {
+    if (!this.memberWorkspaces)
+      throw new PublishError(
+        'not_available',
+        'This installation has no member workspaces, so there is no task branch to publish.',
+      );
+    return this.memberWorkspaces;
   }
 
   /** Publishing exists only for sessions the server started in the managed VM profile. */

@@ -1,5 +1,6 @@
 import { watch, type FSWatcher } from 'node:fs';
 import { open, stat } from 'node:fs/promises';
+import { openConfined } from './confined';
 
 /**
  * Follows a JSONL file as it grows: reads from a byte offset, hands over complete lines only
@@ -15,6 +16,11 @@ export interface TailerOptions {
   onLines(lines: string[]): void;
   onError?(err: unknown): void;
   pollIntervalMs?: number;
+  /**
+   * A worker home (PM-140): every read opens the file with `openConfined`, so a symlink, a FIFO
+   * or a file outside the home is never read, also when it is swapped in later.
+   */
+  confineTo?: string;
 }
 
 const CHUNK = 1024 * 1024;
@@ -98,9 +104,11 @@ export class TranscriptTailer {
   private async readNew(): Promise<void> {
     let handle;
     try {
-      handle = await open(this.path, 'r');
+      handle = this.opts.confineTo
+        ? await openConfined(this.path, this.opts.confineTo)
+        : await open(this.path, 'r');
     } catch {
-      return; // not written yet
+      return; // not written yet (or refused, when confined)
     }
     this.ensureWatcher();
     try {

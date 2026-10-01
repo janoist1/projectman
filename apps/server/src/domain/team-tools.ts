@@ -28,6 +28,7 @@ import type {
   ListTasksInput,
   LocatedAttachmentForTool,
   MemberMemoryStore,
+  NetworkDenial,
   TaskSummary,
   TaskToolDetail,
   TeamToolsHandler,
@@ -36,6 +37,7 @@ import type {
 import { openWorkspaceFile, WorkspaceFileRefusal } from './attachments';
 import type { DomainContext } from './context';
 import type { BoundaryService } from './boundary';
+import type { EgressService } from './egress';
 import { DomainError } from './errors';
 import type { ApprovalRequirement, UnmetCondition } from '@projectman/shared';
 import type { GithubSync } from './github-sync';
@@ -171,6 +173,19 @@ export class TeamToolsService implements TeamToolsHandler {
       throw toToolError(err);
     }
   }
+  async listNetworkDenials(ctx: ToolContext): Promise<NetworkDenial[]> {
+    try {
+      await this.caller(ctx);
+      return (this.egress?.recentDenials(ctx) ?? []).map((operation) => ({
+        operationId: operation.id,
+        destination: `${operation.host}:${operation.port}`,
+        refusedAt: operation.createdAt,
+        expiresAt: operation.expiresAt,
+      }));
+    } catch (err) {
+      throw toToolError(err);
+    }
+  }
   async publishTaskBranch(
     ctx: ToolContext,
     args: { taskKey?: string; commit: string; title?: string; body?: string },
@@ -181,6 +196,7 @@ export class TeamToolsService implements TeamToolsHandler {
     return this.publishing.remoteState(ctx, { taskKey: this.validTaskKey(ctx, args.taskKey) });
   }
   private readonly boundary: BoundaryService;
+  private readonly egress: EgressService | null;
   private readonly publishing: PublishingGate;
   private readonly ctx: DomainContext;
   private readonly projects: ProjectService;
@@ -197,6 +213,8 @@ export class TeamToolsService implements TeamToolsHandler {
 
   constructor(deps: {
     boundary: BoundaryService;
+    /** The network gate (its refused destinations); absent in older test setups. */
+    egress?: EgressService;
     publishing: PublishingGate;
     ctx: DomainContext;
     projects: ProjectService;
@@ -213,6 +231,7 @@ export class TeamToolsService implements TeamToolsHandler {
     attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
   }) {
     this.boundary = deps.boundary;
+    this.egress = deps.egress ?? null;
     this.publishing = deps.publishing;
     this.ctx = deps.ctx;
     this.projects = deps.projects;

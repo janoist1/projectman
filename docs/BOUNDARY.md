@@ -2,7 +2,28 @@
 
 PM-139 adds authorization records; it does not execute external operations, change CLI
 permissions or activate a VM profile. Without an injected `BoundaryOperationAdapter`, operation
-ids are refused. PM-140 supplies the protected registry/executor; PM-141 and PM-142 use it.
+ids are refused. PM-140 supplies the first protected registry/executor (egress, below); PM-141 and
+PM-142 use the same contract.
+
+## Egress operations (PM-140)
+
+The domain's `EgressService` is a registry the boundary service consults before the injected
+adapter (`AppModules.boundaryAdapter` answers every id that is not `egr_...`). When the egress
+proxy refuses a destination for a session, the service registers an operation once per session and
+destination (`egress_operations`), bound to exactly that project, member, session and task; its
+target is `read_external` of `egress:<host>:<port>` in `development`, so the category is
+`delegable` and a lead may decide it. The session finds it with the team tool
+`list_network_denials` and asks with `submit_boundary_request`. The operation's expiry (default 8
+hours, `EGRESS_GRANT_HOURS`) bounds both the request and the allowance.
+
+The proxy is the executor: on the first connection of that member, in that project, to that
+destination, it consumes the allowed grant through `BoundaryService.consume` and records an
+allowance (`egress_allowances`) in the same transaction. The allowance opens that host and port for
+the member in the project, in any of its later sessions, until the expiry. Owners list allowances
+with `routes.egressAllowances` and close one with `routes.revokeEgressAllowance`, which appends a
+`boundary_changed` event (`revoked`, `owner_revoked`) and ends the tunnels the allowance opened
+(domain event `egress_allowance_revoked`). A member on leave, removed, or with AI work
+switched off is refused whatever it was allowed.
 
 The additive shared contracts are `BoundaryTarget`, `BoundaryRequest`, `BoundaryGrant`,
 `BoundaryRequestView`, `SubmitBoundaryRequest` and `DecideBoundaryRequest`. The adapter contract

@@ -6,7 +6,13 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import type { ProjectConfig } from '@projectman/shared';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { GithubPublisher, ManagedVmBoundary, ToolContext } from '../src/contracts';
+import type {
+  GithubPublisher,
+  ManagedVmBoundary,
+  MemberWorkspaceManager,
+  PublishRequest,
+  ToolContext,
+} from '../src/contracts';
 import { TeamToolError } from '../src/contracts';
 import { aiActor } from '../src/domain';
 import { createGithubPublisher } from '../src/github';
@@ -94,10 +100,16 @@ describe('the publishing gate (PM-142)', { timeout: 90_000 }, () => {
   }
 
   async function managed(
-    opts: { publisher?: GithubPublisher | null; adjust?: (c: ProjectConfig) => void; legacy?: boolean } = {},
+    opts: {
+      publisher?: GithubPublisher | null;
+      adjust?: (c: ProjectConfig) => void;
+      legacy?: boolean;
+      wrapMemberWorkspaces?: (inner: MemberWorkspaceManager) => MemberWorkspaceManager;
+    } = {},
   ) {
     h = await createDomainHarness({
       memberWorkspaces: !opts.legacy,
+      ...(opts.wrapMemberWorkspaces ? { wrapMemberWorkspaces: opts.wrapMemberWorkspaces } : {}),
       persistent: true,
       ...(opts.legacy ? {} : { executionProfile: 'managed_vm', managedVm: verified }),
       adjust: (c) => {
@@ -179,6 +191,49 @@ describe('the publishing gate (PM-142)', { timeout: 90_000 }, () => {
         .timeline.filter((e) => e.type === 'task_link_added' && e.actor.handle === 'dev-1')
         .map((e) => e.data),
     ).toEqual([{ kind: 'pull_request', ref: '100', repo: 'acme/web' }]);
+  });
+
+  it("publishes from the workspace's hand-over, which behind the VM boundary is its worker's bundle", async () => {
+    const handovers: string[] = [];
+    const done: string[] = [];
+    const requests: PublishRequest[] = [];
+    const inner = realPublisher();
+    await managed({
+      publisher: {
+        publish: (request) => {
+          requests.push(request);
+          return inner.publish(request);
+        },
+        remoteState: (...args) => inner.remoteState(...args),
+      },
+      // As the VM's worker access hands it over: a bundle of the branch, never the workspace itself.
+      wrapMemberWorkspaces: (manager) => ({
+        ...manager,
+        async exportBranch(key, branch) {
+          const local = await manager.exportBranch(key, branch);
+          const bundle = path.join(dir, `handed-${handovers.length}.bundle`);
+          await git(local.path, 'bundle', 'create', '--quiet', bundle, `refs/heads/${branch}`);
+          handovers.push(`${key.member}:${branch}`);
+          return {
+            path: bundle,
+            bundle: true,
+            done: async () => {
+              done.push(bundle);
+              rmSync(bundle, { force: true });
+            },
+          };
+        },
+      }),
+    });
+    const ctx = await work('AR-1', 'dev-1');
+    const commit = await commitIn('dev-1', 'login.txt');
+    await h.domain.teamTools.publishTaskBranch(ctx, { commit });
+    expect(await remoteHead('AR-1-login-page')).toBe(commit);
+    expect(handovers).toEqual(['dev-1:AR-1-login-page']);
+    expect(requests.map((r) => [r.sourceKind, r.sourcePath])).toEqual([['bundle', done[0]]]);
+    // The hand-over is removed after a refusal too.
+    await expect(h.domain.teamTools.publishTaskBranch(ctx, { commit: initial })).rejects.toThrow();
+    expect(done).toHaveLength(handovers.length);
   });
 
   it('is idempotent and adds a later commit to the same pull request', async () => {

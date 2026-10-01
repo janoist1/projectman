@@ -10,6 +10,10 @@ export type { ReadinessBoundaryOptions } from './managed-vm';
 
 /** Legacy callers may request rendered tool grants during the policy migration. */
 export { claudeShellRule, claudeToolRules } from './providers/claude/policy';
+/** The variables that would move billing off the subscription (the launcher refuses them too). */
+export { BILLING_ENV_VARS } from './env';
+/** Records Claude Code's workspace trust (the launcher's claude-trust helper runs it as a worker). */
+export { ensureWorkspaceTrusted } from './providers/claude/trust';
 
 /**
  * Runs AI members as real, interactive agent CLI sessions in pseudo-terminals, on the

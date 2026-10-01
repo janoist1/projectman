@@ -1,0 +1,45 @@
+# The protected launcher (PM-140): starts each agent session and each workspace command as the
+# member's worker account, in a transient unit with a fixed sandbox, and relays the session's
+# terminal to the service. It accepts no shell, environment or uid from the service. It runs as
+# root only so that systemd lets it name another account in a unit; it has no capability, no
+# network and nothing writable of its own.
+[Unit]
+Description=projectman protected launcher
+Requires=projectman-launcher.socket
+After=projectman-launcher.socket projectman-gate.service
+ConditionPathExists=/etc/projectman/boundary.json
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/node /srv/projectman/apps/server/dist/launcher.js /etc/projectman/boundary.json
+Restart=on-failure
+RestartSec=2
+# Sessions run in their own units; stopping the launcher stops them through its own shutdown.
+KillMode=mixed
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

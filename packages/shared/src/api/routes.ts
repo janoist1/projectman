@@ -8,6 +8,12 @@ export const routes = {
   boundaryRequest: (key: string, id: string) => `/api/projects/${key}/boundary/${id}`,
   decideBoundary: (key: string, id: string) => `/api/projects/${key}/boundary/${id}/decide`,
   revokeBoundary: (key: string, id: string) => `/api/projects/${key}/boundary/${id}/revoke`,
+  /** GET (owner): the network destinations opened for the project's members (PM-140). */
+  egressAllowances: (key: string) => `/api/projects/${key}/egress`,
+  /** POST (owner): closes an opened destination before it expires. */
+  revokeEgressAllowance: (key: string, id: string) => `/api/projects/${key}/egress/${id}/revoke`,
+  /** GET (any logged-in member): whether the VM boundary is configured and ready (PM-140). */
+  runtimeBoundary: () => '/api/runtime-boundary',
   providers: () => '/api/providers',
   setupStatus: () => '/api/setup',
   setup: () => '/api/setup',

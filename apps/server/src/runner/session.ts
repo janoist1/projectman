@@ -1,4 +1,6 @@
+import { realpath } from 'node:fs/promises';
 import os from 'node:os';
+import { posix as posixPath } from 'node:path';
 import * as pty from '@lydell/node-pty';
 import type { FastifyBaseLogger } from 'fastify';
 import { MANAGED_VM_NO_LOCAL_APPROVAL } from '../contracts';
@@ -50,6 +52,12 @@ export interface SessionDeps {
   onAuthError?(session: AgentSession, message: string): void;
   /** Starts the process (default: node-pty). */
   spawnPty?: SpawnPty;
+  /**
+   * The worker home of a session started through the launcher (PM-140): `~` in a hook's
+   * transcript path means this home, and a transcript anywhere else is ignored, so a worker
+   * cannot make the server read a file of the server's or of another worker's.
+   */
+  transcriptRoot?: string;
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -169,13 +177,19 @@ export class AgentSession {
   /** Starts the process. Throws when it cannot be started. */
   spawn(file: string, args: string[], env: Record<string, string>): void {
     const spawnPty: SpawnPty = this.deps.spawnPty ?? pty.spawn;
-    const proc = spawnPty(file, args, {
-      name: 'xterm-256color',
-      cols: this.screen.cols,
-      rows: this.screen.rows,
-      cwd: this.spec.cwd,
-      env,
-    });
+    this.attach(
+      spawnPty(file, args, {
+        name: 'xterm-256color',
+        cols: this.screen.cols,
+        rows: this.screen.rows,
+        cwd: this.spec.cwd,
+        env,
+      }),
+    );
+  }
+
+  /** Drives a process started elsewhere (the launcher's relayed terminal, PM-140). */
+  attach(proc: PtyProcess): void {
     this.proc = proc;
     proc.onData((data) => {
       this.screen.write(data);
@@ -188,6 +202,14 @@ export class AgentSession {
     }
     this.startWatch();
     this.emitState();
+  }
+
+  /** The transcript file a hook names, or null when it lies outside the worker home. */
+  private transcriptFile(raw: string): string | null {
+    const root = this.deps.transcriptRoot;
+    if (!root) return expandHome(raw);
+    const file = posixPath.resolve(root, expandHome(raw, root));
+    return file.startsWith(`${root}/`) ? file : null;
   }
 
   /** Parses a hook body for this session's CLI; null when malformed. */
@@ -369,13 +391,39 @@ export class AgentSession {
    */
   private noteTranscript(payload: HookPayload): void {
     if (!payload.transcript_path || payload.agent_id) return;
-    const path = expandHome(payload.transcript_path);
+    const path = this.transcriptFile(payload.transcript_path);
+    if (path === null) {
+      this.log.warn({ sessionId: this.id }, 'ignored a transcript path outside the worker home');
+      return;
+    }
     if (path === this.transcriptPath) return;
     if (this.transcriptPath !== null && payload.hook_event_name !== 'SessionStart') return;
     const first = this.transcriptPath === null;
+    const previous = this.transcriptPath;
     this.transcriptPath = path;
+    const root = this.deps.transcriptRoot;
+    if (root) {
+      // A symlinked directory in the worker home must not lead the server elsewhere: the real
+      // directory of the transcript (the file itself may not exist yet) must be in the real home.
+      void Promise.all([realpath(posixPath.dirname(path)), realpath(root)])
+        .then(([real, realRoot]) => {
+          if (this.transcriptPath !== path || this.hasExited) return;
+          if (real === realRoot || real.startsWith(`${realRoot}/`)) this.followTranscript(path, first);
+          else this.log.warn({ sessionId: this.id }, 'ignored a transcript outside the worker home');
+        })
+        .catch(() => {
+          // Its directory is not there yet: the next hook tries again.
+          if (this.transcriptPath === path) this.transcriptPath = previous;
+        });
+      return;
+    }
+    this.followTranscript(path, first);
+  }
+
+  private followTranscript(path: string, first: boolean): void {
     this.deps.emit({ type: 'transcript_path', sessionId: this.id, path });
-    this.adapter.noteTranscript?.(path);
+    // A worker's file is read only through the confined tailer (Codex plan usage reads it plainly).
+    if (!this.deps.transcriptRoot) this.adapter.noteTranscript?.(path);
     this.tailer?.stop();
     const parser = this.adapter.createTranscriptParser({
       self: this.spec.member ?? null,
@@ -392,6 +440,7 @@ export class AgentSession {
       from: first && this.spec.resume ? 'end' : 'start',
       onLines: (lines) => this.onTranscriptLines(parser, lines),
       onError: (err) => this.log.warn({ err, sessionId: this.id }, 'transcript read failed'),
+      ...(this.deps.transcriptRoot ? { confineTo: this.deps.transcriptRoot } : {}),
     });
     this.tailer = tailer;
     void tailer.start();
@@ -572,6 +621,6 @@ export class AgentSession {
   }
 }
 
-function expandHome(path: string): string {
-  return path === '~' || path.startsWith('~/') ? `${os.homedir()}${path.slice(1)}` : path;
+function expandHome(path: string, home: string = os.homedir()): string {
+  return path === '~' || path.startsWith('~/') ? `${home}${path.slice(1)}` : path;
 }

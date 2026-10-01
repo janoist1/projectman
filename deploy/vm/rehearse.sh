@@ -39,7 +39,7 @@ fail() { note "FAIL $1 ${2:-}"; FAILED=1; }
 step_readiness() {
   local report=$STATE_DIR/readiness.json verdict
   if ! bash "$HERE/verify.sh" --out "$report" >/dev/null 2>&1; then fail readiness "verify.sh did not finish"; return; fi
-  verdict=$(cd "$APP_DIR" && env PATH="$CLI_PATH" node --import tsx scripts/vm-readiness.ts "$report" 60 2>&1)
+  verdict=$(cd "$APP_DIR" && env PATH="$CLI_PATH" node --import tsx scripts/vm-readiness.ts "$report" "$((${READINESS_MAX_AGE_SECONDS:-3600} / 60))" 2>&1)
   if printf '%s\n' "$verdict" | grep -q '^READY'; then pass readiness "$(printf '%s\n' "$verdict" | grep -c 'pass') checks reported"; else fail readiness "$(printf '%s\n' "$verdict" | grep -i -e 'fail' -e 'not ready' | head -n 3 | tr '\n' ';')"; fi
 }
 
@@ -80,7 +80,7 @@ step_restart() {
     if [ "$waited" -gt 30 ]; then fail restart "the app did not answer within 30 s"; return; fi
     sleep 1
   done
-  pass restart "answered after ${waited} s; units: $(systemctl is-active projectman projectman-gate | tr '\n' ' ')"
+  pass restart "answered after ${waited} s; units: $(systemctl is-active projectman projectman-gate projectman-launcher.socket | tr '\n' ' ')"
   step_readiness
 }
 

@@ -368,7 +368,7 @@ describe('the migrated copy as a running server', () => {
     const dbFile = join(pkg, 'home', 'db.sqlite');
     const db = new Database(dbFile);
     db.exec(
-      'DROP TABLE task_workspace_bindings; DROP TABLE member_workspaces; ALTER TABLE sessions DROP COLUMN execution_profile; ALTER TABLE task_links DROP COLUMN author_source;',
+      'DROP TABLE egress_allowances; DROP TABLE egress_operations; DROP TABLE task_workspace_bindings; DROP TABLE member_workspaces; ALTER TABLE sessions DROP COLUMN execution_profile; ALTER TABLE task_links DROP COLUMN author_source;',
     );
     db.pragma('user_version = 12');
     db.close();

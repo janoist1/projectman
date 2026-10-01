@@ -29,6 +29,12 @@ export function createServiceBridges(opts: {
   logger: FastifyBaseLogger;
 }): ServiceBridges {
   const ready = new Map<string, Promise<net.Server[]>>();
+  /** Every open bridge connection (both ends): a shutdown ends them instead of waiting for them. */
+  const connections = new Set<net.Socket>();
+  const track = (socket: net.Socket) => {
+    connections.add(socket);
+    socket.on('close', () => connections.delete(socket));
+  };
 
   const paths = (member: string) => {
     if (!MEMBER_HANDLE.test(member)) throw new Error(`invalid member handle: ${member}`);
@@ -38,7 +44,10 @@ export function createServiceBridges(opts: {
 
   function listen(file: string, onConnection: (socket: net.Socket) => void): Promise<net.Server> {
     // Half-open: a client that has sent everything (FIN) still gets the whole answer.
-    const server = net.createServer({ allowHalfOpen: true }, onConnection);
+    const server = net.createServer({ allowHalfOpen: true }, (socket) => {
+      track(socket);
+      onConnection(socket);
+    });
     return new Promise((resolve, reject) => {
       server.once('error', reject);
       server.listen(file, () => {
@@ -63,6 +72,7 @@ export function createServiceBridges(opts: {
         app,
         (inner: net.Socket) => {
           const outer = net.connect({ host: '127.0.0.1', port: opts.appPort, allowHalfOpen: true });
+          track(outer);
           inner.on('error', () => outer.destroy());
           outer.on('error', () => inner.destroy());
           inner.pipe(outer);
@@ -96,9 +106,13 @@ export function createServiceBridges(opts: {
     async close() {
       const all = await Promise.all([...ready.values()].map((p) => p.catch(() => [] as net.Server[])));
       ready.clear();
-      await Promise.all(
+      const closed = Promise.all(
         all.flat().map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
       );
+      // A keep-alive hook or MCP connection, or a half-closed one, would hold the shutdown.
+      for (const socket of connections) socket.destroy();
+      connections.clear();
+      await closed;
     },
   };
 }

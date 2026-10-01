@@ -93,6 +93,21 @@ describe.skipIf(!unixSockets)('the service side of the worker bridges', () => {
     expect(await roundTrip(() => net.connect({ path: bridges.paths('dev').egress }), 'x')).toBe('egress');
     expect(egress.map((e) => e.member)).toEqual(['dev']);
   });
+
+  it('ends open and half-closed connections when it closes, instead of waiting for them', async () => {
+    await bridges.ensure('dev');
+    const idle = net.connect({ path: bridges.paths('dev').app });
+    const halfClosed = net.connect({ path: bridges.paths('dev').egress });
+    idle.on('error', () => undefined);
+    halfClosed.on('error', () => undefined);
+    await Promise.all([idle, halfClosed].map((s) => new Promise((resolve) => s.once('connect', resolve))));
+    halfClosed.end();
+    const started = Date.now();
+    await bridges.close();
+    expect(Date.now() - started).toBeLessThan(1000);
+    idle.destroy();
+    halfClosed.destroy();
+  });
 });
 
 it('refuses bridge sockets for a member without a worker account and for an odd handle', async () => {

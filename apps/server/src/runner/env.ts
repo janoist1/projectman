@@ -103,13 +103,35 @@ export function withLocalNoProxy(env: Record<string, string>): Record<string, st
   return out;
 }
 
+/**
+ * What a managed VM worker (PM-141) never inherits from the service's environment: a way to act
+ * as someone else on the network. The VM has no agent socket and the worker's GitHub identity is
+ * its own (PM-142), so none of the service's reaches it, whatever the unit's environment holds.
+ */
+const MANAGED_VM_REMOVED_VARS = new Set([
+  'SSH_AUTH_SOCK',
+  'SSH_AGENT_PID',
+  'SSH_ASKPASS',
+  'GIT_ASKPASS',
+  'GH_TOKEN',
+  'GITHUB_TOKEN',
+  'GH_ENTERPRISE_TOKEN',
+  'GITHUB_ENTERPRISE_TOKEN',
+]);
+
 /** Environment of an interactive member session. */
-export function buildSessionEnv(base: NodeJS.ProcessEnv, sessionId: string): Record<string, string> {
-  return withLocalNoProxy(
+export function buildSessionEnv(
+  base: NodeJS.ProcessEnv,
+  sessionId: string,
+  opts: { managedVm?: boolean } = {},
+): Record<string, string> {
+  const env = withLocalNoProxy(
     buildChildEnv(base, {
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
       PROJECTMAN_SESSION_ID: sessionId,
     }),
   );
+  if (opts.managedVm) for (const name of MANAGED_VM_REMOVED_VARS) delete env[name];
+  return env;
 }

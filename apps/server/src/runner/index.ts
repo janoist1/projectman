@@ -4,6 +4,10 @@ import { createProviderAdapters } from './providers';
 import { SessionManager } from './runner';
 import { createTranscriptReader } from './transcript/reader';
 
+/** The managed VM profile's proof of its boundary and its refusal (PM-141). */
+export { createReadinessBoundary, ManagedVmUnavailableError } from './managed-vm';
+export type { ReadinessBoundaryOptions } from './managed-vm';
+
 /** Legacy callers may request rendered tool grants during the policy migration. */
 export { claudeShellRule, claudeToolRules } from './providers/claude/policy';
 

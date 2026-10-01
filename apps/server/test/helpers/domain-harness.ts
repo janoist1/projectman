@@ -1,11 +1,11 @@
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ProjectConfig } from '@projectman/shared';
+import type { ExecutionProfile, ProjectConfig } from '@projectman/shared';
 import { AuthService } from '../../src/auth';
 import { createConfigStore } from '../../src/config';
 import { createRepositories, openDatabase } from '../../src/db';
-import type { AttachmentStorage, BoundaryOperationAdapter } from '../../src/contracts';
+import type { AttachmentStorage, BoundaryOperationAdapter, ManagedVmBoundary } from '../../src/contracts';
 import {
   attachmentToolRules,
   createAttachmentStorage,
@@ -67,6 +67,9 @@ export async function createDomainHarness(
     memberWorkspaces?: boolean;
     /** The process ids the workspace reservation sees as still running (default: none). */
     liveProcesses?: Set<number>;
+    /** The installation's execution profile (PM-141, default legacy) and the proof of its boundary. */
+    executionProfile?: ExecutionProfile;
+    managedVm?: ManagedVmBoundary;
   } = {},
 ) {
   const restarted = opts.directory !== undefined;
@@ -113,6 +116,8 @@ export async function createDomainHarness(
         }
       : {}),
     processExists: (pid) => liveProcesses.has(pid),
+    executionProfile: opts.executionProfile,
+    managedVm: opts.managedVm,
     templates: createTemplateRegistry([testTemplate]),
     planUsageTtlMs: 0,
     now: opts.now,

@@ -11,9 +11,17 @@ import {
   type SessionRunner,
   type StartSessionSpec,
 } from '../contracts';
-import { cliExists } from './cli';
+import { cliExists, runQuietly } from './cli';
 import { buildChildEnv, buildSessionEnv } from './env';
 import { hookUrlFor } from './hook-forwarder';
+import {
+  assertManagedVmPolicy,
+  assertNoAmbientOverride,
+  assertProviderVersion,
+  ManagedVmUnavailableError,
+  parseCliVersion,
+} from './managed-vm';
+import type { ProviderAdapter } from './providers/types';
 import { createProviderAdapters, type ProviderAdapters } from './providers';
 import { AgentSession, UUID_RE } from './session';
 
@@ -71,10 +79,15 @@ export class SessionManager implements SessionRunner {
     if (this.sessions.has(spec.sessionId)) throw new Error(`session ${spec.sessionId} is already running`);
     const dir = await stat(spec.cwd).catch(() => null);
     if (!dir?.isDirectory()) throw new Error(`working directory does not exist: ${spec.cwd}`);
-    const env = buildSessionEnv(this.opts.env ?? process.env, spec.sessionId);
+    if (spec.policy) assertManagedVmPolicy(spec.policy);
+    const managedVm = spec.policy?.execution?.profile === 'managed_vm';
+    const env = buildSessionEnv(this.opts.env ?? process.env, spec.sessionId, { managedVm });
     if (!(await cliExists(adapter.bin, env.PATH))) {
       throw new Error(`${adapter.label} CLI not found: ${adapter.bin}`);
     }
+    // The question-free profile starts only on a proven boundary, with a CLI it is proven for and
+    // without configuration of the VM's own that would override the protected start (PM-141).
+    if (managedVm) await this.assertManagedVm(spec, adapter, env);
     // A CLI without a subscription login can only sit at its login screen: do not spawn it.
     const status = await this.providerStatus(provider);
     if (status.loggedIn === false) throw new ProviderNotLoggedInError(adapter.label, status);
@@ -121,6 +134,43 @@ export class SessionManager implements SessionRunner {
       'agent session started',
     );
     return session.info();
+  }
+
+  /**
+   * The managed VM profile's conditions, asked at every start, resume included: the boundary is
+   * proven now (never from a flag), the policy is for that boundary's profile, the installed CLI
+   * is a version the question-free settings are proven for, and no configuration of the VM's own
+   * would override them. Any failure is `managed_vm_unavailable`; nothing is spawned.
+   */
+  private async assertManagedVm(
+    spec: StartSessionSpec,
+    adapter: ProviderAdapter,
+    env: Record<string, string>,
+  ): Promise<void> {
+    const boundary = this.opts.managedVm;
+    if (!boundary) {
+      throw new ManagedVmUnavailableError(
+        'no_boundary',
+        'this installation has no verified managed VM boundary, so a managed VM session does not start',
+      );
+    }
+    const attestation = await boundary.verify();
+    const wanted = spec.policy!.execution!.boundary;
+    if (wanted.name !== attestation.profile.name || wanted.version !== attestation.profile.version) {
+      throw new ManagedVmUnavailableError(
+        'profile_mismatch',
+        `the session asks for ${wanted.name}@${wanted.version}, the verified boundary is ${attestation.profile.name}@${attestation.profile.version}`,
+        { wanted, verified: attestation.profile },
+      );
+    }
+    const version = await runQuietly(adapter.bin, ['--version'], env);
+    assertProviderVersion(adapter.provider, parseCliVersion(version.stdout), attestation);
+    await assertNoAmbientOverride({
+      provider: adapter.provider,
+      cwd: spec.cwd,
+      env,
+      locations: this.opts.ambientConfig,
+    });
   }
 
   /** Login state of a provider's CLI; checks are shared while running and cached briefly. */

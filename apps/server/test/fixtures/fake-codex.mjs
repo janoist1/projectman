@@ -71,6 +71,11 @@
  *   - always: the answer "Echo: <first line of the prompt>", a token_count event with the plan
  *     rate limits (FAKE_CODEX_RATE_LIMITS = JSON, or canned ones), task_complete, then Stop.
  *
+ * VERSION: `--version` prints `codex-cli <FAKE_CODEX_VERSION, else 0.0.0>`. FAKE_CODEX_FORCE_APPROVAL
+ *   makes a command that needs escalation ask even where the policy says it never does (a
+ *   sandbox of danger-full-access, an approval policy of never): a request that arrives where
+ *   none is expected.
+ *
  * DIAGNOSTICS: FAKE_CODEX_ARGS_FILE, when set, receives {argv, cwd, env, config} at start-up
  *   (`config` = the parsed -c overrides; env values of names containing KEY, TOKEN or SECRET
  *   are "<set>").
@@ -342,7 +347,7 @@ const codexHome = process.env.CODEX_HOME || path.join(os.tmpdir(), 'fake-codex-h
 if (process.env.FAKE_CODEX_ARGS_FILE) writeArgsFile(process.env.FAKE_CODEX_ARGS_FILE, { config });
 
 if (opts.version) {
-  process.stdout.write(`codex-cli ${VERSION}\n`);
+  process.stdout.write(`codex-cli ${process.env.FAKE_CODEX_VERSION ?? VERSION}\n`);
   process.exit(0);
 }
 if (opts.help) {
@@ -655,7 +660,8 @@ async function interactive() {
   };
 
   async function approve(toolName, toolInput) {
-    if (approval === 'never') return { behavior: 'deny', message: 'approval policy is never' };
+    if (approval === 'never' && !process.env.FAKE_CODEX_FORCE_APPROVAL)
+      return { behavior: 'deny', message: 'approval policy is never' };
     const decision = permissionDecision(
       await runHooks('PermissionRequest', { tool_name: toolName, tool_input: toolInput }),
     );
@@ -697,7 +703,9 @@ async function interactive() {
         : args;
     await runHooks('PreToolUse', { tool_name: hookName, tool_input: hookInput, tool_use_id: callId });
     let decision = { behavior: 'allow' };
-    if (needsApproval) {
+    // Without a sandbox (danger-full-access) nothing needs an escalation; FAKE_CODEX_FORCE_APPROVAL
+    // still asks, to test a request that arrives where none is expected.
+    if (needsApproval && (sandbox !== 'danger-full-access' || process.env.FAKE_CODEX_FORCE_APPROVAL)) {
       const approvalInput =
         name === 'exec_command' ? { command: args.cmd, description: args.justification } : hookInput;
       decision = await approve(hookName, approvalInput);

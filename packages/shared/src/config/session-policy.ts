@@ -3,7 +3,11 @@ import type { PermissionMode } from '../domain/member';
 import { roleBundle, roleUsesWorktree } from './duties';
 import type { ProjectConfig } from './schema';
 
-export type SessionAccess = 'task_worktree' | 'review_copy' | 'read_only';
+/**
+ * Where a session works. `member_workspace` is the managed VM's placement (PM-141): the member's
+ * own durable workspace (or its home, without a repository), whatever the member does in it.
+ */
+export type SessionAccess = 'task_worktree' | 'review_copy' | 'read_only' | 'member_workspace';
 export type ReviewCopyMode = 'inherit' | 'read_only' | 'test';
 export interface ShellToolRule {
   command: string;

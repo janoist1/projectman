@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  MANAGED_VM_PROVIDER_VERSIONS,
   evaluateVmReadiness,
   VM_CHECKS,
   VM_PROFILE_NAME,
@@ -133,6 +134,11 @@ describe('profile, units and rules agree', () => {
   it('pins an exact Node release of the pinned major', () => {
     expect(p.NODE_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
     expect(p.NODE_VERSION.startsWith(`${p.NODE_MAJOR}.`)).toBe(true);
+  });
+
+  it('proves the question-free settings for exactly the CLI versions the profile installs (PM-141)', () => {
+    expect([...MANAGED_VM_PROVIDER_VERSIONS.claude]).toEqual([p.CLAUDE_CLI_VERSION]);
+    expect([...MANAGED_VM_PROVIDER_VERSIONS.codex]).toEqual([p.CODEX_CLI_VERSION]);
   });
 
   it('pins every version and never gives an account sudo or an API key', () => {

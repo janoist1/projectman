@@ -360,5 +360,13 @@ export const migrations: Migration[] = [
       );
       CREATE INDEX task_workspace_bindings_task ON task_workspace_bindings(project_key, task_key, kind);`,
   },
+  {
+    version: 14,
+    name: 'execution profile of a session',
+    // The profile a session's process last ran in (PM-141): `legacy` or `managed_vm`. A conversation
+    // started in one profile is never resumed in the other (its directory and the questions it was
+    // allowed belong to that profile), so the start needs to know. Every older row is `legacy`.
+    sql: `ALTER TABLE sessions ADD COLUMN execution_profile TEXT NOT NULL DEFAULT 'legacy';`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

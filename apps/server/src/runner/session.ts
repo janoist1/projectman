@@ -1,6 +1,7 @@
 import os from 'node:os';
 import * as pty from '@lydell/node-pty';
 import type { FastifyBaseLogger } from 'fastify';
+import { MANAGED_VM_NO_LOCAL_APPROVAL } from '../contracts';
 import type { PermissionBroker, RunnerEvent, RunningSessionInfo, StartSessionSpec } from '../contracts';
 import type { HookPayload } from './hook-payload';
 import { InputQueue } from './input-queue';
@@ -348,6 +349,13 @@ export class AgentSession {
       // A question for whoever is at the terminal: the CLI shows its own dialog.
       this.apply({ kind: 'pre_tool', activity, needsInput: true });
       return null;
+    }
+    // The managed VM profile has no local approvals (PM-141): the CLI is started so that it asks
+    // nothing, and a request that comes anyway is neither shown to a human nor judged by the
+    // command rules; it is refused with the way forward, and the session carries on.
+    if (this.spec.policy?.execution?.profile === 'managed_vm') {
+      this.log.warn({ sessionId: this.id, toolName }, 'managed VM session asked for a local approval');
+      return this.adapter.denyOutput(MANAGED_VM_NO_LOCAL_APPROVAL);
     }
     return this.permissions.request(payload, activity, withdrawn);
   }

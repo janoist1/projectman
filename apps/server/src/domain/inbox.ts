@@ -7,6 +7,7 @@ import type {
   InboxState,
   ProjectConfig,
 } from '@projectman/shared';
+import { MANAGED_VM_NO_LOCAL_APPROVAL } from '../contracts';
 import type { PermissionBroker, PermissionDecision, PermissionRequestInfo } from '../contracts';
 import { ownerHandles } from './access';
 import { isoNow } from './context';
@@ -299,6 +300,11 @@ export class InboxService {
   private async decide(request: PermissionRequestInfo, signal: AbortSignal): Promise<PermissionDecision> {
     const session = this.ctx.repos.sessions.get(request.sessionId);
     if (!session) return { behavior: 'deny', message: 'Unknown session.' };
+    // The managed VM profile has no local approvals (PM-141): no inbox item for a human and no
+    // command rules (`commandVerdict`, the legacy path only). The runner refuses such a request
+    // before it gets here; this is the same rule one step further, should one arrive anyway.
+    if (this.ctx.repos.sessions.executionProfile(session.id) === 'managed_vm')
+      return { behavior: 'deny', message: MANAGED_VM_NO_LOCAL_APPROVAL };
     const config = await this.projects.config(session.projectKey);
     const summary = summarizeToolInput(request.toolInput);
     const taskKey = session.workItem.type === 'task' ? session.workItem.taskKey : null;

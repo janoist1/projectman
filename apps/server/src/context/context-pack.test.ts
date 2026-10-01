@@ -13,7 +13,7 @@ import type {
   WorkItemRef,
 } from '@projectman/shared';
 import { aiMemberDefaults, getTemplate } from '@projectman/templates';
-import type { ContextPackInput } from '../contracts';
+import type { ContextPackInput, SessionPolicy } from '../contracts';
 import { buildSessionPolicy, commandVerdict, readableRootsFor } from '../domain';
 import { TEAM_TOOL_NAMES } from '../mcp';
 import { createContextPackBuilder } from './context-pack';
@@ -1586,5 +1586,126 @@ describe('member workspaces (PM-138)', () => {
     const prompt = builder.build(input({ handle: 'code-review' })).appendSystemPrompt;
     expect(section(prompt, '# Review round')).toBe('');
     expect(section(prompt, '# Your workspace')).toBe('');
+  });
+});
+
+describe('the managed VM profile (PM-141)', () => {
+  const boundary = { name: 'managed-vm', version: 1 };
+  const managedPolicy = (
+    project: ProjectConfig,
+    task: Task | null,
+    placement: SessionPolicy['placement'],
+    mode = 'default',
+    role = 'developer',
+  ) =>
+    buildSessionPolicy({
+      config: project,
+      role,
+      task,
+      placement,
+      permissionMode: mode,
+      managedVm: { boundary },
+    });
+  const WORK = {
+    kind: 'member_workspace',
+    path: '/vm/workspaces/AR/fe-1/app/repo',
+    use: 'work',
+    workspace: { branch: 'AR-21-fix-the-booking-confirmation-email', baseCommit: COMMIT_A },
+  } satisfies SessionPolicy['placement'];
+
+  it('tells the member it works without asking, in any command form, and where the limits are', () => {
+    const project = buildLocalOnlyProject('.');
+    const task = makeTask({ stageId: 'dev', repo: 'app' });
+    const sessionPolicy = managedPolicy(project, task, WORK);
+    const prompt = builder.build(input({ project, handle: 'fe-1', task, sessionPolicy })).appendSystemPrompt;
+    const policy = section(prompt, '# Session policy');
+    expect(policy).toContain('Execution profile: managed VM');
+    expect(policy).toContain('run without asking, in any form');
+    expect(policy).toContain('the network gate');
+    expect(policy).toContain('submit_boundary_request');
+    // The legacy wording about the command policy and a sandbox that is not strict is not here.
+    expect(policy).not.toContain('Enforcement is the existing provider and command policy');
+  });
+
+  it('leaves out the command forms: nothing waits for a human, so there is nothing to write them for', () => {
+    const project = buildLocalOnlyProject('.');
+    const task = makeTask({ stageId: 'dev', repo: 'app' });
+    const managed = builder.build(
+      input({ project, handle: 'fe-1', task, sessionPolicy: managedPolicy(project, task, WORK) }),
+    ).appendSystemPrompt;
+    expect(managed).not.toContain('# Commands that run without asking');
+    expect(managed).not.toContain('waits in a human inbox');
+    // The same member in the legacy profile keeps them.
+    const legacy = builder.build(input({ project, handle: 'fe-1', task })).appendSystemPrompt;
+    expect(legacy).toContain('# Commands that run without asking');
+  });
+
+  it('keeps the workspace and review round text for the new placement', () => {
+    const project = buildLocalOnlyProject('.');
+    const task = makeTask({ stageId: 'dev', repo: 'app' });
+    const prompt = builder.build(
+      input({ project, handle: 'fe-1', task, sessionPolicy: managedPolicy(project, task, WORK) }),
+    ).appendSystemPrompt;
+    expect(section(prompt, '# Your workspace')).toContain(
+      "on the task's branch `AR-21-fix-the-booking-confirmation-email`",
+    );
+    const reviewTask = makeTask();
+    const reviewPrompt = builder.build(
+      input({
+        project,
+        handle: 'code-review',
+        task: reviewTask,
+        sessionPolicy: managedPolicy(
+          project,
+          reviewTask,
+          {
+            kind: 'member_workspace',
+            path: '/vm/workspaces/AR/code-review/app/repo',
+            use: 'review',
+            review: {
+              sourceCommit: COMMIT_B,
+              roundId: '2',
+              sourceBranch: 'AR-21-fix-the-booking-confirmation-email',
+              baseBranch: 'main',
+              baseCommit: COMMIT_A,
+            },
+          },
+          'default',
+          'code_review',
+        ),
+      }),
+    ).appendSystemPrompt;
+    expect(section(reviewPrompt, '# Review round')).toContain(`Round 2: your own workspace at`);
+    expect(section(reviewPrompt, '# Review round')).toContain(COMMIT_B);
+    // The local-only review step relies on the checked-out commit, as for a PM-138 review copy.
+    expect(reviewPrompt).toContain('Review the handed-over commit checked out in your workspace');
+  });
+
+  it('describes a session with no repository by its own directory', () => {
+    const project = buildLocalOnlyProject('.');
+    const prompt = builder.build(
+      input({
+        project,
+        handle: 'fe-1',
+        task: null,
+        workItem: { type: 'general' },
+        sessionPolicy: managedPolicy(project, null, {
+          kind: 'member_workspace',
+          path: '/vm/workspaces/AR/fe-1/.home',
+          use: 'home',
+        }),
+      }),
+    ).appendSystemPrompt;
+    expect(section(prompt, '# Your workspace')).toContain('/vm/workspaces/AR/fe-1/.home');
+  });
+
+  it('tells a research-only member to read and report', () => {
+    const project = buildLocalOnlyProject('.');
+    const task = makeTask({ stageId: 'dev', repo: 'app' });
+    const prompt = builder.build(
+      input({ project, handle: 'fe-1', task, sessionPolicy: managedPolicy(project, task, WORK, 'plan') }),
+    ).appendSystemPrompt;
+    expect(section(prompt, '# Session policy')).toContain('research-only (plan)');
+    expect(section(prompt, '# Session policy')).not.toContain('run without asking, in any form');
   });
 });

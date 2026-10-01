@@ -150,6 +150,97 @@ describe('buildClaudeArgs', () => {
   });
 });
 
+describe('the managed VM profile (PM-141)', () => {
+  const policy = (
+    mode: 'bypassPermissions' | 'plan' = 'bypassPermissions',
+    patch: Partial<NonNullable<StartSessionSpec['policy']>> = {},
+  ): NonNullable<StartSessionSpec['policy']> => ({
+    version: 1,
+    enforcement: 'legacy',
+    execution: { profile: 'managed_vm', boundary: { name: 'managed-vm', version: 1 } },
+    access: 'member_workspace',
+    placement: { kind: 'member_workspace', path: '/work', use: 'work' },
+    tools: {
+      team: { all: true, names: [] },
+      files: ['read'],
+      shell: [{ command: 'git diff', arguments: 'prefix' }],
+    },
+    filesystem: { readableRoots: ['/work'], writableRoots: ['/work'], protectedPaths: [] },
+    deniedOperations: ['git_push'],
+    network: { allowedDomains: [], allowLocalBinding: false },
+    outsideSandbox: 'deny',
+    permissions: {
+      claude: mode,
+      sandbox: mode === 'plan' ? 'read-only' : 'danger-full-access',
+      approval: 'never',
+    },
+    ...patch,
+  });
+  const input = {
+    hookUrl: 'http://127.0.0.1:4700/hooks/abc',
+    allowedTools: ['Bash(git status:*)'],
+    deniedTools: ['Bash(git push:*)'],
+    permissionTimeoutMs: 60_000,
+    sandbox: { allowWrite: ['~/.npm'], allowedDomains: ['registry.npmjs.org'], allowLocalBinding: true },
+  };
+
+  it('asks nothing: no tool rules but the team tools, no denied tools, no sandbox, no first-use dialog', () => {
+    const settings = buildSettings({ ...input, policy: policy() });
+    expect(settings.permissions).toEqual({ allow: ['mcp__team__*'] });
+    expect(settings).not.toHaveProperty('sandbox');
+    expect(settings.skipDangerousModePermissionPrompt).toBe(true);
+    // Not the sandbox's command hooks either: an unsandboxed session uses the HTTP hooks.
+    expect(settings.hooks.Stop![0]!.hooks[0]!.type).toBe('http');
+  });
+
+  it('keeps every hook, so the state of the session is still followed', () => {
+    const settings = buildSettings({ ...input, policy: policy() });
+    for (const event of HTTP_HOOK_EVENTS) expect(settings.hooks[event]).toBeDefined();
+    expect(settings.hooks.SessionStart![0]!.hooks[0]!.type).toBe('command');
+  });
+
+  it('starts in bypassPermissions, or plan for a research-only member, and protects the start', () => {
+    const bypass = buildClaudeArgs(
+      { ...spec, permissionMode: 'default', policy: policy() },
+      buildSettings({ ...input, policy: policy() }),
+    );
+    expect(bypass[bypass.indexOf('--permission-mode') + 1]).toBe('bypassPermissions');
+    // Only this session's team server, and none of the project's own settings (PM-49).
+    expect(bypass).toContain('--strict-mcp-config');
+    expect(bypass[bypass.indexOf('--setting-sources') + 1]).toBe('user');
+    const plan = buildClaudeArgs(
+      { ...spec, policy: policy('plan') },
+      buildSettings({ ...input, policy: policy('plan') }),
+    );
+    expect(plan[plan.indexOf('--permission-mode') + 1]).toBe('plan');
+    // Plan mode needs no bypass confirmation to skip.
+    expect(buildSettings({ ...input, policy: policy('plan') })).not.toHaveProperty(
+      'skipDangerousModePermissionPrompt',
+    );
+  });
+
+  it('does not touch a legacy start: no protected flags, the old rules and the sandbox stay', () => {
+    const legacy = buildSettings({ ...input, policy: undefined });
+    expect(legacy.permissions).toEqual({ allow: ['Bash(git status:*)'], deny: ['Bash(git push:*)'] });
+    expect(legacy.sandbox).toBeDefined();
+    expect(legacy).not.toHaveProperty('skipDangerousModePermissionPrompt');
+    const args = buildClaudeArgs(spec, legacy);
+    expect(args).not.toContain('--strict-mcp-config');
+    expect(args).not.toContain('--setting-sources');
+  });
+
+  it('refuses a managed VM policy that asks, or runs in a mode that does', () => {
+    const asking = policy('bypassPermissions', {
+      permissions: { claude: 'bypassPermissions', sandbox: 'danger-full-access', approval: 'on-request' },
+    });
+    expect(() => buildSettings({ ...input, policy: asking })).toThrow(/asks nothing locally/);
+    const acceptEdits = policy('bypassPermissions', {
+      permissions: { claude: 'acceptEdits', sandbox: 'workspace-write', approval: 'never' },
+    });
+    expect(() => buildSettings({ ...input, policy: acceptEdits })).toThrow(/asks nothing locally/);
+  });
+});
+
 describe('buildMcpConfig', () => {
   it('points the team server at the session endpoint over HTTP', () => {
     expect(buildMcpConfig('http://x/mcp/1').mcpServers.team.type).toBe('http');

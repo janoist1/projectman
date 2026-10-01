@@ -231,6 +231,45 @@ describe('AgentSession', () => {
     });
   });
 
+  it('refuses a permission request of a managed VM session at once: no broker, no waiting, work goes on (PM-141)', async () => {
+    const decide = vi.fn(() => new Promise<never>(() => undefined));
+    const { hook, session, states } = await ready({
+      broker: { decide },
+      spec: {
+        policy: {
+          execution: { profile: 'managed_vm', boundary: { name: 'managed-vm', version: 1 } },
+        } as StartSessionSpec['policy'],
+      },
+    });
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'push it' });
+    await expect(
+      hook({ hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'git push' } }),
+    ).resolves.toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PermissionRequest',
+        decision: { behavior: 'deny', message: expect.stringContaining('without local approvals') },
+      },
+    });
+    expect(decide).not.toHaveBeenCalled();
+    expect(session.state.state).toBe('working');
+    expect(states()).not.toContain('waiting_permission');
+  });
+
+  it('still hands a question for a human at the terminal to that human in the managed VM profile', async () => {
+    const { hook, session } = await ready({
+      spec: {
+        policy: {
+          execution: { profile: 'managed_vm', boundary: { name: 'managed-vm', version: 1 } },
+        } as StartSessionSpec['policy'],
+      },
+    });
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'ask' });
+    await expect(
+      hook({ hook_event_name: 'PermissionRequest', tool_name: 'AskUserQuestion', tool_input: {} }),
+    ).resolves.toBeNull();
+    expect(session.state.state).toBe('waiting_input');
+  });
+
   it('rejects queued messages and ends pending permission requests when the process exits', async () => {
     const { session, pty, hook } = await ready();
     await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'work' });

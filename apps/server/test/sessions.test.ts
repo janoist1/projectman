@@ -224,8 +224,11 @@ describe('session orchestrator', () => {
       permissions: { claude: 'default', sandbox: 'read-only' },
       filesystem: { readableRoots: [dev.session.cwd], writableRoots: [] },
     });
-    // Work in its own worktree runs in the OS sandbox, so its shell commands do not ask.
-    expect(h.runner.lastStarted().sandbox).toEqual(WORKTREE_SANDBOX);
+    // Work in its own worktree runs in the OS sandbox, so its shell commands do not ask; the shell
+    // does not read the credentials and the live data either (PM-167).
+    const deniedPaths = h.runner.lastStarted().policy!.filesystem.deniedPaths!;
+    expect(deniedPaths).toContainEqual(expect.stringMatching(/\/\.ssh$/));
+    expect(h.runner.lastStarted().sandbox).toEqual({ ...WORKTREE_SANDBOX, denyRead: deniedPaths });
     expect(h.runner.lastStarted().deniedTools).toEqual(files.deny);
     expect(h.domain.tasks.get('AR', withRepo.key).links).toContainEqual({
       kind: 'branch',
@@ -250,9 +253,46 @@ describe('session orchestrator', () => {
       deniedTools: [...LOCAL_ONLY_DENIED_TOOLS, ...files.deny],
     });
     expect(h.runner.lastStarted().writableRoots).toBeUndefined();
-    // A reviewer works outside a worktree of its own: not sandboxed yet (PM-87).
-    expect(h.runner.lastStarted().sandbox).toBeUndefined();
+    // A reviewer runs in a sandbox that writes only the temp directory (PM-167): its working
+    // directory and the developer's worktree are read-only, the credentials unreadable.
+    const reviewer = h.runner.lastStarted();
+    expect(reviewer.policy!.access).toBe('read_only');
+    expect(reviewer.sandbox).toEqual({
+      allowWrite: [],
+      denyWrite: [h.workspace, developer.session.cwd],
+      denyRead: reviewer.policy!.filesystem.deniedPaths,
+      allowedDomains: ['registry.npmjs.org'],
+      allowLocalBinding: true,
+      excludedCommands: ['gh pr view', 'gh pr diff'],
+    });
     expect(h.worktrees.calls).toHaveLength(1);
+  });
+
+  it('runs readers in their own mode, Auto too, in the read-only sandbox, chats included (PM-167)', async () => {
+    await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
+      for (const member of draft.team.members) {
+        if (member.kind !== 'ai') continue;
+        member.permissionMode = 'auto';
+        member.approver = 'none';
+      }
+      return 'Run every AI member in Auto with approver none';
+    });
+    const task = await h.domain.tasks.create('AR', { title: 'Example change', repo: 'web' }, OWNER_ACTOR);
+    await h.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: task.key });
+    const review = h.runner.lastStarted();
+    expect(review.policy!.permissions).toEqual({
+      claude: 'auto',
+      sandbox: 'read-only',
+      approval: 'on-request',
+    });
+    expect(review.sandbox).toMatchObject({ allowWrite: [], denyWrite: [h.workspace] });
+
+    // A developer's general chat reads only too: it runs outside its worktree.
+    await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'general' });
+    const chat = h.runner.lastStarted();
+    expect(chat.policy!.access).toBe('read_only');
+    expect(chat.policy!.permissions.claude).toBe('auto');
+    expect(chat.sandbox).toMatchObject({ allowWrite: [], denyWrite: [h.workspace] });
   });
 
   it('logs worktree lookup failures and starts the reviewer anyway', async () => {

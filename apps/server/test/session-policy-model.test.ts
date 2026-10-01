@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { roleSessionAccess, sessionPermissions } from '@projectman/shared';
 import type { SessionPolicy, StartSessionSpec } from '../src/contracts';
-import { buildSessionPolicy, sensitivePaths } from '../src/domain/session-policy';
+import { buildSessionPolicy, sensitivePaths, sessionSandbox } from '../src/domain/session-policy';
 import { buildSettings, buildClaudeArgs } from '../src/runner/providers/claude/args';
 import { buildCodexArgs, tomlValue } from '../src/runner/providers/codex/args';
 import { testConfig } from './helpers/test-template';
@@ -98,8 +98,10 @@ describe('provider-neutral session policy', () => {
     (role) => {
       const p = policy(role, { kind: 'read_only', path: source });
       expect(p.filesystem.writableRoots).toEqual([]);
-      expect(p.permissions.claude).toBe('default');
+      // The member's mode goes to the CLI as it is (PM-167); the sandbox and the deny rules hold.
+      expect(p.permissions.claude).toBe('acceptEdits');
       expect(p.permissions.sandbox).toBe('read-only');
+      expect(sessionSandbox(p)?.denyWrite).toEqual([source]);
       expect(() => policy(role, { kind: 'task_worktree', path: source })).toThrow(/file-changing duty/);
     },
   );
@@ -144,7 +146,8 @@ describe('provider-neutral session policy', () => {
         for (const enforcement of ['legacy', 'strict'] as const) {
           const grantsTest = mode === 'test' && enforcement === 'strict' && permissionMode !== 'plan';
           expect(sessionPermissions(permissionMode, 'review_copy', { mode, enforcement })).toEqual({
-            claude: permissionMode === 'plan' ? 'plan' : grantsTest ? 'acceptEdits' : 'default',
+            claude:
+              permissionMode === 'plan' ? 'plan' : grantsTest ? 'acceptEdits' : (permissionMode ?? 'default'),
             sandbox: grantsTest ? 'workspace-write' : 'read-only',
             approval: permissionMode === 'plan' ? 'never' : 'on-request',
           });
@@ -367,7 +370,20 @@ describe('provider-neutral session policy', () => {
     expect(settings.permissions.allow).not.toContain('Bash(*)');
     expect(settings.permissions.allow).not.toContain('mcp__team__*');
     const args = buildClaudeArgs(s, settings);
-    expect(args[args.indexOf('--permission-mode') + 1]).toBe('default');
+    expect(args[args.indexOf('--permission-mode') + 1]).toBe('acceptEdits');
+    // Codex keeps its read-only sandbox in a reading placement.
+    const codex = buildCodexArgs({
+      spec: s,
+      realCwd: s.cwd,
+      hookUrl: 'http://fake/hooks',
+      permissionTimeoutMs: 1000,
+    }).args;
+    expect(codex.slice(codex.indexOf('--sandbox'), codex.indexOf('--sandbox') + 4)).toEqual([
+      '--sandbox',
+      'read-only',
+      '--ask-for-approval',
+      'on-request',
+    ]);
     const c = codexOverrides(
       buildCodexArgs({ spec: s, realCwd: s.cwd, hookUrl: 'http://fake/hooks', permissionTimeoutMs: 1000 })
         .args,

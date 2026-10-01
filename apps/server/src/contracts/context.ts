@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
+import type { AgentSandbox } from './runner';
 import type { SessionPolicy } from './session-policy';
 import type {
   AiMemberConfig,
@@ -19,6 +20,12 @@ import type {
 export interface ContextPackInput {
   /** Rebuilt from actual placement for every start, including resumes. */
   sessionPolicy?: SessionPolicy;
+  /**
+   * The CLI's own sandbox the session's shell commands run in (PM-167), as the runner gets it;
+   * absent when they are not sandboxed. A Claude member is told its boundary instead of the
+   * server's command forms.
+   */
+  sandbox?: AgentSandbox;
   project: ProjectConfig;
   member: AiMemberConfig;
   workItem: WorkItemRef;

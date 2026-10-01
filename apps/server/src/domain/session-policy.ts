@@ -9,6 +9,7 @@ import {
   DEVELOPMENT_SHELL_TOOLS,
   LOCAL_PUBLISHING_OPERATIONS,
   managedVmPermissions,
+  placementReadsOnly,
 } from '@projectman/shared';
 import type { RoleId, ProjectConfig, Task } from '@projectman/shared';
 import type { SessionPolicy } from '../contracts';
@@ -59,6 +60,43 @@ export const WORKTREE_SANDBOX: AgentSandbox = {
   allowedDomains: ['registry.npmjs.org'],
   allowLocalBinding: true,
 };
+
+/**
+ * Commands a reader runs outside its sandbox, through the usual permission rules (its allow list
+ * pre-approves them): they need the GitHub CLI's login, which the sandbox does not let it read.
+ */
+export const READER_UNSANDBOXED_COMMANDS = ['gh pr view', 'gh pr diff'];
+
+/**
+ * The CLI's own sandbox of a legacy session (decision 28, PM-167), from the policy's actual paths;
+ * none for the managed VM profile, whose boundary is outside the CLI.
+ * - Work in a task's own worktree: `WORKTREE_SANDBOX`.
+ * - A reading placement (read-only, or a review copy without the test opt-in): its commands write
+ *   only the temp directory; the working directory and every extra directory (`--add-dir`, the
+ *   developer's worktree among them) are `denyWrite`, so the member's own mode (Auto too) runs
+ *   reads, git queries, tests and type checks without asking and changes nothing. The npm registry
+ *   and local ports as for a developer (decision 24).
+ * Both never read the credentials and the live instance's data (`deniedPaths`, PM-165) from the
+ * shell either. A placement the CLI writes as a whole without a sandbox (a review copy's test
+ * opt-in) gets none: that is the strict path, refused before the start.
+ */
+export function sessionSandbox(policy: SessionPolicy): AgentSandbox | undefined {
+  if (policy.execution?.profile === 'managed_vm') return undefined;
+  const denyRead = policy.filesystem.deniedPaths?.length
+    ? { denyRead: [...policy.filesystem.deniedPaths] }
+    : {};
+  if (policy.access === 'task_worktree') return { ...WORKTREE_SANDBOX, ...denyRead };
+  if (!placementReadsOnly(policy.access, { mode: policy.reviewCopyMode, enforcement: policy.enforcement }))
+    return undefined;
+  return {
+    allowWrite: [],
+    denyWrite: [...new Set([policy.placement.path, ...policy.filesystem.readableRoots])],
+    ...denyRead,
+    allowedDomains: [...WORKTREE_SANDBOX.allowedDomains],
+    allowLocalBinding: true,
+    excludedCommands: [...READER_UNSANDBOXED_COMMANDS],
+  };
+}
 
 /**
  * What the built-in file tools never read or change, whatever the permission mode (PM-165): the

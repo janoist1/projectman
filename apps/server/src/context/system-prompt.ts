@@ -9,7 +9,7 @@ import {
 } from '@projectman/shared';
 import type { BuiltInRoleId, CustomRoleDefinition } from '@projectman/shared';
 import type { ContextPackInput } from '../contracts';
-import { describeUnattendedCommands } from '../domain';
+import { describeSandbox, describeUnattendedCommands } from '../domain';
 import { isHumanOnlyLabel, labelHolders } from '@projectman/shared';
 import { code, codeList, describeGate, labelRef, languageName, repoText, stageLabel } from './format';
 import { recentMemory } from './memory';
@@ -307,12 +307,25 @@ function unattendedCommandsSection({
   task,
   workItem,
   sessionPolicy,
+  sandbox,
 }: ContextPackInput): string {
+  const repo = repoOf(project, effectiveRepo(project, task));
+  // A Claude member in the CLI's own sandbox (PM-167) is told its boundary instead: nothing there
+  // waits for a human, whatever the work item. Codex's text does not change.
+  if (sandbox && !isCodex(member) && sessionPolicy) {
+    return [
+      '# Your sandbox',
+      ...describeSandbox({
+        sandbox,
+        cwd: sessionPolicy.placement.path,
+        localOnly: repo !== undefined && !repo.github,
+      }),
+    ].join('\n');
+  }
   if (workItem.type !== 'task') return '';
   // The managed VM profile (PM-141) has no command rules: nothing waits for a human, so there is no
   // form to write commands in (the legacy rules of PM-104/105/109/116 stay in the legacy path).
   if (sessionPolicy?.execution?.profile === 'managed_vm') return '';
-  const repo = repoOf(project, effectiveRepo(project, task));
   const worktree = roleUsesWorktree(project, member.role);
   return [
     '# Commands that run without asking',

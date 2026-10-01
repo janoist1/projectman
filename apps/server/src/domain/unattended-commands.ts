@@ -1,3 +1,4 @@
+import type { AgentSandbox } from '../contracts';
 import { SHELL_REDIRECTIONS } from './shell-words';
 import {
   NPM_CHECKS,
@@ -60,6 +61,45 @@ export const PROJECT_CHECK_COMMANDS: readonly string[] = [
   ...NPM_CHECKS.map((words) => `npm ${words.join(' ')}`),
   ...NPX_CHECKS.map((words) => `npx ${words.join(' ')}`),
 ];
+
+/**
+ * The boundary of a Claude member whose shell runs in Claude Code's own sandbox (PM-167), worded
+ * for its system prompt in place of the command forms above: in the sandbox no command waits for
+ * a human, and what it refuses stays refused. The lines of the section, without its heading.
+ */
+export function describeSandbox(input: {
+  sandbox: AgentSandbox;
+  /** The session's working directory. */
+  cwd: string;
+  /** The repository is local-only: publishing is refused. */
+  localOnly: boolean;
+}): string[] {
+  const { sandbox, cwd, localOnly } = input;
+  const readOnly = (sandbox.denyWrite ?? []).length > 0;
+  const extra = (sandbox.denyWrite ?? []).filter((dir) => dir !== cwd);
+  const lines = [
+    "Your shell commands run in Claude Code's own sandbox, in your own permission mode: what the sandbox allows runs without asking, and no particular form of command is needed.",
+    readOnly
+      ? `- Writing: only the temp directory (${code('$TMPDIR')}). Your working directory ${code(cwd)}${extra.length > 0 ? ` and ${extra.map(code).join(', ')}` : ''} are read-only, for the shell (the sandbox) and for the file tools (deny rules). Read, query git, run the tests and the type checks there, but change nothing. Send caches and output files to ${code('$TMPDIR')}; a Vite or Vitest configuration loads with ${code('--configLoader runner')} (the project's ${code('npm test')} may already pass it).`
+      : `- Writing: your working directory ${code(cwd)} with its git metadata (not its hooks or configuration), the temp directory (${code('$TMPDIR')})${sandbox.allowWrite.length > 0 ? ` and ${sandbox.allowWrite.map(code).join(', ')}` : ''}.`,
+    `- Reading: everything${sandbox.denyRead?.length ? `, except the credentials and the live instance's data: ${sandbox.denyRead.map(code).join(', ')}` : ''}.`,
+    `- Network: only ${sandbox.allowedDomains.length > 0 ? sandbox.allowedDomains.map(code).join(', ') : 'nothing'}${sandbox.allowLocalBinding ? '; tests may listen on local ports' : ''}.`,
+  ];
+  if (sandbox.excludedCommands?.length) {
+    lines.push(
+      `- ${sandbox.excludedCommands.map(code).join(' and ')} run outside the sandbox (they need the GitHub CLI's login), allowed by your permission rules.`,
+    );
+  }
+  if (localOnly) {
+    lines.push(
+      `- Refused outright: ${code('git push')}, ${code('gh pr create')} and ${code('gh pr merge')}, because the repository is local-only.`,
+    );
+  }
+  lines.push(
+    '- A refusal by the sandbox or by a rule is final: do not retry it in another form or look for a way around it. If you really need it, ask a human with ask_human and say why.',
+  );
+  return lines;
+}
 
 /** The lines of the section, without its heading; the caller joins them. */
 export function describeUnattendedCommands(input: UnattendedCommandsInput): string[] {

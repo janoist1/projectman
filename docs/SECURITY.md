@@ -151,12 +151,24 @@ What the server adds, in every mode and on the legacy (Mac) profile:
 - The `autoMode` prose in `--settings` only guides the classifier; it is not a boundary.
 - The managed VM profile is unchanged: its limits are outside the CLI.
 
-**Residual risk (owner's decision, decision 24 and PM-156).** The deny rules bind the built-in file
-tools, and Claude Code applies them to the file-reading commands it recognises (`cat`, `head`, …),
-not to an arbitrary program a shell command starts. A developer's shell can therefore still read the
-credential files until the CLI sandbox's `denyRead` covers them (PM-167), and it reaches the live
-instance's port 4800 up to the VM. The owner decided that port stays reachable up to the VM. A
-Codex member is not bound by these rules at all before the VM; its own sandbox is its limit.
+**The CLI's sandbox (PM-167, decision 28).** Every legacy Claude session runs its shell in Claude
+Code's own sandbox: a developer's in its worktree (`WORKTREE_SANDBOX`), every reading session (the
+reviewer, QA, security, analyst, architect, designer, devops, chats, scheduled runs) in one that
+writes only the temp directory, with its working directory (the project's main checkout or its
+review copy) and every extra directory (the developer's worktree) in `denyWrite`. Both put the
+same `sensitivePaths` in `denyRead`, so a shell command cannot read the credential files or the
+live data either. The built-in file tools are outside the sandbox: `Edit` deny rules keep a
+reader's directories read-only for them, and the PM-165 `Read` rules keep the credentials out of
+reach. A reader runs in its own mode (Auto too) and asks nothing for what the sandbox allows.
+`gh pr view` and `gh pr diff` run outside the sandbox (`excludedCommands`), pre-approved by the
+reader's allow list, because they need the GitHub CLI's login.
+
+**Residual risk (owner's decision, decision 24 and PM-156).** Sandboxed commands may listen on
+local ports, so they also reach the live instance's port 4800, readers included; the owner decided
+that port stays reachable up to the VM (PM-156). A reader's sandbox reaches the npm registry. A
+Codex member is not bound by the Claude rules at all before the VM; its own sandbox (`read-only`
+for a reader) is its limit. The sandbox's denials are not yet verified on the owner's machine: the
+PM-167 manual run in `SANDBOX-PROBE.md` records them.
 
 `~/.claude` is not denied as a whole, because the members run with the user's own `~/.claude`
 (the runner sets no `CLAUDE_CONFIG_DIR`) and Claude Code saves large tool outputs under

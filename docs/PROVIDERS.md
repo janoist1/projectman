@@ -53,7 +53,20 @@ cache and `~/.projectman-dev`, and reach only the npm registry; a command that f
 not retried outside the sandbox. The tests may listen on local ports (decision 24). The sandbox
 cannot open pseudo-terminals, so the server's PTY tests (`*.integration.test.ts`,
 `golden-path-*`) are left out there with a notice (`apps/server/vitest.config.ts`); the
-integrating session runs the full suite. Reviewers and other sessions are not sandboxed yet.
+integrating session runs the full suite.
+
+Every other legacy session reads only (PM-167, decision 28: „Homokozó, a CLI-k saját kerítése”):
+the reviewer, QA, the security reviewer, the analyst, the architect, the designer, devops, chats,
+meetings and scheduled runs, any session whose placement is `read_only` or a review copy without
+the test opt-in. It runs in the member's own mode (Auto stays Auto, `plan` stays `plan`) and in a
+sandbox from `sessionSandbox` (see Sandboxes below) that writes only the temp directory: the
+working directory and every `--add-dir` directory are `denyWrite`, and the Claude adapter denies
+`Edit(//<dir>/**)` there too (which also covers `Write` and `NotebookEdit`), since the sandbox
+does not bind the built-in file tools. Reads, git queries, `npm test` and `npm run typecheck` then
+run without asking, and a write fails at once. Vite writes a bundled copy of a TypeScript
+configuration next to it, so projectman's `npm test` runs `vitest run --configLoader runner`,
+which writes nothing; other caches go to `$TMPDIR`. A question the CLI still asks goes to the
+member's approver (PM-165); with `none` it is refused.
 
 Claude members may choose a fixed model id, a latest-family alias, or a custom id. Their
 optional effort (`low`, `medium`, `high`, `xhigh`, `max`) is passed via `--effort` on new and
@@ -108,8 +121,8 @@ Server-side decisions, with the reason each exists (the CLI covers none of them)
 | `PermissionDenied` to the timeline             | The CLI's classifier decisions are otherwise invisible to the people following the work                                                                           |
 | Managed VM profile: no inner limits            | The boundary is outside the CLI (decisions 25 and 26)                                                                                                             |
 
-Residual risk: a shell command reads the credential files until the CLI sandbox's `denyRead`
-covers them (PM-167), and port 4800 stays reachable from the shell up to the VM (decision 24).
+The same denied paths are the sandbox's `denyRead` (PM-167), so a shell command does not read
+them either. Residual risk: port 4800 stays reachable from the shell up to the VM (decision 24).
 Codex ignores the deny rules (its sandbox is its own, PM-166). See `SECURITY.md`.
 
 ## Codex
@@ -140,6 +153,9 @@ and so the inbox:
 | `acceptEdits`, `auto` | `workspace-write` | `on-request` | edits and commands in the workspace run; the rest asked |
 | `plan`                | `read-only`       | `never`      | research only; nothing is asked or written              |
 | `bypassPermissions`   | `workspace-write` | `on-request` | not for Codex: read as `acceptEdits`                    |
+
+In a reading placement (a reviewer, an analyst, a chat; PM-167) every mode but `plan` gets
+`read-only` and `on-request`; an escalation goes through `commandVerdict` to the approver.
 
 **A Codex member never runs in `bypassPermissions`** (decision 19, PM-84). The mode would switch
 Codex's sandbox and its questions off, and Codex does not enforce denied tools, so nothing would
@@ -386,10 +402,28 @@ The old settings used Claude `denyRead` for sibling live/secret folders, `allowW
 and enforcement of either type remain version-specific observations to reproduce.
 
 Current source differs from that probe: `WORKTREE_SANDBOX` allows npm/development-data writes
-and local binding; `buildSandboxSettings` adds **no read denials**. Codex's normal session spec
+and local binding. Codex's normal session spec
 no longer grants the shared git root (PM-131), but its legacy sandbox does not implement the
 required restricted-read policy. Command-rule approval of Codex escalations is host execution,
 not strict isolation. PM-134's transitional Claude setup is not the final PM-128/129 proof.
+
+### The sandboxes the server hands out (PM-167)
+
+`sessionSandbox(policy)` (`domain/session-policy.ts`) computes them per session from the actual
+paths; `buildSandboxSettings` renders them, and `test/cli-sandbox.integration.test.ts` checks the
+exact `--settings` the fake CLI receives:
+
+| Session                                               | `filesystem`                                                                                                               | `network`                                   | `excludedCommands`         | Extra deny rules                   |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | -------------------------- | ---------------------------------- |
+| Developer (`task_worktree`)                           | `allowWrite: ~/.npm, ~/.projectman-dev`; `denyRead`: `sensitivePaths`                                                      | `registry.npmjs.org`, local binding allowed | none                       | none                               |
+| Reader (`read_only`, review copy without test opt-in) | `allowWrite: []` (temp only); `denyWrite`: working directory and every `--add-dir` directory; `denyRead`: `sensitivePaths` | `registry.npmjs.org`, local binding allowed | `gh pr view`, `gh pr diff` | `Edit(//<dir>/**)` per `denyWrite` |
+| Managed VM profile, sessions behind the VM boundary   | none (the boundary is outside the CLI)                                                                                     |                                             |                            |                                    |
+| Codex                                                 | not rendered: Codex's own `--sandbox` (`read-only` for a reader, unchanged)                                                |                                             |                            |                                    |
+
+Every one also has `enabled`, `autoAllowBashIfSandboxed`, `allowUnsandboxedCommands: false`,
+`failIfUnavailable` and `strictAllowlist`. A `denyWrite` directory a rule cannot name as it is
+refuses the start. The temp directory is the sandbox's own `$TMPDIR`. **Manual run on the owner's
+machine: pending** (the PM-167 part of `SANDBOX-PROBE.md`); record its result here.
 
 Current [Claude documentation](https://code.claude.com/docs/en/sandboxing) describes Seatbelt
 on macOS and bubblewrap/socat on Linux, with an additional seccomp filter for Unix sockets.

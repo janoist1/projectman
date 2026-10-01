@@ -51,8 +51,10 @@ export interface ClaudeSandboxSettings {
   allowUnsandboxedCommands: false;
   /** No sandbox, no session: never a silent fallback to unsandboxed commands. */
   failIfUnavailable: true;
-  filesystem: { allowWrite: string[] };
+  filesystem: { allowWrite: string[]; denyWrite?: string[]; denyRead?: string[]; allowRead?: string[] };
   network: { allowedDomains: string[]; strictAllowlist: true; allowLocalBinding: boolean };
+  /** Commands run outside the sandbox, asked or allowed by the permission rules as any other. */
+  excludedCommands?: string[];
 }
 
 interface HookHandler {
@@ -104,18 +106,44 @@ export function isManagedVm(policy: StartSessionSpec['policy']): boolean {
  * string, but Claude Code 2.1.284 asks for every command given "deny"; the boolean works.
  */
 export function buildSandboxSettings(sandbox: AgentSandbox): ClaudeSandboxSettings {
+  const list = (key: 'denyWrite' | 'denyRead' | 'allowRead') =>
+    sandbox[key]?.length ? { [key]: [...new Set(sandbox[key])] } : {};
   return {
     enabled: true,
     autoAllowBashIfSandboxed: true,
     allowUnsandboxedCommands: false,
     failIfUnavailable: true,
-    filesystem: { allowWrite: [...sandbox.allowWrite] },
+    filesystem: {
+      allowWrite: [...sandbox.allowWrite],
+      ...list('denyWrite'),
+      ...list('denyRead'),
+      ...list('allowRead'),
+    },
     network: {
       allowedDomains: [...sandbox.allowedDomains],
       strictAllowlist: true,
       allowLocalBinding: sandbox.allowLocalBinding,
     },
+    ...(sandbox.excludedCommands?.length ? { excludedCommands: [...sandbox.excludedCommands] } : {}),
   };
+}
+
+/** Characters a directory may hold to be named in a Claude Code path rule as it is. */
+const PLAIN_RULE_PATH = /^\/[\w./@+~ -]*$/;
+
+/**
+ * Deny rules for the built-in file tools on the sandbox's `denyWrite` directories (PM-167): the
+ * sandbox binds only the shell, so `Edit` (which also covers `Write` and `NotebookEdit`) is denied
+ * there by a rule, in every mode. A path a rule cannot name as it is refuses the start: it would
+ * leave the directory writable for the file tools.
+ */
+export function denyWriteRules(sandbox: AgentSandbox | undefined): string[] {
+  return (sandbox?.denyWrite ?? []).map((dir) => {
+    if (!PLAIN_RULE_PATH.test(dir))
+      throw new Error(`Cannot keep ${JSON.stringify(dir)} read-only with a rule; refusing to start.`);
+    // An absolute path in a rule starts with `//`; `**` takes everything below.
+    return `Edit(/${dir.replace(/\/+$/, '')}/**)`;
+  });
 }
 
 /** The `--settings` object: hooks for every event we need and pre-allowed tools. */
@@ -141,6 +169,7 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
       ? claudeToolRules(input.policy)
       : { allow: input.allowedTools, deny: input.deniedTools ?? [] };
   const sandbox = managed ? undefined : input.sandbox;
+  const deny = [...rules.deny, ...denyWriteRules(sandbox)];
   const permissionTimeoutS = permissionHookTimeoutS(input.permissionTimeoutMs);
   const handler = (timeout: number, decides: boolean): HookHandler =>
     sandbox
@@ -180,7 +209,7 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
   return {
     permissions: {
       allow: [...new Set(rules.allow)],
-      ...(rules.deny.length ? { deny: [...new Set(rules.deny)] } : {}),
+      ...(deny.length ? { deny: [...new Set(deny)] } : {}),
     },
     // The managed VM profile keeps no inner limits, the classifier's guidance included.
     ...(managed ? {} : { autoMode: AUTO_MODE_SETTINGS }),

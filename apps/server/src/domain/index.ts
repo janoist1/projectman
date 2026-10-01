@@ -95,6 +95,7 @@ export { ScheduleService } from './schedules';
 export type { ScheduleTimer } from './schedules';
 export * from './session-policy';
 export {
+  describeSandbox,
   describeUnattendedCommands,
   preApprovedPrefixes,
   PROJECT_CHECK_COMMANDS,

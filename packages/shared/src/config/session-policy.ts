@@ -89,26 +89,52 @@ export function roleSessionTools(config: Pick<ProjectConfig, 'team'>, role: stri
   };
 }
 
-/** One compatibility mapping for historical member permissionMode values. */
+export interface ReviewCopyIntent {
+  mode?: ReviewCopyMode;
+  enforcement?: 'legacy' | 'strict';
+}
+
+/**
+ * Only a separate test opt-in with strict intent can grant writes to a review copy. Providers must
+ * verify that intent before starting; legacy modes never opt in.
+ */
+function isReviewTest(access: SessionAccess | undefined, review: ReviewCopyIntent): boolean {
+  return access === 'review_copy' && review.mode === 'test' && review.enforcement === 'strict';
+}
+
+/**
+ * Whether a placement only reads (PM-167): a read-only placement, or a review copy without the
+ * test opt-in. Its session writes nothing in its working directory or its extra directories, in
+ * any permission mode; the CLI's sandbox and deny rules hold that, not a stricter mode.
+ */
+export function placementReadsOnly(
+  access: SessionAccess | undefined,
+  review: ReviewCopyIntent = {},
+): boolean {
+  return access === 'read_only' || (access === 'review_copy' && !isReviewTest(access, review));
+}
+
+/**
+ * One compatibility mapping for historical member permissionMode values. The member's mode goes to
+ * the CLI as it is (decision 28), in a reading placement too (PM-167): `auto` stays `auto` and
+ * `plan` stays `plan`. A reading placement keeps Codex's sandbox `read-only`.
+ */
 export function sessionPermissions(
   mode: string | undefined,
   access?: SessionAccess,
-  review: { mode?: ReviewCopyMode; enforcement?: 'legacy' | 'strict' } = {},
+  review: ReviewCopyIntent = {},
 ) {
   const known: PermissionMode =
     mode === 'acceptEdits' || mode === 'auto' || mode === 'plan' || mode === 'bypassPermissions'
       ? mode
       : 'default';
-  // Only a separate test opt-in with strict intent can grant writes to a review copy.
-  // Providers must verify that intent before starting; legacy modes never opt in.
-  const reviewTest = access === 'review_copy' && review.mode === 'test' && review.enforcement === 'strict';
-  const reading = access === 'read_only' || (access === 'review_copy' && !reviewTest);
-  const effective: PermissionMode =
-    known === 'plan' ? 'plan' : reviewTest ? 'acceptEdits' : reading ? 'default' : known;
+  const reviewTest = isReviewTest(access, review);
+  const reading = placementReadsOnly(access, review);
+  const effective: PermissionMode = known === 'plan' ? 'plan' : reviewTest ? 'acceptEdits' : known;
   return {
     claude: effective,
     sandbox:
-      effective === 'acceptEdits' || effective === 'auto' || effective === 'bypassPermissions'
+      !reading && (effective === 'acceptEdits' || effective === 'auto' || effective === 'bypassPermissions')
         ? ('workspace-write' as const)
         : ('read-only' as const),
     approval: effective === 'plan' ? ('never' as const) : ('on-request' as const),

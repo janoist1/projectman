@@ -126,3 +126,9 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     on 2026-09-30 (review question 12). Cloud sessions then start from the current state.
     Agents and workstreams still commit on their own branch and do not push. The repository
     is public, so whatever reaches `main` is published.
+22. **One word per thing in the Hungarian UI.** Decided by the owner on 2026-10-01, answering
+    the reviewer's question on PM-96. A session is a "munkamenet" (not "session") and a
+    pipeline stage is a "lépés" (not "szakasz"). Developer words stay out of plain UI text:
+    error codes sit behind "Részletek", settings versions in a tooltip, and a schedule has a
+    plain label with an example instead of raw cron. The strings live only in
+    `apps/web/src/i18n/hu.ts`, so changing a word is one edit.

@@ -22,6 +22,10 @@ if [ -f "$ARCHIVE.sha256" ]; then (cd "$(dirname "$ARCHIVE")" && sha256sum -c "$
 stray=$(tar -tzf "$ARCHIVE" | grep -v -e "^${SERVICE_HOME#/}\(/\|\$\)" -e "^${WORKER_HOME_ROOT#/}\(/\|\$\)" | head -n 1 || true)
 [ -z "$stray" ] || { echo "the archive holds a path outside the backup trees: $stray" >&2; exit 1; }
 
+# Nothing is touched until the data in the archive is proven whole and not newer than this build
+# (a newer schema: an older build must never start on it; see check-backup.sh, PM-143).
+bash "$(dirname "$0")/check-backup.sh" "$ARCHIVE" || { echo "the archive did not pass check-backup.sh: nothing was restored" >&2; exit 1; }
+
 systemctl stop projectman 2>/dev/null || true
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 for dir in "$SERVICE_HOME" "$WORKER_HOME_ROOT"; do

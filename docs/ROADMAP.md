@@ -88,7 +88,10 @@ project and run a first task end to end.
   only behind PM-140's boundary) are built; the real VM trial of each is a person's step (VM.md's
   trial protocol). Publishing (PM-142) is built with the fake gh and a temporary remote; the owner
   still creates the identity and runs `deploy/github/trial.sh` on a throwaway repository (see
-  GITHUB.md). The move and rollback (PM-143) follow.
+  GITHUB.md). The move and rollback (PM-143) are built without a VM, see [MIGRATION.md](MIGRATION.md):
+  the inventory, package, apply and verify tool, standby/retired copies, the backup check, the
+  scripted rehearsal and the approval sheet; the VM rehearsal, the dry run on a copy of the real home
+  and the move itself still wait for a person and the owner's concrete approval.
 - **PM-46** — verify `X-Forwarded-Proto` behind Tailscale Serve from a phone (Secure cookies,
   origin checks); DEPLOY.md lists the curl checks.
 - **PM-50** — remove the merged `codex*` and `agent-*` worktrees and branches (local chore).

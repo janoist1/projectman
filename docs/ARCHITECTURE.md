@@ -344,6 +344,10 @@ workspaces/<KEY>/<handle>/<repo>/{repo,cache,tmp}
 workspaces/<KEY>/<handle>/.home
                           the member's own directory without a repository (PM-141, managed VM
                           profile only: chats, schedule runs, tasks without a repository)
+instance.json             role of this copy (PM-143): absent = the active instance, `standby` or
+                          `retired`; written only by a person with the move tool
+migrated/                 what a move left (PM-143): the apply report, the old machine's pending
+                          work, the carried transcripts; never read by the server
 attachments/<KEY>/<TASK>/<id>   task attachments: private (0700 directories, 0600 files),
                           named by the generated id (the uploaded name lives only in SQLite);
                           a file still being written is <id>.part; an image or PDF
@@ -471,6 +475,27 @@ is outside the CLIs, so Claude Code and Codex run without local approval questio
 
 The fake CLIs model this (`FAKE_*_VERSION`, bypass modes, `FAKE_*_FORCE_*` for a request where none is
 expected); the real CLIs are only run in the human trial of [VM.md](VM.md).
+
+## Instance role and the move (PM-143, part of PM-135)
+
+Moving an installation, or restoring a backup beside it, makes **copies of one home**. Only one copy may run the
+scheduler and start AI sessions, so a home has a role (`packages/shared/src/deploy/instance-role.ts`,
+`apps/server/src/instance`): no `instance.json` is the **active** instance (every earlier installation),
+`standby` shows its data and refuses every session start (`instance_standby`; `DomainOptions.standby` stops the
+scheduler, the GitHub polling, the retry timers and the usage monitor), and `retired` stops the server before it
+creates or opens anything in the home. The marker is read in `buildApp`, once; an unreadable one stops the
+server (no role is never read as active), and the server never writes it: only a person does, with
+`scripts/migrate/cli.ts instance …`. An older build ignores it, which is why the live Mac checkout has to be
+updated to a build that knows it before the old home is called retired.
+
+The move tool (`scripts/migrate/`) is outside the server and uses it only for the schema version, the marker and
+the configuration loader. It reads a **stopped** source (its database from a scratch copy of the main file and
+its log, never in place), writes a checksummed secret package (the home without worktrees, workspaces and the
+publishing identity; a git bundle per repository; the dirty files of every checkout; the transcripts the
+database names), and `apply` turns it into a standby home: the database migrated by this build, the stored
+paths translated by explicit mappings, the workspace paths committed in the copy's customization history, the
+repositories rebuilt from their bundles, the old machine's uncommitted work kept as pending items. The procedure,
+the rollback and the evidence are in [MIGRATION.md](MIGRATION.md).
 
 ## GitHub
 

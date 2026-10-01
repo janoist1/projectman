@@ -34,6 +34,7 @@ import type { Repositories } from './db';
 import { createAttachmentStorage, createDomain } from './domain';
 import type { Domain, ScheduleTimer, TemplateRegistry } from './domain';
 import { createGithubPublisher, createGithubService, createTokenFileReader } from './github';
+import { assertHomeMayStart } from './instance';
 import { createMcpModule } from './mcp';
 import { createReadinessBoundary, createRunnerModule, ManagedVmUnavailableError } from './runner';
 import {
@@ -227,6 +228,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   if (options.githubPublishTokenFile && executionProfile !== 'managed_vm')
     throw new Error('a GitHub publishing token is set, but the execution profile is not managed_vm');
   const home = resolve(options.home);
+  // A retired copy never starts, a standby copy only shows its data (PM-143): checked before anything
+  // in the home is created or opened.
+  const standby = assertHomeMayStart(home) === 'standby';
   const attachmentsDir = join(home, 'attachments');
   for (const dir of [home, join(home, 'memory'), join(home, 'worktrees'), attachmentsDir]) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -387,6 +391,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       ...(runtimeBoundary.mode === 'managed_vm' ? { processExists: () => false } : {}),
       executionProfile,
       managedVm: verifiedManagedVm,
+      standby,
       templates: modules.templates,
       now: options.now,
       scheduleTimer: options.scheduleTimer,
@@ -454,7 +459,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
     app.addHook('onReady', async () => {
       await domain.start();
-      if (egressProxy) {
+      // A standby copy (PM-143) opens no way out for anyone: the proxy's port belongs to the active instance.
+      if (egressProxy && !standby) {
         const proxy = egressProxy;
         await proxy.listen().catch((err: unknown) => log.error({ err }, 'the egress proxy could not listen'));
       }

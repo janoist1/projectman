@@ -35,3 +35,4 @@ export * from './deploy/vm-readiness';
 export * from './deploy/runtime-boundary';
 export * from './deploy/managed-vm';
 export * from './deploy/publishing';
+export * from './deploy/instance-role';

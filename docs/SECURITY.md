@@ -330,6 +330,31 @@ the pinned versions, and that a forbidden step really stops at the gate, is the 
 VM.md in a throwaway VM. Until the launcher (PM-140) runs sessions as the worker accounts, the
 profile cannot be activated (its report check stays `unverified`).
 
+## The move to the VM (PM-143)
+
+[MIGRATION.md](MIGRATION.md) moves the owner's data to the VM. What it keeps safe, and what it does not:
+
+- **The package is the most sensitive file the project makes.** It holds the database (accounts and their password
+  hashes, every task and message), the cookie signing key, conversations and the owner's unpushed work. It is
+  created mode 0700/0600, refused inside the source home or any git repository, and must be encrypted before it
+  leaves the machine; it is never a task attachment, a message or a repository file. Checksums in its manifest
+  detect damage and accidental change, not a malicious one: a package is trusted because the owner made it and
+  carried it.
+- **Nothing of the owner's identity moves.** No personal CLI home, no provider login and no `gh` login are
+  copied; the VM has new subscription logins and the separate publishing identity (PM-142). A remote URL that
+  carries credentials is neither recorded nor restored. The inventory, the cutover sheet and the reports print
+  names, counts, modes and commit ids, never file contents or secrets (tested).
+- **A copy never works by accident.** A restored or migrated home starts as `standby` (no scheduler, no GitHub
+  polling, no session) and a retired one does not start; going active is a person's command that needs the other
+  copy to be shown or stated retired. A damaged marker stops the server. The live Mac checkout ignores the marker
+  until it is updated, so for that machine the safeguard is the procedure (the instance stays stopped).
+- **No automatic rollback of a schema.** A database a newer build migrated is refused by an older one, by
+  `verify` and by `check-backup.sh`/`restore.sh` (nothing is restored over a healthy installation first). The
+  rollback goes to the untouched old database.
+- **Old work is carried, not applied.** Dirty files wait as pending items; `work apply` writes them only into a
+  clean checkout of the same commit a person names, and its archive paths come from `git status`, so they cannot
+  point outside that checkout (and `tar` refuses `..`). Package contents are otherwise not authenticated.
+
 ## Before server hosting
 
 1. Use a dedicated Unix account and private application home. Separate mutually

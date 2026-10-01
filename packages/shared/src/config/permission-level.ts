@@ -38,7 +38,8 @@ export function cliPermissionMode(level: PermissionLevel): PermissionMode {
       return 'plan';
     case 'ask_ai':
     case 'ask_human':
-      return 'default';
+      // Edits in the member's own workspace run; the rest is asked (the architect's correction).
+      return 'acceptEdits';
   }
 }
 

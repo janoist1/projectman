@@ -116,7 +116,7 @@ describe('the permission level of an AI member (PM-164)', () => {
       expect(h.runner.lastStarted().permissionMode).toBe('acceptEdits');
       await h.domain.members.update('AR', 'dev-2', { permissionLevel: 'ask_human' }, owner());
       await h.domain.sessions.ensureSession('AR', 'dev-2', { type: 'general' });
-      expect(h.runner.lastStarted().permissionMode).toBe('default');
+      expect(h.runner.lastStarted().permissionMode).toBe('acceptEdits');
     });
   });
 

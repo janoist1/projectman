@@ -80,10 +80,15 @@ describe('the level of a member without a stored level', () => {
 
 describe('the agent CLI mode', () => {
   it('follows from the level, and never from the old field once a level is stored', () => {
-    expect(PermissionLevel.options.map(cliPermissionMode)).toEqual(['auto', 'default', 'default', 'plan']);
+    expect(PermissionLevel.options.map(cliPermissionMode)).toEqual([
+      'auto',
+      'acceptEdits',
+      'acceptEdits',
+      'plan',
+    ]);
     expect(
       effectivePermissionMode({ permissionLevel: 'ask_human', permissionMode: 'bypassPermissions' }),
-    ).toBe('default');
+    ).toBe('acceptEdits');
     expect(effectivePermissionMode({ permissionMode: 'acceptEdits' })).toBe('acceptEdits');
     expect(effectivePermissionMode({})).toBe('default');
   });

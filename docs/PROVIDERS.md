@@ -46,6 +46,14 @@ pre-allowed and denied tools), `--model`, `--effort`, `--permission-mode`, `--ad
 `-n <display name>`. The runner pre-accepts the workspace trust dialog for session
 directories.
 
+**Reach (PM-208).** The session runs under the owner's account, so by default it would load the
+owner's claude.ai connectors (Gmail, Drive, Calendar, ClickUp, ...) and Claude in Chrome (the
+owner's logged-in browser). Every session, new or resumed, therefore also gets
+`--strict-mcp-config` (only the `--mcp-config` team server; no connectors, no `.mcp.json`) and
+`--no-chrome`. No per-member MCP server exists yet; one would be added to `buildMcpConfig`.
+For Codex members the owner's `~/.codex` configuration is not read or checked here (see the
+PM-208 note on what a Codex session reaches).
+
 A session in a task's own worktree (a developer's) runs its shell commands in Claude Code's
 sandbox, the first step of PM-87: the session spec carries `sandbox` (`sessionSandbox` in
 `domain/session-policy.ts`, computed per session) and the runner turns it into the `sandbox`
@@ -338,7 +346,7 @@ legacy start. A repository file, an environment flag or a member setting is neve
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
 | No local approval       | `--permission-mode bypassPermissions` (or `plan`), `skipDangerousModePermissionPrompt` in `--settings` so the first-use confirmation does not wait in the terminal | `--sandbox danger-full-access --ask-for-approval never` (or `read-only` for `plan`)               |
 | Inner limits            | none: no tool rules except `mcp__team__*`, no deny rules, no `sandbox` settings, the PM-134 sandbox is not passed                                                  | none: no writable roots, nothing of the legacy mapping                                            |
-| Protected start (PM-49) | `--strict-mcp-config` (only this session's team server), `--setting-sources user` (project settings and `.mcp.json` are left out)                                  | every hook event and the team server are `-c` overrides; the VM's own files are inspected (below) |
+| Protected start (PM-49) | `--setting-sources user` (project settings and `.mcp.json` are left out); `--strict-mcp-config` and `--no-chrome` are on every Claude session (PM-208)             | every hook event and the team server are `-c` overrides; the VM's own files are inspected (below) |
 | Hooks                   | kept (HTTP hooks, SessionStart through the forwarder): the state of the session is followed as before                                                              | kept (command hooks through the forwarder)                                                        |
 
 A `PermissionRequest` that reaches a managed VM session anyway is **not** shown to a human and not

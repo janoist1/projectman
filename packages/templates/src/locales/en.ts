@@ -58,7 +58,8 @@ export const en: TemplateLocale = {
     },
     ux_design: {
       name: 'UX design',
-      description: 'Design screens and interactions. Check the implemented experience.',
+      description:
+        'Design the user flow, the screens and the interactions. Check the implemented experience.',
     },
     implementation: {
       name: 'Implementation',
@@ -170,11 +171,12 @@ export const en: TemplateLocale = {
         'When you have a technical question (structure, refactoring, speed), or a bigger idea needs a technical breakdown.',
     },
     designer: {
-      name: 'Designer',
+      name: 'UI/UX designer',
       summary:
-        'Creates screen designs and clickable mockups, and checks that the finished interface follows the design.',
+        'Designs the user experience and the interface: the flow, the screens and a clickable mockup. Then checks that the finished interface follows the design and feels polished.',
       notTheirJob: 'Does not code the interface.',
-      whenToAsk: 'When you want an interface, a layout or wording designed before development starts.',
+      whenToAsk:
+        'When you want an interface, a user flow, a layout or wording designed before development starts, or when a finished screen is hard to use.',
     },
     developer: {
       name: 'Developer',

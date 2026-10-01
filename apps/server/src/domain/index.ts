@@ -35,6 +35,7 @@ import type { DomainContext, TemplateRegistry } from './context';
 import { createEventBus } from './event-bus';
 import { GithubSync } from './github-sync';
 import { InboxService, delegatedPermissionPrompt } from './inbox';
+import { MessageBurstWatch } from './message-burst';
 import { OpenQuestionLabel } from './open-question-label';
 import { InvitationService } from './invitations';
 import { MemberProfiles, MemberService } from './members';
@@ -432,6 +433,11 @@ export function createDomain(opts: DomainOptions) {
   // An open AI question holds its card back with the waiting label; the last one closing frees it.
   events.on('inbox_resolved', (item) => openQuestionLabel.release(item));
   events.on('inbox_cancelled', (item) => openQuestionLabel.release(item));
+  // A flood of messages and notes on one card is told to the owners once (PM-186).
+  const messageBurst = new MessageBurstWatch({ ctx, projects, inbox });
+  events.on('task_talk_recorded', ({ event }) => {
+    messageBurst.check(event);
+  });
   // Cancelled tasks stop their sessions; moves and closures drop the starts they made obsolete.
   events.on('task_cancelled', (task) => sessions.stopTask(task.projectKey, task.key));
   events.on('task_cancelled', (task) => admission.discardStale(task));

@@ -124,7 +124,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'direction',
     holders: 'both',
     prompt:
-      'Create designs and mockups in the task worktree and describe all interface states and handoff requirements.',
+      "Design the user flow before the screens, then the screens, the interactions and a clickable mockup in the task worktree. Put the essence first and keep details one click away; keep one visual language (design tokens, shared components). For every screen, design the empty, loading, error and first-use states, subtle motion and short, friendly copy in the project's language. Check usability and accessibility (contrast, keyboard, labels) on phones and desktops. Describe all states and handoff requirements, and review the finished screen against the design.",
     toolPolicy: 'task_worktree',
     meetings: [],
     events: [],

@@ -37,6 +37,10 @@ export class TimelineService {
     };
     this.ctx.repos.timeline.insert(event);
     this.ctx.bus.publish({ type: 'timeline_appended', projectKey: event.projectKey, event });
+    // The conversation on a card is watched for message storms (PM-186): the listeners run here, in
+    // the unit of work that records the entry.
+    if (event.taskKey && (event.type === 'team_message' || event.type === 'task_note'))
+      void this.ctx.events.emit('task_talk_recorded', { event });
     return event;
   }
 

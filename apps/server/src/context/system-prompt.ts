@@ -343,7 +343,7 @@ function sessionPolicySection({ sessionPolicy: policy }: ContextPackInput): stri
         : 'You work freely in your own workspace: shell commands (with substitution, redirections and pipes), installs, test runs of any kind, and commits run without asking, in any form. Nothing waits for a human, and nothing needs a special form.',
       'The limits are outside your session: your own account, the protected paths and the network gate. A step that leaves the machine is decided at that gate, not by a prompt; for a registered external operation use submit_boundary_request. Do not look for a way around a refusal there: report it instead.',
       'A permission request that reaches you anyway is refused, not queued for a human.',
-      'Your task branch reaches GitHub only through publish_task_branch: commit, then pass the full commit id (git rev-parse HEAD). You hold no GitHub credentials, so do not push or open a pull request with git or gh; the default branch and other members\' branches are never published. get_remote_state shows what GitHub has.',
+      "Your task branch reaches GitHub only through publish_task_branch: commit, then pass the full commit id (git rev-parse HEAD). You hold no GitHub credentials, so do not push or open a pull request with git or gh; the default branch and other members' branches are never published. get_remote_state shows what GitHub has.",
     ].join('\n');
   }
   return [

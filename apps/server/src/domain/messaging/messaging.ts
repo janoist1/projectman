@@ -111,8 +111,8 @@ export class Messaging {
    * A human writes into an AI session's chat: recorded as a team message and typed in as plain
    * text. A stopped session is resumed for it without admission (a person asked), but not
    * while the project's AI work is switched off or the member is on leave (nothing is recorded
-   * then: a message sent to the member through `send` waits for the call-back instead); a session that resumes its conversation takes
-   * the text as its first input, so it is not typed again.
+   * then: a message sent to the member through `send` waits for the call-back instead); a session
+   * that starts takes the text in its first input, so it is not typed again.
    */
   async sendToSession(
     projectKey: string,
@@ -126,8 +126,8 @@ export class Messaging {
     const running = this.sessions.isRunning(session.id);
     const started = running
       ? null
-      : await this.sessions.ensureSession(projectKey, session.member, session.workItem, { message: body });
-    const sentAsFirstInput = started?.messageSent ?? false;
+      : await this.sessions.ensureSession(projectKey, session.member, session.workItem, { messages: [body] });
+    const sentAsFirstInput = (started?.messagesSent ?? 0) > 0;
     // A session about to restart into a new permission mode takes it after the restart (PM-170).
     const held = running && this.sessions.permissionRestartDue(session);
     const message = this.messages.record({

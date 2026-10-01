@@ -14,6 +14,7 @@ import { flush } from './helpers/fakes';
  */
 
 const CODEX_ID = '019a0b1c-2d3e-7f40-8a5b-6c7d8e9f0a1b';
+const WAITING_HEADER = 'Messages that were waiting for you when this session started:';
 const task = { type: 'task', taskKey: 'AR-1' } as const;
 const general = { type: 'general' } as const;
 
@@ -61,7 +62,7 @@ describe('the first input of a resumed session', () => {
     async (provider, member) => {
       const session = await stopped(member);
       const resumed = await h.domain.sessions.ensureSession('AR', member, task);
-      expect(resumed).toMatchObject({ resumed: true, started: true, messageSent: false });
+      expect(resumed).toMatchObject({ resumed: true, started: true, messagesSent: 0 });
       expect(h.runner.lastStarted()).toMatchObject({
         sessionId: session.id,
         provider,
@@ -91,7 +92,7 @@ describe('the first input of a resumed session', () => {
 
   it('starts a new conversation with its brief, and a general chat resumes without a first input', async () => {
     const fresh = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
-    expect(fresh).toMatchObject({ resumed: false, messageSent: false });
+    expect(fresh).toMatchObject({ resumed: false, messagesSent: 0 });
     expect(h.runner.lastStarted()).toMatchObject({
       resume: false,
       initialMessage: 'Brief for AR-1: Login page',
@@ -122,17 +123,18 @@ describe('the first input of a resumed session', () => {
     },
   );
 
-  it('types a human message after the brief when its session starts a new conversation', async () => {
+  it('gives a human message after the brief in the first input when its session starts a new conversation', async () => {
     // A session row without a conversation (it never reported a transcript): the brief goes first.
     const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
     await h.domain.sessions.stop('AR', session.id);
-    await h.domain.messaging.sendToSession('AR', session.id, 'Please rename it.', 'owner');
+    const message = await h.domain.messaging.sendToSession('AR', session.id, 'Please rename it.', 'owner');
     expect(h.runner.lastStarted()).toMatchObject({
       resume: false,
-      initialMessage: 'Brief for AR-1: Login page',
+      initialMessage: `Brief for AR-1: Login page\n\n${WAITING_HEADER}\n\nPlease rename it.`,
     });
     await flush();
-    expect(h.runner.messages).toEqual([{ sessionId: session.id, text: 'Please rename it.' }]);
+    expect(h.runner.messages).toEqual([]);
+    expect(h.repos.messages.get(message.id)?.deliveredAt).toBeTruthy();
   });
 
   it('types a message that is too long for a command line after the continue message', async () => {
@@ -156,35 +158,86 @@ describe('the first input of a resumed session', () => {
     expect(h.runner.messages).toEqual([{ sessionId: session.id, text: 'Please rename it.' }]);
   });
 
+  /** A team message that waits for its AI recipient, as `send` leaves it (oldest first by `n`). */
+  function waiting(member: string, body: string, n: number): string {
+    const id = `msg_${n}`;
+    h.repos.messages.insert({
+      id,
+      projectKey: 'AR',
+      from: 'owner',
+      to: [member],
+      taskKey: 'AR-1',
+      body,
+      createdAt: `2026-09-30T10:00:0${n}.000Z`,
+      deliveredAt: null,
+    });
+    return `[team message from owner about AR-1]\n${body}`;
+  }
+
   it.each(PROVIDERS)(
-    'wakes a stopped %s recipient with its first waiting message, and types the rest in order',
+    'wakes a stopped %s recipient with all its waiting messages in the first input, once, in order',
     async (provider, member) => {
       const session = await stopped(member);
-      const first = await h.domain.messaging.send('AR', 'owner', {
-        to: [member],
-        text: 'First: check the title.',
-        taskKey: 'AR-1',
-      });
-      await h.domain.messaging.send('AR', 'owner', {
-        to: [member],
-        text: 'Second: and the label.',
-        taskKey: 'AR-1',
-      });
+      const first = waiting(member, 'First: check the title.', 1);
+      const second = waiting(member, 'Second: and the label.', 2);
+      await h.domain.messageStarts.wake('AR', member, task);
       await flush();
       expect(h.runner.started).toHaveLength(2);
       expect(h.runner.lastStarted()).toMatchObject({
         sessionId: session.id,
         provider,
         resume: true,
-        initialMessage: '[team message from owner about AR-1]\nFirst: check the title.',
+        initialMessage: `${first}\n\n${second}`,
       });
-      expect(h.runner.messages.map((m) => m.text)).toEqual([
-        '[team message from owner about AR-1]\nSecond: and the label.',
-      ]);
-      expect(h.repos.messages.get(first.id)?.deliveredAt).toBeTruthy();
+      // Nothing is typed behind them, and a later start does not bring them again.
+      expect(h.runner.messages).toEqual([]);
       expect(h.repos.messages.pending('AR', member)).toEqual([]);
+      await h.domain.sessions.stop('AR', session.id);
+      await h.domain.sessions.ensureSession('AR', member, task);
+      expect(h.runner.lastStarted().initialMessage).toBe('Continue AR-1: Login page');
+      await flush();
+      expect(h.runner.messages).toEqual([]);
     },
   );
+
+  it.each(PROVIDERS)(
+    'gives a new %s conversation the whole waiting messages after its brief, not an excerpt',
+    async (provider, member) => {
+      // A message much longer than the 140-character excerpt the timeline keeps of it.
+      const long = `Please work out the whole plan. ${'It has many details. '.repeat(30)}The last words.`;
+      const one = waiting(member, long, 1);
+      const two = waiting(member, 'And one more thing.', 2);
+      await h.domain.messageStarts.wake('AR', member, task);
+      await flush();
+      expect(h.runner.started).toHaveLength(1);
+      expect(h.runner.lastStarted()).toMatchObject({
+        provider,
+        resume: false,
+        initialMessage: `Brief for AR-1: Login page\n\n${WAITING_HEADER}\n\n${one}\n\n${two}`,
+      });
+      expect(h.runner.messages).toEqual([]);
+      expect(h.repos.messages.pending('AR', member)).toEqual([]);
+      // The conversation resumed later is not told again.
+      const session = h.repos.sessions.findByWorkItem('AR', member, task)!;
+      await h.domain.sessions.stop('AR', session.id);
+      await h.domain.sessions.ensureSession('AR', member, task);
+      expect(h.runner.lastStarted().initialMessage).not.toContain('The last words.');
+      expect(h.runner.messages).toEqual([]);
+    },
+  );
+
+  it('types what does not fit the first input after the session started, in order, once', async () => {
+    const a = waiting('dev-1', `A ${'a'.repeat(10_000)}`, 1);
+    const b = waiting('dev-1', `B ${'b'.repeat(10_000)}`, 2);
+    const c = waiting('dev-1', `C ${'c'.repeat(10_000)}`, 3);
+    await h.domain.messageStarts.wake('AR', 'dev-1', task);
+    await flush();
+    expect(h.runner.lastStarted()).toMatchObject({
+      initialMessage: `Brief for AR-1: Login page\n\n${WAITING_HEADER}\n\n${a}\n\n${b}`,
+    });
+    expect(h.runner.messages.map((m) => m.text)).toEqual([c]);
+    expect(h.repos.messages.pending('AR', 'dev-1')).toEqual([]);
+  });
 
   it('keeps waiting messages in order when a start that is not for them resumes the session', async () => {
     const session = await stopped('dev-1');

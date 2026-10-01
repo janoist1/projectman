@@ -56,9 +56,11 @@ describe('human team messages and member profiles', () => {
     await flush();
     const session = domain.sessions.list(key, { member: 'dev-1' })[0]!;
     expect(session.workItem).toEqual({ type: 'task', taskKey: 'AR-1' });
-    expect(h.runner.messages).toEqual([
-      { sessionId: session.id, text: '[team message from owner about AR-1]\nDiscuss the Acme webshop' },
-    ]);
+    // The new session takes the whole message in its first input, behind its brief.
+    expect(h.runner.lastStarted().initialMessage).toContain(
+      '[team message from owner about AR-1]\nDiscuss the Acme webshop',
+    );
+    expect(h.runner.messages).toEqual([]);
     expect(h.app.projectman.repos.messages.get(message.id)?.receipts?.[0]?.deliveredAt).toBeTruthy();
     expect(h.runner.started).toHaveLength(1);
   });
@@ -106,6 +108,8 @@ describe('human team messages and member profiles', () => {
     const domain = h.app.projectman.domain;
     await human('bence');
     await domain.sessions.ensureSession(key, 'dev-1', { type: 'general' });
+    // A session that starts for a message takes it in its first input: both run, so it is typed.
+    await domain.sessions.ensureSession(key, 'dev-2', { type: 'general' });
     const typed: Array<() => void> = [];
     vi.spyOn(h.runner, 'sendUserMessage').mockImplementation(
       () =>
@@ -406,7 +410,8 @@ describe('human team messages and member profiles', () => {
     expect(thread.messages.map((m) => m.id)).toEqual([first.id]);
     await domain.messageStarts.startConversation(key, 'dev-1');
     await flush();
-    expect(h.runner.messages).toHaveLength(1);
+    expect(h.runner.lastStarted().initialMessage).toContain('Older Acme thread');
+    expect(h.runner.messages).toEqual([]);
   });
 
   it('pushes human deliveries and read receipts over websocket', async () => {

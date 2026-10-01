@@ -27,7 +27,7 @@ adapter declares its capabilities.
 ## A resumed session's first input
 
 A task session that starts again resumes its conversation and is given a first input, so that it
-does not sit at its prompt: the message that caused the resume, else the context pack's short
+does not sit at its prompt: the messages that caused the resume (all the waiting ones, whole), else the context pack's short
 continue message (restarted; the task and its stage; check `git status` and the task's comments).
 General chats resume without one. Codex takes it as the prompt of `codex resume <id> -- <prompt>`,
 which starts the first turn by itself, so nothing depends on recognising the composer under the

@@ -29,19 +29,19 @@ describe('human messages wake idle AI members', () => {
       const sessions = h.domain.sessions.list('AR', { member: 'cr' });
       expect(sessions).toHaveLength(1);
       expect(sessions[0]!.workItem).toEqual(taskKey ? { type: 'task', taskKey } : { type: 'general' });
-      expect(h.runner.messages).toEqual([
-        {
-          sessionId: sessions[0]!.id,
-          text: taskKey
-            ? '[team message from owner about AR-1]\nPlease check Acme.'
-            : '[team message from owner]\nPlease check Acme.',
-        },
-      ]);
+      // The new session takes the message in its first input (behind its brief, for a task):
+      // nothing is typed after it.
+      const text = taskKey
+        ? '[team message from owner about AR-1]\nPlease check Acme.'
+        : '[team message from owner]\nPlease check Acme.';
+      const { initialMessage } = h.runner.lastStarted();
+      expect(taskKey ? initialMessage?.endsWith(`\n\n${text}`) : initialMessage === text).toBe(true);
+      expect(h.runner.messages).toEqual([]);
       expect(h.repos.messages.get(message.id)?.deliveredAt).toBeTruthy();
       await send(taskKey);
       await flush();
       expect(h.runner.started).toHaveLength(1);
-      expect(h.runner.messages).toHaveLength(2);
+      expect(h.runner.messages).toEqual([{ sessionId: sessions[0]!.id, text }]);
     },
   );
 

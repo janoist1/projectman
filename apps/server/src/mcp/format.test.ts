@@ -65,6 +65,27 @@ describe('formatTaskDetail', () => {
     expect(out.trimEnd().endsWith('- 2026-09-29 11:24 UTC · qa: note: note 24')).toBe(true);
   });
 
+  it('tells the reader which of its messages were not delivered yet, so that it does not ask for a resend', () => {
+    const message = (id: string, minute: number): TimelineEvent => ({
+      ...note(minute, ''),
+      id: `evt_${id}`,
+      actor: { kind: 'ai', handle: 'architect' },
+      type: 'team_message',
+      data: { messageId: id, from: 'architect', to: ['fe-1'], excerpt: 'Please work out the plan…' },
+    });
+    const detail = sampleTaskDetail();
+    detail.timeline = [message('msg_1', 0), message('msg_2', 1)];
+    const lines = formatTaskDetail({ ...detail, undeliveredMessageIds: ['msg_2'] }).split('\n');
+    expect(lines.filter((l) => l.includes('not delivered to you yet'))).toHaveLength(1);
+    expect(lines.filter((l) => l.includes('Please work out the plan…'))).toHaveLength(2);
+    expect(lines.at(-1)).toBe(
+      '- 2026-09-29 11:01 UTC · architect: message to fe-1: Please work out the plan… ' +
+        '(not delivered to you yet: the full text is typed in when your current turn ends; do not ask for a resend)',
+    );
+    // A handler that does not say leaves the lines as they were.
+    expect(formatTaskDetail(detail)).not.toContain('not delivered');
+  });
+
   it('shows a description as long as update_task accepts whole, and keeps timeline text short', () => {
     const detail = sampleTaskDetail();
     detail.task.description = `${'x'.repeat(19_999)}Z`;

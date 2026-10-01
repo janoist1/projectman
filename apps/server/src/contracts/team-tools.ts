@@ -55,6 +55,11 @@ export interface TaskToolDetail extends TaskDetail {
   repoChoiceNeeded?: boolean;
   /** The first page of the task's readable attachments (oldest first); the rest with list_attachments. */
   attachments?: AttachmentPage;
+  /**
+   * Ids of the team messages for the caller that were not typed into its session yet: their
+   * timeline lines say that the full text is on its way (PM-180).
+   */
+  undeliveredMessageIds?: string[];
 }
 
 /** A page of a task's readable attachments, oldest first. */

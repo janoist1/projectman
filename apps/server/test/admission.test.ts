@@ -109,7 +109,7 @@ function admissionFor(world: World = {}) {
       created: true,
       resumed: false,
       started: true,
-      messageSent: false,
+      messagesSent: 0,
     })),
   };
   const config = testConfig();

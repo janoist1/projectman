@@ -8,9 +8,8 @@ import type { MessageService } from './messages';
 /**
  * Types messages into running AI sessions (the runner queues them until the session is idle).
  * A stored message is typed once per recipient and then counts as delivered to it; when typing
- * fails it stays waiting for the recipient's next session. A session that resumes its
- * conversation for a waiting message takes the first one as its first input instead
- * (`startAndDeliver`).
+ * fails it stays waiting for the recipient's next session. A session that starts for waiting
+ * messages takes them in its first input instead (`startAndDeliver`).
  */
 export class MessageDelivery {
   private readonly ctx: DomainContext;
@@ -64,26 +63,30 @@ export class MessageDelivery {
   }
 
   /**
-   * Starts the session of an AI recipient of waiting messages, then types them in. A session that
-   * resumes its conversation takes the first message as its first input instead: `start` gets its
-   * text, as it is typed in, and hands it to the session start (`SessionOrchestrator.ensureSession`).
-   * Nothing is typed into the session while it starts, so the messages keep their order; the one
-   * the session took counts as delivered, the others are typed once it runs. A failing start
-   * throws and leaves the messages waiting.
+   * Starts the session of an AI recipient of waiting messages, then types them in. The session
+   * takes the waiting messages in its first input instead, in order and in full, so that it does not
+   * work from the excerpts until its first turn ends (PM-180): `start` gets their text, as it is
+   * typed in, and hands it to the session start (`SessionOrchestrator.ensureSession`). Nothing is
+   * typed into the session while it starts, so the messages keep their order; the ones the session
+   * took count as delivered, the rest (what did not fit its first input) is typed once it runs. A
+   * failing start throws and leaves the messages waiting.
    */
   async startAndDeliver(
     projectKey: string,
     handle: string,
     workItem: WorkItemRef,
-    start: (firstMessage: string | undefined) => Promise<EnsureSessionResult>,
+    start: (messages: string[]) => Promise<EnsureSessionResult>,
   ): Promise<void> {
     const recipient = recipientKey(projectKey, handle, workItem);
-    const [first] = this.messages.waiting(projectKey, handle, workItem);
+    const waiting = this.messages.waiting(projectKey, handle, workItem);
     let result: EnsureSessionResult;
     this.starting.add(recipient);
     try {
-      result = await start(first && formatInjectedTeamMessage(first.from, first.body, first.taskKey));
-      if (first && result.messageSent) this.messages.markRecipientDelivered(first.id, handle);
+      result = await start(
+        waiting.map((message) => formatInjectedTeamMessage(message.from, message.body, message.taskKey)),
+      );
+      for (const message of waiting.slice(0, result.messagesSent))
+        this.messages.markRecipientDelivered(message.id, handle);
     } finally {
       this.starting.delete(recipient);
     }

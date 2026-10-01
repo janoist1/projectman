@@ -213,6 +213,24 @@ describe('commands that run without asking: the section', () => {
     expect(section({ worktree: false }).join('\n')).not.toContain('git add -A');
   });
 
+  it.each(['developer', 'code_review'] as const)(
+    'describes directory-changing chains with the actual verdicts for %s',
+    (role) => {
+      const text = section({ worktree: role === 'developer' }).join('\n');
+      expect(text).toContain('join its parts with `&&`, not `;` or `||`');
+      expect(text).toContain('checks later relative paths from every possible directory');
+      const first = 'cd apps/server && npx vitest run test/member-instructions.test.ts 2>&1 | tail -15';
+      const second = 'cd ../web && npx vitest run src/features/team 2>&1 | tail -15';
+      const ambiguous = `${first}; ${second}`;
+      const certain = `${first} && ${second}`;
+      expect(text).toContain(`\`${ambiguous}\` waits for a human`);
+      expect(text).toContain(`\`${certain}\` runs without asking`);
+      expect(verdictFor(role, ambiguous)).toBeNull();
+      expect(verdictFor(role, `${first} || ${second}`)).toBeNull();
+      expect(verdictFor(role, certain)?.behavior).toBe('allow');
+    },
+  );
+
   it("words the introduction for a Codex member's sandbox", () => {
     const claude = section().join('\n');
     expect(claude).toContain('Every other shell command waits in a human inbox');

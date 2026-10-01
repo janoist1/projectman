@@ -325,6 +325,7 @@ function sessionPolicySection({ sessionPolicy: policy }: ContextPackInput): stri
   return [
     '# Session policy',
     `Placement: ${policy.access}; working directory: ${code(policy.placement.path)}.`,
+    ...(policy.access === 'review_copy' ? [`Review copy mode: ${policy.reviewCopyMode ?? 'inherit'}.`] : []),
     `Readable roots for automatic command decisions: ${codeList(policy.filesystem.readableRoots)}.`,
     `Writable workspace roots: ${codeList(policy.filesystem.writableRoots)}.`,
     `Protected paths: ${codeList(policy.filesystem.protectedPaths)}.`,

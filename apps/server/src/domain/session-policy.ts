@@ -184,6 +184,9 @@ export function buildSessionPolicy(input: {
   task: Pick<Task, 'repo'> | null;
   placement: SessionPolicy['placement'];
   permissionMode?: string;
+  reviewCopyMode?: SessionPolicy['reviewCopyMode'];
+  /** Intent only: provider verification and activation belong to PM-128/129/130. */
+  enforcement?: SessionPolicy['enforcement'];
   readableRoots?: string[];
   protectedPaths?: string[];
 }): SessionPolicy {
@@ -199,17 +202,29 @@ export function buildSessionPolicy(input: {
     (!role.reviewCopy || !input.task || !effectiveRepo(input.config, input.task))
   )
     throw new Error('Review copy placement requires a review/testing duty and a task repository.');
-  const permissions = sessionPermissions(input.permissionMode, placement.kind);
+  const enforcement = input.enforcement ?? 'legacy';
+  const reviewCopyMode = input.reviewCopyMode ?? 'inherit';
+  const permissions = sessionPermissions(input.permissionMode, placement.kind, {
+    mode: reviewCopyMode,
+    enforcement,
+  });
+  const ownRoots = [
+    placement.path,
+    ...(placement.kind === 'review_copy'
+      ? [placement.gitDir, placement.cacheDir, placement.tempDir].filter((p): p is string => !!p)
+      : []),
+  ];
   const repo = repoOf(input.config, effectiveRepo(input.config, input.task));
   return {
     version: 1,
-    enforcement: 'legacy',
+    enforcement,
     access: placement.kind,
+    ...(placement.kind === 'review_copy' ? { reviewCopyMode } : {}),
     placement,
     tools: roleSessionTools(input.config, input.role),
     filesystem: {
-      readableRoots: [...new Set([placement.path, ...(input.readableRoots ?? [])])],
-      writableRoots: permissions.sandbox === 'workspace-write' ? [placement.path] : [],
+      readableRoots: [...new Set([...ownRoots, ...(input.readableRoots ?? [])])],
+      writableRoots: permissions.sandbox === 'workspace-write' ? [...new Set(ownRoots)] : [],
       protectedPaths: [
         ...new Set([
           ...(input.protectedPaths ?? []),
@@ -220,7 +235,7 @@ export function buildSessionPolicy(input: {
     deniedOperations: repo && !repo.github ? [...LOCAL_PUBLISHING_OPERATIONS] : [],
     // No network widening: adapters retain their current enforcement until PM-128/129/130.
     network: { allowedDomains: [], allowLocalBinding: false },
-    outsideSandbox: 'ask',
+    outsideSandbox: enforcement === 'strict' ? 'deny' : 'ask',
     permissions,
   };
 }

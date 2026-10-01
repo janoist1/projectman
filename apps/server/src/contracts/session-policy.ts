@@ -1,13 +1,28 @@
-import type { DeniedSessionOperation, SessionAccess, ShellToolRule } from '@projectman/shared';
+import type {
+  DeniedSessionOperation,
+  ReviewCopyMode,
+  SessionAccess,
+  ShellToolRule,
+} from '@projectman/shared';
 
 /** Versioned provider-neutral intent. Legacy enforcement is not a strict isolation boundary. */
 export interface SessionPolicy {
   version: 1;
   enforcement: 'legacy' | 'strict';
   access: SessionAccess;
+  /** Separate review-copy opt-in; absent means inherit, never inferred from permissionMode. */
+  reviewCopyMode?: ReviewCopyMode;
   placement:
     | { kind: 'task_worktree'; path: string; gitDir?: string }
-    | { kind: 'review_copy'; path: string; gitDir: string; sourceCommit: string; roundId: string }
+    | {
+        kind: 'review_copy';
+        path: string;
+        gitDir: string;
+        sourceCommit: string;
+        roundId: string;
+        cacheDir?: string;
+        tempDir?: string;
+      }
     | { kind: 'read_only'; path: string };
   tools: {
     team: { all: boolean; names: string[] };

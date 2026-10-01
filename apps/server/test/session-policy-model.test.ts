@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { roleSessionAccess } from '@projectman/shared';
+import { roleSessionAccess, sessionPermissions } from '@projectman/shared';
 import type { SessionPolicy, StartSessionSpec } from '../src/contracts';
 import { buildSessionPolicy } from '../src/domain/session-policy';
 import { buildSettings, buildClaudeArgs } from '../src/runner/providers/claude/args';
@@ -76,7 +76,7 @@ describe('provider-neutral session policy', () => {
     });
     const p = review();
     expect(p.placement).toMatchObject({ sourceCommit: 'a'.repeat(40), roundId: 'round-1' });
-    expect(p.filesystem.writableRoots).toEqual([copy]);
+    expect(p.filesystem.writableRoots).toEqual([]);
     expect(p.filesystem.writableRoots).not.toContain(source);
     expect(p.filesystem.writableRoots).not.toContain(sharedGit);
     expect(p.enforcement).toBe('legacy');
@@ -86,7 +86,7 @@ describe('provider-neutral session policy', () => {
 
   it.each(['code_review', 'security_review', 'qa'])('grants a review-copy profile to %s', (role) => {
     expect(roleSessionAccess(testConfig(), role).reviewCopy).toBe(true);
-    expect(policy(role, review().placement).filesystem.writableRoots).toEqual([copy]);
+    expect(policy(role, review().placement).filesystem.writableRoots).toEqual([]);
   });
 
   it.each(['architect', 'business_analyst', 'developer'])('refuses review placement for %s', (role) => {
@@ -134,6 +134,129 @@ describe('provider-neutral session policy', () => {
       expect(p.filesystem.writableRoots).toEqual([]);
       expect(p.permissions.claude).toBe(mode);
       expect(p.permissions.sandbox).toBe('read-only');
+    }
+  });
+
+  it.each([undefined, 'default', 'acceptEdits', 'auto', 'bypassPermissions', 'plan'])(
+    'requires an independent strict test opt-in for review permissionMode=%s',
+    (permissionMode) => {
+      for (const mode of [undefined, 'inherit', 'read_only', 'test'] as const) {
+        for (const enforcement of ['legacy', 'strict'] as const) {
+          const grantsTest = mode === 'test' && enforcement === 'strict' && permissionMode !== 'plan';
+          expect(sessionPermissions(permissionMode, 'review_copy', { mode, enforcement })).toEqual({
+            claude: permissionMode === 'plan' ? 'plan' : grantsTest ? 'acceptEdits' : 'default',
+            sandbox: grantsTest ? 'workspace-write' : 'read-only',
+            approval: permissionMode === 'plan' ? 'never' : 'on-request',
+          });
+          expect(sessionPermissions(permissionMode, 'read_only', { mode, enforcement }).sandbox).toBe(
+            'read-only',
+          );
+        }
+      }
+    },
+  );
+
+  it.each(['code_review', 'security_review', 'qa', 'custom'])(
+    'limits strict test intent to the own copy, git and caches for %s',
+    (role) => {
+      const config = testConfig();
+      config.team.roles.push({
+        id: 'custom',
+        name: 'Custom reviewer',
+        duties: ['implementation', 'testing_acceptance'],
+        instructions: '',
+        summary: '',
+        notTheirJob: '',
+        holders: 'ai',
+      });
+      const own = `${copy}/repo`;
+      const other = '/fictional/reviews/other-member';
+      const p = buildSessionPolicy({
+        config,
+        role,
+        task: { repo: 'web' },
+        permissionMode: 'default',
+        reviewCopyMode: 'test',
+        enforcement: 'strict',
+        placement: {
+          kind: 'review_copy',
+          path: own,
+          gitDir: `${own}/.git`,
+          cacheDir: `${copy}/cache`,
+          tempDir: `${copy}/tmp`,
+          sourceCommit: 'a'.repeat(40),
+          roundId: 'round-1',
+        },
+        readableRoots: [source, sharedGit, other],
+        protectedPaths: [source, sharedGit, other],
+      });
+      expect(p.reviewCopyMode).toBe('test');
+      expect(p.permissions).toMatchObject({ claude: 'acceptEdits', sandbox: 'workspace-write' });
+      expect(p.filesystem.writableRoots).toEqual([own, `${own}/.git`, `${copy}/cache`, `${copy}/tmp`]);
+      for (const protectedPath of [source, sharedGit, other]) {
+        expect(p.filesystem.readableRoots).toContain(protectedPath);
+        expect(p.filesystem.writableRoots).not.toContain(protectedPath);
+      }
+      expect(p.outsideSandbox).toBe('deny');
+      // Strict intent cannot execute through a legacy renderer, on either start path.
+      for (const resume of [false, true]) {
+        const s = spec(p, resume);
+        expect(() =>
+          buildSettings({
+            hookUrl: 'http://fake/hooks',
+            permissionTimeoutMs: 1000,
+            allowedTools: [],
+            policy: p,
+          }),
+        ).toThrow(/refusing to start/);
+        expect(() =>
+          buildCodexArgs({
+            spec: s,
+            realCwd: s.cwd,
+            hookUrl: 'http://fake/hooks',
+            permissionTimeoutMs: 1000,
+          }),
+        ).toThrow(/refusing to start/);
+      }
+    },
+  );
+
+  it('keeps explicit read_only and plan review intent without writable roots', () => {
+    for (const [permissionMode, reviewCopyMode] of [
+      ['default', 'read_only'],
+      ['plan', 'test'],
+    ] as const) {
+      const p = buildSessionPolicy({
+        config: testConfig(),
+        role: 'qa',
+        task: { repo: 'web' },
+        placement: review().placement,
+        permissionMode,
+        reviewCopyMode,
+        enforcement: 'strict',
+      });
+      expect(p.filesystem.writableRoots).toEqual([]);
+      expect(p.permissions.sandbox).toBe('read-only');
+    }
+  });
+
+  it('cannot opt research duties or a task without a repository into review test writes', () => {
+    const config = testConfig();
+    const input = {
+      config,
+      role: 'qa',
+      task: { repo: 'web' },
+      placement: review().placement,
+      permissionMode: 'default',
+      reviewCopyMode: 'test' as const,
+      enforcement: 'strict' as const,
+    };
+    for (const role of ['architect', 'business_analyst']) {
+      expect(() => buildSessionPolicy({ ...input, role })).toThrow(/review\/testing duty/);
+    }
+    config.project.repos = [];
+    for (const task of [null, { repo: null }]) {
+      expect(() => buildSessionPolicy({ ...input, task })).toThrow(/task repository/);
     }
   });
 
@@ -186,7 +309,7 @@ describe('provider-neutral session policy', () => {
     expect(settings.permissions.allow).not.toContain('Bash(*)');
     expect(settings.permissions.allow).not.toContain('mcp__team__*');
     const args = buildClaudeArgs(s, settings);
-    expect(args[args.indexOf('--permission-mode') + 1]).toBe('acceptEdits');
+    expect(args[args.indexOf('--permission-mode') + 1]).toBe('default');
     const c = codexOverrides(
       buildCodexArgs({ spec: s, realCwd: s.cwd, hookUrl: 'http://fake/hooks', permissionTimeoutMs: 1000 })
         .args,

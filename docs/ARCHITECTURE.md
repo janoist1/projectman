@@ -319,6 +319,17 @@ implementation is available. A reading placement caps edit modes to `default` (p
 `plan`), and never receives a writable root. A review-copy placement carries its independent
 git directory, source commit and round id; creation/cleanup belongs to PM-132.
 
+Review copies have a separate `reviewCopyMode` intent (`inherit`, `read_only`, `test`;
+absent means `inherit`). Historical `permissionMode` values never opt a copy into writes.
+Only `test` with strict enforcement intent grants its own repository, independent git,
+cache and temporary roots; `plan` and explicit `read_only` remain read-only. This is a
+synthetic policy capability, not activation: both current adapters refuse strict starts.
+Configuration/UI wiring and verified provider activation belong to PM-130; no old member
+permission is rewritten or classified as implicitly versus explicitly chosen.
+
+The existing PM-134 Claude shell sandbox remains a separate legacy setting. This migration
+preserves it and does not certify it as the strict filesystem and network boundary.
+
 ## GitHub
 
 Tasks live in our database (decision 9); GitHub is used for pull requests, reviews, checks

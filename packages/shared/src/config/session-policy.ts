@@ -4,6 +4,7 @@ import { roleBundle, roleUsesWorktree } from './duties';
 import type { ProjectConfig } from './schema';
 
 export type SessionAccess = 'task_worktree' | 'review_copy' | 'read_only';
+export type ReviewCopyMode = 'inherit' | 'read_only' | 'test';
 export interface ShellToolRule {
   command: string;
   arguments: 'exact' | 'prefix';
@@ -85,13 +86,21 @@ export function roleSessionTools(config: Pick<ProjectConfig, 'team'>, role: stri
 }
 
 /** One compatibility mapping for historical member permissionMode values. */
-export function sessionPermissions(mode: string | undefined, access?: SessionAccess) {
+export function sessionPermissions(
+  mode: string | undefined,
+  access?: SessionAccess,
+  review: { mode?: ReviewCopyMode; enforcement?: 'legacy' | 'strict' } = {},
+) {
   const known: PermissionMode =
     mode === 'acceptEdits' || mode === 'auto' || mode === 'plan' || mode === 'bypassPermissions'
       ? mode
       : 'default';
-  // A member setting cannot grant edits to the original source of a reading role.
-  const effective = access === 'read_only' && known !== 'plan' ? 'default' : known;
+  // Only a separate test opt-in with strict intent can grant writes to a review copy.
+  // Providers must verify that intent before starting; legacy modes never opt in.
+  const reviewTest = access === 'review_copy' && review.mode === 'test' && review.enforcement === 'strict';
+  const reading = access === 'read_only' || (access === 'review_copy' && !reviewTest);
+  const effective: PermissionMode =
+    known === 'plan' ? 'plan' : reviewTest ? 'acceptEdits' : reading ? 'default' : known;
   return {
     claude: effective,
     sandbox:

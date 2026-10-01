@@ -135,6 +135,13 @@ until it can be implemented and verified; listing protected paths or network dom
 does not enforce them. Codex consumes semantic team-tool grants without interpreting Claude
 allow rules. Shared git metadata is not granted as an extra writable root (PM-131).
 
+A review-copy placement alone grants no writes, even with historical `acceptEdits`.
+The separate `reviewCopyMode: test` requires strict intent, and grants only the copy's own
+repository/git/cache/temp roots. `plan` and explicit `read_only` cap it to reading. Strict
+provider verification is still required before any such policy can run; the current
+adapters reject it. The original worktree and other members' copies do not become writable
+merely because they are listed as readable roots.
+
 The model and fake CLI regression tests prove rendering and compatibility only. PM-126's
 corrected manual macOS subscription probe and the PM-130 adversarial matrix must establish
 the real filesystem/network boundary, hook/lifecycle confinement and publishing protection.

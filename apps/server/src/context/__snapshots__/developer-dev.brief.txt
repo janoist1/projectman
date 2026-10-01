@@ -17,8 +17,9 @@ The confirmation email shows the wrong room name.
 ## Links
 None.
 
-## Prerequisites
-- AR-19 "Update mail templates" (done)
+## Relations
+This card needs first (prerequisite):
+- `AR-19` "Update mail templates" · Stage: Done · Status: done
 
 ## Attachments
 None.

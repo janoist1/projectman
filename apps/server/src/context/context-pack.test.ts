@@ -8,6 +8,7 @@ import type {
   MemberView,
   ProjectConfig,
   Task,
+  TaskRelation,
   TimelineEvent,
   TimelineEventType,
   WorkItemRef,
@@ -239,6 +240,9 @@ function input(overrides: Partial<ContextPackInput> & { handle?: string } = {}):
     timeline,
     team: teamOf(project),
     memory,
+    relations: [
+      { kind: 'prerequisite', key: 'AR-19', title: 'Update mail templates', stageId: 'done', status: 'done' },
+    ],
     ...rest,
   };
 }
@@ -911,8 +915,8 @@ describe('kick-off brief', () => {
     await expect(brief.slice(start, end)).toMatchFileSnapshot(
       '__snapshots__/developer-dev-related-sessions.section.txt',
     );
-    // After the prerequisites, before the attachments.
-    expect(brief.indexOf('## Prerequisites')).toBeLessThan(start);
+    // After the relations, before the attachments.
+    expect(brief.indexOf('## Relations')).toBeLessThan(start);
     expect(start).toBeLessThan(brief.indexOf('## Attachments'));
   });
 
@@ -986,7 +990,7 @@ describe('kick-off brief', () => {
     expect(pack.initialMessage).not.toContain(firstStep);
   });
 
-  it('lists links and prerequisites apart', () => {
+  it('lists links apart from the relations to other cards', () => {
     const brief = builder.build(input()).initialMessage ?? '';
     expect(brief).toContain(
       [
@@ -995,10 +999,60 @@ describe('kick-off brief', () => {
         '- Branch: `AR-21-fix-the-booking-confirmation-email` in acme/app',
         '- Link: https://example.com/reports/42 "Client report"',
         '',
-        '## Prerequisites',
-        '- AR-19 "Update mail templates" (done)',
+        '## Relations',
+        'This card needs first (prerequisite):',
+        '- `AR-19` "Update mail templates" · Stage: Done · Status: done',
       ].join('\n'),
     );
+  });
+
+  it('lists the relations by kind, both directions, and none when there are none (PM-192)', () => {
+    const card = (key: string, kind: TaskRelation['kind'], stageId = 'dev') => ({
+      kind,
+      key,
+      title: `Card ${key}`,
+      stageId,
+      status: 'active' as const,
+    });
+    const brief =
+      builder.build(
+        input({
+          task: makeTask({
+            links: [
+              { kind: 'related', ref: 'AR-5' },
+              { kind: 'duplicate_of', ref: 'AR-6' },
+            ],
+          }),
+          relations: [
+            card('AR-20', 'part_of'),
+            card('AR-22', 'prerequisite_of'),
+            card('AR-23', 'prerequisite_of'),
+            card('AR-5', 'related'),
+            card('AR-6', 'duplicate_of'),
+          ],
+        }),
+      ).initialMessage ?? '';
+    const start = brief.indexOf('## Relations');
+    expect(brief.slice(start, brief.indexOf('\n\n## ', start))).toBe(
+      [
+        '## Relations',
+        'This card is part of:',
+        '- `AR-20` "Card AR-20" · Stage: Development · Status: active',
+        'This card is the prerequisite of:',
+        '- `AR-22` "Card AR-22" · Stage: Development · Status: active',
+        '- `AR-23` "Card AR-23" · Stage: Development · Status: active',
+        'This card is related to:',
+        '- `AR-5` "Card AR-5" · Stage: Development · Status: active',
+        'This card is a duplicate of:',
+        '- `AR-6` "Card AR-6" · Stage: Development · Status: active',
+      ].join('\n'),
+    );
+    // Links to cards are relations, not links.
+    expect(brief).not.toContain('Related card:');
+    expect(brief).not.toContain('Duplicate of:');
+    const none = builder.build(input({ relations: [] })).initialMessage ?? '';
+    expect(none).toContain('## Relations\nNone.');
+    expect(none).not.toContain('## Prerequisites');
   });
 
   it('cuts very long descriptions', () => {
@@ -1366,7 +1420,7 @@ describe('repositories without GitHub', () => {
       });
       expect(steps).toBe(
         [
-          '1. Read the task, its links and prerequisites; ask with ask_human if the goal or a decision is unclear.',
+          '1. Read the task, its links and relations to other cards; ask with ask_human if the goal or a decision is unclear.',
           "2. Implement the change in your working directory (the task's own worktree and branch) and run the project's tests.",
           "3. Commit the work on the task's own branch in your worktree. Never push and never open a pull request: the repository is local-only (the owner has not allowed publishing from it). Before you hand over, make sure everything is committed: `git status` shows nothing left to commit.",
           '4. Move the task to Code review (`code_review`) with update_task and hand over to `code-review` with send_message: the facts they need (the branch and its last commit, what changed, what to check).',
@@ -1378,7 +1432,7 @@ describe('repositories without GitHub', () => {
       const steps = stepsOf({ handle: 'fe-1', task: makeTask({ stageId: 'dev' }) });
       expect(steps).toBe(
         [
-          '1. Read the task, its links and prerequisites; ask with ask_human if the goal or a decision is unclear.',
+          '1. Read the task, its links and relations to other cards; ask with ask_human if the goal or a decision is unclear.',
           "2. Implement the change in your working directory (the task's own worktree and branch) and run the project's tests.",
           '3. Commit, push, open a pull request and attach it with link_pull_request.',
           '4. Move the task to Code review (`code_review`) with update_task and hand over to `code-review` with send_message: the facts they need (links, what changed, what to check).',

@@ -1,5 +1,6 @@
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 import {
+  AddableRelationKind,
   AttachmentId,
   BoundaryId,
   BoundaryReason,
@@ -7,6 +8,7 @@ import {
   questionChoices,
   StageId,
   TaskKey,
+  TaskRelationKind,
   TaskStatus,
   Visibility,
 } from '@projectman/shared';
@@ -145,6 +147,19 @@ function defineTool<Shape extends z.core.$ZodLooseShape>(def: {
 const unique = <T>(items: T[]): T[] => [...new Set(items)];
 
 const taskKeyInput = TaskKey.describe('Task key, e.g. "AR-21".');
+
+const ADDED_RELATIONS_HELP =
+  'part_of: this card is part of the other (a one-level subtask, same project); prerequisite: this card ' +
+  'can only be done after the other (order cards with this, not with a "Dependencies" text in the ' +
+  'description); related: the cards belong together (follow-up work too), nothing more; duplicate_of: ' +
+  'this card duplicates the other and is closed (cancelled) pointing at it. You can mark only a card ' +
+  'that has not started (waiting in a queue stage, no session) as a duplicate; a card that has started ' +
+  'can be marked only by an admin or the owner. Point at the original, never at another duplicate.';
+
+const addedRelationInput = z.object({
+  kind: AddableRelationKind.describe(ADDED_RELATIONS_HELP),
+  task_key: taskKeyInput.describe('The other card, in this project.'),
+});
 
 export const TEAM_TOOLS: readonly TeamTool[] = [
   defineTool({
@@ -306,7 +321,8 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     readOnly: true,
     description:
       'Get a task: title, description, stage, status, assignee, labels, links (pull requests, branches) and ' +
-      'its parent, subtasks (keys, titles, stages, statuses), attachments (open one with read_attachment) and ' +
+      'its relations to other cards by kind (part of, prerequisite, related, duplicate of, both ' +
+      'directions: key, title, stage, status), its parent, subtasks (keys, titles, stages, statuses), attachments (open one with read_attachment) and ' +
       'recent timeline (who did what). The description is shown whole up to ' +
       `${MAX_DESCRIPTION_CHARS} characters; a longer one is shown in parts, and the result says how to ` +
       'read the rest. The timeline shows a long note, question or answer cut; with event_id (named on the ' +
@@ -354,7 +370,10 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       'enforced: a move is refused while a label its gate requires is missing or a blocking label is on ' +
       'the task. One call is all or nothing: labels and the note are recorded before the stage move, and ' +
       'if a label is refused or the gate blocks the move, nothing is recorded. A move that needs a human ' +
-      'approval records the rest and waits for the approval.',
+      'approval records the rest and waits for the approval. Relations between cards (part of, prerequisite, ' +
+      'related, duplicate of) are set with add_relations and removed with remove_relations, in the same ' +
+      'call: give the order of work as a prerequisite relation, not as a "Dependencies" text in the ' +
+      'description. You cannot mark a card that has started as a duplicate.',
     input: {
       task_key: taskKeyInput,
       stage_id: StageId.optional().describe(
@@ -412,6 +431,30 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
             'refused, and the refusal lists them); null clears it. Refused while a session of the task is ' +
             'running, yours included.',
         ),
+      add_relations: z
+        .array(addedRelationInput)
+        .max(10)
+        .optional()
+        .describe(
+          'Relations of this card to other cards to add. ' +
+            ADDED_RELATIONS_HELP +
+            ' A loop of prerequisites, a card to itself and a card of another project are refused with the ' +
+            'reason; so is the whole call.',
+        ),
+      remove_relations: z
+        .array(
+          z.object({
+            kind: TaskRelationKind.describe(
+              'The relation as this card sees it: part_of, has_part, prerequisite, prerequisite_of, related, ' +
+                'duplicate_of or duplicated_by (the reverse of a relation another card set is removable too). ' +
+                'Removing a duplicate relation does not reopen the card.',
+            ),
+            task_key: taskKeyInput.describe('The other card.'),
+          }),
+        )
+        .max(10)
+        .optional()
+        .describe('Relations of this card to other cards to remove; removals apply before additions.'),
     },
     async run({ ctx, args, handler }) {
       const {
@@ -423,6 +466,8 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         title,
         description,
         repo,
+        add_relations: addRelations,
+        remove_relations: removeRelations,
       } = args;
       if (
         !stageId &&
@@ -431,13 +476,20 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         !note &&
         !title &&
         !description &&
-        repo === undefined
+        repo === undefined &&
+        !addRelations?.length &&
+        !removeRelations?.length
       ) {
         throw new TeamToolError(
           'invalid',
-          'Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description and/or repo.',
+          'Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description, repo, ' +
+            'add_relations and/or remove_relations.',
         );
       }
+      const relations = {
+        add: (addRelations ?? []).map((r) => ({ kind: r.kind, key: r.task_key })),
+        remove: (removeRelations ?? []).map((r) => ({ kind: r.kind, key: r.task_key })),
+      };
       const { task } = await handler.updateTask(ctx, {
         taskKey,
         ...(stageId ? { stageId } : {}),
@@ -447,6 +499,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         ...(title ? { title } : {}),
         ...(description ? { description } : {}),
         ...(repo !== undefined ? { repo } : {}),
+        ...(relations.add.length + relations.remove.length > 0 ? { relations } : {}),
       });
       return formatTaskUpdate(task, {
         stageId,
@@ -455,6 +508,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         title: !!title,
         description: !!description,
         repo,
+        relations,
       });
     },
   }),
@@ -467,8 +521,9 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       'Create a new task, for example a card for a reported bug, one part of a request you split, or ' +
       'follow-up work you found. It starts unassigned in the first stage of the pipeline, where humans ' +
       'prioritise it; it does not start any work. Give it a self-contained description. Set parent_key ' +
-      'for a one-level subtask in the same project. If it came from another task, note the new key ' +
-      'there with update_task.',
+      'for a one-level subtask in the same project, and relations for the other relations to existing ' +
+      'cards (a card it needs first is a prerequisite relation, not a "Dependencies" text). If it came ' +
+      'from another task, note the new key there with update_task.',
     input: {
       parent_key: taskKeyInput
         .optional()
@@ -491,10 +546,22 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       visibility: Visibility.optional().describe(
         'internal (default): only the team sees it; shared: client members see it too.',
       ),
+      relations: z
+        .array(addedRelationInput)
+        .max(10)
+        .optional()
+        .describe(
+          'Relations of the new card to other cards. ' +
+            ADDED_RELATIONS_HELP +
+            ' One refused relation refuses the creation.',
+        ),
     },
     async run({ ctx, args, handler }) {
       const { task } = await handler.createTask(ctx, {
         title: args.title,
+        ...(args.relations?.length
+          ? { relations: args.relations.map((r) => ({ kind: r.kind, key: r.task_key })) }
+          : {}),
         ...(args.parent_key ? { parentKey: args.parent_key } : {}),
         ...(args.description ? { description: args.description } : {}),
         ...(args.labels ? { labels: unique(args.labels) } : {}),

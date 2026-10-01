@@ -524,9 +524,107 @@ describe('team tools', () => {
 
     expect(result.isError).toBe(true);
     expect(text(result)).toBe(
-      'Error [invalid]: Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description and/or repo.',
+      'Error [invalid]: Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description, repo, add_relations and/or remove_relations.',
     );
     expect(h.handler.calls).toEqual([]);
+  });
+
+  it('update_task passes the relations on, removals and additions apart (PM-192)', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+
+    const result = await call(client, 'update_task', {
+      task_key: 'AR-21',
+      add_relations: [
+        { kind: 'prerequisite', task_key: 'AR-19' },
+        { kind: 'related', task_key: 'AR-20' },
+      ],
+      remove_relations: [{ kind: 'prerequisite_of', task_key: 'AR-22' }],
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(h.handler.calls[0]).toEqual({
+      method: 'updateTask',
+      ctx: devContext,
+      args: {
+        taskKey: 'AR-21',
+        relations: {
+          add: [
+            { kind: 'prerequisite', key: 'AR-19' },
+            { kind: 'related', key: 'AR-20' },
+          ],
+          remove: [{ kind: 'prerequisite_of', key: 'AR-22' }],
+        },
+      },
+    });
+    expect(text(result)).toContain(
+      'relations added: needs first (prerequisite) AR-19, is related to AR-20; ' +
+        'relations removed: is the prerequisite of AR-22.',
+    );
+  });
+
+  it('update_task refuses a relation kind that cannot be added, or a bad card key, before the handler', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+
+    for (const add_relations of [
+      [{ kind: 'prerequisite_of', task_key: 'AR-19' }],
+      [{ kind: 'duplicated_by', task_key: 'AR-19' }],
+      [{ kind: 'related', task_key: 'nope' }],
+    ]) {
+      const result = await call(client, 'update_task', { task_key: 'AR-21', add_relations });
+      expect(result.isError, JSON.stringify(add_relations)).toBe(true);
+      expect(text(result)).toContain('Input validation error');
+    }
+    const removed = await call(client, 'update_task', {
+      task_key: 'AR-21',
+      remove_relations: [{ kind: 'blocks', task_key: 'AR-19' }],
+    });
+    expect(removed.isError).toBe(true);
+    expect(h.handler.calls).toEqual([]);
+  });
+
+  it('create_task passes the relations on', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+
+    const result = await call(client, 'create_task', {
+      title: 'Follow-up',
+      relations: [{ kind: 'prerequisite', task_key: 'AR-21' }],
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(h.handler.calls[0]).toMatchObject({
+      method: 'createTask',
+      args: { title: 'Follow-up', relations: [{ kind: 'prerequisite', key: 'AR-21' }] },
+    });
+  });
+
+  it('tells the agent to order cards with a prerequisite relation and that a started card is no duplicate', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+    const tools = (await client.listTools()).tools;
+    const description = (name: string) => tools.find((t) => t.name === name)!.description ?? '';
+    for (const name of ['update_task', 'create_task'])
+      expect(description(name), name).toContain('"Dependencies" text');
+    const schema = (name: string) =>
+      tools.find((t) => t.name === name)!.inputSchema as unknown as {
+        properties: Record<string, any>;
+      };
+    expect(schema('update_task').properties.add_relations.description).toContain(
+      'a card that has started can be marked only by an admin or the owner',
+    );
+    expect(schema('update_task').properties.add_relations.items.properties.kind.enum).toEqual([
+      'part_of',
+      'prerequisite',
+      'related',
+      'duplicate_of',
+    ]);
+    expect(schema('update_task').properties.remove_relations.items.properties.kind.enum).toContain(
+      'duplicated_by',
+    );
+    expect(schema('create_task').properties.relations.type).toBe('array');
+    expect(description('get_task')).toContain('relations to other cards by kind');
   });
 
   it('update_task rewrites the title and the description', async () => {

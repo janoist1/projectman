@@ -19,8 +19,9 @@ The confirmation email shows the wrong room name.
 - Branch: `AR-21-fix-the-booking-confirmation-email` in acme/app
 - Link: https://example.com/reports/42 "Client report"
 
-## Prerequisites
-- AR-19 "Update mail templates" (done)
+## Relations
+This card needs first (prerequisite):
+- `AR-19` "Update mail templates" · Stage: Done · Status: done
 
 ## Attachments
 - `att_screenshot01` "reset-mail.png" · image/png · 48.2 kB · by `owner`, 2026-09-27 09:15 UTC

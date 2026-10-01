@@ -21,7 +21,7 @@ import {
   repoOf,
   subtaskParentRefusal,
 } from '@projectman/shared';
-import type { LabelChangeReason, LabelClearTrigger, SubtaskParentRefusal } from '@projectman/shared';
+import type { LabelChangeReason, LabelClearTrigger, RelationsChange, TaskRelation } from '@projectman/shared';
 import type { PullRequestInfo } from '../../contracts';
 import type { TaskPatch } from '../../db';
 import { requireHuman } from '../access';
@@ -37,16 +37,9 @@ import { actorHandle, newId, unique } from '../util';
 import { labelsChange, planLabelsOrThrow, TaskLabels } from './labels';
 import { approvalRequestedError, gateBlockedError, TaskMoves } from './moves';
 import type { Handover, MoveOptions, MoveResult, SourceHeadReader } from './moves';
+import { SUBTASK_PARENT_REFUSALS, TaskRelations } from './relations';
 import { requireStage, runEffects, TaskStore } from './store';
 import type { Effect, StartWaitingReader } from './store';
-
-const SUBTASK_PARENT_REFUSALS: Record<SubtaskParentRefusal, string> = {
-  subtask_self_parent: 'a task cannot be its own parent',
-  subtask_parent_not_found: 'the parent task does not exist',
-  subtask_parent_project: 'the parent must belong to the same project',
-  subtask_parent_is_subtask: 'a subtask cannot have subtasks',
-  subtask_has_children: 'a task with subtasks cannot become a subtask',
-};
 
 /** A repository the project's configuration does not have, with the names it does have. */
 function unknownRepo(config: ProjectConfig, repo: string) {
@@ -80,6 +73,8 @@ export interface TaskUpdate {
   /** A comment for the timeline; with a label change it is the labels' comment. */
   note?: string;
   stageId?: string;
+  /** Relations to other cards (PM-192): removals first, then additions; all or nothing with the rest. */
+  relations?: RelationsChange;
 }
 
 /**
@@ -94,6 +89,7 @@ export class TaskService {
   private readonly store: TaskStore;
   private readonly labels: TaskLabels;
   private readonly moves: TaskMoves;
+  private readonly cardRelations: TaskRelations;
   private readonly pullRequests: PullRequestRecords;
 
   constructor(deps: {
@@ -116,6 +112,13 @@ export class TaskService {
       labels: this.labels,
       inbox: deps.inbox,
       sourceHead: deps.sourceHead,
+    });
+    this.cardRelations = new TaskRelations(this.store, {
+      liveSession: (task) => this.liveSession(task) !== undefined,
+      recordParentChange: (task, previous, actor, sessionId) =>
+        this.recordParentChange(task, previous, actor, sessionId),
+      cancel: (task, actor, duplicate, sessionId, effects) =>
+        this.closeAsCancelled(task, actor, duplicate, sessionId, effects),
     });
     this.pullRequests = new PullRequestRecords({
       ...deps,
@@ -148,6 +151,11 @@ export class TaskService {
       return parent ? [parent] : [];
     }
     return this.ctx.repos.tasks.children(projectKey, taskKey);
+  }
+
+  /** The task's relations to other cards, both directions, with their title, stage and status (PM-192). */
+  relationsOf(projectKey: string, taskKey: string): TaskRelation[] {
+    return this.cardRelations.of(this.get(projectKey, taskKey));
   }
 
   detail(projectKey: string, taskKey: string, timelineLimit = 100): TaskDetail {
@@ -216,7 +224,8 @@ export class TaskService {
     }
     if (req.importedAt === undefined)
       planLabelsOrThrow(config, { ...task, labels: [] }, { add: task.labels }, actor, undefined);
-    return this.ctx.unitOfWork(() => {
+    const effects: Effect[] = [];
+    const created = this.ctx.unitOfWork(() => {
       task.key = `${projectKey}-${this.ctx.repos.counters.next(projectKey, 'task')}`;
       this.ctx.repos.tasks.insert(task);
       this.timeline.append({
@@ -229,9 +238,18 @@ export class TaskService {
         createdAt: at,
       });
       if (task.parentKey) this.recordParentChange(task, null, actor, opts.sessionId);
+      // Relations are planned against the project with the new card in it; one refused refuses the creation.
+      if (req.relations?.length) {
+        const plan = this.cardRelations.plan(config, task, { add: req.relations }, actor);
+        const related = this.cardRelations.execute(plan, task, actor, opts.sessionId ?? null, effects);
+        this.publish(related);
+        return related;
+      }
       this.publish(task);
       return task;
     });
+    await runEffects(effects);
+    return created;
   }
 
   /**
@@ -299,6 +317,16 @@ export class TaskService {
       patch.visibility = change.visibility;
       fields.push('visibility');
     }
+    if (change.relations && change.parentKey !== undefined)
+      throw invalid('invalid_request', 'give the parent in parentKey or in relations, not in both');
+    const relationPlan = change.relations
+      ? this.cardRelations.plan(config, task, change.relations, actor)
+      : null;
+    if (relationPlan?.closes && change.stageId !== undefined && change.stageId !== task.stageId)
+      throw invalid(
+        'invalid_request',
+        'a card marked as a duplicate is closed: it cannot move in the same call',
+      );
     if (change.parentKey) this.validateParent(task.projectKey, task.key, change.parentKey);
     if (change.parentKey !== undefined && change.parentKey !== (task.parentKey ?? null)) {
       patch.parentKey = change.parentKey;
@@ -392,6 +420,8 @@ export class TaskService {
         this.recordParentChange(next, task.parentKey ?? null, actor, sessionId);
       this.publish(next);
     }
+    if (relationPlan && relationPlan.steps.length > 0)
+      next = this.cardRelations.execute(relationPlan, next, actor, sessionId, effects);
     if (note && !labelsChanged) this.store.recordNote(config, next, note, actor, sessionId, effects);
     if (!moving) return { task: next };
     const moved = this.moves.move(config, next, change.stageId!, actor, effects, { handover });
@@ -441,28 +471,46 @@ export class TaskService {
   /** Closes the task and stops its sessions while preserving assignment, stage and files. */
   async cancel(projectKey: string, taskKey: string, req: CancelTaskRequest, actor: Actor): Promise<Task> {
     await this.requireLifecycleAccess(projectKey, actor);
+    const effects: Effect[] = [];
     const next = this.ctx.unitOfWork(() => {
       const task = this.get(projectKey, taskKey);
       if (!isOpenTask(task)) throw conflict('task_closed', `task ${taskKey} is ${task.status}`);
-      const at = isoNow(this.ctx);
-      const cancelled = this.store.write(task, { status: 'cancelled', closedAt: at, updatedAt: at });
-      this.timeline.append({
-        projectKey,
-        taskKey,
-        actor,
-        type: 'task_updated',
-        data: {
-          fields: ['status', 'closedAt'],
-          action: 'cancelled',
-          previousStatus: task.status,
-          ...(req.reason !== undefined ? { reason: req.reason } : {}),
-        },
-      });
-      this.publish(cancelled);
-      return cancelled;
+      return this.closeAsCancelled(task, actor, { reason: req.reason }, null, effects);
     });
-    await this.ctx.events.emit('task_cancelled', next);
+    await runEffects(effects);
     return next;
+  }
+
+  /**
+   * Cancels an open task inside a unit of work: the timeline says why (a duplicate names its
+   * original), and the cancellation, which stops the task's sessions, is announced once it committed.
+   */
+  private closeAsCancelled(
+    task: Task,
+    actor: Actor,
+    why: { reason?: string | undefined; duplicateOf?: string },
+    sessionId: string | null,
+    effects: Effect[],
+  ): Task {
+    const at = isoNow(this.ctx);
+    const cancelled = this.store.write(task, { status: 'cancelled', closedAt: at, updatedAt: at });
+    this.timeline.append({
+      projectKey: task.projectKey,
+      taskKey: task.key,
+      sessionId,
+      actor,
+      type: 'task_updated',
+      data: {
+        fields: ['status', 'closedAt'],
+        action: 'cancelled',
+        previousStatus: task.status,
+        ...(why.reason !== undefined ? { reason: why.reason } : {}),
+        ...(why.duplicateOf !== undefined ? { duplicateOf: why.duplicateOf } : {}),
+      },
+    });
+    this.publish(cancelled);
+    effects.push(() => this.ctx.events.emit('task_cancelled', cancelled));
+    return cancelled;
   }
 
   /** Reopens in the same stage, with no assignee; starting work remains explicit. */

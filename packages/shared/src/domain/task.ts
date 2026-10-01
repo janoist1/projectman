@@ -10,7 +10,19 @@ export type TaskKey = z.infer<typeof TaskKey>;
 export const TaskStatus = z.enum(['active', 'waiting', 'blocked', 'done', 'cancelled']);
 export type TaskStatus = z.infer<typeof TaskStatus>;
 
-export const TaskLinkKind = z.enum(['pull_request', 'branch', 'issue', 'prerequisite', 'url']);
+/**
+ * `prerequisite`, `related` and `duplicate_of` relate two cards (PM-192): `ref` is the other card's
+ * key, stored once on the card that set it (see `domain/relations.ts`).
+ */
+export const TaskLinkKind = z.enum([
+  'pull_request',
+  'branch',
+  'issue',
+  'prerequisite',
+  'url',
+  'related',
+  'duplicate_of',
+]);
 export type TaskLinkKind = z.infer<typeof TaskLinkKind>;
 
 export const TaskLink = z.object({

@@ -4,14 +4,17 @@ import {
   canSeeProjectEvent,
   canSeeTask,
   teamMessageMember,
+  visibleProjectEvent,
   visibleTaskDetail,
+  visibleTasks,
 } from '../src/domain/visibility';
 import type { ProjectEvent } from '../src/domain/visibility';
 
 const client = { access: 'client' as const, handle: 'acme-client' };
 const developer = { access: 'developer' as const, handle: 'dev' };
 
-const task = (key: string, visibility: Task['visibility']) => ({ key, visibility }) as Task;
+const task = (key: string, visibility: Task['visibility'], links: Task['links'] = []) =>
+  ({ key, visibility, links }) as Task;
 const timeline = (type: TimelineEvent['type']) => ({ type }) as TimelineEvent;
 const item = (assignees: string[]) => ({ assignees }) as InboxItem;
 const message = (from: string, to: string[]) => ({ from, to }) as TeamMessage;
@@ -40,6 +43,33 @@ describe('client visibility', () => {
       timeline: [timeline('task_created'), timeline('task_stage_changed')],
       sessions: [],
     });
+  });
+
+  it('shows a client the links to other cards only for the cards shared with them', () => {
+    const pr = { kind: 'pull_request', ref: '7', repo: 'acme/app' } as const;
+    const linked = task('AR-1', 'shared', [
+      pr,
+      { kind: 'prerequisite', ref: 'AR-2' },
+      { kind: 'related', ref: 'AR-3' },
+      { kind: 'duplicate_of', ref: 'AR-4' },
+    ]);
+    const others = [task('AR-2', 'internal'), task('AR-3', 'shared'), task('AR-4', 'internal'), linked];
+    const [forClient, forDeveloper] = [client, developer].map((viewer) => visibleTasks(viewer, others));
+    expect(forClient!.map((t) => t.key)).toEqual(['AR-3', 'AR-1']);
+    expect(forClient![1]!.links).toEqual([pr, { kind: 'related', ref: 'AR-3' }]);
+    expect(forDeveloper!.find((t) => t.key === 'AR-1')!.links).toHaveLength(4);
+
+    const detail = { task: linked, subtasks: [linked], timeline: [], sessions: [] } as unknown as TaskDetail;
+    const seen = new Set(['AR-3']);
+    const view = visibleTaskDetail(client, detail, (key) => seen.has(key));
+    expect(view.task.links).toEqual([pr, { kind: 'related', ref: 'AR-3' }]);
+    expect(view.subtasks![0]!.links).toEqual([pr, { kind: 'related', ref: 'AR-3' }]);
+
+    const event: ProjectEvent = { type: 'task_upserted', projectKey: 'AR', task: linked };
+    const byKey = new Map(others.map((t) => [t.key, t]));
+    const sent = visibleProjectEvent(client, event, (key) => byKey.get(key));
+    expect(sent.type === 'task_upserted' && sent.task.links).toEqual([pr, { kind: 'related', ref: 'AR-3' }]);
+    expect(visibleProjectEvent(developer, event, (key) => byKey.get(key))).toBe(event);
   });
 
   it('limits a client to their own inbox items and messages', () => {

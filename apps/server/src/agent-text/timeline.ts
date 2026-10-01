@@ -1,5 +1,6 @@
 import type { TimelineEvent } from '@projectman/shared';
 import { numberedRef } from './links';
+import { relationPhrase } from './relations';
 import { formatTimestamp, oneLine, PLAIN_STYLE, type TextStyle } from './text';
 
 /** Maximum length of a data value shown for an event type without its own wording. */
@@ -68,6 +69,11 @@ export function describeEvent(
     case 'task_link_added': {
       const kind = (text('kind') ?? 'link').replace(/_/g, ' ');
       return `linked ${kind} ${numberedRef(text('ref') ?? '', text('repo'))}`.trimEnd();
+    }
+    case 'task_relation_added':
+    case 'task_relation_removed': {
+      const verb = event.type === 'task_relation_added' ? 'added' : 'removed';
+      return `${verb} the relation: this card ${relationPhrase(text('kind') ?? '')} ${text('ref') ?? '?'}`;
     }
     case 'task_note':
       return `note: ${text('text') ?? ''}`.trimEnd();

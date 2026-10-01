@@ -5,7 +5,7 @@ import { sameOrigin } from '../auth/local-request';
 import type { AuthService, AuthUser } from '../auth/auth-service';
 import type { Domain } from '../domain';
 import { DomainError, forbidden, hasAccess, notFound } from '../domain';
-import { canSeeProjectEvent } from '../domain/visibility';
+import { canSeeProjectEvent, visibleProjectEvent } from '../domain/visibility';
 
 /** The part of the `ws` WebSocket API this module uses. */
 interface WsSocket {
@@ -95,10 +95,11 @@ export function registerWebsocket(
             if (!client.projects.has(event.projectKey)) continue;
             const access = await domain.accessFor(event.projectKey, client.user.email).catch(() => null);
             if (!access) client.projects.delete(event.projectKey);
-            else if (
-              canSeeProjectEvent(access, event, (taskKey) => domain.tasks.find(event.projectKey, taskKey))
-            )
-              send(client, event);
+            else {
+              const taskOf = (taskKey: string) => domain.tasks.find(event.projectKey, taskKey);
+              if (canSeeProjectEvent(access, event, taskOf))
+                send(client, visibleProjectEvent(access, event, taskOf));
+            }
           }
         }
       })

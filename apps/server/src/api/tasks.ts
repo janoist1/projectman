@@ -12,7 +12,7 @@ import {
 import type { Task, TaskDetail } from '@projectman/shared';
 import type { Domain } from '../domain';
 import { notFound } from '../domain';
-import { canSeeTask, visibleTaskDetail } from '../domain/visibility';
+import { canSeeTask, visibleTaskDetail, visibleTasks } from '../domain/visibility';
 import { actorOf, authorOf, requireAccess } from './context';
 import { parseBody } from './validation';
 
@@ -22,7 +22,7 @@ type TaskParams = { Params: { key: string; taskKey: string } };
 export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
   app.get<ProjectParams>(routes.tasks(':key'), async (request): Promise<Task[]> => {
     const access = await requireAccess(domain, request, request.params.key);
-    return domain.tasks.list(request.params.key).filter((t) => canSeeTask(access, t));
+    return visibleTasks(access, domain.tasks.list(request.params.key));
   });
 
   app.post<ProjectParams>(routes.tasks(':key'), async (request, reply) => {
@@ -37,7 +37,10 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
     const access = await requireAccess(domain, request, key);
     const detail = domain.tasks.detail(key, taskKey);
     if (!canSeeTask(access, detail.task)) throw notFound('task', taskKey);
-    return visibleTaskDetail(access, detail);
+    return visibleTaskDetail(access, detail, (linked) => {
+      const other = domain.tasks.find(key, linked);
+      return !!other && canSeeTask(access, other);
+    });
   });
 
   /** A stage move is gated: 409 gate_blocked, or 409 approval_requested when approvers were asked. */

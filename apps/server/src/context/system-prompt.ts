@@ -296,6 +296,7 @@ function unattendedCommandsSection({ project, member, task, workItem }: ContextP
       defaultBranch: repo?.defaultBranch,
       localOnly: repo !== undefined && !repo.github,
       // Codex has no allow list of its own; Claude Code's comes from the role (session-policy).
+      codex: isCodex(member),
       preApproved: isCodex(member) ? [] : preApprovedPrefixes(allowedToolsFor(member.role, project)),
     }),
   ].join('\n');

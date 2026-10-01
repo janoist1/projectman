@@ -6,8 +6,9 @@ import type { ShellCommand, ShellSegment } from './shell-words';
 /**
  * The routine steps of a developer in the task's own worktree, which the server allows without
  * asking (PM-77): a lockfile install, `git add`, `git commit` with a message and a fast-forward
- * `git merge`. Codex's sandbox keeps the shared `.git` read-only, so each of these is an
- * escalation for Codex members; nothing here pushes, rewrites history or leaves the worktree.
+ * `git merge`. Codex's sandbox may write the repository's `.git` (the session makes it a writable
+ * root), so the git steps run there on their own; the install needs the network, which is an
+ * escalation for Codex members. Nothing here pushes, rewrites history or leaves the worktree.
  * Read-only commands may sit between them (`git status && git add -A && git commit -m x`).
  */
 
@@ -15,7 +16,7 @@ export const INSTALL_FLAGS = new Set(['--prefer-offline', '--no-audit', '--no-fu
 export const ADD_FLAGS = new Set(['-A', '--all', '-u', '--update']);
 export const COMMIT_FLAGS = new Set(['-a', '--all', '-q', '--quiet']);
 /** Options that take the commit message as the next word. */
-export const COMMIT_MESSAGE_FLAGS = new Set(['-m', '-am', '--message']);
+const COMMIT_MESSAGE_FLAGS = new Set(['-m', '-am', '--message']);
 export const MERGE_FLAGS = new Set(['-q', '--quiet']);
 const COMMIT_ID = /^[0-9a-f]{7,40}$/i;
 

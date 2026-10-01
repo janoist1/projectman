@@ -1,11 +1,12 @@
 import {
+  Approver,
   HumanAccess,
   InboxKind,
   InboxResolutionRule,
   LabelChangeReason,
   MemberStatus,
-  PermissionLevel,
   PermissionMode,
+  SelectablePermissionMode,
   SessionState,
   StageKind,
   TaskLinkKind,
@@ -63,9 +64,10 @@ describe('hu locale', () => {
     expectKeys('timeline.legacyChecks.states', ['pending', 'passed', 'blocked', 'failed', 'retest_needed']);
     expectKeys('roles.human', HumanAccess.options);
     expectKeys('permissionModes', PermissionMode.options);
-    expectKeys('permissionLevels.levels', PermissionLevel.options);
-    expectKeys('permissionLevels.hints', PermissionLevel.options);
-    expectKeys('permissionLevels.blocked', ['delegation_off', 'no_ai_decider']);
+    expectKeys('permissionControls.modeHints', SelectablePermissionMode.options);
+    expectKeys('permissionControls.approvers', Approver.options);
+    expectKeys('permissionControls.approverHints', Approver.options);
+    expectKeys('permissionControls.blocked', ['delegation_off', 'no_ai_decider']);
     expectKeys('taskStatus.statuses', TaskStatus.options);
     expectKeys('links.kinds', TaskLinkKind.options);
     expectKeys('visibility', Visibility.options);

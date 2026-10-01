@@ -12,177 +12,216 @@ import { TeamPage } from './TeamPage';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
-const level = (name: 'auto' | 'ask_ai' | 'ask_human' | 'plan') => t(`permissionLevels.levels.${name}`);
+const mode = (name: PermissionMode) => t(`permissionModes.${name}`);
+const approver = (name: 'human' | 'ai' | 'none') => t(`permissionControls.approvers.${name}`);
+const modeLabel = () => t('permissionControls.mode');
+const approverLabel = () => t('permissionControls.approver');
 const asAdmin: Partial<ProjectContextValue> = { isOwner: false };
-/** A member from before the level existed: only the historical mode is stored. */
-function setHistoricalMode(project: ReturnType<typeof mockProject>, handle: string, mode: PermissionMode) {
+
+type Project = ReturnType<typeof mockProject>;
+
+function aiConfig(project: Project, handle: string) {
   const member = project.backend.config.team.members.find((m) => m.handle === handle);
   if (member?.kind !== 'ai') throw new Error(`no AI member ${handle}`);
-  member.permissionMode = mode;
-  delete member.permissionLevel;
+  return member;
+}
+/** The delegation is on and `code-review` can decide for the others. */
+function enableAiApprover(project: Project) {
+  project.backend.config.team.boundary = { enabled: true, leadTimeoutSeconds: 120 };
+  aiConfig(project, 'code-review').role = 'lead_developer';
   project.backend.syncPermissionViews();
 }
-const patches = (project: ReturnType<typeof mockProject>, handle: string) =>
+const patches = (project: Project, handle: string) =>
   project.requests.filter((r) => r.method === 'PATCH' && r.path.endsWith(`/members/${handle}`));
 
-/** The settings row of a member, found by its handle, once the roster (and so its level) has loaded. */
-async function settingsRow(project: ReturnType<typeof mockProject>, handle: string) {
+/** The settings row of a member, found by its handle, once the roster has loaded. */
+async function settingsRow(project: Project, handle: string) {
   project.render(<TeamSection config={project.backend.config} />);
   const row = (await screen.findByText(handle, { selector: 'code' })).closest('tr')!;
-  await within(row).findByLabelText(t('permissionLevels.title'));
-  return row;
+  await within(row).findByLabelText(modeLabel());
+  return within(row);
 }
+const select = (row: ReturnType<typeof within>, label: string) =>
+  row.getByLabelText(label) as HTMLSelectElement;
 
-describe('the permission level in Settings → Team', () => {
-  it('shows the derived level of members from before the level existed', async () => {
+describe('the permission settings in Settings → Team', () => {
+  it('shows the mode of today’s members unchanged, and asks like a person', async () => {
     const project = mockProject();
-    setHistoricalMode(project, 'devops', 'auto');
-    // `code-review` is on the historical "plan" mode, `qa` on "default".
+    aiConfig(project, 'devops').permissionMode = 'auto';
+    project.backend.syncPermissionViews();
     await settingsRow(project, 'qa');
-    const select = async (handle: string) =>
-      within((await screen.findByText(handle, { selector: 'code' })).closest('tr')!).getByLabelText(
-        t('permissionLevels.title'),
-      ) as HTMLSelectElement;
-    expect((await select('devops')).value).toBe('auto');
-    expect((await select('code-review')).value).toBe('plan');
-    expect((await select('qa')).value).toBe('ask_human');
+    const row = async (handle: string) =>
+      within((await screen.findByText(handle, { selector: 'code' })).closest('tr')!);
+    expect(select(await row('devops'), modeLabel()).value).toBe('auto');
+    expect(select(await row('code-review'), modeLabel()).value).toBe('plan');
+    expect(select(await row('qa'), modeLabel()).value).toBe('default');
+    expect(select(await row('qa'), approverLabel()).value).toBe('human');
   });
 
-  it('lets an owner set the level, saved at once through the member route', async () => {
+  it('lets an owner set the mode, saved at once through the member route', async () => {
     const project = mockProject();
-    const row = within(await settingsRow(project, 'qa'));
-    fireEvent.change(row.getByLabelText(t('permissionLevels.title')), { target: { value: 'plan' } });
+    const row = await settingsRow(project, 'qa');
+    fireEvent.change(select(row, modeLabel()), { target: { value: 'acceptEdits' } });
     await waitFor(() => expect(patches(project, 'qa')).toHaveLength(1));
-    expect(patches(project, 'qa')[0]!.body).toEqual({ permissionLevel: 'plan' });
+    expect(patches(project, 'qa')[0]!.body).toEqual({ permissionMode: 'acceptEdits' });
     expect(project.requests.some((r) => r.method === 'PATCH' && r.path.endsWith('/config'))).toBe(false);
-    await waitFor(() =>
-      expect((row.getByLabelText(t('permissionLevels.title')) as HTMLSelectElement).value).toBe('plan'),
-    );
-    expect(project.backend.config.team.members.find((m) => m.handle === 'qa')).toMatchObject({
-      permissionLevel: 'plan',
-    });
+    await waitFor(() => expect(select(row, modeLabel()).value).toBe('acceptEdits'));
+    expect(aiConfig(project, 'qa').permissionMode).toBe('acceptEdits');
   });
 
-  it('shows everyone else the level without a control', async () => {
+  it('lets an owner set who answers, saved at once', async () => {
+    const project = mockProject();
+    const row = await settingsRow(project, 'qa');
+    fireEvent.change(select(row, approverLabel()), { target: { value: 'none' } });
+    await waitFor(() => expect(patches(project, 'qa')).toHaveLength(1));
+    expect(patches(project, 'qa')[0]!.body).toEqual({ approver: 'none' });
+    await waitFor(() => expect(select(row, approverLabel()).value).toBe('none'));
+    expect(aiConfig(project, 'qa').approver).toBe('none');
+  });
+
+  it('offers the four CLI modes and the three approvers, and no bypassPermissions', async () => {
+    const project = mockProject();
+    const row = await settingsRow(project, 'qa');
+    const options = (label: string) =>
+      [...select(row, label).options].filter((o) => !o.disabled || o.value).map((o) => o.textContent);
+    expect(options(modeLabel())).toEqual([mode('default'), mode('acceptEdits'), mode('plan'), mode('auto')]);
+    expect(options(approverLabel())).toEqual([approver('human'), approver('ai'), approver('none')]);
+  });
+
+  it('shows everyone else the values without a control', async () => {
     const project = mockProject();
     project.render(<TeamSection config={project.backend.config} />, '/', asAdmin);
     const row = within((await screen.findByText('code-review', { selector: 'code' })).closest('tr')!);
-    expect(await row.findByText(level('plan'))).toBeTruthy();
-    expect(screen.queryAllByLabelText(t('permissionLevels.title'))).toHaveLength(0);
+    expect(await row.findByText(approver('human'))).toBeTruthy();
+    expect(row.getByText(mode('plan'))).toBeTruthy();
+    expect(screen.queryAllByLabelText(modeLabel())).toHaveLength(0);
+    expect(screen.queryAllByLabelText(approverLabel())).toHaveLength(0);
   });
 
-  it('disables "ask, AI decides" and says why while delegation is off', async () => {
+  it('disables the AI approver and says why while delegation is off', async () => {
     const project = mockProject();
-    const row = within(await settingsRow(project, 'qa'));
-    const option = row.getByRole('option', { name: level('ask_ai') }) as HTMLOptionElement;
+    const row = await settingsRow(project, 'qa');
+    const option = row.getByRole('option', { name: approver('ai') }) as HTMLOptionElement;
     expect(option.disabled).toBe(true);
-    expect(row.getByText(t('permissionLevels.blocked.delegation_off'))).toBeTruthy();
-    expect((row.getByRole('option', { name: level('plan') }) as HTMLOptionElement).disabled).toBe(false);
+    expect(row.getByText(t('permissionControls.blocked.delegation_off'))).toBeTruthy();
+    expect((row.getByRole('option', { name: approver('none') }) as HTMLOptionElement).disabled).toBe(false);
   });
 
   it('says there is no decider while delegation is on but no AI member holds the duty', async () => {
     const project = mockProject();
     project.backend.config.team.boundary = { enabled: true, leadTimeoutSeconds: 120 };
     project.backend.syncPermissionViews();
-    const row = within(await settingsRow(project, 'qa'));
-    expect((row.getByRole('option', { name: level('ask_ai') }) as HTMLOptionElement).disabled).toBe(true);
-    expect(row.getByText(t('permissionLevels.blocked.no_ai_decider'))).toBeTruthy();
+    const row = await settingsRow(project, 'qa');
+    expect((row.getByRole('option', { name: approver('ai') }) as HTMLOptionElement).disabled).toBe(true);
+    expect(row.getByText(t('permissionControls.blocked.no_ai_decider'))).toBeTruthy();
   });
 
-  it('enables "ask, AI decides" once delegation is on and an AI member can decide, and saves it', async () => {
+  it('enables the AI approver once delegation is on and an AI member can decide, and saves it', async () => {
     const project = mockProject();
-    project.backend.config.team.boundary = { enabled: true, leadTimeoutSeconds: 120 };
-    const lead = project.backend.config.team.members.find((m) => m.handle === 'code-review')!;
-    if (lead.kind === 'ai') lead.role = 'lead_developer';
-    project.backend.syncPermissionViews();
-    const row = within(await settingsRow(project, 'qa'));
-    expect((row.getByRole('option', { name: level('ask_ai') }) as HTMLOptionElement).disabled).toBe(false);
-    fireEvent.change(row.getByLabelText(t('permissionLevels.title')), { target: { value: 'ask_ai' } });
+    enableAiApprover(project);
+    const row = await settingsRow(project, 'qa');
+    expect((row.getByRole('option', { name: approver('ai') }) as HTMLOptionElement).disabled).toBe(false);
+    fireEvent.change(select(row, approverLabel()), { target: { value: 'ai' } });
     await waitFor(() => expect(patches(project, 'qa')).toHaveLength(1));
-    expect(patches(project, 'qa')[0]!.body).toEqual({ permissionLevel: 'ask_ai' });
-    await waitFor(() =>
-      expect((row.getByLabelText(t('permissionLevels.title')) as HTMLSelectElement).value).toBe('ask_ai'),
-    );
+    expect(patches(project, 'qa')[0]!.body).toEqual({ approver: 'ai' });
+    await waitFor(() => expect(select(row, approverLabel()).value).toBe('ai'));
   });
 
   it('shows a legacy "everything allowed" member with the old-setting mark, and no such choice', async () => {
     const project = mockProject();
-    setHistoricalMode(project, 'qa', 'bypassPermissions');
-    const row = within(await settingsRow(project, 'qa'));
-    expect(row.getByText(t('permissionLevels.legacy'))).toBeTruthy();
-    expect(row.queryByRole('option', { name: t('permissionModes.bypassPermissions') })).toBeNull();
-    expect(row.getAllByRole('option')).toHaveLength(5);
+    aiConfig(project, 'qa').permissionMode = 'bypassPermissions';
+    project.backend.syncPermissionViews();
+    const row = await settingsRow(project, 'qa');
+    expect(row.getAllByText(t('permissionControls.legacy')).length).toBeGreaterThan(0);
+    expect(row.queryByRole('option', { name: mode('bypassPermissions') })).toBeNull();
+    // Picking a mode replaces the legacy one.
+    fireEvent.change(select(row, modeLabel()), { target: { value: 'auto' } });
+    await waitFor(() => expect(row.queryAllByText(t('permissionControls.legacy'))).toHaveLength(0));
+    expect(aiConfig(project, 'qa').permissionMode).toBe('auto');
   });
 });
 
-describe('the permission level in the member profile', () => {
+describe('the permission settings in the member profile', () => {
   const page = () => (
     <Routes>
       <Route path="/team/:handle" element={<MemberProfilePage />} />
     </Routes>
   );
 
-  it('is set from the profile by an owner', async () => {
+  it('are set from the profile by an owner', async () => {
     const project = mockProject();
     project.render(page(), '/team/fe-1');
-    const select = (await screen.findByLabelText(t('permissionLevels.title'))) as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: 'ask_human' } });
+    fireEvent.change(await screen.findByLabelText(modeLabel()), { target: { value: 'plan' } });
     await waitFor(() => expect(patches(project, 'fe-1')).toHaveLength(1));
-    expect(patches(project, 'fe-1')[0]!.body).toEqual({ permissionLevel: 'ask_human' });
+    expect(patches(project, 'fe-1')[0]!.body).toEqual({ permissionMode: 'plan' });
+    fireEvent.change(await screen.findByLabelText(approverLabel()), { target: { value: 'none' } });
+    await waitFor(() => expect(patches(project, 'fe-1')).toHaveLength(2));
+    expect(patches(project, 'fe-1')[1]!.body).toEqual({ approver: 'none' });
   });
 
-  it('shows no control to anyone else', async () => {
+  it('show no control to anyone else', async () => {
     const project = mockProject();
     project.render(page(), '/team/fe-1', asAdmin);
-    await screen.findAllByText(t('permissionLevels.title'));
-    expect(screen.queryAllByLabelText(t('permissionLevels.title'))).toHaveLength(0);
+    await screen.findByText(approver('human'));
+    expect(screen.queryAllByLabelText(modeLabel())).toHaveLength(0);
+    expect(screen.queryAllByLabelText(approverLabel())).toHaveLength(0);
   });
 });
 
 describe('the server rules in the fake backend', () => {
-  const patch = (project: ReturnType<typeof mockProject>, body: unknown) =>
+  const patch = (project: Project, body: unknown) =>
     project.backend.handle('PATCH', '/api/projects/AC/members/qa', body);
-
-  it('refuses an admin, and a level that cannot be chosen', () => {
-    const project = mockProject();
+  const makeViewerAdmin = (project: Project) => {
     const owner = project.backend.config.team.members.find(
       (m) => m.kind === 'human' && m.handle === 'owner',
     )!;
-    expect(patch(project, { permissionLevel: 'ask_ai' })).toMatchObject({
-      status: 422,
-      body: { error: { code: 'permission_level_unavailable', details: { blocker: 'delegation_off' } } },
-    });
     if (owner.kind === 'human') owner.access = 'admin';
-    expect(patch(project, { permissionLevel: 'plan' })).toMatchObject({
-      status: 403,
-      body: { error: { code: 'owner_only' } },
+  };
+
+  it('refuses an admin to change the mode or the approver', () => {
+    const project = mockProject();
+    makeViewerAdmin(project);
+    for (const body of [{ permissionMode: 'plan' }, { approver: 'none' }]) {
+      expect(patch(project, body)).toMatchObject({ status: 403, body: { error: { code: 'owner_only' } } });
+    }
+    expect(aiConfig(project, 'qa').permissionMode).toBe('default');
+  });
+
+  it('refuses an AI approver that cannot be chosen, and bypassPermissions', () => {
+    const project = mockProject();
+    expect(patch(project, { approver: 'ai' })).toMatchObject({
+      status: 422,
+      body: { error: { code: 'approver_unavailable', details: { blocker: 'delegation_off' } } },
     });
+    expect(patch(project, { permissionMode: 'bypassPermissions' })).toMatchObject({ status: 400 });
   });
 
   it('is refused for a human member', () => {
     const project = mockProject();
     expect(
-      project.backend.handle('PATCH', '/api/projects/AC/members/owner', { permissionLevel: 'plan' }),
+      project.backend.handle('PATCH', '/api/projects/AC/members/owner', { approver: 'none' }),
     ).toMatchObject({ status: 400, body: { error: { code: 'not_ai_member' } } });
   });
 });
 
 describe('the Team page when the AI decider drops out', () => {
-  it('warns about the members still set to "ask, AI decides"', async () => {
+  it('warns about the members whose approver is still the AI', async () => {
     const project = mockProject();
-    const qa = project.backend.config.team.members.find((m) => m.handle === 'qa')!;
-    if (qa.kind === 'ai') qa.permissionLevel = 'ask_ai';
+    aiConfig(project, 'qa').approver = 'ai';
     project.backend.syncPermissionViews();
     project.render(<TeamPage />);
-    const warning = await screen.findByRole('status', { name: t('permissionLevels.lostDeciderLabel') });
+    const warning = await screen.findByRole('status', { name: t('permissionControls.lostApproverLabel') });
     const name = project.backend.members.find((m) => m.handle === 'qa')!.displayName;
-    expect(warning.textContent).toBe(t('permissionLevels.lostDecider', { names: name }));
+    expect(warning.textContent).toBe(t('permissionControls.lostApprover', { names: name }));
   });
 
-  it('shows no warning when nobody relies on an AI decider', async () => {
+  it('shows no warning while the AI approver has a decider, or nobody uses it', async () => {
     const project = mockProject();
+    enableAiApprover(project);
+    aiConfig(project, 'qa').approver = 'ai';
+    project.backend.syncPermissionViews();
     project.render(<TeamPage />);
     await screen.findByRole('region', { name: t('team.roster') });
-    expect(screen.queryByRole('status', { name: t('permissionLevels.lostDeciderLabel') })).toBeNull();
+    expect(screen.queryByRole('status', { name: t('permissionControls.lostApproverLabel') })).toBeNull();
   });
 });

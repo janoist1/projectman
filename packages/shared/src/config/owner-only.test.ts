@@ -104,37 +104,40 @@ describe('ownerOnlyChanges', () => {
       (c) => void (human(c, 'owner').email = 'boss@example.com'),
       ['admin_or_account', 'owners'],
     ],
-    ['an AI member level', (c) => void (ai(c, 'dev-1').permissionLevel = 'plan'), ['permission_level']],
+    ['an AI member mode', (c) => void (ai(c, 'dev-1').permissionMode = 'plan'), ['permissions']],
     [
-      // The stored level starts sessions in acceptEdits, where the historical default asked.
-      'a level that restates the derived one but frees the mode',
-      (c) => void (ai(c, 'dev-1').permissionLevel = 'ask_human'),
-      ['permission_level'],
-    ],
-    [
-      'freeing the historical mode of a member without a level (bypassPermissions)',
+      'freeing the mode to bypassPermissions',
       (c) => void (ai(c, 'dev-1').permissionMode = 'bypassPermissions'),
-      ['permission_level'],
+      ['permissions'],
     ],
+    ['an AI member approver', (c) => void (ai(c, 'dev-1').approver = 'none'), ['permissions']],
+    ['the AI approver', (c) => void (ai(c, 'dev-1').approver = 'ai'), ['permissions']],
     [
-      'a historical mode that changes the derived level',
-      (c) => void (ai(c, 'dev-1').permissionMode = 'auto'),
-      ['permission_level'],
-    ],
-    [
-      'a historical mode that frees the mode without changing the derived level',
-      (c) => void (ai(c, 'dev-1').permissionMode = 'acceptEdits'),
-      ['permission_level'],
-    ],
-    [
-      'a new AI member on the default level',
-      (c) => void c.team.members.push({ ...ai(c, 'dev-1'), handle: 'dev-2', permissionLevel: 'auto' }),
+      // An absent approver already means a person.
+      'restating the default approver',
+      (c) => void (ai(c, 'dev-1').approver = 'human'),
       [],
     ],
     [
-      'a new AI member on another level',
-      (c) => void c.team.members.push({ ...ai(c, 'dev-1'), handle: 'dev-2', permissionLevel: 'plan' }),
-      ['permission_level'],
+      'a new AI member on the default mode and approver',
+      (c) => void c.team.members.push({ ...ai(c, 'dev-1'), handle: 'dev-2', permissionMode: 'auto' }),
+      [],
+    ],
+    [
+      'a new AI member on another mode',
+      (c) => void c.team.members.push({ ...ai(c, 'dev-1'), handle: 'dev-2', permissionMode: 'acceptEdits' }),
+      ['permissions'],
+    ],
+    [
+      'a new AI member with another approver',
+      (c) =>
+        void c.team.members.push({
+          ...ai(c, 'dev-1'),
+          handle: 'dev-2',
+          permissionMode: 'auto',
+          approver: 'none',
+        }),
+      ['permissions'],
     ],
   ])('%s', (_name, edit, expected) => {
     expect(changed(edit)).toEqual(expected);

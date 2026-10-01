@@ -61,9 +61,8 @@ import {
   modelForProvider,
   nextCronRun,
   noApproverReason,
-  cliPermissionMode,
+  approverBlocker,
   ownerOnlyChanges,
-  permissionLevelBlocker,
   permissionView,
   planLabelChange,
   pullRequestsMerged,
@@ -564,7 +563,7 @@ export class MockBackend {
       const config = memberOf(this.config, member.handle);
       if (config?.kind !== 'ai') continue;
       delete member.permissionLegacy;
-      delete member.askAiBlocker;
+      delete member.aiApproverBlocker;
       Object.assign(member, permissionView(this.config, config));
     }
   }
@@ -1395,22 +1394,20 @@ export class MockBackend {
         input.effort !== undefined ||
         input.onLeave !== undefined ||
         input.instructions !== undefined ||
-        input.permissionLevel !== undefined)
+        input.permissionMode !== undefined ||
+        input.approver !== undefined)
     )
       return error(400, 'not_ai_member', 'Not an AI member');
-    if (input.permissionLevel !== undefined) {
-      // Who may change it is `ownerOnlyChanges`, run by `configChangeFailure` below, as on the server.
-      const blocker = permissionLevelBlocker(this.config, handle, input.permissionLevel);
-      if (blocker)
-        return error(422, 'permission_level_unavailable', 'This permission level is not available', {
-          blocker,
-        });
+    if (input.approver !== undefined) {
+      // Who may change the settings is `ownerOnlyChanges`, run by `configChangeFailure` below, as on the server.
+      const blocker = approverBlocker(this.config, handle, input.approver);
+      if (blocker) return error(422, 'approver_unavailable', 'This approver is not available', { blocker });
     }
     const next = clone(this.config);
     const nextMember = memberOf(next, handle)!;
-    if (nextMember.kind === 'ai' && input.permissionLevel !== undefined) {
-      nextMember.permissionLevel = input.permissionLevel;
-      nextMember.permissionMode = cliPermissionMode(input.permissionLevel);
+    if (nextMember.kind === 'ai') {
+      if (input.permissionMode !== undefined) nextMember.permissionMode = input.permissionMode;
+      if (input.approver !== undefined) nextMember.approver = input.approver;
     }
     if (input.access !== undefined && nextMember.kind !== 'human')
       return error(400, 'not_human_member', 'Access is for humans');
@@ -1440,10 +1437,8 @@ export class MockBackend {
       }
       if (input.schedule !== undefined) config.schedule = input.schedule ?? undefined;
       if (input.instructions !== undefined) config.instructions = input.instructions.trim();
-      if (input.permissionLevel !== undefined) {
-        config.permissionLevel = input.permissionLevel;
-        config.permissionMode = cliPermissionMode(input.permissionLevel);
-      }
+      if (input.permissionMode !== undefined) config.permissionMode = input.permissionMode;
+      if (input.approver !== undefined) config.approver = input.approver;
       if (input.onLeave !== undefined) {
         if (input.onLeave) {
           config.onLeave = member.onLeave = true;
@@ -2110,7 +2105,7 @@ export class MockBackend {
         input.provider === 'codex' ? modelForProvider('codex', input.model) : (input.model ?? defaults.model),
       ...(input.effort ? { effort: input.effort } : {}),
       permissionMode: defaults.permissionMode,
-      permissionLevel: defaults.permissionLevel,
+      ...(defaults.approver ? { approver: defaults.approver } : {}),
       capacity: defaults.capacity,
       instructions: defaults.instructions,
       sponsor: this.sponsor(),

@@ -39,7 +39,7 @@ describe('role session policy', () => {
       ['content', 'designer', 'developer', 'docs', 'maintainer', 'translator'].sort(),
     );
     for (const role of AI_BUILT_IN_ROLE_IDS) {
-      expect(aiRoleDefaults(role).permissionLevel, role).toBe('auto');
+      expect(aiRoleDefaults(role).permissionMode, role).toBe('auto');
       // Nobody both changes files and gets the review tools pre-approved.
       expect(sessionPolicyFor(role, team).readOnlyTools && usesWorktree(role, team), role).toBe(false);
     }

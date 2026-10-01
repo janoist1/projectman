@@ -8,7 +8,7 @@ import {
 } from '@projectman/shared';
 import type { AgentProvider, AgentEffort, MemberView, ProjectConfig, RoleView } from '@projectman/shared';
 import { useUpdateMember } from '../../api/queries';
-import { useProject } from '../../app/contexts';
+import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
 import { SelectField, TextAreaField, TextField } from '../../components/Field';
@@ -17,6 +17,7 @@ import { humanRoleName } from '../../lib/roles';
 import { ErrorBanner } from '../../components/ErrorBanner';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
+import { PermissionLevelControl } from './PermissionLevelControl';
 import { ProviderFields } from './ProviderFields';
 import { ScheduleFields } from './ScheduleFields';
 import type { ScheduleDraft } from './ScheduleFields';
@@ -34,6 +35,7 @@ function EditMemberForm({
   onDone: () => void;
 }) {
   const { key } = useProject();
+  const { members } = useProjectIndexes(key);
   const update = useUpdateMember(key);
   const toast = useToast();
   const original = config?.team.members.find((entry) => entry.handle === member.handle);
@@ -149,6 +151,8 @@ function EditMemberForm({
             onChange={(event) => setInstructions(event.target.value)}
           />
           <ScheduleFields value={schedule} onChange={setSchedule} />
+          {/* These save at once, apart from the form's own button: show the current roster entry. */}
+          <PermissionLevelControl member={members.get(member.handle) ?? member} />
         </>
       )}
       {update.isError ? <ErrorBanner>{errorMessage(update.error)}</ErrorBanner> : null}

@@ -361,29 +361,33 @@ repository, with its reservation), `task_workspace_bindings` (a member's branch 
 a task in it); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
 the server refuses a database a newer build migrated.
 
-## Permission level of an AI member (PM-164, part of PM-162)
+## Permission settings of an AI member (PM-164, part of PM-162)
 
-`AiMemberConfig.permissionLevel` (`auto`, `ask_ai`, `ask_human`, `plan`; `packages/shared`) is how
-freely an AI member acts. New members start on `auto`, whatever the role or provider. The agent
-CLI mode is not a setting: `cliPermissionMode(level)` derives it, and the server starts sessions
-with `effectivePermissionMode(member)` (the level's mode, or the member's historical
-`permissionMode` while no level is stored). A member without a level reads as `plan` → `plan`,
-`auto` → `auto`, anything else → `ask_human` (`permissionLevelOf`): no migration rewrites
-configurations (decision 26), and no mapping frees a member beyond its old mode. `bypassPermissions`
-is no longer a choice; an existing one shows as a legacy setting until an owner picks a level.
-Only an owner changes a level (`ownerOnlyChanges` category `permission_level`, run by the commit
-of every configuration change, the member PATCH included). `ask_ai` is selectable only with `team.boundary.enabled` and
-another AI member at work that holds `boundary_authorization` (`askAiBlocker`); the roster
-(`MemberView.askAiBlocker`) says why not, and the Team page warns when a member keeps `ask_ai`
-after its decider drops out. Who answers an `ask_ai` request is the runner's job (PM-165 and
-following); until then `ask_ai` starts the CLI like `ask_human`. Both ask levels map to `acceptEdits`
-(edits in the member's own workspace run, the rest is asked); a read-only placement still narrows
-the mode in `sessionPermissions`. Setting a level also writes its mode into `permissionMode`, so
-a build that does not know the level runs the same mode, and `ownerOnlyChanges` compares both the
-level and the mode a member starts in, so freeing the historical mode of a member without a level
-is owner-only too. The timeline events `permission_refused` (PM-165) and `permission_escalated`
-(PM-169), and `delegated`/`reason` on `permission_resolved` (PM-169), are part of the contract and
-render from this card on; the later cards only produce them.
+An AI member has two permission settings, following what Claude Code and Codex do themselves.
+The **mode** is the existing `AiMemberConfig.permissionMode`, now editable (Kérdez `default`,
+Szerkesztést elfogad `acceptEdits`, Auto `auto`, Tervezés `plan`; `SelectablePermissionMode`):
+the runner passes it to the CLI as before, nothing is derived, and a read-only placement still
+narrows it in `sessionPermissions`. New members start in `auto`, whatever the role or provider
+(`DEFAULT_PERMISSION_MODE`). The **approver** is the new optional `AiMemberConfig.approver`
+(`human`, `ai`, `none`), who answers when the CLI asks: a person (the sponsor, else an owner),
+the AI decider, or nobody (the request is refused). Absent reads as `human`, today's behaviour
+(`approverOf`); `DEFAULT_NEW_MEMBER_APPROVER` is the one place for the default of a new hire (open
+question to the owner, PM-162), `undefined` for now. No migration rewrites configurations
+(decision 26): existing members keep their mode and read `human`. `bypassPermissions` is not a
+choice any more; an existing one shows as a legacy setting (`MemberView.permissionLegacy`) until
+an owner picks a mode.
+
+Only an owner changes either setting: `ownerOnlyChanges` category `permissions` compares the mode
+and the approver of every AI member (a new one against the defaults), runs on the commit of every
+configuration change, the member PATCH included, and so also stops an admin who writes a freer
+mode into the configuration. The approver `ai` is selectable only with `team.boundary.enabled`
+and another AI member at work that holds `boundary_authorization` (`aiApproverBlocker`); the
+PATCH refuses it otherwise (422 `approver_unavailable`, `details.blocker`), the roster
+(`MemberView.aiApproverBlocker`) says why, and the Team page warns when a member keeps `ai` after
+its decider drops out. Who answers is the runner's job (PM-165 and following). The timeline events
+`permission_refused` (PM-165) and `permission_escalated` (PM-169), and `delegated`/`reason` on
+`permission_resolved` (PM-169), are part of the contract and render from this card on; the later
+cards only produce them.
 
 ## Session policy migration (PM-87 / PM-127)
 

@@ -1,6 +1,12 @@
-import { roleBundle, DEFAULT_PERMISSION_LEVEL, DEFAULT_PROVIDER_MODELS, DUTIES } from '@projectman/shared';
+import {
+  roleBundle,
+  DEFAULT_NEW_MEMBER_APPROVER,
+  DEFAULT_PERMISSION_MODE,
+  DEFAULT_PROVIDER_MODELS,
+  DUTIES,
+} from '@projectman/shared';
 import { aiMemberDefaults } from '@projectman/templates';
-import type { AiMemberConfig, PermissionLevel, RoleId, ProjectConfig } from '@projectman/shared';
+import type { AiMemberConfig, Approver, RoleId, ProjectConfig } from '@projectman/shared';
 
 /**
  * Defaults shown in the preview. There is no role-template endpoint yet, so the preview
@@ -10,18 +16,20 @@ export function previewFor(
   role: RoleId,
   specialty: string,
   config: ProjectConfig | undefined,
-): Pick<AiMemberConfig, 'model' | 'capacity' | 'instructions'> & { permissionLevel: PermissionLevel } {
+): Pick<AiMemberConfig, 'model' | 'permissionMode' | 'capacity' | 'instructions'> & {
+  approver: Approver;
+} {
   const ai = (config?.team.members ?? []).filter(
     (member): member is AiMemberConfig => member.kind === 'ai' && member.role === role,
   );
   const wanted = specialty.trim().toLowerCase();
   const match = ai.find((member) => wanted && member.specialty?.toLowerCase().includes(wanted)) ?? ai[0];
+  const defaults = config ? aiMemberDefaults(role, config.team.roles, config.team.roleOverrides) : null;
   return {
     model: match?.model ?? DEFAULT_PROVIDER_MODELS.claude,
-    // The server gives every new member the same level, whatever the role or provider.
-    permissionLevel:
-      (config && aiMemberDefaults(role, config.team.roles, config.team.roleOverrides)?.permissionLevel) ||
-      DEFAULT_PERMISSION_LEVEL,
+    // The server gives every new member the same mode and approver, whatever the role or provider.
+    permissionMode: defaults?.permissionMode ?? DEFAULT_PERMISSION_MODE,
+    approver: defaults?.approver ?? DEFAULT_NEW_MEMBER_APPROVER ?? 'human',
     capacity: match?.capacity ?? 1,
     instructions: config
       ? [

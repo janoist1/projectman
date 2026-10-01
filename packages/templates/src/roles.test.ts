@@ -6,6 +6,7 @@ import {
   AiMemberConfig,
   BUILT_IN_ROLE_IDS,
   CustomRoleDefinition,
+  DEFAULT_NEW_MEMBER_APPROVER,
   MemberHandle,
 } from '@projectman/shared';
 import {
@@ -54,9 +55,11 @@ describe('aiRoleDefaults', () => {
     ).toMatchObject(defaults);
     expect(defaults.instructions).toBe('');
   });
-  it('starts every role on the default permission level, Auto', () => {
+  it('starts every role in the default permission mode, Auto, and with the default approver', () => {
     for (const role of AI_BUILT_IN_ROLE_IDS) {
-      expect(aiRoleDefaults(role)).toMatchObject({ permissionLevel: 'auto', permissionMode: 'auto' });
+      const defaults = aiRoleDefaults(role);
+      expect(defaults.permissionMode, role).toBe('auto');
+      expect(defaults.approver, role).toBe(DEFAULT_NEW_MEMBER_APPROVER);
     }
   });
   it('runs analysts, architects, leads, reviewers, communication and researchers two at a time on opus', () => {
@@ -95,7 +98,6 @@ describe('aiMemberDefaults', () => {
     expect(aiMemberDefaults('data_steward', [dataSteward])).toEqual({
       instructions: '',
       model: 'opus',
-      permissionLevel: 'auto',
       permissionMode: 'auto',
       capacity: 1,
     });

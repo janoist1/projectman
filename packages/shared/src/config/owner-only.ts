@@ -1,10 +1,10 @@
 import { isHumanOnlyLabel } from '../domain/label';
-import { DEFAULT_PERMISSION_LEVEL } from '../domain/member';
+import { DEFAULT_NEW_MEMBER_APPROVER, DEFAULT_PERMISSION_MODE } from '../domain/member';
 import { BUILT_IN_ROLE_IDS } from '../domain/role';
 import { dutyMembers, roleBundle } from './duties';
 import { stageApprovers } from './gates';
 import { labelDefinition, labelHolders } from './labels';
-import { cliPermissionMode, effectivePermissionMode, permissionLevelOf } from './permission-level';
+import { approverOf } from './permission-level';
 import type { AiMemberConfig, ProjectConfig } from './schema';
 
 /**
@@ -17,11 +17,11 @@ import type { AiMemberConfig, ProjectConfig } from './schema';
  *   release four eyes, boundary delegation settings, and who holds or grants authorization duties;
  * - `release_approvers`: who approves the release stages;
  * - `owners`: who is an owner;
- * - `permission_level`: an AI member's permission level, or a new AI member that starts with
- *   other than the default level.
+ * - `permissions`: an AI member's permission mode or approver (who answers when the CLI asks), or
+ *   a new AI member that starts with other than the defaults.
  */
 export type OwnerOnlyChange =
-  'locations' | 'admin_or_account' | 'approval_policy' | 'release_approvers' | 'owners' | 'permission_level';
+  'locations' | 'admin_or_account' | 'approval_policy' | 'release_approvers' | 'owners' | 'permissions';
 
 /** The owner-only changes from `previous` to `next`, in the order above; empty when there are none. */
 export function ownerOnlyChanges(
@@ -36,20 +36,19 @@ export function ownerOnlyChanges(
   if (releaseApproversSignature(previous) !== releaseApproversSignature(next))
     changes.push('release_approvers');
   if (ownersSignature(previous) !== ownersSignature(next)) changes.push('owners');
-  if (permissionLevelChanged(previous, next)) changes.push('permission_level');
+  if (permissionsChanged(previous, next)) changes.push('permissions');
   return changes;
 }
 
 /**
- * An existing AI member's level or the mode its sessions start in differs, or a new AI member does
- * not start with the default level and its mode. The mode counts too: a member without a stored
- * level keeps running in its historical mode, so freeing that mode changes what it may do.
+ * An existing AI member's mode or approver differs, or a new AI member does not start with the
+ * default mode and approver. An absent approver counts as `human`, so restating it changes nothing.
  */
-function permissionLevelChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
+function permissionsChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
   const signature = (member: AiMemberConfig | undefined) =>
     member
-      ? `${permissionLevelOf(member)}:${effectivePermissionMode(member)}`
-      : `${DEFAULT_PERMISSION_LEVEL}:${cliPermissionMode(DEFAULT_PERMISSION_LEVEL)}`;
+      ? `${member.permissionMode}:${approverOf(member)}`
+      : `${DEFAULT_PERMISSION_MODE}:${approverOf({ approver: DEFAULT_NEW_MEMBER_APPROVER })}`;
   return next.team.members.some((member) => {
     if (member.kind !== 'ai') return false;
     const old = previous.team.members.find((m) => m.handle === member.handle);

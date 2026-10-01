@@ -317,7 +317,7 @@ export const hu = {
       builtin_role: 'A beépített szerep nem módosítható.',
       role_id_mismatch: 'A szerep azonosítója nem egyezik.',
       not_human_member: 'Ez nem emberi tag.',
-      permission_level_unavailable: 'Ez az engedélyfokozat most nem választható.',
+      approver_unavailable: 'Ez a döntnök most nem választható.',
       task_not_cancelled: 'Csak megszakított feladat nyitható újra.',
       task_session_live: 'Még fut egy munkamenet. A módosítás előtt állítsd le.',
       repo_required: 'Válassz repót a feladathoz: nélküle az AI-fejlesztő nem indulhat el.',
@@ -820,39 +820,46 @@ export const hu = {
     },
   },
 
+  /** The CLI's permission modes, named as in Claude Desktop. */
   permissionModes: {
-    default: 'kérdez',
-    acceptEdits: 'szerkeszthet kérdés nélkül',
-    plan: 'csak tervez',
-    auto: 'automatikus',
-    bypassPermissions: 'mindent szabad',
+    default: 'Kérdez',
+    acceptEdits: 'Szerkesztést elfogad',
+    plan: 'Tervezés',
+    auto: 'Auto',
+    bypassPermissions: 'Mindent szabad',
   },
 
-  /** The member's permission level ("engedélyfokozat"): how freely an AI member acts. */
-  permissionLevels: {
-    title: 'Engedélyfokozat',
-    levels: {
-      auto: 'Auto',
-      ask_ai: 'Kérdez, AI dönt',
-      ask_human: 'Kérdez, ember dönt',
-      plan: 'Tervezés',
-    },
-    hints: {
-      auto: 'Magától dolgozik a munkaterületén.',
-      ask_ai: 'A kockázatosabb lépés előtt kérdez; egy AI-tag dönt.',
-      ask_human: 'A kockázatosabb lépés előtt kérdez; ember dönt.',
+  /** The two permission settings of an AI member: the mode, and who answers when it asks. */
+  permissionControls: {
+    mode: 'Mód',
+    approver: 'Ha kérdez, ki dönt',
+    modeHints: {
+      default: 'Minden lépés előtt kérdez.',
+      acceptEdits: 'A szerkesztést magától végzi, a többit megkérdezi.',
+      auto: 'Magától dolgozik, a ritka kérdést a „Ha kérdez” beállítás szerint kezeljük.',
       plan: 'Csak tervez, nem változtat semmin.',
     },
+    approvers: {
+      human: 'Ember',
+      ai: 'AI-döntnök',
+      none: 'Senki',
+    },
+    approverHints: {
+      human: 'A szponzor dönt, ennek híján a tulajdonos.',
+      ai: 'A külső műveletekről döntő AI-tag dönt.',
+      none: 'A rendszer elutasítja a kérdést.',
+    },
     legacy: 'régi beállítás',
-    legacyHint: 'Régi „mindent szabad” beállítás. Egy új fokozat kiválasztása lecseréli.',
+    legacyHint: 'Régi „mindent szabad” beállítás. Egy új mód kiválasztása lecseréli.',
     blocked: {
       delegation_off: 'Nem választható: a külső műveletek delegálása ki van kapcsolva.',
       no_ai_decider: 'Nem választható: nincs olyan AI-tag, aki a külső műveletekről dönthetne.',
     },
-    lostDecider: 'Nincs AI-döntnök, ezért a kérdéseknél az ember dönt: {names}.',
-    lostDeciderLabel: 'Engedélyfokozat figyelmeztetés',
-    ownerOnly: 'A fokozatot csak a tulajdonos állíthatja.',
-    saved: '{name} fokozata: {level}.',
+    lostApprover: 'Nincs AI-döntnök, ezért a kérdések emberhez mennek: {names}.',
+    lostApproverLabel: 'Döntnök figyelmeztetés',
+    ownerOnly: 'Ezt csak a tulajdonos állíthatja.',
+    savedMode: '{name} módja: {value}.',
+    savedApprover: '{name} döntnöke: {value}.',
   },
 
   inbox: {
@@ -942,7 +949,7 @@ export const hu = {
       branch: 'Ág: {branch}',
       cwd: 'Mappa: {cwd}',
       model: 'Modell: {model}',
-      permissions: 'Engedélyfokozat: {level}',
+      permissions: 'Engedélyek: {mode}',
     },
     stop: 'Leállítás',
     stopTitle: 'Leállítod a munkamenetet?',
@@ -1191,7 +1198,8 @@ export const hu = {
     specialty: 'Szakterület',
     specialtyPlaceholder: 'pl. frontend vagy backend',
     model: 'Modell',
-    permissionMode: 'Engedélyfokozat',
+    permissionMode: 'Mód',
+    approver: 'Ha kérdez, ki dönt',
     capacity: 'Egyszerre',
     capacityValue: '{count} munka',
     subscription: 'Előfizetés',

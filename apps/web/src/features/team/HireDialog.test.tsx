@@ -1,6 +1,5 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { PermissionMode } from '@projectman/shared';
 import { t } from '../../i18n/t';
 import { setFetchImplementation } from '../../api/client';
 import { builtInRoles } from '../../mocks/fixtures';
@@ -112,10 +111,10 @@ describe('HireDialog', () => {
     });
   });
 
-  it('shows Auto as the permission level of a hire, for every role and for a Codex member too', async () => {
+  it('shows Auto as the mode of a hire, for every role and for a Codex member too, asked like a person', async () => {
     const project = mockProject();
     project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
-    const facts = async () => (await screen.findByText(t('hire.permissionMode'))).parentElement!;
+    const fact = async (label: string) => (await screen.findByText(label)).parentElement!.textContent;
     for (const provider of ['claude', 'codex']) {
       fireEvent.change(await screen.findByLabelText(t('providerSettings.provider')), {
         target: { value: provider },
@@ -123,13 +122,13 @@ describe('HireDialog', () => {
       for (const radio of screen.getAllByRole('radio')) {
         fireEvent.click(radio);
         const role = (radio as HTMLInputElement).value;
-        expect((await facts()).textContent, `${provider}: ${role}`).toContain(
-          t('permissionLevels.levels.auto'),
+        expect(await fact(t('hire.permissionMode')), `${provider}: ${role}`).toBe(
+          `${t('hire.permissionMode')}${t('permissionModes.auto')}`,
+        );
+        expect(await fact(t('hire.approver')), `${provider}: ${role}`).toBe(
+          `${t('hire.approver')}${t('permissionControls.approvers.human')}`,
         );
       }
-    }
-    for (const mode of PermissionMode.options) {
-      expect(screen.queryAllByText(t(`permissionModes.${mode}`)), mode).toEqual([]);
     }
   });
 

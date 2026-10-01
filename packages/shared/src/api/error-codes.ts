@@ -43,7 +43,7 @@ export const ERROR_CODES = [
   'invalid_sponsor',
   'not_ai_member',
   'not_human_member',
-  'permission_level_unavailable',
+  'approver_unavailable',
   'cannot_remove_self',
   'unknown_role',
   'role_not_for_ai',

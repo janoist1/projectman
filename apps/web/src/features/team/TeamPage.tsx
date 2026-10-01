@@ -90,8 +90,8 @@ export function TeamPage() {
   const activeTaskKeys = new Set(members.flatMap((member) => member.currentTaskKeys));
   const limits = config.data?.config.team.limits;
   const working = ai.filter((member) => member.status === 'working').length;
-  // Members set to "ask, AI decides" while no AI member can decide for them any more.
-  const lostDecider = ai.filter((member) => member.permissionLevel === 'ask_ai' && member.askAiBlocker);
+  // Members whose approver is the AI while no AI member can decide for them any more.
+  const lostDecider = ai.filter((member) => member.approver === 'ai' && member.aiApproverBlocker);
   const sponsors = new Set(ai.map((member) => member.sponsor));
   const allMine = sponsors.size === 1 && myHandle !== null && sponsors.has(myHandle);
 
@@ -185,9 +185,11 @@ export function TeamPage() {
       </PageHeader>
 
       {lostDecider.length > 0 ? (
-        <div role="status" className={styles.limit} aria-label={t('permissionLevels.lostDeciderLabel')}>
+        <div role="status" className={styles.limit} aria-label={t('permissionControls.lostApproverLabel')}>
           <span>
-            {t('permissionLevels.lostDecider', { names: lostDecider.map((m) => m.displayName).join(', ') })}
+            {t('permissionControls.lostApprover', {
+              names: lostDecider.map((m) => m.displayName).join(', '),
+            })}
           </span>
         </div>
       ) : null}

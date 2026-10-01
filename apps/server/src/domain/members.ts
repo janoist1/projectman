@@ -8,8 +8,7 @@ import {
   memberDuties,
   memberOf,
   memberRoles,
-  cliPermissionMode,
-  permissionLevelBlocker,
+  approverBlocker,
   permissionView,
   roleHolders,
   stageApprovers,
@@ -245,7 +244,7 @@ export class MemberService {
           req.provider === 'codex' ? modelForProvider('codex', req.model) : (req.model ?? defaults.model),
         ...(req.effort ? { effort: req.effort } : {}),
         permissionMode: defaults.permissionMode,
-        permissionLevel: defaults.permissionLevel,
+        ...(defaults.approver ? { approver: defaults.approver } : {}),
         capacity: defaults.capacity,
         instructions: defaults.instructions,
         sponsor: sponsor.handle,
@@ -298,11 +297,12 @@ export class MemberService {
           req.effort !== undefined ||
           req.onLeave !== undefined ||
           req.instructions !== undefined ||
-          req.permissionLevel !== undefined
+          req.permissionMode !== undefined ||
+          req.approver !== undefined
         ) {
           throw invalid(
             'not_ai_member',
-            'specialty, provider, model, effort, schedule, leave, instructions and permission level apply to AI members only',
+            'specialty, provider, model, effort, schedule, leave, instructions, permission mode and approver apply to AI members only',
           );
         }
         if (req.roles !== undefined) {
@@ -345,20 +345,23 @@ export class MemberService {
           member.instructions = req.instructions.trim();
           fields.push('instructions');
         }
-        if (req.permissionLevel !== undefined) {
-          // Who may change it is `ownerOnlyChanges` (category `permission_level`), checked on the commit.
-          const blocker = permissionLevelBlocker(draft, handle, req.permissionLevel);
+        // Who may change the mode and the approver is `ownerOnlyChanges` (category `permissions`),
+        // checked on the commit.
+        if (req.permissionMode !== undefined) {
+          member.permissionMode = req.permissionMode;
+          fields.push('permission mode');
+        }
+        if (req.approver !== undefined) {
+          const blocker = approverBlocker(draft, handle, req.approver);
           if (blocker) {
             throw new DomainError(
-              'permission_level_unavailable',
-              `the permission level ${req.permissionLevel} is not available: ${blocker}`,
+              'approver_unavailable',
+              `the approver ${req.approver} is not available: ${blocker}`,
               { status: 422, details: { blocker } },
             );
           }
-          member.permissionLevel = req.permissionLevel;
-          // A build that does not know the level still runs the same mode.
-          member.permissionMode = cliPermissionMode(req.permissionLevel);
-          fields.push('permission level');
+          member.approver = req.approver;
+          fields.push('approver');
         }
         if (req.onLeave !== undefined) {
           if (req.onLeave) member.onLeave = true;
@@ -467,13 +470,13 @@ export class MemberService {
     });
     const previousMembers = new Map((previous?.team.members ?? []).map((m) => [m.handle, m]));
     const previousBlockers = new Map(
-      (previous ? this.rosterFor(previous) : []).map((view) => [view.handle, view.askAiBlocker]),
+      (previous ? this.rosterFor(previous) : []).map((view) => [view.handle, view.aiApproverBlocker]),
     );
     for (const member of this.rosterFor(next)) {
       const configMember = memberOf(next, member.handle);
-      // The "ask, AI decides" blocker depends on other members and on the delegation settings.
+      // The AI approver blocker depends on other members and on the delegation settings.
       const blockerChanged = previousBlockers.has(member.handle)
-        ? previousBlockers.get(member.handle) !== member.askAiBlocker
+        ? previousBlockers.get(member.handle) !== member.aiApproverBlocker
         : false;
       if (
         blockerChanged ||

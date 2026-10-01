@@ -216,10 +216,7 @@ export function MemberProfilePage() {
                   : t('providerSettings.defaultEffort')}
             </p>
             <p>{t('profile.capacity', { used: data.capacityUsed, max: data.capacity ?? 0 })}</p>
-            <div>
-              <h3>{t('permissionLevels.title')}</h3>
-              <PermissionLevelControl member={member} />
-            </div>
+            <PermissionLevelControl member={member} />
             <PlanUsageMeter
               provider={member.provider ?? DEFAULT_AGENT_PROVIDER}
               usage={board.data?.planUsageByProvider[member.provider ?? DEFAULT_AGENT_PROVIDER]}

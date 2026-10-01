@@ -90,6 +90,11 @@ export interface StartSessionSpec {
   displayName: string;
   model?: string;
   effort?: AgentEffort;
+  /**
+   * The size in tokens at which the agent CLI compacts the conversation (PM-212). Claude Code
+   * only (`autoCompactWindow`, new and resumed sessions alike); Codex ignores it.
+   */
+  autoCompactWindowTokens?: number;
   permissionMode?: string;
   /**
    * Identity, team, rules and memory of the member (Claude Code: `--append-system-prompt`;

@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import {
   approverBlocker,
+  autoCompactWindowOf,
   DEFAULT_AGENT_PROVIDER,
   effectiveRepo,
   effectiveSessionPermissions,
@@ -1261,6 +1262,8 @@ export class SessionOrchestrator {
         displayName: `${member.displayName} · ${workItemLabel(workItem, member)}`,
         model: member.model,
         effort: member.effort,
+        // The member's value, else the project's, else the default (PM-212); on a resume too.
+        autoCompactWindowTokens: autoCompactWindowOf(config.team.limits, member),
         // `--permission-mode` (Claude Code) and the `-c` settings (Codex) take it on a resume too.
         permissionMode,
         appendSystemPrompt: pack.appendSystemPrompt,

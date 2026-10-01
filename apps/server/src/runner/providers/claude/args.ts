@@ -52,6 +52,8 @@ export interface HookSettingsInput {
   nodePath?: string;
   /** Runs the shell commands in Claude Code's sandbox. */
   sandbox?: AgentSandbox;
+  /** The conversation size in tokens at which Claude Code compacts it (PM-212); absent: its own default. */
+  autoCompactWindowTokens?: number;
 }
 
 /** Claude Code's `sandbox` settings (Claude Code 2.1.219 or later, probed with 2.1.284). */
@@ -113,6 +115,12 @@ export interface ClaudeSettings {
   env?: Record<string, string>;
   /** Claude Code's own auto memory is off: the team keeps its memory in projectman (PM-208). */
   autoMemoryEnabled: false;
+  /**
+   * The size in tokens at which Claude Code compacts the conversation (PM-212), 100k to 1M. A
+   * number, as the real CLI reads it: `"300k"` is ignored, 300000 shows as a 300k window in /context.
+   * Set in the settings, not as `CLAUDE_CODE_AUTO_COMPACT_WINDOW`.
+   */
+  autoCompactWindow?: number;
   /** Managed VM profile: no first-use confirmation of the bypass mode (it would wait in the terminal). */
   skipDangerousModePermissionPrompt?: true;
 }
@@ -259,6 +267,9 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
     ...(managed ? {} : { autoMode: AUTO_MODE_SETTINGS }),
     hooks,
     autoMemoryEnabled: false,
+    ...(input.autoCompactWindowTokens !== undefined
+      ? { autoCompactWindow: input.autoCompactWindowTokens }
+      : {}),
     ...(sandbox ? { sandbox: buildSandboxSettings(sandbox) } : {}),
     ...(sandbox?.env && Object.keys(sandbox.env).length > 0 ? { env: { ...sandbox.env } } : {}),
     ...(managed && input.policy!.permissions.claude === 'bypassPermissions'

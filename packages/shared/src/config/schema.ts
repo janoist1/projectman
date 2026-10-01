@@ -45,6 +45,13 @@ export const MemberSchedule = z.object({
 });
 export type MemberSchedule = z.infer<typeof MemberSchedule>;
 
+/**
+ * The size in tokens at which Claude Code compacts a conversation (PM-212): Claude Code 2.1.284
+ * accepts 100k to 1M. Passed as the `autoCompactWindow` setting, as a number: a string such as
+ * "200k" is ignored there.
+ */
+export const AutoCompactWindowTokens = z.number().int().min(100_000).max(1_000_000);
+
 export const AiMemberConfig = z.object({
   kind: z.literal('ai'),
   handle: MemberHandle,
@@ -65,6 +72,11 @@ export const AiMemberConfig = z.object({
   model: z.string().default(DEFAULT_PROVIDER_MODELS.claude),
   /** Agent reasoning effort; omitted values use the provider default. */
   effort: AgentEffort.optional(),
+  /**
+   * The size at which Claude Code compacts this member's conversation (PM-212); absent: the
+   * project's `autoCompactWindowTokens`. Only Claude Code members use it (Codex ignores it).
+   */
+  autoCompactWindowTokens: AutoCompactWindowTokens.optional(),
   /**
    * The model of the member's cheap subagent (PM-179); absent means off. Only Claude Code members
    * get one (`cheapSubagentOf`).
@@ -99,6 +111,23 @@ export const MemberConfig = z.discriminatedUnion('kind', [HumanMemberConfig, AiM
 export type MemberConfig = z.infer<typeof MemberConfig>;
 
 export const MaxConcurrentAi = z.number().int().min(1).max(20);
+
+/**
+ * The compaction window of a session whose member and project set none (PM-212). Not the CLI's own
+ * default (the model's whole window): that would leave a conversation to grow, and be re-read at
+ * every step, up to the end of it.
+ */
+export const DEFAULT_AUTO_COMPACT_WINDOW_TOKENS = 200_000;
+
+/** The compaction window of a member's sessions: its own value, else the project's, else the default. */
+export function autoCompactWindowOf(
+  limits: { autoCompactWindowTokens?: number },
+  member: { autoCompactWindowTokens?: number },
+): number {
+  return (
+    member.autoCompactWindowTokens ?? limits.autoCompactWindowTokens ?? DEFAULT_AUTO_COMPACT_WINDOW_TOKENS
+  );
+}
 
 /** A session's warning limit in tokens, as `limitTokens` counts them (PM-187). */
 export const WarnAboveSessionTokens = z.number().int().min(10_000).max(1_000_000_000);
@@ -135,6 +164,12 @@ export const TeamLimits = z.object({
    * (PM-187); the session keeps running. Absent: no warning.
    */
   warnAboveSessionTokens: WarnAboveSessionTokens.optional(),
+  /**
+   * The size in tokens at which Claude Code compacts a member's conversation (PM-212); a member's
+   * own value overrides it. Absent: `DEFAULT_AUTO_COMPACT_WINDOW_TOKENS`. It bounds what every step
+   * re-reads; Codex members are not affected.
+   */
+  autoCompactWindowTokens: AutoCompactWindowTokens.optional(),
   /**
    * How many team messages and notes on one card within how long make a message storm that is
    * warned about (PM-186). Absent: `DEFAULT_MESSAGE_BURST`.

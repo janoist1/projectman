@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { DutyId } from '../domain/duty';
 import { ChatItem } from '../chat/chat';
-import { MemberSchedule, ProjectConfig, RepoConfig } from '../config/schema';
+import { AutoCompactWindowTokens, MemberSchedule, ProjectConfig, RepoConfig } from '../config/schema';
 import { TimelineEvent } from '../domain/event';
 import { InboxItem } from '../domain/inbox';
 import {
@@ -133,6 +133,8 @@ export const MemberView = z.object({
   /** AI members only: why the AI approver cannot be chosen now; absent when it can. */
   aiApproverBlocker: z.enum(['delegation_off', 'no_ai_decider']).optional(),
   effort: AgentEffort.optional(),
+  /** AI members only: the member's own compaction window in tokens (PM-212); omitted: the project's. */
+  autoCompactWindowTokens: AutoCompactWindowTokens.optional(),
   /** AI members only: the cheap subagent's model as configured (PM-179); omitted: off. */
   cheapSubagent: CheapSubagentModel.optional(),
   /** AI members only: on leave, nothing starts a session for the member (omitted: at work). */
@@ -171,6 +173,8 @@ export const UpdateMemberRequest = z.object({
   provider: AgentProvider.optional(),
   /** AI only; null restores the provider default. */
   effort: AgentEffort.nullable().optional(),
+  /** AI only; the compaction window in tokens (PM-212), null falls back to the project's. */
+  autoCompactWindowTokens: AutoCompactWindowTokens.nullable().optional(),
   /** AI only; the cheap subagent's model (PM-179), null switches it off. */
   cheapSubagent: CheapSubagentModel.nullable().optional(),
   displayName: z.string().trim().min(1).optional(),

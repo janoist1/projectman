@@ -167,6 +167,7 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
         deniedTools: spec.deniedTools,
         permissionTimeoutMs,
         sandbox: spec.sandbox,
+        autoCompactWindowTokens: spec.autoCompactWindowTokens,
       });
       const cliArgs = buildClaudeArgs(spec, settings);
       const command = resolveCommand(opts.bin, cliArgs);

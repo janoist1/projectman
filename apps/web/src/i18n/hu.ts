@@ -1114,6 +1114,7 @@ export const hu = {
       moved_back: 'visszalépés miatt',
       pr_merged: 'a PR beolvasztásakor',
       pr_updated: 'a PR frissülésekor',
+      open_question: 'nyitott kérdés miatt',
     },
     subtaskAdded: 'Alfeladat hozzáadva: {subtaskKey} → {parentKey}',
     subtaskRemoved: 'Alfeladat eltávolítva: {subtaskKey} → {parentKey}',

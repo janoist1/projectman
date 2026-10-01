@@ -46,6 +46,7 @@ import { ANSWER_OPTION, sponsorOrOwners } from './inbox';
 import type { InboxService } from './inbox';
 import type { MemberService } from './members';
 import type { Messaging } from './messaging';
+import type { OpenQuestionLabel } from './open-question-label';
 import type { ProjectService } from './projects';
 import type { PublishingGate } from './publishing';
 import type { TaskService } from './tasks';
@@ -224,6 +225,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly members: MemberService;
   private readonly messaging: Messaging;
   private readonly inbox: InboxService;
+  private readonly openQuestionLabel: OpenQuestionLabel;
   private readonly timeline: TimelineService;
   private readonly memory: MemberMemoryStore;
   private readonly github: GithubService;
@@ -242,6 +244,7 @@ export class TeamToolsService implements TeamToolsHandler {
     members: MemberService;
     messaging: Messaging;
     inbox: InboxService;
+    openQuestionLabel: OpenQuestionLabel;
     timeline: TimelineService;
     memory: MemberMemoryStore;
     github: GithubService;
@@ -259,6 +262,7 @@ export class TeamToolsService implements TeamToolsHandler {
     this.members = deps.members;
     this.messaging = deps.messaging;
     this.inbox = deps.inbox;
+    this.openQuestionLabel = deps.openQuestionLabel;
     this.timeline = deps.timeline;
     this.memory = deps.memory;
     this.github = deps.github;
@@ -642,6 +646,9 @@ export class TeamToolsService implements TeamToolsHandler {
         })),
         ANSWER_OPTION,
       ];
+      // A question about a card holds it back while it is open: the label goes on first, so the
+      // question records that the system put it there.
+      const autoLabel = await this.openQuestionLabel.claim(ctx.projectKey, taskKey, ctx.member, question);
       const item = this.inbox.create({
         projectKey: ctx.projectKey,
         kind: 'question',
@@ -656,6 +663,7 @@ export class TeamToolsService implements TeamToolsHandler {
           ...(recommendedIndex >= 0 ? { recommended: options[recommendedIndex]!.id } : {}),
           ...(reason ? { recommendationReason: reason } : {}),
           ...(details ? { details } : {}),
+          ...(autoLabel ? { autoLabel } : {}),
         },
         options,
       });

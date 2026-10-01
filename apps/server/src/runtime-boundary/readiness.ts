@@ -38,6 +38,8 @@ export async function readinessProblems(opts: {
   if (verdict.problems.some((p) => p.startsWith('duplicated'))) problems.push('readiness_report_invalid');
   for (const id of [...verdict.missing, ...verdict.failed, ...verdict.unverified])
     problems.push(`readiness:${id}`);
+  // The shared verdict is the rule: a reason this mapping does not know still refuses.
+  if (!verdict.ready && problems.length === 0) problems.push('readiness_report_invalid');
   return {
     problems,
     readiness: {

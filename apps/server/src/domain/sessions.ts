@@ -1,4 +1,3 @@
-import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import {
   DEFAULT_AGENT_PROVIDER,
@@ -354,13 +353,16 @@ export class SessionOrchestrator {
   async detail(projectKey: string, sessionId: string): Promise<SessionDetail> {
     const session = this.get(projectKey, sessionId);
     let chat: ChatItem[] = [];
-    if (session.transcriptPath && (await this.transcriptReadable(session))) {
+    if (session.transcriptPath) {
+      // Behind the VM boundary the worker owns its transcripts: read only a real file in its home.
+      const layout = this.managed ? this.deps.runtimeBoundary?.layout : null;
       try {
         chat = await this.deps.transcripts.read(session.transcriptPath, {
           provider: session.provider ?? DEFAULT_AGENT_PROVIDER,
           self: session.member,
           cwd: session.cwd,
           firstUserOrigin: openingTurnOrigin(session.workItem),
+          ...(layout ? { confineTo: layout.home(session.member) } : {}),
         });
       } catch (err) {
         this.ctx.logger.warn({ err, sessionId }, 'could not read the transcript');
@@ -368,24 +370,6 @@ export class SessionOrchestrator {
     }
     const task = session.workItem.type === 'task' ? this.ctx.repos.tasks.get(session.workItem.taskKey) : null;
     return { session, chat, task };
-  }
-
-  /**
-   * Behind the VM boundary a transcript is read only when it really lies in its member's worker
-   * home: the worker owns those files and could have replaced one with a link to the server's.
-   */
-  private async transcriptReadable(session: Session): Promise<boolean> {
-    const layout = this.managed ? this.deps.runtimeBoundary?.layout : null;
-    if (!layout || !session.transcriptPath) return true;
-    try {
-      const [file, home] = await Promise.all([
-        realpath(session.transcriptPath),
-        realpath(layout.home(session.member)),
-      ]);
-      return file.startsWith(`${home}/`);
-    } catch {
-      return false;
-    }
   }
 
   /**
@@ -717,8 +701,9 @@ export class SessionOrchestrator {
         deniedTools: [...deniedToolsFor(config, task), ...attachmentRules.deny],
         additionalDirectories,
         // Work in a task's own worktree (or workspace branch) runs in the OS sandbox; other sessions
-        // are not sandboxed yet.
-        ...(placed || ws?.binding.kind === 'work' ? { sandbox: WORKTREE_SANDBOX } : {}),
+        // are not sandboxed yet. Behind the VM boundary the worker unit is the sandbox: the CLI's own
+        // (bubblewrap) needs namespaces, which the unit does not allow.
+        ...(!this.managed && (placed || ws?.binding.kind === 'work') ? { sandbox: WORKTREE_SANDBOX } : {}),
         provider,
         ...(egressToken ? { egressToken } : {}),
       });

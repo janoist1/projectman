@@ -335,11 +335,24 @@ export function createLauncher(deps: LauncherDeps) {
     let stderr = '';
     let timedOut = false;
     let settled = false;
+    let tooLarge = false;
     const collect = (stream: NodeJS.ReadableStream | null, into: 'out' | 'err') => {
       stream?.setEncoding('utf8');
       stream?.on('data', (chunk: string) => {
-        if (into === 'out' && stdout.length < MAX_OUTPUT) stdout += chunk;
-        if (into === 'err' && stderr.length < MAX_OUTPUT) stderr += chunk;
+        if (into === 'out') stdout += chunk;
+        else stderr += chunk;
+        // Cut output would be read as complete (a branch list, a status): the run fails instead.
+        if (!tooLarge && stdout.length + stderr.length > MAX_OUTPUT) {
+          tooLarge = true;
+          stdout = '';
+          stderr = 'output too large';
+          stopUnit(command.unit, 'SIGKILL');
+          child.kill('SIGKILL');
+        }
+        if (tooLarge) {
+          stdout = '';
+          stderr = 'output too large';
+        }
       });
     };
     collect(child.stdout, 'out');
@@ -353,7 +366,9 @@ export function createLauncher(deps: LauncherDeps) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      conn.end(frame({ ok: true, exitCode: timedOut ? null : exitCode, stdout, stderr, timedOut }));
+      conn.end(
+        frame({ ok: true, exitCode: timedOut || tooLarge ? null : exitCode, stdout, stderr, timedOut }),
+      );
     };
     child.on('error', (err) => {
       deps.log('warn', { member: request.member, program: request.program, err: err.message }, 'run failed');

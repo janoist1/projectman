@@ -414,7 +414,8 @@ export class AgentSession {
 
   private followTranscript(path: string, first: boolean): void {
     this.deps.emit({ type: 'transcript_path', sessionId: this.id, path });
-    this.adapter.noteTranscript?.(path);
+    // A worker's file is read only through the confined tailer (Codex plan usage reads it plainly).
+    if (!this.deps.transcriptRoot) this.adapter.noteTranscript?.(path);
     this.tailer?.stop();
     const parser = this.adapter.createTranscriptParser({
       self: this.spec.member ?? null,
@@ -431,7 +432,7 @@ export class AgentSession {
       from: first && this.spec.resume ? 'end' : 'start',
       onLines: (lines) => this.onTranscriptLines(parser, lines),
       onError: (err) => this.log.warn({ err, sessionId: this.id }, 'transcript read failed'),
-      noFollow: Boolean(this.deps.transcriptRoot),
+      ...(this.deps.transcriptRoot ? { confineTo: this.deps.transcriptRoot } : {}),
     });
     this.tailer = tailer;
     void tailer.start();

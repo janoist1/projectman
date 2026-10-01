@@ -197,6 +197,11 @@ export interface TranscriptReader {
       self?: string;
       firstUserOrigin?: 'brief' | 'human';
       cwd?: string | null;
+      /**
+       * A worker home (PM-140): the transcript is read only as a regular file whose real path lies
+       * in it, without following a final symlink or blocking on a FIFO.
+       */
+      confineTo?: string;
     },
   ): Promise<ChatItem[]>;
 }

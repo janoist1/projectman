@@ -369,8 +369,9 @@ changing `profile.env`, the shared `VM_PROFILE_VERSION` if a check changed, and 
   HTTPS from `tailscale0`), but it is reachable from loopback by every account of the machine.
 - An allowed destination can carry anything the session sends it; a base destination such as
   GitHub can be read anonymously but takes nothing without a login, and no GitHub login is in a
-  worker home. Expiry refuses new connections; a tunnel open at that moment runs on until it closes
-  (at most 10 minutes idle). Revoking ends it at once.
+  worker home. Expiry and revocation end the allowance's open tunnels too, not only new ones.
+- A session reads its task's attachments through the team tools (`read_attachment`): the
+  attachment directory is in the service's data, which no worker unit can see.
 - Only TLS goes through the proxy (no plain HTTP, no SSH): a tool that needs another protocol is a
   case for the owner. Programs that ignore the proxy settings fail.
 - Points to confirm on the real guest (the trial records them): the exit status `systemd-run --pty

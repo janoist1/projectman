@@ -176,9 +176,8 @@ install -m 0644 -o root -g root "$here/../projectman.service" /etc/systemd/syste
 log "boundary"
 base_json=
 for destination in $EGRESS_BASE; do
-  case $destination in
-    *[!a-z0-9.:-]*|*:*:*|:*|*:) echo "bad EGRESS_BASE entry: $destination" >&2; exit 1 ;;
-  esac
+  printf '%s' "$destination" | grep -Eq '^[a-z0-9]([a-z0-9.-]*[a-z0-9])?:[0-9]{1,5}$' \
+    || { echo "bad EGRESS_BASE entry (want host:port): $destination" >&2; exit 1; }
   base_json="$base_json{\"host\":\"${destination%:*}\",\"port\":${destination##*:}},"
 done
 cat > "$work/boundary.json" <<EOF
@@ -213,6 +212,9 @@ cat > "$work/boundary.json" <<EOF
   "appPort": $APP_PORT
 }
 EOF
+# Well-formed JSON at least; the server and the launcher check it against their schema at start.
+/usr/local/bin/node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$work/boundary.json" \
+  || { echo "the generated boundary configuration is not valid JSON" >&2; exit 1; }
 install -m 0644 -o root -g root "$work/boundary.json" "$BOUNDARY_CONFIG"
 for unit in projectman-launcher.socket projectman-launcher.service projectman-verify.service projectman-verify.timer; do
   install -m 0644 -o root -g root "$here/$unit" "/etc/systemd/system/$unit"

@@ -1,5 +1,17 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  link,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -16,7 +28,7 @@ import type {
 import { createMemberWorkspaceManager, MemberWorkspaceError } from '../worktree';
 import { memberOfPath, workerLayout } from './config';
 import { testBoundaryConfig } from './test-helpers';
-import { workerWorkspaceAccess } from './worker-workspaces';
+import { copyFromWorker, workerWorkspaceAccess } from './worker-workspaces';
 
 /*
  * Member workspaces as the managed VM runs them: in worker homes, every command in them through
@@ -237,5 +249,37 @@ describe('member workspaces in worker homes', { timeout: 30_000 }, () => {
       .catch((e) => e);
     expect(err).toBeInstanceOf(MemberWorkspaceError);
     expect(err.code).toBe('workspace_branch_missing');
+  });
+});
+
+describe('copying a bundle out of a worker spool', () => {
+  const uid = process.getuid?.() ?? 0;
+
+  it('copies a regular file of the worker into a new file', async () => {
+    const from = path.join(spoolRoot, 'dev', 'out', 'a.bundle');
+    const to = path.join(spoolRoot, 'qa', 'in', 'a.bundle');
+    await writeFile(from, 'bundle bytes');
+    await copyFromWorker(from, to, uid);
+    expect(await readFile(to, 'utf8')).toBe('bundle bytes');
+    // Never over an existing file.
+    await expect(copyFromWorker(from, to, uid)).rejects.toThrow();
+  });
+
+  it('refuses a symlink, a named pipe, a hard link and a file of another account', async () => {
+    const out = path.join(spoolRoot, 'dev', 'out');
+    const to = (name: string) => path.join(spoolRoot, 'qa', 'in', name);
+    const secret = path.join(base, 'secret');
+    await writeFile(secret, 'SECRET');
+    await symlink(secret, path.join(out, 'link.bundle'));
+    await expect(copyFromWorker(path.join(out, 'link.bundle'), to('1'), uid)).rejects.toThrow();
+    await exec('mkfifo', [path.join(out, 'pipe.bundle')]);
+    const started = Date.now();
+    await expect(copyFromWorker(path.join(out, 'pipe.bundle'), to('2'), uid)).rejects.toThrow();
+    expect(Date.now() - started).toBeLessThan(1000);
+    await link(secret, path.join(out, 'hard.bundle'));
+    await expect(copyFromWorker(path.join(out, 'hard.bundle'), to('3'), uid)).rejects.toThrow();
+    await writeFile(path.join(out, 'mine.bundle'), 'x');
+    await expect(copyFromWorker(path.join(out, 'mine.bundle'), to('4'), uid + 1)).rejects.toThrow();
+    expect(await readdir(path.join(spoolRoot, 'qa', 'in'))).toEqual([]);
   });
 });

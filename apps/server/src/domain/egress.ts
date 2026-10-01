@@ -39,7 +39,8 @@ export interface EgressIdentity {
 }
 
 export type EgressDecision =
-  | { allowed: true; via: 'base' | 'allowance'; allowanceId?: string }
+  | { allowed: true; via: 'base' }
+  | { allowed: true; via: 'allowance'; allowanceId: string; expiresAt: string }
   | { allowed: false; denial: EgressDenial; operationId: string | null };
 
 export interface EgressSettings {
@@ -121,15 +122,21 @@ export class EgressService {
       return { allowed: false, denial: 'member_inactive', operationId: null };
     const now = this.ctx.now();
     const at = now.toISOString();
-    const allowance = this.ctx.repos.egress.activeAllowance(
-      session.projectKey,
-      session.member,
-      destination,
-      at,
-    );
-    if (allowance) return { allowed: true, via: 'allowance', allowanceId: allowance.id };
+    const active = () =>
+      this.ctx.repos.egress.activeAllowance(session.projectKey, session.member, destination, at);
+    const opened = (a: EgressAllowance): EgressDecision => ({
+      allowed: true,
+      via: 'allowance',
+      allowanceId: a.id,
+      expiresAt: a.expiresAt,
+    });
+    const allowance = active();
+    if (allowance) return opened(allowance);
     const consumed = await this.consumeGrant(session, destination, at);
-    if (consumed) return { allowed: true, via: 'allowance', allowanceId: consumed.id };
+    if (consumed) return opened(consumed);
+    // A connection at the same moment may have consumed the grant first: its allowance counts.
+    const raced = active();
+    if (raced) return opened(raced);
     return this.refuse(session, destination, now);
   }
 

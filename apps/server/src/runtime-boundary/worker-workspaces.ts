@@ -1,5 +1,7 @@
 import { randomBytes } from 'node:crypto';
-import { chmod, copyFile, mkdir, rename, rm } from 'node:fs/promises';
+import { constants, createWriteStream } from 'node:fs';
+import { chmod, mkdir, open, rename, rm, stat } from 'node:fs/promises';
+import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import type { SessionLauncher, WorkerLayout, WorkerProgram } from '../contracts';
 import { git, GitCommandError, SAFE_GIT_SETTINGS } from '../worktree';
@@ -15,6 +17,29 @@ import { isWithin } from './config';
  * `out` spool, and the server copies that file into the receiving member's `in` spool. Each side
  * reads only what it owns or what was handed to it.
  */
+/** The largest bundle handed between workers. */
+const MAX_BUNDLE_BYTES = 4 * 1024 * 1024 * 1024;
+
+/**
+ * Copies a file from a worker's `out` spool, which that worker controls: not through a symlink
+ * (`O_NOFOLLOW`), never blocking on a FIFO (`O_NONBLOCK`), a regular file owned by that worker
+ * only, read from the descriptor that was checked. The copy is created new (`wx`).
+ */
+export async function copyFromWorker(from: string, to: string, ownerUid: number): Promise<void> {
+  const handle = await open(from, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const info = await handle.stat();
+    if (!info.isFile() || info.uid !== ownerUid || info.nlink !== 1 || info.size > MAX_BUNDLE_BYTES)
+      throw new Error(`${from} is not a bundle of its worker`);
+    await pipeline(
+      handle.createReadStream({ start: 0, autoClose: false }),
+      createWriteStream(to, { flags: 'wx', mode: 0o640 }),
+    );
+  } finally {
+    await handle.close().catch(() => undefined);
+  }
+}
+
 export function workerWorkspaceAccess(opts: {
   layout: WorkerLayout;
   /** The member whose worker home holds a path (`memberOfPath`), or null for the server's own. */
@@ -104,7 +129,7 @@ export function workerWorkspaceAccess(opts: {
               out,
               ...source.refs,
             ]);
-            await copyFile(out, handed);
+            await copyFromWorker(out, handed, (await stat(layout.home(source.owner))).uid);
           } finally {
             await run(source.owner, 'rm', ['-f', '--', out]).catch(() => undefined);
           }

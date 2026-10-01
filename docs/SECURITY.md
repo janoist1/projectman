@@ -242,6 +242,10 @@ run a fixed probe as a worker in its real unit, with root's positive controls):
   (rebinding), a redirect to another host (a new CONNECT, checked again) and a TLS name other than
   the allowed host do not get through. The service's own egress keeps the baseline rules (no
   private side).
+- **The service reads a worker's files only defensively**: transcripts and hand-over bundles are
+  opened without following a symlink, without blocking on a FIFO, as regular files only, checked
+  against their real path in the worker's home (transcripts, on every read) or their owner (bundles),
+  and read from the checked descriptor.
 - **A grant is an authorization, not a widening**: an allowed boundary request for an egress
   operation opens one host and one port for one member in one project until its expiry; the proxy
   consumes the grant (PM-139's single-operation consumption) and records the allowance in the same
@@ -257,8 +261,7 @@ run a fixed probe as a worker in its real unit, with root's positive controls):
 
 What it does not establish: a worker can read its own session's tokens and its own login (the CLI
 runs as the worker), and reach other workers' loopback listeners; data can leave to an allowed
-destination; an expiring allowance does not cut a tunnel open at that moment (a revoked one
-does); the readiness report is at most two hours old, so a change made in between shows on the
+destination; the readiness report is at most two hours old, so a change made in between shows on the
 next report; the boundary does not defend against root, the admin, the hypervisor or a kernel
 flaw. Each worker has its own subscription login (the owner's choice on PM-140, 2026-10-01).
 

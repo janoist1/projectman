@@ -409,6 +409,24 @@ describe('the launcher protocol', () => {
     });
   });
 
+  it('fails a program whose output is too large instead of cutting it', async () => {
+    const h = harness();
+    const result = h.client.run({ member: 'dev', program: 'git', args: ['for-each-ref'], cwd: dev.home });
+    await tick();
+    await tick();
+    const child = h.children.find((c) => c.file === '/usr/bin/systemd-run')!;
+    child.stdout.write('x'.repeat(9 * 1024 * 1024));
+    await tick();
+    expect(child.killed).toEqual(['SIGKILL']);
+    child.emit('close', 0);
+    await expect(result).resolves.toEqual({
+      exitCode: null,
+      stdout: '',
+      stderr: 'output too large',
+      timedOut: false,
+    });
+  });
+
   it('kills a program at its timeout', async () => {
     const h = harness();
     const result = h.client.run({

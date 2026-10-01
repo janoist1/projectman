@@ -150,6 +150,28 @@ describe('the egress proxy', () => {
     base.socket.destroy();
   });
 
+  it('refuses a permission revoked before its tunnel was registered', async () => {
+    proxy.closeTagged('egw_late');
+    decision = { allowed: true, tag: 'egw_late' };
+    const { head, socket } = await connectThrough('docs.example.org:443');
+    expect(head).toMatch(/^HTTP\/1\.1 403/);
+    await closed(socket);
+    expect(connects).toEqual([]);
+  });
+
+  it('ends a busy tunnel when its permission expires, and refuses an expired one', async () => {
+    const hello = await captureClientHello('docs.example.org');
+    decision = { allowed: true, tag: 'egw_2', expiresAt: new Date(Date.now() + 300).toISOString() };
+    const { socket } = await connectThrough('docs.example.org:443');
+    socket.write(hello);
+    await until(() => received.length >= hello.length);
+    expect(socket.destroyed).toBe(false);
+    await closed(socket);
+    decision = { allowed: true, tag: 'egw_3', expiresAt: new Date(Date.now() - 1000).toISOString() };
+    const late = await connectThrough('docs.example.org:443');
+    expect(late.head).toMatch(/^HTTP\/1\.1 403/);
+  });
+
   it('keeps the bytes a client sends right after its ClientHello (early data)', async () => {
     const hello = await captureClientHello('docs.example.org');
     const { socket } = await connectThrough('docs.example.org:443');

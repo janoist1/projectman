@@ -11,9 +11,13 @@ import { MAX_CLIENT_HELLO_BYTES, parseClientHello } from './sni';
 
 /** The account and session of a connection, or why it has none. */
 export type ProxyIdentity<I> = { identity: I } | { denial: EgressDenial };
+/**
+ * `tag` groups tunnels that one revocable permission opened (an allowance id); `expiresAt` ends
+ * them when that permission expires.
+ */
 export type ProxyDecision =
-  /** `tag` groups tunnels that one revocable permission opened (an allowance id). */
-  { allowed: true; tag?: string } | { allowed: false; denial: EgressDenial; operationId: string | null };
+  | { allowed: true; tag?: string; expiresAt?: string }
+  | { allowed: false; denial: EgressDenial; operationId: string | null };
 
 export interface PeerAddress {
   remoteAddress: string;
@@ -93,6 +97,8 @@ export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
   const open = new Set<Duplex>();
   /** Open tunnels by the permission that opened them, so revoking it ends them. */
   const byTag = new Map<string, Set<Duplex>>();
+  /** Revoked permissions (ids are never reused), for a decision still on its way. */
+  const revokedTags = new Set<string>();
 
   const server = http.createServer((req, res) => {
     // Plain HTTP proxying is not offered: only TLS tunnels, whose server name is checked.
@@ -169,6 +175,22 @@ export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
     const destination = parseEgressAuthority(req.url ?? '');
     if (!destination) return refuse(socket, 400, null, 'not_allowed', null);
     if (tunnels >= maxTunnels) return refuse(socket, 403, destination, 'too_many_requests', null);
+    // Counted from here (not after the awaits below), so concurrent connections cannot pass the cap.
+    tunnels += 1;
+    let released = false;
+    let tag: string | null = null;
+    let expiry: NodeJS.Timeout | null = null;
+    const release = () => {
+      if (released) return;
+      released = true;
+      tunnels -= 1;
+      if (expiry) clearTimeout(expiry);
+      if (tag) {
+        byTag.get(tag)?.delete(socket);
+        if (byTag.get(tag)?.size === 0) byTag.delete(tag);
+      }
+    };
+    socket.on('close', release);
     const raw = req.socket;
     const peer: PeerAddress = {
       remoteAddress: raw.remoteAddress ?? '',
@@ -180,6 +202,22 @@ export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
     if ('denial' in who) return refuse(socket, 403, destination, who.denial, null);
     const decision = await opts.authorize(who.identity, destination);
     if (!decision.allowed) return refuse(socket, 403, destination, decision.denial, decision.operationId);
+    if (decision.tag) {
+      // Registered in the same tick as the decision: a revocation after it finds this tunnel, and
+      // one that came first is remembered.
+      if (revokedTags.has(decision.tag)) return refuse(socket, 403, destination, 'not_allowed', null);
+      tag = decision.tag;
+      const tagged = byTag.get(tag) ?? new Set<Duplex>();
+      tagged.add(socket);
+      byTag.set(tag, tagged);
+    }
+    if (decision.expiresAt) {
+      // The permission ends at its expiry, also for a tunnel that is still busy.
+      const remaining = Date.parse(decision.expiresAt) - Date.now();
+      if (!(remaining > 0)) return refuse(socket, 403, destination, 'not_allowed', null);
+      expiry = setTimeout(() => socket.destroy(), Math.min(remaining, 2_147_000_000));
+      expiry.unref();
+    }
     let addresses: string[];
     if (isIpLiteral(destination.host)) addresses = [destination.host];
     else {
@@ -196,25 +234,6 @@ export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
       return refuse(socket, 403, destination, 'private_address', null);
     }
     socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-    tunnels += 1;
-    const tag = decision.tag ?? null;
-    if (tag) {
-      const tagged = byTag.get(tag) ?? new Set<Duplex>();
-      tagged.add(socket);
-      byTag.set(tag, tagged);
-    }
-    let released = false;
-    const release = () => {
-      if (!released) {
-        released = true;
-        tunnels -= 1;
-        if (tag) {
-          byTag.get(tag)?.delete(socket);
-          if (byTag.get(tag)?.size === 0) byTag.delete(tag);
-        }
-      }
-    };
-    socket.on('close', release);
     const hello = await readHello(socket, head);
     const expected = isIpLiteral(destination.host) ? null : destination.host;
     if (!hello || (hello.serverName ?? null) !== expected) {
@@ -274,6 +293,7 @@ export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
     address: () => server.address(),
     /** Ends every open tunnel a revoked permission opened. */
     closeTagged(tag: string): number {
+      revokedTags.add(tag);
       const tagged = [...(byTag.get(tag) ?? [])];
       for (const socket of tagged) socket.destroy();
       byTag.delete(tag);

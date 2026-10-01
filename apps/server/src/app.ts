@@ -270,6 +270,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       worktreesRootDir: join(home, 'worktrees'),
       memberWorkspaces,
       workspacesRootDir: workspacesDir,
+      // Behind the boundary a session's pid is the launcher's (root's) process, and the launcher
+      // stops every session whose service connection drops: none outlives a restart of the server.
+      ...(runtimeBoundary.mode === 'managed_vm' ? { processExists: () => false } : {}),
       templates: modules.templates,
       now: options.now,
       scheduleTimer: options.scheduleTimer,
@@ -284,7 +287,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         async authorize(identity, destination) {
           const decision = await domain.egress.authorize(identity, destination);
           if (!decision.allowed) return decision;
-          return decision.allowanceId ? { allowed: true, tag: decision.allowanceId } : { allowed: true };
+          return decision.via === 'allowance'
+            ? { allowed: true, tag: decision.allowanceId, expiresAt: decision.expiresAt }
+            : { allowed: true };
         },
       });
       // A revoked allowance ends its open tunnels too, not only new connections.

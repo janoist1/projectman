@@ -202,6 +202,8 @@ export class Messaging {
     message: TeamMessage,
   ): void {
     const running = this.sessions.findRunning(projectKey, handle, workItem);
+    // A reviewer still in a turn of a round that is over gets it after its restart on the new commit.
+    if (running && this.sessions.reviewRoundDue(running)) return;
     if (running) this.delivery.deliver(running, message);
     else
       void this.ctx.events.emit('message_waiting', { projectKey, handle, workItem, messageId: message.id });

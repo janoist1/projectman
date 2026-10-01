@@ -354,4 +354,80 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     expect(await branchOf(dev1)).toBe('AR-2-signup-page');
     expect(await exists(path.join(dev1, 'node_modules', 'left-pad', 'index.js'))).toBe(true);
   });
+
+  it("reviews the assignee's latest commit, not the copy of a developer who opened the task later", async () => {
+    await setup();
+    await startTask('AR-1', 'dev-1');
+    const dev1 = await workspaceOf('dev-1');
+    await commitFile(dev1, 'login.txt', 'v1\n');
+    // Another developer is woken on the task: it takes over dev-1's branch as it is now.
+    await ensure('dev-2', 'AR-1');
+    const dev2 = await workspaceOf('dev-2');
+    expect(await branchOf(dev2)).toBe('AR-1-login-page');
+    // dev-1, the assignee, goes on; dev-2's copy is now behind (and its binding the newest).
+    const latest = await commitFile(dev1, 'login.txt', 'v2\n');
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1'));
+    await startedCount(3);
+    const review = h.runner.lastStarted();
+    expect(review.member).toBe('cr');
+    expect(review.policy?.placement).toMatchObject({ sourceCommit: latest });
+    expect(await git(await workspaceOf('cr'), 'rev-parse', 'HEAD')).toBe(latest);
+  });
+
+  it('holds a re-review request for a reviewer in a turn, then restarts it on the new commit with it', async () => {
+    await setup();
+    await startTask('AR-1', 'dev-1');
+    const dev1 = await workspaceOf('dev-1');
+    await commitFile(dev1, 'login.txt', 'v1\n');
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1'));
+    await startedCount(2);
+    const review = h.runner.lastStarted();
+    h.runner.emit({
+      type: 'transcript_path',
+      sessionId: review.sessionId,
+      path: '/tmp/fictional-review.jsonl',
+    });
+    h.runner.setState(review.sessionId, 'working');
+    const fixed = await commitFile(dev1, 'login.txt', 'v2\n');
+    await h.domain.messaging.send(
+      'AR',
+      'dev-1',
+      { to: ['cr'], text: 'Fixed, please look again.', taskKey: 'AR-1' },
+      { actor: aiActor('dev-1') },
+    );
+    await flush();
+    // Not typed into the turn of the old round, and the turn is not cut short.
+    expect(h.runner.messages.filter((m) => m.text.includes('Fixed, please look again.'))).toEqual([]);
+    expect(h.runner.stopped).not.toContain(review.sessionId);
+    h.runner.setState(review.sessionId, 'idle');
+    await startedCount(3);
+    expect(h.runner.lastStarted()).toMatchObject({
+      sessionId: review.sessionId,
+      resume: true,
+      initialMessage: expect.stringContaining('Fixed, please look again.'),
+    });
+    expect(h.runner.lastStarted().policy?.placement).toMatchObject({ sourceCommit: fixed, roundId: '2' });
+  });
+
+  it('finds the task branch elsewhere when the workspace was made again, and reports it missing otherwise', async () => {
+    await setup();
+    await startTask('AR-1', 'dev-1');
+    const first = h.runner.lastStarted();
+    const dev1 = await workspaceOf('dev-1');
+    const work = await commitFile(dev1, 'login.txt', 'v1\n');
+    // The branch also reached the project repository (as a published branch would).
+    await git(h.workspace, 'fetch', '--quiet', dev1, 'AR-1-login-page:AR-1-login-page');
+    h.runner.emit({ type: 'transcript_path', sessionId: first.sessionId, path: '/tmp/fictional-dev.jsonl' });
+    await h.domain.sessions.stop('AR', first.sessionId);
+    await rm(path.dirname(dev1), { recursive: true, force: true });
+    await ensure('dev-1', 'AR-1');
+    expect(h.runner.lastStarted()).toMatchObject({ cwd: dev1, resume: false });
+    expect(await git(dev1, 'rev-parse', 'HEAD')).toBe(work);
+
+    // Gone everywhere: not started over from the default branch.
+    await h.domain.sessions.stop('AR', h.runner.lastStarted().sessionId);
+    await rm(path.dirname(dev1), { recursive: true, force: true });
+    await git(h.workspace, 'branch', '--quiet', '-D', 'AR-1-login-page');
+    await expect(ensure('dev-1', 'AR-1')).rejects.toMatchObject({ code: 'workspace_branch_missing' });
+  });
 });

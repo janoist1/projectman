@@ -236,7 +236,15 @@ export class MemberWorkspaces {
    * handed messages as it is. Only while it idles; a turn in progress finishes first.
    */
   isStale(session: Session): boolean {
-    if (session.workItem.type !== 'task' || session.state !== 'idle') return false;
+    return session.state === 'idle' && this.roundDue(session);
+  }
+
+  /**
+   * The session's review round is over, whatever it is doing now. Messages for a session that is
+   * still in a turn wait (they are not typed into the old round) until it idles and restarts.
+   */
+  roundDue(session: Session): boolean {
+    if (session.workItem.type !== 'task') return false;
     return this.ctx.repos.memberWorkspaces
       .bindingsOfTask(session.projectKey, session.workItem.taskKey)
       .some((b) => b.member === session.member && b.kind === 'review' && b.refresh);
@@ -247,25 +255,43 @@ export class MemberWorkspaces {
     this.ctx.repos.memberWorkspaces.requestReviewRound(projectKey, taskKey, member);
   }
 
-  /** Whether the member has a review binding for the task (a re-review request concerns it). */
-  reviews(projectKey: string, taskKey: string, member: string): boolean {
-    return this.ctx.repos.memberWorkspaces
-      .bindingsOfTask(projectKey, taskKey)
-      .some((b) => b.member === member && b.kind === 'review');
+  /**
+   * The workspace that holds the task's committed work, for readers, reviewers and a developer who
+   * takes it over: the assignee's, whoever else opened the task since (another developer's copy
+   * may be stale); without one, the most recently used other copy (the previous assignee's).
+   */
+  workSource(projectKey: string, taskKey: string, exceptMember?: string): WorkspaceSource | null {
+    const work = this.workOf(projectKey, taskKey, exceptMember);
+    return work ? { path: work.record.path, ref: `refs/heads/${work.binding.branch}` } : null;
   }
 
-  /** The workspace where the task's committed work was last made (for readers and reviewers). */
-  workSource(
-    projectKey: string,
-    taskKey: string,
-    exceptMember?: string,
-  ): (WorkspaceSource & { path: string }) | null {
-    const work = this.ctx.repos.memberWorkspaces
+  /**
+   * The developer's workspace (see `workSource`) for a reader to look into, only while it has the
+   * task's branch checked out: once the developer moved on to another task, it shows other files.
+   */
+  async readableWork(config: ProjectConfig, taskKey: string): Promise<string | null> {
+    const work = this.workOf(config.project.key, taskKey);
+    if (!work) return null;
+    const key = { project: config, repoName: work.record.repo, member: work.record.member };
+    const status = await this.manager.status(key).catch((err: unknown) => {
+      this.ctx.logger.warn(
+        { err, taskKey, member: work.record.member },
+        'could not read the developer workspace',
+      );
+      return null;
+    });
+    return status?.checkout?.branch === work.binding.branch ? work.record.path : null;
+  }
+
+  private workOf(projectKey: string, taskKey: string, exceptMember?: string) {
+    const works = this.ctx.repos.memberWorkspaces
       .bindingsOfTask(projectKey, taskKey)
-      .filter((b) => b.kind === 'work' && b.branch && b.member !== exceptMember)
-      .at(-1);
-    const record = work ? this.ctx.repos.memberWorkspaces.get(work.workspaceId) : null;
-    return work && record ? { path: record.path, ref: `refs/heads/${work.branch}` } : null;
+      .filter((b) => b.kind === 'work' && b.branch && b.member !== exceptMember);
+    const task = this.ctx.repos.tasks.get(taskKey);
+    const assignee = task?.projectKey === projectKey ? task.assignee : null;
+    const binding = works.find((b) => assignee !== null && b.member === assignee) ?? works.at(-1);
+    const record = binding ? this.ctx.repos.memberWorkspaces.get(binding.workspaceId) : null;
+    return binding && record ? { binding, record } : null;
   }
 
   /** Whether a directory is a member workspace (never removed when a task is done). */
@@ -283,20 +309,42 @@ export class MemberWorkspaces {
     let checkout: WorkspaceCheckout | null = null;
     let baseCommit: string | null = null;
     let sourceCommit: string | null = null;
+    /** The refusal of a branch that went with a workspace made again, if it is not found elsewhere. */
+    let lost: unknown = null;
     if (previous?.kind === 'work' && previous.branch) {
       // Continuing: the task's branch as the member left it, never reset or rebased.
-      checkout = await this.manager.checkoutTaskBranch(key, { mode: 'continue', branch: previous.branch });
-      baseCommit = previous.baseCommit;
-      sourceCommit = previous.sourceCommit;
+      try {
+        checkout = await this.manager.checkoutTaskBranch(key, { mode: 'continue', branch: previous.branch });
+        baseCommit = previous.baseCommit;
+        sourceCommit = previous.sourceCommit;
+      } catch (err) {
+        // A workspace made again lost its local branches: the task's committed work is looked for
+        // where else it may be (a teammate, the project repository) below. In the same workspace a
+        // missing branch is reported, never started over.
+        const missing = (err as { code?: unknown }).code === 'workspace_branch_missing';
+        if (!missing || previous.generation === record.generation) throw err;
+        lost = err;
+        this.ctx.logger.warn(
+          { member: key.member, taskKey: task.key, branch: previous.branch },
+          'the task branch is gone with the old workspace; looking for it elsewhere',
+        );
+      }
     }
     if (!checkout) {
-      // Taken over from a teammate: their committed branch.
+      // Taken over from a teammate: their committed branch (the assignee's first).
       const teammate = this.workSource(config.project.key, task.key, key.member);
       const commit = teammate ? await this.manager.resolveSource(teammate) : null;
       if (teammate && commit) {
         const branch = teammate.ref.slice('refs/heads/'.length);
         checkout = await this.manager.checkoutTaskBranch(key, { mode: 'fetch', branch, source: teammate });
-        sourceCommit = commit;
+        // A branch of that name already here is kept as it is (never overwritten): what is checked
+        // out is what the binding records.
+        sourceCommit = checkout.head;
+        if (checkout.head !== commit)
+          this.ctx.logger.warn(
+            { member: key.member, taskKey: task.key, branch, local: checkout.head, teammate: commit },
+            "kept the member's own branch, which differs from the teammate's",
+          );
       }
     }
     if (!checkout) {
@@ -311,6 +359,9 @@ export class MemberWorkspaces {
             : { mode: 'continue', branch: found.branch },
         );
         sourceCommit = found.source ? checkout.head : null;
+      } else if (lost) {
+        // The task had a branch: it is not started over from the default branch.
+        throw lost;
       } else {
         // A new task: its own branch from the freshly fetched default branch.
         const base = await this.manager.fetchBase(key);

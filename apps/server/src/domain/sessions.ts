@@ -244,6 +244,14 @@ export class SessionOrchestrator {
     this.workspaces?.requestReviewRound(projectKey, taskKey, member);
   }
 
+  /**
+   * The session's review round is over while it is still in a turn: messages for it wait instead of
+   * reaching the old round, and it restarts on the new commit once it idles (see `handleRunnerEvent`).
+   */
+  reviewRoundDue(session: Session): boolean {
+    return this.workspaces?.roundDue(session) ?? false;
+  }
+
   /** Admission: `workspace_busy` while another task's live session holds the member's workspace. */
   assertWorkspaceFree(config: ProjectConfig, member: AiMemberConfig, task: Task): void {
     this.workspaces?.check(config, member, task);
@@ -507,9 +515,9 @@ export class SessionOrchestrator {
       );
     }
     if (task && repoName && !ws && this.workspaces && sessionPolicyFor(member.role, config).readOnlyTools) {
-      // A reader without a workspace of its own reads the developer's workspace.
-      const source = this.workspaces.workSource(projectKey, task.key);
-      if (source) additionalDirectories = [source.path];
+      // A reader without a workspace of its own reads the developer's, while it is on this task.
+      const readable = await this.workspaces.readableWork(config, task.key);
+      if (readable) additionalDirectories = [readable];
     } else if (
       task &&
       repoName &&
@@ -839,6 +847,7 @@ export class SessionOrchestrator {
           })!;
           this.publishSession(updated);
           this.recomputeMemberState(session.projectKey, session.member);
+          this.wakeForNewRound(updated);
           return;
         }
         case 'transcript_path': {
@@ -887,6 +896,25 @@ export class SessionOrchestrator {
         'runner event handling failed',
       );
     }
+  }
+
+  /**
+   * A review session that finished its turn after its round ended, with messages that waited for
+   * it (a re-review request): their wake-up restarts it on the new commit with them.
+   */
+  private wakeForNewRound(session: Session): void {
+    if (session.workItem.type !== 'task' || !this.workspaces?.isStale(session)) return;
+    const taskKey = session.workItem.taskKey;
+    const [first] = this.ctx.repos.messages
+      .pending(session.projectKey, session.member)
+      .filter((m) => m.taskKey === taskKey);
+    if (!first) return;
+    void this.ctx.events.emit('message_waiting', {
+      projectKey: session.projectKey,
+      handle: session.member,
+      workItem: session.workItem,
+      messageId: first.id,
+    });
   }
 
   private publishSession(session: Session): void {

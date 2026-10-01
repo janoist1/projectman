@@ -70,6 +70,12 @@ const human = (config: ProjectConfig, handle: string) => {
   return member;
 };
 
+const ai = (config: ProjectConfig, handle: string) => {
+  const member = config.team.members.find((m) => m.handle === handle);
+  if (member?.kind !== 'ai') throw new Error(`no AI member ${handle}`);
+  return member;
+};
+
 describe('ownerOnlyChanges', () => {
   it.each<[string, (next: ProjectConfig) => void, OwnerOnlyChange[]]>([
     ['no change', () => {}, []],
@@ -97,6 +103,32 @@ describe('ownerOnlyChanges', () => {
       "an owner's account",
       (c) => void (human(c, 'owner').email = 'boss@example.com'),
       ['admin_or_account', 'owners'],
+    ],
+    ['an AI member level', (c) => void (ai(c, 'dev-1').permissionLevel = 'plan'), ['permission_level']],
+    [
+      'a level that only restates the derived one',
+      (c) => void (ai(c, 'dev-1').permissionLevel = 'ask_human'),
+      [],
+    ],
+    [
+      'a historical mode that changes the derived level',
+      (c) => void (ai(c, 'dev-1').permissionMode = 'auto'),
+      ['permission_level'],
+    ],
+    [
+      'a historical mode that keeps the derived level',
+      (c) => void (ai(c, 'dev-1').permissionMode = 'acceptEdits'),
+      [],
+    ],
+    [
+      'a new AI member on the default level',
+      (c) => void c.team.members.push({ ...ai(c, 'dev-1'), handle: 'dev-2', permissionLevel: 'auto' }),
+      [],
+    ],
+    [
+      'a new AI member on another level',
+      (c) => void c.team.members.push({ ...ai(c, 'dev-1'), handle: 'dev-2', permissionLevel: 'plan' }),
+      ['permission_level'],
     ],
   ])('%s', (_name, edit, expected) => {
     expect(changed(edit)).toEqual(expected);

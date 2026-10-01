@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { PermissionMode, PROVIDER_PERMISSION_MODES } from '@projectman/shared';
+import { PermissionMode } from '@projectman/shared';
 import { t } from '../../i18n/t';
 import { setFetchImplementation } from '../../api/client';
 import { builtInRoles } from '../../mocks/fixtures';
@@ -112,22 +112,25 @@ describe('HireDialog', () => {
     });
   });
 
-  it('shows a Codex hire only permission modes Codex allows, whatever the role', async () => {
+  it('shows Auto as the permission level of a hire, for every role and for a Codex member too', async () => {
     const project = mockProject();
     project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
-    fireEvent.change(await screen.findByLabelText(t('providerSettings.provider')), {
-      target: { value: 'codex' },
-    });
-    for (const radio of screen.getAllByRole('radio')) {
-      fireEvent.click(radio);
-      const shown = PermissionMode.options.filter(
-        (mode) => screen.queryAllByText(t(`permissionModes.${mode}`)).length > 0,
-      );
-      const role = (radio as HTMLInputElement).value;
-      expect(shown.length, role).toBeGreaterThan(0);
-      for (const mode of shown) expect(PROVIDER_PERMISSION_MODES.codex, `${role}: ${mode}`).toContain(mode);
+    const facts = async () => (await screen.findByText(t('hire.permissionMode'))).parentElement!;
+    for (const provider of ['claude', 'codex']) {
+      fireEvent.change(await screen.findByLabelText(t('providerSettings.provider')), {
+        target: { value: provider },
+      });
+      for (const radio of screen.getAllByRole('radio')) {
+        fireEvent.click(radio);
+        const role = (radio as HTMLInputElement).value;
+        expect((await facts()).textContent, `${provider}: ${role}`).toContain(
+          t('permissionLevels.levels.auto'),
+        );
+      }
     }
-    expect(screen.queryAllByText(t('permissionModes.bypassPermissions'))).toEqual([]);
+    for (const mode of PermissionMode.options) {
+      expect(screen.queryAllByText(t(`permissionModes.${mode}`)), mode).toEqual([]);
+    }
   });
 
   it('supports custom Codex model ids and resets to Claude defaults on switching back', async () => {

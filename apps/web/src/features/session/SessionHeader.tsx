@@ -118,9 +118,11 @@ export function SessionHeader({
         </Chip>
         <ProviderBadge provider={session.provider ?? member?.provider} />
         {member?.model ? <Chip size="md">{t('session.chips.model', { model: member.model })}</Chip> : null}
-        {member?.permissionMode ? (
+        {member?.permissionLevel ? (
           <Chip size="md">
-            {t('session.chips.permissions', { mode: t(`permissionModes.${member.permissionMode}`) })}
+            {t('session.chips.permissions', {
+              level: t(`permissionLevels.levels.${member.permissionLevel}`),
+            })}
           </Chip>
         ) : null}
       </div>

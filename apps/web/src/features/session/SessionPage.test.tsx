@@ -39,7 +39,7 @@ describe('session header public settings', () => {
     const member = project.backend.findMember('fe-1')!;
     member.provider = 'codex';
     member.model = 'fictional-public-model';
-    member.permissionMode = 'plan';
+    member.permissionLevel = 'plan';
     project.render(sessionRoute, '/sessions/ses_ac21_fe1', {
       can: { createTasks: false, manageTeam: false, workInSessions: false },
     });
@@ -47,7 +47,7 @@ describe('session header public settings', () => {
       await screen.findByText(t('session.chips.model', { model: 'fictional-public-model' })),
     ).toBeTruthy();
     expect(
-      screen.getByText(t('session.chips.permissions', { mode: t('permissionModes.plan') })),
+      screen.getByText(t('session.chips.permissions', { level: t('permissionLevels.levels.plan') })),
     ).toBeTruthy();
     expect(screen.getByText(t('providers.codex'))).toBeTruthy();
     expect(project.requests.some((request) => request.path.endsWith('/config'))).toBe(false);

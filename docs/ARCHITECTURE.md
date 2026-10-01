@@ -361,6 +361,23 @@ repository, with its reservation), `task_workspace_bindings` (a member's branch 
 a task in it); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
 the server refuses a database a newer build migrated.
 
+## Permission level of an AI member (PM-164, part of PM-162)
+
+`AiMemberConfig.permissionLevel` (`auto`, `ask_ai`, `ask_human`, `plan`; `packages/shared`) is how
+freely an AI member acts. New members start on `auto`, whatever the role or provider. The agent
+CLI mode is not a setting: `cliPermissionMode(level)` derives it, and the server starts sessions
+with `effectivePermissionMode(member)` (the level's mode, or the member's historical
+`permissionMode` while no level is stored). A member without a level reads as `plan` → `plan`,
+`auto` → `auto`, anything else → `ask_human` (`permissionLevelOf`): no migration rewrites
+configurations (decision 26), and no mapping frees a member beyond its old mode. `bypassPermissions`
+is no longer a choice; an existing one shows as a legacy setting until an owner picks a level.
+Only an owner changes a level (`ownerOnlyChanges` category `permission_level`, also checked in
+`MemberService.update` first). `ask_ai` is selectable only with `team.boundary.enabled` and
+another AI member at work that holds `boundary_authorization` (`askAiBlocker`); the roster
+(`MemberView.askAiBlocker`) says why not, and the Team page warns when a member keeps `ask_ai`
+after its decider drops out. Who answers an `ask_ai` request is the runner's job (PM-165 and
+following); until then `ask_ai` starts the CLI in the asking mode like `ask_human`.
+
 ## Session policy migration (PM-87 / PM-127)
 
 `contracts/session-policy.ts` is the provider-neutral session intent: placement, semantic team,

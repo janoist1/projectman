@@ -55,6 +55,19 @@ it.each(['allow', 'deny'] as const)('describes automatic permission %s on the ti
   expect(describeEvent(event, context).text).toBe(t(`timeline.events.permission_automatic_${decision}`));
 });
 
+it.each([
+  ['allow', 'allowed'],
+  ['deny', 'denied'],
+] as const)('says an AI decider answered a permission request: %s', (decision, word) => {
+  const event: TimelineEvent = {
+    ...creation,
+    type: 'permission_resolved',
+    actor: { kind: 'ai', handle: 'lead' },
+    data: { decision, inboxItemId: 'fictional-inbox' },
+  };
+  expect(describeEvent(event, context).text).toBe(t(`timeline.events.permission_ai_${word}`));
+});
+
 it('describes checks recorded before labels replaced them', () => {
   const event: TimelineEvent = {
     ...creation,

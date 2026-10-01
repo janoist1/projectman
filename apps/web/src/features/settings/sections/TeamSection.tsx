@@ -4,6 +4,7 @@ import { useProject, useProjectIndexes } from '../../../app/contexts';
 import { Chip } from '../../../components/Chip';
 import { t } from '../../../i18n/t';
 import { nameOf, roleLabel } from '../../../lib/members';
+import { PermissionLevelControl } from '../../team/PermissionLevelControl';
 import shared from '../settings.module.css';
 import { SettingsSection } from './SettingsSection';
 
@@ -68,7 +69,11 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
                 <td>{memberRole(member, roles.data?.roles ?? [])}</td>
                 <td>{member.kind === 'ai' ? member.model : t('common.dash')}</td>
                 <td>
-                  {member.kind === 'ai' ? t(`permissionModes.${member.permissionMode}`) : t('common.dash')}
+                  {member.kind === 'ai' && members.get(member.handle) ? (
+                    <PermissionLevelControl member={members.get(member.handle)!} />
+                  ) : (
+                    t('common.dash')
+                  )}
                 </td>
                 <td>
                   {member.kind === 'ai'

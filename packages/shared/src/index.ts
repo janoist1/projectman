@@ -26,6 +26,7 @@ export * from './config/lookup';
 export * from './config/leave';
 export * from './config/repos';
 export * from './config/owner-only';
+export * from './config/permission-level';
 export * from './config/edit';
 export * from './domain/schedule';
 export * from './schedule/cron';

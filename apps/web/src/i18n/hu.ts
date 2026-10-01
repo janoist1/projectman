@@ -317,6 +317,7 @@ export const hu = {
       builtin_role: 'A beépített szerep nem módosítható.',
       role_id_mismatch: 'A szerep azonosítója nem egyezik.',
       not_human_member: 'Ez nem emberi tag.',
+      permission_level_unavailable: 'Ez az engedélyfokozat most nem választható.',
       task_not_cancelled: 'Csak megszakított feladat nyitható újra.',
       task_session_live: 'Még fut egy munkamenet. A módosítás előtt állítsd le.',
       repo_required: 'Válassz repót a feladathoz: nélküle az AI-fejlesztő nem indulhat el.',
@@ -827,6 +828,33 @@ export const hu = {
     bypassPermissions: 'mindent szabad',
   },
 
+  /** The member's permission level ("engedélyfokozat"): how freely an AI member acts. */
+  permissionLevels: {
+    title: 'Engedélyfokozat',
+    levels: {
+      auto: 'Auto',
+      ask_ai: 'Kérdez, AI dönt',
+      ask_human: 'Kérdez, ember dönt',
+      plan: 'Tervezés',
+    },
+    hints: {
+      auto: 'Magától dolgozik a munkaterületén.',
+      ask_ai: 'A kockázatosabb lépés előtt kérdez; egy AI-tag dönt.',
+      ask_human: 'A kockázatosabb lépés előtt kérdez; ember dönt.',
+      plan: 'Csak tervez, nem változtat semmin.',
+    },
+    legacy: 'régi beállítás',
+    legacyHint: 'Régi „mindent szabad” beállítás. Egy új fokozat kiválasztása lecseréli.',
+    blocked: {
+      delegation_off: 'Nem választható: a külső műveletek delegálása ki van kapcsolva.',
+      no_ai_decider: 'Nem választható: nincs olyan AI-tag, aki a külső műveletekről dönthetne.',
+    },
+    lostDecider: 'Nincs AI-döntnök, ezért a kérdéseknél az ember dönt: {names}.',
+    lostDeciderLabel: 'Engedélyfokozat figyelmeztetés',
+    ownerOnly: 'A fokozatot csak a tulajdonos állíthatja.',
+    saved: '{name} fokozata: {level}.',
+  },
+
   inbox: {
     title: 'Rád vár',
     subtitle: 'Ami itt van, az nélküled nem halad.',
@@ -914,7 +942,7 @@ export const hu = {
       branch: 'Ág: {branch}',
       cwd: 'Mappa: {cwd}',
       model: 'Modell: {model}',
-      permissions: 'Engedélyek: {mode}',
+      permissions: 'Engedélyfokozat: {level}',
     },
     stop: 'Leállítás',
     stopTitle: 'Leállítod a munkamenetet?',
@@ -1043,6 +1071,8 @@ export const hu = {
       permission_allowed: 'Engedélyezve',
       permission_automatic_allow: 'Szabály szerint engedélyezve',
       permission_automatic_deny: 'Szabály szerint elutasítva',
+      permission_ai_allowed: 'AI-döntnök engedélyezte',
+      permission_ai_denied: 'AI-döntnök elutasította',
       permission_denied: 'Elutasítva',
       question_asked: 'Kérdés: {question}',
       question_answered: 'Válasz: {answer}',
@@ -1156,7 +1186,7 @@ export const hu = {
     specialty: 'Szakterület',
     specialtyPlaceholder: 'pl. frontend vagy backend',
     model: 'Modell',
-    permissionMode: 'Engedélyek',
+    permissionMode: 'Engedélyfokozat',
     capacity: 'Egyszerre',
     capacityValue: '{count} munka',
     subscription: 'Előfizetés',

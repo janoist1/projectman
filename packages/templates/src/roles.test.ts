@@ -31,9 +31,6 @@ const HUNGARIAN_LETTERS = new RegExp(
   'i',
 );
 
-/** Roles whose members change files in a task's own worktree (see the server's session policy). */
-const WORKTREE_ROLES = ['designer', 'developer', 'maintainer', 'content', 'translator', 'docs'];
-
 const dataSteward = CustomRoleDefinition.parse({
   id: 'data_steward',
   name: 'Data steward',
@@ -57,10 +54,10 @@ describe('aiRoleDefaults', () => {
     ).toMatchObject(defaults);
     expect(defaults.instructions).toBe('');
   });
-  it('keeps editing defaults limited to delivery duties', () => {
-    expect(
-      AI_BUILT_IN_ROLE_IDS.filter((role) => aiRoleDefaults(role).permissionMode === 'acceptEdits').sort(),
-    ).toEqual(WORKTREE_ROLES.sort());
+  it('starts every role on the default permission level, Auto', () => {
+    for (const role of AI_BUILT_IN_ROLE_IDS) {
+      expect(aiRoleDefaults(role)).toMatchObject({ permissionLevel: 'auto', permissionMode: 'auto' });
+    }
   });
   it('runs analysts, architects, leads, reviewers, communication and researchers two at a time on opus', () => {
     const capacity = (n: number) =>
@@ -98,7 +95,8 @@ describe('aiMemberDefaults', () => {
     expect(aiMemberDefaults('data_steward', [dataSteward])).toEqual({
       instructions: '',
       model: 'opus',
-      permissionMode: 'default',
+      permissionLevel: 'auto',
+      permissionMode: 'auto',
       capacity: 1,
     });
     expect(aiMemberDefaults('data_steward', [dataSteward])).not.toBe(

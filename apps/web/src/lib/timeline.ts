@@ -233,6 +233,15 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
               : 'timeline.events.permission_automatic_allow',
           ),
         );
+      // A level of "ask, AI decides": an AI member answered the request, not a person.
+      if (event.actor.kind === 'ai')
+        return normal(
+          t(
+            d.decision === 'deny'
+              ? 'timeline.events.permission_ai_denied'
+              : 'timeline.events.permission_ai_allowed',
+          ),
+        );
       return normal(
         d.decision === 'deny'
           ? t('timeline.events.permission_denied')

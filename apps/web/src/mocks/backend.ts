@@ -62,6 +62,8 @@ import {
   nextCronRun,
   noApproverReason,
   ownerOnlyChanges,
+  permissionLevelBlocker,
+  permissionView,
   planLabelChange,
   pullRequestsMerged,
   repoOf,
@@ -261,9 +263,9 @@ export class MockBackend {
           provider: config.provider ?? DEFAULT_AGENT_PROVIDER,
           model: config.model,
           effort: config.effort,
-          permissionMode: config.permissionMode,
         });
     }
+    this.syncPermissionViews();
     for (const message of this.messages) {
       message.receipts ??= message.to.map((handle) => ({
         handle,
@@ -552,7 +554,22 @@ export class MockBackend {
     this.emit({ type: 'inbox_upserted', projectKey: item.projectKey, item: clone(item) });
   }
 
+  /**
+   * The roster's permission fields follow the configuration (a level, the delegation settings, the
+   * deciders). Every commit does it; a test that edits `config` directly calls it itself.
+   */
+  syncPermissionViews(): void {
+    for (const member of this.members) {
+      const config = memberOf(this.config, member.handle);
+      if (config?.kind !== 'ai') continue;
+      delete member.permissionLegacy;
+      delete member.askAiBlocker;
+      Object.assign(member, permissionView(this.config, config));
+    }
+  }
+
   private commitConfig(message: string): void {
+    this.syncPermissionViews();
     this.configVersion = Math.random().toString(16).slice(2, 9);
     this.history.unshift({ version: this.configVersion, message, author: this.user.name, at: nowIso() });
     this.emit({ type: 'config_changed', projectKey: fixtures.PROJECT_KEY, version: this.configVersion });
@@ -1376,11 +1393,25 @@ export class MockBackend {
         input.provider !== undefined ||
         input.effort !== undefined ||
         input.onLeave !== undefined ||
-        input.instructions !== undefined)
+        input.instructions !== undefined ||
+        input.permissionLevel !== undefined)
     )
       return error(400, 'not_ai_member', 'Not an AI member');
+    if (input.permissionLevel !== undefined) {
+      // Like the server: an admin is refused first, then a level that cannot be chosen now.
+      const viewer = memberOf(this.config, this.viewerHandle);
+      if (viewer?.kind === 'human' && viewer.access === 'admin')
+        return error(403, 'owner_only', 'Only an owner may change the permission level');
+      const blocker = permissionLevelBlocker(this.config, handle, input.permissionLevel);
+      if (blocker)
+        return error(400, 'permission_level_unavailable', 'This permission level is not available', {
+          blocker,
+        });
+    }
     const next = clone(this.config);
     const nextMember = memberOf(next, handle)!;
+    if (nextMember.kind === 'ai' && input.permissionLevel !== undefined)
+      nextMember.permissionLevel = input.permissionLevel;
     if (input.access !== undefined && nextMember.kind !== 'human')
       return error(400, 'not_human_member', 'Access is for humans');
     if (nextMember.kind === 'human' && input.access !== undefined) nextMember.access = input.access;
@@ -1409,6 +1440,7 @@ export class MockBackend {
       }
       if (input.schedule !== undefined) config.schedule = input.schedule ?? undefined;
       if (input.instructions !== undefined) config.instructions = input.instructions.trim();
+      if (input.permissionLevel !== undefined) config.permissionLevel = input.permissionLevel;
       if (input.onLeave !== undefined) {
         if (input.onLeave) {
           config.onLeave = member.onLeave = true;
@@ -2075,6 +2107,7 @@ export class MockBackend {
         input.provider === 'codex' ? modelForProvider('codex', input.model) : (input.model ?? defaults.model),
       ...(input.effort ? { effort: input.effort } : {}),
       permissionMode: defaults.permissionMode,
+      permissionLevel: defaults.permissionLevel,
       capacity: defaults.capacity,
       instructions: defaults.instructions,
       sponsor: this.sponsor(),
@@ -2093,7 +2126,7 @@ export class MockBackend {
       provider: config.provider ?? DEFAULT_AGENT_PROVIDER,
       model: config.model,
       effort: config.effort,
-      permissionMode: config.permissionMode,
+      ...permissionView(this.config, config),
       role: config.role,
       roles: memberRoles(config),
       specialty: config.specialty ?? null,

@@ -184,7 +184,7 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
         <dl className={styles.facts}>
           <div>
             <dt>{t('hire.permissionMode')}</dt>
-            <dd>{t(`permissionModes.${preview.permissionMode}`)}</dd>
+            <dd>{t(`permissionLevels.levels.${preview.permissionLevel}`)}</dd>
           </div>
           <div>
             <dt>{t('hire.capacity')}</dt>

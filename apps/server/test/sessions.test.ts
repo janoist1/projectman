@@ -289,7 +289,7 @@ describe('session orchestrator', () => {
     expect(maintainer.session.branch).toBe(`task/${withRepo.key}`);
     expect(h.runner.lastStarted()).toMatchObject({
       allowedTools: [...allowedToolsFor('maintainer', testConfig()), ...files.allow],
-      permissionMode: 'acceptEdits',
+      permissionMode: 'auto',
     });
 
     const architect = await h.domain.sessions.ensureSession('AR', 'architect', item);
@@ -300,7 +300,7 @@ describe('session orchestrator', () => {
     expect(steward.session).toMatchObject({ cwd: h.workspace, branch: null });
     expect(h.runner.lastStarted()).toMatchObject({
       allowedTools: ['mcp__team__*', ...files.allow],
-      permissionMode: 'default',
+      permissionMode: 'auto',
     });
   });
 

@@ -1,6 +1,6 @@
-import { roleBundle, DEFAULT_PROVIDER_MODELS, DUTIES } from '@projectman/shared';
+import { roleBundle, DEFAULT_PERMISSION_LEVEL, DEFAULT_PROVIDER_MODELS, DUTIES } from '@projectman/shared';
 import { aiMemberDefaults } from '@projectman/templates';
-import type { AiMemberConfig, RoleId, ProjectConfig } from '@projectman/shared';
+import type { AiMemberConfig, PermissionLevel, RoleId, ProjectConfig } from '@projectman/shared';
 
 /**
  * Defaults shown in the preview. There is no role-template endpoint yet, so the preview
@@ -10,7 +10,7 @@ export function previewFor(
   role: RoleId,
   specialty: string,
   config: ProjectConfig | undefined,
-): Pick<AiMemberConfig, 'model' | 'permissionMode' | 'capacity' | 'instructions'> {
+): Pick<AiMemberConfig, 'model' | 'capacity' | 'instructions'> & { permissionLevel: PermissionLevel } {
   const ai = (config?.team.members ?? []).filter(
     (member): member is AiMemberConfig => member.kind === 'ai' && member.role === role,
   );
@@ -18,9 +18,10 @@ export function previewFor(
   const match = ai.find((member) => wanted && member.specialty?.toLowerCase().includes(wanted)) ?? ai[0];
   return {
     model: match?.model ?? DEFAULT_PROVIDER_MODELS.claude,
-    permissionMode: config
-      ? (aiMemberDefaults(role, config.team.roles, config.team.roleOverrides)?.permissionMode ?? 'default')
-      : (match?.permissionMode ?? 'default'),
+    // The server gives every new member the same level, whatever the role or provider.
+    permissionLevel:
+      (config && aiMemberDefaults(role, config.team.roles, config.team.roleOverrides)?.permissionLevel) ||
+      DEFAULT_PERMISSION_LEVEL,
     capacity: match?.capacity ?? 1,
     instructions: config
       ? [

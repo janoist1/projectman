@@ -33,13 +33,13 @@ describe('role session policy', () => {
     expect(allowedToolsFor('developer', team)).toEqual([...TEAM_TOOLS_ALLOWED, ...DEVELOPMENT_TOOLS]);
   });
 
-  it('runs the roles that change files in the task worktree, with edits accepted', () => {
+  it('runs the roles that change files in the task worktree, and every role starts on Auto', () => {
     const worktreeRoles = BUILT_IN_ROLE_IDS.filter((role) => usesWorktree(role, team));
     expect(worktreeRoles.sort()).toEqual(
       ['content', 'designer', 'developer', 'docs', 'maintainer', 'translator'].sort(),
     );
     for (const role of AI_BUILT_IN_ROLE_IDS) {
-      expect(aiRoleDefaults(role).permissionMode === 'acceptEdits', role).toBe(worktreeRoles.includes(role));
+      expect(aiRoleDefaults(role).permissionLevel, role).toBe('auto');
       // Nobody both changes files and gets the review tools pre-approved.
       expect(sessionPolicyFor(role, team).readOnlyTools && usesWorktree(role, team), role).toBe(false);
     }

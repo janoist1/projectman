@@ -8,6 +8,8 @@ import {
   memberDuties,
   memberOf,
   memberRoles,
+  permissionLevelBlocker,
+  permissionView,
   roleHolders,
   stageApprovers,
   stageOf,
@@ -138,7 +140,7 @@ export class MemberService {
         provider: m.provider ?? DEFAULT_AGENT_PROVIDER,
         model: m.model,
         effort: m.effort,
-        permissionMode: m.permissionMode,
+        ...permissionView(config, m),
         ...(m.onLeave ? { onLeave: true } : {}),
       };
     });
@@ -242,6 +244,7 @@ export class MemberService {
           req.provider === 'codex' ? modelForProvider('codex', req.model) : (req.model ?? defaults.model),
         ...(req.effort ? { effort: req.effort } : {}),
         permissionMode: defaults.permissionMode,
+        permissionLevel: defaults.permissionLevel,
         capacity: defaults.capacity,
         instructions: defaults.instructions,
         sponsor: sponsor.handle,
@@ -293,11 +296,12 @@ export class MemberService {
           req.provider !== undefined ||
           req.effort !== undefined ||
           req.onLeave !== undefined ||
-          req.instructions !== undefined
+          req.instructions !== undefined ||
+          req.permissionLevel !== undefined
         ) {
           throw invalid(
             'not_ai_member',
-            'specialty, provider, model, effort, schedule, leave and instructions apply to AI members only',
+            'specialty, provider, model, effort, schedule, leave, instructions and permission level apply to AI members only',
           );
         }
         if (req.roles !== undefined) {
@@ -339,6 +343,22 @@ export class MemberService {
         if (req.instructions !== undefined) {
           member.instructions = req.instructions.trim();
           fields.push('instructions');
+        }
+        if (req.permissionLevel !== undefined) {
+          requireHuman(draft, by.actor, 'owner', {
+            code: 'owner_only',
+            message: 'only an owner may change the permission level',
+          });
+          const blocker = permissionLevelBlocker(draft, handle, req.permissionLevel);
+          if (blocker) {
+            throw invalid(
+              'permission_level_unavailable',
+              `the permission level ${req.permissionLevel} is not available: ${blocker}`,
+              { blocker },
+            );
+          }
+          member.permissionLevel = req.permissionLevel;
+          fields.push('permission level');
         }
         if (req.onLeave !== undefined) {
           if (req.onLeave) member.onLeave = true;
@@ -446,9 +466,19 @@ export class MemberService {
       }
     });
     const previousMembers = new Map((previous?.team.members ?? []).map((m) => [m.handle, m]));
+    const previousBlockers = new Map(
+      (previous ? this.rosterFor(previous) : []).map((view) => [view.handle, view.askAiBlocker]),
+    );
     for (const member of this.rosterFor(next)) {
       const configMember = memberOf(next, member.handle);
-      if (JSON.stringify(previousMembers.get(member.handle)) !== JSON.stringify(configMember)) {
+      // The "ask, AI decides" blocker depends on other members and on the delegation settings.
+      const blockerChanged = previousBlockers.has(member.handle)
+        ? previousBlockers.get(member.handle) !== member.askAiBlocker
+        : false;
+      if (
+        blockerChanged ||
+        JSON.stringify(previousMembers.get(member.handle)) !== JSON.stringify(configMember)
+      ) {
         this.ctx.bus.publish({ type: 'member_changed', projectKey, handle: member.handle, member });
       }
     }

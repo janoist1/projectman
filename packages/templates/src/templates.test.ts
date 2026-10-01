@@ -104,6 +104,7 @@ describe('every template', () => {
           temp: false,
           model: defaults.model,
           permissionMode: defaults.permissionMode,
+          permissionLevel: 'auto',
           capacity: defaults.capacity,
           instructions: defaults.instructions,
         });

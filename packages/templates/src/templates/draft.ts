@@ -122,6 +122,7 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
         ...(specialtyName ? { specialty: specialtyName } : {}),
         model: defaults.model,
         permissionMode: defaults.permissionMode,
+        permissionLevel: defaults.permissionLevel,
         capacity: defaults.capacity,
         instructions: defaults.instructions,
         sponsor: input.owner.handle,

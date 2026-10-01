@@ -22,6 +22,20 @@ export const PermissionMode = z.enum(['default', 'acceptEdits', 'plan', 'auto', 
 export type PermissionMode = z.infer<typeof PermissionMode>;
 
 /**
+ * How freely an AI member acts (the member's permission level, set by an owner). The agent CLI's
+ * mode is not a separate setting: `cliPermissionMode` derives it from the level.
+ * - `auto`: acts on its own inside its workspace (the default);
+ * - `ask_ai`: asks before riskier steps, and an AI member holding the boundary authorization duty decides;
+ * - `ask_human`: asks before riskier steps, and a human decides;
+ * - `plan`: only plans, changes nothing.
+ */
+export const PermissionLevel = z.enum(['auto', 'ask_ai', 'ask_human', 'plan']);
+export type PermissionLevel = z.infer<typeof PermissionLevel>;
+
+/** The level every new AI member starts with, whatever its role or provider. */
+export const DEFAULT_PERMISSION_LEVEL: PermissionLevel = 'auto';
+
+/**
  * The agent CLI an AI member runs in, on its sponsor's subscription: Claude Code (Claude plan)
  * or OpenAI Codex CLI (ChatGPT plan).
  */

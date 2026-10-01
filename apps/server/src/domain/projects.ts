@@ -78,6 +78,7 @@ const OWNER_ONLY_MESSAGES: Record<OwnerOnlyChange, string> = {
   approval_policy: 'only an owner may change or remove human approval gates',
   release_approvers: 'only an owner may change the release approvers',
   owners: 'only an owner may change who is an owner',
+  permission_level: 'only an owner may change the permission level of an AI member',
 };
 
 function fromConfigError(err: unknown): never {

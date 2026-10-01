@@ -12,6 +12,7 @@ import {
   MemberHandle,
   MemberKind,
   MemberStatus,
+  PermissionLevel,
   PermissionMode,
 } from '../domain/member';
 import { TeamMessage } from '../domain/message';
@@ -115,6 +116,12 @@ export const MemberView = z.object({
   /** AI members only: public session settings, available to every project member. */
   model: z.string().optional(),
   permissionMode: PermissionMode.optional(),
+  /** AI members only: the permission level, stored or derived from the historical mode. */
+  permissionLevel: PermissionLevel.optional(),
+  /** AI members only: still on the historical "everything allowed" mode, which cannot be chosen any more. */
+  permissionLegacy: z.boolean().optional(),
+  /** AI members only: why "ask, AI decides" cannot be chosen now; absent when it can. */
+  askAiBlocker: z.enum(['delegation_off', 'no_ai_decider']).optional(),
   effort: AgentEffort.optional(),
   /** AI members only: on leave, nothing starts a session for the member (omitted: at work). */
   onLeave: z.boolean().optional(),
@@ -163,6 +170,8 @@ export const UpdateMemberRequest = z.object({
   onLeave: z.boolean().optional(),
   /** AI only; the member's own instructions (English prompt text); an empty string clears them. */
   instructions: z.string().optional(),
+  /** AI only, owners only: the permission level. */
+  permissionLevel: PermissionLevel.optional(),
 });
 export type UpdateMemberRequest = z.infer<typeof UpdateMemberRequest>;
 

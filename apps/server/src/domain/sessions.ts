@@ -1,6 +1,7 @@
 import path from 'node:path';
 import {
   DEFAULT_AGENT_PROVIDER,
+  effectivePermissionMode,
   effectiveRepo,
   isOnLeave,
   memberOf,
@@ -692,7 +693,7 @@ export class SessionOrchestrator {
       config,
       role: member.role,
       task,
-      permissionMode: member.permissionMode,
+      permissionMode: effectivePermissionMode(member),
       placement: vm
         ? memberWorkspacePlacement(ws, cwd)
         : ws
@@ -791,7 +792,7 @@ export class SessionOrchestrator {
         displayName: `${member.displayName} · ${workItemLabel(workItem, member)}`,
         model: member.model,
         effort: member.effort,
-        permissionMode: member.permissionMode,
+        permissionMode: effectivePermissionMode(member),
         appendSystemPrompt: pack.appendSystemPrompt,
         // A resumed conversation has its brief already; it needs to know why it was woken.
         initialMessage: resume ? (message ?? pack.continueMessage) : pack.initialMessage,

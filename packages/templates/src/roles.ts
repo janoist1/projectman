@@ -1,14 +1,13 @@
 import {
-  customRoleDuties,
   isBuiltInRole,
   roleHolders,
-  BUILT_IN_ROLE_DUTIES,
+  DEFAULT_PERMISSION_LEVEL,
   DEFAULT_PROVIDER_MODELS,
-  DUTIES,
+  cliPermissionMode,
   type AiBuiltInRoleId,
   type BuiltInRoleId,
   type CustomRoleDefinition,
-  type DutyId,
+  type PermissionLevel,
   type PermissionMode,
   type RoleOverrides,
 } from '@projectman/shared';
@@ -18,6 +17,9 @@ export interface AiRoleDefaults {
   /** English role instructions appended to the member's system prompt. */
   instructions: string;
   model: string;
+  /** Every new member starts with the default level, whatever its role or provider. */
+  permissionLevel: PermissionLevel;
+  /** The agent CLI mode that level maps to (kept for configurations and readers of the old field). */
   permissionMode: PermissionMode;
   capacity: number;
 }
@@ -33,25 +35,23 @@ const ROLE_CAPACITY: Partial<Record<BuiltInRoleId, number>> = {
 };
 
 /**
- * Defaults for a member holding these duties. Members that change files in the task's
- * worktree accept edits; everyone else asks. No instructions are copied: the context pack
- * reads the duty fragments and the role's own instructions, so editing the role reaches every
- * member; a member's `instructions` add to them.
+ * Defaults for a new AI member: the default permission level for every role. No instructions
+ * are copied: the context pack reads the duty fragments and the role's own instructions, so
+ * editing the role reaches every member; a member's `instructions` add to them.
  */
-function defaultsFor(duties: readonly DutyId[], capacity = 1): AiRoleDefaults {
+function defaultsFor(capacity = 1): AiRoleDefaults {
   return {
     instructions: '',
     model: DEFAULT_PROVIDER_MODELS.claude,
-    permissionMode: duties.some((id) => DUTIES[id].toolPolicy === 'task_worktree')
-      ? 'acceptEdits'
-      : 'default',
+    permissionLevel: DEFAULT_PERMISSION_LEVEL,
+    permissionMode: cliPermissionMode(DEFAULT_PERMISSION_LEVEL),
     capacity,
   };
 }
 
 /** Defaults for an AI member hired for a built-in role (roles only humans hold have none). */
 export function aiRoleDefaults(role: AiBuiltInRoleId): AiRoleDefaults {
-  return defaultsFor(BUILT_IN_ROLE_DUTIES[role], ROLE_CAPACITY[role]);
+  return defaultsFor(ROLE_CAPACITY[role]);
 }
 
 /**
@@ -66,8 +66,5 @@ export function aiMemberDefaults(
 ): AiRoleDefaults | null {
   const holders = roleHolders(role, customRoles, overrides);
   if (!holders || holders === 'human') return null;
-  if (isBuiltInRole(role))
-    return defaultsFor(overrides[role]?.duties ?? BUILT_IN_ROLE_DUTIES[role], ROLE_CAPACITY[role]);
-  const custom = customRoles.find((r) => r.id === role);
-  return defaultsFor(custom ? customRoleDuties(custom) : []);
+  return defaultsFor(isBuiltInRole(role) ? ROLE_CAPACITY[role] : undefined);
 }

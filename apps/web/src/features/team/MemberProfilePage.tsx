@@ -42,6 +42,7 @@ import { ChatView } from '../session/ChatView';
 import { EditMemberDialog } from './EditMemberDialog';
 import { LeaveButton } from './LeaveButton';
 import { RetireDialog } from './RetireDialog';
+import { PermissionLevelControl } from './PermissionLevelControl';
 import { MemberScheduleControl } from './ScheduledRuns';
 import styles from './MemberProfilePage.module.css';
 
@@ -215,6 +216,10 @@ export function MemberProfilePage() {
                   : t('providerSettings.defaultEffort')}
             </p>
             <p>{t('profile.capacity', { used: data.capacityUsed, max: data.capacity ?? 0 })}</p>
+            <div>
+              <h3>{t('permissionLevels.title')}</h3>
+              <PermissionLevelControl member={member} />
+            </div>
             <PlanUsageMeter
               provider={member.provider ?? DEFAULT_AGENT_PROVIDER}
               usage={board.data?.planUsageByProvider[member.provider ?? DEFAULT_AGENT_PROVIDER]}

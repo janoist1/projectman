@@ -1,8 +1,10 @@
 import { isHumanOnlyLabel } from '../domain/label';
+import { DEFAULT_PERMISSION_LEVEL } from '../domain/member';
 import { BUILT_IN_ROLE_IDS } from '../domain/role';
 import { dutyMembers, roleBundle } from './duties';
 import { stageApprovers } from './gates';
 import { labelDefinition, labelHolders } from './labels';
+import { permissionLevelOf } from './permission-level';
 import type { ProjectConfig } from './schema';
 
 /**
@@ -14,10 +16,12 @@ import type { ProjectConfig } from './schema';
  * - `approval_policy`: approvals (gate labels only humans may set) and who may give them,
  *   release four eyes, boundary delegation settings, and who holds or grants authorization duties;
  * - `release_approvers`: who approves the release stages;
- * - `owners`: who is an owner.
+ * - `owners`: who is an owner;
+ * - `permission_level`: an AI member's permission level, or a new AI member that starts with
+ *   other than the default level.
  */
 export type OwnerOnlyChange =
-  'locations' | 'admin_or_account' | 'approval_policy' | 'release_approvers' | 'owners';
+  'locations' | 'admin_or_account' | 'approval_policy' | 'release_approvers' | 'owners' | 'permission_level';
 
 /** The owner-only changes from `previous` to `next`, in the order above; empty when there are none. */
 export function ownerOnlyChanges(
@@ -32,7 +36,18 @@ export function ownerOnlyChanges(
   if (releaseApproversSignature(previous) !== releaseApproversSignature(next))
     changes.push('release_approvers');
   if (ownersSignature(previous) !== ownersSignature(next)) changes.push('owners');
+  if (permissionLevelChanged(previous, next)) changes.push('permission_level');
   return changes;
+}
+
+/** An existing AI member's level differs, or a new AI member does not start with the default level. */
+function permissionLevelChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
+  return next.team.members.some((member) => {
+    if (member.kind !== 'ai') return false;
+    const old = previous.team.members.find((m) => m.handle === member.handle);
+    const before = old?.kind === 'ai' ? permissionLevelOf(old) : DEFAULT_PERMISSION_LEVEL;
+    return permissionLevelOf(member) !== before;
+  });
 }
 
 /** Stage and condition ordering do not alter the approval policy. Removal does. */

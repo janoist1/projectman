@@ -64,6 +64,22 @@ export function tokenTotal(counts: TokenCounts): number {
   return counts.input + counts.output + counts.cacheRead + counts.cacheWrite;
 }
 
+/**
+ * What a token read from the prompt cache counts in `limitTokens`: a tenth, as it is priced at a
+ * tenth of uncached input by both Anthropic and OpenAI.
+ */
+export const CACHE_READ_WEIGHT = 0.1;
+
+/**
+ * The tokens a session's warning limit (PM-187) is measured in: input, output and cache writes in
+ * full, cache reads at `CACHE_READ_WEIGHT`. A long session re-reads its whole conversation from the
+ * cache every turn: in full those reads would drown the rest, left out they would hide a session
+ * whose context grew large.
+ */
+export function limitTokens(counts: TokenCounts): number {
+  return counts.input + counts.output + counts.cacheWrite + Math.round(counts.cacheRead * CACHE_READ_WEIGHT);
+}
+
 /** The sum of usage rows, of every model and scope. */
 export function usageTotal(rows: readonly TokenCounts[]): TokenCounts {
   return rows.reduce<TokenCounts>(addTokenCounts, EMPTY_TOKEN_COUNTS);

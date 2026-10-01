@@ -264,6 +264,12 @@ export const hu = {
     byMember: 'Tagonként',
     lastDay: 'Utolsó 24 óra',
     lastWeek: 'Utolsó 7 nap',
+    /** The warning limit of a session's tokens (PM-187). */
+    counted: 'A figyelmeztetési határba számít: {count} token',
+    countedHelp: 'A gyorsítótárból olvasott tokenek egytizedükkel számítanak, a többi teljes értékkel.',
+    alertChip: 'Határ fölött',
+    alert:
+      'Átlépte a figyelmeztetési határt ({time}): {counted} token, a határ {limit} token. A munkamenet fut tovább.',
   },
 
   connection: {
@@ -908,6 +914,7 @@ export const hu = {
       decision: 'Döntés',
       question: 'Kérdés',
       approval: 'Jóváhagyás',
+      alert: 'Figyelmeztetés',
     },
     kindsLower: {
       permission: 'engedély',
@@ -915,6 +922,7 @@ export const hu = {
       decision: 'döntés',
       question: 'kérdés',
       approval: 'jóváhagyás',
+      alert: 'figyelmeztetés',
     },
     options: {
       allow: 'Engedélyezem',
@@ -923,6 +931,21 @@ export const hu = {
       approve: 'Jóváhagyom',
       reject: 'Elutasítom',
       answer: 'Saját válasz',
+      seen: 'Láttam',
+    },
+    /** Alerts: something to notice, with nothing to decide. */
+    alerts: {
+      unknown: 'Figyelmeztetés',
+      session_tokens: {
+        heading: 'Sok tokent használ egy munkamenet',
+        body: '{member} munkamenete ({work}, indult: {started}) {counted} tokent használt; a figyelmeztetési határ {limit} token. A munkamenet fut tovább, nem állt meg.',
+      },
+      work: {
+        task: '{key} kártya',
+        general: 'általános beszélgetés',
+        meeting: 'megbeszélés',
+        schedule: 'ütemezett futás',
+      },
     },
     resolutions: {
       automatic_allow: 'Szabály szerint engedélyezve',
@@ -933,6 +956,7 @@ export const hu = {
       approve: 'Jóváhagyva',
       reject: 'Elutasítva',
       answer: 'Megválaszolva',
+      seen: 'Láttam',
       option: 'Válasz: {label}',
       expired: 'Lejárt',
       cancelled: 'Visszavonva',
@@ -1517,6 +1541,11 @@ export const hu = {
       maxConcurrentAiValue: '{count} munkamenet',
       pauseAbove: 'Új AI-munka szünetel e fölött',
       pauseAboveValue: '{percent}% keret',
+      noTokenWarning: 'Nincs tokenfigyelmeztetés',
+      noTokenWarningHelp:
+        'Ha megadsz egy határt, és egy munkamenet fogyasztása eléri, egyszer jelzést kapsz a Rád vár listában. A munkamenet nem áll meg. A gyorsítótárból olvasott tokenek egytizedükkel számítanak.',
+      warnAboveSessionTokens: 'Figyelmeztetés munkamenetenként e fölött (token)',
+      warnAboveSessionTokensValue: '{count} token',
       tempWorkers: 'Beugrók',
       tempWorkersOn: 'be · legfeljebb {max} · {role}',
       tempWorkersOff: 'ki',

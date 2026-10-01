@@ -81,6 +81,9 @@ import {
   taskSeq,
   validateProjectConfig,
   mergeTokenUsage,
+  ALERT_SEEN_OPTION,
+  limitTokens,
+  usageTotal,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -109,9 +112,11 @@ import type {
   ScheduleRun,
   ServerEvent,
   Session,
+  SessionTokensAlert,
   Stage,
   Task,
   TeamMessage,
+  TokenUsage,
   TimelineEvent,
   TimelineEventData,
   TimelineEventType,
@@ -2226,6 +2231,49 @@ export class MockBackend {
     this.appendChat(sessionId, [this.chatItem('user_text', { origin: 'human', text })]);
     this.updateSession(sessionId, { state: 'working', activity: null, endedAt: null });
     return { status: 202 };
+  }
+
+  /**
+   * A running session reports usage (the runner's `usage` event, PM-178): it is added to the
+   * session, and, as on the server, once the session's `limitTokens` reach the project's warning
+   * limit (PM-187) the session is marked and the owners get one alert. The session keeps running.
+   */
+  reportUsage(sessionId: string, entries: readonly TokenUsage[]): void {
+    const session = this.findSession(sessionId);
+    if (!session) return;
+    const usage = session.usage ?? { since: nowIso(), rows: [] };
+    const rows = mergeTokenUsage([...usage.rows, ...entries]);
+    const limit = this.config.team.limits.warnAboveSessionTokens;
+    const counted = limitTokens(usageTotal(rows));
+    const alerted = !session.usageAlert && limit !== undefined && counted >= limit;
+    this.updateSession(sessionId, {
+      usage: { ...usage, rows },
+      ...(alerted ? { usageAlert: { at: nowIso(), countedTokens: counted, limitTokens: limit } } : {}),
+    });
+    if (!alerted) return;
+    const payload: SessionTokensAlert = {
+      alert: 'session_tokens',
+      countedTokens: counted,
+      limitTokens: limit,
+      workItem: session.workItem,
+      sessionStartedAt: session.startedAt,
+    };
+    this.upsertInbox({
+      id: mockId('inb'),
+      projectKey: session.projectKey,
+      kind: 'alert',
+      assignees: boundaryOwners(this.config),
+      source: session.member,
+      sessionId: session.id,
+      taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
+      title: `Session used ${counted} tokens, above the warning limit of ${limit}`,
+      body: null,
+      payload,
+      options: [ALERT_SEEN_OPTION],
+      state: 'open',
+      resolution: null,
+      createdAt: nowIso(),
+    });
   }
 
   /**

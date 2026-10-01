@@ -11,7 +11,7 @@ import { Icon } from '../../components/Icon';
 import { MoreMenu } from '../../components/MoreMenu';
 import { ProviderBadge } from '../../components/ProviderBadge';
 import { StageProgress } from '../../components/StageProgress';
-import { formatTokens } from '../../i18n/format';
+import { formatStamp, formatTokens } from '../../i18n/format';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { stagePosition } from '../../lib/pipeline';
@@ -28,7 +28,7 @@ import styles from './SessionHeader.module.css';
  * The session's crumbs, live status and stop, its title, and chips for stage, PR, branch, the
  * agent CLI the session runs (the member's for sessions from before it was recorded), model, and
  * the permission settings that apply to it (an owner changes them here, PM-170), and the tokens it
- * used (PM-178; per model in its usage panel).
+ * used (PM-178; per model in its usage panel), marked when they reached the warning limit (PM-187).
  */
 export function SessionHeader({
   session,
@@ -130,6 +130,20 @@ export function SessionHeader({
               : t('tokenUsage.chipNoData')}
           </Chip>
         )}
+        {session.usageAlert ? (
+          <Chip
+            tone="needs"
+            size="md"
+            icon="exclamation"
+            title={t('tokenUsage.alert', {
+              time: formatStamp(session.usageAlert.at),
+              counted: formatTokens(session.usageAlert.countedTokens),
+              limit: formatTokens(session.usageAlert.limitTokens),
+            })}
+          >
+            {t('tokenUsage.alertChip')}
+          </Chip>
+        ) : null}
         <SessionPermissions session={session} member={member} />
       </div>
       <Dialog

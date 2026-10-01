@@ -1,6 +1,7 @@
 import type { ProjectConfig } from '@projectman/shared';
 import { useRoles } from '../../../api/queries';
 import { useProject } from '../../../app/contexts';
+import { formatTokens } from '../../../i18n/format';
 import { t } from '../../../i18n/t';
 import { errorMessage } from '../../../lib/errors';
 import { aiRoleView } from '../../../lib/roles';
@@ -11,6 +12,9 @@ import { SettingsSection } from './SettingsSection';
 
 /** The number the field starts at when the owner turns "no limit" off. */
 const DEFAULT_MAX_CONCURRENT_AI_CHOICE = 3;
+
+/** The number the token warning field starts at when the owner turns "no warning" off (PM-187). */
+const DEFAULT_TOKEN_WARNING_CHOICE = 5_000_000;
 
 function LimitsEditor({ draft, change, isOwner }: SectionEditorProps) {
   const { key } = useProject();
@@ -118,6 +122,38 @@ function LimitsEditor({ draft, change, isOwner }: SectionEditorProps) {
         </output>
       </label>
       <label className={shared.field}>
+        {t('settings.limits.noTokenWarning')}
+        <input
+          type="checkbox"
+          checked={limits.warnAboveSessionTokens === undefined}
+          aria-describedby="token-warning-help"
+          onChange={(event) =>
+            change((config) => {
+              if (event.target.checked) delete config.team.limits.warnAboveSessionTokens;
+              else config.team.limits.warnAboveSessionTokens = DEFAULT_TOKEN_WARNING_CHOICE;
+            })
+          }
+        />
+      </label>
+      <p id="token-warning-help">{t('settings.limits.noTokenWarningHelp')}</p>
+      {limits.warnAboveSessionTokens !== undefined ? (
+        <label className={shared.field}>
+          {t('settings.limits.warnAboveSessionTokens')}
+          <input
+            type="number"
+            min={10_000}
+            max={1_000_000_000}
+            step={10_000}
+            value={limits.warnAboveSessionTokens}
+            onChange={(event) =>
+              change((config) => {
+                config.team.limits.warnAboveSessionTokens = Number(event.target.value);
+              })
+            }
+          />
+        </label>
+      ) : null}
+      <label className={shared.field}>
         {t('settings.limits.tempWorkers')}
         <input
           type="checkbox"
@@ -168,7 +204,10 @@ function LimitsEditor({ draft, change, isOwner }: SectionEditorProps) {
   );
 }
 
-/** The team's limits: the AI switch, concurrency, the plan-usage pause and temp workers. */
+/**
+ * The team's limits: the AI switch, concurrency, the plan-usage pause, the warning limit of a
+ * session's tokens and temp workers.
+ */
 export function LimitsSection({ config }: { config: ProjectConfig }) {
   const { key } = useProject();
   const roles = useRoles(key);
@@ -202,6 +241,16 @@ export function LimitsSection({ config }: { config: ProjectConfig }) {
           <div>
             <dt>{t('settings.limits.pauseAbove')}</dt>
             <dd>{t('settings.limits.pauseAboveValue', { percent: limits.pauseAbovePlanUsagePercent })}</dd>
+          </div>
+          <div>
+            <dt>{t('settings.limits.warnAboveSessionTokens')}</dt>
+            <dd>
+              {limits.warnAboveSessionTokens === undefined
+                ? t('settings.limits.noTokenWarning')
+                : t('settings.limits.warnAboveSessionTokensValue', {
+                    count: formatTokens(limits.warnAboveSessionTokens),
+                  })}
+            </dd>
           </div>
           <div>
             <dt>{t('settings.limits.tempWorkers')}</dt>

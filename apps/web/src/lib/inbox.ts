@@ -1,5 +1,11 @@
-import { BoundaryRequest, permissionDelegationOf, questionPayloadOf } from '@projectman/shared';
-import type { InboxItem, InboxOption } from '@projectman/shared';
+import {
+  alertPayloadOf,
+  BoundaryRequest,
+  permissionDelegationOf,
+  questionPayloadOf,
+} from '@projectman/shared';
+import type { InboxItem, InboxOption, WorkItemRef } from '@projectman/shared';
+import { formatStamp, formatTokens } from '../i18n/format';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { toolPresentationFor } from './chat';
 import { nameOf, namesOf } from './members';
@@ -9,7 +15,7 @@ import type { PipelineIndex } from './pipeline';
 /** Option id used for a free-text answer to a question (the text goes in `note`). */
 export const FREE_ANSWER_OPTION_ID = 'answer';
 
-const BUILT_IN_OPTIONS = ['allow', 'allow_session', 'deny', 'approve', 'reject', 'answer'] as const;
+const BUILT_IN_OPTIONS = ['allow', 'allow_session', 'deny', 'approve', 'reject', 'answer', 'seen'] as const;
 type BuiltInOption = (typeof BUILT_IN_OPTIONS)[number];
 
 function isBuiltIn(id: string): id is BuiltInOption {
@@ -27,6 +33,10 @@ export function optionLabel(option: InboxOption): string {
  */
 export function inboxHeading(item: InboxItem): string {
   if (item.kind === 'boundary') return t('boundary.heading');
+  if (item.kind === 'alert') {
+    const alert = alertPayloadOf(item);
+    return alert ? t(`inbox.alerts.${alert.alert}.heading`) : t('inbox.alerts.unknown');
+  }
   if (item.kind === 'permission') {
     const tool = permissionTool(item);
     if (tool && (item.title === tool || item.title.startsWith(`${tool}:`))) {
@@ -65,6 +75,29 @@ export function questionExtras(item: InboxItem): QuestionExtras {
     recommendationReason: recommendedOptionId ? payload?.recommendationReason?.trim() || null : null,
     details: payload?.details?.trim() || null,
   };
+}
+
+function workText(workItem: WorkItemRef): string {
+  return workItem.type === 'task'
+    ? t('inbox.alerts.work.task', { key: workItem.taskKey })
+    : t(`inbox.alerts.work.${workItem.type}`);
+}
+
+/**
+ * What an alert says, from its payload: for a session over the token warning limit (PM-187) the
+ * member, the card or chat, when the session started, what it used and the limit. Null for an item
+ * that is no alert, or an alert of a kind this web app does not know.
+ */
+export function alertText(item: InboxItem, members: MemberIndex, myHandle: string | null): string | null {
+  const alert = alertPayloadOf(item);
+  if (!alert) return null;
+  return t('inbox.alerts.session_tokens.body', {
+    member: nameOf(item.source, members, myHandle),
+    work: workText(alert.workItem),
+    started: formatStamp(alert.sessionStartedAt),
+    counted: formatTokens(alert.countedTokens),
+    limit: formatTokens(alert.limitTokens),
+  });
 }
 
 interface GatePayload {

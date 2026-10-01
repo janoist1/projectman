@@ -468,5 +468,15 @@ export const migrations: Migration[] = [
         pinned_by   TEXT NOT NULL
       );`,
   },
+  {
+    // 19 is skipped on purpose: a database already at 20 would never run a lower number.
+    version: 21,
+    name: 'usage alert of sessions',
+    // A session whose usage reached the project's warning limit (PM-187): when, what it counted and
+    // the limit then. NULL: it has not. Set once, so a session raises one warning.
+    sql: `ALTER TABLE sessions ADD COLUMN usage_alert_at TEXT;
+      ALTER TABLE sessions ADD COLUMN usage_alert_tokens INTEGER;
+      ALTER TABLE sessions ADD COLUMN usage_alert_limit INTEGER;`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

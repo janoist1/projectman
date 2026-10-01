@@ -50,6 +50,7 @@ import { SessionOrchestrator } from './sessions';
 import { TaskService } from './tasks';
 import { TeamToolsService } from './team-tools';
 import { TimelineService } from './timeline';
+import { UsageAlerts } from './usage-alerts';
 import { SYSTEM_ACTOR } from './util';
 
 export * from './access';
@@ -249,6 +250,7 @@ export function createDomain(opts: DomainOptions) {
     appHome: opts.appHome,
     // `boundary` is built below; the callback only runs when a session starts.
     onExecutionProfileChange: (projectKey, sessionId) => boundary.invalidateSession(projectKey, sessionId),
+    usageAlerts: new UsageAlerts({ ctx, projects, inbox }),
   });
   const usage = new PlanUsageMonitor({
     provider: runnerModule.planUsage,

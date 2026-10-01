@@ -68,6 +68,7 @@ import {
 } from './session-policy';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
+import type { UsageAlerts } from './usage-alerts';
 import { aiActor, KeyedMutex, newId, newToken, newUuid, SYSTEM_ACTOR } from './util';
 import { MemberWorkspaces } from './workspaces';
 import type { ProcessProbe, WorkspacePlacement } from './workspaces';
@@ -204,6 +205,8 @@ export interface SessionOrchestratorDeps {
    * void (revokes its unconsumed boundary requests).
    */
   onExecutionProfileChange?: (projectKey: string, sessionId: string) => Promise<unknown>;
+  /** The warning limit of a session's tokens (PM-187), checked whenever its usage grows. */
+  usageAlerts?: Pick<UsageAlerts, 'check'>;
 }
 
 /** Worktree removals that are refused on purpose (the worktree module's error codes). */
@@ -1435,7 +1438,15 @@ export class SessionOrchestrator {
             this.ctx.now(),
             event.entries,
           );
-          if (session.state !== 'working') this.publishSession(this.ctx.repos.sessions.get(session.id)!);
+          // The warning limit (PM-187) only marks the session and tells the owners: it keeps running.
+          let alerted = false;
+          try {
+            alerted = this.deps.usageAlerts?.check(session.id) != null;
+          } catch (err) {
+            this.ctx.logger.warn({ err, sessionId: session.id }, 'usage alert check failed');
+          }
+          if (session.state !== 'working' || alerted)
+            this.publishSession(this.ctx.repos.sessions.get(session.id)!);
           return;
         }
         case 'auth_error': {

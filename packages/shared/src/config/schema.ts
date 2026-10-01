@@ -100,6 +100,9 @@ export type MemberConfig = z.infer<typeof MemberConfig>;
 
 export const MaxConcurrentAi = z.number().int().min(1).max(20);
 
+/** A session's warning limit in tokens, as `limitTokens` counts them (PM-187). */
+export const WarnAboveSessionTokens = z.number().int().min(10_000).max(1_000_000_000);
+
 export const TeamLimits = z.object({
   /**
    * When false, no AI session starts or resumes in this project: automatic hand-overs,
@@ -114,6 +117,11 @@ export const TeamLimits = z.object({
   maxConcurrentAi: MaxConcurrentAi.optional(),
   /** Do not start new AI work above this plan usage percentage. */
   pauseAbovePlanUsagePercent: z.number().int().min(10).max(100).default(80),
+  /**
+   * A session whose usage (`limitTokens`) reaches this many tokens raises one warning to the owners
+   * (PM-187); the session keeps running. Absent: no warning.
+   */
+  warnAboveSessionTokens: WarnAboveSessionTokens.optional(),
   tempWorkers: z
     .object({
       enabled: z.boolean().default(false),

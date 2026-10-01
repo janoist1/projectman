@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { PatchConfigRequest } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
+import { formatTokens } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
 import type { MockRequest } from '../../test/mockProject';
@@ -120,6 +121,42 @@ describe('settings section editors', () => {
     fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
     await section.findByText(t('settings.limits.maxConcurrentAiValue', { count: 4 }));
     expect(project.backend.config.team.limits.maxConcurrentAi).toBe(4);
+  });
+
+  it("sets and removes the warning limit of a session's tokens (PM-187)", async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    let section = await editSection('limits');
+    const noWarning = section.getByRole('checkbox', {
+      name: t('settings.limits.noTokenWarning'),
+    }) as HTMLInputElement;
+    // A configuration without it: no warning, no number.
+    expect(noWarning.checked).toBe(true);
+    expect(section.queryByLabelText(t('settings.limits.warnAboveSessionTokens'))).toBeNull();
+    fireEvent.click(noWarning);
+    fireEvent.change(section.getByLabelText(t('settings.limits.warnAboveSessionTokens')), {
+      target: { value: '2000000' },
+    });
+    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
+    await section.findByText(
+      t('settings.limits.warnAboveSessionTokensValue', { count: formatTokens(2_000_000) }).replace(
+        /\s/g,
+        ' ',
+      ),
+    );
+    expect(lastConfigPatch(project.requests).limits).toMatchObject({ warnAboveSessionTokens: 2_000_000 });
+    expect(project.backend.config.team.limits.warnAboveSessionTokens).toBe(2_000_000);
+
+    // Removed again: sent as null.
+    section = await editSection('limits');
+    fireEvent.click(section.getByRole('checkbox', { name: t('settings.limits.noTokenWarning') }));
+    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
+    await waitFor(() =>
+      expect(lastConfigPatch(project.requests).limits).toMatchObject({ warnAboveSessionTokens: null }),
+    );
+    await waitFor(() =>
+      expect(project.backend.config.team.limits).not.toHaveProperty('warnAboveSessionTokens'),
+    );
   });
 
   it('edits limits with a 10–100 slider and AI-capable role choices', async () => {

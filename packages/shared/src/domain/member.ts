@@ -41,10 +41,11 @@ export const Approver = z.enum(['human', 'ai', 'none']);
 export type Approver = z.infer<typeof Approver>;
 
 /**
- * The approver a new AI member is hired with, the one place to change it once the owner decides
- * (open question on PM-162). `undefined` writes nothing, so the member is asked like a person (`human`).
+ * The approver a new AI member is hired with: nobody, so the rare question of an Auto member is
+ * refused by the system (the owner's answer of 2026-10-01, decision 28). The one place to change it.
+ * Existing members keep the absent value, which reads as `human`.
  */
-export const DEFAULT_NEW_MEMBER_APPROVER: Approver | undefined = undefined;
+export const DEFAULT_NEW_MEMBER_APPROVER: Approver = 'none';
 
 /**
  * The agent CLI an AI member runs in, on its sponsor's subscription: Claude Code (Claude plan)

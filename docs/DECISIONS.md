@@ -192,3 +192,18 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     made once by a person per worker and provider; the login file stays in that worker's home,
     readable by nobody else. No login is copied between accounts or handed to a session by the
     launcher, and no API key is used (decisions 1 and 15 stand).
+28. **Permissions follow Claude Code and Codex; two settings per AI member.** Decided by the
+    owner on 2026-10-01 (PM-162, PM-164). The principle, in the owner's words: „úgy kéne nálunk
+    megtervezni a rendszert, h azt a filozófiát kövessük, amit a claude és a codex is tesz. ezen
+    felül igény esetén finomíthatunk, de az alap ez legyen.” Answering the question on one
+    setting or two (16:03): „Két beállítás, mint a Desktopban”. So each AI member has the CLI's
+    own mode (the existing `permissionMode`: Kérdez, Szerkesztést elfogad, Auto, Tervezés; no
+    derived mode) and, separately, who answers when it asks (`approver`: a person, the AI decider,
+    or nobody); only an owner sets either. Answering who gets the rare question of an Auto member:
+    „Senkihez, a rendszer elutasítja”, so a new member is hired in Auto with approver `none`.
+    Answering the sandbox question of the same design: „Homokozó, a CLI-k saját kerítése”, that
+    is, the sandbox is the CLIs' own.
+    The earlier answer „Mind Auto-ra, egyszerre” stands for the members' mode (the PM members
+    already run in Auto). No code migration changes existing members (decision 26): an unset
+    approver reads as a person until the owner sets it, per member or in one configuration
+    commit.

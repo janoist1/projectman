@@ -244,7 +244,7 @@ export class MemberService {
           req.provider === 'codex' ? modelForProvider('codex', req.model) : (req.model ?? defaults.model),
         ...(req.effort ? { effort: req.effort } : {}),
         permissionMode: defaults.permissionMode,
-        ...(defaults.approver ? { approver: defaults.approver } : {}),
+        approver: defaults.approver,
         capacity: defaults.capacity,
         instructions: defaults.instructions,
         sponsor: sponsor.handle,

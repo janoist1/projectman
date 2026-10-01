@@ -371,8 +371,8 @@ narrows it in `sessionPermissions`. New members start in `auto`, whatever the ro
 (`DEFAULT_PERMISSION_MODE`). The **approver** is the new optional `AiMemberConfig.approver`
 (`human`, `ai`, `none`), who answers when the CLI asks: a person (the sponsor, else an owner),
 the AI decider, or nobody (the request is refused). Absent reads as `human`, today's behaviour
-(`approverOf`); `DEFAULT_NEW_MEMBER_APPROVER` is the one place for the default of a new hire (open
-question to the owner, PM-162), `undefined` for now. No migration rewrites configurations
+(`approverOf`); a new hire gets `DEFAULT_NEW_MEMBER_APPROVER` (`none`, decision 28), the one place
+for that default. No migration rewrites configurations
 (decision 26): existing members keep their mode and read `human`. `bypassPermissions` is not a
 choice any more; an existing one shows as a legacy setting (`MemberView.permissionLegacy`) until
 an owner picks a mode.

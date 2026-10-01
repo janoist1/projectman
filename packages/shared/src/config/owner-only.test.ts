@@ -119,17 +119,7 @@ describe('ownerOnlyChanges', () => {
       [],
     ],
     [
-      'a new AI member on the default mode and approver',
-      (c) => void c.team.members.push({ ...ai(c, 'dev-1'), handle: 'dev-2', permissionMode: 'auto' }),
-      [],
-    ],
-    [
-      'a new AI member on another mode',
-      (c) => void c.team.members.push({ ...ai(c, 'dev-1'), handle: 'dev-2', permissionMode: 'acceptEdits' }),
-      ['permissions'],
-    ],
-    [
-      'a new AI member with another approver',
+      'a new AI member on the default mode and approver (Auto, nobody)',
       (c) =>
         void c.team.members.push({
           ...ai(c, 'dev-1'),
@@ -137,6 +127,22 @@ describe('ownerOnlyChanges', () => {
           permissionMode: 'auto',
           approver: 'none',
         }),
+      [],
+    ],
+    [
+      'a new AI member on another mode',
+      (c) =>
+        void c.team.members.push({
+          ...ai(c, 'dev-1'),
+          handle: 'dev-2',
+          permissionMode: 'acceptEdits',
+          approver: 'none',
+        }),
+      ['permissions'],
+    ],
+    [
+      'a new AI member with another approver (the unset one reads as a person)',
+      (c) => void c.team.members.push({ ...ai(c, 'dev-1'), handle: 'dev-2', permissionMode: 'auto' }),
       ['permissions'],
     ],
   ])('%s', (_name, edit, expected) => {

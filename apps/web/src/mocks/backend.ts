@@ -2105,7 +2105,7 @@ export class MockBackend {
         input.provider === 'codex' ? modelForProvider('codex', input.model) : (input.model ?? defaults.model),
       ...(input.effort ? { effort: input.effort } : {}),
       permissionMode: defaults.permissionMode,
-      ...(defaults.approver ? { approver: defaults.approver } : {}),
+      approver: defaults.approver,
       capacity: defaults.capacity,
       instructions: defaults.instructions,
       sponsor: this.sponsor(),

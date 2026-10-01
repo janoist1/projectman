@@ -48,7 +48,7 @@ function permissionsChanged(previous: ProjectConfig, next: ProjectConfig): boole
   const signature = (member: AiMemberConfig | undefined) =>
     member
       ? `${member.permissionMode}:${approverOf(member)}`
-      : `${DEFAULT_PERMISSION_MODE}:${approverOf({ approver: DEFAULT_NEW_MEMBER_APPROVER })}`;
+      : `${DEFAULT_PERMISSION_MODE}:${DEFAULT_NEW_MEMBER_APPROVER}`;
   return next.team.members.some((member) => {
     if (member.kind !== 'ai') return false;
     const old = previous.team.members.find((m) => m.handle === member.handle);

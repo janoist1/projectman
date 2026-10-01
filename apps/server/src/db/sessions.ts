@@ -1,5 +1,5 @@
 import { DEFAULT_AGENT_PROVIDER } from '@projectman/shared';
-import type { AgentProvider, Session, SessionState, WorkItemRef } from '@projectman/shared';
+import type { AgentProvider, ExecutionProfile, Session, SessionState, WorkItemRef } from '@projectman/shared';
 import type { Statement } from 'better-sqlite3';
 import type { Db } from './database';
 
@@ -91,6 +91,8 @@ const COLUMNS: Record<keyof SessionPatch, string> = {
 export function createSessionRepository(db: Db) {
   const statements = {
     get: db.prepare('SELECT * FROM sessions WHERE id = ?'),
+    profile: db.prepare('SELECT execution_profile FROM sessions WHERE id = ?'),
+    setProfile: db.prepare('UPDATE sessions SET execution_profile = ? WHERE id = ?'),
     insert: db.prepare(
       `INSERT INTO sessions (id, project_key, member, work_item_type, work_item_ref, claude_session_id, provider,
          cwd, branch, transcript_path, state, activity, started_at, last_activity_at, ended_at)
@@ -123,6 +125,17 @@ export function createSessionRepository(db: Db) {
 
   return {
     get,
+    /**
+     * The execution profile the session's conversation ran in (PM-141). Kept beside the session, not
+     * in its public shape: it only decides whether a conversation may be resumed.
+     */
+    executionProfile(id: string): ExecutionProfile {
+      const row = statements.profile.get(id) as { execution_profile: string } | undefined;
+      return row?.execution_profile === 'managed_vm' ? 'managed_vm' : 'legacy';
+    },
+    setExecutionProfile(id: string, profile: ExecutionProfile): void {
+      statements.setProfile.run(profile, id);
+    },
     insert(s: Session): void {
       const wi = encodeWorkItem(s.workItem);
       statements.insert.run(

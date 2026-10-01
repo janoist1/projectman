@@ -56,7 +56,7 @@ const toAllowance = (row: AllowanceRow): EgressAllowance =>
     revokedBy: row.revoked_by,
   });
 
-/** Egress operations and allowances of the VM boundary (PM-140, migration 14). */
+/** Egress operations and allowances of the VM boundary (PM-140, migration 16). */
 export function createEgressRepository(db: Db) {
   const getOperation = db.prepare('SELECT * FROM egress_operations WHERE id = ?');
   const insertOperation = db.prepare(

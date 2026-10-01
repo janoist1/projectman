@@ -19,7 +19,9 @@ import {
   formatLinkedPullRequest,
   formatLocatedAttachment,
   formatMembers,
+  formatPublished,
   formatQuestionAsked,
+  formatRemoteState,
   formatSentMessage,
   formatTaskCreated,
   formatTaskDetail,
@@ -47,6 +49,8 @@ export const TEAM_TOOL_NAMES = [
   'update_task',
   'create_task',
   'link_pull_request',
+  'publish_task_branch',
+  'get_remote_state',
   'ask_human',
   'save_memory',
   'list_attachments',
@@ -473,6 +477,57 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         number: args.number,
       });
       return formatLinkedPullRequest(task, args.repo, args.number);
+    },
+  }),
+
+  defineTool({
+    name: 'publish_task_branch',
+    title: 'Publish the task branch',
+    readOnly: false,
+    description:
+      'Publish your own task branch to GitHub and open its pull request, in the managed VM only. Commit ' +
+      'first (nothing uncommitted travels), then pass the full commit id of the branch tip (git rev-parse ' +
+      'HEAD). The server takes the repository, the branch and the credentials from its own records: you ' +
+      'cannot name another branch, and the default branch is never published. Calling it again for the ' +
+      'same commit changes nothing and returns the same pull request; a later commit is added to the same ' +
+      'pull request. The pull request is recorded on the task under your name. If the remote branch has ' +
+      'commits yours lacks the call is refused and nothing is forced.',
+    input: {
+      task_key: taskKeyInput.optional().describe('Your own task; defaults to the task of this session.'),
+      commit: z
+        .string()
+        .regex(/^[0-9a-f]{40}$/, 'expected the full 40-character commit id, lower case')
+        .describe('The full commit id the task branch must point at (git rev-parse HEAD).'),
+      title: z
+        .string()
+        .min(1)
+        .max(MAX_TITLE_CHARS)
+        .optional()
+        .describe('Pull request title (default: the task key and title).'),
+      body: z.string().min(1).max(MAX_DESCRIPTION_CHARS).optional().describe('Pull request description.'),
+    },
+    async run({ ctx, args, handler }) {
+      const result = await handler.publishTaskBranch(ctx, {
+        taskKey: args.task_key,
+        commit: args.commit,
+        title: args.title,
+        body: args.body,
+      });
+      return formatPublished(result);
+    },
+  }),
+
+  defineTool({
+    name: 'get_remote_state',
+    title: 'Remote state of a task branch',
+    readOnly: true,
+    description:
+      'Read where GitHub stands for a task: the head of the default branch, the head of the task branch, ' +
+      'how far they are apart, and the pull requests of the branch with who published them. For the ' +
+      'integrator and the reviewers: no session holds a GitHub credential, the server reads it.',
+    input: { task_key: taskKeyInput },
+    async run({ ctx, args, handler }) {
+      return formatRemoteState(await handler.getRemoteState(ctx, { taskKey: args.task_key }));
     },
   }),
 

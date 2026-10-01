@@ -1,9 +1,15 @@
 import { mkdir, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { VM_PROFILE_NAME, VM_PROFILE_VERSION } from '@projectman/shared';
+import type { AgentProvider } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { testConfig } from '../../test/helpers/test-template';
+import { buildSessionPolicy } from '../domain';
 import type {
   LaunchSessionRequest,
   LaunchedSession,
+  ManagedVmAttestation,
+  ManagedVmBoundary,
   RunnerEvent,
   SessionLauncher,
   StartSessionSpec,
@@ -202,5 +208,78 @@ describe('sessions through the launcher', () => {
       what: 'transcript',
     });
     expect(followed).toMatchObject({ path: path.join(projects, 'conversation.jsonl') });
+  });
+});
+
+describe('a question-free session (PM-141) through the launcher', () => {
+  const attestation: ManagedVmAttestation = {
+    profile: { name: VM_PROFILE_NAME, version: VM_PROFILE_VERSION },
+    verifiedAt: '2026-10-01T12:00:00.000Z',
+    providerVersions: { claude: ['0.0.0'], codex: ['0.0.0'] },
+  };
+  const managedSpec = (provider: AgentProvider = 'claude') =>
+    spec({
+      provider,
+      policy: buildSessionPolicy({
+        config: testConfig(),
+        role: 'developer',
+        task: { repo: 'web' },
+        placement: { kind: 'member_workspace', path: path.join(home, 'sessions', 'AR'), use: 'home' },
+        managedVm: { boundary: attestation.profile },
+      }),
+    });
+  function managedManager(boundary?: ManagedVmBoundary): SessionManager {
+    return new SessionManager({
+      claudeBin: FAKE_CLAUDE,
+      codexBin: FAKE_CODEX,
+      publicBaseUrl: 'http://127.0.0.1:4700',
+      broker: { decide: async () => ({ behavior: 'deny' }) },
+      permissionTimeoutMs: 60_000,
+      logger: silentLogger(),
+      env: {},
+      launcher: launcher(),
+      workerLayout: {
+        home: () => home,
+        workspaces: () => path.join(home, 'workspaces'),
+        sessions: (_m, p) => path.join(home, 'sessions', p),
+        spoolIn: () => '/spool/in',
+        spoolOut: () => '/spool/out',
+      },
+      ...(boundary ? { managedVm: boundary } : {}),
+    });
+  }
+
+  it('starts only with a verified boundary', async () => {
+    const without = managedManager();
+    try {
+      await expect(without.start(managedSpec())).rejects.toMatchObject({ reason: 'no_boundary' });
+    } finally {
+      await without.shutdown();
+    }
+    const verified = managedManager({ verify: async () => attestation });
+    try {
+      await verified.start(managedSpec());
+      expect(starts).toHaveLength(1);
+    } finally {
+      await verified.shutdown();
+    }
+  });
+
+  it("reads the CLIs' user configuration from the worker home, and never through a link", async () => {
+    const m = managedManager({ verify: async () => attestation });
+    try {
+      await mkdir(path.join(home, '.claude'), { recursive: true });
+      await writeFile(path.join(home, '.claude', 'settings.json'), JSON.stringify({ hooks: { Stop: [] } }));
+      await expect(m.start(managedSpec('claude'))).rejects.toMatchObject({ reason: 'ambient_config' });
+      // A worker-controlled link to a clean file elsewhere is not followed: the start is refused.
+      const outside = await dirs.make('pm-outside-');
+      await writeFile(path.join(outside, 'config.toml'), '');
+      await mkdir(path.join(home, '.codex'), { recursive: true });
+      await symlink(path.join(outside, 'config.toml'), path.join(home, '.codex', 'config.toml'));
+      await expect(m.start(managedSpec('codex'))).rejects.toMatchObject({ reason: 'ambient_config' });
+      expect(starts).toEqual([]);
+    } finally {
+      await m.shutdown();
+    }
   });
 });

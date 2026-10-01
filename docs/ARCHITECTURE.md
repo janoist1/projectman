@@ -151,7 +151,9 @@ Documentation map:
 - **Team tools** — an MCP server (`/mcp/:token`) through which AI members message teammates,
   read and update tasks (labels, notes, stage moves, subtasks), create tasks, link PRs, ask
   humans, save memories and work with attachments (list, read by local path, attach a file of
-  their own working directory, delete their own; PM-113, see [SECURITY.md](SECURITY.md)). Text
+  their own working directory, delete their own; PM-113, see [SECURITY.md](SECURITY.md)), and
+  in the managed VM publish their own task branch (`publish_task_branch`) and read the remote
+  (`get_remote_state`; PM-142, [GITHUB.md](GITHUB.md)). Text
   an agent writes in its own session reaches nobody.
 - **Team messages** — a message about a task goes to the recipient's session for that task
   (typed in when idle, queued otherwise; a stopped session is started or resumed through
@@ -239,6 +241,7 @@ browser (React) ── REST /api, websocket /ws ──▶ server (Fastify, Node,
                                                  ├─ domain services ─▶ SQLite (runtime state)
                                                  ├─ config store ────▶ customization git repo (YAML)
                                                  ├─ github ──────────▶ gh CLI (owner's login, read-only)
+                                                 │                  └─ publisher: git + gh as the VM's own identity (PM-142)
                                                  └─ runner ──▶ node-pty ──▶ claude | codex (interactive TUI)
 claude ── HTTP hooks  POST /hooks/:token ─────▶ runner (state machine, permission broker)
 codex ─── command hooks ─▶ forwarder ─▶ POST /hooks/:token ─▶ runner
@@ -298,7 +301,8 @@ claude | codex ── transcript JSONL ────────────▶ r
   events, links, the repository of a task, one-line text.
 - `worktree/` — git worktrees and branches for tasks; member workspaces (independent clones,
   safe branch switches, pinned review checkouts; PM-138).
-- `github/` — `gh`-based pull request lookups and polling.
+- `github/` — `gh`-based pull request lookups and polling (the owner's read login); the publisher
+  with the VM's separate identity (PM-142).
 - `runtime-boundary/` — the VM boundary (PM-140): the boundary configuration, the launcher
   (root daemon, protocol, client), the worker bridge (inside each unit's own network namespace)
   and the service's per-member bridge sockets, the egress proxy, the worker workspace access, the
@@ -337,6 +341,9 @@ worktrees/<KEY>/…         git worktrees created for tasks
 workspaces/<KEY>/<handle>/<repo>/{repo,cache,tmp}
                           member workspaces (PM-138, when on): durable independent clones,
                           never removed by projectman
+workspaces/<KEY>/<handle>/.home
+                          the member's own directory without a repository (PM-141, managed VM
+                          profile only: chats, schedule runs, tasks without a repository)
 attachments/<KEY>/<TASK>/<id>   task attachments: private (0700 directories, 0600 files),
                           named by the generated id (the uploaded name lives only in SQLite);
                           a file still being written is <id>.part; an image or PDF
@@ -347,7 +354,7 @@ SQLite tables: `users`, `auth_sessions`, `invitations`, `projects`, `counters`, 
 `task_links`, `timeline_events`, `sessions`, `team_messages`, `inbox_items`, `member_state`,
 `schedule_runs`, `deferred_starts`, `attachments`, `member_workspaces` (one per project x member x
 repository, with its reservation), `task_workspace_bindings` (a member's branch or review round of
-a task in it). Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
+a task in it); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
 the server refuses a database a newer build migrated.
 
 ## Session policy migration (PM-87 / PM-127)
@@ -394,8 +401,9 @@ The running boundary of the VM direction (decisions 25, 26) is **outside** the a
 - **Contract**: `packages/shared/src/deploy/vm-readiness.ts` lists the checks (version, worker
   privileges, protected paths, host isolation, network gate, launcher, service), which are
   required, and the one verdict rule `evaluateVmReadiness()`. `verify.sh` writes a report in that
-  shape; `scripts/vm-readiness.ts` prints the verdict and the server enforces it (below). A flag
-  such as `VM=true` is never an input; the report is strict and a missing check fails.
+  shape; `scripts/vm-readiness.ts` prints the verdict and the server enforces it (below); PM-143
+  consumes it for the move. A flag such as `VM=true` is never an input; the report is strict and a
+  missing check fails.
 
 **The runtime boundary (PM-140, `src/runtime-boundary`).** `index.ts` reads nothing from the
 environment: `index.ts` of the server loads the root-owned boundary configuration
@@ -409,19 +417,71 @@ environment: `index.ts` of the server loads the root-owned boundary configuratio
   narrow, validated request into a `systemd-run` unit with a fixed sandbox;
 - the **egress proxy** (`egress/proxy.ts`, in the service process): the workers' only way out;
   it asks the domain's `EgressService` for every connection, which allows the base list and
-  allowances and turns allowed PM-139 grants into allowances (DB migration 14);
+  allowances and turns allowed PM-139 grants into allowances (DB migration 16);
 - the **verdict** (`RuntimeBoundary.status()`): the readiness report, the launcher's answer and the
   proxy's listener. `SessionOrchestrator` refuses every start while it is not ready
-  (`runtime_boundary_not_ready`); PM-141 builds question-free work on `ready`, never on the mode.
+  (`runtime_boundary_not_ready`). The question-free profile (PM-141, `managed_vm`) needs this
+  configuration (the server does not start without it), and its per-start proof
+  (`ManagedVmBoundary.verify()`) also requires `status().ready`, so question-free sessions only ever
+  run through the launcher as the member's worker.
 
 Without the configuration the boundary is `off` (`disabledRuntimeBoundary`), nothing changes for
 other installations, and `status().ready` is always false.
 
 Details, the manual trial and backup/restore are in [VM.md](VM.md).
 
+## Execution profile (PM-141, part of PM-135)
+
+An installation runs in one of two **execution profiles** (`ExecutionProfile` in
+`packages/shared/src/deploy/managed-vm.ts`): `legacy`, the Mac installation as it always was, or
+`managed_vm`, the owner's choice for the verified managed VM. In the managed VM profile the boundary
+is outside the CLIs, so Claude Code and Codex run without local approval questions (decision 26);
+[PROVIDERS.md](PROVIDERS.md) lists what each CLI is given and what is not yet proven by hand.
+
+- **Selection is not proof.** `PROJECTMAN_EXECUTION_PROFILE=managed_vm` (read in `index.ts`, with
+  `PROJECTMAN_WORKSPACES=member`, `PROJECTMAN_BOUNDARY_CONFIG` and optionally
+  `PROJECTMAN_VM_READINESS_REPORT`, which defaults to the boundary configuration's report) only
+  selects. Every start, resume included, asks a `ManagedVmBoundary` (`contracts/runner.ts`): the
+  report boundary needs a Linux host, a ready, current report with the launcher and the domain gate
+  passed (`evaluateManagedVmActivation`), and `app.ts` adds the runtime boundary's verdict (launcher
+  answering, egress proxy listening). Otherwise the start fails with `managed_vm_unavailable`, before
+  any workspace is prepared or process spawned, and never falls back to a legacy start. An unknown
+  profile, or a managed VM without member workspaces or the boundary configuration, stops the
+  server; a readiness report on a legacy installation does too. On the Mac the profile cannot be
+  entered by a file or a flag.
+- **The policy** (`SessionPolicy.execution`, placement `member_workspace`, built by
+  `buildManagedVmPolicy` in `domain/session-policy.ts`) keeps `enforcement: 'legacy'`: it neither
+  claims strict isolation nor migrates a `permissionMode` (`managedVmPermissions` reads the member's
+  mode; `plan` stays research-only). It has no tool grants to render, no denied operations and no
+  sandbox; the business rules and owner exceptions apply at the domain, network and operation gate
+  (BOUNDARY.md). Sessions without a repository (chats, schedule runs, a task without one) work in a
+  directory of the member's own worker account (behind the launcher) or in the member's own
+  `<workspaces>/<KEY>/<handle>/.home`, never a shared directory.
+- **No local approval path.** A permission request that arrives anyway is refused at once in the
+  runner (and in the inbox broker): no inbox item, no `commandVerdict`, no command-form rules; the
+  context pack drops the "Commands that run without asking" section. The legacy path keeps all of it.
+- **Profile changes.** `sessions.execution_profile` (migration 14) records the profile a session last
+  ran in. A conversation of the other profile is not resumed; the session starts a new one in the new
+  placement and its unconsumed boundary requests are revoked (`BoundaryService.invalidateSession`).
+- **Checks before each spawn** (runner, `runner/managed-vm.ts`): the installed CLI version is one the
+  question-free settings are proven for, and the VM's own provider configuration (managed policy, user
+  files, Codex's project file) sets nothing that overrides the protected start (PM-49); behind the
+  launcher the user files are read from the member's worker home without following links; the Claude
+  start also leaves out the project's settings and `.mcp.json`.
+
+The fake CLIs model this (`FAKE_*_VERSION`, bypass modes, `FAKE_*_FORCE_*` for a request where none is
+expected); the real CLIs are only run in the human trial of [VM.md](VM.md).
+
 ## GitHub
 
 Tasks live in our database (decision 9); GitHub is used for pull requests, reviews, checks
-and merges. projectman only reads from GitHub: it polls the PRs linked to tasks, keeps the
+and merges. projectman reads from GitHub: it polls the PRs linked to tasks, keeps the
 `pr-merged` label, clears `pr_updated` labels when new commits land, and attributes PR authors
-to members (`githubLogin`). See [GITHUB.md](GITHUB.md).
+to members (`githubLogin`). The one writing path is the managed VM's **publishing gate** (PM-142,
+decision 26): the team tool `publish_task_branch` (`domain/publishing.ts`) takes member, task,
+repository and branch from the server's records, and `GithubPublisher` (`github/publisher.ts`)
+pushes that branch (never the default branch, never forced) and opens its pull request once, with a
+separate GitHub identity whose token only the service holds. The pull request's author is recorded
+from the authenticated session (`task_links.author_source = 'published'`, migration 15), so polling
+by the shared bot login never rewrites it and no-self-review keeps holding. `get_remote_state` lets
+the integrator and reviewers read the remote. See [GITHUB.md](GITHUB.md).

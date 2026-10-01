@@ -1,11 +1,17 @@
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ProjectConfig } from '@projectman/shared';
+import type { ExecutionProfile, ProjectConfig } from '@projectman/shared';
 import { AuthService } from '../../src/auth';
 import { createConfigStore } from '../../src/config';
 import { createRepositories, openDatabase } from '../../src/db';
-import type { AttachmentStorage, BoundaryOperationAdapter, RuntimeBoundary } from '../../src/contracts';
+import type {
+  AttachmentStorage,
+  BoundaryOperationAdapter,
+  GithubPublisher,
+  ManagedVmBoundary,
+  RuntimeBoundary,
+} from '../../src/contracts';
 import type { EgressSettings } from '../../src/domain';
 import {
   attachmentToolRules,
@@ -72,6 +78,11 @@ export async function createDomainHarness(
     runtimeBoundary?: RuntimeBoundary;
     /** The network gate's settings (PM-140). */
     egress?: EgressSettings;
+    /** The installation's execution profile (PM-141, default legacy) and the proof of its boundary. */
+    executionProfile?: ExecutionProfile;
+    managedVm?: ManagedVmBoundary;
+    /** The VM's GitHub publishing identity (PM-142); absent, nothing can be published. */
+    githubPublisher?: GithubPublisher;
   } = {},
 ) {
   const restarted = opts.directory !== undefined;
@@ -107,6 +118,7 @@ export async function createDomainHarness(
     publicBaseUrl: 'http://127.0.0.1:4700',
     createRunner: (broker) => runnerModule.createWithBroker(broker),
     github,
+    githubPublisher: opts.githubPublisher,
     contextBuilder,
     memory,
     worktrees,
@@ -120,6 +132,8 @@ export async function createDomainHarness(
         }
       : {}),
     processExists: (pid) => liveProcesses.has(pid),
+    executionProfile: opts.executionProfile,
+    managedVm: opts.managedVm,
     templates: createTemplateRegistry([testTemplate]),
     planUsageTtlMs: 0,
     now: opts.now,

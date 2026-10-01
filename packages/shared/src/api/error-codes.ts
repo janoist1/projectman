@@ -102,6 +102,8 @@ export const ERROR_CODES = [
   'member_not_scheduled',
   'provider_not_logged_in',
   'session_start_failed',
+  // The question-free managed VM profile (PM-141): its boundary is not verified, or a CLI does not fit
+  'managed_vm_unavailable',
   // Member workspaces (PM-138)
   'workspace_busy',
   'workspace_dirty',

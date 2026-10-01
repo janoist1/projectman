@@ -124,6 +124,40 @@ export interface ProviderStatus {
 /** Error code of a session start refused because the provider is not logged in. */
 export const PROVIDER_NOT_LOGGED_IN = 'provider_not_logged_in';
 
+/**
+ * Error code of a managed VM session start (PM-141) refused because the boundary is not proven
+ * now, the installed CLI is not a version the question-free settings are proven for, or the VM's
+ * own configuration would override the protected start. Its `reason` says which.
+ */
+export const MANAGED_VM_UNAVAILABLE = 'managed_vm_unavailable';
+
+/**
+ * The answer to a permission request that reaches a managed VM session anyway (read by the agent,
+ * so English): the profile has no local approvals, and nothing is queued for a human.
+ */
+export const MANAGED_VM_NO_LOCAL_APPROVAL =
+  'This installation runs without local approvals: the work you do in your workspace needs none, so this request is refused, not queued for a human. A step that leaves the machine is decided at the network gate; for a registered operation use submit_boundary_request. Continue with what you can do here.';
+
+/** What a verified managed VM boundary says about itself, at the moment it was asked. */
+export interface ManagedVmAttestation {
+  /** The readiness profile the boundary was verified for. */
+  profile: { name: string; version: number };
+  /** When the proof was made (ISO time). */
+  verifiedAt: string;
+  /** The CLI versions the question-free settings are proven for, per provider. */
+  providerVersions: Record<AgentProvider, readonly string[]>;
+}
+
+/**
+ * The proof that this installation is the owner's verified managed VM. It is asked at every start,
+ * never answered from a flag: a repository file, the environment or a member's setting is not an
+ * input. Implementations read the measured readiness report (`createReadinessBoundary`) or, later,
+ * the protected launcher (PM-140). It rejects with an error whose `code` is `managed_vm_unavailable`.
+ */
+export interface ManagedVmBoundary {
+  verify(): Promise<ManagedVmAttestation>;
+}
+
 export interface RunningSessionInfo {
   sessionId: string;
   pid: number;
@@ -251,6 +285,29 @@ export interface RunnerModuleOptions {
   launcher?: SessionLauncher;
   /** Worker paths (with `launcher`): a session's transcript must lie in its worker's home. */
   workerLayout?: WorkerLayout;
+  /**
+   * The managed VM boundary (PM-141). Without it the runner refuses every session whose policy
+   * asks for the managed VM profile; with it, each such start is verified first.
+   */
+  managedVm?: ManagedVmBoundary;
+  /**
+   * Where the VM's own configuration is looked at for settings that would override the protected
+   * start (managed policy, the provider's user configuration): defaults are the providers' real
+   * locations. Tests pass temporary directories.
+   */
+  ambientConfig?: AmbientConfigLocations;
+}
+
+/** Locations of the provider configuration a managed VM start inspects (see `inspectAmbientConfig`). */
+export interface AmbientConfigLocations {
+  /** Claude Code's managed policy files, in precedence order (default: the Linux and macOS paths). */
+  claudeManaged?: string[];
+  /** The user's Claude Code settings (default: `$CLAUDE_CONFIG_DIR/settings.json`, else `~/.claude/settings.json`). */
+  claudeUser?: string;
+  /** Codex's administrator files (default: `/etc/codex/*`). */
+  codexManaged?: string[];
+  /** Codex's user configuration (default: `$CODEX_HOME/config.toml`, else `~/.codex/config.toml`). */
+  codexUser?: string;
 }
 
 export interface RunnerModule {

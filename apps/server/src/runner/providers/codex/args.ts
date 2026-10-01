@@ -79,7 +79,7 @@ export function override(key: string, value: unknown): string {
 }
 
 export interface CodexPermissions {
-  sandbox: 'read-only' | 'workspace-write';
+  sandbox: 'read-only' | 'workspace-write' | 'danger-full-access';
   approval: 'on-request' | 'never';
 }
 
@@ -169,7 +169,16 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
     c(`hooks.${event}`, hookGroups(command, timeoutS));
   }
 
+  const managed = spec.policy?.execution?.profile === 'managed_vm';
   const permissions = spec.policy?.permissions ?? codexPermissions(spec.permissionMode);
+  // The managed VM's boundary is outside the CLI: no local approval, no inner sandbox. `plan`
+  // stays research-only (`read-only`); nothing in this profile is ever the legacy `workspace-write`.
+  if (managed && permissions.approval !== 'never')
+    throw new Error('The managed VM profile asks nothing locally; refusing a policy that does.');
+  if (managed && permissions.sandbox === 'workspace-write')
+    throw new Error('The managed VM profile has no inner sandbox; refusing a workspace-write policy.');
+  if (!managed && permissions.sandbox === 'danger-full-access')
+    throw new Error('Codex runs without its sandbox only in the managed VM profile; refusing to start.');
   if (!spec.policy && permissions.sandbox === 'workspace-write' && spec.writableRoots?.length)
     c('sandbox_workspace_write.writable_roots', spec.writableRoots);
   args.push('--sandbox', permissions.sandbox, '--ask-for-approval', permissions.approval);

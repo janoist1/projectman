@@ -12,9 +12,17 @@ import {
   type SessionRunner,
   type StartSessionSpec,
 } from '../contracts';
-import { cliExists } from './cli';
+import { cliExists, runQuietly } from './cli';
 import { buildChildEnv, buildSessionEnv } from './env';
 import { hookUrlFor } from './hook-forwarder';
+import {
+  assertManagedVmPolicy,
+  assertNoAmbientOverride,
+  assertProviderVersion,
+  ManagedVmUnavailableError,
+  parseCliVersion,
+} from './managed-vm';
+import type { ProviderAdapter } from './providers/types';
 import { createProviderAdapters, type ProviderAdapters } from './providers';
 import { AgentSession, UUID_RE } from './session';
 
@@ -75,10 +83,15 @@ export class SessionManager implements SessionRunner {
     if (launcher) return this.startThroughLauncher(spec, provider, launcher);
     const dir = await stat(spec.cwd).catch(() => null);
     if (!dir?.isDirectory()) throw new Error(`working directory does not exist: ${spec.cwd}`);
-    const env = buildSessionEnv(this.opts.env ?? process.env, spec.sessionId);
+    if (spec.policy) assertManagedVmPolicy(spec.policy);
+    const managedVm = spec.policy?.execution?.profile === 'managed_vm';
+    const env = buildSessionEnv(this.opts.env ?? process.env, spec.sessionId, { managedVm });
     if (!(await cliExists(adapter.bin, env.PATH))) {
       throw new Error(`${adapter.label} CLI not found: ${adapter.bin}`);
     }
+    // The question-free profile starts only on a proven boundary, with a CLI it is proven for and
+    // without configuration of the VM's own that would override the protected start (PM-141).
+    if (managedVm) await this.assertManagedVm(spec, adapter, env);
     // A CLI without a subscription login can only sit at its login screen: do not spawn it.
     const status = await this.providerStatus(provider);
     if (status.loggedIn === false) throw new ProviderNotLoggedInError(adapter.label, status);
@@ -142,6 +155,15 @@ export class SessionManager implements SessionRunner {
     if (!spec.member || !spec.egressToken || !layout)
       throw new Error('a session through the launcher needs its member, egress token and worker layout');
     const home = layout.home(spec.member);
+    if (spec.policy) assertManagedVmPolicy(spec.policy);
+    // The question-free profile's conditions hold behind the launcher too (PM-141): the boundary is
+    // proven now, the CLI is a proven version, and the member's own configuration (its worker home)
+    // does not override the protected start.
+    if (spec.policy?.execution?.profile === 'managed_vm')
+      await this.assertManagedVm(spec, adapter, buildChildEnv(this.opts.env ?? process.env), {
+        home,
+        confineTo: home,
+      });
     const status = await this.providerStatus(provider, { member: spec.member });
     if (status.loggedIn === false) throw new ProviderNotLoggedInError(adapter.label, status);
     if (provider === 'claude') {
@@ -206,6 +228,47 @@ export class SessionManager implements SessionRunner {
       'agent session started through the launcher',
     );
     return session.info();
+  }
+
+  /**
+   * The managed VM profile's conditions, asked at every start, resume included: the boundary is
+   * proven now (never from a flag), the policy is for that boundary's profile, the installed CLI
+   * is a version the question-free settings are proven for, and no configuration of the VM's own
+   * would override them. Any failure is `managed_vm_unavailable`; nothing is spawned.
+   */
+  private async assertManagedVm(
+    spec: StartSessionSpec,
+    adapter: ProviderAdapter,
+    env: Record<string, string>,
+    worker?: { home: string; confineTo: string },
+  ): Promise<void> {
+    const boundary = this.opts.managedVm;
+    if (!boundary) {
+      throw new ManagedVmUnavailableError(
+        'no_boundary',
+        'this installation has no verified managed VM boundary, so a managed VM session does not start',
+      );
+    }
+    const attestation = await boundary.verify();
+    const wanted = spec.policy!.execution!.boundary;
+    if (wanted.name !== attestation.profile.name || wanted.version !== attestation.profile.version) {
+      throw new ManagedVmUnavailableError(
+        'profile_mismatch',
+        `the session asks for ${wanted.name}@${wanted.version}, the verified boundary is ${attestation.profile.name}@${attestation.profile.version}`,
+        { wanted, verified: attestation.profile },
+      );
+    }
+    const version = await runQuietly(adapter.bin, ['--version'], env);
+    assertProviderVersion(adapter.provider, parseCliVersion(version.stdout), attestation);
+    await assertNoAmbientOverride({
+      provider: adapter.provider,
+      cwd: spec.cwd,
+      // Behind the launcher the CLI runs as the worker: its user configuration is in the worker home,
+      // which the worker controls (read without following a link or blocking on a FIFO).
+      env: worker ? { HOME: worker.home } : env,
+      locations: this.opts.ambientConfig,
+      ...(worker ? { confineTo: worker.confineTo } : {}),
+    });
   }
 
   /** Login state of a provider's CLI; checks are shared while running and cached briefly. */

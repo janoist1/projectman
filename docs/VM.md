@@ -8,15 +8,16 @@ and the owner's running instance is not touched.
 
 What this part delivers, and what it does not:
 
-| Delivered (PM-137, PM-140)                                                         | Later part of PM-135                           |
-| ---------------------------------------------------------------------------------- | ---------------------------------------------- |
-| Pinned Node and CLI versions, a root-owned app, a separate service account         | The question-free provider profile (PM-141)    |
-| One unprivileged account per member, no sudo, no shared home                       | Publishing branches and pull requests (PM-142) |
-| The protected launcher: every session and workspace command runs as its worker     | Trial run, data move and rollback (PM-143)     |
-| The egress gate: workers reach the internet only through a checking proxy          |                                                |
-| Member workspaces in worker homes, commits handed over as bundles (PM-138, PM-140) |                                                |
-| A readiness report with a strict verdict rule, which the server enforces           |                                                |
-| Backup and restore, a measurement helper, the manual trial steps (below)           |                                                |
+| Delivered (PM-137, PM-140, PM-141)                                                                 | Later part of PM-135                       |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| Pinned Node and CLI versions, a root-owned app, a separate service account                         | Trial run, data move and rollback (PM-143) |
+| One unprivileged account per member, no sudo, no shared home                                       |                                            |
+| The protected launcher: every session and workspace command runs as its worker                     |                                            |
+| The egress gate: workers reach the internet only through a checking proxy                          |                                            |
+| Member workspaces in worker homes, commits handed over as bundles (PM-138, PM-140)                 |                                            |
+| A readiness report with a strict verdict rule, which the server enforces                           |                                            |
+| The question-free profile behind the boundary (PM-141, [below](#the-question-free-profile-pm-141)) |                                            |
+| Backup and restore, a measurement helper, the manual trial steps (below)                           |                                            |
 
 The server runs behind the boundary when its unit names the boundary configuration
 (`PROJECTMAN_BOUNDARY_CONFIG=/etc/projectman/boundary.json`, set by bootstrap.sh in a drop-in).
@@ -173,8 +174,10 @@ sudo bash deploy/vm/install-app.sh --archive projectman.tar.gz --commit <40-hex 
 
    The service must be running (it holds the proxy). Codex's browser login answers on a local
    port of the VM: use the same login flow you used for the service account (and record which one
-   the pinned version needs in the trial notes). `gh auth login` and any GitHub identity are
-   PM-142's, not part of this baseline. Then `sudo systemctl restart projectman`.
+   the pinned version needs in the trial notes). `gh auth login` is never run for the VM; its one
+   GitHub identity is the separate publishing identity of PM-142, installed by a person as a token
+   file the service alone reads ([GITHUB.md](GITHUB.md#one-time-setup-by-the-owner)). Then
+   `sudo systemctl restart projectman`.
 
 2. **First owner**: forward the port and open the app locally, as in [DEPLOY.md](DEPLOY.md):
    `bash deploy/vm/mac-multipass.sh forward --ssh-key ~/.ssh/<name>` (agent forwarding is off), then
@@ -356,6 +359,75 @@ the human steps above, with two workers logged in. Record each result on the car
     `journalctl -u projectman -f | grep 'egress destination refused'`. A destination the pinned
     CLIs need belongs in `EGRESS_BASE` (profile.env, then bootstrap.sh); anything else is asked for
     per task. Record the list on the card.
+
+## The question-free profile (PM-141)
+
+In the VM the AI members' Claude Code and Codex run **without local approval questions**
+(decision 26): the boundary above, not the CLIs' own prompts and sandboxes, holds the limits.
+What each CLI is given, the checks before a start and what is not yet proven are in
+[PROVIDERS.md](PROVIDERS.md#managed-vm-profile-pm-141); the rule in [ARCHITECTURE.md](ARCHITECTURE.md).
+
+**Enabling it is the owner's step, and it needs a complete boundary.** The profile runs only behind
+the VM boundary above: the service must name the boundary configuration
+(`PROJECTMAN_BOUNDARY_CONFIG`, set by bootstrap.sh), and every start needs `launcher` and
+`domain-gate` passed in the report, the launcher answering and the egress proxy listening. Once the
+VM boundary trial (steps 12–17) passed, the owner sets, in a root-managed drop-in of the service
+unit (`systemctl edit projectman`; the CLIs never see these variables):
+
+```
+Environment=PROJECTMAN_WORKSPACES=member
+Environment=PROJECTMAN_EXECUTION_PROFILE=managed_vm
+# optional: the report and its age limit default to the boundary configuration's
+# (/var/lib/projectman-boundary/readiness.json, refreshed by projectman-verify.timer)
+# Environment=PROJECTMAN_VM_READINESS_REPORT=/var/lib/projectman-boundary/readiness.json
+# Environment=PROJECTMAN_VM_REPORT_MAX_AGE_MINUTES=120
+```
+
+An unknown profile name, a managed VM without member workspaces or without the boundary
+configuration, or a report path on an installation that is not `managed_vm`, stops the server at
+start. The report and the boundary are checked at every session start, so a machine that stops being
+ready (an old report, a failed check, a stopped launcher) stops starting sessions at once; running
+sessions keep running. The VM must carry no administrator policy for the
+CLIs (`/etc/claude-code/managed-settings*`, `/etc/codex/*.toml`) and no hooks, MCP servers, approval
+or sandbox settings in the CLIs' user configuration: such a file refuses the start, naming the file
+and the setting (not its value).
+
+**Human trial in a throwaway VM** (interactive, on the subscription logins, never in automated
+tests). Build and verify as above, with `launcher` and `domain-gate` passing (or the report written by
+hand for the throwaway only, on a copy that is deleted afterwards), enable the profile, then for both
+a Claude and a Codex member (a developer, QA, a reviewer and a general chat each):
+
+1. **First start.** The session reaches its prompt with no dialog waiting in the terminal (no trust
+   screen, no bypass confirmation, no hook review) and the inbox shows nothing. If a dialog appears,
+   note its text: the adapter, not the contract, needs the change (PROVIDERS.md lists the settings
+   that are guesses until now).
+2. **Routine work without a question.** Ask the member to run, in its workspace: a command with
+   shell substitution (`echo "$(date)"`), a redirection into a file (`ls > out.txt`), `npm install`
+   (registry reachable), every test the project has including the ones that open a pseudo-terminal
+   (`npm test`), `git add` and `git commit -m "…"`. None may ask: no inbox item, no question in the
+   terminal. Writes to `.git` and to `.claude` of the workspace are the ones most likely to still
+   prompt in `bypassPermissions`: note it if they do.
+3. **Resume.** Stop the session, send a message, and see the same conversation resume, still without a
+   question. Change the member's `permissionMode` in the configuration and restart: the profile does
+   not change (and the configuration is not rewritten); `plan` stays research-only.
+4. **The boundary still stops what must stop.** From the session: reach the host and the LAN
+   (`/dev/tcp/<gw>/8099`, as in the manual trial), a private address, the metadata address, another
+   worker's home, `/var/lib/projectman/data`; try `git push` to a GitHub remote and an unlisted
+   domain. Each must fail at the gate or the file permissions, not at a prompt. A refused step is
+   reported by the member and shows no inbox item.
+5. **A request that arrives anyway.** Not reproducible on purpose; the fake CLIs cover it.
+6. **No local override.** Put a `.claude/settings.json` with a `hooks` entry and a `.mcp.json` in a
+   test repository and a `hooks` table in `~/.codex/config.toml` of a worker: Claude ignores the
+   repository files (the team server is the only MCP server), and the Codex start is refused with the
+   file and key named.
+7. **The Mac stays as it was.** On the Mac installation, set the profile variables without a
+   boundary configuration: the server does not start. With copies of the boundary configuration and
+   the readiness report (and `PROJECTMAN_WORKSPACES=member`) every session is refused (reason
+   `platform`, or the boundary not ready); with the variables removed, every member runs exactly as
+   before.
+
+Record the CLI versions, the settings that needed a change and every prompt that appeared on the
+card. The same facts decide whether `MANAGED_VM_PROVIDER_VERSIONS` may name a newer release.
 
 ## Backup and restore
 

@@ -218,6 +218,66 @@ describe('buildCodexArgs', () => {
     }
   });
 
+  describe('the managed VM profile (PM-141)', () => {
+    const managed = (
+      sandbox: 'danger-full-access' | 'read-only' | 'workspace-write' = 'danger-full-access',
+      approval: 'never' | 'on-request' = 'never',
+    ): NonNullable<StartSessionSpec['policy']> => ({
+      version: 1,
+      enforcement: 'legacy',
+      execution: { profile: 'managed_vm', boundary: { name: 'managed-vm', version: 1 } },
+      access: 'member_workspace',
+      placement: { kind: 'member_workspace', path: '/work', use: 'work' },
+      tools: { team: { all: true, names: [] }, files: [], shell: [] },
+      filesystem: { readableRoots: ['/work'], writableRoots: ['/work'], protectedPaths: [] },
+      deniedOperations: [],
+      network: { allowedDomains: [], allowLocalBinding: false },
+      outsideSandbox: 'deny',
+      permissions: { claude: 'bypassPermissions', sandbox, approval },
+    });
+    const managedInput = (policy = managed()) => ({
+      ...input,
+      spec: { ...spec, permissionMode: 'default', policy },
+    });
+
+    it('runs without a sandbox and without questions', () => {
+      const args = buildCodexArgs(managedInput()).args;
+      expect(args.slice(args.indexOf('--sandbox'), args.indexOf('--sandbox') + 4)).toEqual([
+        '--sandbox',
+        'danger-full-access',
+        '--ask-for-approval',
+        'never',
+      ]);
+    });
+
+    it('keeps the hooks and the team tools, and passes no approval of the old kind', () => {
+      const c = overrides(buildCodexArgs(managedInput()).args);
+      for (const event of CODEX_HOOK_EVENTS) expect(c.has(`hooks.${event}`)).toBe(true);
+      expect(c.get('mcp_servers.team')).toContain('default_tools_approval_mode="approve"');
+      expect(c.has('sandbox_workspace_write.writable_roots')).toBe(false);
+    });
+
+    it('keeps a research-only member read-only, also without questions', () => {
+      const args = buildCodexArgs(managedInput(managed('read-only'))).args;
+      expect(args.slice(args.indexOf('--sandbox'), args.indexOf('--sandbox') + 4)).toEqual([
+        '--sandbox',
+        'read-only',
+        '--ask-for-approval',
+        'never',
+      ]);
+    });
+
+    it('refuses a managed policy that asks or sandboxes the legacy way, and the freedom anywhere else', () => {
+      expect(() => buildCodexArgs(managedInput(managed('danger-full-access', 'on-request')))).toThrow(
+        /asks nothing locally/,
+      );
+      expect(() => buildCodexArgs(managedInput(managed('workspace-write')))).toThrow(/no inner sandbox/);
+      // The same permissions without the managed VM execution profile are never started.
+      const free = { ...managed(), execution: undefined };
+      expect(() => buildCodexArgs(managedInput(free))).toThrow(/only in the managed VM profile/);
+    });
+  });
+
   it('never turns off the sandbox or the questions, even for bypassPermissions, and passes a Codex model', () => {
     const args = buildCodexArgs({
       ...input,

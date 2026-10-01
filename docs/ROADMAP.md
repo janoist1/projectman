@@ -83,10 +83,12 @@ project and run a first task end to end.
   plus 1–1.5 GB per concurrent AI developer). [DEPLOY.md](DEPLOY.md) is ready.
 - **PM-135 / PM-137** — the VM direction (decisions 25, 26): `deploy/vm/` builds a reproducible
   Ubuntu guest (Multipass on the owner's Mac first, the same files on a server later) with a
-  readiness report; see [VM.md](VM.md). Workstations (PM-138), delegation (PM-139) and the
-  protected launcher and network gate (PM-140) are built; the real VM trial of each is a person's
-  step (VM.md's trial protocol). The question-free profile (PM-141), publishing (PM-142) and the
-  move and rollback (PM-143) follow.
+  readiness report; see [VM.md](VM.md). Workstations (PM-138), delegation (PM-139), the
+  protected launcher and network gate (PM-140) and the question-free profile (PM-141, which runs
+  only behind PM-140's boundary) are built; the real VM trial of each is a person's step (VM.md's
+  trial protocol). Publishing (PM-142) is built with the fake gh and a temporary remote; the owner
+  still creates the identity and runs `deploy/github/trial.sh` on a throwaway repository (see
+  GITHUB.md). The move and rollback (PM-143) follow.
 - **PM-46** — verify `X-Forwarded-Proto` behind Tailscale Serve from a phone (Secure cookies,
   origin checks); DEPLOY.md lists the curl checks.
 - **PM-50** — remove the merged `codex*` and `agent-*` worktrees and branches (local chore).

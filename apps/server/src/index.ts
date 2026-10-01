@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseExecutionProfile } from '@projectman/shared';
 import { APP_DEFAULTS, buildApp, isLoopbackHost, loopbackBaseUrl } from './app';
 import type { BuildAppOptions, LoopbackHost } from './app';
 import { loadBoundaryConfig } from './runtime-boundary';
@@ -20,6 +21,16 @@ import { createShutdown } from './shutdown';
  *   PROJECTMAN_BOUNDARY_CONFIG (unset): the managed VM's boundary configuration
  *   (/etc/projectman/boundary.json, PM-140); sessions then start only through the protected
  *   launcher, as their members' worker accounts, while the boundary is ready.
+ *   PROJECTMAN_EXECUTION_PROFILE (legacy): `managed_vm` is the owner's choice for the verified managed
+ *   VM (PM-141, docs/VM.md): sessions run question-free in the member's workspace, but only behind
+ *   the VM boundary (PROJECTMAN_BOUNDARY_CONFIG is required) and only while its readiness report
+ *   (PROJECTMAN_VM_READINESS_REPORT, default: the boundary configuration's; at most
+ *   PROJECTMAN_VM_REPORT_MAX_AGE_MINUTES old, default: the configuration's limit) proves the
+ *   boundary at the start. It needs PROJECTMAN_WORKSPACES=member; an unknown or conflicting
+ *   setting stops the server. The CLIs never see these variables.
+ *   PROJECTMAN_GITHUB_PUBLISH_TOKEN_FILE: the VM's separate GitHub identity for publishing task
+ *   branches (PM-142, docs/GITHUB.md): a file only the service can read, holding that identity's token.
+ *   Only the managed VM profile accepts it; without it nothing is published.
  * The agent CLIs start with this environment, minus billing and host-session variables (the
  * runner removes them); the git and gh commands the server runs inherit it.
  * Remote access goes through Tailscale (`tailscale serve`), not by binding publicly.
@@ -44,6 +55,14 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
   // server does not start (it never falls back to running sessions itself).
   const boundaryFile = env.PROJECTMAN_BOUNDARY_CONFIG || undefined;
   const runtimeBoundary = boundaryFile ? loadBoundaryConfig(boundaryFile) : undefined;
+  // The owner's installation profile (PM-141): an unknown value stops the start. `managed_vm` is
+  // proven by the readiness report at every session start, so this setting alone changes nothing.
+  const executionProfile = parseExecutionProfile(env.PROJECTMAN_EXECUTION_PROFILE);
+  const reportMinutes = Number.parseInt(env.PROJECTMAN_VM_REPORT_MAX_AGE_MINUTES ?? '', 10);
+  if (env.PROJECTMAN_VM_REPORT_MAX_AGE_MINUTES && !(reportMinutes > 0))
+    throw new Error(
+      `invalid PROJECTMAN_VM_REPORT_MAX_AGE_MINUTES: ${env.PROJECTMAN_VM_REPORT_MAX_AGE_MINUTES}`,
+    );
   // apps/web/dist, from src/index.ts (tsx) as well as from dist/index.js (bundle).
   const webDist = fileURLToPath(new URL('../../web/dist', import.meta.url));
   return {
@@ -63,6 +82,10 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
       webDistDir: existsSync(join(webDist, 'index.html')) ? webDist : null,
       memberWorkspaces: workspaces === 'member',
       runtimeBoundary,
+      executionProfile,
+      vmReadinessReport: env.PROJECTMAN_VM_READINESS_REPORT || undefined,
+      vmReadinessMaxAgeMs: reportMinutes > 0 ? reportMinutes * 60_000 : undefined,
+      githubPublishTokenFile: env.PROJECTMAN_GITHUB_PUBLISH_TOKEN_FILE || undefined,
     },
   };
 }

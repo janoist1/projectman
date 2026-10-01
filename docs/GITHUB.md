@@ -2,7 +2,10 @@
 
 Tasks live in projectman's own database. GitHub is used for what it does best: pull
 requests, reviews, checks, merges and releases (decision 9 in [DECISIONS.md](DECISIONS.md)).
-In v1 projectman only **reads** from GitHub; it never changes anything there.
+projectman **reads** from GitHub with the owner's login and never changes anything there with it. The
+one writing path is the managed VM's publishing gate with its own, separate identity
+([Publishing from the managed VM](#publishing-from-the-managed-vm-pm-142)); everywhere else agents do
+not push (decision 21).
 
 ```
 projectman server ── execFile (no shell) ──▶ gh CLI ──▶ GitHub API
@@ -119,11 +122,144 @@ Callers can turn `not_found` into a friendly "no such PR" message; the others me
 
 - `gh` is started with `execFile` (no shell). Repo names, PR numbers and branch names are
   validated first and passed as `--flag=value`, so no value can act as another flag.
-- Only `gh auth status`, `gh pr view` and `gh pr list` are run: nothing on GitHub changes.
+- The reading service runs only `gh auth status`, `gh pr view` and `gh pr list`: nothing on GitHub
+  changes through it, and it never holds the publishing token (a second object with its own
+  home, environment and token).
 - `gh` runs non-interactively (`GH_PROMPT_DISABLED`), without update checks, and always
   prints plain JSON (colors and forced terminals are switched off).
 - Automated tests use a fake `gh` (`apps/server/src/github/test-fixtures/fake-gh.mjs`) and
   never contact GitHub.
+
+## Publishing from the managed VM (PM-142)
+
+Decision 26 lets members in the managed VM profile publish their own task branches and open pull
+requests, without a question, through a restricted gate and a **separate GitHub identity**. Never
+`main`, never another member's branch, never a merge. Two halves hold this, and neither relies on
+the other: the **gate** in projectman (what a member can ask for) and the **remote protection**
+(what the identity can do even if the gate were wrong).
+
+```
+worker session ──▶ team tool publish_task_branch(commit) ──▶ PublishingGate (domain/publishing.ts)
+                    (MCP, authenticated session)               │ member, task, repo, branch from the server's records
+                                                               ▼
+                                         GithubPublisher (src/github/publisher.ts, token in this process only)
+                                           1. fetch the branch from the member's workspace into a server-owned bare repo
+                                           2. check the tip is the named commit
+                                           3. git push <commit>:refs/heads/<branch>   (never forced, never main)
+                                           4. gh pr list/create: one open pull request per branch
+                                                               ▼
+                                         task link: pull request, author = the publishing member (durable)
+```
+
+### What the gate checks (all from the server's own records)
+
+| Binding     | Where it comes from                                                                                                                                                                                                                                   |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| member      | the authenticated MCP session; it must be an AI member whose session ran in the `managed_vm` profile                                                                                                                                                  |
+| task        | the task of that session; naming another is refused                                                                                                                                                                                                   |
+| repository  | the task's own repo, else the project's only one; it must have `github` (local-only and repository-less tasks cannot publish)                                                                                                                         |
+| branch      | the member's own `work` binding of the task in its workspace; `main`, the repo's default branch and other protected names, another task's branch and any name that is not a plain branch name are refused (`checkPublishTarget` in `packages/shared`) |
+| commit      | named by the member, a full 40-character id; the publisher refuses it unless it is the branch tip                                                                                                                                                     |
+| refspec     | built by the publisher: `<commit>:refs/heads/<branch>`; never a `+`, a delete, a tag, `--all` or `--mirror`                                                                                                                                           |
+| credentials | the publisher's; the member never sees or names one                                                                                                                                                                                                   |
+
+A raw `git`, `gh` or any HTTP client in a session gets nothing wider than that: **the token is never
+in a session**. It lives in a file only the service reads (`PROJECTMAN_GITHUB_PUBLISH_TOKEN_FILE`,
+refused unless group and others cannot read it), reaches `git` as an `http.<host>.extraheader` in one
+process's environment and `gh` as `GH_TOKEN`, and passes through a redaction before anything is logged
+or returned. The git and gh started for publishing get a minimal environment of their own (own `HOME`,
+no `GITHUB_TOKEN`, none of the owner's `gh` login or git configuration). The publisher never runs
+`git` inside the member's repository: it fetches the branch into its own bare repository
+(`PROJECTMAN_HOME/github-publish/staging`) and pushes from there, so hooks, config includes, `pushurl`
+and credential helpers of a worker's clone never run. It refuses a workspace that borrows objects
+(`alternates`) or is a linked worktree. The poller (`GithubService`) is another object with the
+owner's read login and holds no write right.
+
+Repeated calls are idempotent: the same commit uploads nothing and returns the same pull request; a
+later commit fast-forwards the branch and shows in the same pull request; an open pull request of the
+branch is reused, and a "already exists" answer is read back. A branch that moved on the remote is a
+refusal (`not_fast_forward`), never a force.
+
+### Provenance: who authored the pull request
+
+The shared bot login says nothing about which AI member wrote the change, and the poller used to pick
+the first member whose `githubLogin` matched. A pull request opened by the gate gets its author from
+the authenticated session: the task link records `author` (a member handle) and `author_source =
+'published'` (database migration 15, not part of the shared `TaskLink` shape). Polling and a later
+`link_pull_request` never replace it, and it stays when the task is reassigned, so the no-self-review
+rule (`taskAuthors`) keeps holding for the publisher. A pull request that was not published here
+(opened by a person, or linked with `link_pull_request`) is attributed by `githubLogin` as before. The
+first publication of a link wins: a teammate who later takes the branch over and publishes to the same
+pull request does not take the authorship away (they are the assignee by then).
+
+### Remote state for the integrator and the review step
+
+`get_remote_state(task_key)` returns the remote default branch's head, the task branch's head, how far
+apart they are, the branch's pull requests and who published them. The server reads it, so the
+integrator and the reviewers need no credential and no network access to GitHub.
+
+### One-time setup by the owner
+
+This is a human step, and the token is never created, copied or stored by an agent. Nothing here
+copies the owner's `gh auth login` into the VM.
+
+1. **The identity.** A separate GitHub identity, never the owner's: a GitHub App installed on the one
+   repository (best: per-repository permissions, its own rate limit), or a machine user with a
+   fine-grained personal access token for that repository alone. Permissions: Contents read and
+   write, Pull requests read and write, Metadata read. **Not**: Administration, Workflows, Actions,
+   Secrets, Environments, Deployments. Without the Workflows permission the identity cannot push a
+   change to `.github/workflows`, so a published branch cannot carry a workflow that runs with the
+   repository's secrets. The identity must not be an owner or admin of the repository and must not
+   appear in any bypass list. (An App installation token lasts an hour; refresh the token file from
+   outside, since the publisher reads it at every call.)
+2. **The protection** ([`deploy/github/default-branch-ruleset.json`](../deploy/github/default-branch-ruleset.json),
+   [`tag-ruleset.json`](../deploy/github/tag-ruleset.json), import under Settings → Rules → Rulesets):
+   the default branch cannot be updated, force pushed or deleted except through a pull request with a
+   review, and tags cannot be created, moved or deleted, **for everybody but the owner's own
+   identity**, which is the only bypass actor (the integrating session pushes `main` after each
+   verified merge, decision 21). No other bypass.
+3. **Deployments.** Anything that deploys or releases sits in a GitHub Environment with required
+   reviewers (the owner) and its deployment branches limited to the default branch; no
+   repository-level secret reaches a branch workflow. A release or tag path cannot start without the
+   owner's approval, whatever a published branch contains.
+4. **The token file.** On the VM, as root, a file the service alone can read, for example
+   `/etc/projectman/github-publish.token` (owner `projectman`, mode `0600`), and
+   `PROJECTMAN_GITHUB_PUBLISH_TOKEN_FILE=/etc/projectman/github-publish.token` in the service's
+   environment next to the managed VM profile. The server refuses it on any other profile.
+5. **Check that the plan enforces it.** Rulesets and branch protection on a private repository need a
+   paid plan; whether a given account and repository enforce them is only known by trying. Run the
+   trial below on a **throwaway repository** first, and again on the real one before enabling
+   publishing there. A rule that GitHub accepts but does not enforce fails the trial.
+
+### The trial on a throwaway repository
+
+`deploy/github/trial.sh` is run by the owner, with the VM identity's token, against a repository that
+exists only for the trial (never the real `main`). It expects: a push to the default branch, a
+force push, a deletion, a tag push and a merge through `gh pr merge` and through the API all
+**refused**; a push of an own branch and the opening of its pull request **succeed**. It prints what it
+did and deletes its own branch afterwards.
+
+```sh
+GH_TOKEN="$(sudo cat /etc/projectman/github-publish.token)" \
+  bash deploy/github/trial.sh --repo <owner>/<throwaway> --confirm-throwaway <owner>/<throwaway>
+```
+
+Status: the script and the rulesets are written and reviewed but have **not** been run against GitHub
+(no throwaway repository or identity exists yet). The automated tests cover the gate and the
+publisher with the fake `gh` and a temporary git remote that refuses the default branch the way the
+protection does (`apps/server/src/github/publisher.test.ts`, `apps/server/test/github-publishing.test.ts`);
+they cannot prove that a real GitHub plan enforces the protection.
+
+### What is not covered
+
+- A member in the managed VM can still use the network as the gate (PM-140) allows; the publishing
+  token is not reachable from there, but a session that reaches GitHub anonymously reads public data
+  only.
+- The check that a workspace has no borrowed objects is a guard, not a proof: a hostile worker owns
+  its clone. The only things that leave are the objects of the named task branch, and the published
+  branch is reviewed before it is merged like any other.
+- The first publisher stays the pull request's author; a pull request several members commit to is
+  recorded as the first publisher's, plus the task's assignee, for no-self-review.
 
 ## Recommended next steps
 

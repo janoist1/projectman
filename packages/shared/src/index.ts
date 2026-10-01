@@ -33,3 +33,5 @@ export * from './domain/provider-model';
 export * from './domain/mentions';
 export * from './deploy/vm-readiness';
 export * from './deploy/runtime-boundary';
+export * from './deploy/managed-vm';
+export * from './deploy/publishing';

@@ -167,6 +167,12 @@ export interface MemberWorkspaceManager {
   /** Where the workspace is (or would be), without creating anything. */
   location(key: MemberWorkspaceKey): Promise<MemberWorkspaceInfo>;
   /**
+   * The member's own directory for sessions with no repository to work in (a general chat, a
+   * schedule run, a task without a repository), made when missing: `<root>/<PROJECT>/<handle>/.home`
+   * (PM-141, the managed VM's `member_workspace` placement).
+   */
+  home(key: { projectKey: string; member: string }): Promise<string>;
+  /**
    * Creates the workspace when it is missing (a clone of the project's repository without
    * hardlinks or alternates); `created` tells whether it was made now.
    */

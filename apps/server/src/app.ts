@@ -1,5 +1,7 @@
 import { chmodSync, existsSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { EXECUTION_PROFILES } from '@projectman/shared';
+import type { ExecutionProfile } from '@projectman/shared';
 import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
@@ -15,7 +17,9 @@ import type {
   AttachmentStorage,
   BoundaryOperationAdapter,
   ContextPackBuilder,
+  GithubPublisher,
   GithubService,
+  ManagedVmBoundary,
   McpModule,
   McpModuleOptions,
   MemberMemoryStore,
@@ -29,9 +33,9 @@ import { createRepositories, openDatabase } from './db';
 import type { Repositories } from './db';
 import { createAttachmentStorage, createDomain } from './domain';
 import type { Domain, ScheduleTimer, TemplateRegistry } from './domain';
-import { createGithubService } from './github';
+import { createGithubPublisher, createGithubService, createTokenFileReader } from './github';
 import { createMcpModule } from './mcp';
-import { createRunnerModule } from './runner';
+import { createReadinessBoundary, createRunnerModule, ManagedVmUnavailableError } from './runner';
 import {
   createManagedEgressProxy,
   createRuntimeBoundary,
@@ -64,9 +68,13 @@ export function loopbackBaseUrl(host: LoopbackHost, port: number): string {
 /** Module factories and instances; each can be replaced (tests inject fakes). */
 export interface AppModules {
   boundaryAdapter?: BoundaryOperationAdapter;
+  /** The proof of the managed VM boundary (default: the readiness report, `vmReadinessReport`). */
+  managedVmBoundary?: ManagedVmBoundary;
   createRunnerModule?: (opts: RunnerModuleOptions) => RunnerModule;
   createMcpModule?: (opts: McpModuleOptions) => McpModule;
   github?: GithubService;
+  /** The VM's GitHub publishing identity (default: built from `githubPublishTokenFile`, else none). */
+  githubPublisher?: GithubPublisher;
   contextPackBuilder?: ContextPackBuilder;
   memberMemory?: MemberMemoryStore;
   worktrees?: WorktreeManager;
@@ -142,6 +150,24 @@ export interface BuildAppOptions {
    * egress proxy, and no session starts while the boundary is not ready. Needs `memberWorkspaces`.
    */
   runtimeBoundary?: BoundaryConfig;
+  /**
+   * The installation's execution profile (PM-141): `legacy` (default, the Mac as it always was) or
+   * `managed_vm`, the owner's choice for the verified managed VM (docs/VM.md). It starts every
+   * session question-free, but only while a verified boundary proves itself at that start; the
+   * setting alone proves nothing. It needs member workspaces and a way to verify
+   * (`vmReadinessReport`, or an injected boundary): otherwise the server does not start.
+   */
+  executionProfile?: ExecutionProfile;
+  /** The readiness report of `deploy/vm/verify.sh` (a root-owned file) that proves the boundary. */
+  vmReadinessReport?: string;
+  /** How old that report may be (default one day). */
+  vmReadinessMaxAgeMs?: number;
+  /**
+   * The file holding the VM's separate GitHub identity for publishing task branches (PM-142). Only
+   * the managed VM profile accepts it, and only the service reads it: the token never reaches a
+   * session. Without it (and without `modules.githubPublisher`) nothing is published.
+   */
+  githubPublishTokenFile?: string;
 }
 
 /** What `app.projectman` exposes (tests and tooling reach the services through it). */
@@ -167,6 +193,39 @@ declare module 'fastify' {
  * optionally the built web app.
  */
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
+  const modules = options.modules ?? {};
+  // An installation that names a profile it cannot run is a start-up error, never a quiet fallback
+  // to something else (PM-141): the managed VM needs member workspaces and a way to verify itself.
+  const executionProfile = options.executionProfile ?? 'legacy';
+  if (!(EXECUTION_PROFILES as readonly string[]).includes(executionProfile))
+    throw new Error(`unknown execution profile: ${String(executionProfile)}`);
+  let managedVm: ManagedVmBoundary | undefined;
+  if (executionProfile === 'managed_vm') {
+    if (!options.memberWorkspaces)
+      throw new Error('execution profile managed_vm needs member workspaces (PROJECTMAN_WORKSPACES=member)');
+    // Question-free sessions only behind the VM boundary (PM-140): without it they would run as the
+    // service itself. A test may inject its own proof instead.
+    if (!modules.managedVmBoundary && !options.runtimeBoundary)
+      throw new Error(
+        'execution profile managed_vm needs the VM boundary configuration (PROJECTMAN_BOUNDARY_CONFIG)',
+      );
+    const reportPath = options.vmReadinessReport ?? options.runtimeBoundary?.readiness.report;
+    if (!modules.managedVmBoundary && !reportPath)
+      throw new Error('execution profile managed_vm needs a readiness report to verify the boundary');
+    managedVm =
+      modules.managedVmBoundary ??
+      createReadinessBoundary({
+        reportPath: reportPath!,
+        maxAgeMs:
+          options.vmReadinessMaxAgeMs ??
+          (options.runtimeBoundary ? options.runtimeBoundary.readiness.maxAgeSeconds * 1000 : undefined),
+      });
+  } else if (modules.managedVmBoundary || options.vmReadinessReport) {
+    throw new Error('a VM readiness report is set, but the execution profile is not managed_vm');
+  }
+  // The publishing identity belongs to the managed VM alone (decision 26): elsewhere agents do not push.
+  if (options.githubPublishTokenFile && executionProfile !== 'managed_vm')
+    throw new Error('a GitHub publishing token is set, but the execution profile is not managed_vm');
   const home = resolve(options.home);
   const attachmentsDir = join(home, 'attachments');
   for (const dir of [home, join(home, 'memory'), join(home, 'worktrees'), attachmentsDir]) {
@@ -176,7 +235,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const publicBaseUrl = (
     options.publicBaseUrl ?? loopbackBaseUrl(APP_DEFAULTS.host, APP_DEFAULTS.port)
   ).replace(/\/+$/, '');
-  const modules = options.modules ?? {};
 
   const logger = options.logger ?? { level: APP_DEFAULTS.logLevel };
   const app = Fastify({
@@ -210,6 +268,18 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         pollIntervalMs: options.githubPollIntervalMs ?? APP_DEFAULTS.githubPollIntervalMs,
         logger: log.child({ module: 'github' }),
       });
+    // A second identity, with its own token and home: the poller above only reads and never holds it.
+    const githubPublisher =
+      modules.githubPublisher ??
+      (options.githubPublishTokenFile
+        ? createGithubPublisher({
+            ghBin: options.ghBin ?? APP_DEFAULTS.ghBin,
+            host: options.ghHost ?? APP_DEFAULTS.ghHost,
+            stateDir: join(home, 'github-publish'),
+            token: createTokenFileReader(resolve(options.githubPublishTokenFile)),
+            logger: log.child({ module: 'github-publish' }),
+          })
+        : undefined);
     const contextBuilder = modules.contextPackBuilder ?? createContextPackBuilder();
     const memory = modules.memberMemory ?? createMemberMemoryStore({ rootDir: join(home, 'memory') });
     const worktrees =
@@ -245,6 +315,24 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           })
         : disabledRuntimeBoundary(options.now));
     const managed = isManagedBoundary(runtimeBoundary) ? runtimeBoundary : null;
+    // The question-free profile (PM-141) holds only while the boundary holds now: the report, and
+    // the launcher and the egress proxy answering (PM-140), at every session start.
+    const verifiedManagedVm: ManagedVmBoundary | undefined =
+      managedVm && runtimeBoundary.mode === 'managed_vm'
+        ? {
+            async verify() {
+              const attestation = await managedVm.verify();
+              const status = await runtimeBoundary.status();
+              if (!status.ready)
+                throw new ManagedVmUnavailableError(
+                  'not_ready',
+                  'the VM boundary is not ready (readiness, launcher or egress proxy)',
+                  { problems: status.problems },
+                );
+              return attestation;
+            },
+          }
+        : managedVm;
     const workspacesDir = join(home, 'workspaces');
     const memberWorkspaces = options.memberWorkspaces
       ? (modules.memberWorkspaces ??
@@ -274,6 +362,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           codexHome: options.codexHome,
           claudeConfigPath: options.claudeConfigPath,
           env: options.agentEnv,
+          managedVm: verifiedManagedVm,
           publicBaseUrl,
           broker,
           permissionTimeoutMs: options.permissionTimeoutMs ?? APP_DEFAULTS.permissionTimeoutMs,
@@ -283,6 +372,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
             : {}),
         }),
       github,
+      githubPublisher,
       contextBuilder,
       memory,
       worktrees,
@@ -294,6 +384,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       // Behind the boundary a session's pid is the launcher's (root's) process, and the launcher
       // stops every session whose service connection drops: none outlives a restart of the server.
       ...(runtimeBoundary.mode === 'managed_vm' ? { processExists: () => false } : {}),
+      executionProfile,
+      managedVm: verifiedManagedVm,
       templates: modules.templates,
       now: options.now,
       scheduleTimer: options.scheduleTimer,

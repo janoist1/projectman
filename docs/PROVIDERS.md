@@ -188,6 +188,75 @@ every other control character are refused. Denied tools are enforced through
 Claude Code's settings; Codex relies on its sandbox and the PermissionRequest hook, which is
 why a Codex member never runs in `bypassPermissions`.
 
+## Managed VM profile (PM-141)
+
+The question-free profile for the verified managed VM ([VM.md](VM.md), decisions 25 and 26). It is
+a separate **execution profile**, not a permission-mode migration and not a strict-sandbox claim:
+`SessionPolicy.execution = { profile: 'managed_vm', boundary }` (absent means legacy) with the new
+`member_workspace` placement (`use`: `work` on the task branch, `review` on a pinned round, `home`
+without a repository). The member's `permissionMode` is only read: `plan` stays research-only, every
+other value runs question-free; leaving the profile restores exactly what was configured. Nothing in
+an existing installation changes: the legacy, default and plan settings, the command broker, the
+PM-134 sandbox and the denied operations are the legacy path's alone.
+
+**It runs only on a proven boundary.** The installation's owner selects it
+(`PROJECTMAN_EXECUTION_PROFILE=managed_vm`, read only in `index.ts`; an unknown value stops the
+server, and so does a missing `PROJECTMAN_WORKSPACES=member` or readiness report setting). The
+setting alone proves nothing: at **every** start and resume the domain and the runner ask the
+`ManagedVmBoundary` (`createReadinessBoundary`) which reads the root-owned readiness report of
+`deploy/vm/verify.sh` (`PROJECTMAN_VM_READINESS_REPORT`, at most
+`PROJECTMAN_VM_REPORT_MAX_AGE_MINUTES` old, default one day): the host must be Linux, the report
+ready by `evaluateVmReadiness()` **and** its `launcher` and `domain-gate` checks passed
+(`evaluateManagedVmActivation`). The baseline report of PM-137 lists those two as unverified, so on
+it, and on the Mac, a start is refused with `managed_vm_unavailable` (`details.reason`:
+`no_boundary`, `platform`, `no_report`, `bad_report`, `not_ready`, `profile_mismatch`,
+`provider_version`, `ambient_config`); nothing is prepared or spawned, and there is no fallback to a
+legacy start. A repository file, an environment flag or a member setting is never an input.
+
+|                         | Claude Code                                                                                                                                                        | Codex                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| No local approval       | `--permission-mode bypassPermissions` (or `plan`), `skipDangerousModePermissionPrompt` in `--settings` so the first-use confirmation does not wait in the terminal | `--sandbox danger-full-access --ask-for-approval never` (or `read-only` for `plan`)               |
+| Inner limits            | none: no tool rules except `mcp__team__*`, no deny rules, no `sandbox` settings, the PM-134 sandbox is not passed                                                  | none: no writable roots, nothing of the legacy mapping                                            |
+| Protected start (PM-49) | `--strict-mcp-config` (only this session's team server), `--setting-sources user` (project settings and `.mcp.json` are left out)                                  | every hook event and the team server are `-c` overrides; the VM's own files are inspected (below) |
+| Hooks                   | kept (HTTP hooks, SessionStart through the forwarder): the state of the session is followed as before                                                              | kept (command hooks through the forwarder)                                                        |
+
+A `PermissionRequest` that reaches a managed VM session anyway is **not** shown to a human and not
+judged by the command rules (`commandVerdict` is the legacy path's): the runner (and, one step
+further, the inbox's broker) refuses it at once with the way forward (`MANAGED_VM_NO_LOCAL_APPROVAL`),
+and the session carries on. A question for a person at the terminal (`AskUserQuestion`,
+`request_user_input`) is not a permission and is handled as before. The context pack leaves out the
+"Commands that run without asking" section and says the member works freely; the business limits
+(owner exceptions, publishing, cost) apply at the domain, network and operation gate (BOUNDARY.md),
+not as deny rules in the CLI.
+
+**Versions and the VM's own configuration** are checked before each spawn, on the CLI that would run
+(`<cli> --version`) and on the files that would override the protected start:
+
+- The installed version must be one of `MANAGED_VM_PROVIDER_VERSIONS` in `packages/shared`
+  (`2.1.284` and `0.159.1` today, kept equal to `deploy/vm/profile.env` by a test). Another version is
+  refused: the flags above were written for these, and a newer release may read them differently.
+- No managed policy (`/etc/claude-code/managed-settings.json` and `.d/*.json`, the macOS path, Codex's
+  `/etc/codex/*.toml`) may exist with content, and the provider's user configuration
+  (`$CLAUDE_CONFIG_DIR/settings.json`, `$CODEX_HOME/config.toml`) and Codex's `<cwd>/.codex/config.toml`
+  may not set hooks, MCP servers, `ask`/`deny` rules or a default mode, the sandbox, approval policy,
+  features, profiles or credentials/endpoints. Only names are reported, never values. Codex's own
+  bookkeeping (`[notice]`, `[projects]`) and Claude settings that only add allow rules or choose a
+  model stand.
+- A conversation of the other profile is never resumed: the session row keeps the profile it last ran
+  in (`sessions.execution_profile`, migration 14, not part of the public `Session`). A change starts a
+  new conversation in the directory the new profile places it in, and voids the session's unconsumed
+  boundary requests (`policy_changed`). An "allow for this session" lives only in a process, so it
+  does not outlive it; the old working directory is never reused.
+- The worker environment drops `SSH_AUTH_SOCK`, `SSH_AGENT_PID`, `SSH_ASKPASS`, `GIT_ASKPASS` and the
+  GitHub token variables on top of the billing variables every session loses.
+
+**Not yet proven by hand** (the adapters are tested against the fake CLIs only; the real CLIs were
+not run): that Claude Code 2.1.284 accepts `skipDangerousModePermissionPrompt` from `--settings` and
+`--setting-sources user`, whether writes to `.git`/`.claude` still prompt in `bypassPermissions`, the
+managed-policy and Codex file locations above, and that Codex 0.159.1 shows no confirmation for
+`danger-full-access`. These are the first things of the human trial in [VM.md](VM.md); an answer
+that differs changes the adapter, not the contract.
+
 ## Login and plan usage
 
 Before spawning, the runner checks the provider's login (cached briefly). A CLI that is not

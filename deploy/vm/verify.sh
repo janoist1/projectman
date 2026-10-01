@@ -40,7 +40,7 @@ done < <(getent passwd)
 as_user() { local u=$1; shift; runuser -u "$u" -- "$@"; }
 # can_not USER TEST PATH: true when the TEST (-r, -w, -x) fails for USER on PATH.
 can() { as_user "$1" test "$2" "$3" 2>/dev/null; }
-tcp_connect() { as_user "$1" timeout 3 bash -c 'exec 3<>"/dev/tcp/$1/$2"' _ "$3" "$4" 2>/dev/null; }
+tcp_connect() { as_user "$1" timeout 3 bash -c 'exec 3<>"/dev/tcp/$1/$2"' _ "$2" "$3" 2>/dev/null; }
 root_connect() { timeout 3 bash -c 'exec 3<>"/dev/tcp/$1/$2"' _ "$1" "$2" 2>/dev/null; }
 has_sudo() {
   command -v sudo >/dev/null 2>&1 || return 1

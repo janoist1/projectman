@@ -177,6 +177,27 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
     return (await locate(key)).info;
   }
 
+  /**
+   * The member's own directory for sessions without a repository (PM-141): `<root>/<PROJECT>/<handle>/.home`.
+   * The leading dot cannot collide with a repository name, which never starts with one.
+   */
+  async function home(key: { projectKey: string; member: string }): Promise<string> {
+    if (!PROJECT_KEY.test(key.projectKey) || !HANDLE.test(key.member))
+      throw new MemberWorkspaceError('workspace_invalid', 'invalid home location', {
+        projectKey: key.projectKey,
+        member: key.member,
+      });
+    let dir = await rootPath(key.member);
+    for (const part of [key.projectKey, key.member, '.home']) {
+      dir = path.join(dir, part);
+      const entry = await maybeLstat(dir);
+      if (entry && (entry.isSymbolicLink() || !entry.isDirectory()))
+        throw new MemberWorkspaceError('workspace_invalid', `${dir} is not a plain directory`);
+    }
+    await access.mkdir(access.ownerOf(dir), dir);
+    return dir;
+  }
+
   /** The clone is ours: a plain directory with its own `.git` directory, no alternates. */
   async function assertWorkspace(info: MemberWorkspaceInfo): Promise<void> {
     const repoEntry = await maybeLstat(info.path);
@@ -501,6 +522,7 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
 
   return {
     location,
+    home,
     ensure,
     status,
     fetchBase,

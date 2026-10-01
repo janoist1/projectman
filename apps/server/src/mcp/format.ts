@@ -10,7 +10,13 @@ import {
   recentTimeline,
   truncate,
 } from '../agent-text';
-import type { AttachmentPage, LocatedAttachmentForTool, TaskToolDetail } from '../contracts';
+import type {
+  AttachmentPage,
+  LocatedAttachmentForTool,
+  PublishedTaskBranch,
+  PublishedTaskState,
+  TaskToolDetail,
+} from '../contracts';
 
 /**
  * Tool results are short plain text: cheap for the model to read and easy to scan in
@@ -206,6 +212,38 @@ export function formatLinkedPullRequest(task: Task, repo: string, number: number
   const prs = task.links.filter((l) => l.kind === 'pull_request').map((l) => linkTarget(l));
   const all = prs.length > 0 ? `\nPull requests on ${task.key}: ${prs.join('; ')}` : '';
   return `Linked PR ${repo}#${number} to ${task.key}.${all}`;
+}
+
+/* ---------- publishing ---------- */
+
+export function formatPublished(result: PublishedTaskBranch): string {
+  const pr = result.pullRequest;
+  const upload = result.alreadyPublished
+    ? `${result.branch} was already at ${result.commit.slice(0, 12)} on GitHub; nothing was uploaded.`
+    : `Published ${result.branch} at ${result.commit.slice(0, 12)} to ${result.repo}.`;
+  const request = result.pullRequestCreated
+    ? `Opened pull request #${pr.number} (${pr.url}) into ${pr.baseRef}.`
+    : `Pull request #${pr.number} (${pr.url}) was already open into ${pr.baseRef}; it now shows the new commit.`;
+  return `${upload} ${request} It is recorded on ${result.task.key} under your name; the task's reviewers see it there.`;
+}
+
+export function formatRemoteState(state: PublishedTaskState): string {
+  const short = (sha: string | null) => (sha ? sha.slice(0, 12) : 'not there');
+  const distance =
+    state.ahead !== null && state.behind !== null
+      ? ` The branch is ${state.ahead} commit(s) ahead of and ${state.behind} behind ${state.baseBranch}.`
+      : '';
+  const requests =
+    state.pullRequests.length > 0
+      ? state.pullRequests
+          .map((pr) => `#${pr.number} ${pr.state}${pr.draft ? ' (draft)' : ''} ${pr.url}`)
+          .join('; ')
+      : 'none';
+  const by = state.publishedBy ? ` Published by ${state.publishedBy}.` : '';
+  return (
+    `${state.taskKey} on ${state.repo}: ${state.baseBranch} is at ${short(state.baseCommit)}, ` +
+    `${state.branch} at ${short(state.branchCommit)}.${distance} Pull requests: ${requests}.${by}`
+  );
 }
 
 /* ---------- messages and questions ---------- */

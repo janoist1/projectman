@@ -182,6 +182,19 @@ behind the VM boundary (PM-140) every command in a workspace runs as its member'
 and commits cross accounts only as bundles. Workspaces are reserved for one
 session's process group at a time, so no session can switch the branch under another.
 
+**Publishing from the managed VM (PM-142).** The only way a task branch leaves the VM is the
+publishing gate ([GITHUB.md](GITHUB.md#publishing-from-the-managed-vm-pm-142)): the server takes
+member, task, repository and branch from its own records, builds the refspec itself and pushes with a
+separate GitHub identity whose token only the service reads (a file refused unless group and others
+cannot read it). The identity has no administration, workflow, secret, environment or deployment
+permission, is no bypass actor, and the repository's rulesets refuse it the default branch, force
+pushes, deletion, tags and merging; a deployment sits behind an environment with the owner as required
+reviewer. The token is redacted from every log and answer; the git and gh it is given run with a
+minimal environment of their own and never inside a worker's clone. The pull request's author is
+recorded from the authenticated session, so a shared bot login cannot launder authorship around the
+no-self-review rule. Enforcement by GitHub depends on the plan and the repository: it is verified by
+the trial script on a throwaway repository, not assumed.
+
 The model and fake CLI regression tests prove rendering and compatibility only. PM-126's
 corrected manual macOS subscription probe and the PM-130 adversarial matrix must establish
 the real filesystem/network boundary, hook/lifecycle confinement and publishing protection.
@@ -283,6 +296,39 @@ What it does not establish:
 - The boundary does not defend against root, the admin, the hypervisor or a kernel flaw.
 
 Each worker has its own subscription login (the owner's choice on PM-140, 2026-10-01).
+
+## The question-free profile (PM-141)
+
+In the managed VM profile the CLIs run with their own approvals and sandbox off (Claude Code in
+`bypassPermissions`, Codex with `danger-full-access` and approval `never`; decision 26), so the whole
+protection is the boundary VM.md measures. What keeps that from being a weaker Mac:
+
+- **No way in by assertion.** The profile is an owner-made installation setting, and each start
+  additionally needs the machine's own readiness report (Linux host, every required check, the
+  launcher and the domain gate passed, current, strict schema). A repository file, an environment
+  flag or a member's `permissionMode` never selects it; on the Mac and on a VM without a complete
+  report a session does not start at all (`managed_vm_unavailable`), and there is no fall-back that
+  would start it more freely. An existing member's mode is read, never rewritten, so leaving the
+  profile restores the configured behaviour (decision 19 and 21 stand everywhere else).
+- **A CLI version the settings are proven for.** The installed version must be a pinned one; another
+  release may read the flags differently, so it is refused, not tried.
+- **The VM's own configuration cannot reopen a door.** A managed policy, the provider's user
+  configuration or a trusted Codex project file that sets hooks, MCP servers, approval or sandbox
+  rules, credentials or endpoints refuses the start (names only in the error); the Claude start
+  leaves out the project's settings and MCP file and keeps only this session's team server (PM-49).
+  The service's SSH agent and GitHub token variables never reach a worker.
+- **No human approval to be tricked into.** A request that arrives anyway is refused, not queued for
+  an inbox item a person might approve from a phone without context. Anything that leaves the machine
+  is stopped at the network gate or decided as a boundary request (BOUNDARY.md); the owner's
+  exceptions apply there, not in the CLI.
+- **Nothing carries across a change.** A conversation, a working directory or an "allow for this
+  session" of the other profile is never reused, and the session's unconsumed boundary requests are
+  revoked.
+
+Limits: the real CLIs are not exercised by the automated tests (fakes only). What the flags do in
+the pinned versions, and that a forbidden step really stops at the gate, is the human trial of
+VM.md in a throwaway VM. Until the launcher (PM-140) runs sessions as the worker accounts, the
+profile cannot be activated (its report check stays `unverified`).
 
 ## Before server hosting
 

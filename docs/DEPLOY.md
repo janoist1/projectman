@@ -130,6 +130,28 @@ that opens their PRs. Restart after a manual config edit. GitHub polling matches
 login case-insensitively and persists that member as PR author for the no-self-review
 rule. The login is returned in `MemberView`; editing it currently uses config only.
 
+A pull request that the managed VM's publishing gate opens (PM-142) is attributed differently: its
+author is the member whose authenticated session published it, because several AI members share one
+bot login and the login cannot say who wrote the change. That author is kept for good and polling
+never replaces it. Do not set the bot's login as one member's `githubLogin` expecting it to name the
+author of published pull requests.
+
+## GitHub publishing identity (managed VM, PM-142)
+
+Only the managed VM profile publishes, and only with a separate GitHub identity that a person
+creates and installs once ([GITHUB.md](GITHUB.md#publishing-from-the-managed-vm-pm-142) lists its
+permissions, the rulesets in `deploy/github/` and the trial `deploy/github/trial.sh`). On the server:
+
+```sh
+# as root: the token file, readable by the service account alone (the app refuses a wider mode)
+install -o projectman -g projectman -m 600 /dev/stdin /etc/projectman/github-publish.token
+# then, in the service's environment (next to PROJECTMAN_EXECUTION_PROFILE=managed_vm):
+#   PROJECTMAN_GITHUB_PUBLISH_TOKEN_FILE=/etc/projectman/github-publish.token
+```
+
+The token is never put in a unit file, an environment file of a worker, the repository or a log, and
+`gh auth login` of the owner or an admin is never copied to the VM. Rotating it is replacing the file.
+
 ## Sandbox rollout prerequisite (PM-87)
 
 The provider-neutral policy migration does not activate strict sandboxes or change the live

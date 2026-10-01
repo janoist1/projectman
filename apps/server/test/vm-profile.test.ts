@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  MANAGED_VM_PROVIDER_VERSIONS,
   evaluateVmReadiness,
   parseEgressAuthority,
   VM_CHECKS,
@@ -150,6 +151,11 @@ describe('profile, units and rules agree', () => {
     expect(p.NODE_VERSION.startsWith(`${p.NODE_MAJOR}.`)).toBe(true);
   });
 
+  it('proves the question-free settings for exactly the CLI versions the profile installs (PM-141)', () => {
+    expect([...MANAGED_VM_PROVIDER_VERSIONS.claude]).toEqual([p.CLAUDE_CLI_VERSION]);
+    expect([...MANAGED_VM_PROVIDER_VERSIONS.codex]).toEqual([p.CODEX_CLI_VERSION]);
+  });
+
   it('pins every version and never gives an account sudo or an API key', () => {
     expect(p.CLAUDE_CLI_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
     expect(p.CODEX_CLI_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
@@ -248,6 +254,39 @@ describe('the shell scripts', () => {
     const verify = read('deploy/vm/verify.sh');
     for (const check of VM_CHECKS)
       expect(verify, check.id).toMatch(new RegExp(`(record|check_cli) "?${check.id}\\b|\\b${check.id}\\b`));
+  });
+
+  it('verify.sh probes the host and port it is given, as the account it is given', () => {
+    // Found in the first real VM trial: the probe passed its 3rd and 4th argument, so under
+    // `set -u` every network check aborted the report.
+    const line = read('deploy/vm/verify.sh')
+      .split('\n')
+      .find((l) => l.startsWith('tcp_connect()'));
+    expect(line).toBeDefined();
+    const probe = (host: string, port: number) =>
+      spawnSync(
+        'bash',
+        [
+          '-uc',
+          `as_user() { [ "$1" = pmw-x ] || exit 9; shift; "$@"; }
+timeout() { shift; "$@"; }
+bash() { [ "$4" = "${host}" ] && [ "$5" = "${port}" ] || exit 8; }
+${line}
+tcp_connect pmw-x ${host} ${port} && echo probed`,
+        ],
+        { encoding: 'utf8' },
+      );
+    const result = probe('10.0.0.1', 8099);
+    expect(result.stderr).toBe('');
+    expect(result.stdout.trim()).toBe('probed');
+  });
+
+  it('bootstrap.sh masks the world-writable sockets the profile does not need', () => {
+    const bootstrap = read('deploy/vm/bootstrap.sh');
+    for (const unit of ['snapd.socket', 'uuidd.socket'])
+      expect(bootstrap).toMatch(new RegExp(`systemctl mask [^\\n]*${unit.replace('.', '\\.')}`));
+    expect(bootstrap).toContain('rm -f /run/snapd.socket /run/snapd-snap.socket');
+    expect(bootstrap).toContain('rm -f /run/uuidd/request');
   });
 
   it('verify.sh refuses to run without root, and without an installed profile', () => {

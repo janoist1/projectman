@@ -6,7 +6,7 @@
 # What it does: installs the pinned Node and CLI versions into root-owned places; creates the
 # service account, one unprivileged account per worker and the protected directories; limits
 # ssh to the admin (no agent forwarding, no password); loads the system-managed egress rules;
-# hides other accounts' processes; masks snapd (a world-writable control socket); installs the
+# hides other accounts' processes; masks snapd and uuidd (world-writable sockets); installs the
 # service unit. What it does NOT do, because only a person may: log in to the provider
 # subscriptions, create the first owner, set up Tailscale, or give any account a token. See
 # docs/VM.md for those steps. The app itself is installed by install-app.sh.
@@ -144,6 +144,13 @@ if sshd -t; then systemctl reload ssh 2>/dev/null || systemctl reload sshd; else
 # --- snapd: a world-writable control socket the profile does not need ---------------------------
 systemctl disable --now snapd.socket snapd.service >/dev/null 2>&1 || true
 systemctl mask snapd.socket snapd.service >/dev/null 2>&1 || true
+# Stopping the socket unit leaves its world-writable files in /run until the next boot.
+rm -f /run/snapd.socket /run/snapd-snap.socket
+
+# --- uuidd: another world-writable socket; libuuid makes its UUIDs without the daemon -----------
+systemctl disable --now uuidd.socket uuidd.service >/dev/null 2>&1 || true
+systemctl mask uuidd.socket uuidd.service >/dev/null 2>&1 || true
+rm -f /run/uuidd/request
 
 # --- processes of other accounts are invisible to the workers ---------------------------------
 log "procfs hidepid"

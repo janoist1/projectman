@@ -362,6 +362,23 @@ export const migrations: Migration[] = [
   },
   {
     version: 14,
+    name: 'execution profile of a session',
+    // The profile a session's process last ran in (PM-141): `legacy` or `managed_vm`. A conversation
+    // started in one profile is never resumed in the other (its directory and the questions it was
+    // allowed belong to that profile), so the start needs to know. Every older row is `legacy`.
+    sql: `ALTER TABLE sessions ADD COLUMN execution_profile TEXT NOT NULL DEFAULT 'legacy';`,
+  },
+  {
+    version: 15,
+    name: 'provenance of a published pull request author',
+    // Who authored a pull request that the publishing gate opened (PM-142). The author of such a link
+    // comes from the authenticated session, and `author_source = 'published'` keeps polling from
+    // replacing it with a member matched by the shared bot login. Every older link has none (NULL)
+    // and keeps the login-matching behavior it always had.
+    sql: `ALTER TABLE task_links ADD COLUMN author_source TEXT;`,
+  },
+  {
+    version: 16,
     name: 'egress operations and allowances',
     // The network side of the VM boundary (PM-140). An operation is a destination a session was
     // refused, registered so it can be asked for (its id is the boundary operation id); an

@@ -84,7 +84,10 @@ container, not the machine the profile describes. The existing `debian-vm` insta
   listens inside the unit's namespace on `127.0.0.1:4700` (the app's hooks and MCP) and
   `127.0.0.1:4780` (the egress proxy) and carries each connection to the member's own sockets of
   the service, `/run/projectman-bridge/<handle>/{app,egress}.sock` (directory 2750 with the
-  member's group, sockets 0660: no other member can open them). So a member's test and dev servers
+  member's group, sockets 0660: no other member can open them). The service opens them for every
+  worker account when it starts (PM-175), so verify.sh's probe finds them before any session; a
+  worker added later gets its sockets with the service restart its group membership needs anyway,
+  or before its first unit. So a member's test and dev servers
   are its own, no member reaches another's, and none can take over a port of the service, even
   while the service is down.
 - **Egress gate (PM-140).** The units have no network but their own loopback. In the host

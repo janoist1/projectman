@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { FastifyBaseLogger } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { VM_CHECKS, VM_PROFILE_NAME, VM_PROFILE_VERSION } from '@projectman/shared';
 import type { VmReadinessReport } from '@projectman/shared';
@@ -9,9 +10,12 @@ import {
   createRuntimeBoundary,
   disabledRuntimeBoundary,
   loadBoundaryConfig,
+  openWorkerBridges,
   workerForUid,
   workerLayout,
+  workerMembers,
 } from './index';
+import type { ServiceBridges } from './index';
 import { memberOfPath } from './config';
 import { parsePasswd } from './launcher/accounts';
 import { readinessProblems } from './readiness';
@@ -116,6 +120,42 @@ describe('the boundary configuration', () => {
     expect(workerForUid(testBoundaryConfig(), lookup, 19000)).toBeNull();
     expect(workerForUid(testBoundaryConfig(), lookup, 20003)).toBeNull();
     expect(workerForUid(testBoundaryConfig(), lookup, 20500)).toBeNull();
+  });
+
+  it('lists the members with a worker account and opens their bridges without a session', async () => {
+    const accounts = parsePasswd(
+      [
+        'projectman:x:19000:19000::/var/lib/projectman:/usr/sbin/nologin',
+        'pmw-qa:x:20002:20002::/var/lib/projectman-work/pmw-qa:/usr/sbin/nologin',
+        'pmw-dev:x:20001:20001::/var/lib/projectman-work/pmw-dev:/usr/sbin/nologin',
+        'pmw-odd:x:20003:20003::/home/odd:/usr/sbin/nologin',
+        'pmw-far:x:21000:21000::/var/lib/projectman-work/pmw-far:/usr/sbin/nologin',
+        'alice:x:1000:1000::/home/alice:/bin/bash',
+      ].join('\n'),
+    );
+    const lookup = { byName: (n: string) => accounts.get(n) ?? null, list: () => [...accounts.values()] };
+    expect(workerMembers(testBoundaryConfig(), lookup)).toEqual(['dev', 'qa']);
+
+    const ensured: string[] = [];
+    const bridges: ServiceBridges = {
+      ensure: async (member) => {
+        ensured.push(member);
+        if (member === 'qa') throw new Error('no directory');
+      },
+      paths: () => ({ app: '', egress: '' }),
+      close: async () => undefined,
+    };
+    const errors: unknown[] = [];
+    const logger = { error: (...args: unknown[]) => errors.push(args), warn: () => undefined };
+    const result = await openWorkerBridges({
+      config: testBoundaryConfig(),
+      accounts: lookup,
+      bridges,
+      logger: logger as unknown as FastifyBaseLogger,
+    });
+    expect(ensured.sort()).toEqual(['dev', 'qa']);
+    expect(result).toEqual({ opened: ['dev'], failed: ['qa'] });
+    expect(errors).toHaveLength(1);
   });
 });
 

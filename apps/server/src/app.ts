@@ -44,9 +44,10 @@ import {
   disabledRuntimeBoundary,
   egressScopeTag,
   isManagedBoundary,
+  openWorkerBridges,
   passwdAccounts,
 } from './runtime-boundary';
-import type { BoundaryConfig } from './runtime-boundary';
+import type { AccountLookup, BoundaryConfig } from './runtime-boundary';
 import { createMemberWorkspaceManager, createWorktreeManager } from './worktree';
 import { registerWebsocket } from './ws';
 
@@ -86,6 +87,8 @@ export interface AppModules {
   attachmentStorage?: AttachmentStorage;
   /** The VM boundary (default: from `runtimeBoundary` in the options, else none). Tests pass a fake. */
   runtimeBoundary?: RuntimeBoundary;
+  /** The worker accounts of the boundary (default: /etc/passwd). */
+  workerAccounts?: AccountLookup;
 }
 
 /** Defaults of the server's options, including those index.ts reads from the environment. */
@@ -295,13 +298,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     if (boundaryConfig && !options.memberWorkspaces)
       throw new Error('the managed VM boundary needs member workspaces (PROJECTMAN_WORKSPACES=member)');
     let egressProxy: ReturnType<typeof createManagedEgressProxy> | null = null;
+    const workerAccounts = modules.workerAccounts ?? passwdAccounts();
     // Each worker unit reaches the app and the proxy only through its member's bridge sockets.
     const bridges = boundaryConfig
       ? createServiceBridges({
           root: boundaryConfig.bridgeRoot,
           appPort: boundaryConfig.appPort,
           groupOf: (member) =>
-            passwdAccounts().byName(`${boundaryConfig.workers.prefix}${member}`)?.gid ?? null,
+            workerAccounts.byName(`${boundaryConfig.workers.prefix}${member}`)?.gid ?? null,
           onEgress: (socket, member) => {
             if (egressProxy?.listening()) egressProxy.acceptFrom(socket, member);
             else socket.destroy();
@@ -463,6 +467,15 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       if (egressProxy && !standby) {
         const proxy = egressProxy;
         await proxy.listen().catch((err: unknown) => log.error({ err }, 'the egress proxy could not listen'));
+      }
+      // Every worker's bridge from the start (PM-175): the readiness probe needs them before any session.
+      if (bridges && boundaryConfig && !standby) {
+        await openWorkerBridges({
+          config: boundaryConfig,
+          accounts: workerAccounts,
+          bridges,
+          logger: log.child({ module: 'bridge' }),
+        });
       }
     });
     const db = repos.db;

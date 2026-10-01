@@ -1,4 +1,12 @@
-import { appendFileSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -7,7 +15,7 @@ import type { Attachment } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
 import { pngBytes } from './helpers/attachments';
-import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
 
@@ -123,7 +131,7 @@ describe('attachment team tools', () => {
       h = await createDomainHarness({
         attachmentStorage: (inner) => ({
           openRead: (ref, size) => inner.openRead(ref, size),
-          locate: (ref, size) => inner.locate(ref, size),
+          locate: (ref, size, mediaType) => inner.locate(ref, size, mediaType),
           taskDirectory: (projectKey, taskKey) => inner.taskDirectory(projectKey, taskKey),
           remove: (ref) => inner.remove(ref),
           removeTemporary: (ref) => inner.removeTemporary(ref),
@@ -199,9 +207,27 @@ describe('attachment team tools', () => {
         fileName: 'before.png',
         mediaType: 'image/png',
       });
-      expect(located.path).toBe(join(await h.attachmentStorage.taskDirectory('AR', 'AR-1'), before.id));
+      const dir = await h.attachmentStorage.taskDirectory('AR', 'AR-1');
+      // The readers of the agents tell an image by the extension: the path has it.
+      expect(located.path).toBe(join(dir, `${before.id}.png`));
       expect(readFileSync(located.path)).toEqual(pngBytes(120));
       expect(located.readableWithoutAsking).toBe(true);
+      const again = await h.domain.teamTools.readAttachment(dev, {
+        taskKey: 'AR-1',
+        attachmentId: before.id,
+      });
+      expect(again.path).toBe(located.path);
+
+      // A file of an unknown type keeps its plain name.
+      const notes = await h.domain.attachments.upload({
+        projectKey: 'AR',
+        taskKey: 'AR-1',
+        actor: OWNER_ACTOR,
+        fileName: 'notes.txt',
+        content: Readable.from([Buffer.from('plain notes')]),
+      });
+      const plain = await h.domain.teamTools.readAttachment(dev, { taskKey: 'AR-1', attachmentId: notes.id });
+      expect(plain.path).toBe(join(dir, notes.id));
 
       // Another task's file: the session has no read rule for that directory.
       const elsewhere = await ownerUpload('AR-2');
@@ -210,6 +236,29 @@ describe('attachment team tools', () => {
         attachmentId: elsewhere.id,
       });
       expect(other.readableWithoutAsking).toBe(false);
+    });
+
+    it('removes the extension view with the file, and a view left behind at the next start', async () => {
+      await h.cleanup();
+      h = await createDomainHarness({ persistent: true });
+      await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
+      const started = await h.domain.taskStarts.start('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
+      const ctx = { sessionId: started.session!.id, projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1' };
+      const first = await ownerUpload();
+      const second = await ownerUpload();
+      for (const a of [first, second])
+        await h.domain.teamTools.readAttachment(ctx, { taskKey: 'AR-1', attachmentId: a.id });
+      const files = () => readdirSync(join(h.attachmentsDir, 'AR', 'AR-1')).sort();
+      expect(files()).toEqual([first.id, `${first.id}.png`, second.id, `${second.id}.png`].sort());
+
+      await h.domain.attachments.delete('AR', 'AR-1', first.id, OWNER_ACTOR);
+      expect(files()).toEqual([second.id, `${second.id}.png`]);
+
+      // The row went away while its view stayed (as after a crash): the next start removes the view.
+      h.repos.attachments.remove(second.id);
+      unlinkSync(join(h.attachmentsDir, 'AR', 'AR-1', second.id));
+      h = await restartDomainHarness(h);
+      expect(files()).toEqual([]);
     });
 
     it('refuses an attachment of another task, an unknown one, a deleted one and an invalid id', async () => {

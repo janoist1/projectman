@@ -128,6 +128,29 @@ the timeline like any other answer):
   `git diff --name-only`, `grep -l`, `find`, …), and the project's test, type and format
   checks (PM-69). Patterns that can match `.` and `..` (`.*`) are not followed.
 
+### Task attachments (PM-113)
+
+A task session reads the files attached to its task with its own tools, after `read_attachment`
+gave it the path. Only that task's attachment directory (`PROJECTMAN_HOME/attachments/<KEY>/<TASK>`,
+resolved) is opened up, never the storage root or the rest of `PROJECTMAN_HOME`, and never for
+writing:
+
+- Claude Code: the allow rule `Read(//<dir>/**)` and the deny rule `Edit(//<dir>/**)` in
+  `--settings`, on every start and resume. Not `--add-dir`: in `acceptEdits` mode Claude Code
+  accepts edits in an extra working directory without asking. A directory whose path holds
+  characters that mean something in a rule gets no rules (reading then asks a human).
+- Codex: nothing is added. Its sandbox reads everywhere (see the probe below) and writes only in
+  the working directory; the attachment directory is never a writable root.
+- Both: read-only commands inside that directory (`file`, `ls`, `cat` …) pass the command rule
+  below like those in the working directory.
+
+The agents' readers tell an image or a PDF by the path's extension (Claude Code's Read), so
+`read_attachment` gives such a file as `<id>.<ext>`, a hard link to the stored file made on the
+first request and removed with it (recovery removes one left behind). Opening an attachment of
+another task may ask a human first. Automated tests run the fake CLIs only
+(`test/attachment-permissions.integration.test.ts`); the hand check with the real CLIs, opening
+an attached image on each provider, is recorded on PM-113.
+
 `git -C <dir>` counts as plain `git` when `<dir>` is the directory the command runs in (the
 session's working directory, or where a `cd` of the chain has led), however it is spelled. A
 `-C` to any other directory, a second `-C`, `-c`, `--git-dir` and `--work-tree` are not

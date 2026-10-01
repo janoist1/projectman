@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { chmod, lstat, mkdir, open, readdir, realpath, rename, unlink } from 'node:fs/promises';
+import { chmod, link, lstat, mkdir, open, readdir, realpath, rename, unlink } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
@@ -9,6 +9,28 @@ import type { AttachmentRef, AttachmentStorage, AttachmentWriter, StoredFile } f
 
 /** Suffix of a file still being written; recovery removes every one it finds. */
 export const TEMPORARY_SUFFIX = '.part';
+
+/**
+ * The extension of a published file's view (`<id>.<ext>`, a second name of the same file): the
+ * agents' readers pick images and PDFs by the extension of the path. Only the inline types, which
+ * were proven from the content.
+ */
+const VIEW_EXTENSIONS: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'application/pdf': 'pdf',
+};
+const VIEW_SUFFIXES = Object.values(VIEW_EXTENSIONS).map((ext) => `.${ext}`);
+
+/** The attachment id of a view's file name, or null when the name is not a view's. */
+export function viewOwner(name: string): string | null {
+  const suffix = VIEW_SUFFIXES.find((s) => name.endsWith(s));
+  if (!suffix) return null;
+  const id = name.slice(0, -suffix.length);
+  return AttachmentId.safeParse(id).success ? id : null;
+}
 
 const PROJECT_KEY = /^[A-Z][A-Z0-9]{0,9}$/;
 const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0;
@@ -50,7 +72,8 @@ async function unlinkIfThere(path: string): Promise<void> {
  * generated ids, checked), never the uploaded file name. Every directory on the way is checked to
  * be a real directory (no symlink), a file is created exclusively and opened without following a
  * link, and only a regular file is ever read. The root itself may be a link the owner set up
- * (to another disk): it is resolved once.
+ * (to another disk): it is resolved once. An image or a PDF an agent asked for also has a view,
+ * `<id>.<ext>`: a hard link to the same file, removed with it.
  */
 export class FileAttachmentStorage implements AttachmentStorage {
   private readonly rootDir: string;
@@ -138,10 +161,28 @@ export class FileAttachmentStorage implements AttachmentStorage {
     return handle.createReadStream();
   }
 
-  async locate(ref: AttachmentRef, size: number): Promise<string> {
+  async locate(ref: AttachmentRef, size: number, mediaType: string): Promise<string> {
     const { handle, path } = await this.openChecked(ref, size);
-    await handle.close();
-    return path;
+    try {
+      const ext = VIEW_EXTENSIONS[mediaType];
+      if (!ext) return path;
+      // A hard link next to the file: the same bytes under a name with its extension, made once.
+      const view = `${path}.${ext}`;
+      const file = await handle.stat();
+      try {
+        await link(path, view);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+        const existing = await lstat(view);
+        if (!existing.isFile() || existing.ino !== file.ino || existing.dev !== file.dev) {
+          await unlink(view);
+          await link(path, view);
+        }
+      }
+      return view;
+    } finally {
+      await handle.close();
+    }
   }
 
   async taskDirectory(projectKey: string, taskKey: string): Promise<string> {
@@ -173,8 +214,10 @@ export class FileAttachmentStorage implements AttachmentStorage {
       if (isMissing(err)) return;
       throw err;
     }
+    // The file first: a view made meanwhile is then removed below, and none can be made after.
     await unlinkIfThere(join(dir, ref.id));
     await unlinkIfThere(join(dir, `${ref.id}${TEMPORARY_SUFFIX}`));
+    for (const suffix of VIEW_SUFFIXES) await unlinkIfThere(join(dir, `${ref.id}${suffix}`));
   }
 
   async removeTemporary(ref: AttachmentRef): Promise<void> {

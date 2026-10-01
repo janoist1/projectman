@@ -383,7 +383,7 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       const attachment = findAttachment(args.taskKey, args.attachmentId);
       return {
         attachment,
-        path: `/tmp/attachments/AR/${args.taskKey}/${attachment.id}`,
+        path: `/tmp/attachments/AR/${args.taskKey}/${attachment.id}${attachment.preview === 'image' ? '.png' : ''}`,
         readableWithoutAsking: ctx.taskKey === args.taskKey,
       };
     },

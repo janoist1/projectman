@@ -88,8 +88,12 @@ export interface AttachmentStorage {
   create(ref: AttachmentRef): Promise<AttachmentWriter>;
   /** Opens the published file for reading; throws unless it is a regular file of `size` bytes. */
   openRead(ref: AttachmentRef, size: number): Promise<Readable>;
-  /** The published file's absolute path; throws unless it is a regular file of `size` bytes. */
-  locate(ref: AttachmentRef, size: number): Promise<string>;
+  /**
+   * The published file's absolute path for an agent's own reader; throws unless it is a regular
+   * file of `size` bytes. An image or PDF (`mediaType` as proven from the content) gets a path
+   * with its extension, a second name of the same file that `remove` removes with it.
+   */
+  locate(ref: AttachmentRef, size: number, mediaType: string): Promise<string>;
   /**
    * The absolute directory that holds (or will hold) a task's attachments, under the resolved
    * storage root; nothing is created. What an AI session on the task may read.

@@ -19,6 +19,7 @@ import type {
   McpModule,
   McpModuleOptions,
   MemberMemoryStore,
+  MemberWorkspaceManager,
   RunnerModule,
   RunnerModuleOptions,
   WorktreeManager,
@@ -30,7 +31,7 @@ import type { Domain, ScheduleTimer, TemplateRegistry } from './domain';
 import { createGithubService } from './github';
 import { createMcpModule } from './mcp';
 import { createRunnerModule } from './runner';
-import { createWorktreeManager } from './worktree';
+import { createMemberWorkspaceManager, createWorktreeManager } from './worktree';
 import { registerWebsocket } from './ws';
 
 /** Loopback addresses the server may listen on; remote access goes through `tailscale serve`. */
@@ -58,6 +59,8 @@ export interface AppModules {
   contextPackBuilder?: ContextPackBuilder;
   memberMemory?: MemberMemoryStore;
   worktrees?: WorktreeManager;
+  /** Member workspaces, used when `memberWorkspaces` is on (default: the git-backed manager). */
+  memberWorkspaces?: MemberWorkspaceManager;
   templates?: TemplateRegistry;
   /** The files of task attachments (default: PROJECTMAN_HOME/attachments). */
   attachmentStorage?: AttachmentStorage;
@@ -114,6 +117,11 @@ export interface BuildAppOptions {
   scheduleTimer?: ScheduleTimer;
   doneCleanupDelayMs?: number;
   wsHeartbeatMs?: number;
+  /**
+   * Durable member workspaces (PM-138, `${home}/workspaces/<PROJECT>/<handle>/<repo>`) in place of a
+   * worktree per task. Off by default: switching the live instance over is its own decision (PM-143).
+   */
+  memberWorkspaces?: boolean;
 }
 
 /** What `app.projectman` exposes (tests and tooling reach the services through it). */
@@ -187,6 +195,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const worktrees =
       modules.worktrees ??
       createWorktreeManager({ rootDir: join(home, 'worktrees'), logger: log.child({ module: 'worktree' }) });
+    const workspacesDir = join(home, 'workspaces');
+    const memberWorkspaces = options.memberWorkspaces
+      ? (modules.memberWorkspaces ??
+        createMemberWorkspaceManager({ rootDir: workspacesDir, logger: log.child({ module: 'workspace' }) }))
+      : undefined;
     const makeRunner = modules.createRunnerModule ?? createRunnerModule;
     const auth = new AuthService({ repos, now: options.now });
 
@@ -215,6 +228,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       attachmentStorage: modules.attachmentStorage ?? createAttachmentStorage(attachmentsDir),
       accounts: auth,
       worktreesRootDir: join(home, 'worktrees'),
+      memberWorkspaces,
+      workspacesRootDir: workspacesDir,
       templates: modules.templates,
       now: options.now,
       scheduleTimer: options.scheduleTimer,

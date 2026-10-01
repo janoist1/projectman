@@ -56,6 +56,11 @@ const DEFERRABLE = new Set<ErrorCode>([
   'ai_disabled',
   'member_at_capacity',
   'member_on_leave',
+  // The member's workspace (PM-138): held by another task's session, holding unfinished work, or
+  // its default branch could not be fetched fresh. The task shows which.
+  'workspace_busy',
+  'workspace_dirty',
+  'workspace_fetch_failed',
 ] satisfies DeferrableReason[]);
 
 export function isDeferrable(err: unknown): err is DomainError & { code: DeferrableReason } {

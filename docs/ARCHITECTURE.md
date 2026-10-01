@@ -117,6 +117,29 @@ Documentation map:
   repositories and none chosen it does not start (`repo_required`). Roles that only read run in
   the workspace root. A conversation belongs to the directory it ran in: when the task's
   worktree is elsewhere (its repo changed since), the session starts a new conversation there.
+- **Member workspace** (PM-138, server option `memberWorkspaces`, `PROJECTMAN_WORKSPACES=member`;
+  off by default until the switch-over, PM-143) — in place of a worktree per task, every AI member
+  gets one durable workspace per repository, `workspaces/<KEY>/<handle>/<repo>/`: an independent
+  clone (`--no-local`: its own `.git`, no shared objects, alternates or worktree link, no remote)
+  with its own `cache/` and `tmp/`. A role that changes files works there on the task's branch: a
+  new task gets its own branch from the freshly fetched default branch (a failed fetch refuses the
+  start, `workspace_fetch_failed`), a continued task keeps its branch as it was (never reset or
+  rebased), a task taken over from a teammate fetches their committed branch. A reviewer or tester
+  (code review, security review, testing duties) works on a pinned commit of the handed-over branch
+  and a review base pinned with it (`review_copy` placement), per round: a round starts when the
+  task enters a stage or its assignee writes to the reviewer (the owner's answer on PM-138), and a
+  resume continues the same round; a reviewer in a turn when its round ends gets the waiting
+  messages after it idles and restarts on the new commit. The handed-over work is the assignee's
+  workspace branch (another developer's later copy may be stale), else the last other one. Only committed work travels; the server fetches by explicit
+  path. A workspace serves one task session at a time, for the life of its process group, idle or
+  not (the reservation in `member_workspaces`): every start (admission, a person's resume, a
+  message wake-up) checks it, a session of another task gives way only when it idles on a task it
+  no longer works on (it is stopped; its conversation stays), and otherwise the start waits
+  (`workspace_busy`). A branch switch needs a clean workspace with no unfinished git operation
+  (`workspace_dirty`); nothing is stashed, reset, cleaned or removed, and done or cancelled tasks
+  leave the workspace, its branches and dependencies in place. A conversation of an older
+  generation of the workspace (made again or moved) is not resumed. Memory stays per project and
+  member (`memory/<KEY>/<handle>.md`).
 - **Context pack** — built when a session starts: the project's own `CLAUDE.md`/`AGENTS.md`
   (read by the CLI from the working directory), the member's identity, duty fragments and
   instructions, the team roster, the project's labels, how to use the team tools, the rules
@@ -138,7 +161,9 @@ Documentation map:
   wake-up, schedule run) passes the same checks, in this order: the project's AI master
   switch (`team.limits.aiEnabled`), that the member is not on leave (`member_on_leave`), for a
   task that a role which changes files has a repository
-  to work in (`repo_required`), for a schedule run that the member's previous run ended, the
+  to work in (`repo_required`), with member workspaces that no other task's session holds the
+  member's workspace for that repository (`workspace_busy`; `workspace_dirty` and
+  `workspace_fetch_failed` from the start itself wait the same way), for a schedule run that the member's previous run ended, the
   member's capacity (what it works on now, decision 19: the open tasks it has a running
   session for that are mid-turn or waiting for an answer, or sit in a stage it works in, plus
   its other running chats; a session idling after the task moved on, a finished session and a
@@ -270,7 +295,8 @@ claude | codex ── transcript JSONL ────────────▶ r
 - `context/` — the context pack: system prompt, kick-off brief, work-item rules, member memory.
 - `agent-text/` — AI-facing wording shared by the context pack and the team tools: timeline
   events, links, the repository of a task, one-line text.
-- `worktree/` — git worktrees and branches for tasks.
+- `worktree/` — git worktrees and branches for tasks; member workspaces (independent clones,
+  safe branch switches, pinned review checkouts; PM-138).
 - `github/` — `gh`-based pull request lookups and polling.
 - `http/` — request guards shared by the internal endpoints (local-only checks).
 - `config/` — the customization repository: YAML load and save, git history, revert,
@@ -303,6 +329,9 @@ secret                    cookie signing key
 customization/            git repo: projects/<KEY>/{project,team,pipeline}.yaml
 memory/<KEY>/<handle>.md  AI member memory (durable learnings)
 worktrees/<KEY>/…         git worktrees created for tasks
+workspaces/<KEY>/<handle>/<repo>/{repo,cache,tmp}
+                          member workspaces (PM-138, when on): durable independent clones,
+                          never removed by projectman
 attachments/<KEY>/<TASK>/<id>   task attachments: private (0700 directories, 0600 files),
                           named by the generated id (the uploaded name lives only in SQLite);
                           a file still being written is <id>.part; an image or PDF
@@ -311,7 +340,9 @@ attachments/<KEY>/<TASK>/<id>   task attachments: private (0700 directories, 060
 
 SQLite tables: `users`, `auth_sessions`, `invitations`, `projects`, `counters`, `tasks`,
 `task_links`, `timeline_events`, `sessions`, `team_messages`, `inbox_items`, `member_state`,
-`schedule_runs`, `deferred_starts`, `attachments`. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
+`schedule_runs`, `deferred_starts`, `attachments`, `member_workspaces` (one per project x member x
+repository, with its reservation), `task_workspace_bindings` (a member's branch or review round of
+a task in it). Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
 the server refuses a database a newer build migrated.
 
 ## Session policy migration (PM-87 / PM-127)
@@ -327,7 +358,10 @@ The active enforcement remains `legacy`; this migration does not enable strict i
 remove the command broker. `strict` intent is refused by both adapters until their verified
 implementation is available. A reading placement caps edit modes to `default` (preserving
 `plan`), and never receives a writable root. A review-copy placement carries its independent
-git directory, source commit and round id; creation/cleanup belongs to PM-132.
+git directory, source commit and round id; with member workspaces (PM-138) it is the reviewer's
+own durable workspace, and also names the handed-over branch and the pinned review base. A
+`task_worktree` placement in a member workspace has no shared `gitDir` (the clone's `.git` is its
+own) and names the task branch and its start commit.
 
 Review copies have a separate `reviewCopyMode` intent (`inherit`, `read_only`, `test`;
 absent means `inherit`). Historical `permissionMode` values never opt a copy into writes.

@@ -97,6 +97,8 @@ function admissionFor(world: World = {}) {
       sessions.filter((s) => !filter.member || s.member === filter.member),
     isRunning: (id: string) => running.has(id),
     busyCount: () => world.busy ?? 0,
+    // No member workspaces in this world: nothing holds one.
+    assertWorkspaceFree: () => undefined,
     findRunning: (_projectKey: string, member: string, workItem: WorkItemRef) =>
       sessions.find(
         (s) =>

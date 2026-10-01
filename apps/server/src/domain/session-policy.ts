@@ -61,23 +61,29 @@ export const WORKTREE_SANDBOX: AgentSandbox = {
 
 export type CommandVerdict = { behavior: 'allow' } | { behavior: 'deny'; message: string };
 
-/** Whether the session works in the task's own worktree, inside the worktrees root. */
+/**
+ * Whether the session works in the task's own worktree, inside the worktrees root, or in the
+ * member's own workspace, inside the workspaces root (PM-138).
+ */
 function inTaskWorktree(input: {
   config: ProjectConfig;
   session: { cwd: string; role: RoleId };
   task: Pick<Task, 'repo'> | null;
   worktreesRootDir?: string;
+  workspacesRootDir?: string;
 }): boolean {
-  const { config, session, task, worktreesRootDir } = input;
-  if (!worktreesRootDir || !effectiveRepo(config, task) || !sessionPolicyFor(session.role, config).worktree)
-    return false;
-  const relative = path.relative(path.resolve(worktreesRootDir), path.resolve(session.cwd));
-  return (
-    relative !== '' &&
-    relative !== '..' &&
-    !relative.startsWith(`..${path.sep}`) &&
-    !path.isAbsolute(relative)
-  );
+  const { config, session, task } = input;
+  if (!effectiveRepo(config, task) || !sessionPolicyFor(session.role, config).worktree) return false;
+  return [input.worktreesRootDir, input.workspacesRootDir].some((root) => {
+    if (!root) return false;
+    const relative = path.relative(path.resolve(root), path.resolve(session.cwd));
+    return (
+      relative !== '' &&
+      relative !== '..' &&
+      !relative.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(relative)
+    );
+  });
 }
 
 /**
@@ -148,6 +154,8 @@ export function commandVerdict(input: {
   toolName: string;
   toolInput: unknown;
   worktreesRootDir?: string;
+  /** Where member workspaces live (PM-138); a developer's routine steps there are allowed too. */
+  workspacesRootDir?: string;
   readableRoots?: readonly string[];
 }): CommandVerdict | null {
   const { config, session, task, toolName, toolInput, readableRoots } = input;

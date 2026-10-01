@@ -13,7 +13,14 @@ export interface SessionPolicy {
   /** Separate review-copy opt-in; absent means inherit, never inferred from permissionMode. */
   reviewCopyMode?: ReviewCopyMode;
   placement:
-    | { kind: 'task_worktree'; path: string; gitDir?: string }
+    | {
+        kind: 'task_worktree';
+        path: string;
+        /** A shared git directory outside `path` (a git worktree's); absent for an independent clone. */
+        gitDir?: string;
+        /** The member's durable workspace (PM-138): the task branch in it and where it started. */
+        workspace?: { branch: string; baseCommit: string | null };
+      }
     | {
         kind: 'review_copy';
         path: string;
@@ -22,6 +29,10 @@ export interface SessionPolicy {
         roundId: string;
         cacheDir?: string;
         tempDir?: string;
+        /** The handed-over branch and the default branch commit pinned for the round (PM-138). */
+        sourceBranch?: string;
+        baseBranch?: string;
+        baseCommit?: string;
       }
     | { kind: 'read_only'; path: string };
   tools: {

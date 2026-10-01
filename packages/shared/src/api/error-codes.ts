@@ -102,6 +102,12 @@ export const ERROR_CODES = [
   'member_not_scheduled',
   'provider_not_logged_in',
   'session_start_failed',
+  // Member workspaces (PM-138)
+  'workspace_busy',
+  'workspace_dirty',
+  'workspace_fetch_failed',
+  'workspace_branch_missing',
+  'workspace_source_missing',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

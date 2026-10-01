@@ -101,6 +101,7 @@ export class InboxService {
   private readonly timeline: TimelineService;
   private readonly projects: ProjectService;
   private readonly worktreesRootDir?: string;
+  private readonly workspacesRootDir?: string;
   private readonly attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
   private readonly waiters = new Map<string, (item: InboxItem) => void>();
 
@@ -109,6 +110,8 @@ export class InboxService {
     timeline: TimelineService;
     projects: ProjectService;
     worktreesRootDir?: string;
+    /** Where member workspaces live (PM-138): routine steps there run without asking, as in a worktree. */
+    workspacesRootDir?: string;
     /** The attachment directory of a task: read-only commands there are allowed for its sessions. */
     attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
   }) {
@@ -116,6 +119,7 @@ export class InboxService {
     this.timeline = deps.timeline;
     this.projects = deps.projects;
     this.worktreesRootDir = deps.worktreesRootDir;
+    this.workspacesRootDir = deps.workspacesRootDir;
     this.attachmentDirectory = deps.attachmentDirectory;
     this.broker = { decide: (request, signal) => this.decide(request, signal) };
   }
@@ -313,6 +317,7 @@ export class InboxService {
             toolName: request.toolName,
             toolInput: request.toolInput,
             worktreesRootDir: this.worktreesRootDir,
+            workspacesRootDir: this.workspacesRootDir,
             readableRoots: readableRootsFor({
               config,
               cwd: session.cwd,

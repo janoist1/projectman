@@ -26,7 +26,9 @@ import type {
   AttachmentOperations,
   ContextPackBuilder,
   MemberMemoryStore,
+  MemberWorkspaceManager,
   RunnerEvent,
+  SessionPolicy,
   SessionRunner,
   ToolContext,
   TranscriptReader,
@@ -54,6 +56,8 @@ import {
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
 import { aiActor, KeyedMutex, newId, newToken, newUuid, SYSTEM_ACTOR } from './util';
+import { MemberWorkspaces } from './workspaces';
+import type { ProcessProbe, WorkspacePlacement } from './workspaces';
 
 export const LIVE_SESSION_STATES: SessionState[] = [
   'starting',
@@ -116,6 +120,13 @@ export interface SessionOrchestratorDeps {
   attachments?: Pick<AttachmentOperations, 'list'>;
   /** The attachment directory of a task (`AttachmentStorage.taskDirectory`): its session reads it without asking. */
   attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
+  /**
+   * Durable member workspaces (PM-138) in place of a worktree per task; absent, task sessions use
+   * the worktree manager as before.
+   */
+  memberWorkspaces?: MemberWorkspaceManager;
+  /** Whether a process group still runs (tests replace it); see `processExists`. */
+  processExists?: ProcessProbe;
 }
 
 /** Worktree removals that are refused on purpose (the worktree module's error codes). */
@@ -158,10 +169,21 @@ export class SessionOrchestrator {
   /** The provider each session's current process runs, for the transcript it reports. */
   private readonly processProviders = new Map<string, AgentProvider>();
   private readonly unsubscribe: () => void;
+  /** Member workspaces (PM-138), when the server runs with them. */
+  readonly workspaces: MemberWorkspaces | null;
 
   constructor(deps: SessionOrchestratorDeps) {
     this.deps = deps;
     this.ctx = deps.ctx;
+    this.workspaces = deps.memberWorkspaces
+      ? new MemberWorkspaces({
+          ctx: deps.ctx,
+          manager: deps.memberWorkspaces,
+          isRunning: (sessionId) => this.isRunning(sessionId),
+          stop: (projectKey, sessionId) => this.stop(projectKey, sessionId),
+          processExists: deps.processExists,
+        })
+      : null;
     this.unsubscribe = deps.runner.onEvent((event) => this.handleRunnerEvent(event));
   }
 
@@ -205,9 +227,34 @@ export class SessionOrchestrator {
       .length;
   }
 
+  /**
+   * The member's running session for the work item, to type into. Not a review session whose round
+   * is over (`MemberWorkspaces.isStale`): a start restarts that one on the new commit.
+   */
   findRunning(projectKey: string, member: string, workItem: WorkItemRef): Session | null {
     const session = this.ctx.repos.sessions.findByWorkItem(projectKey, member, workItem);
-    return session && this.isRunning(session.id) ? session : null;
+    return session && this.isRunning(session.id) && !this.workspaces?.isStale(session) ? session : null;
+  }
+
+  /**
+   * A new review round is due (PM-138): the task entered a stage (every reviewer of it), or its
+   * developer wrote to a reviewer (that one). Their next start pins the latest commit.
+   */
+  requestReviewRound(projectKey: string, taskKey: string, member?: string): void {
+    this.workspaces?.requestReviewRound(projectKey, taskKey, member);
+  }
+
+  /**
+   * The session's review round is over while it is still in a turn: messages for it wait instead of
+   * reaching the old round, and it restarts on the new commit once it idles (see `handleRunnerEvent`).
+   */
+  reviewRoundDue(session: Session): boolean {
+    return this.workspaces?.roundDue(session) ?? false;
+  }
+
+  /** Admission: `workspace_busy` while another task's live session holds the member's workspace. */
+  assertWorkspaceFree(config: ProjectConfig, member: AiMemberConfig, task: Task): void {
+    this.workspaces?.check(config, member, task);
   }
 
   /**
@@ -234,7 +281,11 @@ export class SessionOrchestrator {
       const task = workItem.type === 'task' ? this.deps.tasks.get(projectKey, workItem.taskKey) : null;
       const existing = this.ctx.repos.sessions.findByWorkItem(projectKey, handle, workItem);
       if (existing && this.isRunning(existing.id)) {
-        return { session: existing, created: false, resumed: false, started: false, messageSent: false };
+        if (!this.workspaces?.isStale(existing))
+          return { session: existing, created: false, resumed: false, started: false, messageSent: false };
+        // Its review round is over: no live process while the workspace moves to the new commit.
+        await this.deps.runner.stop(existing.id);
+        this.markEnded(existing.id, null);
       }
       const message =
         opts.message?.trim() && opts.message.length <= MAX_FIRST_INPUT_CHARS ? opts.message : null;
@@ -327,7 +378,14 @@ export class SessionOrchestrator {
       }
       this.markEnded(session.id, null);
     }
-    const worktreePaths = [...new Set(sessions.filter((s) => s.branch !== null).map((s) => s.cwd))];
+    // A member workspace outlives its tasks (PM-138): only per-task worktrees are removed.
+    const worktreePaths = [
+      ...new Set(
+        sessions
+          .filter((s) => s.branch !== null && !this.workspaces?.isWorkspacePath(s.cwd))
+          .map((s) => s.cwd),
+      ),
+    ];
     for (const path of worktreePaths) {
       try {
         const status = await this.deps.worktrees.status(path);
@@ -368,6 +426,7 @@ export class SessionOrchestrator {
     }
   }
 
+  /** Starts the session's process; a member workspace it reserved is freed again when that fails. */
   private async start(
     config: ProjectConfig,
     member: AiMemberConfig,
@@ -375,6 +434,24 @@ export class SessionOrchestrator {
     task: Task | null,
     existing: Session | null,
     message: string | null,
+  ): Promise<EnsureSessionResult> {
+    const sessionId = existing?.id ?? newId('ses');
+    try {
+      return await this.launch(config, member, workItem, task, existing, message, sessionId);
+    } catch (err) {
+      this.workspaces?.ended(sessionId);
+      throw err;
+    }
+  }
+
+  private async launch(
+    config: ProjectConfig,
+    member: AiMemberConfig,
+    workItem: WorkItemRef,
+    task: Task | null,
+    existing: Session | null,
+    message: string | null,
+    sessionId: string,
   ): Promise<EnsureSessionResult> {
     assertAiEnabled(config);
     assertNotOnLeave(member);
@@ -393,7 +470,23 @@ export class SessionOrchestrator {
     // repositories, or a role that only reads (the ones that change files were refused above).
     const repoName = effectiveRepo(config, task);
     let placed: WorktreeInfo | null = null;
-    if (task && repoName && usesWorktree(member.role, config)) {
+    let ws: WorkspacePlacement | null = null;
+    if (task && repoName && this.workspaces?.kindFor(config, member, task)) {
+      // The member's own durable workspace (PM-138): reserved for this session, on the task's branch
+      // or the handed-over commit under review.
+      ws = await this.workspaces.prepare(config, member, task, sessionId);
+      cwd = ws.info.path;
+      branch = ws.checkout.branch;
+      if (ws.binding.kind === 'work' && branch) {
+        const github = repoOf(config, repoName)?.github;
+        this.deps.tasks.addLink(
+          projectKey,
+          task.key,
+          { kind: 'branch', ref: branch, ...(github ? { repo: github } : {}) },
+          SYSTEM_ACTOR,
+        );
+      }
+    } else if (task && repoName && usesWorktree(member.role, config)) {
       // Code-changing roles work in the task's own worktree and branch; others in the workspace.
       try {
         placed = await this.deps.worktrees.ensureForTask({
@@ -421,9 +514,14 @@ export class SessionOrchestrator {
         SYSTEM_ACTOR,
       );
     }
-    if (
+    if (task && repoName && !ws && this.workspaces && sessionPolicyFor(member.role, config).readOnlyTools) {
+      // A reader without a workspace of its own reads the developer's, while it is on this task.
+      const readable = await this.workspaces.readableWork(config, task.key);
+      if (readable) additionalDirectories = [readable];
+    } else if (
       task &&
       repoName &&
+      !ws &&
       !usesWorktree(member.role, config) &&
       sessionPolicyFor(member.role, config).readOnlyTools
     ) {
@@ -441,8 +539,11 @@ export class SessionOrchestrator {
     // The conversation of an earlier start belongs to the directory it ran in. When the task's
     // worktree is somewhere else (the task had no repository then, or another one) it cannot carry on
     // there: the session starts a new conversation in the worktree instead of working elsewhere.
-    const relocated = Boolean(existing && placed && path.resolve(existing.cwd) !== path.resolve(placed.path));
-    if (existing && !relocated) {
+    // So does a conversation of an older generation of the member's workspace (made again or moved).
+    const relocated = Boolean(
+      existing && (placed || ws) && (path.resolve(existing.cwd) !== path.resolve(cwd) || ws?.newGeneration),
+    );
+    if (existing && !relocated && !ws) {
       // Claude Code keeps conversations per working directory: resume where it started.
       cwd = existing.cwd;
       branch = existing.branch ?? branch;
@@ -463,9 +564,11 @@ export class SessionOrchestrator {
       role: member.role,
       task,
       permissionMode: member.permissionMode,
-      placement: placed
-        ? { kind: 'task_worktree', path: cwd, ...(placed.gitDir ? { gitDir: placed.gitDir } : {}) }
-        : { kind: 'read_only', path: cwd },
+      placement: ws
+        ? ws.placement
+        : placed
+          ? { kind: 'task_worktree', path: cwd, ...(placed.gitDir ? { gitDir: placed.gitDir } : {}) }
+          : ({ kind: 'read_only', path: cwd } satisfies SessionPolicy['placement']),
       readableRoots: additionalDirectories,
       ...(attachmentDir ? { readOnlyPaths: [attachmentDir] } : {}),
     });
@@ -490,7 +593,7 @@ export class SessionOrchestrator {
     if (task) {
       const latestTask = this.deps.tasks.get(projectKey, task.key);
       assertRepoChosen(latestConfig, member.role, latestTask);
-      if (placed && effectiveRepo(latestConfig, latestTask) !== repoName) {
+      if ((placed || ws) && effectiveRepo(latestConfig, latestTask) !== repoName) {
         throw conflict(
           'session_start_failed',
           `the repository of task ${task.key} changed while the session was starting: start it again`,
@@ -517,7 +620,7 @@ export class SessionOrchestrator {
       })!;
     } else {
       session = {
-        id: newId('ses'),
+        id: sessionId,
         projectKey,
         member: member.handle,
         workItem,
@@ -557,10 +660,12 @@ export class SessionOrchestrator {
         allowedTools: [...allowedToolsFor(member.role, config), ...attachmentRules.allow],
         deniedTools: [...deniedToolsFor(config, task), ...attachmentRules.deny],
         additionalDirectories,
-        // Work in a task's own worktree runs in the OS sandbox; other sessions are not sandboxed yet.
-        ...(placed ? { sandbox: WORKTREE_SANDBOX } : {}),
+        // Work in a task's own worktree (or workspace branch) runs in the OS sandbox; other sessions
+        // are not sandboxed yet.
+        ...(placed || ws?.binding.kind === 'work' ? { sandbox: WORKTREE_SANDBOX } : {}),
         provider,
       });
+      this.workspaces?.started(session.id, info.pid);
       const current = this.ctx.repos.sessions.get(session.id);
       if (current?.state === 'starting' && info.state !== 'starting') {
         this.ctx.repos.sessions.update(session.id, { state: info.state });
@@ -697,6 +802,7 @@ export class SessionOrchestrator {
       endedAt: at,
       lastActivityAt: at,
     })!;
+    this.workspaces?.ended(sessionId);
     this.deps.timeline.append({
       projectKey: ended.projectKey,
       taskKey: ended.workItem.type === 'task' ? ended.workItem.taskKey : null,
@@ -741,6 +847,7 @@ export class SessionOrchestrator {
           })!;
           this.publishSession(updated);
           this.recomputeMemberState(session.projectKey, session.member);
+          this.wakeForNewRound(updated);
           return;
         }
         case 'transcript_path': {
@@ -789,6 +896,25 @@ export class SessionOrchestrator {
         'runner event handling failed',
       );
     }
+  }
+
+  /**
+   * A review session that finished its turn after its round ended, with messages that waited for
+   * it (a re-review request): their wake-up restarts it on the new commit with them.
+   */
+  private wakeForNewRound(session: Session): void {
+    if (session.workItem.type !== 'task' || !this.workspaces?.isStale(session)) return;
+    const taskKey = session.workItem.taskKey;
+    const [first] = this.ctx.repos.messages
+      .pending(session.projectKey, session.member)
+      .filter((m) => m.taskKey === taskKey);
+    if (!first) return;
+    void this.ctx.events.emit('message_waiting', {
+      projectKey: session.projectKey,
+      handle: session.member,
+      workItem: session.workItem,
+      messageId: first.id,
+    });
   }
 
   private publishSession(session: Session): void {

@@ -44,6 +44,11 @@ export const TaskStartWaiting = z.object({
     'member_at_capacity',
     'member_on_leave',
     'repo_required',
+    // The member's workspace for the repository (PM-138): another task's session holds it, it has
+    // unfinished work, or the default branch could not be fetched fresh.
+    'workspace_busy',
+    'workspace_dirty',
+    'workspace_fetch_failed',
   ]),
   member: MemberHandle.optional(),
   provider: AgentProvider.optional(),

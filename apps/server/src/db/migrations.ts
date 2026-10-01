@@ -318,5 +318,47 @@ export const migrations: Migration[] = [
     record TEXT NOT NULL
   );`,
   },
+  {
+    version: 13,
+    name: 'member workspaces, their reservation and task bindings',
+    // One durable workspace per project x member x repository (PM-138). The holder columns are the
+    // reservation: the session whose process (with its process group) owns the workspace, kept
+    // across restarts until that process is proven gone. A binding is what a member's task uses in
+    // the workspace: its branch (work) or the pinned commit of a review round (review), and the
+    // workspace generation its conversation belongs to. Older session rows need nothing new.
+    sql: `CREATE TABLE member_workspaces (
+        id                TEXT PRIMARY KEY,
+        project_key       TEXT NOT NULL REFERENCES projects(key),
+        member            TEXT NOT NULL,
+        repo              TEXT NOT NULL,
+        path              TEXT NOT NULL,
+        generation        INTEGER NOT NULL,
+        created_at        TEXT NOT NULL,
+        holder_session_id TEXT,
+        holder_task_key   TEXT,
+        holder_pid        INTEGER,
+        held_since        TEXT,
+        UNIQUE (project_key, member, repo)
+      );
+      CREATE TABLE task_workspace_bindings (
+        project_key   TEXT NOT NULL REFERENCES projects(key),
+        task_key      TEXT NOT NULL REFERENCES tasks(key),
+        member        TEXT NOT NULL,
+        workspace_id  TEXT NOT NULL REFERENCES member_workspaces(id),
+        kind          TEXT NOT NULL CHECK(kind IN ('work', 'review')),
+        branch        TEXT,
+        base_commit   TEXT,
+        source_path   TEXT,
+        source_ref    TEXT,
+        source_commit TEXT,
+        round         INTEGER NOT NULL DEFAULT 0,
+        refresh       INTEGER NOT NULL DEFAULT 0,
+        generation    INTEGER NOT NULL,
+        created_at    TEXT NOT NULL,
+        updated_at    TEXT NOT NULL,
+        PRIMARY KEY (project_key, task_key, member, workspace_id)
+      );
+      CREATE INDEX task_workspace_bindings_task ON task_workspace_bindings(project_key, task_key, kind);`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

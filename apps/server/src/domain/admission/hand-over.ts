@@ -93,7 +93,7 @@ export class StageHandOver {
         const working = owners.find((m) => this.sessions.findRunning(projectKey, m.handle, workItem));
         if (working) return this.notify(current, stage, working.handle);
         const free = owners
-          .map((member) => ({ member, load: this.admission.memberLoad(projectKey, member.handle, taskKey) }))
+          .map((member) => ({ member, load: this.admission.memberLoad(config, member.handle, taskKey) }))
           .filter(({ member, load }) => load < member.capacity)
           .sort((a, b) => a.load - b.load)[0]?.member;
         waitsFor = (free ?? (owners.length === 1 ? owners[0] : undefined))?.handle;

@@ -1,4 +1,4 @@
-import { DEFAULT_AGENT_PROVIDER, isOpenTask } from '@projectman/shared';
+import { DEFAULT_AGENT_PROVIDER, isOpenTask, isWorkingOnTask } from '@projectman/shared';
 import type { AiMemberConfig, ProjectConfig, Task, WorkItemRef } from '@projectman/shared';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
@@ -32,7 +32,7 @@ export interface AdmissionRequest {
  * hand-over, message wake-up, schedule run) passes the same checks, in this order: the
  * project's AI master switch; for a task, that a role which changes files has a repository to
  * work in (`repo_required`: a person has to choose it, so waiting does not help); for a scheduled
- * run, the member's previous run has ended; the member's capacity (open tasks it carries plus its
+ * run, the member's previous run has ended; the member's capacity (open tasks it has a running session for plus its
  * other running chats); the concurrent AI sessions (`maxConcurrentAi`); the plan usage of the
  * member's provider. Decisions and the starts they allow are serialized. An automatic start
  * refused for a reason that can clear waits in the deferred-start store, which SQLite backs, and
@@ -68,25 +68,30 @@ export class Admission {
     return this.locks.run('ai-admission', fn);
   }
 
-  /** Open tasks a member carries (tasks it has a session for or is assigned to) plus its other running chats. */
-  memberLoad(projectKey: string, handle: string, excludeTaskKey?: string): number {
-    const keys = new Set<string>();
-    for (const s of this.sessions.list(projectKey, { member: handle })) {
-      if (s.workItem.type === 'task') keys.add(s.workItem.taskKey);
+  /**
+   * What a member is working on now (decision 19): the open tasks it has a running session for
+   * that it works on (see `isWorkingOnTask`: a session idling after the member handed the task
+   * on does not count), plus its other running chats. A finished session, or an assignment
+   * without a running session, does not count.
+   */
+  memberLoad(config: ProjectConfig, handle: string, excludeTaskKey?: string): number {
+    const taskKeys = new Set<string>();
+    let chats = 0;
+    for (const s of this.sessions.list(config.project.key, { member: handle })) {
+      if (!this.sessions.isRunning(s.id)) continue;
+      if (s.workItem.type !== 'task') chats++;
+      else if (s.workItem.taskKey !== excludeTaskKey) {
+        const task = this.ctx.repos.tasks.get(s.workItem.taskKey);
+        if (task && isOpenTask(task) && isWorkingOnTask(config, task, handle, s.state))
+          taskKeys.add(task.key);
+      }
     }
-    for (const t of this.ctx.repos.tasks.listByAssignee(projectKey, handle)) keys.add(t.key);
-    if (excludeTaskKey) keys.delete(excludeTaskKey);
-    let load = 0;
-    for (const key of keys) {
-      const task = this.ctx.repos.tasks.get(key);
-      if (task && isOpenTask(task)) load++;
-    }
-    return (
-      load +
-      this.sessions
-        .list(projectKey, { member: handle })
-        .filter((s) => s.workItem.type !== 'task' && this.sessions.isRunning(s.id)).length
-    );
+    return chats + taskKeys.size;
+  }
+
+  /** Whether an open task is assigned to the member; a temp worker carries one task at a time. */
+  hasOpenAssignment(projectKey: string, handle: string): boolean {
+    return this.ctx.repos.tasks.listByAssignee(projectKey, handle).some(isOpenTask);
   }
 
   /** Throws the refusal when the work must wait (see the class comment for the checks). */
@@ -103,7 +108,7 @@ export class Admission {
       throw conflict('previous_run_live', `the previous scheduled run of ${member.handle} is still live`);
     if (member && request.capacity !== false) {
       const excluded = workItem?.type === 'task' ? workItem.taskKey : undefined;
-      if (this.memberLoad(projectKey, member.handle, excluded) >= member.capacity)
+      if (this.memberLoad(config, member.handle, excluded) >= member.capacity)
         throw conflict('member_at_capacity', `${member.handle} is at capacity (${member.capacity})`, {
           capacity: member.capacity,
         });

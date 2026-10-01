@@ -276,7 +276,7 @@ describe('human team messages and member profiles', () => {
     expect((await domain.messageStarts.startConversation(key, 'dev-1')).id).toBe(first.id);
     await domain.sessions.stop(key, first.id);
     await domain.tasks.create(key, { title: 'Acme task' }, actor);
-    domain.tasks.assign(key, 'AR-1', 'dev-1', actor);
+    await domain.sessions.ensureSession(key, 'dev-1', { type: 'task', taskKey: 'AR-1' });
     await expect(domain.messageStarts.startConversation(key, 'dev-1')).rejects.toMatchObject({
       code: 'member_at_capacity',
     });

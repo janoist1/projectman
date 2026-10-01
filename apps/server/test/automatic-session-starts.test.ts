@@ -100,15 +100,15 @@ describe('automatic session admission and retries', () => {
   it('retries a message when the recipient is no longer at capacity', async () => {
     h = await createDomainHarness();
     await h.domain.tasks.create('AR', { title: 'Existing review' }, OWNER_ACTOR);
-    h.domain.tasks.assign('AR', 'AR-1', 'cr', OWNER_ACTOR);
+    await h.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: 'AR-1' });
     await h.domain.tasks.create('AR', { title: 'Next review' }, OWNER_ACTOR);
     const message = await humanMessage(h, 'AR-2');
     await flush();
-    expect(h.runner.started).toHaveLength(0);
-    h.domain.tasks.assign('AR', 'AR-1', null, OWNER_ACTOR);
+    expect(h.runner.started).toHaveLength(1);
+    await h.domain.tasks.cancel('AR', 'AR-1', { reason: 'Fictional scope changed.' }, OWNER_ACTOR);
     await h.domain.admission.retryDeferred();
     await flush();
-    expect(h.runner.started).toHaveLength(1);
+    expect(h.runner.started).toHaveLength(2);
     expect(h.repos.messages.get(message.id)?.deliveredAt).toBeTruthy();
   });
 
@@ -189,12 +189,12 @@ describe('automatic session admission and retries', () => {
   it('retries a hand-over when an owner becomes free, sending its brief', async () => {
     h = await createDomainHarness();
     await h.domain.tasks.create('AR', { title: 'Existing review' }, OWNER_ACTOR);
-    h.domain.tasks.assign('AR', 'AR-1', 'cr', OWNER_ACTOR);
+    await h.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: 'AR-1' });
     await h.domain.tasks.create('AR', { title: 'Next review' }, OWNER_ACTOR);
     await h.domain.tasks.moveToStage('AR', 'AR-2', 'code_review', OWNER_ACTOR);
     await flush();
-    expect(h.runner.started).toHaveLength(0);
-    h.domain.tasks.assign('AR', 'AR-1', null, OWNER_ACTOR);
+    expect(h.runner.started).toHaveLength(1);
+    await h.domain.tasks.cancel('AR', 'AR-1', { reason: 'Fictional scope changed.' }, OWNER_ACTOR);
     await h.domain.admission.retryDeferred();
     expect(h.runner.lastStarted()).toMatchObject({ initialMessage: 'Brief for AR-2: Next review' });
   });

@@ -544,7 +544,7 @@ export class MemberProfiles {
             .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
         : [],
       capacity: original.kind === 'ai' ? original.capacity : null,
-      capacityUsed: original.kind === 'ai' && internal ? this.admission.memberLoad(projectKey, handle) : 0,
+      capacityUsed: original.kind === 'ai' && internal ? this.admission.memberLoad(config, handle) : 0,
       ...(original.kind === 'human' && ['owner', 'admin'].includes(viewer.access) && original.email
         ? { email: original.email }
         : {}),

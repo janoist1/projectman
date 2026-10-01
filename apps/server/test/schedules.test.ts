@@ -143,15 +143,18 @@ describe('member schedules', () => {
       'previous_run_live',
     );
   });
-  it('skips at member capacity, including task assignments and live general sessions', async () => {
+  it('skips at member capacity, including running task sessions and live general sessions', async () => {
     await setup();
     const task = await h.domain.tasks.create('AR', { title: 'Fictional maintenance' }, OWNER_ACTOR);
-    h.domain.tasks.assign('AR', task.key, 'dev-1', OWNER_ACTOR);
+    const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', {
+      type: 'task',
+      taskKey: task.key,
+    });
     expect(await h.domain.schedules.runNow('AR', 'dev-1')).toMatchObject({
       status: 'skipped',
       reason: 'member_at_capacity',
     });
-    h.domain.tasks.assign('AR', task.key, null, OWNER_ACTOR);
+    await h.domain.sessions.stop('AR', session.id);
     await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'general' });
     expect(await h.domain.schedules.runNow('AR', 'dev-1')).toMatchObject({ reason: 'member_at_capacity' });
   });

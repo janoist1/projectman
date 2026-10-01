@@ -135,7 +135,9 @@ export class TaskStarts {
     const config = await this.projects.config(task.projectKey);
     const member = memberOf(config, task.assignee);
     if (member?.kind !== 'ai' || !member.temp) return;
-    if (this.admission.memberLoad(task.projectKey, member.handle) > 0) return;
+    // A temp worker carries one task: it stays while another open task is assigned to it.
+    if (this.admission.hasOpenAssignment(task.projectKey, member.handle)) return;
+    if (this.admission.memberLoad(config, member.handle) > 0) return;
     await this.members.retire(
       task.projectKey,
       member.handle,
@@ -201,8 +203,12 @@ export class TaskStarts {
       .filter(
         (c): c is { m: AiMemberConfig; index: number } => c.m.kind === 'ai' && eligible.includes(c.m.handle),
       )
-      .map((c) => ({ ...c, load: this.admission.memberLoad(projectKey, c.m.handle) }))
-      .filter((c) => c.load < c.m.capacity && !(c.m.temp && c.load > 0))
+      .map((c) => ({ ...c, load: this.admission.memberLoad(config, c.m.handle) }))
+      .filter(
+        (c) =>
+          c.load < c.m.capacity &&
+          !(c.m.temp && (c.load > 0 || this.admission.hasOpenAssignment(projectKey, c.m.handle))),
+      )
       .sort((a, b) => a.load - b.load || a.index - b.index);
     return (
       candidates[0]?.m ??

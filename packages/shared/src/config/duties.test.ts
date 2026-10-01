@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DUTIES, DUTY_GROUPS, DUTY_IDS } from '../domain/duty';
 import { dutyHolders, roleHolders, RoleOverrides } from '../domain/role';
 import { ProjectConfig } from './schema';
-import { dutyMembers, memberDuties, roleBundle, stageOwners } from './duties';
+import { dutyMembers, isWorkingOnTask, memberDuties, roleBundle, stageOwners } from './duties';
 import { labelHolders } from './labels';
 import { applyConfigPatch, PatchConfigRequest } from './edit';
 import { approvalPolicyChanged } from './owner-only';
@@ -81,6 +81,24 @@ describe('duty bundles', () => {
     ).toEqual(['owner']);
     c.pipeline.stages[1]!.owners = [];
     expect(stageOwners(c, c.pipeline.stages[1]!)).toEqual([]);
+  });
+  it('counts a live session as work now while a turn runs or the task is in the member’s stage', () => {
+    const c = config();
+    const onTask = (stageId: string, assignee: string | null) => ({ stageId, assignee });
+    // A turn in progress or a question waiting for an answer counts wherever the task is.
+    for (const state of ['starting', 'working', 'waiting_permission', 'waiting_input'] as const)
+      expect(isWorkingOnTask(c, onTask('release', 'owner'), 'builder', state)).toBe(true);
+    // Idle in the work stage: the assignee works on it; another member's idle session does not count.
+    expect(isWorkingOnTask(c, onTask('work', 'builder'), 'builder', 'idle')).toBe(true);
+    expect(isWorkingOnTask(c, onTask('work', 'other'), 'builder', 'idle')).toBe(false);
+    expect(isWorkingOnTask(c, onTask('work', null), 'builder', 'idle')).toBe(true);
+    // Handed on to a stage the member does not own: an idle session no longer counts, even for the assignee.
+    expect(isWorkingOnTask(c, onTask('release', 'builder'), 'builder', 'idle')).toBe(false);
+    c.pipeline.stages.find((s) => s.id === 'release')!.owners = ['owner'];
+    expect(isWorkingOnTask(c, onTask('release', 'builder'), 'owner', 'idle')).toBe(true);
+    expect(isWorkingOnTask(c, onTask('queue', 'builder'), 'builder', 'idle')).toBe(false);
+    expect(isWorkingOnTask(c, onTask('done', 'builder'), 'builder', 'idle')).toBe(false);
+    expect(isWorkingOnTask(c, onTask('missing', 'builder'), 'builder', 'idle')).toBe(false);
   });
   it('replaces built-in bundles and resets by removing the override', () => {
     const c = config();

@@ -2,6 +2,7 @@ import { existsSync, writeFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Actor, ServerEvent, TaskStatus } from '@projectman/shared';
 import { aiActor, humanActor, LIVE_SESSION_STATES } from '../src/domain';
+import type { StageChange } from '../src/domain';
 import { TEAM_TOOLS, TEAM_TOOL_NAMES } from '../src/mcp/tools';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -148,25 +149,102 @@ describe('task lifecycle', () => {
     });
   });
 
-  it.each(['cancelled', 'done'] as const)(
-    'excludes %s tasks from capacity, including failed sessions',
-    async (status) => {
-      const { session } = await start(h, 'AR-1');
-      h.runner.emit({ type: 'exit', sessionId: session!.id, exitCode: 1, signal: null });
-      h.repos.sessions.update(session!.id, { state: 'failed' });
-      const second = await h.domain.tasks.create('AR', { title: 'Acme order summary' }, OWNER_ACTOR);
-      await expect(start(h, second.key)).rejects.toMatchObject({ code: 'member_at_capacity' });
-      if (status === 'cancelled') await h.domain.tasks.cancel('AR', 'AR-1', {}, OWNER_ACTOR);
-      else
-        h.repos.tasks.update(h.domain.tasks.get('AR', 'AR-1').id, {
-          status,
-          closedAt: new Date().toISOString(),
-        });
-      expect(h.domain.admission.memberLoad('AR', 'dev-1')).toBe(0);
-      expect((await start(h, second.key)).task.assignee).toBe('dev-1');
-      expect(h.domain.tasks.get('AR', 'AR-1').assignee).toBe('dev-1');
-    },
-  );
+  const loadOf = async (handle: string, excludeTaskKey?: string) =>
+    h.domain.admission.memberLoad(await h.domain.projects.config('AR'), handle, excludeTaskKey);
+
+  it('counts only what the member is working on now', async () => {
+    const { session } = await start(h, 'AR-1');
+    const second = await h.domain.tasks.create('AR', { title: 'Acme order summary' }, OWNER_ACTOR);
+    expect(await loadOf('dev-1')).toBe(1);
+    await expect(start(h, second.key)).rejects.toMatchObject({ code: 'member_at_capacity' });
+    // The session ended but the task stays open and assigned: nothing is being worked on.
+    h.runner.emit({ type: 'exit', sessionId: session!.id, exitCode: 0, signal: null });
+    h.repos.sessions.update(session!.id, { state: 'exited' });
+    expect(h.domain.tasks.get('AR', 'AR-1')).toMatchObject({ assignee: 'dev-1', status: 'active' });
+    expect(await loadOf('dev-1')).toBe(0);
+    expect((await start(h, second.key)).task.assignee).toBe('dev-1');
+    expect(await loadOf('dev-1')).toBe(1);
+  });
+
+  it('does not count an idle session on a task that moved on to the next stage', async () => {
+    const { session } = await start(h, 'AR-1');
+    // Finished its turn, the process still runs, but the task is still in the member's own stage.
+    h.repos.sessions.update(session!.id, { state: 'idle' });
+    expect(h.runner.isRunning(session!.id)).toBe(true);
+    expect(await loadOf('dev-1')).toBe(1);
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+    expect(h.runner.isRunning(session!.id)).toBe(true);
+    expect(await loadOf('dev-1')).toBe(0);
+    // A turn in progress counts wherever the task is.
+    h.repos.sessions.update(session!.id, { state: 'working' });
+    expect(await loadOf('dev-1')).toBe(1);
+    expect(await loadOf('dev-1', 'AR-1')).toBe(0);
+  });
+
+  describe('temp workers carry one task at a time', () => {
+    const by = { actor: OWNER_ACTOR, author: OWNER };
+    const hireOne = async () => {
+      await h.domain.projects.update('AR', by, (draft) => {
+        draft.team.limits.tempWorkers = { enabled: true, max: 1, role: 'developer' };
+        return 'Enable temp workers';
+      });
+      for (const title of ['Two', 'Three', 'Four', 'Five']) {
+        await h.domain.tasks.create('AR', { title }, OWNER_ACTOR);
+      }
+      await h.domain.taskStarts.start('AR', 'AR-1', by);
+      await h.domain.taskStarts.start('AR', 'AR-2', by);
+      const third = await h.domain.taskStarts.start('AR', 'AR-3', by);
+      expect(third.hired).toMatchObject({ temp: true });
+      return { handle: third.hired!.handle, session: third.session! };
+    };
+
+    it('does not give a second task to a temp worker whose session ended', async () => {
+      const temp = await hireOne();
+      h.runner.emit({ type: 'exit', sessionId: temp.session.id, exitCode: 0, signal: null });
+      h.repos.sessions.update(temp.session.id, { state: 'exited' });
+      expect(await loadOf(temp.handle)).toBe(0);
+      expect(h.domain.admission.hasOpenAssignment('AR', temp.handle)).toBe(true);
+      // dev-1 and dev-2 are busy and the temp worker still carries AR-3: nobody is free.
+      await expect(h.domain.taskStarts.start('AR', 'AR-4', by)).rejects.toMatchObject({
+        code: 'no_free_member',
+      });
+      expect(h.domain.tasks.get('AR', 'AR-4').assignee).toBeNull();
+    });
+
+    it('retires a temp worker only when no open task is assigned to it', async () => {
+      const temp = await hireOne();
+      const finished = h.domain.tasks.get('AR', 'AR-3');
+      h.domain.tasks.assign('AR', 'AR-4', temp.handle, OWNER_ACTOR);
+      h.repos.sessions.update(temp.session.id, { state: 'exited' });
+      h.repos.tasks.update(finished.id, { status: 'done', closedAt: new Date().toISOString() });
+      const change = { task: h.domain.tasks.get('AR', 'AR-3') } as StageChange;
+      await h.domain.taskStarts.retireFinishedTempWorker(change);
+      expect((await h.domain.members.roster('AR')).map((m) => m.handle)).toContain(temp.handle);
+      h.repos.tasks.update(h.domain.tasks.get('AR', 'AR-4').id, {
+        status: 'done',
+        closedAt: new Date().toISOString(),
+      });
+      await h.domain.taskStarts.retireFinishedTempWorker({
+        task: h.domain.tasks.get('AR', 'AR-4'),
+      } as StageChange);
+      expect((await h.domain.members.roster('AR')).map((m) => m.handle)).not.toContain(temp.handle);
+    });
+  });
+
+  it.each(['cancelled', 'done'] as const)('excludes %s tasks from capacity', async (status) => {
+    await start(h, 'AR-1');
+    const second = await h.domain.tasks.create('AR', { title: 'Acme order summary' }, OWNER_ACTOR);
+    await expect(start(h, second.key)).rejects.toMatchObject({ code: 'member_at_capacity' });
+    if (status === 'cancelled') await h.domain.tasks.cancel('AR', 'AR-1', {}, OWNER_ACTOR);
+    else
+      h.repos.tasks.update(h.domain.tasks.get('AR', 'AR-1').id, {
+        status,
+        closedAt: new Date().toISOString(),
+      });
+    expect(await loadOf('dev-1')).toBe(0);
+    expect((await start(h, second.key)).task.assignee).toBe('dev-1');
+    expect(h.domain.tasks.get('AR', 'AR-1').assignee).toBe('dev-1');
+  });
 
   it.each(['active', 'waiting', 'blocked', 'done'] satisfies TaskStatus[])(
     'rejects reopening a %s task',

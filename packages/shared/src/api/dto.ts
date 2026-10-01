@@ -22,7 +22,7 @@ import { LabelDefinition, LabelId } from '../domain/label';
 import { BoardColumn, Stage, StageId } from '../domain/pipeline';
 import { CustomRoleDefinition, RoleHolders, RoleId } from '../domain/role';
 import { ScheduleRun } from '../domain/schedule';
-import { Session } from '../domain/session';
+import { Session, TaskWork } from '../domain/session';
 import { MemberUsage } from '../domain/token-usage';
 import { Task, TaskKey, Visibility } from '../domain/task';
 
@@ -112,6 +112,12 @@ export const MemberView = z.object({
   status: MemberStatus,
   activity: z.string().nullable(),
   currentTaskKeys: z.array(TaskKey),
+  /**
+   * AI members only: the work the member does on cards right now, one entry per working task session
+   * (PM-207). A card is "working" only when it has an entry here; `status` and `activity` describe the
+   * member as a whole. Omitted: none (and by older servers).
+   */
+  taskWork: z.array(TaskWork).optional(),
   sponsor: MemberHandle.nullable(),
   temp: z.boolean(),
   /** AI members only: the agent CLI the member runs in. */

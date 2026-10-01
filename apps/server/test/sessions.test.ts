@@ -150,6 +150,37 @@ describe('session orchestrator', () => {
     expect(h.repos.memberState.get('AR', 'cr')?.status).toBe('idle');
   });
 
+  it('lists the member work per card: only a working session counts, aged from its last state change (PM-207)', async () => {
+    await h.domain.tasks.create('AR', { title: 'Second page' }, OWNER_ACTOR);
+    const first = await h.domain.sessions.ensureSession('AR', 'cr', task);
+    const second = await h.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: 'AR-2' });
+    h.runner.setState(first.session.id, 'working', 'Bash: npm test');
+    h.runner.setState(second.session.id, 'idle');
+    const workOf = async () => (await h.domain.members.roster('AR')).find((m) => m.handle === 'cr')?.taskWork;
+
+    // The member works on AR-1 and rests on AR-2: the roster says so per card.
+    expect(await workOf()).toEqual([
+      {
+        sessionId: first.session.id,
+        taskKey: 'AR-1',
+        activity: 'Bash: npm test',
+        since: h.domain.sessions.get('AR', first.session.id)!.stateSince,
+      },
+    ]);
+    expect((await h.domain.members.roster('AR')).find((m) => m.handle === 'cr')).toMatchObject({
+      status: 'working',
+      currentTaskKeys: ['AR-1', 'AR-2'],
+    });
+
+    // A new activity in the same state keeps the age of the state.
+    const since = h.domain.sessions.get('AR', first.session.id)!.stateSince;
+    h.runner.setState(first.session.id, 'working', 'Read: package.json');
+    expect(await workOf()).toMatchObject([{ taskKey: 'AR-1', activity: 'Read: package.json', since }]);
+
+    h.runner.setState(first.session.id, 'idle');
+    expect(await workOf()).toEqual([]);
+  });
+
   it('delivers human messages into the session and records them as team messages', async () => {
     const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
     const message = await h.domain.messaging.sendToSession(

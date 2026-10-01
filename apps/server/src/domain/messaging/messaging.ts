@@ -138,10 +138,13 @@ export class Messaging {
       body,
       actor: humanActor(from),
       sessionId: session.id,
-      delivered: sentAsFirstInput,
+      // A message in the first input of a starting session waits until that input is typed (PM-189).
+      delivered: false,
     });
     if (held) this.delivery.holdAsWritten(session, message);
-    else if (!sentAsFirstInput) this.delivery.deliver(started?.session ?? session, message, body);
+    else if (started && sentAsFirstInput)
+      this.delivery.deliverWithFirstInput(session.member, [message], started.firstInput);
+    else this.delivery.deliver(started?.session ?? session, message, body);
     return message;
   }
 

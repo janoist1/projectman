@@ -148,7 +148,15 @@ export class Admission {
   ): Promise<EnsureSessionResult> {
     const projectKey = request.config.project.key;
     const running = this.sessions.findRunning(projectKey, request.member.handle, request.workItem);
-    if (running) return { session: running, created: false, resumed: false, started: false, messagesSent: 0 };
+    if (running)
+      return {
+        session: running,
+        created: false,
+        resumed: false,
+        started: false,
+        messagesSent: 0,
+        firstInput: Promise.resolve(true),
+      };
     await this.check(request);
     return this.sessions.ensureSession(projectKey, request.member.handle, request.workItem, {
       messages: request.messages,

@@ -168,6 +168,27 @@ describe('AgentSession', () => {
     expect(pty.typed()).toEqual({ pastes: ['Build the login page', 'And add a test'], enters: 2 });
   });
 
+  it('reports the first input only once it is typed (PM-189)', async () => {
+    const { events, hook } = start({ spec: { initialMessage: 'Build the login page' } });
+    const sent = () => events.filter((e) => e.type === 'first_input_sent');
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(sent()).toEqual([]);
+    await hook({ hook_event_name: 'SessionStart', source: 'startup' });
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.readySettleMs - 1);
+    expect(sent()).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1 + TYPE_MS);
+    expect(sent()).toEqual([{ type: 'first_input_sent', sessionId: 'ses_1' }]);
+  });
+
+  it('never reports the first input of a process that ends before the prompt is up (PM-189)', async () => {
+    const { events, pty } = start({ spec: { initialMessage: 'Build the login page' } });
+    await vi.advanceTimersByTimeAsync(5_000);
+    pty.exit(1);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(events.map((e) => e.type)).toContain('exit');
+    expect(events.map((e) => e.type)).not.toContain('first_input_sent');
+  });
+
   it('presses Enter again when the CLI does not report the prompt', async () => {
     const { session, pty, hook } = await ready();
     void session.enqueue('hello');
@@ -323,6 +344,13 @@ describe('AgentSession of Codex', () => {
     started.pty.print('\x1b[?2004h› an earlier question\r\n• an earlier answer\r\n');
     return started;
   }
+
+  it('reports its first input as sent when it is started with it on the command line', () => {
+    const { events } = resumedWithPrompt();
+    expect(events.filter((e) => e.type === 'first_input_sent')).toEqual([
+      { type: 'first_input_sent', sessionId: 'ses_1' },
+    ]);
+  });
 
   it.each(['startup', 'resume', 'clear'])(
     'becomes ready from its first SessionStart (source %s) and then types what was queued',

@@ -9,7 +9,8 @@ import type { MessageService } from './messages';
  * Types messages into running AI sessions (the runner queues them until the session is idle).
  * A stored message is typed once per recipient and then counts as delivered to it; when typing
  * fails it stays waiting for the recipient's next session. A session that starts for waiting
- * messages takes them in its first input instead (`startAndDeliver`).
+ * messages takes them in its first input instead (`startAndDeliver`); they count as delivered once
+ * that input was typed.
  */
 export class MessageDelivery {
   private readonly ctx: DomainContext;
@@ -85,12 +86,30 @@ export class MessageDelivery {
       result = await start(
         waiting.map((message) => formatInjectedTeamMessage(message.from, message.body, message.taskKey)),
       );
-      for (const message of waiting.slice(0, result.messagesSent))
-        this.messages.markRecipientDelivered(message.id, handle);
+      this.deliverWithFirstInput(handle, waiting.slice(0, result.messagesSent), result.firstInput);
     } finally {
       this.starting.delete(recipient);
     }
     this.deliverWaiting(result.session);
+  }
+
+  /**
+   * Messages a session took in its first input count as delivered to `handle` once that input was
+   * typed (`EnsureSessionResult.firstInput`), not when the process started: one that ends first
+   * (a lost login, a start-up dialog, a crash) never got them, so they stay waiting for the next
+   * session (PM-189). Until then nothing types them again.
+   */
+  deliverWithFirstInput(handle: string, messages: TeamMessage[], firstInput: Promise<boolean>): void {
+    const claims = messages.map((message) => `${message.id}:${handle}`);
+    for (const claim of claims) this.claims.add(claim);
+    firstInput
+      .then((typed) => {
+        if (typed) for (const message of messages) this.messages.markRecipientDelivered(message.id, handle);
+      })
+      .catch((err: unknown) => this.ctx.logger.warn({ err }, 'team message delivery failed'))
+      .finally(() => {
+        for (const claim of claims) this.claims.delete(claim);
+      });
   }
 
   /**

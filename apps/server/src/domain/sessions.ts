@@ -93,6 +93,13 @@ export interface EnsureSessionResult {
    * of the session's first input: the caller counts exactly these as delivered.
    */
   messagesSent: number;
+  /**
+   * Settles when the session's first input (with the `messagesSent` messages in it) is known to have
+   * reached it: true once it was typed (Codex: started with it on its command line), false when the
+   * process ended first (PM-189). Only then do the messages count as delivered; until then they wait.
+   * Already true when nothing was sent.
+   */
+  firstInput: Promise<boolean>;
 }
 
 export interface EnsureSessionOptions {
@@ -296,6 +303,8 @@ export class SessionOrchestrator {
   private readonly cleanupTimers = new Set<NodeJS.Timeout>();
   /** The provider each session's current process runs, for the transcript it reports. */
   private readonly processProviders = new Map<string, AgentProvider>();
+  /** Sessions whose first input (with messages in it) is not known to have reached them: settles it. */
+  private readonly firstInputWaiters = new Map<string, (typed: boolean) => void>();
   /** The permission mode each session's current process runs in (PM-170): another one restarts it. */
   private readonly processModes = new Map<string, string | undefined>();
   /** The session's grants "for this session" when its current process started (`sessionGrants`). */
@@ -423,7 +432,14 @@ export class SessionOrchestrator {
       const existing = this.ctx.repos.sessions.findByWorkItem(projectKey, handle, workItem);
       if (existing && this.isRunning(existing.id)) {
         if (!this.workspaces?.isStale(existing))
-          return { session: existing, created: false, resumed: false, started: false, messagesSent: 0 };
+          return {
+            session: existing,
+            created: false,
+            resumed: false,
+            started: false,
+            messagesSent: 0,
+            firstInput: Promise.resolve(true),
+          };
         // Its review round is over: no live process while the workspace moves to the new commit.
         await this.deps.runner.stop(existing.id);
         this.markEnded(existing.id, null);
@@ -1010,6 +1026,8 @@ export class SessionOrchestrator {
     const token = this.issueToken(session);
     const egressToken = this.managed ? this.issueEgressToken(session) : undefined;
     this.processProviders.set(session.id, provider);
+    // Before the process starts: Codex reports its first input as it starts.
+    const firstInput = messages.length > 0 ? this.awaitFirstInput(session.id) : Promise.resolve(true);
 
     try {
       const info = await this.deps.runner.start({
@@ -1060,6 +1078,7 @@ export class SessionOrchestrator {
         this.ctx.repos.sessions.update(session.id, { state: info.state });
       }
     } catch (err) {
+      this.settleFirstInput(session.id, false);
       this.revokeToken(session.id);
       this.processProviders.delete(session.id);
       this.processModes.delete(session.id);
@@ -1107,7 +1126,20 @@ export class SessionOrchestrator {
       resumed: resume,
       started: true,
       messagesSent: messages.length,
+      firstInput,
     };
+  }
+
+  /** A promise for the session's first input: see `EnsureSessionResult.firstInput`. */
+  private awaitFirstInput(sessionId: string): Promise<boolean> {
+    this.settleFirstInput(sessionId, false);
+    return new Promise<boolean>((resolve) => this.firstInputWaiters.set(sessionId, resolve));
+  }
+
+  private settleFirstInput(sessionId: string, typed: boolean): void {
+    const settle = this.firstInputWaiters.get(sessionId);
+    this.firstInputWaiters.delete(sessionId);
+    settle?.(typed);
   }
 
   /**
@@ -1264,6 +1296,7 @@ export class SessionOrchestrator {
     reason: string | null = null,
   ): Session | null {
     const session = this.ctx.repos.sessions.get(sessionId);
+    this.settleFirstInput(sessionId, false);
     this.revokeToken(sessionId);
     this.processProviders.delete(sessionId);
     this.processModes.delete(sessionId);
@@ -1310,6 +1343,10 @@ export class SessionOrchestrator {
       }
       const at = isoNow(this.ctx);
       switch (event.type) {
+        case 'first_input_sent': {
+          this.settleFirstInput(session.id, true);
+          return;
+        }
         case 'state': {
           if (ENDED.has(event.state)) {
             this.markEnded(session.id, event.state === 'failed' ? 1 : null, event.activity);

@@ -31,6 +31,11 @@ export class FakeRunner implements SessionRunner {
   readonly input: Array<{ sessionId: string; data: string }> = [];
   readonly resized: Array<{ sessionId: string; cols: number; rows: number }> = [];
   failNextStart: Error | null = null;
+  /**
+   * The first input of a started session is not reported as typed (`first_input_sent`): the test
+   * sends it, or ends the session, itself (PM-189).
+   */
+  holdFirstInput = false;
   /** Sessions with a message still on its way in (`hasPendingInput`). */
   readonly pendingInput = new Set<string>();
   private readonly running = new Map<string, RunningSessionInfo>();
@@ -51,6 +56,10 @@ export class FakeRunner implements SessionRunner {
       rows: spec.rows ?? 40,
     };
     this.running.set(spec.sessionId, info);
+    // The first input reaches the process at once, unless a test holds it back (`holdFirstInput`).
+    if (spec.initialMessage?.trim() && !this.holdFirstInput) {
+      this.emit({ type: 'first_input_sent', sessionId: spec.sessionId });
+    }
     return info;
   }
 

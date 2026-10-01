@@ -244,12 +244,27 @@ check_worker_isolation() {
   if [ -n "$bad" ]; then record worker-isolation fail "access across workers:$bad"; else record worker-isolation pass "$n ordered worker pairs have no access to each other's home or spool"; fi
 }
 
+# A worker may hold its own subscription login (made by a person for that worker, PM-140), never a
+# copy of another account's: a login file in a worker home must be the worker's, mode 600, and not
+# the same bytes as the service's (compared by hash; nothing is printed). GitHub and SSH keys are
+# never allowed in a worker home (publishing is the protected gate's, PM-142).
+WORKER_OWN_LOGINS=".claude/.credentials.json .codex/auth.json"
 check_no_credential_copies() {
-  local w f found= n=0 loose=
+  local w f path found= own=0 n=0 loose=
   for w in "${WORKERS[@]}"; do
     for f in $CREDENTIAL_FILES; do
       n=$((n + 1))
-      [ -e "$WORKER_HOME_ROOT/$w/$f" ] && found="$found $w:$f"
+      path=$WORKER_HOME_ROOT/$w/$f
+      [ -e "$path" ] || continue
+      case " $WORKER_OWN_LOGINS " in
+        *" $f "*)
+          if [ "$(stat -c '%U %a' "$path" 2>/dev/null)" != "$w 600" ]; then found="$found $w:$f(owner/mode)"
+          elif [ -e "$SERVICE_HOME/$f" ] && [ "$(sha256sum < "$path")" = "$(sha256sum < "$SERVICE_HOME/$f")" ]; then found="$found $w:$f(copy of the service's)"
+          else own=$((own + 1)); fi ;;
+        # Claude Code's settings file (workspace trust, no token): the worker's own only.
+        .claude.json) [ "$(stat -c '%U' "$path" 2>/dev/null)" = "$w" ] || found="$found $w:$f(owner)" ;;
+        *) found="$found $w:$f" ;;
+      esac
     done
   done
   for f in $CREDENTIAL_FILES; do
@@ -257,7 +272,7 @@ check_no_credential_copies() {
   done
   if [ -n "$found" ]; then record no-credential-copies fail "login files in worker homes:$found"
   elif [ -n "$loose" ]; then record no-credential-copies fail "service login files not mode 600:$loose"
-  else record no-credential-copies pass "no login file in any worker home ($n names tried); the service's own login files are mode 600 where present"; fi
+  else record no-credential-copies pass "no copied login, GitHub or SSH key in any worker home ($n names tried; $own worker-own subscription logins, each the worker's, mode 600, not the service's bytes); the service's login files are mode 600 where present"; fi
 }
 
 check_proc_hidden() {

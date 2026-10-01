@@ -114,7 +114,8 @@ export const VM_CHECKS: readonly VmCheckDefinition[] = [
     id: 'no-credential-copies',
     group: 'protected-paths',
     required: true,
-    meaning: 'No provider or GitHub login file lies in a worker home: the login is not a standing copy.',
+    meaning:
+      "No copied login lies in a worker home: a worker's subscription login is its own (its file, mode 600, not the service's bytes), and no GitHub or SSH key is there.",
   },
   {
     id: 'proc-hidden',

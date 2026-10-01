@@ -299,6 +299,9 @@ claude | codex ── transcript JSONL ────────────▶ r
 - `worktree/` — git worktrees and branches for tasks; member workspaces (independent clones,
   safe branch switches, pinned review checkouts; PM-138).
 - `github/` — `gh`-based pull request lookups and polling.
+- `runtime-boundary/` — the VM boundary (PM-140): the boundary configuration, the launcher
+  (root daemon, protocol, client), the egress proxy, the worker workspace access, the readiness
+  verdict and the boundary probe verify.sh runs.
 - `http/` — request guards shared by the internal endpoints (local-only checks).
 - `config/` — the customization repository: YAML load and save, git history, revert,
   configuration migrations.
@@ -386,15 +389,32 @@ The running boundary of the VM direction (decisions 25, 26) is **outside** the a
   boundary settings (`/etc/projectman`, the nftables egress table `projectman_gate`, the units).
   None of it is writable by the workers; the data is not readable by them.
 - **Free side**: one unprivileged account per member, `pmw-<handle>` (uids 20000–20999, own group
-  and home under `/var/lib/projectman-work`). The protected launcher that starts a session as such
-  an account, and the domain-level network gate, are PM-140; per-member workstations are PM-138.
-  Until then the runner starts the CLIs as the service, which the egress rules confine too.
+  and home under `/var/lib/projectman-work`), where that member's sessions and workspaces live.
 - **Contract**: `packages/shared/src/deploy/vm-readiness.ts` lists the checks (version, worker
-  privileges, protected paths, host isolation, network gate, service), which are required, and the
-  one verdict rule `evaluateVmReadiness()`. `verify.sh` writes a report in that shape;
-  `scripts/vm-readiness.ts` prints the verdict. The server does not read the report yet: PM-140 and
-  PM-143 consume it, and a start path may refuse to run a managed-VM profile without a ready report.
-  A flag such as `VM=true` is never an input; the report is strict and a missing check fails.
+  privileges, protected paths, host isolation, network gate, launcher, service), which are
+  required, and the one verdict rule `evaluateVmReadiness()`. `verify.sh` writes a report in that
+  shape; `scripts/vm-readiness.ts` prints the verdict and the server enforces it (below). A flag
+  such as `VM=true` is never an input; the report is strict and a missing check fails.
+
+**The runtime boundary (PM-140, `src/runtime-boundary`).** `index.ts` reads nothing from the
+environment: `index.ts` of the server loads the root-owned boundary configuration
+(`PROJECTMAN_BOUNDARY_CONFIG`, `BoundaryConfig`), and `app.ts` builds from it:
+
+- the **launcher client** (`SessionLauncher`): the runner starts every session through it as the
+  member's worker (`RunnerModuleOptions.launcher`), the member workspace manager runs every
+  workspace command through it (`WorkspaceAccess`), and the session orchestrator prepares a
+  worker's session directory with it. The launcher itself (`launcher/daemon.ts`, entry
+  `dist/launcher.js`) runs as root behind a socket only the service's group reaches and turns a
+  narrow, validated request into a `systemd-run` unit with a fixed sandbox;
+- the **egress proxy** (`egress/proxy.ts`, in the service process): the workers' only way out;
+  it asks the domain's `EgressService` for every connection, which allows the base list and
+  allowances and turns allowed PM-139 grants into allowances (DB migration 14);
+- the **verdict** (`RuntimeBoundary.status()`): the readiness report, the launcher's answer and the
+  proxy's listener. `SessionOrchestrator` refuses every start while it is not ready
+  (`runtime_boundary_not_ready`); PM-141 builds question-free work on `ready`, never on the mode.
+
+Without the configuration the boundary is `off` (`disabledRuntimeBoundary`), nothing changes for
+other installations, and `status().ready` is always false.
 
 Details, the manual trial and backup/restore are in [VM.md](VM.md).
 

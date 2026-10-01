@@ -18,7 +18,9 @@ describe('path mappings of the move', () => {
 
   it('uses the longest mapping that contains the path at a segment boundary', () => {
     expect(mapPath('/Users/i/Dev/projectman', mappings)).toBe('/var/lib/projectman/data/repos/PM');
-    expect(mapPath('/Users/i/Dev/projectman/apps/web', mappings)).toBe('/var/lib/projectman/data/repos/PM/apps/web');
+    expect(mapPath('/Users/i/Dev/projectman/apps/web', mappings)).toBe(
+      '/var/lib/projectman/data/repos/PM/apps/web',
+    );
     expect(mapPath('/Users/i/Dev/other/x', mappings)).toBe('/srv/dev/other/x');
   });
 
@@ -48,7 +50,10 @@ describe('remote URLs in the inventory', () => {
   });
 
   it('keeps URLs without a secret', () => {
-    expect(redactRemoteUrl('git@github.com:acme/web.git')).toEqual({ url: 'git@github.com:acme/web.git', hadCredentials: false });
+    expect(redactRemoteUrl('git@github.com:acme/web.git')).toEqual({
+      url: 'git@github.com:acme/web.git',
+      hadCredentials: false,
+    });
     expect(redactRemoteUrl('ssh://git@github.com/acme/web.git').hadCredentials).toBe(false);
     expect(redactRemoteUrl('/srv/git/web.git').hadCredentials).toBe(false);
   });

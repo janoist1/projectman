@@ -38,7 +38,9 @@ export function git(
       (error, stdout, stderr) => {
         const code = error ? (typeof error.code === 'number' ? error.code : 1) : 0;
         if (code !== 0 && !(opts.okCodes ?? []).includes(code))
-          return reject(new Error(`git ${args[0] ?? ''} failed (${code}) in ${cwd}: ${stderr.trim() || error?.message}`));
+          return reject(
+            new Error(`git ${args[0] ?? ''} failed (${code}) in ${cwd}: ${stderr.trim() || error?.message}`),
+          );
         resolve({ stdout, stderr, code });
       },
     );
@@ -62,5 +64,7 @@ export function redactRemoteUrl(url: string): { url: string; hadCredentials: boo
   // ssh://git@host/... carries only a user name, no secret; anything with a password or a token does.
   const userinfo = match[2]!;
   const isPlainUser = !userinfo.includes(':') && match[1]!.toLowerCase().startsWith('ssh');
-  return isPlainUser ? { url, hadCredentials: false } : { url: `${match[1]}${match[3]}`, hadCredentials: true };
+  return isPlainUser
+    ? { url, hadCredentials: false }
+    : { url: `${match[1]}${match[3]}`, hadCredentials: true };
 }

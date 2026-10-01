@@ -1,5 +1,14 @@
 import { execFile } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { parseDocument } from 'yaml';
@@ -98,7 +107,11 @@ export async function applyPackage(options: ApplyOptions): Promise<ApplyReport> 
   };
 
   // --- the home
-  cpSync(join(packageDir, 'home'), target, { recursive: true, preserveTimestamps: true, verbatimSymlinks: true });
+  cpSync(join(packageDir, 'home'), target, {
+    recursive: true,
+    preserveTimestamps: true,
+    verbatimSymlinks: true,
+  });
   chmodSync(target, 0o700);
   if (existsSync(join(target, 'secret'))) chmodSync(join(target, 'secret'), 0o600);
   chmodSync(join(target, 'db.sqlite'), 0o600);
@@ -134,8 +147,20 @@ export async function applyPackage(options: ApplyOptions): Promise<ApplyReport> 
       databaseRewrites[name] = counts;
     };
     db.transaction(() => {
-      rewrite('sessions.cwd', 'SELECT id, cwd FROM sessions', 'UPDATE sessions SET cwd = ? WHERE id = ?', (r) => [r.id], 'cwd');
-      rewrite('member_workspaces.path', 'SELECT id, path FROM member_workspaces', 'UPDATE member_workspaces SET path = ? WHERE id = ?', (r) => [r.id], 'path');
+      rewrite(
+        'sessions.cwd',
+        'SELECT id, cwd FROM sessions',
+        'UPDATE sessions SET cwd = ? WHERE id = ?',
+        (r) => [r.id],
+        'cwd',
+      );
+      rewrite(
+        'member_workspaces.path',
+        'SELECT id, path FROM member_workspaces',
+        'UPDATE member_workspaces SET path = ? WHERE id = ?',
+        (r) => [r.id],
+        'path',
+      );
       rewrite(
         'task_workspace_bindings.source_path',
         'SELECT rowid AS id, source_path FROM task_workspace_bindings WHERE source_path IS NOT NULL',
@@ -155,9 +180,15 @@ export async function applyPackage(options: ApplyOptions): Promise<ApplyReport> 
         transcriptsCarried += 1;
       }
       // What sessions have no transcript here cannot show a history, and none resumes anyway.
-      const gone = db.prepare('SELECT count(*) AS n FROM sessions WHERE transcript_path IS NOT NULL').get() as { n: number };
+      const gone = db
+        .prepare('SELECT count(*) AS n FROM sessions WHERE transcript_path IS NOT NULL')
+        .get() as { n: number };
       sessionsNotResumed = Number(
-        (db.prepare("SELECT count(*) AS n FROM sessions WHERE execution_profile = 'legacy'").get() as { n: number }).n,
+        (
+          db.prepare("SELECT count(*) AS n FROM sessions WHERE execution_profile = 'legacy'").get() as {
+            n: number;
+          }
+        ).n,
       );
       if (gone.n > transcriptsCarried)
         findings.push({
@@ -197,7 +228,11 @@ export async function applyPackage(options: ApplyOptions): Promise<ApplyReport> 
       };
       const customization = join(target, 'customization');
       await git(customization, ['add', '-A', 'projects'], { env });
-      await git(customization, ['commit', '-q', '-m', 'Move the workspace paths to the new machine (PM-143)'], { env });
+      await git(
+        customization,
+        ['commit', '-q', '-m', 'Move the workspace paths to the new machine (PM-143)'],
+        { env },
+      );
     }
   }
 
@@ -207,15 +242,31 @@ export async function applyPackage(options: ApplyOptions): Promise<ApplyReport> 
   for (const repo of manifest.repos) {
     const path = mapPath(repo.sourcePath, mappings);
     if (path === null) {
-      reposSkipped.push({ project: repo.project, name: repo.name, sourcePath: repo.sourcePath, reason: 'no path mapping covers it' });
+      reposSkipped.push({
+        project: repo.project,
+        name: repo.name,
+        sourcePath: repo.sourcePath,
+        reason: 'no path mapping covers it',
+      });
       continue;
     }
     if (existsSync(path) && readdirSync(path).length > 0) {
-      reposSkipped.push({ project: repo.project, name: repo.name, sourcePath: repo.sourcePath, reason: `${path} exists and is not empty` });
+      reposSkipped.push({
+        project: repo.project,
+        name: repo.name,
+        sourcePath: repo.sourcePath,
+        reason: `${path} exists and is not empty`,
+      });
       continue;
     }
     const restored = await restoreRepository(join(packageDir, repo.bundle), path, repo);
-    reposRestored.push({ project: repo.project, name: repo.name, path, head: restored.head, branches: restored.branches });
+    reposRestored.push({
+      project: repo.project,
+      name: repo.name,
+      path,
+      head: restored.head,
+      branches: restored.branches,
+    });
   }
   for (const skipped of reposSkipped)
     findings.push({
@@ -240,7 +291,9 @@ export async function applyPackage(options: ApplyOptions): Promise<ApplyReport> 
       subject: 'work',
       message: `${pending.length} dirty checkouts and worktrees of the old machine wait as pending work (${join(MIGRATED_DIR, PENDING_WORK_FILE)}): a person assigns each to a member, or keeps it pending`,
     });
-  writeFileSync(join(target, MIGRATED_DIR, PENDING_WORK_FILE), `${JSON.stringify(pending, null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(join(target, MIGRATED_DIR, PENDING_WORK_FILE), `${JSON.stringify(pending, null, 2)}\n`, {
+    mode: 0o600,
+  });
 
   for (const [group, count] of [...unmapped.entries()].sort())
     findings.push({
@@ -251,7 +304,12 @@ export async function applyPackage(options: ApplyOptions): Promise<ApplyReport> 
     });
 
   // --- a standby copy, never the active one
-  writeInstanceMarker(target, 'standby', 'migrated copy: not yet released as the active instance', options.now?.());
+  writeInstanceMarker(
+    target,
+    'standby',
+    'migrated copy: not yet released as the active instance',
+    options.now?.(),
+  );
   const report: ApplyReport = {
     version: 1,
     appliedAt: (options.now?.() ?? new Date()).toISOString(),
@@ -268,8 +326,14 @@ export async function applyPackage(options: ApplyOptions): Promise<ApplyReport> 
     sessionsNotResumed,
     findings,
   };
-  writeFileSync(join(target, MIGRATED_DIR, APPLY_REPORT_FILE), `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });
-  writeFileSync(join(target, MIGRATED_DIR, 'manifest.json'), `${JSON.stringify({ ...manifest, files: undefined }, null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(join(target, MIGRATED_DIR, APPLY_REPORT_FILE), `${JSON.stringify(report, null, 2)}\n`, {
+    mode: 0o600,
+  });
+  writeFileSync(
+    join(target, MIGRATED_DIR, 'manifest.json'),
+    `${JSON.stringify({ ...manifest, files: undefined }, null, 2)}\n`,
+    { mode: 0o600 },
+  );
   return report;
 }
 
@@ -282,13 +346,16 @@ async function restoreRepository(
   mkdirSync(path, { recursive: true });
   await git(path, ['init', '-q']);
   await git(path, ['fetch', '-q', '--update-head-ok', bundle, '+refs/*:refs/*']);
-  const branches = (await git(path, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])).stdout.split('\n').filter(Boolean);
+  const branches = (await git(path, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])).stdout
+    .split('\n')
+    .filter(Boolean);
   const wanted = [repo.branch, repo.defaultBranch, ...branches].find((b) => b && branches.includes(b));
   if (wanted) {
     await git(path, ['symbolic-ref', 'HEAD', `refs/heads/${wanted}`]);
     await git(path, ['reset', '-q', '--hard']);
   }
-  for (const remote of repo.remotes) await git(path, ['remote', 'add', remote.name, remote.url], { okCodes: [3] });
+  for (const remote of repo.remotes)
+    await git(path, ['remote', 'add', remote.name, remote.url], { okCodes: [3] });
   const head = (await git(path, ['rev-parse', 'HEAD'])).stdout.trim();
   return { head, branches: branches.length };
 }
@@ -307,15 +374,24 @@ export async function applyPendingWork(home: string, id: string, into: string): 
   const all = readPendingWork(home);
   const item = all.find((w) => w.id === id);
   if (!item) throw new MigrationRefused(`no pending work ${id}`);
-  if (item.state === 'applied') throw new MigrationRefused(`pending work ${id} was already applied into ${item.appliedInto}`);
+  if (item.state === 'applied')
+    throw new MigrationRefused(`pending work ${id} was already applied into ${item.appliedInto}`);
   const dir = resolve(into);
   const head = (await git(dir, ['rev-parse', 'HEAD'], { okCodes: [128] })).stdout.trim();
   if (!item.head || head !== item.head)
-    throw new MigrationRefused(`${dir} is at ${head.slice(0, 12) || 'no commit'}, the work was made on ${item.head?.slice(0, 12) ?? 'unknown'}: check out that commit first`);
+    throw new MigrationRefused(
+      `${dir} is at ${head.slice(0, 12) || 'no commit'}, the work was made on ${item.head?.slice(0, 12) ?? 'unknown'}: check out that commit first`,
+    );
   const status = (await git(dir, ['status', '--porcelain=v1', '-uall'])).stdout.trim();
   if (status) throw new MigrationRefused(`${dir} is not clean: the work is never mixed into other changes`);
   if (item.archive)
-    await run('tar', ['-xzf', join(home, MIGRATED_DIR, 'pending-work', id, 'files.tar.gz'), '-C', dir, '--no-same-owner']);
+    await run('tar', [
+      '-xzf',
+      join(home, MIGRATED_DIR, 'pending-work', id, 'files.tar.gz'),
+      '-C',
+      dir,
+      '--no-same-owner',
+    ]);
   for (const path of item.deleted) {
     const file = resolve(dir, path);
     if (file.startsWith(dir + sep)) rmSync(file, { force: true });
@@ -323,6 +399,8 @@ export async function applyPendingWork(home: string, id: string, into: string): 
   item.state = 'applied';
   item.appliedInto = dir;
   item.appliedAt = new Date().toISOString();
-  writeFileSync(join(home, MIGRATED_DIR, PENDING_WORK_FILE), `${JSON.stringify(all, null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(join(home, MIGRATED_DIR, PENDING_WORK_FILE), `${JSON.stringify(all, null, 2)}\n`, {
+    mode: 0o600,
+  });
   return item;
 }

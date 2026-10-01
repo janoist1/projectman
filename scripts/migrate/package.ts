@@ -209,7 +209,11 @@ export async function createPackage(options: PackageOptions): Promise<PackageRes
       notCarried.push({ name, bytes: entry?.bytes ?? 0 });
       continue;
     }
-    cpSync(source, join(homeOut, name), { recursive: true, preserveTimestamps: true, verbatimSymlinks: true });
+    cpSync(source, join(homeOut, name), {
+      recursive: true,
+      preserveTimestamps: true,
+      verbatimSymlinks: true,
+    });
   }
   if (existsSync(join(homeOut, 'secret'))) chmodSync(join(homeOut, 'secret'), 0o600);
 
@@ -259,7 +263,20 @@ export async function createPackage(options: PackageOptions): Promise<PackageRes
       await archiveFiles(dir, present, join(out, archive));
       bytes = statSync(join(out, archive)).size;
     }
-    work.push({ id, kind, project, repo: repo.name, sourcePath: dir, head: info.head, branch: info.branch, assignedTo: info.assignedTo, archive, files: present.length, deleted, bytes });
+    work.push({
+      id,
+      kind,
+      project,
+      repo: repo.name,
+      sourcePath: dir,
+      head: info.head,
+      branch: info.branch,
+      assignedTo: info.assignedTo,
+      archive,
+      files: present.length,
+      deleted,
+      bytes,
+    });
   };
   for (const project of inventory.projects) {
     for (const repo of project.repos) {
@@ -279,10 +296,18 @@ export async function createPackage(options: PackageOptions): Promise<PackageRes
         remotes: repo.remotes,
       });
       if (isDirty(repo.dirty))
-        await captureWork('checkout', project.key, repo, repo.path, { head: repo.head, branch: repo.branch, assignedTo: null });
+        await captureWork('checkout', project.key, repo, repo.path, {
+          head: repo.head,
+          branch: repo.branch,
+          assignedTo: null,
+        });
       for (const w of repo.worktrees as WorktreeInfo[])
         if (isDirty(w.dirty) && !w.prunable && existsSync(w.path))
-          await captureWork('worktree', project.key, repo, w.path, { head: w.head, branch: w.branch, assignedTo: w.assignedTo });
+          await captureWork('worktree', project.key, repo, w.path, {
+            head: w.head,
+            branch: w.branch,
+            assignedTo: w.assignedTo,
+          });
     }
   }
 
@@ -294,14 +319,23 @@ export async function createPackage(options: PackageOptions): Promise<PackageRes
     mkdirSync(join(out, 'transcripts', row.id), { recursive: true, mode: 0o700 });
     copyFileSync(row.transcript_path, join(out, file));
     chmodSync(join(out, file), 0o600);
-    transcripts.push({ sessionId: row.id, provider: row.provider, sourcePath: row.transcript_path, file, bytes: statSync(join(out, file)).size });
+    transcripts.push({
+      sessionId: row.id,
+      provider: row.provider,
+      sourcePath: row.transcript_path,
+      file,
+      bytes: statSync(join(out, file)).size,
+    });
   }
 
   // --- inventory, manifest, checksums
   writeFileSync(join(out, 'inventory.json'), `${JSON.stringify(inventory, null, 2)}\n`, { mode: 0o600 });
   const files: PackageManifest['files'] = {};
   for (const path of walkFiles(out)) {
-    files[relative(out, path).split(sep).join('/')] = { sha256: await sha256File(path), bytes: lstatSync(path).size };
+    files[relative(out, path).split(sep).join('/')] = {
+      sha256: await sha256File(path),
+      bytes: lstatSync(path).size,
+    };
   }
   const manifest: PackageManifest = {
     version: PACKAGE_VERSION,
@@ -324,7 +358,8 @@ export async function createPackage(options: PackageOptions): Promise<PackageRes
 export async function readPackage(dir: string): Promise<PackageManifest> {
   const root = resolve(dir);
   const manifestPath = join(root, 'manifest.json');
-  if (!existsSync(manifestPath)) throw new MigrationRefused(`${root} has no manifest.json: not a migration package`);
+  if (!existsSync(manifestPath))
+    throw new MigrationRefused(`${root} has no manifest.json: not a migration package`);
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as PackageManifest;
   if (manifest.version !== PACKAGE_VERSION)
     throw new MigrationRefused(`unsupported package version ${String(manifest.version)}`);
@@ -332,12 +367,14 @@ export async function readPackage(dir: string): Promise<PackageManifest> {
   for (const [name, expected] of Object.entries(manifest.files)) {
     const path = join(root, name);
     if (!existsSync(path)) throw new MigrationRefused(`the package lacks ${name}`);
-    if ((await sha256File(path)) !== expected.sha256) throw new MigrationRefused(`${name} does not match its checksum`);
+    if ((await sha256File(path)) !== expected.sha256)
+      throw new MigrationRefused(`${name} does not match its checksum`);
     seen.add(name);
   }
   for (const path of walkFiles(root)) {
     const name = relative(root, path).split(sep).join('/');
-    if (name !== 'manifest.json' && !seen.has(name)) throw new MigrationRefused(`${name} is in the package but not in its manifest`);
+    if (name !== 'manifest.json' && !seen.has(name))
+      throw new MigrationRefused(`${name} is in the package but not in its manifest`);
   }
   return manifest;
 }

@@ -17,7 +17,8 @@ import { MigrationRefused } from './package';
  */
 
 function assertStopped(home: string): void {
-  if (databaseInUse(home)) throw new MigrationRefused(`a server has ${join(home, 'db.sqlite')} open: stop it first`);
+  if (databaseInUse(home))
+    throw new MigrationRefused(`a server has ${join(home, 'db.sqlite')} open: stop it first`);
 }
 
 export function instanceStatus(home: string): string {
@@ -56,7 +57,9 @@ export function activateHome(options: ActivateOptions): void {
     const other = resolve(options.otherHome);
     if (other === home) throw new MigrationRefused('the other home is this home');
     if (existsSync(join(other, 'db.sqlite')) && instanceRole(other) !== 'retired')
-      throw new MigrationRefused(`${other} is not retired (it is ${instanceRole(other)}): retire it first, only one copy may be active`);
+      throw new MigrationRefused(
+        `${other} is not retired (it is ${instanceRole(other)}): retire it first, only one copy may be active`,
+      );
   } else if (!options.confirmSourceRetired) {
     throw new MigrationRefused(
       'name the other installation: --other-home PATH (its marker must be retired) or --confirm-source-retired (it is stopped and retired on another machine)',

@@ -22,11 +22,15 @@ export function readInstanceMarker(home: string): InstanceMarker | null {
   try {
     raw = JSON.parse(readFileSync(path, 'utf8'));
   } catch {
-    throw new InstanceMarkerError(`${path} is not valid JSON: the instance role is unknown, so nothing starts`);
+    throw new InstanceMarkerError(
+      `${path} is not valid JSON: the instance role is unknown, so nothing starts`,
+    );
   }
   const parsed = InstanceMarker.safeParse(raw);
   if (!parsed.success)
-    throw new InstanceMarkerError(`${path} is not an instance marker: the instance role is unknown, so nothing starts`);
+    throw new InstanceMarkerError(
+      `${path} is not an instance marker: the instance role is unknown, so nothing starts`,
+    );
   return parsed.data;
 }
 

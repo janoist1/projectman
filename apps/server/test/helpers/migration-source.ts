@@ -110,12 +110,25 @@ export async function createSourceHome(): Promise<SourceHome> {
   const codexTranscript = join(root, 'codex-home', 'sessions', 'rollout-2026-09-30-xyz.jsonl');
   mkdirSync(join(root, 'claude-home', 'projects', 'acme'), { recursive: true });
   mkdirSync(join(root, 'codex-home', 'sessions'), { recursive: true });
-  writeFileSync(claudeTranscript, '{"type":"user","message":{"content":"hello"}}\n');
-  writeFileSync(codexTranscript, '{"type":"session_meta"}\n');
+  const at0 = '2026-09-30T10:00:00.000Z';
+  writeFileSync(
+    claudeTranscript,
+    `${JSON.stringify({ uuid: 'u-1', timestamp: at0, type: 'user', message: { role: 'user', content: 'Opening prompt of the old conversation' } })}\n`,
+  );
+  writeFileSync(
+    codexTranscript,
+    `${JSON.stringify({ timestamp: at0, type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Opening prompt of the Codex conversation' }] } })}\n`,
+  );
   const { repos } = harness.app.projectman;
   const at = '2026-09-30T10:00:00.000Z';
   let uuid = 0;
-  const session = (id: string, member: string, provider: 'claude' | 'codex', cwd: string, transcriptPath: string | null) =>
+  const session = (
+    id: string,
+    member: string,
+    provider: 'claude' | 'codex',
+    cwd: string,
+    transcriptPath: string | null,
+  ) =>
     repos.sessions.insert({
       id,
       projectKey: 'AR',

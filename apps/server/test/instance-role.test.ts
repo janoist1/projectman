@@ -67,9 +67,18 @@ describe('the marker file', () => {
 
   it.each([
     ['broken JSON', '{nope'],
-    ['an unknown role', JSON.stringify({ version: 1, role: 'active', reason: 'x', setAt: '2026-10-01T12:00:00Z' })],
-    ['an extra key', JSON.stringify({ version: 1, role: 'standby', reason: 'x', setAt: '2026-10-01T12:00:00Z', a: 1 })],
-    ['an empty reason', JSON.stringify({ version: 1, role: 'standby', reason: '', setAt: '2026-10-01T12:00:00Z' })],
+    [
+      'an unknown role',
+      JSON.stringify({ version: 1, role: 'active', reason: 'x', setAt: '2026-10-01T12:00:00Z' }),
+    ],
+    [
+      'an extra key',
+      JSON.stringify({ version: 1, role: 'standby', reason: 'x', setAt: '2026-10-01T12:00:00Z', a: 1 }),
+    ],
+    [
+      'an empty reason',
+      JSON.stringify({ version: 1, role: 'standby', reason: '', setAt: '2026-10-01T12:00:00Z' }),
+    ],
   ])('never reads %s as an active home', (_name, text) => {
     const home = tempHome();
     writeFileSync(join(home, 'instance.json'), text);

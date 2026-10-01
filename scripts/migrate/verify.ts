@@ -44,39 +44,77 @@ export async function verifyHome(options: VerifyOptions): Promise<VerifyResult> 
   try {
     role = instanceRole(home);
   } catch (error) {
-    add('blocker', 'instance_marker_invalid', 'instance.json', error instanceof InstanceMarkerError ? error.message : String(error));
+    add(
+      'blocker',
+      'instance_marker_invalid',
+      'instance.json',
+      error instanceof InstanceMarkerError ? error.message : String(error),
+    );
   }
   const mode = statSync(home).mode & 0o777;
-  if ((mode & 0o077) !== 0) add('blocker', 'home_mode', home, `the home has mode ${mode.toString(8)}: it must be private (700)`);
+  if ((mode & 0o077) !== 0)
+    add('blocker', 'home_mode', home, `the home has mode ${mode.toString(8)}: it must be private (700)`);
 
   // --- the cookie secret: without it a start would invent one and end every login
   const secret = join(home, 'secret');
   if (!existsSync(secret)) add('blocker', 'secret_missing', 'secret', 'the cookie signing key is missing');
   else if ((statSync(secret).mode & 0o077) !== 0)
-    add('blocker', 'secret_mode', 'secret', `the cookie signing key has mode ${(statSync(secret).mode & 0o777).toString(8)}, not 600`);
+    add(
+      'blocker',
+      'secret_mode',
+      'secret',
+      `the cookie signing key has mode ${(statSync(secret).mode & 0o777).toString(8)}, not 600`,
+    );
 
   // --- the database
   const attachmentIds: string[] = [];
   const dbPath = join(home, 'db.sqlite');
   if (!existsSync(dbPath)) add('blocker', 'database_missing', 'db.sqlite', 'the home has no database');
   else {
-    if (databaseInUse(home)) add('blocker', 'database_in_use', 'db.sqlite', 'another process has the database open: stop projectman first');
+    if (databaseInUse(home))
+      add(
+        'blocker',
+        'database_in_use',
+        'db.sqlite',
+        'another process has the database open: stop projectman first',
+      );
     const snapshot = snapshotDatabase(home);
     try {
       const db = snapshot.db;
       schema = Number(db.pragma('user_version', { simple: true }));
       if (schema > LATEST_SCHEMA_VERSION)
-        add('blocker', 'schema_newer', 'db.sqlite', `schema ${schema} is newer than this build (${LATEST_SCHEMA_VERSION}): an older build must never start on it`);
+        add(
+          'blocker',
+          'schema_newer',
+          'db.sqlite',
+          `schema ${schema} is newer than this build (${LATEST_SCHEMA_VERSION}): an older build must never start on it`,
+        );
       else if (schema < LATEST_SCHEMA_VERSION)
-        add('warning', 'schema_older', 'db.sqlite', `schema ${schema}, this build migrates to ${LATEST_SCHEMA_VERSION} at the first start`);
+        add(
+          'warning',
+          'schema_older',
+          'db.sqlite',
+          `schema ${schema}, this build migrates to ${LATEST_SCHEMA_VERSION} at the first start`,
+        );
       const integrity = String(db.pragma('integrity_check', { simple: true }));
       if (integrity !== 'ok') add('blocker', 'integrity_failed', 'db.sqlite', integrity);
       const broken = (db.pragma('foreign_key_check') as unknown[]).length;
-      if (broken > 0) add('warning', 'foreign_key_violations', 'db.sqlite', `${broken} rows break a foreign key`);
+      if (broken > 0)
+        add('warning', 'foreign_key_violations', 'db.sqlite', `${broken} rows break a foreign key`);
       const users = Number((db.prepare('SELECT count(*) AS n FROM users').get() as { n: number }).n);
-      if (users === 0) add('warning', 'no_users', 'users', 'the database has no account: the first start would ask for a new owner');
+      if (users === 0)
+        add(
+          'warning',
+          'no_users',
+          'users',
+          'the database has no account: the first start would ask for a new owner',
+        );
       if (schema >= 11)
-        attachmentIds.push(...(db.prepare("SELECT id FROM attachments WHERE state = 'ready'").all() as { id: string }[]).map((r) => r.id));
+        attachmentIds.push(
+          ...(db.prepare("SELECT id FROM attachments WHERE state = 'ready'").all() as { id: string }[]).map(
+            (r) => r.id,
+          ),
+        );
     } finally {
       snapshot.dispose();
     }
@@ -96,21 +134,44 @@ export async function verifyHome(options: VerifyOptions): Promise<VerifyResult> 
   }
   const missing = attachmentIds.filter((id) => !present.has(id));
   if (missing.length > 0)
-    add('blocker', 'attachments_missing_files', 'attachments', `${missing.length} attachment rows have no file: the database and the files are not from the same backup`);
+    add(
+      'blocker',
+      'attachments_missing_files',
+      'attachments',
+      `${missing.length} attachment rows have no file: the database and the files are not from the same backup`,
+    );
 
   // --- the customization repository: a git repository whose projects load
   const customization = join(home, 'customization');
-  if (!existsSync(customization)) add('blocker', 'customization_missing', 'customization', 'no customization repository');
-  else if (!(await isGitRepository(customization))) add('blocker', 'customization_not_git', 'customization', 'the customization directory is not a git repository');
+  if (!existsSync(customization))
+    add('blocker', 'customization_missing', 'customization', 'no customization repository');
+  else if (!(await isGitRepository(customization)))
+    add(
+      'blocker',
+      'customization_not_git',
+      'customization',
+      'the customization directory is not a git repository',
+    );
   else {
     const fsck = await git(customization, ['fsck', '--no-progress'], { okCodes: [1, 2, 4, 128] });
-    if (fsck.code !== 0) add('blocker', 'customization_fsck', 'customization', `git fsck failed: ${fsck.stderr.trim().split('\n')[0] ?? ''}`);
+    if (fsck.code !== 0)
+      add(
+        'blocker',
+        'customization_fsck',
+        'customization',
+        `git fsck failed: ${fsck.stderr.trim().split('\n')[0] ?? ''}`,
+      );
     const store = createConfigStore({ rootDir: customization });
     for (const key of await store.list()) {
       try {
         await store.load(key);
       } catch (error) {
-        add('blocker', 'project_config_invalid', key, `the configuration does not load: ${error instanceof Error ? error.message : String(error)}`);
+        add(
+          'blocker',
+          'project_config_invalid',
+          key,
+          `the configuration does not load: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
     }
   }
@@ -118,10 +179,28 @@ export async function verifyHome(options: VerifyOptions): Promise<VerifyResult> 
   // --- paths: only what a session would start in
   if (options.checkPaths) {
     for (const project of readProjectFiles(home)) {
-      if (!existsSync(project.workspacePath)) add('blocker', 'workspace_missing', project.key, `the workspace ${project.workspacePath} does not exist on this machine`);
+      if (!existsSync(project.workspacePath))
+        add(
+          'blocker',
+          'workspace_missing',
+          project.key,
+          `the workspace ${project.workspacePath} does not exist on this machine`,
+        );
       for (const repo of project.repos) {
-        if (!existsSync(repo.path)) add('blocker', 'repo_missing', `${project.key}/${repo.name}`, `${repo.path} does not exist on this machine`);
-        else if (!(await isGitRepository(repo.path))) add('blocker', 'repo_not_git', `${project.key}/${repo.name}`, `${repo.path} is not a git repository`);
+        if (!existsSync(repo.path))
+          add(
+            'blocker',
+            'repo_missing',
+            `${project.key}/${repo.name}`,
+            `${repo.path} does not exist on this machine`,
+          );
+        else if (!(await isGitRepository(repo.path)))
+          add(
+            'blocker',
+            'repo_not_git',
+            `${project.key}/${repo.name}`,
+            `${repo.path} is not a git repository`,
+          );
       }
     }
   }
@@ -130,7 +209,10 @@ export async function verifyHome(options: VerifyOptions): Promise<VerifyResult> 
 }
 
 export function formatVerify(result: VerifyResult): string {
-  const lines = [`${result.ok ? 'OK' : 'NOT OK'}: ${result.home} (role ${result.role}, schema ${result.schemaVersion ?? '-'})`];
-  for (const f of result.findings) lines.push(`  ${f.severity.toUpperCase()} [${f.code}] ${f.subject}: ${f.message}`);
+  const lines = [
+    `${result.ok ? 'OK' : 'NOT OK'}: ${result.home} (role ${result.role}, schema ${result.schemaVersion ?? '-'})`,
+  ];
+  for (const f of result.findings)
+    lines.push(`  ${f.severity.toUpperCase()} [${f.code}] ${f.subject}: ${f.message}`);
   return lines.join('\n');
 }

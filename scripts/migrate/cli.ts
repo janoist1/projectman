@@ -82,12 +82,22 @@ async function main(argv: string[]): Promise<number> {
     }
     case 'apply': {
       const mappings = (args.flags.get('map') ?? []).map(parsePathMapping);
-      const report = await applyPackage({ packageDir: one(args, 'package'), targetHome: one(args, 'target-home'), mappings });
-      console.log(`Standby copy at ${report.targetHome}: schema ${report.schema.source} -> ${report.schema.target}.`);
-      for (const r of report.reposRestored) console.log(`  repository ${r.project}/${r.name} at ${r.path} (${r.branches} branches)`);
+      const report = await applyPackage({
+        packageDir: one(args, 'package'),
+        targetHome: one(args, 'target-home'),
+        mappings,
+      });
+      console.log(
+        `Standby copy at ${report.targetHome}: schema ${report.schema.source} -> ${report.schema.target}.`,
+      );
+      for (const r of report.reposRestored)
+        console.log(`  repository ${r.project}/${r.name} at ${r.path} (${r.branches} branches)`);
       for (const c of report.configRewrites) console.log(`  workspace ${c.project}: ${c.from} -> ${c.to}`);
-      console.log(`  ${report.pendingWork} pending work items, ${report.transcriptsCarried} transcripts, ${report.sessionsNotResumed} old conversations stay history`);
-      for (const f of report.findings) console.log(`  ${f.severity.toUpperCase()} [${f.code}] ${f.subject}: ${f.message}`);
+      console.log(
+        `  ${report.pendingWork} pending work items, ${report.transcriptsCarried} transcripts, ${report.sessionsNotResumed} old conversations stay history`,
+      );
+      for (const f of report.findings)
+        console.log(`  ${f.severity.toUpperCase()} [${f.code}] ${f.subject}: ${f.message}`);
       const verified = await verifyHome({ home: report.targetHome, checkPaths: true });
       console.log(formatVerify(verified));
       return verified.ok ? 0 : 1;
@@ -110,7 +120,11 @@ async function main(argv: string[]): Promise<number> {
           retireHome(home, one(args, 'reason'));
           break;
         case 'activate':
-          activateHome({ home, otherHome: optional(args, 'other-home'), confirmSourceRetired: args.flags.has('confirm-source-retired') });
+          activateHome({
+            home,
+            otherHome: optional(args, 'other-home'),
+            confirmSourceRetired: args.flags.has('confirm-source-retired'),
+          });
           break;
         default:
           throw new UsageError('instance needs status, standby, retire or activate');
@@ -144,15 +158,18 @@ main(process.argv.slice(2)).then(
   (code) => process.exit(code),
   (error: unknown) => {
     if (error instanceof UsageError) {
-      console.error(`usage error: ${error.message}\n(see the header of scripts/migrate/cli.ts and docs/MIGRATION.md)`);
+      console.error(
+        `usage error: ${error.message}\n(see the header of scripts/migrate/cli.ts and docs/MIGRATION.md)`,
+      );
       process.exit(2);
     }
     if (error instanceof MigrationRefused) {
       console.error(`REFUSED: ${error.message}`);
-      for (const f of error.findings) console.error(`  ${f.severity.toUpperCase()} [${f.code}] ${f.subject}: ${f.message}`);
+      for (const f of error.findings)
+        console.error(`  ${f.severity.toUpperCase()} [${f.code}] ${f.subject}: ${f.message}`);
       process.exit(1);
     }
-    console.error(error instanceof Error ? error.stack ?? error.message : String(error));
+    console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
     process.exit(1);
   },
 );

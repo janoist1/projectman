@@ -96,7 +96,13 @@ export interface Inventory {
   };
   secret: { present: boolean; mode: string | null };
   customization: { present: boolean; head: string | null; dirty: number; submodules: string[] };
-  attachments: { rows: number; files: number; rowsWithoutFile: number; filesWithoutRow: number; bytes: number };
+  attachments: {
+    rows: number;
+    files: number;
+    rowsWithoutFile: number;
+    filesWithoutRow: number;
+    bytes: number;
+  };
   memory: { files: number };
   /** The top-level entries of the home and their sizes, so what is not carried is visible too. */
   entries: { name: string; kind: 'file' | 'directory'; bytes: number }[];
@@ -168,7 +174,11 @@ async function dirtyOf(dir: string): Promise<DirtyInfo> {
 export const isDirty = (dirty: DirtyInfo): boolean => dirty.modified + dirty.deleted + dirty.untracked > 0;
 
 async function branchesOf(repo: string): Promise<BranchInfo[]> {
-  const { stdout } = await git(repo, ['for-each-ref', '--format=%(refname:short)%09%(objectname)', 'refs/heads']);
+  const { stdout } = await git(repo, [
+    'for-each-ref',
+    '--format=%(refname:short)%09%(objectname)',
+    'refs/heads',
+  ]);
   const branches: BranchInfo[] = [];
   for (const line of stdout.split('\n').filter(Boolean)) {
     const [name, sha] = line.split('\t') as [string, string];
@@ -250,14 +260,18 @@ const COUNTED_TABLES = [
 ];
 
 /** The projects of the customization repository and the repositories each names (absolute paths). */
-export function readProjectFiles(home: string): { key: string; workspacePath: string; repos: { name: string; path: string; defaultBranch: string }[] }[] {
+export function readProjectFiles(
+  home: string,
+): { key: string; workspacePath: string; repos: { name: string; path: string; defaultBranch: string }[] }[] {
   const root = join(home, 'customization', 'projects');
   if (!existsSync(root)) return [];
   const projects = [];
   for (const key of readdirSync(root).sort()) {
     const file = join(root, key, 'project.yaml');
     if (!existsSync(file)) continue;
-    const doc = parseYaml(readFileSync(file, 'utf8')) as { project?: { workspacePath?: string; repos?: { name: string; path: string; defaultBranch?: string }[] } };
+    const doc = parseYaml(readFileSync(file, 'utf8')) as {
+      project?: { workspacePath?: string; repos?: { name: string; path: string; defaultBranch?: string }[] };
+    };
     const project = doc?.project;
     if (!project?.workspacePath) continue;
     projects.push({
@@ -313,22 +327,48 @@ export async function buildInventory(options: InventoryOptions): Promise<Invento
   if (!present) add('blocker', 'database_missing', 'db.sqlite', 'the home has no database');
   else {
     if (inUse)
-      add('blocker', 'source_running', 'db.sqlite', 'another process has the database open: stop projectman before the move');
+      add(
+        'blocker',
+        'source_running',
+        'db.sqlite',
+        'another process has the database open: stop projectman before the move',
+      );
     else if (sideFiles.length > 0)
-      add('warning', 'wal_left_over', sideFiles.join(', '), 'write-ahead-log files were left behind (an unclean stop); SQLite recovers them in the copy');
+      add(
+        'warning',
+        'wal_left_over',
+        sideFiles.join(', '),
+        'write-ahead-log files were left behind (an unclean stop); SQLite recovers them in the copy',
+      );
     const snapshot = snapshotDatabase(home);
     try {
       const db = snapshot.db;
       database.schemaVersion = Number(db.pragma('user_version', { simple: true }));
       if (database.schemaVersion > LATEST_SCHEMA_VERSION)
-        add('blocker', 'schema_newer', 'db.sqlite', `the database is at schema ${database.schemaVersion}, this build knows ${LATEST_SCHEMA_VERSION}: use a newer build, never an older one`);
+        add(
+          'blocker',
+          'schema_newer',
+          'db.sqlite',
+          `the database is at schema ${database.schemaVersion}, this build knows ${LATEST_SCHEMA_VERSION}: use a newer build, never an older one`,
+        );
       else if (database.schemaVersion < LATEST_SCHEMA_VERSION)
-        add('info', 'schema_older', 'db.sqlite', `the database is at schema ${database.schemaVersion}; the new build migrates it to ${LATEST_SCHEMA_VERSION} in the copy only`);
+        add(
+          'info',
+          'schema_older',
+          'db.sqlite',
+          `the database is at schema ${database.schemaVersion}; the new build migrates it to ${LATEST_SCHEMA_VERSION} in the copy only`,
+        );
       database.integrity = String(db.pragma('integrity_check', { simple: true }));
-      if (database.integrity !== 'ok') add('blocker', 'integrity_failed', 'db.sqlite', `integrity_check: ${database.integrity}`);
+      if (database.integrity !== 'ok')
+        add('blocker', 'integrity_failed', 'db.sqlite', `integrity_check: ${database.integrity}`);
       database.foreignKeyViolations = (db.pragma('foreign_key_check') as unknown[]).length;
       if (database.foreignKeyViolations > 0)
-        add('warning', 'foreign_key_violations', 'db.sqlite', `${database.foreignKeyViolations} rows break a foreign key (copied as they are)`);
+        add(
+          'warning',
+          'foreign_key_violations',
+          'db.sqlite',
+          `${database.foreignKeyViolations} rows break a foreign key (copied as they are)`,
+        );
       for (const table of COUNTED_TABLES) database.counts[table] = tableCount(db, table);
       const hasSessions = tableCount(db, 'sessions') > 0 || database.schemaVersion >= 1;
       if (hasSessions && database.schemaVersion >= 1) {
@@ -352,21 +392,36 @@ export async function buildInventory(options: InventoryOptions): Promise<Invento
         );
       if (database.schemaVersion >= 10) database.deferredStarts = tableCount(db, 'deferred_starts');
       if (database.schemaVersion >= 11)
-        attachmentIds = (db.prepare("SELECT id FROM attachments WHERE state = 'ready'").all() as { id: string }[]).map((r) => r.id);
+        attachmentIds = (
+          db.prepare("SELECT id FROM attachments WHERE state = 'ready'").all() as { id: string }[]
+        ).map((r) => r.id);
       if (database.schemaVersion >= 13) {
         workspaceRows.push(...(db.prepare('SELECT path FROM member_workspaces').all() as { path: string }[]));
         bindingSources.push(
-          ...(db.prepare('SELECT source_path FROM task_workspace_bindings').all() as { source_path: string | null }[]),
+          ...(db.prepare('SELECT source_path FROM task_workspace_bindings').all() as {
+            source_path: string | null;
+          }[]),
         );
       }
     } finally {
       snapshot.dispose();
     }
     if (database.liveSessions > 0)
-      add('warning', 'live_sessions', 'sessions', `${database.liveSessions} sessions are recorded as running: the server was not stopped cleanly, or still runs`);
-    if (database.openInbox > 0) add('info', 'open_inbox', 'inbox', `${database.openInbox} open inbox items travel with the database`);
+      add(
+        'warning',
+        'live_sessions',
+        'sessions',
+        `${database.liveSessions} sessions are recorded as running: the server was not stopped cleanly, or still runs`,
+      );
+    if (database.openInbox > 0)
+      add('info', 'open_inbox', 'inbox', `${database.openInbox} open inbox items travel with the database`);
     if (database.deferredStarts > 0)
-      add('info', 'deferred_starts', 'deferred starts', `${database.deferredStarts} deferred starts travel with the database; only the active instance may run them`);
+      add(
+        'info',
+        'deferred_starts',
+        'deferred starts',
+        `${database.deferredStarts} deferred starts travel with the database; only the active instance may run them`,
+      );
   }
 
   // --- secret, customization, attachments, memory
@@ -376,23 +431,60 @@ export async function buildInventory(options: InventoryOptions): Promise<Invento
     mode: existsSync(secretPath) ? (statSync(secretPath).mode & 0o777).toString(8) : null,
   };
   if (!secret.present)
-    add('blocker', 'secret_missing', 'secret', 'the cookie signing key is missing: a copy without it logs every browser out');
-  else if (secret.mode !== '600') add('warning', 'secret_mode', 'secret', `the cookie signing key has mode ${secret.mode}, not 600`);
+    add(
+      'blocker',
+      'secret_missing',
+      'secret',
+      'the cookie signing key is missing: a copy without it logs every browser out',
+    );
+  else if (secret.mode !== '600')
+    add('warning', 'secret_mode', 'secret', `the cookie signing key has mode ${secret.mode}, not 600`);
 
   const customizationDir = join(home, 'customization');
-  const customization: Inventory['customization'] = { present: existsSync(customizationDir), head: null, dirty: 0, submodules: [] };
+  const customization: Inventory['customization'] = {
+    present: existsSync(customizationDir),
+    head: null,
+    dirty: 0,
+    submodules: [],
+  };
   if (customization.present) {
     if (!(await isGitRepository(customizationDir)))
-      add('blocker', 'customization_not_git', 'customization', 'the customization directory is not a git repository: its history would be lost');
+      add(
+        'blocker',
+        'customization_not_git',
+        'customization',
+        'the customization directory is not a git repository: its history would be lost',
+      );
     else {
-      customization.head = (await git(customizationDir, ['rev-parse', 'HEAD'], { okCodes: [128] })).stdout.trim() || null;
+      customization.head =
+        (await git(customizationDir, ['rev-parse', 'HEAD'], { okCodes: [128] })).stdout.trim() || null;
       customization.dirty = (await dirtyOf(customizationDir)).paths.length;
       if (customization.dirty > 0)
-        add('warning', 'customization_dirty', 'customization', `${customization.dirty} uncommitted changes in the customization repository (copied as they are)`);
-      const modules = (await git(customizationDir, ['config', '--file', '.gitmodules', '--get-regexp', '^submodule\\..*\\.path$'], { okCodes: [1, 128] })).stdout;
-      customization.submodules = modules.split('\n').filter(Boolean).map((l) => l.split(' ')[1]!).filter(Boolean);
+        add(
+          'warning',
+          'customization_dirty',
+          'customization',
+          `${customization.dirty} uncommitted changes in the customization repository (copied as they are)`,
+        );
+      const modules = (
+        await git(
+          customizationDir,
+          ['config', '--file', '.gitmodules', '--get-regexp', '^submodule\\..*\\.path$'],
+          { okCodes: [1, 128] },
+        )
+      ).stdout;
+      customization.submodules = modules
+        .split('\n')
+        .filter(Boolean)
+        .map((l) => l.split(' ')[1]!)
+        .filter(Boolean);
       if (customization.submodules.length > 0)
-        add('info', 'submodules', customization.submodules.join(', '), 'registered submodules are copied with their own .git (the whole customization directory moves as one)');
+        add(
+          'info',
+          'submodules',
+          customization.submodules.join(', '),
+          'registered submodules are copied with their own .git (the whole customization directory moves as one)',
+        );
     }
   } else add('warning', 'customization_missing', 'customization', 'the home has no customization repository');
 
@@ -422,9 +514,19 @@ export async function buildInventory(options: InventoryOptions): Promise<Invento
     bytes: attachmentBytes,
   };
   if (attachments.rowsWithoutFile > 0)
-    add('warning', 'attachments_missing_files', 'attachments', `${attachments.rowsWithoutFile} attachment rows have no file (broken before the move)`);
+    add(
+      'warning',
+      'attachments_missing_files',
+      'attachments',
+      `${attachments.rowsWithoutFile} attachment rows have no file (broken before the move)`,
+    );
   if (attachments.filesWithoutRow > 0)
-    add('info', 'attachments_unreferenced_files', 'attachments', `${attachments.filesWithoutRow} files in attachments/ have no ready row (the server cleans uploads cut short)`);
+    add(
+      'info',
+      'attachments_unreferenced_files',
+      'attachments',
+      `${attachments.filesWithoutRow} files in attachments/ have no ready row (the server cleans uploads cut short)`,
+    );
   const memory = { files: existsSync(join(home, 'memory')) ? dirSize(join(home, 'memory')).files : 0 };
 
   const entries: Inventory['entries'] = readdirSync(home)
@@ -436,12 +538,20 @@ export async function buildInventory(options: InventoryOptions): Promise<Invento
         : { name, kind: 'file' as const, bytes: info.size };
     });
   if (existsSync(join(home, 'github-publish')))
-    add('info', 'publishing_identity', 'github-publish', 'the publishing identity state is never copied: the VM gets its own identity');
+    add(
+      'info',
+      'publishing_identity',
+      'github-publish',
+      'the publishing identity state is never copied: the VM gets its own identity',
+    );
 
   // --- projects, repositories, worktrees
   const sessionByDir = new Map<string, { member: string; taskKey: string | null }>();
   for (const s of sessions)
-    sessionByDir.set(resolve(s.cwd), { member: s.member, taskKey: s.work_item_type === 'task' ? s.work_item_ref : null });
+    sessionByDir.set(resolve(s.cwd), {
+      member: s.member,
+      taskKey: s.work_item_type === 'task' ? s.work_item_ref : null,
+    });
   const managedRoot = join(home, 'worktrees');
   const projects: ProjectInventory[] = [];
   const seenRepos = new Set<string>();
@@ -471,33 +581,64 @@ export async function buildInventory(options: InventoryOptions): Promise<Invento
         continue;
       }
       if (!(await isGitRepository(repo.path))) {
-        add('warning', 'not_a_git_repo', subject, `${repo.path} is not a git repository: nothing of it is carried`);
+        add(
+          'warning',
+          'not_a_git_repo',
+          subject,
+          `${repo.path} is not a git repository: nothing of it is carried`,
+        );
         continue;
       }
       entry.isGit = true;
       if (seenRepos.has(resolve(repo.path))) continue;
       seenRepos.add(resolve(repo.path));
       entry.head = (await git(repo.path, ['rev-parse', 'HEAD'], { okCodes: [128] })).stdout.trim() || null;
-      entry.branch = (await git(repo.path, ['symbolic-ref', '--short', '-q', 'HEAD'], { okCodes: [1, 128] })).stdout.trim() || null;
+      entry.branch =
+        (
+          await git(repo.path, ['symbolic-ref', '--short', '-q', 'HEAD'], { okCodes: [1, 128] })
+        ).stdout.trim() || null;
       entry.branches = entry.head ? await branchesOf(repo.path) : [];
-      const remotes = (await git(repo.path, ['remote', '-v'])).stdout.split('\n').filter((l) => l.endsWith('(fetch)'));
+      const remotes = (await git(repo.path, ['remote', '-v'])).stdout
+        .split('\n')
+        .filter((l) => l.endsWith('(fetch)'));
       for (const line of remotes) {
         const [name, url] = line.split(/\s+/) as [string, string];
         const redacted = redactRemoteUrl(url);
         entry.remotes.push({ name, url: redacted.url });
         if (redacted.hadCredentials)
-          add('warning', 'credentials_in_remote_url', `${subject} (${name})`, 'the remote URL carries credentials: they are not recorded and not carried; the VM uses its own identity');
+          add(
+            'warning',
+            'credentials_in_remote_url',
+            `${subject} (${name})`,
+            'the remote URL carries credentials: they are not recorded and not carried; the VM uses its own identity',
+          );
       }
       entry.stashes = (await git(repo.path, ['stash', 'list'])).stdout.split('\n').filter(Boolean).length;
       entry.dirty = await dirtyOf(repo.path);
       if (isDirty(entry.dirty))
-        add('warning', 'dirty_work', subject, `${entry.dirty.modified + entry.dirty.deleted} changed and ${entry.dirty.untracked} untracked files in ${repo.path}: captured, never discarded or stashed`);
+        add(
+          'warning',
+          'dirty_work',
+          subject,
+          `${entry.dirty.modified + entry.dirty.deleted} changed and ${entry.dirty.untracked} untracked files in ${repo.path}: captured, never discarded or stashed`,
+        );
       if (entry.remotes.length === 0 && entry.head)
-        add('warning', 'local_only_repository', subject, 'the repository has no remote: every commit exists only here, the bundle is the only copy that moves');
+        add(
+          'warning',
+          'local_only_repository',
+          subject,
+          'the repository has no remote: every commit exists only here, the bundle is the only copy that moves',
+        );
       for (const branch of entry.branches)
         if (branch.localOnlyCommits > 0 && entry.remotes.length > 0)
-          add('warning', 'local_only_commits', `${subject}:${branch.name}`, `${branch.localOnlyCommits} commits are on no remote: they travel in the bundle`);
-      if (entry.stashes > 0) add('info', 'stashes', subject, `${entry.stashes} stash entries travel with the bundle (refs/stash)`);
+          add(
+            'warning',
+            'local_only_commits',
+            `${subject}:${branch.name}`,
+            `${branch.localOnlyCommits} commits are on no remote: they travel in the bundle`,
+          );
+      if (entry.stashes > 0)
+        add('info', 'stashes', subject, `${entry.stashes} stash entries travel with the bundle (refs/stash)`);
       const listed = parseWorktrees((await git(repo.path, ['worktree', 'list', '--porcelain'])).stdout);
       for (const w of listed.slice(1)) {
         const info: WorktreeInfo = {
@@ -508,14 +649,34 @@ export async function buildInventory(options: InventoryOptions): Promise<Invento
           locked: w.locked,
           prunable: w.prunable,
           managed: resolve(w.path) === managedRoot || resolve(w.path).startsWith(managedRoot + sep),
-          dirty: w.prunable || !existsSync(w.path) ? { modified: 0, deleted: 0, untracked: 0, paths: [] } : await dirtyOf(w.path),
+          dirty:
+            w.prunable || !existsSync(w.path)
+              ? { modified: 0, deleted: 0, untracked: 0, paths: [] }
+              : await dirtyOf(w.path),
           assignedTo: sessionByDir.get(resolve(w.path)) ?? null,
         };
         entry.worktrees.push(info);
         if (isDirty(info.dirty))
-          add('warning', 'dirty_work', `${subject} worktree ${basename(w.path)}`, `${info.dirty.modified + info.dirty.deleted} changed and ${info.dirty.untracked} untracked files in ${w.path}: captured${info.assignedTo ? ` for ${info.assignedTo.member}` : ' (no member known)'}, never discarded`);
-        if (w.detached) add('warning', 'detached_head', `${subject} worktree ${basename(w.path)}`, `HEAD is detached at ${w.head?.slice(0, 12)}: a commit on no branch is not carried by the bundle`);
-        if (w.prunable) add('info', 'worktree_prunable', `${subject} worktree ${basename(w.path)}`, 'git lists it as prunable (its directory is gone)');
+          add(
+            'warning',
+            'dirty_work',
+            `${subject} worktree ${basename(w.path)}`,
+            `${info.dirty.modified + info.dirty.deleted} changed and ${info.dirty.untracked} untracked files in ${w.path}: captured${info.assignedTo ? ` for ${info.assignedTo.member}` : ' (no member known)'}, never discarded`,
+          );
+        if (w.detached)
+          add(
+            'warning',
+            'detached_head',
+            `${subject} worktree ${basename(w.path)}`,
+            `HEAD is detached at ${w.head?.slice(0, 12)}: a commit on no branch is not carried by the bundle`,
+          );
+        if (w.prunable)
+          add(
+            'info',
+            'worktree_prunable',
+            `${subject} worktree ${basename(w.path)}`,
+            'git lists it as prunable (its directory is gone)',
+          );
       }
     }
     projects.push({ key: project.key, workspacePath: project.workspacePath, repos });
@@ -542,10 +703,20 @@ export async function buildInventory(options: InventoryOptions): Promise<Invento
     }
   }
   if (missing > 0)
-    add('info', 'transcripts_missing', 'transcripts', `${missing} conversations have no transcript file on this machine (their history cannot be shown after the move either)`);
+    add(
+      'info',
+      'transcripts_missing',
+      'transcripts',
+      `${missing} conversations have no transcript file on this machine (their history cannot be shown after the move either)`,
+    );
   const legacy = byProfile.legacy ?? 0;
   if (legacy > 0)
-    add('info', 'sessions_not_resumed', 'sessions', `${legacy} conversations ran in the legacy profile: they stay as history, and a new conversation starts from the task brief and the member's memory (never an automatic resume)`);
+    add(
+      'info',
+      'sessions_not_resumed',
+      'sessions',
+      `${legacy} conversations ran in the legacy profile: they stay as history, and a new conversation starts from the task brief and the member's memory (never an automatic resume)`,
+    );
 
   let workspaceMissing = 0;
   for (const w of workspaceRows) {
@@ -589,11 +760,17 @@ export function formatInventory(inv: Inventory): string {
   const db = inv.database;
   lines.push(
     `  database: schema ${db.schemaVersion ?? '-'} (this build ${db.buildSchemaVersion}), integrity ${db.integrity ?? '-'}, ` +
-      Object.entries(db.counts).map(([k, v]) => `${k} ${v}`).join(', '),
+      Object.entries(db.counts)
+        .map(([k, v]) => `${k} ${v}`)
+        .join(', '),
   );
   lines.push(`  secret: ${inv.secret.present ? `present, mode ${inv.secret.mode}` : 'MISSING'}`);
-  lines.push(`  customization: ${inv.customization.present ? `head ${inv.customization.head?.slice(0, 12) ?? '-'}, ${inv.customization.dirty} uncommitted` : 'missing'}`);
-  lines.push(`  attachments: ${inv.attachments.rows} rows, ${inv.attachments.files} files, ${inv.attachments.bytes} bytes; memory: ${inv.memory.files} files`);
+  lines.push(
+    `  customization: ${inv.customization.present ? `head ${inv.customization.head?.slice(0, 12) ?? '-'}, ${inv.customization.dirty} uncommitted` : 'missing'}`,
+  );
+  lines.push(
+    `  attachments: ${inv.attachments.rows} rows, ${inv.attachments.files} files, ${inv.attachments.bytes} bytes; memory: ${inv.memory.files} files`,
+  );
   for (const p of inv.projects) {
     lines.push(`  project ${p.key}: ${p.workspacePath}`);
     for (const r of p.repos) {
@@ -602,8 +779,13 @@ export function formatInventory(inv: Inventory): string {
       );
     }
   }
-  lines.push(`  sessions: ${inv.sessions.total}; transcripts ${inv.sessions.transcripts.present}/${inv.sessions.transcripts.referenced} present`);
-  lines.push('  absolute paths to map: ' + (inv.absolutePaths.map((g) => `${g.group} (${g.count})`).join(', ') || 'none'));
+  lines.push(
+    `  sessions: ${inv.sessions.total}; transcripts ${inv.sessions.transcripts.present}/${inv.sessions.transcripts.referenced} present`,
+  );
+  lines.push(
+    '  absolute paths to map: ' +
+      (inv.absolutePaths.map((g) => `${g.group} (${g.count})`).join(', ') || 'none'),
+  );
   for (const sev of ['blocker', 'warning', 'info'] as const) {
     const found = inv.findings.filter((f) => f.severity === sev);
     if (found.length === 0) continue;

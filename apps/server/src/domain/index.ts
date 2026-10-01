@@ -424,7 +424,9 @@ export function createDomain(opts: DomainOptions) {
       await attachments.recover();
       // A standby copy only shows its data: nothing below acts on the outside world or starts a session.
       if (opts.standby) {
-        opts.logger.warn('standby instance: no scheduler, GitHub polling or automatic starts; AI sessions are refused');
+        opts.logger.warn(
+          'standby instance: no scheduler, GitHub polling or automatic starts; AI sessions are refused',
+        );
         return;
       }
       githubSync.start();

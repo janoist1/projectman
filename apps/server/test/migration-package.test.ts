@@ -30,7 +30,9 @@ describe('the inventory', () => {
     expect(databaseInUse(src.home)).toBe(true);
     const inventory = await buildInventory({ home: src.home });
     expect(inventory.database.inUse).toBe(true);
-    expect(inventory.findings).toContainEqual(expect.objectContaining({ severity: 'blocker', code: 'source_running' }));
+    expect(inventory.findings).toContainEqual(
+      expect.objectContaining({ severity: 'blocker', code: 'source_running' }),
+    );
     await src.stop();
     expect(databaseInUse(src.home)).toBe(false);
   });
@@ -39,16 +41,39 @@ describe('the inventory', () => {
     await src.stop();
     const inventory = await buildInventory({ home: src.home });
     expect(inventory.findings.filter((f) => f.severity === 'blocker')).toEqual([]);
-    expect(inventory.database).toMatchObject({ present: true, inUse: false, integrity: 'ok', foreignKeyViolations: 0 });
+    expect(inventory.database).toMatchObject({
+      present: true,
+      inUse: false,
+      integrity: 'ok',
+      foreignKeyViolations: 0,
+    });
     expect(inventory.database.schemaVersion).toBe(inventory.database.buildSchemaVersion);
-    expect(inventory.database.counts).toMatchObject({ users: 1, projects: 1, tasks: 1, sessions: 3, attachments: 1, member_workspaces: 1 });
+    expect(inventory.database.counts).toMatchObject({
+      users: 1,
+      projects: 1,
+      tasks: 1,
+      sessions: 3,
+      attachments: 1,
+      member_workspaces: 1,
+    });
     expect(inventory.secret).toEqual({ present: true, mode: '600' });
     expect(inventory.customization).toMatchObject({ present: true, dirty: 0, submodules: [] });
     expect(inventory.customization.head).toMatch(/^[0-9a-f]{40}$/);
-    expect(inventory.attachments).toMatchObject({ rows: 1, files: 1, rowsWithoutFile: 0, filesWithoutRow: 0 });
+    expect(inventory.attachments).toMatchObject({
+      rows: 1,
+      files: 1,
+      rowsWithoutFile: 0,
+      filesWithoutRow: 0,
+    });
     expect(inventory.memory.files).toBe(1);
-    expect(inventory.entries.map((e) => e.name)).toEqual(expect.arrayContaining(['db.sqlite', 'secret', 'customization', 'worktrees', 'github-publish']));
-    expect(inventory.sessions).toMatchObject({ total: 3, byProvider: { claude: 2, codex: 1 }, byProfile: { legacy: 3 } });
+    expect(inventory.entries.map((e) => e.name)).toEqual(
+      expect.arrayContaining(['db.sqlite', 'secret', 'customization', 'worktrees', 'github-publish']),
+    );
+    expect(inventory.sessions).toMatchObject({
+      total: 3,
+      byProvider: { claude: 2, codex: 1 },
+      byProfile: { legacy: 3 },
+    });
     expect(inventory.sessions.transcripts).toMatchObject({ referenced: 3, present: 2, missing: 1 });
     expect(inventory.memberWorkspaces).toEqual({ total: 1, missing: 1 });
   });
@@ -73,7 +98,13 @@ describe('the inventory', () => {
       assignedTo: { member: 'dev-1', taskKey: src.taskKey },
     });
     expect(codes(inventory)).toEqual(
-      expect.arrayContaining(['dirty_work', 'local_only_commits', 'sessions_not_resumed', 'transcripts_missing', 'publishing_identity']),
+      expect.arrayContaining([
+        'dirty_work',
+        'local_only_commits',
+        'sessions_not_resumed',
+        'transcripts_missing',
+        'publishing_identity',
+      ]),
     );
     // Every stored absolute path is grouped, so the person sees what a mapping must cover.
     expect(inventory.absolutePaths.length).toBeGreaterThan(0);
@@ -93,8 +124,12 @@ describe('the inventory', () => {
     db.pragma('user_version = 999');
     db.close();
     const inventory = await buildInventory({ home: src.home });
-    expect(inventory.findings).toContainEqual(expect.objectContaining({ severity: 'blocker', code: 'schema_newer' }));
-    await expect(createPackage({ home: src.home, out: join(src.root, 'pkg') })).rejects.toThrow(MigrationRefused);
+    expect(inventory.findings).toContainEqual(
+      expect.objectContaining({ severity: 'blocker', code: 'schema_newer' }),
+    );
+    await expect(createPackage({ home: src.home, out: join(src.root, 'pkg') })).rejects.toThrow(
+      MigrationRefused,
+    );
     expect(existsSync(join(src.root, 'pkg'))).toBe(false);
   });
 
@@ -119,11 +154,17 @@ describe('the package', () => {
 
   it('refuses an output inside the source home, inside a repository or into a non-empty directory', async () => {
     await src.stop();
-    await expect(createPackage({ home: src.home, out: join(src.home, 'pkg') })).rejects.toThrow(/inside the source home/);
-    await expect(createPackage({ home: src.home, out: join(src.workspace, 'pkg') })).rejects.toThrow(/git repository/);
+    await expect(createPackage({ home: src.home, out: join(src.home, 'pkg') })).rejects.toThrow(
+      /inside the source home/,
+    );
+    await expect(createPackage({ home: src.home, out: join(src.workspace, 'pkg') })).rejects.toThrow(
+      /git repository/,
+    );
     const occupied = join(src.root, 'occupied');
     git(src.root, 'init', '-q', occupied);
-    await expect(createPackage({ home: src.home, out: occupied })).rejects.toThrow(/not empty|git repository/);
+    await expect(createPackage({ home: src.home, out: occupied })).rejects.toThrow(
+      /not empty|git repository/,
+    );
   });
 
   it('carries the data, the repositories, the dirty work and the transcripts, and leaves the source as it was', async () => {
@@ -146,7 +187,9 @@ describe('the package', () => {
 
     // The home: the data, without old worktrees, the publishing identity and the database's side files.
     const carried = readdirSync(join(out, 'home')).sort();
-    expect(carried).toEqual(expect.arrayContaining(['attachments', 'customization', 'db.sqlite', 'memory', 'secret']));
+    expect(carried).toEqual(
+      expect.arrayContaining(['attachments', 'customization', 'db.sqlite', 'memory', 'secret']),
+    );
     expect(carried).not.toContain('worktrees');
     expect(carried).not.toContain('github-publish');
     expect(carried).not.toContain('instance.json');

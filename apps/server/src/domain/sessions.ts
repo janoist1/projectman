@@ -378,7 +378,6 @@ export class SessionOrchestrator {
     await this.assertProviderReady(provider);
     let cwd = config.project.workspacePath;
     let branch: string | null = null;
-    let writableRoots: string[] | undefined;
     let additionalDirectories: string[] | undefined;
     // The repository the task's work happens in: its own, else the project's only one (see
     // `effectiveRepo`). Without one the session runs in the workspace root: a project without
@@ -396,7 +395,8 @@ export class SessionOrchestrator {
         });
         cwd = placed.path;
         branch = placed.branch;
-        if (placed.gitDir) writableRoots = [placed.gitDir];
+        // The shared git directory is not made writable: a sandboxed agent could plant hooks or
+        // configuration there that run when the host uses git in that repository (PM-131).
       } catch (err) {
         throw new DomainError(
           'session_start_failed',
@@ -528,7 +528,6 @@ export class SessionOrchestrator {
         mcpUrl: `${this.deps.publicBaseUrl}${routes.mcp(token)}`,
         allowedTools: allowedToolsFor(member.role, config),
         deniedTools: deniedToolsFor(config, task),
-        writableRoots,
         additionalDirectories,
         provider,
       });

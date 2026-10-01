@@ -47,10 +47,9 @@ describe('a task without a repository', () => {
       expect(session).toMatchObject({ cwd: worktreeOf('AR-1'), branch: 'task/AR-1' });
       expect(session.cwd).not.toBe(h.workspace);
       expect(h.worktrees.calls).toEqual([{ repoName: 'web', taskKey: 'AR-1' }]);
-      expect(h.runner.lastStarted()).toMatchObject({
-        cwd: worktreeOf('AR-1'),
-        writableRoots: [join(h.workspace, '.git')],
-      });
+      expect(h.runner.lastStarted()).toMatchObject({ cwd: worktreeOf('AR-1') });
+      // The shared git directory is never made writable (PM-131).
+      expect(h.runner.lastStarted().writableRoots).toBeUndefined();
       expect(h.domain.tasks.get('AR', 'AR-1').links).toContainEqual({
         kind: 'branch',
         ref: 'task/AR-1',

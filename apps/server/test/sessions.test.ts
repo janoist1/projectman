@@ -200,7 +200,8 @@ describe('session orchestrator', () => {
     expect(dev.session.branch).toBe('task/AR-2');
     expect(dev.session.cwd).not.toBe(h.workspace);
     expect(h.runner.lastStarted().allowedTools).toEqual(allowedToolsFor('developer', testConfig()));
-    expect(h.runner.lastStarted().writableRoots).toEqual([`${h.workspace}/.git`]);
+    // No writable git directory: hooks or configuration planted there would run on the host (PM-131).
+    expect(h.runner.lastStarted().writableRoots).toBeUndefined();
     expect(h.runner.lastStarted().deniedTools).toEqual([]);
     expect(h.domain.tasks.get('AR', withRepo.key).links).toContainEqual({
       kind: 'branch',

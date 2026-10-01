@@ -84,9 +84,11 @@ stop a push from a local-only repository. The configuration refuses it (invarian
 `codex_bypass_not_allowed`), an older configuration that names it reads as `acceptEdits` (logged
 as a warning) and the runner maps it to the sandbox of `acceptEdits` should it arrive anyway.
 
-Developers' Codex sessions may write the task worktree's git directory, so commits do not
-escalate, while the network stays off. Codex's own sandbox still keeps `.git` read-only in
-some cases, so the server allows the routine git steps itself (see Session policy, PM-77).
+Developers' Codex sessions get no extra writable roots, and the network stays off. The
+shared git directory is not made writable (PM-131): it never let `git commit` through, since
+Codex's sandbox denies the worktree's index lock, but it let an agent write the repository's
+hooks and configuration, which run when the host uses git there. The routine git steps
+escalate, and the server allows them itself (see Session policy, PM-77).
 
 ## Session policy
 
@@ -215,9 +217,11 @@ Findings:
   what an agent can already do with its own token, plus the login form. Serving the live
   instance on a non-loopback address only would close it; running the tests outside the
   sandbox would not be acceptable, since the test code is the agent's own.
-- Codex as configured today is not the boundary it looks like: a Codex member can read
-  everything the owner can (the live data directory included), and it can write the shared
-  repository's `.git/hooks` and `.git/config`. A hook planted there runs when the host runs
-  git in that repository (the worktree manager, an integration merge), outside any sandbox.
-  Its own `git add` and the tests escalate instead (the index lock and local ports are denied),
-  and the server's command rule approves those escalations, which then run unsandboxed.
+- Codex as configured at the probe was not the boundary it looks like: a Codex member could
+  read everything the owner can (the live data directory included), and it could write the
+  shared repository's `.git/hooks` and `.git/config`, because projectman gave it the git
+  directory as a writable root. A hook planted there runs when the host runs git in that
+  repository (the worktree manager, an integration merge), outside any sandbox. PM-131 stopped
+  giving it that root; the reads remain open. Its own `git add` and the tests escalate (the
+  index lock and local ports are denied), and the server's command rule approves those
+  escalations, which then run unsandboxed.

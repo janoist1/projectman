@@ -203,6 +203,12 @@ export interface SessionOrchestratorDeps {
   standby?: boolean;
   /** The installation's home: its sensitive parts are out of the file tools' reach (`sensitivePaths`). */
   appHome?: string;
+  /**
+   * The installation's directories a reading session never changes, from the shell or with the file
+   * tools (PM-188): the app home with every member's worktree and workspace, and the server's own
+   * checkout. The project's workspace is added per session.
+   */
+  readerDenyWrite?: string[];
   /** The user's home, where the credentials are (default: the operating system's). */
   userHome?: string;
   /**
@@ -1058,7 +1064,14 @@ export class SessionOrchestrator {
       ...(attachmentDir ? { readOnlyPaths: [attachmentDir] } : {}),
       ...(vm ? { managedVm: { boundary: vm.profile } } : {}),
     });
-    const sandbox = vm || this.managed ? undefined : sessionSandbox(policy);
+    const sandbox =
+      vm || this.managed
+        ? undefined
+        : sessionSandbox(policy, {
+            github: Boolean(repoOf(config, effectiveRepo(config, task))?.github),
+            // A reader changes no checkout of the project or the installation (PM-188).
+            readerDenyWrite: [config.project.workspacePath, ...(this.deps.readerDenyWrite ?? [])],
+          });
     const pack = this.deps.contextBuilder.build({
       project: config,
       // The settings that apply to this session: the system prompt tells the agent who answers.

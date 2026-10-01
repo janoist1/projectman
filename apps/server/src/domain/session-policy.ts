@@ -13,7 +13,7 @@ import {
 } from '@projectman/shared';
 import type { RoleId, ProjectConfig, Task } from '@projectman/shared';
 import type { SessionPolicy } from '../contracts';
-import { claudeShellRule, claudeToolRules } from '../runner';
+import { claudeShellRule, claudeToolRules, directoryRulePaths } from '../runner';
 import type { AgentSandbox } from '../contracts';
 import { isWithin } from './command-paths';
 import { editsFilesInPlace, IN_PLACE_EDIT_MESSAGE } from './in-place-edits';
@@ -64,6 +64,7 @@ export const WORKTREE_SANDBOX: AgentSandbox = {
 /**
  * Commands a reader runs outside its sandbox, through the usual permission rules (its allow list
  * pre-approves them): they need the GitHub CLI's login, which the sandbox does not let it read.
+ * Only for a repository on GitHub, each only as a command of its own (PM-188).
  */
 export const READER_UNSANDBOXED_COMMANDS = ['gh pr view', 'gh pr diff'];
 
@@ -72,15 +73,21 @@ export const READER_UNSANDBOXED_COMMANDS = ['gh pr view', 'gh pr diff'];
  * none for the managed VM profile, whose boundary is outside the CLI.
  * - Work in a task's own worktree: `WORKTREE_SANDBOX`.
  * - A reading placement (read-only, or a review copy without the test opt-in): its commands write
- *   only the temp directory; the working directory and every extra directory (`--add-dir`, the
- *   developer's worktree among them) are `denyWrite`, so the member's own mode (Auto too) runs
- *   reads, git queries, tests and type checks without asking and changes nothing. The npm registry
- *   and local ports as for a developer (decision 24).
+ *   only the temp directory; the working directory, every extra directory (`--add-dir`, the
+ *   developer's worktree among them) and the installation's other checkouts (`readerDenyWrite`:
+ *   the app home with every member's worktree, the project's workspace, the server's own
+ *   checkout; PM-188) are `denyWrite`, so the member's own mode (Auto too) runs reads, git queries,
+ *   tests and type checks without asking and changes nothing, and the file tools get an `Edit` deny
+ *   rule for each of them. The npm registry and local ports as for a developer (decision 24). On a
+ *   repository on GitHub (`github`), `gh pr view` and `gh pr diff` run outside the sandbox.
  * Both never read the credentials and the live instance's data (`deniedPaths`, PM-165) from the
  * shell either. A placement the CLI writes as a whole without a sandbox (a review copy's test
  * opt-in) gets none: that is the strict path, refused before the start.
  */
-export function sessionSandbox(policy: SessionPolicy): AgentSandbox | undefined {
+export function sessionSandbox(
+  policy: SessionPolicy,
+  options: { github?: boolean; readerDenyWrite?: readonly (string | undefined)[] } = {},
+): AgentSandbox | undefined {
   if (policy.execution?.profile === 'managed_vm') return undefined;
   const denyRead = policy.filesystem.deniedPaths?.length
     ? { denyRead: [...policy.filesystem.deniedPaths] }
@@ -88,13 +95,23 @@ export function sessionSandbox(policy: SessionPolicy): AgentSandbox | undefined 
   if (policy.access === 'task_worktree') return { ...WORKTREE_SANDBOX, ...denyRead };
   if (!placementReadsOnly(policy.access, { mode: policy.reviewCopyMode, enforcement: policy.enforcement }))
     return undefined;
+  const own = [...new Set([policy.placement.path, ...policy.filesystem.readableRoots])];
+  // The installation's directories, each once: none inside another (a member's worktree in the app home).
+  const listed = [
+    ...new Set(
+      (options.readerDenyWrite ?? []).filter((dir): dir is string => !!dir).map((dir) => path.resolve(dir)),
+    ),
+  ];
+  const others = listed.filter(
+    (dir) => !own.includes(dir) && !listed.some((other) => other !== dir && isWithin(other, dir)),
+  );
   return {
     allowWrite: [],
-    denyWrite: [...new Set([policy.placement.path, ...policy.filesystem.readableRoots])],
+    denyWrite: [...own, ...others],
     ...denyRead,
     allowedDomains: [...WORKTREE_SANDBOX.allowedDomains],
     allowLocalBinding: true,
-    excludedCommands: [...READER_UNSANDBOXED_COMMANDS],
+    ...(options.github ? { excludedCommands: [...READER_UNSANDBOXED_COMMANDS] } : {}),
   };
 }
 
@@ -185,9 +202,6 @@ export function readableRootsFor(input: {
   return roots;
 }
 
-/** Characters a directory may hold to be named in a Claude Code path rule as it is (no pattern or rule syntax). */
-const PLAIN_RULE_PATH = /^\/[\w./@+~ -]*$/;
-
 /**
  * Claude Code rules for the attachment directory of the session's task: its files are read without
  * asking (`read_attachment` gives their paths) and never edited, whatever the permission mode. Not
@@ -197,10 +211,9 @@ const PLAIN_RULE_PATH = /^\/[\w./@+~ -]*$/;
  * a human, as anywhere else outside the session's directories.
  */
 export function attachmentToolRules(dir: string | null): { allow: string[]; deny: string[] } {
-  if (!dir || !PLAIN_RULE_PATH.test(dir)) return { allow: [], deny: [] };
-  // An absolute path in a rule starts with `//`; `**` takes everything below.
-  const pattern = `/${dir.replace(/\/+$/, '')}/**`;
-  return { allow: [`Read(${pattern})`], deny: [`Edit(${pattern})`] };
+  const paths = dir ? directoryRulePaths(dir) : null;
+  if (!paths) return { allow: [], deny: [] };
+  return { allow: paths.map((p) => `Read(${p})`), deny: paths.map((p) => `Edit(${p})`) };
 }
 
 /**

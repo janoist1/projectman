@@ -62,9 +62,11 @@ the reviewer, QA, the security reviewer, the analyst, the architect, the designe
 meetings and scheduled runs, any session whose placement is `read_only` or a review copy without
 the test opt-in. It runs in the member's own mode (Auto stays Auto, `plan` stays `plan`) and in a
 sandbox from `sessionSandbox` (see Sandboxes below) that writes only the temp directory: the
-working directory and every `--add-dir` directory are `denyWrite`, and the Claude adapter denies
-`Edit(//<dir>/**)` there too (which also covers `Write` and `NotebookEdit`), since the sandbox
-does not bind the built-in file tools. Reads, git queries, `npm test` and `npm run typecheck` then
+working directory, every `--add-dir` directory and the installation's other checkouts (the
+project's workspace, the app home with every member's worktree and workspace, the server's own
+checkout, `~/projectman-live` on the owner's machine; PM-188) are `denyWrite`, and the Claude
+adapter denies `Edit(//<dir>/**)` there too (which also covers `Write` and `NotebookEdit`), since
+the sandbox does not bind the built-in file tools. Reads, git queries, `npm test` and `npm run typecheck` then
 run without asking, and a write fails at once. Vite writes a bundled copy of a TypeScript
 configuration next to it, so projectman's `npm test` runs `vitest run --configLoader runner`,
 which writes nothing; other caches go to `$TMPDIR`. A question the CLI still asks goes to the
@@ -146,7 +148,13 @@ Server-side decisions, with the reason each exists (the CLI covers none of them)
 | Managed VM profile: no inner limits            | The boundary is outside the CLI (decisions 25 and 26)                                                                                                             |
 
 The same denied paths are the sandbox's `denyRead` (PM-167), so a shell command does not read
-them either. Residual risk: port 4800 stays reachable from the shell up to the VM (decision 24).
+them either. The database is the glob `<appHome>/db.sqlite*`: it takes `db.sqlite`, its `-wal`
+and `-shm` files and any copy next to it (`db.sqlite.bak-…`). Claude Code renders a glob into
+macOS Seatbelt as it is (2.1.284 lists it under "Denied" in `/sandbox`); its Linux sandbox
+(bubblewrap) leaves out the glob patterns it does not support and lists them in `/sandbox`
+(unverified for this one), and then the database files stay readable from the shell on Linux
+until they are named one by one. The `Read` deny rules of the file tools take the glob on both. Residual risk: port 4800 stays reachable from the shell up to the VM
+(decision 24).
 Codex ignores the deny rules (its sandbox is its own, PM-166). See `SECURITY.md`.
 
 ## Codex
@@ -460,17 +468,38 @@ not strict isolation. PM-134's transitional Claude setup is not the final PM-128
 paths; `buildSandboxSettings` renders them, and `test/cli-sandbox.integration.test.ts` checks the
 exact `--settings` the fake CLI receives:
 
-| Session                                               | `filesystem`                                                                                                               | `network`                                   | `excludedCommands`         | Extra deny rules                   |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | -------------------------- | ---------------------------------- |
-| Developer (`task_worktree`)                           | `allowWrite: ~/.npm, ~/.projectman-dev`; `denyRead`: `sensitivePaths`                                                      | `registry.npmjs.org`, local binding allowed | none                       | none                               |
-| Reader (`read_only`, review copy without test opt-in) | `allowWrite: []` (temp only); `denyWrite`: working directory and every `--add-dir` directory; `denyRead`: `sensitivePaths` | `registry.npmjs.org`, local binding allowed | `gh pr view`, `gh pr diff` | `Edit(//<dir>/**)` per `denyWrite` |
-| Managed VM profile, sessions behind the VM boundary   | none (the boundary is outside the CLI)                                                                                     |                                             |                            |                                    |
-| Codex                                                 | not rendered: Codex's own `--sandbox` (`read-only` for a reader, unchanged)                                                |                                             |                            |                                    |
+| Session                                               | `filesystem`                                                                                                                                                                              | `network`                                   | `excludedCommands`                                             | Extra deny rules                   |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------- | ---------------------------------- |
+| Developer (`task_worktree`)                           | `allowWrite: ~/.npm, ~/.projectman-dev`; `denyRead`: `sensitivePaths`                                                                                                                     | `registry.npmjs.org`, local binding allowed | none                                                           | none                               |
+| Reader (`read_only`, review copy without test opt-in) | `allowWrite: []` (temp only); `denyWrite`: working directory, every `--add-dir` directory, the project's workspace, the app home, the server's own checkout; `denyRead`: `sensitivePaths` | `registry.npmjs.org`, local binding allowed | `gh pr view:*`, `gh pr diff:*`, only on a repository on GitHub | `Edit(//<dir>/**)` per `denyWrite` |
+| Managed VM profile, sessions behind the VM boundary   | none (the boundary is outside the CLI)                                                                                                                                                    |                                             |                                                                |                                    |
+| Codex                                                 | not rendered: Codex's own `--sandbox` (`read-only` for a reader, unchanged)                                                                                                               |                                             |                                                                |                                    |
 
 Every one also has `enabled`, `autoAllowBashIfSandboxed`, `allowUnsandboxedCommands: false`,
 `failIfUnavailable` and `strictAllowlist`. A `denyWrite` directory a rule cannot name as it is
-refuses the start. The temp directory is the sandbox's own `$TMPDIR`. **Manual run on the owner's
-machine: pending** (the PM-167 part of `SANDBOX-PROBE.md`); record its result here.
+refuses the start (a path rule takes letters of any script, an accented project path too, named
+both composed and decomposed; PM-188). The temp directory is the sandbox's own `$TMPDIR`.
+
+`excludedCommands` entries are rendered `<command>:*`: Claude Code 2.1.284 reads an entry
+without `:*` or `*` as the exact command, so the bare `gh pr view` of PM-167 never matched
+`gh pr view 1`. The same version leaves a command out of the sandbox only when every part of it
+matches an entry and it holds no substitution and no redirection into a file (`2>&1` is fine),
+so `gh pr view 1 && touch x`, `gh pr view 1 | cat` and `gh pr view 1 > x` run inside the sandbox
+(read in the CLI's code, PM-188). The server gives the entries only for a repository on GitHub; on
+a local-only one there is no pull request, and the reviewer reads the branch with git in the
+developer's worktree (`--add-dir`).
+
+**Manual run** (the PM-167 part of `SANDBOX-PROBE.md`), 2026-10-01 on the owner's Mac, live
+instance at 06c519c: the reader ran in Auto inside the CLI's sandbox; writes and the reading of
+credential files were refused, and no question reached the owner. `gh pr view 1`: **fail**, it ran
+inside the sandbox and stopped on `open ~/.config/gh/config.yml: operation not permitted` (the
+exact-command entry above; PM's repository is local-only besides, so it has no pull request to
+read). `npx prettier --write`: **unverified** there, the file was already formatted; repeated in
+PM-188 (Claude Code 2.1.284, macOS 14.6) on an unformatted file in a directory the sandbox denies
+writing inside an allowed root: `EPERM: operation not permitted`, the file unchanged (same
+checksum), as for `touch`. Still to run on a repository on GitHub: `gh pr view <n>` alone (outside
+the sandbox, no question), `gh pr view <n> && touch probe.txt` and `gh pr view <n> > probe.txt`
+(inside the sandbox: no file appears).
 
 Current [Claude documentation](https://code.claude.com/docs/en/sandboxing) describes Seatbelt
 on macOS and bubblewrap/socat on Linux, with an additional seccomp filter for Unix sockets.

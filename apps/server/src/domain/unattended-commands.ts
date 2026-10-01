@@ -87,7 +87,7 @@ export function describeSandbox(input: {
   ];
   if (sandbox.excludedCommands?.length) {
     lines.push(
-      `- ${sandbox.excludedCommands.map(code).join(' and ')} run outside the sandbox (they need the GitHub CLI's login), allowed by your permission rules.`,
+      `- ${sandbox.excludedCommands.map(code).join(' and ')} with their arguments run outside the sandbox (they need the GitHub CLI's login), allowed by your permission rules, but only as a command of their own: ${code(`${sandbox.excludedCommands[0]} 12`)}. In a chain, a pipe, a substitution or with a redirection into a file they run inside the sandbox, where the login is out of reach.`,
     );
   }
   if (localOnly) {

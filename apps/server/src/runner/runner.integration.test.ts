@@ -142,6 +142,30 @@ const waitSnapshot = (id: string, text: string) =>
   );
 
 describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
+  it('starts the session with the cheap subagent on its model (PM-179)', async () => {
+    await setup();
+    const reader = {
+      name: 'reader-haiku',
+      description: 'A reader on the cheaper Haiku model.',
+      prompt: 'Return a short result, not raw output.',
+      tools: ['Read', 'Grep', 'Glob', 'Bash'],
+      model: 'haiku',
+    };
+    const started = await runner.runner.start(spec({ subagents: [reader] }));
+    // The fake refuses malformed --agents at start, as Claude Code does: it got as far as ready.
+    await waitState(started.sessionId, 'idle');
+    const { argv } = JSON.parse(await readFile(argsFile, 'utf8')) as { argv: string[] };
+    expect(JSON.parse(argv[argv.indexOf('--agents') + 1]!)).toEqual({
+      'reader-haiku': {
+        description: reader.description,
+        prompt: reader.prompt,
+        tools: ['Read', 'Grep', 'Glob', 'Bash'],
+        model: 'haiku',
+      },
+    });
+    await runner.runner.stop(started.sessionId, { force: true });
+  });
+
   it('invalidates the hook capability when its process exits', async () => {
     await setup();
     const started = await runner.runner.start(spec());

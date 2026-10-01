@@ -45,7 +45,9 @@ Documentation map:
   display name. Humans have an **access level** (`owner`, `admin`, `developer`, `client`,
   `viewer`) that governs what they may do in the app, and may hold several roles. An AI
   member holds exactly one role and has a provider (`claude` or `codex`), a model and effort,
-  a permission mode, a capacity, optional instructions, an optional **schedule** (cron in the
+  an optional **cheap subagent** (PM-179: a Claude Code member's sessions get a `reader-<model>`
+  subagent on Sonnet or Haiku, passed with `--agents`, for text-heavy, logic-light work; it has
+  no rights of its own), a permission mode, a capacity, optional instructions, an optional **schedule** (cron in the
   project's time zone, e.g. a daily worker) and a **sponsor**: the human whose subscription
   runs it. Colleagues can be added as unclaimed seats and invited with single-use links.
   An AI member can be sent **on leave** (decision 23, the optional `onLeave` flag of its

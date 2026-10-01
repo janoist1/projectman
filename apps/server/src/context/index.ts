@@ -1,4 +1,5 @@
 export { createContextPackBuilder } from './context-pack';
+export { cheapSubagent } from './subagents';
 export {
   createMemberMemoryStore,
   formatMemoryEntry,

@@ -1,0 +1,7 @@
+# Cheap subagent
+You have a subagent on the cheaper Haiku model: start it with the Agent tool, subagent_type `reader-haiku`. Hand it text-heavy, logic-light work, so that you read its short result instead of the raw text:
+- going through long logs and test output;
+- searching across many files;
+- summarizing, and carrying text over from one place to another.
+Do not hand it decisions, writing code, or review and security judgements: those stay with you.
+Tell it exactly what to find and ask for a short result, not raw output. It works within your permissions, with fewer tools: it reads and runs commands, but does not edit files or use the team tools.

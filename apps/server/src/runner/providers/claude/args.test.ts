@@ -204,6 +204,36 @@ describe('buildClaudeArgs', () => {
     expect(buildClaudeArgs(spec, settings)).not.toContain('--add-dir');
   });
 
+  it.each([false, true])('defines the subagents with --agents with resume=%s (PM-179)', (resume) => {
+    const subagents = [
+      {
+        name: 'reader-haiku',
+        description: 'Reads logs.',
+        prompt: 'Return a short result.',
+        tools: ['Read', 'Grep', 'Glob', 'Bash'],
+        model: 'haiku',
+      },
+    ];
+    const args = buildClaudeArgs({ ...spec, resume, subagents }, settings);
+    const agents = JSON.parse(args[args.indexOf('--agents') + 1]!);
+    expect(agents).toEqual({
+      'reader-haiku': {
+        description: 'Reads logs.',
+        prompt: 'Return a short result.',
+        tools: ['Read', 'Grep', 'Glob', 'Bash'],
+        model: 'haiku',
+      },
+    });
+    // No rights of its own: the session's permissions, sandbox and hooks hold for it (AC4).
+    for (const key of ['permissionMode', 'mcpServers', 'hooks', 'disallowedTools'])
+      expect(agents['reader-haiku']).not.toHaveProperty(key);
+  });
+
+  it('passes no --agents without subagents', () => {
+    expect(buildClaudeArgs(spec, settings)).not.toContain('--agents');
+    expect(buildClaudeArgs({ ...spec, subagents: [] }, settings)).not.toContain('--agents');
+  });
+
   it('resumes an existing conversation and leaves out unset options', () => {
     const args = buildClaudeArgs(
       { ...spec, resume: true, model: undefined, permissionMode: undefined, appendSystemPrompt: '' },

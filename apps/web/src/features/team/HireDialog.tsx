@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { DEFAULT_PROVIDER_MODELS, modelForProvider, MemberHandle } from '@projectman/shared';
-import type { AgentProvider, AgentEffort, RoleId } from '@projectman/shared';
+import type { AgentProvider, AgentEffort, CheapSubagentModel, RoleId } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import { useHireMember, useRoles } from '../../api/queries';
 import { useProject } from '../../app/contexts';
@@ -42,6 +42,7 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
   const [specialty, setSpecialty] = useState('');
   const [provider, setProvider] = useState<AgentProvider>('claude');
   const [effort, setEffort] = useState<AgentEffort | undefined>();
+  const [cheapSubagent, setCheapSubagent] = useState<CheapSubagentModel | undefined>();
   const [model, setModel] = useState<string | null>(null);
   const [handleError, setHandleError] = useState<string | null>(null);
   const instructionsId = useId();
@@ -78,6 +79,8 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
         specialty: isDeveloperRole(role) && specialty.trim() ? specialty.trim() : undefined,
         provider,
         effort,
+        // A Codex member has none (the field is off for it).
+        cheapSubagent: provider === 'claude' ? cheapSubagent : undefined,
         model: chosenModel.trim(),
         schedule: schedule.enabled
           ? { cron: schedule.cron.trim(), prompt: schedule.prompt.trim() }
@@ -179,6 +182,8 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
             }}
             onModelChange={setModel}
             onEffortChange={setEffort}
+            cheapSubagent={cheapSubagent}
+            onCheapSubagentChange={setCheapSubagent}
           />
         </div>
         <dl className={styles.facts}>

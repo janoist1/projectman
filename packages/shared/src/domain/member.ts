@@ -66,6 +66,32 @@ export const PROVIDER_EFFORT_OPTIONS: Record<AgentProvider, readonly AgentEffort
   codex: ['low', 'medium', 'high', 'xhigh'],
 };
 
+/**
+ * The cheaper model of an AI member's "cheap subagent" (PM-179), a Claude Code alias: the member
+ * hands text-heavy, logic-light work (long logs, wide searches, summaries) to a subagent on it.
+ */
+export const CheapSubagentModel = z.enum(['sonnet', 'haiku']);
+export type CheapSubagentModel = z.infer<typeof CheapSubagentModel>;
+
+/** The cheap subagent models each provider supports; none for Codex until it has an equivalent. */
+export const PROVIDER_CHEAP_SUBAGENT_MODELS: Record<AgentProvider, readonly CheapSubagentModel[]> = {
+  claude: CheapSubagentModel.options,
+  codex: [],
+};
+
+/**
+ * The cheap subagent a member's sessions get: its configured model when the member's provider
+ * supports it, otherwise none (the setting is kept but has no effect, e.g. for a Codex member).
+ */
+export function cheapSubagentOf(member: {
+  provider?: AgentProvider;
+  cheapSubagent?: CheapSubagentModel;
+}): CheapSubagentModel | undefined {
+  const model = member.cheapSubagent;
+  const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
+  return model && PROVIDER_CHEAP_SUBAGENT_MODELS[provider].includes(model) ? model : undefined;
+}
+
 /** Runtime status shown on member avatars. Humans: online/offline/invited/no_account; AI: idle/working/waiting. */
 export const MemberStatus = z.enum([
   'idle',

@@ -32,6 +32,8 @@ export const TimelineEventType = z.enum([
   'permission_requested',
   'boundary_changed',
   'permission_resolved',
+  'permission_refused',
+  'permission_escalated',
   'question_asked',
   'question_answered',
   'member_hired',
@@ -124,7 +126,33 @@ export interface TimelineEventData {
   session_ended: { member: string; exitCode: number | null; reason?: string };
   team_message: { messageId: string; from: string; to: string[]; excerpt: string };
   permission_requested: { inboxItemId: string; toolName: string; summary: string };
-  permission_resolved: { inboxItemId: string; decision: 'allow' | 'deny'; optionId?: string };
+  /**
+   * `delegated`: an AI decider answered (the actor), and `reason` is its explanation (PM-169).
+   * Without it the actor is a person, or the system for a rule.
+   */
+  permission_resolved: {
+    inboxItemId: string;
+    decision: 'allow' | 'deny';
+    optionId?: string;
+    delegated?: true;
+    reason?: string;
+  };
+  /**
+   * A request that never became an inbox item (PM-165): the member's Auto level refuses it
+   * (`by: 'level'`) or the agent's own auto mode did (`by: 'classifier'`). `reason` is the agent's
+   * raw (English) explanation, shown behind "Részletek".
+   */
+  permission_refused: { toolName: string; summary: string; by: 'level' | 'classifier'; reason?: string };
+  /**
+   * An AI decider passed a request to a person (PM-169): it chose to (`cause: 'lead'`, with its
+   * `reason`) or it did not answer in time (`cause: 'timeout'`, by the system).
+   */
+  permission_escalated: {
+    inboxItemId: string;
+    cause: 'lead' | 'timeout';
+    assignees: string[];
+    reason?: string;
+  };
   question_asked: { inboxItemId: string; question: string };
   question_answered: { inboxItemId: string; answer: string };
   member_hired: { handle: string; role: string; temp: boolean; sponsor: string };

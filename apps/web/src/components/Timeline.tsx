@@ -50,7 +50,7 @@ export function Timeline({ events, ctx, next, emptyText, className }: TimelinePr
   return (
     <ol className={clsx(styles.list, className)}>
       {events.map((event) => {
-        const { text, emphasis } = describeEvent(event, ctx);
+        const { text, emphasis, detail } = describeEvent(event, ctx);
         const comment = event.type === 'task_note';
         const imported =
           comment &&
@@ -88,6 +88,12 @@ export function Timeline({ events, ctx, next, emptyText, className }: TimelinePr
               >
                 {comment ? <CommentText text={text} ctx={ctx} /> : text}
               </span>
+              {detail ? (
+                <details className={styles.detail}>
+                  <summary>{t('timeline.details')}</summary>
+                  {detail}
+                </details>
+              ) : null}
             </div>
           </li>
         );

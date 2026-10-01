@@ -106,9 +106,15 @@ describe('ownerOnlyChanges', () => {
     ],
     ['an AI member level', (c) => void (ai(c, 'dev-1').permissionLevel = 'plan'), ['permission_level']],
     [
-      'a level that only restates the derived one',
+      // The stored level starts sessions in acceptEdits, where the historical default asked.
+      'a level that restates the derived one but frees the mode',
       (c) => void (ai(c, 'dev-1').permissionLevel = 'ask_human'),
-      [],
+      ['permission_level'],
+    ],
+    [
+      'freeing the historical mode of a member without a level (bypassPermissions)',
+      (c) => void (ai(c, 'dev-1').permissionMode = 'bypassPermissions'),
+      ['permission_level'],
     ],
     [
       'a historical mode that changes the derived level',
@@ -116,9 +122,9 @@ describe('ownerOnlyChanges', () => {
       ['permission_level'],
     ],
     [
-      'a historical mode that keeps the derived level',
+      'a historical mode that frees the mode without changing the derived level',
       (c) => void (ai(c, 'dev-1').permissionMode = 'acceptEdits'),
-      [],
+      ['permission_level'],
     ],
     [
       'a new AI member on the default level',

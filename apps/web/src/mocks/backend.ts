@@ -61,6 +61,7 @@ import {
   modelForProvider,
   nextCronRun,
   noApproverReason,
+  cliPermissionMode,
   ownerOnlyChanges,
   permissionLevelBlocker,
   permissionView,
@@ -1398,20 +1399,19 @@ export class MockBackend {
     )
       return error(400, 'not_ai_member', 'Not an AI member');
     if (input.permissionLevel !== undefined) {
-      // Like the server: an admin is refused first, then a level that cannot be chosen now.
-      const viewer = memberOf(this.config, this.viewerHandle);
-      if (viewer?.kind === 'human' && viewer.access === 'admin')
-        return error(403, 'owner_only', 'Only an owner may change the permission level');
+      // Who may change it is `ownerOnlyChanges`, run by `configChangeFailure` below, as on the server.
       const blocker = permissionLevelBlocker(this.config, handle, input.permissionLevel);
       if (blocker)
-        return error(400, 'permission_level_unavailable', 'This permission level is not available', {
+        return error(422, 'permission_level_unavailable', 'This permission level is not available', {
           blocker,
         });
     }
     const next = clone(this.config);
     const nextMember = memberOf(next, handle)!;
-    if (nextMember.kind === 'ai' && input.permissionLevel !== undefined)
+    if (nextMember.kind === 'ai' && input.permissionLevel !== undefined) {
       nextMember.permissionLevel = input.permissionLevel;
+      nextMember.permissionMode = cliPermissionMode(input.permissionLevel);
+    }
     if (input.access !== undefined && nextMember.kind !== 'human')
       return error(400, 'not_human_member', 'Access is for humans');
     if (nextMember.kind === 'human' && input.access !== undefined) nextMember.access = input.access;
@@ -1440,7 +1440,10 @@ export class MockBackend {
       }
       if (input.schedule !== undefined) config.schedule = input.schedule ?? undefined;
       if (input.instructions !== undefined) config.instructions = input.instructions.trim();
-      if (input.permissionLevel !== undefined) config.permissionLevel = input.permissionLevel;
+      if (input.permissionLevel !== undefined) {
+        config.permissionLevel = input.permissionLevel;
+        config.permissionMode = cliPermissionMode(input.permissionLevel);
+      }
       if (input.onLeave !== undefined) {
         if (input.onLeave) {
           config.onLeave = member.onLeave = true;

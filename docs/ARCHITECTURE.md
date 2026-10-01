@@ -376,7 +376,14 @@ Only an owner changes a level (`ownerOnlyChanges` category `permission_level`, a
 another AI member at work that holds `boundary_authorization` (`askAiBlocker`); the roster
 (`MemberView.askAiBlocker`) says why not, and the Team page warns when a member keeps `ask_ai`
 after its decider drops out. Who answers an `ask_ai` request is the runner's job (PM-165 and
-following); until then `ask_ai` starts the CLI in the asking mode like `ask_human`.
+following); until then `ask_ai` starts the CLI like `ask_human`. Both ask levels map to `acceptEdits`
+(edits in the member's own workspace run, the rest is asked); a read-only placement still narrows
+the mode in `sessionPermissions`. Setting a level also writes its mode into `permissionMode`, so
+a build that does not know the level runs the same mode, and `ownerOnlyChanges` compares both the
+level and the mode a member starts in, so freeing the historical mode of a member without a level
+is owner-only too. The timeline events `permission_refused` (PM-165) and `permission_escalated`
+(PM-169), and `delegated`/`reason` on `permission_resolved` (PM-169), are part of the contract and
+render from this card on; the later cards only produce them.
 
 ## Session policy migration (PM-87 / PM-127)
 

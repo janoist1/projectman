@@ -149,7 +149,7 @@ describe('the server rules in the fake backend', () => {
       (m) => m.kind === 'human' && m.handle === 'owner',
     )!;
     expect(patch(project, { permissionLevel: 'ask_ai' })).toMatchObject({
-      status: 400,
+      status: 422,
       body: { error: { code: 'permission_level_unavailable', details: { blocker: 'delegation_off' } } },
     });
     if (owner.kind === 'human') owner.access = 'admin';

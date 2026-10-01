@@ -1021,6 +1021,7 @@ export const hu = {
   },
 
   timeline: {
+    details: 'Részletek',
     labelsAdded: 'Rátette: {labels}',
     labelsRemoved: 'Levette: {labels}',
     labelReasons: {
@@ -1073,6 +1074,10 @@ export const hu = {
       permission_automatic_deny: 'Szabály szerint elutasítva',
       permission_ai_allowed: 'AI-döntnök engedélyezte',
       permission_ai_denied: 'AI-döntnök elutasította',
+      permission_refused_level: 'Elutasítva, Auto fokozatban nem kérhető: {summary}',
+      permission_refused_classifier: 'A Claude Code elutasította: {summary}',
+      permission_escalated_lead: 'Továbbküldve emberi döntésre',
+      permission_escalated_timeout: 'A döntnök nem döntött időben, emberi döntésre vár',
       permission_denied: 'Elutasítva',
       question_asked: 'Kérdés: {question}',
       question_answered: 'Válasz: {answer}',

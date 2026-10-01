@@ -152,6 +152,31 @@ describe('the permission level of an AI member (PM-164)', () => {
       expect(await stored('dev-1')).not.toHaveProperty('permissionLevel');
     });
 
+    it.each(['bypassPermissions', 'acceptEdits', 'auto'] as const)(
+      'is refused for an admin who frees the historical mode of a member without a level (%s)',
+      async (mode) => {
+        h = await createDomainHarness({ adjust: withAdmin });
+        await expect(
+          h.domain.projects.update('AR', admin(), (draft) => {
+            aiMember(draft, 'dev-1').permissionMode = mode;
+            return 'Free a mode';
+          }),
+        ).rejects.toMatchObject({ code: 'owner_only', status: 403 });
+        expect(await stored('dev-1')).toMatchObject({ permissionMode: 'default' });
+      },
+    );
+
+    it('writes the mode of the level along with it, for builds that do not know the level', async () => {
+      h = await createDomainHarness();
+      await h.domain.members.update('AR', 'dev-1', { permissionLevel: 'plan' }, owner());
+      expect(await stored('dev-1')).toMatchObject({ permissionLevel: 'plan', permissionMode: 'plan' });
+      await h.domain.members.update('AR', 'dev-1', { permissionLevel: 'ask_human' }, owner());
+      expect(await stored('dev-1')).toMatchObject({
+        permissionLevel: 'ask_human',
+        permissionMode: 'acceptEdits',
+      });
+    });
+
     it('lets an admin change what is not the level', async () => {
       h = await createDomainHarness({ adjust: withAdmin });
       await h.domain.members.update('AR', 'dev-1', { specialty: 'API' }, admin());
@@ -174,7 +199,7 @@ describe('the permission level of an AI member (PM-164)', () => {
         h.domain.members.update('AR', 'dev-1', { permissionLevel: 'ask_ai' }, owner()),
       ).rejects.toMatchObject({
         code: 'permission_level_unavailable',
-        status: 400,
+        status: 422,
         details: { blocker: 'delegation_off' },
       });
       expect(await stored('dev-1')).not.toMatchObject({ permissionLevel: 'ask_ai' });

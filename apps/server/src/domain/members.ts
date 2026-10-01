@@ -8,6 +8,7 @@ import {
   memberDuties,
   memberOf,
   memberRoles,
+  cliPermissionMode,
   permissionLevelBlocker,
   permissionView,
   roleHolders,
@@ -31,7 +32,7 @@ import { findHumanByEmail, ownerHandles, requireAiMember, requireHuman } from '.
 import type { ProjectAccess } from './access';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
-import { conflict, invalid, notFound } from './errors';
+import { conflict, DomainError, invalid, notFound } from './errors';
 import type { InboxService } from './inbox';
 import { defaultMemberHandle, defaultMemberName, humanMemberHandle } from './naming';
 import type { PresenceService } from './presence';
@@ -345,19 +346,18 @@ export class MemberService {
           fields.push('instructions');
         }
         if (req.permissionLevel !== undefined) {
-          requireHuman(draft, by.actor, 'owner', {
-            code: 'owner_only',
-            message: 'only an owner may change the permission level',
-          });
+          // Who may change it is `ownerOnlyChanges` (category `permission_level`), checked on the commit.
           const blocker = permissionLevelBlocker(draft, handle, req.permissionLevel);
           if (blocker) {
-            throw invalid(
+            throw new DomainError(
               'permission_level_unavailable',
               `the permission level ${req.permissionLevel} is not available: ${blocker}`,
-              { blocker },
+              { status: 422, details: { blocker } },
             );
           }
           member.permissionLevel = req.permissionLevel;
+          // A build that does not know the level still runs the same mode.
+          member.permissionMode = cliPermissionMode(req.permissionLevel);
           fields.push('permission level');
         }
         if (req.onLeave !== undefined) {

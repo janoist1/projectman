@@ -19,6 +19,8 @@ export interface TimelineContext {
 export interface DescribedEvent {
   text: string;
   emphasis: 'normal' | 'needs';
+  /** Raw (often English) explanation, shown folded behind "Részletek". */
+  detail?: string;
 }
 
 function str(value: unknown): string {
@@ -235,18 +237,43 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         );
       // A level of "ask, AI decides": an AI member answered the request, not a person.
       if (event.actor.kind === 'ai')
-        return normal(
-          t(
-            d.decision === 'deny'
-              ? 'timeline.events.permission_ai_denied'
-              : 'timeline.events.permission_ai_allowed',
+        return {
+          ...normal(
+            t(
+              d.decision === 'deny'
+                ? 'timeline.events.permission_ai_denied'
+                : 'timeline.events.permission_ai_allowed',
+            ),
           ),
-        );
+          ...(str(d.reason) ? { detail: str(d.reason) } : {}),
+        };
       return normal(
         d.decision === 'deny'
           ? t('timeline.events.permission_denied')
           : t('timeline.events.permission_allowed'),
       );
+    case 'permission_refused':
+      return {
+        ...normal(
+          t(
+            d.by === 'classifier'
+              ? 'timeline.events.permission_refused_classifier'
+              : 'timeline.events.permission_refused_level',
+            { summary: str(d.summary) || str(d.toolName) },
+          ),
+        ),
+        ...(str(d.reason) ? { detail: str(d.reason) } : {}),
+      };
+    case 'permission_escalated':
+      return {
+        text: t(
+          d.cause === 'timeout'
+            ? 'timeline.events.permission_escalated_timeout'
+            : 'timeline.events.permission_escalated_lead',
+        ),
+        emphasis: ctx.openInboxIds.has(str(d.inboxItemId)) ? 'needs' : 'normal',
+        ...(str(d.reason) ? { detail: str(d.reason) } : {}),
+      };
     case 'question_asked':
       return {
         text: t('timeline.events.question_asked', { question: str(d.question) }),

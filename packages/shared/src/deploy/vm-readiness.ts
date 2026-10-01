@@ -283,7 +283,8 @@ export function evaluateVmReadiness(report: VmReadinessReport, options: Evaluate
   if (options.maxAgeMs !== undefined) {
     const age = (options.now ?? new Date()).getTime() - Date.parse(report.generatedAt);
     // A few minutes of clock difference between the guest and the checker are normal.
-    if (!(age >= -CLOCK_SKEW_MS && age <= options.maxAgeMs)) problems.push('report is too old or dated in the future');
+    if (!(age >= -CLOCK_SKEW_MS && age <= options.maxAgeMs))
+      problems.push('report is too old or dated in the future');
   }
   const byId = new Map<string, VmCheckResult>();
   for (const check of report.checks) {

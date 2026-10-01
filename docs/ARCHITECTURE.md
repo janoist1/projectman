@@ -293,13 +293,17 @@ claude | codex ── transcript JSONL ────────────▶ r
   the next idle moment tries again; if the card is back in a stage the member works it in by then, the
   conversation just goes on. The runner follows the CLI's PreCompact and PostCompact hooks: the
   session is `working` ("Compacting the conversation") until PostCompact, so no message is typed
-  over it, and it gives the compaction up (a `compaction` event, `abandoned`) if the command does not
-  start within `compactStartTimeoutMs` or end within `compactTimeoutMs`. A session that did not run
-  at the end of its round (stopped, server restarted) is compacted when it resumes, before the
-  wake-up messages or the continue message (`StartSessionSpec.compactFirst`), but only if its last
-  measured context (input + cache read + cache write of the conversation's last step,
-  `sessions.context_tokens`, from the transcript) is above `RESUME_COMPACT_MIN_TOKENS` (100 000; a
-  fresh session already starts at 52-56k). The compaction is the same conversation, in the same
+  over it. A typed command that has not started holds the queue back as well (a message typed behind
+  a swallowed command would start a turn the give-up must not end). The runner gives the compaction up
+  (a `compaction` event, `abandoned`) if the command does not start within `compactStartTimeoutMs` or
+  end within `compactTimeoutMs`; only a compaction that had started is then ended (idle). Only
+  a conversation whose last measured context (input + cache read + cache write of its last step,
+  `sessions.context_tokens`, from the transcript) is above `COMPACT_MIN_CONTEXT_TOKENS` (100 000; a
+  fresh session already starts at 52-56k, so a small or just compacted conversation is not worth a
+  summary, and an unmeasured one counts as small) is compacted, at the end of its round and on resume.
+  A session that did not run at the end of its round (stopped, server restarted) is compacted when
+  it resumes, before the wake-up messages or the continue message (`StartSessionSpec.compactFirst`).
+  The compaction is the same conversation, in the same
   transcript. Only Claude Code is compacted (`COMPACTING_PROVIDERS`): Codex's compaction command was
   not checked, so its members work as before. A returning reviewer's continue message names the commit
   it reviewed last (`sessions.reviewed_commit`, set when a session starts on a pinned commit) and asks

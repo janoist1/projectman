@@ -1,7 +1,7 @@
 import type { ProjectConfig } from '@projectman/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { aiActor } from '../src/domain';
-import { RESUME_COMPACT_MIN_TOKENS } from '../src/domain/sessions';
+import { COMPACT_MIN_CONTEXT_TOKENS } from '../src/domain/sessions';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 
@@ -21,8 +21,11 @@ describe('end-of-round compaction', () => {
     await h.cleanup();
   });
 
-  /** dev-1 works AR-1; its session has run and has a conversation (a transcript). */
-  async function setup(adjust?: (config: ProjectConfig) => void) {
+  /**
+   * dev-1 works AR-1; its session has run and has a conversation (a transcript) of `context` tokens
+   * (big by default; null: never measured).
+   */
+  async function setup(adjust?: (config: ProjectConfig) => void, context: number | null = 150_000) {
     h = await createDomainHarness({ adjust });
     h.contextBuilder.compactInstruction = INSTRUCTION;
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
@@ -30,6 +33,7 @@ describe('end-of-round compaction', () => {
     await vi.waitFor(() => expect(h.runner.started).toHaveLength(1));
     const session = h.repos.sessions.findByWorkItem('AR', 'dev-1', task)!;
     h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: `/tmp/${session.id}.jsonl` });
+    if (context !== null) measured(session.id, context);
     return session;
   }
   const handOver = () => h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1'));
@@ -69,6 +73,22 @@ describe('end-of-round compaction', () => {
     expect(owed(dev.id)).toBe(false);
     expect(h.repos.sessions.compaction(dev.id).contextTokens).toBeNull();
     expect(compactionsOf(dev.id)).toHaveLength(1);
+  });
+
+  it('does not compact a small conversation, nor one that was never measured, and owes nothing for it', async () => {
+    const dev = await setup(undefined, COMPACT_MIN_CONTEXT_TOKENS);
+    h.runner.setState(dev.id, 'idle');
+    await handOver();
+    await vi.waitFor(() => expect(owed(dev.id)).toBe(false));
+    expect(h.runner.compactions).toEqual([]);
+    await h.cleanup();
+
+    const unmeasured = await setup(undefined, null);
+    h.runner.setState(unmeasured.id, 'idle');
+    await handOver();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(h.runner.compactions).toEqual([]);
+    expect(owed(unmeasured.id)).toBe(false);
   });
 
   it('waits for the end of the turn when the card is handed over from inside it', async () => {
@@ -191,7 +211,7 @@ describe('end-of-round compaction', () => {
       h.domain.sessions.ensureSession('AR', 'dev-1', task, { messages });
 
     it('is compacted first when it resumes with a big conversation, and the message follows', async () => {
-      const dev = await stoppedAfterHandOver(RESUME_COMPACT_MIN_TOKENS + 1);
+      const dev = await stoppedAfterHandOver(COMPACT_MIN_CONTEXT_TOKENS + 1);
       await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
       const resumed = await resume(['Please fix the findings.']);
       expect(resumed).toMatchObject({ resumed: true, started: true });
@@ -216,7 +236,7 @@ describe('end-of-round compaction', () => {
     });
 
     it('is compacted before the continue message too', async () => {
-      await stoppedAfterHandOver(RESUME_COMPACT_MIN_TOKENS + 50_000);
+      await stoppedAfterHandOver(COMPACT_MIN_CONTEXT_TOKENS + 50_000);
       await resume();
       expect(h.runner.lastStarted()).toMatchObject({
         compactFirst: INSTRUCTION,
@@ -225,7 +245,7 @@ describe('end-of-round compaction', () => {
     });
 
     it('is not compacted when its conversation is small', async () => {
-      const dev = await stoppedAfterHandOver(RESUME_COMPACT_MIN_TOKENS);
+      const dev = await stoppedAfterHandOver(COMPACT_MIN_CONTEXT_TOKENS);
       await resume(['Please fix the findings.']);
       expect(h.runner.lastStarted()).not.toHaveProperty('compactFirst');
       expect(h.runner.lastStarted()).toMatchObject({ resume: true });
@@ -233,7 +253,7 @@ describe('end-of-round compaction', () => {
     });
 
     it('is not compacted when its conversation was never measured', async () => {
-      const dev = await setup();
+      const dev = await setup(undefined, null);
       await h.domain.sessions.stop('AR', dev.id);
       await handOver();
       await vi.waitFor(() => expect(owed(dev.id)).toBe(true));
@@ -242,7 +262,7 @@ describe('end-of-round compaction', () => {
     });
 
     it('owes nothing to a new conversation', async () => {
-      const dev = await stoppedAfterHandOver(RESUME_COMPACT_MIN_TOKENS + 1);
+      const dev = await stoppedAfterHandOver(COMPACT_MIN_CONTEXT_TOKENS + 1);
       // Its transcript is gone: the conversation cannot be resumed, a new one starts.
       h.repos.sessions.update(dev.id, { transcriptPath: null });
       await resume();

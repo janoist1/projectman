@@ -44,8 +44,9 @@ findings; not file contents or command output). The rule and its timing are in
   input queue the command got through.
 - **Time limits** (`SessionTiming`): the command must start (PreCompact) within
   `compactStartTimeoutMs` (10 s) and end (PostCompact) within `compactTimeoutMs` (300 s). Past either
-  the runner logs, emits `compaction` `abandoned`, and the session is idle and takes messages again;
-  a dialog over the prompt or an error cannot hold it. Text left in the prompt box by a swallowed
+  the runner logs, emits `compaction` `abandoned`, and the session takes messages again (a command
+  that started is ended as idle; one that never started changed no state, and held the queue back
+  until now, so no message ran into it); a dialog over the prompt or an error cannot hold it. Text left in the prompt box by a swallowed
   command is not cleaned up.
 - **Same conversation.** A compaction writes a `compact_boundary` entry and a summary into the same
   transcript file, and the session id stays: `--resume` of that id continues from the summary.

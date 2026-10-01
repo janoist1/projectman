@@ -456,6 +456,53 @@ describe('compaction (PM-213)', () => {
     expect(pty.typed().pastes[1]).toBe('after the swallowed command');
   });
 
+  it('holds the queue back behind a swallowed command, so a message cannot start a turn the give-up ends', async () => {
+    const { session, pty, hook, events } = await ready();
+    void session.compact(INSTRUCTION);
+    await vi.advanceTimersByTimeAsync(TYPE_MS);
+    const later = session.enqueue('queued behind the swallowed command');
+    // Past the submit timeout (8 s) the queue would move on by itself: the compaction still holds it.
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.submitTimeoutMs + CLAUDE_TIMING.enterRetryMs);
+    expect(pty.typed().pastes).toHaveLength(1);
+    // A prompt that got through by other means (a person typed it) makes the session work: the
+    // give-up must leave it so.
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'typed by a person' });
+    expect(session.state.state).toBe('working');
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.compactStartTimeoutMs);
+    expect(compactions(events)).toEqual(['abandoned (asked for)']);
+    expect(session.state.state).toBe('working');
+    // The queued message waits for the end of that turn, as any message does.
+    expect(pty.typed().pastes).toHaveLength(1);
+    await hook({ hook_event_name: 'Stop' });
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.stopSettleMs + TYPE_MS);
+    await expect(later).resolves.toBeUndefined();
+    expect(pty.typed().pastes[1]).toBe('queued behind the swallowed command');
+  });
+
+  it("does not take the agent's own compaction for the one that is still queued", async () => {
+    const { session, pty, hook, events } = await ready();
+    void session.enqueue('first');
+    void session.compact(INSTRUCTION);
+    await vi.advanceTimersByTimeAsync(TYPE_MS);
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'first' });
+    await hook({ hook_event_name: 'PreCompact', trigger: 'auto' });
+    await hook({ hook_event_name: 'PostCompact', trigger: 'auto' });
+    expect(compactions(events)).toEqual(['started', 'finished']);
+    // The command is still to be typed, and is then followed like any other.
+    await hook({ hook_event_name: 'Stop' });
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.stopSettleMs + TYPE_MS);
+    expect(pty.typed().pastes.map((p) => p.split(' ')[0])).toEqual(['first', '/compact']);
+    await hook({ hook_event_name: 'PreCompact', trigger: 'manual' });
+    await hook({ hook_event_name: 'PostCompact', trigger: 'manual' });
+    expect(compactions(events)).toEqual([
+      'started',
+      'finished',
+      'started (asked for)',
+      'finished (asked for)',
+    ]);
+    expect(session.state.state).toBe('idle');
+  });
+
   it('gives it up when it never ends, and the session is idle again', async () => {
     const { session, pty, hook, events } = await ready();
     void session.compact(INSTRUCTION);

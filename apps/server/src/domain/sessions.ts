@@ -99,12 +99,13 @@ export const BUSY_SESSION_STATES: SessionState[] = ['starting', 'working', 'wait
 const ENDED = new Set<SessionState>(['exited', 'failed']);
 
 /**
- * A stopped session that owes a compaction (PM-213) gets it when it resumes only if its conversation
- * is bigger than this: its last measured context (input, cache read and cache write of the last
- * step). A fresh session already starts at 52-56k (the PM-209 measurement), a fixed share a
- * compaction does not shrink, so a smaller conversation is not worth the summary.
+ * A session that owes a compaction (PM-213), idle at the end of its round or stopped and resuming,
+ * gets it only if its conversation is bigger than this: its last measured context (input, cache read
+ * and cache write of the last step). A fresh session already starts at 52-56k (the PM-209
+ * measurement), a fixed share a compaction does not shrink, so a smaller conversation, one that was
+ * just compacted included, is not worth the summary. An unknown context counts as small.
  */
-export const RESUME_COMPACT_MIN_TOKENS = 100_000;
+export const COMPACT_MIN_CONTEXT_TOKENS = 100_000;
 
 export interface EnsureSessionResult {
   session: Session;
@@ -1190,7 +1191,7 @@ export class SessionOrchestrator {
     const owed = resume && existing ? this.ctx.repos.sessions.compaction(existing.id) : null;
     const compactInstruction = this.compactInstruction(provider);
     const compactFirst =
-      owed?.pending && compactInstruction && (owed.contextTokens ?? 0) > RESUME_COMPACT_MIN_TOKENS
+      owed?.pending && compactInstruction && (owed.contextTokens ?? 0) > COMPACT_MIN_CONTEXT_TOKENS
         ? compactInstruction
         : undefined;
     let session: Session;
@@ -1842,6 +1843,12 @@ export class SessionOrchestrator {
       return;
     }
     if (!isOpenTask(task)) return;
+    // A small conversation is not worth a summary (a just compacted one is small): nothing is owed.
+    const { contextTokens } = this.ctx.repos.sessions.compaction(session.id);
+    if ((contextTokens ?? 0) <= COMPACT_MIN_CONTEXT_TOKENS) {
+      this.ctx.repos.sessions.setCompactPending(session.id, false);
+      return;
+    }
     const asked = await this.deps.runner.compact!(session.id, instruction);
     this.ctx.logger.info(
       { sessionId: session.id, taskKey: task.key, asked },

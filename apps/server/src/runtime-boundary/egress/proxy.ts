@@ -1,0 +1,248 @@
+import { lookup as dnsLookup } from 'node:dns/promises';
+import http from 'node:http';
+import type { IncomingMessage } from 'node:http';
+import net from 'node:net';
+import type { Duplex } from 'node:stream';
+import type { FastifyBaseLogger } from 'fastify';
+import { parseEgressAuthority } from '@projectman/shared';
+import type { EgressDenial, EgressDestination } from '@projectman/shared';
+import { isIpLiteral, isPublicIPv4 } from './addresses';
+import { MAX_CLIENT_HELLO_BYTES, parseClientHello } from './sni';
+
+/** The account and session of a connection, or why it has none. */
+export type ProxyIdentity<I> = { identity: I } | { denial: EgressDenial };
+export type ProxyDecision =
+  | { allowed: true }
+  | { allowed: false; denial: EgressDenial; operationId: string | null };
+
+export interface PeerAddress {
+  remoteAddress: string;
+  remotePort: number;
+  localAddress: string;
+  localPort: number;
+}
+
+export interface EgressProxyOptions<I> {
+  host: string;
+  port: number;
+  /** Who connected: the socket owner (kernel) and the session of the proxy credentials. */
+  identify(peer: PeerAddress, token: string | null): Promise<ProxyIdentity<I>>;
+  /** The network gate's decision (EgressService). */
+  authorize(identity: I, destination: EgressDestination): Promise<ProxyDecision>;
+  /** IPv4 addresses of a name (default: the system resolver, IPv4 only). */
+  lookup?(host: string): Promise<string[]>;
+  /** Opens the upstream connection (default: net.connect to the pinned address). */
+  connect?(address: string, port: number): Duplex;
+  logger: FastifyBaseLogger;
+  helloTimeoutMs?: number;
+  idleTimeoutMs?: number;
+  /** Concurrent tunnels at most (default 512). */
+  maxTunnels?: number;
+}
+
+const defaultLookup = async (host: string): Promise<string[]> =>
+  (await dnsLookup(host, { family: 4, all: true })).map((entry) => entry.address);
+
+/** `Proxy-Authorization: Basic base64(user:token)`: the token, or null. */
+export function proxyToken(header: string | undefined): string | null {
+  const match = /^Basic\s+([A-Za-z0-9+/=]+)$/i.exec(header?.trim() ?? '');
+  if (!match) return null;
+  const decoded = Buffer.from(match[1]!, 'base64').toString('utf8');
+  const colon = decoded.indexOf(':');
+  const token = colon === -1 ? '' : decoded.slice(colon + 1);
+  return /^[A-Za-z0-9_-]{16,128}$/.test(token) ? token : null;
+}
+
+/** The refusal shown to the session: what was refused and how to ask for it. No secrets. */
+export function denialText(destination: EgressDestination | null, denial: EgressDenial, operationId: string | null): string {
+  const what = destination ? `${destination.host}:${destination.port}` : 'this destination';
+  const lines = [`projectman egress: ${what} is outside the VM boundary (${denial}).`];
+  if (operationId)
+    lines.push(
+      `Ask for it with the team tool submit_boundary_request, operation_id "${operationId}"; list_network_denials lists it again.`,
+    );
+  else if (denial === 'no_session')
+    lines.push('Only a session started by projectman can ask for a destination (its proxy settings carry its credentials).');
+  return `${lines.join('\n')}\n`;
+}
+
+/**
+ * The protected egress proxy of the VM boundary (PM-140), in the service process. Workers reach
+ * nothing but loopback (nft and the units' IP filters), so this is their only way out. It speaks
+ * HTTP CONNECT only and tunnels TLS only: it identifies the connecting account by its socket and
+ * the session by its proxy credentials, asks the network gate, resolves the name itself (IPv4,
+ * no private or special address in the answer), pins the address it checked, and refuses a
+ * ClientHello whose server name is not the allowed host. A refusal never creates a request.
+ */
+export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
+  const log = opts.logger;
+  const lookup = opts.lookup ?? defaultLookup;
+  const connect = opts.connect ?? ((address: string, port: number) => net.connect({ host: address, port }));
+  const helloTimeoutMs = opts.helloTimeoutMs ?? 10_000;
+  const idleTimeoutMs = opts.idleTimeoutMs ?? 10 * 60_000;
+  const maxTunnels = opts.maxTunnels ?? 512;
+  let tunnels = 0;
+  let listening = false;
+  /** CONNECT sockets leave the HTTP server's bookkeeping: closing the proxy ends them here. */
+  const open = new Set<Duplex>();
+
+  const server = http.createServer((req, res) => {
+    // Plain HTTP proxying is not offered: only TLS tunnels, whose server name is checked.
+    req.resume();
+    res.writeHead(405, { 'content-type': 'text/plain', connection: 'close' });
+    res.end('projectman egress: only CONNECT to a TLS destination is supported.\n');
+  });
+  server.headersTimeout = 10_000;
+  server.requestTimeout = 15_000;
+
+  function refuse(
+    socket: Duplex,
+    status: number,
+    destination: EgressDestination | null,
+    denial: EgressDenial,
+    operationId: string | null,
+  ): void {
+    const body = denialText(destination, denial, operationId);
+    const reason = status === 403 ? 'Forbidden' : status === 400 ? 'Bad Request' : 'Bad Gateway';
+    socket.end(
+      [
+        `HTTP/1.1 ${status} ${reason}`,
+        'Content-Type: text/plain; charset=utf-8',
+        `Content-Length: ${Buffer.byteLength(body)}`,
+        `X-Projectman-Denial: ${denial}`,
+        ...(operationId ? [`X-Projectman-Operation: ${operationId}`] : []),
+        'Connection: close',
+        '',
+        body,
+      ].join('\r\n'),
+    );
+  }
+
+  /** Waits for the client's ClientHello; resolves with its bytes and server name, or a refusal. */
+  function readHello(socket: Duplex, head: Buffer): Promise<{ bytes: Buffer; serverName: string | null } | null> {
+    return new Promise((resolve) => {
+      let buffered = head;
+      let done = false;
+      const finish = (value: { bytes: Buffer; serverName: string | null } | null) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        socket.removeListener('data', onData);
+        socket.removeListener('end', onEnd);
+        resolve(value);
+      };
+      const check = () => {
+        const hello = parseClientHello(buffered);
+        if (hello.status === 'hello') finish({ bytes: buffered, serverName: hello.serverName });
+        else if (hello.status === 'not_tls' || buffered.length > MAX_CLIENT_HELLO_BYTES) finish(null);
+      };
+      const onData = (chunk: Buffer) => {
+        buffered = Buffer.concat([buffered, chunk]);
+        check();
+      };
+      const onEnd = () => finish(null);
+      const timer = setTimeout(() => finish(null), helloTimeoutMs);
+      socket.on('data', onData);
+      socket.on('end', onEnd);
+      if (buffered.length > 0) check();
+    });
+  }
+
+  async function handleConnect(req: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
+    socket.on('error', () => undefined);
+    open.add(socket);
+    socket.on('close', () => open.delete(socket));
+    const destination = parseEgressAuthority(req.url ?? '');
+    if (!destination) return refuse(socket, 400, null, 'not_allowed', null);
+    if (tunnels >= maxTunnels) return refuse(socket, 403, destination, 'too_many_requests', null);
+    const raw = req.socket;
+    const peer: PeerAddress = {
+      remoteAddress: raw.remoteAddress ?? '',
+      remotePort: raw.remotePort ?? 0,
+      localAddress: raw.localAddress ?? '',
+      localPort: raw.localPort ?? 0,
+    };
+    const who = await opts.identify(peer, proxyToken(req.headers['proxy-authorization']));
+    if ('denial' in who) return refuse(socket, 403, destination, who.denial, null);
+    const decision = await opts.authorize(who.identity, destination);
+    if (!decision.allowed) return refuse(socket, 403, destination, decision.denial, decision.operationId);
+    let addresses: string[];
+    if (isIpLiteral(destination.host)) addresses = [destination.host];
+    else {
+      try {
+        addresses = await lookup(destination.host);
+      } catch {
+        return refuse(socket, 502, destination, 'unresolved', null);
+      }
+    }
+    if (addresses.length === 0) return refuse(socket, 502, destination, 'unresolved', null);
+    // One private or special address in the answer refuses the name (DNS rebinding, split views).
+    if (!addresses.every(isPublicIPv4)) {
+      log.warn({ host: destination.host }, 'egress destination resolves to a private address');
+      return refuse(socket, 403, destination, 'private_address', null);
+    }
+    socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+    tunnels += 1;
+    let released = false;
+    const release = () => {
+      if (!released) {
+        released = true;
+        tunnels -= 1;
+      }
+    };
+    socket.on('close', release);
+    const hello = await readHello(socket, head);
+    const expected = isIpLiteral(destination.host) ? null : destination.host;
+    if (!hello || (hello.serverName ?? null) !== expected) {
+      log.warn({ host: destination.host, serverName: hello?.serverName ?? null }, 'egress tunnel refused: TLS name mismatch');
+      socket.destroy();
+      return;
+    }
+    const upstream = connect(addresses[0]!, destination.port);
+    upstream.on('error', () => socket.destroy());
+    socket.on('error', () => upstream.destroy());
+    upstream.once('connect', () => {
+      upstream.write(hello.bytes);
+      socket.pipe(upstream);
+      upstream.pipe(socket);
+    });
+    const idle = () => {
+      socket.destroy();
+      upstream.destroy();
+    };
+    if ('setTimeout' in socket && typeof socket.setTimeout === 'function') socket.setTimeout(idleTimeoutMs, idle);
+    socket.on('close', () => upstream.destroy());
+    upstream.on('close', () => socket.destroy());
+  }
+
+  server.on('connect', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+    handleConnect(req, socket, head).catch((err: unknown) => {
+      log.error({ err }, 'egress proxy failed');
+      socket.destroy();
+    });
+  });
+  server.on('clientError', (_err, socket) => socket.destroy());
+
+  return {
+    listen(): Promise<void> {
+      return new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(opts.port, opts.host, () => {
+          server.removeListener('error', reject);
+          listening = true;
+          resolve();
+        });
+      });
+    },
+    close(): Promise<void> {
+      listening = false;
+      return new Promise((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections?.();
+        for (const socket of open) socket.destroy();
+      });
+    },
+    listening: () => listening && server.listening,
+    address: () => server.address(),
+  };
+}

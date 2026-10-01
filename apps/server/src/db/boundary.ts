@@ -12,6 +12,9 @@ export function createBoundaryRepository(db: Db) {
     'SELECT record FROM boundary_requests WHERE project_key = ? AND session_id = ? AND deduplication_key = ?',
   );
   const list = db.prepare('SELECT record FROM boundary_requests ORDER BY rowid');
+  const byOperation = db.prepare(
+    "SELECT record FROM boundary_requests WHERE project_key = ? AND json_extract(record, '$.operationId') = ? ORDER BY rowid DESC",
+  );
   const listActive = db.prepare(
     "SELECT id, project_key FROM boundary_requests WHERE json_extract(record, '$.state') IN ('pending_lead', 'pending_owner', 'allowed') AND NOT EXISTS (SELECT 1 FROM boundary_grants WHERE request_id = boundary_requests.id AND (json_extract(record, '$.state') = 'consumed' OR json_extract(record, '$.consumedAt') IS NOT NULL)) ORDER BY rowid",
   );
@@ -25,6 +28,9 @@ export function createBoundaryRepository(db: Db) {
     duplicate: (projectKey: string, sessionId: string, key: string) =>
       decodeRequest(dedupe.get(projectKey, sessionId, key)),
     list: () => list.all().map((row) => decodeRequest(row)!),
+    /** Requests made for one operation id in a project, newest first. */
+    byOperation: (projectKey: string, operationId: string) =>
+      byOperation.all(projectKey, operationId).map((row) => decodeRequest(row)!),
     listActive: () =>
       (listActive.all() as Array<{ id: string; project_key: string }>).map((row) => ({
         id: row.id,

@@ -8,6 +8,7 @@ import {
   type RunnerEvent,
   type RunnerModuleOptions,
   type RunningSessionInfo,
+  type SessionLauncher,
   type SessionRunner,
   type StartSessionSpec,
 } from '../contracts';
@@ -50,8 +51,9 @@ export class SessionManager implements SessionRunner {
   private readonly finished = new Map<string, AgentSession>();
   private readonly byToken = new Map<string, AgentSession>();
   private readonly listeners = new Set<(event: RunnerEvent) => void>();
-  private readonly statuses = new Map<AgentProvider, { status: ProviderStatus; at: number }>();
-  private readonly statusChecks = new Map<AgentProvider, Promise<ProviderStatus>>();
+  /** By provider, or `provider:member` for a worker's own login (managed VM). */
+  private readonly statuses = new Map<string, { status: ProviderStatus; at: number }>();
+  private readonly statusChecks = new Map<string, Promise<ProviderStatus>>();
 
   constructor(opts: RunnerModuleOptions, adapters: ProviderAdapters = createProviderAdapters(opts)) {
     this.opts = opts;
@@ -69,6 +71,8 @@ export class SessionManager implements SessionRunner {
         `invalid ${provider === 'claude' ? 'Claude' : adapter.label} session id: ${spec.claudeSessionId}`,
       );
     if (this.sessions.has(spec.sessionId)) throw new Error(`session ${spec.sessionId} is already running`);
+    const launcher = this.opts.launcher;
+    if (launcher) return this.startThroughLauncher(spec, provider, launcher);
     const dir = await stat(spec.cwd).catch(() => null);
     if (!dir?.isDirectory()) throw new Error(`working directory does not exist: ${spec.cwd}`);
     const env = buildSessionEnv(this.opts.env ?? process.env, spec.sessionId);
@@ -123,18 +127,111 @@ export class SessionManager implements SessionRunner {
     return session.info();
   }
 
+  /**
+   * A session in the managed VM (PM-140): the launcher starts the provider's pinned CLI as the
+   * member's worker account in a sandboxed unit and relays its terminal. Nothing runs locally;
+   * workspace trust and the login check run as that worker too.
+   */
+  private async startThroughLauncher(
+    spec: StartSessionSpec,
+    provider: AgentProvider,
+    launcher: SessionLauncher,
+  ): Promise<RunningSessionInfo> {
+    const adapter = this.adapters[provider];
+    const layout = this.opts.workerLayout;
+    if (!spec.member || !spec.egressToken || !layout)
+      throw new Error('a session through the launcher needs its member, egress token and worker layout');
+    const home = layout.home(spec.member);
+    const status = await this.providerStatus(provider, { member: spec.member });
+    if (status.loggedIn === false) throw new ProviderNotLoggedInError(adapter.label, status);
+    if (provider === 'claude') {
+      const trust = await launcher
+        .run({ member: spec.member, program: 'claude-trust', args: [spec.cwd], cwd: home, timeoutMs: 15_000 })
+        .catch((err: unknown) => ({ exitCode: null, stderr: (err as Error).message }));
+      if (trust.exitCode !== 0)
+        this.log.warn({ sessionId: spec.sessionId, detail: trust.stderr.slice(0, 200) }, 'could not pre-accept workspace trust');
+    }
+    const token = randomBytes(24).toString('base64url');
+    const launch = await adapter.launch({
+      spec,
+      hookUrl: hookUrlFor(this.opts.publicBaseUrl, token),
+      permissionTimeoutMs: this.opts.permissionTimeoutMs,
+    });
+    const session = new AgentSession({
+      spec,
+      hookToken: token,
+      adapter,
+      initialMessageSent: launch.initialMessageSent,
+      deps: {
+        logger: this.log,
+        broker: this.opts.broker,
+        permissionTimeoutMs: this.opts.permissionTimeoutMs,
+        emit: (event) => this.emit(event),
+        onExited: (exited) => this.retire(exited),
+        onAuthError: () => this.statuses.delete(`${provider}:${spec.member}`),
+        transcriptRoot: home,
+      },
+    });
+    const previous = this.finished.get(spec.sessionId);
+    if (previous) {
+      this.finished.delete(spec.sessionId);
+      previous.dispose();
+    }
+    this.sessions.set(spec.sessionId, session);
+    this.byToken.set(token, session);
+    try {
+      const proc = await launcher.start({
+        sessionId: spec.sessionId,
+        member: spec.member,
+        provider,
+        args: launch.cliArgs,
+        cwd: spec.cwd,
+        cols: session.screen.cols,
+        rows: session.screen.rows,
+        egressToken: spec.egressToken,
+      });
+      session.attach(proc);
+    } catch (err) {
+      this.sessions.delete(spec.sessionId);
+      this.byToken.delete(token);
+      session.dispose();
+      this.emit({ type: 'state', sessionId: spec.sessionId, state: 'failed', activity: null });
+      throw err;
+    }
+    this.log.info(
+      { sessionId: spec.sessionId, provider, member: spec.member, resume: spec.resume, cwd: spec.cwd },
+      'agent session started through the launcher',
+    );
+    return session.info();
+  }
+
   /** Login state of a provider's CLI; checks are shared while running and cached briefly. */
-  providerStatus(provider: AgentProvider, opts: { refresh?: boolean } = {}): Promise<ProviderStatus> {
+  providerStatus(
+    provider: AgentProvider,
+    opts: { refresh?: boolean; member?: string } = {},
+  ): Promise<ProviderStatus> {
     const adapter = this.adapters[provider];
     if (!adapter) return Promise.reject(new Error(`unknown agent provider: ${String(provider)}`));
-    const cached = this.statuses.get(provider);
+    const launcher = this.opts.launcher;
+    const layout = this.opts.workerLayout;
+    // Through the launcher each worker has its own login; the server's is checked otherwise.
+    const member = launcher && layout ? (opts.member ?? null) : null;
+    const key = member ? `${provider}:${member}` : provider;
+    const cached = this.statuses.get(key);
     if (cached && !opts.refresh) {
       const ttl = cached.status.loggedIn === true ? STATUS_TTL_OK_MS : STATUS_TTL_OTHER_MS;
       if (Date.now() - cached.at < ttl) return Promise.resolve(cached.status);
     }
-    let pending = this.statusChecks.get(provider);
+    let pending = this.statusChecks.get(key);
     if (!pending) {
       pending = (async (): Promise<ProviderStatus> => {
+        if (member && launcher && layout) {
+          const out = await launcher
+            .run({ member, program: provider, args: adapter.loginCommand, cwd: layout.home(member), timeoutMs: 15_000 })
+            .then((r) => ({ code: r.exitCode, stdout: r.stdout, stderr: r.stderr, error: r.timedOut ? 'timed out' : null }))
+            .catch((err: unknown) => ({ code: null, stdout: '', stderr: '', error: (err as Error).message }));
+          return adapter.parseLogin(out);
+        }
         const env = buildChildEnv(this.opts.env ?? process.env);
         if (!(await cliExists(adapter.bin, env.PATH))) {
           return {
@@ -148,12 +245,12 @@ export class SessionManager implements SessionRunner {
         return adapter.checkLogin(env);
       })()
         .then((status) => {
-          this.statuses.set(provider, { status, at: Date.now() });
-          if (status.loggedIn !== true) this.log.warn({ status }, 'agent CLI is not usable');
+          this.statuses.set(key, { status, at: Date.now() });
+          if (status.loggedIn !== true) this.log.warn({ status, member }, 'agent CLI is not usable');
           return status;
         })
-        .finally(() => this.statusChecks.delete(provider));
-      this.statusChecks.set(provider, pending);
+        .finally(() => this.statusChecks.delete(key));
+      this.statusChecks.set(key, pending);
     }
     return pending;
   }

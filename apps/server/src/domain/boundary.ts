@@ -246,8 +246,15 @@ export class BoundaryService {
   }
 
   /** The protected executor consumes one exact grant before execution. This only returns
-   * authorization metadata; it never performs a command or changes CLI permissions. */
-  async consume(requester: BoundaryRequester, id: string, operationId: string): Promise<BoundaryGrant> {
+   * authorization metadata; it never performs a command or changes CLI permissions. `record`
+   * runs in the same transaction, so the executor's own record of the grant (the egress
+   * allowance) exists exactly when the grant is consumed. */
+  async consume(
+    requester: BoundaryRequester,
+    id: string,
+    operationId: string,
+    record?: (grant: BoundaryGrant) => void,
+  ): Promise<BoundaryGrant> {
     const project = await this.projects.load(requester.projectKey);
     this.current(requester.projectKey, project);
     const request = this.refresh(this.get(requester.projectKey, id), project);
@@ -268,6 +275,7 @@ export class BoundaryService {
       const at = this.ctx.now().toISOString();
       const consumed = this.ctx.repos.boundary.consume(id, at);
       if (!consumed) throw forbidden('insufficient_access', 'boundary grant was already consumed or revoked');
+      record?.(consumed);
       const next = { ...request, consumedAt: at, updatedAt: at };
       this.ctx.repos.boundary.update(next);
       const item = this.ctx.repos.inbox.get(id)!;

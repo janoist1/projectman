@@ -1,4 +1,10 @@
 export { createWorktreeManager, WorktreeError, type WorktreeErrorCode } from './worktree-manager';
-export { createMemberWorkspaceManager, MemberWorkspaceError } from './member-workspace-manager';
+export {
+  createMemberWorkspaceManager,
+  MemberWorkspaceError,
+  type MemberWorkspaceManagerSettings,
+} from './member-workspace-manager';
+export { localWorkspaceAccess, SAFE_GIT_SETTINGS } from './workspace-access';
+export type { TransferSource, WorkspaceAccess } from './workspace-access';
 export { slugify, taskBranchName } from './branch-name';
-export { GitCommandError } from './git';
+export { git, GitCommandError } from './git';

@@ -22,6 +22,7 @@ import type {
   MemberWorkspaceManager,
   RunnerModule,
   RunnerModuleOptions,
+  RuntimeBoundary,
   WorktreeManager,
 } from './contracts';
 import { createRepositories, openDatabase } from './db';
@@ -31,6 +32,13 @@ import type { Domain, ScheduleTimer, TemplateRegistry } from './domain';
 import { createGithubService } from './github';
 import { createMcpModule } from './mcp';
 import { createRunnerModule } from './runner';
+import {
+  createManagedEgressProxy,
+  createRuntimeBoundary,
+  disabledRuntimeBoundary,
+  isManagedBoundary,
+} from './runtime-boundary';
+import type { BoundaryConfig } from './runtime-boundary';
 import { createMemberWorkspaceManager, createWorktreeManager } from './worktree';
 import { registerWebsocket } from './ws';
 
@@ -64,6 +72,8 @@ export interface AppModules {
   templates?: TemplateRegistry;
   /** The files of task attachments (default: PROJECTMAN_HOME/attachments). */
   attachmentStorage?: AttachmentStorage;
+  /** The VM boundary (default: from `runtimeBoundary` in the options, else none). Tests pass a fake. */
+  runtimeBoundary?: RuntimeBoundary;
 }
 
 /** Defaults of the server's options, including those index.ts reads from the environment. */
@@ -122,6 +132,13 @@ export interface BuildAppOptions {
    * worktree per task. Off by default: switching the live instance over is its own decision (PM-143).
    */
   memberWorkspaces?: boolean;
+  /**
+   * The managed VM boundary (PM-140), from the root-owned boundary configuration the service unit
+   * names. It only makes the server stricter: every session starts through the protected launcher
+   * as its member's worker, workspaces live in worker homes, workers reach the network through the
+   * egress proxy, and no session starts while the boundary is not ready. Needs `memberWorkspaces`.
+   */
+  runtimeBoundary?: BoundaryConfig;
 }
 
 /** What `app.projectman` exposes (tests and tooling reach the services through it). */
@@ -195,15 +212,35 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const worktrees =
       modules.worktrees ??
       createWorktreeManager({ rootDir: join(home, 'worktrees'), logger: log.child({ module: 'worktree' }) });
+    // The VM boundary (PM-140): fail closed. Its proxy is the workers' only way out; the status
+    // reports it down until it listens, and no session starts meanwhile.
+    const boundaryConfig = options.runtimeBoundary;
+    if (boundaryConfig && !options.memberWorkspaces)
+      throw new Error('the managed VM boundary needs member workspaces (PROJECTMAN_WORKSPACES=member)');
+    let egressProxy: ReturnType<typeof createManagedEgressProxy> | null = null;
+    const runtimeBoundary: RuntimeBoundary =
+      modules.runtimeBoundary ??
+      (boundaryConfig
+        ? createRuntimeBoundary({ config: boundaryConfig, egressUp: () => egressProxy?.listening() ?? false })
+        : disabledRuntimeBoundary(options.now));
+    const managed = isManagedBoundary(runtimeBoundary) ? runtimeBoundary : null;
     const workspacesDir = join(home, 'workspaces');
     const memberWorkspaces = options.memberWorkspaces
       ? (modules.memberWorkspaces ??
-        createMemberWorkspaceManager({ rootDir: workspacesDir, logger: log.child({ module: 'workspace' }) }))
+        createMemberWorkspaceManager({
+          rootDir: workspacesDir,
+          logger: log.child({ module: 'workspace' }),
+          ...(managed ? { access: managed.workspaceAccess, rootFor: managed.workspacesRoot } : {}),
+        }))
       : undefined;
     const makeRunner = modules.createRunnerModule ?? createRunnerModule;
     const auth = new AuthService({ repos, now: options.now });
 
     const domain = createDomain({
+      runtimeBoundary,
+      ...(boundaryConfig
+        ? { egress: { base: boundaryConfig.egress.base, grantHours: boundaryConfig.egress.grantHours } }
+        : {}),
       boundaryAdapter: modules.boundaryAdapter,
       repos,
       configStore,
@@ -220,6 +257,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           broker,
           permissionTimeoutMs: options.permissionTimeoutMs ?? APP_DEFAULTS.permissionTimeoutMs,
           logger: log.child({ module: 'runner' }),
+          ...(runtimeBoundary.mode === 'managed_vm' && runtimeBoundary.launcher && runtimeBoundary.layout
+            ? { launcher: runtimeBoundary.launcher, workerLayout: runtimeBoundary.layout }
+            : {}),
         }),
       github,
       contextBuilder,
@@ -236,6 +276,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       planUsageTtlMs: options.planUsageTtlMs,
       doneCleanupDelayMs: options.doneCleanupDelayMs,
     });
+    if (boundaryConfig)
+      egressProxy = createManagedEgressProxy({
+        config: boundaryConfig,
+        logger: log.child({ module: 'egress' }),
+        resolveToken: (token) => domain.sessions.resolveEgressToken(token),
+        authorize: (identity, destination) => domain.egress.authorize(identity, destination),
+      });
     const mcpModule = (modules.createMcpModule ?? createMcpModule)({
       handler: domain.teamTools,
       // O(1) in-memory lookup: runs on every MCP request.
@@ -266,9 +313,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
     app.addHook('onReady', async () => {
       await domain.start();
+      if (egressProxy) {
+        const proxy = egressProxy;
+        await proxy.listen().catch((err: unknown) => log.error({ err }, 'the egress proxy could not listen'));
+      }
     });
     const db = repos.db;
     app.addHook('onClose', async () => {
+      await egressProxy?.close();
       await domain.stop();
       try {
         await domain.runnerModule.runner.shutdown();

@@ -108,6 +108,8 @@ export const ERROR_CODES = [
   'workspace_fetch_failed',
   'workspace_branch_missing',
   'workspace_source_missing',
+  // The VM boundary (PM-140): its readiness or a part of it failed, so no session starts.
+  'runtime_boundary_not_ready',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

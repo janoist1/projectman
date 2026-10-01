@@ -1,4 +1,4 @@
-import { lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type {
   MemberWorkspaceErrorCode,
@@ -12,45 +12,22 @@ import type {
 import { isTaskBranch } from './branch-name';
 import { git, GitCommandError } from './git';
 import { canonical, createKeyedLock, isInside } from './paths';
+import { localWorkspaceAccess, SAFE_GIT_SETTINGS } from './workspace-access';
+import type { WorkspaceAccess } from './workspace-access';
 
 /** A fetch that takes longer fails: a new task never starts from a base that may be stale. */
 const FETCH_TIMEOUT_MS = 60_000;
 /** Clones and checkouts (and large working trees) may take a while. */
 const CHECKOUT_TIMEOUT_MS = 10 * 60_000;
 
-/**
- * Settings for every git command the server runs in a member workspace or reads from one. The
- * member controls those repositories (their config, hooks and attributes), so the server's git
- * runs no hooks or fsmonitor, reads no system or global configuration (`isolatedConfig`), and
- * transfers objects only over local paths. Filters a repository's own configuration defines still
- * apply to a checkout; until the VM boundary (PM-140) separates the server from the members, the
- * server and the sessions run as the same user anyway.
- */
-const SAFE_SETTINGS = [
-  '-c',
-  'core.hooksPath=/dev/null',
-  '-c',
-  'core.fsmonitor=false',
-  '-c',
-  'core.attributesFile=/dev/null',
-  '-c',
-  'init.templateDir=',
-  '-c',
-  'protocol.allow=never',
-  '-c',
-  'protocol.file.allow=always',
-  '-c',
-  'advice.detachedHead=false',
-  '--no-replace-objects',
-];
-
-function safeGit(args: string[], opts: { timeoutMs?: number } = {}): Promise<string> {
-  return git([...SAFE_SETTINGS, ...args], { ...opts, isolatedConfig: true });
+/** A git command with no repository (ref name checks) runs here, as the server. */
+function plainGit(args: string[]): Promise<string> {
+  return git([...SAFE_GIT_SETTINGS, ...args], { isolatedConfig: true });
 }
 
-async function safeGitSucceeds(args: string[]): Promise<boolean> {
+async function plainGitSucceeds(args: string[]): Promise<boolean> {
   try {
-    await safeGit(args);
+    await plainGit(args);
     return true;
   } catch (err) {
     if (err instanceof GitCommandError) return false;
@@ -87,28 +64,78 @@ export class MemberWorkspaceError extends Error {
   }
 }
 
+export interface MemberWorkspaceManagerSettings extends MemberWorkspaceManagerOptions {
+  /** How workspaces are touched (default: here, as the server). The managed VM runs them as workers. */
+  access?: WorkspaceAccess;
+  /** The root of a member's workspaces (default: `rootDir` for every member). */
+  rootFor?: (member: string) => string;
+}
+
 /**
  * Durable workspaces, one per project x member x repository (PM-138), replacing the worktree per
- * task: `<rootDir>/<PROJECT>/<handle>/<repo>/{repo,cache,tmp}`. `repo` is an independent clone of
- * the project's repository (`--no-local`: no hardlinks, no alternates, no worktree link, its own
- * `.git`), without a remote, so nothing the member does there reaches the project repository or a
- * teammate. The server fetches into it by explicit path and moves it between branches only when it
- * is clean, never resetting, stashing or cleaning; it is never removed.
+ * task: `<root>/<PROJECT>/<handle>/<repo>/{repo,cache,tmp}`. `repo` is an independent clone of
+ * the project's repository (no hardlinks, no alternates, no worktree link, its own `.git`),
+ * without a remote, so nothing the member does there reaches the project repository or a
+ * teammate. The server fetches into it explicitly and moves it between branches only when it is
+ * clean, never resetting, stashing or cleaning; it is never removed. Every command inside a
+ * workspace goes through `access`: in the managed VM it runs as the member's worker account, so a
+ * filter or configuration the member planted never runs with the server's rights (PM-140).
  */
-export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerOptions): MemberWorkspaceManager {
+export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSettings): MemberWorkspaceManager {
   const log = opts.logger;
+  const access = opts.access ?? localWorkspaceAccess();
+  const rootFor = opts.rootFor ?? (() => opts.rootDir);
   const withLock = createKeyedLock();
-  let root: Promise<string> | undefined;
+  const roots = new Map<string, Promise<string>>();
 
-  function rootPath(): Promise<string> {
-    root ??= (async () => {
-      const requested = path.resolve(opts.rootDir);
-      if ((await maybeLstat(requested))?.isSymbolicLink())
-        throw new MemberWorkspaceError('workspace_invalid', 'the workspace root is a symlink');
-      await mkdir(requested, { recursive: true, mode: 0o700 });
-      return canonical(requested);
-    })();
+  function rootPath(member: string): Promise<string> {
+    const requested = path.resolve(rootFor(member));
+    let root = roots.get(requested);
+    if (!root) {
+      root = (async () => {
+        if ((await maybeLstat(requested))?.isSymbolicLink())
+          throw new MemberWorkspaceError('workspace_invalid', 'the workspace root is a symlink');
+        await access.mkdir(access.ownerOf(requested), requested);
+        return canonical(requested);
+      })();
+      // A failed attempt (the worker or its home not there yet) is tried again next time.
+      root.catch(() => roots.delete(requested));
+      roots.set(requested, root);
+    }
     return root;
+  }
+
+  /** git in a repository, as the owner of its files. */
+  const gitIn = (repo: string, args: string[], timeoutMs?: number) =>
+    access.git(access.ownerOf(repo), ['-C', repo, ...args], timeoutMs ? { timeoutMs } : undefined);
+
+  async function gitInSucceeds(repo: string, args: string[]): Promise<boolean> {
+    try {
+      await gitIn(repo, args);
+      return true;
+    } catch (err) {
+      if (err instanceof GitCommandError) return false;
+      throw err;
+    }
+  }
+
+  /**
+   * Fetches `refspec`'s source refs from `source` into the workspace at `workspace`, through a
+   * hand-over bundle when the workspace's owner may not read the source.
+   */
+  async function fetchInto(
+    workspace: string,
+    source: { path: string; refs: string[] },
+    refspecs: string[],
+    timeoutMs = FETCH_TIMEOUT_MS,
+  ): Promise<void> {
+    const owner = access.ownerOf(workspace);
+    const handed = await access.transfer(owner, { ...source, owner: access.ownerOf(source.path) });
+    try {
+      await gitIn(workspace, ['fetch', '--quiet', '--no-tags', '--', handed.from, ...refspecs], timeoutMs);
+    } finally {
+      await handed.done().catch((err: unknown) => log.warn({ err, workspace }, 'could not remove a hand-over'));
+    }
   }
 
   /** The workspace's directories and the project repository it is cloned from, validated. */
@@ -122,7 +149,7 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerOptions
         repo: repoName,
         member,
       });
-    const base = await rootPath();
+    const base = await rootPath(member);
     let dir = base;
     for (const part of [projectKey, member, repoName]) {
       dir = path.join(dir, part);
@@ -161,47 +188,56 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerOptions
       throw new MemberWorkspaceError('workspace_invalid', `${info.path} is not an independent clone`);
     if (await maybeLstat(path.join(info.gitDir, 'objects', 'info', 'alternates')))
       throw new MemberWorkspaceError('workspace_invalid', `${info.path} borrows objects (alternates)`);
-    const gitDir = (await safeGit(['-C', info.path, 'rev-parse', '--absolute-git-dir'])).trim();
+    const gitDir = (await gitIn(info.path, ['rev-parse', '--absolute-git-dir'])).trim();
     if ((await canonical(gitDir)) !== (await canonical(info.gitDir)))
       throw new MemberWorkspaceError('workspace_invalid', `${info.path} uses another git directory`);
   }
 
   async function ensure(key: MemberWorkspaceKey): Promise<MemberWorkspaceInfo & { created: boolean }> {
     const { dir, info, repoPath } = await locate(key);
+    const owner = access.ownerOf(dir);
     return withLock(dir, async () => {
       let created = false;
       if (!(await maybeLstat(info.path))) {
-        await mkdir(dir, { recursive: true, mode: 0o700 });
+        await access.mkdir(owner, dir);
         // An interrupted clone is thrown away: no session ever ran in it.
         const partial = path.join(dir, 'repo.partial');
-        await rm(partial, { recursive: true, force: true });
-        await safeGit(['clone', '--quiet', '--no-local', '--template=', '--', repoPath, partial], {
-          timeoutMs: CHECKOUT_TIMEOUT_MS,
+        await access.remove(owner, partial);
+        const handed = await access.transfer(owner, {
+          path: repoPath,
+          refs: ['--all'],
+          owner: access.ownerOf(repoPath),
         });
-        // No remote: the server fetches by path, and a push has nowhere to go.
-        await safeGit(['-C', partial, 'remote', 'remove', 'origin']);
-        await rename(partial, info.path);
-        await writeFile(
-          path.join(dir, 'workspace.json'),
-          `${JSON.stringify({ projectKey: key.project.project.key, member: key.member, repo: key.repoName })}\n`,
-          { mode: 0o600 },
-        );
+        try {
+          await access.git(owner, ['clone', '--quiet', '--no-local', '--template=', '--', handed.from, partial], {
+            timeoutMs: CHECKOUT_TIMEOUT_MS,
+          });
+        } finally {
+          await handed.done().catch((err: unknown) => log.warn({ err, dir }, 'could not remove a hand-over'));
+        }
+        // No remote: the server fetches explicitly, and a push has nowhere to go.
+        await access.git(owner, ['-C', partial, 'remote', 'remove', 'origin']);
+        await access.rename(owner, partial, info.path);
+        if (access.writesDescription)
+          await writeFile(
+            path.join(dir, 'workspace.json'),
+            `${JSON.stringify({ projectKey: key.project.project.key, member: key.member, repo: key.repoName })}\n`,
+            { mode: 0o600 },
+          );
         created = true;
         log.info({ member: key.member, repo: key.repoName, path: info.path }, 'created member workspace');
       }
       await assertWorkspace(info);
-      await mkdir(info.cacheDir, { recursive: true, mode: 0o700 });
-      await mkdir(info.tempDir, { recursive: true, mode: 0o700 });
+      await access.mkdir(owner, info.cacheDir);
+      await access.mkdir(owner, info.tempDir);
       return { ...info, created };
     });
   }
 
   async function checkoutOf(dir: string): Promise<WorkspaceCheckout | null> {
-    const head = await safeGit(['-C', dir, 'rev-parse', '--verify', '--quiet', 'HEAD^{commit}']).catch(
-      () => null,
-    );
+    const head = await gitIn(dir, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']).catch(() => null);
     if (!head) return null;
-    const branch = await safeGit(['-C', dir, 'symbolic-ref', '--quiet', '--short', 'HEAD']).catch(() => null);
+    const branch = await gitIn(dir, ['symbolic-ref', '--quiet', '--short', 'HEAD']).catch(() => null);
     return { branch: branch?.trim() || null, head: head.trim() };
   }
 
@@ -214,7 +250,7 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerOptions
 
   async function inspect(info: MemberWorkspaceInfo) {
     const operation = await operationIn(info.gitDir);
-    const porcelain = await safeGit(['-C', info.path, 'status', '--porcelain', '--untracked-files=normal']);
+    const porcelain = await gitIn(info.path, ['status', '--porcelain', '--untracked-files=normal']);
     return { dirty: porcelain.trim().length > 0, operation, checkout: await checkoutOf(info.path) };
   }
 
@@ -265,12 +301,7 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerOptions
       const ref = await baseRef(repoPath, defaultBranch);
       const tracking = `refs/remotes/upstream/${defaultBranch}`;
       try {
-        await safeGit(
-          ['-C', info.path, 'fetch', '--quiet', '--no-tags', '--', repoPath, `+${ref}:${tracking}`],
-          {
-            timeoutMs: FETCH_TIMEOUT_MS,
-          },
-        );
+        await fetchInto(info.path, { path: repoPath, refs: [ref] }, [`+${ref}:${tracking}`]);
       } catch (err) {
         throw new MemberWorkspaceError(
           'workspace_fetch_failed',
@@ -278,15 +309,11 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerOptions
           { branch: defaultBranch },
         );
       }
-      const commit = (
-        await safeGit(['-C', info.path, 'rev-parse', '--verify', `${tracking}^{commit}`])
-      ).trim();
+      const commit = (await gitIn(info.path, ['rev-parse', '--verify', `${tracking}^{commit}`])).trim();
       // The member's own default branch follows when it only falls behind (never rewritten).
       const checkout = await checkoutOf(info.path);
       if (checkout?.branch !== defaultBranch) {
-        await safeGit([
-          '-C',
-          info.path,
+        await gitIn(info.path, [
           'fetch',
           '--quiet',
           '--no-tags',
@@ -310,10 +337,7 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerOptions
     const remoteRef = `refs/remotes/origin/${defaultBranch}`;
     const hasLocal = await refExists(repoPath, localRef);
     if (await refExists(repoPath, remoteRef)) {
-      if (
-        hasLocal &&
-        (await safeGitSucceeds(['-C', repoPath, 'merge-base', '--is-ancestor', remoteRef, localRef]))
-      )
+      if (hasLocal && (await gitInSucceeds(repoPath, ['merge-base', '--is-ancestor', remoteRef, localRef])))
         return localRef;
       return remoteRef;
     }
@@ -323,6 +347,28 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerOptions
       `neither origin/${defaultBranch} nor ${defaultBranch} exists in the project repository`,
       { branch: defaultBranch },
     );
+  }
+
+  function refExists(repo: string, ref: string): Promise<boolean> {
+    return gitInSucceeds(repo, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
+  }
+
+  /** The task's branch under `prefix`: the preferred name if present, else the first match. */
+  async function taskBranches(
+    repo: string,
+    prefix: 'refs/heads/' | 'refs/remotes/origin/',
+    taskKey: string,
+    preferred?: string,
+  ): Promise<string | null> {
+    const out = await gitIn(repo, ['for-each-ref', '--format=%(refname)', prefix]);
+    const names = out
+      .split('\n')
+      .filter((ref) => ref.startsWith(prefix))
+      .map((ref) => ref.slice(prefix.length))
+      .filter((name) => isTaskBranch(name, taskKey))
+      .sort();
+    if (preferred && names.includes(preferred)) return preferred;
+    return names[0] ?? null;
   }
 
   async function findTaskBranch(key: MemberWorkspaceKey, taskKey: string, preferred?: string) {
@@ -340,15 +386,10 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerOptions
   }
 
   async function resolveSource(source: WorkspaceSource): Promise<string | null> {
-    if (!(await safeGitSucceeds(['check-ref-format', source.ref]))) return null;
-    const out = await safeGit([
-      '-C',
-      source.path,
-      'rev-parse',
-      '--verify',
-      '--quiet',
-      `${source.ref}^{commit}`,
-    ]).catch(() => null);
+    if (!(await plainGitSucceeds(['check-ref-format', source.ref]))) return null;
+    const out = await gitIn(source.path, ['rev-parse', '--verify', '--quiet', `${source.ref}^{commit}`]).catch(
+      () => null,
+    );
     const commit = out?.trim() ?? '';
     return OID.test(commit) ? commit : null;
   }
@@ -380,25 +421,15 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerOptions
         if (target.mode === 'create') {
           if (!OID.test(target.startPoint))
             throw new MemberWorkspaceError('workspace_invalid', 'the start point must be a commit id');
-          await safeGit(['-C', info.path, 'branch', '--no-track', '--', target.branch, target.startPoint]);
+          await gitIn(info.path, ['branch', '--no-track', '--', target.branch, target.startPoint]);
         } else {
-          if (!(await safeGitSucceeds(['check-ref-format', target.source.ref])))
+          if (!(await plainGitSucceeds(['check-ref-format', target.source.ref])))
             throw new MemberWorkspaceError('workspace_invalid', 'invalid source ref');
           try {
             // A new local branch: only committed work travels, nothing is overwritten.
-            await safeGit(
-              [
-                '-C',
-                info.path,
-                'fetch',
-                '--quiet',
-                '--no-tags',
-                '--',
-                target.source.path,
-                `${target.source.ref}:${ref}`,
-              ],
-              { timeoutMs: FETCH_TIMEOUT_MS },
-            );
+            await fetchInto(info.path, { path: target.source.path, refs: [target.source.ref] }, [
+              `${target.source.ref}:${ref}`,
+            ]);
           } catch (err) {
             throw new MemberWorkspaceError(
               'workspace_fetch_failed',
@@ -410,9 +441,7 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerOptions
       }
       const current = await checkoutOf(info.path);
       if (current?.branch !== target.branch) {
-        await safeGit(['-C', info.path, 'switch', '--quiet', '--no-guess', target.branch], {
-          timeoutMs: CHECKOUT_TIMEOUT_MS,
-        });
+        await gitIn(info.path, ['switch', '--quiet', '--no-guess', target.branch], CHECKOUT_TIMEOUT_MS);
         log.info(
           { path: info.path, from: current?.branch ?? current?.head ?? null, to: target.branch },
           'switched member workspace branch',
@@ -431,7 +460,7 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerOptions
     return withLock(dir, async () => {
       await assertWorkspace(info);
       if (!OID.test(commit)) throw new MemberWorkspaceError('workspace_invalid', 'invalid review commit');
-      if (!(await safeGitSucceeds(['check-ref-format', source.ref])))
+      if (!(await plainGitSucceeds(['check-ref-format', source.ref])))
         throw new MemberWorkspaceError('workspace_invalid', 'invalid source ref');
       // The same round again (a resumed review): what the reviewer did there stays as it is.
       const before = await checkoutOf(info.path);
@@ -440,19 +469,14 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerOptions
       await assertClean(info);
       const fetched = 'refs/projectman/review/source';
       try {
-        await safeGit(
-          ['-C', info.path, 'fetch', '--quiet', '--no-tags', '--', source.path, `+${source.ref}:${fetched}`],
-          {
-            timeoutMs: FETCH_TIMEOUT_MS,
-          },
-        );
+        await fetchInto(info.path, { path: source.path, refs: [source.ref] }, [`+${source.ref}:${fetched}`]);
       } catch (err) {
         throw new MemberWorkspaceError(
           'workspace_fetch_failed',
           `could not fetch ${source.ref} for review: ${(err as Error).message}`,
         );
       }
-      if (!(await safeGitSucceeds(['-C', info.path, 'merge-base', '--is-ancestor', commit, fetched])))
+      if (!(await gitInSucceeds(info.path, ['merge-base', '--is-ancestor', commit, fetched])))
         throw new MemberWorkspaceError(
           'workspace_source_missing',
           `the commit ${commit} is not on ${source.ref} any more`,
@@ -460,9 +484,7 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerOptions
         );
       const current = await checkoutOf(info.path);
       if (!current || current.branch !== null || current.head !== commit) {
-        await safeGit(['-C', info.path, 'switch', '--quiet', '--detach', commit], {
-          timeoutMs: CHECKOUT_TIMEOUT_MS,
-        });
+        await gitIn(info.path, ['switch', '--quiet', '--detach', commit], CHECKOUT_TIMEOUT_MS);
       }
       return (await checkoutOf(info.path))!;
     });
@@ -481,30 +503,8 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerOptions
 }
 
 async function assertBranchName(branch: string): Promise<void> {
-  if (branch.startsWith('-') || !(await safeGitSucceeds(['check-ref-format', '--branch', branch])))
+  if (branch.startsWith('-') || !(await plainGitSucceeds(['check-ref-format', '--branch', branch])))
     throw new MemberWorkspaceError('workspace_invalid', `invalid branch name: ${JSON.stringify(branch)}`);
-}
-
-function refExists(repo: string, ref: string): Promise<boolean> {
-  return safeGitSucceeds(['-C', repo, 'rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
-}
-
-/** The task's branch under `prefix`: the preferred name if present, else the first match. */
-async function taskBranches(
-  repo: string,
-  prefix: 'refs/heads/' | 'refs/remotes/origin/',
-  taskKey: string,
-  preferred?: string,
-): Promise<string | null> {
-  const out = await safeGit(['-C', repo, 'for-each-ref', '--format=%(refname)', prefix]);
-  const names = out
-    .split('\n')
-    .filter((ref) => ref.startsWith(prefix))
-    .map((ref) => ref.slice(prefix.length))
-    .filter((name) => isTaskBranch(name, taskKey))
-    .sort();
-  if (preferred && names.includes(preferred)) return preferred;
-  return names[0] ?? null;
 }
 
 async function maybeLstat(p: string) {

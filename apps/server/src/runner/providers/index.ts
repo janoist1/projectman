@@ -17,7 +17,8 @@ export function createProviderAdapters(opts: RunnerModuleOptions): ProviderAdapt
       bin: opts.claudeBin,
       logger: opts.logger,
       claudeConfigPath: opts.claudeConfigPath,
-      trustWorkspaces: opts.trustWorkspaces,
+      // Through the launcher, trust goes into the worker's own config (the runner asks for it).
+      trustWorkspaces: opts.launcher ? false : opts.trustWorkspaces,
       env,
     }),
     codex: createCodexAdapter({

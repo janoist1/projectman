@@ -1,4 +1,4 @@
-import { watch, type FSWatcher } from 'node:fs';
+import { constants, watch, type FSWatcher } from 'node:fs';
 import { open, stat } from 'node:fs/promises';
 
 /**
@@ -15,6 +15,8 @@ export interface TailerOptions {
   onLines(lines: string[]): void;
   onError?(err: unknown): void;
   pollIntervalMs?: number;
+  /** Refuse a symlink or anything but a plain file (a transcript in a worker home, PM-140). */
+  noFollow?: boolean;
 }
 
 const CHUNK = 1024 * 1024;
@@ -98,13 +100,15 @@ export class TranscriptTailer {
   private async readNew(): Promise<void> {
     let handle;
     try {
-      handle = await open(this.path, 'r');
+      handle = await open(this.path, this.opts.noFollow ? constants.O_RDONLY | constants.O_NOFOLLOW : 'r');
     } catch {
-      return; // not written yet
+      return; // not written yet (or a symlink, with noFollow)
     }
     this.ensureWatcher();
     try {
-      const { size } = await handle.stat();
+      const info = await handle.stat();
+      if (this.opts.noFollow && !info.isFile()) return;
+      const { size } = info;
       if (size < this.offset) this.offset = 0; // truncated or replaced: start over
       let want = CHUNK;
       while (this.offset < size && !this.stopped) {

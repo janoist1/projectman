@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import type { AgentEffort, AgentProvider, ChatItem, PlanUsage, SessionState } from '@projectman/shared';
+import type { SessionLauncher, WorkerLayout } from './runtime-boundary';
 import type { SessionPolicy } from './session-policy';
 
 /**
@@ -79,6 +80,12 @@ export interface StartSessionSpec {
   member?: string;
   /** The agent CLI to run (default "claude"). */
   provider?: AgentProvider;
+  /**
+   * The session's egress proxy credentials (managed VM, PM-140): the launcher puts them in the
+   * proxy settings of the worker, and the proxy maps them back to this session. Required when the
+   * runner starts sessions through the launcher.
+   */
+  egressToken?: string;
 }
 
 export type RunnerEvent =
@@ -143,8 +150,10 @@ export interface SessionRunner {
   /**
    * Login state of a provider's CLI (cached briefly). `start` refuses to spawn a session of a
    * provider that is not logged in, with an error whose `code` is `provider_not_logged_in`.
+   * With the launcher (managed VM) every member's worker has its own login: `member` names whose
+   * login to check (without it, the server's own login is checked).
    */
-  providerStatus?(provider: AgentProvider, opts?: { refresh?: boolean }): Promise<ProviderStatus>;
+  providerStatus?(provider: AgentProvider, opts?: { refresh?: boolean; member?: string }): Promise<ProviderStatus>;
 }
 
 /** Tool permission request coming from the CLI's PermissionRequest hook. */
@@ -225,6 +234,15 @@ export interface RunnerModuleOptions {
    * variables. Explicit options above take precedence. Default: `process.env`.
    */
   env?: NodeJS.ProcessEnv;
+  /**
+   * The protected launcher of the managed VM (PM-140). When set, every session starts through it
+   * as its member's worker account, in a sandboxed unit, with the provider's pinned CLI; nothing
+   * is spawned locally, and a session without a member or egress token is refused. Workspace
+   * trust and login checks run as the worker too.
+   */
+  launcher?: SessionLauncher;
+  /** Worker paths (with `launcher`): a session's transcript must lie in its worker's home. */
+  workerLayout?: WorkerLayout;
 }
 
 export interface RunnerModule {

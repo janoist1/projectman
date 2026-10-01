@@ -1,3 +1,4 @@
+import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import {
   DEFAULT_AGENT_PROVIDER,
@@ -28,6 +29,7 @@ import type {
   MemberMemoryStore,
   MemberWorkspaceManager,
   RunnerEvent,
+  RuntimeBoundary,
   SessionPolicy,
   SessionRunner,
   ToolContext,
@@ -127,6 +129,12 @@ export interface SessionOrchestratorDeps {
   memberWorkspaces?: MemberWorkspaceManager;
   /** Whether a process group still runs (tests replace it); see `processExists`. */
   processExists?: ProcessProbe;
+  /**
+   * The VM boundary (PM-140). In the managed VM no session starts while it is not ready, every
+   * session runs in its member's worker home (its workspace, or a directory for sessions without
+   * one) and gets egress proxy credentials; the legacy worktree per task is not used there.
+   */
+  runtimeBoundary?: RuntimeBoundary;
 }
 
 /** Worktree removals that are refused on purpose (the worktree module's error codes). */
@@ -165,6 +173,9 @@ export class SessionOrchestrator {
   private readonly locks = new KeyedMutex();
   private readonly tokens = new Map<string, ToolContext>();
   private readonly tokenBySession = new Map<string, string>();
+  /** Egress proxy credentials of live sessions (managed VM): token -> session. */
+  private readonly egressTokens = new Map<string, ToolContext>();
+  private readonly egressTokenBySession = new Map<string, string>();
   private readonly cleanupTimers = new Set<NodeJS.Timeout>();
   /** The provider each session's current process runs, for the transcript it reports. */
   private readonly processProviders = new Map<string, AgentProvider>();
@@ -196,6 +207,16 @@ export class SessionOrchestrator {
   /** MCP: maps /mcp/:token to the calling session; null rejects the call. */
   resolveToken(token: string): ToolContext | null {
     return this.tokens.get(token) ?? null;
+  }
+
+  /** Egress proxy: maps a session's proxy credentials to that live session; null otherwise. */
+  resolveEgressToken(token: string): ToolContext | null {
+    return this.egressTokens.get(token) ?? null;
+  }
+
+  /** Whether the server runs behind the managed VM boundary. */
+  private get managed(): boolean {
+    return this.deps.runtimeBoundary?.mode === 'managed_vm';
   }
 
   /** A session of any project, or null. */
@@ -333,7 +354,7 @@ export class SessionOrchestrator {
   async detail(projectKey: string, sessionId: string): Promise<SessionDetail> {
     const session = this.get(projectKey, sessionId);
     let chat: ChatItem[] = [];
-    if (session.transcriptPath) {
+    if (session.transcriptPath && (await this.transcriptReadable(session))) {
       try {
         chat = await this.deps.transcripts.read(session.transcriptPath, {
           provider: session.provider ?? DEFAULT_AGENT_PROVIDER,
@@ -347,6 +368,21 @@ export class SessionOrchestrator {
     }
     const task = session.workItem.type === 'task' ? this.ctx.repos.tasks.get(session.workItem.taskKey) : null;
     return { session, chat, task };
+  }
+
+  /**
+   * Behind the VM boundary a transcript is read only when it really lies in its member's worker
+   * home: the worker owns those files and could have replaced one with a link to the server's.
+   */
+  private async transcriptReadable(session: Session): Promise<boolean> {
+    const layout = this.managed ? this.deps.runtimeBoundary?.layout : null;
+    if (!layout || !session.transcriptPath) return true;
+    try {
+      const [file, home] = await Promise.all([realpath(session.transcriptPath), realpath(layout.home(session.member))]);
+      return file.startsWith(`${home}/`);
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -460,8 +496,10 @@ export class SessionOrchestrator {
     assertRepoChosen(config, member.role, task);
     const projectKey = config.project.key;
     const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
+    // Behind the VM boundary nothing starts while it does not hold (fail closed, PM-140).
+    await this.assertBoundaryReady();
     // A CLI that is not logged in could only sit at its login screen: refuse before any work.
-    await this.assertProviderReady(provider);
+    await this.assertProviderReady(provider, member.handle);
     let cwd = config.project.workspacePath;
     let branch: string | null = null;
     let additionalDirectories: string[] | undefined;
@@ -486,6 +524,10 @@ export class SessionOrchestrator {
           SYSTEM_ACTOR,
         );
       }
+    } else if (this.managed) {
+      // A worker reaches nothing outside its home: a session without a workspace runs in its own
+      // directory there (a chat, a meeting, a reader), never in the project's checkout.
+      cwd = await this.workerSessionDir(member.handle, projectKey);
     } else if (task && repoName && usesWorktree(member.role, config)) {
       // Code-changing roles work in the task's own worktree and branch; others in the workspace.
       try {
@@ -514,7 +556,9 @@ export class SessionOrchestrator {
         SYSTEM_ACTOR,
       );
     }
-    if (task && repoName && !ws && this.workspaces && sessionPolicyFor(member.role, config).readOnlyTools) {
+    if (this.managed) {
+      // Another member's workspace is not readable by this worker; readers get their own (PM-138).
+    } else if (task && repoName && !ws && this.workspaces && sessionPolicyFor(member.role, config).readOnlyTools) {
       // A reader without a workspace of its own reads the developer's, while it is on this task.
       const readable = await this.workspaces.readableWork(config, task.key);
       if (readable) additionalDirectories = [readable];
@@ -541,7 +585,9 @@ export class SessionOrchestrator {
     // there: the session starts a new conversation in the worktree instead of working elsewhere.
     // So does a conversation of an older generation of the member's workspace (made again or moved).
     const relocated = Boolean(
-      existing && (placed || ws) && (path.resolve(existing.cwd) !== path.resolve(cwd) || ws?.newGeneration),
+      existing &&
+        (placed || ws || this.managed) &&
+        (path.resolve(existing.cwd) !== path.resolve(cwd) || ws?.newGeneration),
     );
     if (existing && !relocated && !ws) {
       // Claude Code keeps conversations per working directory: resume where it started.
@@ -638,6 +684,7 @@ export class SessionOrchestrator {
       this.ctx.repos.sessions.insert(session);
     }
     const token = this.issueToken(session);
+    const egressToken = this.managed ? this.issueEgressToken(session) : undefined;
     this.processProviders.set(session.id, provider);
 
     try {
@@ -664,6 +711,7 @@ export class SessionOrchestrator {
         // are not sandboxed yet.
         ...(placed || ws?.binding.kind === 'work' ? { sandbox: WORKTREE_SANDBOX } : {}),
         provider,
+        ...(egressToken ? { egressToken } : {}),
       });
       this.workspaces?.started(session.id, info.pid);
       const current = this.ctx.repos.sessions.get(session.id);
@@ -748,11 +796,61 @@ export class SessionOrchestrator {
     return { attachments, attachmentRules, attachmentDir: attachmentRules.allow.length > 0 ? dir : null };
   }
 
+  /**
+   * Behind the managed VM boundary: `runtime_boundary_not_ready` (503) unless a current readiness
+   * report passed and the launcher and the egress proxy answer. No other kind of start is offered.
+   */
+  private async assertBoundaryReady(): Promise<void> {
+    const boundary = this.deps.runtimeBoundary;
+    if (boundary?.mode !== 'managed_vm') return;
+    const status = await boundary.status();
+    if (!status.ready)
+      throw new DomainError('runtime_boundary_not_ready', 'the VM boundary is not ready; no session starts', {
+        status: 503,
+        details: { problems: status.problems },
+      });
+  }
+
+  /** The member's directory for sessions without a workspace, made as its worker (managed VM). */
+  private async workerSessionDir(handle: string, projectKey: string): Promise<string> {
+    const boundary = this.deps.runtimeBoundary!;
+    const layout = boundary.layout!;
+    const dir = layout.sessions(handle, projectKey);
+    const made = await boundary
+      .launcher!.run({ member: handle, program: 'mkdir', args: ['-p', '-m', '0750', '--', dir], cwd: layout.home(handle) })
+      .catch((err: unknown) => ({ exitCode: null, stderr: (err as Error).message }));
+    if (made.exitCode !== 0)
+      throw new DomainError('session_start_failed', `could not prepare the session directory: ${made.stderr.slice(0, 200)}`, {
+        status: 502,
+        details: { stage: 'session_dir' },
+      });
+    return dir;
+  }
+
+  private issueEgressToken(session: Session): string {
+    this.revokeEgressToken(session.id);
+    const token = newToken();
+    this.egressTokens.set(token, {
+      sessionId: session.id,
+      projectKey: session.projectKey,
+      member: session.member,
+      taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
+    });
+    this.egressTokenBySession.set(session.id, token);
+    return token;
+  }
+
+  private revokeEgressToken(sessionId: string): void {
+    const token = this.egressTokenBySession.get(sessionId);
+    if (token) this.egressTokens.delete(token);
+    this.egressTokenBySession.delete(sessionId);
+  }
+
   /** Throws `provider_not_logged_in` when the runner knows the provider's CLI is not logged in. */
-  private async assertProviderReady(provider: AgentProvider): Promise<void> {
+  private async assertProviderReady(provider: AgentProvider, member: string): Promise<void> {
     let status;
     try {
-      status = await this.deps.runner.providerStatus?.(provider);
+      status = await this.deps.runner.providerStatus?.(provider, { member });
     } catch (err) {
       this.ctx.logger.warn({ err, provider }, 'could not check the provider login');
       return;
@@ -779,6 +877,7 @@ export class SessionOrchestrator {
     const token = this.tokenBySession.get(sessionId);
     if (token) this.tokens.delete(token);
     this.tokenBySession.delete(sessionId);
+    this.revokeEgressToken(sessionId);
   }
 
   /**

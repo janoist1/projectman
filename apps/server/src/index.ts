@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { APP_DEFAULTS, buildApp, isLoopbackHost, loopbackBaseUrl } from './app';
 import type { BuildAppOptions, LoopbackHost } from './app';
+import { loadBoundaryConfig } from './runtime-boundary';
 import { createShutdown } from './shutdown';
 
 /**
@@ -16,6 +17,9 @@ import { createShutdown } from './shutdown';
  *   GH_HOST (github.com): the host whose `gh` login the GitHub module checks,
  *   PROJECTMAN_WORKSPACES (task_worktree): `member` gives every AI member a durable workspace per
  *   repository (PM-138) instead of a worktree per task.
+ *   PROJECTMAN_BOUNDARY_CONFIG (unset): the managed VM's boundary configuration
+ *   (/etc/projectman/boundary.json, PM-140); sessions then start only through the protected
+ *   launcher, as their members' worker accounts, while the boundary is ready.
  * The agent CLIs start with this environment, minus billing and host-session variables (the
  * runner removes them); the git and gh commands the server runs inherit it.
  * Remote access goes through Tailscale (`tailscale serve`), not by binding publicly.
@@ -36,6 +40,10 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
   const workspaces = env.PROJECTMAN_WORKSPACES || 'task_worktree';
   if (workspaces !== 'task_worktree' && workspaces !== 'member')
     throw new Error(`invalid PROJECTMAN_WORKSPACES: ${workspaces} (task_worktree or member)`);
+  // The managed VM boundary: a root-owned file the service unit names. Unreadable or invalid, the
+  // server does not start (it never falls back to running sessions itself).
+  const boundaryFile = env.PROJECTMAN_BOUNDARY_CONFIG || undefined;
+  const runtimeBoundary = boundaryFile ? loadBoundaryConfig(boundaryFile) : undefined;
   // apps/web/dist, from src/index.ts (tsx) as well as from dist/index.js (bundle).
   const webDist = fileURLToPath(new URL('../../web/dist', import.meta.url));
   return {
@@ -54,6 +62,7 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
       logger: env.LOG_LEVEL === undefined ? undefined : { level: env.LOG_LEVEL },
       webDistDir: existsSync(join(webDist, 'index.html')) ? webDist : null,
       memberWorkspaces: workspaces === 'member',
+      runtimeBoundary,
     },
   };
 }

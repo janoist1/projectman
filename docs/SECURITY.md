@@ -167,7 +167,7 @@ What the server adds, in every mode and on the legacy (Mac) profile:
 - The managed VM profile is unchanged: its limits are outside the CLI.
 
 **The CLI's sandbox (PM-167, decision 28).** Every legacy Claude session runs its shell in Claude
-Code's own sandbox: a developer's in its worktree (`WORKTREE_SANDBOX`), every reading session (the
+Code's own sandbox: a developer's in its worktree, every reading session (the
 reviewer, QA, security, analyst, architect, designer, devops, chats, scheduled runs) in one that
 writes only the temp directory, with its working directory (the project's main checkout or its
 review copy), every extra directory (the developer's worktree) and the installation's other
@@ -185,6 +185,31 @@ a command of their own, so a chain, a pipe, a substitution or a redirection into
 whole command inside. That is the CLI's behaviour, read in its code, not a rule of ours: a later
 version must be checked again (SANDBOX-PROBE.md). A local-only repository gets no exception.
 
+**A developer reads only its own work (PM-153).** A developer's sandbox reads nothing below the
+user's home and the app home but its worktree, its task's attachments, its own npm cache and
+development data (below), the shared git directory, `~/.gitconfig`, `~/.config/git` and Claude
+Code's shell snapshots (`~/.claude/shell-snapshots`, sourced before every command; they hold the
+shell's functions, aliases and options). Other worktrees, the app's data, the integrating checkout and the
+credentials stay closed; a credential path stays in `denyRead` as well, and the narrower path
+wins, so nothing re-opens it. Its commands never write the default branch and the integrating
+checkout's `HEAD`, `index` and `packed-refs` (with their lock files) in the shared git directory,
+neither from the shell nor with the file tools (`Edit` rules), and never see `GH_TOKEN`,
+`GITHUB_TOKEN`, `NPM_TOKEN`, `NODE_AUTH_TOKEN` and `SSH_AUTH_SOCK`. Claude Code still asks for a
+command with a here-document it cannot analyse (PM-142, 12:44), sandbox or not; the context pack
+tells the member to write files with the editing tools instead.
+
+**A developer writes nothing the host runs or loads (PM-193).** Before PM-193 a developer's
+sandbox wrote the user's `~/.npm` and `~/.projectman-dev`. The host runs code from
+`~/.npm/_npx/<hash>/node_modules` on its next `npx <package>` (the owner, the integrating
+session, sessions outside a sandbox), unchecked; `~/.npm/_cacache` keeps package metadata without
+an integrity check; the host's `npm run dev` loads `~/.projectman-dev` (members' settings,
+permission modes). A planted package or setting would have run or applied with the owner's
+rights. Now each developer has its own `<app home>/member-caches/<KEY>/<handle>/npm-cache` and
+`…/projectman-dev`, made by the server; the sandbox writes only those, and `npm_config_cache` and
+`PROJECTMAN_HOME` (Claude Code's `env` setting) point there. Nothing outside that member's
+sandboxed sessions uses them; readers get none, and the host's `~/.npm` and `~/.projectman-dev`
+are neither written nor read.
+
 **Residual risk (owner's decision, decision 24 and PM-156).** Sandboxed commands may listen on
 local ports, so they also reach the live instance's port 4800, readers included; the owner decided
 that port stays reachable up to the VM (PM-156). A reader's sandbox reaches the npm registry. A
@@ -192,7 +217,24 @@ Codex member is not bound by the Claude rules at all before the VM; its own sand
 for a reader) is its limit. A developer's file tools have no such `Edit` deny rules outside its
 worktree (its own worktree is inside the app home, and a deny rule wins over an allow rule): there
 the CLI's own questions and Auto's classifier hold. The sandbox's denials were checked on the
-owner's machine in the PM-167 manual run; its result and what is still to run are in PROVIDERS.md.
+owner's machine in the PM-167 manual run; its result and what is still to run (PM-153) are in
+PROVIDERS.md.
+
+**Residual risk (PM-153, accepted until per-member workstations or the VM).** The shared git
+directory of the worktrees is the integrating checkout's `.git`, and the sandbox lets a developer
+write everything in it but `hooks`, `config` and the PM-153 files. So a developer's commands can
+still change other tasks' branches and their `worktrees/<name>` metadata, other refs (tags,
+remote-tracking refs), the reflogs and the object store (a `git gc` or `git prune` there acts on
+the shared objects). They cannot move the default branch, which is what reaches the public
+repository, change the integrating checkout's `HEAD` and `index`, or add replacements
+(`refs/replace`) and grafts (`info/grafts`). **The content seen locally can still be forged:** the
+object store is writable, so an existing loose object of the default branch can be overwritten,
+and a local checkout, diff or merge reads it without checking its hash. The `main` ref does not
+move, but what the integrating session sees and tests on the host under that ref may not be what
+was committed; a push of `main` sends those objects as they are. Accepted until per-member
+workstations or the VM; a per-member workstation has its own clone and nothing shared. What the host's own git does in a developer's worktree (its
+`.git` file, which the developer can rewrite) stays the host-git risk of PM-126/PM-131
+(PROVIDERS.md); PM-193 closed the npm cache and the development data, not that.
 
 `~/.claude` is not denied as a whole, because the members run with the user's own `~/.claude`
 (the runner sets no `CLAUDE_CONFIG_DIR`) and Claude Code saves large tool outputs under

@@ -152,6 +152,8 @@ export interface DomainOptions {
   memberWorkspaces?: MemberWorkspaceManager;
   /** The installation's home (PROJECTMAN_HOME); its sensitive parts are denied to the agents' file tools. */
   appHome?: string;
+  /** The user's home (default `os.homedir()`); a developer's sandbox reads nothing below it but its own (PM-153). */
+  userHome?: string;
   /** Where member workspaces live: a developer's routine steps there run without asking, as in a worktree. */
   workspacesRootDir?: string;
   /**
@@ -258,6 +260,7 @@ export function createDomain(opts: DomainOptions) {
     managedVm: opts.managedVm,
     standby: opts.standby,
     appHome: opts.appHome,
+    userHome: opts.userHome,
     readerDenyWrite: [opts.appHome, opts.worktreesRootDir, opts.workspacesRootDir, opts.installDir].filter(
       (dir): dir is string => !!dir,
     ),

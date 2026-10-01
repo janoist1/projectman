@@ -106,7 +106,7 @@ describe('provider-neutral session policy', () => {
       // The member's mode goes to the CLI as it is (PM-167); the sandbox and the deny rules hold.
       expect(p.permissions.claude).toBe('acceptEdits');
       expect(p.permissions.sandbox).toBe('read-only');
-      expect(sessionSandbox(p)?.denyWrite).toEqual([source]);
+      expect(sessionSandbox(p, { userHome: '/home/anna' })?.denyWrite).toEqual([source]);
       expect(() => policy(role, { kind: 'task_worktree', path: source })).toThrow(/file-changing duty/);
     },
   );
@@ -129,10 +129,18 @@ describe('provider-neutral session policy', () => {
     expect(
       buildSettings({ hookUrl: 'http://fake/hooks', permissionTimeoutMs: 1000, allowedTools: [], sandbox })
         .permissions.deny,
-    ).toEqual(['Edit(//fictional/source/**)', 'Edit(//fictional/home/**)', 'Edit(//fictional/live/**)']);
+    ).toEqual([
+      'Edit(//fictional/source)',
+      'Edit(//fictional/source/**)',
+      'Edit(//fictional/home)',
+      'Edit(//fictional/home/**)',
+      'Edit(//fictional/live)',
+      'Edit(//fictional/live/**)',
+    ]);
     // A developer's sandbox is unchanged: its own worktree stays writable.
     expect(
-      sessionSandbox(development(), { readerDenyWrite: ['/fictional/home'] })!.denyWrite,
+      sessionSandbox(development(), { userHome: '/fictional/user', readerDenyWrite: ['/fictional/home'] })!
+        .denyWrite,
     ).toBeUndefined();
   });
 

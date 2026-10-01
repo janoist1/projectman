@@ -125,8 +125,68 @@ describe('buildSettings', () => {
     // The sandbox binds only the shell: `Edit` (also Write and NotebookEdit) is denied by rules.
     expect(sandboxed.permissions.deny).toEqual([
       'Bash(git push:*)',
+      'Edit(//work)',
       'Edit(//work/**)',
+      'Edit(//worktrees/AR/AR-1-web)',
       'Edit(//worktrees/AR/AR-1-web/**)',
+    ]);
+  });
+
+  it("renders a developer's sandbox exactly: closed homes, its own reads, the protected shared git, no tokens (PM-153)", () => {
+    const git = '/src/app/.git';
+    const own = {
+      cache: '/pm/member-caches/AR/dev-1/npm-cache',
+      dev: '/pm/member-caches/AR/dev-1/projectman-dev',
+    };
+    const sandboxed = buildSettings({
+      hookUrl: 'http://h/hooks/t',
+      allowedTools: [],
+      permissionTimeoutMs: 1000,
+      sandbox: {
+        allowWrite: [own.cache, own.dev],
+        denyWrite: [`${git}/refs/heads/main`, `${git}/HEAD`, `${git}/index`, `${git}/packed-refs`],
+        denyRead: ['/home/a', '/pm', '/home/a/.ssh', '/pm/secret'],
+        allowRead: ['/pm/worktrees/AR/AR-1-web', '/pm/attachments/AR/AR-1', git, '/home/a/.gitconfig'],
+        env: { npm_config_cache: own.cache, PROJECTMAN_HOME: own.dev },
+        deniedEnvVars: ['GH_TOKEN', 'SSH_AUTH_SOCK', 'GH_TOKEN'],
+        allowedDomains: ['registry.npmjs.org'],
+        allowLocalBinding: true,
+      },
+    });
+    expect(sandboxed.sandbox).toEqual({
+      enabled: true,
+      autoAllowBashIfSandboxed: true,
+      allowUnsandboxedCommands: false,
+      failIfUnavailable: true,
+      filesystem: {
+        allowWrite: [own.cache, own.dev],
+        denyWrite: [`${git}/refs/heads/main`, `${git}/HEAD`, `${git}/index`, `${git}/packed-refs`],
+        denyRead: ['/home/a', '/pm', '/home/a/.ssh', '/pm/secret'],
+        allowRead: ['/pm/worktrees/AR/AR-1-web', '/pm/attachments/AR/AR-1', git, '/home/a/.gitconfig'],
+      },
+      network: { allowedDomains: ['registry.npmjs.org'], strictAllowlist: true, allowLocalBinding: true },
+      // Claude Code 2.1.284's schema: `deny` unsets the variable for sandboxed commands.
+      credentials: {
+        envVars: [
+          { name: 'GH_TOKEN', mode: 'deny' },
+          { name: 'SSH_AUTH_SOCK', mode: 'deny' },
+        ],
+      },
+    });
+    // PM-193: npm and the development instance use the member's own directories; Claude Code sets
+    // `env` for the session and its commands.
+    expect(sandboxed.env).toEqual({ npm_config_cache: own.cache, PROJECTMAN_HOME: own.dev });
+    expect(settings).not.toHaveProperty('env');
+    // A file of the shared git directory is named itself, so the file tools cannot rewrite it.
+    expect(sandboxed.permissions.deny).toEqual([
+      `Edit(/${git}/refs/heads/main)`,
+      `Edit(/${git}/refs/heads/main/**)`,
+      `Edit(/${git}/HEAD)`,
+      `Edit(/${git}/HEAD/**)`,
+      `Edit(/${git}/index)`,
+      `Edit(/${git}/index/**)`,
+      `Edit(/${git}/packed-refs)`,
+      `Edit(/${git}/packed-refs/**)`,
     ]);
   });
 
@@ -150,11 +210,16 @@ describe('buildSettings', () => {
       permissionTimeoutMs: 1000,
       sandbox: { allowWrite: [], denyWrite: [composed], allowedDomains: [], allowLocalBinding: true },
     });
-    expect(sandboxed.permissions.deny).toEqual([`Edit(/${composed}/**)`, `Edit(/${decomposed}/**)`]);
+    expect(sandboxed.permissions.deny).toEqual([
+      `Edit(/${composed})`,
+      `Edit(/${composed}/**)`,
+      `Edit(/${decomposed})`,
+      `Edit(/${decomposed}/**)`,
+    ]);
     // An ASCII path has one spelling.
     expect(
       denyWriteRules({ allowWrite: [], denyWrite: ['/work'], allowedDomains: [], allowLocalBinding: true }),
-    ).toEqual(['Edit(//work/**)']);
+    ).toEqual(['Edit(//work)', 'Edit(//work/**)']);
   });
 
   it('forwards every hook of a sandboxed session with the forwarder, past the sandbox proxy', () => {

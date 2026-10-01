@@ -35,10 +35,20 @@ export interface AgentSandbox {
    * the adapter denies their edits of these paths with permission rules.
    */
   denyWrite?: string[];
-  /** Paths commands never read: the credentials and the live instance's data (PM-167). */
+  /**
+   * Paths commands never read: the credentials and the live instance's data (PM-167); for a
+   * developer the whole user home and the app home (PM-153).
+   */
   denyRead?: string[];
-  /** Paths inside `denyRead` that commands may read after all. */
+  /** Paths inside `denyRead` that commands may read after all; a narrower `denyRead` still wins. */
   allowRead?: string[];
+  /** Environment variables commands never see (unset in the sandbox, PM-153): tokens, the SSH agent. */
+  deniedEnvVars?: string[];
+  /**
+   * Environment variables set for the session and its commands (PM-193): the member's own npm cache
+   * and development data, so nothing the host uses outside a sandbox needs to be writable.
+   */
+  env?: Record<string, string>;
   /**
    * Commands that run outside the sandbox with any arguments, through the usual permission path
    * (`gh pr view`): only as a command of their own, never inside a chain, a pipe or a substitution

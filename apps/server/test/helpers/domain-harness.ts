@@ -87,6 +87,9 @@ export async function createDomainHarness(
     managedVm?: ManagedVmBoundary;
     /** The VM's GitHub publishing identity (PM-142); absent, nothing can be published. */
     githubPublisher?: GithubPublisher;
+    /** The user's home and the app home the sessions' sandboxes are computed from (PM-153); default the real home, none. */
+    userHome?: string;
+    appHome?: string;
   } = {},
 ) {
   const restarted = opts.directory !== undefined;
@@ -123,6 +126,8 @@ export async function createDomainHarness(
     createRunner: (broker) => runnerModule.createWithBroker(broker),
     github,
     githubPublisher: opts.githubPublisher,
+    userHome: opts.userHome,
+    appHome: opts.appHome,
     contextBuilder,
     memory,
     worktrees,

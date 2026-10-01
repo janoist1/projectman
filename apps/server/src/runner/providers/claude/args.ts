@@ -55,6 +55,8 @@ export interface ClaudeSandboxSettings {
   failIfUnavailable: true;
   filesystem: { allowWrite: string[]; denyWrite?: string[]; denyRead?: string[]; allowRead?: string[] };
   network: { allowedDomains: string[]; strictAllowlist: true; allowLocalBinding: boolean };
+  /** Environment variables unset for sandboxed commands (`mode: "deny"`, PM-153). */
+  credentials?: { envVars: Array<{ name: string; mode: 'deny' }> };
   /**
    * Command patterns run outside the sandbox (`gh pr view:*`), asked or allowed by the permission
    * rules as any other; see `excludedCommandPattern`.
@@ -97,6 +99,8 @@ export interface ClaudeSettings {
   autoMode?: ClaudeAutoModeSettings;
   hooks: Record<string, Array<{ hooks: HookHandler[] }>>;
   sandbox?: ClaudeSandboxSettings;
+  /** Environment variables Claude Code sets for the session and its commands (the sandbox's `env`, PM-193). */
+  env?: Record<string, string>;
   /** Managed VM profile: no first-use confirmation of the bypass mode (it would wait in the terminal). */
   skipDangerousModePermissionPrompt?: true;
 }
@@ -129,6 +133,13 @@ export function buildSandboxSettings(sandbox: AgentSandbox): ClaudeSandboxSettin
       strictAllowlist: true,
       allowLocalBinding: sandbox.allowLocalBinding,
     },
+    ...(sandbox.deniedEnvVars?.length
+      ? {
+          credentials: {
+            envVars: [...new Set(sandbox.deniedEnvVars)].map((name) => ({ name, mode: 'deny' as const })),
+          },
+        }
+      : {}),
     ...(sandbox.excludedCommands?.length
       ? { excludedCommands: [...new Set(sandbox.excludedCommands)].map(excludedCommandPattern) }
       : {}),
@@ -136,17 +147,19 @@ export function buildSandboxSettings(sandbox: AgentSandbox): ClaudeSandboxSettin
 }
 
 /**
- * Deny rules for the built-in file tools on the sandbox's `denyWrite` directories (PM-167): the
- * sandbox binds only the shell, so `Edit` (which also covers `Write` and `NotebookEdit`) is denied
- * there by a rule, in every mode. A path a rule cannot name as it is refuses the start: it would
- * leave the directory writable for the file tools.
+ * Deny rules for the built-in file tools on the sandbox's `denyWrite` paths (PM-167): the sandbox
+ * binds only the shell, so `Edit` (which also covers `Write` and `NotebookEdit`) is denied there by
+ * a rule, in every mode. A path is a directory (a reader's working directory) or a file (a shared
+ * git directory's `HEAD`, PM-153), so both the path and everything below it are named. A path a
+ * rule cannot name as it is refuses the start: it would stay writable for the file tools.
  */
 export function denyWriteRules(sandbox: AgentSandbox | undefined): string[] {
-  return (sandbox?.denyWrite ?? []).flatMap((dir) => {
-    const paths = directoryRulePaths(dir);
+  return (sandbox?.denyWrite ?? []).flatMap((target) => {
+    const paths = directoryRulePaths(target);
     if (!paths)
-      throw new Error(`Cannot keep ${JSON.stringify(dir)} read-only with a rule; refusing to start.`);
-    return paths.map((path) => `Edit(${path})`);
+      throw new Error(`Cannot keep ${JSON.stringify(target)} read-only with a rule; refusing to start.`);
+    // `//<path>/**` takes everything below; the path itself too, for a file.
+    return paths.flatMap((below) => [`Edit(${below.slice(0, -'/**'.length)})`, `Edit(${below})`]);
   });
 }
 
@@ -231,6 +244,7 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
     ...(managed ? {} : { autoMode: AUTO_MODE_SETTINGS }),
     hooks,
     ...(sandbox ? { sandbox: buildSandboxSettings(sandbox) } : {}),
+    ...(sandbox?.env && Object.keys(sandbox.env).length > 0 ? { env: { ...sandbox.env } } : {}),
     ...(managed && input.policy!.permissions.claude === 'bypassPermissions'
       ? { skipDangerousModePermissionPrompt: true as const }
       : {}),

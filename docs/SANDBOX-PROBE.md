@@ -242,6 +242,55 @@ file is only counted (`wc -c`), so the evidence holds its size at most.
 5. Record each line as `pass`, `fail` or `unverified` with the raw output in the task, and the
    summary in PROVIDERS.md (the PM-167 table's "Manual run" line).
 
+## PM-153 and PM-193: a developer's read boundary, the protected shared git, its own npm cache
+
+The developer sandbox of PM-153 and PM-193 (PROVIDERS.md, "The sandboxes the server hands out") on
+the owner's Mac, interactively with Claude Code 2.1.284, against a **development** instance as in
+PM-167. Use fictional data: a fictional file in the development instance's app home (e.g.
+`~/.projectman-dev/probe-secret.txt`) and a second task's worktree with a `private.txt`.
+Credential files are only counted (`wc -c`), never printed.
+
+1. Record the commit, `claude --version`, macOS version and the developer's effective sandbox
+   (`/sandbox` in its terminal): `denyRead`, `allowRead`, `denyWrite`, `credentials.envVars`; and
+   `printenv npm_config_cache PROJECTMAN_HOME` (the member's `member-caches/<KEY>/<handle>/…`).
+2. In the developer's chat, refused by the sandbox (operation not permitted):
+   - `wc -c <app home>/<fictional file>` (a file of the app home outside the developer's
+     worktree and attachments), `cat <the other task's worktree>/private.txt`;
+   - `ls ~/.ssh`, `wc -c ~/.config/gh/hosts.yml`, `wc -c ~/.claude.json`;
+   - `cat <the integrating checkout>/package.json` (the main checkout next to the shared `.git`);
+   - `git update-ref refs/heads/main HEAD`; `touch <shared .git>/HEAD`, `touch <shared .git>/index`;
+     afterwards no `main.lock`, `HEAD.lock` or `index.lock` is left in the shared `.git`, and the
+     integrating checkout's `git status` and `git log -1 main` are unchanged;
+   - `git replace $(git rev-parse main:package.json) $(git hash-object -w <a fictional file>)` and
+     `touch <shared .git>/info/grafts`: refused; afterwards `git replace -l` lists nothing and the
+     integrating checkout's `git show main:package.json` is unchanged;
+   - the credential helper of `/opt/homebrew/etc/gitconfig` (`osxkeychain`):
+     `printf 'protocol=https\nhost=github.com\n\n' | git credential fill | wc -c` gives no password
+     (count only, never print it), and `security find-internet-password -s github.com > /dev/null`
+     is refused. If either reaches a credential, that is a separate card;
+   - `printenv GH_TOKEN SSH_AUTH_SOCK` prints nothing (start the instance with a fictional
+     `GH_TOKEN=probe` in its environment to see the difference);
+   - PM-193: `touch ~/.npm/_npx/probe.txt`, `touch ~/.npm/probe.txt`,
+     `touch ~/.projectman-dev/probe.txt`, `wc -c ~/.projectman-dev/probe-secret.txt`: nothing
+     appears in the host's `~/.npm` and `~/.projectman-dev`, the file is not read.
+3. In the developer's chat, without a question:
+   - `ls`, `git status`, `git log -1` in its worktree; `cat` of a file in the task's attachment
+     directory (attach one first);
+   - `npm cache clean --force`, then `npm install <a small new package>` (fresh cache, from the
+     registry), then `npm test` (the PTY tests are skipped there) and `npm run typecheck`; the
+     cache fills the member's `npm-cache` (`ls $npm_config_cache`), not `~/.npm`;
+   - `npx <a package not installed in the worktree> --version`: runs, its `_npx` is in the
+     member's `npm-cache`;
+   - `npm run dev` starts with its data in `$PROJECTMAN_HOME` (stop it right away);
+   - `git add -A`, `git commit -m "Probe"`, then `git gc --auto`: the commit stays (`git log -1`),
+     whatever `gc` reports about `packed-refs`.
+4. A command with a here-document (`cat > /dev/null <<'EOF'` with an empty body) still asks: the
+   12:44 case of PM-142 (PROVIDERS.md, "Commands Claude Code asks about in the sandbox").
+5. Record each line as `pass`, `fail` or `unverified` with the raw output in the task, and the
+   summary in PROVIDERS.md (the "Manual run" line under the sandbox table). A command the sandbox
+   refuses but the developer needs is a finding: `allowRead` may grow by it, never by the app home,
+   `~/.ssh`, `~/.config/gh`, `~/.codex`, another `~/.claude` path or `~/.npmrc`.
+
 ## Acceptance record and alternatives
 
 Fill one row per CLI version / OS / effective policy. For each capability record `pass`,

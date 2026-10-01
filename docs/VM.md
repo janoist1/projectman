@@ -99,7 +99,7 @@ container, not the machine the profile describes. The existing `debian-vm` insta
   lies in that worker's home, and opens it without following a symlink. Transcripts may hold
   anything the member typed or a tool printed: they are not secret-free, so they live only inside
   the backed-up trees below and are never copied into readiness evidence.
-- **CLI login (pending the owner's choice on PM-140).** Each worker has its own subscription login,
+- **CLI login (the owner's choice on PM-140).** Each worker has its own subscription login,
   made once by a person per worker and provider (human steps below); the runner checks that login
   (`claude auth status`, `codex login status`) as the worker before a session starts. The login is
   never typed on the Mac and never copied: verify.sh fails a login file in a worker home that is not

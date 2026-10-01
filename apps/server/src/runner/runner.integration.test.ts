@@ -537,6 +537,86 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     ).toEqual(['Your session was restarted.', 'A message queued during the restart']);
   });
 
+  describe('compaction (PM-213)', () => {
+    const compactionEvents = (id: string) =>
+      events.flatMap((e) =>
+        e.type === 'compaction' && e.sessionId === id
+          ? [`${e.phase}${e.requested ? ' (asked for)' : ''}`]
+          : [],
+      );
+
+    it('compacts an idle session, holds a message back while it works, and goes on in the same conversation', async () => {
+      await setup();
+      process.env.FAKE_CLAUDE_COMPACT_DELAY_MS = '600';
+      const s = spec({ initialMessage: 'first round' });
+      await runner.runner.start(s);
+      await assistantSaid(s.sessionId, 'Echo: first round');
+      await waitState(s.sessionId, 'idle');
+
+      await expect(runner.runner.compact?.(s.sessionId, 'Keep the card and the open bugs.')).resolves.toBe(
+        true,
+      );
+      const queued = runner.runner.sendUserMessage(s.sessionId, 'second round');
+      await waitState(s.sessionId, 'working');
+      // The session works while the conversation is summarised: the message is not typed over it.
+      expect(compactionEvents(s.sessionId)).toEqual(['started (asked for)']);
+      expect(chatOf(s.sessionId).some((i) => i.kind === 'user_text' && i.text === 'second round')).toBe(
+        false,
+      );
+
+      await assistantSaid(s.sessionId, 'Echo: second round');
+      await queued;
+      expect(compactionEvents(s.sessionId)).toEqual(['started (asked for)', 'finished (asked for)']);
+      // The same transcript file: the next round continues the same conversation.
+      const transcript = await readFile(path.join(transcriptDir, `${s.claudeSessionId}.jsonl`), 'utf8');
+      expect(transcript).toContain('<command-args>Keep the card and the open bugs.</command-args>');
+      expect(transcript).toContain('compact_boundary');
+      expect(events.filter((e) => e.type === 'transcript_path' && e.sessionId === s.sessionId)).toHaveLength(
+        1,
+      );
+    });
+
+    it('compacts a resumed conversation before the message that woke it', async () => {
+      await setup();
+      const s = spec({ initialMessage: 'first round' });
+      await runner.runner.start(s);
+      await assistantSaid(s.sessionId, 'Echo: first round');
+      await waitState(s.sessionId, 'idle');
+      await runner.runner.stop(s.sessionId);
+
+      await runner.runner.start({
+        ...s,
+        resume: true,
+        compactFirst: 'Keep the card.',
+        initialMessage: 'You have a new message',
+      });
+      await assistantSaid(s.sessionId, 'Echo: You have a new message');
+      expect(compactionEvents(s.sessionId)).toEqual(['started (asked for)', 'finished (asked for)']);
+      const full = await runner.transcripts.read(path.join(transcriptDir, `${s.claudeSessionId}.jsonl`));
+      const said = full.flatMap((i) => (i.kind === 'user_text' ? [i.text] : []));
+      expect(said.at(-1)).toBe('You have a new message');
+    });
+
+    it('gives a compaction up that never starts, and the session takes messages again', async () => {
+      await setup();
+      process.env.FAKE_CLAUDE_COMPACT_IGNORED = '1';
+      const s = spec({ initialMessage: 'first round' });
+      await runner.runner.start(s);
+      await assistantSaid(s.sessionId, 'Echo: first round');
+      await waitState(s.sessionId, 'idle');
+
+      await runner.runner.compact?.(s.sessionId, 'Keep the card.');
+      // No PreCompact comes: the runner gives up after its start timeout (10 s).
+      await waitFor(() => compactionEvents(s.sessionId).includes('abandoned (asked for)'), {
+        timeoutMs: 20_000,
+        what: 'the compaction given up',
+      });
+      expect(stateOf(s.sessionId)).toBe('idle');
+      await runner.runner.sendUserMessage(s.sessionId, 'after the swallowed command');
+      await assistantSaid(s.sessionId, 'Echo: after the swallowed command');
+    });
+  });
+
   it('follows the new transcript after /clear', async () => {
     await setup();
     const s = spec({ initialMessage: 'before clear' });

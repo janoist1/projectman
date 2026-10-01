@@ -593,6 +593,30 @@ describe('continue message', () => {
     expect(builder.build(input()).continueMessage).not.toContain('Your other running sessions');
   });
 
+  it('names the commit a returning reviewer reviewed last, and asks for only what changed since (PM-213)', () => {
+    const pin = { commit: 'b'.repeat(40), branch: 'AR-21-fix-email', pinnedAt: '2026-10-01T10:00:00.000Z' };
+    const message = builder.build(
+      input({ task: makeTask({ reviewPin: pin }), lastReviewedCommit: 'a'.repeat(40) }),
+    ).continueMessage;
+    expect(message).toContain(
+      `You last reviewed commit \`${'a'.repeat(40)}\`; the commit handed over now is \`${'b'.repeat(40)}\` on \`AR-21-fix-email\`. ` +
+        `Review only the change since your last review (git diff ${'a'.repeat(40)} ${'b'.repeat(40)}) and whether your earlier findings were fixed; do not read the whole change again.`,
+    );
+    expect(message).not.toContain('\n');
+    // The branch did not move: only the earlier findings are left to check.
+    expect(
+      builder.build(input({ task: makeTask({ reviewPin: pin }), lastReviewedCommit: pin.commit }))
+        .continueMessage,
+    ).toContain('the branch has not moved since, so check only that your earlier findings were fixed');
+    // Nothing is said without a pin on the card or without a last review.
+    expect(builder.build(input({ lastReviewedCommit: 'a'.repeat(40) })).continueMessage).not.toContain(
+      'last reviewed',
+    );
+    expect(builder.build(input({ task: makeTask({ reviewPin: pin }) })).continueMessage).not.toContain(
+      'last reviewed',
+    );
+  });
+
   it('names the current stage and the project language', () => {
     const project = buildProject('web-client-project', 'hu');
     const message = builder.build(

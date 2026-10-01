@@ -69,6 +69,15 @@ export class FakeRunner implements SessionRunner {
     this.messages.push({ sessionId, text });
   }
 
+  /** The compactions asked for (PM-213), and whether the next one is taken (`false`: the runner refuses). */
+  readonly compactions: Array<{ sessionId: string; instruction: string }> = [];
+  compactTaken = true;
+  async compact(sessionId: string, instruction: string): Promise<boolean> {
+    if (!this.compactTaken || !this.running.has(sessionId)) return false;
+    this.compactions.push({ sessionId, instruction });
+    return true;
+  }
+
   hasPendingInput(sessionId: string): boolean {
     return this.pendingInput.has(sessionId);
   }
@@ -187,6 +196,8 @@ export function createFakeRunnerModule(): FakeRunnerModule {
 
 export class FakeContextBuilder implements ContextPackBuilder {
   readonly inputs: ContextPackInput[] = [];
+  /** Off by default (sessions are never compacted); a test of the compaction sets it (PM-213). */
+  compactInstruction: string | undefined = undefined;
   build(input: ContextPackInput): ContextPack {
     this.inputs.push(input);
     return {

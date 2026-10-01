@@ -106,6 +106,12 @@ export interface StartSessionSpec {
    */
   initialMessage?: string | null;
   /**
+   * A resumed conversation is compacted before anything else is typed (PM-213): the instruction
+   * (English prompt text) the compaction command takes. The initial message follows once the
+   * compaction is over, or given up. Only for providers in `COMPACTING_PROVIDERS`.
+   */
+  compactFirst?: string;
+  /**
    * Who writes the first user turn of a new conversation (`openingTurnOrigin`); the chat labels
    * it. Default: "brief" when there is an initial message, else "human".
    */
@@ -168,7 +174,32 @@ export type RunnerEvent =
    * Tokens the session used since the previous `usage` event (PM-178), per model and scope, read
    * from the transcript as it grows (a subagent's when it stops). Always an increment: add it up.
    */
-  | { type: 'usage'; sessionId: string; entries: TokenUsage[] };
+  | {
+      type: 'usage';
+      sessionId: string;
+      entries: TokenUsage[];
+      /**
+       * The context of the conversation's last step in these lines (PM-213): its input, cache read
+       * and cache write tokens together. Absent when the lines held no step of the main conversation.
+       */
+      contextTokens?: number;
+    }
+  /**
+   * The conversation's compaction (PM-213), as the CLI reports it with its PreCompact and
+   * PostCompact hooks. `started` and `finished` come for every compaction, the agent's own
+   * included (`trigger`: "manual" or "auto"; `requested`: the server asked for it). `abandoned`:
+   * the compaction the server asked for did not start or finish in time, and the session carries on.
+   */
+  | {
+      type: 'compaction';
+      sessionId: string;
+      phase: 'started' | 'finished' | 'abandoned';
+      trigger: string | null;
+      requested: boolean;
+    };
+
+/** The providers whose CLI the server compacts with a typed command (PM-213); Codex's was not checked. */
+export const COMPACTING_PROVIDERS: ReadonlySet<AgentProvider> = new Set<AgentProvider>(['claude']);
 
 /** Login state of an agent CLI, from a check that spends no usage. */
 export interface ProviderStatus {
@@ -242,6 +273,15 @@ export interface SessionRunner {
   start(spec: StartSessionSpec): Promise<RunningSessionInfo>;
   /** Types a user message into the session once it is idle (queued otherwise); resolves when typed. */
   sendUserMessage(sessionId: string, text: string): Promise<void>;
+  /**
+   * Compacts the session's conversation (PM-213): types the CLI's compaction command with
+   * `instruction` once the session is idle, and holds every later message back until the CLI is
+   * idle again. Resolves when the command is typed, false when the provider has no such command
+   * (`COMPACTING_PROVIDERS`) or a compaction is on its way already. If the CLI does not start or
+   * finish within the time limit, the runner gives up (`compaction` event, `abandoned`) and the
+   * session takes messages again. Absent: no compaction.
+   */
+  compact?(sessionId: string, instruction: string): Promise<boolean>;
   /**
    * A message is still on its way into the session: queued, being typed, or typed but not yet
    * submitted (a first message included). A restart waits until it got through. Absent: nothing waits.

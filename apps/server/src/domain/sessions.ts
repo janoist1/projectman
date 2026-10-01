@@ -7,6 +7,8 @@ import {
   effectiveRepo,
   effectiveSessionPermissions,
   isOnLeave,
+  isOpenTask,
+  isWorkingOnTask,
   memberOf,
   messageRoute,
   repoOf,
@@ -30,7 +32,12 @@ import type {
   UpdateSessionRequest,
   WorkItemRef,
 } from '@projectman/shared';
-import { MANAGED_VM_UNAVAILABLE, openingTurnOrigin, PROVIDER_NOT_LOGGED_IN } from '../contracts';
+import {
+  COMPACTING_PROVIDERS,
+  MANAGED_VM_UNAVAILABLE,
+  openingTurnOrigin,
+  PROVIDER_NOT_LOGGED_IN,
+} from '../contracts';
 import type {
   AttachmentOperations,
   CardRelation,
@@ -90,6 +97,14 @@ export const LIVE_SESSION_STATES: SessionState[] = [
 /** A turn is in progress: these count against `maxConcurrentAi`. */
 export const BUSY_SESSION_STATES: SessionState[] = ['starting', 'working', 'waiting_permission'];
 const ENDED = new Set<SessionState>(['exited', 'failed']);
+
+/**
+ * A stopped session that owes a compaction (PM-213) gets it when it resumes only if its conversation
+ * is bigger than this: its last measured context (input, cache read and cache write of the last
+ * step). A fresh session already starts at 52-56k (the PM-209 measurement), a fixed share a
+ * compaction does not shrink, so a smaller conversation is not worth the summary.
+ */
+export const RESUME_COMPACT_MIN_TOKENS = 100_000;
 
 export interface EnsureSessionResult {
   session: Session;
@@ -1093,6 +1108,8 @@ export class SessionOrchestrator {
     );
     const relatedSessions = task ? this.relatedSessions(projectKey, member.handle, task) : [];
     const relations = task ? this.deps.tasks.relationsOf(projectKey, task.key) : [];
+    // What a returning reviewer reviewed last (PM-213), named in the message that wakes it.
+    const lastReviewedCommit = existing ? this.ctx.repos.sessions.reviewedCommit(existing.id) : null;
     const userHome = this.deps.userHome ?? homedir();
     const policy = buildSessionPolicy({
       config,
@@ -1143,6 +1160,7 @@ export class SessionOrchestrator {
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(relatedSessions.length > 0 ? { relatedSessions } : {}),
       ...(relations.length > 0 ? { relations } : {}),
+      ...(lastReviewedCommit ? { lastReviewedCommit } : {}),
     });
 
     // Configuration may change while login, worktree and memory preparation await I/O. So may the
@@ -1167,6 +1185,14 @@ export class SessionOrchestrator {
     const resume =
       !relocated &&
       Boolean(existing?.transcriptPath && (existing.provider ?? DEFAULT_AGENT_PROVIDER) === provider);
+    // A conversation whose round ended while its session did not run is compacted before anything
+    // else is typed (PM-213), if it is big: the wake-up messages and the continue message follow it.
+    const owed = resume && existing ? this.ctx.repos.sessions.compaction(existing.id) : null;
+    const compactInstruction = this.compactInstruction(provider);
+    const compactFirst =
+      owed?.pending && compactInstruction && (owed.contextTokens ?? 0) > RESUME_COMPACT_MIN_TOKENS
+        ? compactInstruction
+        : undefined;
     let session: Session;
     if (existing) {
       session = this.ctx.repos.sessions.update(existing.id, {
@@ -1246,6 +1272,7 @@ export class SessionOrchestrator {
               ? null
               : pack.continueMessage
           : newConversationInput(pack.initialMessage, messages),
+        ...(compactFirst ? { compactFirst } : {}),
         firstUserOrigin: openingTurnOrigin(workItem),
         mcpUrl: `${this.deps.publicBaseUrl}${routes.mcp(token)}`,
         policy,
@@ -1262,6 +1289,19 @@ export class SessionOrchestrator {
         ...(egressToken ? { egressToken } : {}),
       });
       this.ctx.repos.sessions.setExecutionProfile(session.id, vm ? 'managed_vm' : 'legacy');
+      // A new conversation owes and measures nothing yet. A resumed one that was asked to compact
+      // keeps owing it until the runner reports it done or given up; one that owed it but is small
+      // owes nothing any more.
+      if (!resume) {
+        this.ctx.repos.sessions.setCompactPending(session.id, false);
+        this.ctx.repos.sessions.setContextTokens(session.id, null);
+        this.ctx.repos.sessions.setReviewedCommit(session.id, null);
+      } else if (!compactFirst) {
+        this.ctx.repos.sessions.setCompactPending(session.id, false);
+      }
+      // The commit a reviewer works on this round: the next wake-up names it as the last reviewed.
+      if (task?.reviewPin && task.assignee !== member.handle)
+        this.ctx.repos.sessions.setReviewedCommit(session.id, task.reviewPin.commit);
       this.processModes.set(session.id, permissionMode);
       this.processGrants.set(session.id, this.sessionGrants(session));
       this.workspaces?.started(session.id, info.pid);
@@ -1609,6 +1649,8 @@ export class SessionOrchestrator {
           this.wakeForNewRound(updated);
           if (updated.state === 'idle') this.turnEnded(updated.id);
           if (updated.state === 'idle' && updated.permissionRestartPending) this.restartWhenIdle(updated);
+          if (updated.state === 'idle' && this.ctx.repos.sessions.compaction(updated.id).pending)
+            this.compactWhenIdle(updated);
           return;
         }
         case 'transcript_path': {
@@ -1642,7 +1684,22 @@ export class SessionOrchestrator {
           );
           return;
         }
+        case 'compaction': {
+          // The compaction the server asked for is over, or given up: it is not owed any more (PM-213).
+          // What the conversation's context is, is measured again from its next step.
+          if (event.phase === 'finished') this.ctx.repos.sessions.setContextTokens(session.id, null);
+          if (event.requested && event.phase !== 'started')
+            this.ctx.repos.sessions.setCompactPending(session.id, false);
+          this.ctx.logger.info(
+            { sessionId: session.id, phase: event.phase, trigger: event.trigger, requested: event.requested },
+            'conversation compaction',
+          );
+          return;
+        }
         case 'usage': {
+          if (event.contextTokens !== undefined)
+            this.ctx.repos.sessions.setContextTokens(session.id, event.contextTokens);
+          if (event.entries.length === 0) return;
           // Counted at once (PM-178). During a turn the session's state changes carry the new sum to
           // the screens; once the turn is over (its last lines may come after the Stop), this does.
           this.ctx.repos.tokenUsage.add(
@@ -1714,6 +1771,89 @@ export class SessionOrchestrator {
           'could not restart the session into its new mode',
         ),
       );
+  }
+
+  // ---------------------------------------------------------------- end-of-round compaction (PM-213)
+
+  /** The text the compaction command takes, when sessions of this provider are compacted at all. */
+  private compactInstruction(provider: AgentProvider | undefined): string | null {
+    const instruction = this.deps.contextBuilder.compactInstruction;
+    if (!instruction || !this.deps.runner.compact) return null;
+    return COMPACTING_PROVIDERS.has(provider ?? DEFAULT_AGENT_PROVIDER) ? instruction : null;
+  }
+
+  /**
+   * The card left a stage (`task_stage_changed`): the round of every member's session on it ends
+   * when the card is no longer in a stage that member works it in, so that conversation owes a
+   * compaction. A session in a turn is compacted once it idles, an idle one now; one that does not
+   * run is compacted when it resumes (`start`). A member who works the card in the next stage as
+   * well goes on in the same conversation, and a card that is done or cancelled needs nothing.
+   */
+  async roundEnded(task: Task): Promise<void> {
+    if (!isOpenTask(task)) return;
+    const config = await this.deps.projects.config(task.projectKey);
+    for (const session of this.ctx.repos.sessions.list(task.projectKey, { taskKey: task.key })) {
+      if (!this.compactInstruction(session.provider)) continue;
+      if (isWorkingOnTask(config, task, session.member, 'idle')) continue;
+      this.ctx.repos.sessions.setCompactPending(session.id, true);
+      this.compactWhenIdle(session);
+    }
+  }
+
+  /** Compacts the session now if it is idle, else its next idle moment does (`handleRunnerEvent`). */
+  private compactWhenIdle(session: Session): void {
+    if (session.state !== 'idle') return;
+    this.locks
+      .run(sessionLockKey(session.projectKey, session.member, session.workItem), () =>
+        this.compactIdle(session.id),
+      )
+      .catch((err: unknown) =>
+        this.ctx.logger.warn({ err, sessionId: session.id }, 'could not compact the session'),
+      );
+  }
+
+  /**
+   * Types the compaction command into an idle session whose round ended, unless something is on its
+   * way into it: a message goes first, and the compaction waits for the session's next idle moment.
+   * The caller holds the session's lock.
+   */
+  private async compactIdle(sessionId: string): Promise<void> {
+    const ready = (s: Session | null): s is Session =>
+      Boolean(
+        s &&
+        s.workItem.type === 'task' &&
+        s.state === 'idle' &&
+        this.isRunning(s.id) &&
+        this.ctx.repos.sessions.compaction(s.id).pending &&
+        !this.deps.runner.hasPendingInput?.(s.id) &&
+        !this.messageWaiting(s),
+      );
+    if (!ready(this.find(sessionId))) return;
+    const found = this.find(sessionId)!;
+    const config = await this.deps.projects.config(found.projectKey);
+    const session = this.find(sessionId);
+    if (!ready(session) || session.workItem.type !== 'task') return;
+    const instruction = this.compactInstruction(session.provider);
+    if (!instruction) return;
+    const task = this.deps.tasks.get(session.projectKey, session.workItem.taskKey);
+    if (isWorkingOnTask(config, task, session.member, 'idle')) {
+      // The card is back in a stage the member works it in: the conversation goes on with it.
+      this.ctx.repos.sessions.setCompactPending(session.id, false);
+      return;
+    }
+    if (!isOpenTask(task)) return;
+    const asked = await this.deps.runner.compact!(session.id, instruction);
+    this.ctx.logger.info(
+      { sessionId: session.id, taskKey: task.key, asked },
+      asked ? 'compacting the conversation at the end of its round' : 'the compaction was not asked for',
+    );
+  }
+
+  /** A team message for this session's work item has not been typed into it yet. */
+  private messageWaiting(session: Session): boolean {
+    return this.ctx.repos.messages
+      .pending(session.projectKey, session.member)
+      .some((m) => sameWorkItem(messageRoute(m, session.member), session.workItem));
   }
 
   private publishSession(session: Session): void {

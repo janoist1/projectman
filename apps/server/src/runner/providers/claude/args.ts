@@ -27,6 +27,9 @@ export const HTTP_HOOK_EVENTS = [
   'SessionEnd',
   // Names the subagent's own transcript, whose token usage is read then (PM-178).
   'SubagentStop',
+  // A compaction's start and end (PM-213, both exist in 2.1.284): the session works while it runs.
+  'PreCompact',
+  'PostCompact',
 ] as const;
 
 /**

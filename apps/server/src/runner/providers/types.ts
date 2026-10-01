@@ -64,6 +64,10 @@ export interface SessionTiming {
   stopTimeoutMs: number;
   /** Exit waits this long at most for the last transcript lines. */
   finalReadMs: number;
+  /** A typed compaction command that never produced PreCompact is given up after this (PM-213). */
+  compactStartTimeoutMs: number;
+  /** A compaction that started and never produced PostCompact is given up after this (PM-213). */
+  compactTimeoutMs: number;
 }
 
 /** Result of parsing transcript lines. */
@@ -75,6 +79,8 @@ export interface TranscriptParseResult {
   authError?: string | null;
   /** Tokens these lines add to the session's usage (PM-178), per model and scope. */
   usage?: TokenUsage[];
+  /** The context of the latest step of the main conversation in these lines (PM-213). */
+  contextTokens?: number;
 }
 
 /** Incremental transcript parser of one conversation. */

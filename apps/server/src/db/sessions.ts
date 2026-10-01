@@ -41,6 +41,17 @@ interface SessionRow {
   usage_alert_at: string | null;
   usage_alert_tokens: number | null;
   usage_alert_limit: number | null;
+  compact_pending: number;
+  context_tokens: number | null;
+  reviewed_commit: string | null;
+}
+
+/** What a session's conversation owes and measures for the end-of-round compaction (PM-213). */
+export interface SessionCompaction {
+  /** Its round ended and no compaction ran or was given up since. */
+  pending: boolean;
+  /** The context of the conversation's last step (input + cache read + cache write); null: unknown. */
+  contextTokens: number | null;
 }
 
 /** Token usage rows summed per model and scope. */
@@ -169,6 +180,11 @@ export function createSessionRepository(db: Db) {
     get: db.prepare('SELECT * FROM sessions WHERE id = ?'),
     profile: db.prepare('SELECT execution_profile FROM sessions WHERE id = ?'),
     setProfile: db.prepare('UPDATE sessions SET execution_profile = ? WHERE id = ?'),
+    compaction: db.prepare('SELECT compact_pending, context_tokens FROM sessions WHERE id = ?'),
+    setCompactPending: db.prepare('UPDATE sessions SET compact_pending = ? WHERE id = ?'),
+    setContextTokens: db.prepare('UPDATE sessions SET context_tokens = ? WHERE id = ?'),
+    reviewedCommit: db.prepare('SELECT reviewed_commit FROM sessions WHERE id = ?'),
+    setReviewedCommit: db.prepare('UPDATE sessions SET reviewed_commit = ? WHERE id = ?'),
     markUsageAlert: db.prepare(
       `UPDATE sessions SET usage_alert_at = ?, usage_alert_tokens = ?, usage_alert_limit = ?
        WHERE id = ? AND usage_alert_at IS NULL`,
@@ -228,6 +244,26 @@ export function createSessionRepository(db: Db) {
     },
     setExecutionProfile(id: string, profile: ExecutionProfile): void {
       statements.setProfile.run(profile, id);
+    },
+    /** The end-of-round compaction state of the session's conversation (PM-213). */
+    compaction(id: string): SessionCompaction {
+      const row = statements.compaction.get(id) as
+        { compact_pending: number; context_tokens: number | null } | undefined;
+      return { pending: Boolean(row?.compact_pending), contextTokens: row?.context_tokens ?? null };
+    },
+    setCompactPending(id: string, pending: boolean): void {
+      statements.setCompactPending.run(Number(pending), id);
+    },
+    setContextTokens(id: string, tokens: number | null): void {
+      statements.setContextTokens.run(tokens, id);
+    },
+    /** The commit the session reviewed in its last round on its task (PM-213); null: none known. */
+    reviewedCommit(id: string): string | null {
+      const row = statements.reviewedCommit.get(id) as { reviewed_commit: string | null } | undefined;
+      return row?.reviewed_commit ?? null;
+    },
+    setReviewedCommit(id: string, commit: string | null): void {
+      statements.setReviewedCommit.run(commit, id);
     },
     /**
      * Marks that the session's usage reached the warning limit (PM-187), unless it already is:

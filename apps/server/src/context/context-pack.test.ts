@@ -15,7 +15,6 @@ import type {
 import { aiMemberDefaults, getTemplate } from '@projectman/templates';
 import type { ContextPackInput, SessionPolicy } from '../contracts';
 import { buildSessionPolicy, commandVerdict, readableRootsFor, sessionSandbox } from '../domain';
-import { TEAM_TOOL_NAMES } from '../mcp';
 import { createContextPackBuilder } from './context-pack';
 import { stageLabel } from './format';
 import { formatMemoryEntry, MEMORY_LIMIT_BYTES } from './memory';
@@ -375,6 +374,87 @@ describe('context pack snapshots', () => {
   });
 });
 
+describe('token economy (PM-181)', () => {
+  const customRolePack = () => {
+    const project = buildProject();
+    project.team.roles.push(dataSteward);
+    addMember(project, 'data-steward', 'data_steward', {
+      displayName: 'Data steward',
+      instructions: 'Start with the product catalogue.',
+    });
+    return builder.build(
+      input({
+        project,
+        handle: 'data-steward',
+        workItem: { type: 'general' },
+        task: null,
+        stage: null,
+        timeline: [],
+        memory: '',
+      }),
+    );
+  };
+
+  it('is in the system prompt of every role, custom roles included, after how the team works', () => {
+    const prompts = [
+      ...AI_BUILT_IN_ROLE_IDS.map((role) => {
+        const project = buildProject();
+        addMember(project, `member-${role}`, role);
+        return builder.build(input({ project, handle: `member-${role}` })).appendSystemPrompt;
+      }),
+      customRolePack().appendSystemPrompt,
+    ];
+    expect(prompts.length).toBeGreaterThan(AI_BUILT_IN_ROLE_IDS.length);
+    for (const prompt of prompts) {
+      expect(prompt).toContain('# Token economy\n');
+      const headings = prompt.split('\n').filter((line) => line.startsWith('# '));
+      expect(headings.indexOf('# Token economy')).toBe(headings.indexOf('# How the team works') + 1);
+      expect(prompt.split('# Token economy').length - 1).toBe(1);
+    }
+  });
+
+  it('keeps to six points that do not contradict the existing rules', () => {
+    const economy = section(builder.build(input()).appendSystemPrompt, '# Token economy');
+    expect(economy.split('\n').filter((line) => line.startsWith('- '))).toHaveLength(6);
+    // Re-reading the task before rewriting its description stays allowed, as the exception.
+    expect(economy).toContain('Call get_task again only when the task may have changed since');
+    expect(economy).toContain('before you rewrite its description');
+    // The cheap subagent's own rule is in its section: this only points at it.
+    expect(economy).toContain('If your instructions have a Cheap subagent section');
+    expect(economy).not.toContain('reader-');
+  });
+
+  // The prompt and the kick-off brief together may not grow from the size they had before PM-181
+  // (measured on the snapshots of that time, in characters).
+  it.each([
+    { name: 'developer', handle: 'fe-1', system: 12901, brief: 862 },
+    { name: 'code reviewer', handle: 'code-review', system: 11832, brief: 1900 },
+  ])('does not grow the system prompt and brief of the $name', ({ handle, system, brief }) => {
+    const pack =
+      handle === 'fe-1'
+        ? builder.build(
+            input({
+              handle,
+              task: makeTask({
+                stageId: 'dev',
+                links: [
+                  { kind: 'prerequisite', ref: 'AR-19', title: 'Update mail templates', state: 'done' },
+                ],
+              }),
+              timeline: timeline.slice(0, 4),
+            }),
+          )
+        : builder.build(input({ handle, attachments: [screenshot(), testReport()] }));
+    expect(pack.appendSystemPrompt.length + (pack.initialMessage?.length ?? 0)).toBeLessThanOrEqual(
+      system + brief,
+    );
+  });
+
+  it('does not grow the system prompt of a custom role', () => {
+    expect(customRolePack().appendSystemPrompt.length).toBeLessThanOrEqual(7553);
+  });
+});
+
 describe('cheap subagent (PM-179)', () => {
   const withCheapSubagent = (cheapSubagent: AiMemberConfig['cheapSubagent'], provider?: 'codex') => {
     const project = buildProject();
@@ -522,6 +602,7 @@ describe('system prompt', () => {
       '# Who you are',
       '# The team',
       '# How the team works',
+      '# Token economy',
       '# The pipeline',
       '# Labels',
       '# Current work item',
@@ -612,7 +693,7 @@ describe('system prompt', () => {
     expect(prompt).toContain('- `owner`: Anna Example (human, owner; roles: operator, product owner)');
   });
 
-  it('states each team rule once and names every team tool', () => {
+  it('states each team rule once and leaves the tool list to the tool descriptions', () => {
     // The tool descriptions and the MCP server instructions leave these rules to the system prompt.
     const prompt = builder.build(input()).appendSystemPrompt;
     for (const rule of [
@@ -621,11 +702,13 @@ describe('system prompt', () => {
       'instead of only mentioning them in text',
       'Be concise',
       "the project's language",
+      'Message only when someone has something to do',
     ]) {
       expect(prompt.split(rule).length - 1, rule).toBe(1);
     }
     const teamwork = section(prompt, '# How the team works');
-    for (const tool of TEAM_TOOL_NAMES) expect(teamwork).toContain(tool);
+    expect(teamwork).toContain('mcp__team__<tool>');
+    expect(teamwork).not.toContain('list_network_denials');
   });
 
   it('tells the member to write in the project language', () => {
@@ -713,22 +796,13 @@ describe('system prompt', () => {
     );
   });
 
-  it('tells every member to write questions to humans in plain language, right after the rule to ask', () => {
+  it('leaves the guidance on writing questions to humans to the ask_human tool description (PM-181)', () => {
     for (const handle of ['fe-1', 'qa', 'devops', 'communication']) {
-      const guardrails = section(builder.build(input({ handle })).appendSystemPrompt, '# Guardrails');
-      const lines = guardrails.split('\n');
-      const ask = lines.findIndex((line) => line.includes('ask with ask_human instead of guessing'));
-      expect(ask, handle).toBeGreaterThan(0);
-      const writing = lines[ask + 1]!;
-      expect(writing).toContain('usually not a specialist');
-      expect(writing).toContain('one plain sentence that names the decision');
-      expect(writing).toContain('recommend one option with a one-sentence reason');
-      expect(writing).toContain('describe each option by what happens if it is picked');
-      expect(writing).toContain('technical reasoning in the details field');
-      expect(writing).toContain('Keep it short');
-      // The language rule is stated once, in "How the team works"; this only points at it.
-      expect(writing).toContain('follow the language rule above');
-      expect(writing).not.toContain("project's language");
+      const prompt = builder.build(input({ handle })).appendSystemPrompt;
+      // One line in the guardrails; how to word the question lives in the tool description (mcp.test.ts).
+      expect(prompt.split('ask_human instead of guessing').length - 1, handle).toBe(1);
+      expect(prompt, handle).not.toContain('usually not a specialist');
+      expect(prompt, handle).not.toContain('the details field');
     }
   });
 
@@ -774,15 +848,13 @@ describe('kick-off brief', () => {
       (builder.build(input({ attachments })).initialMessage ?? '')
         .split('\n\n')
         .find((part) => part.startsWith('## Attachments\n'));
-    expect(brief()).toBe(
-      '## Attachments\nNone. attach_file attaches a file from your working directory; get_task lists files attached later.',
-    );
+    expect(brief()).toBe('## Attachments\nNone.');
 
     const one = brief([screenshot()]);
     expect(one).toContain(
       '- `att_screenshot01` "reset-mail.png" · image/png · 48.2 kB · by `owner`, 2026-09-27 09:15 UTC',
     );
-    expect(one).toContain('read_attachment gives the local path of one');
+    expect(one).toContain('Open one with read_attachment');
     expect(one).not.toContain('more; list them');
 
     const many = Array.from({ length: 13 }, (_, i) =>
@@ -826,7 +898,7 @@ describe('kick-off brief', () => {
     );
     // A label without a definition is a plain tag: shown by its id.
     expect(brief).toContain(
-      '- 2026-09-29 11:00 UTC · system: labels removed: `code-review-changes` (Code review: changes needed), `hotfix`\n',
+      '- 2026-09-29 11:00 UTC · system: labels removed: `code-review-changes` (Code review: changes needed), `hotfix`',
     );
   });
 
@@ -847,11 +919,9 @@ describe('kick-off brief', () => {
     expect(brief).toContain('- 2026-09-28 08:06 UTC · `fe-1`: moved it from Ready to Development');
   });
 
-  it('points to the steps in the system prompt instead of repeating them', () => {
+  it('does not repeat the steps of the system prompt', () => {
     const pack = builder.build(input());
-    expect(pack.initialMessage).toContain(
-      '## What is expected next\nSee "What done means for you here" in your instructions.',
-    );
+    expect(pack.initialMessage).not.toContain('What is expected next');
     const firstStep = doneSteps(pack.appendSystemPrompt).split('\n')[0]!.replace(/^1\. /, '');
     expect(firstStep).toContain('Review the pull requests linked to the task');
     expect(pack.initialMessage).not.toContain(firstStep);

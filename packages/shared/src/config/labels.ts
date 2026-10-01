@@ -3,10 +3,31 @@ import { isHumanOnlyLabel, RELEASE_APPROVAL_DUTY } from '../domain/label';
 import type { LabelClearTrigger, LabelDefinition, LabelRefusal } from '../domain/label';
 import type { Stage } from '../domain/pipeline';
 import type { Task } from '../domain/task';
-import { dutyMembers, taskAuthors } from './duties';
+import { dutyMembers, REVIEW_DUTIES, taskAuthors } from './duties';
 import type { ProjectConfig } from './schema';
 
 type LabelConfig = Pick<ProjectConfig, 'team' | 'pipeline'>;
+
+/**
+ * Whether a review or test already gave the work back (PM-183): the task carries a result label of
+ * a reviewing or testing duty that needs a note, such as "changes needed", "failed" or "blocked",
+ * and not an approval. The developer's next commits are then the expected fixes, not a branch that
+ * moved behind the reviewer's back.
+ */
+export function reviewReturnedWork(
+  config: Pick<ProjectConfig, 'pipeline'>,
+  task: Pick<Task, 'labels'>,
+): boolean {
+  return task.labels.some((id) => {
+    const label = labelDefinition(config, id);
+    const setBy = label?.setBy;
+    return (
+      label?.requiresComment === true &&
+      typeof setBy === 'object' &&
+      (setBy.duties ?? []).some((duty) => REVIEW_DUTIES.includes(duty))
+    );
+  });
+}
 
 export function labelDefinition(
   config: Pick<ProjectConfig, 'pipeline'>,

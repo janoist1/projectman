@@ -591,14 +591,18 @@ A task that enters a step or release stage a reviewing or testing duty belongs t
 working directory with uncommitted work refuses the move for everybody (`handover_uncommitted`); otherwise the
 commit is pinned (`task_review_pins`, one row per task, shown as `Task.reviewPin` while the task is in that stage,
 named in the reviewer's brief and "Review round"). A task without a repository or a branch is neither checked nor
-pinned. A move completed by a human approval (`decide`) does not pin.
+pinned. A move completed by a human approval (`decide`) is handed over the same way: uncommitted work leaves the
+task where it is (`gateBlocked.reason` `handover_uncommitted` on the timeline).
 
 `ReviewWatch` (every 30 s, `DomainOptions.reviewWatchMs`; a pull request's new commits check the task at once)
 compares the branch with the pin of every task in its stage. If the branch moved and nobody asked for it, the
-reviewers' sessions stop (their conversations stay), the system moves the task back to the work stage before it
-(`task_stage_changed.branchMoved`; the labels that expire when a task goes back come off) and tells the assignee.
-A developer's message to the stage's reviewers is a new round (PM-138): `TaskService.repinReview` pins the new
-head first, so nothing is sent back. The window between a developer's commit and that message is not covered.
+system moves the task back to the work stage before it (`task_stage_changed.branchMoved`; the labels that expire
+when a task goes back come off), then the stage's reviewers' sessions stop (their conversations stay), and the
+assignee is told. Not while the review already gave the work back (`reviewReturnedWork`: a result label of a
+reviewing or testing duty that needs a note, such as "changes needed" or "failed"): the fixes are the expected
+commits, and the developer's message to the stage's reviewers is a new round (PM-138) that
+`TaskService.repinReview` answers by pinning the new head. An approved or not yet judged branch that moves is
+sent back.
 
 ## GitHub
 

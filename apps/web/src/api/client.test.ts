@@ -78,6 +78,20 @@ describe('apiRequest', () => {
     expect(errorMessage(error)).toBe('A csatolmány legfeljebb 25 MB lehet.');
   });
 
+  it('names the working directory and the file count of a refused hand-over (PM-183)', async () => {
+    respond(409, {
+      error: {
+        code: 'handover_uncommitted',
+        message: 'uncommitted',
+        details: { path: '/workspaces/AR/dev-1/web/repo', changes: 3 },
+      },
+    });
+    const error = await apiRequest('/api/x', { method: 'POST', body: {} }).catch((e: unknown) => e);
+    const message = errorMessage(error);
+    expect(message).toContain('/workspaces/AR/dev-1/web/repo');
+    expect(message).toContain('mentetlen fájlok száma: 3');
+  });
+
   it('notifies about 401 responses', async () => {
     const listener = vi.fn();
     const off = onUnauthorized(listener);

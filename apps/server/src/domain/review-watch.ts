@@ -1,4 +1,4 @@
-import { isOpenTask, stageIndex, stageOf } from '@projectman/shared';
+import { isOpenTask, reviewReturnedWork, stageIndex, stageOf, stageOwners } from '@projectman/shared';
 import type { Messaging } from './messaging';
 import type { DomainContext } from './context';
 import type { ProjectService } from './projects';
@@ -15,7 +15,10 @@ import { KeyedMutex, SYSTEM_ACTOR } from './util';
  * and the new commit on the move; the developer is told, and hands the task over again.
  *
  * It is not a fault when the developer asked for a new round themselves (PM-138): that pins the new
- * head first (`TaskService.repinReview`), so the branch and the pin agree and nothing happens here.
+ * head first (`TaskService.repinReview`), so the branch and the pin agree and nothing happens here. Nor
+ * is it when the review already gave the work back (`reviewReturnedWork`): the developer's fixes are
+ * the expected commits, and their message asking for a re-review pins the new head. Only an approved
+ * or not yet judged branch must not move unnoticed.
  */
 export class ReviewWatch {
   private readonly ctx: DomainContext;
@@ -65,6 +68,9 @@ export class ReviewWatch {
     if (!head || head.commit === pin.commit) return false;
     // A new round the developer asked for may have pinned the head while it was read.
     if (this.ctx.repos.reviewPins.get(taskKey)?.commit === head.commit) return false;
+    // The review already gave the work back ("changes needed", "failed"): the commits on the branch
+    // are the expected fixes, and the developer's message asking for a new round pins the new head.
+    if (reviewReturnedWork(config, task)) return false;
 
     const stage = stageOf(config, task.stageId);
     const back = config.pipeline.stages
@@ -79,15 +85,17 @@ export class ReviewWatch {
       { taskKey, pinned: pin.commit, head: head.commit },
       'the branch moved after the hand-over; sending the task back',
     );
-    // Reviewers (everybody else on the task) stop first: what they judge is out of date.
-    for (const session of this.sessions.list(projectKey, { taskKey })) {
-      if (session.workItem.type !== 'task' || session.member === task.assignee) continue;
-      if (LIVE_SESSION_STATES.includes(session.state) || this.sessions.isRunning(session.id))
-        await this.sessions.stop(projectKey, session.id);
-    }
     await this.tasks.moveToStage(projectKey, taskKey, back.id, SYSTEM_ACTOR, {
       branchMoved: { branch: pin.branch, pinned: pin.commit, head: head.commit },
     });
+    // The stage's reviewers stop once the task is back: what they judge is out of date. Their
+    // conversations stay; others working on the card (an architect, an analyst) are left alone.
+    const reviewers = stageOwners(config, stage).filter((handle) => handle !== task.assignee);
+    for (const session of this.sessions.list(projectKey, { taskKey })) {
+      if (session.workItem.type !== 'task' || !reviewers.includes(session.member)) continue;
+      if (LIVE_SESSION_STATES.includes(session.state) || this.sessions.isRunning(session.id))
+        await this.sessions.stop(projectKey, session.id);
+    }
     if (task.assignee)
       await this.messaging.send(
         projectKey,

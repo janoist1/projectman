@@ -227,6 +227,40 @@ describe('review at a pinned commit, in member workspaces', { timeout: 60_000 },
     expect(h.domain.tasks.get('AR', 'AR-1').stageId).toBe('development');
   });
 
+  it("leaves the task in review while the review gave the work back, and the developer's message starts the new round (PM-138)", async () => {
+    await setup();
+    await commitFile(dev1, 'login.txt', 'v1\n');
+    await toReview();
+    await startedCount(2);
+    const review = reviewerSession();
+    h.runner.setState(review.sessionId, 'idle');
+    await h.domain.tasks.changeLabels('AR', 'AR-1', { add: ['code-review-changes'] }, aiActor('cr'), {
+      comment: 'Fix the login.',
+    });
+
+    // The fix is committed and tested; the watcher runs before the developer writes to the reviewer.
+    const fixed = await commitFile(dev1, 'login.txt', 'v2\n');
+    await h.domain.reviewWatch.check();
+    expect(h.domain.tasks.get('AR', 'AR-1')).toMatchObject({ stageId: 'code_review' });
+    expect(h.runner.stopped).not.toContain(review.sessionId);
+
+    await h.domain.messaging.send(
+      'AR',
+      'dev-1',
+      { to: ['cr'], text: 'Fixed, please look again.', taskKey: 'AR-1' },
+      { actor: aiActor('dev-1') },
+    );
+    expect(h.domain.tasks.get('AR', 'AR-1').reviewPin?.commit).toBe(fixed);
+    await startedCount(3);
+    expect(h.runner.lastStarted().policy?.placement).toMatchObject({ sourceCommit: fixed, roundId: '2' });
+
+    // Approved, the branch may not move unnoticed any more.
+    await h.domain.tasks.changeLabels('AR', 'AR-1', { add: ['code-review-ok'] }, aiActor('cr'));
+    await commitFile(dev1, 'login.txt', 'v3\n');
+    await h.domain.reviewWatch.check();
+    expect(h.domain.tasks.get('AR', 'AR-1').stageId).toBe('development');
+  });
+
   it('ignores the pin of a stage the task left, and a task without a pin', async () => {
     await setup();
     await commitFile(dev1, 'login.txt', 'v1\n');
@@ -289,11 +323,79 @@ describe('review at a pinned commit, in task worktrees (old mode)', () => {
     ).toMatchObject({ branchMoved: { branch: 'task/AR-1', pinned: 'c1', head: 'c2' } });
   });
 
+  it("stops only the stage's reviewers, once the task is back, and leaves other members on the card", async () => {
+    const worktree = await setup();
+    h.worktrees.heads.set(worktree, head('c1'));
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1'));
+    await vi.waitFor(() => expect(h.runner.started.some((s) => s.member === 'cr')).toBe(true));
+    const review = h.runner.started.find((s) => s.member === 'cr')!;
+    const other = await h.domain.sessions.ensureSession('AR', 'dev-2', { type: 'task', taskKey: 'AR-1' });
+
+    h.worktrees.heads.set(worktree, head('c2'));
+    await h.domain.reviewWatch.check();
+    expect(h.domain.tasks.get('AR', 'AR-1').stageId).toBe('development');
+    expect(h.runner.stopped).toContain(review.sessionId);
+    expect(other.started).toBe(true);
+    expect(h.runner.stopped).not.toContain(other.session.id);
+  });
+
   it('puts no check and no pin on a task without a branch or repository', async () => {
     h = await createDomainHarness();
     const task = await h.domain.tasks.create('AR', { title: 'Docs' }, OWNER_ACTOR);
     await h.domain.tasks.moveToStage('AR', task.key, 'code_review', OWNER_ACTOR);
     expect(h.domain.tasks.get('AR', task.key)).toMatchObject({ stageId: 'code_review' });
     expect(h.domain.tasks.get('AR', task.key).reviewPin).toBeUndefined();
+  });
+
+  describe('a hand-over that waits for a human approval', () => {
+    // The merge stage is also tested by the reviewer here, so entering it hands the branch over.
+    async function setupApproval() {
+      h = await createDomainHarness({
+        adjust: (config) => {
+          config.pipeline.stages.find((s) => s.id === 'merge')!.owners = ['cr'];
+        },
+      });
+      await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
+      await h.domain.taskStarts.start('AR', 'AR-1', {
+        assignee: 'dev-1',
+        actor: OWNER_ACTOR,
+        author: OWNER,
+      });
+      const worktree = h.worktrees.existing.get('AR/AR-1/web')!.path;
+      h.worktrees.heads.set(worktree, head('c1'));
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1'));
+      await h.domain.tasks.changeLabels('AR', 'AR-1', { add: ['code-review-ok'] }, aiActor('cr'));
+      const { pendingApproval } = await h.domain.tasks.moveToStage('AR', 'AR-1', 'merge', aiActor('dev-1'));
+      expect(pendingApproval).toHaveLength(1);
+      return { worktree, decision: pendingApproval[0]! };
+    }
+    const approve = (id: string) =>
+      h.domain.inbox.resolve('AR', id, { optionId: 'approve' }, { handle: 'owner', access: 'owner' });
+
+    it('pins the head when the approval completes the move', async () => {
+      const { worktree, decision } = await setupApproval();
+      h.worktrees.heads.set(worktree, head('c2'));
+      await approve(decision.id);
+      const task = h.domain.tasks.get('AR', 'AR-1');
+      expect(task.stageId).toBe('merge');
+      expect(task.reviewPin).toMatchObject({ commit: 'c2', branch: 'task/AR-1' });
+    });
+
+    it('does not complete the move over uncommitted work, and says so on the card', async () => {
+      const { worktree, decision } = await setupApproval();
+      h.worktrees.heads.set(worktree, head('c2', true));
+      await approve(decision.id);
+      const task = h.domain.tasks.get('AR', 'AR-1');
+      expect(task).toMatchObject({ stageId: 'code_review', status: 'active' });
+      expect(
+        h.domain.timeline.list('AR', { taskKey: 'AR-1' }).filter((e) => e.type === 'task_updated'),
+      ).toContainEqual(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            gateBlocked: expect.objectContaining({ to: 'merge', reason: 'handover_uncommitted' }),
+          }),
+        }),
+      );
+    });
   });
 });

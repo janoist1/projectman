@@ -278,6 +278,8 @@ export const hu = {
     forbidden: 'Ehhez nincs jogod.',
     notFound: 'Nem található.',
     invalidResponse: 'A szerver válasza nem a várt formátumú.',
+    /** Detail of `handover_uncommitted`: the working directory and how many files are uncommitted. */
+    handoverUncommitted: 'A munkafa: {path}; mentetlen fájlok száma: {count}.',
     conflict: 'Közben valaki más is módosította. Frissíts, és próbáld újra.',
     gateUnmet: 'Még hiányzik: {conditions}',
     approvalRequested: 'Jóváhagyást kértünk; a feladat a jóváhagyás után lép tovább.',

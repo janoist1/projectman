@@ -21,7 +21,7 @@ import type {
 import type { SourceHead } from '../../contracts';
 import type { TaskPatch } from '../../db';
 import { isoNow } from '../context';
-import { conflict } from '../errors';
+import { conflict, DomainError } from '../errors';
 import { DECISION_OPTIONS } from '../inbox';
 import type { InboxService } from '../inbox';
 import { actorHandle, humanActor, newId, SYSTEM_ACTOR, unique } from '../util';
@@ -225,8 +225,27 @@ export class TaskMoves {
     const resolution = item.resolution;
     if (!gate || !resolution) return;
     const config = await this.store.projects.config(item.projectKey);
+    // An approved move into a review or test stage hands the branch over like any other (PM-183).
+    let handover: Handover | null = null;
+    let refused = false;
+    const task = this.store.find(item.projectKey, gate.taskKey);
+    if (
+      resolution.optionId === 'approve' &&
+      task &&
+      task.stageId === gate.fromStageId &&
+      task.status !== 'cancelled'
+    ) {
+      try {
+        handover = await this.prepareHandover(config, task, gate.toStageId);
+      } catch (err) {
+        if (!(err instanceof DomainError) || err.code !== 'handover_uncommitted') throw err;
+        refused = true;
+      }
+    }
     const effects: Effect[] = [];
-    this.store.ctx.unitOfWork(() => this.decide(config, item, gate, humanActor(resolution.by), effects));
+    this.store.ctx.unitOfWork(() =>
+      this.decide(config, item, gate, humanActor(resolution.by), effects, { handover, refused }),
+    );
     await runEffects(effects);
   }
 
@@ -236,6 +255,7 @@ export class TaskMoves {
     gate: GateRequestPayload,
     actor: Actor,
     effects: Effect[],
+    handed: { handover: Handover | null; refused: boolean },
   ): void {
     const task = this.store.find(item.projectKey, gate.taskKey);
     if (!task) return;
@@ -255,6 +275,11 @@ export class TaskMoves {
     const target = stageOf(config, gate.toStageId);
     if (!target) {
       this.settleWaiting(task, actor, { gateBlocked: { to: gate.toStageId, reason: 'unknown_stage' } });
+      return;
+    }
+    if (handed.refused) {
+      // Uncommitted work in the developer's working directory: the approved move does not happen.
+      this.settleWaiting(task, actor, { gateBlocked: { to: target.id, reason: 'handover_uncommitted' } });
       return;
     }
     // Approving puts each requested human-only label on the task in the approver's name.
@@ -295,8 +320,12 @@ export class TaskMoves {
       {
         approvedBy: unique(siblings.map((s) => s.resolution!.by)),
         inboxItemIds: siblings.map((s) => s.id),
+        ...(handed.handover
+          ? { reviewPin: { commit: handed.handover.head.commit, branch: handed.handover.head.branch } }
+          : {}),
       },
       effects,
+      handed.handover?.head,
     );
   }
 

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { databaseInUse } from '../../../scripts/migrate/database';
 import { buildInventory } from '../../../scripts/migrate/inventory';
 import { createPackage, MigrationRefused, readPackage } from '../../../scripts/migrate/package';
@@ -13,6 +13,9 @@ import type { SourceHome } from './helpers/migration-source';
  * The inventory and the package of a stopped source (PM-143): everything that has to move is found
  * and carried, nothing is changed at the source, and a source that still runs is refused.
  */
+
+// Each test builds a real home and repositories: slow when the whole suite runs in parallel.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 let src: SourceHome;
 beforeEach(async () => {

@@ -8,13 +8,13 @@ and the owner's running instance is not touched.
 
 What this part delivers, and what it does not:
 
-| Delivered here                                                                 | Later part of PM-135                                                                                             |
-| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| Pinned Node and CLI versions, a root-owned app, a separate service account     | The protected launcher that starts each session as a worker (PM-140)                                             |
-| One unprivileged account per member, no sudo, no shared home                   | Domain-level network gate and the limited publishing gate (PM-140)                                               |
-| Egress rules that close the private side of the network to the service/workers | Per-member, per-repository workstations (PM-138)                                                                 |
-| A readiness report with a strict verdict rule, probes with positive controls   | Delegated exit requests (PM-139); the question-free profile (PM-141, [below](#the-question-free-profile-pm-141)) |
-| Backup and restore, a measurement helper, the manual trial steps (below)       | Trial run, data move and rollback (PM-143)                                                                       |
+| Delivered here                                                                 | Later part of PM-135                                                                                                                                              |
+| ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pinned Node and CLI versions, a root-owned app, a separate service account     | The protected launcher that starts each session as a worker (PM-140)                                                                                              |
+| One unprivileged account per member, no sudo, no shared home                   | Domain-level network gate and the limited publishing gate (PM-140)                                                                                                |
+| Egress rules that close the private side of the network to the service/workers | Per-member, per-repository workstations (PM-138)                                                                                                                  |
+| A readiness report with a strict verdict rule, probes with positive controls   | Delegated exit requests (PM-139); the question-free profile (PM-141, [below](#the-question-free-profile-pm-141))                                                  |
+| Backup and restore, a measurement helper, the manual trial steps (below)       | Trial run, data move and rollback: the tool, scripts and procedure are built (PM-143, [MIGRATION.md](MIGRATION.md)); running them on a real VM is a person's step |
 
 Until PM-140 lands, the runner still starts the agent CLIs as the **service** account, so the
 workers exist and are measured but do not run sessions yet. The egress rules therefore confine
@@ -122,8 +122,10 @@ sudo bash deploy/vm/install-app.sh --archive projectman.tar.gz --commit <40-hex 
    `sudo systemctl restart projectman`.
 2. **First owner**: forward the port and open the app locally, as in [DEPLOY.md](DEPLOY.md):
    `bash deploy/vm/mac-multipass.sh forward --ssh-key ~/.ssh/<name>` (agent forwarding is off), then
-   `http://127.0.0.1:4700`. A new account or token for the VM is created by a person here, never
-   copied from the live instance.
+   `http://127.0.0.1:4700`. On a **throwaway** VM, a new account or token is created by a person here,
+   never copied from the live instance. On the VM that takes over the owner's installation the accounts
+   come with the moved data ([MIGRATION.md](MIGRATION.md): the database, with its password hashes and the
+   cookie secret), and the provider logins and the publishing identity are still new.
 3. **Phone**: install Tailscale in the VM with the vendor's instructions, `sudo tailscale up`, then
    `sudo tailscale serve --bg 4700` (never Funnel) and run the HTTPS checks of
    [DEPLOY.md](DEPLOY.md). The server stays on loopback; login, Origin, hook and MCP protections are
@@ -224,6 +226,10 @@ tailscale status` and `... -- ls /run/tailscale` are denied, as for `projectman`
 10. **Measure**: `sudo bash deploy/vm/measure.sh 10 60 > measure.csv` while 1, 2, 3 AI sessions
     work; report the peaks of memory, load and disk.
 11. **Backup and restore**: see below; then readiness and the browser check again.
+12. **The scripted rehearsal**: `sudo bash deploy/vm/rehearse.sh all` (readiness, the whole test suite with the
+    pseudo-terminal files, a restart, a backup that passes `check-backup.sh`) writes a log with one PASS or
+    FAIL line per step: put it on the card. The steps that need a person are in
+    [MIGRATION.md](MIGRATION.md#acceptance-matrix-the-evidence).
 
 ## The question-free profile (PM-141)
 
@@ -305,6 +311,13 @@ sets ownership by name, so other uids are fine, and it keeps what was there as
 `*.before-restore-<time>`. The cookie secret comes back, so browser logins stay valid. The app, the
 CLIs, `/etc/projectman` and the Tailscale identity are rebuilt, not restored. To test it: back up,
 `mac-multipass.sh destroy --yes`, create and deploy again, restore, run verify and log in.
+
+`restore.sh` first runs `check-backup.sh` on the archive (the data is extracted to a private scratch directory
+and checked by the move tool's `verify`: integrity, the schema against this build, the secret, attachments
+against their rows, the customization repository) and restores nothing when it does not pass: a database a
+newer build migrated is never put under an older one. `sudo bash deploy/vm/check-backup.sh ARCHIVE` alone
+proves an archive restorable without touching the running installation. A restored home must not run beside
+the original: only one copy is the active instance (`instance.json`, [MIGRATION.md](MIGRATION.md)).
 
 ## Updating
 

@@ -52,8 +52,18 @@ step_tests() {
   local status=$?
   # vitest prints "Tests  N passed | M skipped" per workspace: any skipped, failed or todo test fails the step.
   summary=$(grep -E '^ *Tests +' "$out" | tr -s ' ' | tr '\n' ';')
+  # apps/server/vitest.config.ts leaves the pseudo-terminal files out, with a notice and no "skipped" count,
+  # when no pseudo-terminal can be opened: on the VM that is a failure, so the notice and their absence both count.
+  local ptyfiles goldens
+  ptyfiles=$(grep -c 'integration\.test\.ts' "$out")
+  goldens=$(grep -c 'golden-path-.*\.test\.ts' "$out")
+  if grep -q 'No pseudo-terminal can be opened' "$out" || [ "$ptyfiles" -lt 1 ] || [ "$goldens" -lt 1 ]; then
+    fail tests "the pseudo-terminal test files did not run (integration files seen: $ptyfiles, golden paths: $goldens); the output is kept in $out"
+    rm -rf "$scratch"
+    return
+  fi
   if [ "$status" = 0 ] && [ -n "$summary" ] && ! printf '%s' "$summary" | grep -Eq 'skipped|failed|todo'; then
-    pass tests "$summary"
+    pass tests "$summary; pseudo-terminal files run: $ptyfiles integration, $goldens golden path"
   else
     fail tests "exit $status; ${summary:-no summary}; the output is kept in $out"
     rm -rf "$scratch"

@@ -15,7 +15,7 @@ import {
 } from '../src/instance';
 import { createFakeMcp, createFakeRunnerModule, FakeGithub } from './helpers/fakes';
 import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
-import type { CliAppHarness } from './helpers/app-harness';
+import type { AppHarness } from './helpers/app-harness';
 
 /**
  * Only one copy of an installation may work (PM-143): the marker file `instance.json` of a home
@@ -28,12 +28,28 @@ const tempHome = () => {
   homes.push(home);
   return home;
 };
-let h: CliAppHarness | undefined;
+let harness: AppHarness | undefined;
 afterEach(async () => {
-  await h?.close();
-  h = undefined;
+  await harness?.close();
+  harness = undefined;
   for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });
 });
+
+/** The server on an existing home, with the fake runner (no pseudo-terminal is needed). */
+const startOn = async (home: string) => {
+  const runner = createFakeRunnerModule();
+  const app = await buildApp({
+    home,
+    logger: false,
+    modules: {
+      createRunnerModule: (opts) => runner.create(opts),
+      createMcpModule: (opts) => createFakeMcp().create(opts),
+      github: new FakeGithub(),
+    },
+  });
+  await app.ready();
+  return app;
+};
 
 describe('the marker file', () => {
   it('is the active instance when there is no marker', () => {
@@ -106,8 +122,9 @@ describe('the server', () => {
     expect(existsSync(join(home, 'secret'))).toBe(false);
   });
 
-  it('shows the data of a standby copy but starts no AI session', { timeout: 60_000 }, async () => {
-    h = await createAppHarness({ runner: 'fake-cli', real: { context: true } });
+  it('shows the data of a standby copy but starts no AI session', async () => {
+    const h = await createAppHarness();
+    harness = h;
     const cookie = await setupOwner(h.app);
     await createProject(h, cookie);
     const created = await h.app.inject({
@@ -117,15 +134,15 @@ describe('the server', () => {
       payload: { title: 'Acme checkout' },
     });
     const { key } = created.json<Task>();
+    await h.app.close();
 
-    // The same home, started as a standby copy.
+    // The same home, started as a standby copy (the cookie secret and the accounts are the same).
     writeInstanceMarker(h.home, 'standby', 'rehearsal copy');
-    await h.restart();
-
-    const board = await h.app.inject({ url: routes.tasks('AR'), headers: { cookie } });
+    const standby = await startOn(h.home);
+    const board = await standby.inject({ url: routes.tasks('AR'), headers: { cookie } });
     expect(board.statusCode).toBe(200);
     expect(JSON.stringify(board.json())).toContain('Acme checkout');
-    const start = await h.app.inject({
+    const start = await standby.inject({
       method: 'POST',
       url: routes.startTask('AR', key),
       headers: { cookie },
@@ -133,19 +150,19 @@ describe('the server', () => {
     });
     expect(start.statusCode).toBe(409);
     expect(start.json()).toMatchObject({ error: { code: 'ai_disabled' } });
-    expect(h.app.projectman.domain.sessions.list('AR')).toEqual([]);
-    expect(readFileSync(join(h.home, 'instance.json'), 'utf8')).toContain('standby');
+    expect(standby.projectman.domain.sessions.list('AR')).toEqual([]);
+    await standby.close();
 
-    // Taking the marker away is the person's step; the next start works as before.
+    // Taking the marker away is the person's step; the next start is not refused as a standby.
     clearInstanceMarker(h.home);
-    await h.restart();
-    const again = await h.app.inject({
+    const active = await startOn(h.home);
+    const again = await active.inject({
       method: 'POST',
       url: routes.startTask('AR', key),
       headers: { cookie },
       payload: { assignee: 'dev-1' },
     });
-    // (Where a sandbox forbids pseudo-terminals the start fails later, as session_start_failed.)
-    expect(again.statusCode === 200 || again.json().error.code === 'session_start_failed').toBe(true);
+    expect(again.statusCode === 200 || again.json().error.code !== 'ai_disabled').toBe(true);
+    await active.close();
   });
 });

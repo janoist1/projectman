@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { basename, isAbsolute, join, resolve, sep } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type Database from 'better-sqlite3';
 import { LATEST_SCHEMA_VERSION } from '../../apps/server/src/db';
@@ -557,6 +557,27 @@ export async function buildInventory(options: InventoryOptions): Promise<Invento
   const seenRepos = new Set<string>();
   for (const project of readProjectFiles(home)) {
     notePath('project workspace', project.workspacePath);
+    if (!existsSync(project.workspacePath))
+      add(
+        'warning',
+        'workspace_missing',
+        project.key,
+        `the workspace ${project.workspacePath} does not exist on this machine`,
+      );
+    else {
+      // Only the repositories move: anything else lying in a workspace directory that is not itself a repository stays.
+      const roots = new Set(project.repos.map((r) => relative(project.workspacePath, r.path).split(sep)[0]));
+      if (!roots.has('') && !roots.has('.')) {
+        const extra = readdirSync(project.workspacePath).filter((n) => !n.startsWith('.') && !roots.has(n));
+        if (extra.length > 0)
+          add(
+            'warning',
+            'workspace_extra_content',
+            project.key,
+            `${extra.length} entries in ${project.workspacePath} belong to no repository and are not carried (${extra.slice(0, 5).join(', ')})`,
+          );
+      }
+    }
     const repos: RepoInventory[] = [];
     for (const repo of project.repos) {
       const subject = `${project.key}/${repo.name}`;

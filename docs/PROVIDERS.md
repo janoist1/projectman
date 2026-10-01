@@ -257,6 +257,24 @@ managed-policy and Codex file locations above, and that Codex 0.159.1 shows no c
 `danger-full-access`. These are the first things of the human trial in [VM.md](VM.md); an answer
 that differs changes the adapter, not the contract.
 
+## Conversations across the move to the VM (PM-143)
+
+A conversation belongs to the machine, the directory and the provider environment it ran in: a Claude Code
+transcript lives in the home of the account that ran it, keyed by the working directory, and a Codex rollout in
+that account's `CODEX_HOME`. The move ([MIGRATION.md](MIGRATION.md)) therefore keeps the **history** and starts
+**new conversations**:
+
+- The transcripts the database names are copied into the package and, by `apply`, into
+  `<home>/migrated/transcripts/<session id>/`; the session rows point at the copies, so the session page still
+  shows the old conversation (a transcript missing on the old machine stays empty, and the report says how many).
+- Nothing is resumed from the old environment: the moved rows are all of the `legacy` execution profile, and the
+  managed VM profile never resumes across profiles (above). A member's next task or message starts a new
+  conversation in the VM workspace from the task brief and the member's memory (`memory/<KEY>/<handle>.md`
+  moved with the data); the old row keeps its history.
+- No personal CLI home is copied. Claude Code's and Codex's logins, settings and trust files on the Mac are not
+  part of the package; the VM's providers are logged in anew by a person, and the VM's own configuration must stay
+  free of the settings the profile refuses.
+
 ## Login and plan usage
 
 Before spawning, the runner checks the provider's login (cached briefly). A CLI that is not

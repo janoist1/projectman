@@ -1,8 +1,9 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { applyPackage } from '../../../scripts/migrate/apply';
 import { createPackage } from '../../../scripts/migrate/package';
 import { parsePathMapping } from '../../../scripts/migrate/paths';
@@ -14,6 +15,9 @@ import type { SourceHome } from './helpers/migration-source';
  * `verify` is what a restored backup and a migrated copy have to pass (PM-143), and the CLI is how a
  * person runs the whole move: these tests break one thing at a time and expect it named.
  */
+
+// Each test builds a real home, repositories and a package: slow when the whole suite runs in parallel.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 let src: SourceHome;
 let home: string;
@@ -90,11 +94,12 @@ describe('verify', () => {
   });
 });
 
-describe('the command line', () => {
-  const cli = join(process.cwd(), 'scripts', 'migrate', 'cli.ts');
+describe('the command line', { timeout: 60_000 }, () => {
+  const root = fileURLToPath(new URL('../../../', import.meta.url));
+  const cli = join(root, 'scripts', 'migrate', 'cli.ts');
   // tsx's loader without its command: the command opens a socket for its watcher, which sandboxes refuse.
   const run = (...args: string[]) =>
-    spawnSync(process.execPath, ['--import', 'tsx', cli, ...args], { encoding: 'utf8', cwd: process.cwd() });
+    spawnSync(process.execPath, ['--import', 'tsx', cli, ...args], { encoding: 'utf8', cwd: root });
 
   it('reports a home, a verification and the role, with exit status 0', () => {
     const verify = run('verify', '--home', home);

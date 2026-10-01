@@ -3,6 +3,7 @@
 //   npx tsx scripts/migrate/cli.ts <command> [options]      (docs/MIGRATION.md has the procedure)
 //
 //   inventory --home H [--json FILE]           read-only facts and findings about a home and its work
+//   plan      --home H [--vm-repo-root P] [--out FILE]   the concrete cutover sheet (read-only; runs on a live source too)
 //   package   --home H --out DIR               a secret package of a STOPPED source (never in a repository)
 //   apply     --package DIR --target-home H --map FROM=TO ...   a standby copy on this machine
 //   verify    --home H [--no-paths]            is the home whole and consistent (server stopped)
@@ -17,6 +18,7 @@ import { activateHome, instanceStatus, retireHome, standbyHome } from './instanc
 import { buildInventory, formatInventory } from './inventory';
 import { createPackage, MigrationRefused } from './package';
 import { parsePathMapping } from './paths';
+import { renderCutoverSheet } from './plan';
 import { formatVerify, verifyHome } from './verify';
 
 interface Args {
@@ -69,6 +71,22 @@ async function main(argv: string[]): Promise<number> {
       }
       console.log(formatInventory(inventory));
       return inventory.findings.some((f) => f.severity === 'blocker') ? 1 : 0;
+    }
+    case 'plan': {
+      const inventory = await buildInventory({ home: one(args, 'home') });
+      const sheet = renderCutoverSheet(inventory, {
+        vmRepoRoot: optional(args, 'vm-repo-root') ?? '/var/lib/projectman/repos',
+        vmHome: optional(args, 'vm-home') ?? '/var/lib/projectman/data',
+        packageDirOld: optional(args, 'package-dir') ?? '~/pm-move/package',
+        packageDirVm: optional(args, 'vm-package-dir') ?? '/var/lib/projectman/incoming/package',
+      });
+      const out = optional(args, 'out');
+      if (out) {
+        mkdirSync(dirname(resolve(out)), { recursive: true });
+        writeFileSync(resolve(out), sheet, { mode: 0o600 });
+      }
+      console.log(sheet);
+      return 0;
     }
     case 'package': {
       const { manifest, inventory } = await createPackage({ home: one(args, 'home'), out: one(args, 'out') });
@@ -150,7 +168,7 @@ async function main(argv: string[]): Promise<number> {
       throw new UsageError('work needs list or apply');
     }
     default:
-      throw new UsageError('commands: inventory, package, apply, verify, instance, work');
+      throw new UsageError('commands: inventory, plan, package, apply, verify, instance, work');
   }
 }
 

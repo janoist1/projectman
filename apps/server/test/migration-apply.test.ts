@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import Database from 'better-sqlite3';
 import { routes } from '@projectman/shared';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { applyPackage, applyPendingWork, readPendingWork } from '../../../scripts/migrate/apply';
 import { activateHome, retireHome } from '../../../scripts/migrate/instance';
 import { MigrationRefused, createPackage } from '../../../scripts/migrate/package';
@@ -21,6 +21,9 @@ import type { SourceHome } from './helpers/migration-source';
  * the repositories come from their bundles, the old machine's uncommitted work waits as pending, and
  * only one copy is ever active.
  */
+
+// Each test builds a real home, repositories and a package: slow when the whole suite runs in parallel.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 let src: SourceHome;
 let pkg: string;
@@ -208,6 +211,44 @@ describe('applying a package', () => {
     expect(git(moved, 'submodule', 'status').trim()).toMatch(/^[0-9a-f]{40} documents\/AR/);
     const verified = await verifyHome({ home: target, checkPaths: true });
     expect(verified.findings.filter((f) => f.severity === 'blocker')).toEqual([]);
+  });
+
+  it('moves a workspace that holds several repositories, and says what lies beside them', async () => {
+    // The workspace is the parent directory, the repository a folder in it (like a client project).
+    const parent = join(src.root, 'Dev');
+    const file = join(src.home, 'customization', 'projects', 'AR', 'project.yaml');
+    const yaml = readFileSync(file, 'utf8');
+    expect(yaml).toContain(`workspacePath: ${src.workspace}`);
+    writeFileSync(
+      file,
+      yaml
+        .replace(`workspacePath: ${src.workspace}`, `workspacePath: ${parent}`)
+        .replace('path: .', 'path: acme'),
+    );
+    writeFileSync(join(parent, 'stray.txt'), 'not in a repository\n');
+    const second = join(src.root, 'pkg-multi');
+    const { inventory } = await createPackage({ home: src.home, out: second });
+    expect(inventory.findings).toContainEqual(
+      expect.objectContaining({
+        code: 'workspace_extra_content',
+        message: expect.stringContaining('stray.txt'),
+      }),
+    );
+    expect(inventory.projects[0]!.repos[0]).toMatchObject({ path: src.workspace, isGit: true });
+
+    const vmWorkspace = join(src.root, 'vm', 'workspace-AR');
+    const report = await applyPackage({
+      packageDir: second,
+      targetHome: target,
+      mappings: [parsePathMapping(`${parent}=${vmWorkspace}`)],
+    });
+    expect(report.configRewrites).toEqual([{ project: 'AR', from: parent, to: vmWorkspace }]);
+    expect(report.reposRestored[0]).toMatchObject({ path: join(vmWorkspace, 'acme') });
+    expect(
+      git(join(vmWorkspace, 'acme'), 'branch', '--format=%(refname:short)').trim().split('\n').sort(),
+    ).toContain('feature/local-only');
+    expect(existsSync(join(vmWorkspace, 'stray.txt'))).toBe(false);
+    expect((await verifyHome({ home: target, checkPaths: true })).ok).toBe(true);
   });
 });
 

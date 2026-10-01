@@ -174,6 +174,10 @@ deletions that were cut short (it logs what it finds); a restored copy needs not
 Encrypt backups, restrict readers, and test restoring ownership/modes on an isolated host.
 Restoring a different secret invalidates existing browser logins. An online SQLite backup
 must use SQLite's backup API/`.backup`, never copy just the live database file.
+On the managed VM, `deploy/vm/check-backup.sh` proves an archive restorable without touching the
+installation (and `restore.sh` runs it first); moving data from another machine is
+[MIGRATION.md](MIGRATION.md). A restored or moved copy must not run beside the original: only
+one home may be the active instance (`instance.json`, ARCHITECTURE.md).
 
 Before updating, take a backup and review dependency/CLI changes. Stop during the build
 so the running server and browser assets stay on the same version:

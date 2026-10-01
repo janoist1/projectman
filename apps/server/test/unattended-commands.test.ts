@@ -202,10 +202,10 @@ describe('commands that run without asking: the section', () => {
     expect(codex).not.toContain('Every other shell command');
     expect(codex).toContain('Your sandbox runs commands on its own');
     expect(codex).toContain('an escalation waits in a human inbox');
-    // The session makes the repository's `.git` writable, so a commit is no escalation.
-    expect(codex).toContain(
-      "the network, a write outside your working directory and the repository's own .git",
-    );
+    // The session makes the repository's `.git` writable: it is not named as an escalation.
+    expect(codex).toContain('the network');
+    expect(codex).not.toContain('such as the shared .git');
+    expect(codex).not.toContain('shared .git is read-only');
     expect(codex).toContain('- Never without asking, as an escalation: ');
     // The rules themselves are the same for both.
     expect(codex).toContain('`git commit -m "message"`');

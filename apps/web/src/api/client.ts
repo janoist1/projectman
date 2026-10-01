@@ -61,6 +61,7 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export interface RequestOptions<T> {
   method?: HttpMethod;
+  /** JSON by default; a FormData goes out as multipart/form-data (the browser sets the boundary). */
   body?: unknown;
   /** Response contract; validated in development builds. */
   schema?: ResponseSchema<T>;
@@ -103,14 +104,16 @@ export function checkContract<T>(schema: ResponseSchema<T> | undefined, data: un
 export async function apiRequest<T>(path: string, options: RequestOptions<T> = {}): Promise<T> {
   const { method = 'GET', body, schema, signal } = options;
   const headers: Record<string, string> = { accept: 'application/json' };
-  if (body !== undefined) headers['content-type'] = 'application/json';
+  const multipart = body instanceof FormData;
+  // No content-type for a FormData: the one with the boundary is the browser's to write.
+  if (body !== undefined && !multipart) headers['content-type'] = 'application/json';
 
   let res: Response;
   try {
     res = await fetchImpl(path, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : multipart ? body : JSON.stringify(body),
       credentials: 'same-origin',
       signal,
     });

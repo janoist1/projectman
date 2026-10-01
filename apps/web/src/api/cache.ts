@@ -74,6 +74,15 @@ export function writeTaskDetail(client: QueryClient, key: string, detail: TaskDe
 }
 
 /**
+ * A task's attachments changed: read the list again, and the task detail too, because the
+ * change is on the timeline (which a client sees as well).
+ */
+export function invalidateAttachments(client: QueryClient, key: string, taskKey: string): void {
+  void client.invalidateQueries({ queryKey: queryKeys.attachments(key, taskKey) });
+  void client.invalidateQueries({ queryKey: queryKeys.task(key, taskKey) });
+}
+
+/**
  * Applies a websocket event to the query cache so every screen updates live. Events for
  * data that is not in the cache are ignored; it is fetched fresh when a screen needs it.
  */
@@ -94,6 +103,11 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
   switch (event.type) {
     case 'task_upserted': {
       const { projectKey: key, task } = event;
+      // Who may see the files follows the task's visibility: read the list again when it changes.
+      const before = client.getQueryData<TaskDetail>(queryKeys.task(key, task.key))?.task;
+      if (before && before.visibility !== task.visibility) {
+        void client.invalidateQueries({ queryKey: queryKeys.attachments(key, task.key) });
+      }
       writeTask(client, key, task);
       if (task.links.some((link) => link.kind === 'pull_request')) {
         void client.invalidateQueries({ queryKey: queryKeys.task(key, task.key) });
@@ -120,6 +134,9 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       }
       return;
     }
+    case 'task_attachments_changed':
+      invalidateAttachments(client, event.projectKey, event.taskKey);
+      return;
     case 'plan_usage': {
       const { projectKey: key, provider, usage } = event;
       client.setQueryData<BoardView>(queryKeys.board(key), (board) =>

@@ -273,6 +273,39 @@ describe('contract follow-up events', () => {
     ).toBe(false);
   });
 
+  it('reads the attachment list and the task detail again when the attachments change', () => {
+    const client = seed();
+    client.setQueryData(queryKeys.attachments(KEY, 'AC-21'), { attachments: [] });
+    client.setQueryData(queryKeys.attachments(KEY, 'AC-20'), { attachments: [] });
+    applyServerEvent(client, { type: 'task_attachments_changed', projectKey: KEY, taskKey: 'AC-21' });
+    expect(client.getQueryState(queryKeys.attachments(KEY, 'AC-21'))!.isInvalidated).toBe(true);
+    // The timeline of the task shows the change.
+    expect(client.getQueryState(queryKeys.task(KEY, 'AC-21'))!.isInvalidated).toBe(true);
+    expect(client.getQueryState(queryKeys.attachments(KEY, 'AC-20'))!.isInvalidated).toBe(false);
+  });
+
+  it('keeps the attachment list of a task apart from the task detail queries', () => {
+    expect(queryKeys.attachments(KEY, 'AC-21').slice(0, 3)).not.toEqual(queryKeys.taskDetails(KEY));
+  });
+
+  it('reads the attachment list again when the visibility of its task changes, and only then', () => {
+    const client = seed();
+    client.setQueryData(queryKeys.attachments(KEY, 'AC-21'), { attachments: [] });
+    const task = tasks.find((entry) => entry.key === 'AC-21')!;
+    applyServerEvent(client, {
+      type: 'task_upserted',
+      projectKey: KEY,
+      task: { ...task, title: 'New title' },
+    });
+    expect(client.getQueryState(queryKeys.attachments(KEY, 'AC-21'))!.isInvalidated).toBe(false);
+    applyServerEvent(client, {
+      type: 'task_upserted',
+      projectKey: KEY,
+      task: { ...task, visibility: task.visibility === 'shared' ? 'internal' : 'shared' },
+    });
+    expect(client.getQueryState(queryKeys.attachments(KEY, 'AC-21'))!.isInvalidated).toBe(true);
+  });
+
   it('refreshes PR details when a linked task is published', () => {
     const client = seed();
     const task = {

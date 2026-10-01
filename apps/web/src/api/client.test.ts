@@ -42,6 +42,42 @@ describe('apiRequest', () => {
     expect(errorMessage(error)).toBe('Jóváhagyást kértünk; a feladat a jóváhagyás után lép tovább.');
   });
 
+  it('sends a FormData as it is, leaving the content type and its boundary to the browser', async () => {
+    let sent: { init?: RequestInit } = {};
+    setFetchImplementation(async (_input, init) => {
+      sent = { init };
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 201,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    const body = new FormData();
+    body.append('file', new File(['hello'], 'hello.txt', { type: 'text/plain' }), 'hello.txt');
+    await apiRequest('/api/upload', { method: 'POST', body });
+    expect(sent.init?.body).toBe(body);
+    expect(sent.init?.headers).toEqual({ accept: 'application/json' });
+  });
+
+  it('still sends other bodies as JSON', async () => {
+    let sent: RequestInit | undefined;
+    setFetchImplementation(async (_input, init) => {
+      sent = init;
+      return new Response(null, { status: 204 });
+    });
+    await apiRequest('/api/x', { method: 'POST', body: { a: 1 } });
+    expect(sent?.body).toBe('{"a":1}');
+    expect(sent?.headers).toMatchObject({ 'content-type': 'application/json' });
+  });
+
+  it('turns a failed upload into an ApiError like any other request', async () => {
+    respond(413, { error: { code: 'attachment_too_large', message: 'too large' } });
+    const body = new FormData();
+    body.append('file', new File(['x'], 'x.txt'));
+    const error = await apiRequest('/api/upload', { method: 'POST', body }).catch((e: unknown) => e);
+    expect(error).toMatchObject({ status: 413, code: 'attachment_too_large' });
+    expect(errorMessage(error)).toBe('A csatolmány legfeljebb 25 MB lehet.');
+  });
+
   it('notifies about 401 responses', async () => {
     const listener = vi.fn();
     const off = onUnauthorized(listener);

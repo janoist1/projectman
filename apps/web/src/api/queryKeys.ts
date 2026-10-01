@@ -16,6 +16,8 @@ export const queryKeys = {
   project: (key: string) => ['project', key] as const,
   board: (key: string) => ['project', key, 'board'] as const,
   task: (key: string, taskKey: string) => ['project', key, 'task', taskKey] as const,
+  /** A task's attachment list: next to the task detail, not under it, so the detail's prefix never matches it. */
+  attachments: (key: string, taskKey: string) => ['project', key, 'attachments', taskKey] as const,
   /** Prefix of every task detail query of a project. */
   taskDetails: (key: string) => ['project', key, 'task'] as const,
   session: (key: string, sessionId: string) => ['project', key, 'session', sessionId] as const,

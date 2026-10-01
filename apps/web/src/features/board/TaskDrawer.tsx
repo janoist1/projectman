@@ -25,6 +25,7 @@ import type { MemberIndex } from '../../lib/members';
 import { InboxCard } from '../inbox/InboxCard';
 import { nextStepText, primarySession } from './taskModel';
 import { useBoardModel } from './useBoardModel';
+import { TaskAttachments } from './TaskAttachments';
 import { TaskCommentComposer } from './TaskCommentComposer';
 import { TaskDescription } from './TaskEdit';
 import { TaskProperties } from './TaskProperties';
@@ -210,6 +211,8 @@ export function TaskDrawer() {
           <TaskProperties task={task} subtasks={subtasks} members={members} pipeline={pipeline} />
 
           <TaskDescription key={`description:${task.key}`} task={task} className={styles.description} />
+
+          <TaskAttachments key={`attachments:${task.key}`} task={task} members={members} />
 
           <section className={drawer.section}>
             <h3 className={drawer.sectionTitle}>{t('task.timeline')}</h3>

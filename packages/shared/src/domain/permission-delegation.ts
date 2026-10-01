@@ -51,9 +51,23 @@ export type PermissionRoute =
   | { to: 'ai'; leads: string[] }
   | {
       to: 'human';
-      why: 'approver_human' | 'owner_category' | 'no_decider';
+      why: 'approver_human' | 'owner_category' | 'no_decider' | 'too_long';
       category?: PermissionOwnerCategory;
     };
+
+/**
+ * How much of a request's input (as JSON) the decider is shown. A longer request is never delegated:
+ * the decider would judge a part of it, so a person gets it whole.
+ */
+export const DELEGATED_INPUT_LIMIT = 4_000;
+
+function inputLength(toolInput: unknown): number {
+  try {
+    return (JSON.stringify(toolInput ?? null) ?? 'null').length;
+  } catch {
+    return Infinity;
+  }
+}
 
 /**
  * Where a question of an AI member goes when no command rule has answered it (PM-169): to the AI
@@ -70,6 +84,7 @@ export function routePermissionRequest(
   if (member?.kind !== 'ai' || approverOf(member) !== 'ai') return { to: 'human', why: 'approver_human' };
   const category = permissionOwnerCategory(request.toolName, request.toolInput, request.roots);
   if (category) return { to: 'human', why: 'owner_category', category };
+  if (inputLength(request.toolInput) > DELEGATED_INPUT_LIMIT) return { to: 'human', why: 'too_long' };
   const leads = permissionDeciders(config, requester);
   return leads.length ? { to: 'ai', leads } : { to: 'human', why: 'no_decider' };
 }

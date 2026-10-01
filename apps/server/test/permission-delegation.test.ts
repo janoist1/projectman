@@ -281,6 +281,49 @@ describe('permission questions delegated to the AI decider (PM-169)', () => {
       await written;
     });
 
+    it.each([
+      ['an email through another MCP server', 'mcp__claude_ai_Gmail__send_message', { to: 'a@example.com' }],
+      [
+        'a Codex patch outside the session',
+        'apply_patch',
+        { input: '*** Begin Patch\n*** Add File: /Users/someone/.zshrc\n+x\n*** End Patch' },
+      ],
+      [
+        'a request too long to be shown whole',
+        'Bash',
+        { command: `curl https://example.com/?q=${'x'.repeat(5000)}` },
+      ],
+    ])('goes to the owner, never to the decider: %s', async (_what, toolName, toolInput) => {
+      const controller = new AbortController();
+      const pending = h.runnerModule
+        .broker()
+        .decide({ sessionId, toolName, toolInput, raw: {} }, controller.signal);
+      await flush();
+      const item = onlyOpen();
+      expect(item.assignees).toEqual(['owner']);
+      expect(item.payload).not.toHaveProperty('delegation');
+      expect(h.domain.sessions.list('AR', { member: 'cr' })).toHaveLength(0);
+      controller.abort();
+      await pending;
+    });
+
+    it('sends a Codex patch inside the session to the decider', async () => {
+      const controller = new AbortController();
+      const pending = h.runnerModule.broker().decide(
+        {
+          sessionId,
+          toolName: 'apply_patch',
+          toolInput: { input: '*** Begin Patch\n*** Add File: notes.txt\n+hello\n*** End Patch' },
+          raw: {},
+        },
+        controller.signal,
+      );
+      await flush();
+      expect(onlyOpen()).toMatchObject({ assignees: ['cr'] });
+      controller.abort();
+      await pending;
+    });
+
     it('leaves the command rules first: a routine step is allowed and an in-place edit refused as before', async () => {
       expect(await ask('git status --short')).toEqual({ behavior: 'allow' });
       expect((await ask("sed -i 's/a/b/' src/a.ts")).behavior).toBe('deny');

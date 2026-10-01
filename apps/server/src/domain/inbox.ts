@@ -1,6 +1,7 @@
 import {
   approvalRefusal,
   approverOf,
+  DELEGATED_INPUT_LIMIT,
   canDecidePermission,
   gateRequestOf,
   memberOf,
@@ -625,8 +626,8 @@ export class InboxService {
   }
 }
 
-/** How much of a request's input the decider is given in its wake-up message. */
-const MAX_DELEGATED_INPUT_CHARS = 4_000;
+/** The routing never delegates an input longer than `DELEGATED_INPUT_LIMIT`; the cut below is a safeguard. */
+const MAX_DELEGATED_INPUT_CHARS = DELEGATED_INPUT_LIMIT;
 
 /**
  * The agent prompt that wakes an AI decider (PM-169): who asks, the exact input of the tool call and how

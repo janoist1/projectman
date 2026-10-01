@@ -159,7 +159,9 @@ What the server adds, in every mode and on the legacy (Mac) profile:
   **Residual risk:** the decision is about free text, and the pre-filter in front of it
   (`permissionOwnerCategory`) is pattern matching a command can hide from; a mistaken `allow` of the
   decider is a lasting one for that call. The decider's duty text tells it to escalate doubtful
-  requests, and a request over 4,000 characters is shown cut off and must not be allowed. Waking the
+  requests, and the routing itself sends a request whose input is longer than 4,000 characters, a
+  tool of another MCP server (email, shared documents, ...), an unknown tool, and a file write or
+  patch outside the session's directories (Codex `apply_patch` included) to a person. Waking the
   decider uses subscription capacity and competes with its own work.
 - The `autoMode` prose in `--settings` only guides the classifier; it is not a boundary.
 - The managed VM profile is unchanged: its limits are outside the CLI.

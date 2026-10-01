@@ -65,6 +65,45 @@ const PATTERNS: ReadonlyArray<readonly [PermissionOwnerCategory, readonly RegExp
   ],
 ];
 
+/**
+ * The tools that work on this machine and that the decider may judge. Any other tool, one of another
+ * MCP server (an email, a shared document, a payment) or a name not known here, acts on something
+ * outside the session and goes to a person; the team's own tools (`mcp__team__*`) are the exception.
+ */
+const LOCAL_TOOLS = new Set([
+  'Bash',
+  'PowerShell',
+  'Read',
+  'NotebookRead',
+  'Glob',
+  'Grep',
+  'LS',
+  'WebFetch',
+  'WebSearch',
+  'TodoWrite',
+  'Task',
+  'Agent',
+  ...WRITING_TOOLS,
+  'apply_patch',
+]);
+
+/** Every file a Codex patch names (`*** Add|Update|Delete File:`, `*** Move to:`), in any string field. */
+function patchPaths(toolInput: unknown): string[] {
+  const texts =
+    typeof toolInput === 'string'
+      ? [toolInput]
+      : toolInput && typeof toolInput === 'object'
+        ? Object.values(toolInput as Record<string, unknown>).filter(
+            (value): value is string => typeof value === 'string',
+          )
+        : [];
+  return texts.flatMap((text) =>
+    [...text.matchAll(/^\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+)$/gm)].map((match) =>
+      match[1]!.trim(),
+    ),
+  );
+}
+
 /** The text of a request the patterns read: the command, else the paths and the address. */
 function requestText(toolInput: unknown): string {
   if (!toolInput || typeof toolInput !== 'object') return '';
@@ -112,11 +151,24 @@ export function permissionOwnerCategory(
   toolInput: unknown,
   roots: readonly string[],
 ): PermissionOwnerCategory | null {
-  const text = requestText(toolInput);
+  if (!LOCAL_TOOLS.has(toolName) && !toolName.startsWith('mcp__team__'))
+    return toolName.startsWith('mcp__') ? 'production' : 'host_expansion';
+  // A patch's text is the file contents it writes; only the files it names are the request.
+  // A shell command that runs apply_patch carries the patch in its text: its files count as well.
+  const command = requestText(toolInput);
+  const patched =
+    toolName === 'apply_patch' || (toolName !== 'Read' && /\bapply_patch\b/.test(command))
+      ? patchPaths(toolInput)
+      : null;
+  const text = toolName === 'apply_patch' ? (patched ?? []).join('\n') : command;
   for (const [category, patterns] of PATTERNS) {
     if (patterns.some((pattern) => pattern.test(text))) return category;
   }
-  if (WRITING_TOOLS.has(toolName) && toolInput && typeof toolInput === 'object') {
+  if (patched && (toolName === 'apply_patch' || patched.length > 0)) {
+    // A patch that names no file cannot be placed; each file it names must be inside the roots.
+    if (patched.length === 0 || roots.length === 0 || patched.some((file) => !insideRoots(file, roots)))
+      return 'host_expansion';
+  } else if (WRITING_TOOLS.has(toolName) && toolInput && typeof toolInput === 'object') {
     const input = toolInput as Record<string, unknown>;
     const target = PATH_KEYS.map((key) => input[key]).find(
       (value): value is string => typeof value === 'string',

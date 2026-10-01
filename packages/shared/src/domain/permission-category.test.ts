@@ -71,6 +71,44 @@ describe('permissionOwnerCategory', () => {
     ).toBe(null);
   });
 
+  it('sends the tools of other MCP servers and unknown tools to a person, and keeps the team’s own', () => {
+    const input = { to: 'someone@example.com', subject: 'Hi' };
+    expect(permissionOwnerCategory('mcp__claude_ai_Gmail__send_message', input, ROOTS)).toBe('production');
+    expect(permissionOwnerCategory('mcp__claude_ai_Google_Drive__share_file', input, ROOTS)).toBe(
+      'production',
+    );
+    expect(permissionOwnerCategory('SomeNewTool', input, ROOTS)).toBe('host_expansion');
+    expect(permissionOwnerCategory('mcp__team__send_message', input, ROOTS)).toBeNull();
+    for (const name of ['Bash', 'Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch'])
+      expect(permissionOwnerCategory(name, { command: 'ls', pattern: 'x' }, ROOTS), name).toBeNull();
+  });
+
+  it('reads every file a Codex patch names against the session roots', () => {
+    const roots = ['/home/me/work/app'];
+    const patch = (...files: string[]) => `*** Begin Patch\n${files.join('\n')}\n*** End Patch`;
+    const add = (file: string) => `*** Add File: ${file}\n+hello`;
+    const apply = (input: unknown) => permissionOwnerCategory('apply_patch', input, roots);
+    expect(apply({ input: patch(add('notes.txt')) })).toBeNull();
+    expect(apply({ command: patch(add('/home/me/work/app/src/a.ts')) })).toBeNull();
+    expect(apply({ input: patch(add('/etc/hosts')) })).toBe('host_expansion');
+    expect(apply({ input: patch(add('src/a.ts'), add('../outside.txt')) })).toBe('host_expansion');
+    expect(apply({ input: patch('*** Update File: a.ts\n*** Move to: /home/me/other/a.ts') })).toBe(
+      'host_expansion',
+    );
+    expect(apply({ patch: patch(add('/home/me/.ssh/authorized_keys')) })).toBe('credentials');
+    // A patch that names no file, or none readable, cannot be placed.
+    expect(apply({ input: 'garbage' })).toBe('host_expansion');
+    expect(apply({})).toBe('host_expansion');
+    // What the patch writes is not read as a command.
+    expect(apply({ input: patch('*** Add File: notes.txt\n+run git push later') })).toBeNull();
+    // A shell command that runs apply_patch counts as well.
+    const shell = (files: string) =>
+      permissionOwnerCategory('Bash', { command: `apply_patch <<'EOF'\n${patch(files)}\nEOF` }, roots);
+    expect(shell(add('/home/me/other/x'))).toBe('host_expansion');
+    expect(shell(add('x.txt'))).toBeNull();
+    expect(permissionOwnerCategory('Bash', { command: 'grep -rn apply_patch src' }, roots)).toBeNull();
+  });
+
   it('lets a file tool write inside the session roots and widens the host outside them', () => {
     const roots = ['/home/me/work/app'];
     const write = (file_path: string) => permissionOwnerCategory('Write', { file_path }, roots);

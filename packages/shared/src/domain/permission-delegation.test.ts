@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ProjectConfig } from '../config/schema';
 import {
+  DELEGATED_INPUT_LIMIT,
   canDecidePermission,
   permissionDelegationOf,
   permissionDelegationState,
@@ -73,6 +74,23 @@ describe('routePermissionRequest', () => {
     expect(
       routePermissionRequest(config(), 'dev-1', { ...curl, toolInput: { command: 'npm publish' } }),
     ).toEqual({ to: 'human', why: 'owner_category', category: 'production' });
+  });
+
+  it('sends a request longer than the decider is shown to a person, whole', () => {
+    const long = { ...curl, toolInput: { command: `echo ${'x'.repeat(DELEGATED_INPUT_LIMIT)}` } };
+    expect(routePermissionRequest(config(), 'dev-1', long)).toEqual({ to: 'human', why: 'too_long' });
+    const edge = { ...curl, toolInput: { command: 'x'.repeat(DELEGATED_INPUT_LIMIT - 14) } };
+    expect(routePermissionRequest(config(), 'dev-1', edge)).toEqual({ to: 'ai', leads: ['lead'] });
+  });
+
+  it('sends the tool of another MCP server to a person', () => {
+    expect(
+      routePermissionRequest(config(), 'dev-1', {
+        toolName: 'mcp__claude_ai_Gmail__send_message',
+        toolInput: { to: 'a@example.com' },
+        roots,
+      }),
+    ).toMatchObject({ to: 'human', why: 'owner_category', category: 'production' });
   });
 
   it('sends a request to a person when no decider is at work', () => {

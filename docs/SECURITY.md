@@ -225,6 +225,39 @@ flag or a VM label never counts: the report schema is strict and a missing check
 Decision 24's local-port exception does not apply inside the VM profile beyond what VM.md states
 (loopback, with the app's token checks).
 
+## The question-free profile (PM-141)
+
+In the managed VM profile the CLIs run with their own approvals and sandbox off (Claude Code in
+`bypassPermissions`, Codex with `danger-full-access` and approval `never`; decision 26), so the whole
+protection is the boundary VM.md measures. What keeps that from being a weaker Mac:
+
+- **No way in by assertion.** The profile is an owner-made installation setting, and each start
+  additionally needs the machine's own readiness report (Linux host, every required check, the
+  launcher and the domain gate passed, current, strict schema). A repository file, an environment
+  flag or a member's `permissionMode` never selects it; on the Mac and on a VM without a complete
+  report a session does not start at all (`managed_vm_unavailable`), and there is no fall-back that
+  would start it more freely. An existing member's mode is read, never rewritten, so leaving the
+  profile restores the configured behaviour (decision 19 and 21 stand everywhere else).
+- **A CLI version the settings are proven for.** The installed version must be a pinned one; another
+  release may read the flags differently, so it is refused, not tried.
+- **The VM's own configuration cannot reopen a door.** A managed policy, the provider's user
+  configuration or a trusted Codex project file that sets hooks, MCP servers, approval or sandbox
+  rules, credentials or endpoints refuses the start (names only in the error); the Claude start
+  leaves out the project's settings and MCP file and keeps only this session's team server (PM-49).
+  The service's SSH agent and GitHub token variables never reach a worker.
+- **No human approval to be tricked into.** A request that arrives anyway is refused, not queued for
+  an inbox item a person might approve from a phone without context. Anything that leaves the machine
+  is stopped at the network gate or decided as a boundary request (BOUNDARY.md); the owner's
+  exceptions apply there, not in the CLI.
+- **Nothing carries across a change.** A conversation, a working directory or an "allow for this
+  session" of the other profile is never reused, and the session's unconsumed boundary requests are
+  revoked.
+
+Limits: the real CLIs are not exercised by the automated tests (fakes only). What the flags do in
+the pinned versions, and that a forbidden step really stops at the gate, is the human trial of
+VM.md in a throwaway VM. Until the launcher (PM-140) runs sessions as the worker accounts, the
+profile cannot be activated (its report check stays `unverified`).
+
 ## Before server hosting
 
 1. Use a dedicated Unix account and private application home. Separate mutually

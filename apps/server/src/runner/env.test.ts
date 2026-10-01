@@ -75,6 +75,26 @@ describe('child environment', () => {
     );
   });
 
+  it('keeps the service identity out of a managed VM worker, and the billing filter as it is (PM-141)', () => {
+    const service = {
+      PATH: '/usr/bin',
+      ANTHROPIC_API_KEY: 'sk-ant-secret',
+      SSH_AUTH_SOCK: '/tmp/agent.sock',
+      SSH_AGENT_PID: '1',
+      GH_TOKEN: 'gh-secret',
+      GITHUB_TOKEN: 'gh-secret',
+      GIT_ASKPASS: '/bin/askpass',
+    };
+    const legacy = buildSessionEnv(service, 'ses_1');
+    expect(legacy.SSH_AUTH_SOCK).toBe('/tmp/agent.sock');
+    const managed = buildSessionEnv(service, 'ses_1', { managedVm: true });
+    for (const name of ['SSH_AUTH_SOCK', 'SSH_AGENT_PID', 'GH_TOKEN', 'GITHUB_TOKEN', 'GIT_ASKPASS']) {
+      expect(managed[name], name).toBeUndefined();
+    }
+    expect(managed.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(managed).toMatchObject({ PATH: '/usr/bin', PROJECTMAN_SESSION_ID: 'ses_1' });
+  });
+
   it('removes Codex billing variables and parent Codex session markers for every provider', () => {
     const env = buildChildEnv({
       PATH: '/usr/bin',

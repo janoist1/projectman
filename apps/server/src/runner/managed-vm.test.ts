@@ -11,11 +11,12 @@ import {
 import type { AgentProvider } from '@projectman/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 import { testConfig } from '../../test/helpers/test-template';
-import type { ManagedVmAttestation, ManagedVmBoundary, StartSessionSpec } from '../contracts';
+import type { ManagedVmAttestation, ManagedVmBoundary, SessionPolicy, StartSessionSpec } from '../contracts';
 import { MANAGED_VM_UNAVAILABLE } from '../contracts';
 import { buildSessionPolicy } from '../domain';
 import { createRunnerModule } from './index';
 import {
+  assertManagedVmPolicy,
   createReadinessBoundary,
   inspectAmbientConfig,
   ManagedVmUnavailableError,
@@ -236,6 +237,61 @@ describe("the VM's own provider configuration", () => {
       'model = "gpt"\n[notice]\nhide_rate_limit_model_nudge = true\n[projects."/a.b/c"]\ntrust_level = "trusted"\n',
     );
     expect(await inspect('codex', f.dir, { codexManaged: [], codexUser: user })).toEqual([]);
+  });
+});
+
+describe('a policy that names the managed VM profile', () => {
+  const policy = () =>
+    buildSessionPolicy({
+      config: testConfig(),
+      role: 'developer',
+      task: { repo: 'web' },
+      placement: { kind: 'member_workspace', path: '/vm/w', use: 'home' },
+      managedVm: { boundary: { name: VM_PROFILE_NAME, version: VM_PROFILE_VERSION } },
+    });
+
+  it('is consistent when the domain built it, and a legacy policy is not looked at', () => {
+    expect(() => assertManagedVmPolicy(policy())).not.toThrow();
+    const legacy = buildSessionPolicy({
+      config: testConfig(),
+      role: 'developer',
+      task: { repo: 'web' },
+      placement: { kind: 'task_worktree', path: '/w' },
+    });
+    expect(() => assertManagedVmPolicy(legacy)).not.toThrow();
+  });
+
+  it.each([
+    [
+      'an unknown profile',
+      (p: SessionPolicy) => ({ ...p, execution: { profile: 'vm' } as never }),
+      /unknown execution profile vm/,
+    ],
+    [
+      'a strict claim',
+      (p: SessionPolicy) => ({ ...p, enforcement: 'strict' as const }),
+      /strict enforcement/,
+    ],
+    [
+      'another placement',
+      (p: SessionPolicy) => ({ ...p, placement: { kind: 'read_only' as const, path: '/w' } }),
+      /placement read_only/,
+    ],
+    [
+      'permissions that ask',
+      (p: SessionPolicy) => ({ ...p, permissions: { ...p.permissions, approval: 'on-request' as const } }),
+      /permissions ask/,
+    ],
+    [
+      'a sandboxed CLI',
+      (p: SessionPolicy) => ({
+        ...p,
+        permissions: { ...p.permissions, sandbox: 'workspace-write' as const },
+      }),
+      /sandbox the CLI/,
+    ],
+  ])('is a start error with %s, never read as legacy', (_name, change, message) => {
+    expect(() => assertManagedVmPolicy(change(policy()))).toThrow(message);
   });
 });
 

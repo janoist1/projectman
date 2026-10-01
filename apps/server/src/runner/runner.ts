@@ -15,6 +15,7 @@ import { cliExists, runQuietly } from './cli';
 import { buildChildEnv, buildSessionEnv } from './env';
 import { hookUrlFor } from './hook-forwarder';
 import {
+  assertManagedVmPolicy,
   assertNoAmbientOverride,
   assertProviderVersion,
   ManagedVmUnavailableError,
@@ -78,6 +79,7 @@ export class SessionManager implements SessionRunner {
     if (this.sessions.has(spec.sessionId)) throw new Error(`session ${spec.sessionId} is already running`);
     const dir = await stat(spec.cwd).catch(() => null);
     if (!dir?.isDirectory()) throw new Error(`working directory does not exist: ${spec.cwd}`);
+    if (spec.policy) assertManagedVmPolicy(spec.policy);
     const managedVm = spec.policy?.execution?.profile === 'managed_vm';
     const env = buildSessionEnv(this.opts.env ?? process.env, spec.sessionId, { managedVm });
     if (!(await cliExists(adapter.bin, env.PATH))) {

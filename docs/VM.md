@@ -8,13 +8,13 @@ and the owner's running instance is not touched.
 
 What this part delivers, and what it does not:
 
-| Delivered here                                                                 | Later part of PM-135                                                 |
-| ------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| Pinned Node and CLI versions, a root-owned app, a separate service account     | The protected launcher that starts each session as a worker (PM-140) |
-| One unprivileged account per member, no sudo, no shared home                   | Domain-level network gate and the limited publishing gate (PM-140)   |
-| Egress rules that close the private side of the network to the service/workers | Per-member, per-repository workstations (PM-138)                     |
-| A readiness report with a strict verdict rule, probes with positive controls   | Delegated exit requests (PM-139), the question-free profile (PM-141) |
-| Backup and restore, a measurement helper, the manual trial steps (below)       | Trial run, data move and rollback (PM-143)                           |
+| Delivered here                                                                 | Later part of PM-135                                                                                             |
+| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| Pinned Node and CLI versions, a root-owned app, a separate service account     | The protected launcher that starts each session as a worker (PM-140)                                             |
+| One unprivileged account per member, no sudo, no shared home                   | Domain-level network gate and the limited publishing gate (PM-140)                                               |
+| Egress rules that close the private side of the network to the service/workers | Per-member, per-repository workstations (PM-138)                                                                 |
+| A readiness report with a strict verdict rule, probes with positive controls   | Delegated exit requests (PM-139); the question-free profile (PM-141, [below](#the-question-free-profile-pm-141)) |
+| Backup and restore, a measurement helper, the manual trial steps (below)       | Trial run, data move and rollback (PM-143)                                                                       |
 
 Until PM-140 lands, the runner still starts the agent CLIs as the **service** account, so the
 workers exist and are measured but do not run sessions yet. The egress rules therefore confine
@@ -223,6 +223,71 @@ tailscale status` and `... -- ls /run/tailscale` are denied, as for `projectman`
     work; report the peaks of memory, load and disk.
 11. **Backup and restore**: see below; then readiness and the browser check again.
 
+## The question-free profile (PM-141)
+
+In the VM the AI members' Claude Code and Codex run **without local approval questions**
+(decision 26): the boundary above, not the CLIs' own prompts and sandboxes, holds the limits.
+What each CLI is given, the checks before a start and what is not yet proven are in
+[PROVIDERS.md](PROVIDERS.md#managed-vm-profile-pm-141); the rule in [ARCHITECTURE.md](ARCHITECTURE.md).
+
+**Enabling it is the owner's step, and it needs a complete boundary.** Until PM-140 delivers the
+launcher and the domain-level network gate, `verify.sh` reports `launcher` and `domain-gate` as
+`unverified`, and the profile refuses to start any session: that is by design. Once they pass, the
+owner sets, in a root-managed drop-in of the service unit (`systemctl edit projectman`; the CLIs
+never see these variables):
+
+```
+Environment=PROJECTMAN_WORKSPACES=member
+Environment=PROJECTMAN_EXECUTION_PROFILE=managed_vm
+Environment=PROJECTMAN_VM_READINESS_REPORT=/var/lib/projectman-boundary/readiness.json
+# optional, default 1440 (a day): refresh the report with verify.sh at least that often
+Environment=PROJECTMAN_VM_REPORT_MAX_AGE_MINUTES=1440
+```
+
+An unknown profile name, a managed VM without member workspaces or a report path, or a report path on
+an installation that is not `managed_vm`, stops the server at start. The report is read at every
+session start, so a machine that stops being ready (an old report, a failed check) stops starting
+sessions at once; running sessions keep running. The VM must carry no administrator policy for the
+CLIs (`/etc/claude-code/managed-settings*`, `/etc/codex/*.toml`) and no hooks, MCP servers, approval
+or sandbox settings in the CLIs' user configuration: such a file refuses the start, naming the file
+and the setting (not its value).
+
+**Human trial in a throwaway VM** (interactive, on the subscription logins, never in automated
+tests). Build and verify as above, with `launcher` and `domain-gate` passing (or the report written by
+hand for the throwaway only, on a copy that is deleted afterwards), enable the profile, then for both
+a Claude and a Codex member (a developer, QA, a reviewer and a general chat each):
+
+1. **First start.** The session reaches its prompt with no dialog waiting in the terminal (no trust
+   screen, no bypass confirmation, no hook review) and the inbox shows nothing. If a dialog appears,
+   note its text: the adapter, not the contract, needs the change (PROVIDERS.md lists the settings
+   that are guesses until now).
+2. **Routine work without a question.** Ask the member to run, in its workspace: a command with
+   shell substitution (`echo "$(date)"`), a redirection into a file (`ls > out.txt`), `npm install`
+   (registry reachable), every test the project has including the ones that open a pseudo-terminal
+   (`npm test`), `git add` and `git commit -m "…"`. None may ask: no inbox item, no question in the
+   terminal. Writes to `.git` and to `.claude` of the workspace are the ones most likely to still
+   prompt in `bypassPermissions`: note it if they do.
+3. **Resume.** Stop the session, send a message, and see the same conversation resume, still without a
+   question. Change the member's `permissionMode` in the configuration and restart: the profile does
+   not change (and the configuration is not rewritten); `plan` stays research-only.
+4. **The boundary still stops what must stop.** From the session: reach the host and the LAN
+   (`/dev/tcp/<gw>/8099`, as in the manual trial), a private address, the metadata address, another
+   worker's home, `/var/lib/projectman/data`; try `git push` to a GitHub remote and an unlisted
+   domain. Each must fail at the gate or the file permissions, not at a prompt. A refused step is
+   reported by the member and shows no inbox item.
+5. **A request that arrives anyway.** Not reproducible on purpose; the fake CLIs cover it.
+6. **No local override.** Put a `.claude/settings.json` with a `hooks` entry and a `.mcp.json` in a
+   test repository and a `hooks` table in `~/.codex/config.toml` of a worker: Claude ignores the
+   repository files (the team server is the only MCP server), and the Codex start is refused with the
+   file and key named.
+7. **The Mac stays as it was.** On the Mac installation, set the same variables with a copy of the
+   readiness report (with `PROJECTMAN_WORKSPACES=member`): the server starts, and every session is
+   refused (`managed_vm_unavailable`, reason `platform`); with the variables removed, every member
+   runs exactly as before.
+
+Record the CLI versions, the settings that needed a change and every prompt that appeared on the
+card. The same facts decide whether `MANAGED_VM_PROVIDER_VERSIONS` may name a newer release.
+
 ## Backup and restore
 
 ```sh
@@ -256,6 +321,10 @@ changing `profile.env`, the shared `VM_PROFILE_VERSION` if a check changed, and 
 - A worker's own listener on `0.0.0.0` is not reachable from outside (inbound is closed except SSH and
   HTTPS from `tailscale0`), but it is reachable from loopback by every account of the machine.
 - The profile does not defend against a malicious admin, the hypervisor or a kernel flaw.
+- The question-free profile (PM-141) reads a task's attachment directory only as a read-only
+  _intent_ (`filesystem.readOnlyPaths`): the attachments live under `PROJECTMAN_HOME`, which a
+  worker cannot read, so how a worker session receives an attachment file is the launcher's design
+  (PM-140), not solved by the CLI settings.
 - An IPv6-only network is not supported: the confined accounts have no IPv6. Until PM-140 names the
   allowed destinations, a server needs IPv4 (NAT is enough).
 - `hidepid=2` on the main `/proc` is a known risk (step 1 of the trial). `hidepid` and the nftables

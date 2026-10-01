@@ -12,6 +12,7 @@ import {
   type AmbientConfigLocations,
   type ManagedVmAttestation,
   type ManagedVmBoundary,
+  type SessionPolicy,
 } from '../contracts';
 
 /**
@@ -120,6 +121,25 @@ export function createReadinessBoundary(options: ReadinessBoundaryOptions): Mana
 /** The version a CLI prints for `--version` ("2.1.284 (Claude Code)", "codex-cli 0.159.1"), or null. */
 export function parseCliVersion(output: string): string | null {
   return /(?:^|[^\w.])v?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)(?![\w.])/.exec(output)?.[1] ?? null;
+}
+
+/**
+ * A policy that names the managed VM profile must be consistent with it: an unknown profile name,
+ * a strict enforcement claim, a placement other than the member workspace, or permissions that
+ * still ask or sandbox are conflicts, refused with a start error and never read as legacy.
+ */
+export function assertManagedVmPolicy(policy: SessionPolicy): void {
+  const execution = policy.execution as { profile?: unknown } | undefined;
+  if (!execution) return;
+  const problems: string[] = [];
+  if (execution.profile !== 'managed_vm')
+    problems.push(`unknown execution profile ${String(execution.profile)}`);
+  if (policy.enforcement !== 'legacy') problems.push('it claims strict enforcement');
+  if (policy.placement.kind !== 'member_workspace') problems.push(`placement ${policy.placement.kind}`);
+  if (policy.permissions.approval !== 'never') problems.push('its permissions ask');
+  if (policy.permissions.sandbox === 'workspace-write') problems.push('its permissions sandbox the CLI');
+  if (problems.length > 0)
+    throw new Error(`conflicting execution profile in the session policy: ${problems.join(', ')}`);
 }
 
 /** Refuses an installed version the question-free settings are not proven for. */

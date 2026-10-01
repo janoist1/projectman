@@ -120,6 +120,7 @@ export const hu = {
       plan_usage_paused: 'A szolgáltató előfizetésének használata túl magas.',
       ai_disabled: 'Az AI-munka ki van kapcsolva ebben a projektben.',
       provider_not_logged_in: 'A szolgáltatónál nincs aktív bejelentkezés.',
+      managed_vm_unavailable: 'A kérdésmentes VM-profil határa nincs igazolva.',
       session_start_failed: 'A munkamenetet nem sikerült elindítani.',
       session_failed: 'A munkamenet sikertelenül zárult.',
       server_restarted: 'A szerver újraindult a futás közben.',

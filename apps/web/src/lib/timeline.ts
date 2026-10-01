@@ -185,6 +185,13 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       );
     case 'task_note':
       return normal(str(d.text));
+    case 'attachment_added':
+    case 'attachment_deleted':
+      return normal(
+        t(event.type === 'attachment_added' ? 'timeline.attachmentAdded' : 'timeline.attachmentDeleted', {
+          fileName: str(d.fileName),
+        }),
+      );
     case 'schedule_started':
       return normal(t('schedules.startedEvent'));
     case 'schedule_skipped':

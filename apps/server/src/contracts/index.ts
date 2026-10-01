@@ -1,3 +1,4 @@
+export * from './attachments';
 export * from './runner';
 export * from './team-tools';
 export * from './github';

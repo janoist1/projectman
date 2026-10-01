@@ -253,6 +253,8 @@ export const hu = {
       label_not_allowed: 'Ezt a címkét nem teheted rá és nem veheted le: a címke szabályai nem engedik.',
       ai_approval_forbidden: 'Jóváhagyást csak ember adhat.',
       release_four_eyes: 'A kiadáshoz független ember jóváhagyása szükséges.',
+      attachment_too_large: 'A csatolmány legfeljebb 25 MB lehet.',
+      attachment_storage_failed: 'A csatolmányt nem sikerült tárolni vagy olvasni; próbáld újra később.',
       not_stage_owner: 'A felelősnek a munkalépés feladatkörét kell viselnie.',
       missing_duty_holder: 'A folyamat egy szükséges feladatkörének nincs felelőse.',
       recommended_duty_unfilled: 'Egy ajánlott feladatkörnek még nincs felelőse.',
@@ -892,6 +894,8 @@ export const hu = {
     },
     subtaskAdded: 'Alfeladat hozzáadva: {subtaskKey} → {parentKey}',
     subtaskRemoved: 'Alfeladat eltávolítva: {subtaskKey} → {parentKey}',
+    attachmentAdded: 'Csatolmány hozzáadva: {fileName}',
+    attachmentDeleted: 'Csatolmány törölve: {fileName}',
     /** Checks were replaced by labels; task_check_changed events recorded before still name them. */
     legacyChecks: {
       names: {

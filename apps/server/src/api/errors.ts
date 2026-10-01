@@ -12,6 +12,13 @@ const FASTIFY_CODES: Record<string, ErrorCode> = {
   FST_ERR_CTP_EMPTY_JSON_BODY: 'invalid_request',
   FST_ERR_CTP_INVALID_JSON_BODY: 'invalid_json',
   FST_ERR_CTP_INVALID_CONTENT_LENGTH: 'invalid_request',
+  // Multipart uploads (attachments)
+  FST_REQ_FILE_TOO_LARGE: 'attachment_too_large',
+  FST_PARTS_LIMIT: 'payload_too_large',
+  FST_FILES_LIMIT: 'payload_too_large',
+  FST_FIELDS_LIMIT: 'payload_too_large',
+  FST_INVALID_MULTIPART_CONTENT_TYPE: 'unsupported_media_type',
+  FST_MP_PREMATURE_CLOSE: 'invalid_request',
 };
 
 /**

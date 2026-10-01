@@ -77,6 +77,9 @@ export const ERROR_CODES = [
   'comment_required',
   'self_review_forbidden',
   'release_four_eyes',
+  // Attachments
+  'attachment_too_large',
+  'attachment_storage_failed',
   // Inbox and messages
   'inbox_item_closed',
   'not_an_assignee',

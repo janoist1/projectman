@@ -3,6 +3,7 @@ import type { Me } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AuthService } from '../auth';
 import type {
+  AttachmentStorage,
   ConfigStore,
   ContextPackBuilder,
   EventBus,
@@ -17,6 +18,7 @@ import { projectAccessFor } from './access';
 import type { ProjectAccess } from './access';
 import { Admission, DeferredStarts, MessageStarts, StageHandOver, TaskStarts } from './admission';
 import type { StartSpec } from './admission';
+import { AttachmentService } from './attachments';
 import { BackgroundTasks } from './background';
 import { BoardService } from './board';
 import { createDomainContext, defaultTemplateRegistry } from './context';
@@ -54,6 +56,7 @@ export type {
   StartTaskOptions,
   StartTaskResult,
 } from './admission';
+export { AttachmentService, contentDisposition, createAttachmentStorage } from './attachments';
 export { BackgroundTasks } from './background';
 export { BoardService } from './board';
 export { GithubSync } from './github-sync';
@@ -100,6 +103,8 @@ export interface DomainOptions {
   contextBuilder: ContextPackBuilder;
   memory: MemberMemoryStore;
   worktrees: WorktreeManager;
+  /** Where the files of task attachments live (PROJECTMAN_HOME/attachments). */
+  attachmentStorage: AttachmentStorage;
   /** Creates the accounts of accepted invitations. */
   accounts: Pick<AuthService, 'prepareUser'>;
   /** Root used to constrain automatic lockfile installs; unset means no install auto-approval. */
@@ -135,6 +140,13 @@ export function createDomain(opts: DomainOptions) {
   const deferredStarts = new DeferredStarts(opts.repos.deferredStarts);
   const messages = new MessageService({ ctx, timeline });
   const tasks = new TaskService({ ctx, timeline, projects, inbox, startWaiting: deferredStarts });
+  const attachments = new AttachmentService({
+    ctx,
+    projects,
+    tasks,
+    timeline,
+    storage: opts.attachmentStorage,
+  });
   const members = new MemberService({ ctx, projects, timeline, presence, inbox });
   const roles = new RoleService({ projects });
   const sessions = new SessionOrchestrator({
@@ -275,6 +287,7 @@ export function createDomain(opts: DomainOptions) {
     messages,
     messaging,
     tasks,
+    attachments,
     members,
     roles,
     sessions,
@@ -296,6 +309,8 @@ export function createDomain(opts: DomainOptions) {
       sessions.reconcileAfterRestart();
       members.reconcileAfterRestart();
       inbox.expireOpenPermissions();
+      // Uploads and deletions the last run left half done (files and rows share no transaction).
+      await attachments.recover();
       githubSync.start();
       background.start();
       usage.start();

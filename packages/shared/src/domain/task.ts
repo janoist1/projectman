@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AgentProvider, MemberHandle } from './member';
+import type { HumanAccess } from './member';
 import { StageId } from './pipeline';
 
 /** Human-friendly task key: project key + sequence number, e.g. "AR-21". */
@@ -84,6 +85,17 @@ export const Task = z.object({
   closedAt: z.string().nullable(),
 });
 export type Task = z.infer<typeof Task>;
+
+/** Whoever looks at a task: a project member's access level (`ai` for an AI member) and handle. */
+export interface TaskViewer {
+  access: HumanAccess | 'ai';
+  handle: string;
+}
+
+/** Client members see only what is shared with them; every other member sees the whole project. */
+export function canSeeTask(viewer: Pick<TaskViewer, 'access'>, task: Pick<Task, 'visibility'>): boolean {
+  return viewer.access !== 'client' || task.visibility === 'shared';
+}
 
 /** A task is open until it is done or cancelled. */
 export function isOpenTask(task: Pick<Task, 'status'>): boolean {

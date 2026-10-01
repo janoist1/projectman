@@ -1,3 +1,4 @@
+import { createAttachmentRepository } from './attachments';
 import { createInvitationRepository } from './invitations';
 import type { Db } from './database';
 import { createDeferredStartRepository } from './deferred-starts';
@@ -14,6 +15,7 @@ import { createAuthSessionRepository, createUserRepository } from './users';
 export { openDatabase, migrate, schemaVersion } from './database';
 export type { Db } from './database';
 export { LATEST_SCHEMA_VERSION, migrations } from './migrations';
+export type { AttachmentRecord, AttachmentState, StoredAttachment } from './attachments';
 export type { DeferredStartRecord } from './deferred-starts';
 export type { UserRecord, AuthSessionRecord } from './users';
 export type { ProjectRecord } from './projects';
@@ -32,6 +34,7 @@ export function createRepositories(db: Db) {
     counters: createCounterRepository(db),
     tasks: createTaskRepository(db),
     timeline: createTimelineRepository(db),
+    attachments: createAttachmentRepository(db),
     sessions: createSessionRepository(db),
     schedules: createScheduleRepository(db),
     deferredStarts: createDeferredStartRepository(db),

@@ -5,7 +5,8 @@ import type { ProjectConfig } from '@projectman/shared';
 import { AuthService } from '../../src/auth';
 import { createConfigStore } from '../../src/config';
 import { createRepositories, openDatabase } from '../../src/db';
-import { createDomain, createTemplateRegistry, humanActor } from '../../src/domain';
+import type { AttachmentStorage } from '../../src/contracts';
+import { createAttachmentStorage, createDomain, createTemplateRegistry, humanActor } from '../../src/domain';
 import type { ScheduleTimer } from '../../src/domain/schedules';
 import type { Domain } from '../../src/domain';
 import {
@@ -47,6 +48,8 @@ export async function createDomainHarness(
      * the domain starts over what that one left, as after a restart. See `restartDomainHarness`.
      */
     directory?: string;
+    /** Wraps the real attachment storage (fault injection); default: the storage as it is. */
+    attachmentStorage?: (inner: AttachmentStorage) => AttachmentStorage;
   } = {},
 ) {
   const restarted = opts.directory !== undefined;
@@ -64,6 +67,9 @@ export async function createDomainHarness(
   const memory = new FakeMemoryStore();
   const worktrees = new FakeWorktreeManager(join(dir, 'worktrees'));
   const log = capturingLogger();
+  const attachmentStorage = (opts.attachmentStorage ?? ((inner) => inner))(
+    createAttachmentStorage(join(dir, 'attachments')),
+  );
 
   const domain: Domain = createDomain({
     repos,
@@ -75,6 +81,7 @@ export async function createDomainHarness(
     contextBuilder,
     memory,
     worktrees,
+    attachmentStorage,
     accounts: new AuthService({ repos, now: opts.now }),
     worktreesRootDir: join(dir, 'worktrees'),
     templates: createTemplateRegistry([testTemplate]),
@@ -111,6 +118,7 @@ export async function createDomainHarness(
     memory,
     worktrees,
     log,
+    attachmentsDir: join(dir, 'attachments'),
     /** Closes everything; fails the test if a service logged an error (e.g. a swallowed listener failure). */
     async cleanup() {
       await domain.stop();

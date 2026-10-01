@@ -12,6 +12,7 @@ import { createConfigStore } from './config';
 import type { GitConfigStore } from './config';
 import { createContextPackBuilder, createMemberMemoryStore } from './context';
 import type {
+  AttachmentStorage,
   ContextPackBuilder,
   GithubService,
   McpModule,
@@ -23,7 +24,7 @@ import type {
 } from './contracts';
 import { createRepositories, openDatabase } from './db';
 import type { Repositories } from './db';
-import { createDomain } from './domain';
+import { createAttachmentStorage, createDomain } from './domain';
 import type { Domain, ScheduleTimer, TemplateRegistry } from './domain';
 import { createGithubService } from './github';
 import { createMcpModule } from './mcp';
@@ -56,6 +57,8 @@ export interface AppModules {
   memberMemory?: MemberMemoryStore;
   worktrees?: WorktreeManager;
   templates?: TemplateRegistry;
+  /** The files of task attachments (default: PROJECTMAN_HOME/attachments). */
+  attachmentStorage?: AttachmentStorage;
 }
 
 /** Defaults of the server's options, including those index.ts reads from the environment. */
@@ -72,7 +75,7 @@ export const APP_DEFAULTS = {
 } as const;
 
 export interface BuildAppOptions {
-  /** PROJECTMAN_HOME: database, customization repository, memory, worktrees, cookie secret. */
+  /** PROJECTMAN_HOME: database, customization repository, memory, worktrees, attachments, cookie secret. */
   home: string;
   /** How the agent CLIs reach this server (hooks, MCP); default: the default host and port. */
   publicBaseUrl?: string;
@@ -135,7 +138,8 @@ declare module 'fastify' {
  */
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const home = resolve(options.home);
-  for (const dir of [home, join(home, 'memory'), join(home, 'worktrees')]) {
+  const attachmentsDir = join(home, 'attachments');
+  for (const dir of [home, join(home, 'memory'), join(home, 'worktrees'), attachmentsDir]) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
   chmodSync(home, 0o700);
@@ -205,6 +209,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       contextBuilder,
       memory,
       worktrees,
+      attachmentStorage: modules.attachmentStorage ?? createAttachmentStorage(attachmentsDir),
       accounts: auth,
       worktreesRootDir: join(home, 'worktrees'),
       templates: modules.templates,

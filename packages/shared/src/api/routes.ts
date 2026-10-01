@@ -25,6 +25,18 @@ export const routes = {
   cancelTask: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/cancel`,
   reopenTask: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/reopen`,
 
+  /** GET lists, POST uploads one file (multipart/form-data, field "file"). */
+  taskAttachments: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/attachments`,
+  /** DELETE removes the attachment. */
+  taskAttachment: (key: string, taskKey: string, id: string) =>
+    `/api/projects/${key}/tasks/${taskKey}/attachments/${id}`,
+  /** Inline when the content is a supported image or PDF, otherwise as a download. */
+  attachmentContent: (key: string, taskKey: string, id: string) =>
+    `/api/projects/${key}/tasks/${taskKey}/attachments/${id}/content`,
+  /** Always as a download. */
+  attachmentDownload: (key: string, taskKey: string, id: string) =>
+    `/api/projects/${key}/tasks/${taskKey}/attachments/${id}/download`,
+
   invitations: (key: string) => `/api/projects/${key}/invites`,
   invitation: (key: string, id: string) => `/api/projects/${key}/invites/${id}`,
   invite: (token: string) => `/api/invites/${token}`,

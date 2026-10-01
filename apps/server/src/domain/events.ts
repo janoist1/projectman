@@ -28,6 +28,8 @@ export interface DomainEventMap {
   task_cancelled: Task;
   /** Someone other than the assignee put labels on a task that notify its assignee. */
   task_labels_notice: { task: Task; labels: string[]; actor: Actor; comment?: string };
+  /** A task's description was changed (PM-184): the sessions working the card are told. */
+  task_description_changed: { task: Task; actor: Actor };
   /** A task comment mentions members (never its author). */
   task_note_added: { event: TimelineEvent; mentions: string[] };
   /** A session's process started (a new or a resumed conversation). */

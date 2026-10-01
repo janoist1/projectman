@@ -6,6 +6,7 @@ import type {
   Attachment,
   MemberView,
   ProjectConfig,
+  SessionState,
   Stage,
   Task,
   TimelineEvent,
@@ -43,6 +44,22 @@ export interface ContextPackInput {
    * Omitted (or empty) when the task has none or the work item is not a task.
    */
   attachments?: Attachment[];
+  /**
+   * The member's other running sessions on cards that belong with this task (PM-184), for the brief
+   * and the continue message. Omitted (or empty) when there are none.
+   */
+  relatedSessions?: RelatedSession[];
+}
+
+/** How a card relates to the task a session starts on. */
+export type CardRelation = 'parent' | 'subtask' | 'prerequisite' | 'prerequisite_of';
+
+/** A running session of the same member on a card that belongs with the task (`prerequisite_of`: that card has this one as its prerequisite). */
+export interface RelatedSession {
+  taskKey: string;
+  title: string;
+  relation: CardRelation;
+  state: SessionState;
 }
 
 export interface ContextPack {

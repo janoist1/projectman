@@ -159,7 +159,13 @@ Documentation map:
   (typed in when idle, queued otherwise; a stopped session is started or resumed through
   admission); messages to humans go to the web app. A message never goes to its sender.
   Injected messages carry the prefix `[team message from <handle> about <KEY>]` so
-  transcripts can be parsed.
+  transcripts can be parsed. Where an AI recipient gets it is decided when it is sent
+  (`Messaging.place`, PM-182): its running session on the card; else on an open card its running
+  session on an open family card (parent of a subtask, subtasks of a parent; siblings do not
+  count; the most recently active wins; not for an owner of the card's current stage); a closed
+  card's message goes to its general chat. The receipt keeps that `route` when it is not the
+  default (`messageRoute` in `packages/shared`), so the message is found there while it waits;
+  the prefix always names the message's own card.
 - **Admission** — every automatic session start (task start, stage hand-over, message
   wake-up, schedule run) passes the same checks, in this order: the project's AI master
   switch (`team.limits.aiEnabled`), that the member is not on leave (`member_on_leave`), for a

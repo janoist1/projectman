@@ -7,8 +7,10 @@ import {
   effectiveSessionPermissions,
   isOnLeave,
   memberOf,
+  messageRoute,
   repoOf,
   routes,
+  sameWorkItem,
   stageOf,
 } from '@projectman/shared';
 import type {
@@ -1438,10 +1440,10 @@ export class SessionOrchestrator {
    */
   private wakeForNewRound(session: Session): void {
     if (session.workItem.type !== 'task' || !this.workspaces?.isStale(session)) return;
-    const taskKey = session.workItem.taskKey;
+    const workItem = session.workItem;
     const [first] = this.ctx.repos.messages
       .pending(session.projectKey, session.member)
-      .filter((m) => m.taskKey === taskKey);
+      .filter((m) => sameWorkItem(messageRoute(m, session.member), workItem));
     if (!first) return;
     void this.ctx.events.emit('message_waiting', {
       projectKey: session.projectKey,

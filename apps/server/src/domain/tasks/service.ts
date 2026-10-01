@@ -129,6 +129,20 @@ export class TaskService {
     return this.store.find(projectKey, taskKey);
   }
 
+  /**
+   * The cards that belong with a task, one level: its parent when it is a subtask (the parent
+   * first), else its own subtasks. Siblings are not part of the family. Closed cards are included.
+   */
+  family(projectKey: string, taskKey: string): Task[] {
+    const task = this.find(projectKey, taskKey);
+    if (!task) return [];
+    if (task.parentKey) {
+      const parent = this.find(projectKey, task.parentKey);
+      return parent ? [parent] : [];
+    }
+    return this.ctx.repos.tasks.children(projectKey, taskKey);
+  }
+
   detail(projectKey: string, taskKey: string, timelineLimit = 100): TaskDetail {
     const task = this.get(projectKey, taskKey);
     return {

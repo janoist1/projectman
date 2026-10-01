@@ -84,7 +84,7 @@ export { GithubSync } from './github-sync';
 export { InboxService, PERMISSION_OPTIONS, DECISION_OPTIONS, ANSWER_OPTION } from './inbox';
 export { InvitationService } from './invitations';
 export { MemberProfiles, MemberService } from './members';
-export { MessageDelivery, MessageService, Messaging, routeFor } from './messaging';
+export { MessageDelivery, MessageService, Messaging } from './messaging';
 export { RoleService, roleUsage, roleViews } from './roles';
 export { defaultMemberHandle, defaultMemberName } from './naming';
 export { PlanUsageCache, PlanUsageMonitor, highestUsagePercent } from './plan-usage';

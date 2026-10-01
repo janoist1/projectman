@@ -12,6 +12,7 @@ import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from './pro
 import { nextState, type SessionSignal, type StateSnapshot } from './state';
 import { HeadlessScreen } from './terminal';
 import { toolActivity } from './tools';
+import { readTranscriptText } from './transcript/reader';
 import { TranscriptTailer } from './transcript/tailer';
 
 /** Dialogs replace the prompt box at the end of the screen content: only look there. */
@@ -282,6 +283,9 @@ export class AgentSession {
     if (this.hasExited) return null;
     const subagent = this.adapter.isSubagentHook(payload);
     this.noteTranscript(payload);
+    if (payload.hook_event_name === 'SubagentStop' && payload.agent_transcript_path) {
+      void this.readSubagentUsage(payload.agent_transcript_path);
+    }
     if (!subagent) this.noteProviderSessionId(payload);
     const authError = this.adapter.hookAuthError(payload);
     if (authError) {
@@ -462,8 +466,9 @@ export class AgentSession {
 
   private onTranscriptLines(parser: TranscriptLineParser, lines: string[]): void {
     if (parser !== this.parser) return;
-    const { items, interruptedAt, authError } = parser.parseLines(lines);
+    const { items, interruptedAt, authError, usage } = parser.parseLines(lines);
     if (items.length > 0) this.deps.emit({ type: 'chat', sessionId: this.id, items });
+    if (usage?.length) this.deps.emit({ type: 'usage', sessionId: this.id, entries: usage });
     if (authError) {
       this.authFailed(authError);
       return;
@@ -472,6 +477,28 @@ export class AgentSession {
     if (interruptedAt && Date.parse(interruptedAt) >= this.lastPromptAt && !this.hasExited) {
       this.input.schedule(this.timing.stopSettleMs);
       this.apply({ kind: 'interrupted' });
+    }
+  }
+
+  /**
+   * A subagent stopped (PM-178): its own transcript, which its SubagentStop hook names, is read
+   * whole once and its token usage reported. Like the main transcript, a worker's file is read
+   * only inside the worker home. A subagent still running when the session ends is not counted.
+   */
+  private async readSubagentUsage(raw: string): Promise<void> {
+    const parser = this.parser;
+    if (!parser?.subagentUsage) return;
+    const path = this.transcriptFile(raw);
+    if (path === null) {
+      this.log.warn({ sessionId: this.id }, 'ignored a subagent transcript outside the worker home');
+      return;
+    }
+    try {
+      const text = await readTranscriptText(path, this.deps.transcriptRoot);
+      const entries = parser.subagentUsage(text.split('\n'));
+      if (entries.length > 0) this.deps.emit({ type: 'usage', sessionId: this.id, entries });
+    } catch (err) {
+      this.log.warn({ err, sessionId: this.id }, 'subagent transcript read failed');
     }
   }
 

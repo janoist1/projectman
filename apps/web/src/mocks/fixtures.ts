@@ -1075,6 +1075,27 @@ export const sessions: Session[] = [
       activity: 'Bash: git push origin 21-order-confirmation',
       startedAt: daysAgo(2, 9, 20),
       lastActivityAt: minutesAgo(99),
+      usage: {
+        since: daysAgo(2, 9, 20),
+        rows: [
+          {
+            model: 'claude-opus-5-5',
+            scope: 'main',
+            input: 1_200,
+            output: 34_500,
+            cacheRead: 2_100_000,
+            cacheWrite: 180_000,
+          },
+          {
+            model: 'claude-haiku-4-5',
+            scope: 'subagent',
+            input: 800,
+            output: 4_200,
+            cacheRead: 95_000,
+            cacheWrite: 12_000,
+          },
+        ],
+      },
     },
     21,
   ),
@@ -1088,6 +1109,19 @@ export const sessions: Session[] = [
       startedAt: minutesAgo(197),
       lastActivityAt: minutesAgo(181),
       endedAt: minutesAgo(180),
+      usage: {
+        since: minutesAgo(197),
+        rows: [
+          {
+            model: 'claude-opus-5-5',
+            scope: 'main',
+            input: 300,
+            output: 6_000,
+            cacheRead: 400_000,
+            cacheWrite: 50_000,
+          },
+        ],
+      },
     },
     211,
   ),

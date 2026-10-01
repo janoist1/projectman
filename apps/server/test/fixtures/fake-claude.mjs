@@ -45,7 +45,14 @@
  *   - contains "TEAM": tool_use mcp__team__send_message {to:["qa"], text:"Ready for review"}
  *     (same permission flow; `permissions.allow` "mcp__team" or "mcp__team__*" pre-allows it).
  *   - contains "ASK": tool_use AskUserQuestion, PreToolUse, waits for a key in the terminal.
- *   - always: assistant text "Echo: <first line of the prompt>", then the Stop hook.
+ *   - contains "SUBAGENT": a subagent's own transcript
+ *     `<transcript dir>/<session id>/subagents/agent-<id>.jsonl` (model "claude-fake-haiku",
+ *     usage input 3, output 2, cache read 30), then the SubagentStop hook with agent_id,
+ *     agent_type "Explore" and agent_transcript_path.
+ *   - always: assistant text "Echo: <first line of the prompt>" (a thinking entry first, with the
+ *     same message id and a placeholder output count of 1), then the Stop hook.
+ *   Every response's usage: input 10, output 5, cache read 100, cache write 20, model --model
+ *   (default "claude-fake").
  * - "/clear": SessionEnd (reason "clear"), a new session id and transcript file, then
  *   SessionStart with source "clear" (no UserPromptSubmit, like Claude Code's own commands).
  * - "/exit", double Ctrl+C, Ctrl+D, SIGTERM or SIGHUP: SessionEnd hook, exit code 0.
@@ -301,20 +308,79 @@ async function interactive() {
   const userEntry = (content, extra = {}) =>
     writeEntry({ type: 'user', message: { role: 'user', content }, ...extra });
   let messageCounter = 0;
-  const assistantEntry = (content) =>
-    writeEntry({
+  /** Every response's usage; `outputTokens` overrides its output (a placeholder of an early block). */
+  const usage = (outputTokens = 5) => ({
+    input_tokens: 10,
+    output_tokens: outputTokens,
+    cache_read_input_tokens: 100,
+    cache_creation_input_tokens: 20,
+  });
+  const assistantEntry = (content, { id, outputTokens } = {}) => {
+    if (!id) messageCounter += 1;
+    return writeEntry({
       type: 'assistant',
-      requestId: `req_fake_${++messageCounter}`,
+      requestId: `req_fake_${messageCounter}`,
       message: {
-        id: `msg_fake_${messageCounter}`,
+        id: id ?? `msg_fake_${messageCounter}`,
         type: 'message',
         role: 'assistant',
         model: opts.model ?? 'claude-fake',
         content,
         stop_reason: content.some((b) => b.type === 'tool_use') ? 'tool_use' : 'end_turn',
-        usage: { input_tokens: 1, output_tokens: 1 },
+        usage: usage(outputTokens),
       },
     });
+  };
+
+  /**
+   * A subagent's run: its own transcript (sidechain entries of another model, one response in two
+   * entries with a placeholder output count first), then SubagentStop naming that file.
+   */
+  async function runSubagent() {
+    const agentId = `a${turn}fake`;
+    const file = path.join(transcriptDir, sessionId, 'subagents', `agent-${agentId}.jsonl`);
+    mkdirSync(path.dirname(file), { recursive: true });
+    const id = `msg_fake_sub_${turn}`;
+    for (const [content, output] of [
+      [[{ type: 'thinking', thinking: '' }], 1],
+      [[{ type: 'text', text: 'Found it' }], 2],
+    ]) {
+      const entry = {
+        parentUuid: null,
+        isSidechain: true,
+        agentId,
+        sessionId,
+        type: 'assistant',
+        message: {
+          id,
+          type: 'message',
+          role: 'assistant',
+          model: 'claude-fake-haiku',
+          content,
+          usage: {
+            input_tokens: 3,
+            output_tokens: output,
+            cache_read_input_tokens: 30,
+            cache_creation_input_tokens: 0,
+          },
+        },
+        uuid: randomUUID(),
+        timestamp: new Date().toISOString(),
+      };
+      appendFileSync(file, `${JSON.stringify(entry)}\n`);
+    }
+    await runHooks(
+      'SubagentStop',
+      {
+        agent_id: agentId,
+        agent_type: 'Explore',
+        agent_transcript_path: file,
+        stop_hook_active: false,
+        last_assistant_message: 'Found it',
+      },
+      'Explore',
+    );
+  }
 
   // --- hooks
   function matcherMatches(matcher, value) {
@@ -626,8 +692,16 @@ async function interactive() {
       );
     }
 
+    if (text.includes('SUBAGENT')) {
+      await runSubagent();
+      if (!busy || turn !== myTurn) return;
+    }
+
     const reply = `Echo: ${text.split('\n')[0]}`;
-    assistantEntry([{ type: 'text', text: reply }]);
+    // Like Claude Code: one response in two entries, the first with a placeholder output count.
+    const replyId = `msg_fake_${++messageCounter}`;
+    assistantEntry([{ type: 'thinking', thinking: '', signature: 'fake' }], { id: replyId, outputTokens: 1 });
+    assistantEntry([{ type: 'text', text: reply }], { id: replyId });
     line(`● ${reply}`);
     await runHooks('Stop', { stop_hook_active: false, last_assistant_message: reply });
     if (turn !== myTurn) return;

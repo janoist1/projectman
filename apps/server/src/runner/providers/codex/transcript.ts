@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { ChatItem } from '@projectman/shared';
+import { mergeTokenUsage, type ChatItem, type TokenUsage } from '@projectman/shared';
 import {
   TEAM_SEND_MESSAGE_TOOL,
   compactInput,
@@ -31,18 +31,41 @@ import { rateLimitsOf, type CodexRateLimits } from './plan-usage';
  *   `custom_tool_call_output` (`{call_id, output}`; output is text or content items),
  *   `local_shell_call`, `web_search_call`, `reasoning` (skipped);
  * - `event_msg`: `task_started`, `task_complete` (`error` when the turn failed), `turn_aborted`
- *   (`reason: "interrupted"` for Esc), `token_count` (`rate_limits` of the plan);
- * - `turn_context`, `compacted` and the rest carry no chat.
+ *   (`reason: "interrupted"` for Esc), `token_count` (`rate_limits` of the plan, and in `info`
+ *   the token usage: `total_token_usage` and `last_token_usage`, each `{input_tokens,
+ *   cached_input_tokens, output_tokens, reasoning_output_tokens, total_tokens}`);
+ * - `turn_context` (`{model, ...}` of the turn), `compacted` and the rest carry no chat.
  * Codex also records the context it adds itself (environment, AGENTS.md, instructions) as user
  * messages wrapped in tags; those are skipped. Response items rarely carry ids, so items get
  * ids from a hash of their line, which stays the same whenever the file is read again.
  */
+
+/** Token counts as Codex reports them: `input` includes `cached`. */
+interface CodexTokens {
+  input: number;
+  cached: number;
+  output: number;
+}
+
+function tokenFields(usage: Json | null): CodexTokens | null {
+  if (!usage) return null;
+  const field = (name: string) => {
+    const n = num(usage[name]);
+    return n !== null && n > 0 ? Math.floor(n) : 0;
+  };
+  return {
+    input: field('input_tokens'),
+    cached: field('cached_input_tokens'),
+    output: field('output_tokens'),
+  };
+}
 
 export interface CodexParseResult extends TranscriptParseResult {
   /** The newest plan rate limits in these lines. */
   rateLimits: CodexRateLimits | null;
   /** The conversation id, when these lines include the session header. */
   sessionId: string | null;
+  usage: TokenUsage[];
 }
 
 /** "mcp__team__" + "send_message" -> "mcp__team__send_message" (as Codex names it in hooks). */
@@ -114,6 +137,10 @@ export class CodexTranscriptParser implements TranscriptLineParser {
   private readonly turns: UserTurns;
   /** call_id -> tool name, to summarise the matching output. */
   private readonly tools = new ToolNames();
+  /** The model of the current turn (`turn_context`), for its token counts. */
+  private model: string | null = null;
+  /** The conversation's latest running token total. */
+  private total: CodexTokens | null = null;
 
   constructor(opts: { self?: string | null; cwd?: string | null; firstUserOrigin?: 'brief' | 'human' } = {}) {
     this.self = selfHandle(opts.self);
@@ -128,6 +155,7 @@ export class CodexTranscriptParser implements TranscriptLineParser {
       authError: null,
       rateLimits: null,
       sessionId: null,
+      usage: [],
     };
     for (const line of lines) {
       if (!line.trim()) continue;
@@ -155,10 +183,14 @@ export class CodexTranscriptParser implements TranscriptLineParser {
         case 'compacted':
           result.items.push({ kind: 'system_note', id, ts, text: 'Conversation compacted' });
           break;
+        case 'turn_context':
+          this.model = str(payload.model) ?? this.model;
+          break;
         default:
           break;
       }
     }
+    result.usage = mergeTokenUsage(result.usage);
     return result;
   }
 
@@ -306,11 +338,47 @@ export class CodexTranscriptParser implements TranscriptLineParser {
       case 'token_count': {
         const limits = rateLimitsOf(payload, ts);
         if (limits) out.rateLimits = limits;
+        const used = this.tokenCount(rec(payload.info));
+        if (used) out.usage.push(used);
         return;
       }
       default:
         return;
     }
+  }
+
+  /**
+   * The tokens a `token_count` event adds (PM-178). Its `total_token_usage` is the conversation's
+   * running total: the difference from the previous one counts, so an event repeated with the same
+   * total adds nothing. Without a previous total (the first event, or the first after a resume,
+   * which is followed from the end of the file) its `last_token_usage`, the latest response's,
+   * counts. Codex counts cached input inside `input_tokens`: here it is only in `cacheRead`;
+   * reasoning tokens are part of the output.
+   */
+  private tokenCount(info: Json | null): TokenUsage | null {
+    if (!info) return null;
+    const total = tokenFields(rec(info.total_token_usage));
+    const last = tokenFields(rec(info.last_token_usage));
+    let used: CodexTokens | null = null;
+    if (total && this.total) {
+      const diff = {
+        input: total.input - this.total.input,
+        cached: total.cached - this.total.cached,
+        output: total.output - this.total.output,
+      };
+      used = diff.input < 0 || diff.cached < 0 || diff.output < 0 ? last : diff;
+    } else used = last ?? total;
+    if (total) this.total = total;
+    if (!used || used.input + used.output === 0) return null;
+    const cached = Math.min(used.cached, used.input);
+    return {
+      model: this.model ?? 'unknown',
+      scope: 'main',
+      input: used.input - cached,
+      output: used.output,
+      cacheRead: cached,
+      cacheWrite: 0,
+    };
   }
 
   private turnError(error: Json | null, id: string, ts: string, out: CodexParseResult): void {

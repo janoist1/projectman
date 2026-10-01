@@ -1,4 +1,4 @@
-import type { ChatItem } from '@projectman/shared';
+import { mergeTokenUsage, type ChatItem, type TokenUsage } from '@projectman/shared';
 import { TEAM_SEND_MESSAGE_TOOL, compactInput, oneLine, toolSummary } from '../../tools';
 import {
   ToolNames,
@@ -9,6 +9,7 @@ import {
   undeliveredTeamMessage,
 } from '../../transcript/chat-items';
 import { num, rec, str, type Json } from '../../transcript/json';
+import { ClaudeUsageCounter } from './usage';
 
 /**
  * Turns Claude Code transcript entries (one JSON object per JSONL line) into chat items.
@@ -17,7 +18,8 @@ import { num, rec, str, type Json } from '../../transcript/json';
  * - `{type:"user", uuid, timestamp, isMeta?, isSidechain?, isCompactSummary?,
  *    message:{role:"user", content: string | Block[]}, toolUseResult?}`
  * - `{type:"assistant", uuid, timestamp, isSidechain?, isApiErrorMessage?,
- *    message:{id, role:"assistant", content: Block[]}}` (usually one block per entry)
+ *    message:{id, role:"assistant", model, content: Block[], usage}}` (usually one block per
+ *   entry; the token usage is read by ClaudeUsageCounter)
  * - `{type:"system", subtype:"compact_boundary", ...}`
  * - Blocks: `{type:"text", text}`, `{type:"thinking"}`, `{type:"tool_use", id, name, input}`,
  *   `{type:"tool_result", tool_use_id, content: string | Block[], is_error?}`, `{type:"image"}`.
@@ -78,6 +80,7 @@ export class TranscriptParser {
   private readonly turns: UserTurns;
   /** tool_use id -> tool name, to summarise the matching tool_result. */
   private readonly tools = new ToolNames();
+  private readonly usage = new ClaudeUsageCounter();
   private anonymous = 0;
 
   constructor(opts: TranscriptParserOptions = {}) {
@@ -87,8 +90,9 @@ export class TranscriptParser {
   }
 
   /** Parses complete JSONL lines; malformed lines are skipped. */
-  parseLines(lines: Iterable<string>): ParseResult {
+  parseLines(lines: Iterable<string>): ParseResult & { usage: TokenUsage[] } {
     const items: ChatItem[] = [];
+    const usage: TokenUsage[] = [];
     let interruptedAt: string | null = null;
     for (const line of lines) {
       if (!line.trim()) continue;
@@ -101,8 +105,19 @@ export class TranscriptParser {
       const result = this.parseEntry(entry);
       items.push(...result.items);
       if (result.interruptedAt) interruptedAt = result.interruptedAt;
+      // Older Claude Code versions wrote a subagent's conversation into the main transcript.
+      const used = this.usage.add(entry, rec(entry)?.isSidechain === true ? 'subagent' : 'main');
+      if (used) usage.push(used);
     }
-    return { items, interruptedAt };
+    return { items, interruptedAt, usage: mergeTokenUsage(usage) };
+  }
+
+  /**
+   * The usage in a subagent's own transcript (read whole when it stops). Responses this parser
+   * counted already (the same message id) are not counted again.
+   */
+  subagentUsage(lines: Iterable<string>): TokenUsage[] {
+    return this.usage.addLines(lines, () => 'subagent');
   }
 
   parseEntry(value: unknown): ParseResult {

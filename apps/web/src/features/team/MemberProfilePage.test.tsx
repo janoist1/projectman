@@ -3,11 +3,14 @@ import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
 import { getLocale } from '@projectman/templates';
 import { setFetchImplementation } from '../../api/client';
+import { formatTokens as format } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
 import { MemberProfilePage } from './MemberProfilePage';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
+/** A count as the queries see it: their normalizer turns the grouping (no-break) spaces into plain ones. */
+const formatTokens = (count: number) => format(count).replace(/\s/g, ' ');
 function page() {
   return (
     <Routes>
@@ -67,6 +70,25 @@ describe('member profiles', () => {
     expect(screen.getByRole('button', { name: t('profile.conversation') })).toBeTruthy();
     expect(screen.getByText(t('dutyNames.implementation'))).toBeTruthy();
   });
+  it('shows the tokens of the last day and the last week (PM-178)', async () => {
+    const p = mockProject();
+    p.render(page(), '/team/fe-1');
+    const heading = await screen.findByRole('heading', { name: t('tokenUsage.title') });
+    const panel = heading.parentElement!;
+    expect(within(panel).getByRole('heading', { name: t('tokenUsage.lastDay') })).toBeTruthy();
+    expect(within(panel).getByRole('heading', { name: t('tokenUsage.lastWeek') })).toBeTruthy();
+    expect(
+      within(panel).getAllByText(t('tokenUsage.total', { total: formatTokens(2_427_700) })),
+    ).toHaveLength(2);
+  });
+
+  it('shows no tokens for a member whose sessions used none in the windows', async () => {
+    const p = mockProject();
+    p.render(page(), '/team/qa');
+    const heading = await screen.findByRole('heading', { name: t('tokenUsage.title') });
+    expect(within(heading.parentElement!).getAllByText(t('tokenUsage.none'))).toHaveLength(2);
+  });
+
   it('shows what each role of the member does, does not do, and when to turn to them', async () => {
     const p = mockProject();
     const qa = getLocale('hu').roles.qa;

@@ -27,6 +27,7 @@ import { ErrorBanner } from '../../components/ErrorBanner';
 import { MoreMenu } from '../../components/MoreMenu';
 import { ProviderBadge } from '../../components/ProviderBadge';
 import { Timeline } from '../../components/Timeline';
+import { TokenUsageList } from '../../components/TokenUsage';
 import { useToast } from '../../components/toastContext';
 import { ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
@@ -336,6 +337,13 @@ export function MemberProfilePage() {
                   </li>
                 ))}
             </ul>
+          </section>
+          <section className={styles.panel}>
+            <h2>{t('tokenUsage.title')}</h2>
+            <h3 className={styles.usageWindow}>{t('tokenUsage.lastDay')}</h3>
+            <TokenUsageList rows={data.usage?.lastDay ?? null} />
+            <h3 className={styles.usageWindow}>{t('tokenUsage.lastWeek')}</h3>
+            <TokenUsageList rows={data.usage?.lastWeek ?? null} />
           </section>
           <section className={styles.panel}>
             <h2>{t('profile.memory')}</h2>

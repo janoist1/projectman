@@ -29,6 +29,7 @@ import { TaskAttachments } from './TaskAttachments';
 import { TaskCommentComposer } from './TaskCommentComposer';
 import { TaskDescription } from './TaskEdit';
 import { TaskProperties } from './TaskProperties';
+import { TaskUsage } from './TaskUsage';
 import { TaskMove } from './TaskMove';
 import { canMoveTask } from './moveTask';
 import drawer from './drawer.module.css';
@@ -263,6 +264,8 @@ export function TaskDrawer() {
               </ul>
             </section>
           ) : null}
+
+          <TaskUsage sessions={sessions} members={members} myHandle={myHandle} />
         </div>
       </>
     );

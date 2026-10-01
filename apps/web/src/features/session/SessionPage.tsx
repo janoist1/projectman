@@ -30,7 +30,7 @@ import { Composer } from './Composer';
 import { participantsFor } from './participants';
 import { SessionHeader } from './SessionHeader';
 import { liveState, sessionTitle } from './sessionModel';
-import { ParticipantsPanel, PrPanel } from './SessionPanels';
+import { ParticipantsPanel, PrPanel, UsagePanel } from './SessionPanels';
 import styles from './SessionPage.module.css';
 import { usePendingEchoes } from './usePendingEchoes';
 
@@ -166,6 +166,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
         labels={labels}
       />
       <ParticipantsPanel participants={participants} members={members} myHandle={myHandle} />
+      <UsagePanel session={session} provider={session.provider ?? members.get(session.member)?.provider} />
     </>
   );
 

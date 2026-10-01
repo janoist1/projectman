@@ -69,7 +69,9 @@
  *   - "EXPIRE" (or any prompt while FAKE_CODEX_LOGGED_OUT is set): the turn fails with the
  *     refresh-token error (codex_error_info "unauthorized"); no Stop hook.
  *   - always: the answer "Echo: <first line of the prompt>", a token_count event with the plan
- *     rate limits (FAKE_CODEX_RATE_LIMITS = JSON, or canned ones), task_complete, then Stop.
+ *     rate limits (FAKE_CODEX_RATE_LIMITS = JSON, or canned ones) and the token usage (the
+ *     turn's `last_token_usage`: input 10 of which 4 cached, output 5 of which 2 reasoning; and
+ *     the running `total_token_usage`), the same event once more, task_complete, then Stop.
  *
  * VERSION: `--version` prints `codex-cli <FAKE_CODEX_VERSION, else 0.0.0>`. FAKE_CODEX_FORCE_APPROVAL
  *   makes a command that needs escalation ask even where the policy says it never does (a
@@ -575,6 +577,14 @@ async function interactive() {
   let lastPasteAt = 0;
   let busy = false;
   let turn = 0;
+  /** The conversation's running token total, as Codex reports it in token_count events. */
+  const totalTokens = {
+    input_tokens: 0,
+    cached_input_tokens: 0,
+    output_tokens: 0,
+    reasoning_output_tokens: 0,
+    total_tokens: 0,
+  };
   let mode = 'dialog'; // dialog | prompt | question
   const keys = createKeyWaiter();
   let lastCtrlC = 0;
@@ -864,11 +874,23 @@ async function interactive() {
     const limits = process.env.FAKE_CODEX_RATE_LIMITS
       ? JSON.parse(process.env.FAKE_CODEX_RATE_LIMITS)
       : CANNED_LIMITS();
-    eventMsg({
-      type: 'token_count',
-      info: { total_token_usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 } },
-      rate_limits: limits,
-    });
+    // Each turn's response: input 10 (4 of it from the cache), output 5 (2 of it reasoning).
+    const last = {
+      input_tokens: 10,
+      cached_input_tokens: 4,
+      output_tokens: 5,
+      reasoning_output_tokens: 2,
+      total_tokens: 15,
+    };
+    for (const [key, value] of Object.entries(last)) totalTokens[key] += value;
+    const info = {
+      total_token_usage: { ...totalTokens },
+      last_token_usage: last,
+      model_context_window: 272000,
+    };
+    eventMsg({ type: 'token_count', info, rate_limits: limits });
+    // The same totals again (a plan-limits update): they must not be counted twice.
+    eventMsg({ type: 'token_count', info, rate_limits: limits });
     eventMsg({ type: 'task_complete', turn_id: turnId, last_agent_message: reply });
     await runHooks('Stop', { stop_hook_active: false, last_assistant_message: reply });
     if (turn !== myTurn) return;

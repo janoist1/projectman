@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { formatInjectedTeamMessage, type ChatItem, type SessionState } from '@projectman/shared';
+import {
+  formatInjectedTeamMessage,
+  mergeTokenUsage,
+  type ChatItem,
+  type SessionState,
+} from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type {
   PermissionBroker,
@@ -399,6 +404,41 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
     await waitState(s.sessionId, 'idle');
     await runner.runner.sendUserMessage(s.sessionId, 'after the interrupt');
     await assistantSaid(s.sessionId, 'Echo: after the interrupt');
+  });
+
+  it('reports the token usage of each turn from token_count, also after a resume (PM-178)', async () => {
+    await setup();
+    const s = spec({ initialMessage: 'first run' });
+    await runner.runner.start(s);
+    await assistantSaid(s.sessionId, 'Echo: first run');
+    await waitState(s.sessionId, 'idle');
+    const usage = () =>
+      mergeTokenUsage(
+        events.flatMap((e) => (e.type === 'usage' && e.sessionId === s.sessionId ? e.entries : [])),
+      );
+    // Input 10 of which 4 cached, output 5; the repeated event is not counted again.
+    await waitFor(() => usage().length === 1, { what: 'the first turn usage' });
+    const [first] = usage();
+    expect(first).toEqual({
+      model: first!.model,
+      scope: 'main',
+      input: 6,
+      output: 5,
+      cacheRead: 4,
+      cacheWrite: 0,
+    });
+    expect(first!.model).not.toBe('unknown');
+
+    await runner.runner.stop(s.sessionId);
+    await runner.runner.start({
+      ...s,
+      claudeSessionId: providerIdOf(s.sessionId)!,
+      resume: true,
+      initialMessage: 'second run',
+    });
+    await assistantSaid(s.sessionId, 'Echo: second run');
+    await waitFor(() => usage()[0]?.output === 10, { what: 'the second turn usage' });
+    expect(usage()).toEqual([{ ...first, input: 12, output: 10, cacheRead: 8 }]);
   });
 
   it('resumes with codex resume <learned id> without replaying history', async () => {

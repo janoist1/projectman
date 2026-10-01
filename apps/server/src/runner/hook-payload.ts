@@ -31,6 +31,9 @@ export const HookPayload = z.looseObject({
   denial_reason: z.string().optional(),
   /** Present when the hook fires inside a subagent. */
   agent_id: z.string().optional(),
+  /** SubagentStop (Claude Code): the subagent's kind and its own transcript (PM-178). */
+  agent_type: z.string().optional(),
+  agent_transcript_path: z.string().optional(),
 });
 export type HookPayload = z.infer<typeof HookPayload>;
 

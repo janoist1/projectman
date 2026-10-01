@@ -243,6 +243,29 @@ export const hu = {
     badgeLabel: 'Legmagasabb AI-keret: {percent}. Részletek a Csapat oldalon.',
   },
 
+  /** Token usage of sessions, cards and members (PM-178). */
+  tokenUsage: {
+    title: 'Tokenfogyasztás',
+    noData: 'Nincs adat',
+    noDataSession: 'Nincs adat: ez a munkamenet a mérés bevezetése előtt futott.',
+    none: 'Még nem használt tokent.',
+    total: 'Összesen: {total} token',
+    chip: 'Token: {total}',
+    chipNoData: 'Token: nincs adat',
+    main: 'saját',
+    subagent: 'alügynök',
+    input: 'Bemenet {count}',
+    output: 'Kimenet {count}',
+    cacheRead: 'Gyorsítótárból {count}',
+    cacheWrite: 'Gyorsítótárba {count}',
+    since: '{time} óta mérve; a korábbi fogyasztásról nincs adat.',
+    codexSubagents: 'Codex-alügynök: nincs adat.',
+    sessionsWithoutData: '{count} korábbi munkamenetről nincs adat.',
+    byMember: 'Tagonként',
+    lastDay: 'Utolsó 24 óra',
+    lastWeek: 'Utolsó 7 nap',
+  },
+
   connection: {
     connecting: 'Kapcsolódás…',
     reconnecting: 'Megszakadt a kapcsolat, újrakapcsolódás…',

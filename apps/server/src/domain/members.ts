@@ -21,6 +21,7 @@ import type {
   HireMemberRequest,
   MemberProfile,
   MemberStatus,
+  MemberUsage,
   MemberView,
   ProjectConfig,
   SessionState,
@@ -554,6 +555,16 @@ export class MemberProfiles {
     this.admission = deps.admission;
   }
 
+  /** What an AI member's sessions used in the last day and week (PM-178), by the hour. */
+  private recentUsage(projectKey: string, handle: string): MemberUsage {
+    const now = this.ctx.now().getTime();
+    const since = (hours: number) => new Date(now - hours * 3_600_000);
+    return {
+      lastDay: this.ctx.repos.tokenUsage.forMember(projectKey, handle, since(24)),
+      lastWeek: this.ctx.repos.tokenUsage.forMember(projectKey, handle, since(24 * 7)),
+    };
+  }
+
   async profile(projectKey: string, handle: string, viewer: Viewer): Promise<MemberProfile> {
     const config = await this.projects.config(projectKey);
     const original = memberOf(config, handle);
@@ -590,6 +601,7 @@ export class MemberProfiles {
         : [],
       capacity: original.kind === 'ai' ? original.capacity : null,
       capacityUsed: original.kind === 'ai' && internal ? this.admission.memberLoad(config, handle) : 0,
+      ...(original.kind === 'ai' && internal ? { usage: this.recentUsage(projectKey, handle) } : {}),
       ...(original.kind === 'human' && ['owner', 'admin'].includes(viewer.access) && original.email
         ? { email: original.email }
         : {}),

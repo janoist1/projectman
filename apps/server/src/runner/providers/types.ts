@@ -1,4 +1,4 @@
-import type { AgentProvider, ChatItem } from '@projectman/shared';
+import type { AgentProvider, ChatItem, TokenUsage } from '@projectman/shared';
 import type {
   PermissionDecision,
   PlanUsageProvider,
@@ -73,11 +73,18 @@ export interface TranscriptParseResult {
   interruptedAt: string | null;
   /** A login failure the transcript recorded, e.g. "Login expired · Please run /login". */
   authError?: string | null;
+  /** Tokens these lines add to the session's usage (PM-178), per model and scope. */
+  usage?: TokenUsage[];
 }
 
 /** Incremental transcript parser of one conversation. */
 export interface TranscriptLineParser {
   parseLines(lines: Iterable<string>): TranscriptParseResult;
+  /**
+   * The tokens in a subagent's own transcript, read whole when the subagent stops (Claude Code's
+   * SubagentStop names it). Absent: the provider keeps no such file the runner knows of.
+   */
+  subagentUsage?(lines: Iterable<string>): TokenUsage[];
 }
 
 export interface LaunchInput {

@@ -74,6 +74,13 @@ export function formatBytes(bytes: number): string {
   return t('attachments.size.megabytes', { value: sizeFormat.format(bytes / 1_000_000) });
 }
 
+const countFormat = new Intl.NumberFormat(LOCALE);
+
+/** A token count with the locale's digit grouping: "12 345". */
+export function formatTokens(count: number): string {
+  return countFormat.format(count);
+}
+
 export function formatPercent(value: number): string {
   return t('planUsage.percent', { value: Math.round(value) });
 }

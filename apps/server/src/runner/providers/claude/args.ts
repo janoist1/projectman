@@ -108,6 +108,8 @@ export interface ClaudeSettings {
   sandbox?: ClaudeSandboxSettings;
   /** Environment variables Claude Code sets for the session and its commands (the sandbox's `env`, PM-193). */
   env?: Record<string, string>;
+  /** Claude Code's own auto memory is off: the team keeps its memory in projectman (PM-208). */
+  autoMemoryEnabled: false;
   /** Managed VM profile: no first-use confirmation of the bypass mode (it would wait in the terminal). */
   skipDangerousModePermissionPrompt?: true;
 }
@@ -253,6 +255,7 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
     // The managed VM profile keeps no inner limits, the classifier's guidance included.
     ...(managed ? {} : { autoMode: AUTO_MODE_SETTINGS }),
     hooks,
+    autoMemoryEnabled: false,
     ...(sandbox ? { sandbox: buildSandboxSettings(sandbox) } : {}),
     ...(sandbox?.env && Object.keys(sandbox.env).length > 0 ? { env: { ...sandbox.env } } : {}),
     ...(managed && input.policy!.permissions.claude === 'bypassPermissions'

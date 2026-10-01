@@ -115,9 +115,11 @@ describe('phone header', () => {
     const header = view.container.querySelector('header')!;
     expect(within(header).queryByRole('link', { name: /^Rád vár/ })).toBeNull();
     await waitFor(() =>
-      expect(within(header).getByRole('link', { name: /Legmagasabb AI-keret/ }).getAttribute('href')).toBe(
-        '/p/AC/team',
-      ),
+      expect(
+        within(header)
+          .getByRole('link', { name: /Legmagasabb AI-keret/ })
+          .getAttribute('href'),
+      ).toBe('/p/AC/team'),
     );
   });
 

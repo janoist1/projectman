@@ -11,12 +11,12 @@ import type { ShellCommand, ShellSegment } from './shell-words';
  * Read-only commands may sit between them (`git status && git add -A && git commit -m x`).
  */
 
-const INSTALL_FLAGS = new Set(['--prefer-offline', '--no-audit', '--no-fund']);
-const ADD_FLAGS = new Set(['-A', '--all', '-u', '--update']);
-const COMMIT_FLAGS = new Set(['-a', '--all', '-q', '--quiet']);
+export const INSTALL_FLAGS = new Set(['--prefer-offline', '--no-audit', '--no-fund']);
+export const ADD_FLAGS = new Set(['-A', '--all', '-u', '--update']);
+export const COMMIT_FLAGS = new Set(['-a', '--all', '-q', '--quiet']);
 /** Options that take the commit message as the next word. */
-const COMMIT_MESSAGE_FLAGS = new Set(['-m', '-am', '--message']);
-const MERGE_FLAGS = new Set(['-q', '--quiet']);
+export const COMMIT_MESSAGE_FLAGS = new Set(['-m', '-am', '--message']);
+export const MERGE_FLAGS = new Set(['-q', '--quiet']);
 const COMMIT_ID = /^[0-9a-f]{7,40}$/i;
 
 export interface WorktreeRoutineContext {

@@ -70,6 +70,12 @@ export { ScheduleService } from './schedules';
 export type { ScheduleTimer } from './schedules';
 export * from './session-policy';
 export {
+  describeUnattendedCommands,
+  preApprovedPrefixes,
+  PROJECT_CHECK_COMMANDS,
+} from './unattended-commands';
+export type { UnattendedCommandsInput } from './unattended-commands';
+export {
   SessionOrchestrator,
   BUSY_SESSION_STATES,
   LIVE_SESSION_STATES,

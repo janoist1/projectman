@@ -240,9 +240,15 @@ function localOnlyParts(prompt: string): string {
   return LOCAL_ONLY_HEADINGS.map((heading) => section(prompt, heading)).join('\n');
 }
 
-/** The system prompt without those sections. */
+/**
+ * The system prompt without those sections, and without the one line about refused publishing in
+ * "Commands that run without asking".
+ */
 function withoutLocalOnlyParts(prompt: string): string {
-  return LOCAL_ONLY_HEADINGS.reduce((text, heading) => text.replace(section(text, heading), ''), prompt);
+  return LOCAL_ONLY_HEADINGS.reduce(
+    (text, heading) => text.replace(section(text, heading), ''),
+    prompt.replace(/^- Refused outright:.*\n/m, ''),
+  );
 }
 
 const dataSteward = {
@@ -439,10 +445,57 @@ describe('system prompt', () => {
       '# The pipeline',
       '# Labels',
       '# Current work item',
+      '# Commands that run without asking',
       '# Guardrails',
       '# Your role instructions',
       '# Your memory',
     ]);
+  });
+
+  describe('commands that run without asking', () => {
+    const HEADING = '# Commands that run without asking';
+    const commandsOf = (overrides: Parameters<typeof input>[0]) =>
+      section(builder.build(input(overrides)).appendSystemPrompt, HEADING);
+
+    it('tells a developer the routine steps with the repository default branch', () => {
+      const text = commandsOf({ handle: 'fe-1' });
+      expect(text).toContain("in your working directory (the task's worktree)");
+      expect(text).toContain('`git merge --ff-only main`');
+      expect(text).toContain('`git commit -m "message"`');
+      expect(text).toContain('Claude Code also pre-approves');
+      expect(text).not.toContain('Refused outright');
+    });
+
+    it('tells a reviewer the reading rules only', () => {
+      const text = commandsOf({ handle: 'code-review' });
+      expect(text).toContain("your working directory and the task's own worktree");
+      expect(text).toContain('`npm run typecheck`');
+      expect(text).not.toContain('git commit');
+    });
+
+    it('says publishing is refused in a local-only repository', () => {
+      expect(commandsOf({ handle: 'fe-1', project: buildLocalOnlyProject() })).toContain(
+        'Refused outright: `git push`',
+      );
+    });
+
+    it('leaves the Claude Code allow list out for a Codex member', () => {
+      const project = buildProject();
+      const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider: 'codex' };
+      const text = commandsOf({ project, member });
+      expect(text).toContain('`git commit -m "message"`');
+      expect(text).not.toContain('Claude Code');
+    });
+
+    it('is left out of work that is not a task', () => {
+      for (const workItem of [
+        { type: 'general' } as const,
+        { type: 'meeting', meetingId: 'mtg_1' } as const,
+      ]) {
+        const prompt = builder.build(input({ workItem, task: null })).appendSystemPrompt;
+        expect(prompt).not.toContain(HEADING);
+      }
+    });
   });
 
   it('introduces the member, the team and the sponsor', () => {

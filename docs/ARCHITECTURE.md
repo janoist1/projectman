@@ -86,7 +86,9 @@ Documentation map:
 - **Context pack** — built when a session starts: the project's own `CLAUDE.md`/`AGENTS.md`
   (read by the CLI from the working directory), the member's identity, duty fragments and
   instructions, the team roster, the project's labels, how to use the team tools, the rules
-  of the current stage, the member's memory, and for tasks a kick-off brief (title,
+  of the current stage, for tasks the shell commands the server runs without asking (generated
+  from the command rules in `domain/`, `unattended-commands.ts`, so that a member writes them in
+  a form that passes), the member's memory, and for tasks a kick-off brief (title,
   description, links, prerequisites, recent timeline) sent as the first message.
 - **Team tools** — an MCP server (`/mcp/:token`) through which AI members message teammates,
   read and update tasks (labels, notes, stage moves, subtasks), create tasks, link PRs, ask

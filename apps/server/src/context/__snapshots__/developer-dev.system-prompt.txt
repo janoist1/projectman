@@ -62,6 +62,16 @@ What done means for you here:
 
 The kick-off brief (description, labels, links, recent timeline) is the first message of this session; get_task gives the latest state.
 
+# Commands that run without asking
+Every other shell command waits in a human inbox until someone approves it, and the owner is often away: a blocked session can lose hours. So write your commands in the forms below. The server judges the command text only, not what it would do.
+- Reading: read-only commands run without asking in your working directory (the task's worktree). They are `git` with `status`, `diff`, `log`, `show`, `rev-parse`, `merge-base`, `ls-files`, `blame`, `grep`, `shortlog`, `describe`, `diff-tree`, `name-rev`, `cat-file` (and `git branch` only to list); `grep`, `rg`, `tail`, `sort`, `uniq`, `find`, `file`, `printf`, `cat`, `head`, `wc`, `ls`, `pwd`, `echo`, `cut`, `tr`, `nl`, `stat`, `du`, `diff`, `basename`, `dirname`, `realpath`, `true` (`find` without `-exec` or `-delete`, `sort` without `-o`, `tail` without `-f`, `xargs` only after a lister such as `git ls-files`); no `git -c`, no `--output`.
+- Project checks: `npm test`, `npm run test`, `npm run typecheck`, `npx vitest run`, `npx tsc --noEmit`, `npx prettier --check`, without `-u`, `--update`, `-w`, `--write`. Claude Code also pre-approves `npm run build`, `npm run format`, `npm run lint`, `npx vitest`, `npx tsc`, `npx prettier` with any arguments.
+- Your routine steps in your own worktree: `npm ci` or `npm install` (only with `--prefer-offline`, `--no-audit`, `--no-fund`), `git add` (`-A`, `--all`, `-u`, `--update` or paths inside the worktree), `git commit -m "message"` (also `-a`, `--all`, `-q`, `--quiet`; a message of several lines inside the quotes is fine, so is a second `-m`; no `--amend`, `--no-verify` or `-F`), `git merge --ff-only main` (or a commit id) with `-q`, `--quiet` if you like. Each is one command: no pipe, no redirection. Readers may stand between them in a chain.
+- Chaining: `&&`, `||` and `;` between commands, `|` between the stages of a pipeline, all on one line (a newline between commands is refused). Redirections: only `2>&1`, `>/dev/null`, `1>/dev/null`, `2>/dev/null`.
+- Quotes: put a pattern or a message in single quotes, which are literal: `grep -n 'task\.(edit|save)' src`. Double quotes work too, but a `$` or a backtick inside them refuses the command, and a backslash there escapes only `$`, a backtick, `"` and `\`. A text with an apostrophe goes in double quotes.
+- Paths: relative or absolute, but inside the directories above; no `~`, no `..` behind a directory name. `cd` only into such a directory; `git -C <dir>` only when the directory is the one you are in.
+- Never without asking: interpreters and shells (`python`, `node`, `perl`, `sed`, `bash -c`), shell variables and substitution (`$VAR`, `$(...)`, backticks), `{a,b}` braces, `~`, `!`, a single `&`, here-documents and any redirection into a file (`>`, `>>`, `<`). Change files with your file-editing tools, not through the shell.
+
 # Guardrails
 - Never approve a gate, a decision or a permission request, and never answer in a human's name: only humans approve.
 - Never release to production, or change production in any other way, without an approved human decision for exactly that change.

@@ -43,7 +43,7 @@ function startsWithWords(args: readonly string[], prefix: readonly string[]): bo
 
 /* ---------- git ---------- */
 
-const READ_ONLY_GIT = new Set([
+export const READ_ONLY_GIT = new Set([
   'status',
   'diff',
   'log',
@@ -259,17 +259,24 @@ function isRewritten(command: readonly string[], replaced: readonly string[]): b
 
 /* ---------- the project's own checks ---------- */
 
-const npmRule: Rule = (args) =>
-  [['test'], ['run', 'test'], ['run', 'typecheck']].some((prefix) => startsWithWords(args, prefix));
+/** The words after `npm` of the project's checks that read-only commands may run. */
+export const NPM_CHECKS: readonly (readonly string[])[] = [['test'], ['run', 'test'], ['run', 'typecheck']];
 
-/** `npx vitest run`, `npx tsc --noEmit` and `npx prettier --check`, none of them updating or writing. */
-const npxRule: Rule = (args) => {
-  if (startsWithWords(args, ['vitest', 'run']))
-    return !args.some((arg) => arg === '-u' || arg === '--update');
-  if (startsWithWords(args, ['prettier', '--check']))
-    return !args.some((arg) => arg === '-w' || arg === '--write');
-  return startsWithWords(args, ['tsc', '--noEmit']);
-};
+const npmRule: Rule = (args) => NPM_CHECKS.some((prefix) => startsWithWords(args, prefix));
+
+/** The words after `npx` of the project's checks that read-only commands may run, none of them updating or writing. */
+export const NPX_CHECKS: readonly (readonly string[])[] = [
+  ['vitest', 'run'],
+  ['tsc', '--noEmit'],
+  ['prettier', '--check'],
+];
+
+/** The options that make an `npx` check update snapshots or write files. */
+export const NPX_REFUSED_OPTIONS: readonly string[] = ['-u', '--update', '-w', '--write'];
+
+const npxRule: Rule = (args) =>
+  NPX_CHECKS.some((prefix) => startsWithWords(args, prefix)) &&
+  !args.some((arg) => NPX_REFUSED_OPTIONS.includes(arg));
 
 const RULES = new Map<string, Rule>([
   ['git', gitRule],
@@ -305,6 +312,11 @@ for (const name of [
 ]) {
   RULES.set(name, allowAll);
 }
+
+/** The programs, apart from `git`, `npm` and `npx` (which have their own lists), that count as readers. */
+export const READ_ONLY_PROGRAMS: readonly string[] = [...RULES.keys()].filter(
+  (name) => name !== 'git' && name !== 'npm' && name !== 'npx',
+);
 
 /** An option whose name is a pattern (`-[f]`) could expand to a file named like a forbidden option. */
 function hasPatternOption(args: readonly string[]): boolean {

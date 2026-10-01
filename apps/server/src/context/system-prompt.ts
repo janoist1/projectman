@@ -1,6 +1,7 @@
-import { isBuiltInRole, roleBundle, roleUsesWorktree } from '@projectman/shared';
+import { effectiveRepo, isBuiltInRole, repoOf, roleBundle, roleUsesWorktree } from '@projectman/shared';
 import type { BuiltInRoleId, CustomRoleDefinition } from '@projectman/shared';
 import type { ContextPackInput } from '../contracts';
+import { allowedToolsFor, describeUnattendedCommands, preApprovedPrefixes } from '../domain';
 import { isHumanOnlyLabel, labelHolders } from '@projectman/shared';
 import { code, codeList, describeGate, labelRef, languageName, repoText, stageLabel } from './format';
 import { recentMemory } from './memory';
@@ -54,6 +55,7 @@ export function buildSystemPrompt(input: ContextPackInput, situation: Situation)
     pipelineSection(input, situation),
     labelsSection(input),
     workItemSection(input, situation),
+    unattendedCommandsSection(input),
     guardrailsSection(input),
     roleSection(input),
     memorySection(input),
@@ -275,6 +277,28 @@ function workItemSection(input: ContextPackInput, situation: Situation): string 
     'The kick-off brief (description, labels, links, recent timeline) is the first message of this session; get_task gives the latest state.',
   );
   return lines.join('\n');
+}
+
+/**
+ * The shell commands the server allows without a human: generated from its rules (domain), so a
+ * member writes commands in a form that passes instead of waiting for approval. Only task work
+ * items have such rules (`commandVerdict` gives no verdict without a task).
+ */
+function unattendedCommandsSection({ project, member, task, workItem }: ContextPackInput): string {
+  if (workItem.type !== 'task') return '';
+  const repo = repoOf(project, effectiveRepo(project, task));
+  const worktree = roleUsesWorktree(project, member.role);
+  return [
+    '# Commands that run without asking',
+    ...describeUnattendedCommands({
+      worktree,
+      hasRepo: repo !== undefined,
+      defaultBranch: repo?.defaultBranch,
+      localOnly: repo !== undefined && !repo.github,
+      // Codex has no allow list of its own; Claude Code's comes from the role (session-policy).
+      preApproved: isCodex(member) ? [] : preApprovedPrefixes(allowedToolsFor(member.role, project)),
+    }),
+  ].join('\n');
 }
 
 function guardrailsSection({ project, member }: ContextPackInput): string {

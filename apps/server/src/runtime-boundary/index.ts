@@ -9,7 +9,8 @@ import { createEgressProxy } from './egress/proxy';
 import type { PeerAddress, ProxyDecision, ProxyIdentity } from './egress/proxy';
 import { procPeerUid } from './egress/peer';
 import { passwdAccounts } from './launcher/accounts';
-import type { AccountLookup } from './launcher/daemon';
+import type { AccountLookup, WorkerAccount } from './launcher/daemon';
+import type { ServiceBridges } from './bridge/service-bridges';
 import { createLauncherClient } from './launcher/client';
 import { readinessProblems } from './readiness';
 import { workerWorkspaceAccess } from './worker-workspaces';
@@ -21,6 +22,7 @@ export { workerWorkspaceAccess } from './worker-workspaces';
 export { createServiceBridges } from './bridge/service-bridges';
 export type { ServiceBridges } from './bridge/service-bridges';
 export { passwdAccounts } from './launcher/accounts';
+export type { AccountLookup } from './launcher/daemon';
 
 /**
  * The VM boundary (PM-140): the launcher client, the worker layout, the egress proxy and the
@@ -176,15 +178,61 @@ export function egressScopeTag(projectKey: string, member: string): string {
   return `scope:${projectKey}:${member}`;
 }
 
+/** The member of a worker account (prefix, uid range and home as bootstrap.sh makes them), or null. */
+function memberOfAccount(config: BoundaryConfig, account: WorkerAccount): string | null {
+  const { prefix, uidMin, uidMax } = config.workers;
+  if (account.uid < uidMin || account.uid > uidMax || !account.user.startsWith(prefix)) return null;
+  const member = account.user.slice(prefix.length);
+  return MEMBER_HANDLE.test(member) && account.home === workerHome(config, member) ? member : null;
+}
+
 /** The worker account (its member) behind a uid, from the account table and the configuration. */
 export function workerForUid(config: BoundaryConfig, accounts: AccountLookup, uid: number): string | null {
-  if (uid < config.workers.uidMin || uid > config.workers.uidMax) return null;
   for (const candidate of accounts.list()) {
-    if (candidate.uid !== uid || !candidate.user.startsWith(config.workers.prefix)) continue;
-    const member = candidate.user.slice(config.workers.prefix.length);
-    if (MEMBER_HANDLE.test(member) && candidate.home === workerHome(config, member)) return member;
+    if (candidate.uid !== uid) continue;
+    const member = memberOfAccount(config, candidate);
+    if (member) return member;
   }
   return null;
+}
+
+/** Every member with a worker account, sorted. */
+export function workerMembers(config: BoundaryConfig, accounts: AccountLookup): string[] {
+  const members = new Set<string>();
+  for (const account of accounts.list()) {
+    const member = memberOfAccount(config, account);
+    if (member) members.add(member);
+  }
+  return [...members].sort();
+}
+
+/**
+ * Opens the bridge sockets of every member with a worker account (PM-175). The service's runtime
+ * directory starts empty at every start, and the readiness probe runs a worker's unit through the
+ * launcher alone: without this, no bridge would exist until a member's first session, and no
+ * session may start before the probe passes. A member whose bridge fails is logged and retried on
+ * demand, before its next unit.
+ */
+export async function openWorkerBridges(opts: {
+  config: BoundaryConfig;
+  accounts: AccountLookup;
+  bridges: ServiceBridges;
+  logger: FastifyBaseLogger;
+}): Promise<{ opened: string[]; failed: string[] }> {
+  const members = workerMembers(opts.config, opts.accounts);
+  const results = await Promise.allSettled(members.map((member) => opts.bridges.ensure(member)));
+  const opened: string[] = [];
+  const failed: string[] = [];
+  results.forEach((result, i) => {
+    const member = members[i]!;
+    if (result.status === 'fulfilled') opened.push(member);
+    else {
+      failed.push(member);
+      opts.logger.error({ err: result.reason, member }, 'a worker bridge could not be opened');
+    }
+  });
+  if (members.length === 0) opts.logger.warn('no worker account: no worker bridge opened');
+  return { opened, failed };
 }
 
 /**

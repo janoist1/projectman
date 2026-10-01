@@ -1,4 +1,7 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { stat } from 'node:fs/promises';
+import http from 'node:http';
+import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -6,6 +9,7 @@ import { routes } from '@projectman/shared';
 import { buildApp } from '../src/app';
 import { humanActor } from '../src/domain';
 import { freePort } from '../src/runner/test-helpers';
+import type { AccountLookup } from '../src/runtime-boundary';
 import { testBoundaryConfig } from '../src/runtime-boundary/test-helpers';
 import {
   addHumanAndLogin,
@@ -17,6 +21,20 @@ import {
 } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { FakeRuntimeBoundary } from './helpers/fake-runtime-boundary';
+
+/** Some sandboxes (the agents' own) refuse to bind a unix socket: the bridge test runs elsewhere. */
+async function canListenOnUnixSockets(): Promise<boolean> {
+  const dir = mkdtempSync(join(tmpdir(), 'pm-sock-'));
+  const server = net.createServer();
+  const ok = await new Promise<boolean>((resolve) => {
+    server.once('error', () => resolve(false));
+    server.listen(join(dir, 's.sock'), () => resolve(true));
+  });
+  if (ok) await new Promise<void>((resolve) => server.close(() => resolve()));
+  rmSync(dir, { recursive: true, force: true });
+  return ok;
+}
+const unixSockets = await canListenOnUnixSockets();
 
 describe('the VM boundary over HTTP', () => {
   let h: AppHarness;
@@ -102,7 +120,13 @@ describe('the server with a boundary configuration', () => {
       readiness: { report: join(home, 'no-report.json'), maxAgeSeconds: 3600 },
       egress: { ...testBoundaryConfig().egress, port },
     });
-    const app = await buildApp({ home, logger: false, memberWorkspaces: true, runtimeBoundary: config });
+    const app = await buildApp({
+      home,
+      logger: false,
+      memberWorkspaces: true,
+      runtimeBoundary: config,
+      modules: { workerAccounts: accountsOf([]) },
+    });
     try {
       await app.ready();
       const status = await app.projectman.domain.runtimeBoundary!.status({ refresh: true });
@@ -112,4 +136,68 @@ describe('the server with a boundary configuration', () => {
       await app.close();
     }
   });
+
+  // PM-175: the readiness probe runs a worker's unit through the launcher alone, so the bridges
+  // must be there from the start, on a fresh install and after every restart, with no session.
+  it.skipIf(!unixSockets)(
+    'opens every worker bridge at startup and after a restart, before any session',
+    async () => {
+      home = mkdtempSync(join(tmpdir(), 'pm-boundary-app-'));
+      const bridgeRoot = join(home, 'bridge');
+      const gid = process.getgid?.() ?? 0;
+      const config = testBoundaryConfig({
+        launcher: { socket: join(home, 'no-launcher.sock'), maxSessions: 4 },
+        readiness: { report: join(home, 'no-report.json'), maxAgeSeconds: 3600 },
+        egress: { ...testBoundaryConfig().egress, port: await freePort() },
+        appPort: await freePort(),
+        bridgeRoot,
+      });
+      const workerAccounts = accountsOf([
+        { user: 'pmw-dev', uid: 20001, gid, home: '/var/lib/projectman-work/pmw-dev' },
+        { user: 'pmw-qa', uid: 20002, gid, home: '/var/lib/projectman-work/pmw-qa' },
+        { user: 'alice', uid: 1000, gid: 1000, home: '/home/alice' },
+      ]);
+      for (const round of ['fresh start', 'restart']) {
+        const app = await buildApp({
+          home,
+          logger: false,
+          memberWorkspaces: true,
+          runtimeBoundary: config,
+          modules: { workerAccounts },
+        });
+        try {
+          await app.listen({ host: '127.0.0.1', port: config.appPort });
+          for (const member of ['dev', 'qa']) {
+            for (const name of ['app.sock', 'egress.sock'])
+              expect(
+                (await stat(join(bridgeRoot, member, name))).isSocket(),
+                `${round}: ${member} ${name}`,
+              ).toBe(true);
+            // Through the bridge the app answers, as the probe's app-api check expects: 401 without a login.
+            expect(await statusOver(join(bridgeRoot, member, 'app.sock'), routes.me())).toBe(401);
+          }
+          expect(existsSync(join(bridgeRoot, 'alice'))).toBe(false);
+        } finally {
+          await app.close();
+          // systemd empties the service's runtime directory at every stop.
+          rmSync(bridgeRoot, { recursive: true, force: true });
+        }
+      }
+    },
+  );
 });
+
+function accountsOf(list: Array<{ user: string; uid: number; gid: number; home: string }>): AccountLookup {
+  return { byName: (name) => list.find((a) => a.user === name) ?? null, list: () => list };
+}
+
+/** The HTTP status of a GET sent over a unix socket. */
+function statusOver(socketPath: string, path: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const request = http.get({ socketPath, path }, (response) => {
+      response.resume();
+      resolve(response.statusCode ?? 0);
+    });
+    request.on('error', reject);
+  });
+}

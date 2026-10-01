@@ -9,7 +9,8 @@ import { MEMBER_HANDLE } from '../config';
  * (piped to the app's loopback port: hooks and MCP) and `<root>/<handle>/egress.sock` (handed to
  * the egress proxy, which then knows the member from the socket). The directory is the service's
  * with the member's group and the set-group-id bit, mode 2750, and the sockets 0660: only that
- * member's worker (and the service) can open them. Made on demand, before a member's first unit.
+ * member's worker (and the service) can open them. Opened for every worker account when the
+ * service starts (`openWorkerBridges`, PM-175), and again on demand before a member's unit.
  */
 export interface ServiceBridges {
   /** Listens for the member (idempotent); rejects when the directory cannot be prepared. */

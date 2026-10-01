@@ -245,3 +245,33 @@ describe('a message about a closed card', () => {
     expect(family.routed).toEqual([{ handle: 'cr', workItem: task('AR-3') }]);
   });
 });
+
+describe('waiting messages of the chats that are not about a task', () => {
+  let h: DomainHarness;
+  beforeEach(async () => {
+    h = await createDomainHarness();
+    await h.domain.tasks.create('AR', { title: 'Task' }, OWNER_ACTOR);
+  });
+  afterEach(async () => {
+    await h.domain.stop();
+    await h.cleanup();
+  });
+
+  it('finds an answer routed to a schedule run for that run and for the general chat, never for a task', () => {
+    const run: WorkItemRef = { type: 'schedule', runId: 'run_1' };
+    const message = h.domain.messages.record({
+      projectKey: 'AR',
+      from: 'owner',
+      to: ['dev-2'],
+      taskKey: 'AR-1',
+      body: 'Fictional answer.',
+      actor: OWNER_ACTOR,
+      routes: { 'dev-2': run },
+    });
+    const ids = (workItem: WorkItemRef) =>
+      h.domain.messages.waiting('AR', 'dev-2', workItem).map((m) => m.id);
+    expect(ids(run)).toEqual([message.id]);
+    expect(ids(general)).toEqual([message.id]);
+    expect(ids(task('AR-1'))).toEqual([]);
+  });
+});

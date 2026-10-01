@@ -75,10 +75,11 @@ export class MessageService {
 
   /** Messages an AI recipient has not received yet for a work item (where `messageRoute` puts them), oldest first. */
   waiting(projectKey: string, handle: string, workItem: WorkItemRef): TeamMessage[] {
-    // A task's session takes the messages routed to that task; any other chat takes the general ones.
+    // A task's session takes the messages routed to that task; any other chat takes everything not
+    // routed to a task (general ones, and answers routed to a schedule run or meeting whose session ended).
     return this.ctx.repos.messages.pending(projectKey, handle).filter((m) => {
       const route = messageRoute(m, handle);
-      return workItem.type === 'task' ? sameWorkItem(route, workItem) : route.type === 'general';
+      return workItem.type === 'task' ? sameWorkItem(route, workItem) : route.type !== 'task';
     });
   }
 

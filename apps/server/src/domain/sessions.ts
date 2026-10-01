@@ -88,28 +88,60 @@ export interface EnsureSessionResult {
   resumed: boolean;
   /** A process was started (false when a running session was reused). */
   started: boolean;
-  /** The message passed in `EnsureSessionOptions` became the first input of the resumed session. */
-  messageSent: boolean;
+  /**
+   * How many of the messages passed in `EnsureSessionOptions` (the first ones, in order) became part
+   * of the session's first input: the caller counts exactly these as delivered.
+   */
+  messagesSent: number;
 }
 
 export interface EnsureSessionOptions {
   /**
-   * The message that causes this start (a person writing to a stopped session, a waiting team
-   * message), as it is typed in. A session that resumes its conversation takes it as its first
-   * input, in place of the continue message; `messageSent` tells the caller. A session that
-   * starts a new conversation begins with its brief, and the caller types the message after, as
-   * it does with a message longer than `MAX_FIRST_INPUT_CHARS`.
+   * The messages that cause this start (a person writing to a stopped session, the waiting team
+   * messages), oldest first, as they are typed in. The session takes them in its first input, in
+   * full: a resumed one in place of the continue message, a new conversation after its brief;
+   * `messagesSent` tells the caller how many. What does not fit `MAX_FIRST_INPUT_CHARS` is left to
+   * the caller, which types it after the session started.
    */
-  message?: string;
+  messages?: string[];
 }
 
 /**
- * The longest message a resumed session takes as its first input: it may go on a command line
- * (Codex), which the system limits (about 128 KB for one argument). A longer one is typed in after
- * the session started, as it is for a session that runs. A team message (at most 20 000
- * characters) with its prefix fits.
+ * The most message text a session takes in its first input: it may go on a command line (Codex),
+ * which the system limits (about 128 KB for one argument). What is more is typed in after the
+ * session started, as it is for a session that runs. A team message (at most 20 000 characters)
+ * with its prefix fits.
  */
 export const MAX_FIRST_INPUT_CHARS = 24_000;
+
+/** Between the messages of a first input, and before the first one after a brief. */
+const MESSAGE_SEPARATOR = '\n\n';
+
+/** What introduces the messages that wait for a new conversation, after its brief. */
+const WAITING_MESSAGES_HEADER = 'Messages that were waiting for you when this session started:';
+
+/**
+ * The messages that go into a first input: the longest run from the first that fits
+ * `MAX_FIRST_INPUT_CHARS` together. It stops at the first one that does not fit (or is blank), so
+ * that what is typed in afterwards keeps the order.
+ */
+function messagesForFirstInput(messages: string[] | undefined): string[] {
+  const taken: string[] = [];
+  let size = 0;
+  for (const text of messages ?? []) {
+    size += text.length + MESSAGE_SEPARATOR.length;
+    if (!text.trim() || size > MAX_FIRST_INPUT_CHARS) break;
+    taken.push(text);
+  }
+  return taken;
+}
+
+/** The first input of a new conversation: its brief, then the messages that wait for it. */
+function newConversationInput(brief: string | null, messages: string[]): string | null {
+  if (messages.length === 0) return brief;
+  const waiting = messages.join(MESSAGE_SEPARATOR);
+  return brief ? [brief, WAITING_MESSAGES_HEADER, waiting].join(MESSAGE_SEPARATOR) : waiting;
+}
 
 export interface SessionOrchestratorDeps {
   ctx: DomainContext;
@@ -391,14 +423,12 @@ export class SessionOrchestrator {
       const existing = this.ctx.repos.sessions.findByWorkItem(projectKey, handle, workItem);
       if (existing && this.isRunning(existing.id)) {
         if (!this.workspaces?.isStale(existing))
-          return { session: existing, created: false, resumed: false, started: false, messageSent: false };
+          return { session: existing, created: false, resumed: false, started: false, messagesSent: 0 };
         // Its review round is over: no live process while the workspace moves to the new commit.
         await this.deps.runner.stop(existing.id);
         this.markEnded(existing.id, null);
       }
-      const message =
-        opts.message?.trim() && opts.message.length <= MAX_FIRST_INPUT_CHARS ? opts.message : null;
-      return this.start(config, member, workItem, task, existing, message);
+      return this.start(config, member, workItem, task, existing, messagesForFirstInput(opts.messages));
     });
   }
 
@@ -538,7 +568,7 @@ export class SessionOrchestrator {
     const grantsLost = this.grantedForSession(session);
     await this.deps.runner.stop(session.id);
     this.markEnded(session.id, null);
-    await this.start(config, member, session.workItem, task, this.find(sessionId), null, { grantsLost });
+    await this.start(config, member, session.workItem, task, this.find(sessionId), [], { grantsLost });
   }
 
   /** A person allowed something "for this session" since the session's process started. */
@@ -703,12 +733,12 @@ export class SessionOrchestrator {
     workItem: WorkItemRef,
     task: Task | null,
     existing: Session | null,
-    message: string | null,
+    messages: string[],
     restart: PermissionRestart | null = null,
   ): Promise<EnsureSessionResult> {
     const sessionId = existing?.id ?? newId('ses');
     try {
-      return await this.launch(config, member, workItem, task, existing, message, sessionId, restart);
+      return await this.launch(config, member, workItem, task, existing, messages, sessionId, restart);
     } catch (err) {
       this.workspaces?.ended(sessionId);
       throw err;
@@ -721,7 +751,7 @@ export class SessionOrchestrator {
     workItem: WorkItemRef,
     task: Task | null,
     existing: Session | null,
-    message: string | null,
+    messages: string[],
     sessionId: string,
     restart: PermissionRestart | null,
   ): Promise<EnsureSessionResult> {
@@ -994,14 +1024,18 @@ export class SessionOrchestrator {
         // `--permission-mode` (Claude Code) and the `-c` settings (Codex) take it on a resume too.
         permissionMode,
         appendSystemPrompt: pack.appendSystemPrompt,
-        // A resumed conversation has its brief already; it needs to know why it was woken. One that
-        // restarts into a new mode (PM-170) was idle: it waits at its prompt, as it did, and its
-        // waiting messages are typed in once it runs.
+        // A resumed conversation has its brief already; it needs to know why it was woken: by the
+        // messages that did it, else by the continue message. One that restarts into a new mode
+        // (PM-170) was idle: it waits at its prompt, as it did, and its waiting messages are typed in
+        // once it runs. A new conversation gets the messages after its brief, in full (PM-180):
+        // typed in later they would wait for the end of its first turn.
         initialMessage: resume
-          ? restart
-            ? message
-            : (message ?? pack.continueMessage)
-          : pack.initialMessage,
+          ? messages.length > 0
+            ? messages.join(MESSAGE_SEPARATOR)
+            : restart
+              ? null
+              : pack.continueMessage
+          : newConversationInput(pack.initialMessage, messages),
         firstUserOrigin: openingTurnOrigin(workItem),
         mcpUrl: `${this.deps.publicBaseUrl}${routes.mcp(token)}`,
         policy,
@@ -1072,7 +1106,7 @@ export class SessionOrchestrator {
       created: !existing,
       resumed: resume,
       started: true,
-      messageSent: resume && message !== null,
+      messagesSent: messages.length,
     };
   }
 

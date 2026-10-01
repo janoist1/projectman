@@ -187,7 +187,7 @@ describe('members on leave (decision 23)', () => {
     await setLeave('dev-1', false);
     await waitFor(() => h.repos.messages.get(message.id)?.deliveredAt);
     expect(h.runner.started).toHaveLength(1);
-    expect(h.runner.messages.some((m) => m.text.includes(message.body))).toBe(true);
+    expect(h.runner.lastStarted().initialMessage).toContain(message.body);
     expect(h.domain.tasks.get('AR', task.key).startWaiting).toBeUndefined();
   });
 

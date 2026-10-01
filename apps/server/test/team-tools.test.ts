@@ -31,10 +31,11 @@ describe('team tools', () => {
 
     const crSession = h.domain.sessions.list('AR', { member: 'cr', taskKey: 'AR-1' })[0]!;
     expect(crSession).toBeDefined();
-    expect(h.runner.messages).toContainEqual({
-      sessionId: crSession.id,
-      text: '[team message from dev-1 about AR-1]\nReady for review',
-    });
+    // The recipient's new session takes the whole message in its first input, behind its brief.
+    expect(h.runner.started.find((spec) => spec.sessionId === crSession.id)?.initialMessage).toContain(
+      '[team message from dev-1 about AR-1]\nReady for review',
+    );
+    expect(h.runner.messages.filter((m) => m.sessionId === crSession.id)).toEqual([]);
     const stored = h.repos.messages.get(result.messageId)!;
     expect(stored).toMatchObject({ from: 'dev-1', to: ['cr', 'owner'], taskKey: 'AR-1' });
     expect(stored.deliveredAt).not.toBeNull();
@@ -244,6 +245,25 @@ describe('team tools', () => {
     expect(detail.task.key).toBe('AR-1');
     expect(detail.sessions).toHaveLength(1);
     expect((await toolError(h.domain.teamTools.getTask(dev, { taskKey: 'AR-99' }))).code).toBe('not_found');
+  });
+
+  it("get_task names the caller's messages that are not delivered yet, and only those", async () => {
+    const sent = (id: string, to: string, deliveredAt: string | null) =>
+      h.repos.messages.insert({
+        id,
+        projectKey: 'AR',
+        from: 'owner',
+        to: [to],
+        taskKey: 'AR-1',
+        body: 'Please look at this.',
+        createdAt: '2026-09-30T10:00:00.000Z',
+        deliveredAt,
+      });
+    sent('msg_waiting', 'dev-1', null);
+    sent('msg_typed', 'dev-1', '2026-09-30T10:00:01.000Z');
+    sent('msg_other', 'dev-2', null);
+    const detail = await h.domain.teamTools.getTask(dev, { taskKey: 'AR-1' });
+    expect(detail.undeliveredMessageIds).toEqual(['msg_waiting']);
   });
 
   it('list_tasks filters the board, sorts before limiting and uses get_task visibility', async () => {

@@ -342,6 +342,8 @@ export class TeamToolsService implements TeamToolsHandler {
           total: attachments.length,
           offset: 0,
         },
+        // The timeline shows excerpts: a message that is on its way says so (PM-180).
+        undeliveredMessageIds: this.ctx.repos.messages.pending(ctx.projectKey, ctx.member).map((m) => m.id),
       };
     });
   }

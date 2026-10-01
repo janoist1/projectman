@@ -27,10 +27,10 @@ export interface AdmissionRequest {
   /** Whether the member's capacity applies (default true); a task's assignee keeps working on it. */
   capacity?: boolean;
   /**
-   * The message that causes the start, typed in as the first input of a session that resumes its
-   * conversation (see `SessionOrchestrator.ensureSession`).
+   * The messages that cause the start, oldest first, as they are typed in: the session takes them
+   * in its first input (see `SessionOrchestrator.ensureSession`).
    */
-  message?: string;
+  messages?: string[];
 }
 
 /**
@@ -148,11 +148,10 @@ export class Admission {
   ): Promise<EnsureSessionResult> {
     const projectKey = request.config.project.key;
     const running = this.sessions.findRunning(projectKey, request.member.handle, request.workItem);
-    if (running)
-      return { session: running, created: false, resumed: false, started: false, messageSent: false };
+    if (running) return { session: running, created: false, resumed: false, started: false, messagesSent: 0 };
     await this.check(request);
     return this.sessions.ensureSession(projectKey, request.member.handle, request.workItem, {
-      message: request.message,
+      messages: request.messages,
     });
   }
 

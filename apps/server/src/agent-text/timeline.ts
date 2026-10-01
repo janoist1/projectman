@@ -6,6 +6,14 @@ import { formatTimestamp, oneLine, PLAIN_STYLE, type TextStyle } from './text';
 const FIELD_LIMIT = 80;
 
 /**
+ * What a team message line says when the message is for the reader and has not been typed into its
+ * session yet (it waits for the end of the turn): the line shows only an excerpt, and the reader
+ * must not ask the sender to write it again (PM-180).
+ */
+const NOT_DELIVERED_YET =
+  '(not delivered to you yet: the full text is typed in when your current turn ends; do not ask for a resend)';
+
+/**
  * What the actor did, e.g. `moved it from Ready to Development` or `labels added: qa-ok`. Free
  * text (notes, messages, questions) is shortened to `textLimit` characters. Every event type
  * has a wording, including legacy ones that stay in the append-only timeline.
@@ -14,6 +22,7 @@ export function describeEvent(
   event: TimelineEvent,
   textLimit: number,
   style: TextStyle = PLAIN_STYLE,
+  undelivered?: ReadonlySet<string>,
 ): string {
   const data = event.data;
   const text = (key: string): string | null => {
@@ -69,7 +78,9 @@ export function describeEvent(
     case 'team_message': {
       const to = list('to').length > 0 ? list('to') : [text('to')].filter((h): h is string => !!h);
       const recipients = to.length > 0 ? ` to ${to.map((h) => style.code(h)).join(', ')}` : '';
-      return `message${recipients}: ${text('excerpt') ?? ''}`.trimEnd();
+      const line = `message${recipients}: ${text('excerpt') ?? ''}`.trimEnd();
+      const id = typeof data.messageId === 'string' ? data.messageId : null;
+      return id && undelivered?.has(id) ? `${line} ${NOT_DELIVERED_YET}` : line;
     }
     case 'question_asked':
       return `asked a human: ${text('question') ?? ''}`.trimEnd();
@@ -153,9 +164,10 @@ export function timelineLine(
   event: TimelineEvent,
   textLimit: number,
   style: TextStyle = PLAIN_STYLE,
+  undelivered?: ReadonlySet<string>,
 ): string {
   const actor = event.actor.handle ? style.code(event.actor.handle) : event.actor.kind;
-  return `- ${formatTimestamp(event.createdAt)} · ${actor}: ${describeEvent(event, textLimit, style)}`;
+  return `- ${formatTimestamp(event.createdAt)} · ${actor}: ${describeEvent(event, textLimit, style, undelivered)}`;
 }
 
 export interface TimelineOptions {
@@ -166,6 +178,8 @@ export interface TimelineOptions {
   style?: TextStyle;
   /** Event types left out, e.g. session bookkeeping. */
   skip?: ReadonlySet<string>;
+  /** Ids of the team messages for the reader that were not typed into its session yet. */
+  undelivered?: ReadonlySet<string>;
 }
 
 export interface RecentTimeline {
@@ -181,7 +195,7 @@ export function recentTimeline(events: readonly TimelineEvent[], opts: TimelineO
     .filter((e) => !opts.skip?.has(e.type))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   return {
-    lines: kept.slice(-opts.limit).map((e) => timelineLine(e, opts.textLimit, opts.style)),
+    lines: kept.slice(-opts.limit).map((e) => timelineLine(e, opts.textLimit, opts.style, opts.undelivered)),
     total: kept.length,
   };
 }

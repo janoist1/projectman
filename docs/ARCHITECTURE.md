@@ -259,8 +259,11 @@ claude | codex ── transcript JSONL ────────────▶ r
   otherwise they queue.
 - Sessions do not survive a server restart; conversations do (the CLI's transcript), and a
   later message resumes them. A resumed task session gets a first input so that it does not
-  sit at its prompt: the message that caused the resume, else a short continue message (it was
-  restarted; the task and its stage; check where it left off). Codex has it on the command line
+  sit at its prompt: the messages that caused the resume, else a short continue message (it was
+  restarted; the task and its stage; check where it left off). A new conversation gets the
+  messages that woke it after its brief, in full: typed in later they would wait for the end of
+  the first turn, and the member would work from the timeline's excerpts (up to 24 000
+  characters; the rest is typed in once it runs). Codex has it on the command line
   of `codex resume`, Claude Code has it typed once SessionStart arrives ([PROVIDERS.md](PROVIDERS.md)).
 - The server's composition root is `apps/server/src/app.ts` (`buildApp`); the domain's is
   `apps/server/src/domain/index.ts` (`createDomain`), which builds the services (the board,

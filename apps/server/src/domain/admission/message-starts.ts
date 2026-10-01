@@ -46,7 +46,7 @@ export class MessageStarts {
   /**
    * An AI recipient of waiting messages has no running session for their work item: its session
    * starts or resumes through admission, then the messages are typed in (once each). A session
-   * that resumes its conversation takes the first message as its first input.
+   * takes the waiting messages, in full, in its first input.
    */
   async wake(projectKey: string, handle: string, workItem: WorkItemRef): Promise<void> {
     await this.admission.attempt(this.startFor(projectKey, handle, workItem));
@@ -89,8 +89,8 @@ export class MessageStarts {
         if (task && !isOpenTask(task)) return;
         triedIn = task?.stageId;
         if (this.messages.waiting(projectKey, handle, workItem).length === 0) return;
-        await this.delivery.startAndDeliver(projectKey, handle, workItem, (message) =>
-          this.admission.start({ config, member, workItem, message }),
+        await this.delivery.startAndDeliver(projectKey, handle, workItem, (messages) =>
+          this.admission.start({ config, member, workItem, messages }),
         );
       },
     };

@@ -49,7 +49,8 @@ describe('task comments API', () => {
     });
     await flush();
     expect(h.runner.started).toHaveLength(1);
-    expect(h.runner.messages[0]?.text).toBe(`[team message from owner about AR-1]\n${text}`);
+    expect(h.runner.lastStarted().initialMessage).toContain(`[team message from owner about AR-1]\n${text}`);
+    expect(h.runner.messages).toEqual([]);
   });
 
   it('admits AI mentions and leaves refused work queued', async () => {
@@ -85,9 +86,10 @@ describe('task comments API', () => {
       sessionId: session.id,
       data: { mentions: ['owner', 'cr'] },
     });
-    expect(
-      h.runner.messages.some((message) => message.text === `[team message from dev-1 about AR-1]\n${text}`),
-    ).toBe(true);
+    // The reviewer starts for it and takes the whole message in its first input.
+    expect(h.runner.started.find((spec) => spec.member === 'cr')?.initialMessage).toContain(
+      `[team message from dev-1 about AR-1]\n${text}`,
+    );
   });
 
   it.each(['viewer', 'client'] as const)('refuses %s access', async (access) => {

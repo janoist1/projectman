@@ -56,12 +56,12 @@ describe('automatic session admission and retries', () => {
     expect(h.runner.started).toHaveLength(0);
 
     h.runnerModule.planUsage.value = planUsage(30);
-    await vi.waitFor(() => expect(h.runner.messages).toHaveLength(2));
-    expect(h.runner.started).toHaveLength(1);
-    expect(h.runner.messages.map((m) => m.text)).toEqual([
-      '[team message from dev-1 about AR-1]\nReview the checkout.',
-      '[team message from dev-1 about AR-1]\nAlso check refunds.',
-    ]);
+    await vi.waitFor(() => expect(h.runner.started).toHaveLength(1));
+    // Both messages are in the first input, whole and in order; nothing is typed behind them.
+    expect(h.runner.lastStarted().initialMessage).toMatch(
+      /\[team message from dev-1 about AR-1\]\nReview the checkout\.\n\n\[team message from dev-1 about AR-1\]\nAlso check refunds\.$/,
+    );
+    expect(h.runner.messages).toEqual([]);
     expect(h.repos.messages.pending('AR', 'cr')).toEqual([]);
     expect(h.domain.tasks.get('AR', 'AR-1').startWaiting).toBeUndefined();
     await h.domain.admission.retryDeferred();
@@ -72,7 +72,7 @@ describe('automatic session admission and retries', () => {
     await h.domain.teamTools.sendMessage(sender, { to: ['cr'], text: 'One more detail.' });
     await flush();
     expect(h.runner.started).toHaveLength(1);
-    expect(h.runner.messages).toHaveLength(3);
+    expect(h.runner.messages).toHaveLength(1);
   });
 
   it('defers human messages on the global AI limit and delivers after capacity frees', async () => {
@@ -88,12 +88,10 @@ describe('automatic session admission and retries', () => {
     await h.domain.admission.retryDeferred();
     await flush();
     expect(h.runner.started).toHaveLength(2);
-    expect(h.runner.messages).toEqual([
-      {
-        sessionId: h.runner.lastStarted().sessionId,
-        text: '[team message from owner about AR-1]\nPlease review the fictional checkout.',
-      },
-    ]);
+    expect(h.runner.lastStarted().initialMessage).toContain(
+      '[team message from owner about AR-1]\nPlease review the fictional checkout.',
+    );
+    expect(h.runner.messages).toEqual([]);
     expect(h.repos.messages.get(message.id)?.deliveredAt).toBeTruthy();
   });
 

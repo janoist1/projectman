@@ -101,7 +101,7 @@ describe('project AI switch', () => {
     await setEnabled(true);
     await waitFor(() => h.repos.messages.get(message.id)?.deliveredAt);
     expect(h.runner.started).toHaveLength(1);
-    expect(h.runner.messages.some((m) => m.text.includes(message.body))).toBe(true);
+    expect(h.runner.lastStarted().initialMessage).toContain(message.body);
   });
 
   it('allows running sessions and human messages, but refuses stopped-session resumes and direct starts', async () => {

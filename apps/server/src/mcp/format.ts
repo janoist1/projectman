@@ -62,10 +62,11 @@ export function taskStatusLine(task: Task): string {
   ].join(' · ');
 }
 
-function timelineLines(events: TimelineEvent[]): string[] {
+function timelineLines(events: TimelineEvent[], undelivered: string[] = []): string[] {
   const { lines, total } = recentTimeline(events, {
     limit: MAX_TIMELINE_EVENTS,
     textLimit: MAX_EVENT_TEXT_CHARS,
+    undelivered: new Set(undelivered),
   });
   if (total === 0) return ['Timeline: no events yet.'];
   const header =
@@ -150,7 +151,7 @@ export function formatTaskDetail(
   if (sessions.length > 0) {
     lines.push('', `Sessions: ${sessions.map((s) => `${s.member} (${s.state})`).join(', ')}`);
   }
-  lines.push('', ...timelineLines(timeline));
+  lines.push('', ...timelineLines(timeline, detail.undeliveredMessageIds));
   return lines.join('\n');
 }
 

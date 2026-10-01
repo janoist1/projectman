@@ -81,7 +81,12 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
   const startTask = (taskKey: string, assignee: string) =>
     h.domain.taskStarts.start('AR', taskKey, { assignee, actor: OWNER_ACTOR, author: OWNER });
   const ensure = (handle: string, taskKey: string, message?: string) =>
-    h.domain.sessions.ensureSession('AR', handle, { type: 'task', taskKey }, { message });
+    h.domain.sessions.ensureSession(
+      'AR',
+      handle,
+      { type: 'task', taskKey },
+      { messages: message ? [message] : undefined },
+    );
   const branchOf = (dir: string) => git(dir, 'branch', '--show-current');
   /** Background starts (hand-overs, message wake-ups) run real git: wait for the n-th start. */
   const startedCount = (n: number) =>
@@ -209,7 +214,7 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     h.runner.emit({ type: 'transcript_path', sessionId: first.sessionId, path: '/tmp/fictional-dev.jsonl' });
     await h.domain.sessions.stop('AR', first.sessionId);
     const resumed = await ensure('dev-1', 'AR-1', 'Any news?');
-    expect(resumed).toMatchObject({ resumed: true, messageSent: true });
+    expect(resumed).toMatchObject({ resumed: true, messagesSent: 1 });
     expect(h.runner.lastStarted()).toMatchObject({ cwd: dev1, resume: true });
     expect(await readFile(path.join(dev1, 'wip.txt'), 'utf8')).toBe('half done\n');
   });

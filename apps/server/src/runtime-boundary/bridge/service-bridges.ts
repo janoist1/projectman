@@ -37,7 +37,8 @@ export function createServiceBridges(opts: {
   };
 
   function listen(file: string, onConnection: (socket: net.Socket) => void): Promise<net.Server> {
-    const server = net.createServer(onConnection);
+    // Half-open: a client that has sent everything (FIN) still gets the whole answer.
+    const server = net.createServer({ allowHalfOpen: true }, onConnection);
     return new Promise((resolve, reject) => {
       server.once('error', reject);
       server.listen(file, () => {
@@ -61,7 +62,7 @@ export function createServiceBridges(opts: {
       [
         app,
         (inner: net.Socket) => {
-          const outer = net.connect({ host: '127.0.0.1', port: opts.appPort });
+          const outer = net.connect({ host: '127.0.0.1', port: opts.appPort, allowHalfOpen: true });
           inner.on('error', () => outer.destroy());
           outer.on('error', () => inner.destroy());
           inner.pipe(outer);

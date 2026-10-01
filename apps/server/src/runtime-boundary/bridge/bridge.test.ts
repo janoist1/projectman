@@ -101,6 +101,24 @@ it('refuses bridge sockets for a member without a worker account and for an odd 
 });
 
 describe('the bridge inside a worker unit', () => {
+  it('passes the whole answer back after the client has sent everything (half-close)', async () => {
+    const port = await freePort();
+    // A slow answer: it comes after the client's FIN.
+    const slow = net.createServer({ allowHalfOpen: true }, (socket) => {
+      let text = '';
+      socket.on('data', (chunk) => (text += chunk.toString()));
+      socket.on('end', () => setTimeout(() => socket.end(`app:${text}`), 50));
+    });
+    await new Promise<void>((resolve) => slow.listen(0, '127.0.0.1', resolve));
+    const server = await forward(port, { host: '127.0.0.1', port: (slow.address() as net.AddressInfo).port });
+    try {
+      expect(await roundTrip(() => net.connect(port, '127.0.0.1'), 'hook')).toBe('app:hook');
+    } finally {
+      server.close();
+      slow.close();
+    }
+  });
+
   it.skipIf(!unixSockets)('carries a loopback port to a unix socket', async () => {
     await bridges.ensure('dev');
     const port = await freePort();

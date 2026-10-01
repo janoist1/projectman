@@ -97,7 +97,10 @@ export function denialText(
 export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
   const log = opts.logger;
   const lookup = opts.lookup ?? defaultLookup;
-  const connect = opts.connect ?? ((address: string, port: number) => net.connect({ host: address, port }));
+  // Half-open like the client side (the HTTP server's sockets are), so a tunnel's FIN travels on.
+  const connect =
+    opts.connect ??
+    ((address: string, port: number) => net.connect({ host: address, port, allowHalfOpen: true }));
   const helloTimeoutMs = opts.helloTimeoutMs ?? 10_000;
   const idleTimeoutMs = opts.idleTimeoutMs ?? 10 * 60_000;
   const maxTunnels = opts.maxTunnels ?? 512;

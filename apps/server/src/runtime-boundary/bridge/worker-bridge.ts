@@ -46,10 +46,14 @@ export function parseBridgeArgs(argv: string[]): { options: BridgeOptions; comma
   };
 }
 
-/** Listens on 127.0.0.1:port and pipes each connection to the unix socket. */
-export function forward(port: number, socketPath: string): Promise<net.Server> {
-  const server = net.createServer((inner) => {
-    const outer = net.connect({ path: socketPath });
+/** Listens on 127.0.0.1:port and pipes each connection to the unix socket (or another target). */
+export function forward(port: number, target: string | { host: string; port: number }): Promise<net.Server> {
+  // Half-open both ways: a client that has sent everything (FIN) still gets the whole answer.
+  const server = net.createServer({ allowHalfOpen: true }, (inner) => {
+    const outer = net.connect({
+      ...(typeof target === 'string' ? { path: target } : target),
+      allowHalfOpen: true,
+    });
     inner.on('error', () => outer.destroy());
     outer.on('error', () => inner.destroy());
     inner.pipe(outer);

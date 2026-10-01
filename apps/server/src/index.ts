@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { APP_DEFAULTS, buildApp, isLoopbackHost, loopbackBaseUrl } from './app';
 import type { BuildAppOptions, LoopbackHost } from './app';
+import { createShutdown } from './shutdown';
 
 /**
  * Server entry point. The environment is read here, once, into the app's options (defaults:
@@ -55,22 +56,15 @@ async function main(): Promise<void> {
   const config = configFromEnv(process.env);
   const app = await buildApp(config.app);
 
-  let closing = false;
-  const shutdown = (signal: string) => {
-    if (closing) {
-      app.log.warn({ signal }, 'forced exit');
-      process.exit(1);
-    }
-    closing = true;
-    app.log.info({ signal }, 'shutting down');
-    app.close().then(
-      () => process.exit(0),
-      (err: unknown) => {
-        app.log.error({ err }, 'shutdown failed');
-        process.exit(1);
-      },
-    );
-  };
+  const shutdown = createShutdown({
+    close: () => app.close(),
+    exit: (code) => process.exit(code),
+    log: {
+      info: (obj, msg) => app.log.info(obj, msg),
+      warn: (obj, msg) => app.log.warn(obj, msg),
+      error: (obj, msg) => app.log.error(obj, msg),
+    },
+  });
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 

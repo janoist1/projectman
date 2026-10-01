@@ -156,3 +156,68 @@ above `pauseAbovePlanUsagePercent` of the plan of the member's own provider.
 The runner strips `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`,
 `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CODEX_API_KEY`, `OPENAI_API_KEY` and
 common OpenAI/Azure endpoint overrides from every session's environment.
+
+## Sandboxes: what the CLIs enforce (PM-126 probe)
+
+Probed on 2026-10-01 on macOS 14.6 (arm64) with Claude Code 2.1.284 and codex-cli 0.159.1;
+Linux is not probed yet. `scripts/sandbox-probe.sh` builds the probe area with fictional data
+in the layout projectman uses: a repository with a linked worktree (the agent's working
+directory), a stand-in for the live data directory, another folder, and a local HTTP server
+standing in for the live instance's port. A person runs it by hand under each sandbox; the
+automated tests never run the real CLIs.
+
+Claude Code was started with these settings (`--settings`):
+
+```json
+{
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "allowUnsandboxedCommands": false,
+    "failIfUnavailable": true,
+    "filesystem": { "denyRead": ["<other folder>", "<live data>"], "allowWrite": ["~/.npm"] },
+    "network": {
+      "allowedDomains": ["registry.npmjs.org"],
+      "strictAllowlist": true,
+      "allowLocalBinding": true
+    }
+  }
+}
+```
+
+The settings reference lists `allowUnsandboxedCommands` as a string (`"deny"`), but with that
+value this version asked for every command; the boolean `false` works. Codex ran with the
+settings projectman gives it today: `sandbox_mode = "workspace-write"`,
+`sandbox_workspace_write.writable_roots = [<the repository's git directory>]`, network off.
+
+| Check                                        | Claude sandbox                   | Codex `workspace-write` (today) |
+| -------------------------------------------- | -------------------------------- | ------------------------------- |
+| Write in the working directory, temp         | yes                              | yes                             |
+| Write elsewhere, write the live data         | no                               | no                              |
+| Read another folder, read the live data      | no (`denyRead`)                  | **yes**                         |
+| `git add` / `git commit` in the worktree     | yes                              | **no** (index lock denied)      |
+| Write the shared `.git/hooks`, `.git/config` | no                               | **yes**                         |
+| npm registry / any other host                | yes / no (allowlist)             | no / no (network off)           |
+| `npm install` (cache in `~/.npm`)            | yes (`allowWrite`)               | yes (from the cache)            |
+| Listen on a local port (the tests' servers)  | only with `allowLocalBinding`    | no                              |
+| Reach another local server (the live port)   | **yes** with `allowLocalBinding` | no                              |
+
+Findings:
+
+- Claude Code's sandbox meets the PM-87 goal on macOS: everything inside the worktree runs
+  without asking, `git commit` works in a linked worktree (the sandbox opens the shared `.git`
+  except `hooks/` and `config`), and nothing outside the allowed paths and hosts is reachable.
+  `strictAllowlist` needs Claude Code 2.1.219 or later (its docs); 2.1.284 is what was probed.
+- The open point is localhost. Without `allowLocalBinding` the test suite cannot start its
+  local servers; with it, sandboxed commands reach every local port, the live instance's
+  included, and `deniedDomains` entries for `localhost` / `127.0.0.1` do not change that. The
+  live API wants a login and the MCP and hook endpoints a per-session token, so this exposes
+  what an agent can already do with its own token, plus the login form. Serving the live
+  instance on a non-loopback address only would close it; running the tests outside the
+  sandbox would not be acceptable, since the test code is the agent's own.
+- Codex as configured today is not the boundary it looks like: a Codex member can read
+  everything the owner can (the live data directory included), and it can write the shared
+  repository's `.git/hooks` and `.git/config`. A hook planted there runs when the host runs
+  git in that repository (the worktree manager, an integration merge), outside any sandbox.
+  Its own `git add` and the tests escalate instead (the index lock and local ports are denied),
+  and the server's command rule approves those escalations, which then run unsandboxed.

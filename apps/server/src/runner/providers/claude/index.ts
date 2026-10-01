@@ -160,6 +160,7 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
         allowedTools: spec.allowedTools,
         deniedTools: spec.deniedTools,
         permissionTimeoutMs,
+        sandbox: spec.sandbox,
       });
       const command = resolveCommand(opts.bin, buildClaudeArgs(spec, settings));
       // The first message (the brief; for a resumed conversation, the message that caused the

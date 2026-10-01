@@ -52,6 +52,25 @@ describe('buildSettings', () => {
     expect(timeout * 1000).toBeGreaterThan(15 * 60_000);
     expect(settings.hooks.UserPromptSubmit![0]!.hooks[0]!.timeout).toBeLessThanOrEqual(30);
   });
+
+  it('turns on a strict sandbox only when the session asks for one', () => {
+    expect(settings).not.toHaveProperty('sandbox');
+    const sandboxed = buildSettings({
+      hookUrl: 'http://h/hooks/t',
+      allowedTools: [],
+      permissionTimeoutMs: 1000,
+      sandbox: { allowWrite: ['~/.npm'], allowedDomains: ['registry.npmjs.org'], allowLocalBinding: true },
+    });
+    expect(sandboxed.sandbox).toEqual({
+      enabled: true,
+      autoAllowBashIfSandboxed: true,
+      // The boolean, not the "deny" string, which makes Claude Code 2.1.284 ask for every command.
+      allowUnsandboxedCommands: false,
+      failIfUnavailable: true,
+      filesystem: { allowWrite: ['~/.npm'] },
+      network: { allowedDomains: ['registry.npmjs.org'], strictAllowlist: true, allowLocalBinding: true },
+    });
+  });
 });
 
 describe('buildClaudeArgs', () => {

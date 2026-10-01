@@ -1,4 +1,4 @@
-import type { StartSessionSpec } from '../../../contracts';
+import type { AgentSandbox, StartSessionSpec } from '../../../contracts';
 import { FAST_HOOK_TIMEOUT_S, forwarderCommand, permissionHookTimeoutS } from '../../hook-forwarder';
 
 /**
@@ -32,6 +32,21 @@ export interface HookSettingsInput {
   permissionTimeoutMs: number;
   /** Node binary used when curl is missing (defaults to the running Node). */
   nodePath?: string;
+  /** Runs the shell commands in Claude Code's sandbox. */
+  sandbox?: AgentSandbox;
+}
+
+/** Claude Code's `sandbox` settings (Claude Code 2.1.219 or later, probed with 2.1.284). */
+export interface ClaudeSandboxSettings {
+  enabled: true;
+  /** Sandboxed commands run without a permission prompt. */
+  autoAllowBashIfSandboxed: true;
+  /** A command that fails in the sandbox is not retried outside it (strict mode). */
+  allowUnsandboxedCommands: false;
+  /** No sandbox, no session: never a silent fallback to unsandboxed commands. */
+  failIfUnavailable: true;
+  filesystem: { allowWrite: string[] };
+  network: { allowedDomains: string[]; strictAllowlist: true; allowLocalBinding: boolean };
 }
 
 interface HookHandler {
@@ -44,6 +59,26 @@ interface HookHandler {
 export interface ClaudeSettings {
   permissions: { allow: string[]; deny?: string[] };
   hooks: Record<string, Array<{ hooks: HookHandler[] }>>;
+  sandbox?: ClaudeSandboxSettings;
+}
+
+/**
+ * The sandbox settings for `sandbox`. The settings reference names `allowUnsandboxedCommands` a
+ * string, but Claude Code 2.1.284 asks for every command given "deny"; the boolean works.
+ */
+export function buildSandboxSettings(sandbox: AgentSandbox): ClaudeSandboxSettings {
+  return {
+    enabled: true,
+    autoAllowBashIfSandboxed: true,
+    allowUnsandboxedCommands: false,
+    failIfUnavailable: true,
+    filesystem: { allowWrite: [...sandbox.allowWrite] },
+    network: {
+      allowedDomains: [...sandbox.allowedDomains],
+      strictAllowlist: true,
+      allowLocalBinding: sandbox.allowLocalBinding,
+    },
+  };
 }
 
 /** The `--settings` object: hooks for every event we need and pre-allowed tools. */
@@ -80,6 +115,7 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
       ...(input.deniedTools?.length ? { deny: [...new Set(input.deniedTools)] } : {}),
     },
     hooks,
+    ...(input.sandbox ? { sandbox: buildSandboxSettings(input.sandbox) } : {}),
   };
 }
 

@@ -45,6 +45,7 @@ import {
   sessionPolicyFor,
   DONE_TASK_CLEANUP_DELAY_MS,
   usesWorktree,
+  WORKTREE_SANDBOX,
 } from './session-policy';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
@@ -529,6 +530,8 @@ export class SessionOrchestrator {
         allowedTools: allowedToolsFor(member.role, config),
         deniedTools: deniedToolsFor(config, task),
         additionalDirectories,
+        // Work in a task's own worktree runs in the OS sandbox; other sessions are not sandboxed yet.
+        ...(placed ? { sandbox: WORKTREE_SANDBOX } : {}),
         provider,
       });
       const current = this.ctx.repos.sessions.get(session.id);

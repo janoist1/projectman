@@ -7,6 +7,21 @@ import type { AgentEffort, AgentProvider, ChatItem, PlanUsage, SessionState } fr
  * src/runner.
  */
 
+/**
+ * An operating-system sandbox for the agent's shell commands and their child processes: they
+ * may write only the working directory, the temp directory and `allowWrite`, and reach only
+ * `allowedDomains`, so they run without asking. Claude Code applies it with its own sandbox;
+ * Codex runs in its own sandbox regardless.
+ */
+export interface AgentSandbox {
+  /** Paths outside the working directory commands may write, e.g. the npm cache. */
+  allowWrite: string[];
+  /** Hosts commands may reach; every other host is refused without asking. */
+  allowedDomains: string[];
+  /** Commands may listen on local ports (the test servers); they then reach every local port. */
+  allowLocalBinding: boolean;
+}
+
 export interface StartSessionSpec {
   /** Our session id ("ses_..."). */
   sessionId: string;
@@ -48,8 +63,10 @@ export interface StartSessionSpec {
   deniedTools?: string[];
   /** Extra directories the session may read and work in (Claude Code --add-dir). */
   additionalDirectories?: string[];
-  /** Extra writable roots for sandboxed agents, such as the shared git directory. */
+  /** Extra writable roots for sandboxed agents (none today: the shared git directory is not one, PM-131). */
   writableRoots?: string[];
+  /** Runs the agent's shell commands in an OS sandbox (Claude Code); absent, they are not sandboxed. */
+  sandbox?: AgentSandbox;
   cols?: number;
   rows?: number;
   /**

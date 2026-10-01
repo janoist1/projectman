@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { DUTIES, effectiveRepo, repoOf, roleBundle, roleUsesWorktree } from '@projectman/shared';
 import type { RoleId, ProjectConfig, Task } from '@projectman/shared';
+import type { AgentSandbox } from '../contracts';
 import { isWithin } from './command-paths';
 import { editsFilesInPlace, IN_PLACE_EDIT_MESSAGE } from './in-place-edits';
 import { isReadOnlyCommand } from './read-only-commands';
@@ -70,6 +71,19 @@ export function deniedToolsFor(config: ProjectConfig, task: Pick<Task, 'repo'> |
   const repo = repoOf(config, effectiveRepo(config, task));
   return repo && !repo.github ? [...LOCAL_ONLY_DENIED_TOOLS] : [];
 }
+
+/**
+ * The OS sandbox of a session in a task's own worktree, the first step of PM-87 (see the PM-126
+ * probe in docs/PROVIDERS.md): its shell commands run without asking, writing only the worktree
+ * (with the repository's shared git directory, minus hooks and config), the temp directory, the
+ * npm cache and the development data directory, and reaching only the npm registry. The tests may
+ * listen on local ports, which also opens every local port (decision 24).
+ */
+export const WORKTREE_SANDBOX: AgentSandbox = {
+  allowWrite: ['~/.npm', '~/.projectman-dev'],
+  allowedDomains: ['registry.npmjs.org'],
+  allowLocalBinding: true,
+};
 
 export type CommandVerdict = { behavior: 'allow' } | { behavior: 'deny'; message: string };
 

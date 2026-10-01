@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ServerEvent } from '@projectman/shared';
-import { allowedToolsFor, DomainError, LOCAL_ONLY_DENIED_TOOLS } from '../src/domain';
+import { allowedToolsFor, DomainError, LOCAL_ONLY_DENIED_TOOLS, WORKTREE_SANDBOX } from '../src/domain';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { testConfig } from './helpers/test-template';
@@ -202,6 +202,8 @@ describe('session orchestrator', () => {
     expect(h.runner.lastStarted().allowedTools).toEqual(allowedToolsFor('developer', testConfig()));
     // No writable git directory: hooks or configuration planted there would run on the host (PM-131).
     expect(h.runner.lastStarted().writableRoots).toBeUndefined();
+    // Work in its own worktree runs in the OS sandbox, so its shell commands do not ask.
+    expect(h.runner.lastStarted().sandbox).toEqual(WORKTREE_SANDBOX);
     expect(h.runner.lastStarted().deniedTools).toEqual([]);
     expect(h.domain.tasks.get('AR', withRepo.key).links).toContainEqual({
       kind: 'branch',
@@ -225,6 +227,8 @@ describe('session orchestrator', () => {
       deniedTools: LOCAL_ONLY_DENIED_TOOLS,
     });
     expect(h.runner.lastStarted().writableRoots).toBeUndefined();
+    // A reviewer works outside a worktree of its own: not sandboxed yet (PM-87).
+    expect(h.runner.lastStarted().sandbox).toBeUndefined();
     expect(h.worktrees.calls).toHaveLength(1);
   });
 

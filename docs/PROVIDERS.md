@@ -44,6 +44,17 @@ pre-allowed and denied tools), `--model`, `--effort`, `--permission-mode`, `--ad
 `-n <display name>`. The runner pre-accepts the workspace trust dialog for session
 directories.
 
+A session in a task's own worktree (a developer's) runs its shell commands in Claude Code's
+sandbox, the first step of PM-87: the session spec carries `sandbox` (`WORKTREE_SANDBOX` in
+`domain/session-policy.ts`) and the runner turns it into the `sandbox` settings probed in
+PM-126 (see Sandboxes below). Commands then run without asking as long as they write only the
+worktree (with the shared git directory, minus hooks and config), the temp directory, the npm
+cache and `~/.projectman-dev`, and reach only the npm registry; a command that fails there is
+not retried outside the sandbox. The tests may listen on local ports (decision 24). The sandbox
+cannot open pseudo-terminals, so the server's PTY tests (`*.integration.test.ts`,
+`golden-path-*`) are left out there with a notice (`apps/server/vitest.config.ts`); the
+integrating session runs the full suite. Reviewers and other sessions are not sandboxed yet.
+
 Claude members may choose a fixed model id, a latest-family alias, or a custom id. Their
 optional effort (`low`, `medium`, `high`, `xhigh`, `max`) is passed via `--effort` on new and
 resumed sessions; unset effort uses Claude Code's own default. Clearing effort with a member

@@ -22,6 +22,18 @@ export interface AgentSandbox {
   allowedDomains: string[];
   /** Commands may listen on local ports (the test servers); they then reach every local port. */
   allowLocalBinding: boolean;
+  /**
+   * Paths commands never write, the working directory included (PM-167: a reader's working
+   * directory and extra directories). Claude Code's built-in file tools are outside the sandbox:
+   * the adapter denies their edits of these paths with permission rules.
+   */
+  denyWrite?: string[];
+  /** Paths commands never read: the credentials and the live instance's data (PM-167). */
+  denyRead?: string[];
+  /** Paths inside `denyRead` that commands may read after all. */
+  allowRead?: string[];
+  /** Commands that run outside the sandbox, through the usual permission path (`gh pr view`). */
+  excludedCommands?: string[];
 }
 
 export interface StartSessionSpec {

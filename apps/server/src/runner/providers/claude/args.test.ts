@@ -91,6 +91,55 @@ describe('buildSettings', () => {
     });
   });
 
+  it("renders a reader's sandbox and denies the file tools' edits of its read-only directories (PM-167)", () => {
+    const sandboxed = buildSettings({
+      hookUrl: 'http://h/hooks/t',
+      allowedTools: [],
+      deniedTools: ['Bash(git push:*)'],
+      permissionTimeoutMs: 1000,
+      sandbox: {
+        allowWrite: [],
+        denyWrite: ['/work', '/worktrees/AR/AR-1-web/', '/work'],
+        denyRead: ['/home/a/.ssh', '/pm/db.sqlite*'],
+        allowRead: ['/home/a/.ssh/known_hosts'],
+        allowedDomains: ['registry.npmjs.org'],
+        allowLocalBinding: true,
+        excludedCommands: ['gh pr view', 'gh pr diff'],
+      },
+    });
+    expect(sandboxed.sandbox).toEqual({
+      enabled: true,
+      autoAllowBashIfSandboxed: true,
+      allowUnsandboxedCommands: false,
+      failIfUnavailable: true,
+      filesystem: {
+        allowWrite: [],
+        denyWrite: ['/work', '/worktrees/AR/AR-1-web/'],
+        denyRead: ['/home/a/.ssh', '/pm/db.sqlite*'],
+        allowRead: ['/home/a/.ssh/known_hosts'],
+      },
+      network: { allowedDomains: ['registry.npmjs.org'], strictAllowlist: true, allowLocalBinding: true },
+      excludedCommands: ['gh pr view', 'gh pr diff'],
+    });
+    // The sandbox binds only the shell: `Edit` (also Write and NotebookEdit) is denied by rules.
+    expect(sandboxed.permissions.deny).toEqual([
+      'Bash(git push:*)',
+      'Edit(//work/**)',
+      'Edit(//worktrees/AR/AR-1-web/**)',
+    ]);
+  });
+
+  it('refuses to start a read-only directory that a rule cannot name as it is', () => {
+    expect(() =>
+      buildSettings({
+        hookUrl: 'http://h/hooks/t',
+        allowedTools: [],
+        permissionTimeoutMs: 1000,
+        sandbox: { allowWrite: [], denyWrite: ['/work(1)'], allowedDomains: [], allowLocalBinding: true },
+      }),
+    ).toThrow(/refusing to start/);
+  });
+
   it('forwards every hook of a sandboxed session with the forwarder, past the sandbox proxy', () => {
     const sandboxed = buildSettings({
       hookUrl: 'http://127.0.0.1:4700/hooks/abc',
@@ -210,6 +259,16 @@ describe('the managed VM profile (PM-141)', () => {
     expect(settings.skipDangerousModePermissionPrompt).toBe(true);
     // Not the sandbox's command hooks either: an unsandboxed session uses the HTTP hooks.
     expect(settings.hooks.Stop![0]!.hooks[0]!.type).toBe('http');
+  });
+
+  it('renders no reader sandbox and no read-only rules either (PM-167)', () => {
+    const settings = buildSettings({
+      ...input,
+      policy: policy(),
+      sandbox: { ...input.sandbox, allowWrite: [], denyWrite: ['/work'], denyRead: ['/Users/anna/.ssh'] },
+    });
+    expect(settings.permissions).toEqual({ allow: ['mcp__team__*'] });
+    expect(settings).not.toHaveProperty('sandbox');
   });
 
   it('keeps every hook, so the state of the session is still followed', () => {

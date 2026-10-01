@@ -408,8 +408,9 @@ and runner. Claude renders its tool syntax; Codex consumes team tool names direc
 
 The active enforcement remains `legacy`; this migration does not enable strict isolation or
 remove the command broker. `strict` intent is refused by both adapters until their verified
-implementation is available. A reading placement caps edit modes to `default` (preserving
-`plan`), and never receives a writable root. A review-copy placement carries its independent
+implementation is available. A reading placement (`read_only`, a review copy without the test
+opt-in; `placementReadsOnly`) keeps the member's own mode, Auto included (PM-167, decision 28),
+never receives a writable root, and keeps Codex's sandbox `read-only`. A review-copy placement carries its independent
 git directory, source commit and round id; with member workspaces (PM-138) it is the reviewer's
 own durable workspace, and also names the handed-over branch and the pinned review base. A
 `task_worktree` placement in a member workspace has no shared `gitDir` (the clone's `.git` is its
@@ -425,6 +426,16 @@ permission is rewritten or classified as implicitly versus explicitly chosen.
 
 The existing PM-134 Claude shell sandbox remains a separate legacy setting. This migration
 preserves it and does not certify it as the strict filesystem and network boundary.
+
+The CLI's own sandbox of a legacy session (PM-167, decision 28) is `sessionSandbox(policy)` in
+`domain/session-policy.ts`, from the policy's actual paths; the runner gets it as
+`StartSessionSpec.sandbox` and the context pack as `ContextPackInput.sandbox`. A developer's
+worktree session gets `WORKTREE_SANDBOX`; a reading placement gets a sandbox that writes only the
+temp directory, with its working directory and every `--add-dir` directory in `denyWrite`. Both
+have the credentials and the live data (`deniedPaths`) in `denyRead`. The Claude adapter also
+denies `Edit` of the `denyWrite` directories with rules, since the sandbox does not bind the
+built-in file tools. Codex ignores the spec's sandbox (its own is `read-only` for readers); the
+managed VM profile gets none.
 
 ## Managed VM profile (PM-137, part of PM-135)
 

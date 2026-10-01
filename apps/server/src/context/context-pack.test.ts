@@ -14,7 +14,7 @@ import type {
 } from '@projectman/shared';
 import { aiMemberDefaults, getTemplate } from '@projectman/templates';
 import type { ContextPackInput, SessionPolicy } from '../contracts';
-import { buildSessionPolicy, commandVerdict, readableRootsFor } from '../domain';
+import { buildSessionPolicy, commandVerdict, readableRootsFor, sessionSandbox } from '../domain';
 import { TEAM_TOOL_NAMES } from '../mcp';
 import { createContextPackBuilder } from './context-pack';
 import { stageLabel } from './format';
@@ -1538,6 +1538,82 @@ function reviewPolicy(project: ProjectConfig, task: Task) {
     },
   });
 }
+
+describe("the CLI's own sandbox (PM-167)", () => {
+  const project = buildLocalOnlyProject('.');
+  const task = makeTask({ stageId: 'review', repo: 'app' });
+  const readerPolicy = buildSessionPolicy({
+    config: project,
+    role: 'code_review',
+    task,
+    permissionMode: 'auto',
+    placement: { kind: 'read_only', path: '/work/acme' },
+    readableRoots: ['/worktrees/AR/AR-21-app'],
+    deniedPaths: ['/home/anna/.ssh', '/pm/db.sqlite*'],
+  });
+  const sandbox = sessionSandbox(readerPolicy)!;
+
+  it('tells a sandboxed Claude reader its boundary instead of the command forms', () => {
+    const prompt = builder.build(
+      input({ project, handle: 'code-review', task, sessionPolicy: readerPolicy, sandbox }),
+    ).appendSystemPrompt;
+    expect(prompt).not.toContain('# Commands that run without asking');
+    expect(prompt).not.toContain('waits in a human inbox');
+    const text = section(prompt, '# Your sandbox');
+    expect(text).toContain('Writing: only the temp directory');
+    expect(text).toContain('`/work/acme` and `/worktrees/AR/AR-21-app` are read-only');
+    expect(text).toContain('`/home/anna/.ssh`');
+    expect(text).toContain('only `registry.npmjs.org`');
+    expect(text).toContain('`gh pr view` and `gh pr diff` run outside the sandbox');
+    expect(text).toContain('Refused outright: `git push`');
+    expect(text).toContain('ask_human');
+  });
+
+  it('tells a sandboxed developer where it writes, in a chat too', () => {
+    const developerPolicy = buildSessionPolicy({
+      config: project,
+      role: 'developer',
+      task,
+      permissionMode: 'auto',
+      placement: { kind: 'task_worktree', path: '/worktrees/AR/AR-21-app' },
+      deniedPaths: ['/home/anna/.ssh'],
+    });
+    const text = section(
+      builder.build(
+        input({
+          project,
+          handle: 'fe-1',
+          task,
+          sessionPolicy: developerPolicy,
+          sandbox: sessionSandbox(developerPolicy)!,
+        }),
+      ).appendSystemPrompt,
+      '# Your sandbox',
+    );
+    expect(text).toContain('Writing: your working directory `/worktrees/AR/AR-21-app`');
+    expect(text).toContain('`~/.npm`, `~/.projectman-dev`');
+    const chat = builder.build(
+      input({
+        project,
+        handle: 'fe-1',
+        task: null,
+        workItem: { type: 'general' },
+        sessionPolicy: readerPolicy,
+        sandbox,
+      }),
+    ).appendSystemPrompt;
+    expect(section(chat, '# Your sandbox')).toContain('Writing: only the temp directory');
+  });
+
+  it("keeps Codex's text: its own sandbox escalates to the server's rules", () => {
+    const member: AiMemberConfig = { ...aiMember(project, 'code-review'), provider: 'codex' };
+    const prompt = builder.build(
+      input({ project, member, handle: 'code-review', task, sessionPolicy: readerPolicy, sandbox }),
+    ).appendSystemPrompt;
+    expect(prompt).toContain('# Commands that run without asking');
+    expect(prompt).not.toContain('# Your sandbox');
+  });
+});
 
 describe('who decides a permission question (the approver, PM-165)', () => {
   const project = buildLocalOnlyProject('.');

@@ -56,8 +56,8 @@ import {
   sessionPolicyFor,
   DONE_TASK_CLEANUP_DELAY_MS,
   sensitivePaths,
+  sessionSandbox,
   usesWorktree,
-  WORKTREE_SANDBOX,
 } from './session-policy';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
@@ -714,6 +714,7 @@ export class SessionOrchestrator {
       ...(attachmentDir ? { readOnlyPaths: [attachmentDir] } : {}),
       ...(vm ? { managedVm: { boundary: vm.profile } } : {}),
     });
+    const sandbox = vm || this.managed ? undefined : sessionSandbox(policy);
     const pack = this.deps.contextBuilder.build({
       project: config,
       member,
@@ -724,6 +725,7 @@ export class SessionOrchestrator {
       team: this.deps.members.rosterFor(config),
       memory,
       sessionPolicy: policy,
+      ...(sandbox ? { sandbox } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
     });
 
@@ -813,12 +815,10 @@ export class SessionOrchestrator {
         allowedTools: vm ? [] : [...allowedToolsFor(member.role, config), ...attachmentRules.allow],
         deniedTools: vm ? [] : [...deniedToolsFor(config, task), ...attachmentRules.deny],
         additionalDirectories,
-        // Work in a task's own worktree (or workspace branch) runs in the OS sandbox; other sessions
-        // are not sandboxed yet. Behind the VM boundary the worker unit is the sandbox: the CLI's own
-        // (bubblewrap) needs namespaces, which the unit does not allow.
-        ...(!vm && !this.managed && (placed || ws?.binding.kind === 'work')
-          ? { sandbox: WORKTREE_SANDBOX }
-          : {}),
+        // The CLI's own sandbox (decision 28): a developer's in its worktree, a reader's that writes
+        // only the temp directory (PM-167). Behind the VM boundary the worker unit is the sandbox:
+        // the CLI's own (bubblewrap) needs namespaces, which the unit does not allow.
+        ...(sandbox ? { sandbox } : {}),
         provider,
         ...(egressToken ? { egressToken } : {}),
       });

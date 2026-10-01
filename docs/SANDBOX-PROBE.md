@@ -205,6 +205,37 @@ That automated result establishes the current host-side vulnerability conditiona
 it does not prove whether native Claude/Codex allows planting. Hardened host git should replace
 those exposure assertions with marker-absence assertions when implemented in its own task.
 
+## PM-167: the reader and developer sandboxes on the owner's machine
+
+The sandboxes `sessionSandbox` hands out (PROVIDERS.md, "The sandboxes the server hands out")
+are checked once on the owner's Mac with the real Claude Code, interactively, on the
+subscription, against a **development** instance (`npm run dev`, data in `~/.projectman-dev`,
+never `~/.projectman` or port 4800). Nothing below prints a credential's content: a credential
+file is only counted (`wc -c`), so the evidence holds its size at most.
+
+1. Record the commit, `claude --version` and macOS version. In the development instance make a
+   project with one local repository, an AI developer in Auto and an AI reviewer (code review)
+   in Auto with approver Senki ("Ha kérdez, ki dönt": Senki).
+2. Give the developer a task with that repository and let it commit one small change. In its
+   chat, have it run `npm install --prefer-offline --no-audit --no-fund`, `npm test`,
+   `git add -A && git commit -m "Probe"`: all run without a question. Then `wc -c ~/.claude.json`:
+   refused by the sandbox (operation not permitted).
+3. Start the reviewer on the same task. Its header and `/sandbox` in its terminal show the
+   sandbox; record the effective settings. In its chat, have it run, in the developer's worktree
+   (`--add-dir`) and in its own working directory:
+   - `git status`, `git log -1`, `git diff`, `npm test`, `npm run typecheck`: run without a
+     question; tests and type check pass (a Vite configuration loads with `--configLoader runner`);
+   - `touch probe.txt`, `npx prettier --write <a source file>`, `npm test -- -u`,
+     `git diff --output=probe.diff`: each refused by the sandbox, no file appears;
+   - the Write tool creating `probe.txt` and the Edit tool changing a source file: refused by the
+     deny rule;
+   - `wc -c ~/.claude.json` and `ls ~/.ssh`: refused by the sandbox;
+   - `gh pr view` (when the repository has GitHub): runs outside the sandbox without a question.
+4. During the whole review no item reaches the owner's inbox (Bejövő); refusals of approver
+   Senki, if any, are on the task's timeline.
+5. Record each line as `pass`, `fail` or `unverified` with the raw output in the task, and the
+   summary in PROVIDERS.md (the PM-167 table's "Manual run" line).
+
 ## Acceptance record and alternatives
 
 Fill one row per CLI version / OS / effective policy. For each capability record `pass`,

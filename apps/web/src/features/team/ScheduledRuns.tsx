@@ -4,6 +4,7 @@ import { isApiError } from '../../api/client';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { ErrorState, LoadingState } from '../../components/States';
+import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { formatScheduleTime, scheduleReason } from '../../lib/schedules';
@@ -13,6 +14,7 @@ export function MemberScheduleControl({ handle }: { handle: string }) {
   const { key, can } = useProject();
   const schedules = useSchedules(key);
   const run = useRunSchedule(key);
+  const toast = useToast();
   const member = schedules.data?.members.find((m) => m.member === handle);
   if (!member) return null;
   return (
@@ -21,7 +23,11 @@ export function MemberScheduleControl({ handle }: { handle: string }) {
         {t('schedules.next', { time: formatScheduleTime(member.nextRun, schedules.data!.timezone) })}
       </small>
       {can.manageTeam ? (
-        <Button size="sm" disabled={run.isPending} onClick={() => run.mutate(handle)}>
+        <Button
+          size="sm"
+          disabled={run.isPending}
+          onClick={() => run.mutate(handle, { onSuccess: () => toast.show(t('schedules.runStarted')) })}
+        >
           {t('schedules.runNow')}
         </Button>
       ) : null}

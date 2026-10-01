@@ -6,7 +6,7 @@ import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
 import { TextAreaField } from '../../components/Field';
-import { Popover } from '../../components/Popover';
+import { MoreMenu } from '../../components/MoreMenu';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
@@ -44,9 +44,9 @@ export function TaskLifecycleMenu({ task }: { task: Task }) {
   if (!open && !cancelled) return null;
   return (
     <>
-      <Popover label={t('taskLifecycle.title')} icon="more" iconOnly variant="muted" size="md" align="right">
+      <MoreMenu label={t('taskLifecycle.title')}>
         {(close) => (
-          <div className={styles.menu}>
+          <>
             {open ? (
               <Button
                 variant="danger"
@@ -81,9 +81,9 @@ export function TaskLifecycleMenu({ task }: { task: Task }) {
                 {errorMessage(reopen.error)}
               </p>
             ) : null}
-          </div>
+          </>
         )}
-      </Popover>
+      </MoreMenu>
       <Dialog
         open={confirm}
         onClose={() => setConfirm(false)}

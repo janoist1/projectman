@@ -50,6 +50,16 @@
   color: var(--c-ink);
 }
 
+.details {
+  font-size: var(--text-xs);
+  color: var(--c-ink-4);
+}
+
+.details summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
 .code {
   font-family: var(--font-mono);
   font-size: var(--text-xs);

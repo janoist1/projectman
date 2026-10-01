@@ -1,6 +1,8 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
+import { ToastProvider } from '../../components/Toast';
+import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
 import { TeamPage } from './TeamPage';
 
@@ -30,6 +32,16 @@ it('shows the next run, starts now, links recent sessions and explains refusals'
   fireEvent.click(screen.getByRole('button', { name: 'Futtasd most' }));
   expect((await screen.findByRole('alert')).textContent).toContain('Az előző ütemezett futás még él.');
   expect(await screen.findByText('Kihagyva')).toBeTruthy();
+});
+it('confirms a started run with a toast', async () => {
+  const p = project();
+  p.render(
+    <ToastProvider>
+      <TeamPage />
+    </ToastProvider>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: t('schedules.runNow') }));
+  expect(await screen.findByText(t('schedules.runStarted'))).toBeTruthy();
 });
 it('allows non-admins to see schedules without a run-now control', async () => {
   const p = project();

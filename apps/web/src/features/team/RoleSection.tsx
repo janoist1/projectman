@@ -10,6 +10,7 @@ import { Dialog } from '../../components/Dialog';
 import { TextAreaField, TextField } from '../../components/Field';
 import { ErrorState, LoadingState } from '../../components/States';
 import { ErrorBanner } from '../../components/ErrorBanner';
+import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { roleView } from '../../lib/roles';
@@ -27,6 +28,7 @@ export function RoleForm({
 }) {
   const { key } = useProject();
   const save = useSaveRole(key);
+  const toast = useToast();
   const [draft, setDraft] = useState({
     id: role?.id ?? '',
     name: role?.name ?? '',
@@ -45,7 +47,15 @@ export function RoleForm({
       return;
     }
     setInvalid(false);
-    save.mutate({ id: role?.id, body: input.data }, { onSuccess: onDone });
+    save.mutate(
+      { id: role?.id, body: input.data },
+      {
+        onSuccess: () => {
+          toast.show(t('roleCatalogue.saved'));
+          onDone();
+        },
+      },
+    );
   };
   return (
     <form className={formStyles.form} onSubmit={submit}>
@@ -102,6 +112,7 @@ export function RoleSection({ config }: { config?: ProjectConfig }) {
   const { key, can } = useProject();
   const roles = useRoles(key);
   const remove = useDeleteRole(key);
+  const toast = useToast();
   const [editing, setEditing] = useState<RoleView | 'new' | null>(null);
   const [deleting, setDeleting] = useState<RoleView | null>(null);
   return (
@@ -182,7 +193,15 @@ export function RoleSection({ config }: { config?: ProjectConfig }) {
           <Button
             variant="dangerSolid"
             loading={remove.isPending}
-            onClick={() => deleting && remove.mutate(deleting.id, { onSuccess: () => setDeleting(null) })}
+            onClick={() =>
+              deleting &&
+              remove.mutate(deleting.id, {
+                onSuccess: () => {
+                  setDeleting(null);
+                  toast.show(t('roleCatalogue.deleted'));
+                },
+              })
+            }
           >
             {t('roleCatalogue.delete')}
           </Button>

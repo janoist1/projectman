@@ -189,5 +189,6 @@
 }
 
 .mobile .details {
+  min-height: 40px;
   align-self: flex-start;
 }

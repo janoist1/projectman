@@ -7,6 +7,7 @@ import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
 import { SelectField, TextField } from '../../components/Field';
 import { ErrorState, LoadingState } from '../../components/States';
+import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { humanRoleName } from '../../lib/roles';
 import styles from './memberForm.module.css';
@@ -23,6 +24,7 @@ function AddHumanForm({ onDone }: { onDone: () => void }) {
   const { key, isOwner } = useProject();
   const roles = useRoles(key);
   const add = useAddHumanMember(key);
+  const toast = useToast();
   const [name, setName] = useState('');
   const [handle, setHandle] = useState('');
   const [access, setAccess] = useState<InviteAccess>('developer');
@@ -36,7 +38,12 @@ function AddHumanForm({ onDone }: { onDone: () => void }) {
         access,
         roles: selected,
       },
-      { onSuccess: onDone },
+      {
+        onSuccess: () => {
+          toast.show(t('addHuman.added', { name: name.trim() }));
+          onDone();
+        },
+      },
     );
   };
   return (

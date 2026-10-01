@@ -107,7 +107,8 @@ describe('member profiles', () => {
   it('offers human removal with an explicit confirmation and keeps it restricted to admins', async () => {
     const p = mockProject();
     p.render(page(), '/team/bence');
-    fireEvent.click(await screen.findByRole('button', { name: t('profile.remove') }));
+    fireEvent.click(await screen.findByRole('button', { name: t('common.moreActions') }));
+    fireEvent.click(screen.getByRole('button', { name: t('profile.remove') }));
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText(t('profile.removeConfirm', { name: 'Bence' }))).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('button', { name: t('profile.remove') }));

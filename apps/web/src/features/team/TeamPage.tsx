@@ -5,6 +5,7 @@ import { useBoard, useConfig, useInbox, useMembers, useRoles, useTeamMessages } 
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
+import { MoreMenu } from '../../components/MoreMenu';
 import { PageHeader } from '../../components/PageHeader';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
@@ -109,14 +110,20 @@ export function TeamPage() {
           </Button>
         ) : null}
         {member.kind === 'ai' ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setDialog({ kind: 'retire', member })}
-            aria-label={t('team.retireMember', { name: member.displayName, handle: member.handle })}
-          >
-            {t('team.retire')}
-          </Button>
+          <MoreMenu label={t('team.moreFor', { name: member.displayName })}>
+            {(close) => (
+              <Button
+                variant="danger"
+                onClick={() => {
+                  setDialog({ kind: 'retire', member });
+                  close();
+                }}
+                aria-label={t('team.retireMember', { name: member.displayName, handle: member.handle })}
+              >
+                {t('team.retire')}
+              </Button>
+            )}
+          </MoreMenu>
         ) : null}
       </>
     ) : null;

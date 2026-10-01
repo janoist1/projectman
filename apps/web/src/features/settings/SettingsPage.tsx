@@ -30,8 +30,12 @@ export function SettingsPage() {
     <div className={styles.page}>
       <PageHeader className={styles.header} title={t('settings.title')} subtitle={t('settings.subtitle')}>
         {config.data ? (
-          <Chip tone="outline" size="md" mono>
-            {t('settings.version', { version: config.data.version.slice(0, 7) })}
+          <Chip
+            tone="outline"
+            size="md"
+            title={t('settings.versionId', { version: config.data.version.slice(0, 7) })}
+          >
+            {t('settings.version')}
           </Chip>
         ) : null}
       </PageHeader>

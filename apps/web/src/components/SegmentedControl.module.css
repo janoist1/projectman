@@ -49,6 +49,12 @@
   border-radius: var(--radius-sm);
 }
 
+@media (max-width: 767px) {
+  .segmented.sm .option {
+    height: 40px;
+  }
+}
+
 .segmented .option:hover {
   color: var(--c-ink);
 }

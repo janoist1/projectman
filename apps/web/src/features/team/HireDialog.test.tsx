@@ -61,7 +61,7 @@ describe('HireDialog', () => {
     const project = mockProject();
     project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
     fireEvent.click(await screen.findByRole('button', { name: 'hétköznap reggel 8' }));
-    expect((screen.getByLabelText('Cron') as HTMLInputElement).value).toBe('0 8 * * 1-5');
+    expect((screen.getByLabelText(t('schedules.form.cron')) as HTMLInputElement).value).toBe('0 8 * * 1-5');
     fireEvent.change(screen.getByLabelText('Feladat az ütemezett munkához'), {
       target: { value: 'Check the Acme dependencies.' },
     });

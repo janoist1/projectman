@@ -1,7 +1,13 @@
 .tableWrap {
   overflow-x: auto;
-  margin: 0 -4px;
-  padding: 0 4px;
+  margin: 0 -4px -80px;
+  /* Room below the last row for its ⋯ menu, which would otherwise be clipped or add a scrollbar. */
+  padding: 0 4px 80px;
+  pointer-events: none;
+}
+
+.tableWrap > * {
+  pointer-events: auto;
 }
 
 .table {

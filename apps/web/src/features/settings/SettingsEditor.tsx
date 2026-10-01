@@ -5,6 +5,7 @@ import { usePatchConfig } from '../../api/queries';
 import { isApiError } from '../../api/client';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
+import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { issueMessage } from '../../lib/configIssues';
 import type { IssueRef } from '../../lib/configIssues';
@@ -84,6 +85,7 @@ export function EditableSection({
   const context = useContext(EditingContext);
   const { key, can, isOwner } = useProject();
   const save = usePatchConfig(key);
+  const toast = useToast();
   const [reloading, setReloading] = useState(false);
   if (!context) return children;
   const { edit, setEdit, view, reload } = context;
@@ -126,7 +128,12 @@ export function EditableSection({
     <form
       onSubmit={(event) => {
         event.preventDefault();
-        save.mutate(patchBody(section, active.draft, active.version), { onSuccess: () => setEdit(null) });
+        save.mutate(patchBody(section, active.draft, active.version), {
+          onSuccess: () => {
+            setEdit(null);
+            toast.show(t('settings.edit.saved'));
+          },
+        });
       }}
     >
       <fieldset className={styles.editor} disabled={save.isPending || reloading}>

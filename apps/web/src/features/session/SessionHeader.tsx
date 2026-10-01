@@ -7,6 +7,7 @@ import { Button } from '../../components/Button';
 import { Chip, StatusDot } from '../../components/Chip';
 import { Dialog } from '../../components/Dialog';
 import { Icon } from '../../components/Icon';
+import { MoreMenu } from '../../components/MoreMenu';
 import { ProviderBadge } from '../../components/ProviderBadge';
 import { StageProgress } from '../../components/StageProgress';
 import { useToast } from '../../components/toastContext';
@@ -72,9 +73,20 @@ export function SessionHeader({
           <span>{live.label}</span>
         </span>
         {isLiveSession(session) ? (
-          <Button variant="ghost" size="sm" icon="stop" onClick={() => setConfirmStop(true)}>
-            {t('session.stop')}
-          </Button>
+          <MoreMenu>
+            {(close) => (
+              <Button
+                variant="danger"
+                icon="stop"
+                onClick={() => {
+                  setConfirmStop(true);
+                  close();
+                }}
+              >
+                {t('session.stop')}
+              </Button>
+            )}
+          </MoreMenu>
         ) : null}
       </div>
       <h1 className={styles.title}>{title}</h1>

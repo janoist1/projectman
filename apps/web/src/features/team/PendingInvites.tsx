@@ -2,6 +2,7 @@ import { useInvitations, useRevokeInvite } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { ErrorState, LoadingState } from '../../components/States';
+import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { humanRoleName } from '../../lib/roles';
 import styles from '../invites/Invites.module.css';
@@ -10,6 +11,7 @@ export function PendingInvites() {
   const { key, can } = useProject();
   const invites = useInvitations(key, can.manageTeam);
   const revoke = useRevokeInvite(key);
+  const toast = useToast();
   if (!can.manageTeam) return null;
   const pending =
     invites.data?.invitations.filter(
@@ -39,7 +41,9 @@ export function PendingInvites() {
                 aria-label={t('invites.revokeFor', { email: invite.email })}
                 loading={revoke.isPending && revoke.variables === invite.id}
                 disabled={revoke.isPending}
-                onClick={() => revoke.mutate(invite.id)}
+                onClick={() =>
+                  revoke.mutate(invite.id, { onSuccess: () => toast.show(t('invites.revoked')) })
+                }
               >
                 {t('invites.revoke')}
               </Button>

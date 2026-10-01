@@ -47,7 +47,12 @@ export function ErrorState({
       </span>
       <div className={styles.errorText}>
         <span className={styles.errorMessage}>{errorMessage(error)}</span>
-        {code ? <span className={styles.code}>{t('errors.code', { code })}</span> : null}
+        {code ? (
+          <details className={styles.details}>
+            <summary>{t('errors.details')}</summary>
+            <span className={styles.code}>{t('errors.code', { code })}</span>
+          </details>
+        ) : null}
       </div>
       {onRetry ? (
         <Button size="md" variant="secondary" icon="undo" onClick={onRetry}>

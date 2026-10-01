@@ -1,0 +1,9 @@
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.menu > button {
+  justify-content: flex-start;
+}

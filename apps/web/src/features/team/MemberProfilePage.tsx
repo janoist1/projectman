@@ -23,8 +23,11 @@ import { PlanUsageMeter } from '../../app/PlanUsageMeter';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
+import { ErrorBanner } from '../../components/ErrorBanner';
+import { MoreMenu } from '../../components/MoreMenu';
 import { ProviderBadge } from '../../components/ProviderBadge';
 import { Timeline } from '../../components/Timeline';
+import { useToast } from '../../components/toastContext';
 import { ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { formatStamp } from '../../i18n/format';
@@ -92,6 +95,7 @@ export function MemberProfilePage() {
   const start = useStartConversation(key);
   const remove = useRemoveHuman(key);
   const read = useReadTeamMessage(key);
+  const toast = useToast();
   const [inviting, setInviting] = useState(false);
   const [editing, setEditing] = useState(false);
   const [retiring, setRetiring] = useState(false);
@@ -138,14 +142,6 @@ export function MemberProfilePage() {
           {!ai && can.manageTeam && member.status === 'no_account' ? (
             <Button onClick={() => setInviting(true)}>{t('invites.create')}</Button>
           ) : null}
-          {ai && can.manageTeam ? (
-            <Button onClick={() => setRetiring(true)}>{t('team.retire')}</Button>
-          ) : null}
-          {!ai && can.manageTeam && member.handle !== myHandle ? (
-            <Button variant="danger" onClick={() => setRemoving(true)}>
-              {t('profile.remove')}
-            </Button>
-          ) : null}
           {ai && can.workInSessions ? (
             <Button
               variant="primary"
@@ -161,9 +157,39 @@ export function MemberProfilePage() {
               {t('profile.conversation')}
             </Button>
           ) : null}
+          {can.manageTeam && (ai || member.handle !== myHandle) ? (
+            <MoreMenu>
+              {(close) => (
+                <>
+                  {ai ? (
+                    <Button
+                      variant="danger"
+                      onClick={() => {
+                        setRetiring(true);
+                        close();
+                      }}
+                    >
+                      {t('team.retire')}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="danger"
+                      onClick={() => {
+                        remove.reset();
+                        setRemoving(true);
+                        close();
+                      }}
+                    >
+                      {t('profile.remove')}
+                    </Button>
+                  )}
+                </>
+              )}
+            </MoreMenu>
+          ) : null}
         </div>
       </header>
-      {start.error ? <p role="alert">{errorMessage(start.error)}</p> : null}
+      {start.error ? <ErrorBanner>{errorMessage(start.error)}</ErrorBanner> : null}
       <section className={styles.panel}>
         {!ai ? (
           <p>
@@ -307,7 +333,7 @@ export function MemberProfilePage() {
             readPending={read.isPending}
           />
         )}
-        {read.error ? <p role="alert">{errorMessage(read.error)}</p> : null}
+        {read.error ? <ErrorBanner>{errorMessage(read.error)}</ErrorBanner> : null}
         <MessageComposer
           key={`${handle}:${reply?.id ?? ''}`}
           initialTo={reply ? [...new Set([reply.from, ...reply.to])].filter((h) => h !== myHandle) : [handle]}
@@ -329,13 +355,14 @@ export function MemberProfilePage() {
       />
       <Dialog open={removing} title={t('profile.remove')} onClose={() => setRemoving(false)}>
         <p>{t('profile.removeConfirm', { name: member.displayName })}</p>
-        {remove.error ? <p role="alert">{errorMessage(remove.error)}</p> : null}
+        {remove.error ? <ErrorBanner>{errorMessage(remove.error)}</ErrorBanner> : null}
         <Button
           variant="danger"
           loading={remove.isPending}
           onClick={() =>
             remove.mutate(handle, {
               onSuccess: () => {
+                toast.show(t('profile.removed', { name: member.displayName }));
                 void navigate(`/p/${key}/team`);
               },
             })

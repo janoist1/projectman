@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { getLocale } from '@projectman/templates';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
+import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
 import { RoleSection } from './RoleSection';
@@ -73,12 +74,17 @@ describe('custom roles', () => {
   it('deletes an unused custom role after confirmation', async () => {
     const project = mockProject();
     project.backend.config.team.roles.push(steward);
-    project.render(<RoleSection config={project.backend.config} />);
+    project.render(
+      <ToastProvider>
+        <RoleSection config={project.backend.config} />
+      </ToastProvider>,
+    );
     fireEvent.click(await screen.findByRole('button', { name: t('roleCatalogue.delete') }));
     fireEvent.click(
       within(screen.getByRole('dialog')).getByRole('button', { name: t('roleCatalogue.delete') }),
     );
     await waitFor(() => expect(screen.queryByText(steward.name)).toBeNull());
+    expect(await screen.findByText(t('roleCatalogue.deleted'))).toBeTruthy();
     expect(project.requests.some((request) => request.method === 'DELETE')).toBe(true);
   });
 });

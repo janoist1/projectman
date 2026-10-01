@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ServerEvent } from '@projectman/shared';
 import { allowedToolsFor, DomainError, LOCAL_ONLY_DENIED_TOOLS, WORKTREE_SANDBOX } from '../src/domain';
@@ -254,16 +255,16 @@ describe('session orchestrator', () => {
     });
     expect(h.runner.lastStarted().writableRoots).toBeUndefined();
     // A reviewer runs in a sandbox that writes only the temp directory (PM-167): its working
-    // directory and the developer's worktree are read-only, the credentials unreadable.
+    // directory, the developer's worktree and every other worktree (PM-188) are read-only, the
+    // credentials unreadable. A local-only repository has no pull request: no `gh` outside it.
     const reviewer = h.runner.lastStarted();
     expect(reviewer.policy!.access).toBe('read_only');
     expect(reviewer.sandbox).toEqual({
       allowWrite: [],
-      denyWrite: [h.workspace, developer.session.cwd],
+      denyWrite: [h.workspace, developer.session.cwd, join(h.dir, 'worktrees')],
       denyRead: reviewer.policy!.filesystem.deniedPaths,
       allowedDomains: ['registry.npmjs.org'],
       allowLocalBinding: true,
-      excludedCommands: ['gh pr view', 'gh pr diff'],
     });
     expect(h.worktrees.calls).toHaveLength(1);
   });
@@ -285,14 +286,22 @@ describe('session orchestrator', () => {
       sandbox: 'read-only',
       approval: 'on-request',
     });
-    expect(review.sandbox).toMatchObject({ allowWrite: [], denyWrite: [h.workspace] });
+    // On a repository on GitHub the pull request is read with `gh` outside the sandbox (PM-188).
+    expect(review.sandbox).toMatchObject({
+      allowWrite: [],
+      denyWrite: [h.workspace, join(h.dir, 'worktrees')],
+      excludedCommands: ['gh pr view', 'gh pr diff'],
+    });
 
     // A developer's general chat reads only too: it runs outside its worktree.
     await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'general' });
     const chat = h.runner.lastStarted();
     expect(chat.policy!.access).toBe('read_only');
     expect(chat.policy!.permissions.claude).toBe('auto');
-    expect(chat.sandbox).toMatchObject({ allowWrite: [], denyWrite: [h.workspace] });
+    expect(chat.sandbox).toMatchObject({
+      allowWrite: [],
+      denyWrite: [h.workspace, join(h.dir, 'worktrees')],
+    });
   });
 
   it('logs worktree lookup failures and starts the reviewer anyway', async () => {

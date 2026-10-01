@@ -170,20 +170,29 @@ What the server adds, in every mode and on the legacy (Mac) profile:
 Code's own sandbox: a developer's in its worktree (`WORKTREE_SANDBOX`), every reading session (the
 reviewer, QA, security, analyst, architect, designer, devops, chats, scheduled runs) in one that
 writes only the temp directory, with its working directory (the project's main checkout or its
-review copy) and every extra directory (the developer's worktree) in `denyWrite`. Both put the
+review copy), every extra directory (the developer's worktree) and the installation's other
+checkouts (the project's workspace, the app home with every member's worktree and workspace, the
+server's own checkout such as `~/projectman-live`; PM-188) in `denyWrite`. Both put the
 same `sensitivePaths` in `denyRead`, so a shell command cannot read the credential files or the
-live data either. The built-in file tools are outside the sandbox: `Edit` deny rules keep a
-reader's directories read-only for them, and the PM-165 `Read` rules keep the credentials out of
-reach. A reader runs in its own mode (Auto too) and asks nothing for what the sandbox allows.
-`gh pr view` and `gh pr diff` run outside the sandbox (`excludedCommands`), pre-approved by the
-reader's allow list, because they need the GitHub CLI's login.
+live data either (the database as the glob `db.sqlite*`, with its `-wal` and `-shm` files; see
+PROVIDERS.md for the Linux caveat). The built-in file tools are outside the sandbox: `Edit` deny
+rules keep each of a reader's `denyWrite` directories read-only for them, and the PM-165 `Read`
+rules keep the credentials out of reach. A reader runs in its own mode (Auto too) and asks nothing
+for what the sandbox allows. On a repository on GitHub, `gh pr view` and `gh pr diff` with any
+arguments (`gh pr view:*`) run outside the sandbox (`excludedCommands`), pre-approved by the
+reader's allow list, because they need the GitHub CLI's login; Claude Code 2.1.284 does so only for
+a command of their own, so a chain, a pipe, a substitution or a redirection into a file keeps the
+whole command inside. That is the CLI's behaviour, read in its code, not a rule of ours: a later
+version must be checked again (SANDBOX-PROBE.md). A local-only repository gets no exception.
 
 **Residual risk (owner's decision, decision 24 and PM-156).** Sandboxed commands may listen on
 local ports, so they also reach the live instance's port 4800, readers included; the owner decided
 that port stays reachable up to the VM (PM-156). A reader's sandbox reaches the npm registry. A
 Codex member is not bound by the Claude rules at all before the VM; its own sandbox (`read-only`
-for a reader) is its limit. The sandbox's denials are not yet verified on the owner's machine: the
-PM-167 manual run in `SANDBOX-PROBE.md` records them.
+for a reader) is its limit. A developer's file tools have no such `Edit` deny rules outside its
+worktree (its own worktree is inside the app home, and a deny rule wins over an allow rule): there
+the CLI's own questions and Auto's classifier hold. The sandbox's denials were checked on the
+owner's machine in the PM-167 manual run; its result and what is still to run are in PROVIDERS.md.
 
 `~/.claude` is not denied as a whole, because the members run with the user's own `~/.claude`
 (the runner sets no `CLAUDE_CONFIG_DIR`) and Claude Code saves large tool outputs under

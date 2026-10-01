@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { StartSessionSpec } from '../../../contracts';
-import { HTTP_HOOK_EVENTS, buildClaudeArgs, buildMcpConfig, buildSettings } from './args';
+import { HTTP_HOOK_EVENTS, buildClaudeArgs, buildMcpConfig, buildSettings, denyWriteRules } from './args';
 
 const spec: StartSessionSpec = {
   sessionId: 'ses_1',
@@ -104,7 +104,7 @@ describe('buildSettings', () => {
         allowRead: ['/home/a/.ssh/known_hosts'],
         allowedDomains: ['registry.npmjs.org'],
         allowLocalBinding: true,
-        excludedCommands: ['gh pr view', 'gh pr diff'],
+        excludedCommands: ['gh pr view', 'gh pr diff', 'gh pr view'],
       },
     });
     expect(sandboxed.sandbox).toEqual({
@@ -119,7 +119,8 @@ describe('buildSettings', () => {
         allowRead: ['/home/a/.ssh/known_hosts'],
       },
       network: { allowedDomains: ['registry.npmjs.org'], strictAllowlist: true, allowLocalBinding: true },
-      excludedCommands: ['gh pr view', 'gh pr diff'],
+      // With any arguments (PM-188): a bare `gh pr view` is the exact command for Claude Code.
+      excludedCommands: ['gh pr view:*', 'gh pr diff:*'],
     });
     // The sandbox binds only the shell: `Edit` (also Write and NotebookEdit) is denied by rules.
     expect(sandboxed.permissions.deny).toEqual([
@@ -138,6 +139,22 @@ describe('buildSettings', () => {
         sandbox: { allowWrite: [], denyWrite: ['/work(1)'], allowedDomains: [], allowLocalBinding: true },
       }),
     ).toThrow(/refusing to start/);
+  });
+
+  it('names an accented read-only directory as it is, composed and decomposed (PM-188)', () => {
+    const composed = '/Users/anna/Projektek/Ügyfél'.normalize('NFC');
+    const decomposed = composed.normalize('NFD');
+    const sandboxed = buildSettings({
+      hookUrl: 'http://h/hooks/t',
+      allowedTools: [],
+      permissionTimeoutMs: 1000,
+      sandbox: { allowWrite: [], denyWrite: [composed], allowedDomains: [], allowLocalBinding: true },
+    });
+    expect(sandboxed.permissions.deny).toEqual([`Edit(/${composed}/**)`, `Edit(/${decomposed}/**)`]);
+    // An ASCII path has one spelling.
+    expect(
+      denyWriteRules({ allowWrite: [], denyWrite: ['/work'], allowedDomains: [], allowLocalBinding: true }),
+    ).toEqual(['Edit(//work/**)']);
   });
 
   it('forwards every hook of a sandboxed session with the forwarder, past the sandbox proxy', () => {

@@ -467,11 +467,14 @@ permission is rewritten or classified as implicitly versus explicitly chosen.
 The existing PM-134 Claude shell sandbox remains a separate legacy setting. This migration
 preserves it and does not certify it as the strict filesystem and network boundary.
 
-The CLI's own sandbox of a legacy session (PM-167, decision 28) is `sessionSandbox(policy)` in
+The CLI's own sandbox of a legacy session (PM-167, decision 28) is `sessionSandbox(policy, …)` in
 `domain/session-policy.ts`, from the policy's actual paths; the runner gets it as
 `StartSessionSpec.sandbox` and the context pack as `ContextPackInput.sandbox`. A developer's
 worktree session gets `WORKTREE_SANDBOX`; a reading placement gets a sandbox that writes only the
-temp directory, with its working directory and every `--add-dir` directory in `denyWrite`. Both
+temp directory, with its working directory, every `--add-dir` directory and the installation's
+other checkouts (the project's workspace, the app home, the server's own checkout `installDir`
+from `index.ts`; PM-188) in `denyWrite`, and `gh pr view`/`gh pr diff` outside it only for a
+repository on GitHub. Both
 have the credentials and the live data (`deniedPaths`) in `denyRead`. The Claude adapter also
 denies `Edit` of the `denyWrite` directories with rules, since the sandbox does not bind the
 built-in file tools. Codex ignores the spec's sandbox (its own is `read-only` for readers); the

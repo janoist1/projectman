@@ -1735,9 +1735,40 @@ describe("the CLI's own sandbox (PM-167)", () => {
     expect(text).toContain('`/work/acme` and `/worktrees/AR/AR-21-app` are read-only');
     expect(text).toContain('`/home/anna/.ssh`');
     expect(text).toContain('only `registry.npmjs.org`');
-    expect(text).toContain('`gh pr view` and `gh pr diff` run outside the sandbox');
+    // A local-only repository has no pull request to read with `gh` (PM-188).
+    expect(text).not.toContain('`gh pr view`');
     expect(text).toContain('Refused outright: `git push`');
     expect(text).toContain('ask_human');
+  });
+
+  it('tells a reader of a repository on GitHub to run gh as a command of its own (PM-188)', () => {
+    const github = buildProject();
+    const policy = buildSessionPolicy({
+      config: github,
+      role: 'code_review',
+      task,
+      permissionMode: 'auto',
+      placement: { kind: 'read_only', path: '/work/acme' },
+    });
+    const text = section(
+      builder.build(
+        input({
+          project: github,
+          handle: 'code-review',
+          task,
+          sessionPolicy: policy,
+          sandbox: sessionSandbox(policy, { github: true })!,
+        }),
+      ).appendSystemPrompt,
+      '# Your sandbox',
+    );
+    expect(text).toContain(
+      "`gh pr view` and `gh pr diff` with their arguments run outside the sandbox (they need the GitHub CLI's login), allowed by your permission rules, but only as a command of their own: `gh pr view 12`.",
+    );
+    expect(text).toContain(
+      'In a chain, a pipe, a substitution or with a redirection into a file they run inside',
+    );
+    expect(text).not.toContain('Refused outright');
   });
 
   it('tells a sandboxed developer where it writes, in a chat too', () => {

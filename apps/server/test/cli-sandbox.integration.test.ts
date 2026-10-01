@@ -11,8 +11,8 @@ import type { CliAppHarness } from './helpers/app-harness';
 /**
  * The CLI's own sandbox as the real runner hands it to the fake CLIs (PM-167): a reviewer in Auto
  * with approver none runs in Auto, in a sandbox that writes only the temp directory, with its
- * working directory and the developer's worktree read-only for the shell and the file tools and
- * the credentials unreadable; the developer's sandbox gets the same read denials; a Codex reviewer
+ * working directory, the developer's worktree and the app home read-only for the shell and the
+ * file tools and the credentials unreadable; the developer's sandbox gets the same read denials; a Codex reviewer
  * keeps its read-only sandbox and nothing else.
  */
 
@@ -99,16 +99,19 @@ it(
       autoAllowBashIfSandboxed: true,
       allowUnsandboxedCommands: false,
       failIfUnavailable: true,
-      filesystem: { allowWrite: [], denyWrite: [workspace, worktree], denyRead },
+      // The app home holds every member's worktree and workspace: read-only as a whole (PM-188).
+      filesystem: { allowWrite: [], denyWrite: [workspace, worktree, home], denyRead },
       network: { allowedDomains: ['registry.npmjs.org'], strictAllowlist: true, allowLocalBinding: true },
-      excludedCommands: ['gh pr view', 'gh pr diff'],
+      // The repository is on GitHub: `gh` with any arguments, as a command of its own (PM-188).
+      excludedCommands: ['gh pr view:*', 'gh pr diff:*'],
     });
-    // The built-in file tools are outside the sandbox: the rules keep both directories read-only and
+    // The built-in file tools are outside the sandbox: the rules keep the directories read-only and
     // the credentials out of reach.
     expect(reader.permissions.deny).toEqual(
       expect.arrayContaining([
         `Edit(/${workspace}/**)`,
         `Edit(/${worktree}/**)`,
+        `Edit(/${home}/**)`,
         `Read(/${join(userHome, '.ssh')})`,
         `Read(/${join(userHome, '.ssh')}/**)`,
       ]),

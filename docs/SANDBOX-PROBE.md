@@ -227,10 +227,16 @@ file is only counted (`wc -c`), so the evidence holds its size at most.
      question; tests and type check pass (a Vite configuration loads with `--configLoader runner`);
    - `touch probe.txt`, `npx prettier --write <a source file>`, `npm test -- -u`,
      `git diff --output=probe.diff`: each refused by the sandbox, no file appears;
-   - the Write tool creating `probe.txt` and the Edit tool changing a source file: refused by the
+   - `npx prettier --write` on a file prettier would change (check with `npx prettier --check`
+     first; an already formatted file proves nothing): refused, the file unchanged;
+   - the Write tool creating `probe.txt` and the Edit tool changing a source file, there and in
+     another member's worktree and the server's own checkout (`~/projectman-live`): refused by the
      deny rule;
    - `wc -c ~/.claude.json` and `ls ~/.ssh`: refused by the sandbox;
-   - `gh pr view` (when the repository has GitHub): runs outside the sandbox without a question.
+   - when the repository has GitHub: `gh pr view <n>` alone runs outside the sandbox without a
+     question; `gh pr view <n> && touch probe.txt` and `gh pr view <n> > probe.txt` run inside it
+     (the `gh` part fails on its login, no file appears). A local-only repository gets no `gh`
+     exception at all.
 4. During the whole review no item reaches the owner's inbox (Bejövő); refusals of approver
    Senki, if any, are on the task's timeline.
 5. Record each line as `pass`, `fail` or `unverified` with the raw output in the task, and the

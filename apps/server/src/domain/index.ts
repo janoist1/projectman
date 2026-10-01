@@ -152,6 +152,11 @@ export interface DomainOptions {
   appHome?: string;
   /** Where member workspaces live: a developer's routine steps there run without asking, as in a worktree. */
   workspacesRootDir?: string;
+  /**
+   * The checkout the server runs from (`~/projectman-live` for the owner's live instance): reading
+   * sessions never change it (PM-188).
+   */
+  installDir?: string;
   /** Whether a process group still runs (tests replace it): a workspace reservation outlives a restart until it is gone. */
   processExists?: ProcessProbe;
   /**
@@ -248,6 +253,9 @@ export function createDomain(opts: DomainOptions) {
     managedVm: opts.managedVm,
     standby: opts.standby,
     appHome: opts.appHome,
+    readerDenyWrite: [opts.appHome, opts.worktreesRootDir, opts.workspacesRootDir, opts.installDir].filter(
+      (dir): dir is string => !!dir,
+    ),
     // `boundary` is built below; the callback only runs when a session starts.
     onExecutionProfileChange: (projectKey, sessionId) => boundary.invalidateSession(projectKey, sessionId),
     usageAlerts: new UsageAlerts({ ctx, projects, inbox }),

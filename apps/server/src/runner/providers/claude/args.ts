@@ -1,6 +1,6 @@
 import type { AgentSandbox, StartSessionSpec } from '../../../contracts';
 import { FAST_HOOK_TIMEOUT_S, forwarderCommand, permissionHookTimeoutS } from '../../hook-forwarder';
-import { claudeToolRules } from './policy';
+import { claudeToolRules, directoryRulePaths } from './policy';
 
 /**
  * Command line and inline settings for an interactive Claude Code session.
@@ -55,7 +55,10 @@ export interface ClaudeSandboxSettings {
   failIfUnavailable: true;
   filesystem: { allowWrite: string[]; denyWrite?: string[]; denyRead?: string[]; allowRead?: string[] };
   network: { allowedDomains: string[]; strictAllowlist: true; allowLocalBinding: boolean };
-  /** Commands run outside the sandbox, asked or allowed by the permission rules as any other. */
+  /**
+   * Command patterns run outside the sandbox (`gh pr view:*`), asked or allowed by the permission
+   * rules as any other; see `excludedCommandPattern`.
+   */
   excludedCommands?: string[];
 }
 
@@ -126,12 +129,11 @@ export function buildSandboxSettings(sandbox: AgentSandbox): ClaudeSandboxSettin
       strictAllowlist: true,
       allowLocalBinding: sandbox.allowLocalBinding,
     },
-    ...(sandbox.excludedCommands?.length ? { excludedCommands: [...sandbox.excludedCommands] } : {}),
+    ...(sandbox.excludedCommands?.length
+      ? { excludedCommands: [...new Set(sandbox.excludedCommands)].map(excludedCommandPattern) }
+      : {}),
   };
 }
-
-/** Characters a directory may hold to be named in a Claude Code path rule as it is. */
-const PLAIN_RULE_PATH = /^\/[\w./@+~ -]*$/;
 
 /**
  * Deny rules for the built-in file tools on the sandbox's `denyWrite` directories (PM-167): the
@@ -140,12 +142,24 @@ const PLAIN_RULE_PATH = /^\/[\w./@+~ -]*$/;
  * leave the directory writable for the file tools.
  */
 export function denyWriteRules(sandbox: AgentSandbox | undefined): string[] {
-  return (sandbox?.denyWrite ?? []).map((dir) => {
-    if (!PLAIN_RULE_PATH.test(dir))
+  return (sandbox?.denyWrite ?? []).flatMap((dir) => {
+    const paths = directoryRulePaths(dir);
+    if (!paths)
       throw new Error(`Cannot keep ${JSON.stringify(dir)} read-only with a rule; refusing to start.`);
-    // An absolute path in a rule starts with `//`; `**` takes everything below.
-    return `Edit(/${dir.replace(/\/+$/, '')}/**)`;
+    return paths.map((path) => `Edit(${path})`);
   });
+}
+
+/**
+ * An `excludedCommands` entry: the command with any arguments (`gh pr view:*`). Claude Code 2.1.284
+ * reads an entry without `:*` or `*` as the exact command, so a bare `gh pr view` never matched
+ * `gh pr view 12` (PM-188). It leaves a command out of the sandbox only when every part of it
+ * matches an entry and it has no substitution and no redirection into a file (`2>&1` is fine), so
+ * a chain, a pipe, `$(...)` or `> file` around it stays inside (read in 2.1.284's code; the manual
+ * run in docs/SANDBOX-PROBE.md checks it).
+ */
+export function excludedCommandPattern(command: string): string {
+  return `${command}:*`;
 }
 
 /** The `--settings` object: hooks for every event we need and pre-allowed tools. */

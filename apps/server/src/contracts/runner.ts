@@ -39,7 +39,11 @@ export interface AgentSandbox {
   denyRead?: string[];
   /** Paths inside `denyRead` that commands may read after all. */
   allowRead?: string[];
-  /** Commands that run outside the sandbox, through the usual permission path (`gh pr view`). */
+  /**
+   * Commands that run outside the sandbox with any arguments, through the usual permission path
+   * (`gh pr view`): only as a command of their own, never inside a chain, a pipe or a substitution
+   * (the provider adapter renders the pattern, PM-188).
+   */
   excludedCommands?: string[];
 }
 

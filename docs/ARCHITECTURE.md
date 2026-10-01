@@ -371,8 +371,8 @@ with `effectivePermissionMode(member)` (the level's mode, or the member's histor
 `auto` → `auto`, anything else → `ask_human` (`permissionLevelOf`): no migration rewrites
 configurations (decision 26), and no mapping frees a member beyond its old mode. `bypassPermissions`
 is no longer a choice; an existing one shows as a legacy setting until an owner picks a level.
-Only an owner changes a level (`ownerOnlyChanges` category `permission_level`, also checked in
-`MemberService.update` first). `ask_ai` is selectable only with `team.boundary.enabled` and
+Only an owner changes a level (`ownerOnlyChanges` category `permission_level`, run by the commit
+of every configuration change, the member PATCH included). `ask_ai` is selectable only with `team.boundary.enabled` and
 another AI member at work that holds `boundary_authorization` (`askAiBlocker`); the roster
 (`MemberView.askAiBlocker`) says why not, and the Team page warns when a member keeps `ask_ai`
 after its decider drops out. Who answers an `ask_ai` request is the runner's job (PM-165 and

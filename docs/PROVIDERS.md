@@ -113,7 +113,9 @@ the timeline like any other answer):
   the command says and even when it cannot be parsed;
 - a developer's routine steps in the task's own worktree are allowed: a lockfile install,
   `git add`, `git commit` with a message and `git merge --ff-only` of the default branch or a
-  commit, each a single command (no pipe, no redirection). They may be joined with `&&`, `||`
+  commit, each one command, which may carry `2>&1` and be piped into readers that filter its
+  output (`npm install … 2>&1 | tail -3`; a `tee` or any other writer after the pipe still goes
+  to a human, PM-105). They may be joined with `&&`, `||`
   or `;` and mixed with read-only steps, which may be whole pipelines, as long as those stay
   in the worktree (`git status && git add -A && git commit -m …; git log --oneline | head -1`,
   PM-77). Every step is judged on its own and the directory never changes: the only `cd` is a

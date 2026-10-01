@@ -2,6 +2,7 @@ import path from 'node:path';
 import { DUTIES, effectiveRepo, repoOf, roleBundle, roleUsesWorktree } from '@projectman/shared';
 import type { RoleId, ProjectConfig, Task } from '@projectman/shared';
 import { isWithin } from './command-paths';
+import { editsFilesInPlace, IN_PLACE_EDIT_MESSAGE } from './in-place-edits';
 import { isReadOnlyCommand } from './read-only-commands';
 import { parseShellCommand } from './shell-words';
 import { isWorktreeRoutine } from './worktree-commands';
@@ -118,13 +119,15 @@ export function readableRootsFor(input: {
 /**
  * Automatic decisions about shell commands; everything else reaches a human.
  * - deny: publishing (`git push`, `gh pr create`, `gh pr merge`) from a repository without GitHub;
+ * - deny: a command that rewrites a file in place (`sed -i`, `perl -pi -e`), with a pointer to
+ *   the editing tools, see `in-place-edits.ts`;
  * - allow: a developer's routine steps in the task's own worktree (lockfile install, `git add`,
  *   `git commit` with a message, `git merge --ff-only`), alone or in a chain with read-only
  *   steps, see `worktree-commands.ts`;
  * - allow: read-only commands inside `readableRoots`, for any AI session on a task, see
  *   `read-only-commands.ts`. Without roots this rule gives no verdict.
- * The allow rules read the command with the strict parser in `shell-words.ts`; a command it
- * refuses gets no verdict from them. The deny rule works on the raw text and so holds for such
+ * The allow rules and the in-place deny rule read the command with the strict parser in
+ * `shell-words.ts`; a command it refuses gets no verdict from them. The publishing deny rule works on the raw text and so holds for such
  * a command too. It leaves quoted text out, read as the parser reads it: a backslash in double
  * quotes also covers the newline after it (a line continuation).
  */
@@ -150,6 +153,8 @@ export function commandVerdict(input: {
   }
   const parsed = parseShellCommand(command);
   if (!parsed) return null;
+  // Whoever the session is, a file is edited with the editing tools: nobody needs to be asked.
+  if (editsFilesInPlace(parsed)) return { behavior: 'deny', message: IN_PLACE_EDIT_MESSAGE };
   if (inTaskWorktree(input)) {
     const defaultBranch = repoOf(config, effectiveRepo(config, task))?.defaultBranch;
     if (isWorktreeRoutine(parsed, { cwd: session.cwd, defaultBranch })) return { behavior: 'allow' };

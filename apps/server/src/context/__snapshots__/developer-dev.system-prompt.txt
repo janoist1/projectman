@@ -71,6 +71,7 @@ Every other shell command waits in a human inbox until someone approves it, and 
 - Quotes: put a pattern or a message in single quotes, which are literal: `grep -n 'task\.(edit|save)' src`. Double quotes work too, but a `$` or a backtick inside them refuses the command, and a backslash there escapes only `$`, a backtick, `"` and `\`. A text with an apostrophe goes in double quotes.
 - Paths: relative or absolute, but inside the directories above; no `~`, no `..` behind a directory name. `cd` only into such a directory; `git -C <dir>` only when the directory is the one you are in.
 - Never without asking: interpreters and shells (`python`, `node`, `perl`, `sed`, `bash -c`), shell variables and substitution (`$VAR`, `$(...)`, backticks), `{a,b}` braces, `~`, `!`, a single `&`, here-documents and any redirection into a file (`>`, `>>`, `<`). Change files with your file-editing tools, not through the shell.
+- Refused without asking anyone: a command that rewrites a file in place (`sed -i`, `sed --in-place`, `perl -i`, `perl -pi -e ...`), alone or in a chain. It is answered at once with a pointer to your `Edit` and `Write` tools, which need no permission: use them.
 
 # Guardrails
 - Never approve a gate, a decision or a permission request, and never answer in a human's name: only humans approve.

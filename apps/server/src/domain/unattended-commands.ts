@@ -1,6 +1,6 @@
 import type { AgentSandbox } from '../contracts';
 import { isWithin } from './command-paths';
-import { PTY_SKIP_VARIABLE } from './session-policy';
+import { GIT_SETTINGS_VARIABLE, PTY_SKIP_VARIABLE } from './session-policy';
 import { SHELL_REDIRECTIONS } from './shell-words';
 import {
   NPM_CHECKS,
@@ -82,7 +82,10 @@ export function describeSandbox(input: {
   const readOnly = (sandbox.denyWrite ?? []).includes(cwd);
   const extra = (sandbox.denyWrite ?? []).filter((dir) => dir !== cwd);
   const denyRead = sandbox.denyRead ?? [];
-  const ownDirectories = Object.entries(sandbox.env ?? {}).filter(([name]) => name !== PTY_SKIP_VARIABLE);
+  const ownDirectories = Object.entries(sandbox.env ?? {}).filter(
+    ([name]) => name !== PTY_SKIP_VARIABLE && name !== GIT_SETTINGS_VARIABLE,
+  );
+  const gitSettings = sandbox.env?.[GIT_SETTINGS_VARIABLE];
   const skipsPtyTests = sandbox.env?.[PTY_SKIP_VARIABLE] === '1';
   // The directories closed as a whole (the user's home, the app home), not the paths inside them.
   const closed = denyRead.filter((dir) => !denyRead.some((other) => other !== dir && isWithin(other, dir)));
@@ -108,6 +111,12 @@ export function describeSandbox(input: {
             .join(
               ', ',
             )}. Leave them set: npm, ${code('npx')} and ${code('npm run dev')} use them, and the user's ${code('~/.npm')} and ${code('~/.projectman-dev')} are not writable.`,
+        ]
+      : []),
+    // PM-216: git's settings and the one message that stays after a commit.
+    ...(gitSettings
+      ? [
+          `- Git: its system settings come from ${code(gitSettings)} (${code('GIT_CONFIG_SYSTEM')}; no automatic gc). After a commit git may print ${code("Unable to create '…/packed-refs.lock'")}: the commit exists, the shared ${code('packed-refs')} is closed to you on purpose; ignore the message, and do not look for a way around it.`,
         ]
       : []),
     // PM-194: the sandbox cannot open a pseudo-terminal, so the PTY tests are left out of this run.

@@ -87,6 +87,7 @@ it(
       join(home, 'member-caches', 'AR', 'dev-1', 'npm-cache'),
       join(home, 'member-caches', 'AR', 'dev-1', 'projectman-dev'),
     ];
+    const gitConfig = join(home, 'member-caches', 'AR', 'dev-1', 'gitconfig');
     expect(developer.sandbox).toEqual({
       enabled: true,
       autoAllowBashIfSandboxed: true,
@@ -103,7 +104,7 @@ it(
           expect.stringMatching(/\/\.git\/info\/grafts$/),
         ],
         denyRead: [userHome, home, ...denyRead],
-        allowRead: expect.arrayContaining([worktree, ...own, join(userHome, '.gitconfig')]),
+        allowRead: expect.arrayContaining([worktree, ...own, gitConfig, join(userHome, '.gitconfig')]),
       },
       network: { allowedDomains: ['registry.npmjs.org'], strictAllowlist: true, allowLocalBinding: true },
       credentials: { envVars: SANDBOX_DENIED_ENV_VARS.map((name) => ({ name, mode: 'deny' })) },
@@ -112,7 +113,10 @@ it(
       npm_config_cache: own[0],
       PROJECTMAN_HOME: own[1],
       ...SANDBOX_PTY_ENV,
+      // PM-216: its git settings, a file it can read and not write.
+      GIT_CONFIG_SYSTEM: gitConfig,
     });
+    expect(developer.sandbox.filesystem.allowWrite).not.toContain(gitConfig);
     // The developer edits its worktree: no rule takes that away; the shared git files it cannot.
     expect(developer.permissions.deny).not.toContain(`Edit(/${worktree}/**)`);
     expect(developer.permissions.deny).toEqual(

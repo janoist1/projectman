@@ -168,6 +168,49 @@ describe('provider-neutral session policy', () => {
     ).toEqual(['gh pr view:*', 'gh pr diff:*']);
   });
 
+  it("reads the user's core.excludesfile and runs no automatic gc in a developer's sandbox (PM-216)", () => {
+    const home = '/fictional/user';
+    const paths = { userHome: home, defaultBranch: 'main' };
+    expect(sessionSandbox(development(), paths)!.allowRead).not.toContain(`${home}/.gitignore_global`);
+    const sandbox = sessionSandbox(development(), { ...paths, excludesFile: `${home}/.gitignore_global` })!;
+    expect(sandbox.allowRead).toContain(`${home}/.gitignore_global`);
+    // Only that file: the home stays closed, and the protections of the shared git directory stay.
+    expect(sandbox.denyRead).toContain(home);
+    expect(sandbox.allowRead).not.toContain(home);
+    expect(sandbox.denyWrite).toContain(`${sharedGit}/packed-refs`);
+    expect(sandbox.denyWrite).toContain(`${sharedGit}/packed-refs.lock`);
+    // A file in a denied path or the app home is not re-opened.
+    const denied = sessionSandbox(
+      buildSessionPolicy({
+        config: testConfig(),
+        role: 'developer',
+        task: { repo: 'web' },
+        placement: { kind: 'task_worktree', path: source, gitDir: sharedGit },
+        permissionMode: 'acceptEdits',
+        deniedPaths: [`${home}/.ssh`],
+      }),
+      { ...paths, appHome: '/fictional/app', excludesFile: `${home}/.ssh/ignore` },
+    )!;
+    expect(denied.allowRead).not.toContain(`${home}/.ssh/ignore`);
+    expect(
+      sessionSandbox(development(), {
+        ...paths,
+        appHome: '/fictional/app',
+        excludesFile: '/fictional/app/x',
+      })!.allowRead,
+    ).not.toContain('/fictional/app/x');
+    // Never the home or a directory above it, whatever the config says.
+    for (const dir of [home, '/fictional'])
+      expect(sessionSandbox(development(), { ...paths, excludesFile: dir })!.allowRead).not.toContain(dir);
+    // The git settings are a file, not GIT_CONFIG_COUNT entries that would replace a session's own.
+    expect(sandbox.env).not.toHaveProperty('GIT_CONFIG_COUNT');
+    expect(sandbox.env).not.toHaveProperty('GIT_CONFIG_SYSTEM');
+    const withDir = sessionSandbox(development(), { ...paths, appHome: '/pm', memberDir: '/pm/m/AR/dev' })!;
+    expect(withDir.env).toMatchObject({ GIT_CONFIG_SYSTEM: '/pm/m/AR/dev/gitconfig' });
+    expect(withDir.allowRead).toContain('/pm/m/AR/dev/gitconfig');
+    expect(withDir.allowWrite).not.toContain('/pm/m/AR/dev/gitconfig');
+  });
+
   it('resolves mixed/custom duty bundles instead of role names', () => {
     const config = testConfig();
     config.team.roles.push({

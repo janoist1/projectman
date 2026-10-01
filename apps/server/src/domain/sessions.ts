@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import {
@@ -54,6 +54,7 @@ import { encodeWorkItem } from '../db';
 import { requireAiMember } from './access';
 import { assertAiEnabled, assertNotOnLeave, assertRepoChosen } from './admission/rules';
 import { isoNow } from './context';
+import { userExcludesFile } from './git-excludes';
 import type { DomainContext } from './context';
 import { conflict, DomainError, notFound } from './errors';
 import type { MemberService } from './members';
@@ -68,6 +69,8 @@ import {
   DONE_TASK_TURN_LIMIT_MS,
   MEMBER_SANDBOX_DIRS,
   memberSandboxDir,
+  SANDBOX_GIT_CONFIG,
+  SANDBOX_GIT_CONFIG_FILE,
   sensitivePaths,
   sessionSandbox,
   usesWorktree,
@@ -1116,6 +1119,7 @@ export class SessionOrchestrator {
       !vm && !this.managed && policy.access === 'task_worktree' && this.deps.appHome
         ? this.prepareMemberSandboxDir(this.deps.appHome, projectKey, member.handle)
         : undefined;
+    const excludesFile = userExcludesFile(userHome);
     const sandbox =
       vm || this.managed
         ? undefined
@@ -1124,6 +1128,7 @@ export class SessionOrchestrator {
             ...(this.deps.appHome ? { appHome: this.deps.appHome } : {}),
             ...(repoName ? { defaultBranch: repoOf(config, repoName)?.defaultBranch } : {}),
             ...(memberDir ? { memberDir } : {}),
+            ...(excludesFile ? { excludesFile } : {}),
             github: Boolean(repoOf(config, effectiveRepo(config, task))?.github),
             // A reader changes no checkout of the project or the installation (PM-188).
             readerDenyWrite: [config.project.workspacePath, ...(this.deps.readerDenyWrite ?? [])],
@@ -1417,6 +1422,8 @@ export class SessionOrchestrator {
       // Two small local directories: made at once, so the start does not wait an extra turn.
       for (const sub of MEMBER_SANDBOX_DIRS)
         mkdirSync(path.join(dir, sub.name), { recursive: true, mode: 0o700 });
+      // Written at every start, so the commands' git settings are always the current ones (PM-216).
+      writeFileSync(path.join(dir, SANDBOX_GIT_CONFIG_FILE), SANDBOX_GIT_CONFIG, { mode: 0o600 });
     } catch (err) {
       throw new DomainError(
         'session_start_failed',

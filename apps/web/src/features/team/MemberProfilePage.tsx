@@ -2,7 +2,7 @@ import { InviteDialog } from './InviteDialog';
 import { useState } from 'react';
 import { providerModelLabel } from './providerModels';
 import { Link, useNavigate, useParams } from 'react-router';
-import { DEFAULT_AGENT_PROVIDER } from '@projectman/shared';
+import { DEFAULT_AGENT_PROVIDER, roleBundle } from '@projectman/shared';
 import type { TeamMessage } from '@projectman/shared';
 import {
   useBoard,
@@ -112,6 +112,7 @@ export function MemberProfilePage() {
   const data = profile.data;
   const member = data.member;
   const ai = member.kind === 'ai';
+  const ownConfig = config.data?.config.team.members.find((entry) => entry.handle === handle);
   const status = memberStatusView(member, data.inbox, myHandle);
   const live = data.sessions.filter(isLiveSession);
   const titles = new Map((board.data?.tasks ?? []).map((task) => [task.key, task.title]));
@@ -252,6 +253,24 @@ export function MemberProfilePage() {
           </p>
         ) : null}
       </section>
+      {ai && ownConfig?.kind === 'ai' && config.data ? (
+        <section className={styles.panel} aria-label={t('profile.instructions')}>
+          <h2>{t('profile.instructions')}</h2>
+          <h3>
+            {t('profile.roleInstructions', {
+              role: aiRoleView(member.role, member.specialty, roles.data?.roles).name,
+            })}
+          </h3>
+          <pre className={styles.memory}>
+            {roleBundle(config.data.config, member.role).instructions.trim() || t('profile.noInstructions')}
+          </pre>
+          <p>
+            <Link to={`/p/${key}/settings`}>{t('profile.roleInstructionsEdit')}</Link>
+          </p>
+          <h3>{t('profile.ownInstructions')}</h3>
+          <pre className={styles.memory}>{ownConfig.instructions.trim() || t('profile.noInstructions')}</pre>
+        </section>
+      ) : null}
       <div className={styles.grid}>
         <section className={styles.panel}>
           <h2>{t('profile.tasks')}</h2>

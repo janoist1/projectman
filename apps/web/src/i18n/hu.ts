@@ -656,6 +656,7 @@ export const hu = {
     title: 'Tag szerkesztése: {name}',
     edit: 'Szerkesztés',
     roles: 'Betöltött szerepek',
+    instructions: 'Saját utasítások',
     save: 'Mentés',
     saved: 'A tag adatai mentve.',
   },
@@ -1116,6 +1117,11 @@ export const hu = {
     noTasks: 'Nincs feladata.',
     noSessions: 'Még nincs munkamenete.',
     noWaiting: 'Nincs rá váró döntés.',
+    instructions: 'Kapott utasítások',
+    roleInstructions: 'A szerepéé ({role})',
+    roleInstructionsEdit: 'Szerkesztés a Beállításokban',
+    ownInstructions: 'Saját utasításai',
+    noInstructions: 'Nincs megadva.',
   },
 
   messages: {

@@ -11,7 +11,7 @@ import { useUpdateMember } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
-import { SelectField, TextField } from '../../components/Field';
+import { SelectField, TextAreaField, TextField } from '../../components/Field';
 import { useToast } from '../../components/toastContext';
 import { humanRoleName } from '../../lib/roles';
 import { ErrorBanner } from '../../components/ErrorBanner';
@@ -49,6 +49,7 @@ function EditMemberForm({
     ai?.effort ?? member.effort ?? (provider === 'codex' ? 'medium' : undefined),
   );
   const [model, setModel] = useState(ai?.model ?? member.model ?? DEFAULT_PROVIDER_MODELS[provider]);
+  const [instructions, setInstructions] = useState(ai?.instructions ?? '');
   const [schedule, setSchedule] = useState<ScheduleDraft>({
     enabled: Boolean(ai?.schedule),
     cron: ai?.schedule?.cron ?? '',
@@ -69,6 +70,7 @@ function EditMemberForm({
                 provider,
                 effort: effort ?? null,
                 model: model.trim(),
+                instructions: instructions.trim(),
                 schedule: schedule.enabled
                   ? { cron: schedule.cron.trim(), prompt: schedule.prompt.trim() }
                   : null,
@@ -138,6 +140,13 @@ function EditMemberForm({
             }}
             onModelChange={setModel}
             onEffortChange={setEffort}
+          />
+          <TextAreaField
+            label={t('memberEdit.instructions')}
+            hint={t('hire.instructionsNote')}
+            rows={6}
+            value={instructions}
+            onChange={(event) => setInstructions(event.target.value)}
           />
           <ScheduleFields value={schedule} onChange={setSchedule} />
         </>

@@ -56,7 +56,12 @@ export function SettingsEditingProvider({
 
 /** The part of the configuration a section saves (labels live in the pipeline). */
 function patchBody(section: Section, draft: ProjectConfig, baseVersion: string): PatchConfigRequest {
-  if (section === 'limits') return { baseVersion, limits: draft.team.limits };
+  // A removed cap is sent as null: a missing field would leave the stored one as it is.
+  if (section === 'limits')
+    return {
+      baseVersion,
+      limits: { ...draft.team.limits, maxConcurrentAi: draft.team.limits.maxConcurrentAi ?? null },
+    };
   if (section === 'project')
     return {
       baseVersion,

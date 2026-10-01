@@ -19,6 +19,7 @@ export * from './config/duties';
 export * from './config/labels';
 export * from './config/gates';
 export * from './config/lookup';
+export * from './config/leave';
 export * from './config/repos';
 export * from './config/owner-only';
 export * from './config/edit';

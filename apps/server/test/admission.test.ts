@@ -145,6 +145,13 @@ const refusal = async (promise: Promise<unknown>): Promise<string | null> =>
 const general: WorkItemRef = { type: 'general' };
 const scheduled: WorkItemRef = { type: 'schedule', runId: 'run_fictional' };
 const onTask = (taskKey: string): WorkItemRef => ({ type: 'task', taskKey });
+/** Sends the AI member on leave. */
+const sendOnLeave =
+  (handle: string) =>
+  (config: ProjectConfig): void => {
+    const member = config.team.members.find((m) => m.handle === handle);
+    if (member?.kind === 'ai') member.onLeave = true;
+  };
 /** A second repository: the project then has several, and a task has to name the one it works in. */
 const withTwoRepos = (config: ProjectConfig): void => {
   config.project.repos.push({ name: 'api', path: 'api', defaultBranch: 'main' });
@@ -163,6 +170,49 @@ describe('admission checks', () => {
       },
       { handle: 'dev-1', workItem: general },
       'ai_disabled',
+    ],
+    [
+      'refuses a member on leave before capacity, the AI limit and plan usage (decision 23)',
+      {
+        adjust: sendOnLeave('dev-1'),
+        tasks: [task('AR-1', { assignee: 'dev-1' })],
+        sessions: [session('dev-1', onTask('AR-1'))],
+        running: ['ses_dev-1_task'],
+        busy: 9,
+        usage: { claude: planUsage(99) },
+      },
+      { handle: 'dev-1', workItem: general },
+      'member_on_leave',
+    ],
+    [
+      'refuses every kind of start for a member on leave',
+      { adjust: sendOnLeave('dev-1') },
+      { handle: 'dev-1', workItem: scheduled },
+      'member_on_leave',
+    ],
+    [
+      'refuses a start for a member on leave even where capacity does not apply',
+      { adjust: sendOnLeave('dev-1'), tasks: [task('AR-1', { assignee: 'dev-1' })] },
+      { handle: 'dev-1', workItem: onTask('AR-1'), capacity: false },
+      'member_on_leave',
+    ],
+    [
+      'admits the others while one member is on leave',
+      { adjust: sendOnLeave('dev-1') },
+      { handle: 'dev-2' },
+      null,
+    ],
+    [
+      'admits a member called back from leave',
+      {
+        adjust: (config) => {
+          sendOnLeave('dev-1')(config);
+          const dev = config.team.members.find((m) => m.handle === 'dev-1');
+          if (dev?.kind === 'ai') delete dev.onLeave;
+        },
+      },
+      { handle: 'dev-1', workItem: general },
+      null,
     ],
     [
       "refuses a scheduled run while the member's previous run is live",
@@ -259,6 +309,32 @@ describe('admission checks', () => {
       { busy: 3 },
       { handle: 'dev-1', workItem: general },
       'ai_limit_reached',
+    ],
+    [
+      'puts no cap on concurrent AI sessions when the project names none (decision 23)',
+      { adjust: (c) => void delete c.team.limits.maxConcurrentAi, busy: 50 },
+      { handle: 'dev-1', workItem: general },
+      null,
+    ],
+    [
+      'still pauses at the plan usage threshold without a cap',
+      {
+        adjust: (c) => void delete c.team.limits.maxConcurrentAi,
+        busy: 50,
+        usage: { claude: planUsage(99) },
+      },
+      { handle: 'dev-1', workItem: general },
+      'plan_usage_paused',
+    ],
+    [
+      'still refuses a member at its own capacity without a cap',
+      {
+        adjust: (c) => void delete c.team.limits.maxConcurrentAi,
+        sessions: [session('dev-1', general)],
+        running: ['ses_dev-1_general'],
+      },
+      { handle: 'dev-1', workItem: onTask('AR-2') },
+      'member_at_capacity',
     ],
     [
       'checks concurrency before plan usage',
@@ -475,6 +551,7 @@ describe('deferred starts', () => {
       'plan_usage_paused',
       'ai_disabled',
       'member_at_capacity',
+      'member_on_leave',
     ] as const)
       expect(isDeferrable(conflict(code, 'fictional refusal')), code).toBe(true);
     expect(isDeferrable(conflict('repo_required', 'fictional refusal'))).toBe(false);
@@ -576,6 +653,56 @@ describe('deferred starts', () => {
       unknown.deferred.keep({ start: other.automatic, waiting: { reason: 'ai_disabled', ...since } });
       await unknown.admission.retryDeferred();
       expect(other.retry).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('while a member is on leave', () => {
+    const since = { since: AT };
+
+    it('keeps the start that waits for the member and tries it again once the member is called back', async () => {
+      const reviewing = task('AR-1', { stageId: 'code_review' });
+      const { admission, deferred, config, log } = admissionFor({
+        tasks: [reviewing],
+        adjust: sendOnLeave('cr'),
+      });
+      let code: string | null = 'member_on_leave';
+      const waiting = start('message:AR:cr:AR-1', {
+        taskKey: 'AR-1',
+        stage: 'code_review',
+        member: 'cr',
+        refuse: () => code,
+      });
+      await admission.attempt(waiting.automatic);
+      expect(deferred.waitingFor(reviewing)).toMatchObject({ reason: 'member_on_leave', member: 'cr' });
+
+      // A retry could only be refused and logged again: it is left alone while the member is away.
+      await admission.retryDeferred();
+      await admission.retryDeferred();
+      expect(waiting.retry).not.toHaveBeenCalled();
+      expect(log.warnings).toEqual([]);
+
+      const cr = config.team.members.find((m) => m.handle === 'cr');
+      if (cr?.kind === 'ai') delete cr.onLeave;
+      code = null;
+      await admission.retryDeferred();
+      expect(waiting.retry).toHaveBeenCalledOnce();
+    });
+
+    it('retries a start that waits for another member, or for nobody in particular', async () => {
+      const { admission, deferred } = admissionFor({
+        tasks: [task('AR-1', { stageId: 'code_review' }), task('AR-2', { stageId: 'code_review' })],
+        adjust: sendOnLeave('cr'),
+      });
+      const other = start('hand-over:AR-1', { taskKey: 'AR-1', member: 'dev-2' });
+      const anyone = start('hand-over:AR-2', { taskKey: 'AR-2' });
+      deferred.keep({
+        start: other.automatic,
+        waiting: { reason: 'member_on_leave', member: 'dev-2', ...since },
+      });
+      deferred.keep({ start: anyone.automatic, waiting: { reason: 'member_on_leave', ...since } });
+      await admission.retryDeferred();
+      expect(other.retry).toHaveBeenCalledOnce();
+      expect(anyone.retry).toHaveBeenCalledOnce();
     });
   });
 

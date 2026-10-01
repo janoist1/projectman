@@ -25,6 +25,7 @@ import {
   StartTaskRequest,
   UpdateMemberRequest,
   UpdateTaskRequest,
+  aiLimitReached,
   applyConfigPatch,
   approvalRefusal,
   commentMentions,
@@ -34,6 +35,8 @@ import {
   gateRequestOf,
   holdersAllow,
   isBuiltInRole,
+  isHandleOnLeave,
+  isOnLeave,
   isOpenTask,
   isWorkingOnTask,
   labelDefinition,
@@ -1271,7 +1274,8 @@ export class MockBackend {
         input.model !== undefined ||
         input.schedule !== undefined ||
         input.provider !== undefined ||
-        input.effort !== undefined)
+        input.effort !== undefined ||
+        input.onLeave !== undefined)
     )
       return error(400, 'not_ai_member', 'Not an AI member');
     const next = clone(this.config);
@@ -1303,6 +1307,18 @@ export class MockBackend {
         } else member.effort = config.effort = input.effort;
       }
       if (input.schedule !== undefined) config.schedule = input.schedule ?? undefined;
+      if (input.onLeave !== undefined) {
+        if (input.onLeave) {
+          config.onLeave = member.onLeave = true;
+          // Like the server: the running sessions of a member sent on leave stop.
+          for (const session of this.sessions.filter((s) => s.member === handle && this.isLive(s)))
+            this.updateSession(session.id, { state: 'exited', activity: null, endedAt: nowIso() });
+          this.setMemberState(handle, 'idle', null);
+        } else {
+          delete config.onLeave;
+          delete member.onLeave;
+        }
+      }
     }
     this.commitConfig(`Update member ${handle}`);
     this.memberChanged(handle);
@@ -1427,7 +1443,11 @@ export class MockBackend {
         return error(400, 'unknown_member', 'Unknown member');
       const live = this.taskSessions(task.key).find((session) => this.isLive(session));
       if (live) return error(409, 'task_session_live', 'A session is still live', { sessionId: live.id });
-      if (input.assignee !== task.assignee) patch.assignee = input.assignee;
+      if (input.assignee !== task.assignee) {
+        if (isHandleOnLeave(this.config, input.assignee))
+          return error(409, 'member_on_leave', `${input.assignee} is on leave`);
+        patch.assignee = input.assignee;
+      }
     }
     const wanted = input.labels && unique(input.labels.map((label) => label.trim()).filter(Boolean));
     const labels = planLabelChange(
@@ -1826,7 +1846,7 @@ export class MockBackend {
     const workStage = this.config.pipeline.stages.find((stage) => stage.kind === 'work');
     const eligible = workStage ? stageOwners(this.config, workStage) : [];
     const developers = this.members.filter(
-      (member) => eligible.includes(member.handle) && member.status !== 'retired',
+      (member) => eligible.includes(member.handle) && member.status !== 'retired' && !member.onLeave,
     );
     const assignee =
       input.assignee ??
@@ -1837,6 +1857,7 @@ export class MockBackend {
       return error(400, 'not_stage_owner', 'Assignee must own the work stage');
     // Like admission: a role that changes files needs the task's repository, and nothing has happened yet.
     const chosen = memberOf(this.config, assignee);
+    if (isOnLeave(chosen)) return error(409, 'member_on_leave', `${assignee} is on leave`);
     if (chosen?.kind === 'ai' && repoRequired(this.config, chosen.role, task))
       return error(409, 'repo_required', 'The task needs a repository before a developer starts on it', {
         taskKey: task.key,
@@ -2054,12 +2075,15 @@ export class MockBackend {
     const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
     const plan = this.planUsageFor(provider);
     if (!limits.aiEnabled) return 'ai_disabled';
+    if (isOnLeave(member)) return 'member_on_leave';
     if (opts.scheduleRun && live.some((s) => s.member === member.handle && s.workItem.type === 'schedule'))
       return 'previous_run_live';
     if (this.memberLoad(member.handle) >= member.capacity) return 'member_at_capacity';
     if (
-      live.filter((s) => ['starting', 'working', 'waiting_permission'].includes(s.state)).length >=
-      limits.maxConcurrentAi
+      aiLimitReached(
+        this.config,
+        live.filter((s) => ['starting', 'working', 'waiting_permission'].includes(s.state)).length,
+      )
     )
       return 'ai_limit_reached';
     if (Math.max(plan?.fiveHourPercent ?? 0, plan?.weeklyPercent ?? 0) > limits.pauseAbovePlanUsagePercent)

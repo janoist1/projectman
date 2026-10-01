@@ -30,7 +30,7 @@ export function formatMembers(members: MemberView[], self: string): string {
     const kind = m.kind === 'ai' ? 'AI' : 'human';
     // Humans: access level, then the roles they hold; AI members: their one role.
     const held = m.kind === 'human' && m.roles.length > 0 ? `; roles: ${m.roles.join(', ')}` : '';
-    const role = `${kind} ${m.role}${m.specialty ? ` (${m.specialty})` : ''}${m.temp ? ', temporary' : ''}${held}`;
+    const role = `${kind} ${m.role}${m.specialty ? ` (${m.specialty})` : ''}${m.temp ? ', temporary' : ''}${m.onLeave ? ', on leave (gets no work; messages wait)' : ''}${held}`;
     const status = m.activity ? `${m.status}: ${oneLine(m.activity, 80)}` : m.status;
     const tasks = m.currentTaskKeys.length > 0 ? ` · tasks: ${m.currentTaskKeys.join(', ')}` : '';
     return `- ${who} — ${m.displayName} · ${role} · ${status}${tasks}`;

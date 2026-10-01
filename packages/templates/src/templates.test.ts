@@ -141,10 +141,9 @@ describe('every template', () => {
       }
     });
 
-    it('starts with the standard limits', () => {
+    it('starts with the standard limits and no cap on concurrent AI sessions (decision 23)', () => {
       expect(template.build(input('en')).team.limits).toEqual({
         aiEnabled: true,
-        maxConcurrentAi: 3,
         pauseAbovePlanUsagePercent: 80,
         tempWorkers: { enabled: false, max: 1, role: 'developer' },
       });

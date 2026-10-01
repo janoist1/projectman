@@ -104,7 +104,8 @@ export class Messaging {
   /**
    * A human writes into an AI session's chat: recorded as a team message and typed in as plain
    * text. A stopped session is resumed for it without admission (a person asked), but not
-   * while the project's AI work is switched off; a session that resumes its conversation takes
+   * while the project's AI work is switched off or the member is on leave (nothing is recorded
+   * then: a message sent to the member through `send` waits for the call-back instead); a session that resumes its conversation takes
    * the text as its first input, so it is not typed again.
    */
   async sendToSession(

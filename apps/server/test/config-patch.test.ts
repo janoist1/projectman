@@ -118,6 +118,36 @@ describe('configuration PATCH', () => {
     },
   );
 
+  it('removes the cap on concurrent AI sessions with null, and keeps it when the patch does not name it (decision 23)', async () => {
+    const current = await view();
+    expect(current.config.team.limits.maxConcurrentAi).toBe(3);
+    const unrelated = await patch({
+      baseVersion: current.version,
+      limits: { pauseAbovePlanUsagePercent: 70 },
+    });
+    expect(unrelated.json<ConfigView>().config.team.limits.maxConcurrentAi).toBe(3);
+
+    const cleared = await patch({
+      baseVersion: unrelated.json<ConfigView>().version,
+      limits: { maxConcurrentAi: null },
+    });
+    expect(cleared.statusCode).toBe(200);
+    const limits = cleared.json<ConfigView>().config.team.limits;
+    expect(limits).not.toHaveProperty('maxConcurrentAi');
+    expect(limits.pauseAbovePlanUsagePercent).toBe(70);
+    const stored = await h.app.projectman.configStore.load('AR');
+    expect(stored.config.team.limits.maxConcurrentAi).toBeUndefined();
+
+    // A later edit of another limit leaves it without a cap; a number sets one again.
+    const other = await patch({ baseVersion: stored.version, limits: { aiEnabled: true } });
+    expect(other.json<ConfigView>().config.team.limits).not.toHaveProperty('maxConcurrentAi');
+    const set = await patch({
+      baseVersion: other.json<ConfigView>().version,
+      limits: { maxConcurrentAi: 4 },
+    });
+    expect(set.json<ConfigView>().config.team.limits.maxConcurrentAi).toBe(4);
+  });
+
   it('preserves omitted settings instead of reapplying schema defaults', async () => {
     const current = await view();
     const first = await patch({

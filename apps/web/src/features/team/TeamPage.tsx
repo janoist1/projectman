@@ -13,6 +13,7 @@ import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
 import { memberStatusView } from '../../lib/members';
 import { MessageList } from '../messages/MessageList';
+import { LeaveButton } from './LeaveButton';
 import { RecentScheduleRuns } from './ScheduledRuns';
 import { EditMemberDialog } from './EditMemberDialog';
 import { RosterCards, RosterTable } from './Roster';
@@ -109,6 +110,7 @@ export function TeamPage() {
             {t('invites.create')}
           </Button>
         ) : null}
+        {member.kind === 'ai' ? <LeaveButton member={member} size="sm" /> : null}
         {member.kind === 'ai' ? (
           <MoreMenu label={t('team.moreFor', { name: member.displayName })}>
             {(close) => (
@@ -161,7 +163,9 @@ export function TeamPage() {
               </span>
             </span>
             <span className={styles.limitValue}>
-              {t('team.aiLimitValue', { working, max: limits.maxConcurrentAi })}
+              {limits.maxConcurrentAi === undefined
+                ? t('team.aiNoLimitValue', { working })
+                : t('team.aiLimitValue', { working, max: limits.maxConcurrentAi })}
             </span>
           </div>
         ) : null}

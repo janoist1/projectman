@@ -90,6 +90,7 @@ export const ERROR_CODES = [
   'ai_limit_reached',
   'plan_usage_paused',
   'member_at_capacity',
+  'member_on_leave',
   'previous_run_live',
   'repo_required',
   'no_free_member',

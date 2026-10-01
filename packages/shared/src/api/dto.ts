@@ -116,6 +116,8 @@ export const MemberView = z.object({
   model: z.string().optional(),
   permissionMode: PermissionMode.optional(),
   effort: AgentEffort.optional(),
+  /** AI members only: on leave, nothing starts a session for the member (omitted: at work). */
+  onLeave: z.boolean().optional(),
 });
 export type MemberView = z.infer<typeof MemberView>;
 
@@ -157,6 +159,8 @@ export const UpdateMemberRequest = z.object({
   model: z.string().trim().min(1).optional(),
   /** AI only; null removes the schedule. */
   schedule: MemberSchedule.nullable().optional(),
+  /** AI only; true sends the member on leave, false calls it back. */
+  onLeave: z.boolean().optional(),
 });
 export type UpdateMemberRequest = z.infer<typeof UpdateMemberRequest>;
 

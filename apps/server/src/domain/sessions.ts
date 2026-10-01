@@ -1,5 +1,13 @@
 import path from 'node:path';
-import { DEFAULT_AGENT_PROVIDER, effectiveRepo, repoOf, routes, stageOf } from '@projectman/shared';
+import {
+  DEFAULT_AGENT_PROVIDER,
+  effectiveRepo,
+  isOnLeave,
+  memberOf,
+  repoOf,
+  routes,
+  stageOf,
+} from '@projectman/shared';
 import type {
   AgentProvider,
   AiMemberConfig,
@@ -25,7 +33,7 @@ import type {
 } from '../contracts';
 import { encodeWorkItem } from '../db';
 import { requireAiMember } from './access';
-import { assertAiEnabled, assertRepoChosen } from './admission/rules';
+import { assertAiEnabled, assertNotOnLeave, assertRepoChosen } from './admission/rules';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
 import { conflict, DomainError, notFound } from './errors';
@@ -195,8 +203,8 @@ export class SessionOrchestrator {
 
   /**
    * Running -> reuse; exited -> resume the same conversation; none -> create (worktree or
-   * workspace cwd, context pack, MCP token, runner.start). Only the AI master switch applies
-   * here; automatic starts pass admission first.
+   * workspace cwd, context pack, MCP token, runner.start). Only the AI master switch and the
+   * member's leave apply here; automatic starts pass admission first.
    *
    * What the session gets as its first input: a new conversation, its brief; a resumed task
    * conversation, the message that caused the resume (`opts.message`) or else a short message
@@ -328,12 +336,17 @@ export class SessionOrchestrator {
     }
   }
 
-  /** Config change listener: sessions of removed members are stopped. */
+  /**
+   * Config change listener: sessions of removed members and of members just sent on leave are
+   * stopped (their conversations stay, so a call-back resumes them).
+   */
   async handleConfigChange(change: ConfigChange): Promise<void> {
     if (!change.previous) return;
-    const remaining = new Set(change.next.team.members.map((m) => m.handle));
+    const next = new Map(change.next.team.members.map((m) => [m.handle, m]));
     for (const m of change.previous.team.members) {
-      if (m.kind === 'ai' && !remaining.has(m.handle)) await this.stopMember(change.projectKey, m.handle);
+      if (m.kind !== 'ai') continue;
+      const stays = next.get(m.handle);
+      if (!stays || (isOnLeave(stays) && !isOnLeave(m))) await this.stopMember(change.projectKey, m.handle);
     }
   }
 
@@ -355,6 +368,7 @@ export class SessionOrchestrator {
     message: string | null,
   ): Promise<EnsureSessionResult> {
     assertAiEnabled(config);
+    assertNotOnLeave(member);
     // A role that changes files works in the task's worktree: without a repository to make it in, it
     // would run in the workspace root, so the start is refused until a person chooses one.
     assertRepoChosen(config, member.role, task);
@@ -445,6 +459,7 @@ export class SessionOrchestrator {
     // task's repository: no live session holds it in place before the session is recorded below.
     const latestConfig = await this.deps.projects.config(projectKey);
     assertAiEnabled(latestConfig);
+    assertNotOnLeave(memberOf(latestConfig, member.handle));
     if (task) {
       const latestTask = this.deps.tasks.get(projectKey, task.key);
       assertRepoChosen(latestConfig, member.role, latestTask);

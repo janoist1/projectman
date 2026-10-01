@@ -41,6 +41,7 @@ export const TaskStartWaiting = z.object({
     'plan_usage_paused',
     'ai_disabled',
     'member_at_capacity',
+    'member_on_leave',
     'repo_required',
   ]),
   member: MemberHandle.optional(),

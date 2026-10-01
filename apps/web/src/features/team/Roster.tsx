@@ -63,6 +63,7 @@ function MemberIdentity({
             </>
           ) : null}
           {member.temp ? <Chip tone="needs">{t('team.temp')}</Chip> : null}
+          {member.onLeave ? <Chip tone="needs">{t('leave.onLeave')}</Chip> : null}
         </span>
         <span className={styles.handle}>
           <span className={styles.mono}>{member.handle}</span> · <RoleChips member={member} roles={roles} />

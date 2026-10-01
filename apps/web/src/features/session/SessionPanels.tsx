@@ -3,6 +3,8 @@ import type { LabelView, Session, Task, TaskPullRequest } from '@projectman/shar
 import { Avatar } from '../../components/Avatar';
 import { Chip } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
+import { TokenUsageList } from '../../components/TokenUsage';
+import { formatStamp } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
@@ -99,6 +101,33 @@ export function PrPanel({
             </li>
           ))}
         </ul>
+      ) : null}
+    </section>
+  );
+}
+
+/** A measurement that started this long after the session did is only partial (a resumed old session). */
+const PARTIAL_AFTER_MS = 60_000;
+
+/**
+ * The tokens the session used (PM-178), per model, its subagents' on their own lines. A session
+ * from before the measurement has no data; one resumed after it says since when it is counted.
+ * Codex's subagents are not measured.
+ */
+export function UsagePanel({ session, provider }: { session: Session; provider: string | undefined }) {
+  const usage = session.usage;
+  const partial = usage && Date.parse(usage.since) - Date.parse(session.startedAt) > PARTIAL_AFTER_MS;
+  return (
+    <section className={styles.panel} aria-labelledby="session-usage">
+      <h2 id="session-usage" className={styles.sectionTitle}>
+        {t('tokenUsage.title')}
+      </h2>
+      <TokenUsageList rows={usage?.rows ?? null} noData={t('tokenUsage.noDataSession')} />
+      {partial ? (
+        <p className={styles.muted}>{t('tokenUsage.since', { time: formatStamp(usage.since) })}</p>
+      ) : null}
+      {usage && provider === 'codex' ? (
+        <p className={styles.muted}>{t('tokenUsage.codexSubagents')}</p>
       ) : null}
     </section>
   );

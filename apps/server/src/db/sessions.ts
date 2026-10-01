@@ -1,5 +1,17 @@
-import { Approver, DEFAULT_AGENT_PROVIDER, SelectablePermissionMode } from '@projectman/shared';
-import type { AgentProvider, ExecutionProfile, Session, SessionState, WorkItemRef } from '@projectman/shared';
+import {
+  Approver,
+  DEFAULT_AGENT_PROVIDER,
+  mergeTokenUsage,
+  SelectablePermissionMode,
+} from '@projectman/shared';
+import type {
+  AgentProvider,
+  ExecutionProfile,
+  Session,
+  SessionState,
+  TokenUsage,
+  WorkItemRef,
+} from '@projectman/shared';
 import type { Statement } from 'better-sqlite3';
 import type { Db } from './database';
 
@@ -23,6 +35,17 @@ interface SessionRow {
   approver: string | null;
   permission_restart_pending: number;
   permission_grants_lost: number;
+  usage_since: string | null;
+}
+
+/** Token usage rows summed per model and scope. */
+export interface UsageRow {
+  model: string;
+  scope: string;
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
 }
 
 /** Column encoding of a work item: (type, ref). */
@@ -46,7 +69,8 @@ export function decodeWorkItem(type: string, ref: string): WorkItemRef {
   return { type: 'general' };
 }
 
-const toSession = (r: SessionRow): Session => ({
+/** The session without its token usage, which comes from another table. */
+const baseSession = (r: SessionRow): Session => ({
   id: r.id,
   projectKey: r.project_key,
   member: r.member,
@@ -69,6 +93,18 @@ const toSession = (r: SessionRow): Session => ({
   ...(r.permission_grants_lost ? { permissionGrantsLost: true as const } : {}),
 });
 
+/** A summed row of the token_usage table. */
+export function tokenUsageOf(r: UsageRow): TokenUsage {
+  return {
+    model: r.model,
+    scope: r.scope === 'subagent' ? 'subagent' : 'main',
+    input: r.input,
+    output: r.output,
+    cacheRead: r.cache_read,
+    cacheWrite: r.cache_write,
+  };
+}
+
 export type SessionPatch = Partial<
   Pick<
     Session,
@@ -89,9 +125,12 @@ export type SessionPatch = Partial<
   approverOverride?: Approver | null;
   permissionRestartPending?: boolean;
   permissionGrantsLost?: boolean;
+  /** Since when the session's token usage is counted (PM-178). */
+  usageSince?: string;
 };
 
 const COLUMNS: Record<keyof SessionPatch, string> = {
+  usageSince: 'usage_since',
   permissionModeOverride: 'permission_mode',
   approverOverride: 'approver',
   permissionRestartPending: 'permission_restart_pending',
@@ -137,6 +176,19 @@ export function createSessionRepository(db: Db) {
   /** SELECT statements per number of states, UPDATE statements per set of changed columns. */
   const inStates = new Map<number, Statement>();
   const updates = new Map<string, Statement>();
+
+  const usageOf = db.prepare(
+    `SELECT model, scope, SUM(input_tokens) AS input, SUM(output_tokens) AS output,
+       SUM(cache_read_tokens) AS cache_read, SUM(cache_write_tokens) AS cache_write
+     FROM token_usage WHERE session_id = ? GROUP BY model, scope`,
+  );
+  /** The session with what it used, when its usage is measured (PM-178). */
+  const toSession = (r: SessionRow): Session => {
+    const session = baseSession(r);
+    if (!r.usage_since) return session;
+    const rows = (usageOf.all(r.id) as UsageRow[]).map(tokenUsageOf);
+    return { ...session, usage: { since: r.usage_since, rows: mergeTokenUsage(rows) } };
+  };
 
   const get = (id: string): Session | null => {
     const row = statements.get.get(id) as SessionRow | undefined;

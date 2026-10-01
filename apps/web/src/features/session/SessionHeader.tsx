@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
+import { tokenTotal, usageTotal } from '@projectman/shared';
 import type { MemberView, Session, Task } from '@projectman/shared';
 import { useStopSession } from '../../api/queries';
 import { useProject } from '../../app/contexts';
@@ -10,6 +11,7 @@ import { Icon } from '../../components/Icon';
 import { MoreMenu } from '../../components/MoreMenu';
 import { ProviderBadge } from '../../components/ProviderBadge';
 import { StageProgress } from '../../components/StageProgress';
+import { formatTokens } from '../../i18n/format';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { stagePosition } from '../../lib/pipeline';
@@ -25,7 +27,8 @@ import styles from './SessionHeader.module.css';
 /**
  * The session's crumbs, live status and stop, its title, and chips for stage, PR, branch, the
  * agent CLI the session runs (the member's for sessions from before it was recorded), model, and
- * the permission settings that apply to it (an owner changes them here, PM-170).
+ * the permission settings that apply to it (an owner changes them here, PM-170), and the tokens it
+ * used (PM-178; per model in its usage panel).
  */
 export function SessionHeader({
   session,
@@ -120,6 +123,13 @@ export function SessionHeader({
         </Chip>
         <ProviderBadge provider={session.provider ?? member?.provider} />
         {member?.model ? <Chip size="md">{t('session.chips.model', { model: member.model })}</Chip> : null}
+        {member && member.kind !== 'ai' ? null : (
+          <Chip size="md" title={t('tokenUsage.title')}>
+            {session.usage
+              ? t('tokenUsage.chip', { total: formatTokens(tokenTotal(usageTotal(session.usage.rows))) })
+              : t('tokenUsage.chipNoData')}
+          </Chip>
+        )}
         <SessionPermissions session={session} member={member} />
       </div>
       <Dialog

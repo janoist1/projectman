@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { formatInjectedTeamMessage, type ChatItem, type SessionState } from '@projectman/shared';
+import {
+  formatInjectedTeamMessage,
+  mergeTokenUsage,
+  type ChatItem,
+  type SessionState,
+} from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type {
   PermissionBroker,
@@ -190,6 +195,33 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     const config = JSON.parse(await readFile(configFile, 'utf8'));
     expect(config.projects[cwd].hasTrustDialogAccepted).toBe(true);
     expect(config.numStartups).toBe(1);
+  });
+
+  it("reports each turn's token usage per model, and a subagent's on its own rows (PM-178)", async () => {
+    await setup();
+    const s = spec({ model: 'claude-opus-5-5' });
+    await runner.runner.start(s);
+    await waitState(s.sessionId, 'idle');
+    const usage = () =>
+      mergeTokenUsage(
+        events.flatMap((e) => (e.type === 'usage' && e.sessionId === s.sessionId ? e.entries : [])),
+      );
+
+    await runner.runner.sendUserMessage(s.sessionId, 'Hello');
+    await assistantSaid(s.sessionId, 'Echo: Hello');
+    // The reply's two entries are one response: counted once, with its final output count.
+    await waitFor(() => usage()[0]?.output === 5, { what: 'the first turn usage' });
+    expect(usage()).toEqual([
+      { model: 'claude-opus-5-5', scope: 'main', input: 10, output: 5, cacheRead: 100, cacheWrite: 20 },
+    ]);
+
+    await runner.runner.sendUserMessage(s.sessionId, 'Look around SUBAGENT');
+    await assistantSaid(s.sessionId, 'Echo: Look around SUBAGENT');
+    await waitFor(() => usage()[0]?.output === 10 && usage().length === 2, { what: 'the second turn usage' });
+    expect(usage()).toEqual([
+      { model: 'claude-opus-5-5', scope: 'main', input: 20, output: 10, cacheRead: 200, cacheWrite: 40 },
+      { model: 'claude-fake-haiku', scope: 'subagent', input: 3, output: 2, cacheRead: 30, cacheWrite: 0 },
+    ]);
   });
 
   it('launches claude with the documented flags and a subscription-only environment', async () => {

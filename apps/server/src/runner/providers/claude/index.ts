@@ -111,6 +111,7 @@ function claudeTranscriptParser(opts: {
       );
       return failure && failure.kind === 'system_note' ? { ...result, authError: failure.text } : result;
     },
+    subagentUsage: (lines) => parser.subagentUsage(lines),
   };
 }
 

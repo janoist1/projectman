@@ -22,6 +22,7 @@ import { BoardColumn, Stage, StageId } from '../domain/pipeline';
 import { CustomRoleDefinition, RoleHolders, RoleId } from '../domain/role';
 import { ScheduleRun } from '../domain/schedule';
 import { Session } from '../domain/session';
+import { MemberUsage } from '../domain/token-usage';
 import { Task, TaskKey, Visibility } from '../domain/task';
 
 /* ---------- auth ---------- */
@@ -191,6 +192,8 @@ export const MemberProfile = z.object({
   capacity: z.number().nullable(),
   capacityUsed: z.number(),
   email: z.string().optional(),
+  /** AI members: the tokens their sessions used lately (PM-178); omitted for humans and by older servers. */
+  usage: MemberUsage.optional(),
 });
 export type MemberProfile = z.infer<typeof MemberProfile>;
 export const MemberMemories = z.object({ memory: z.string() });

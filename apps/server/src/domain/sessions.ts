@@ -979,6 +979,8 @@ export class SessionOrchestrator {
         // This start takes the session's current mode; the header says when it dropped grants.
         permissionRestartPending: false,
         permissionGrantsLost: restart?.grantsLost ?? false,
+        // A session from before the measurement (PM-178) is counted from this resume on.
+        ...(existing.usage ? {} : { usageSince: at }),
       })!;
     } else {
       session = {
@@ -998,6 +1000,7 @@ export class SessionOrchestrator {
         endedAt: null,
       };
       this.ctx.repos.sessions.insert(session);
+      session = this.ctx.repos.sessions.update(session.id, { usageSince: at })!;
     }
     if (profileChanged) {
       await this.deps.onExecutionProfileChange?.(projectKey, session.id).catch((err: unknown) => {
@@ -1357,6 +1360,22 @@ export class SessionOrchestrator {
           this.publishSession(
             this.ctx.repos.sessions.update(session.id, { claudeSessionId: event.providerSessionId })!,
           );
+          return;
+        }
+        case 'usage': {
+          // Counted at once (PM-178). During a turn the session's state changes carry the new sum to
+          // the screens; once the turn is over (its last lines may come after the Stop), this does.
+          this.ctx.repos.tokenUsage.add(
+            {
+              sessionId: session.id,
+              projectKey: session.projectKey,
+              member: session.member,
+              taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
+            },
+            this.ctx.now(),
+            event.entries,
+          );
+          if (session.state !== 'working') this.publishSession(this.ctx.repos.sessions.get(session.id)!);
           return;
         }
         case 'auth_error': {

@@ -1,5 +1,12 @@
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
-import type { AgentEffort, AgentProvider, ChatItem, PlanUsage, SessionState } from '@projectman/shared';
+import type {
+  AgentEffort,
+  AgentProvider,
+  ChatItem,
+  PlanUsage,
+  SessionState,
+  TokenUsage,
+} from '@projectman/shared';
 import type { SessionLauncher, WorkerLayout } from './runtime-boundary';
 import type { SessionPolicy } from './session-policy';
 
@@ -115,7 +122,12 @@ export type RunnerEvent =
    * The CLI lost its login mid-session (e.g. "Login expired · Please run /login"). The
    * session is stopped and ends as `failed` with `message` as its activity.
    */
-  | { type: 'auth_error'; sessionId: string; provider: AgentProvider; message: string };
+  | { type: 'auth_error'; sessionId: string; provider: AgentProvider; message: string }
+  /**
+   * Tokens the session used since the previous `usage` event (PM-178), per model and scope, read
+   * from the transcript as it grows (a subagent's when it stops). Always an increment: add it up.
+   */
+  | { type: 'usage'; sessionId: string; entries: TokenUsage[] };
 
 /** Login state of an agent CLI, from a check that spends no usage. */
 export interface ProviderStatus {

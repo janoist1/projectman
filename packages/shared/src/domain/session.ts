@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AgentProvider, Approver, MemberHandle, SelectablePermissionMode } from './member';
 import { TaskKey } from './task';
+import { UsageSummary } from './token-usage';
 
 /**
  * Every AI member works in a fresh Claude Code session per work item:
@@ -66,5 +67,10 @@ export const Session = z.object({
    * (the CLI forgets it with its process); the CLI asks again.
    */
   permissionGrantsLost: z.literal(true).optional(),
+  /**
+   * The tokens the session used (PM-178), per model, its subagents' on rows of their own. Absent
+   * when nothing was measured: a session from before the measurement (or an older server).
+   */
+  usage: UsageSummary.optional(),
 });
 export type Session = z.infer<typeof Session>;

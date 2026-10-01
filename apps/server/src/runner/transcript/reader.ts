@@ -14,25 +14,30 @@ export async function readTranscript(
   path: string,
   opts: TranscriptParserOptions & { provider?: AgentProvider; confineTo?: string } = {},
 ): Promise<ChatItem[]> {
-  let text: string;
-  try {
-    if (opts.confineTo) {
-      const handle = await openConfined(path, opts.confineTo);
-      try {
-        if ((await handle.stat()).size > MAX_CONFINED_TRANSCRIPT_BYTES)
-          throw new Error('transcript too large');
-        text = await handle.readFile('utf8');
-      } finally {
-        await handle.close();
-      }
-    } else text = await readFile(path, 'utf8');
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
-    throw err;
-  }
+  const text = await readTranscriptText(path, opts.confineTo);
   const provider = opts.provider ?? (CODEX_ROLLOUT_FILE.test(path) ? 'codex' : 'claude');
   if (provider === 'codex') return parseCodexTranscript(text, opts);
   return parseTranscript(text, opts);
+}
+
+/**
+ * The text of a whole transcript; a missing file is empty. With `confineTo` (a worker home,
+ * PM-140) only a regular file whose real path lies in it is read (`openConfined`).
+ */
+export async function readTranscriptText(path: string, confineTo?: string): Promise<string> {
+  try {
+    if (!confineTo) return await readFile(path, 'utf8');
+    const handle = await openConfined(path, confineTo);
+    try {
+      if ((await handle.stat()).size > MAX_CONFINED_TRANSCRIPT_BYTES) throw new Error('transcript too large');
+      return await handle.readFile('utf8');
+    } finally {
+      await handle.close();
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return '';
+    throw err;
+  }
 }
 
 export function createTranscriptReader(): TranscriptReader {

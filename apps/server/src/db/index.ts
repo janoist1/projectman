@@ -13,6 +13,7 @@ import { createScheduleRepository } from './schedules';
 import { createSessionRepository } from './sessions';
 import { createTaskRepository } from './tasks';
 import { createTimelineRepository } from './timeline';
+import { createTokenUsageRepository } from './token-usage';
 import { createAuthSessionRepository, createUserRepository } from './users';
 
 export { openDatabase, migrate, schemaVersion } from './database';
@@ -40,6 +41,7 @@ export function createRepositories(db: Db) {
     timeline: createTimelineRepository(db),
     attachments: createAttachmentRepository(db),
     sessions: createSessionRepository(db),
+    tokenUsage: createTokenUsageRepository(db),
     schedules: createScheduleRepository(db),
     deferredStarts: createDeferredStartRepository(db),
     memberWorkspaces: createMemberWorkspaceRepository(db),

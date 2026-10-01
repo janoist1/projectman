@@ -425,5 +425,31 @@ export const migrations: Migration[] = [
       ALTER TABLE sessions ADD COLUMN permission_restart_pending INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE sessions ADD COLUMN permission_grants_lost INTEGER NOT NULL DEFAULT 0;`,
   },
+  {
+    version: 18,
+    name: 'token usage of sessions',
+    // The tokens AI sessions used (PM-178), read from their transcripts: one row per session, hour,
+    // model and scope (the session's own conversation or its subagents), added to as the session
+    // goes on. The member and the task are kept on the row so a card's or a member's usage in a time
+    // window is one query. `usage_since` is when a session's usage started to be counted: every
+    // older session has none (NULL, "no data"), and one resumed later counts from that resume.
+    sql: `CREATE TABLE token_usage (
+        session_id    TEXT NOT NULL REFERENCES sessions(id),
+        project_key   TEXT NOT NULL,
+        member        TEXT NOT NULL,
+        task_key      TEXT,
+        hour          TEXT NOT NULL,
+        model         TEXT NOT NULL,
+        scope         TEXT NOT NULL,
+        input_tokens       INTEGER NOT NULL DEFAULT 0,
+        output_tokens      INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens  INTEGER NOT NULL DEFAULT 0,
+        cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (session_id, hour, model, scope)
+      );
+      CREATE INDEX token_usage_member ON token_usage(project_key, member, hour);
+      CREATE INDEX token_usage_task ON token_usage(project_key, task_key);
+      ALTER TABLE sessions ADD COLUMN usage_since TEXT;`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

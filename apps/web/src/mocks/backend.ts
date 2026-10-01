@@ -80,6 +80,7 @@ import {
   subtaskParentRefusal,
   taskSeq,
   validateProjectConfig,
+  mergeTokenUsage,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -101,6 +102,7 @@ import type {
   LabelChangeReason,
   LabelChangeRefusal,
   LabelClearTrigger,
+  MemberUsage,
   MemberView,
   PlanUsage,
   ProjectConfig,
@@ -991,6 +993,7 @@ export class MockBackend {
             : [],
           capacity: original.kind === 'ai' ? original.capacity : null,
           capacityUsed: original.kind === 'ai' && internal ? this.memberLoad(handle) : 0,
+          ...(original.kind === 'ai' && internal ? { usage: this.memberUsage(handle) } : {}),
           ...(original.kind === 'human' && ['owner', 'admin'].includes(viewer.role) && original.email
             ? { email: original.email }
             : {}),
@@ -2065,6 +2068,7 @@ export class MockBackend {
       startedAt: nowIso(),
       lastActivityAt: nowIso(),
       endedAt: null,
+      usage: { since: nowIso(), rows: [] },
     };
     this.sessions.push(session);
     this.chats[session.id] = [];
@@ -2214,6 +2218,25 @@ export class MockBackend {
     return { status: 202 };
   }
 
+  /**
+   * What the member's sessions used lately (PM-178). The fake keeps no hourly rows: a measured
+   * session counts whole in a window its last activity falls in.
+   */
+  private memberUsage(handle: string): MemberUsage {
+    const within = (hours: number) =>
+      mergeTokenUsage(
+        this.sessions
+          .filter(
+            (s) =>
+              s.member === handle &&
+              s.usage &&
+              Date.now() - Date.parse(s.lastActivityAt) <= hours * 3_600_000,
+          )
+          .flatMap((s) => s.usage!.rows),
+      );
+    return { lastDay: within(24), lastWeek: within(24 * 7) };
+  }
+
   /** What the member is working on now (see `isWorkingOnTask`), plus its live other chats. */
   private memberLoad(handle: string): number {
     const live = this.sessions.filter((s) => s.member === handle && this.isLive(s));
@@ -2330,6 +2353,7 @@ export class MockBackend {
       startedAt: at,
       lastActivityAt: at,
       endedAt: null,
+      usage: { since: at, rows: [] },
     };
     if (!existing) this.sessions.push(session);
     this.chats[session.id] ??= [];
@@ -2411,6 +2435,7 @@ export class MockBackend {
       startedAt: at,
       lastActivityAt: at,
       endedAt: null,
+      usage: { since: at, rows: [] },
     };
     run.sessionId = session.id;
     this.sessions.push(session);

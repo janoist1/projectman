@@ -22,6 +22,8 @@ adapter declares its capabilities.
 | Allow for session | session rules in the hook answer                | remembered by the runner (Codex rejects `updatedPermissions`)                      |
 | Transcript        | `~/.claude/projects/…/<id>.jsonl`               | `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-…-<id>.jsonl`                             |
 | Plan usage        | `get_usage` probe of `claude -p`                | rate limits of the newest `token_count` records in the transcripts                 |
+| Token usage       | `message.usage` of assistant entries; subagents | `token_count` records (`total_token_usage`, `last_token_usage`); subagents not     |
+|                   | from their own file at `SubagentStop`           | measured                                                                           |
 | Login check       | `claude auth status`                            | `codex login status`                                                               |
 
 ## A resumed session's first input
@@ -377,6 +379,29 @@ with the message as its activity.
 Plan usage is per provider: Claude's from Claude Code's usage probe, ChatGPT's from the rate
 limits Codex records in its transcripts (nothing is spent to read either). New AI work pauses
 above `pauseAbovePlanUsagePercent` of the plan of the member's own provider.
+
+### Token usage of sessions (PM-178)
+
+The runner reads what each session used from its transcript as it grows and emits `usage`
+events: increments per model and scope (`main`, or `subagent`), each with uncached input, output,
+cache reads and cache writes. The domain adds them to `token_usage` (one row per session, hour,
+model and scope); a session carries its sum (`Session.usage`, absent for sessions from before the
+measurement: "no data"), the task drawer adds up the card's sessions, and a member's profile shows
+the last 24 hours and 7 days (by the hour).
+
+- Claude Code: an API response is written as several entries with the same `message.id`; it is
+  counted once, and a later, larger `output_tokens` adds the difference (early entries may carry a
+  placeholder). API error entries and the `<synthetic>` model are skipped. A subagent's
+  conversation is in its own file, which the `SubagentStop` hook names (`agent_transcript_path`):
+  it is read whole then, inside the worker home for a managed VM session. A subagent still running
+  when the session ends is not counted. Sidechain entries in the main transcript (older versions)
+  count as subagent usage.
+- Codex: the difference of `total_token_usage` from the previous `token_count` counts (a repeated
+  event adds nothing); without a previous one (the first event, or after a resume, which is
+  followed from the end of the file) `last_token_usage` does. `cached_input_tokens` is part of
+  Codex's `input_tokens`: it is moved to cache reads. The model comes from `turn_context`. Where
+  Codex keeps its subagents' conversations is not known yet: the UI says their usage has no data.
+- The counts compare sessions and models; the plan limits are not given in tokens.
 
 The runner strips `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`,
 `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CODEX_API_KEY`, `OPENAI_API_KEY` and

@@ -25,6 +25,8 @@ export const HTTP_HOOK_EVENTS = [
   'Stop',
   'StopFailure',
   'SessionEnd',
+  // Names the subagent's own transcript, whose token usage is read then (PM-178).
+  'SubagentStop',
 ] as const;
 
 /** SessionEnd hooks share a small budget; this raises it slightly (max 60s). */

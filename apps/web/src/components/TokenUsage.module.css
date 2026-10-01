@@ -1,0 +1,72 @@
+.usage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.muted {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--c-ink-4);
+}
+
+.total {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--c-ink-2);
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.model {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scope {
+  font-size: var(--text-xs);
+  color: var(--c-ink-4);
+}
+
+.row[data-scope='subagent'] .scope {
+  font-weight: 700;
+}
+
+.rowTotal {
+  margin-left: auto;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.kinds {
+  font-size: var(--text-xs);
+  color: var(--c-ink-4);
+  font-variant-numeric: tabular-nums;
+}

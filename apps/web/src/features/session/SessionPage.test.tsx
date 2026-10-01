@@ -2,12 +2,16 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
+import { formatStamp, formatTokens as format } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { plainLanguageQuestion } from '../../mocks/fixtures';
 import { mockProject } from '../../test/mockProject';
 import { SessionPage } from './SessionPage';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
+
+/** A count as the queries see it: their normalizer turns the grouping (no-break) spaces into plain ones. */
+const formatTokens = (count: number) => format(count).replace(/\s/g, ' ');
 
 const sessionRoute = (
   <Routes>
@@ -62,6 +66,44 @@ describe('session header public settings', () => {
     project.render(sessionRoute, '/sessions/ses_ac21_fe1');
     expect(await screen.findByText(t('providers.claude'))).toBeTruthy();
     expect(screen.queryByText(t('providers.codex'))).toBeNull();
+  });
+});
+
+describe('token usage of the session (PM-178)', () => {
+  it('shows the total in the header and each model in the details, the subagent apart', async () => {
+    const project = mockProject();
+    project.render(sessionRoute, '/sessions/ses_ac21_fe1');
+    expect(await screen.findByText(t('tokenUsage.chip', { total: formatTokens(2_427_700) }))).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: t('session.tabs.details') }));
+    const panel = screen.getByRole('region', { name: t('tokenUsage.title') });
+    expect(within(panel).getByText(t('tokenUsage.total', { total: formatTokens(2_427_700) }))).toBeTruthy();
+    expect(within(panel).getByText('claude-opus-5-5')).toBeTruthy();
+    expect(within(panel).getByText('claude-haiku-4-5')).toBeTruthy();
+    expect(within(panel).getByText(t('tokenUsage.subagent'))).toBeTruthy();
+    expect(within(panel).getByText(formatTokens(112_000))).toBeTruthy();
+    expect(
+      within(panel).getByText(new RegExp(t('tokenUsage.cacheRead', { count: formatTokens(95_000) }))),
+    ).toBeTruthy();
+  });
+
+  it('says "no data" for a session from before the measurement, without an error', async () => {
+    const project = mockProject();
+    project.render(sessionRoute, '/sessions/ses_ac21_qa');
+    expect(await screen.findByText(t('tokenUsage.chipNoData'))).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: t('session.tabs.details') }));
+    expect(screen.getByText(t('tokenUsage.noDataSession'))).toBeTruthy();
+  });
+
+  it('says since when a resumed old session is counted, and that Codex subagents are not', async () => {
+    const project = mockProject();
+    const session = project.backend.findSession('ses_ac21_fe1')!;
+    session.provider = 'codex';
+    session.usage = { since: new Date(Date.parse(session.startedAt) + 3_600_000).toISOString(), rows: [] };
+    project.render(sessionRoute, '/sessions/ses_ac21_fe1');
+    fireEvent.click(await screen.findByRole('tab', { name: t('session.tabs.details') }));
+    expect(screen.getByText(t('tokenUsage.none'))).toBeTruthy();
+    expect(screen.getByText(t('tokenUsage.since', { time: formatStamp(session.usage.since) }))).toBeTruthy();
+    expect(screen.getByText(t('tokenUsage.codexSubagents'))).toBeTruthy();
   });
 });
 

@@ -64,6 +64,12 @@ export type LabelDefinition = z.infer<typeof LabelDefinition>;
 /** Id of the system label the GitHub integration keeps on tasks whose pull requests are merged. */
 export const PR_MERGED_LABEL = 'pr-merged';
 
+/**
+ * Id of the standard blocking label for a task waiting for an answer. The system puts it on a card
+ * while an AI member's question about it is open, and takes it off when the last one closes.
+ */
+export const WAITING_ANSWER_LABEL = 'waiting-answer';
+
 /** Labels only humans may set: the ones that stand for approvals and decisions. */
 export function isHumanOnlyLabel(label: Pick<LabelDefinition, 'setBy'>): boolean {
   return label.setBy === 'humans' || (typeof label.setBy === 'object' && label.setBy.humansOnly === true);
@@ -109,7 +115,13 @@ export type LabelRefusal = z.infer<typeof LabelRefusal>;
 /**
  * Why labels changed without anyone picking them (`task_labels_changed.reason`): a clear
  * trigger fired (the task moved back, its pull request changed), the pull request was merged,
- * or an approver's decision put an approval label on.
+ * an approver's decision put an approval label on, or an open question of an AI member put the
+ * waiting label on (and its answer took it off).
  */
-export const LabelChangeReason = z.enum([...LabelClearTrigger.options, 'pr_merged', 'approval']);
+export const LabelChangeReason = z.enum([
+  ...LabelClearTrigger.options,
+  'pr_merged',
+  'approval',
+  'open_question',
+]);
 export type LabelChangeReason = z.infer<typeof LabelChangeReason>;

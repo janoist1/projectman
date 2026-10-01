@@ -58,6 +58,8 @@ labels:
 | `clearedWhen`     | Automatic removal, for example `moved_back` (the task returns to an earlier stage) or `pr_updated` (new commits after an approval). |
 | `blocks`          | The task may not move forward while the label is on.                                                                                |
 
+`waiting-answer` also follows an open AI question (PM-185): when a member asks a question about a card in a work or step stage and the project defines this label, the system puts it on (the question's payload says `autoLabel: true`) and takes it off when the last such question closes. A label a person put on is not taken off, and one a person took off is not put back. A running session may go on; only the hand-over to a new session is held back.
+
 Labels without a definition stay allowed as plain tags, for example imported ones. Settings lists them as "no meaning yet" and offers to define them.
 
 ## Gates

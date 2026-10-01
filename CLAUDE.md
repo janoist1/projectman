@@ -2,6 +2,8 @@
 
 Read `docs/ARCHITECTURE.md` first. Decisions and their reasons: `docs/DECISIONS.md`. What
 comes next and the owner's open questions: `docs/ROADMAP.md`.
+`docs/DECISIONS.md` records the owner's decisions: add an entry only for a decision the owner
+made. A choice of your own that the owner should confirm goes to them as a question.
 
 ## Language
 

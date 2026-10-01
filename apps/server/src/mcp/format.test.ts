@@ -1,6 +1,12 @@
-import type { TimelineEvent } from '@projectman/shared';
+import type { TaskRelation, TimelineEvent } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
-import { formatQuestionAsked, formatSentMessage, formatTaskDetail, questionHint } from './format';
+import {
+  formatQuestionAsked,
+  formatSentMessage,
+  formatTaskDetail,
+  formatTaskUpdate,
+  questionHint,
+} from './format';
 import { sampleTaskDetail } from './testing';
 
 function note(minute: number, text: string): TimelineEvent {
@@ -39,6 +45,75 @@ describe('formatTaskDetail', () => {
     expect(repoLine({ ...detail, effectiveRepo: null, repoChoiceNeeded: false })).toBe(
       'Repo: the workspace root · Visibility: internal · Priority: 2',
     );
+  });
+
+  it('lists the relations to other cards by kind, and keeps them out of the links (PM-192)', () => {
+    const detail = sampleTaskDetail();
+    detail.task.links = [
+      { kind: 'branch', ref: 'ar-21-login-validation', repo: 'web' },
+      { kind: 'prerequisite', ref: 'AR-19' },
+      { kind: 'related', ref: 'AR-30' },
+    ];
+    const card = (key: string, kind: TaskRelation['kind']): TaskRelation => ({
+      kind,
+      key,
+      title: `Title ${key}`,
+      stageId: 'qa',
+      status: 'active',
+    });
+    const out = formatTaskDetail({
+      ...detail,
+      relations: [card('AR-19', 'prerequisite'), card('AR-30', 'related'), card('AR-31', 'duplicated_by')],
+    });
+    expect(out).toContain('Links: Branch: ar-21-login-validation in web\n');
+    expect(out).toContain(
+      [
+        'Relations:',
+        'This card needs first (prerequisite):',
+        '- AR-19 "Title AR-19" · Stage: qa · Status: active',
+        'This card is related to:',
+        '- AR-30 "Title AR-30" · Stage: qa · Status: active',
+        'This card has as duplicates:',
+        '- AR-31 "Title AR-31" · Stage: qa · Status: active',
+      ].join('\n'),
+    );
+    expect(formatTaskDetail(detail)).not.toContain('Relations:');
+  });
+
+  it('does not list the parent and the subtasks twice', () => {
+    const detail = sampleTaskDetail();
+    const card = (key: string, kind: TaskRelation['kind']): TaskRelation => ({
+      kind,
+      key,
+      title: `Title ${key}`,
+      stageId: 'dev',
+      status: 'active',
+    });
+    const out = formatTaskDetail({
+      ...detail,
+      parent: { ...detail.task, key: 'AR-1', title: 'The parent' },
+      subtasks: [{ ...detail.task, key: 'AR-2', title: 'A part' }],
+      relations: [card('AR-1', 'part_of'), card('AR-2', 'has_part')],
+    });
+    expect(out).toContain('Parent: AR-1 — The parent');
+    expect(out).toContain('Subtasks:\n- AR-2 — A part');
+    expect(out).not.toContain('Relations:');
+  });
+
+  it('words the relation events of both cards', () => {
+    const detail = sampleTaskDetail();
+    const event = (type: TimelineEvent['type'], data: Record<string, unknown>, minute: number) => ({
+      ...note(minute, ''),
+      type,
+      data,
+    });
+    detail.timeline = [
+      event('task_relation_added', { kind: 'prerequisite_of', ref: 'AR-22' }, 0),
+      event('task_relation_removed', { kind: 'duplicated_by', ref: 'AR-23' }, 1),
+    ];
+    const out = formatTaskDetail(detail);
+    expect(out).toContain('qa: added the relation: this card is the prerequisite of AR-22');
+    expect(out).toContain('qa: removed the relation: this card has as duplicates AR-23');
   });
 
   it('lists the labels once, on the status line', () => {
@@ -171,6 +246,27 @@ describe('formatTaskDetail', () => {
 
     expect(formatTaskDetail(detail)).toContain(
       'qa: permission_resolved (inboxItemId=inbox_7, decision=allow)',
+    );
+  });
+});
+
+describe('formatTaskUpdate relations', () => {
+  it('reports the relations a call added and removed, and that a duplicate closed the card', () => {
+    const task = sampleTaskDetail().task;
+    const relations = {
+      add: [
+        { kind: 'prerequisite', key: 'AR-19' },
+        { kind: 'duplicate_of', key: 'AR-3' },
+      ],
+      remove: [{ kind: 'related', key: 'AR-4' }],
+    };
+    expect(formatTaskUpdate(task, { note: false, relations })).toBe(
+      'Updated AR-21: relations added: needs first (prerequisite) AR-19, is a duplicate of AR-3; ' +
+        'relations removed: is related to AR-4.\n' +
+        'Now: Stage: dev · Status: active · Assignee: fe-1 · Labels: frontend',
+    );
+    expect(formatTaskUpdate({ ...task, status: 'cancelled' }, { note: false, relations })).toContain(
+      '; the card is closed (cancelled) as a duplicate.',
     );
   });
 });

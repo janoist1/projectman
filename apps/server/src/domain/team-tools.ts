@@ -18,6 +18,8 @@ import type {
   Task,
   Visibility,
   WorkItemRef,
+  AddRelationRef,
+  RelationsChange,
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
 } from '@projectman/shared';
@@ -355,6 +357,7 @@ export class TeamToolsService implements TeamToolsHandler {
         ...detail,
         effectiveRepo: effectiveRepo(config, detail.task),
         repoChoiceNeeded: needsRepoChoice(config, detail.task),
+        relations: this.tasks.relationsOf(ctx.projectKey, taskKey),
         attachments: {
           attachments: attachments.slice(0, ATTACHMENTS_IN_TASK),
           total: attachments.length,
@@ -477,6 +480,7 @@ export class TeamToolsService implements TeamToolsHandler {
       title?: string;
       description?: string;
       repo?: string | null;
+      relations?: RelationsChange;
     },
   ): Promise<{ task: Task }> {
     return this.guard(async () => {
@@ -505,6 +509,7 @@ export class TeamToolsService implements TeamToolsHandler {
             title,
             description,
             repo: args.repo,
+            ...(args.relations ? { relations: args.relations } : {}),
             addLabels: args.addLabels,
             removeLabels: args.removeLabels,
             note: args.note,
@@ -537,6 +542,7 @@ export class TeamToolsService implements TeamToolsHandler {
       labels?: string[];
       visibility?: Visibility;
       parentKey?: string;
+      relations?: AddRelationRef[];
     },
   ): Promise<{ task: Task }> {
     return this.guard(async () => {
@@ -553,6 +559,7 @@ export class TeamToolsService implements TeamToolsHandler {
           description: args.description?.trim() ?? '',
           labels,
           visibility: args.visibility ?? 'internal',
+          ...(args.relations?.length ? { relations: args.relations } : {}),
         },
         aiActor(ctx.member),
         { sessionId: ctx.sessionId },

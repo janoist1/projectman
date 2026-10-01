@@ -63,7 +63,7 @@ Task AR-21: Fix the booking confirmation email
 - Next stage: Code review (`code_review`), owners `code-review`.
 
 What done means for you here:
-1. Read the task, its links and prerequisites; ask with ask_human if the goal or a decision is unclear.
+1. Read the task, its links and relations to other cards; ask with ask_human if the goal or a decision is unclear.
 2. Implement the change in your working directory (the task's own worktree and branch) and run the project's tests.
 3. Commit, push, open a pull request and attach it with link_pull_request.
 4. Move the task to Code review (`code_review`) with update_task and hand over to `code-review` with send_message: the facts they need (links, what changed, what to check).

@@ -137,6 +137,12 @@ export function createTaskRepository(db: Db) {
        WHERE t.project_key = ? AND t.parent_key = ? ORDER BY l.id`,
     ),
     linksOf: db.prepare('SELECT * FROM task_links WHERE task_id = ? ORDER BY id'),
+    // Uses the `task_links_ref` index: card relations are links with no repository.
+    linking: db.prepare(
+      `SELECT t.* FROM task_links l JOIN tasks t ON t.id = l.task_id
+       WHERE l.kind = ? AND l.repo = '' AND l.ref = ? AND t.project_key = ? ORDER BY t.seq`,
+    ),
+    deleteLink: db.prepare(`DELETE FROM task_links WHERE task_id = ? AND kind = ? AND repo = '' AND ref = ?`),
     insert: db.prepare(
       `INSERT INTO tasks (id, project_key, key, seq, title, description, stage_id, status, assignee,
          repo, priority, labels, checks, visibility, created_by, created_at, updated_at, closed_at, parent_key)
@@ -306,6 +312,24 @@ export function createTaskRepository(db: Db) {
         statements.children.all(projectKey, parentKey) as TaskRow[],
         () => statements.childrenLinks.all(projectKey, parentKey) as LinkRow[],
       );
+    },
+
+    /**
+     * The tasks of the project that have a link of one of these kinds to `ref` (a task key): the
+     * other direction of a card relation. Each task once, by number.
+     */
+    linking(projectKey: string, kinds: readonly string[], ref: string): Task[] {
+      const rows = new Map<string, TaskRow>();
+      for (const kind of kinds)
+        for (const row of statements.linking.all(kind, ref, projectKey) as TaskRow[]) rows.set(row.id, row);
+      return [...rows.values()]
+        .sort((a, b) => a.seq - b.seq)
+        .map((row) => toTask(row, (statements.linksOf.all(row.id) as LinkRow[]).map(toLink)));
+    },
+
+    /** Removes a card relation link; returns whether it was there. */
+    removeLink(taskId: string, kind: string, ref: string): boolean {
+      return statements.deleteLink.run(taskId, kind, ref).changes > 0;
     },
 
     /**

@@ -21,6 +21,8 @@ export const TimelineEventType = z.enum([
   'task_check_changed',
   'task_labels_changed',
   'task_link_added',
+  'task_relation_added',
+  'task_relation_removed',
   'task_note',
   'attachment_added',
   'attachment_deleted',
@@ -84,6 +86,8 @@ export interface TimelineEventData {
     repo?: string | null;
     previousRepo?: string | null;
     reason?: string;
+    /** `action` is `cancelled`: the card was marked as a duplicate of this card (PM-192); `reason` says so too. */
+    duplicateOf?: string;
     /** A linked pull request changed (GitHub sync). */
     pullRequest?: { repo: string; number: number; state: string };
     /** `fields` names `reviewPin`: the developer asked for a new review round, which pins the new head. */
@@ -129,6 +133,14 @@ export interface TimelineEventData {
   /** `reason` names an automatic change: the task moving back, a PR update or merge, an approval. */
   task_labels_changed: { added: string[]; removed: string[]; reason?: LabelChangeReason };
   task_link_added: { kind: string; ref: string; repo?: string };
+  /**
+   * A relation to another card was added or removed (PM-192). Recorded on both cards, each from its
+   * own side: `kind` is a `TaskRelationKind` as this card sees it (`prerequisite_of: PM-2` on the card
+   * that is the prerequisite, `prerequisite: PM-1` on the one that needs it), `ref` the other card.
+   * Setting or removing a card's parent is recorded as `task_subtask_added/removed`.
+   */
+  task_relation_added: { kind: string; ref: string };
+  task_relation_removed: { kind: string; ref: string };
   task_note: { text: string; mentions?: string[]; importedAuthor?: string; importedAt?: string };
   /** The file name is the sanitised metadata; the audit keeps it after the attachment is deleted. */
   attachment_added: { attachmentId: string; fileName: string; size: number; mediaType: string };

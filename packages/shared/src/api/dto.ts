@@ -24,6 +24,7 @@ import { CustomRoleDefinition, RoleHolders, RoleId } from '../domain/role';
 import { ScheduleRun } from '../domain/schedule';
 import { Session } from '../domain/session';
 import { MemberUsage } from '../domain/token-usage';
+import { AddRelationRef, RelationsChange } from '../domain/relations';
 import { Task, TaskKey, Visibility } from '../domain/task';
 
 /* ---------- auth ---------- */
@@ -314,6 +315,8 @@ export const CreateTaskRequest = z.object({
   repo: z.string().nullable().optional(),
   labels: z.array(z.string()).optional(),
   visibility: Visibility.optional(),
+  /** Relations the new card starts with (PM-192); a refused one refuses the creation. */
+  relations: z.array(AddRelationRef).optional(),
 });
 export type CreateTaskRequest = z.infer<typeof CreateTaskRequest>;
 
@@ -331,6 +334,11 @@ export const UpdateTaskRequest = z.object({
    * null to clear it. Refused while a session of the task is running (`task_session_live`).
    */
   repo: z.string().nullable().optional(),
+  /**
+   * Relations to other cards (PM-192), all or nothing with the rest of the change; removals apply
+   * first. Added: the four forward kinds. Removed: any kind, the reverse of a stored one included.
+   */
+  relations: RelationsChange.optional(),
 });
 export type UpdateTaskRequest = z.infer<typeof UpdateTaskRequest>;
 

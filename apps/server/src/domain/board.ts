@@ -5,7 +5,7 @@ import type { MemberService } from './members';
 import type { PlanUsageCache } from './plan-usage';
 import type { ProjectService } from './projects';
 import type { TaskService } from './tasks';
-import { canSeeTask, isClient } from './visibility';
+import { isClient, visibleTasks } from './visibility';
 import type { Viewer } from './visibility';
 
 /** A project's board as one member sees it. */
@@ -54,7 +54,7 @@ export class BoardService {
       })),
       stages: resolvedStages(config),
       labels: config.pipeline.labels.map((label) => ({ ...label, holders: labelHolders(config, label) })),
-      tasks: this.tasks.list(projectKey).filter((t) => canSeeTask(viewer, t)),
+      tasks: visibleTasks(viewer, this.tasks.list(projectKey)),
       members: this.members.rosterFor(config),
       openInboxCount: this.inbox.countOpenFor(projectKey, viewer.handle),
       planUsage: planUsageByProvider.claude ?? null,

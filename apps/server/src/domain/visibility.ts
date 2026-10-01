@@ -1,4 +1,4 @@
-import { canSeeTask } from '@projectman/shared';
+import { canSeeTask, isCardLink } from '@projectman/shared';
 import type {
   InboxItem,
   ServerEvent,
@@ -50,6 +50,23 @@ export function teamMessageMember(viewer: Viewer, requested: string | undefined)
   return isClient(viewer) ? viewer.handle : requested;
 }
 
+/**
+ * A task as the viewer sees it: a client gets a task's links to other cards (relations, PM-192)
+ * only when the other card is shared with them. `canSeeKey` says whether the viewer sees a card.
+ */
+export function withVisibleCardLinks(viewer: Viewer, task: Task, canSeeKey: (key: string) => boolean): Task {
+  if (!isClient(viewer) || !task.links.some(isCardLink)) return task;
+  return { ...task, links: task.links.filter((link) => !isCardLink(link) || canSeeKey(link.ref)) };
+}
+
+/** The tasks the viewer sees, each as they see it: a client's links to other cards lead only to cards they see. */
+export function visibleTasks(viewer: Viewer, tasks: readonly Task[]): Task[] {
+  const visible = tasks.filter((task) => canSeeTask(viewer, task));
+  if (!isClient(viewer)) return visible;
+  const keys = new Set(visible.map((task) => task.key));
+  return visible.map((task) => withVisibleCardLinks(viewer, task, (key) => keys.has(key)));
+}
+
 const CLIENT_TASK_TIMELINE = new Set<TimelineEvent['type']>([
   'task_created',
   'task_stage_changed',
@@ -63,16 +80,44 @@ export function clientCanSeeTimelineEvent(event: TimelineEvent): boolean {
   return CLIENT_TASK_TIMELINE.has(event.type);
 }
 
-/** What the viewer may see of a task detail; the task itself must be visible (canSeeTask). */
-export function visibleTaskDetail(viewer: Viewer, detail: TaskDetail): TaskDetail {
+/**
+ * What the viewer may see of a task detail; the task itself must be visible (canSeeTask).
+ * `canSeeKey` says whether the viewer sees a card by its key (for the links to other cards).
+ */
+export function visibleTaskDetail(
+  viewer: Viewer,
+  detail: TaskDetail,
+  canSeeKey: (key: string) => boolean = () => true,
+): TaskDetail {
   if (!isClient(viewer)) return detail;
   return {
-    task: detail.task,
+    task: withVisibleCardLinks(viewer, detail.task, canSeeKey),
     parent: detail.parent && canSeeTask(viewer, detail.parent) ? detail.parent : null,
-    subtasks: detail.subtasks?.filter((task) => canSeeTask(viewer, task)),
+    subtasks: detail.subtasks
+      ?.filter((task) => canSeeTask(viewer, task))
+      .map((task) => withVisibleCardLinks(viewer, task, canSeeKey)),
     pullRequests: detail.pullRequests,
     timeline: detail.timeline.filter(clientCanSeeTimelineEvent),
     sessions: [],
+  };
+}
+
+/**
+ * The event as the viewer sees it, once `canSeeProjectEvent` let it through: a client's task
+ * snapshot keeps only its links to cards they see.
+ */
+export function visibleProjectEvent(
+  viewer: Viewer,
+  event: ProjectEvent,
+  taskOf: (taskKey: string) => Task | null | undefined,
+): ProjectEvent {
+  if (!isClient(viewer) || event.type !== 'task_upserted') return event;
+  return {
+    ...event,
+    task: withVisibleCardLinks(viewer, event.task, (key) => {
+      const other = taskOf(key);
+      return !!other && canSeeTask(viewer, other);
+    }),
   };
 }
 

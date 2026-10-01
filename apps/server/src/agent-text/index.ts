@@ -6,6 +6,7 @@
  */
 export { describeAttachment, formatBytes } from './attachments';
 export { describeLink, linkTarget, numberedRef } from './links';
+export { describeRelatedCard, relationLines, relationPhrase } from './relations';
 export { describeRepo, type TaskRepoInfo } from './repo';
 export { formatTimestamp, oneLine, PLAIN_STYLE, truncate, type TextStyle } from './text';
 export {

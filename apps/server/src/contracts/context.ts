@@ -9,6 +9,7 @@ import type {
   SessionState,
   Stage,
   Task,
+  TaskRelation,
   TimelineEvent,
   WorkItemRef,
 } from '@projectman/shared';
@@ -49,6 +50,11 @@ export interface ContextPackInput {
    * and the continue message. Omitted (or empty) when there are none.
    */
   relatedSessions?: RelatedSession[];
+  /**
+   * The task's relations to other cards, both directions (PM-192), listed by kind in the kick-off
+   * brief. Omitted (or empty) when it has none.
+   */
+  relations?: TaskRelation[];
 }
 
 /** How a card relates to the task a session starts on. */

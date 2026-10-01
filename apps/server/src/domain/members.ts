@@ -43,7 +43,7 @@ import { isOpenTask } from './tasks';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
 import { unique } from './util';
-import { canSeeTask, isClient } from './visibility';
+import { isClient, visibleTasks as visibleTasksOf } from './visibility';
 import type { Viewer } from './visibility';
 
 const ENDED_SESSION_STATES = new Set<SessionState>(['exited', 'failed']);
@@ -588,7 +588,7 @@ export class MemberProfiles {
       .list(projectKey)
       .filter((i) => i.state === 'open' && i.assignees.includes(handle));
     const awaitingKeys = new Set(openInbox.map((i) => i.taskKey));
-    const visibleTasks = this.tasks.list(projectKey).filter((t) => canSeeTask(viewer, t));
+    const visibleTasks = visibleTasksOf(viewer, this.tasks.list(projectKey));
     const visibleKeys = new Set(visibleTasks.map((t) => t.key));
     return {
       member: { ...member, currentTaskKeys: member.currentTaskKeys.filter((k) => visibleKeys.has(k)) },

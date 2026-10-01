@@ -1,5 +1,6 @@
+import { isCardLink } from '@projectman/shared';
 import type { Attachment } from '@projectman/shared';
-import { describeAttachment, describeLink, linkTarget, recentTimeline } from '../agent-text';
+import { describeAttachment, describeLink, recentTimeline, relationLines } from '../agent-text';
 import type { TextStyle } from '../agent-text';
 import type { ContextPackInput, RelatedSession } from '../contracts';
 import { code, promptStyle, relationText, repoText, stageLabel } from './format';
@@ -26,7 +27,7 @@ const QUIET_EVENTS = new Set<string>([
 
 /**
  * The kick-off brief typed as the first message of a new task session: the task, its
- * labels, links, prerequisites, attachments and a compact recent timeline. What is expected next is in the
+ * labels, links, relations to other cards, attachments and a compact recent timeline. What is expected next is in the
  * system prompt ("What done means for you here"), which follows the task to its current stage.
  * Labels are English; task data (title, description, notes) is shown as it was written.
  * Scheduled work uses its configured prompt; other non-task work has no brief.
@@ -62,13 +63,11 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
 
   sections.push(['## Description', description(task.description)].join('\n'));
 
-  const links = task.links.filter((l) => l.kind !== 'prerequisite').map((l) => `- ${describeLink(l, style)}`);
+  const links = task.links.filter((l) => !isCardLink(l)).map((l) => `- ${describeLink(l, style)}`);
   sections.push(['## Links', ...(links.length > 0 ? links : ['None.'])].join('\n'));
 
-  const prerequisites = task.links
-    .filter((l) => l.kind === 'prerequisite')
-    .map((l) => `- ${linkTarget(l, style)}`);
-  sections.push(['## Prerequisites', ...(prerequisites.length > 0 ? prerequisites : ['None.'])].join('\n'));
+  const relations = relationLines(input.relations ?? [], style);
+  sections.push(['## Relations', ...(relations.length > 0 ? relations : ['None.'])].join('\n'));
 
   const related = input.relatedSessions ?? [];
   if (related.length > 0) sections.push(relatedSessionsSection(task.key, related));

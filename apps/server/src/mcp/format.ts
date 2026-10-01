@@ -1,3 +1,4 @@
+import { isCardLink } from '@projectman/shared';
 import type { Attachment, MemberView, Task, TimelineEvent, WorkItemRef } from '@projectman/shared';
 import {
   describeAttachment,
@@ -9,6 +10,8 @@ import {
   linkTarget,
   oneLine,
   recentTimeline,
+  relationLines,
+  relationPhrase,
   timelineLine,
 } from '../agent-text';
 import type {
@@ -140,6 +143,7 @@ export function formatTaskDetail(
 ): string {
   if (detail.event) return formatTimelineEvent(detail.task, detail.event);
   const { task, timeline, sessions } = detail;
+  const links = task.links.filter((link) => !isCardLink(link));
   const repo = describeRepo({
     name: detail.effectiveRepo ?? task.repo,
     choiceNeeded: detail.repoChoiceNeeded ?? false,
@@ -148,7 +152,8 @@ export function formatTaskDetail(
     `${task.key} — ${task.title}`,
     taskStatusLine(task),
     `Repo: ${repo} · Visibility: ${task.visibility} · Priority: ${task.priority ?? 'none'}`,
-    `Links: ${task.links.length > 0 ? task.links.map((l) => describeLink(l)).join('; ') : 'none'}`,
+    // Links to other cards are the relations below, from both cards' sides.
+    `Links: ${links.length > 0 ? links.map((l) => describeLink(l)).join('; ') : 'none'}`,
     `Created by ${task.createdBy} at ${formatTimestamp(task.createdAt)} · Updated ${formatTimestamp(task.updatedAt)}`,
     '',
     ...descriptionLines(task.key, task.description, options.descriptionOffset ?? 0),
@@ -166,6 +171,11 @@ export function formatTaskDetail(
         (child) => `- ${child.key} — ${child.title} · Stage: ${child.stageId} · Status: ${child.status}`,
       ),
     );
+  // The parent and the subtasks have their own sections above.
+  const relations = (detail.relations ?? []).filter(
+    (r) => !(r.kind === 'part_of' && detail.parent) && !(r.kind === 'has_part' && detail.subtasks?.length),
+  );
+  if (relations.length > 0) lines.push('', 'Relations:', ...relationLines(relations));
   if (detail.attachments) lines.push('', ...attachmentLines(task.key, detail.attachments));
   if (sessions.length > 0) {
     lines.push('', `Sessions: ${sessions.map((s) => `${s.member} (${s.state})`).join(', ')}`);
@@ -250,6 +260,8 @@ export function formatTaskUpdate(
     description?: boolean;
     /** The repository the call set (null: cleared); undefined when it did not touch it. */
     repo?: string | null | undefined;
+    /** The relations the call asked to add and to remove (PM-192). */
+    relations?: { add: Array<{ kind: string; key: string }>; remove: Array<{ kind: string; key: string }> };
   },
 ): string {
   const done: string[] = [];
@@ -259,6 +271,13 @@ export function formatTaskUpdate(
     done.push(change.repo === null ? 'repo cleared' : `repo set to ${change.repo}`);
   if (change.labels?.added.length) done.push(`labels added: ${change.labels.added.join(', ')}`);
   if (change.labels?.removed.length) done.push(`labels removed: ${change.labels.removed.join(', ')}`);
+  const relation = (r: { kind: string; key: string }) => `${relationPhrase(r.kind)} ${r.key}`;
+  if (change.relations?.add.length)
+    done.push(`relations added: ${change.relations.add.map(relation).join(', ')}`);
+  if (change.relations?.remove.length)
+    done.push(`relations removed: ${change.relations.remove.map(relation).join(', ')}`);
+  if (task.status === 'cancelled' && change.relations?.add.some((r) => r.kind === 'duplicate_of'))
+    done.push('the card is closed (cancelled) as a duplicate');
   if (change.note) done.push('note added');
   if (change.stageId) done.push(`moved to ${change.stageId}`);
   return `Updated ${task.key}: ${done.join('; ')}.\nNow: ${taskStatusLine(task)}`;

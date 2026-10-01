@@ -10,6 +10,8 @@ const LINK_KINDS: Record<TaskLink['kind'], string> = {
   branch: 'Branch',
   url: 'Link',
   prerequisite: 'Prerequisite',
+  related: 'Related card',
+  duplicate_of: 'Duplicate of',
 };
 
 /** "acme/app#123" for a pull request or issue number, else the reference as it is. */
@@ -30,6 +32,8 @@ export function linkTarget(link: TaskLink, style: Pick<TextStyle, 'code'> = PLAI
     case 'url':
       return `${link.ref}${title}`;
     case 'prerequisite':
+    case 'related':
+    case 'duplicate_of':
       return `${link.ref}${title}${state}`;
   }
 }

@@ -1091,6 +1091,7 @@ export class SessionOrchestrator {
       task,
     );
     const relatedSessions = task ? this.relatedSessions(projectKey, member.handle, task) : [];
+    const relations = task ? this.deps.tasks.relationsOf(projectKey, task.key) : [];
     const userHome = this.deps.userHome ?? homedir();
     const policy = buildSessionPolicy({
       config,
@@ -1140,6 +1141,7 @@ export class SessionOrchestrator {
       ...(sandbox ? { sandbox } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(relatedSessions.length > 0 ? { relatedSessions } : {}),
+      ...(relations.length > 0 ? { relations } : {}),
     });
 
     // Configuration may change while login, worktree and memory preparation await I/O. So may the

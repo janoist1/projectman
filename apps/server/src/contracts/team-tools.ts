@@ -1,7 +1,10 @@
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import type {
+  AddRelationRef,
   Attachment,
   MemberHandle,
+  RelationsChange,
+  TaskRelation,
   MemberView,
   QuestionOptionInput,
   Task,
@@ -64,6 +67,8 @@ export interface TaskToolDetail extends TaskDetail {
   undeliveredMessageIds?: string[];
   /** The timeline event asked for by id (get_task event_id): its whole text is shown instead of the task. */
   event?: TimelineEvent;
+  /** The task's relations to other cards, both directions (PM-192); omitted by handlers that know none. */
+  relations?: TaskRelation[];
 }
 
 /** A page of a task's readable attachments, oldest first. */
@@ -171,6 +176,8 @@ export interface TeamToolsHandler {
       description?: string;
       /** A repository of the project; null clears it. */
       repo?: string | null;
+      /** Relations to other cards (PM-192): removals first, then additions, in the same all-or-nothing call. */
+      relations?: RelationsChange;
     },
   ): Promise<{ task: Task }>;
   /**
@@ -185,6 +192,8 @@ export interface TeamToolsHandler {
       labels?: string[];
       visibility?: Visibility;
       parentKey?: string;
+      /** Relations the new card starts with (PM-192). */
+      relations?: AddRelationRef[];
     },
   ): Promise<{ task: Task }>;
   /** link_pull_request: attach a GitHub PR to the task. */

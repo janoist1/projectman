@@ -269,7 +269,7 @@ function preparing(askedStep: string, steps: string[] | ((c: StepContext) => str
  */
 const DUTY_STEPS: Partial<Record<DutyId, StepRule>> = {
   implementation: building((where) => [
-    'Read the task, its links and prerequisites; ask with ask_human if the goal or a decision is unclear.',
+    'Read the task, its links and relations to other cards; ask with ask_human if the goal or a decision is unclear.',
     `Implement the change ${where} and run the project's tests.`,
   ]),
   maintenance: building((where) => [

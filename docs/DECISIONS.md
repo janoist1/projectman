@@ -207,3 +207,9 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     already run in Auto). No code migration changes existing members (decision 26): an unset
     approver reads as a person until the owner sets it, per member or in one configuration
     commit.
+29. **Who may mark a card as a duplicate.** Decided by the owner on 2026-10-01 (PM-192, the
+    architect's question; answer: „El nem kezdett kártyát bárki”). Marking a duplicate closes
+    (cancels) the card. A card that has not started (waiting in a queue stage, no live session) can
+    be marked by anyone who can edit it, an AI member included; a card that has started only by
+    whoever may cancel a card today (an admin or the owner). On a card that is closed already only
+    the relation is made. The rule is `duplicateMarkRefusal` in `packages/shared` (PM-202).

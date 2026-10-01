@@ -298,6 +298,16 @@ export const hu = {
       subtask_parent_project: 'A szülőfeladatnak ugyanebben a projektben kell lennie.',
       subtask_parent_is_subtask: 'Egy alfeladatnak nem lehetnek további alfeladatai.',
       subtask_has_children: 'Az alfeladatokat tartalmazó feladat nem válhat alfeladattá.',
+      relation_self: 'A kártya nem kapcsolódhat önmagához.',
+      relation_target_not_found: 'A másik kártya nem található.',
+      relation_target_project: 'Kapcsolat csak ugyanannak a projektnek a kártyái között jöhet létre.',
+      relation_cycle: 'Ezzel körkörös előfeltétel jönne létre: a kártya közvetve önmagára várna.',
+      relation_duplicate_of_duplicate:
+        'Az a kártya maga is duplikátum: az eredetire mutasson a kapcsolat, ne láncot alkosson.',
+      relation_not_found: 'A két kártya között nincs ilyen kapcsolat.',
+      relation_parent_exists:
+        'A kártya már egy másik kártya része: előbb töröld azt a kapcsolatot (egy lépésben mindkettő megy).',
+      duplicate_not_allowed: 'Elkezdett kártyát csak admin vagy tulajdonos jelölhet duplikátumnak.',
       provider_not_logged_in: 'A szolgáltatónál nincs aktív előfizetéses bejelentkezés.',
       bad_request: 'A kérés érvénytelen.',
       cannot_remove_self: 'Saját magadat nem távolíthatod el.',
@@ -707,12 +717,27 @@ export const hu = {
     active: 'folyamatban',
   },
 
+  /** Relations between cards (PM-192), named from the side of the card that shows them. */
+  relations: {
+    kinds: {
+      part_of: 'Része',
+      has_part: 'Részei',
+      prerequisite: 'Előtte kell',
+      prerequisite_of: 'Utána jön',
+      related: 'Kapcsolódik',
+      duplicate_of: 'Duplikátuma',
+      duplicated_by: 'Duplikátumai',
+    },
+  },
+
   links: {
     kinds: {
       pull_request: 'PR',
       branch: 'Ág',
       issue: 'Issue',
       prerequisite: 'Előfeltétel',
+      related: 'Kapcsolódik',
+      duplicate_of: 'Duplikátuma',
       url: 'Link',
     },
     prStates: {
@@ -1125,6 +1150,8 @@ export const hu = {
       pr_updated: 'a PR frissülésekor',
       open_question: 'nyitott kérdés miatt',
     },
+    relationAdded: 'Kapcsolat hozzáadva: {kind} · {ref}',
+    relationRemoved: 'Kapcsolat törölve: {kind} · {ref}',
     subtaskAdded: 'Alfeladat hozzáadva: {subtaskKey} → {parentKey}',
     subtaskRemoved: 'Alfeladat eltávolítva: {subtaskKey} → {parentKey}',
     attachmentAdded: 'Csatolmány hozzáadva: {fileName}',
@@ -1149,6 +1176,7 @@ export const hu = {
     events: {
       task_cancelled: 'Megszakította a feladatot.',
       task_cancelled_reason: 'Megszakította a feladatot: {reason}',
+      task_cancelled_duplicate: 'Lezárta duplikátumként: {original}',
       task_reopened: 'Újranyitotta a feladatot.',
       assignment_previous: '{assignment} Előző felelős: {previous}.',
       task_created_imported: 'Létrehozva (importálva)',

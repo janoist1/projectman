@@ -1,27 +1,23 @@
 import {
   duplicateMarkRefusal,
-  hasRelated,
   isCardLink,
   isOpenTask,
   memberOf,
-  relationRefusal,
+  planRelations,
   RELATION_LINK_KINDS,
+  reverseRelationKind,
   stageOf,
-  storedRelation,
   taskRelations,
 } from '@projectman/shared';
 import type {
   Actor,
-  AddRelationRef,
   ProjectConfig,
-  RelationCard,
-  RelationLinkKind,
+  RelationPlan as SharedRelationPlan,
   RelationRefusal,
   RelationsChange,
   SubtaskParentRefusal,
   Task,
   TaskRelation,
-  TaskRelationKind,
 } from '@projectman/shared';
 import { hasAccess } from '../access';
 import { isoNow } from '../context';
@@ -78,30 +74,8 @@ function refusalError(refusal: RelationRefusal, key: string) {
   }
 }
 
-/** The card as it is while the change is planned: what the relation rules read, changed step by step. */
-interface WorkingCard extends RelationCard {
-  id: string;
-}
-
-type RelationStep =
-  | { type: 'link_add'; owner: string; kind: RelationLinkKind; ref: string }
-  | { type: 'link_remove'; owner: string; kind: RelationLinkKind; ref: string }
-  | { type: 'parent'; child: string; parent: string | null }
-  | { type: 'duplicate_close'; original: string };
-
-/** A validated change of relations: what to write, with nothing written yet. */
-export interface RelationPlan {
-  steps: RelationStep[];
-  /** The change closes the task: it is marked as a duplicate while it is open. */
-  closes: boolean;
-}
-
-/** The view kind of a stored link on the card it points at. */
-const REVERSE_KIND: Record<RelationLinkKind, TaskRelationKind> = {
-  prerequisite: 'prerequisite_of',
-  related: 'related',
-  duplicate_of: 'duplicated_by',
-};
+/** A validated change of relations: what to write, with nothing written yet (`planRelations`). */
+export type RelationPlan = Extract<SharedRelationPlan, { ok: true }>;
 
 /** What the relations need of the task service, which owns the writes they share with other changes. */
 export interface RelationDeps {
@@ -153,51 +127,16 @@ export class TaskRelations {
    * whoever may cancel it can do.
    */
   plan(config: ProjectConfig, task: Task, change: RelationsChange, actor: Actor): RelationPlan {
-    const { projectKey } = task;
-    const cards = new Map<string, WorkingCard>();
-    for (const card of this.store.ctx.repos.tasks.list(projectKey))
-      cards.set(card.key, { ...card, links: [...card.links] });
-    const self = cards.get(task.key);
-    if (!self) throw invalid('relation_target_not_found', `the card ${task.key} does not exist`);
-    const steps: RelationStep[] = [];
-
-    for (const { kind, key } of change.remove ?? []) {
-      const stored = storedRelation(kind, self, cards.get(key));
-      if (!stored)
-        throw invalid('relation_not_found', `${task.key} has no ${kind} relation with ${key}`, { kind, key });
-      const owner = cards.get(stored.owner)!;
-      if (stored.stored === 'parent') {
-        owner.parentKey = null;
-        steps.push({ type: 'parent', child: owner.key, parent: null });
-      } else {
-        owner.links = owner.links.filter((l) => !(l.kind === stored.stored && l.ref === stored.target));
-        steps.push({ type: 'link_remove', owner: owner.key, kind: stored.stored, ref: stored.target });
-      }
-    }
-
-    for (const { kind, key } of unique(change.add ?? [])) {
-      // A card of another project is not in the project's cards: read it, so that the refusal says why.
-      if (!cards.has(key)) {
-        const elsewhere = this.store.ctx.repos.tasks.get(key);
-        if (elsewhere) cards.set(key, { ...elsewhere, links: [...elsewhere.links] });
-      }
-      const target = cards.get(key);
-      if (kind === 'part_of' ? self.parentKey === key : !!target && isStored(kind, self, target)) continue;
-      const refusal = relationRefusal(kind, { key: task.key, projectKey }, key, [...cards.values()]);
-      if (refusal) throw refusalError(refusal, key);
-      if (kind === 'part_of') {
-        self.parentKey = key;
-        steps.push({ type: 'parent', child: task.key, parent: key });
-        continue;
-      }
-      self.links.push({ kind, ref: key });
-      steps.push({ type: 'link_add', owner: task.key, kind, ref: key });
-      if (kind === 'duplicate_of' && !steps.some((s) => s.type === 'duplicate_close')) {
-        this.requireMayMarkDuplicate(config, task, actor);
-        steps.push({ type: 'duplicate_close', original: key });
-      }
-    }
-    return { steps, closes: isOpenTask(task) && steps.some((s) => s.type === 'duplicate_close') };
+    const repo = this.store.ctx.repos.tasks;
+    const plan = planRelations({
+      task,
+      cards: repo.list(task.projectKey),
+      elsewhere: (key) => repo.get(key) ?? undefined,
+      change,
+      markDuplicate: () => this.duplicateRefusal(config, task, actor),
+    });
+    if (!plan.ok) throw planError(plan, task.key);
+    return plan;
   }
 
   /** Writes a plan: the links and parents, the timelines of both cards, and the close of a duplicate. */
@@ -216,7 +155,7 @@ export class TaskRelations {
           // Each card says it from its own side: the owner "needs", the other card "is needed by".
           for (const [taskKey, kind, ref] of [
             [step.owner, step.kind, step.ref],
-            [step.ref, REVERSE_KIND[step.kind], step.owner],
+            [step.ref, reverseRelationKind(step.kind), step.owner],
           ] as const)
             this.store.timeline.append({
               projectKey: task.projectKey,
@@ -267,34 +206,29 @@ export class TaskRelations {
   }
 
   /** The duplicate mark closes the card: a card that has started needs whoever may cancel it. */
-  private requireMayMarkDuplicate(config: ProjectConfig, task: Task, actor: Actor): void {
+  private duplicateRefusal(config: ProjectConfig, task: Task, actor: Actor): 'duplicate_not_allowed' | null {
     const member = actor.kind === 'human' ? memberOf(config, actor.handle) : undefined;
-    const refusal = duplicateMarkRefusal({
+    return duplicateMarkRefusal({
       task,
       stageKind: stageOf(config, task.stageId)?.kind,
       hasLiveSession: this.deps.liveSession(task),
       mayCancel: member?.kind === 'human' && hasAccess(member.access, 'admin'),
     });
-    if (refusal)
-      throw forbidden(
-        refusal,
-        `${task.key} has started, and marking it as a duplicate closes it: only an admin or the owner can mark a card that has started`,
-      );
   }
 }
 
-function unique(relations: readonly AddRelationRef[]): AddRelationRef[] {
-  const seen = new Set<string>();
-  return relations.filter(({ kind, key }) => !seen.has(`${kind}:${key}`) && !!seen.add(`${kind}:${key}`));
-}
-
-/** The relation of a forward kind is stored between the two cards already (a related pair on either). */
-function isStored(
-  kind: Exclude<AddRelationRef['kind'], 'part_of'>,
-  from: WorkingCard,
-  to: WorkingCard,
-): boolean {
-  return kind === 'related'
-    ? hasRelated(from, to)
-    : from.links.some((l) => l.kind === kind && l.ref === to.key);
+/** The error of a refused plan. */
+function planError(plan: Extract<SharedRelationPlan, { ok: false }>, taskKey: string) {
+  const { refusal, key } = plan;
+  if (refusal.code === 'duplicate_not_allowed')
+    return forbidden(
+      'duplicate_not_allowed',
+      `${taskKey} has started, and marking it as a duplicate closes it: only an admin or the owner can mark a card that has started`,
+    );
+  if (refusal.code === 'relation_not_found')
+    return invalid('relation_not_found', `${taskKey} has no ${refusal.kind} relation with ${key}`, {
+      kind: refusal.kind,
+      key,
+    });
+  return refusalError(refusal, key);
 }

@@ -162,6 +162,52 @@ it('describes checks recorded before labels replaced them', () => {
   );
 });
 
+describe('card relations on the timeline (PM-192)', () => {
+  const relation = (type: 'task_relation_added' | 'task_relation_removed', kind: string, ref: string) =>
+    describeEvent({ ...creation, type, data: { kind, ref } }, context).text;
+
+  it('names the relation from the side of the card the timeline belongs to', () => {
+    expect(relation('task_relation_added', 'prerequisite', 'AC-5')).toBe(
+      'Kapcsolat hozzáadva: Előtte kell · AC-5',
+    );
+    expect(relation('task_relation_added', 'prerequisite_of', 'AC-6')).toBe(
+      'Kapcsolat hozzáadva: Utána jön · AC-6',
+    );
+    expect(relation('task_relation_removed', 'duplicated_by', 'AC-7')).toBe(
+      'Kapcsolat törölve: Duplikátumai · AC-7',
+    );
+    expect(relation('task_relation_added', 'related', 'AC-8')).toBe(
+      'Kapcsolat hozzáadva: Kapcsolódik · AC-8',
+    );
+    expect(relation('task_relation_added', 'duplicate_of', 'AC-9')).toBe(
+      'Kapcsolat hozzáadva: Duplikátuma · AC-9',
+    );
+  });
+
+  it('shows a kind this build does not know as it is', () => {
+    expect(relation('task_relation_added', 'blocks', 'AC-5')).toBe('Kapcsolat hozzáadva: blocks · AC-5');
+  });
+
+  it('says that a card was closed as a duplicate, and keeps the old events as they were', () => {
+    const cancelled = (data: Record<string, unknown>) =>
+      describeEvent({ ...creation, type: 'task_updated', data: { action: 'cancelled', ...data } }, context)
+        .text;
+    expect(cancelled({ reason: 'duplicate of AC-3', duplicateOf: 'AC-3' })).toBe(
+      'Lezárta duplikátumként: AC-3',
+    );
+    expect(cancelled({ reason: 'No longer needed' })).toBe(
+      t('timeline.events.task_cancelled_reason', { reason: 'No longer needed' }),
+    );
+    // The earlier prerequisite link event still reads as it did.
+    expect(
+      describeEvent(
+        { ...creation, type: 'task_link_added', data: { kind: 'prerequisite', ref: 'AC-17' } },
+        context,
+      ).text,
+    ).toBe(t('timeline.events.task_link_added', { link: 'Előfeltétel: AC-17' }));
+  });
+});
+
 describe('repository changes on the timeline', () => {
   const updated = (data: Record<string, unknown>): TimelineEvent => ({
     ...creation,

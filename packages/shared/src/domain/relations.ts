@@ -80,6 +80,11 @@ const REVERSE: Record<RelationLinkKind, TaskRelationKind> = {
   duplicate_of: 'duplicated_by',
 };
 
+/** How a stored link reads on the card it points at: `prerequisite` is `prerequisite_of` there. */
+export function reverseRelationKind(kind: RelationLinkKind): TaskRelationKind {
+  return REVERSE[kind];
+}
+
 function bySeq(a: RelatedCard, b: RelatedCard): number {
   return taskSeq(a.key) - taskSeq(b.key);
 }
@@ -278,4 +283,94 @@ export function duplicateMarkRefusal(input: {
   if (!isOpenTask(input.task)) return null;
   if (input.stageKind === 'queue' && !input.hasLiveSession) return null;
   return input.mayCancel ? null : 'duplicate_not_allowed';
+}
+
+/** One write of a relation change: the stored forms, in the order they are applied. */
+export type RelationStep =
+  | { type: 'link_add'; owner: string; kind: RelationLinkKind; ref: string }
+  | { type: 'link_remove'; owner: string; kind: RelationLinkKind; ref: string }
+  | { type: 'parent'; child: string; parent: string | null }
+  /** The card is marked as a duplicate of `original`: it is cancelled, once, if it is open. */
+  | { type: 'duplicate_close'; original: string };
+
+/** A relation change that is refused: the rule that refuses it, and the card it is about. */
+export type RelationPlanRefusal =
+  | { refusal: RelationRefusal; key: string }
+  | { refusal: { code: 'relation_not_found'; kind: TaskRelationKind }; key: string }
+  | { refusal: { code: 'duplicate_not_allowed' }; key: string };
+
+export type RelationPlan =
+  { ok: true; steps: RelationStep[]; closes: boolean } | ({ ok: false } & RelationPlanRefusal);
+
+/**
+ * Plans a change of the relations of the card `task` against the cards as they are now: removals
+ * first, then additions, each against what the earlier steps left (so two steps of one call can
+ * contradict each other, and the second is refused). Nothing is written: the caller applies the
+ * steps, all or none. A relation that is stored already is skipped.
+ *
+ * `cards` are the cards of the project (`task` among them); `elsewhere` finds a card that is not,
+ * so that a relation to another project is refused with its own reason. `markDuplicate` says
+ * whether the actor may mark the card as a duplicate (`duplicateMarkRefusal`), asked when the call
+ * does so.
+ */
+export function planRelations(input: {
+  task: Pick<RelationCard, 'key' | 'projectKey'>;
+  cards: readonly RelationCard[];
+  elsewhere: (key: string) => RelationCard | undefined;
+  change: RelationsChange;
+  markDuplicate: () => 'duplicate_not_allowed' | null;
+}): RelationPlan {
+  const { task, change } = input;
+  const cards = new Map<string, RelationCard>(
+    input.cards.map((card) => [card.key, { ...card, links: [...card.links] }]),
+  );
+  const self = cards.get(task.key);
+  if (!self) return { ok: false, key: task.key, refusal: { code: 'relation_target_not_found' } };
+  const steps: RelationStep[] = [];
+
+  for (const { kind, key } of change.remove ?? []) {
+    const stored = storedRelation(kind, self, cards.get(key));
+    if (!stored) return { ok: false, key, refusal: { code: 'relation_not_found', kind } };
+    const owner = cards.get(stored.owner)!;
+    if (stored.stored === 'parent') {
+      owner.parentKey = null;
+      steps.push({ type: 'parent', child: owner.key, parent: null });
+    } else {
+      owner.links = owner.links.filter((l) => !(l.kind === stored.stored && l.ref === stored.target));
+      steps.push({ type: 'link_remove', owner: owner.key, kind: stored.stored, ref: stored.target });
+    }
+  }
+
+  const seen = new Set<string>();
+  for (const { kind, key } of change.add ?? []) {
+    if (seen.has(`${kind}:${key}`)) continue;
+    seen.add(`${kind}:${key}`);
+    if (!cards.has(key)) {
+      const other = input.elsewhere(key);
+      if (other) cards.set(key, { ...other, links: [...other.links] });
+    }
+    const target = cards.get(key);
+    const stored =
+      kind === 'part_of'
+        ? self.parentKey === key
+        : !!target && (kind === 'related' ? hasRelated(self, target) : linkTargets(self, kind).includes(key));
+    if (stored) continue;
+    const refusal = relationRefusal(kind, { key: task.key, projectKey: task.projectKey }, key, [
+      ...cards.values(),
+    ]);
+    if (refusal) return { ok: false, key, refusal };
+    if (kind === 'part_of') {
+      self.parentKey = key;
+      steps.push({ type: 'parent', child: task.key, parent: key });
+      continue;
+    }
+    self.links.push({ kind, ref: key });
+    steps.push({ type: 'link_add', owner: task.key, kind, ref: key });
+    if (kind === 'duplicate_of' && !steps.some((s) => s.type === 'duplicate_close')) {
+      const refused = input.markDuplicate();
+      if (refused) return { ok: false, key, refusal: { code: refused } };
+      steps.push({ type: 'duplicate_close', original: key });
+    }
+  }
+  return { ok: true, steps, closes: steps.some((s) => s.type === 'duplicate_close') && isOpenTask(self) };
 }

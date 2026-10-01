@@ -85,6 +85,16 @@ Documentation map:
   stage owner), repo, labels, links (PRs with their attributed authors, branches, issues,
   prerequisites), visibility (`internal` or `shared` with clients), optional parent (one level
   of subtasks), comments with @mentions and **attachments**. Tasks can be imported with their original dates.
+  **Relations between cards** (PM-192/PM-202): part of (`parentKey`), prerequisite, related and
+  duplicate of. The last three are `task_links` rows (`prerequisite`, `related`, `duplicate_of`;
+  `ref` is the other card's key) stored once on the card that set them; the other direction is read
+  (`task_links_ref` index), never stored. `packages/shared/src/domain/relations.ts` is the one place
+  for the view (`taskRelations`), the rules (`relationRefusal`: itself, missing, other project, loops,
+  duplicate chains; `duplicateMarkRefusal`: who may mark a duplicate) and the planning of a change
+  (`planRelations`, shared with the web's fake backend). `UpdateTaskRequest.relations` /
+  `CreateTaskRequest.relations` change them all or nothing with the rest of the call; both cards'
+  timelines get `task_relation_added/removed`. A card marked a duplicate is cancelled (cards that have
+  not started: anyone who can edit; started ones: admin or owner only).
   A task works in one repository: its own `repo`, else the project's only one when it has
   exactly one (`effectiveRepo`, the one rule in `packages/shared` that placement, the command
   policy, the context pack and the web read). The repo can be set later (task drawer, REST
@@ -149,7 +159,7 @@ Documentation map:
   of the current stage, for tasks the shell commands the server runs without asking (generated
   from the command rules in `domain/`, `unattended-commands.ts`, so that a member writes them in
   a form that passes), the member's memory, and for tasks a kick-off brief (title,
-  description, links, prerequisites, attachments, recent timeline) sent as the first message.
+  description, links, relations to other cards, attachments, recent timeline) sent as the first message.
 - **Team tools** — an MCP server (`/mcp/:token`) through which AI members message teammates,
   read and update tasks (labels, notes, stage moves, subtasks), create tasks, link PRs, ask
   humans, save memories and work with attachments (list, read by local path, attach a file of

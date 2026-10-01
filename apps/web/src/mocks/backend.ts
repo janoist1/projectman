@@ -66,8 +66,11 @@ import {
   ownerOnlyChanges,
   permissionView,
   effectiveSessionPermissions,
+  duplicateMarkRefusal,
   planLabelChange,
+  planRelations,
   pullRequestsMerged,
+  reverseRelationKind,
   repoOf,
   repoRequired,
   resolvedStages,
@@ -108,6 +111,8 @@ import type {
   LabelChangeReason,
   LabelChangeRefusal,
   LabelClearTrigger,
+  RelationStep,
+  RelationsChange,
   MemberUsage,
   MemberView,
   PlanUsage,
@@ -1558,21 +1563,8 @@ export class MockBackend {
     if (!task) return error(404, 'not_found', 'Unknown task');
     if (action === 'cancel') {
       if (!isOpenTask(task)) return error(409, 'task_closed', 'Task is closed');
-      const previousStatus = task.status;
       const reason = 'reason' in input ? input.reason : undefined;
-      this.updateTask(taskKey, { status: 'cancelled', closedAt: nowIso() });
-      this.addTimeline(taskKey, this.owner, 'task_updated', {
-        action: 'cancelled',
-        previousStatus,
-        fields: ['status', 'closedAt'],
-        ...(reason === undefined ? {} : { reason }),
-      });
-      for (const session of this.taskSessions(taskKey))
-        if (this.isLive(session)) this.stopSession(session.id);
-      for (const item of this.inbox.filter((entry) => entry.taskKey === taskKey && entry.state === 'open'))
-        this.upsertInbox({ ...item, state: 'cancelled' });
-      for (const member of this.members)
-        member.currentTaskKeys = member.currentTaskKeys.filter((key) => key !== taskKey);
+      this.cancelTask(taskKey, reason === undefined ? {} : { reason });
     } else {
       if (task.status !== 'cancelled') return error(409, 'task_not_cancelled', 'Task is not cancelled');
       const previousAssignee = task.assignee;
@@ -1584,6 +1576,24 @@ export class MockBackend {
       });
     }
     return ok(clone(task));
+  }
+
+  /** Cancels an open task: the timeline says why (a duplicate names its original), its sessions stop and its questions close. */
+  private cancelTask(taskKey: string, why: { reason?: string; duplicateOf?: string }): void {
+    const task = this.findTask(taskKey)!;
+    const previousStatus = task.status;
+    this.updateTask(taskKey, { status: 'cancelled', closedAt: nowIso() });
+    this.addTimeline(taskKey, this.owner, 'task_updated', {
+      action: 'cancelled',
+      previousStatus,
+      fields: ['status', 'closedAt'],
+      ...why,
+    });
+    for (const session of this.taskSessions(taskKey)) if (this.isLive(session)) this.stopSession(session.id);
+    for (const item of this.inbox.filter((entry) => entry.taskKey === taskKey && entry.state === 'open'))
+      this.upsertInbox({ ...item, state: 'cancelled' });
+    for (const member of this.members)
+      member.currentTaskKeys = member.currentTaskKeys.filter((key) => key !== taskKey);
   }
 
   private viewerActor(): Actor {
@@ -1662,6 +1672,12 @@ export class MockBackend {
       patch.visibility = input.visibility;
       fields.push('visibility');
     }
+    if (input.relations && input.parentKey !== undefined)
+      return error(400, 'invalid_request', 'Give the parent in parentKey or in relations, not both');
+    const relationPlan = input.relations ? this.planRelationChange(task, input.relations) : null;
+    if (relationPlan && 'status' in relationPlan) return relationPlan;
+    if (relationPlan?.closes && input.stageId !== undefined && input.stageId !== task.stageId)
+      return error(400, 'invalid_request', 'A card marked as a duplicate cannot move in the same call');
     if (input.parentKey) {
       const refusal = this.validateParent(task.key, input.parentKey);
       if (refusal) return refusal;
@@ -1741,6 +1757,7 @@ export class MockBackend {
       if (patch.parentKey !== undefined)
         this.recordParentChange(task.key, previous.parentKey, task.parentKey ?? null);
     }
+    if (relationPlan) this.applyRelationPlan(relationPlan.steps, task, actor);
     return moving ? this.move(task, input.stageId!, actor) : ok(clone(task));
   }
 
@@ -2012,6 +2029,69 @@ export class MockBackend {
     }
   }
 
+  /**
+   * Plans a change of relations with the shared rules (the server's too): what to write, or the
+   * refusal as the server answers it. Nothing is written.
+   */
+  private planRelationChange(
+    task: Task,
+    change: RelationsChange,
+    cards: readonly Task[] = this.tasks,
+  ): { steps: RelationStep[]; closes: boolean } | MockResponse {
+    const viewer = this.findMember(this.viewerHandle);
+    const plan = planRelations({
+      task,
+      cards,
+      elsewhere: () => undefined,
+      change,
+      markDuplicate: () =>
+        duplicateMarkRefusal({
+          task,
+          stageKind: stageOf(this.config, task.stageId)?.kind,
+          hasLiveSession: this.taskSessions(task.key).some((session) => this.isLive(session)),
+          mayCancel: viewer?.kind === 'human' && (viewer.role === 'admin' || viewer.role === 'owner'),
+        }),
+    });
+    if (plan.ok) return plan;
+    const { refusal } = plan;
+    return error(
+      refusal.code === 'duplicate_not_allowed' ? 403 : 400,
+      refusal.code,
+      `The relation with ${plan.key} is refused: ${refusal.code}`,
+      refusal,
+    );
+  }
+
+  /** Writes a planned relation change: the links, the parents, both timelines, and the close of a duplicate. */
+  private applyRelationPlan(steps: readonly RelationStep[], task: Task, actor: Actor): void {
+    for (const step of steps) {
+      if (step.type === 'link_add' || step.type === 'link_remove') {
+        const owner = this.findTask(step.owner)!;
+        const links =
+          step.type === 'link_add'
+            ? [...owner.links, { kind: step.kind, ref: step.ref }]
+            : owner.links.filter((l) => !(l.kind === step.kind && l.ref === step.ref));
+        this.updateTask(owner.key, { links });
+        const type = step.type === 'link_add' ? 'task_relation_added' : 'task_relation_removed';
+        this.addTimeline(step.owner, actor.handle, type, { kind: step.kind, ref: step.ref });
+        this.addTimeline(step.ref, actor.handle, type, {
+          kind: reverseRelationKind(step.kind),
+          ref: step.owner,
+        });
+      } else if (step.type === 'parent') {
+        const child = this.findTask(step.child)!;
+        const previous = child.parentKey ?? null;
+        this.updateTask(child.key, { parentKey: step.parent });
+        this.recordParentChange(child.key, previous, step.parent);
+      } else if (isOpenTask(this.findTask(task.key)!)) {
+        this.cancelTask(task.key, {
+          reason: `duplicate of ${step.original}`,
+          duplicateOf: step.original,
+        });
+      }
+    }
+  }
+
   /** Like the server: a new task may start in any stage its gates let it enter (imports skip them). */
   private createTask(body: unknown): MockResponse {
     const input = parseBody(CreateTaskRequest, body);
@@ -2063,8 +2143,17 @@ export class MockBackend {
       const plan = planLabelChange(this.config, { ...task, labels: [] }, { add: task.labels }, actor);
       if (!plan.ok) return labelChangeError(plan.refusal);
     }
+    // Relations are planned with the new card among the project's: a refused one refuses the creation.
+    const nextKey = `${fixtures.PROJECT_KEY}-${this.lastTaskSeq + 1}`;
+    const relationPlan = input.relations?.length
+      ? this.planRelationChange({ ...task, key: nextKey }, { add: input.relations }, [
+          ...this.tasks,
+          { ...task, key: nextKey },
+        ])
+      : null;
+    if (relationPlan && 'status' in relationPlan) return relationPlan;
     this.lastTaskSeq += 1;
-    task.key = `${fixtures.PROJECT_KEY}-${this.lastTaskSeq}`;
+    task.key = nextKey;
     this.tasks.push(task);
     this.emit({ type: 'task_upserted', projectKey: task.projectKey, task: clone(task) });
     this.addTimeline(
@@ -2076,7 +2165,8 @@ export class MockBackend {
       at,
     );
     if (task.parentKey) this.recordParentChange(task.key, null, task.parentKey);
-    return { status: 201, body: clone(task) };
+    if (relationPlan) this.applyRelationPlan(relationPlan.steps, task, actor);
+    return { status: 201, body: clone(this.findTask(task.key)!) };
   }
 
   private startTask(taskKey: string, body: unknown): MockResponse {

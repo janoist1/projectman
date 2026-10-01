@@ -3,6 +3,7 @@ import {
   duplicateMarkRefusal,
   hasRelated,
   openPrerequisites,
+  planRelations,
   relationRefusal,
   storedRelation,
   taskRelations,
@@ -318,4 +319,106 @@ describe('duplicateMarkRefusal', () => {
       ).toBeNull();
     },
   );
+});
+
+describe('planRelations', () => {
+  const cards = [
+    card('PM-1'),
+    card('PM-2', {}, [needs('PM-3')]),
+    card('PM-3'),
+    card('PM-4', { parentKey: 'PM-1' }),
+    card('OT-1', { projectKey: 'OT' }),
+  ];
+  const plan = (
+    key: string,
+    change: Parameters<typeof planRelations>[0]['change'],
+    markDuplicate: () => 'duplicate_not_allowed' | null = () => null,
+  ) =>
+    planRelations({
+      task: cards.find((c) => c.key === key)!,
+      cards: cards.filter((c) => c.projectKey === 'PM'),
+      elsewhere: (other) => cards.find((c) => c.key === other),
+      change,
+      markDuplicate,
+    });
+
+  it('plans removals before additions, against what the earlier steps left', () => {
+    expect(
+      plan('PM-2', {
+        remove: [{ kind: 'prerequisite', key: 'PM-3' }],
+        add: [{ kind: 'related', key: 'PM-3' }],
+      }),
+    ).toEqual({
+      ok: true,
+      closes: false,
+      steps: [
+        { type: 'link_remove', owner: 'PM-2', kind: 'prerequisite', ref: 'PM-3' },
+        { type: 'link_add', owner: 'PM-2', kind: 'related', ref: 'PM-3' },
+      ],
+    });
+  });
+
+  it('refuses the later of two steps of one call that contradict each other', () => {
+    expect(
+      plan('PM-3', {
+        add: [
+          { kind: 'prerequisite', key: 'PM-1' },
+          { kind: 'prerequisite', key: 'PM-2' },
+        ],
+      }),
+    ).toMatchObject({ ok: false, key: 'PM-2', refusal: { code: 'relation_cycle' } });
+  });
+
+  it('skips what is stored already, and asks about the duplicate only when it marks one', () => {
+    const asked: string[] = [];
+    const ask = () => {
+      asked.push('asked');
+      return null;
+    };
+    expect(plan('PM-2', { add: [{ kind: 'prerequisite', key: 'PM-3' }] }, ask)).toMatchObject({
+      ok: true,
+      steps: [],
+    });
+    expect(asked).toEqual([]);
+    expect(plan('PM-2', { add: [{ kind: 'duplicate_of', key: 'PM-3' }] }, ask)).toMatchObject({
+      ok: true,
+      closes: true,
+      steps: [{ type: 'link_add' }, { type: 'duplicate_close', original: 'PM-3' }],
+    });
+    expect(asked).toEqual(['asked']);
+  });
+
+  it('refuses a duplicate the actor may not mark, a missing relation, and a card of another project', () => {
+    expect(
+      plan('PM-2', { add: [{ kind: 'duplicate_of', key: 'PM-3' }] }, () => 'duplicate_not_allowed'),
+    ).toEqual({ ok: false, key: 'PM-3', refusal: { code: 'duplicate_not_allowed' } });
+    expect(plan('PM-2', { remove: [{ kind: 'related', key: 'PM-3' }] })).toEqual({
+      ok: false,
+      key: 'PM-3',
+      refusal: { code: 'relation_not_found', kind: 'related' },
+    });
+    expect(plan('PM-2', { add: [{ kind: 'related', key: 'OT-1' }] })).toMatchObject({
+      ok: false,
+      refusal: { code: 'relation_target_project' },
+    });
+  });
+
+  it('plans a subtask removed from its parent, and a card moved to another parent in one call', () => {
+    expect(plan('PM-1', { remove: [{ kind: 'has_part', key: 'PM-4' }] })).toMatchObject({
+      ok: true,
+      steps: [{ type: 'parent', child: 'PM-4', parent: null }],
+    });
+    expect(
+      plan('PM-4', {
+        remove: [{ kind: 'part_of', key: 'PM-1' }],
+        add: [{ kind: 'part_of', key: 'PM-3' }],
+      }),
+    ).toMatchObject({
+      ok: true,
+      steps: [
+        { type: 'parent', child: 'PM-4', parent: null },
+        { type: 'parent', child: 'PM-4', parent: 'PM-3' },
+      ],
+    });
+  });
 });

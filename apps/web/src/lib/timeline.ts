@@ -1,4 +1,4 @@
-import { BoundaryAuditReason, BoundaryState, LabelChangeReason } from '@projectman/shared';
+import { BoundaryAuditReason, BoundaryState, LabelChangeReason, TaskRelationKind } from '@projectman/shared';
 import type { LabelView, TimelineEvent } from '@projectman/shared';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { labelName } from './labels';
@@ -69,6 +69,12 @@ function fieldText(field: string, data: Record<string, unknown>): string {
     : fieldLabel(field);
 }
 
+/** The name of a relation kind as the card that shows it sees it; a kind this build does not know shows as it is. */
+export function relationKindLabel(kind: string): string {
+  const parsed = TaskRelationKind.safeParse(kind);
+  return parsed.success ? t(`relations.kinds.${parsed.data}`) : kind;
+}
+
 export function linkLabel(kind: string, ref: string, repo?: string): string {
   switch (kind) {
     case 'pull_request':
@@ -78,7 +84,9 @@ export function linkLabel(kind: string, ref: string, repo?: string): string {
     case 'issue':
       return t('links.issueLabel', { number: ref });
     case 'prerequisite':
-      return `${t('links.kinds.prerequisite')}: ${ref}`;
+    case 'related':
+    case 'duplicate_of':
+      return `${t(`links.kinds.${kind}`)}: ${ref}`;
     default:
       return ref;
   }
@@ -138,9 +146,11 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
     case 'task_updated': {
       if (d.action === 'cancelled')
         return normal(
-          d.reason
-            ? t('timeline.events.task_cancelled_reason', { reason: str(d.reason) })
-            : t('timeline.events.task_cancelled'),
+          d.duplicateOf
+            ? t('timeline.events.task_cancelled_duplicate', { original: str(d.duplicateOf) })
+            : d.reason
+              ? t('timeline.events.task_cancelled_reason', { reason: str(d.reason) })
+              : t('timeline.events.task_cancelled'),
         );
       if (d.action === 'reopened') return normal(t('timeline.events.task_reopened'));
       // Gate outcomes are recorded as task updates by the server.
@@ -215,6 +225,14 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       return normal(
         t('timeline.events.task_link_added', {
           link: linkLabel(str(d.kind), str(d.ref), d.repo ? str(d.repo) : undefined),
+        }),
+      );
+    case 'task_relation_added':
+    case 'task_relation_removed':
+      return normal(
+        t(event.type === 'task_relation_added' ? 'timeline.relationAdded' : 'timeline.relationRemoved', {
+          kind: relationKindLabel(str(d.kind)),
+          ref: str(d.ref),
         }),
       );
     case 'task_note':

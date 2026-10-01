@@ -12,6 +12,7 @@ import { formatAgo } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
 import {
   FREE_ANSWER_OPTION_ID,
+  alertText,
   boundaryOf,
   delegationNote,
   gateMoveText,
@@ -85,6 +86,7 @@ export function InboxCard({
   const extras = questionExtras(item);
   const boundary = boundaryOf(item);
   const delegation = delegationNote(item, members, myHandle);
+  const alert = alertText(item, members, myHandle);
   const [boundaryReason, setBoundaryReason] = useState<BoundaryReason>('scope_verified');
   // A question that recommends an option or describes what each one does lists its options with
   // that text; every other item keeps its row of buttons.
@@ -155,6 +157,7 @@ export function InboxCard({
           </label>
         </div>
       ) : null}
+      {alert ? <p className={styles.body}>{alert}</p> : null}
       {item.body ? (
         item.kind === 'approval' ? (
           <blockquote className={styles.preview}>{item.body}</blockquote>

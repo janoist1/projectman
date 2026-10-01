@@ -3,6 +3,7 @@ import { Actor } from './event';
 import { LabelId } from './label';
 import { MemberHandle } from './member';
 import { StageId } from './pipeline';
+import { WorkItemRef } from './session';
 import { TaskKey } from './task';
 
 /**
@@ -11,8 +12,11 @@ import { TaskKey } from './task';
  * - decision:   a gate that needs a human approval (merge, release, ...)
  * - question:   an AI member asked a human something (ask_human tool)
  * - approval:   a proposed change (e.g. an email draft or a config change)
+ * - boundary:   an external operation a member asked for
+ * - alert:      something the owners should notice, with nothing to decide ("Láttam"); see
+ *               `AlertPayload`
  */
-export const InboxKind = z.enum(['permission', 'decision', 'question', 'approval', 'boundary']);
+export const InboxKind = z.enum(['permission', 'decision', 'question', 'approval', 'boundary', 'alert']);
 export type InboxKind = z.infer<typeof InboxKind>;
 
 export const InboxOption = z.object({
@@ -89,6 +93,34 @@ export type GateRequestPayload = z.infer<typeof GateRequestPayload>;
 /** The gate request of a decision item, or null when the item has none (or an unreadable one). */
 export function gateRequestOf(item: Pick<InboxItem, 'payload'>): GateRequestPayload | null {
   const parsed = GateRequestPayload.safeParse(item.payload.gate);
+  return parsed.success ? parsed.data : null;
+}
+
+/** The one option of an `alert` item: the owner has seen it. The web app translates the id. */
+export const ALERT_SEEN_OPTION: InboxOption = { id: 'seen', label: 'seen', style: 'primary' };
+
+/**
+ * `payload` of an `alert` item: `alert` names what happened. `session_tokens` (PM-187): a session's
+ * usage reached the project's warning limit (`countedTokens` as `limitTokens` counts them, and
+ * `limitTokens` the limit then); the item's `source` is the member and its `sessionId` the session.
+ */
+export const SessionTokensAlert = z.object({
+  alert: z.literal('session_tokens'),
+  countedTokens: z.number().int().nonnegative(),
+  limitTokens: z.number().int().positive(),
+  workItem: WorkItemRef,
+  /** When the session started (ISO time). */
+  sessionStartedAt: z.string(),
+});
+export type SessionTokensAlert = z.infer<typeof SessionTokensAlert>;
+
+export const AlertPayload = z.discriminatedUnion('alert', [SessionTokensAlert]);
+export type AlertPayload = z.infer<typeof AlertPayload>;
+
+/** The alert payload of an item, or null when it is no alert (or an unreadable or unknown one). */
+export function alertPayloadOf(item: Pick<InboxItem, 'kind' | 'payload'>): AlertPayload | null {
+  if (item.kind !== 'alert') return null;
+  const parsed = AlertPayload.safeParse(item.payload);
   return parsed.success ? parsed.data : null;
 }
 

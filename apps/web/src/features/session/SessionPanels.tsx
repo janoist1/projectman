@@ -1,10 +1,11 @@
 import { LabelChip } from '../../components/LabelChip';
+import { limitTokens, usageTotal } from '@projectman/shared';
 import type { LabelView, Session, Task, TaskPullRequest } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
 import { Chip } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
 import { TokenUsageList } from '../../components/TokenUsage';
-import { formatStamp } from '../../i18n/format';
+import { formatStamp, formatTokens } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
@@ -112,7 +113,8 @@ const PARTIAL_AFTER_MS = 60_000;
 /**
  * The tokens the session used (PM-178), per model, its subagents' on their own lines. A session
  * from before the measurement has no data; one resumed after it says since when it is counted.
- * Codex's subagents are not measured.
+ * Codex's subagents are not measured. Below the rows: the number the warning limit is measured in
+ * (`limitTokens`, PM-187), and when the session reached it.
  */
 export function UsagePanel({ session, provider }: { session: Session; provider: string | undefined }) {
   const usage = session.usage;
@@ -123,6 +125,20 @@ export function UsagePanel({ session, provider }: { session: Session; provider: 
         {t('tokenUsage.title')}
       </h2>
       <TokenUsageList rows={usage?.rows ?? null} noData={t('tokenUsage.noDataSession')} />
+      {usage && usage.rows.length > 0 ? (
+        <p className={styles.muted} title={t('tokenUsage.countedHelp')}>
+          {t('tokenUsage.counted', { count: formatTokens(limitTokens(usageTotal(usage.rows))) })}
+        </p>
+      ) : null}
+      {session.usageAlert ? (
+        <p role="note">
+          {t('tokenUsage.alert', {
+            time: formatStamp(session.usageAlert.at),
+            counted: formatTokens(session.usageAlert.countedTokens),
+            limit: formatTokens(session.usageAlert.limitTokens),
+          })}
+        </p>
+      ) : null}
       {partial ? (
         <p className={styles.muted}>{t('tokenUsage.since', { time: formatStamp(usage.since) })}</p>
       ) : null}

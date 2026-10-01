@@ -27,6 +27,14 @@ export const SessionState = z.enum([
 ]);
 export type SessionState = z.infer<typeof SessionState>;
 
+/** When a session's usage reached the warning limit (PM-187), with the two numbers at that moment. */
+export const SessionUsageAlert = z.object({
+  at: z.string(),
+  countedTokens: z.number().int().nonnegative(),
+  limitTokens: z.number().int().positive(),
+});
+export type SessionUsageAlert = z.infer<typeof SessionUsageAlert>;
+
 export const Session = z.object({
   /** Our id ("ses_..."). */
   id: z.string(),
@@ -72,5 +80,10 @@ export const Session = z.object({
    * when nothing was measured: a session from before the measurement (or an older server).
    */
   usage: UsageSummary.optional(),
+  /**
+   * The session's usage reached the project's warning limit (PM-187): when, what it counted
+   * (`limitTokens`) and the limit then. Absent: it has not. Set once; the session keeps running.
+   */
+  usageAlert: SessionUsageAlert.optional(),
 });
 export type Session = z.infer<typeof Session>;

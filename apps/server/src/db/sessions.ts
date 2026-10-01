@@ -9,6 +9,7 @@ import type {
   ExecutionProfile,
   Session,
   SessionState,
+  SessionUsageAlert,
   TokenUsage,
   WorkItemRef,
 } from '@projectman/shared';
@@ -36,6 +37,9 @@ interface SessionRow {
   permission_restart_pending: number;
   permission_grants_lost: number;
   usage_since: string | null;
+  usage_alert_at: string | null;
+  usage_alert_tokens: number | null;
+  usage_alert_limit: number | null;
 }
 
 /** Token usage rows summed per model and scope. */
@@ -91,6 +95,15 @@ const baseSession = (r: SessionRow): Session => ({
   ...(Approver.safeParse(r.approver).success ? { approverOverride: r.approver as Approver } : {}),
   ...(r.permission_restart_pending ? { permissionRestartPending: true as const } : {}),
   ...(r.permission_grants_lost ? { permissionGrantsLost: true as const } : {}),
+  ...(r.usage_alert_at
+    ? {
+        usageAlert: {
+          at: r.usage_alert_at,
+          countedTokens: r.usage_alert_tokens ?? 0,
+          limitTokens: r.usage_alert_limit ?? 0,
+        },
+      }
+    : {}),
 });
 
 /** A summed row of the token_usage table. */
@@ -152,6 +165,10 @@ export function createSessionRepository(db: Db) {
     get: db.prepare('SELECT * FROM sessions WHERE id = ?'),
     profile: db.prepare('SELECT execution_profile FROM sessions WHERE id = ?'),
     setProfile: db.prepare('UPDATE sessions SET execution_profile = ? WHERE id = ?'),
+    markUsageAlert: db.prepare(
+      `UPDATE sessions SET usage_alert_at = ?, usage_alert_tokens = ?, usage_alert_limit = ?
+       WHERE id = ? AND usage_alert_at IS NULL`,
+    ),
     insert: db.prepare(
       `INSERT INTO sessions (id, project_key, member, work_item_type, work_item_ref, claude_session_id, provider,
          cwd, branch, transcript_path, state, activity, started_at, last_activity_at, ended_at)
@@ -207,6 +224,13 @@ export function createSessionRepository(db: Db) {
     },
     setExecutionProfile(id: string, profile: ExecutionProfile): void {
       statements.setProfile.run(profile, id);
+    },
+    /**
+     * Marks that the session's usage reached the warning limit (PM-187), unless it already is:
+     * true when this call marked it, so only one caller raises the warning.
+     */
+    markUsageAlert(id: string, alert: SessionUsageAlert): boolean {
+      return statements.markUsageAlert.run(alert.at, alert.countedTokens, alert.limitTokens, id).changes > 0;
     },
     insert(s: Session): void {
       const wi = encodeWorkItem(s.workItem);

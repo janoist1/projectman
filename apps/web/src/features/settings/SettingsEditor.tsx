@@ -56,11 +56,15 @@ export function SettingsEditingProvider({
 
 /** The part of the configuration a section saves (labels live in the pipeline). */
 function patchBody(section: Section, draft: ProjectConfig, baseVersion: string): PatchConfigRequest {
-  // A removed cap is sent as null: a missing field would leave the stored one as it is.
+  // A removed cap or warning limit is sent as null: a missing field would leave the stored one as it is.
   if (section === 'limits')
     return {
       baseVersion,
-      limits: { ...draft.team.limits, maxConcurrentAi: draft.team.limits.maxConcurrentAi ?? null },
+      limits: {
+        ...draft.team.limits,
+        maxConcurrentAi: draft.team.limits.maxConcurrentAi ?? null,
+        warnAboveSessionTokens: draft.team.limits.warnAboveSessionTokens ?? null,
+      },
       ...(draft.team.boundary ? { boundary: draft.team.boundary } : {}),
     };
   if (section === 'project')

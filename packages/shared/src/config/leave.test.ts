@@ -91,3 +91,32 @@ describe('the cap on concurrent AI sessions', () => {
     expect(() => patch({ maxConcurrentAi: 0 })).toThrow();
   });
 });
+
+describe("the warning limit of a session's tokens (PM-187)", () => {
+  const patch = (limits: Record<string, unknown>) => PatchConfigRequest.parse({ baseVersion: 'v1', limits });
+
+  it('is absent in a configuration that does not name it', () => {
+    expect(configWith().team.limits).not.toHaveProperty('warnAboveSessionTokens');
+  });
+
+  it('is a whole number from 10 000 to 1 000 000 000', () => {
+    expect(configWith({ warnAboveSessionTokens: 2_000_000 }).team.limits.warnAboveSessionTokens).toBe(
+      2_000_000,
+    );
+    expect(() => configWith({ warnAboveSessionTokens: 9_999 })).toThrow();
+    expect(() => configWith({ warnAboveSessionTokens: 1_000_000_001 })).toThrow();
+    expect(() => configWith({ warnAboveSessionTokens: 20_000.5 })).toThrow();
+    expect(() => patch({ warnAboveSessionTokens: 0 })).toThrow();
+  });
+
+  it('is set by a number, removed by null and kept when the patch does not name it', () => {
+    const set = applyConfigPatch(configWith(), patch({ warnAboveSessionTokens: 500_000 }));
+    expect(set.team.limits.warnAboveSessionTokens).toBe(500_000);
+    expect(applyConfigPatch(set, patch({ aiEnabled: false })).team.limits.warnAboveSessionTokens).toBe(
+      500_000,
+    );
+    expect(applyConfigPatch(set, patch({ warnAboveSessionTokens: null })).team.limits).not.toHaveProperty(
+      'warnAboveSessionTokens',
+    );
+  });
+});

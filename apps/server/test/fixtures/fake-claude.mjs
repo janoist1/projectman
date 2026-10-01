@@ -51,8 +51,8 @@
  *     agent_type "Explore" and agent_transcript_path.
  *   - always: assistant text "Echo: <first line of the prompt>" (a thinking entry first, with the
  *     same message id and a placeholder output count of 1), then the Stop hook.
- *   Every response's usage: input 10, output 5, cache read 100, cache write 20, model --model
- *   (default "claude-fake").
+ *   Every response's usage: input 10 (or FAKE_CLAUDE_INPUT_TOKENS), output 5, cache read 100,
+ *   cache write 20, model --model (default "claude-fake").
  * - "/clear": SessionEnd (reason "clear"), a new session id and transcript file, then
  *   SessionStart with source "clear" (no UserPromptSubmit, like Claude Code's own commands).
  * - "/exit", double Ctrl+C, Ctrl+D, SIGTERM or SIGHUP: SessionEnd hook, exit code 0.
@@ -310,7 +310,7 @@ async function interactive() {
   let messageCounter = 0;
   /** Every response's usage; `outputTokens` overrides its output (a placeholder of an early block). */
   const usage = (outputTokens = 5) => ({
-    input_tokens: 10,
+    input_tokens: Number(process.env.FAKE_CLAUDE_INPUT_TOKENS ?? 10),
     output_tokens: outputTokens,
     cache_read_input_tokens: 100,
     cache_creation_input_tokens: 20,

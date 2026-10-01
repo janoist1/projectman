@@ -10,6 +10,7 @@ import { MigrationRefused, createPackage } from '../../../scripts/migrate/packag
 import { parsePathMapping } from '../../../scripts/migrate/paths';
 import { verifyHome } from '../../../scripts/migrate/verify';
 import { buildApp } from '../src/app';
+import { LATEST_SCHEMA_VERSION, migrations } from '../src/db';
 import { instanceRole } from '../src/instance';
 import { createTranscriptReader } from '../src/runner/transcript/reader';
 import { createFakeMcp, createFakeRunnerModule, FakeGithub } from './helpers/fakes';
@@ -376,13 +377,33 @@ describe('the migrated copy as a running server', () => {
   });
 
   it('migrates an older database to this build in the copy', async () => {
-    // The package's database is rewound to schema 12 by dropping what 13 to 15 added.
+    // The package's database is replaced by a real schema-12 database: a fresh file with the migrations up
+    // to 12 only (so no later migration can break the test), holding an account, a project, a task and a
+    // conversation as the old build wrote them.
     const dbFile = join(pkg, 'home', 'db.sqlite');
+    rmSync(dbFile);
     const db = new Database(dbFile);
-    db.exec(
-      'DROP TABLE egress_allowances; DROP TABLE egress_operations; DROP TABLE task_workspace_bindings; DROP TABLE member_workspaces; ALTER TABLE sessions DROP COLUMN execution_profile; ALTER TABLE task_links DROP COLUMN author_source;',
-    );
+    for (const m of migrations.filter((m) => m.version <= 12)) db.exec(m.sql);
     db.pragma('user_version = 12');
+    const at = '2026-09-30T10:00:00.000Z';
+    db.prepare('INSERT INTO users (id, name, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)').run(
+      'u1',
+      'Owner',
+      'owner@example.com',
+      'hash',
+      at,
+    );
+    db.prepare(
+      'INSERT INTO projects (key, name, template_id, config_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run('AR', 'acme', 'test', 'v1', at, at);
+    db.prepare(
+      `INSERT INTO tasks (id, project_key, key, seq, title, stage_id, status, visibility, created_by, created_at, updated_at)
+       VALUES ('t1', 'AR', 'AR-1', 1, 'Old task', 'backlog', 'active', 'internal', 'owner', ?, ?)`,
+    ).run(at, at);
+    db.prepare(
+      `INSERT INTO sessions (id, project_key, member, work_item_type, work_item_ref, claude_session_id, cwd, state, started_at, last_activity_at)
+       VALUES ('ses_old', 'AR', 'dev-1', 'task', 'AR-1', '00000000-0000-4000-8000-000000000001', ?, 'exited', ?, ?)`,
+    ).run(src.workspace, at, at);
     db.close();
     // Rebuild the manifest's checksums for the edited file.
     const { sha256File } = await import('../../../scripts/migrate/package');
@@ -393,7 +414,14 @@ describe('the migrated copy as a running server', () => {
     writeFileSync(manifestPath, JSON.stringify(manifest));
     const report = await applyPackage({ packageDir: pkg, targetHome: target, mappings: mapping() });
     expect(report.schema.source).toBe(12);
-    expect(report.schema.target).toBeGreaterThan(12);
+    expect(report.schema.target).toBe(LATEST_SCHEMA_VERSION);
     expect(dbRows<{ n: number }>(target, 'SELECT count(*) AS n FROM tasks')[0]!.n).toBe(1);
+    // The old conversation got the defaults of the later migrations and its path was translated.
+    expect(
+      dbRows<{ cwd: string; execution_profile: string; provider: string }>(
+        target,
+        'SELECT cwd, execution_profile, provider FROM sessions',
+      ),
+    ).toEqual([{ cwd: vmRepo, execution_profile: 'legacy', provider: 'claude' }]);
   });
 });

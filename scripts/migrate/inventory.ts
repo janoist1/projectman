@@ -693,8 +693,18 @@ export async function buildInventory(options: InventoryOptions): Promise<Invento
           subject,
           `${entry.stashes} stash entries travel in the bundle, each with its message, and are stored again in the same order`,
         );
-      if (!entry.branch && entry.head && !(await refContains(repo.path, entry.head)))
-        entry.orphanHeads.push({ sha: entry.head, where: repo.path });
+      if (!entry.branch && entry.head) {
+        const orphan = !(await refContains(repo.path, entry.head));
+        if (orphan) entry.orphanHeads.push({ sha: entry.head, where: repo.path });
+        add(
+          'warning',
+          'detached_head',
+          `${subject} main checkout`,
+          orphan
+            ? `HEAD is detached at ${entry.head.slice(0, 12)}, a commit no branch holds: it is carried and kept as the branch migrated/detached-${entry.head.slice(0, 12)}`
+            : `HEAD is detached at ${entry.head.slice(0, 12)} (a commit a branch holds, carried with it)`,
+        );
+      }
       const listed = parseWorktrees((await git(repo.path, ['worktree', 'list', '--porcelain'])).stdout);
       for (const w of listed.slice(1)) {
         const info: WorktreeInfo = {

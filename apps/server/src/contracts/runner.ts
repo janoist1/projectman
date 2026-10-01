@@ -153,7 +153,10 @@ export interface SessionRunner {
    * With the launcher (managed VM) every member's worker has its own login: `member` names whose
    * login to check (without it, the server's own login is checked).
    */
-  providerStatus?(provider: AgentProvider, opts?: { refresh?: boolean; member?: string }): Promise<ProviderStatus>;
+  providerStatus?(
+    provider: AgentProvider,
+    opts?: { refresh?: boolean; member?: string },
+  ): Promise<ProviderStatus>;
 }
 
 /** Tool permission request coming from the CLI's PermissionRequest hook. */

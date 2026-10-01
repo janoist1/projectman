@@ -5,7 +5,8 @@ import type { ProjectConfig } from '@projectman/shared';
 import { AuthService } from '../../src/auth';
 import { createConfigStore } from '../../src/config';
 import { createRepositories, openDatabase } from '../../src/db';
-import type { AttachmentStorage, BoundaryOperationAdapter } from '../../src/contracts';
+import type { AttachmentStorage, BoundaryOperationAdapter, RuntimeBoundary } from '../../src/contracts';
+import type { EgressSettings } from '../../src/domain';
 import {
   attachmentToolRules,
   createAttachmentStorage,
@@ -67,6 +68,10 @@ export async function createDomainHarness(
     memberWorkspaces?: boolean;
     /** The process ids the workspace reservation sees as still running (default: none). */
     liveProcesses?: Set<number>;
+    /** The VM boundary (PM-140); default none. */
+    runtimeBoundary?: RuntimeBoundary;
+    /** The network gate's settings (PM-140). */
+    egress?: EgressSettings;
   } = {},
 ) {
   const restarted = opts.directory !== undefined;
@@ -94,6 +99,8 @@ export async function createDomainHarness(
 
   const domain: Domain = createDomain({
     boundaryAdapter: opts.boundaryAdapter,
+    runtimeBoundary: opts.runtimeBoundary,
+    egress: opts.egress,
     repos,
     configStore,
     logger: log.logger,

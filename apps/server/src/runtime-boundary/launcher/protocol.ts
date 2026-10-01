@@ -26,7 +26,9 @@ const Args = z
   .refine((args) => args.reduce((n, a) => n + a.length, 0) <= MAX_REQUEST_BYTES, {
     message: 'arguments too long',
   });
-const Cwd = NoNul.min(1).max(1024).refine((p) => !/[\n\r]/.test(p), { message: 'line break' });
+const Cwd = NoNul.min(1)
+  .max(1024)
+  .refine((p) => !/[\n\r]/.test(p), { message: 'line break' });
 
 export const PingRequest = z.strictObject({ op: z.literal('ping') });
 export const RunRequest = z.strictObject({
@@ -83,8 +85,15 @@ export const StartAnswer = z.strictObject({ ok: z.literal(true), pid: z.number()
 /** Service -> launcher, after a successful start. */
 export const ClientFrame = z.discriminatedUnion('t', [
   z.strictObject({ t: z.literal('input'), data: z.string().max(MAX_FRAME_BYTES) }),
-  z.strictObject({ t: z.literal('resize'), cols: z.number().int().min(20).max(500), rows: z.number().int().min(5).max(300) }),
-  z.strictObject({ t: z.literal('kill'), signal: z.enum(['SIGTERM', 'SIGKILL', 'SIGINT', 'SIGHUP']).optional() }),
+  z.strictObject({
+    t: z.literal('resize'),
+    cols: z.number().int().min(20).max(500),
+    rows: z.number().int().min(5).max(300),
+  }),
+  z.strictObject({
+    t: z.literal('kill'),
+    signal: z.enum(['SIGTERM', 'SIGKILL', 'SIGINT', 'SIGHUP']).optional(),
+  }),
 ]);
 export type ClientFrame = z.infer<typeof ClientFrame>;
 

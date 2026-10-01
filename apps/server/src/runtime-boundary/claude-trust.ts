@@ -11,7 +11,8 @@ async function main(): Promise<void> {
   const home = process.env.HOME;
   const dir = process.argv[2];
   if (!home || !path.isAbsolute(home)) throw new Error('HOME is not set');
-  if (!dir || !path.isAbsolute(dir) || path.normalize(dir) !== dir) throw new Error('an absolute directory is required');
+  if (!dir || !path.isAbsolute(dir) || path.normalize(dir) !== dir)
+    throw new Error('an absolute directory is required');
   if (dir !== home && !dir.startsWith(`${home}/`)) throw new Error('the directory must be inside HOME');
   const outcome = await ensureWorkspaceTrusted(path.join(home, '.claude.json'), dir);
   process.stdout.write(`${JSON.stringify({ result: outcome.result })}\n`);

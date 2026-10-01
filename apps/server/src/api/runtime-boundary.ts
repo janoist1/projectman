@@ -26,11 +26,14 @@ export function registerRuntimeBoundaryRoutes(app: FastifyInstance, domain: Doma
       readiness: null,
     };
   });
-  app.get<{ Params: { key: string } }>(routes.egressAllowances(':key'), async (request): Promise<EgressAllowance[]> => {
-    const { key } = request.params;
-    const access = await requireAccess(domain, request, key, { minimum: 'owner' });
-    return domain.egress.listAllowances(key, access.handle);
-  });
+  app.get<{ Params: { key: string } }>(
+    routes.egressAllowances(':key'),
+    async (request): Promise<EgressAllowance[]> => {
+      const { key } = request.params;
+      const access = await requireAccess(domain, request, key, { minimum: 'owner' });
+      return domain.egress.listAllowances(key, access.handle);
+    },
+  );
   app.post<Params>(routes.revokeEgressAllowance(':key', ':id'), async (request): Promise<EgressAllowance> => {
     const { key, id } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'owner' });

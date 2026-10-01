@@ -29,7 +29,12 @@ export function workerWorkspaceAccess(opts: {
     return MEMBER_HANDLE.test(handle) ? handle : null;
   }
 
-  async function run(owner: string, program: WorkerProgram, args: string[], timeoutMs?: number): Promise<string> {
+  async function run(
+    owner: string,
+    program: WorkerProgram,
+    args: string[],
+    timeoutMs?: number,
+  ): Promise<string> {
     const result = await launcher.run({
       member: owner,
       program,
@@ -84,15 +89,27 @@ export function workerWorkspaceAccess(opts: {
       const handed = path.posix.join(layout.spoolIn(owner), `${id}.bundle`);
       try {
         if (source.owner === null) {
-          await git([...SAFE_GIT_SETTINGS, '-C', source.path, 'bundle', 'create', '--quiet', handed, ...source.refs], {
-            isolatedConfig: true,
-            timeoutMs: 10 * 60_000,
-          });
+          await git(
+            [...SAFE_GIT_SETTINGS, '-C', source.path, 'bundle', 'create', '--quiet', handed, ...source.refs],
+            {
+              isolatedConfig: true,
+              timeoutMs: 10 * 60_000,
+            },
+          );
         } else {
           // The teammate's worker bundles its own branch; the server only copies the file.
           const out = path.posix.join(layout.spoolOut(source.owner), `${id}.bundle`);
           try {
-            await run(source.owner, 'git', [...SAFE_GIT_SETTINGS, '-C', source.path, 'bundle', 'create', '--quiet', out, ...source.refs]);
+            await run(source.owner, 'git', [
+              ...SAFE_GIT_SETTINGS,
+              '-C',
+              source.path,
+              'bundle',
+              'create',
+              '--quiet',
+              out,
+              ...source.refs,
+            ]);
             await copyFile(out, handed);
           } finally {
             await run(source.owner, 'rm', ['-f', '--', out]).catch(() => undefined);

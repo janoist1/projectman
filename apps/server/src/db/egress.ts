@@ -95,8 +95,7 @@ export function createEgressRepository(db: Db) {
     /** The session's newest unexpired operation for the destination. */
     sessionOperation(sessionId: string, destination: EgressDestination, now: string): EgressOperation | null {
       const row = sessionOperation.get(sessionId, destination.host, destination.port, now) as
-        | OperationRow
-        | undefined;
+        OperationRow | undefined;
       return row ? toOperation(row) : null;
     },
     countForSession(sessionId: string): number {
@@ -136,8 +135,7 @@ export function createEgressRepository(db: Db) {
       now: string,
     ): EgressAllowance | null {
       const row = activeAllowance.get(projectKey, member, destination.host, destination.port, now) as
-        | AllowanceRow
-        | undefined;
+        AllowanceRow | undefined;
       return row ? toAllowance(row) : null;
     },
     allowance(id: string): EgressAllowance | null {

@@ -68,7 +68,10 @@ class RemoteSession implements LaunchedSession {
       if (this.dataListeners.length === 0) this.pendingData.push(parsed.data.data);
       else for (const listener of this.dataListeners) listener(parsed.data.data);
     } else {
-      this.exited({ exitCode: parsed.data.exitCode, ...(parsed.data.signal === null ? {} : { signal: parsed.data.signal }) });
+      this.exited({
+        exitCode: parsed.data.exitCode,
+        ...(parsed.data.signal === null ? {} : { signal: parsed.data.signal }),
+      });
     }
   }
 
@@ -129,7 +132,9 @@ export function createLauncherClient(opts: LauncherClientOptions): SessionLaunch
       try {
         conn = connect();
       } catch (err) {
-        reject(new LauncherClientError('unreachable', `the launcher is unreachable: ${(err as Error).message}`));
+        reject(
+          new LauncherClientError('unreachable', `the launcher is unreachable: ${(err as Error).message}`),
+        );
         return;
       }
       let answered = false;

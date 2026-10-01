@@ -233,7 +233,9 @@ export function createDomain(opts: DomainOptions) {
     timeline,
     adapter: {
       resolve: (requester, operationId) =>
-        egress.resolve(requester, operationId) ?? opts.boundaryAdapter?.resolve(requester, operationId) ?? null,
+        egress.resolve(requester, operationId) ??
+        opts.boundaryAdapter?.resolve(requester, operationId) ??
+        null,
     },
     notify(request, recipients) {
       const config = projects.cachedConfig(request.projectKey);

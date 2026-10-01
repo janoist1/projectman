@@ -29,12 +29,15 @@ export async function readinessProblems(opts: {
   }
   const verdict = evaluateVmReadiness(report, { now: opts.now, maxAgeMs: opts.maxAgeMs });
   const problems: string[] = [];
-  if (report.profile.version !== opts.profileVersion || verdict.problems.some((p) => p.startsWith('report is for')))
+  if (
+    report.profile.version !== opts.profileVersion ||
+    verdict.problems.some((p) => p.startsWith('report is for'))
+  )
     problems.push('readiness_wrong_profile');
-  if (verdict.problems.some((p) => p.includes('too old')))
-    problems.push('readiness_report_stale');
+  if (verdict.problems.some((p) => p.includes('too old'))) problems.push('readiness_report_stale');
   if (verdict.problems.some((p) => p.startsWith('duplicated'))) problems.push('readiness_report_invalid');
-  for (const id of [...verdict.missing, ...verdict.failed, ...verdict.unverified]) problems.push(`readiness:${id}`);
+  for (const id of [...verdict.missing, ...verdict.failed, ...verdict.unverified])
+    problems.push(`readiness:${id}`);
   return {
     problems,
     readiness: {

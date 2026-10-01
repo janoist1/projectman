@@ -65,7 +65,11 @@ export const BoundaryConfig = z.strictObject({
   }),
   readiness: z.strictObject({
     report: AbsolutePath,
-    maxAgeSeconds: z.number().int().min(60).max(7 * 86_400),
+    maxAgeSeconds: z
+      .number()
+      .int()
+      .min(60)
+      .max(7 * 86_400),
   }),
   /** The app's loopback port (hooks and MCP), the only service port a worker needs. */
   appPort: z.number().int().min(1).max(65_535),

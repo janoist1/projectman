@@ -12,8 +12,7 @@ import { MAX_CLIENT_HELLO_BYTES, parseClientHello } from './sni';
 /** The account and session of a connection, or why it has none. */
 export type ProxyIdentity<I> = { identity: I } | { denial: EgressDenial };
 export type ProxyDecision =
-  | { allowed: true }
-  | { allowed: false; denial: EgressDenial; operationId: string | null };
+  { allowed: true } | { allowed: false; denial: EgressDenial; operationId: string | null };
 
 export interface PeerAddress {
   remoteAddress: string;
@@ -54,7 +53,11 @@ export function proxyToken(header: string | undefined): string | null {
 }
 
 /** The refusal shown to the session: what was refused and how to ask for it. No secrets. */
-export function denialText(destination: EgressDestination | null, denial: EgressDenial, operationId: string | null): string {
+export function denialText(
+  destination: EgressDestination | null,
+  denial: EgressDenial,
+  operationId: string | null,
+): string {
   const what = destination ? `${destination.host}:${destination.port}` : 'this destination';
   const lines = [`projectman egress: ${what} is outside the VM boundary (${denial}).`];
   if (operationId)
@@ -62,7 +65,9 @@ export function denialText(destination: EgressDestination | null, denial: Egress
       `Ask for it with the team tool submit_boundary_request, operation_id "${operationId}"; list_network_denials lists it again.`,
     );
   else if (denial === 'no_session')
-    lines.push('Only a session started by projectman can ask for a destination (its proxy settings carry its credentials).');
+    lines.push(
+      'Only a session started by projectman can ask for a destination (its proxy settings carry its credentials).',
+    );
   return `${lines.join('\n')}\n`;
 }
 
@@ -119,7 +124,10 @@ export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
   }
 
   /** Waits for the client's ClientHello; resolves with its bytes and server name, or a refusal. */
-  function readHello(socket: Duplex, head: Buffer): Promise<{ bytes: Buffer; serverName: string | null } | null> {
+  function readHello(
+    socket: Duplex,
+    head: Buffer,
+  ): Promise<{ bytes: Buffer; serverName: string | null } | null> {
     return new Promise((resolve) => {
       let buffered = head;
       let done = false;
@@ -194,7 +202,10 @@ export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
     const hello = await readHello(socket, head);
     const expected = isIpLiteral(destination.host) ? null : destination.host;
     if (!hello || (hello.serverName ?? null) !== expected) {
-      log.warn({ host: destination.host, serverName: hello?.serverName ?? null }, 'egress tunnel refused: TLS name mismatch');
+      log.warn(
+        { host: destination.host, serverName: hello?.serverName ?? null },
+        'egress tunnel refused: TLS name mismatch',
+      );
       socket.destroy();
       return;
     }
@@ -210,7 +221,8 @@ export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
       socket.destroy();
       upstream.destroy();
     };
-    if ('setTimeout' in socket && typeof socket.setTimeout === 'function') socket.setTimeout(idleTimeoutMs, idle);
+    if ('setTimeout' in socket && typeof socket.setTimeout === 'function')
+      socket.setTimeout(idleTimeoutMs, idle);
     socket.on('close', () => upstream.destroy());
     upstream.on('close', () => socket.destroy());
   }

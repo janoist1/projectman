@@ -121,7 +121,12 @@ export class EgressService {
       return { allowed: false, denial: 'member_inactive', operationId: null };
     const now = this.ctx.now();
     const at = now.toISOString();
-    const allowance = this.ctx.repos.egress.activeAllowance(session.projectKey, session.member, destination, at);
+    const allowance = this.ctx.repos.egress.activeAllowance(
+      session.projectKey,
+      session.member,
+      destination,
+      at,
+    );
     if (allowance) return { allowed: true, via: 'allowance', allowanceId: allowance.id };
     const consumed = await this.consumeGrant(session, destination, at);
     if (consumed) return { allowed: true, via: 'allowance', allowanceId: consumed.id };
@@ -273,7 +278,12 @@ export class EgressService {
     };
     this.ctx.repos.egress.insertOperation(operation);
     this.ctx.logger.info(
-      { projectKey: session.projectKey, member: session.member, host: destination.host, port: destination.port },
+      {
+        projectKey: session.projectKey,
+        member: session.member,
+        host: destination.host,
+        port: destination.port,
+      },
       'egress destination refused',
     );
     return { allowed: false, denial: 'not_allowed', operationId: operation.id };

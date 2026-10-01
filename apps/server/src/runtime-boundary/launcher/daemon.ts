@@ -62,7 +62,11 @@ export interface LauncherChild {
 export interface LauncherDeps {
   config: BoundaryConfig;
   accounts: AccountLookup;
-  spawnPty(file: string, args: string[], opts: { cols: number; rows: number; env: Record<string, string> }): LauncherPty;
+  spawnPty(
+    file: string,
+    args: string[],
+    opts: { cols: number; rows: number; env: Record<string, string> },
+  ): LauncherPty;
   spawnChild(file: string, args: string[], opts: { env: Record<string, string> }): LauncherChild;
   log(level: 'info' | 'warn' | 'error', fields: Record<string, unknown>, message: string): void;
 }
@@ -102,7 +106,11 @@ export class LauncherRefusal extends Error {
 }
 
 /** The worker account of a member, checked against the configuration. */
-export function workerAccount(config: BoundaryConfig, accounts: AccountLookup, member: string): WorkerAccount {
+export function workerAccount(
+  config: BoundaryConfig,
+  accounts: AccountLookup,
+  member: string,
+): WorkerAccount {
   const user = `${config.workers.prefix}${member}`;
   const account = accounts.byName(user);
   const home = path.posix.join(config.workers.homeRoot, member);
@@ -121,7 +129,10 @@ export function workerAccount(config: BoundaryConfig, accounts: AccountLookup, m
 /** A working directory: normalized, absolute and inside the worker's home. */
 export function checkCwd(worker: WorkerAccount, cwd: string): string {
   if (!path.posix.isAbsolute(cwd) || path.posix.normalize(cwd) !== cwd || (cwd.endsWith('/') && cwd !== '/'))
-    throw new LauncherRefusal('cwd_outside_home', 'the working directory must be an absolute, normalized path');
+    throw new LauncherRefusal(
+      'cwd_outside_home',
+      'the working directory must be an absolute, normalized path',
+    );
   if (!isWithin(cwd, worker.home))
     throw new LauncherRefusal('cwd_outside_home', 'the working directory must be inside the worker home');
   return cwd;
@@ -294,7 +305,9 @@ export function createLauncher(deps: LauncherDeps) {
   const sessions = new Map<string, LiveSession>();
 
   function stopUnit(unit: string, signal?: string): void {
-    const args = signal ? ['kill', `--signal=${signal}`, '--', `${unit}.service`] : ['stop', '--no-block', '--', `${unit}.service`];
+    const args = signal
+      ? ['kill', `--signal=${signal}`, '--', `${unit}.service`]
+      : ['stop', '--no-block', '--', `${unit}.service`];
     try {
       const child = deps.spawnChild(config.systemctl, args, { env: LAUNCHER_ENV });
       child.on('error', () => undefined);
@@ -352,21 +365,30 @@ export function createLauncher(deps: LauncherDeps) {
   }
 
   function handleStart(conn: Duplex, request: StartRequest): void {
-    if (sessions.has(request.sessionId)) throw new LauncherRefusal('session_exists', 'the session is running');
+    if (sessions.has(request.sessionId))
+      throw new LauncherRefusal('session_exists', 'the session is running');
     if (sessions.size >= config.launcher.maxSessions)
       throw new LauncherRefusal('too_many_sessions', 'too many sessions are running');
     const worker = workerAccount(config, deps.accounts, request.member);
     const command = sessionCommand(config, worker, request);
     let pty: LauncherPty;
     try {
-      pty = deps.spawnPty(command.file, command.args, { cols: request.cols, rows: request.rows, env: LAUNCHER_ENV });
+      pty = deps.spawnPty(command.file, command.args, {
+        cols: request.cols,
+        rows: request.rows,
+        env: LAUNCHER_ENV,
+      });
     } catch (err) {
       throw new LauncherRefusal('spawn_failed', `could not start the session: ${(err as Error).message}`);
     }
     const live: LiveSession = { pty, unit: command.unit };
     sessions.set(request.sessionId, live);
     let exited = false;
-    deps.log('info', { sessionId: request.sessionId, member: request.member, unit: command.unit }, 'session started');
+    deps.log(
+      'info',
+      { sessionId: request.sessionId, member: request.member, unit: command.unit },
+      'session started',
+    );
     conn.write(frame({ ok: true, pid: pty.pid }));
     pty.onData((data) => {
       if (!conn.destroyed) conn.write(frame({ t: 'data', data }));
@@ -392,10 +414,15 @@ export function createLauncher(deps: LauncherDeps) {
       () => conn.destroy(),
     );
     conn.on('data', read);
-    // The service went away (restart, crash): the session does not outlive its relay.
-    conn.on('close', () => {
-      if (!exited) stopUnit(command.unit);
-    });
+    // The service went away (restart, crash) or hung up: the session does not outlive its relay.
+    let relayLost = false;
+    const lost = () => {
+      if (exited || relayLost) return;
+      relayLost = true;
+      stopUnit(command.unit);
+    };
+    conn.on('end', lost);
+    conn.on('close', lost);
   }
 
   function handle(conn: Duplex): void {

@@ -8,9 +8,7 @@
  * - `{ status: 'hello', serverName }`: the ClientHello, with its host name or null when absent.
  */
 export type ClientHello =
-  | { status: 'incomplete' }
-  | { status: 'not_tls' }
-  | { status: 'hello'; serverName: string | null };
+  { status: 'incomplete' } | { status: 'not_tls' } | { status: 'hello'; serverName: string | null };
 
 const RECORD_HANDSHAKE = 0x16;
 const HANDSHAKE_CLIENT_HELLO = 0x01;
@@ -37,7 +35,8 @@ function handshakeBytes(buffer: Buffer): { bytes: Buffer; complete: boolean } | 
       if (head[0] !== HANDSHAKE_CLIENT_HELLO) return null;
       expected = 4 + head.readUIntBE(1, 3);
     }
-    if (expected !== null && total >= expected) return { bytes: Buffer.concat(parts).subarray(0, expected), complete: true };
+    if (expected !== null && total >= expected)
+      return { bytes: Buffer.concat(parts).subarray(0, expected), complete: true };
   }
   if (buffer.length >= 1 && buffer[0] !== RECORD_HANDSHAKE) return null;
   if (buffer.length >= 2 && buffer[1] !== 0x03) return null;

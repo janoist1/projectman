@@ -110,17 +110,15 @@ export function createRuntimeBoundary(opts: {
     status({ refresh } = {}) {
       const at = Date.now();
       if (!refresh && cached && at - cached.at < STATUS_CACHE_MS) return cached.status;
-      const status = measure().catch(
-        (): RuntimeBoundaryStatus => ({
-          mode: 'managed_vm',
-          ready: false,
-          checkedAt: now().toISOString(),
-          problems: ['readiness_report_invalid'],
-          launcher: 'down',
-          egress: opts.egressUp() ? 'up' : 'down',
-          readiness: null,
-        }),
-      );
+      const status = measure().catch((): RuntimeBoundaryStatus => ({
+        mode: 'managed_vm',
+        ready: false,
+        checkedAt: now().toISOString(),
+        problems: ['readiness_report_invalid'],
+        launcher: 'down',
+        egress: opts.egressUp() ? 'up' : 'down',
+        readiness: null,
+      }));
       cached = { at, status };
       return status;
     },
@@ -148,9 +146,15 @@ export function createManagedEgressProxy<S>(opts: {
   /** The session an egress token belongs to (SessionOrchestrator), or null. */
   resolveToken(token: string): S | null;
   /** The network gate (EgressService.authorize). */
-  authorize(identity: { member: string; session: S | null }, destination: EgressDestination): Promise<ProxyDecision>;
+  authorize(
+    identity: { member: string; session: S | null },
+    destination: EgressDestination,
+  ): Promise<ProxyDecision>;
   accounts?: AccountLookup;
-  peerUid?: (client: { address: string; port: number }, server: { address: string; port: number }) => Promise<number | null>;
+  peerUid?: (
+    client: { address: string; port: number },
+    server: { address: string; port: number },
+  ) => Promise<number | null>;
 }) {
   const accounts = opts.accounts ?? passwdAccounts();
   const peerUid = opts.peerUid ?? procPeerUid;

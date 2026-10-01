@@ -378,7 +378,10 @@ export class SessionOrchestrator {
     const layout = this.managed ? this.deps.runtimeBoundary?.layout : null;
     if (!layout || !session.transcriptPath) return true;
     try {
-      const [file, home] = await Promise.all([realpath(session.transcriptPath), realpath(layout.home(session.member))]);
+      const [file, home] = await Promise.all([
+        realpath(session.transcriptPath),
+        realpath(layout.home(session.member)),
+      ]);
       return file.startsWith(`${home}/`);
     } catch {
       return false;
@@ -558,7 +561,13 @@ export class SessionOrchestrator {
     }
     if (this.managed) {
       // Another member's workspace is not readable by this worker; readers get their own (PM-138).
-    } else if (task && repoName && !ws && this.workspaces && sessionPolicyFor(member.role, config).readOnlyTools) {
+    } else if (
+      task &&
+      repoName &&
+      !ws &&
+      this.workspaces &&
+      sessionPolicyFor(member.role, config).readOnlyTools
+    ) {
       // A reader without a workspace of its own reads the developer's, while it is on this task.
       const readable = await this.workspaces.readableWork(config, task.key);
       if (readable) additionalDirectories = [readable];
@@ -586,8 +595,8 @@ export class SessionOrchestrator {
     // So does a conversation of an older generation of the member's workspace (made again or moved).
     const relocated = Boolean(
       existing &&
-        (placed || ws || this.managed) &&
-        (path.resolve(existing.cwd) !== path.resolve(cwd) || ws?.newGeneration),
+      (placed || ws || this.managed) &&
+      (path.resolve(existing.cwd) !== path.resolve(cwd) || ws?.newGeneration),
     );
     if (existing && !relocated && !ws) {
       // Claude Code keeps conversations per working directory: resume where it started.
@@ -817,13 +826,22 @@ export class SessionOrchestrator {
     const layout = boundary.layout!;
     const dir = layout.sessions(handle, projectKey);
     const made = await boundary
-      .launcher!.run({ member: handle, program: 'mkdir', args: ['-p', '-m', '0750', '--', dir], cwd: layout.home(handle) })
+      .launcher!.run({
+        member: handle,
+        program: 'mkdir',
+        args: ['-p', '-m', '0750', '--', dir],
+        cwd: layout.home(handle),
+      })
       .catch((err: unknown) => ({ exitCode: null, stderr: (err as Error).message }));
     if (made.exitCode !== 0)
-      throw new DomainError('session_start_failed', `could not prepare the session directory: ${made.stderr.slice(0, 200)}`, {
-        status: 502,
-        details: { stage: 'session_dir' },
-      });
+      throw new DomainError(
+        'session_start_failed',
+        `could not prepare the session directory: ${made.stderr.slice(0, 200)}`,
+        {
+          status: 502,
+          details: { stage: 'session_dir' },
+        },
+      );
     return dir;
   }
 

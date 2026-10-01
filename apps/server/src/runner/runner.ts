@@ -149,7 +149,10 @@ export class SessionManager implements SessionRunner {
         .run({ member: spec.member, program: 'claude-trust', args: [spec.cwd], cwd: home, timeoutMs: 15_000 })
         .catch((err: unknown) => ({ exitCode: null, stderr: (err as Error).message }));
       if (trust.exitCode !== 0)
-        this.log.warn({ sessionId: spec.sessionId, detail: trust.stderr.slice(0, 200) }, 'could not pre-accept workspace trust');
+        this.log.warn(
+          { sessionId: spec.sessionId, detail: trust.stderr.slice(0, 200) },
+          'could not pre-accept workspace trust',
+        );
     }
     const token = randomBytes(24).toString('base64url');
     const launch = await adapter.launch({
@@ -227,8 +230,19 @@ export class SessionManager implements SessionRunner {
       pending = (async (): Promise<ProviderStatus> => {
         if (member && launcher && layout) {
           const out = await launcher
-            .run({ member, program: provider, args: adapter.loginCommand, cwd: layout.home(member), timeoutMs: 15_000 })
-            .then((r) => ({ code: r.exitCode, stdout: r.stdout, stderr: r.stderr, error: r.timedOut ? 'timed out' : null }))
+            .run({
+              member,
+              program: provider,
+              args: adapter.loginCommand,
+              cwd: layout.home(member),
+              timeoutMs: 15_000,
+            })
+            .then((r) => ({
+              code: r.exitCode,
+              stdout: r.stdout,
+              stderr: r.stderr,
+              error: r.timedOut ? 'timed out' : null,
+            }))
             .catch((err: unknown) => ({ code: null, stdout: '', stderr: '', error: (err as Error).message }));
           return adapter.parseLogin(out);
         }

@@ -27,8 +27,15 @@ function main(): void {
     config,
     accounts: passwdAccounts(),
     spawnPty: (file, args, opts) =>
-      pty.spawn(file, args, { name: 'xterm-256color', cols: opts.cols, rows: opts.rows, cwd: '/', env: opts.env }),
-    spawnChild: (file, args, opts) => spawn(file, args, { cwd: '/', env: opts.env, stdio: ['ignore', 'pipe', 'pipe'] }),
+      pty.spawn(file, args, {
+        name: 'xterm-256color',
+        cols: opts.cols,
+        rows: opts.rows,
+        cwd: '/',
+        env: opts.env,
+      }),
+    spawnChild: (file, args, opts) =>
+      spawn(file, args, { cwd: '/', env: opts.env, stdio: ['ignore', 'pipe', 'pipe'] }),
     log,
   });
   const server = net.createServer({ allowHalfOpen: false }, (conn) => launcher.handle(conn));

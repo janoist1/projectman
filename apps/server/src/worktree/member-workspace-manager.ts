@@ -134,7 +134,9 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
     try {
       await gitIn(workspace, ['fetch', '--quiet', '--no-tags', '--', handed.from, ...refspecs], timeoutMs);
     } finally {
-      await handed.done().catch((err: unknown) => log.warn({ err, workspace }, 'could not remove a hand-over'));
+      await handed
+        .done()
+        .catch((err: unknown) => log.warn({ err, workspace }, 'could not remove a hand-over'));
     }
   }
 
@@ -209,9 +211,13 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
           owner: access.ownerOf(repoPath),
         });
         try {
-          await access.git(owner, ['clone', '--quiet', '--no-local', '--template=', '--', handed.from, partial], {
-            timeoutMs: CHECKOUT_TIMEOUT_MS,
-          });
+          await access.git(
+            owner,
+            ['clone', '--quiet', '--no-local', '--template=', '--', handed.from, partial],
+            {
+              timeoutMs: CHECKOUT_TIMEOUT_MS,
+            },
+          );
         } finally {
           await handed.done().catch((err: unknown) => log.warn({ err, dir }, 'could not remove a hand-over'));
         }
@@ -387,9 +393,12 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
 
   async function resolveSource(source: WorkspaceSource): Promise<string | null> {
     if (!(await plainGitSucceeds(['check-ref-format', source.ref]))) return null;
-    const out = await gitIn(source.path, ['rev-parse', '--verify', '--quiet', `${source.ref}^{commit}`]).catch(
-      () => null,
-    );
+    const out = await gitIn(source.path, [
+      'rev-parse',
+      '--verify',
+      '--quiet',
+      `${source.ref}^{commit}`,
+    ]).catch(() => null);
     const commit = out?.trim() ?? '';
     return OID.test(commit) ? commit : null;
   }

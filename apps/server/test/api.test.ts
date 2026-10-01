@@ -422,7 +422,7 @@ describe('REST API', () => {
     it('lists the role catalogue and manages custom roles', async () => {
       const catalogue = await call<RolesView>('GET', '/api/projects/AR/roles', cookie);
       expect(catalogue.status).toBe(200);
-      expect(catalogue.body.roles).toHaveLength(20);
+      expect(catalogue.body.roles).toHaveLength(21);
       expect(catalogue.body.roles.find((r) => r.id === 'business_analyst')).toMatchObject({
         id: 'business_analyst',
         ...hu.roles.business_analyst,

@@ -30,6 +30,7 @@ export const TimelineEventType = z.enum([
   'session_ended',
   'team_message',
   'permission_requested',
+  'boundary_changed',
   'permission_resolved',
   'question_asked',
   'question_answered',
@@ -57,6 +58,16 @@ export type TimelineEvent = z.infer<typeof TimelineEvent>;
 
 /** Known payload shapes per event type (documentation for producers and renderers). */
 export interface TimelineEventData {
+  boundary_changed: {
+    requestId: string;
+    operation: string;
+    resource: string;
+    category: string;
+    state: string;
+    reason: string | null;
+    assignees: string[];
+    policyVersion: string;
+  };
   task_subtask_added: { parentKey: string; subtaskKey: string };
   task_subtask_removed: { parentKey: string; subtaskKey: string };
   /** `imported`: created from another tracker (the request carried `importedAt`). */

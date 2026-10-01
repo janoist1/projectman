@@ -62,6 +62,13 @@ export interface ConfigIssue {
 export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
   const issues: ConfigIssue[] = [];
   const members = new Map(config.team.members.map((m) => [m.handle, m]));
+  if (config.team.boundary?.enabled && dutyMembers(config, 'boundary_authorization').length === 0)
+    issues.push({
+      code: 'recommended_duty_unfilled',
+      severity: 'warning',
+      path: 'team.boundary',
+      detail: 'boundary_authorization',
+    });
 
   const customIds = new Set<string>();
   config.team.roles.forEach((role, i) => {

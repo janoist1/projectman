@@ -19,6 +19,54 @@ type Locale = MessageTree & {
 };
 
 export const hu = {
+  boundary: {
+    heading: 'Külső művelet engedélyezése',
+    reason: 'A döntés indoka',
+    scope: 'Csak erre az egy műveletre szól.',
+    expiry: 'Érvényes eddig: {time}',
+    deadline: 'Vezetői határidő: {time}',
+    revoke: 'Engedély visszavonása',
+    revokeFailed: 'Az engedélyt nem sikerült visszavonni.',
+    environment: 'Célkörnyezet: {environment}',
+    branch: 'Ág: {branch}',
+    environments: { development: 'Fejlesztés', production: 'Éles rendszer' },
+    categories: {
+      delegable: 'Vezető által eldönthető',
+      cost: 'Költség: tulajdonosi döntés',
+      production: 'Éles rendszer vagy publikálás: tulajdonosi döntés',
+      credentials: 'Új hozzáférés vagy titok: tulajdonosi döntés',
+      host_expansion: 'Tartós határtágítás: tulajdonosi döntés',
+    },
+    states: {
+      pending_lead: 'Vezetőre vár',
+      pending_owner: 'Tulajdonosra vár',
+      allowed: 'Engedélyezve',
+      denied: 'Elutasítva',
+      expired: 'Lejárt',
+      revoked: 'Visszavonva',
+    },
+    reasons: {
+      scope_verified: 'A célt és a hatókört ellenőriztem',
+      unsafe_target: 'A cél nem biztonságos',
+      insufficient_context: 'Nincs elég információ',
+      not_needed: 'A műveletre nincs szükség',
+      owner_revoked: 'A tulajdonos visszavonta',
+      deadline_expired: 'Lejárt az érvényessége',
+      policy_changed: 'Megváltoztak a szabályok vagy a hozzáférés',
+      lead_unavailable: 'A vezető nem döntött időben vagy nem elérhető',
+    },
+    operations: {
+      read_external: 'Külső erőforrás olvasása',
+      publish_branch: 'Ág publikálása',
+      publish_main: 'Főág publikálása',
+      spend: 'Költséggel járó művelet',
+      production_change: 'Éles rendszer módosítása',
+      release: 'Kiadás',
+      create_account: 'Új fiók',
+      create_secret: 'Új titok vagy token',
+      expand_host: 'Tartós host-hozzáférés',
+    },
+  },
   duties: {
     title: 'Szerepek és feladatkörök',
     roles: 'Szerepek szerint',
@@ -27,7 +75,7 @@ export const hu = {
     reset: 'Alapértelmezés visszaállítása',
     missing: 'Nincs felelőse',
     humanOnly: 'Csak ember töltheti be; a szerepet AI is viseli.',
-    ownerOnly: 'A kiadás jóváhagyását csak tulajdonos módosíthatja.',
+    ownerOnly: 'A kiadási és külső műveleti jogokat csak tulajdonos módosíthatja.',
     readOnly: 'A módosításhoz adminisztrátori hozzáférés kell.',
     fourEyes: 'A kiadás jóváhagyója legyen más, mint a megvalósító és a PR szerzője',
     extra: 'További felelősségek (csak az utasításban)',
@@ -765,12 +813,14 @@ export const hu = {
     },
     kinds: {
       permission: 'Engedély',
+      boundary: 'Külső művelet',
       decision: 'Döntés',
       question: 'Kérdés',
       approval: 'Jóváhagyás',
     },
     kindsLower: {
       permission: 'engedély',
+      boundary: 'külső művelet',
       decision: 'döntés',
       question: 'kérdés',
       approval: 'jóváhagyás',
@@ -1107,6 +1157,7 @@ export const hu = {
   },
 
   dutyNames: {
+    boundary_authorization: 'Külső műveletek engedélyezése',
     prioritization: 'Prioritáskezelés',
     requirements_analysis: 'Igényelemzés',
     task_breakdown: 'Feladatbontás',
@@ -1312,6 +1363,10 @@ export const hu = {
       sponsor: 'Előfizetés',
     },
     limits: {
+      boundaryEnabled: 'Külső műveletek delegálása',
+      boundaryTimeout: 'Vezetői döntés határideje (másodperc)',
+      boundaryHelp:
+        'A vezető fejlesztő az egyszeri, delegálható műveletekről dönt. A határidő után a tulajdonos dönt; automatikus engedély nincs. Csak tulajdonos módosíthatja.',
       aiEnabled: 'AI-munka',
       aiEnabledHelp:
         'Kikapcsolva az AI-tagok nem kezdenek és nem folytatnak munkát ebben a projektben; a futó munkamenetek tovább működnek, a várakozó munka visszakapcsolás után indul.',

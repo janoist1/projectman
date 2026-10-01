@@ -1,4 +1,5 @@
 import { createAttachmentRepository } from './attachments';
+import { createBoundaryRepository } from './boundary';
 import { createInvitationRepository } from './invitations';
 import type { Db } from './database';
 import { createDeferredStartRepository } from './deferred-starts';
@@ -40,6 +41,7 @@ export function createRepositories(db: Db) {
     deferredStarts: createDeferredStartRepository(db),
     messages: createMessageRepository(db),
     inbox: createInboxRepository(db),
+    boundary: createBoundaryRepository(db),
     memberState: createMemberStateRepository(db),
     /** Runs `fn` in a single SQLite transaction. */
     transaction<T>(fn: () => T): T {

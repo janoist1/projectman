@@ -27,6 +27,11 @@ export const en: TemplateLocale = {
     done: 'Done',
   },
   duties: {
+    boundary_authorization: {
+      name: 'External operation authorization',
+      description:
+        'Decide delegated external operations. Cost, production, new credentials and permanent host expansion require an owner.',
+    },
     prioritization: {
       name: 'Prioritization',
       description: 'Order work by value and urgency. Escalate conflicting priorities.',
@@ -176,6 +181,12 @@ export const en: TemplateLocale = {
       summary: 'Implements the task on its own branch, together with tests, and opens a pull request.',
       notTheirJob: 'Does not approve their own work.',
       whenToAsk: 'When a card is ready to be implemented: you do not write to them, you start the card.',
+    },
+    lead_developer: {
+      name: 'Lead developer',
+      summary: 'Set technical direction, review completed work and decide delegated external operations.',
+      notTheirJob: 'Never decide your own requests or owner exceptions.',
+      whenToAsk: 'Technical direction, review or delegated external operation authorization.',
     },
     code_review: {
       name: 'Code reviewer',

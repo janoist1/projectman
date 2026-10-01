@@ -39,6 +39,7 @@ const APPROVAL_REFUSALS = {
 export const ANSWER_OPTION: InboxOption = { id: 'answer', label: 'answer', style: 'secondary' };
 
 export interface CreateInboxItemInput {
+  id?: string;
   projectKey: string;
   kind: InboxKind;
   assignees: string[];
@@ -123,7 +124,7 @@ export class InboxService {
     if (input.assignees.length === 0)
       throw invalid('no_assignees', 'an inbox item needs at least one assignee');
     const item: InboxItem = {
-      id: newId('inb'),
+      id: input.id ?? newId('inb'),
       projectKey: input.projectKey,
       kind: input.kind,
       assignees: [...new Set(input.assignees)],
@@ -188,6 +189,8 @@ export class InboxService {
     const config = await this.projects.config(projectKey);
     if (memberOf(config, by.handle)?.kind !== 'human')
       throw forbidden('ai_approval_forbidden', 'only human members may resolve inbox items');
+    if (item.kind === 'boundary')
+      throw forbidden('insufficient_access', 'use the boundary decision endpoint');
     const gate = item.kind === 'decision' && req.optionId === 'approve' ? gateRequestOf(item) : null;
     if (gate?.label) {
       // Approving puts the label on in the approver's name: the label rules apply up front.

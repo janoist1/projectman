@@ -7,6 +7,7 @@ export const DUTY_IDS = [
   'triage',
   'scheduling',
   'technical_direction',
+  'boundary_authorization',
   'ux_design',
   'implementation',
   'docs',
@@ -44,6 +45,17 @@ export interface DutyDefinition {
   recommended: boolean;
 }
 export const DUTIES: Record<DutyId, DutyDefinition> = {
+  boundary_authorization: {
+    id: 'boundary_authorization',
+    group: 'direction',
+    holders: 'both',
+    prompt:
+      'Decide delegated external operations with decide_boundary_request after checking the exact target and scope. Never decide your own request. Cost, production or release or main publication, new accounts or secrets, and permanent host boundary expansion belong to the owner. Gates and release approvals remain human-only. Use get_boundary_request to inspect requests; late decisions are refused.',
+    toolPolicy: 'read_only',
+    meetings: [],
+    events: [],
+    recommended: false,
+  },
   prioritization: {
     id: 'prioritization',
     group: 'direction',

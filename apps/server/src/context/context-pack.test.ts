@@ -369,7 +369,7 @@ describe('context pack snapshots', () => {
       }),
     );
     expect(pack.initialMessage).toBeNull();
-    await expect(pack.appendSystemPrompt).toMatchFileSnapshot(
+    await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
       '__snapshots__/custom-role-general.system-prompt.txt',
     );
   });

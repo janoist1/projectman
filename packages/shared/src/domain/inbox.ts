@@ -12,7 +12,7 @@ import { TaskKey } from './task';
  * - question:   an AI member asked a human something (ask_human tool)
  * - approval:   a proposed change (e.g. an email draft or a config change)
  */
-export const InboxKind = z.enum(['permission', 'decision', 'question', 'approval']);
+export const InboxKind = z.enum(['permission', 'decision', 'question', 'approval', 'boundary']);
 export type InboxKind = z.infer<typeof InboxKind>;
 
 export const InboxOption = z.object({

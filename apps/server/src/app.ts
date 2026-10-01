@@ -13,6 +13,7 @@ import type { GitConfigStore } from './config';
 import { createContextPackBuilder, createMemberMemoryStore } from './context';
 import type {
   AttachmentStorage,
+  BoundaryOperationAdapter,
   ContextPackBuilder,
   GithubService,
   McpModule,
@@ -50,6 +51,7 @@ export function loopbackBaseUrl(host: LoopbackHost, port: number): string {
 
 /** Module factories and instances; each can be replaced (tests inject fakes). */
 export interface AppModules {
+  boundaryAdapter?: BoundaryOperationAdapter;
   createRunnerModule?: (opts: RunnerModuleOptions) => RunnerModule;
   createMcpModule?: (opts: McpModuleOptions) => McpModule;
   github?: GithubService;
@@ -189,6 +191,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const auth = new AuthService({ repos, now: options.now });
 
     const domain = createDomain({
+      boundaryAdapter: modules.boundaryAdapter,
       repos,
       configStore,
       logger: log.child({ module: 'domain' }),

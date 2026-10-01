@@ -300,6 +300,23 @@ export const migrations: Migration[] = [
       );
       CREATE INDEX attachments_task ON attachments(project_key, task_key, state, seq);`,
   },
+  {
+    version: 12,
+    name: 'boundary requests and grants',
+    sql: `CREATE TABLE boundary_requests (
+    id TEXT PRIMARY KEY,
+    project_key TEXT NOT NULL REFERENCES projects(key),
+    session_id TEXT NOT NULL,
+    deduplication_key TEXT NOT NULL,
+    record TEXT NOT NULL,
+    UNIQUE(project_key, session_id, deduplication_key)
+  );
+  CREATE INDEX boundary_requests_state ON boundary_requests(json_extract(record, '$.state'));
+  CREATE TABLE boundary_grants (
+    id TEXT PRIMARY KEY,
+    request_id TEXT NOT NULL UNIQUE REFERENCES boundary_requests(id),
+    record TEXT NOT NULL
+  );`,
+  },
 ];
-
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

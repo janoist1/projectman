@@ -1,6 +1,6 @@
-import { questionPayloadOf } from '@projectman/shared';
+import { BoundaryRequest, questionPayloadOf } from '@projectman/shared';
 import type { InboxItem, InboxOption } from '@projectman/shared';
-import { t } from '../i18n/t';
+import { t, tDynamic } from '../i18n/t';
 import { toolPresentationFor } from './chat';
 import { nameOf } from './members';
 import type { MemberIndex } from './members';
@@ -26,6 +26,7 @@ export function optionLabel(option: InboxOption): string {
  * shown in monospace anyway, so the heading names the kind of tool instead.
  */
 export function inboxHeading(item: InboxItem): string {
+  if (item.kind === 'boundary') return t('boundary.heading');
   if (item.kind === 'permission') {
     const tool = permissionTool(item);
     if (tool && (item.title === tool || item.title.startsWith(`${tool}:`))) {
@@ -83,6 +84,11 @@ export function gateMoveText(item: InboxItem, pipeline: PipelineIndex | null | u
 export function decisionSubject(item: InboxItem): string {
   if (item.kind === 'permission') return permissionCommand(item) ?? item.title;
   return item.title;
+}
+
+export function boundaryOf(item: InboxItem): BoundaryRequest | null {
+  const parsed = item.kind === 'boundary' ? BoundaryRequest.safeParse(item.payload.boundary) : null;
+  return parsed?.success ? parsed.data : null;
 }
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -163,6 +169,8 @@ export function resolverName(item: InboxItem, members: MemberIndex, myHandle: st
 
 /** The note written with the decision (an answer, or an older automatic decision's note), or null. */
 export function resolutionNote(item: InboxItem): string | null {
+  if (item.kind === 'boundary' && item.resolution?.note)
+    return tDynamic(`boundary.reasons.${item.resolution.note}`, item.resolution.note);
   return item.resolution?.note?.trim() || null;
 }
 

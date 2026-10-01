@@ -12,7 +12,7 @@ import type { ProjectConfig } from './schema';
  * - `admin_or_account`: granting admin access, or changing a human's account (email) binding,
  *   except an invitation claiming a seat that had no account yet;
  * - `approval_policy`: approvals (gate labels only humans may set) and who may give them,
- *   release four eyes, and who holds or grants the release approval duty;
+ *   release four eyes, boundary delegation settings, and who holds or grants authorization duties;
  * - `release_approvers`: who approves the release stages;
  * - `owners`: who is an owner.
  */
@@ -37,6 +37,17 @@ export function ownerOnlyChanges(
 
 /** Stage and condition ordering do not alter the approval policy. Removal does. */
 export function approvalPolicyChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
+  const boundarySignature = (config: ProjectConfig) =>
+    JSON.stringify({
+      settings: config.team.boundary ?? { enabled: false, leadTimeoutSeconds: 120 },
+      holders: dutyMembers(config, 'boundary_authorization')
+        .map((m) => m.handle)
+        .sort(),
+      roles: [...BUILT_IN_ROLE_IDS, ...config.team.roles.map((r) => r.id)]
+        .filter((r) => roleBundle(config, r).duties.includes('boundary_authorization'))
+        .sort(),
+    });
+  if (boundarySignature(previous) !== boundarySignature(next)) return true;
   // Approvals are gate labels only humans may set; their holders are part of the policy.
   const signature = (config: ProjectConfig) =>
     JSON.stringify(

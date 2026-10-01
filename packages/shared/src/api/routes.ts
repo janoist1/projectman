@@ -5,6 +5,9 @@
  * per-session token.
  */
 export const routes = {
+  boundaryRequest: (key: string, id: string) => `/api/projects/${key}/boundary/${id}`,
+  decideBoundary: (key: string, id: string) => `/api/projects/${key}/boundary/${id}/decide`,
+  revokeBoundary: (key: string, id: string) => `/api/projects/${key}/boundary/${id}/revoke`,
   providers: () => '/api/providers',
   setupStatus: () => '/api/setup',
   setup: () => '/api/setup',

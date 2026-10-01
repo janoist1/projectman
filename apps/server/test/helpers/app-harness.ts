@@ -7,6 +7,7 @@ import { routes } from '@projectman/shared';
 import type { HumanAccess, ProjectConfig } from '@projectman/shared';
 import { buildApp } from '../../src/app';
 import type { AppModules, BuildAppOptions } from '../../src/app';
+import type { BoundaryOperationAdapter } from '../../src/contracts';
 import { createTemplateRegistry, humanActor } from '../../src/domain';
 import type { ScheduleTimer } from '../../src/domain';
 import { createRunnerModule } from '../../src/runner';
@@ -25,6 +26,7 @@ import { testTemplate } from './test-template';
 export const OWNER_LOGIN = { name: 'Owner', email: 'owner@example.com', password: 'correct horse battery' };
 
 export interface AppHarnessOptions {
+  boundaryAdapter?: BoundaryOperationAdapter;
   webDistDir?: string;
   now?: () => Date;
   scheduleTimer?: ScheduleTimer;
@@ -100,6 +102,7 @@ export async function createAppHarness(
   const worktrees = new FakeWorktreeManager(join(home, 'worktrees'));
   const real = opts.real ?? {};
   const modules: AppModules = {
+    boundaryAdapter: opts.boundaryAdapter,
     createRunnerModule: (o) => runnerModule.create(o),
     createMcpModule: real.mcp ? undefined : (o) => mcp.create(o),
     github,

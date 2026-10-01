@@ -5,7 +5,7 @@ import type { ProjectConfig } from '@projectman/shared';
 import { AuthService } from '../../src/auth';
 import { createConfigStore } from '../../src/config';
 import { createRepositories, openDatabase } from '../../src/db';
-import type { AttachmentStorage } from '../../src/contracts';
+import type { AttachmentStorage, BoundaryOperationAdapter } from '../../src/contracts';
 import {
   attachmentToolRules,
   createAttachmentStorage,
@@ -41,6 +41,7 @@ export const OWNER_ACTOR = humanActor('owner');
  */
 export async function createDomainHarness(
   opts: {
+    boundaryAdapter?: BoundaryOperationAdapter;
     adjust?: (config: ProjectConfig) => void;
     now?: () => Date;
     scheduleTimer?: ScheduleTimer;
@@ -78,6 +79,7 @@ export async function createDomainHarness(
   );
 
   const domain: Domain = createDomain({
+    boundaryAdapter: opts.boundaryAdapter,
     repos,
     configStore,
     logger: log.logger,

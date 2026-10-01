@@ -1,4 +1,4 @@
-import { LabelChangeReason } from '@projectman/shared';
+import { BoundaryAuditReason, BoundaryState, LabelChangeReason } from '@projectman/shared';
 import type { LabelView, TimelineEvent } from '@projectman/shared';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { labelName } from './labels';
@@ -108,6 +108,14 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
   const d = event.data;
   const normal = (text: string): DescribedEvent => ({ text, emphasis: 'normal' });
   switch (event.type) {
+    case 'boundary_changed': {
+      const state = BoundaryState.safeParse(d.state);
+      const reason = BoundaryAuditReason.safeParse(d.reason);
+      return {
+        text: `${t('boundary.heading')}: ${str(d.resource)} · ${state.success ? t(`boundary.states.${state.data}`) : str(d.state)}${reason.success ? ` · ${t(`boundary.reasons.${reason.data}`)}` : ''}`,
+        emphasis: ctx.openInboxIds.has(str(d.requestId)) ? 'needs' : 'normal',
+      };
+    }
     case 'task_subtask_added':
     case 'task_subtask_removed':
       return normal(

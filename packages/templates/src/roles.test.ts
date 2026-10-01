@@ -62,11 +62,18 @@ describe('aiRoleDefaults', () => {
       AI_BUILT_IN_ROLE_IDS.filter((role) => aiRoleDefaults(role).permissionMode === 'acceptEdits').sort(),
     ).toEqual(WORKTREE_ROLES.sort());
   });
-  it('runs analysts, architects, reviewers, communication and researchers two at a time on opus', () => {
+  it('runs analysts, architects, leads, reviewers, communication and researchers two at a time on opus', () => {
     const capacity = (n: number) =>
       AI_BUILT_IN_ROLE_IDS.filter((role) => aiRoleDefaults(role).capacity === n);
     expect(capacity(2).sort()).toEqual(
-      ['architect', 'business_analyst', 'code_review', 'communication', 'researcher'].sort(),
+      [
+        'architect',
+        'business_analyst',
+        'lead_developer',
+        'code_review',
+        'communication',
+        'researcher',
+      ].sort(),
     );
     expect(capacity(1).length + capacity(2).length).toBe(AI_BUILT_IN_ROLE_IDS.length);
     for (const role of AI_BUILT_IN_ROLE_IDS) expect(aiRoleDefaults(role).model).toBe('opus');

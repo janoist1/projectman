@@ -14,6 +14,7 @@ import {
   stageApprovers,
   stageOf,
   taskSeq,
+  taskWorkOf,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -108,6 +109,11 @@ export class MemberService {
         if (openTasks.has(s.workItem.taskKey)) keys.add(s.workItem.taskKey);
       }
       const currentTaskKeys = [...keys].sort((a, b) => taskSeq(a) - taskSeq(b));
+      const taskWork = sessions
+        .filter((s) => s.member === m.handle)
+        .flatMap((s) => taskWorkOf(s) ?? [])
+        .filter((work) => openTasks.has(work.taskKey))
+        .sort((a, b) => taskSeq(a.taskKey) - taskSeq(b.taskKey));
       if (m.kind === 'human') {
         return {
           handle: m.handle,
@@ -136,6 +142,7 @@ export class MemberService {
         status: state && state.status !== 'retired' ? state.status : 'idle',
         activity: state?.activity ?? null,
         currentTaskKeys,
+        taskWork,
         sponsor: m.sponsor,
         temp: m.temp,
         provider: m.provider ?? DEFAULT_AGENT_PROVIDER,
@@ -591,7 +598,11 @@ export class MemberProfiles {
     const visibleTasks = visibleTasksOf(viewer, this.tasks.list(projectKey));
     const visibleKeys = new Set(visibleTasks.map((t) => t.key));
     return {
-      member: { ...member, currentTaskKeys: member.currentTaskKeys.filter((k) => visibleKeys.has(k)) },
+      member: {
+        ...member,
+        currentTaskKeys: member.currentTaskKeys.filter((k) => visibleKeys.has(k)),
+        ...(member.taskWork ? { taskWork: member.taskWork.filter((w) => visibleKeys.has(w.taskKey)) } : {}),
+      },
       duties: memberDuties(config, original),
       tasks: visibleTasks.filter(
         (t) =>

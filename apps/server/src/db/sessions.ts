@@ -29,6 +29,7 @@ interface SessionRow {
   transcript_path: string | null;
   state: string;
   activity: string | null;
+  state_since: string | null;
   started_at: string;
   last_activity_at: string;
   ended_at: string | null;
@@ -86,6 +87,7 @@ const baseSession = (r: SessionRow): Session => ({
   transcriptPath: r.transcript_path,
   state: r.state as SessionState,
   activity: r.activity,
+  ...(r.state_since ? { stateSince: r.state_since } : {}),
   startedAt: r.started_at,
   lastActivityAt: r.last_activity_at,
   endedAt: r.ended_at,
@@ -128,6 +130,7 @@ export type SessionPatch = Partial<
     | 'transcriptPath'
     | 'state'
     | 'activity'
+    | 'stateSince'
     | 'startedAt'
     | 'lastActivityAt'
     | 'endedAt'
@@ -155,6 +158,7 @@ const COLUMNS: Record<keyof SessionPatch, string> = {
   transcriptPath: 'transcript_path',
   state: 'state',
   activity: 'activity',
+  stateSince: 'state_since',
   startedAt: 'started_at',
   lastActivityAt: 'last_activity_at',
   endedAt: 'ended_at',
@@ -171,8 +175,8 @@ export function createSessionRepository(db: Db) {
     ),
     insert: db.prepare(
       `INSERT INTO sessions (id, project_key, member, work_item_type, work_item_ref, claude_session_id, provider,
-         cwd, branch, transcript_path, state, activity, started_at, last_activity_at, ended_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         cwd, branch, transcript_path, state, activity, state_since, started_at, last_activity_at, ended_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     findByWorkItem: db.prepare(
       'SELECT * FROM sessions WHERE project_key = ? AND member = ? AND work_item_type = ? AND work_item_ref = ?',
@@ -247,6 +251,7 @@ export function createSessionRepository(db: Db) {
         s.transcriptPath,
         s.state,
         s.activity,
+        s.stateSince ?? null,
         s.startedAt,
         s.lastActivityAt,
         s.endedAt,

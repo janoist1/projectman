@@ -54,6 +54,11 @@ export const Session = z.object({
   state: SessionState,
   /** Short description of the latest activity, e.g. "Bash: npm test". */
   activity: z.string().nullable(),
+  /**
+   * When the session entered its current `state` (PM-207). Absent for a session from before it was
+   * kept: its `lastActivityAt` is the closest known moment.
+   */
+  stateSince: z.string().optional(),
   startedAt: z.string(),
   lastActivityAt: z.string(),
   endedAt: z.string().nullable(),
@@ -87,3 +92,38 @@ export const Session = z.object({
   usageAlert: SessionUsageAlert.optional(),
 });
 export type Session = z.infer<typeof Session>;
+
+/**
+ * A member's work on one card (PM-207): a task session that is working. A member's status and
+ * activity describe the member as a whole; this is what the member does on that card.
+ */
+export const TaskWork = z.object({
+  sessionId: z.string(),
+  taskKey: TaskKey,
+  /** What the session does now, e.g. "Bash: npm test". */
+  activity: z.string().nullable(),
+  /** When the session entered the state it is in. */
+  since: z.string(),
+});
+export type TaskWork = z.infer<typeof TaskWork>;
+
+/** The states in which a session works on its card (a starting one counts, as for the member's status). */
+const WORKING_SESSION_STATES: ReadonlySet<SessionState> = new Set(['starting', 'working']);
+
+/** The work a session does on its card now; null when it is not a working task session. */
+export function taskWorkOf(session: Session): TaskWork | null {
+  if (session.workItem.type !== 'task' || !WORKING_SESSION_STATES.has(session.state)) return null;
+  return {
+    sessionId: session.id,
+    taskKey: session.workItem.taskKey,
+    activity: session.activity,
+    since: session.stateSince ?? session.lastActivityAt,
+  };
+}
+
+/** The member's work list with this session's change applied (it replaces the session's earlier entry). */
+export function withSessionWork(work: readonly TaskWork[], session: Session): TaskWork[] {
+  const rest = work.filter((entry) => entry.sessionId !== session.id);
+  const entry = taskWorkOf(session);
+  return entry ? [...rest, entry] : rest;
+}

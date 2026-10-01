@@ -1,5 +1,5 @@
 import { DEFAULT_AGENT_PROVIDER } from '@projectman/shared';
-import type { InboxItem, LabelView, MemberView, Task } from '@projectman/shared';
+import type { InboxItem, LabelView, MemberView, Task, TaskWork } from '@projectman/shared';
 import { formatAge } from '../i18n/format';
 import { joinNames, t } from '../i18n/t';
 import { isAssignedTo, newestFirst, openItems, permissionCommand, shortCommand } from './inbox';
@@ -56,11 +56,17 @@ function needsYouLabel(item: InboxItem): string {
   return t('taskStatus.needsYou', { what: detail ? t('taskStatus.needsYouDetail', { kind, detail }) : kind });
 }
 
-function findWorker(task: Task, members: MemberIndex): MemberView | null {
-  const working = [...members.values()].filter(
-    (member) => member.status === 'working' && member.currentTaskKeys.includes(task.key),
-  );
-  return working.find((member) => member.handle === task.assignee) ?? working[0] ?? null;
+/**
+ * Who works on this card now: a member with a working session on the card itself. A member's status
+ * and activity describe the member as a whole (the member may work on another card), so they say
+ * nothing about this one.
+ */
+function findWorker(task: Task, members: MemberIndex): { member: MemberView; work: TaskWork } | null {
+  const working = [...members.values()].flatMap((member) => {
+    const work = member.taskWork?.find((entry) => entry.taskKey === task.key);
+    return work ? [{ member, work }] : [];
+  });
+  return working.find(({ member }) => member.handle === task.assignee) ?? working[0] ?? null;
 }
 
 function unmetPrerequisites(task: Task, tasksByKey: ReadonlyMap<string, Task>): boolean {
@@ -125,15 +131,16 @@ export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
     return { phase: 'blocked', label: t('taskStatus.statuses.blocked'), since: task.updatedAt, worker: null };
   }
 
-  const worker = findWorker(task, members);
-  if (worker) {
+  const found = findWorker(task, members);
+  if (found) {
+    const { member, work } = found;
     return {
       phase: 'working',
-      label: worker.activity
-        ? t('taskStatus.working', { activity: worker.activity })
+      label: work.activity
+        ? t('taskStatus.working', { activity: work.activity })
         : t('taskStatus.workingPlain'),
-      since: task.updatedAt,
-      worker,
+      since: work.since,
+      worker: member,
     };
   }
 

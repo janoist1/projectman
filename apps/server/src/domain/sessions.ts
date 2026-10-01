@@ -902,6 +902,7 @@ export class SessionOrchestrator {
       this.ctx.repos.sessions.update(session.id, {
         state: 'exited',
         activity: null,
+        stateSince: at,
         endedAt: at,
         permissionRestartPending: false,
       });
@@ -1171,6 +1172,7 @@ export class SessionOrchestrator {
       session = this.ctx.repos.sessions.update(existing.id, {
         state: 'starting',
         activity: null,
+        stateSince: at,
         cwd,
         branch,
         lastActivityAt: at,
@@ -1195,6 +1197,7 @@ export class SessionOrchestrator {
         transcriptPath: null,
         state: 'starting',
         activity: null,
+        stateSince: at,
         startedAt: at,
         lastActivityAt: at,
         endedAt: null,
@@ -1264,7 +1267,7 @@ export class SessionOrchestrator {
       this.workspaces?.started(session.id, info.pid);
       const current = this.ctx.repos.sessions.get(session.id);
       if (current?.state === 'starting' && info.state !== 'starting') {
-        this.ctx.repos.sessions.update(session.id, { state: info.state });
+        this.ctx.repos.sessions.update(session.id, { state: info.state, stateSince: isoNow(this.ctx) });
       }
     } catch (err) {
       this.settleFirstInput(session.id, false);
@@ -1274,6 +1277,7 @@ export class SessionOrchestrator {
       this.processGrants.delete(session.id);
       const failed = this.ctx.repos.sessions.update(session.id, {
         state: 'failed',
+        stateSince: isoNow(this.ctx),
         endedAt: isoNow(this.ctx),
       });
       if (failed) {
@@ -1544,6 +1548,7 @@ export class SessionOrchestrator {
     const ended = this.ctx.repos.sessions.update(sessionId, {
       state,
       activity: reason,
+      stateSince: at,
       endedAt: at,
       lastActivityAt: at,
       // No process waits for a restart now: the next start takes the session's mode anyway.
@@ -1594,6 +1599,8 @@ export class SessionOrchestrator {
           const updated = this.ctx.repos.sessions.update(session.id, {
             state: event.state,
             activity: event.activity,
+            // The age of a state counts from the change, not from every tool the session runs.
+            ...(event.state !== session.state ? { stateSince: at } : {}),
             lastActivityAt: at,
           })!;
           this.publishSession(updated);

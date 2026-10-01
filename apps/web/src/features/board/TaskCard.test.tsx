@@ -79,7 +79,7 @@ describe('TaskCard', () => {
   it('marks the task that is open in the drawer', () => {
     const card = renderCard('AC-20', true);
     expect(card.getAttribute('aria-current')).toBe('true');
-    expect(within(card).getByText(working('Visszaállítási próba'))).toBeTruthy();
+    expect(within(card).getByText(working('Bash: ./scripts/restore-drill.sh'))).toBeTruthy();
     expect(within(card).queryByRole('list', { name: t('taskCard.stageRows') })).toBeNull();
   });
 
@@ -110,7 +110,11 @@ describe('deriveTaskState', () => {
   });
 
   it('tells working, waiting and ready tasks apart', () => {
-    expect(phase('AC-20')).toMatchObject({ phase: 'working', label: working('Visszaállítási próba') });
+    // The card shows what the session on it does, not the member's own activity line.
+    expect(phase('AC-20')).toMatchObject({
+      phase: 'working',
+      label: working('Bash: ./scripts/restore-drill.sh'),
+    });
     expect(phase('AC-19')).toMatchObject({ phase: 'waiting', label: waitingOn('Kata', 'Bence') });
     expect(phase('AC-26')).toMatchObject({
       phase: 'waiting',
@@ -123,11 +127,46 @@ describe('deriveTaskState', () => {
 
   it('says who else is waited on when the item is assigned to someone else', () => {
     const noWorkers = new Map(
-      [...members].map(([handle, member]) => [handle, { ...member, status: 'idle' as const }]),
+      [...members].map(([handle, member]) => [handle, { ...member, status: 'idle' as const, taskWork: [] }]),
     );
     expect(deriveTaskState(taskByKey('AC-18'), { ...ctx, members: noWorkers })).toMatchObject({
       phase: 'waiting',
       label: waitingOn('Kata'),
+    });
+  });
+
+  describe('a member who works on another card (PM-207)', () => {
+    // be-1 works on AC-20 and has an idle session on AC-22: only AC-20 is "working".
+    const busy = (key: string, since: string) => {
+      const be = members.get('be-1')!;
+      const work = { sessionId: 'ses_work', taskKey: 'AC-20', activity: 'Bash: ls', since };
+      return {
+        ...ctx,
+        members: new Map(members).set('be-1', {
+          ...be,
+          status: 'working' as const,
+          activity: 'Bash: ls',
+          currentTaskKeys: ['AC-20', key],
+          taskWork: [work],
+        }),
+      };
+    };
+
+    it('shows the activity and the age of the session on the card, not of the member', () => {
+      const since = '2026-10-01T10:00:00.000Z';
+      expect(deriveTaskState(taskByKey('AC-20'), busy('AC-22', since))).toMatchObject({
+        phase: 'working',
+        label: working('Bash: ls'),
+        since,
+        worker: { handle: 'be-1' },
+      });
+    });
+
+    it('does not call the card where the member only rests "working", nor shows the other card', () => {
+      const state = deriveTaskState(taskByKey('AC-26'), busy('AC-26', '2026-10-01T10:00:00.000Z'));
+      expect(state.phase).not.toBe('working');
+      expect(state.worker).toBeNull();
+      expect(state.label).not.toContain('Bash: ls');
     });
   });
 

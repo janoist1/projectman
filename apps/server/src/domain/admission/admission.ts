@@ -111,7 +111,10 @@ export class Admission {
     if (workItem?.type === 'task') {
       // A temp worker yet to be hired has the role the limits name for it.
       const role = member?.role ?? config.team.limits.tempWorkers.role;
-      assertRepoChosen(config, role, this.ctx.repos.tasks.get(workItem.taskKey));
+      const task = this.ctx.repos.tasks.get(workItem.taskKey);
+      assertRepoChosen(config, role, task);
+      // The member's workspace for the repository serves one task at a time (PM-138).
+      if (member && task) this.sessions.assertWorkspaceFree(config, member, task);
     }
     if (member && workItem?.type === 'schedule' && this.hasLiveScheduledRun(projectKey, member.handle))
       throw conflict('previous_run_live', `the previous scheduled run of ${member.handle} is still live`);

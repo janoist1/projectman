@@ -34,11 +34,26 @@ export class GitCommandError extends Error {
 /**
  * Runs git without a shell and returns stdout. Git never prompts (no terminal), optional
  * locks are skipped so background status checks do not collide with a session's own git
- * commands, and inherited GIT_DIR-style variables are dropped.
+ * commands, and inherited GIT_DIR-style variables are dropped. `isolatedConfig` also ignores the
+ * system and global configuration and the inherited GIT_CONFIG_* variables (for repositories a
+ * member controls, see `member-workspace-manager.ts`).
  */
-export function git(args: string[], opts: { timeoutMs?: number } = {}): Promise<string> {
+export function git(
+  args: string[],
+  opts: { timeoutMs?: number; isolatedConfig?: boolean } = {},
+): Promise<string> {
   const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' };
   for (const name of REPOSITORY_OVERRIDES) delete env[name];
+  if (opts.isolatedConfig) {
+    for (const name of Object.keys(env)) if (name.startsWith('GIT_CONFIG_')) delete env[name];
+    env.GIT_CONFIG_NOSYSTEM = '1';
+    env.GIT_CONFIG_GLOBAL = '/dev/null';
+    env.GIT_NO_LAZY_FETCH = '1';
+    delete env.GIT_TEMPLATE_DIR;
+    delete env.GIT_EXEC_PATH;
+    delete env.GIT_SSH_COMMAND;
+    delete env.GIT_ASKPASS;
+  }
   return new Promise((resolve, reject) => {
     execFile(
       'git',

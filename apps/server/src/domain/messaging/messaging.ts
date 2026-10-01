@@ -81,8 +81,14 @@ export class Messaging {
         details: { what: 'member', id: unknown[0], ids: unknown },
       });
     const taskKey = input.taskKey ?? null;
-    if (taskKey) this.tasks.get(projectKey, taskKey);
+    const task = taskKey ? this.tasks.get(projectKey, taskKey) : null;
     const humans = recipients.filter((handle) => memberOf(config, handle)?.kind === 'human');
+    // The task's developer writing to a reviewer or tester hands over new work (a re-review, a
+    // retest): their next round starts from the latest commit (PM-138, the owner's answer).
+    if (task && task.assignee === from && (!opts.workItem || opts.workItem.type === 'task')) {
+      for (const handle of recipients)
+        if (!humans.includes(handle)) this.sessions.requestReviewRound(projectKey, task.key, handle);
+    }
     const message = this.messages.record({
       projectKey,
       from,

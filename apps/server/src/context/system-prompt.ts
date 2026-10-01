@@ -63,6 +63,7 @@ export function buildSystemPrompt(input: ContextPackInput, situation: Situation)
     labelsSection(input),
     workItemSection(input, situation),
     sessionPolicySection(input),
+    workspaceSection(input),
     unattendedCommandsSection(input),
     guardrailsSection(input),
     roleSection(input),
@@ -332,6 +333,36 @@ function sessionPolicySection({ sessionPolicy: policy }: ContextPackInput): stri
     `Denied operations: ${codeList(policy.deniedOperations)}.`,
     'Enforcement is the existing provider and command policy. These roots do not establish strict read or network isolation yet; outside-sandbox execution still requires permission.',
   ].join('\n');
+}
+
+/**
+ * The member's own durable workspace (PM-138): which branch or which handed-over commit it holds
+ * for this task, so that a resumed session knows it too (the system prompt is rebuilt on resume).
+ */
+function workspaceSection({ sessionPolicy: policy }: ContextPackInput): string {
+  const placement = policy?.placement;
+  if (placement?.kind === 'task_worktree' && placement.workspace) {
+    const { branch, baseCommit } = placement.workspace;
+    return [
+      '# Your workspace',
+      `You work in your own durable workspace for this repository, an independent clone at ${code(placement.path)}, on the task's branch ${code(branch)}${baseCommit ? ` (it started from ${code(baseCommit)})` : ''}.`,
+      'It stays yours across tasks: the branches of your other tasks are kept in it, and nothing is ever reset, stashed or cleaned for you. Commit your work before you hand over: you move to another task here only when nothing is left uncommitted and no git operation (merge, rebase, cherry-pick) is unfinished.',
+      'It has no remote. Teammates who review or test your work get your committed branch from here; uncommitted files never reach them.',
+    ].join('\n');
+  }
+  if (placement?.kind === 'review_copy' && placement.sourceBranch) {
+    return [
+      '# Review round',
+      `Round ${placement.roundId}: your own workspace at ${code(placement.path)} has the handed-over commit ${code(placement.sourceCommit)} of ${code(placement.sourceBranch)} checked out (detached HEAD); the developer's uncommitted files are not in it.`,
+      ...(placement.baseCommit
+        ? [
+            `The review base is ${code(placement.baseBranch ?? 'the default branch')} at ${code(placement.baseCommit)}: read the change with ${code(`git log ${placement.baseCommit}..HEAD`)} and ${code(`git diff ${placement.baseCommit}...HEAD`)}.`,
+          ]
+        : []),
+      'You keep this commit while the round lasts. A new round with the latest commit starts when the task enters a stage or its developer asks you for a re-review; you are restarted on it then.',
+    ].join('\n');
+  }
+  return '';
 }
 
 function guardrailsSection({ project, member }: ContextPackInput): string {

@@ -1,9 +1,10 @@
-import { mkdir, readdir, realpath, stat } from 'node:fs/promises';
+import { mkdir, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { TaskKey, type ProjectConfig } from '@projectman/shared';
 import type { WorktreeInfo, WorktreeManager, WorktreeManagerOptions } from '../contracts';
 import { isTaskBranch, taskBranchName } from './branch-name';
 import { git, gitSucceeds, tryGit } from './git';
+import { canonical, createKeyedLock, isInside } from './paths';
 
 /** A fetch that takes longer is abandoned; the worktree starts from the last known state. */
 const FETCH_TIMEOUT_MS = 60_000;
@@ -390,46 +391,4 @@ async function exists(p: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-/** Real path when it exists (macOS: /var -> /private/var), else the resolved path. */
-async function canonical(p: string): Promise<string> {
-  try {
-    return await realpath(p);
-  } catch {
-    const resolved = path.resolve(p);
-    const parent = path.dirname(resolved);
-    return parent === resolved ? resolved : path.join(await canonical(parent), path.basename(resolved));
-  }
-}
-
-function isInside(child: string, parent: string): boolean {
-  const relative = path.relative(parent, child);
-  return (
-    relative !== '' &&
-    relative !== '..' &&
-    !relative.startsWith(`..${path.sep}`) &&
-    !path.isAbsolute(relative)
-  );
-}
-
-/** Serialises async work per key (git operations on one repository). */
-function createKeyedLock(): <T>(key: string, fn: () => Promise<T>) => Promise<T> {
-  const tails = new Map<string, Promise<void>>();
-  return async (key, fn) => {
-    const previous = tails.get(key) ?? Promise.resolve();
-    let release!: () => void;
-    const done = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const tail = previous.then(() => done);
-    tails.set(key, tail);
-    await previous;
-    try {
-      return await fn();
-    } finally {
-      release();
-      if (tails.get(key) === tail) tails.delete(key);
-    }
-  };
 }

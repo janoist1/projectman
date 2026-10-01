@@ -171,6 +171,16 @@ provider verification is still required before any such policy can run; the curr
 adapters reject it. The original worktree and other members' copies do not become writable
 merely because they are listed as readable roots.
 
+Member workspaces (PM-138, off by default) are independent clones without a remote and without
+shared objects, so a member's repository configuration, hooks and objects never reach the project
+repository or a teammate; only committed branches travel, fetched by the server by explicit path.
+The server's git commands in a member workspace (or reading a teammate's) run with
+`core.hooksPath=/dev/null`, no fsmonitor, no system or global configuration and only the local
+`file` transport. Clean/smudge filters that a repository's own configuration names still run on
+the server's checkouts there: until the VM boundary (PM-140) separates the server's account from
+the members', they run as the same user the sessions already are. Workspaces are reserved for one
+session's process group at a time, so no session can switch the branch under another.
+
 The model and fake CLI regression tests prove rendering and compatibility only. PM-126's
 corrected manual macOS subscription probe and the PM-130 adversarial matrix must establish
 the real filesystem/network boundary, hook/lifecycle confinement and publishing protection.

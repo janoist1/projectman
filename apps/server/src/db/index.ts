@@ -2,6 +2,7 @@ import { createAttachmentRepository } from './attachments';
 import { createInvitationRepository } from './invitations';
 import type { Db } from './database';
 import { createDeferredStartRepository } from './deferred-starts';
+import { createMemberWorkspaceRepository } from './member-workspaces';
 import { createInboxRepository } from './inbox';
 import { createMemberStateRepository } from './member-state';
 import { createMessageRepository } from './messages';
@@ -17,6 +18,7 @@ export type { Db } from './database';
 export { LATEST_SCHEMA_VERSION, migrations } from './migrations';
 export type { AttachmentRecord, AttachmentState, StoredAttachment } from './attachments';
 export type { DeferredStartRecord } from './deferred-starts';
+export type { MemberWorkspaceRecord, TaskWorkspaceBinding, WorkspaceHolder } from './member-workspaces';
 export type { UserRecord, AuthSessionRecord } from './users';
 export type { ProjectRecord } from './projects';
 export type { MemberStateRecord } from './member-state';
@@ -38,6 +40,7 @@ export function createRepositories(db: Db) {
     sessions: createSessionRepository(db),
     schedules: createScheduleRepository(db),
     deferredStarts: createDeferredStartRepository(db),
+    memberWorkspaces: createMemberWorkspaceRepository(db),
     messages: createMessageRepository(db),
     inbox: createInboxRepository(db),
     memberState: createMemberStateRepository(db),

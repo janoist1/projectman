@@ -280,6 +280,13 @@ export const hu = {
       ai_limit_reached: 'Most dolgozik a megengedett számú AI-tag; az új munka később indul.',
       plan_usage_paused: 'A szolgáltatói keret magas, ezért új AI-munka most nem indul.',
       ai_disabled: 'Ebben a projektben ki van kapcsolva az AI-munka (Beállítások → Keretek).',
+      workspace_busy:
+        'A tag munkaállomásán most egy másik feladat munkamenete fut ebben a repóban; az előbb annak kell véget érnie.',
+      workspace_dirty:
+        'A tag munkaállomásán el nem mentett változás vagy félbehagyott git-művelet van, ezért nem vált feladatot.',
+      workspace_fetch_failed: 'A friss alapágat nem sikerült letölteni, ezért az új feladat nem indult el.',
+      workspace_branch_missing: 'A feladat ága hiányzik a tag munkaállomásáról.',
+      workspace_source_missing: 'Az átadott commit már nincs rajta a feladat ágán; kérj új átadást.',
       project_exists: 'Ilyen kulcsú projekt már van.',
       workspace_not_found: 'Ez a munkaterület-útvonal nem létezik ezen a gépen.',
       unknown_template: 'Ismeretlen sablon.',
@@ -434,6 +441,9 @@ export const hu = {
       member_at_capacity: 'Indulásra vár: {name} tele van',
       member_on_leave: 'Indulásra vár: {name} szabadságon van',
       repo_required: 'Válassz repót a feladathoz',
+      workspace_busy: 'Indulásra vár: {name} munkaállomásán más feladat fut',
+      workspace_dirty: 'Indulásra vár: {name} munkaállomásán befejezetlen munka van',
+      workspace_fetch_failed: 'Indulásra vár: a friss alapágat nem sikerült letölteni',
     },
     stageOwners: 'a lépés összes felelőse',
     startHints: {
@@ -445,6 +455,12 @@ export const hu = {
       member_on_leave: 'Hívd vissza a tagot a szabadságról a Csapat oldalon, vagy add át a feladatot másnak.',
       repo_required:
         'Az AI-fejlesztő addig nem indulhat, amíg nincs repó kiválasztva: válaszd ki a feladat adatainál.',
+      workspace_busy:
+        'A tag ugyanebben a repóban egy másik feladaton dolgozik; ez akkor indul, amikor az a munkamenet véget ér vagy átadta a munkát.',
+      workspace_dirty:
+        'A tag munkaállomásán el nem mentett változás vagy félbehagyott git-művelet van. Kérd meg a tagot (vagy nézd meg magad), hogy mentse el vagy fejezze be; automatikusan semmit nem törlünk.',
+      workspace_fetch_failed:
+        'Az új feladatág csak friss alapról indulhat. Ellenőrizd a hálózatot és a repó elérését; az indítás magától újrapróbálkozik.',
     },
     needsYou: 'Rád vár: {what}',
     needsYouDetail: '{kind} ({detail})',

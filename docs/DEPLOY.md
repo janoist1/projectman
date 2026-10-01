@@ -13,6 +13,10 @@ with login home `/var/lib/projectman`. Keep repositories accessible to that acco
 Agent and terminal users share its filesystem and credentials; see [SECURITY.md](SECURITY.md).
 Set `PROJECTMAN_HOME=/var/lib/projectman/data` (private, mode 0700). This is separate
 from the CLI login home and from the app checkout at `/srv/projectman`.
+`PROJECTMAN_WORKSPACES=member` gives every AI member one durable workspace per repository under
+`$PROJECTMAN_HOME/workspaces` instead of a worktree per task (PM-138; default `task_worktree`).
+Allow disk for one clone and its dependencies per member and repository; projectman never
+removes them.
 
 ```sh
 sudo useradd --create-home --home-dir /var/lib/projectman --shell /bin/bash projectman
@@ -130,7 +134,7 @@ Changing the owner's live instance still requires approval for that exact update
 
 For a consistent backup, stop the service and archive **all of `PROJECTMAN_HOME`**,
 then restart. This includes `db.sqlite` (and any WAL/SHM files), `customization/`
-**including `.git`**, `secret` (the cookie signing key), memory, worktrees and
+**including `.git`**, `secret` (the cookie signing key), memory, worktrees, member workspaces and
 `attachments/` (the files attached to tasks; the database holds their names and states, so the
 two belong to the same backup: a database restored without its files, or the other way round,
 leaves attachments that cannot be opened). Also protect CLI transcripts/login state in the

@@ -215,10 +215,15 @@ const reviewing: StepRule = ({ input, s, task, duty, author, localOnly }) => {
       `Review what you were asked to review. ${recordResult(input, duty, 'your findings')} Report to the sender with send_message.`,
     ];
   }
+  const placement = input.sessionPolicy?.placement;
+  // In the member's own workspace (PM-138) the handed-over commit is already checked out.
+  const ownWorkspace = placement?.kind === 'review_copy' && placement.sourceBranch !== undefined;
   return [
-    localOnly
-      ? reviewBranch(localOnly, task.key)
-      : 'Review the pull requests linked to the task; do not edit, commit or push.',
+    localOnly && ownWorkspace
+      ? `Review the handed-over commit checked out in your workspace against its review base (see "Review round"): there is no pull request, because ${LOCAL_ONLY_REASON}. Do not commit, merge or push.`
+      : localOnly
+        ? reviewBranch(localOnly, task.key)
+        : 'Review the pull requests linked to the task; do not edit, commit or push.',
     recordResult(input, duty, 'a one-line summary of the findings'),
     `Send "Blocking" / "Not blocking" findings with file:line to ${author} with send_message; review again when they report a fix.`,
     // After a review a local-only branch is merged by the owner and nobody else.

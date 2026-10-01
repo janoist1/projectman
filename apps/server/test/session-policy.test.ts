@@ -606,6 +606,30 @@ describe('routine git steps in the developer worktree (PM-77)', () => {
       expect(commandVerdict({ ...input, session: { cwd, role }, toolInput: commit }), role).toEqual(allowed);
   });
 
+  it("applies in a developer's own member workspace too (PM-138)", () => {
+    const commit = { command: 'git commit -am "Example"' };
+    const own = { cwd: '/workspaces/AR/dev-1/local/repo', role: 'developer' };
+    const roots = { worktreesRootDir: '/worktrees', workspacesRootDir: '/workspaces' };
+    expect(commandVerdict({ ...input, ...roots, session: own, toolInput: commit })).toEqual(allowed);
+    expect(commandVerdict({ ...input, session: own, toolInput: commit })).toBeNull();
+    for (const elsewhere of [
+      '/workspaces',
+      '/workspaces-other/AR/dev-1/local/repo',
+      '/workspaces/../outside',
+    ])
+      expect(
+        commandVerdict({
+          ...input,
+          ...roots,
+          session: { cwd: elsewhere, role: 'developer' },
+          toolInput: commit,
+        }),
+      ).toBeNull();
+    expect(
+      commandVerdict({ ...input, ...roots, session: { ...own, role: 'code_review' }, toolInput: commit }),
+    ).toBeNull();
+  });
+
   it('also holds for a review role when it is given the git steps in the read-only rule', () => {
     const roots = ['/workspace', cwd];
     const reviewer = { ...input, session: { cwd: '/workspace', role: 'code_review' }, readableRoots: roots };

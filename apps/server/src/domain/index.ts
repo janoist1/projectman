@@ -9,11 +9,13 @@ import type {
   EventBus,
   GithubService,
   MemberMemoryStore,
+  MemberWorkspaceManager,
   PermissionBroker,
   RunnerModule,
   WorktreeManager,
 } from '../contracts';
 import type { Repositories } from '../db';
+import type { ProcessProbe } from './workspaces';
 import { projectAccessFor } from './access';
 import type { ProjectAccess } from './access';
 import { Admission, DeferredStarts, MessageStarts, StageHandOver, TaskStarts } from './admission';
@@ -116,6 +118,15 @@ export interface DomainOptions {
   accounts: Pick<AuthService, 'prepareUser'>;
   /** Root used to constrain automatic lockfile installs; unset means no install auto-approval. */
   worktreesRootDir?: string;
+  /**
+   * Durable member workspaces (PM-138) in place of a worktree per task; absent, task sessions use
+   * `worktrees` as before.
+   */
+  memberWorkspaces?: MemberWorkspaceManager;
+  /** Where member workspaces live: a developer's routine steps there run without asking, as in a worktree. */
+  workspacesRootDir?: string;
+  /** Whether a process group still runs (tests replace it): a workspace reservation outlives a restart until it is gone. */
+  processExists?: ProcessProbe;
   templates?: TemplateRegistry;
   bus?: EventBus;
   now?: () => Date;
@@ -147,6 +158,7 @@ export function createDomain(opts: DomainOptions) {
     timeline,
     projects,
     worktreesRootDir: opts.worktreesRootDir,
+    workspacesRootDir: opts.memberWorkspaces ? opts.workspacesRootDir : undefined,
     attachmentDirectory,
   });
   const runnerModule = opts.createRunner(inbox.broker);
@@ -179,6 +191,8 @@ export function createDomain(opts: DomainOptions) {
     doneCleanupDelayMs: opts.doneCleanupDelayMs,
     attachments,
     attachmentDirectory,
+    memberWorkspaces: opts.memberWorkspaces,
+    processExists: opts.processExists,
   });
   const usage = new PlanUsageMonitor({
     provider: runnerModule.planUsage,
@@ -266,6 +280,10 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_cancelled', (task) => sessions.stopTask(task.projectKey, task.key));
   events.on('task_cancelled', (task) => admission.discardStale(task));
   events.on('task_stage_changed', (change) => admission.discardStale(change.task));
+  // A task entering a stage hands its work over anew: reviewers and testers get a new round.
+  events.on('task_stage_changed', (change) => {
+    if (change.task.status !== 'done') sessions.requestReviewRound(change.task.projectKey, change.task.key);
+  });
   // Done tasks: temp workers leave; sessions stop and clean worktrees go away.
   events.on('task_stage_changed', (change) => taskStarts.retireFinishedTempWorker(change));
   // Later stages owned by AI members (review, QA, release, …) get their owner started, in the

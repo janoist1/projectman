@@ -14,6 +14,7 @@ import {
   humanActor,
 } from '../../src/domain';
 import type { ScheduleTimer } from '../../src/domain/schedules';
+import { createMemberWorkspaceManager } from '../../src/worktree';
 import type { Domain } from '../../src/domain';
 import {
   capturingLogger,
@@ -56,6 +57,13 @@ export async function createDomainHarness(
     directory?: string;
     /** Wraps the real attachment storage (fault injection); default: the storage as it is. */
     attachmentStorage?: (inner: AttachmentStorage) => AttachmentStorage;
+    /**
+     * Durable member workspaces (PM-138) with the real git-backed manager under `<dir>/workspaces`;
+     * the project's repositories must then be real git repositories.
+     */
+    memberWorkspaces?: boolean;
+    /** The process ids the workspace reservation sees as still running (default: none). */
+    liveProcesses?: Set<number>;
   } = {},
 ) {
   const restarted = opts.directory !== undefined;
@@ -76,6 +84,8 @@ export async function createDomainHarness(
   const attachmentStorage = (opts.attachmentStorage ?? ((inner) => inner))(
     createAttachmentStorage(join(dir, 'attachments')),
   );
+  const liveProcesses = opts.liveProcesses ?? new Set<number>();
+  const workspacesDir = join(dir, 'workspaces');
 
   const domain: Domain = createDomain({
     repos,
@@ -90,6 +100,13 @@ export async function createDomainHarness(
     attachmentStorage,
     accounts: new AuthService({ repos, now: opts.now }),
     worktreesRootDir: join(dir, 'worktrees'),
+    ...(opts.memberWorkspaces
+      ? {
+          memberWorkspaces: createMemberWorkspaceManager({ rootDir: workspacesDir, logger: log.logger }),
+          workspacesRootDir: workspacesDir,
+        }
+      : {}),
+    processExists: (pid) => liveProcesses.has(pid),
     templates: createTemplateRegistry([testTemplate]),
     planUsageTtlMs: 0,
     now: opts.now,
@@ -124,6 +141,8 @@ export async function createDomainHarness(
     memory,
     worktrees,
     log,
+    liveProcesses,
+    workspacesDir,
     attachmentsDir: join(dir, 'attachments'),
     attachmentStorage,
     /** The Claude Code rules a session of the task gets for the task's attachment directory. */

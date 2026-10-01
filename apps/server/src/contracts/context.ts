@@ -107,3 +107,118 @@ export interface WorktreeManagerOptions {
   rootDir: string;
   logger: FastifyBaseLogger;
 }
+
+/* ---------- member workspaces (PM-138) ---------- */
+
+/** One durable workspace per project x member x repository. */
+export interface MemberWorkspaceKey {
+  project: ProjectConfig;
+  repoName: string;
+  member: string;
+}
+
+/**
+ * The directories of a member workspace, `<rootDir>/<PROJECT>/<handle>/<repo>/`: `repo` is an
+ * independent clone with its own `.git` (no shared object store, alternates or worktree link),
+ * `cache` and `tmp` belong to the member alone.
+ */
+export interface MemberWorkspaceInfo {
+  path: string;
+  gitDir: string;
+  cacheDir: string;
+  tempDir: string;
+}
+
+/** What a workspace has checked out after preparation. */
+export interface WorkspaceCheckout {
+  /** The branch checked out; null for a detached review checkout. */
+  branch: string | null;
+  /** The commit HEAD points at. */
+  head: string;
+}
+
+/** A committed branch tip in another repository (a teammate's workspace or the project repository). */
+export interface WorkspaceSource {
+  /** A repository the server may read: a member workspace or the project's repository. */
+  path: string;
+  /** Full ref name, e.g. `refs/heads/AR-2-fix` or `refs/remotes/origin/AR-2-fix`. */
+  ref: string;
+}
+
+/**
+ * Refusals of the member workspace manager (`MemberWorkspaceError.code`):
+ * - `workspace_dirty`: uncommitted changes, untracked files or an unfinished git operation
+ *   (`details.operation`); nothing is stashed, reset or cleaned;
+ * - `workspace_fetch_failed`: the default branch could not be fetched fresh, so no new task branch
+ *   starts from a stale base;
+ * - `workspace_branch_missing`: the task's recorded branch is gone from the workspace;
+ * - `workspace_source_missing`: the commit under review is not on the handed-over branch;
+ * - `workspace_invalid`: the directory is not a workspace this manager made (a worktree link,
+ *   alternates, a symlink, another repository).
+ */
+export type MemberWorkspaceErrorCode =
+  | 'workspace_dirty'
+  | 'workspace_fetch_failed'
+  | 'workspace_branch_missing'
+  | 'workspace_source_missing'
+  | 'workspace_invalid';
+
+export interface MemberWorkspaceManager {
+  /** Where the workspace is (or would be), without creating anything. */
+  location(key: MemberWorkspaceKey): Promise<MemberWorkspaceInfo>;
+  /**
+   * Creates the workspace when it is missing (a clone of the project's repository without
+   * hardlinks or alternates); `created` tells whether it was made now.
+   */
+  ensure(key: MemberWorkspaceKey): Promise<MemberWorkspaceInfo & { created: boolean }>;
+  /** Uncommitted work or an unfinished git operation, and what is checked out. */
+  status(key: MemberWorkspaceKey): Promise<{
+    dirty: boolean;
+    operation: string | null;
+    checkout: WorkspaceCheckout | null;
+  }>;
+  /**
+   * Fetches the default branch fresh (the project repository's `origin` first, when it has one)
+   * and returns its commit; `workspace_fetch_failed` when a fetch fails.
+   */
+  fetchBase(key: MemberWorkspaceKey): Promise<{ branch: string; commit: string }>;
+  /**
+   * A branch of `taskKey` (`<KEY>` or `<KEY>-*`, `preferred` first): in the workspace (`source`
+   * null), else in the project repository's branches or its `origin` tracking branches.
+   */
+  findTaskBranch(
+    key: MemberWorkspaceKey,
+    taskKey: string,
+    preferred?: string,
+  ): Promise<{ branch: string; source: WorkspaceSource | null } | null>;
+  /** The commit a branch of another repository points at; null when it has none. */
+  resolveSource(source: WorkspaceSource): Promise<string | null>;
+  /**
+   * Puts a clean workspace on a task branch, never resetting, stashing or cleaning:
+   * - `continue`: the branch must exist in the workspace (`workspace_branch_missing`);
+   * - `create`: a new branch at `startPoint` (a commit already fetched, e.g. by `fetchBase`);
+   * - `fetch`: the branch is fetched from `source` (committed work only) when the workspace lacks it.
+   */
+  checkoutTaskBranch(
+    key: MemberWorkspaceKey,
+    target:
+      | { mode: 'continue'; branch: string }
+      | { mode: 'create'; branch: string; startPoint: string }
+      | { mode: 'fetch'; branch: string; source: WorkspaceSource },
+  ): Promise<WorkspaceCheckout>;
+  /**
+   * Detaches a clean workspace at `commit`, fetched from `source` (committed work only);
+   * `workspace_source_missing` when the commit is not on that branch any more.
+   */
+  checkoutReview(
+    key: MemberWorkspaceKey,
+    source: WorkspaceSource,
+    commit: string,
+  ): Promise<WorkspaceCheckout>;
+}
+
+export interface MemberWorkspaceManagerOptions {
+  /** Where member workspaces live, e.g. ~/.projectman/workspaces. */
+  rootDir: string;
+  logger: FastifyBaseLogger;
+}

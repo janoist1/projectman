@@ -14,7 +14,7 @@ import type {
 } from '@projectman/shared';
 import { aiMemberDefaults, getTemplate } from '@projectman/templates';
 import type { ContextPackInput } from '../contracts';
-import { commandVerdict, readableRootsFor } from '../domain';
+import { buildSessionPolicy, commandVerdict, readableRootsFor } from '../domain';
 import { TEAM_TOOL_NAMES } from '../mcp';
 import { createContextPackBuilder } from './context-pack';
 import { stageLabel } from './format';
@@ -1268,6 +1268,20 @@ describe('repositories without GitHub', () => {
       expect(steps[3]).toMatch(/ The owner merges the branch into `develop`\.$/);
     });
 
+    it('reviews the commit checked out in its own workspace when it has one (PM-138)', () => {
+      const project = buildLocalOnlyProject('.');
+      const task = localTask();
+      const [review] = stepsOf({
+        project,
+        handle: 'code-review',
+        task,
+        sessionPolicy: reviewPolicy(project, task),
+      }).split('\n');
+      expect(review).toBe(
+        '1. Review the handed-over commit checked out in your workspace against its review base (see "Review round"): there is no pull request, because the repository is local-only (the owner has not allowed publishing from it). Do not commit, merge or push.',
+      );
+    });
+
     it.each(['.', './', ''])(
       'reads a repository at the workspace root (%j) from the working directory',
       (repoPath) => {
@@ -1500,5 +1514,77 @@ describe('repositories without GitHub', () => {
         'devops in integration',
       ]);
     });
+  });
+});
+
+const COMMIT_A = 'a'.repeat(40);
+const COMMIT_B = 'b'.repeat(40);
+
+/** The policy of a reviewer in its own member workspace, round 2 of the task's review. */
+function reviewPolicy(project: ProjectConfig, task: Task) {
+  return buildSessionPolicy({
+    config: project,
+    role: 'code_review',
+    task,
+    placement: {
+      kind: 'review_copy',
+      path: '/workspaces/AR/code-review/app/repo',
+      gitDir: '/workspaces/AR/code-review/app/repo/.git',
+      sourceCommit: COMMIT_B,
+      roundId: '2',
+      sourceBranch: 'AR-21-fix-the-booking-confirmation-email',
+      baseBranch: 'main',
+      baseCommit: COMMIT_A,
+    },
+  });
+}
+
+describe('member workspaces (PM-138)', () => {
+  it('tells a developer which branch of its own workspace it works on, and that switching needs committed work', () => {
+    const project = buildLocalOnlyProject('.');
+    const task = makeTask({ stageId: 'dev', repo: 'app' });
+    const sessionPolicy = buildSessionPolicy({
+      config: project,
+      role: 'developer',
+      task,
+      placement: {
+        kind: 'task_worktree',
+        path: '/workspaces/AR/fe-1/app/repo',
+        workspace: { branch: 'AR-21-fix-the-booking-confirmation-email', baseCommit: COMMIT_A },
+      },
+    });
+    const prompt = builder.build(input({ project, handle: 'fe-1', task, sessionPolicy })).appendSystemPrompt;
+    expect(section(prompt, '# Your workspace').trim()).toBe(
+      [
+        '# Your workspace',
+        `You work in your own durable workspace for this repository, an independent clone at \`/workspaces/AR/fe-1/app/repo\`, on the task's branch \`AR-21-fix-the-booking-confirmation-email\` (it started from \`${COMMIT_A}\`).`,
+        'It stays yours across tasks: the branches of your other tasks are kept in it, and nothing is ever reset, stashed or cleaned for you. Commit your work before you hand over: you move to another task here only when nothing is left uncommitted and no git operation (merge, rebase, cherry-pick) is unfinished.',
+        'It has no remote. Teammates who review or test your work get your committed branch from here; uncommitted files never reach them.',
+      ].join('\n'),
+    );
+    // The sandbox may write the clone's own git directory: it is inside the workspace.
+    expect(sessionPolicy.filesystem.protectedPaths).toEqual([]);
+  });
+
+  it('tells a reviewer the round, the pinned commit and the review base', () => {
+    const project = buildLocalOnlyProject('.');
+    const task = makeTask();
+    const prompt = builder.build(
+      input({ project, handle: 'code-review', task, sessionPolicy: reviewPolicy(project, task) }),
+    ).appendSystemPrompt;
+    expect(section(prompt, '# Review round').trim()).toBe(
+      [
+        '# Review round',
+        `Round 2: your own workspace at \`/workspaces/AR/code-review/app/repo\` has the handed-over commit \`${COMMIT_B}\` of \`AR-21-fix-the-booking-confirmation-email\` checked out (detached HEAD); the developer's uncommitted files are not in it.`,
+        `The review base is \`main\` at \`${COMMIT_A}\`: read the change with \`git log ${COMMIT_A}..HEAD\` and \`git diff ${COMMIT_A}...HEAD\`.`,
+        'You keep this commit while the round lasts. A new round with the latest commit starts when the task enters a stage or its developer asks you for a re-review; you are restarted on it then.',
+      ].join('\n'),
+    );
+  });
+
+  it('adds nothing for sessions in a per-task worktree or the workspace root', () => {
+    const prompt = builder.build(input({ handle: 'code-review' })).appendSystemPrompt;
+    expect(section(prompt, '# Review round')).toBe('');
+    expect(section(prompt, '# Your workspace')).toBe('');
   });
 });

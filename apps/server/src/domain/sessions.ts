@@ -392,6 +392,8 @@ export class SessionOrchestrator {
     const delay = this.deps.inputStallMs ?? INPUT_STALL_MS;
     const timer = setTimeout(() => {
       this.inputWaits.delete(session.id);
+      // The wait may have ended some other way than a state event: nothing to say then.
+      if (this.ctx.repos.sessions.get(session.id)?.state !== 'waiting_input') return;
       try {
         const item = alerts.raise(session.id, since, Math.max(1, Math.round(delay / 60_000)));
         if (item) this.ctx.logger.warn({ sessionId: session.id, since }, 'session waits for input unseen');

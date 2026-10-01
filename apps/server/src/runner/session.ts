@@ -417,6 +417,7 @@ export class AgentSession {
     const callId = payload.tool_use_id;
     if (callId && this.forwardedQuestions.has(callId)) return refuse();
     let forwarded = false;
+    const startedAt = Date.now();
     try {
       forwarded = await broker.forwardQuestion({
         sessionId: this.id,
@@ -429,7 +430,14 @@ export class AgentSession {
     if (!forwarded) return undefined;
     if (callId) this.forwardedQuestions.add(callId);
     this.log.info(
-      { sessionId: this.id, toolName, event, toolUseId: callId, agentId: payload.agent_id },
+      {
+        sessionId: this.id,
+        toolName,
+        event,
+        toolUseId: callId,
+        agentId: payload.agent_id,
+        tookMs: Date.now() - startedAt,
+      },
       'forwarded the agent question to the inbox',
     );
     return refuse();

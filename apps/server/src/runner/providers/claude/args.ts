@@ -29,6 +29,13 @@ export const HTTP_HOOK_EVENTS = [
   'SubagentStop',
 ] as const;
 
+/**
+ * PreToolUse waits for the inbox to take a question tool's call (PM-199), which reads the
+ * configuration and writes to SQLite: a busy machine needs more than the fast hooks' 10 s, and a
+ * hook that runs out lets the CLI show its dialog over a session that thinks it is working.
+ */
+const QUESTION_HOOK_TIMEOUT_S = 30;
+
 /** SessionEnd hooks share a small budget; this raises it slightly (max 60s). */
 const SESSION_END_TIMEOUT_S = 3;
 
@@ -215,9 +222,11 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
     const timeout =
       event === 'PermissionRequest'
         ? permissionTimeoutS
-        : event === 'SessionEnd'
-          ? SESSION_END_TIMEOUT_S
-          : FAST_HOOK_TIMEOUT_S;
+        : event === 'PreToolUse'
+          ? QUESTION_HOOK_TIMEOUT_S
+          : event === 'SessionEnd'
+            ? SESSION_END_TIMEOUT_S
+            : FAST_HOOK_TIMEOUT_S;
     // A PreToolUse answer turns a question tool's call away (PM-199); every other one is empty.
     hooks[event] = [{ hooks: [handler(timeout, event === 'PermissionRequest' || event === 'PreToolUse')] }];
   }

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InboxItem } from '@projectman/shared';
-import { agentQuestionsOf } from '../src/domain/agent-question';
+import { AgentQuestions, agentQuestionsOf } from '../src/domain/agent-question';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
@@ -45,6 +45,30 @@ describe('agentQuestionsOf', () => {
     for (const bad of [null, 'text', {}, { questions: 'no' }]) {
       expect(agentQuestionsOf('AskUserQuestion', bad)).toEqual([]);
     }
+  });
+});
+
+describe('AgentQuestions.forward when asking fails', () => {
+  const session = { id: 'ses_1', projectKey: 'AR', member: 'cr', workItem: task };
+  const call = { questions: [{ question: 'First?' }, { question: 'Second?' }] };
+  const build = (askHuman: () => Promise<unknown>) =>
+    new AgentQuestions({
+      ctx: {
+        repos: { sessions: { get: () => session } },
+        logger: { warn: () => undefined },
+      } as unknown as ConstructorParameters<typeof AgentQuestions>[0]['ctx'],
+      askHuman,
+    });
+
+  it('counts a call as forwarded when some of its questions were asked already', async () => {
+    const askHuman = vi.fn().mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('boom'));
+    await expect(build(askHuman).forward('ses_1', 'AskUserQuestion', call)).resolves.toBe(true);
+    expect(askHuman).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails when the first question cannot be asked, so the call stays at the terminal', async () => {
+    const askHuman = vi.fn().mockRejectedValue(new Error('boom'));
+    await expect(build(askHuman).forward('ses_1', 'AskUserQuestion', call)).rejects.toThrow('boom');
   });
 });
 
@@ -195,15 +219,32 @@ describe('a session that waits for input unseen', () => {
     expect(alerts()).toEqual([]);
   });
 
-  it('leaves a wait alone that an open question of the session already shows', async () => {
+  it('tells the owners although a question or another alert of the session is open (PM-192)', async () => {
     const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
+    // An ask_human question and a token alert are open; neither explains a wait at the terminal.
     await h.runnerModule.broker().forwardQuestion!({
       sessionId: session.id,
       toolName: 'AskUserQuestion',
       toolInput: { questions: [{ question: 'Which?' }] },
     });
+    h.domain.inbox.create({
+      projectKey: 'AR',
+      kind: 'alert',
+      assignees: ['owner'],
+      source: 'cr',
+      sessionId: session.id,
+      title: 'Many tokens',
+      payload: {
+        alert: 'session_tokens',
+        countedTokens: 2,
+        limitTokens: 1,
+        workItem: task,
+        sessionStartedAt: '2026-10-01T12:00:00.000Z',
+      },
+      options: [{ id: 'seen', label: 'seen', style: 'primary' }],
+    });
     h.runner.setState(session.id, 'waiting_input', 'Dialog');
     await vi.advanceTimersByTimeAsync(STALL_MS);
-    expect(alerts()).toEqual([]);
+    expect(alerts().filter((a) => a.payload.alert === 'session_input')).toHaveLength(1);
   });
 });

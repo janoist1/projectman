@@ -172,10 +172,15 @@ describe('buildSettings', () => {
       expect(hook.command).toContain("'http://127.0.0.1:4700/hooks/abc'");
       expect(hook.timeout).toBe(settings.hooks[event]![0]!.hooks[0]!.timeout);
     }
-    // Only the permission decision is printed, and curl waits as long as the hook.
+    // Only the permission decision and the PreToolUse answer (a question tool's refusal, PM-199) are
+    // printed, and curl waits as long as the hook; the PreToolUse hook has more than the fast 10 s.
     const permission = sandboxed.hooks.PermissionRequest![0]!.hooks[0]!;
     expect(permission.command).not.toContain('-o /dev/null');
     expect(permission.command).toContain(`-m ${permission.timeout} `);
+    const preTool = sandboxed.hooks.PreToolUse![0]!.hooks[0]!;
+    expect(preTool.command).not.toContain('-o /dev/null');
+    expect(preTool.command).toContain(`-m ${preTool.timeout} `);
+    expect(preTool.timeout).toBeGreaterThan(10);
     expect(sandboxed.hooks.Stop![0]!.hooks[0]!.command).toContain('-o /dev/null');
   });
 });

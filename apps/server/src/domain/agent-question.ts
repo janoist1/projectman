@@ -72,7 +72,11 @@ export class AgentQuestions {
     this.askHuman = deps.askHuman;
   }
 
-  /** True when every question of the call is in the inbox now; false when the call asked none or a session is unknown. */
+  /**
+   * True when the call's questions are in the inbox; false when it asked none, the session is unknown,
+   * or the first one could not be asked. A failure after some were asked still counts as forwarded:
+   * those are in the list already, and the call must not be asked again at the terminal.
+   */
   async forward(sessionId: string, toolName: string, toolInput: unknown): Promise<boolean> {
     const session = this.ctx.repos.sessions.get(sessionId);
     const questions = agentQuestionsOf(toolName, toolInput);
@@ -83,8 +87,19 @@ export class AgentQuestions {
       member: session.member,
       taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
     };
+    let asked = 0;
     for (const { question, options, details } of questions) {
-      await this.askHuman(context, { question, ...(options.length ? { options } : {}), details });
+      try {
+        await this.askHuman(context, { question, ...(options.length ? { options } : {}), details });
+        asked += 1;
+      } catch (err) {
+        if (asked === 0) throw err;
+        this.ctx.logger.warn(
+          { err, sessionId, asked, of: questions.length },
+          'only some questions of the call reached the inbox',
+        );
+        break;
+      }
     }
     return true;
   }

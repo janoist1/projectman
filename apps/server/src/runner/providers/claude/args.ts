@@ -8,9 +8,12 @@ import { claudeToolRules } from './policy';
  * Hooks: every event is an HTTP hook posting to /hooks/<token>, except SessionStart, which
  * Claude Code only supports as a command (or MCP tool) hook. For SessionStart the forwarder
  * (hook-forwarder.ts) posts the hook payload (stdin) to the same URL and prints nothing.
+ * A sandboxed session uses the forwarder for every event: there Claude Code 2.1.284 sends
+ * HTTP hooks through the sandbox's network proxy and gets 403 back, so the runner would see
+ * none of them, while the forwarder (curl --noproxy) reaches the server.
  */
 
-/** HTTP hook events the runner listens to (all exist in Claude Code 2.1.223). */
+/** HTTP hook events the runner listens to (all exist in Claude Code 2.1.223); forwarded when sandboxed. */
 export const HTTP_HOOK_EVENTS = [
   'UserPromptSubmit',
   'PreToolUse',
@@ -91,7 +94,17 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
     ? claudeToolRules(input.policy)
     : { allow: input.allowedTools, deny: input.deniedTools ?? [] };
   const permissionTimeoutS = permissionHookTimeoutS(input.permissionTimeoutMs);
-  const http = (timeout: number): HookHandler => ({ type: 'http', url: input.hookUrl, timeout });
+  const handler = (timeout: number, decides: boolean): HookHandler =>
+    input.sandbox
+      ? {
+          type: 'command',
+          command: forwarderCommand(input.hookUrl, input.nodePath, {
+            printResponse: decides,
+            maxTimeS: timeout,
+          }),
+          timeout,
+        }
+      : { type: 'http', url: input.hookUrl, timeout };
   const hooks: ClaudeSettings['hooks'] = {
     SessionStart: [
       {
@@ -112,7 +125,7 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
         : event === 'SessionEnd'
           ? SESSION_END_TIMEOUT_S
           : FAST_HOOK_TIMEOUT_S;
-    hooks[event] = [{ hooks: [http(timeout)] }];
+    hooks[event] = [{ hooks: [handler(timeout, event === 'PermissionRequest')] }];
   }
   // Rules pass through unchanged: both the server-level "mcp__team" and "mcp__team__*" are
   // valid allow rules for every tool of the team MCP server.

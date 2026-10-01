@@ -71,6 +71,28 @@ describe('buildSettings', () => {
       network: { allowedDomains: ['registry.npmjs.org'], strictAllowlist: true, allowLocalBinding: true },
     });
   });
+
+  it('forwards every hook of a sandboxed session with the forwarder, past the sandbox proxy', () => {
+    const sandboxed = buildSettings({
+      hookUrl: 'http://127.0.0.1:4700/hooks/abc',
+      allowedTools: [],
+      permissionTimeoutMs: 15 * 60_000,
+      sandbox: { allowWrite: [], allowedDomains: [], allowLocalBinding: true },
+    });
+    for (const event of HTTP_HOOK_EVENTS) {
+      const hook = sandboxed.hooks[event]![0]!.hooks[0]!;
+      expect(hook.type).toBe('command');
+      expect(hook.url).toBeUndefined();
+      expect(hook.command).toContain("--noproxy '*'");
+      expect(hook.command).toContain("'http://127.0.0.1:4700/hooks/abc'");
+      expect(hook.timeout).toBe(settings.hooks[event]![0]!.hooks[0]!.timeout);
+    }
+    // Only the permission decision is printed, and curl waits as long as the hook.
+    const permission = sandboxed.hooks.PermissionRequest![0]!.hooks[0]!;
+    expect(permission.command).not.toContain('-o /dev/null');
+    expect(permission.command).toContain(`-m ${permission.timeout} `);
+    expect(sandboxed.hooks.Stop![0]!.hooks[0]!.command).toContain('-o /dev/null');
+  });
 });
 
 describe('buildClaudeArgs', () => {

@@ -94,10 +94,14 @@ it(
       failIfUnavailable: true,
       filesystem: {
         allowWrite: own,
-        denyWrite: shared.flatMap((file) => [
-          expect.stringMatching(new RegExp(`/\\.git/${file}$`)),
-          expect.stringMatching(new RegExp(`/\\.git/${file}\\.lock$`)),
-        ]),
+        denyWrite: [
+          ...shared.flatMap((file) => [
+            expect.stringMatching(new RegExp(`/\\.git/${file}$`)),
+            expect.stringMatching(new RegExp(`/\\.git/${file}\\.lock$`)),
+          ]),
+          expect.stringMatching(/\/\.git\/refs\/replace$/),
+          expect.stringMatching(/\/\.git\/info\/grafts$/),
+        ],
         denyRead: [userHome, home, ...denyRead],
         allowRead: expect.arrayContaining([worktree, ...own, join(userHome, '.gitconfig')]),
       },

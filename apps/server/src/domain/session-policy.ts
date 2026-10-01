@@ -96,14 +96,21 @@ export const MEMBER_SANDBOX_DIRS = [
  * The files of a shared git directory a worktree's commands never write (PM-153): the default
  * branch, and the `HEAD` and `index` of the checkout the directory belongs to (the integrating
  * one), with their lock files, so git fails at the lock and leaves none behind. `packed-refs` too:
- * rewriting it can move or drop the default branch. Everything else stays writable (the task's own
+ * rewriting it can move or drop the default branch. Nor `refs/replace` (the directory) and
+ * `info/grafts`: with them every local git command would see other content or history for the
+ * default branch without the ref moving (a `git replace` of one of its blobs reaches the
+ * integrating checkout's diff, merge and checkout). Everything else stays writable (the task's own
  * branch, objects, other worktrees' metadata); Claude Code itself keeps `hooks` and `config` out.
  */
 export function sharedGitDenials(gitDir: string, defaultBranch: string): string[] {
-  return [path.join('refs', 'heads', defaultBranch), 'HEAD', 'index', 'packed-refs'].flatMap((file) => [
-    path.join(gitDir, file),
-    path.join(gitDir, `${file}.lock`),
-  ]);
+  return [
+    ...[path.join('refs', 'heads', defaultBranch), 'HEAD', 'index', 'packed-refs'].flatMap((file) => [
+      path.join(gitDir, file),
+      path.join(gitDir, `${file}.lock`),
+    ]),
+    path.join(gitDir, 'refs', 'replace'),
+    path.join(gitDir, 'info', 'grafts'),
+  ];
 }
 
 /** The actual paths a session's sandbox is computed from, besides its policy. */

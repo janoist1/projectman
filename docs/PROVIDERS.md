@@ -480,7 +480,10 @@ exact `--settings` the fake CLI receives:
 All paths are absolute, from the actual user home and app home. A developer in a task worktree
 gets `denyWrite` in the shared git directory (`sharedGitDenials`): `refs/heads/<default branch>`,
 `HEAD`, `index`, `packed-refs` and each one's `.lock`, so git fails at the lock and leaves no
-stale lock for the integrating session. A member workspace (PM-138) is an independent clone with
+stale lock for the integrating session; and `refs/replace` (the directory) and `info/grafts`, with
+which every local git command would see other content or history for the default branch without
+the ref moving (`git replace <a blob of main> <another blob>` reaches the integrating checkout's
+diff, merge and checkout). A member workspace (PM-138) is an independent clone with
 its own `.git` in the working directory: no `gitDir`, no git `denyWrite`. An `allowRead` path
 inside a `sensitivePaths` entry is left out; Claude Code 2.1.284's Seatbelt profile puts `allowRead`
 after `denyRead` and denies the narrower `denyRead` paths again, so the credentials stay closed.

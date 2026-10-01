@@ -226,8 +226,13 @@ write everything in it but `hooks`, `config` and the PM-153 files. So a develope
 still change other tasks' branches and their `worktrees/<name>` metadata, other refs (tags,
 remote-tracking refs), the reflogs and the object store (a `git gc` or `git prune` there acts on
 the shared objects). They cannot move the default branch, which is what reaches the public
-repository, or change the integrating checkout's `HEAD` and `index`. A per-member workstation has
-its own clone and nothing shared. What the host's own git does in a developer's worktree (its
+repository, change the integrating checkout's `HEAD` and `index`, or add replacements
+(`refs/replace`) and grafts (`info/grafts`). **The content seen locally can still be forged:** the
+object store is writable, so an existing loose object of the default branch can be overwritten,
+and a local checkout, diff or merge reads it without checking its hash. The `main` ref does not
+move, but what the integrating session sees and tests on the host under that ref may not be what
+was committed; a push of `main` sends those objects as they are. Accepted until per-member
+workstations or the VM; a per-member workstation has its own clone and nothing shared. What the host's own git does in a developer's worktree (its
 `.git` file, which the developer can rewrite) stays the host-git risk of PM-126/PM-131
 (PROVIDERS.md); PM-193 closed the npm cache and the development data, not that.
 

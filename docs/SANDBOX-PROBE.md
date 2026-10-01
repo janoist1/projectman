@@ -261,6 +261,13 @@ Credential files are only counted (`wc -c`), never printed.
    - `git update-ref refs/heads/main HEAD`; `touch <shared .git>/HEAD`, `touch <shared .git>/index`;
      afterwards no `main.lock`, `HEAD.lock` or `index.lock` is left in the shared `.git`, and the
      integrating checkout's `git status` and `git log -1 main` are unchanged;
+   - `git replace $(git rev-parse main:package.json) $(git hash-object -w <a fictional file>)` and
+     `touch <shared .git>/info/grafts`: refused; afterwards `git replace -l` lists nothing and the
+     integrating checkout's `git show main:package.json` is unchanged;
+   - the credential helper of `/opt/homebrew/etc/gitconfig` (`osxkeychain`):
+     `printf 'protocol=https\nhost=github.com\n\n' | git credential fill | wc -c` gives no password
+     (count only, never print it), and `security find-internet-password -s github.com > /dev/null`
+     is refused. If either reaches a credential, that is a separate card;
    - `printenv GH_TOKEN SSH_AUTH_SOCK` prints nothing (start the instance with a fictional
      `GH_TOKEN=probe` in its environment to see the difference);
    - PM-193: `touch ~/.npm/_npx/probe.txt`, `touch ~/.npm/probe.txt`,

@@ -269,7 +269,7 @@ export class MemberService {
 
   /**
    * Changes a member (a configuration commit): the display name of anyone, the roles a human
-   * holds, and an AI member's specialty, provider, model, effort and schedule. An AI member's one role stays.
+   * holds, and an AI member's specialty, provider, model, effort, schedule and own instructions. An AI member's one role stays.
    */
   async update(
     projectKey: string,
@@ -292,11 +292,12 @@ export class MemberService {
           req.schedule !== undefined ||
           req.provider !== undefined ||
           req.effort !== undefined ||
-          req.onLeave !== undefined
+          req.onLeave !== undefined ||
+          req.instructions !== undefined
         ) {
           throw invalid(
             'not_ai_member',
-            'specialty, provider, model, effort, schedule and leave apply to AI members only',
+            'specialty, provider, model, effort, schedule, leave and instructions apply to AI members only',
           );
         }
         if (req.roles !== undefined) {
@@ -334,6 +335,10 @@ export class MemberService {
           if (req.schedule) member.schedule = req.schedule;
           else delete member.schedule;
           fields.push('schedule');
+        }
+        if (req.instructions !== undefined) {
+          member.instructions = req.instructions.trim();
+          fields.push('instructions');
         }
         if (req.onLeave !== undefined) {
           if (req.onLeave) member.onLeave = true;

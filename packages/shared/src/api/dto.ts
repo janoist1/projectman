@@ -161,6 +161,8 @@ export const UpdateMemberRequest = z.object({
   schedule: MemberSchedule.nullable().optional(),
   /** AI only; true sends the member on leave, false calls it back. */
   onLeave: z.boolean().optional(),
+  /** AI only; the member's own instructions (English prompt text); an empty string clears them. */
+  instructions: z.string().optional(),
 });
 export type UpdateMemberRequest = z.infer<typeof UpdateMemberRequest>;
 

@@ -1275,7 +1275,8 @@ export class MockBackend {
         input.schedule !== undefined ||
         input.provider !== undefined ||
         input.effort !== undefined ||
-        input.onLeave !== undefined)
+        input.onLeave !== undefined ||
+        input.instructions !== undefined)
     )
       return error(400, 'not_ai_member', 'Not an AI member');
     const next = clone(this.config);
@@ -1307,6 +1308,7 @@ export class MockBackend {
         } else member.effort = config.effort = input.effort;
       }
       if (input.schedule !== undefined) config.schedule = input.schedule ?? undefined;
+      if (input.instructions !== undefined) config.instructions = input.instructions.trim();
       if (input.onLeave !== undefined) {
         if (input.onLeave) {
           config.onLeave = member.onLeave = true;

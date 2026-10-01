@@ -76,6 +76,27 @@ describe('member profiles', () => {
     expect(role.getByText(`${t('roleCatalogue.notTheirJob')}: ${qa.notTheirJob}`)).toBeTruthy();
     expect(role.getByText(`${t('roleCatalogue.whenToAsk')}: ${qa.whenToAsk}`)).toBeTruthy();
   });
+  it('shows the instructions of the role and the own ones, and edits the own ones from the profile', async () => {
+    const p = mockProject();
+    const member = p.backend.config.team.members.find((m) => m.handle === 'fe-1')!;
+    if (member.kind !== 'ai') throw new Error('Expected fictional AI member');
+    member.instructions = 'Work in your own worktree.';
+    p.render(page(), '/team/fe-1');
+    const panel = within(await screen.findByLabelText(t('profile.instructions')));
+    expect(panel.getByText('Work in your own worktree.')).toBeTruthy();
+    expect(panel.getByRole('link', { name: t('profile.roleInstructionsEdit') })).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: t('memberEdit.edit') }));
+    const dialog = within(screen.getByRole('dialog'));
+    const field = dialog.getByLabelText(t('memberEdit.instructions')) as HTMLTextAreaElement;
+    expect(field.value).toBe('Work in your own worktree.');
+    fireEvent.change(field, { target: { value: 'Always attach screenshots.' } });
+    fireEvent.click(dialog.getByRole('button', { name: t('memberEdit.save') }));
+    await waitFor(() => expect(member.instructions).toBe('Always attach screenshots.'));
+    expect(p.requests.filter((request) => request.method === 'PATCH').at(-1)?.body).toMatchObject({
+      instructions: 'Always attach screenshots.',
+    });
+    expect(await screen.findByText('Always attach screenshots.')).toBeTruthy();
+  });
   it('starts a general conversation and opens the session', async () => {
     const p = mockProject();
     p.backend.sessions = [];

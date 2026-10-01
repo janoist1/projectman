@@ -175,8 +175,10 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     await startTask('AR-1', 'dev-1');
     const first = h.runner.lastStarted();
     const dev1 = await workspaceOf('dev-1');
-    await writeFile(path.join(dev1, 'draft.txt'), 'not committed\n');
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1'));
+    // The developer keeps working on something uncommitted after the hand-over (PM-183 refuses a
+    // hand-over with it, but the workspace can get dirty afterwards).
+    await writeFile(path.join(dev1, 'draft.txt'), 'not committed\n');
     h.runner.setState(first.sessionId, 'idle');
     await flush();
     await expect(startTask('AR-2', 'dev-1')).rejects.toMatchObject({ code: 'workspace_dirty' });

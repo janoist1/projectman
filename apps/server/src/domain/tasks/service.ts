@@ -36,7 +36,7 @@ import type { TimelineService } from '../timeline';
 import { actorHandle, newId, unique } from '../util';
 import { labelsChange, planLabelsOrThrow, TaskLabels } from './labels';
 import { approvalRequestedError, gateBlockedError, TaskMoves } from './moves';
-import type { MoveResult } from './moves';
+import type { Handover, MoveOptions, MoveResult, SourceHeadReader } from './moves';
 import { requireStage, runEffects, TaskStore } from './store';
 import type { Effect, StartWaitingReader } from './store';
 
@@ -103,13 +103,20 @@ export class TaskService {
     inbox: InboxService;
     /** Why a task's AI work waits, shown on the task. */
     startWaiting: StartWaitingReader;
+    /** The head of the developer's branch, read when a task is handed over for review (PM-183). */
+    sourceHead: SourceHeadReader;
   }) {
     this.ctx = deps.ctx;
     this.timeline = deps.timeline;
     this.projects = deps.projects;
     this.store = new TaskStore(deps);
     this.labels = new TaskLabels(this.store);
-    this.moves = new TaskMoves({ store: this.store, labels: this.labels, inbox: deps.inbox });
+    this.moves = new TaskMoves({
+      store: this.store,
+      labels: this.labels,
+      inbox: deps.inbox,
+      sourceHead: deps.sourceHead,
+    });
     this.pullRequests = new PullRequestRecords({
       ...deps,
       find: (projectKey, taskKey) => this.store.find(projectKey, taskKey),
@@ -246,8 +253,21 @@ export class TaskService {
         ? await this.requireLifecycleAccess(projectKey, actor)
         : await this.projects.config(projectKey);
     const effects: Effect[] = [];
+    // A move into a review or test stage hands the branch over (PM-183): read before the write.
+    const handover =
+      change.stageId !== undefined
+        ? await this.moves.prepareHandover(config, this.get(projectKey, taskKey), change.stageId)
+        : null;
     const result = this.ctx.unitOfWork(() =>
-      this.applyUpdate(config, this.get(projectKey, taskKey), change, actor, opts.sessionId ?? null, effects),
+      this.applyUpdate(
+        config,
+        this.get(projectKey, taskKey),
+        change,
+        actor,
+        opts.sessionId ?? null,
+        effects,
+        handover,
+      ),
     );
     await runEffects(effects);
     if (result.pendingApproval) throw approvalRequestedError(result.pendingApproval);
@@ -261,6 +281,7 @@ export class TaskService {
     actor: Actor,
     sessionId: string | null,
     effects: Effect[],
+    handover: Handover | null,
   ): { task: Task; pendingApproval?: InboxItem[] } {
     // Validate the whole change against the task as it will be.
     const patch: TaskPatch = {};
@@ -371,7 +392,7 @@ export class TaskService {
     }
     if (note && !labelsChanged) this.store.recordNote(config, next, note, actor, sessionId, effects);
     if (!moving) return { task: next };
-    const moved = this.moves.move(config, next, change.stageId!, actor, effects);
+    const moved = this.moves.move(config, next, change.stageId!, actor, effects, { handover });
     return moved.moved ? { task: moved.task } : { task: moved.task, pendingApproval: moved.pendingApproval };
   }
 
@@ -483,8 +504,19 @@ export class TaskService {
    * human approvals create `decision` inbox items for the approvers and the task moves only
    * once they approve (an AI member can never resolve inbox items).
    */
-  moveToStage(projectKey: string, taskKey: string, stageId: string, actor: Actor): Promise<MoveResult> {
-    return this.moves.moveToStage(projectKey, taskKey, stageId, actor);
+  moveToStage(
+    projectKey: string,
+    taskKey: string,
+    stageId: string,
+    actor: Actor,
+    opts?: Pick<MoveOptions, 'branchMoved'>,
+  ): Promise<MoveResult> {
+    return this.moves.moveToStage(projectKey, taskKey, stageId, actor, opts);
+  }
+
+  /** The developer asked for a new review round (PM-138): the task's pinned commit follows the branch. */
+  repinReview(projectKey: string, taskKey: string, by: string): Promise<void> {
+    return this.moves.repin(projectKey, taskKey, by);
   }
 
   /** Handler for resolved `decision` items: completes (or drops) the requested stage move. */

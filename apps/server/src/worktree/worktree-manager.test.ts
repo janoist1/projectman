@@ -274,6 +274,26 @@ describe('worktree manager', { timeout: 30_000 }, () => {
     await expect(manager.remove({ path: info.path })).resolves.toBeUndefined();
   });
 
+  it('reads the head and the uncommitted changes of a task worktree, nothing of a detached one (PM-183)', async () => {
+    const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+    const info = await manager.ensureForTask(task('AR-21', 'Fix it'));
+    const commit = await commitFile(info.path, 'feature.txt', 'x\n', 'Add feature');
+    expect(await manager.head(info.path)).toEqual({
+      commit,
+      branch: info.branch,
+      dirty: false,
+      changes: 0,
+      path: info.path,
+    });
+
+    await writeFile(path.join(info.path, 'feature.txt'), 'changed\n');
+    await writeFile(path.join(info.path, 'scratch.txt'), 'untracked\n');
+    expect(await manager.head(info.path)).toMatchObject({ commit, dirty: true, changes: 2 });
+
+    await git('-C', info.path, 'checkout', '--quiet', '--detach');
+    expect(await manager.head(info.path)).toBeNull();
+  });
+
   it('recreates a removed worktree on the kept branch', async () => {
     const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
     const info = await manager.ensureForTask(task('AR-21', 'Fix it'));

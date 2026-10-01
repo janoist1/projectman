@@ -392,8 +392,13 @@ function sessionPolicySection({ sessionPolicy: policy, member }: ContextPackInpu
  * The member's own durable workspace (PM-138): which branch or which handed-over commit it holds
  * for this task, so that a resumed session knows it too (the system prompt is rebuilt on resume).
  */
-function workspaceSection({ sessionPolicy: policy }: ContextPackInput): string {
+function workspaceSection({ sessionPolicy: policy, task, member }: ContextPackInput): string {
   const placement = policy?.placement;
+  // The commit handed over with the task's current review or test stage (PM-183).
+  const pin = task?.reviewPin;
+  const pinMoves = pin
+    ? 'If the branch moves on from it while the task is here, the system stops the review and sends the task back to development, and the developer hands it over again.'
+    : '';
   if (placement?.kind === 'member_workspace' && placement.use === 'home') {
     return [
       '# Your workspace',
@@ -431,6 +436,16 @@ function workspaceSection({ sessionPolicy: policy }: ContextPackInput): string {
           ]
         : []),
       'You keep this commit while the round lasts. A new round with the latest commit starts when the task enters a stage or its developer asks you for a re-review; you are restarted on it then.',
+      ...(pinMoves ? [pinMoves] : []),
+    ].join('\n');
+  }
+  if (pin && task && task.assignee !== member.handle) {
+    // Without a workspace of its own the reviewer reads the developer's working directory: it is live,
+    // and only the pinned commit is under review.
+    return [
+      '# Review round',
+      `The task was handed over at commit ${code(pin.commit)} of the branch ${code(pin.branch)}: review that commit (for example ${code(`git show ${pin.commit}`)} or ${code(`git diff <base>...${pin.commit}`)}), not the files in the developer's working directory, which are live and may hold uncommitted changes that are not part of the hand-over.`,
+      pinMoves,
     ].join('\n');
   }
   return '';

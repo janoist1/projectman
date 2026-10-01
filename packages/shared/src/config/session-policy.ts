@@ -1,6 +1,6 @@
 import { DUTIES } from '../domain/duty';
 import type { PermissionMode } from '../domain/member';
-import { roleBundle, roleUsesWorktree } from './duties';
+import { REVIEW_DUTIES, roleBundle, roleUsesWorktree } from './duties';
 import type { ProjectConfig } from './schema';
 
 /**
@@ -71,9 +71,7 @@ export function roleSessionAccess(config: Pick<ProjectConfig, 'team'>, role: str
   const duties = roleBundle(config, role).duties;
   const worktree = roleUsesWorktree(config, role);
   const readOnlyTools = duties.some((id) => DUTIES[id].toolPolicy === 'read_only');
-  const reviewCopy = duties.some(
-    (id) => id === 'code_review' || id === 'security_review' || id === 'testing_acceptance',
-  );
+  const reviewCopy = duties.some((id) => REVIEW_DUTIES.includes(id));
   return { worktree, readOnlyTools, reviewCopy };
 }
 

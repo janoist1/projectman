@@ -145,6 +145,8 @@ export async function createDomainHarness(
     scheduleTimer: opts.scheduleTimer,
     doneCleanupDelayMs: 0,
     handOffRetryMs: opts.handOffRetryMs,
+    // Tests call `domain.reviewWatch.check()` themselves: the timer must not fire on its own.
+    reviewWatchMs: 3_600_000,
   });
   await domain.start();
   if (!restarted) {

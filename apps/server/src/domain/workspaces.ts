@@ -12,6 +12,7 @@ import type {
   MemberWorkspaceKey,
   MemberWorkspaceManager,
   SessionPolicy,
+  SourceHead,
   WorkspaceCheckout,
   WorkspaceSource,
 } from '../contracts';
@@ -263,6 +264,17 @@ export class MemberWorkspaces {
   workSource(projectKey: string, taskKey: string, exceptMember?: string): WorkspaceSource | null {
     const work = this.workOf(projectKey, taskKey, exceptMember);
     return work ? { path: work.record.path, ref: `refs/heads/${work.binding.branch}` } : null;
+  }
+
+  /**
+   * The head of the task's branch in the developer's workspace (see `workSource`) and whether that
+   * workspace has uncommitted work on it (PM-183); null when nobody has worked on the task here.
+   */
+  async sourceHead(config: ProjectConfig, task: Task): Promise<SourceHead | null> {
+    const work = this.workOf(config.project.key, task.key);
+    if (!work?.binding.branch) return null;
+    const key = { project: config, repoName: work.record.repo, member: work.record.member };
+    return this.manager.sourceHead(key, work.binding.branch);
   }
 
   /**

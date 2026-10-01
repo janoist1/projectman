@@ -1697,6 +1697,47 @@ describe('member workspaces (PM-138)', () => {
     );
   });
 
+  describe('the commit pinned when the task entered review (PM-183)', () => {
+    const pin = {
+      commit: COMMIT_B,
+      branch: 'AR-21-fix-the-booking-confirmation-email',
+      pinnedAt: '2026-10-01T10:00:00.000Z',
+    };
+
+    it('names it to a reviewer who reads the developer’s worktree, and warns that it is live', () => {
+      const project = buildLocalOnlyProject('.');
+      const task = makeTask({ reviewPin: pin });
+      const pack = builder.build(input({ project, handle: 'code-review', task }));
+      const round = section(pack.appendSystemPrompt, '# Review round');
+      expect(round).toContain(`handed over at commit \`${COMMIT_B}\` of the branch \`${pin.branch}\``);
+      expect(round).toContain("not the files in the developer's working directory");
+      expect(round).toContain('sends the task back to development');
+      // The reviewer's opening message and its steps name the commit too.
+      expect(pack.initialMessage).toContain(
+        `- Handed over for review: commit \`${COMMIT_B}\` of branch \`${pin.branch}\``,
+      );
+      expect(pack.appendSystemPrompt).toContain(
+        `The commit handed over for this review is \`${COMMIT_B}\` on the branch \`${pin.branch}\``,
+      );
+    });
+
+    it('adds the send-back rule to the round of a reviewer in a workspace of its own', () => {
+      const project = buildLocalOnlyProject('.');
+      const task = makeTask({ reviewPin: pin });
+      const prompt = builder.build(
+        input({ project, handle: 'code-review', task, sessionPolicy: reviewPolicy(project, task) }),
+      ).appendSystemPrompt;
+      expect(section(prompt, '# Review round')).toContain('sends the task back to development');
+    });
+
+    it("tells the task's developer nothing about it", () => {
+      const project = buildLocalOnlyProject('.');
+      const task = makeTask({ reviewPin: pin, assignee: 'fe-1' });
+      const prompt = builder.build(input({ project, handle: 'fe-1', task })).appendSystemPrompt;
+      expect(section(prompt, '# Review round')).toBe('');
+    });
+  });
+
   it('adds nothing for sessions in a per-task worktree or the workspace root', () => {
     const prompt = builder.build(input({ handle: 'code-review' })).appendSystemPrompt;
     expect(section(prompt, '# Review round')).toBe('');

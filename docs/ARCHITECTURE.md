@@ -367,7 +367,8 @@ SQLite tables: `users`, `auth_sessions`, `invitations`, `projects`, `counters`, 
 `task_links`, `timeline_events`, `sessions`, `team_messages`, `inbox_items`, `member_state`,
 `schedule_runs`, `deferred_starts`, `attachments`, `member_workspaces` (one per project x member x
 repository, with its reservation), `task_workspace_bindings` (a member's branch or review round of
-a task in it); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
+a task in it), `task_review_pins` (PM-183: the commit handed over with the task's current review or
+test stage); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
 the server refuses a database a newer build migrated.
 
 ## Permission settings of an AI member (PM-164, part of PM-162)
@@ -580,6 +581,24 @@ database names), and `apply` turns it into a standby home: the database migrated
 paths translated by explicit mappings, the workspace paths committed in the copy's customization history, the
 repositories rebuilt from their bundles, the old machine's uncommitted work kept as pending items. The procedure,
 the rollback and the evidence are in [MIGRATION.md](MIGRATION.md).
+
+## Review at a pinned commit (PM-183, part of PM-176 rule 1)
+
+A task that enters a step or release stage a reviewing or testing duty belongs to
+(`stageHandsOverForReview`, the set that gets the `review_copy` placement) is **handed over**: before the move,
+`TaskMoves.prepareHandover` reads the head of the developer's branch through `SessionOrchestrator.sourceHead`
+(the member workspace's `sourceHead`, or the task worktree's `head`, both in `apps/server/src/worktree`). A
+working directory with uncommitted work refuses the move for everybody (`handover_uncommitted`); otherwise the
+commit is pinned (`task_review_pins`, one row per task, shown as `Task.reviewPin` while the task is in that stage,
+named in the reviewer's brief and "Review round"). A task without a repository or a branch is neither checked nor
+pinned. A move completed by a human approval (`decide`) does not pin.
+
+`ReviewWatch` (every 30 s, `DomainOptions.reviewWatchMs`; a pull request's new commits check the task at once)
+compares the branch with the pin of every task in its stage. If the branch moved and nobody asked for it, the
+reviewers' sessions stop (their conversations stay), the system moves the task back to the work stage before it
+(`task_stage_changed.branchMoved`; the labels that expire when a task goes back come off) and tells the assignee.
+A developer's message to the stage's reviewers is a new round (PM-138): `TaskService.repinReview` pins the new
+head first, so nothing is sent back. The window between a developer's commit and that message is not covered.
 
 ## GitHub
 

@@ -41,6 +41,7 @@ import type {
   RuntimeBoundary,
   SessionPolicy,
   SessionRunner,
+  SourceHead,
   ToolContext,
   TranscriptReader,
   WorktreeInfo,
@@ -395,6 +396,24 @@ export class SessionOrchestrator {
    */
   requestReviewRound(projectKey: string, taskKey: string, member?: string): void {
     this.workspaces?.requestReviewRound(projectKey, taskKey, member);
+  }
+
+  /**
+   * The head of the branch the task's developer hands over, and whether their working directory
+   * holds uncommitted work (PM-183): the member workspace's with member workspaces, else the task's
+   * worktree. Null for a task without a repository or a branch, and when it cannot be read.
+   */
+  async sourceHead(config: ProjectConfig, task: Task): Promise<SourceHead | null> {
+    const repoName = effectiveRepo(config, task);
+    if (!repoName) return null;
+    try {
+      if (this.workspaces) return await this.workspaces.sourceHead(config, task);
+      const found = await this.deps.worktrees.find({ project: config, repoName, taskKey: task.key });
+      return found ? await this.deps.worktrees.head(found.path) : null;
+    } catch (err) {
+      this.ctx.logger.warn({ err, taskKey: task.key }, 'could not read the head of the task branch');
+      return null;
+    }
   }
 
   /**

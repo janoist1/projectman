@@ -138,6 +138,8 @@ export interface SessionOrchestratorDeps {
   executionProfile?: ExecutionProfile;
   /** The proof of the managed VM boundary; without it a `managed_vm` installation starts nothing. */
   managedVm?: ManagedVmBoundary;
+  /** A standby copy of the installation (`instance.json`): every session start is refused. */
+  standby?: boolean;
   /**
    * A session changed execution profile: what it asked or was granted under the old one is
    * void (revokes its unconsumed boundary requests).
@@ -515,6 +517,9 @@ export class SessionOrchestrator {
     message: string | null,
     sessionId: string,
   ): Promise<EnsureSessionResult> {
+    // A standby copy (PM-143) never works: only one copy of an installation may start AI sessions.
+    if (this.deps.standby)
+      throw conflict('ai_disabled', 'this instance is a standby copy: AI work runs only in the active one');
     assertAiEnabled(config);
     assertNotOnLeave(member);
     // A role that changes files works in the task's worktree: without a repository to make it in, it

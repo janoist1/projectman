@@ -147,6 +147,12 @@ export interface DomainOptions {
   executionProfile?: ExecutionProfile;
   /** The proof of the managed VM boundary, asked at every session start of a `managed_vm` installation. */
   managedVm?: ManagedVmBoundary;
+  /**
+   * A standby copy of an installation (PM-143, `instance.json`): it shows its data but runs no scheduler,
+   * no GitHub polling and no automatic starts, and refuses every AI session start. Only one copy of a
+   * home may work, and a rehearsal or not yet released copy is never it.
+   */
+  standby?: boolean;
   templates?: TemplateRegistry;
   bus?: EventBus;
   now?: () => Date;
@@ -215,6 +221,7 @@ export function createDomain(opts: DomainOptions) {
     processExists: opts.processExists,
     executionProfile: opts.executionProfile,
     managedVm: opts.managedVm,
+    standby: opts.standby,
     // `boundary` is built below; the callback only runs when a session starts.
     onExecutionProfileChange: (projectKey, sessionId) => boundary.invalidateSession(projectKey, sessionId),
   });
@@ -415,6 +422,11 @@ export function createDomain(opts: DomainOptions) {
       await boundary.sweep();
       // Uploads and deletions the last run left half done (files and rows share no transaction).
       await attachments.recover();
+      // A standby copy only shows its data: nothing below acts on the outside world or starts a session.
+      if (opts.standby) {
+        opts.logger.warn('standby instance: no scheduler, GitHub polling or automatic starts; AI sessions are refused');
+        return;
+      }
       githubSync.start();
       background.start();
       usage.start();

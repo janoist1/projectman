@@ -13,6 +13,7 @@ import type {
   PermissionBroker,
   PermissionDecision,
   PermissionRequestInfo,
+  QuestionForwardInfo,
   RunnerEvent,
   RunnerModule,
   StartSessionSpec,
@@ -35,6 +36,9 @@ let runner: RunnerModule;
 let events: RunnerEvent[];
 let requests: Array<{ info: PermissionRequestInfo; signal: AbortSignal }>;
 let answers: BrokerAnswer[];
+/** Questions the agent asked at its terminal, and whether the broker takes them (PM-199). */
+let forwarded: QuestionForwardInfo[];
+let forwardResult: boolean;
 let cwd: string;
 let configFile: string;
 let transcriptDir: string;
@@ -48,6 +52,10 @@ const broker: PermissionBroker = {
       return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason)));
     }
     return Promise.resolve(answer);
+  },
+  forwardQuestion(info) {
+    forwarded.push(info);
+    return Promise.resolve(forwardResult);
   },
 };
 
@@ -74,6 +82,8 @@ beforeEach(async () => {
   events = [];
   requests = [];
   answers = [];
+  forwarded = [];
+  forwardResult = false;
   cwd = await dirs.make('ws-');
   transcriptDir = await dirs.make('transcripts-');
   const home = await dirs.make('claude-home-');
@@ -401,6 +411,50 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
       expect.objectContaining({ direction: 'in', from: 'qa', to: ['fe-1'], text: 'Please TEAM check' }),
       expect.objectContaining({ direction: 'out', from: 'fe-1', to: ['qa'], text: 'Ready for review' }),
     ]);
+  });
+
+  it('forwards a terminal question to the broker and turns the call away instead of waiting (PM-199)', async () => {
+    forwardResult = true;
+    await setup();
+    const s = spec();
+    await runner.runner.start(s);
+    await waitState(s.sessionId, 'idle');
+
+    await runner.runner.sendUserMessage(s.sessionId, 'ASK me something');
+    await assistantSaid(s.sessionId, 'Echo: ASK me something');
+    await waitState(s.sessionId, 'idle');
+
+    expect(statesOf(s.sessionId)).not.toContain('waiting_input');
+    expect(forwarded).toEqual([
+      expect.objectContaining({
+        sessionId: s.sessionId,
+        toolName: 'AskUserQuestion',
+        toolInput: {
+          questions: [{ question: 'Which option?', options: [{ label: 'One' }, { label: 'Two' }] }],
+        },
+      }),
+    ]);
+    // The agent is told where its question went; the answer comes later as a team message.
+    const refusal = chatOf(s.sessionId).find((i) => i.kind === 'tool_result' && !i.ok);
+    expect(JSON.stringify(refusal)).toContain('team inbox');
+
+    // Typing goes on at once: nothing holds the next message back.
+    await runner.runner.sendUserMessage(s.sessionId, 'after the question');
+    await assistantSaid(s.sessionId, 'Echo: after the question');
+  });
+
+  it('leaves the question to the terminal when the broker cannot take it', async () => {
+    forwardResult = false;
+    await setup();
+    const s = spec();
+    await runner.runner.start(s);
+    await waitState(s.sessionId, 'idle');
+
+    await runner.runner.sendUserMessage(s.sessionId, 'ASK me something');
+    await waitState(s.sessionId, 'waiting_input');
+    expect(forwarded).toHaveLength(1);
+    runner.runner.writeTerminal(s.sessionId, '1');
+    await assistantSaid(s.sessionId, 'Echo: ASK me something');
   });
 
   it('waits for input on a question and on Esc goes idle without a Stop hook', async () => {

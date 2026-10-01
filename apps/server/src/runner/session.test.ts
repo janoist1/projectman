@@ -310,6 +310,82 @@ describe('AgentSession', () => {
     expect(session.state.state).toBe('waiting_input');
   });
 
+  describe('a question at the terminal (PM-199)', () => {
+    const toolInput = { questions: [{ question: 'Which option?', options: [{ label: 'One' }] }] };
+    const ask = (forwardQuestion: PermissionBroker['forwardQuestion']) => ({
+      broker: { decide: () => new Promise<never>(() => undefined), forwardQuestion } as PermissionBroker,
+      spec: { member: 'fe-1' },
+    });
+
+    it('forwards the question to the broker and refuses the PreToolUse call, so the session keeps working', async () => {
+      const forwardQuestion = vi.fn().mockResolvedValue(true);
+      const { hook, session, states } = await ready(ask(forwardQuestion));
+      await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'ask' });
+      await expect(
+        hook({
+          hook_event_name: 'PreToolUse',
+          tool_name: 'AskUserQuestion',
+          tool_input: toolInput,
+          tool_use_id: 'toolu_1',
+        }),
+      ).resolves.toEqual({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: expect.stringContaining('team inbox'),
+        },
+      });
+      expect(forwardQuestion).toHaveBeenCalledWith({
+        sessionId: 'ses_1',
+        toolName: 'AskUserQuestion',
+        toolInput,
+      });
+      expect(session.state.state).toBe('working');
+      expect(states()).not.toContain('waiting_input');
+    });
+
+    it('refuses a PermissionRequest for the same call without asking the broker twice', async () => {
+      const forwardQuestion = vi.fn().mockResolvedValue(true);
+      const { hook } = await ready(ask(forwardQuestion));
+      await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'ask' });
+      const call = { tool_name: 'AskUserQuestion', tool_input: toolInput, tool_use_id: 'toolu_1' };
+      await hook({ hook_event_name: 'PreToolUse', ...call });
+      await expect(hook({ hook_event_name: 'PermissionRequest', ...call })).resolves.toEqual({
+        hookSpecificOutput: {
+          hookEventName: 'PermissionRequest',
+          decision: { behavior: 'deny', message: expect.stringContaining('team inbox') },
+        },
+      });
+      expect(forwardQuestion).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['the broker cannot take the question', vi.fn().mockResolvedValue(false)],
+      ['the broker fails', vi.fn().mockRejectedValue(new Error('boom'))],
+    ])('leaves the question to the terminal when %s', async (_name, forwardQuestion) => {
+      const { hook, session } = await ready(ask(forwardQuestion));
+      await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'ask' });
+      await expect(
+        hook({ hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', tool_input: toolInput }),
+      ).resolves.toBeNull();
+      expect(session.state.state).toBe('waiting_input');
+    });
+
+    it('leaves the question to the terminal in a session without a member', async () => {
+      const forwardQuestion = vi.fn().mockResolvedValue(true);
+      const { hook, session } = await ready({ ...ask(forwardQuestion), spec: {} });
+      await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'ask' });
+      await hook({ hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', tool_input: toolInput });
+      expect(forwardQuestion).not.toHaveBeenCalled();
+      expect(session.state.state).toBe('waiting_input');
+    });
+
+    it('does not forward Codex questions: its adapter has no refusal answer', () => {
+      const adapter = createCodexAdapter({ bin: 'codex', codexHome: '/nonexistent', logger: silentLogger() });
+      expect(adapter.refuseQuestionOutput).toBeUndefined();
+    });
+  });
+
   it('rejects queued messages and ends pending permission requests when the process exits', async () => {
     const { session, pty, hook } = await ready();
     await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'work' });

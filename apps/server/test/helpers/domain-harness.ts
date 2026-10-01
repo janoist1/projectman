@@ -90,6 +90,8 @@ export async function createDomainHarness(
     /** The user's home and the app home the sessions' sandboxes are computed from (PM-153); default the real home, none. */
     userHome?: string;
     appHome?: string;
+    /** How long a session may wait for input before the owners are told (PM-199). */
+    inputStallMs?: number;
   } = {},
 ) {
   const restarted = opts.directory !== undefined;
@@ -128,6 +130,7 @@ export async function createDomainHarness(
     githubPublisher: opts.githubPublisher,
     userHome: opts.userHome,
     appHome: opts.appHome,
+    inputStallMs: opts.inputStallMs,
     contextBuilder,
     memory,
     worktrees,

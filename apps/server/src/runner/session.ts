@@ -18,6 +18,10 @@ import { TranscriptTailer } from './transcript/tailer';
 /** Dialogs replace the prompt box at the end of the screen content: only look there. */
 const DIALOG_ROWS = 15;
 
+/** What the agent is told when its terminal question was sent to the humans' inbox instead (PM-199). */
+const QUESTION_FORWARDED =
+  'Nobody reads this terminal, so the question was sent to the humans in the team inbox. The answer arrives later as a team message. Do not ask it again and do not wait here: carry on with what does not depend on the answer, or finish your turn. Next time ask with the ask_human tool.';
+
 /** A conversation id of the agent CLIs (both use UUIDs). */
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -107,6 +111,8 @@ export class AgentSession {
   private authFailure: string | null = null;
 
   private readonly timers = new Set<NodeJS.Timeout>();
+  /** Tool calls whose questions went to the inbox already (see forwardQuestion). */
+  private readonly forwardedQuestions = new Set<string>();
   private watchTimer: NodeJS.Timeout | null = null;
 
   constructor(args: {
@@ -317,10 +323,16 @@ export class AgentSession {
         return null;
       case 'PreToolUse': {
         const name = payload.tool_name ?? 'tool';
+        const needsInput = this.adapter.inputTools.has(name);
+        if (needsInput) {
+          const refusal = await this.forwardQuestion(payload, 'PreToolUse');
+          if (refusal !== undefined) return refusal;
+          this.noteInputWait(payload);
+        }
         this.apply({
           kind: 'pre_tool',
           activity: toolActivity(name, payload.tool_input, this.spec.cwd),
-          needsInput: this.adapter.inputTools.has(name),
+          needsInput,
         });
         return null;
       }
@@ -386,11 +398,81 @@ export class AgentSession {
     this.deps.emit({ type: 'provider_session_id', sessionId: this.id, providerSessionId: id });
   }
 
+  /**
+   * A question tool's call (Claude Code's AskUserQuestion, PM-199) shows its dialog in a terminal that
+   * nobody reads, so the session would wait unseen and hold its messages back. A member's call is
+   * turned away instead, and its questions go to the humans' inbox; the answer returns as a team
+   * message. Returns the hook answer, or undefined when the call is left to the terminal: the CLI
+   * has no such answer, the session has no member, or the broker could not take the questions.
+   */
+  private async forwardQuestion(
+    payload: HookPayload,
+    event: 'PreToolUse' | 'PermissionRequest',
+  ): Promise<unknown> {
+    const { broker } = this.deps;
+    if (!this.adapter.refuseQuestionOutput || !broker.forwardQuestion || !this.spec.member) return undefined;
+    const toolName = payload.tool_name ?? 'unknown';
+    const refuse = (): unknown => this.adapter.refuseQuestionOutput!(event, QUESTION_FORWARDED);
+    // The CLI may report one call twice (PreToolUse, then PermissionRequest): it is asked once.
+    const callId = payload.tool_use_id;
+    if (callId && this.forwardedQuestions.has(callId)) return refuse();
+    let forwarded = false;
+    const startedAt = Date.now();
+    try {
+      forwarded = await broker.forwardQuestion({
+        sessionId: this.id,
+        toolName,
+        toolInput: payload.tool_input ?? null,
+      });
+    } catch (err) {
+      this.log.warn({ err, sessionId: this.id, toolName }, 'could not forward the agent question');
+    }
+    if (!forwarded) return undefined;
+    if (callId) this.forwardedQuestions.add(callId);
+    this.log.info(
+      {
+        sessionId: this.id,
+        toolName,
+        event,
+        toolUseId: callId,
+        agentId: payload.agent_id,
+        tookMs: Date.now() - startedAt,
+      },
+      'forwarded the agent question to the inbox',
+    );
+    return refuse();
+  }
+
+  /**
+   * Logs why the session is about to wait for input at its terminal: which conversation and agent the
+   * hook came from, and whether a dialog shows on the screen (PM-199: a wait nobody saw has no
+   * explanation yet, and these fields tell a stray hook from a real dialog).
+   */
+  private noteInputWait(payload: HookPayload): void {
+    this.log.warn(
+      {
+        sessionId: this.id,
+        event: payload.hook_event_name,
+        toolName: payload.tool_name,
+        toolUseId: payload.tool_use_id,
+        conversationId: payload.session_id,
+        agentId: payload.agent_id,
+        agentType: payload.agent_type,
+        transcriptPath: payload.transcript_path,
+        promptVisible: this.adapter.promptVisible(this.screen.screenText(DIALOG_ROWS)),
+      },
+      'session waits for input at its terminal',
+    );
+  }
+
   private async permissionRequest(payload: HookPayload, withdrawn: AbortSignal): Promise<unknown> {
     const toolName = payload.tool_name ?? 'unknown';
     const activity = toolActivity(toolName, payload.tool_input, this.spec.cwd);
     if (this.adapter.inputTools.has(toolName)) {
+      const refusal = await this.forwardQuestion(payload, 'PermissionRequest');
+      if (refusal !== undefined) return refusal;
       // A question for whoever is at the terminal: the CLI shows its own dialog.
+      this.noteInputWait(payload);
       this.apply({ kind: 'pre_tool', activity, needsInput: true });
       return null;
     }

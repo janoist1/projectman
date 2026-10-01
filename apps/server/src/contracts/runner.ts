@@ -295,6 +295,18 @@ export interface PermissionBroker {
    * hook, PM-165): nothing to answer, only to record. `reason` is the agent's explanation.
    */
   refused?(request: PermissionRefusedInfo): void;
+  /**
+   * The agent asked a question at its terminal (Claude Code's AskUserQuestion, PM-199), where
+   * nobody reads it: the questions go to the humans' inbox, the answer returns as a team message.
+   * Resolves true when they did; false (or a rejection) leaves the question to the terminal.
+   */
+  forwardQuestion?(request: QuestionForwardInfo): Promise<boolean>;
+}
+
+export interface QuestionForwardInfo {
+  sessionId: string;
+  toolName: string;
+  toolInput: unknown;
 }
 
 export interface PermissionRefusedInfo {

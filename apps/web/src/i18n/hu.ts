@@ -944,6 +944,11 @@ export const hu = {
         heading: 'Üzenetvihar egy kártyán',
         body: 'A(z) {key} kártyán {minutes} perc alatt {count} üzenet és jegyzet született ({members}). Érdemes ránézni, nem pörög-e egy beszélgetés. Semmi nem állt meg.',
       },
+      session_input: {
+        heading: 'Egy munkamenet bevitelre vár, és nincs hozzá kérdés',
+        body: '{member} munkamenete ({work}) {since} óta, {minutes} perce vár bevitelre a terminálján ({activity}), de nincs hozzá látható kérdés. Amíg így áll, a neki szóló üzenetek nem érnek oda. Érdemes megnyitni a munkamenetet, vagy leállítani és újraindítani.',
+        noActivity: 'nem tudni, mire',
+      },
       work: {
         task: '{key} kártya',
         general: 'általános beszélgetés',

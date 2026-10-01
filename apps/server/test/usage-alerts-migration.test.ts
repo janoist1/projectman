@@ -8,8 +8,8 @@ describe('usage alert migration (PM-187)', () => {
     const db = new Database(':memory:');
     try {
       // A database as the build before this migration left it.
-      for (const migration of migrations.filter((item) => item.version <= 18)) db.exec(migration.sql);
-      db.pragma('user_version = 18');
+      for (const migration of migrations.filter((item) => item.version <= 20)) db.exec(migration.sql);
+      db.pragma('user_version = 20');
       db.exec(`INSERT INTO projects VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01');
         INSERT INTO sessions (id, project_key, member, work_item_type, work_item_ref, claude_session_id, cwd, branch, state, started_at, last_activity_at, usage_since)
         VALUES ('ses_old', 'AR', 'dev-1', 'task', 'AR-1', '0b7c6a1e-8f7b-4c1e-9d55-0d8c0f4e7a11', '/work', NULL, 'exited', '2026-01-01', '2026-01-01', '2026-01-01');`);

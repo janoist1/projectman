@@ -58,10 +58,23 @@ export const TaskStartWaiting = z.object({
 });
 export type TaskStartWaiting = z.infer<typeof TaskStartWaiting>;
 
+/**
+ * The commit of the developer's branch that was handed over when the task entered a review or test
+ * stage (PM-183): reviewers and testers work on exactly this commit. Present only while the task is in
+ * that stage.
+ */
+export const TaskReviewPin = z.object({
+  commit: z.string(),
+  branch: z.string(),
+  pinnedAt: z.string(),
+});
+export type TaskReviewPin = z.infer<typeof TaskReviewPin>;
+
 export const Task = z.object({
   /** One level of subtasks; omitted by older clients. */
   parentKey: TaskKey.nullable().optional(),
   startWaiting: TaskStartWaiting.optional(),
+  reviewPin: TaskReviewPin.optional(),
   id: z.string(),
   projectKey: z.string(),
   key: TaskKey,

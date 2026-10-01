@@ -45,7 +45,9 @@ Documentation map:
   display name. Humans have an **access level** (`owner`, `admin`, `developer`, `client`,
   `viewer`) that governs what they may do in the app, and may hold several roles. An AI
   member holds exactly one role and has a provider (`claude` or `codex`), a model and effort,
-  a permission mode, a capacity, optional instructions, an optional **schedule** (cron in the
+  an optional **cheap subagent** (PM-179: a Claude Code member's sessions get a `reader-<model>`
+  subagent on Sonnet or Haiku, passed with `--agents`, for text-heavy, logic-light work; it has
+  no rights of its own), a permission mode, a capacity, optional instructions, an optional **schedule** (cron in the
   project's time zone, e.g. a daily worker) and a **sponsor**: the human whose subscription
   runs it. Colleagues can be added as unclaimed seats and invited with single-use links.
   An AI member can be sent **on leave** (decision 23, the optional `onLeave` flag of its
@@ -159,7 +161,13 @@ Documentation map:
   (typed in when idle, queued otherwise; a stopped session is started or resumed through
   admission); messages to humans go to the web app. A message never goes to its sender.
   Injected messages carry the prefix `[team message from <handle> about <KEY>]` so
-  transcripts can be parsed.
+  transcripts can be parsed. Where an AI recipient gets it is decided when it is sent
+  (`Messaging.place`, PM-182): its running session on the card; else on an open card its running
+  session on an open family card (parent of a subtask, subtasks of a parent; siblings do not
+  count; the most recently active wins; not for an owner of the card's current stage); a closed
+  card's message goes to its general chat. The receipt keeps that `route` when it is not the
+  default (`messageRoute` in `packages/shared`), so the message is found there while it waits;
+  the prefix always names the message's own card.
 - **Admission** — every automatic session start (task start, stage hand-over, message
   wake-up, schedule run) passes the same checks, in this order: the project's AI master
   switch (`team.limits.aiEnabled`), that the member is not on leave (`member_on_leave`), for a
@@ -361,7 +369,8 @@ SQLite tables: `users`, `auth_sessions`, `invitations`, `projects`, `counters`, 
 `task_links`, `timeline_events`, `sessions`, `team_messages`, `inbox_items`, `member_state`,
 `schedule_runs`, `deferred_starts`, `attachments`, `member_workspaces` (one per project x member x
 repository, with its reservation), `task_workspace_bindings` (a member's branch or review round of
-a task in it); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
+a task in it), `task_review_pins` (PM-183: the commit handed over with the task's current review or
+test stage); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
 the server refuses a database a newer build migrated.
 
 ## Permission settings of an AI member (PM-164, part of PM-162)
@@ -574,6 +583,28 @@ database names), and `apply` turns it into a standby home: the database migrated
 paths translated by explicit mappings, the workspace paths committed in the copy's customization history, the
 repositories rebuilt from their bundles, the old machine's uncommitted work kept as pending items. The procedure,
 the rollback and the evidence are in [MIGRATION.md](MIGRATION.md).
+
+## Review at a pinned commit (PM-183, part of PM-176 rule 1)
+
+A task that enters a step or release stage a reviewing or testing duty belongs to
+(`stageHandsOverForReview`, the set that gets the `review_copy` placement) is **handed over**: before the move,
+`TaskMoves.prepareHandover` reads the head of the developer's branch through `SessionOrchestrator.sourceHead`
+(the member workspace's `sourceHead`, or the task worktree's `head`, both in `apps/server/src/worktree`). A
+working directory with uncommitted work refuses the move for everybody (`handover_uncommitted`); otherwise the
+commit is pinned (`task_review_pins`, one row per task, shown as `Task.reviewPin` while the task is in that stage,
+named in the reviewer's brief and "Review round"). A task without a repository or a branch is neither checked nor
+pinned. A move completed by a human approval (`decide`) is handed over the same way: uncommitted work leaves the
+task where it is (`gateBlocked.reason` `handover_uncommitted` on the timeline).
+
+`ReviewWatch` (every 30 s, `DomainOptions.reviewWatchMs`; a pull request's new commits check the task at once)
+compares the branch with the pin of every task in its stage. If the branch moved and nobody asked for it, the
+system moves the task back to the work stage before it (`task_stage_changed.branchMoved`; the labels that expire
+when a task goes back come off), then the stage's reviewers' sessions stop (their conversations stay), and the
+assignee is told. Not while the review already gave the work back (`reviewReturnedWork`: a result label of a
+reviewing or testing duty that needs a note, such as "changes needed" or "failed"): the fixes are the expected
+commits, and the developer's message to the stage's reviewers is a new round (PM-138) that
+`TaskService.repinReview` answers by pinning the new head. An approved or not yet judged branch that moves is
+sent back.
 
 ## GitHub
 

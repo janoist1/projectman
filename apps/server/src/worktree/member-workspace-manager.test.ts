@@ -198,6 +198,39 @@ describe('member workspaces', { timeout: 30_000 }, () => {
     expect(await git('-C', ws.path, 'status', '--porcelain')).toBe('?? notes.txt');
   });
 
+  it('reads the head of a task branch and the uncommitted work on it, not work on another branch (PM-183)', async () => {
+    const ws = await manager.ensure(key('dev'));
+    const baseCommit = await startTask('dev', 'AR-1-first');
+    const first = await commitFile(ws.path, 'one.txt', '1\n', 'One');
+    expect(await manager.sourceHead(key('dev'), 'AR-1-first')).toEqual({
+      commit: first,
+      branch: 'AR-1-first',
+      dirty: false,
+      changes: 0,
+      path: ws.path,
+    });
+
+    await writeFile(path.join(ws.path, 'one.txt'), 'changed\n');
+    await writeFile(path.join(ws.path, 'notes.txt'), 'untracked\n');
+    expect(await manager.sourceHead(key('dev'), 'AR-1-first')).toMatchObject({
+      commit: first,
+      dirty: true,
+      changes: 2,
+    });
+
+    // Another branch checked out: the untracked file that came along belongs to it, and the task's
+    // branch is as committed.
+    await git('-C', ws.path, 'checkout', '--quiet', '--', 'one.txt');
+    await git('-C', ws.path, 'checkout', '--quiet', '-b', 'AR-2-second', baseCommit);
+    expect(await manager.sourceHead(key('dev'), 'AR-1-first')).toMatchObject({ commit: first, dirty: false });
+    expect(await manager.sourceHead(key('dev'), 'AR-2-second')).toMatchObject({
+      commit: baseCommit,
+      dirty: true,
+      changes: 1,
+    });
+    expect(await manager.sourceHead(key('dev'), 'AR-3-missing')).toBeNull();
+  });
+
   it('refuses to switch during an unfinished git operation', async () => {
     const ws = await manager.ensure(key('dev'));
     const baseCommit = await startTask('dev', 'AR-1-first');

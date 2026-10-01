@@ -1,5 +1,13 @@
-import { labelDefinition, memberOf } from '@projectman/shared';
-import type { Actor, InboxItem, TeamMessage, WorkItemRef } from '@projectman/shared';
+import {
+  isOpenTask,
+  labelDefinition,
+  memberOf,
+  routeFor,
+  sameWorkItem,
+  stageOf,
+  stageOwners,
+} from '@projectman/shared';
+import type { Actor, InboxItem, ProjectConfig, Session, TeamMessage, WorkItemRef } from '@projectman/shared';
 import type { DomainContext } from '../context';
 import { DomainError, invalid } from '../errors';
 import type { DomainEventMap } from '../events';
@@ -18,11 +26,6 @@ export interface SendOptions {
   sessionId?: string | null;
   /** Where AI recipients get it (default: `routeFor(taskKey)`). */
   workItem?: WorkItemRef;
-}
-
-/** An AI recipient gets a message about a task in its session for the task, else in its general chat. */
-export function routeFor(taskKey: string | null): WorkItemRef {
-  return taskKey ? { type: 'task', taskKey } : { type: 'general' };
 }
 
 /**
@@ -88,7 +91,26 @@ export class Messaging {
     if (task && task.assignee === from && (!opts.workItem || opts.workItem.type === 'task')) {
       for (const handle of recipients)
         if (!humans.includes(handle)) this.sessions.requestReviewRound(projectKey, task.key, handle);
+      // The task's pinned commit follows the branch (PM-183) when it is the stage's reviewers or
+      // testers who were asked: that is a new round, not a branch that moved behind their back.
+      const stage = stageOf(config, task.stageId);
+      if (stage && stageOwners(config, stage).some((handle) => recipients.includes(handle)))
+        await this.tasks.repinReview(projectKey, task.key, from).catch((err: unknown) => {
+          this.ctx.logger.warn(
+            { err, taskKey: task.key },
+            'could not pin the commit of the new review round',
+          );
+        });
     }
+    // Where each AI recipient gets it is decided before it is recorded: the receipt keeps the
+    // route when it is not the default place, so the message is found there while it waits.
+    const workItem = opts.workItem ?? routeFor(taskKey);
+    const placed = recipients
+      .filter((handle) => !humans.includes(handle))
+      .map((handle) => ({ handle, ...this.place(projectKey, config, handle, workItem) }));
+    const routes: Record<string, WorkItemRef> = {};
+    for (const { handle, workItem: where } of placed)
+      if (!sameWorkItem(where, routeFor(taskKey))) routes[handle] = where;
     const message = this.messages.record({
       projectKey,
       from,
@@ -99,11 +121,10 @@ export class Messaging {
       sessionId: opts.sessionId ?? null,
       humanRecipients: humans,
       delivered: recipients.every((handle) => humans.includes(handle)),
+      routes,
     });
-    const workItem = opts.workItem ?? routeFor(taskKey);
-    for (const handle of recipients) {
-      if (!humans.includes(handle)) this.deliverOrWake(projectKey, handle, workItem, message);
-    }
+    for (const { handle, workItem: where, running } of placed)
+      this.deliverOrWake(projectKey, handle, where, running, message);
     return message;
   }
 
@@ -201,14 +222,50 @@ export class Messaging {
     );
   }
 
+  /**
+   * Where an AI recipient gets a message that is meant for `workItem`, and the running session
+   * there to type it into (none: it waits for a wake-up). For a task card, in this order:
+   * 1. the recipient's own running session on the card, a closed card's too;
+   * 2. on an open card, the running session on an open family card (the parent of a subtask, the
+   *    subtasks of a parent), the most recently active one, so a member has no second session on
+   *    the same subject; not for an owner of the card's current stage, who has work there;
+   * 3. on a closed card, the recipient's general chat, running or to be woken: no session starts
+   *    on a closed card;
+   * 4. else the card itself, to be woken there.
+   */
+  private place(
+    projectKey: string,
+    config: ProjectConfig,
+    handle: string,
+    workItem: WorkItemRef,
+  ): { workItem: WorkItemRef; running: Session | null } {
+    const own = this.sessions.findRunning(projectKey, handle, workItem);
+    if (own || workItem.type !== 'task') return { workItem, running: own };
+    const task = this.tasks.find(projectKey, workItem.taskKey);
+    if (!task) return { workItem, running: null };
+    if (!isOpenTask(task)) {
+      const general: WorkItemRef = { type: 'general' };
+      return { workItem: general, running: this.sessions.findRunning(projectKey, handle, general) };
+    }
+    const stage = stageOf(config, task.stageId);
+    if (stage && stageOwners(config, stage).includes(handle)) return { workItem, running: null };
+    let latest: Session | null = null;
+    for (const relative of this.tasks.family(projectKey, task.key)) {
+      if (!isOpenTask(relative)) continue;
+      const session = this.sessions.findRunning(projectKey, handle, { type: 'task', taskKey: relative.key });
+      if (session && (!latest || session.lastActivityAt > latest.lastActivityAt)) latest = session;
+    }
+    return latest ? { workItem: latest.workItem, running: latest } : { workItem, running: null };
+  }
+
   /** A running recipient gets the message typed in; otherwise it waits for a wake-up. */
   private deliverOrWake(
     projectKey: string,
     handle: string,
     workItem: WorkItemRef,
+    running: Session | null,
     message: TeamMessage,
   ): void {
-    const running = this.sessions.findRunning(projectKey, handle, workItem);
     // A reviewer still in a turn of a round that is over gets it after its restart on the new commit,
     // and so does a session that waits for its restart into a new permission mode (PM-170).
     if (running && (this.sessions.reviewRoundDue(running) || this.sessions.permissionRestartDue(running)))

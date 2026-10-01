@@ -1,7 +1,7 @@
 import { mkdir, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { TaskKey, type ProjectConfig } from '@projectman/shared';
-import type { WorktreeInfo, WorktreeManager, WorktreeManagerOptions } from '../contracts';
+import type { SourceHead, WorktreeInfo, WorktreeManager, WorktreeManagerOptions } from '../contracts';
 import { isTaskBranch, taskBranchName } from './branch-name';
 import { git, gitSucceeds, tryGit } from './git';
 import { canonical, createKeyedLock, isInside } from './paths';
@@ -239,6 +239,15 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
     return { dirty: porcelain.trim().length > 0, unpushedCommits: await unpushedCommits(dir) };
   }
 
+  async function head(worktreePath: string): Promise<SourceHead | null> {
+    const dir = path.resolve(worktreePath);
+    const commit = (await tryGit(['-C', dir, 'rev-parse', '--verify', '--quiet', 'HEAD^{commit}']))?.trim();
+    const branch = (await tryGit(['-C', dir, 'symbolic-ref', '--quiet', '--short', 'HEAD']))?.trim();
+    if (!commit || !branch) return null;
+    const changes = (await git(['-C', dir, 'status', '--porcelain'])).split('\n').filter(Boolean).length;
+    return { commit, branch, dirty: changes > 0, changes, path: dir };
+  }
+
   async function remove(args: { path: string; force?: boolean }): Promise<void> {
     const dir = path.resolve(args.path);
     const force = args.force ?? false;
@@ -275,7 +284,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
     });
   }
 
-  return { ensureForTask, find, status, remove };
+  return { ensureForTask, find, status, head, remove };
 }
 
 async function assertRepositoryRoot(repoPath: string): Promise<void> {

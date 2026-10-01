@@ -14,3 +14,17 @@ describe('apply_patch summaries', () => {
     expect(toolActivity('apply_patch', { patch }, '/work')).toBe('apply_patch: src/app.ts');
   });
 });
+
+describe('subagent summaries (PM-179)', () => {
+  it('name the subagent, the model the call asks for and the description', () => {
+    const call = { subagent_type: 'reader-haiku', description: 'Summarize the test output', prompt: 'x' };
+    expect(toolSummary('Agent', call)).toBe('reader-haiku · Summarize the test output');
+    expect(toolActivity('Agent', call)).toBe('Agent: reader-haiku · Summarize the test output');
+    expect(toolSummary('Task', { ...call, subagent_type: 'Explore', model: 'sonnet' })).toBe(
+      'Explore (sonnet) · Summarize the test output',
+    );
+    expect(toolSummary('Agent', { description: 'Find the callers' })).toBe('Find the callers');
+    expect(toolSummary('Agent', { subagent_type: 'reader-sonnet' })).toBe('reader-sonnet');
+    expect(toolSummary('Agent', {})).toBe('Agent');
+  });
+});

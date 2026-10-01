@@ -272,6 +272,7 @@ export class MockBackend {
           provider: config.provider ?? DEFAULT_AGENT_PROVIDER,
           model: config.model,
           effort: config.effort,
+          ...(config.cheapSubagent ? { cheapSubagent: config.cheapSubagent } : {}),
         });
     }
     this.syncPermissionViews();
@@ -1404,6 +1405,7 @@ export class MockBackend {
         input.schedule !== undefined ||
         input.provider !== undefined ||
         input.effort !== undefined ||
+        input.cheapSubagent !== undefined ||
         input.onLeave !== undefined ||
         input.instructions !== undefined ||
         input.permissionMode !== undefined ||
@@ -1446,6 +1448,12 @@ export class MockBackend {
           delete member.effort;
           delete config.effort;
         } else member.effort = config.effort = input.effort;
+      }
+      if (input.cheapSubagent !== undefined) {
+        if (input.cheapSubagent === null) {
+          delete member.cheapSubagent;
+          delete config.cheapSubagent;
+        } else member.cheapSubagent = config.cheapSubagent = input.cheapSubagent;
       }
       if (input.schedule !== undefined) config.schedule = input.schedule ?? undefined;
       if (input.instructions !== undefined) config.instructions = input.instructions.trim();
@@ -2117,6 +2125,7 @@ export class MockBackend {
       model:
         input.provider === 'codex' ? modelForProvider('codex', input.model) : (input.model ?? defaults.model),
       ...(input.effort ? { effort: input.effort } : {}),
+      ...(input.cheapSubagent ? { cheapSubagent: input.cheapSubagent } : {}),
       permissionMode: defaults.permissionMode,
       approver: defaults.approver,
       capacity: defaults.capacity,
@@ -2137,6 +2146,7 @@ export class MockBackend {
       provider: config.provider ?? DEFAULT_AGENT_PROVIDER,
       model: config.model,
       effort: config.effort,
+      ...(config.cheapSubagent ? { cheapSubagent: config.cheapSubagent } : {}),
       ...permissionView(this.config, config),
       role: config.role,
       roles: memberRoles(config),

@@ -42,6 +42,7 @@ import { PlanUsageMonitor } from './plan-usage';
 import { PresenceService } from './presence';
 import { ProjectService } from './projects';
 import { PublishingGate } from './publishing';
+import { ReviewWatch } from './review-watch';
 import { RoleService } from './roles';
 import { ScheduleService } from './schedules';
 import type { ScheduleTimer } from './schedules';
@@ -85,7 +86,7 @@ export { GithubSync } from './github-sync';
 export { InboxService, PERMISSION_OPTIONS, DECISION_OPTIONS, ANSWER_OPTION } from './inbox';
 export { InvitationService } from './invitations';
 export { MemberProfiles, MemberService } from './members';
-export { MessageDelivery, MessageService, Messaging, routeFor } from './messaging';
+export { MessageDelivery, MessageService, Messaging } from './messaging';
 export { RoleService, roleUsage, roleViews } from './roles';
 export { defaultMemberHandle, defaultMemberName } from './naming';
 export { PlanUsageCache, PlanUsageMonitor, highestUsagePercent } from './plan-usage';
@@ -175,6 +176,8 @@ export interface DomainOptions {
   doneCleanupDelayMs?: number;
   /** How often refused automatic session starts are retried (default 30 s). */
   handOffRetryMs?: number;
+  /** How often the branch of a task in review is compared with its pinned commit (default 30 s). */
+  reviewWatchMs?: number;
 }
 
 export type Domain = ReturnType<typeof createDomain>;
@@ -205,7 +208,15 @@ export function createDomain(opts: DomainOptions) {
   // The deferred automatic starts live in SQLite too: a restart loads them back (see `start`).
   const deferredStarts = new DeferredStarts(opts.repos.deferredStarts);
   const messages = new MessageService({ ctx, timeline });
-  const tasks = new TaskService({ ctx, timeline, projects, inbox, startWaiting: deferredStarts });
+  const tasks = new TaskService({
+    ctx,
+    timeline,
+    projects,
+    inbox,
+    startWaiting: deferredStarts,
+    // `sessions` is built below; the callback only runs when a task is handed over for review.
+    sourceHead: (config, task) => sessions.sourceHead(config, task),
+  });
   const attachments = new AttachmentService({
     ctx,
     projects,
@@ -321,7 +332,17 @@ export function createDomain(opts: DomainOptions) {
     timeline,
     timer: opts.scheduleTimer,
   });
-  const githubSync = new GithubSync({ ctx, github: opts.github, tasks, projects });
+  const reviewWatch = new ReviewWatch({ ctx, projects, tasks, sessions, messaging });
+  const githubSync = new GithubSync({
+    ctx,
+    github: opts.github,
+    tasks,
+    projects,
+    onNewCommits: (projectKey, taskKey) =>
+      reviewWatch.checkTask(projectKey, taskKey).catch((err: unknown) => {
+        opts.logger.warn({ err, taskKey }, 'could not check the pinned review commit');
+      }),
+  });
   const publishing = new PublishingGate({
     ctx,
     projects,
@@ -431,6 +452,7 @@ export function createDomain(opts: DomainOptions) {
 
   let retryTimer: ReturnType<typeof setInterval> | undefined;
   let boundaryTimer: ReturnType<typeof setInterval> | undefined;
+  let reviewWatchTimer: ReturnType<typeof setInterval> | undefined;
 
   return {
     ctx,
@@ -458,6 +480,7 @@ export function createDomain(opts: DomainOptions) {
     messageStarts,
     schedules,
     githubSync,
+    reviewWatch,
     teamTools,
     board,
     profiles,
@@ -501,12 +524,23 @@ export function createDomain(opts: DomainOptions) {
         1000,
       );
       boundaryTimer.unref();
+      // The branch of a task in review must stay at the commit handed over (PM-183).
+      reviewWatchTimer = setInterval(
+        () =>
+          background.run(
+            () => reviewWatch.check(),
+            (err) => opts.logger.warn({ err }, 'review commit check failed'),
+          ),
+        opts.reviewWatchMs ?? 30_000,
+      );
+      reviewWatchTimer.unref();
     },
 
     async stop(): Promise<void> {
       usage.stop();
       if (retryTimer) clearInterval(retryTimer);
       if (boundaryTimer) clearInterval(boundaryTimer);
+      if (reviewWatchTimer) clearInterval(reviewWatchTimer);
       const drained = schedules.stop();
       githubSync.stop();
       await background.stop();

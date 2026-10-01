@@ -35,6 +35,11 @@ export function errorMessage(error: unknown): string {
         if (typeof details.stageId === 'string' && typeof details.tasks === 'number')
           return t('settings.pipeline.stageInUse', { stage: details.stageId, count: details.tasks });
       }
+      if (error.code === 'handover_uncommitted' && error.details && typeof error.details === 'object') {
+        const details = error.details as { path?: unknown; changes?: unknown };
+        if (typeof details.path === 'string' && typeof details.changes === 'number')
+          return `${known} ${t('errors.handoverUncommitted', { path: details.path, count: details.changes })}`;
+      }
       return known;
     }
     if (error.code === 'invalid_response') return t('errors.invalidResponse');

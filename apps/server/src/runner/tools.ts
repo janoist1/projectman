@@ -66,8 +66,14 @@ export function toolSummary(name: string, input: unknown, cwd?: string | null, m
   if (name === 'WebFetch') return str(i.url) ? oneLine(String(i.url), max) : name;
   if (name === 'WebSearch') return str(i.query) ? oneLine(String(i.query), max) : name;
   if (name === 'Task' || name === 'Agent') {
+    // Which subagent, and the model when the call names one: "reader-haiku · Summarize the log".
+    // The cheap subagent's name carries its model (PM-179).
+    const agent = str(i.subagent_type);
+    const model = str(i.model);
+    const who = agent ? `${agent}${model ? ` (${model})` : ''}` : model;
     const description = str(i.description);
-    return description ? oneLine(description, max) : name;
+    const text = who && description ? `${who} · ${description}` : (description ?? who);
+    return text ? oneLine(text, max) : name;
   }
   if (name === 'apply_patch') {
     // Codex edits files with a patch: "*** Update File: src/app.ts".

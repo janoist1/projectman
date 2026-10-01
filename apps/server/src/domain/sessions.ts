@@ -7,8 +7,10 @@ import {
   effectiveSessionPermissions,
   isOnLeave,
   memberOf,
+  messageRoute,
   repoOf,
   routes,
+  sameWorkItem,
   stageOf,
 } from '@projectman/shared';
 import type {
@@ -39,6 +41,7 @@ import type {
   RuntimeBoundary,
   SessionPolicy,
   SessionRunner,
+  SourceHead,
   ToolContext,
   TranscriptReader,
   WorktreeInfo,
@@ -396,6 +399,24 @@ export class SessionOrchestrator {
    */
   requestReviewRound(projectKey: string, taskKey: string, member?: string): void {
     this.workspaces?.requestReviewRound(projectKey, taskKey, member);
+  }
+
+  /**
+   * The head of the branch the task's developer hands over, and whether their working directory
+   * holds uncommitted work (PM-183): the member workspace's with member workspaces, else the task's
+   * worktree. Null for a task without a repository or a branch, and when it cannot be read.
+   */
+  async sourceHead(config: ProjectConfig, task: Task): Promise<SourceHead | null> {
+    const repoName = effectiveRepo(config, task);
+    if (!repoName) return null;
+    try {
+      if (this.workspaces) return await this.workspaces.sourceHead(config, task);
+      const found = await this.deps.worktrees.find({ project: config, repoName, taskKey: task.key });
+      return found ? await this.deps.worktrees.head(found.path) : null;
+    } catch (err) {
+      this.ctx.logger.warn({ err, taskKey: task.key }, 'could not read the head of the task branch');
+      return null;
+    }
   }
 
   /**
@@ -1048,6 +1069,8 @@ export class SessionOrchestrator {
         // `--permission-mode` (Claude Code) and the `-c` settings (Codex) take it on a resume too.
         permissionMode,
         appendSystemPrompt: pack.appendSystemPrompt,
+        // The cheap subagent (PM-179), on a resume too: the CLI takes its subagents per process.
+        ...(pack.subagents.length > 0 ? { subagents: pack.subagents } : {}),
         // A resumed conversation has its brief already; it needs to know why it was woken: by the
         // messages that did it, else by the continue message. One that restarts into a new mode
         // (PM-170) was idle: it waits at its prompt, as it did, and its waiting messages are typed in
@@ -1449,10 +1472,10 @@ export class SessionOrchestrator {
    */
   private wakeForNewRound(session: Session): void {
     if (session.workItem.type !== 'task' || !this.workspaces?.isStale(session)) return;
-    const taskKey = session.workItem.taskKey;
+    const workItem = session.workItem;
     const [first] = this.ctx.repos.messages
       .pending(session.projectKey, session.member)
-      .filter((m) => m.taskKey === taskKey);
+      .filter((m) => sameWorkItem(messageRoute(m, session.member), workItem));
     if (!first) return;
     void this.ctx.events.emit('message_waiting', {
       projectKey: session.projectKey,

@@ -1,4 +1,4 @@
-import type { Attachment, MemberView, Task, TimelineEvent } from '@projectman/shared';
+import type { Attachment, MemberView, Task, TimelineEvent, WorkItemRef } from '@projectman/shared';
 import {
   describeAttachment,
   describeLink,
@@ -298,6 +298,8 @@ export function formatSentMessage(result: {
   messageId: string;
   requested: string[];
   deliveredTo: string[];
+  /** Recipients that get it somewhere else than on the message's own card. */
+  routed?: { handle: string; workItem: WorkItemRef }[];
   taskKey: string | null;
 }): string {
   const about = result.taskKey ? ` about ${result.taskKey}` : '';
@@ -306,7 +308,19 @@ export function formatSentMessage(result: {
     result.deliveredTo.length > 0
       ? `Message ${result.messageId}${about} sent to ${result.deliveredTo.join(', ')}.`
       : `Message ${result.messageId}${about} was not delivered to anyone.`;
-  return missing.length > 0 ? `${sent} Not delivered to: ${missing.join(', ')}.` : sent;
+  const parts = [sent];
+  if (missing.length > 0) parts.push(`Not delivered to: ${missing.join(', ')}.`);
+  for (const { handle, workItem } of result.routed ?? []) {
+    if (workItem.type === 'general')
+      parts.push(
+        `${handle} gets it in their general chat${result.taskKey ? `, because ${result.taskKey} is closed` : ''}.`,
+      );
+    else if (workItem.type === 'task')
+      parts.push(
+        `${handle} gets it in their running session on ${workItem.taskKey}, a card of the same family${result.taskKey ? ` as ${result.taskKey}` : ''}.`,
+      );
+  }
+  return parts.join(' ');
 }
 
 /** A question longer than this gets the hint to move detail into `details`. */

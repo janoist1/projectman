@@ -5,6 +5,7 @@ import type {
   ProjectConfig,
   Stage,
   Task,
+  TaskReviewPin,
   TaskStartWaiting,
   TimelineEvent,
 } from '@projectman/shared';
@@ -53,9 +54,19 @@ export class TaskStore {
   }
 
   view(task: Task): Task {
-    const { startWaiting: _, ...rest } = task;
+    const { startWaiting: _, reviewPin: __, ...rest } = task;
     const startWaiting = this.startWaiting.waitingFor(task) ?? this.repoWaiting(task);
-    return startWaiting ? { ...rest, startWaiting } : rest;
+    const reviewPin = this.reviewPin(task);
+    return { ...rest, ...(startWaiting ? { startWaiting } : {}), ...(reviewPin ? { reviewPin } : {}) };
+  }
+
+  /** The commit handed over with the task's current stage (PM-183); none once it left that stage. */
+  private reviewPin(task: Task): TaskReviewPin | undefined {
+    if (!isOpenTask(task)) return undefined;
+    const pin = this.ctx.repos.reviewPins.get(task.key);
+    return pin && pin.stageId === task.stageId
+      ? { commit: pin.commit, branch: pin.branch, pinnedAt: pin.pinnedAt }
+      : undefined;
   }
 
   /**

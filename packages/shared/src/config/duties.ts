@@ -29,6 +29,21 @@ export function dutyMembers(config: Pick<ProjectConfig, 'team'>, duty: DutyId): 
 export function stageOwners(config: Pick<ProjectConfig, 'team'>, stage: Stage): string[] {
   return stage.owners ?? (stage.duty ? dutyMembers(config, stage.duty).map((m) => m.handle) : []);
 }
+/** The duties whose sessions review or test a handed-over commit (they get a review copy, PM-138). */
+export const REVIEW_DUTIES: readonly DutyId[] = ['code_review', 'security_review', 'testing_acceptance'];
+/**
+ * Whether entering the stage hands the task's committed work over for review or testing (PM-183):
+ * a step or release stage that a reviewing or testing duty belongs to, by the stage's own duty or by
+ * one of its owners. The same set that places a session in a review copy.
+ */
+export function stageHandsOverForReview(config: Pick<ProjectConfig, 'team'>, stage: Stage): boolean {
+  if (stage.kind !== 'step' && stage.kind !== 'release') return false;
+  if (stage.duty && REVIEW_DUTIES.includes(stage.duty)) return true;
+  const owners = new Set(stageOwners(config, stage));
+  return config.team.members.some(
+    (m) => owners.has(m.handle) && memberDuties(config, m).some((duty) => REVIEW_DUTIES.includes(duty)),
+  );
+}
 /**
  * Session states of a member that is doing something now: a turn runs, or it waits for an answer.
  * The server's `BUSY_SESSION_STATES` (the concurrency limit) leaves out `waiting_input`: a session

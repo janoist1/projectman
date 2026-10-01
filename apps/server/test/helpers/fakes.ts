@@ -19,9 +19,11 @@ import type {
   SessionRunner,
   StartSessionSpec,
   TranscriptReader,
+  SourceHead,
   WorktreeInfo,
   WorktreeManager,
 } from '../../src/contracts';
+import { cheapSubagent } from '../../src/context';
 
 /** In-memory SessionRunner: records calls; tests drive state with emit()/setState(). */
 export class FakeRunner implements SessionRunner {
@@ -199,6 +201,8 @@ export class FakeContextBuilder implements ContextPackBuilder {
         input.workItem.type === 'task' && input.task
           ? `Continue ${input.task.key}: ${input.task.title}`
           : null,
+      // The real definition: the session start passes it on as it is.
+      subagents: [cheapSubagent(input.member)].filter((agent) => agent !== null),
     };
   }
 }
@@ -252,6 +256,11 @@ export class FakeWorktreeManager implements WorktreeManager {
   }
   async status(path: string): Promise<{ dirty: boolean; unpushedCommits: number }> {
     return this.statuses.get(path) ?? { dirty: false, unpushedCommits: 0 };
+  }
+  /** Head per worktree path; none by default (a worktree with no commit to hand over). */
+  readonly heads = new Map<string, SourceHead>();
+  async head(path: string): Promise<SourceHead | null> {
+    return this.heads.get(path) ?? null;
   }
   async remove(args: { path: string; force?: boolean }): Promise<void> {
     this.removed.push(args.path);

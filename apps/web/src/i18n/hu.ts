@@ -284,6 +284,8 @@ export const hu = {
     forbidden: 'Ehhez nincs jogod.',
     notFound: 'Nem található.',
     invalidResponse: 'A szerver válasza nem a várt formátumú.',
+    /** Detail of `handover_uncommitted`: the working directory and how many files are uncommitted. */
+    handoverUncommitted: 'A munkafa: {path}; mentetlen fájlok száma: {count}.',
     conflict: 'Közben valaki más is módosította. Frissíts, és próbáld újra.',
     gateUnmet: 'Még hiányzik: {conditions}',
     approvalRequested: 'Jóváhagyást kértünk; a feladat a jóváhagyás után lép tovább.',
@@ -332,6 +334,8 @@ export const hu = {
       label_not_allowed: 'Ezt a címkét nem teheted rá és nem veheted le: a címke szabályai nem engedik.',
       ai_approval_forbidden: 'Jóváhagyást csak ember adhat.',
       release_four_eyes: 'A kiadáshoz független ember jóváhagyása szükséges.',
+      handover_uncommitted:
+        'A fejlesztő munkafájában mentetlen változás van, ezért a feladat nem adható át átnézésre. Az átnéző csak a mentett (commitolt) munkát látja: előbb mentsd el a változásokat egy commitban, utána add át újra.',
       attachment_too_large: 'A csatolmány legfeljebb 25 MB lehet.',
       attachment_storage_failed: 'A csatolmányt nem sikerült tárolni vagy olvasni; próbáld újra később.',
       not_stage_owner: 'A felelősnek a munkalépés feladatkörét kell viselnie.',
@@ -640,6 +644,11 @@ export const hu = {
     timelineEmpty: 'Még nincs esemény.',
     description: 'Leírás',
     openSession: 'Munkamenet megnyitása',
+    /** The commit handed over when the card entered a review or test stage (PM-183). */
+    reviewPin: {
+      label: 'Átadott commit',
+      hint: 'Az átnézés erre a commitra készül: {commit}',
+    },
     sessions: 'Munkamenetek',
     message: 'Üzenet',
     start: 'Indítás',
@@ -1136,6 +1145,10 @@ export const hu = {
       task_created: 'Létrehozta a feladatot',
       task_updated: 'Módosította: {fields}',
       task_stage_changed: 'Továbbvitte: {from} → {to}',
+      task_stage_changed_pinned: 'Továbbvitte: {from} → {to}; átadott commit: {commit}',
+      task_stage_changed_branch_moved:
+        'Visszaküldte a rendszer: {from} → {to}; az ág elmozdult az átadott commitról ({pinned}) erre: {head}',
+      review_repinned: 'Új átnézési kör: az átadott commit {previous} helyett {commit}',
       task_assigned: 'Kiosztva: {assignee}',
       task_unassigned: 'Kiosztás visszavonva',
       task_check_changed: '{check}: {state}',
@@ -1253,6 +1266,13 @@ export const hu = {
       max: 'Maximális',
     },
     effortHint: 'A nagyobb erőfeszítés több előfizetési keretet használ és lassabb lehet.',
+    cheapSubagent: 'Olcsó alügynök',
+    cheapSubagentOff: 'Ki',
+    cheapSubagentModels: { sonnet: 'Sonnet', haiku: 'Haiku' },
+    cheapSubagentHint:
+      'A tag a sok szöveggel, kevés logikával járó részmunkát (naplók, tesztkimenetek, keresés sok fájlban, összefoglalás) erre az olcsóbb modellre bízhatja, és csak a tömör eredményt olvassa. A következő munkamenettől érvényes.',
+    cheapSubagentUnavailable: '{provider}-tagnál nem érvényes: ehhez még nincs megfelelője.',
+    cheapSubagentProfile: 'Olcsó alügynök: {model}',
     astraWarning: 'Költségfigyelmeztetés: az Astra drága, csak kritikus feladatra válaszd.',
     loginWarning: '{provider} nincs bejelentkezve. Futtasd a szerveren:',
     loginCommands: { claude: 'claude auth login', codex: 'codex login' },
@@ -1367,6 +1387,8 @@ export const hu = {
     unread: 'Olvasatlan',
     queued: 'Kézbesítésre vár',
     typed: 'Munkamenetbe kézbesítve',
+    routeGeneral: 'általános beszélgetésbe',
+    routeTask: 'a(z) {taskKey} munkamenetébe',
     humanRead: 'Elolvasva',
     humanUnread: 'Kézbesítve, olvasatlan',
     title: 'Üzenetfolyam',

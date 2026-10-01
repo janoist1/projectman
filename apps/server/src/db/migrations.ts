@@ -452,7 +452,25 @@ export const migrations: Migration[] = [
       ALTER TABLE sessions ADD COLUMN usage_since TEXT;`,
   },
   {
-    version: 19,
+    version: 20,
+    name: 'review pins',
+    // The commit of the developer's branch handed over when a task entered a review or test stage
+    // (PM-183): one row per task, replaced by the next hand-over or a new review round, and removed
+    // when the task leaves the stage. Every existing task has none, and its reviewers keep reading
+    // the branch as before.
+    sql: `CREATE TABLE task_review_pins (
+        project_key TEXT NOT NULL REFERENCES projects(key),
+        task_key    TEXT NOT NULL PRIMARY KEY REFERENCES tasks(key),
+        stage_id    TEXT NOT NULL,
+        commit_id   TEXT NOT NULL,
+        branch      TEXT NOT NULL,
+        pinned_at   TEXT NOT NULL,
+        pinned_by   TEXT NOT NULL
+      );`,
+  },
+  {
+    // 19 is skipped on purpose: a database already at 20 would never run a lower number.
+    version: 21,
     name: 'usage alert of sessions',
     // A session whose usage reached the project's warning limit (PM-187): when, what it counted and
     // the limit then. NULL: it has not. Set once, so a session raises one warning.

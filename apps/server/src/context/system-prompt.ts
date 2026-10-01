@@ -13,6 +13,7 @@ import { describeSandbox, describeUnattendedCommands } from '../domain';
 import { isHumanOnlyLabel, labelHolders } from '@projectman/shared';
 import { code, codeList, describeGate, labelRef, languageName, repoText, stageLabel } from './format';
 import { recentMemory } from './memory';
+import { cheapSubagentSection } from './subagents';
 import { dutyPrompt, expectedSteps, type Situation } from './work-item';
 
 /** English names of the built-in roles for prompt text. */
@@ -61,6 +62,7 @@ export function buildSystemPrompt(input: ContextPackInput, situation: Situation)
     identitySection(input),
     teamSection(input),
     teamworkSection(input),
+    tokenEconomySection(),
     pipelineSection(input, situation),
     labelsSection(input),
     workItemSection(input, situation),
@@ -68,6 +70,7 @@ export function buildSystemPrompt(input: ContextPackInput, situation: Situation)
     workspaceSection(input),
     unattendedCommandsSection(input),
     boundarySection(input),
+    cheapSubagentSection(input.member),
     guardrailsSection(input),
     roleSection(input),
     memorySection(input),
@@ -181,13 +184,30 @@ function teamworkSection({ project, member }: ContextPackInput): string {
   return [
     '# How the team works',
     '- You are one member of a mixed team of humans and AI members. Every AI member works in a fresh session per work item (a task, a meeting or a general chat); follow-ups about the same task come back to the same session.',
-    `- Work with the others through the team tools (MCP server "team"; in ${cli} they are named mcp__team__<tool>): send_message, list_members, list_tasks, get_task, update_task, create_task, link_pull_request, publish_task_branch (managed VM only), get_remote_state, ask_human, save_memory, and for files attached to tasks list_attachments, read_attachment, attach_file and delete_attachment; external operations use submit_boundary_request, get_boundary_request and decide_boundary_request, a permission request of a member that was delegated to its decider is answered with decide_permission_request, and refused network destinations are listed by list_network_denials. Each tool's description says when and how to use it.`,
+    `- Work with the others through the team tools (MCP server "team"; in ${cli} they are named mcp__team__<tool>). Each tool's description says when and how to use it.`,
     '- Text you write in your own session reaches nobody: to tell a teammate something, or to answer a team message, use send_message. Team messages arrive in your session as "[team message from <handle> about <task key>]" followed by the text. Messages without that prefix come from the app (like the kick-off brief) or from a human using it.',
     '- Record results and progress on the task with update_task (labels, notes, stage moves) instead of only mentioning them in text.',
-    '- Message only when someone has something to do, and send humans only what needs their decision or action. Be concise: facts first, no pleasantries.',
+    '- Message only when someone has something to do, and send humans only what needs their decision or action.',
     `- Write messages, notes, questions, task titles and descriptions in ${languageName(language)} (${code(language)}), the project's language. ${rules} decides the language of code, commits and pull requests.`,
     '- Check the primary source (the code, the logs, the task) before you state a fact.',
     '- Other sessions may share a checkout: never switch branches, reset, stash or clean in a working directory that is not your own.',
+  ].join('\n');
+}
+
+/**
+ * Working rules that save tokens, for every role (PM-181). The big costs are what a session reads
+ * and the sessions themselves, so the points are about reading. The cheap subagent's rule is in its
+ * own section (subagents.ts); this one only points at it.
+ */
+function tokenEconomySection(): string {
+  return [
+    '# Token economy',
+    '- Read only the part of a file you need, found by a targeted search. Do not read again what you already read or what the kick-off brief states.',
+    '- Call get_task again only when the task may have changed since, for example before you rewrite its description.',
+    '- Send one message with everything in it, not several corrections in a row. Be concise: the essentials first, no pleasantries.',
+    '- When you are stuck, do not circle: ask, or close the round with what you have.',
+    '- Read long output (logs, test runs) filtered, with tail or grep, not whole.',
+    '- If your instructions have a Cheap subagent section, hand it the text-heavy work.',
   ].join('\n');
 }
 
@@ -383,7 +403,7 @@ function sessionPolicySection({ sessionPolicy: policy, member }: ContextPackInpu
           `The file tools never read or change credential files and the live instance's data (${codeList(policy.filesystem.deniedPaths)}), and web fetch never reaches ${codeList(policy.network.deniedHosts ?? [])}, in any mode: do not look for a way around it.`,
         ]
       : []),
-    'Enforcement is the existing provider and command policy. These roots do not establish strict read or network isolation yet; outside-sandbox execution still requires permission.',
+    'These roots are not strict read or network isolation; outside-sandbox execution still requires permission.',
     approverText(member),
   ].join('\n');
 }
@@ -392,8 +412,13 @@ function sessionPolicySection({ sessionPolicy: policy, member }: ContextPackInpu
  * The member's own durable workspace (PM-138): which branch or which handed-over commit it holds
  * for this task, so that a resumed session knows it too (the system prompt is rebuilt on resume).
  */
-function workspaceSection({ sessionPolicy: policy }: ContextPackInput): string {
+function workspaceSection({ sessionPolicy: policy, task, member }: ContextPackInput): string {
   const placement = policy?.placement;
+  // The commit handed over with the task's current review or test stage (PM-183).
+  const pin = task?.reviewPin;
+  const pinMoves = pin
+    ? 'If the branch moves on from it while the task is here, the system stops the review and sends the task back to development, and the developer hands it over again.'
+    : '';
   if (placement?.kind === 'member_workspace' && placement.use === 'home') {
     return [
       '# Your workspace',
@@ -431,6 +456,16 @@ function workspaceSection({ sessionPolicy: policy }: ContextPackInput): string {
           ]
         : []),
       'You keep this commit while the round lasts. A new round with the latest commit starts when the task enters a stage or its developer asks you for a re-review; you are restarted on it then.',
+      ...(pinMoves ? [pinMoves] : []),
+    ].join('\n');
+  }
+  if (pin && task && task.assignee !== member.handle) {
+    // Without a workspace of its own the reviewer reads the developer's working directory: it is live,
+    // and only the pinned commit is under review.
+    return [
+      '# Review round',
+      `The task was handed over at commit ${code(pin.commit)} of the branch ${code(pin.branch)}: review that commit (for example ${code(`git show ${pin.commit}`)} or ${code(`git diff <base>...${pin.commit}`)}), not the files in the developer's working directory, which are live and may hold uncommitted changes that are not part of the hand-over.`,
+      pinMoves,
     ].join('\n');
   }
   return '';
@@ -442,7 +477,6 @@ function guardrailsSection({ project, member }: ContextPackInput): string {
     "- Never approve a gate, a decision or a permission request, and never answer in a human's name: only humans approve.",
     '- Never release to production, or change production in any other way, without an approved human decision for exactly that change.',
     '- When you are blocked or a decision is needed, ask with ask_human instead of guessing.',
-    '- The human who answers ask_human is usually not a specialist and often reads on a phone: start the question with one plain sentence that names the decision, recommend one option with a one-sentence reason, describe each option by what happens if it is picked, and keep code, file names and technical reasoning in the details field, which the inbox shows folded. Keep it short; options, reasons and details follow the language rule above.',
     '- Never put secrets (passwords, tokens, keys, connection strings, personal data) in messages, notes, task text, commits or pull requests; say where they are stored instead.',
     '- Do not ask a teammate to do what you are not allowed to do; tell a human instead.',
     // The self-review rule is per label (notByAuthor), marked in the Labels section.

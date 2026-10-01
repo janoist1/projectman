@@ -27,6 +27,11 @@ function str(value: unknown): string {
   return typeof value === 'string' ? value : value === null || value === undefined ? '' : String(value);
 }
 
+/** The first characters of a commit id, as git abbreviates it. */
+export function shortCommit(commit: string): string {
+  return commit.slice(0, 8);
+}
+
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -150,6 +155,14 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
           emphasis: pending ? 'needs' : 'normal',
         };
       }
+      const repinned = record(d.reviewPin);
+      if (repinned)
+        return normal(
+          t('timeline.events.review_repinned', {
+            previous: shortCommit(str(repinned.previous)),
+            commit: shortCommit(str(repinned.commit)),
+          }),
+        );
       const rejected = record(d.gateRejected);
       if (rejected)
         return normal(t('timeline.events.gate_rejected', { to: stageName(ctx, str(rejected.to)) }));
@@ -163,13 +176,24 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         }),
       );
     }
-    case 'task_stage_changed':
-      return normal(
-        t('timeline.events.task_stage_changed', {
-          from: stageName(ctx, str(d.from)),
-          to: stageName(ctx, str(d.to)),
-        }),
-      );
+    case 'task_stage_changed': {
+      const names = { from: stageName(ctx, str(d.from)), to: stageName(ctx, str(d.to)) };
+      const moved = record(d.branchMoved);
+      if (moved)
+        return normal(
+          t('timeline.events.task_stage_changed_branch_moved', {
+            ...names,
+            pinned: shortCommit(str(moved.pinned)),
+            head: shortCommit(str(moved.head)),
+          }),
+        );
+      const pin = record(d.reviewPin);
+      if (pin)
+        return normal(
+          t('timeline.events.task_stage_changed_pinned', { ...names, commit: shortCommit(str(pin.commit)) }),
+        );
+      return normal(t('timeline.events.task_stage_changed', names));
+    }
     case 'task_assigned': {
       const assignment = d.assignee
         ? t('timeline.events.task_assigned', { assignee: nameOf(str(d.assignee), ctx.members, ctx.myHandle) })

@@ -1,5 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
-import type { AgentSandbox } from './runner';
+import type { AgentSandbox, SubagentDefinition } from './runner';
 import type { SessionPolicy } from './session-policy';
 import type {
   AiMemberConfig,
@@ -64,6 +64,11 @@ export interface ContextPack {
    * the stopped session, a waiting team message) gets that message instead.
    */
   continueMessage: string | null;
+  /**
+   * Subagents the session is started with (`StartSessionSpec.subagents`): the cheap subagent when
+   * the member has one (PM-179), which the system prompt then tells it how to use; else empty.
+   */
+  subagents: SubagentDefinition[];
 }
 
 export interface ContextPackBuilder {
@@ -94,7 +99,23 @@ export interface WorktreeInfo {
   repo: string;
 }
 
+/**
+ * The head of the branch a task's developer hands over (PM-183): its commit, and whether the
+ * developer's working directory holds uncommitted work (`changes` files modified, added or
+ * untracked). Dirty work is not part of the commit.
+ */
+export interface SourceHead {
+  commit: string;
+  branch: string;
+  dirty: boolean;
+  changes: number;
+  /** The developer's working directory the head was read from. */
+  path: string;
+}
+
 export interface WorktreeManager {
+  /** The head and cleanliness of a task worktree; null when it is detached or has no commit. */
+  head(path: string): Promise<SourceHead | null>;
   /** Creates (or reuses) a git worktree + branch for a task in one of the project's repos. */
   ensureForTask(args: {
     project: ProjectConfig;
@@ -190,6 +211,12 @@ export interface MemberWorkspaceManager {
     operation: string | null;
     checkout: WorkspaceCheckout | null;
   }>;
+  /**
+   * The commit the workspace's own `branch` points at (PM-183), and whether the workspace holds
+   * uncommitted work while that branch is checked out (work on another branch is not the task's);
+   * null when the workspace lacks the branch.
+   */
+  sourceHead(key: MemberWorkspaceKey, branch: string): Promise<SourceHead | null>;
   /**
    * Fetches the default branch fresh (the project repository's `origin` first, when it has one)
    * and returns its commit; `workspace_fetch_failed` when a fetch fails.

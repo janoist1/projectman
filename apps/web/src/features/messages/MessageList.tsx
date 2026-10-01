@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { Fragment } from 'react';
 import { Link } from 'react-router';
-import type { TeamMessage } from '@projectman/shared';
+import type { MessageReceipt, TeamMessage } from '@projectman/shared';
 import { Button } from '../../components/Button';
 import { Avatar } from '../../components/Avatar';
 import { Icon } from '../../components/Icon';
@@ -98,7 +98,7 @@ export function MessageList({
                 ) : null}
                 {(
                   message.receipts ??
-                  message.to.map((handle) => ({
+                  message.to.map((handle): MessageReceipt => ({
                     handle,
                     kind: members.get(handle)?.kind ?? 'human',
                     deliveredAt: message.deliveredAt,
@@ -114,6 +114,10 @@ export function MessageList({
                       : receipt.readAt
                         ? t('messages.humanRead')
                         : t('messages.humanUnread')}
+                    {receipt.route?.type === 'general' ? ` · ${t('messages.routeGeneral')}` : null}
+                    {receipt.route?.type === 'task'
+                      ? ` · ${t('messages.routeTask', { taskKey: receipt.route.taskKey })}`
+                      : null}
                   </span>
                 ))}
                 {onReply ? (

@@ -1,3 +1,4 @@
+import { messageRoute, sameWorkItem } from '@projectman/shared';
 import type { Actor, TeamMessage, WorkItemRef } from '@projectman/shared';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
@@ -16,6 +17,8 @@ export interface RecordMessageInput {
   /** Set when the message is delivered at once (e.g. to humans only). */
   delivered?: boolean;
   humanRecipients?: string[];
+  /** Recipients that get the message somewhere else than its default place (`routeFor`), by handle. */
+  routes?: Record<string, WorkItemRef>;
 }
 
 /**
@@ -52,6 +55,7 @@ export class MessageService {
         kind: input.humanRecipients?.includes(handle) ? 'human' : 'ai',
         deliveredAt: input.humanRecipients?.includes(handle) || input.delivered ? at : null,
         readAt: null,
+        ...(input.routes?.[handle] ? { route: input.routes[handle] } : {}),
       })),
     };
     return this.ctx.unitOfWork(() => {
@@ -69,10 +73,14 @@ export class MessageService {
     });
   }
 
-  /** Messages an AI recipient has not received yet for a work item (a task's, else its other chats'), oldest first. */
+  /** Messages an AI recipient has not received yet for a work item (where `messageRoute` puts them), oldest first. */
   waiting(projectKey: string, handle: string, workItem: WorkItemRef): TeamMessage[] {
-    const taskKey = workItem.type === 'task' ? workItem.taskKey : null;
-    return this.ctx.repos.messages.pending(projectKey, handle).filter((m) => m.taskKey === taskKey);
+    // A task's session takes the messages routed to that task; any other chat takes everything not
+    // routed to a task (general ones, and answers routed to a schedule run or meeting whose session ended).
+    return this.ctx.repos.messages.pending(projectKey, handle).filter((m) => {
+      const route = messageRoute(m, handle);
+      return workItem.type === 'task' ? sameWorkItem(route, workItem) : route.type !== 'task';
+    });
   }
 
   markRecipientDelivered(id: string, handle: string): TeamMessage | null {

@@ -5,6 +5,7 @@
  *
  * FLAGS (same as `claude`): --session-id <uuid> | --resume <uuid>, --append-system-prompt,
  *   --mcp-config <json>, --settings <json|file>, --model, --effort, --permission-mode, -n/--name,
+ *   --agents <json> (checked: a malformed one exits with code 1 before the session starts),
  *   -p/--print with --input-format/--output-format stream-json, --version, --help.
  *   Other flags are accepted and ignored.
  *
@@ -109,6 +110,7 @@ function parseArgs(argv) {
     settings: null,
     model: null,
     effort: null,
+    agents: null,
     permissionMode: null,
     name: null,
     inputFormat: null,
@@ -165,6 +167,9 @@ function parseArgs(argv) {
       case '--output-format':
         o.outputFormat = value();
         break;
+      case '--agents':
+        o.agents = value();
+        break;
       case '--tools':
       case '--setting-sources':
         value();
@@ -188,6 +193,44 @@ function parseArgs(argv) {
 const opts = parseArgs(process.argv.slice(2));
 
 if (process.env.FAKE_CLAUDE_ARGS_FILE) writeArgsFile(process.env.FAKE_CLAUDE_ARGS_FILE);
+
+/**
+ * Like Claude Code, refuses to start with `--agents` that is not a JSON object of subagents, each
+ * with a description and a prompt (strings), and optionally tools (strings) and a model (string).
+ */
+function agentsError(text) {
+  let agents;
+  try {
+    agents = JSON.parse(text);
+  } catch {
+    return '--agents is not valid JSON';
+  }
+  if (agents === null || typeof agents !== 'object' || Array.isArray(agents))
+    return '--agents is not an object';
+  for (const [name, agent] of Object.entries(agents)) {
+    if (agent === null || typeof agent !== 'object' || Array.isArray(agent))
+      return `agent ${name} is not an object`;
+    for (const key of ['description', 'prompt']) {
+      if (typeof agent[key] !== 'string' || !agent[key]) return `agent ${name} has no ${key}`;
+    }
+    if (
+      agent.tools !== undefined &&
+      !(Array.isArray(agent.tools) && agent.tools.every((t) => typeof t === 'string'))
+    )
+      return `agent ${name} has invalid tools`;
+    if (agent.model !== undefined && typeof agent.model !== 'string')
+      return `agent ${name} has an invalid model`;
+  }
+  return null;
+}
+
+if (opts.agents !== null) {
+  const error = agentsError(opts.agents);
+  if (error) {
+    process.stderr.write(`fake-claude: ${error}\n`);
+    process.exit(1);
+  }
+}
 
 if (opts.version) {
   process.stdout.write(`${process.env.FAKE_CLAUDE_VERSION ?? VERSION} (Fake Claude Code)\n`);

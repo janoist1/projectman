@@ -141,6 +141,7 @@ export interface BuildAppOptions {
   planUsageTtlMs?: number;
   scheduleTimer?: ScheduleTimer;
   doneCleanupDelayMs?: number;
+  doneTurnLimitMs?: number;
   wsHeartbeatMs?: number;
   /**
    * Durable member workspaces (PM-138, `${home}/workspaces/<PROJECT>/<handle>/<repo>`) in place of a
@@ -402,6 +403,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       scheduleTimer: options.scheduleTimer,
       planUsageTtlMs: options.planUsageTtlMs,
       doneCleanupDelayMs: options.doneCleanupDelayMs,
+      doneTurnLimitMs: options.doneTurnLimitMs,
     });
     if (boundaryConfig) {
       const proxy = createManagedEgressProxy({

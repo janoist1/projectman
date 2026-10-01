@@ -7,6 +7,7 @@ import { rejection } from './helpers/errors';
 import type { DomainHarness } from './helpers/domain-harness';
 import { settle } from './helpers/fakes';
 import { waitFor } from '../src/runner/test-helpers';
+import { aiActor } from '../src/domain';
 
 const start = (h: DomainHarness, key: string, assignee?: string) =>
   h.domain.taskStarts.start('AR', key, { assignee, actor: OWNER_ACTOR, author: OWNER, sponsor: 'owner' });
@@ -156,6 +157,60 @@ describe('scheduler', () => {
     expect(h.runner.isRunning(dirty.id)).toBe(false);
     expect(h.domain.sessions.get('AR', clean.id).state).toBe('exited');
     expect(h.worktrees.removed).toEqual([clean.cwd]);
+  });
+
+  /** AR-1 in code review: the developer's session and the reviewer's, both running. */
+  async function inReview(h: DomainHarness) {
+    await h.domain.tasks.create('AR', { title: 'Login page', repo: 'web' }, OWNER_ACTOR);
+    const dev = (await start(h, 'AR-1')).session!;
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+    const review = await waitFor(
+      () => h.domain.sessions.findRunning('AR', 'cr', { type: 'task', taskKey: 'AR-1' }),
+      { what: 'the reviewer session' },
+    );
+    return { dev, review };
+  }
+
+  it('lets the session that moved its task to done finish its turn, then stops it (PM-190)', async () => {
+    h = await createDomainHarness({ adjust: withoutGates });
+    const { dev, review } = await inReview(h);
+    h.runner.setState(review.id, 'working');
+
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'done', aiActor('cr'));
+    await waitFor(() => !h.runner.isRunning(dev.id), { what: 'the developer session stopped' });
+    await settle();
+
+    // The mover is still in its turn: it runs, its team tools still answer, the worktree stays.
+    expect(h.runner.isRunning(review.id)).toBe(true);
+    const token = h.runner.started
+      .find((s) => s.sessionId === review.id)!
+      .mcpUrl.split('/')
+      .pop()!;
+    expect(h.domain.sessions.resolveToken(token)).toMatchObject({ sessionId: review.id });
+    expect(h.worktrees.removed).toEqual([]);
+
+    h.runner.setState(review.id, 'idle');
+    await waitFor(() => !h.runner.isRunning(review.id), { what: 'the mover stopped at the end of its turn' });
+    expect(h.domain.sessions.get('AR', review.id).state).toBe('exited');
+    await waitFor(() => h.worktrees.removed.length > 0, { what: 'the worktree removed' });
+    expect(h.worktrees.removed).toEqual([dev.cwd]);
+  });
+
+  it('stops a mover that does not finish its turn at the limit, and a mover already idle at once', async () => {
+    h = await createDomainHarness({ adjust: withoutGates, doneTurnLimitMs: 50 });
+    const { review } = await inReview(h);
+    h.runner.setState(review.id, 'working');
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'done', aiActor('cr'));
+    await settle();
+    expect(h.runner.isRunning(review.id)).toBe(true);
+    await waitFor(() => !h.runner.isRunning(review.id), { what: 'the mover stopped at the limit' });
+
+    await h.domain.tasks.create('AR', { title: 'Signup page', repo: 'web' }, OWNER_ACTOR);
+    const second = (await start(h, 'AR-2')).session!;
+    h.runner.setState(second.id, 'idle');
+    await h.domain.tasks.moveToStage('AR', 'AR-2', 'done', aiActor('dev-1'));
+    await settle();
+    expect(h.runner.isRunning(second.id)).toBe(false);
   });
 
   it('a human assignee gets the task without an AI session', async () => {

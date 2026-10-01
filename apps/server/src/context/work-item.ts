@@ -321,8 +321,9 @@ const DUTY_STEPS: Partial<Record<DutyId, StepRule>> = {
       return [
         'The task passed its release gate: a human approved the release. Release exactly the approved change to production and verify it.',
         'If anything changed since the approval (new commits, another version), stop and ask with ask_human.',
-        handover(input, s.next),
+        // Before the move: a move to done ends the task's sessions (PM-190).
         ...(followUp.length > 0 ? [`Tell ${codeList(followUp)} that the change is live.`] : []),
+        handover(input, s.next),
       ];
     }
     if (s.ownsStage) return ownerSteps(input, s);
@@ -478,8 +479,12 @@ export function handover(
     ];
     return `Request the move to ${stageLabel(target)} with update_task: it needs a human approval (${approvals.map((id) => labelRef(id, labels)).join(', ')}), so the system opens a decision for ${codeList(approvers)} and the task waits until they approve. Do not message them separately and never set that label yourself.`;
   }
+  // A done task's sessions stop (PM-190): what comes after the move may never be sent.
+  if (target.kind === 'done') {
+    return `Move the task to ${stageLabel(target)} with update_task as your very last step, after your messages and notes: once the task is done, its sessions stop.`;
+  }
   const owners = stageOwners(input.project, target).filter((h) => h !== input.member.handle);
-  if (target.kind === 'done' || owners.length === 0) {
+  if (owners.length === 0) {
     return `Move the task to ${stageLabel(target)} with update_task.`;
   }
   return `Move the task to ${stageLabel(target)} with update_task and hand over to ${codeList(owners)} with send_message: the facts they need (${facts}).`;

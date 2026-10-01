@@ -1032,6 +1032,17 @@ describe('expected steps', () => {
     expect(steps).toContain('Do the deployment or operations work you were asked for');
   });
 
+  it('has the reviewer move the task to done last, after the findings are sent (PM-190)', () => {
+    const project = buildProject('small-team');
+    delete project.pipeline.stages.find((s) => s.kind === 'done')!.gate;
+    const steps = stepsOf({ project, handle: 'code-review' });
+    expect(steps).toContain(
+      'When the review passes, move the task to Done (`done`) with update_task as your very last step, after your messages and notes: once the task is done, its sessions stop.',
+    );
+    expect(steps.indexOf('Send "Blocking"')).toBeGreaterThan(-1);
+    expect(steps.indexOf('Send "Blocking"')).toBeLessThan(steps.indexOf('When the review passes'));
+  });
+
   it('requests an approval gate through update_task instead of approving', () => {
     const steps = stepsOf({ project: buildProject('small-team'), handle: 'code-review' });
     expect(steps).toContain(
@@ -1057,8 +1068,8 @@ describe('expected steps', () => {
       [
         '1. The task passed its release gate: a human approved the release. Release exactly the approved change to production and verify it.',
         '2. If anything changed since the approval (new commits, another version), stop and ask with ask_human.',
-        '3. Move the task to Done (`done`) with update_task.',
-        '4. Tell `communication` that the change is live.',
+        '3. Tell `communication` that the change is live.',
+        '4. Move the task to Done (`done`) with update_task as your very last step, after your messages and notes: once the task is done, its sessions stop.',
       ].join('\n'),
     );
   });

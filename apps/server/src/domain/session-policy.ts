@@ -399,3 +399,9 @@ function buildManagedVmPolicy(input: {
 
 /** Delay before a done task's sessions are stopped, so an in-flight tool result still reaches the agent. */
 export const DONE_TASK_CLEANUP_DELAY_MS = 2_000;
+
+/**
+ * How long the session that moved a task to done may take to finish the turn it made the move in
+ * (its messages and notes after the move) before it is stopped anyway (PM-190).
+ */
+export const DONE_TASK_TURN_LIMIT_MS = 10 * 60_000;

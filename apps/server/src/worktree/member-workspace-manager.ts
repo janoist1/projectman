@@ -6,6 +6,7 @@ import type {
   MemberWorkspaceKey,
   MemberWorkspaceManager,
   MemberWorkspaceManagerOptions,
+  SourceHead,
   WorkspaceCheckout,
   WorkspaceSource,
 } from '../contracts';
@@ -289,6 +290,29 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
     });
   }
 
+  async function sourceHead(key: MemberWorkspaceKey, branch: string): Promise<SourceHead | null> {
+    const { dir, info } = await locate(key);
+    return withLock(dir, async () => {
+      await assertWorkspace(info);
+      await assertBranchName(branch);
+      const out = await gitIn(info.path, [
+        'rev-parse',
+        '--verify',
+        '--quiet',
+        `refs/heads/${branch}^{commit}`,
+      ]).catch(() => null);
+      const commit = out?.trim() ?? '';
+      if (!OID.test(commit)) return null;
+      // Uncommitted files are the task's only while its branch is the one checked out.
+      const checkedOut = (await checkoutOf(info.path))?.branch === branch;
+      const porcelain = checkedOut
+        ? await gitIn(info.path, ['status', '--porcelain', '--untracked-files=normal'])
+        : '';
+      const changes = porcelain.split('\n').filter(Boolean).length;
+      return { commit, branch, dirty: changes > 0, changes, path: info.path };
+    });
+  }
+
   /** Refuses to move a workspace that holds unfinished work. */
   async function assertClean(info: MemberWorkspaceInfo): Promise<void> {
     const state = await inspect(info);
@@ -540,6 +564,7 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
     home,
     ensure,
     status,
+    sourceHead,
     fetchBase,
     findTaskBranch,
     resolveSource,

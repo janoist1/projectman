@@ -91,6 +91,16 @@ export class Messaging {
     if (task && task.assignee === from && (!opts.workItem || opts.workItem.type === 'task')) {
       for (const handle of recipients)
         if (!humans.includes(handle)) this.sessions.requestReviewRound(projectKey, task.key, handle);
+      // The task's pinned commit follows the branch (PM-183) when it is the stage's reviewers or
+      // testers who were asked: that is a new round, not a branch that moved behind their back.
+      const stage = stageOf(config, task.stageId);
+      if (stage && stageOwners(config, stage).some((handle) => recipients.includes(handle)))
+        await this.tasks.repinReview(projectKey, task.key, from).catch((err: unknown) => {
+          this.ctx.logger.warn(
+            { err, taskKey: task.key },
+            'could not pin the commit of the new review round',
+          );
+        });
     }
     // Where each AI recipient gets it is decided before it is recorded: the receipt keeps the
     // route when it is not the default place, so the message is found there while it waits.

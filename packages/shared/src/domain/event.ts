@@ -86,6 +86,8 @@ export interface TimelineEventData {
     reason?: string;
     /** A linked pull request changed (GitHub sync). */
     pullRequest?: { repo: string; number: number; state: string };
+    /** `fields` names `reviewPin`: the developer asked for a new review round, which pins the new head. */
+    reviewPin?: { commit: string; branch: string; previous: string };
     /** A stage move waiting for human approval. */
     gateRequest?: { requestId: string; from: string; to: string; inboxItemIds: string[] };
     gateRejected?: { requestId: string; to: string; inboxItemId: string };
@@ -102,7 +104,19 @@ export interface TimelineEventData {
       approvalsStillValid?: boolean;
     };
   };
-  task_stage_changed: { from: string; to: string; approvedBy?: string[]; inboxItemIds?: string[] };
+  /**
+   * `reviewPin`: the commit of the developer's branch handed over with the move (PM-183).
+   * `branchMoved`: the system sent the task back because the branch moved after that hand-over
+   * (`pinned` is the commit handed over, `head` the branch's commit now).
+   */
+  task_stage_changed: {
+    from: string;
+    to: string;
+    approvedBy?: string[];
+    inboxItemIds?: string[];
+    reviewPin?: { commit: string; branch: string };
+    branchMoved?: { branch: string; pinned: string; head: string };
+  };
   /** `reason`: the assignee left the team, or handed the task over (`from` is the one who left). */
   task_assigned: {
     assignee: string | null;

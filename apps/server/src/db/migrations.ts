@@ -451,5 +451,22 @@ export const migrations: Migration[] = [
       CREATE INDEX token_usage_task ON token_usage(project_key, task_key);
       ALTER TABLE sessions ADD COLUMN usage_since TEXT;`,
   },
+  {
+    version: 20,
+    name: 'review pins',
+    // The commit of the developer's branch handed over when a task entered a review or test stage
+    // (PM-183): one row per task, replaced by the next hand-over or a new review round, and removed
+    // when the task leaves the stage. Every existing task has none, and its reviewers keep reading
+    // the branch as before.
+    sql: `CREATE TABLE task_review_pins (
+        project_key TEXT NOT NULL REFERENCES projects(key),
+        task_key    TEXT NOT NULL PRIMARY KEY REFERENCES tasks(key),
+        stage_id    TEXT NOT NULL,
+        commit_id   TEXT NOT NULL,
+        branch      TEXT NOT NULL,
+        pinned_at   TEXT NOT NULL,
+        pinned_by   TEXT NOT NULL
+      );`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

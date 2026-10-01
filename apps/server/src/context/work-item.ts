@@ -225,7 +225,13 @@ const reviewing: StepRule = ({ input, s, task, duty, author, localOnly }) => {
       : placement?.kind === 'member_workspace' &&
         placement.use === 'review' &&
         placement.review?.sourceBranch !== undefined;
+  const pin = task.reviewPin;
   return [
+    ...(pin
+      ? [
+          `The commit handed over for this review is ${code(pin.commit)} on the branch ${code(pin.branch)} (pinned on the card): review exactly that commit.`,
+        ]
+      : []),
     localOnly && ownWorkspace
       ? `Review the handed-over commit checked out in your workspace against its review base (see "Review round"): there is no pull request, because ${LOCAL_ONLY_REASON}. Do not commit, merge or push.`
       : localOnly

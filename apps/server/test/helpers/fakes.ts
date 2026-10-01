@@ -19,6 +19,7 @@ import type {
   SessionRunner,
   StartSessionSpec,
   TranscriptReader,
+  SourceHead,
   WorktreeInfo,
   WorktreeManager,
 } from '../../src/contracts';
@@ -255,6 +256,11 @@ export class FakeWorktreeManager implements WorktreeManager {
   }
   async status(path: string): Promise<{ dirty: boolean; unpushedCommits: number }> {
     return this.statuses.get(path) ?? { dirty: false, unpushedCommits: 0 };
+  }
+  /** Head per worktree path; none by default (a worktree with no commit to hand over). */
+  readonly heads = new Map<string, SourceHead>();
+  async head(path: string): Promise<SourceHead | null> {
+    return this.heads.get(path) ?? null;
   }
   async remove(args: { path: string; force?: boolean }): Promise<void> {
     this.removed.push(args.path);

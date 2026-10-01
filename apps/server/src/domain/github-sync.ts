@@ -28,13 +28,17 @@ export class GithubSync {
   private readonly tasks: TaskService;
   private readonly projects: ProjectService;
   private readonly watches = new Map<string, () => void>();
+  private readonly onNewCommits?: (projectKey: string, taskKey: string) => Promise<unknown>;
 
   constructor(deps: {
     ctx: DomainContext;
     github: GithubService;
     tasks: TaskService;
     projects: ProjectService;
+    /** A linked pull request got new commits (called after the labels that expire then came off). */
+    onNewCommits?: (projectKey: string, taskKey: string) => Promise<unknown>;
   }) {
+    this.onNewCommits = deps.onNewCommits;
     this.ctx = deps.ctx;
     this.github = deps.github;
     this.tasks = deps.tasks;
@@ -89,6 +93,8 @@ export class GithubSync {
       const task = this.tasks.find(projectKey, taskKey);
       if (!task || !isOpenTask(task)) continue;
       await this.tasks.clearLabels(projectKey, taskKey, 'pr_updated');
+      // A branch that moved in review is found now, not at the watcher's next round (PM-183).
+      await this.onNewCommits?.(projectKey, taskKey);
     }
   }
 
@@ -122,7 +128,8 @@ export class GithubSync {
     try {
       await this.tasks.moveToStage(projectKey, taskKey, next.id, SYSTEM_ACTOR);
     } catch (err) {
-      if (err instanceof DomainError && err.code === 'gate_blocked') return;
+      if (err instanceof DomainError && (err.code === 'gate_blocked' || err.code === 'handover_uncommitted'))
+        return;
       throw err;
     }
   }

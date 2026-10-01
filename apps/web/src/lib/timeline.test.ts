@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TimelineEvent } from '@projectman/shared';
 import { t } from '../i18n/t';
-import { describeEvent } from './timeline';
+import { describeEvent, shortCommit } from './timeline';
 
 const creation: TimelineEvent = {
   id: 'fictional-event',
@@ -203,6 +203,50 @@ describe('repository changes on the timeline', () => {
   it('names only the field when the event does not say what it changed to', () => {
     expect(text({ fields: ['repo'] })).toBe(
       t('timeline.events.task_updated', { fields: t('timeline.fields.repo') }),
+    );
+  });
+});
+
+describe('review pins on the timeline (PM-183)', () => {
+  const move = (data: Record<string, unknown>): TimelineEvent => ({
+    ...creation,
+    type: 'task_stage_changed',
+    data: { from: 'dev', to: 'review', ...data },
+  });
+  const commitA = 'a'.repeat(40);
+  const commitB = 'b'.repeat(40);
+
+  it('names the commit handed over with a move, and the commits of a send-back', () => {
+    expect(describeEvent(move({}), context).text).toBe(
+      t('timeline.events.task_stage_changed', { from: 'dev', to: 'review' }),
+    );
+    expect(describeEvent(move({ reviewPin: { commit: commitA, branch: 'b' } }), context).text).toBe(
+      t('timeline.events.task_stage_changed_pinned', {
+        from: 'dev',
+        to: 'review',
+        commit: shortCommit(commitA),
+      }),
+    );
+    expect(
+      describeEvent(move({ branchMoved: { branch: 'b', pinned: commitA, head: commitB } }), context).text,
+    ).toBe(
+      t('timeline.events.task_stage_changed_branch_moved', {
+        from: 'dev',
+        to: 'review',
+        pinned: shortCommit(commitA),
+        head: shortCommit(commitB),
+      }),
+    );
+  });
+
+  it('describes a new review round of the developer that pins the new head', () => {
+    const event: TimelineEvent = {
+      ...creation,
+      type: 'task_updated',
+      data: { fields: ['reviewPin'], reviewPin: { commit: commitB, branch: 'b', previous: commitA } },
+    };
+    expect(describeEvent(event, context).text).toBe(
+      t('timeline.events.review_repinned', { previous: shortCommit(commitA), commit: shortCommit(commitB) }),
     );
   });
 });

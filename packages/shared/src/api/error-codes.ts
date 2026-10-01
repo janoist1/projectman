@@ -78,6 +78,8 @@ export const ERROR_CODES = [
   'comment_required',
   'self_review_forbidden',
   'release_four_eyes',
+  // The handed-over work has uncommitted changes (PM-183)
+  'handover_uncommitted',
   // Attachments
   'attachment_too_large',
   'attachment_storage_failed',

@@ -48,6 +48,15 @@ describe('task drawer lifecycle', () => {
     );
     expect(screen.getByText(t(`taskStatus.startHints.${reason}`))).toBeTruthy();
   });
+  it('shows the commit handed over for review (PM-183)', async () => {
+    const project = mockProject();
+    const task = project.backend.findTask('AC-20')!;
+    task.reviewPin = { commit: 'abcdef0123456789', branch: 'AC-20-fix', pinnedAt: task.updatedAt };
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    await screen.findByText(t('task.reviewPin.label'));
+    expect(screen.getByText('abcdef01')).toBeTruthy();
+    expect(screen.getByText(/AC-20-fix/)).toBeTruthy();
+  });
   it('confirms cancellation with a reason, stops live sessions, and reopens unassigned', async () => {
     const project = mockProject();
     project.render(drawer, '/p/AC/tasks/AC-20');

@@ -288,7 +288,29 @@ async function move(h: Harness, j: Journey, member: string, target: string) {
   const from = h.domain.tasks.get(projectKey, j.task.key).stageId;
   await h.domain.teamTools.updateTask(await j.context(member), { taskKey: j.task.key, stageId: target });
   j.events.push({ type: 'task_stage_changed', actor: ai(member), data: { from, to: target } });
+  await handedOverTo(h, j, member, target);
   await j.assertState(target, target === 'done' ? 'done' : 'active');
+}
+
+/**
+ * Entering a review, test or release stage starts a session for the stage's AI owner on its own,
+ * in the background (the stage hand-over). Whether that session is already recorded when the next
+ * assertion reads the timeline depends on timing (reading the head of the branch for the review
+ * pin, PM-183, made it earlier), so the journey takes the owner's session now: the hand-over then
+ * finds it running and only tells it, and the count of started sessions does not depend on a race.
+ */
+async function handedOverTo(h: Harness, j: Journey, mover: string, target: string) {
+  const config = (await h.configView()).config;
+  const stage = config.pipeline.stages.find((s) => s.id === target);
+  if (!stage || (stage.kind !== 'step' && stage.kind !== 'release')) return;
+  const owner = config.team.members.find(
+    (m) =>
+      m.kind === 'ai' &&
+      m.handle !== mover &&
+      m.handle !== j.developer &&
+      stageOwners(config, stage).includes(m.handle),
+  );
+  if (owner) await j.context(owner.handle);
 }
 
 async function approve(h: Harness, j: Journey, member: string, target: string, cookie = h.cookie) {

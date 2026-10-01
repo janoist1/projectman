@@ -3,6 +3,7 @@ import { useProject } from '../../app/contexts';
 import { t } from '../../i18n/t';
 import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
+import { shortCommit } from '../../lib/timeline';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { TaskAssigneeSelect } from './TaskLifecycle';
 import { TaskLabels } from './TaskLabels';
@@ -45,6 +46,14 @@ export function TaskProperties({
         <span className={styles.propLabel}>{t('newTask.fields.visibility')}</span>
         <span>{t(`visibility.${task.visibility}`)}</span>
       </div>
+      {task.reviewPin ? (
+        <div className={styles.prop}>
+          <span className={styles.propLabel}>{t('task.reviewPin.label')}</span>
+          <span title={t('task.reviewPin.hint', { commit: task.reviewPin.commit })}>
+            <code>{shortCommit(task.reviewPin.commit)}</code> · {task.reviewPin.branch}
+          </span>
+        </div>
+      ) : null}
       <TaskLabels task={task} />
       {!task.parentKey ? (
         <TaskSubtasks

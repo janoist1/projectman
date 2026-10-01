@@ -1,0 +1,57 @@
+#!/usr/sbin/nft -f
+# The system-managed egress rules of the managed VM profile (PM-137).
+#
+# Installed by bootstrap.sh as /etc/projectman/gate.nft (root:root 0644) and loaded at boot by
+# projectman-gate.service. Workers cannot change it: the file, the unit and the nft tool's
+# netlink access are root's. This is the BASELINE gate: it closes the machine's private side to
+# the worker accounts (the host behind the NAT, the LAN, link-local and metadata addresses, the
+# tailnet, and every non-loopback IPv6 address). The domain-level gate for allowed destinations is the protected part of PM-140.
+#
+# Limited are the service account (uid 19000) and the workers (uids 20000-20999): SERVICE_UID,
+# WORKER_UID_MIN and WORKER_UID_MAX in profile.env, kept in step by a test. The service is
+# limited too because, until the protected launcher runs the sessions as workers (PM-140), the
+# agent CLIs are its children; it needs the internet and loopback, never the private side.
+# Root and system daemons are not limited, so DNS (systemd-resolved, reached on loopback),
+# package updates and Tailscale keep working.
+
+table inet projectman_gate
+delete table inet projectman_gate
+
+table inet projectman_gate {
+	chain worker_egress {
+		# A confined account may use loopback (its own tests, the app's hook and MCP endpoints, which keep
+		# their own token checks). Traffic to the guest's own private address is not loopback
+		# here: it is refused below, which is also what gate-control in verify.sh relies on.
+		ip daddr 127.0.0.0/8 accept
+		ip6 daddr ::1 accept
+		# Private, shared (CGNAT: the tailnet), link-local (metadata), multicast and reserved ranges.
+		ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4 } reject with icmpx type admin-prohibited
+		# All other IPv6, global addresses included: at home the Mac and the LAN machines have global
+		# IPv6 addresses, and a rented server gets an IPv6 route. The internet stays reachable over
+		# IPv4 (the refusal is immediate, so clients fall back at once). Until the domain gate (PM-140)
+		# can name allowed destinations, IPv6 is closed for the confined accounts as a whole.
+		meta nfproto ipv6 reject with icmpx type admin-prohibited
+	}
+
+	chain egress {
+		type filter hook output priority 0; policy accept;
+		meta skuid { 19000, 20000-20999 } jump worker_egress
+	}
+
+	# New connections from outside reach only what is listed: SSH (the Mac's port forward and the
+	# admin), DHCP/DHCPv6 answers, Tailscale's own UDP port, HTTPS from the tailnet (Tailscale
+	# Serve) and ICMP. A server a worker starts on 0.0.0.0 is therefore not reachable from the
+	# host, the LAN or the tailnet.
+	chain ingress {
+		type filter hook input priority 0; policy accept;
+		iif lo accept
+		ct state established,related accept
+		ct state invalid drop
+		tcp dport 22 accept
+		udp dport { 68, 546, 41641 } accept
+		iifname "tailscale0" tcp dport 443 accept
+		ip protocol icmp accept
+		ip6 nexthdr ipv6-icmp accept
+		drop
+	}
+}

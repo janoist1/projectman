@@ -1,0 +1,19 @@
+# Loads the system-managed egress rules at boot (PM-137). Root-owned; workers cannot change it.
+[Unit]
+Description=projectman egress gate (nftables)
+Wants=network-pre.target
+Before=network-pre.target projectman.service
+DefaultDependencies=no
+After=local-fs.target
+ConditionPathExists=/etc/projectman/gate.nft
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/projectman/gate.nft
+ExecReload=/usr/sbin/nft -f /etc/projectman/gate.nft
+# No ExecStop: stopping the unit must not open the machine. The rules stay until reboot or a
+# deliberate `nft delete table inet projectman_gate` by root.
+
+[Install]
+WantedBy=multi-user.target

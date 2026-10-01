@@ -1,7 +1,9 @@
 # Template: adjust checkout, Node/CLI executable paths and home before installing.
+# The managed VM profile (deploy/vm, docs/VM.md) installs it as it is: Node in /usr/local, the
+# pinned CLIs in /opt/projectman/cli, the app in /srv/projectman owned by root.
 [Unit]
 Description=projectman
-After=network-online.target
+After=network-online.target projectman-gate.service
 Wants=network-online.target
 
 [Service]
@@ -15,8 +17,11 @@ Environment=HOST=127.0.0.1
 Environment=PORT=4700
 Environment=NODE_ENV=production
 Environment=LOG_LEVEL=info
-Environment=PATH=/var/lib/projectman/.local/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/usr/bin/node /srv/projectman/apps/server/dist/index.js
+Environment=PATH=/opt/projectman/cli/bin:/var/lib/projectman/.local/bin:/usr/local/bin:/usr/bin:/bin
+# The CLIs live in a root-owned prefix; their own updater could not write there, and the
+# pinned version must not change behind the profile's back.
+Environment=DISABLE_AUTOUPDATER=1
+ExecStart=/usr/local/bin/node /srv/projectman/apps/server/dist/index.js
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=45
@@ -24,6 +29,23 @@ KillMode=control-group
 UMask=0077
 StandardOutput=journal
 StandardError=journal
+
+# Hardening. These limit what the service (and the CLIs it starts) can do to the machine; they
+# do not make the service's own data safe from itself. NoNewPrivileges also stops a setuid
+# helper from raising the service's rights.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+# AF_NETLINK: os.networkInterfaces() and getaddrinfo() use it; without it the service and every
+# tool its sessions start (dev servers, tests) fail in odd places.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 
 [Install]
 WantedBy=multi-user.target

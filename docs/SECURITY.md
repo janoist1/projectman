@@ -187,6 +187,44 @@ the real filesystem/network boundary, hook/lifecycle confinement and publishing 
 The accepted local-port exception is recorded in decision 24; Linux is not certified by the
 macOS probe.
 
+## Managed VM profile (PM-137)
+
+[VM.md](VM.md) describes a machine whose boundary is **measured**, replacing the earlier plan to
+certify each CLI's own sandbox (decision 25). What it establishes, with the report that proves
+it (`deploy/vm/verify.sh`, verdict `evaluateVmReadiness()`):
+
+- The app, the pinned CLIs and the boundary settings (`/etc/projectman`, the egress rules, the
+  units) are root-owned and neither the service account nor any worker can write them. The data
+  directory, the SQLite database, the cookie secret and the service home are the service's alone
+  (0700); a worker cannot read them, cannot read another worker's home and cannot see other
+  accounts' processes or arguments (`hidepid`). No account of the profile has sudo, and the service
+  runs with `NoNewPrivileges`.
+- Workers are per-member unprivileged accounts (uids 20000+, own group, `nologin`, locked password,
+  not allowed to ssh). The provider login is made once by a person, as the service account in the
+  VM, and no worker home holds a login file: the subscription login is not a standing copy handed
+  to every account (a design for worker sessions that need authentication is PM-140's).
+- Nothing of the host is shared in (no 9p, virtiofs, sshfs or similar mount), ssh agent forwarding is
+  off, no worker can write a control socket outside a short list (Tailscale's LocalAPI socket
+  included: its directory is root-only), and only loopback, the SSH port and tailscaled's own
+  tailnet-address listener listen (the ingress rules drop everything but SSH and HTTPS from
+  `tailscale0`). The system-managed egress rules (nftables, loaded by a root unit at boot) refuse
+  the service account and the workers any private, link-local, CGNAT (tailnet) or multicast IPv4
+  address and all non-loopback IPv6, so the host behind the NAT, the LAN, the metadata address and
+  the tailnet are unreachable to them, over IPv4 and IPv6. NAT alone does not do this, which is why
+  a probe with a positive control proves it. A guest without IPv6 connectivity cannot be probed over
+  IPv6; the rule is then checked as loaded.
+- Remote access stays as before: loopback listener, SSH port forwarding from a Mac, Tailscale
+  Serve (HTTPS only, never Funnel) from a phone, and the unchanged login, Origin, hook and MCP
+  protections.
+
+What it does not establish: the protected launcher that runs sessions as the workers and the
+domain-level network gate and publishing gate are PM-140; until then the CLIs still run as the
+service account, which holds the login and the data, so a compromised session is the service.
+The egress rules do not restrict internet destinations, root or the admin. A mere environment
+flag or a VM label never counts: the report schema is strict and a missing check fails.
+Decision 24's local-port exception does not apply inside the VM profile beyond what VM.md states
+(loopback, with the app's token checks).
+
 ## Before server hosting
 
 1. Use a dedicated Unix account and private application home. Separate mutually

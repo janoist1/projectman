@@ -1,5 +1,11 @@
 # Deploy on a Linux VPS over Tailscale
 
+This page describes a single trusted-team account on a VPS. For the **managed VM profile**
+(PM-137: pinned versions, a root-owned app, unprivileged per-member accounts, system-managed
+egress rules and a readiness report), which also builds a Linux VM on a Mac, follow
+[VM.md](VM.md); its scripts in `deploy/vm/` replace the account and build steps below, and the
+service-unit, login, Tailscale and curl sections here still apply to it.
+
 Use Node **22.12 or newer** (a supported LTS release), npm, git, curl, Tailscale,
 and the standalone Claude Code / Codex CLIs you need. Install `gh` for GitHub integration.
 Native dependencies may need a compiler, make and Python when no prebuilt binary is
@@ -56,7 +62,10 @@ PATH; adjust PATH or set absolute `CLAUDE_BIN`, `CODEX_BIN`, `GH_BIN` paths in t
 ## Service and first owner
 
 Exit the service-user shell. Adjust [projectman.service](../deploy/projectman.service),
-especially `ExecStart` if Node lives elsewhere, then:
+especially `ExecStart` (it expects Node at `/usr/local/bin/node`, as the VM profile installs it)
+and the `PATH` for your CLIs. The unit also sets `DISABLE_AUTOUPDATER=1` and hardening options
+(`NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=full`, an empty capability set); if a tool of
+yours needs more, loosen one option at a time and say why. Then:
 
 ```sh
 sudo install -m 0644 deploy/projectman.service /etc/systemd/system/projectman.service

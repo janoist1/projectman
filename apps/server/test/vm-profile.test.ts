@@ -49,6 +49,7 @@ type ProfileKey =
   | 'CLI_PREFIX'
   | 'NODE_MAJOR'
   | 'NODE_MIN'
+  | 'NODE_VERSION'
   | 'CLAUDE_CLI_VERSION'
   | 'CODEX_CLI_VERSION';
 
@@ -113,6 +114,25 @@ describe('profile, units and rules agree', () => {
     ]) {
       expect(unit).toContain(setting);
     }
+  });
+
+  it('closes all non-loopback IPv6, and the Tailscale socket directory, for the confined accounts', () => {
+    const nft = read('deploy/vm/projectman-gate.nft');
+    expect(nft).toContain('ip6 daddr ::1 accept');
+    expect(nft).toMatch(/meta nfproto ipv6 reject with icmpx type admin-prohibited/);
+    const bootstrap = read('deploy/vm/bootstrap.sh');
+    expect(bootstrap).toContain('RuntimeDirectoryMode=0700');
+    expect(bootstrap).toContain('tailscaled.service.d');
+    const verify = read('deploy/vm/verify.sh');
+    expect(verify).toContain('/run/tailscale/tailscaled.sock');
+    expect(verify).toContain('guest_global_ipv6');
+    expect(verify).toContain('PROBE_IPV6_PUBLIC');
+    expect(read('deploy/projectman.service')).toContain('AF_NETLINK');
+  });
+
+  it('pins an exact Node release of the pinned major', () => {
+    expect(p.NODE_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(p.NODE_VERSION.startsWith(`${p.NODE_MAJOR}.`)).toBe(true);
   });
 
   it('pins every version and never gives an account sudo or an API key', () => {

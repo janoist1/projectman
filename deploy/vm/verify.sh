@@ -286,27 +286,37 @@ check_no_agent_forwarding() {
 
 check_worker_sockets() {
   local p w bad= n=0 paths
-  paths=$( { ss -xlnH 2>/dev/null | awk '{print $5}'; printf '%s\n' /var/run/docker.sock /run/containerd/containerd.sock /var/run/libvirt/libvirt-sock /run/lima-guestagent.sock /run/snapd.socket /run/snapd-snap.socket; } | grep '^/' | sort -u)
+  # tailscaled's LocalAPI socket is world-writable by default and tells whoever uses it the tailnet's
+  # peers and addresses; bootstrap.sh closes its directory (0700), and this probe holds it to that.
+  paths=$( { ss -xlnH 2>/dev/null | awk '{print $5}'; printf '%s\n' /var/run/docker.sock /run/containerd/containerd.sock /var/run/libvirt/libvirt-sock /run/lima-guestagent.sock /run/snapd.socket /run/snapd-snap.socket /run/tailscale/tailscaled.sock; } | grep '^/' | sort -u)
   for p in $paths; do
     [ -S "$p" ] || continue
     matches_any "$p" "$WORKER_ALLOWED_SOCKETS" && continue
-    for w in "${WORKERS[@]}"; do
+    # The service is held to the same limit: until PM-140 it runs the CLIs.
+    for w in "$SERVICE_USER" "${WORKERS[@]}"; do
       n=$((n + 1))
       if can "$w" -w "$p"; then bad="$bad $w:$p"; fi
     done
   done
-  if [ -n "$bad" ]; then record worker-sockets fail "a worker can use:$bad"; else record worker-sockets pass "no worker can write a unix socket outside the allowed list ($(printf '%s\n' "$paths" | wc -l | tr -d ' ') sockets seen; abstract sockets cannot be permission-checked)"; fi
+  if [ -n "$bad" ]; then record worker-sockets fail "an account can use:$bad"; else record worker-sockets pass "neither the service nor a worker can write a unix socket outside the allowed list ($(printf '%s\n' "$paths" | wc -l | tr -d ' ') sockets seen, the tailscaled one included when present; abstract sockets cannot be permission-checked)"; fi
 }
 
 check_listeners() {
-  local addr port bad= n=0
-  while read -r addr; do
+  local addr port proc bad= n=0 tailnet=0
+  while read -r addr proc; do
     port=${addr##*:}; addr=${addr%:*}
     n=$((n + 1))
     case $addr in 127.*|'[::1]'|::1) continue ;; esac
-    case " $ALLOWED_PUBLIC_TCP " in *" $port "*) ;; *) bad="$bad $addr:$port" ;; esac
-  done < <(ss -ltnH 2>/dev/null | awk '{print $4}')
-  if [ -n "$bad" ]; then record listeners fail "TCP listeners on non-loopback addresses:$bad"; else record listeners pass "$n TCP listeners: loopback, or one of: $ALLOWED_PUBLIC_TCP"; fi
+    case " $ALLOWED_PUBLIC_TCP " in *" $port "*) continue ;; esac
+    # tailscaled listens on the guest's tailnet addresses for its own peer API. Nothing reaches
+    # those ports: the ingress chain drops all but HTTPS from tailscale0 (gate-loaded checks it).
+    case $addr in
+      100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*|'[fd7a:115c:a1e0:'*)
+        case $proc in *'"tailscaled"'*) tailnet=$((tailnet + 1)); continue ;; esac ;;
+    esac
+    bad="$bad $addr:$port"
+  done < <(ss -ltnpH 2>/dev/null | awk '{print $4, $6}')
+  if [ -n "$bad" ]; then record listeners fail "TCP listeners on non-loopback addresses:$bad"; else record listeners pass "$n TCP listeners: loopback, one of: $ALLOWED_PUBLIC_TCP, or tailscaled on a tailnet address ($tailnet; closed by the ingress chain)"; fi
 }
 
 # --- network gate -----------------------------------------------------------------------------
@@ -315,7 +325,7 @@ check_gate_loaded() {
   local rules bad=
   rules=$(nft list table inet projectman_gate 2>/dev/null)
   [ -n "$rules" ] || { record gate-loaded fail "table inet projectman_gate is not loaded"; return; }
-  for want in 'chain worker_egress' 'chain egress' 'chain ingress' "$SERVICE_UID" "$WORKER_UID_MIN-$WORKER_UID_MAX" 'fc00::/7' '169.254.0.0/16'; do
+  for want in 'chain worker_egress' 'chain egress' 'chain ingress' "$SERVICE_UID" "$WORKER_UID_MIN-$WORKER_UID_MAX" 'nfproto ipv6' '169.254.0.0/16' 'iifname "tailscale0"' 'tcp dport 22'; do
     printf '%s\n' "$rules" | grep -qF "$want" || bad="$bad '$want'"
   done
   [ "$(systemctl is-enabled projectman-gate 2>/dev/null)" = enabled ] || bad="$bad unit-not-enabled"
@@ -327,33 +337,59 @@ guest_private_ip() {
   ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | grep -E '^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.)' | head -n 1
 }
 
-check_gate_control() {
-  local ip tmp pid port w ok=1 bad=
-  ip=$(guest_private_ip)
-  if [ -z "$ip" ]; then record gate-control unverified "the guest has no private IPv4 address to run the control listener on"; return; fi
+guest_global_ipv6() {
+  ip -6 -o addr show scope global 2>/dev/null | grep -v deprecated | awk '{print $4}' | cut -d/ -f1 | head -n 1
+}
+
+# control_probe ADDR: runs a listener on ADDR (an address of the guest that is not loopback) and
+# prints one word: ok (root connects, no confined account does), nolistener, norootaccess, or
+# leak:<accounts that connected>.
+control_probe() {
+  local addr=$1 tmp pid port w ok=1 bad=
   tmp=$(mktemp)
-  timeout 20 node -e 'const s=require("net").createServer(c=>c.end()).listen(0,process.argv[1],()=>console.log(s.address().port))' "$ip" > "$tmp" 2>/dev/null &
+  timeout 20 node -e 'const s=require("net").createServer(c=>c.end()).listen(0,process.argv[1],()=>console.log(s.address().port))' "$addr" > "$tmp" 2>/dev/null &
   pid=$!
   for _ in 1 2 3 4 5 6 7 8 9 10; do port=$(head -n 1 "$tmp"); [ -n "$port" ] && break; sleep 0.3; done
-  if [ -z "$port" ]; then kill "$pid" 2>/dev/null; rm -f "$tmp"; record gate-control fail "the control listener did not start on $ip"; return; fi
-  root_connect "$ip" "$port" && ok=0
-  for w in "$SERVICE_USER" "${WORKERS[@]}"; do tcp_connect "$w" "$ip" "$port" && bad="$bad $w"; done
+  if [ -z "$port" ]; then kill "$pid" 2>/dev/null; rm -f "$tmp"; echo nolistener; return; fi
+  root_connect "$addr" "$port" && ok=0
+  for w in "$SERVICE_USER" "${WORKERS[@]}"; do tcp_connect "$w" "$addr" "$port" && bad="$bad $w"; done
   kill "$pid" 2>/dev/null; rm -f "$tmp"
-  if [ "$ok" != 0 ]; then record gate-control fail "control failed: root could not reach the listener on $ip, the probe proves nothing"
-  elif [ -n "$bad" ]; then record gate-control fail "a confined account reached a private address of the guest:$bad"
-  else record gate-control pass "root reached the listener on a private address of the guest; the service and ${#WORKERS[@]} workers were refused"; fi
+  if [ "$ok" != 0 ]; then echo norootaccess
+  elif [ -n "$bad" ]; then echo "leak:$bad"
+  else echo ok; fi
+}
+
+check_gate_control() {
+  local v4 v6 r4 r6 note
+  v4=$(guest_private_ip)
+  v6=$(guest_global_ipv6)
+  if [ -z "$v4" ]; then record gate-control unverified "the guest has no private IPv4 address to run the control listener on"; return; fi
+  r4=$(control_probe "$v4")
+  if [ -n "$v6" ]; then r6=$(control_probe "$v6"); note="and on its global IPv6 address"; else r6=ok; note="; no global IPv6 address on this guest, so IPv6 was not probed here (the rules refuse all non-loopback IPv6)"; fi
+  case "$r4/$r6" in
+    ok/ok) record gate-control pass "root reached a listener on a private IPv4 address $note of the guest; the service and ${#WORKERS[@]} workers were refused" ;;
+    *nolistener*|*norootaccess*) record gate-control fail "control failed (IPv4 $r4, IPv6 $r6): root could not use the listener, the probe proves nothing" ;;
+    *) record gate-control fail "a confined account reached an address of the guest (IPv4 $r4, IPv6 $r6)" ;;
+  esac
 }
 
 check_gate_blocks_host() {
-  local gw ts w t p bad= n=0
+  local gw gw6 ts w t p bad= n=0 v6note
   local -a targets=()
   gw=$(ip -4 route show default 2>/dev/null | awk '/default/ {print $3; exit}')
   [ -n "$gw" ] && targets+=("$gw")
+  # The IPv6 gateway is link-local with a scope: fe80::1%eth0.
+  gw6=$(ip -6 route show default 2>/dev/null | awk '/default/ {for (i = 1; i <= NF; i++) { if ($i == "via") g = $(i + 1); if ($i == "dev") d = $(i + 1) } print g "%" d; exit}')
+  [ -n "$gw6" ] && targets+=("$gw6")
   targets+=("$METADATA_ADDRESS")
   ts=$(tailscale ip -4 2>/dev/null | head -n 1)
   [ -n "$ts" ] && targets+=("$ts")
   for t in $EXTRA_PROBE_ADDRESSES; do targets+=("$t"); done
-  [ -n "$gw" ] || { record gate-blocks-host unverified "no default gateway: the host side cannot be probed"; return; }
+  # A global IPv6 address of the internet, tried on HTTPS: if root reaches it, the confined accounts
+  # must not (IPv6 is closed for them as a whole, so the Mac's and the LAN's global addresses are too).
+  v6note="no IPv6 internet from this guest: global IPv6 not probed (the rules refuse all non-loopback IPv6)"
+  if root_connect "$PROBE_IPV6_PUBLIC" 443; then targets+=("$PROBE_IPV6_PUBLIC"); v6note="global IPv6 probed (root reaches $PROBE_IPV6_PUBLIC)"; fi
+  if [ -z "$gw" ] && [ -z "$gw6" ]; then record gate-blocks-host unverified "no default gateway: the host side cannot be probed"; return; fi
   for w in "$SERVICE_USER" "${WORKERS[@]}"; do
     for t in "${targets[@]}"; do
       for p in $PROBE_TCP_PORTS; do
@@ -362,7 +398,7 @@ check_gate_blocks_host() {
       done
     done
   done
-  if [ -n "$bad" ]; then record gate-blocks-host fail "a confined account connected:$bad"; else record gate-blocks-host pass "$n service and worker connections to the gateway $gw, the metadata address, the guest's tailnet address and extra targets (${EXTRA_PROBE_ADDRESSES:-none given}) on ports $PROBE_TCP_PORTS: none connected"; fi
+  if [ -n "$bad" ]; then record gate-blocks-host fail "a confined account connected:$bad"; else record gate-blocks-host pass "$n service and worker connections to the gateways (${gw:-no IPv4}, ${gw6:-no IPv6}), the metadata address, the guest's tailnet address and extra targets (${EXTRA_PROBE_ADDRESSES:-none given}) on ports $PROBE_TCP_PORTS: none connected; $v6note"; fi
 }
 
 check_egress_open() {

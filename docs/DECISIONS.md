@@ -157,8 +157,10 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     (PM-135, "Átállás a VM-es irányra"). The remaining parts of the old strict native sandbox
     direction stop: further work on PM-128, PM-129, PM-130, PM-132 and PM-136 ends, and what
     they already produced stays. The PM-126 procedure and the PM-127 provider-neutral policy
-    model stay. PM-134's content on `main` is not withdrawn and not activated: its activation
-    still waits for the owner's earlier answer. The VM is built first as a reproducible guest on
+    model stay. PM-134: the owner's earlier answer was that its activation waits ("Élesítés
+    várjon"); its content has nevertheless been live in the owner's instance since 2026-10-01
+    10:59, through an error of the integrating session, which the owner knows about. It is not
+    withdrawn. The VM is built first as a reproducible guest on
     the owner's Mac, later from the same files on a Linux server (PM-137, `docs/VM.md`); it is
     not a migration of the live instance, which needs its own approval (PM-143).
 26. **Protected control, free workspace.** Decided by the owner on 2026-10-01 (PM-135, "Védett
@@ -171,9 +173,13 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     earlier decisions, recorded here so the differences are exact and not silent:
     - Decisions 7 and 16 stand: gates and release approval stay human-only, and an AI never
       approves. What is added is a typed request for an exit permission (leaving the machine),
-      with an audit trail (PM-139). Who decides it first, and the owner's categories, are
-      decided on that card; nothing here pre-decides them, and nothing is ever allowed
-      automatically.
+      with an audit trail (PM-139). The owner has decided who answers it: the leader developer
+      first (by duty, not by handle), and four categories always go to the owner and never to an
+      AI: cost, production systems and releases (publishing to `main` included), a new account,
+      token or secret, and a lasting widening of the host boundary. Not decided by the owner,
+      only proposed by the architect and built as configurable defaults on PM-139: the
+      two-minute leader deadline before the request escalates to the owner, and that no request
+      is ever allowed automatically.
     - Decision 19 (no `bypassPermissions` for Codex, command-by-command rule) and decision 21
       (agents do not push) are different only in the **new managed VM profile**, only behind a
       verified boundary (readiness report of `docs/VM.md`) and only once the cards that build

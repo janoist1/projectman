@@ -194,11 +194,15 @@ it (`deploy/vm/verify.sh`, verdict `evaluateVmReadiness()`):
   VM, and no worker home holds a login file: the subscription login is not a standing copy handed
   to every account (a design for worker sessions that need authentication is PM-140's).
 - Nothing of the host is shared in (no 9p, virtiofs, sshfs or similar mount), ssh agent forwarding is
-  off, no worker can write a control socket outside a short list, and only loopback and the SSH port
-  listen. The system-managed egress rules (nftables, loaded by a root unit at boot) refuse the
-  service account and the workers any private, link-local, CGNAT (tailnet) or multicast address, so
-  the host behind the NAT, the LAN, the metadata address and the tailnet are unreachable to
-  them. NAT alone does not do this, which is why a probe with a positive control proves it.
+  off, no worker can write a control socket outside a short list (Tailscale's LocalAPI socket
+  included: its directory is root-only), and only loopback, the SSH port and tailscaled's own
+  tailnet-address listener listen (the ingress rules drop everything but SSH and HTTPS from
+  `tailscale0`). The system-managed egress rules (nftables, loaded by a root unit at boot) refuse
+  the service account and the workers any private, link-local, CGNAT (tailnet) or multicast IPv4
+  address and all non-loopback IPv6, so the host behind the NAT, the LAN, the metadata address and
+  the tailnet are unreachable to them, over IPv4 and IPv6. NAT alone does not do this, which is why
+  a probe with a positive control proves it. A guest without IPv6 connectivity cannot be probed over
+  IPv6; the rule is then checked as loaded.
 - Remote access stays as before: loopback listener, SSH port forwarding from a Mac, Tailscale
   Serve (HTTPS only, never Funnel) from a phone, and the unchanged login, Origin, hook and MCP
   protections.

@@ -158,6 +158,12 @@ mount -o "remount,hidepid=2,gid=$proc_gid" /proc
 log "gate and service unit"
 install -m 0644 -o root -g root "$PROFILE_SRC" "$CONFIG_DIR/profile.env"
 install -m 0644 -o root -g root "$here/projectman-gate.nft" "$CONFIG_DIR/gate.nft"
+# tailscaled makes its LocalAPI socket world-writable (0666) in /run/tailscale (0755): any account
+# could read the tailnet's peers and addresses through it. The directory becomes root's alone;
+# `sudo tailscale ...` keeps working. The drop-in is harmless before Tailscale is installed.
+install -d -m 0755 /etc/systemd/system/tailscaled.service.d
+printf '[Service]\nRuntimeDirectoryMode=0700\n' > /etc/systemd/system/tailscaled.service.d/projectman.conf
+chmod 0644 /etc/systemd/system/tailscaled.service.d/projectman.conf
 install -m 0644 -o root -g root "$here/projectman-gate.service" /etc/systemd/system/projectman-gate.service
 install -m 0644 -o root -g root "$here/../projectman.service" /etc/systemd/system/projectman.service
 nft -c -f "$CONFIG_DIR/gate.nft"
@@ -165,6 +171,8 @@ systemctl daemon-reload
 systemctl enable projectman-gate >/dev/null
 systemctl restart projectman-gate
 systemctl enable projectman >/dev/null
+# If Tailscale was installed before this run, restart it so the directory mode applies.
+if systemctl cat tailscaled >/dev/null 2>&1; then systemctl restart tailscaled; fi
 
 log "done"
 cat <<EOF

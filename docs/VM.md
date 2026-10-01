@@ -126,6 +126,12 @@ sudo bash deploy/vm/install-app.sh --archive projectman.tar.gz --commit <40-hex 
    `sudo tailscale serve --bg 4700` (never Funnel) and run the HTTPS checks of
    [DEPLOY.md](DEPLOY.md). The server stays on loopback; login, Origin, hook and MCP protections are
    the app's own and unchanged. Only HTTPS from `tailscale0` is let in by the guest's rules.
+   Two things differ from a plain install, both set by `bootstrap.sh`: tailscaled's runtime
+   directory is root-only (mode 0700), so its LocalAPI socket, which is world-writable by default
+   and shows the tailnet's peers and addresses to whoever uses it, is closed to the service and the
+   workers; every `tailscale` command therefore needs `sudo`. And tailscaled's own listener on the
+   guest's tailnet address (its peer API) is expected: nothing reaches it, because the ingress rules
+   drop everything from `tailscale0` but HTTPS, and `verify.sh` accepts it only from `tailscaled`.
 
 ## The readiness report
 
@@ -154,8 +160,15 @@ PM-140 and PM-143 consume the same report. The checks:
 
 `domain-gate` and `launcher` are always `unverified` here: they are PM-140's. `egress-open` is
 `unverified` when the network has no internet or the gate is too tight; `tailscale` when it is not
-set up yet. Abstract unix sockets cannot be permission-checked; IPv6 private ranges are checked as
-loaded rules, not by connecting.
+set up yet. Abstract unix sockets cannot be permission-checked.
+
+IPv6: the egress rules close **all** non-loopback IPv6 for the service and the workers (the Mac and
+the LAN machines have global IPv6 addresses at home, a rented server has an IPv6 route); the
+internet stays reachable over IPv4 and clients fall back at once. `verify.sh` probes it when it can:
+the control listener also runs on the guest's global IPv6 address if it has one, the IPv6 gateway is
+tried, and if root itself reaches a public IPv6 address the confined accounts must not. A guest
+without IPv6 connectivity cannot be probed that way: the evidence then says so, and the rule is
+checked as loaded (`gate-loaded`).
 
 ## Manual trial protocol (the real VM)
 
@@ -165,6 +178,13 @@ worker.
 
 1. **Build**: `create`, `deploy` as above. Expected: both end without error, `install-app.sh`'s
    smoke passes, `systemctl is-active projectman projectman-gate` prints `active` twice.
+   Risk to watch: `bootstrap.sh` mounts the main `/proc` with `hidepid=2` and gives systemd-logind
+   the group that may still see everything. On systemd 255 (Ubuntu 24.04) this is not an officially
+   supported setup (logind, polkit, `user@` may be affected). Check right after the bootstrap and again
+   after step 6: a **new** `ssh`/`multipass shell` login works, `loginctl list-sessions` and
+   `systemctl status` answer, `systemctl is-system-running` is `running`. If not, report the
+   symptom; the fallback is to drop `hidepid` and keep the sessions' processes private through the
+   launcher's own unit (`ProtectProc=invisible`, PM-140), which makes `proc-hidden` fail until then.
 2. **Readiness**: run the two commands above. Expected: `READY: every required check passed.`,
    `domain-gate` and `launcher` listed as not passed.
 3. **Browser**: forward the port, open `http://127.0.0.1:4700`, create the first owner, log in,
@@ -172,7 +192,9 @@ worker.
    (websocket). Or with curl over the forward, the `/ws` handshake of DEPLOY.md: expect `101`.
 4. **Phone**: set up Tailscale Serve, run DEPLOY.md's HTTPS checks from a tailnet client (login 200
    with `Secure`, websocket 101, foreign Origin 403), then log in from the phone and watch a live
-   update. `tailscale serve status` shows no Funnel.
+   update. `sudo tailscale serve status` shows no Funnel. Then run step 2 again: the report is
+   still `READY`, now with `tailscale` passed. And the LocalAPI is closed: `sudo runuser -u pmw-dev --
+tailscale status` and `... -- ls /run/tailscale` are denied, as for `projectman`.
 5. **Stop and restart**: `multipass restart projectman-vm`. Expected: both units `active`, the
    readiness report is again ready (the gate rules came back from the unit, not from memory), the
    browser login still works, a stored conversation is resumable.
@@ -185,7 +207,11 @@ worker.
    `sudo runuser -u pmw-dev -- timeout 3 bash -c 'exec 3<>/dev/tcp/<gw>/8099'` and
    `sudo runuser -u projectman -- timeout 3 bash -c 'exec 3<>/dev/tcp/<gw>/8099'` must both fail
    (non-zero status). Repeat for the Mac's LAN address and another LAN machine, and for
-   `169.254.169.254`. Stop the Mac's server afterwards.
+   `169.254.169.254`. Stop the Mac's server afterwards. IPv6: if the guest has an IPv6 default
+   route (`ip -6 route show default`), start the same server on the Mac (`--bind ::`), try the
+   Mac's global IPv6 address from the admin (reaches it) and from `pmw-dev` and `projectman`
+   (`/dev/tcp/<address>/8099`, both fail), and the same for a public one such as
+   `2001:4860:4860::8888` on port 443.
 8. **Agent socket**: with an ssh agent running on the Mac, connect with `ssh -A` once: in that shell
    `env | grep SSH_AUTH_SOCK` prints nothing and `sudo sshd -T | grep -i agentforwarding` says `no`.
 9. **Control data**: as a worker, `sudo runuser -u pmw-dev -- ls /var/lib/projectman/data` and
@@ -222,12 +248,16 @@ changing `profile.env`, the shared `VM_PROFILE_VERSION` if a check changed, and 
 
 ## Known limits
 
-- The baseline gate stops the service and workers reaching private addresses; it does not limit
+- The baseline gate stops the service and workers reaching private IPv4 addresses and all
+  non-loopback IPv6 addresses; it does not limit
   _which internet destinations_ they reach (PM-140's domain gate), and it does not stop root or the
   admin. A worker may still use loopback, including the app's own port (its hook and MCP endpoints
   keep their token checks; the login protects the rest).
 - A worker's own listener on `0.0.0.0` is not reachable from outside (inbound is closed except SSH and
   HTTPS from `tailscale0`), but it is reachable from loopback by every account of the machine.
 - The profile does not defend against a malicious admin, the hypervisor or a kernel flaw.
-- `hidepid` and the nftables rules were written against Ubuntu 24.04; the pinned CLI versions are the
+- An IPv6-only network is not supported: the confined accounts have no IPv6. Until PM-140 names the
+  allowed destinations, a server needs IPv4 (NAT is enough).
+- `hidepid=2` on the main `/proc` is a known risk (step 1 of the trial). `hidepid` and the nftables
+  rules were written against Ubuntu 24.04; the pinned CLI versions are the
   ones the team has used, not strict-sandbox certifications (see [PROVIDERS.md](PROVIDERS.md)).

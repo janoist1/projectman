@@ -5,7 +5,7 @@
 # projectman-gate.service. Workers cannot change it: the file, the unit and the nft tool's
 # netlink access are root's. This is the BASELINE gate: it closes the machine's private side to
 # the worker accounts (the host behind the NAT, the LAN, link-local and metadata addresses, the
-# tailnet). The domain-level gate for allowed destinations is the protected part of PM-140.
+# tailnet, and every non-loopback IPv6 address). The domain-level gate for allowed destinations is the protected part of PM-140.
 #
 # Limited are the service account (uid 19000) and the workers (uids 20000-20999): SERVICE_UID,
 # WORKER_UID_MIN and WORKER_UID_MAX in profile.env, kept in step by a test. The service is
@@ -26,8 +26,11 @@ table inet projectman_gate {
 		ip6 daddr ::1 accept
 		# Private, shared (CGNAT: the tailnet), link-local (metadata), multicast and reserved ranges.
 		ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4 } reject with icmpx type admin-prohibited
-		# Unique-local (includes the tailnet's fd7a:115c:a1e0::/48), link-local, multicast.
-		ip6 daddr { fc00::/7, fe80::/10, ff00::/8 } reject with icmpx type admin-prohibited
+		# All other IPv6, global addresses included: at home the Mac and the LAN machines have global
+		# IPv6 addresses, and a rented server gets an IPv6 route. The internet stays reachable over
+		# IPv4 (the refusal is immediate, so clients fall back at once). Until the domain gate (PM-140)
+		# can name allowed destinations, IPv6 is closed for the confined accounts as a whole.
+		meta nfproto ipv6 reject with icmpx type admin-prohibited
 	}
 
 	chain egress {

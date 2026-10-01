@@ -92,18 +92,16 @@ describe('profile, units and rules agree', () => {
     expect(Number(p.SERVICE_UID)).toBeLessThan(Number(p.WORKER_UID_MIN));
   });
 
-  it('lets workers out only to loopback, without the resolver and sshd (PM-140)', () => {
+  it('lets a worker in the host namespace reach the egress proxy port and nothing else (PM-140)', () => {
     const nft = read('deploy/vm/projectman-gate.nft');
     const worker = /chain worker_egress \{([\s\S]*?)\n\t\}/.exec(nft)![1]!;
     const rules = worker
       .split('\n')
       .map((l) => l.trim())
       .filter((l) => l && !l.startsWith('#'));
+    const egressPort = /^EGRESS_PORT=(\d+)$/m.exec(read('deploy/vm/profile.env'))![1];
     expect(rules).toEqual([
-      'ip daddr 127.0.0.0/8 meta l4proto { tcp, udp } th dport { 22, 53 } reject with icmpx type admin-prohibited',
-      'ip6 daddr ::1 meta l4proto { tcp, udp } th dport { 22, 53 } reject with icmpx type admin-prohibited',
-      'ip daddr 127.0.0.0/8 accept',
-      'ip6 daddr ::1 accept',
+      `ip daddr 127.0.0.1 tcp dport ${egressPort} accept`,
       'reject with icmpx type admin-prohibited',
     ]);
   });

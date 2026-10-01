@@ -5,11 +5,11 @@
 # projectman-gate.service. Neither the service nor a worker can change it: the file, the unit and
 # the nft tool's netlink access are root's.
 #
-# Workers (uids 20000-20999) reach loopback only: the egress proxy in the service (their only way
-# out, which checks every destination), the app's hook and MCP endpoints (token-checked) and their
-# own test servers. Not the local resolver (DNS would be a way out) and not sshd (an SSH tunnel
-# would be one). No UDP, ICMP or IPv6 leaves the machine for them. The sessions' own units add a
-# kernel filter on top (IPAddressDeny=any, IPAddressAllow=localhost).
+# Workers (uids 20000-20999) run their sessions and commands in launcher units with a network
+# namespace of their own (only their own loopback), whose bridge leads to the app and the egress
+# proxy through the member's unix sockets. In the host namespace a worker reaches the egress
+# proxy's port only (EGRESS_PORT in profile.env, kept in step by a test): no other loopback port
+# (no other member's server, no resolver, no sshd), no UDP, ICMP or IPv6.
 #
 # The service (uid 19000) runs the proxy and the server: it reaches the internet and loopback,
 # never the private side (the host behind the NAT, the LAN, link-local and metadata addresses,
@@ -24,13 +24,11 @@ delete table inet projectman_gate
 
 table inet projectman_gate {
 	chain worker_egress {
-		# Loopback, but neither the resolver (53) nor sshd (22).
-		ip daddr 127.0.0.0/8 meta l4proto { tcp, udp } th dport { 22, 53 } reject with icmpx type admin-prohibited
-		ip6 daddr ::1 meta l4proto { tcp, udp } th dport { 22, 53 } reject with icmpx type admin-prohibited
-		ip daddr 127.0.0.0/8 accept
-		ip6 daddr ::1 accept
-		# Everything else: the egress proxy is the only way out. The refusal is immediate, so a program
-		# that ignores the proxy settings fails at once instead of hanging.
+		# A worker's sessions and commands run in units with their own network namespace (the
+		# launcher), so nothing of theirs passes here. What does is a worker process a person starts
+		# in the host namespace (the subscription login, `sudo -u pmw-<handle>`): it reaches the
+		# egress proxy and nothing else, not even another loopback port.
+		ip daddr 127.0.0.1 tcp dport 4780 accept
 		reject with icmpx type admin-prohibited
 	}
 

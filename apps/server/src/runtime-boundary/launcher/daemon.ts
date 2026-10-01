@@ -4,7 +4,7 @@ import type { Duplex } from 'node:stream';
 import { BILLING_ENV_VARS } from '../../runner';
 import type { WorkerProgram } from '../../contracts';
 import type { BoundaryConfig } from '../config';
-import { isWithin } from '../config';
+import { bridgeSockets, isWithin } from '../config';
 import {
   ClientFrame,
   DEFAULT_RUN_TIMEOUT_MS,
@@ -150,13 +150,70 @@ export function programArgv(config: BoundaryConfig, program: WorkerProgram): str
   return [config.programs[program]];
 }
 
-/** Agent CLI arguments must not name a billing variable (an inline settings `env`, for example). */
-function checkArguments(program: WorkerProgram, args: string[]): void {
-  if (program !== 'claude' && program !== 'codex' && program !== 'claude-trust') return;
-  for (const arg of args)
-    for (const name of BILLING_ENV_VARS)
-      if (arg.includes(name))
-        throw new LauncherRefusal('forbidden_argument', `arguments must not name ${name}`);
+/**
+ * The program behind the worker bridge: the unit has its own network namespace, and the bridge
+ * carries only the app's and the egress proxy's ports out of it, to the member's own sockets.
+ */
+export function bridgedArgv(config: BoundaryConfig, member: string, program: WorkerProgram): string[] {
+  const sockets = bridgeSockets(config, member);
+  return [
+    config.programs.node,
+    path.posix.join(config.appDir, 'apps/server/dist/worker-bridge.js'),
+    '--app',
+    sockets.app,
+    '--egress',
+    sockets.egress,
+    '--app-port',
+    String(config.appPort),
+    '--egress-port',
+    String(config.egress.port),
+    '--',
+    ...programArgv(config, program),
+  ];
+}
+
+/** Codex `-c` keys that could move billing off the subscription (a provider, an env key). */
+const CODEX_BILLING_KEYS = /^(?:model_providers?|shell_environment_policy|preferred_auth_method)(?:\.|=|$)/;
+
+/**
+ * The places of an agent command line that could switch billing off the subscription, and only
+ * those: Claude Code's inline `--settings` (an `env` entry or an `apiKeyHelper`) and Codex's
+ * `-c` overrides (a model provider, the shell environment, the auth method, a billing name in
+ * the key). A system prompt, a brief or a task that merely mentions a variable name is data.
+ */
+export function checkArguments(program: WorkerProgram, args: string[]): void {
+  const refuse = (what: string) => {
+    throw new LauncherRefusal('forbidden_argument', `the command line must not set ${what}`);
+  };
+  if (program === 'claude') {
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] !== '--settings') continue;
+      let settings: unknown;
+      try {
+        settings = JSON.parse(args[i + 1] ?? '');
+      } catch {
+        refuse('settings from a file');
+      }
+      if (typeof settings !== 'object' || settings === null) refuse('settings that are not an object');
+      const object = settings as Record<string, unknown>;
+      if ('apiKeyHelper' in object) refuse('apiKeyHelper');
+      const env = object.env;
+      if (env !== undefined) {
+        if (typeof env !== 'object' || env === null) refuse('a settings env that is not an object');
+        for (const name of Object.keys(env as object))
+          if ((BILLING_ENV_VARS as readonly string[]).includes(name)) refuse(name);
+      }
+    }
+  }
+  if (program === 'codex') {
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === '--') break;
+      if (args[i] !== '-c' && args[i] !== '--config') continue;
+      const key = (args[i + 1] ?? '').split('=')[0]!.trim();
+      if (CODEX_BILLING_KEYS.test(key)) refuse(key);
+      for (const name of BILLING_ENV_VARS) if (key.includes(name)) refuse(name);
+    }
+  }
 }
 
 /** The worker's environment, built from nothing but the configuration and the request's ids. */
@@ -222,7 +279,10 @@ export function unitProperties(config: BoundaryConfig, worker: WorkerAccount, me
     'KeyringMode=private',
     'UMask=0027',
     'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK',
-    // Loopback only, enforced by the kernel for the unit's cgroup (the nft gate is the first lock).
+    // Its own network namespace: its own loopback only, so no other member's test server, no
+    // service port to take over and no way out but the bridge's two sockets.
+    'PrivateNetwork=yes',
+    // And a kernel filter for the unit's cgroup on top: loopback only.
     'IPAddressDeny=any',
     'IPAddressAllow=localhost',
     `InaccessiblePaths=${INACCESSIBLE.map((p) => `-${p}`).join(' ')}`,
@@ -263,7 +323,7 @@ export function sessionCommand(
       ...unitProperties(config, worker, request.member),
       ...setenvArgs(workerEnvironment(config, worker, request)),
       '--',
-      ...programArgv(config, request.provider),
+      ...bridgedArgv(config, request.member, request.provider),
       ...request.args,
     ],
   };
@@ -293,7 +353,7 @@ export function runCommand(
       ...unitProperties(config, worker, request.member),
       ...setenvArgs(workerEnvironment(config, worker, null)),
       '--',
-      ...programArgv(config, request.program),
+      ...bridgedArgv(config, request.member, request.program),
       ...request.args,
     ],
   };

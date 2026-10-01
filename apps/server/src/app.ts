@@ -35,8 +35,10 @@ import { createRunnerModule } from './runner';
 import {
   createManagedEgressProxy,
   createRuntimeBoundary,
+  createServiceBridges,
   disabledRuntimeBoundary,
   isManagedBoundary,
+  passwdAccounts,
 } from './runtime-boundary';
 import type { BoundaryConfig } from './runtime-boundary';
 import { createMemberWorkspaceManager, createWorktreeManager } from './worktree';
@@ -218,10 +220,28 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     if (boundaryConfig && !options.memberWorkspaces)
       throw new Error('the managed VM boundary needs member workspaces (PROJECTMAN_WORKSPACES=member)');
     let egressProxy: ReturnType<typeof createManagedEgressProxy> | null = null;
+    // Each worker unit reaches the app and the proxy only through its member's bridge sockets.
+    const bridges = boundaryConfig
+      ? createServiceBridges({
+          root: boundaryConfig.bridgeRoot,
+          appPort: boundaryConfig.appPort,
+          groupOf: (member) =>
+            passwdAccounts().byName(`${boundaryConfig.workers.prefix}${member}`)?.gid ?? null,
+          onEgress: (socket, member) => {
+            if (egressProxy?.listening()) egressProxy.acceptFrom(socket, member);
+            else socket.destroy();
+          },
+          logger: log.child({ module: 'bridge' }),
+        })
+      : null;
     const runtimeBoundary: RuntimeBoundary =
       modules.runtimeBoundary ??
       (boundaryConfig
-        ? createRuntimeBoundary({ config: boundaryConfig, egressUp: () => egressProxy?.listening() ?? false })
+        ? createRuntimeBoundary({
+            config: boundaryConfig,
+            egressUp: () => egressProxy?.listening() ?? false,
+            prepare: (member) => bridges!.ensure(member),
+          })
         : disabledRuntimeBoundary(options.now));
     const managed = isManagedBoundary(runtimeBoundary) ? runtimeBoundary : null;
     const workspacesDir = join(home, 'workspaces');
@@ -338,6 +358,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const db = repos.db;
     app.addHook('onClose', async () => {
       await egressProxy?.close();
+      await bridges?.close();
       await domain.stop();
       try {
         await domain.runnerModule.runner.shutdown();

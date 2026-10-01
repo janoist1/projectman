@@ -1,4 +1,5 @@
 import { lookup } from 'node:dns/promises';
+import net from 'node:net';
 import { loadBoundaryConfig, workerLayout } from '../config';
 import { createLauncherClient } from '../launcher/client';
 import { dnsAnswers, tcpOpens } from './worker-probe';
@@ -77,6 +78,20 @@ async function main(): Promise<void> {
     ipv6 ? `CONTROL ipv6 ok root reached ${ipv6}:443` : 'CONTROL ipv6 skip no IPv6 internet from this guest',
   );
 
+  // A listener on the host's loopback, as another member's test server or a service port would be.
+  const foreign = net.createServer((socket) => socket.end());
+  const foreignPort = await new Promise<number | null>((resolve) => {
+    foreign.once('error', () => resolve(null));
+    foreign.listen(0, '127.0.0.1', () => resolve((foreign.address() as net.AddressInfo).port));
+  });
+  foreign.unref();
+  const foreignReached = foreignPort !== null && (await tcpOpens('127.0.0.1', foreignPort)).open;
+  line(
+    foreignReached
+      ? `CONTROL foreign-loopback ok root reached 127.0.0.1:${foreignPort}`
+      : 'CONTROL foreign-loopback skip no host listener',
+  );
+
   const launcher = createLauncherClient({ socketPath: config.launcher.socket });
   const pinged = await launcher.ping();
   line(`LAUNCHER ping ${pinged ? 'ok' : 'fail'}`);
@@ -85,6 +100,7 @@ async function main(): Promise<void> {
     publicIp,
     publicName,
     dnsServer,
+    foreignPort: foreignReached ? foreignPort : null,
     ipv6,
     baseDestination: need('base'),
     deniedDestination: need('denied'),

@@ -229,15 +229,19 @@ run a fixed probe as a worker in its real unit, with root's positive controls):
 
 - **Sessions and workspace commands run as the member's worker**, through the root launcher, each in
   a transient unit with no capability, `NoNewPrivileges`, a read-only system, only the worker's home
-  writable, other processes invisible, no namespaces, a loopback-only IP filter, and no access to the
+  writable, other processes invisible, no further namespaces, a network namespace of its own (only
+  its own loopback; a bridge carries the app's and the egress proxy's ports to the member's own
+  unix sockets of the service), a loopback-only IP filter, and no access to the
   system bus, the resolver, systemd's transient unit files, container or Tailscale sockets or the
   service's data. The launcher takes no shell, environment or uid from the service: a registered
   member, a pinned program and a directory in that member's home. Its socket is the service's
   group's only; it holds no secret and writes no audit. A repository's hooks, filters and
   configuration run only as its member (workspace git goes through the launcher; commits cross
   accounts as bundles), never as the service.
-- **Workers reach the network only through the egress proxy**: the nft rules give them loopback
-  without the resolver and sshd, and the proxy allows the base list and exact, expiring allowances.
+- **Workers reach the network only through the egress proxy**: their units have no network but
+  their own loopback and the bridge; in the host namespace the nft rules give a worker the proxy's
+  port only (no other member's server, no service port, no resolver, no sshd). No member can bind a
+  port of the service. The proxy allows the base list and exact, expiring allowances.
   Direct IP, IPv6, UDP and DNS, QUIC, another proxy, an SSH tunnel, a DNS answer pointing inside
   (rebinding), a redirect to another host (a new CONNECT, checked again) and a TLS name other than
   the allowed host do not get through. The service's own egress keeps the baseline rules (no
@@ -255,12 +259,15 @@ run a fixed probe as a worker in its real unit, with root's positive controls):
 - **Fail closed**: an invalid boundary configuration stops the server; a missing, failing, foreign
   or stale readiness report, an unreachable launcher or a proxy that does not listen refuses every
   new session (`runtime_boundary_not_ready`); a session whose service connection drops is stopped.
-- **Identity**: the proxy takes the account from the kernel's socket table and the session from its
-  proxy credentials (a per-session token, not the MCP token, revoked when the session ends); a token
-  presented by another worker is refused. The hook and MCP endpoints keep their per-session tokens.
+- **Identity**: the proxy takes the member from the bridge socket a connection came through (on its
+  loopback port, from the kernel's socket table) and the session from its proxy credentials (a
+  per-session token, not the MCP token, revoked when the session ends); a token presented by
+  another member is refused. The hook and MCP endpoints keep their per-session tokens.
 
 What it does not establish: a worker can read its own session's tokens and its own login (the CLI
-runs as the worker), and reach other workers' loopback listeners; data can leave to an allowed
+runs as the worker); a launcher command line can still name a billing variable where a CLI reads
+it from a file the member controls (its own `~/.claude/settings.json`): the subscription check of
+the login and the provider profile (PM-141) cover that, not the launcher; data can leave to an allowed
 destination; the readiness report is at most two hours old, so a change made in between shows on the
 next report; the boundary does not defend against root, the admin, the hypervisor or a kernel
 flaw. Each worker has its own subscription login (the owner's choice on PM-140, 2026-10-01).

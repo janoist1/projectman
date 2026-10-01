@@ -66,19 +66,31 @@ container, not the machine the profile describes. The existing `debian-vm` insta
   helpers) as a worker and return its output. The request names a registered member, a provider or
   program and a directory inside that worker's home; the launcher picks the account, the program
   path, the environment (built from nothing: home, PATH, the proxy settings with the session's
-  egress token, no key, agent or host variable) and the sandbox. Arguments naming a billing
-  variable are refused. Each runs as a transient unit (`systemd-run --pty` or `--pipe`,
-  `--expand-environment=no`) with `User=pmw-<handle>`, no capability, `NoNewPrivileges`, private
-  `/tmp` and devices, `ProtectSystem=strict` with only the worker home and its `out` spool
-  writable, `ProtectProc=invisible`, no namespaces, `IPAddressDeny=any` with
-  `IPAddressAllow=localhost`, and `InaccessiblePaths` over the system bus, systemd's private and
-  transient unit files (they hold other sessions' command lines), the resolver's sockets, container
-  and Tailscale sockets and the service's home. Closing the service's connection stops the
-  session's unit; a launcher that starts stops every leftover unit.
-- **Egress gate (PM-140).** The nft rules let a worker reach loopback only, without the resolver
-  (53) and sshd (22); everything else is refused. The way out is the egress proxy in the service
-  (`127.0.0.1:4780`): HTTP CONNECT to a TLS destination, nothing else. It identifies the connecting
-  account from the kernel's socket table and the session from its proxy credentials, resolves the
+  egress token, no key, agent or host variable) and the sandbox. A command line that would set a
+  billing variable (Claude Code's inline settings `env` or `apiKeyHelper`, a Codex provider or
+  environment override) is refused; a prompt or brief that merely names one is not. Each runs as a
+  transient unit (`systemd-run --pty` or `--pipe`, `--expand-environment=no`) with
+  `User=pmw-<handle>`, no capability, `NoNewPrivileges`, private `/tmp` and devices,
+  `ProtectSystem=strict` with only the worker home and its `out` spool writable,
+  `ProtectProc=invisible`, no further namespaces, **its own network namespace**
+  (`PrivateNetwork=yes`: only its own loopback) with `IPAddressDeny=any`/`IPAddressAllow=localhost`
+  on top, and `InaccessiblePaths` over the system bus, systemd's private and transient unit files
+  (they hold other sessions' command lines), the resolver's sockets, container and Tailscale
+  sockets and the service's home. Closing the service's connection stops the session's unit; a
+  launcher that starts stops every leftover unit.
+- **Worker bridge (PM-140).** Every program in a unit runs behind `dist/worker-bridge.js`, which
+  listens inside the unit's namespace on `127.0.0.1:4700` (the app's hooks and MCP) and
+  `127.0.0.1:4780` (the egress proxy) and carries each connection to the member's own sockets of
+  the service, `/run/projectman-bridge/<handle>/{app,egress}.sock` (directory 2750 with the
+  member's group, sockets 0660: no other member can open them). So a member's test and dev servers
+  are its own, no member reaches another's, and none can take over a port of the service, even
+  while the service is down.
+- **Egress gate (PM-140).** The units have no network but their own loopback. In the host
+  namespace (a worker process a person starts, such as the subscription login) the nft rules let a
+  worker reach the egress proxy's port and nothing else. The way out is the egress proxy in the
+  service: HTTP CONNECT to a TLS destination, nothing else. It knows the member from the bridge
+  socket the connection came through (or, on its loopback port, from the kernel's socket table)
+  and the session from its proxy credentials, resolves the
   name itself (IPv4 only, refusing a name with any private, loopback, link-local, CGNAT or reserved
   address in its answer), connects to the address it checked, and closes a tunnel whose TLS server
   name is not the allowed host. It allows the fixed base list (`EGRESS_BASE`) to every worker, and
@@ -208,15 +220,19 @@ The server (PM-140) and PM-143 consume the same report. The checks:
 verify.sh runs `dist/boundary-probe.js` as root, which first takes root's positive controls (a
 public name resolves, a public address answers on 443, a public DNS server answers, IPv6 when the
 guest has it), then asks the real launcher to run the fixed probe program as the first worker in
-its real sandboxed unit. From there the probe tries what a session must not manage: resolve a name,
-connect directly over TCP, UDP and IPv6, reach sshd or the resolver on loopback, use the system
+its real sandboxed unit. From there the probe tries what a session must not manage: see any
+network interface but its own loopback, reach a listener root started on the host's loopback (as
+another member's server would be), resolve a name, connect directly over TCP, UDP and IPv6, reach
+sshd or the resolver on loopback, use the system
 bus, the resolver's or the launcher's socket, read systemd's transient units, the service's home or
 another worker's home, see other processes, write the app or the configuration; and through the
 proxy it checks that a base destination answers while `PROBE_DENIED_DESTINATION` and the metadata
 address are refused, and that the app answers 401 without a login. A refusal counts only where
 root's control reached the same thing; without one the check is `unverified` (so a guest without
 internet is not ready). `launcher` also checks the socket's owner and mode and that no worker can
-use it. `egress-open` is a worker reaching a base destination through the proxy; `tailscale` is
+use it. `domain-gate` also tries, as each worker in the host namespace, a root listener on loopback
+and the app's port (both refused; only the proxy's port is open there). `egress-open` is a worker
+reaching a base destination through the proxy; `tailscale` is
 `unverified` until it is set up. Abstract unix sockets cannot be permission-checked.
 
 The server reads the report itself (`/var/lib/projectman-boundary/readiness.json`): the
@@ -311,7 +327,13 @@ the human steps above, with two workers logged in. Record each result on the car
     `ssh -p 22 127.0.0.1` (refused); `curl -m 5 https://example.com` (through the proxy: 403 with an
     operation id); `curl -m 5 -x http://127.0.0.1:4780 http://169.254.169.254/` (refused);
     `curl -m 5 http://127.0.0.1:4700/api/me` (401); `echo x > /etc/projectman/x`,
-    `systemctl stop projectman` and `nft list ruleset` (denied); `docker ps` (no socket).
+    `systemctl stop projectman` and `nft list ruleset` (denied); `docker ps` (no socket);
+    `ip addr` (only `lo`). And across members: in one member's session start
+    `python3 -m http.server 8123 --bind 127.0.0.1`; from another member's session
+    `curl -m 5 http://127.0.0.1:8123/` is refused (and so from the admin's shell as that worker,
+    `sudo -u pmw-<other> curl -m 5 http://127.0.0.1:8123/`), while the first session itself reaches
+    it. Stop the service and, from a session, try to listen on `127.0.0.1:4700` and `:4780`: it only
+    takes its own namespace's port, the service starts again on its own.
     And allowed, through the proxy: `npm view left-pad version` and `git ls-remote https://github.com/git/git HEAD`.
 15. **A grant opens exactly one destination**: in a session, `curl -m 5 https://example.com`
     fails with 403; the agent calls `list_network_denials`, then `submit_boundary_request` with that
@@ -362,11 +384,10 @@ changing `profile.env`, the shared `VM_PROFILE_VERSION` if a check changed, and 
 
 - The gate does not stop root or the admin. The service reaches any public IPv4 destination (it
   runs the proxy and the server's own requests); only the workers are held to the proxy.
-- A worker may still use loopback, including the app's own port (its hook and MCP endpoints keep
-  their per-session token checks; the login protects the rest) and another worker's test server on
-  a loopback port: run nothing secret on loopback in a session.
-- A worker's own listener on `0.0.0.0` is not reachable from outside (inbound is closed except SSH and
-  HTTPS from `tailscale0`), but it is reachable from loopback by every account of the machine.
+- A session reaches the app's own port through its bridge: the hook and MCP endpoints keep their
+  per-session token checks, and the login protects the rest of the app.
+- Two sessions of the same member are in different network namespaces: one cannot reach a test
+  server the other started (start it in the session that uses it).
 - An allowed destination can carry anything the session sends it; a base destination such as
   GitHub can be read anonymously but takes nothing without a login, and no GitHub login is in a
   worker home. Expiry and revocation end the allowance's open tunnels too, not only new ones.

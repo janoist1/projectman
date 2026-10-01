@@ -6,6 +6,7 @@ import { testBoundaryConfig as makeTestBoundaryConfig } from '../test-helpers';
 import { parsePasswd } from './accounts';
 import { createLauncherClient, LauncherClientError, LOST_EXIT_CODE } from './client';
 import {
+  checkArguments,
   checkCwd,
   createLauncher,
   LauncherRefusal,
@@ -40,6 +41,20 @@ const dev: WorkerAccount = {
   home: '/var/lib/projectman-work/pmw-dev',
 };
 const TOKEN = 'egress-token-0123456789';
+/** Every program runs behind the worker bridge of its member (here dev). */
+const BRIDGE = [
+  '/usr/local/bin/node',
+  '/srv/projectman/apps/server/dist/worker-bridge.js',
+  '--app',
+  '/run/projectman-bridge/dev/app.sock',
+  '--egress',
+  '/run/projectman-bridge/dev/egress.sock',
+  '--app-port',
+  '4700',
+  '--egress-port',
+  '4780',
+  '--',
+];
 
 const startRequest = (patch: Partial<StartRequest> = {}): StartRequest => ({
   op: 'start',
@@ -200,7 +215,11 @@ describe('the unit command line', () => {
       '--unit=projectman-session-ses-abc123',
       `--working-directory=${startRequest().cwd}`,
     ]);
-    expect(args.slice(program + 1)).toEqual(['/opt/projectman/cli/bin/claude', ...startRequest().args]);
+    expect(args.slice(program + 1)).toEqual([
+      ...BRIDGE,
+      '/opt/projectman/cli/bin/claude',
+      ...startRequest().args,
+    ]);
     const properties = args.slice(0, program).filter((_, i, all) => all[i - 1] === '-p');
     expect(properties).toEqual(
       expect.arrayContaining([
@@ -212,6 +231,7 @@ describe('the unit command line', () => {
         `ReadWritePaths=${dev.home} -/var/lib/projectman-spool/dev/out`,
         'ProtectProc=invisible',
         'RestrictNamespaces=yes',
+        'PrivateNetwork=yes',
         'IPAddressDeny=any',
         'IPAddressAllow=localhost',
         'UMask=0027',
@@ -254,6 +274,7 @@ describe('the unit command line', () => {
     expect(command.args).not.toContain('--pty');
     expect(command.unit).toBe('projectman-run-dev-abc');
     expect(command.args.slice(command.args.indexOf('--') + 1)).toEqual([
+      ...BRIDGE,
       '/usr/local/bin/node',
       '/srv/projectman/apps/server/dist/claude-trust.js',
       `${dev.home}/x`,
@@ -270,6 +291,35 @@ describe('the unit command line', () => {
     ).toThrow(/ANTHROPIC_API_KEY/);
   });
 
+  it('lets a prompt or a brief mention a billing variable, but not set one', () => {
+    const mention = 'Never set ANTHROPIC_API_KEY or OPENAI_API_KEY.';
+    expect(() =>
+      sessionCommand(
+        testBoundaryConfig,
+        dev,
+        startRequest({
+          args: ['--append-system-prompt', mention, '--settings', '{"hooks":{},"env":{"FOO":"1"}}', mention],
+        }),
+      ),
+    ).not.toThrow();
+    expect(() =>
+      checkArguments('codex', ['-c', `developer_instructions="${mention}"`, '--', mention]),
+    ).not.toThrow();
+    for (const args of [
+      ['--settings', '{"apiKeyHelper":"/bin/echo key"}'],
+      ['--settings', '/var/lib/projectman-work/pmw-dev/settings.json'],
+      ['--settings', '{"env":"ANTHROPIC_BASE_URL=x"}'],
+    ])
+      expect(() => checkArguments('claude', args), args.join(' ')).toThrow(LauncherRefusal);
+    for (const args of [
+      ['-c', 'model_provider="openai-api"'],
+      ['-c', 'model_providers.x.env_key="OPENAI_API_KEY"'],
+      ['-c', 'shell_environment_policy.set.FOO="1"'],
+      ['--config', 'env.OPENAI_API_KEY="x"'],
+    ])
+      expect(() => checkArguments('codex', args), args.join(' ')).toThrow(LauncherRefusal);
+  });
+
   it('runs the boundary probe from the deployed app, as the worker', () => {
     const command = runCommand(
       testBoundaryConfig,
@@ -280,6 +330,7 @@ describe('the unit command line', () => {
     expect(command.args).toContain('-p');
     expect(command.args).toContain('User=pmw-dev');
     expect(command.args.slice(command.args.indexOf('--') + 1)).toEqual([
+      ...BRIDGE,
       '/usr/local/bin/node',
       '/srv/projectman/apps/server/dist/boundary-worker-probe.js',
       '{}',
@@ -396,7 +447,7 @@ describe('the launcher protocol', () => {
     await tick();
     await tick();
     const child = h.children.find((c) => c.file === '/usr/bin/systemd-run')!;
-    expect(child.args.slice(child.args.indexOf('--') + 1)).toEqual(['/usr/bin/git', 'status']);
+    expect(child.args.slice(child.args.indexOf('--') + 1)).toEqual([...BRIDGE, '/usr/bin/git', 'status']);
     child.stdout.write('clean\n');
     child.stderr.write('note\n');
     await tick();

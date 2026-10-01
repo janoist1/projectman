@@ -3,6 +3,7 @@ import { lookup } from 'node:dns/promises';
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
+import { networkInterfaces } from 'node:os';
 import { z } from 'zod';
 
 /**
@@ -23,6 +24,8 @@ export const ProbeInput = z.strictObject({
   publicName: z.string().regex(/^[a-z0-9.-]+$/),
   /** A public DNS server root got an answer from (null: none). */
   dnsServer: z.string().nullable(),
+  /** A loopback port root listens on, as another member's test server would (null: none). */
+  foreignPort: z.number().int().nullable(),
   /** A global IPv6 address root reached (null: none). */
   ipv6: z.string().nullable(),
   /** host:port of a base destination (positive control through the proxy). */
@@ -235,7 +238,23 @@ export async function runProbes(input: ProbeInput): Promise<Array<[string, Outco
       : broke(`writable: ${writes.join(', ')}`),
   );
 
-  // The network: nothing leads out but the egress proxy.
+  // The network: its own namespace with its own loopback; nothing leads out but the bridge.
+  const interfaces = Object.keys(networkInterfaces());
+  add(
+    'network-namespace',
+    interfaces.length === 1 && interfaces[0] === 'lo'
+      ? held('only its own loopback interface')
+      : broke(`interfaces: ${interfaces.join(', ')}`),
+  );
+  if (input.foreignPort) {
+    const r = await tcpOpens('127.0.0.1', input.foreignPort);
+    add(
+      'foreign-loopback',
+      r.open
+        ? broke(`a listener of another account on 127.0.0.1:${input.foreignPort} answered`)
+        : held(`127.0.0.1:${input.foreignPort} of the host: ${r.why}`),
+    );
+  } else add('foreign-loopback', skipped('no host listener to try'));
   try {
     const addresses = await lookup(input.publicName, { all: true });
     add('dns', broke(`${input.publicName} resolved to ${addresses.length} address(es)`));

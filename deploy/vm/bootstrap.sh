@@ -204,6 +204,7 @@ cat > "$work/boundary.json" <<EOF
     "node": "/usr/local/bin/node"
   },
   "appDir": "$APP_DIR",
+  "bridgeRoot": "/run/$BRIDGE_DIR",
   "systemdRun": "/usr/bin/systemd-run",
   "systemctl": "/usr/bin/systemctl",
   "workerPath": "$CLI_PREFIX/bin:/usr/local/bin:/usr/bin:/bin",
@@ -230,6 +231,9 @@ After=projectman-launcher.socket
 [Service]
 Environment=PROJECTMAN_BOUNDARY_CONFIG=$BOUNDARY_CONFIG
 Environment=PROJECTMAN_WORKSPACES=member
+# The members' bridge sockets: /run/$BRIDGE_DIR/<handle>/{app,egress}.sock, made by the service.
+RuntimeDirectory=$BRIDGE_DIR
+RuntimeDirectoryMode=0755
 EOF
 chmod 0644 /etc/systemd/system/projectman.service.d/boundary.conf
 

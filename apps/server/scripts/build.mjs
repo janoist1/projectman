@@ -13,6 +13,7 @@ const entries = {
   'dist/index.js': 'src/index.ts',
   'dist/launcher.js': 'src/runtime-boundary/launcher/main.ts',
   'dist/claude-trust.js': 'src/runtime-boundary/claude-trust.ts',
+  'dist/worker-bridge.js': 'src/runtime-boundary/bridge/worker-bridge.ts',
   'dist/boundary-probe.js': 'src/runtime-boundary/probe/boundary-probe.ts',
   'dist/boundary-worker-probe.js': 'src/runtime-boundary/probe/worker-probe.ts',
 };

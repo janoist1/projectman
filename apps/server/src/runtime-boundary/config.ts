@@ -52,6 +52,8 @@ export const BoundaryConfig = z.strictObject({
   }),
   /** The deployed app (root-owned); the launcher runs its claude-trust helper from there. */
   appDir: AbsolutePath,
+  /** `<bridgeRoot>/<handle>/{app,egress}.sock`: the service's sockets behind a worker unit's bridge. */
+  bridgeRoot: AbsolutePath,
   systemdRun: AbsolutePath,
   systemctl: AbsolutePath,
   /** PATH of worker processes. */
@@ -99,6 +101,13 @@ const PROJECT_KEY = /^[A-Z][A-Z0-9]{0,9}$/;
 export function workerHome(config: BoundaryConfig, member: string): string {
   if (!MEMBER_HANDLE.test(member)) throw new Error(`invalid member handle: ${member}`);
   return path.posix.join(config.workers.homeRoot, `${config.workers.prefix}${member}`);
+}
+
+/** The service's bridge sockets of a member (`ServiceBridges`, the launcher's bridge prefix). */
+export function bridgeSockets(config: BoundaryConfig, member: string): { app: string; egress: string } {
+  if (!MEMBER_HANDLE.test(member)) throw new Error(`invalid member handle: ${member}`);
+  const dir = path.posix.join(config.bridgeRoot, member);
+  return { app: path.posix.join(dir, 'app.sock'), egress: path.posix.join(dir, 'egress.sock') };
 }
 
 /** The member whose worker home holds `target`, or null. */

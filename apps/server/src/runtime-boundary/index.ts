@@ -17,6 +17,9 @@ export { BoundaryConfig, loadBoundaryConfig, workerLayout } from './config';
 export { createLauncherClient, LauncherClientError } from './launcher/client';
 export { createEgressProxy, denialText, proxyToken } from './egress/proxy';
 export { workerWorkspaceAccess } from './worker-workspaces';
+export { createServiceBridges } from './bridge/service-bridges';
+export type { ServiceBridges } from './bridge/service-bridges';
+export { passwdAccounts } from './launcher/accounts';
 
 /**
  * The VM boundary (PM-140): the launcher client, the worker layout, the egress proxy and the
@@ -64,12 +67,28 @@ export function createRuntimeBoundary(opts: {
   /** Whether the in-process egress proxy is listening. */
   egressUp: () => boolean;
   launcher?: SessionLauncher;
+  /** Runs before a member's unit starts: its bridge sockets (`ServiceBridges.ensure`). */
+  prepare?: (member: string) => Promise<void>;
   now?: () => Date;
   readReport?: (file: string) => Promise<string>;
 }): ManagedRuntimeBoundary {
   const { config } = opts;
   const now = opts.now ?? (() => new Date());
-  const launcher = opts.launcher ?? createLauncherClient({ socketPath: config.launcher.socket });
+  const client = opts.launcher ?? createLauncherClient({ socketPath: config.launcher.socket });
+  const prepare = opts.prepare;
+  const launcher: SessionLauncher = prepare
+    ? {
+        ping: () => client.ping(),
+        start: async (request) => {
+          await prepare(request.member);
+          return client.start(request);
+        },
+        run: async (request) => {
+          await prepare(request.member);
+          return client.run(request);
+        },
+      }
+    : client;
   const layout = workerLayout(config);
   let cached: { at: number; status: Promise<RuntimeBoundaryStatus> } | null = null;
 
@@ -166,12 +185,21 @@ export function createManagedEgressProxy<S>(opts: {
     host: opts.config.egress.host,
     port: opts.config.egress.port,
     logger: opts.logger,
-    async identify(peer: PeerAddress, token): Promise<ProxyIdentity<{ member: string; session: S | null }>> {
-      const uid = await peerUid(
-        { address: peer.remoteAddress, port: peer.remotePort },
-        { address: peer.localAddress, port: peer.localPort },
-      );
-      const member = uid === null ? null : workerForUid(opts.config, accounts, uid);
+    async identify(
+      peer: PeerAddress,
+      token,
+      bridged,
+    ): Promise<ProxyIdentity<{ member: string; session: S | null }>> {
+      // A session's own bridge socket names its member; a TCP connection on the loopback port (a
+      // person's login run as the worker) is known by the socket owner in the kernel's table.
+      let member = bridged;
+      if (!member) {
+        const uid = await peerUid(
+          { address: peer.remoteAddress, port: peer.remotePort },
+          { address: peer.localAddress, port: peer.localPort },
+        );
+        member = uid === null ? null : workerForUid(opts.config, accounts, uid);
+      }
       if (!member) return { denial: 'identity_mismatch' };
       return { identity: { member, session: token ? opts.resolveToken(token) : null } };
     },

@@ -360,7 +360,7 @@ check_gate_loaded() {
   local rules bad=
   rules=$(nft list table inet projectman_gate 2>/dev/null)
   [ -n "$rules" ] || { record gate-loaded fail "table inet projectman_gate is not loaded"; return; }
-  for want in 'chain worker_egress' 'chain service_egress' 'chain egress' 'chain ingress' "skuid $SERVICE_UID jump service_egress" "skuid $WORKER_UID_MIN-$WORKER_UID_MAX jump worker_egress" 'nfproto ipv6' '169.254.0.0/16' 'iifname "tailscale0"' 'tcp dport 22' 'dport { 22, 53 }'; do
+  for want in 'chain worker_egress' 'chain service_egress' 'chain egress' 'chain ingress' "skuid $SERVICE_UID jump service_egress" "skuid $WORKER_UID_MIN-$WORKER_UID_MAX jump worker_egress" 'nfproto ipv6' '169.254.0.0/16' 'iifname "tailscale0"' 'tcp dport 22' "ip daddr 127.0.0.1 tcp dport $EGRESS_PORT accept"; do
     printf '%s\n' "$rules" | grep -qF "$want" || bad="$bad '$want'"
   done
   [ "$(systemctl is-enabled projectman-gate 2>/dev/null)" = enabled ] || bad="$bad unit-not-enabled"
@@ -482,27 +482,51 @@ check_launcher() {
 }
 
 check_domain_gate() {
-  local bad= open= id word control rules
+  local bad= open= id word control rules hostloop
   rules=$(nft list chain inet projectman_gate worker_egress 2>/dev/null)
   printf '%s\n' "$rules" | grep -q 'reject' || bad="$bad worker-chain"
   boundary_probe
   if [ "$(probe_word LAUNCHER run)" != ok ]; then record domain-gate fail "the probe did not run as a worker (see launcher)"; return; fi
   # Each refusal counts only where root's control reached the same thing.
-  for id in dns direct-tcp direct-udp ipv6; do
+  for id in dns direct-tcp direct-udp ipv6 foreign-loopback; do
     control=$(probe_word CONTROL "$id")
     word=$(probe_word PROBE "$id")
     if [ "$control" = ok ]; then [ "$word" = ok ] || bad="$bad $id(${word:-missing})"
     elif [ "$id" != ipv6 ]; then open="$open $id"; fi
   done
-  root_connect 127.0.0.1 22 || open="$open loopback-ssh(no sshd)"
-  for id in loopback-ssh loopback-dns proxy-denied proxy-private app-api; do
+  for id in network-namespace loopback-ssh loopback-dns proxy-denied proxy-private app-api; do
     word=$(probe_word PROBE "$id")
     [ "$word" = ok ] || bad="$bad $id(${word:-missing})"
   done
   [ "$(probe_word PROBE proxy-base)" = ok ] || open="$open proxy-base"
+  # Outside a unit (a person's `sudo -u` login), a worker reaches no loopback port but the proxy's:
+  # not another account's listener, not the app's port.
+  hostloop=$(host_loopback_probe)
+  case $hostloop in
+    ok) ;;
+    nolistener) open="$open host-loopback" ;;
+    *) bad="$bad host-loopback($hostloop)" ;;
+  esac
   if [ -n "$bad" ]; then record domain-gate fail "a worker got around the egress proxy, or it let something through:$bad"
   elif [ -n "$open" ]; then record domain-gate unverified "no positive control for:$open (no internet from this guest, or the service is down)"
-  else record domain-gate pass "from a worker's unit: no name resolves, no direct TCP, UDP or IPv6 leaves, loopback ssh and DNS refused; through the proxy a base destination answers, $PROBE_DENIED_DESTINATION and the metadata address are refused; the app answers 401 without a login"; fi
+  else record domain-gate pass "from a worker's unit (its own network namespace, only its own loopback): no name resolves, no direct TCP, UDP or IPv6 leaves, no listener of the host's loopback answers; through the bridge a base destination answers, $PROBE_DENIED_DESTINATION and the metadata address are refused, the app answers 401 without a login; outside a unit a worker reaches only the proxy port"; fi
+}
+
+# host_loopback_probe: a listener of root on 127.0.0.1 and the app's port, tried by every worker in
+# the host namespace. Prints ok, nolistener, or leak:<what connected>.
+host_loopback_probe() {
+  local tmp pid port w bad=
+  tmp=$(mktemp)
+  timeout 20 node -e 'const s=require("net").createServer(c=>c.end()).listen(0,"127.0.0.1",()=>console.log(s.address().port))' > "$tmp" 2>/dev/null &
+  pid=$!
+  for _ in 1 2 3 4 5 6 7 8 9 10; do port=$(head -n 1 "$tmp"); [ -n "$port" ] && break; sleep 0.3; done
+  if [ -z "$port" ] || ! root_connect 127.0.0.1 "$port"; then kill "$pid" 2>/dev/null; rm -f "$tmp"; echo nolistener; return; fi
+  for w in "${WORKERS[@]}"; do
+    tcp_connect "$w" 127.0.0.1 "$port" && bad="$bad $w->$port"
+    tcp_connect "$w" 127.0.0.1 "$APP_PORT" && bad="$bad $w->$APP_PORT"
+  done
+  kill "$pid" 2>/dev/null; rm -f "$tmp"
+  if [ -n "$bad" ]; then echo "leak:$bad"; else echo ok; fi
 }
 
 # --- service ----------------------------------------------------------------------------------

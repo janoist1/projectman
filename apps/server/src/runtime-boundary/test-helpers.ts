@@ -25,6 +25,7 @@ export function testBoundaryConfig(patch: Partial<BoundaryConfig> = {}): Boundar
       node: '/usr/local/bin/node',
     },
     appDir: '/srv/projectman',
+    bridgeRoot: '/run/projectman-bridge',
     systemdRun: '/usr/bin/systemd-run',
     systemctl: '/usr/bin/systemctl',
     workerPath: '/opt/projectman/cli/bin:/usr/local/bin:/usr/bin:/bin',

@@ -300,8 +300,9 @@ claude | codex ── transcript JSONL ────────────▶ r
   safe branch switches, pinned review checkouts; PM-138).
 - `github/` — `gh`-based pull request lookups and polling.
 - `runtime-boundary/` — the VM boundary (PM-140): the boundary configuration, the launcher
-  (root daemon, protocol, client), the egress proxy, the worker workspace access, the readiness
-  verdict and the boundary probe verify.sh runs.
+  (root daemon, protocol, client), the worker bridge (inside each unit's own network namespace)
+  and the service's per-member bridge sockets, the egress proxy, the worker workspace access, the
+  readiness verdict and the boundary probe verify.sh runs.
 - `http/` — request guards shared by the internal endpoints (local-only checks).
 - `config/` — the customization repository: YAML load and save, git history, revert,
   configuration migrations.

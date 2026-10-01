@@ -30,7 +30,11 @@ export interface EgressProxyOptions<I> {
   host: string;
   port: number;
   /** Who connected: the socket owner (kernel) and the session of the proxy credentials. */
-  identify(peer: PeerAddress, token: string | null): Promise<ProxyIdentity<I>>;
+  /**
+   * `bridged` is the member whose bridge socket the connection came through (`acceptFrom`), null
+   * for a TCP connection on the proxy's loopback port.
+   */
+  identify(peer: PeerAddress, token: string | null, bridged: string | null): Promise<ProxyIdentity<I>>;
   /** The network gate's decision (EgressService). */
   authorize(identity: I, destination: EgressDestination): Promise<ProxyDecision>;
   /** IPv4 addresses of a name (default: the system resolver, IPv4 only). */
@@ -99,6 +103,8 @@ export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
   const byTag = new Map<string, Set<Duplex>>();
   /** Revoked permissions (ids are never reused), for a decision still on its way. */
   const revokedTags = new Set<string>();
+  /** Connections that came through a member's bridge socket. */
+  const bridgedMember = new WeakMap<object, string>();
 
   const server = http.createServer((req, res) => {
     // Plain HTTP proxying is not offered: only TLS tunnels, whose server name is checked.
@@ -198,7 +204,11 @@ export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
       localAddress: raw.localAddress ?? '',
       localPort: raw.localPort ?? 0,
     };
-    const who = await opts.identify(peer, proxyToken(req.headers['proxy-authorization']));
+    const who = await opts.identify(
+      peer,
+      proxyToken(req.headers['proxy-authorization']),
+      bridgedMember.get(raw) ?? null,
+    );
     if ('denial' in who) return refuse(socket, 403, destination, who.denial, null);
     const decision = await opts.authorize(who.identity, destination);
     if (!decision.allowed) return refuse(socket, 403, destination, decision.denial, decision.operationId);
@@ -292,6 +302,11 @@ export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
     listening: () => listening && server.listening,
     address: () => server.address(),
     /** Ends every open tunnel a revoked permission opened. */
+    /** Serves a connection of a member's bridge socket; the member is known from the socket. */
+    acceptFrom(socket: Duplex, member: string): void {
+      bridgedMember.set(socket, member);
+      server.emit('connection', socket);
+    },
     closeTagged(tag: string): number {
       revokedTags.add(tag);
       const tagged = [...(byTag.get(tag) ?? [])];

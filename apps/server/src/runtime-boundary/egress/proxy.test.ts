@@ -43,6 +43,7 @@ describe('the egress proxy', () => {
   let decision: ProxyDecision;
   let identity: ProxyIdentity<{ token: string | null }> | null;
   let asked: Array<{ token: string | null; destination: EgressDestination }>;
+  let bridgedSeen: Array<string | null>;
   let proxy: ReturnType<typeof createEgressProxy<{ token: string | null }>>;
   let proxyPort: number;
 
@@ -54,6 +55,7 @@ describe('the egress proxy', () => {
     decision = { allowed: true };
     identity = null;
     asked = [];
+    bridgedSeen = [];
     upstream = net.createServer((socket) => {
       upstreamConnections += 1;
       socket.on('data', (chunk: Buffer) => {
@@ -67,7 +69,10 @@ describe('the egress proxy', () => {
       port: 0,
       logger: silent,
       helloTimeoutMs: 2000,
-      identify: async (_peer, token) => identity ?? { identity: { token } },
+      identify: async (_peer, token, bridged) => {
+        bridgedSeen.push(bridged);
+        return identity ?? { identity: { token } };
+      },
       authorize: async (who, destination) => {
         asked.push({ token: who.token, destination });
         return decision;
@@ -148,6 +153,35 @@ describe('the egress proxy', () => {
     expect(base.socket.destroyed).toBe(false);
     expect(proxy.closeTagged('egw_1')).toBe(0);
     base.socket.destroy();
+  });
+
+  it('knows the member of a connection handed over from its bridge socket', async () => {
+    const handover = net.createServer((socket) => proxy.acceptFrom(socket, 'dev'));
+    await new Promise<void>((resolve) => handover.listen(0, '127.0.0.1', resolve));
+    const port = (handover.address() as net.AddressInfo).port;
+    try {
+      const head = await new Promise<string>((resolve) => {
+        const socket = net.connect(port, '127.0.0.1');
+        let data = '';
+        socket.setEncoding('latin1');
+        socket.on('data', (chunk: string) => {
+          data += chunk;
+          if (data.includes('\r\n\r\n')) {
+            socket.destroy();
+            resolve(data);
+          }
+        });
+        socket.write('CONNECT docs.example.org:443 HTTP/1.1\r\nHost: docs.example.org:443\r\n\r\n');
+      });
+      expect(head).toMatch(/^HTTP\/1\.1 200/);
+      expect(bridgedSeen).toEqual(['dev']);
+      // A connection on the proxy's own port names no member.
+      const direct = await connectThrough('docs.example.org:443');
+      direct.socket.destroy();
+      expect(bridgedSeen).toEqual(['dev', null]);
+    } finally {
+      handover.close();
+    }
   });
 
   it('refuses a permission revoked before its tunnel was registered', async () => {

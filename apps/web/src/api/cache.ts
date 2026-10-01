@@ -7,10 +7,12 @@ import type {
   MemberProfile,
   MemberView,
   ServerEvent,
+  Session,
   SessionDetail,
   Task,
   TaskDetail,
 } from '@projectman/shared';
+import { withSessionWork } from '@projectman/shared';
 import { openItemsFor } from '../lib/inbox';
 import { queryKeys } from './queryKeys';
 
@@ -52,6 +54,15 @@ function patchMembers(
   patch: Pick<MemberView, 'status' | 'activity'>,
 ): MemberView[] {
   return members.map((member) => (member.handle === handle ? { ...member, ...patch } : member));
+}
+
+/** The member's work on cards follows the session that changed (PM-207). */
+function patchMemberWork(members: readonly MemberView[], session: Session): MemberView[] {
+  return members.map((member) =>
+    member.handle === session.member
+      ? { ...member, taskWork: withSessionWork(member.taskWork ?? [], session) }
+      : member,
+  );
 }
 
 /** A changed task: on the board, in its detail and in the sessions that work on it. */
@@ -126,6 +137,12 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       const { projectKey: key, session } = event;
       client.setQueryData<SessionDetail>(queryKeys.session(key, session.id), (detail) =>
         detail ? { ...detail, session } : detail,
+      );
+      client.setQueryData<BoardView>(queryKeys.board(key), (board) =>
+        board ? { ...board, members: patchMemberWork(board.members, session) } : board,
+      );
+      client.setQueryData<MemberView[]>(queryKeys.members(key), (members) =>
+        members ? patchMemberWork(members, session) : members,
       );
       if (session.workItem.type === 'task') {
         client.setQueryData<TaskDetail>(queryKeys.task(key, session.workItem.taskKey), (detail) =>

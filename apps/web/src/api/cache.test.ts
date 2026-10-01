@@ -214,6 +214,33 @@ describe('applyServerEvent', () => {
     );
   });
 
+  it('keeps the member work on cards in step with the sessions (PM-207)', () => {
+    const client = seed();
+    const workOf = () =>
+      client.getQueryData<BoardView>(queryKeys.board(KEY))!.members.find((m) => m.handle === 'be-1')!
+        .taskWork;
+    const session = sessions.find((entry) => entry.id === 'ses_ac20_be1')!;
+    applyServerEvent(client, {
+      type: 'session_upserted',
+      projectKey: KEY,
+      session: { ...session, state: 'working', activity: 'Bash: ls', stateSince: '2026-10-01T10:00:00.000Z' },
+    });
+    expect(workOf()).toEqual([
+      {
+        sessionId: 'ses_ac20_be1',
+        taskKey: 'AC-20',
+        activity: 'Bash: ls',
+        since: '2026-10-01T10:00:00.000Z',
+      },
+    ]);
+    applyServerEvent(client, {
+      type: 'session_upserted',
+      projectKey: KEY,
+      session: { ...session, state: 'idle' },
+    });
+    expect(workOf()).toEqual([]);
+  });
+
   it('refetches configuration-dependent data when the config changes', () => {
     const client = seed();
     applyServerEvent(client, { type: 'config_changed', projectKey: KEY, version: 'abc1234' });

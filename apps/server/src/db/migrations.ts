@@ -478,5 +478,12 @@ export const migrations: Migration[] = [
       ALTER TABLE sessions ADD COLUMN usage_alert_tokens INTEGER;
       ALTER TABLE sessions ADD COLUMN usage_alert_limit INTEGER;`,
   },
+  {
+    version: 22,
+    name: 'state since of sessions',
+    // When a session entered its current state (PM-207), so a card's "working" age counts from there.
+    // NULL: a session from before it was kept; its last activity stands in.
+    sql: `ALTER TABLE sessions ADD COLUMN state_since TEXT;`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

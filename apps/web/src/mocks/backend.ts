@@ -82,6 +82,7 @@ import {
   stageOwners,
   subtaskParentRefusal,
   taskSeq,
+  taskWorkOf,
   validateProjectConfig,
   mergeTokenUsage,
   ALERT_SEEN_OPTION,
@@ -345,6 +346,17 @@ export class MockBackend {
     return this.members.find((member) => member.handle === handle);
   }
 
+  /** A copy of the member as the server serves it: with the work its live sessions do on cards. */
+  private viewOf(member: MemberView): MemberView {
+    if (member.kind !== 'ai') return clone(member);
+    const open = new Set(this.tasks.filter(isOpenTask).map((task) => task.key));
+    const taskWork = this.sessions
+      .filter((session) => session.member === member.handle)
+      .flatMap((session) => taskWorkOf(session) ?? [])
+      .filter((work) => open.has(work.taskKey));
+    return { ...clone(member), taskWork };
+  }
+
   /** The viewer as the shared task rules know them. */
   private taskViewer(): AttachmentViewer {
     const viewer = this.findMember(this.viewerHandle);
@@ -508,7 +520,11 @@ export class MockBackend {
     const session = this.findSession(id);
     if (!session) return undefined;
     const wasEnded = !this.isLive(session);
-    Object.assign(session, patch, { lastActivityAt: nowIso() });
+    const stateChanged = patch.state !== undefined && patch.state !== session.state;
+    Object.assign(session, patch, {
+      lastActivityAt: nowIso(),
+      ...(stateChanged ? { stateSince: nowIso() } : {}),
+    });
     if (wasEnded || session.state === 'idle' || session.state === 'waiting_input')
       this.flushTeamMessages(session);
     if (session.workItem.type === 'schedule' && !this.isLive(session)) {
@@ -647,7 +663,7 @@ export class MockBackend {
       type: 'member_changed',
       projectKey: fixtures.PROJECT_KEY,
       handle,
-      member: member && member.status !== 'retired' ? clone(member) : null,
+      member: member && member.status !== 'retired' ? this.viewOf(member) : null,
     });
   }
 
@@ -669,7 +685,7 @@ export class MockBackend {
         holders: labelHolders(this.config, label),
       })),
       tasks: clone(this.tasks.filter((task) => this.canSee(task))),
-      members: clone(this.members.filter((member) => member.status !== 'retired')),
+      members: this.members.filter((member) => member.status !== 'retired').map((m) => this.viewOf(m)),
       openInboxCount: this.inbox.filter(
         (item) => item.state === 'open' && item.assignees.includes(this.owner),
       ).length,
@@ -892,7 +908,7 @@ export class MockBackend {
     if (rest === '/members/human' && method === 'POST') return this.addHuman(body);
     if (rest === '/members') {
       if (method === 'POST') return this.hire(body);
-      return ok(clone(this.members.filter((member) => member.status !== 'retired')));
+      return ok(this.members.filter((member) => member.status !== 'retired').map((m) => this.viewOf(m)));
     }
     if ((m = /^\/members\/([a-z0-9-]+)$/.exec(rest)) && method === 'DELETE') return this.retire(m[1]!, body);
 
@@ -1011,7 +1027,7 @@ export class MockBackend {
           .map((stage) => stage.id);
         return ok({
           member: {
-            ...clone(member),
+            ...this.viewOf(member),
             currentTaskKeys: member.currentTaskKeys.filter((k) => visible.some((t) => t.key === k)),
           },
           duties: memberDuties(this.config, original),

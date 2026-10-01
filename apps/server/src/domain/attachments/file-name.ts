@@ -32,7 +32,7 @@ export function sanitizeFileName(raw: string | undefined): string {
   if (cleaned === '') return FALLBACK_FILE_NAME;
   if (Buffer.byteLength(cleaned) <= MAX_ATTACHMENT_FILE_NAME_BYTES) return cleaned;
   const dot = cleaned.lastIndexOf('.');
-  const extension = dot > 0 && Buffer.byteLength(cleaned) - dot <= 32 ? cleaned.slice(dot) : '';
+  const extension = dot > 0 && Buffer.byteLength(cleaned.slice(dot)) <= 32 ? cleaned.slice(dot) : '';
   const stem = truncateBytes(
     extension ? cleaned.slice(0, dot) : cleaned,
     MAX_ATTACHMENT_FILE_NAME_BYTES - Buffer.byteLength(extension),

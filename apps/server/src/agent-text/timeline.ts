@@ -62,6 +62,10 @@ export function describeEvent(
     }
     case 'task_note':
       return `note: ${text('text') ?? ''}`.trimEnd();
+    case 'attachment_added':
+      return `attached the file ${text('fileName') ?? '?'}`;
+    case 'attachment_deleted':
+      return `deleted the attachment ${text('fileName') ?? '?'}`;
     case 'team_message': {
       const to = list('to').length > 0 ? list('to') : [text('to')].filter((h): h is string => !!h);
       const recipients = to.length > 0 ? ` to ${to.map((h) => style.code(h)).join(', ')}` : '';

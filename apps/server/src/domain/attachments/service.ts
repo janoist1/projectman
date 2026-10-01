@@ -296,9 +296,13 @@ export class AttachmentService implements AttachmentOperations {
   /** Streams the content into the writer, counting it against the limit. */
   private async receive(content: Readable, sink: Writable): Promise<{ size: number; head: Buffer }> {
     const meter = new UploadMeter();
-    let sinkError: unknown;
+    // A failing stream takes the others down with its error: the first one to report is the cause.
+    let failed: { from: 'source' | 'sink'; err: unknown } | undefined;
+    content.once('error', (err: unknown) => {
+      failed ??= { from: 'source', err };
+    });
     sink.once('error', (err: unknown) => {
-      sinkError = err;
+      failed ??= { from: 'sink', err };
     });
     try {
       await pipeline(content, meter, sink);
@@ -313,8 +317,8 @@ export class AttachmentService implements AttachmentOperations {
           },
         );
       }
-      if (sinkError) {
-        this.ctx.logger.error({ err: sinkError }, 'attachment content could not be written');
+      if (failed?.from === 'sink') {
+        this.ctx.logger.error({ err: failed.err }, 'attachment content could not be written');
         throw storageFailed('the file could not be stored');
       }
       throw invalid('invalid_request', 'the upload was interrupted');

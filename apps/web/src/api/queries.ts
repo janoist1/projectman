@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
+  AttachmentListResponse,
   SendTeamMessageRequest,
   PatchConfigRequest,
   CreateInviteRequest,
@@ -24,7 +25,7 @@ import type {
   LabelView,
 } from '@projectman/shared';
 import { isApiError } from './client';
-import { patchOpenInboxCount, upsertBy, writeTaskDetail } from './cache';
+import { invalidateAttachments, patchOpenInboxCount, upsertBy, writeTaskDetail } from './cache';
 import { api } from './endpoints';
 import { queryKeys } from './queryKeys';
 
@@ -146,6 +147,50 @@ export function useStartTask(key: string) {
         client.invalidateQueries({ queryKey: queryKeys.task(key, taskKey) }),
       ]);
     },
+  });
+}
+
+/* ---------- attachments ---------- */
+
+/** A refusal (task gone, access lost) is final: asking again changes nothing. */
+const retryUnlessRefused = (count: number, error: unknown) =>
+  !(isApiError(error) && error.status >= 400 && error.status < 500) && count < 2;
+
+export function useAttachments(key: string, taskKey: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.attachments(key, taskKey),
+    queryFn: () => api.attachments(key, taskKey),
+    enabled: enabled && Boolean(taskKey),
+    retry: retryUnlessRefused,
+  });
+}
+
+/** One file per call; calls may run side by side. The new file joins the cached list at once. */
+export function useUploadAttachment(key: string, taskKey: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ file, signal }: { file: File; signal?: AbortSignal }) =>
+      api.uploadAttachment(key, taskKey, file, signal),
+    onSuccess: ({ attachment }) => {
+      client.setQueryData<AttachmentListResponse>(queryKeys.attachments(key, taskKey), (list) =>
+        list ? { attachments: upsertBy(list.attachments, attachment, (entry) => entry.id) } : list,
+      );
+      invalidateAttachments(client, key, taskKey);
+    },
+  });
+}
+
+export function useDeleteAttachment(key: string, taskKey: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteAttachment(key, taskKey, id),
+    onSuccess: (_data, id) => {
+      client.setQueryData<AttachmentListResponse>(queryKeys.attachments(key, taskKey), (list) =>
+        list ? { attachments: list.attachments.filter((entry) => entry.id !== id) } : list,
+      );
+    },
+    // A refusal means the list is not what the screen shows (already gone, rights changed).
+    onSettled: () => invalidateAttachments(client, key, taskKey),
   });
 }
 

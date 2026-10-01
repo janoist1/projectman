@@ -8,13 +8,19 @@ import { renderUi } from './render';
 export interface MockRequest {
   method: string;
   path: string;
+  /** Parsed JSON, or the FormData of an upload. */
   body: unknown;
 }
 
 /** A fetch() that answers /api requests from the in-memory backend and records each request. */
 export function createMockFetch(backend: MockBackend, requests: MockRequest[] = []) {
   return async (path: string, init?: RequestInit): Promise<Response> => {
-    const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+    const body: unknown =
+      typeof init?.body === 'string'
+        ? JSON.parse(init.body)
+        : init?.body instanceof FormData
+          ? init.body
+          : undefined;
     const method = init?.method ?? 'GET';
     requests.push({ path, method, body });
     const url = new URL(path, 'http://localhost');

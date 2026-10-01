@@ -1,5 +1,8 @@
 import {
+  AttachmentListResponse,
   ChangeTaskLabelsRequest,
+  DeleteAttachmentResponse,
+  UploadAttachmentResponse,
   MemberProfile,
   MemberMemories,
   Session,
@@ -87,6 +90,25 @@ export const api = {
     apiRequest<unknown>(routes.tasks(key), { method: 'POST', body }),
   startTask: (key: string, taskKey: string, body: StartTaskRequest) =>
     apiRequest<unknown>(routes.startTask(key, taskKey), { method: 'POST', body }),
+
+  attachments: (key: string, taskKey: string) =>
+    apiRequest(routes.taskAttachments(key, taskKey), { schema: AttachmentListResponse }),
+  /** One file per request, as the route takes it (multipart field "file"). */
+  uploadAttachment: (key: string, taskKey: string, file: File, signal?: AbortSignal) => {
+    const body = new FormData();
+    body.append('file', file, file.name);
+    return apiRequest(routes.taskAttachments(key, taskKey), {
+      method: 'POST',
+      body,
+      schema: UploadAttachmentResponse,
+      signal,
+    });
+  },
+  deleteAttachment: (key: string, taskKey: string, id: string) =>
+    apiRequest(routes.taskAttachment(key, taskKey, id), {
+      method: 'DELETE',
+      schema: DeleteAttachmentResponse,
+    }),
 
   roles: (key: string) => apiRequest(routes.roles(key), { schema: RolesView }),
   createRole: (key: string, body: CustomRoleRequest) =>

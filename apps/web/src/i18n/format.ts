@@ -65,6 +65,15 @@ export function formatDayHeading(value: string | Date, now: Date = new Date()): 
   return dayHeadingFormat.format(toDate(value));
 }
 
+const sizeFormat = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 });
+
+/** File size in decimal units, like the 25 MB limit: "812 B", "4,2 kB", "25 MB". */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1000) return t('attachments.size.bytes', { value: sizeFormat.format(bytes) });
+  if (bytes < 1_000_000) return t('attachments.size.kilobytes', { value: sizeFormat.format(bytes / 1000) });
+  return t('attachments.size.megabytes', { value: sizeFormat.format(bytes / 1_000_000) });
+}
+
 export function formatPercent(value: number): string {
   return t('planUsage.percent', { value: Math.round(value) });
 }

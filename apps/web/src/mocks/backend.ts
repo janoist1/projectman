@@ -11,8 +11,11 @@ import {
   CustomRoleRequest,
   DEFAULT_AGENT_PROVIDER,
   HireMemberRequest,
+  INLINE_MEDIA_TYPES,
   InvitationView,
   LoginRequest,
+  MAX_ATTACHMENT_BYTES,
+  OCTET_STREAM,
   PR_MERGED_LABEL,
   PatchConfigRequest,
   ReopenTaskRequest,
@@ -28,7 +31,11 @@ import {
   aiLimitReached,
   applyConfigPatch,
   approvalRefusal,
+  attachmentPreviewOf,
+  canDeleteAttachment,
+  canReadAttachments,
   canSeeTask,
+  canUploadAttachment,
   commentMentions,
   configSchemaIssues,
   evaluateMove,
@@ -68,6 +75,8 @@ import type {
   Actor,
   AiMemberConfig,
   ApprovalRequirement,
+  Attachment,
+  AttachmentViewer,
   BoardView,
   ChatItem,
   ClientCommand,
@@ -213,6 +222,7 @@ export class MockBackend {
   members: MemberView[] = clone(fixtures.members);
   timeline: TimelineEvent[] = clone(fixtures.timeline);
   scheduleRuns: ScheduleRun[] = [];
+  attachments: Attachment[] = [];
   providerLoggedIn = { claude: true, codex: true };
   providerPlanUsage: Partial<Record<AgentProvider, PlanUsage>> = {};
   sessions: Session[] = clone(fixtures.sessions);
@@ -307,10 +317,68 @@ export class MockBackend {
     return this.members.find((member) => member.handle === handle);
   }
 
+  /** The viewer as the shared task rules know them. */
+  private taskViewer(): AttachmentViewer {
+    const viewer = this.findMember(this.viewerHandle);
+    return {
+      access: viewer?.kind === 'human' ? (viewer.role as HumanAccess) : 'ai',
+      handle: this.viewerHandle,
+    };
+  }
+
   /** Whether the viewer may see the task: the rule the server uses (`packages/shared`). */
   canSee(task: Task): boolean {
-    const viewer = this.findMember(this.viewerHandle);
-    return canSeeTask({ access: viewer?.kind === 'human' ? (viewer.role as HumanAccess) : 'ai' }, task);
+    return canSeeTask(this.taskViewer(), task);
+  }
+
+  /**
+   * Adds a file to a task as the viewer, with its timeline event and change notice, as an upload
+   * does (the fake trusts the declared type of the file; the server decides from the content).
+   */
+  addAttachment(
+    taskKey: string,
+    file: { name: string; size: number; type: string },
+    uploadedBy: Actor = this.viewerActor(),
+  ): Attachment {
+    const mediaType = file.type in INLINE_MEDIA_TYPES ? file.type : OCTET_STREAM;
+    const attachment: Attachment = {
+      id: `${mockId('att')}0000`,
+      projectKey: fixtures.PROJECT_KEY,
+      taskKey,
+      fileName: file.name || 'file',
+      size: file.size,
+      mediaType,
+      preview: attachmentPreviewOf(mediaType),
+      uploadedBy,
+      createdAt: nowIso(),
+    };
+    this.attachments.push(attachment);
+    this.addTimeline(taskKey, uploadedBy.handle, 'attachment_added', {
+      attachmentId: attachment.id,
+      fileName: attachment.fileName,
+      size: attachment.size,
+      mediaType,
+    });
+    this.emit({ type: 'task_attachments_changed', projectKey: fixtures.PROJECT_KEY, taskKey });
+    return attachment;
+  }
+
+  /** Removes a file, as the viewer: the timeline keeps the name. */
+  removeAttachment(id: string, who = this.viewerHandle): void {
+    const attachment = this.attachments.find((entry) => entry.id === id);
+    if (!attachment) return;
+    this.attachments = this.attachments.filter((entry) => entry.id !== id);
+    this.addTimeline(attachment.taskKey, who, 'attachment_deleted', {
+      attachmentId: id,
+      fileName: attachment.fileName,
+      size: attachment.size,
+      mediaType: attachment.mediaType,
+    });
+    this.emit({
+      type: 'task_attachments_changed',
+      projectKey: fixtures.PROJECT_KEY,
+      taskKey: attachment.taskKey,
+    });
   }
 
   /** A session that has not exited or failed. */
@@ -708,6 +776,9 @@ export class MockBackend {
       if (!task) return error(404, 'not_found', 'Unknown task');
       const refused = this.applyLabels(task, input, this.viewerActor(), { comment: input.comment });
       return refused ?? ok(this.taskDetail(task));
+    }
+    if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/attachments(?:\/(att_[a-z0-9]+))?$/.exec(rest))) {
+      return this.handleAttachments(method, m[1]!, m[2], body);
     }
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/start$/.exec(rest)) && method === 'POST') {
       return this.startTask(m[1]!, body);
@@ -1391,6 +1462,44 @@ export class MockBackend {
 
   private viewerActor(): Actor {
     return { kind: 'human', handle: this.viewerHandle };
+  }
+
+  /**
+   * The task's attachments, with the server's answers: a task the viewer may not see is unknown,
+   * and the shared rules decide who uploads and who deletes. The bytes are not served (the UI
+   * points the browser at the content routes, not at fetch).
+   */
+  private handleAttachments(
+    method: string,
+    taskKey: string,
+    id: string | undefined,
+    body: unknown,
+  ): MockResponse {
+    const viewer = this.taskViewer();
+    const task = this.findTask(taskKey);
+    if (!task || !canReadAttachments(viewer, task)) return error(404, 'not_found', 'Unknown task');
+    if (!id && method === 'GET') {
+      return ok({ attachments: clone(this.attachments.filter((entry) => entry.taskKey === taskKey)) });
+    }
+    if (!id && method === 'POST') {
+      if (!canUploadAttachment(viewer, task))
+        return error(403, 'insufficient_access', 'Viewers cannot attach files');
+      const file = body instanceof FormData ? body.get('file') : null;
+      if (!(file instanceof File)) return error(400, 'invalid_request', 'The request carries no file');
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        return error(413, 'attachment_too_large', 'Too large', { maxBytes: MAX_ATTACHMENT_BYTES });
+      }
+      return { status: 201, body: { attachment: clone(this.addAttachment(taskKey, file)) } };
+    }
+    if (id && method === 'DELETE') {
+      const attachment = this.attachments.find((entry) => entry.id === id && entry.taskKey === taskKey);
+      if (!attachment) return error(404, 'not_found', 'Unknown attachment');
+      if (!canDeleteAttachment(viewer, task, attachment))
+        return error(403, 'insufficient_access', 'Only the uploader, an owner or an admin may delete this');
+      this.removeAttachment(id);
+      return ok({ id, deleted: true });
+    }
+    return error(404, 'not_found', `No route for ${method}`);
   }
 
   private taskDetail(task: Task) {

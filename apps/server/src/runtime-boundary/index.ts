@@ -3,7 +3,7 @@ import type { EgressDestination, RuntimeBoundaryStatus } from '@projectman/share
 import type { RuntimeBoundary, SessionLauncher, WorkerLayout } from '../contracts';
 import type { WorkspaceAccess } from '../worktree';
 import type { BoundaryConfig } from './config';
-import { workerLayout } from './config';
+import { MEMBER_HANDLE, memberOfPath, workerHome, workerLayout } from './config';
 import { createEgressProxy } from './egress/proxy';
 import type { PeerAddress, ProxyDecision, ProxyIdentity } from './egress/proxy';
 import { procPeerUid } from './egress/peer';
@@ -105,7 +105,11 @@ export function createRuntimeBoundary(opts: {
     config,
     launcher,
     layout,
-    workspaceAccess: workerWorkspaceAccess({ layout, homeRoot: config.workers.homeRoot, launcher }),
+    workspaceAccess: workerWorkspaceAccess({
+      layout,
+      ownerOf: (target) => memberOfPath(config, target),
+      launcher,
+    }),
     workspacesRoot: (member) => layout.workspaces(member),
     status({ refresh } = {}) {
       const at = Date.now();
@@ -131,7 +135,7 @@ export function workerForUid(config: BoundaryConfig, accounts: AccountLookup, ui
   for (const candidate of accounts.list()) {
     if (candidate.uid !== uid || !candidate.user.startsWith(config.workers.prefix)) continue;
     const member = candidate.user.slice(config.workers.prefix.length);
-    if (candidate.home === `${config.workers.homeRoot}/${member}`) return member;
+    if (MEMBER_HANDLE.test(member) && candidate.home === workerHome(config, member)) return member;
   }
   return null;
 }

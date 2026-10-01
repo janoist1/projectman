@@ -33,13 +33,13 @@ describe('sessions behind the VM boundary', () => {
     await setUp();
     const started = await h.domain.taskStarts.start('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
     const spec = h.runner.lastStarted();
-    expect(spec.cwd).toBe('/var/lib/projectman-work/dev-1/sessions/AR');
+    expect(spec.cwd).toBe('/var/lib/projectman-work/pmw-dev-1/sessions/AR');
     expect(boundary.runs).toEqual([
       {
         member: 'dev-1',
         program: 'mkdir',
-        args: ['-p', '-m', '0750', '--', '/var/lib/projectman-work/dev-1/sessions/AR'],
-        cwd: '/var/lib/projectman-work/dev-1',
+        args: ['-p', '-m', '0750', '--', '/var/lib/projectman-work/pmw-dev-1/sessions/AR'],
+        cwd: '/var/lib/projectman-work/pmw-dev-1',
       },
     ]);
     expect(spec.egressToken).toMatch(/^[A-Za-z0-9_-]{32}$/);

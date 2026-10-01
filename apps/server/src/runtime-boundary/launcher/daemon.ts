@@ -113,7 +113,7 @@ export function workerAccount(
 ): WorkerAccount {
   const user = `${config.workers.prefix}${member}`;
   const account = accounts.byName(user);
-  const home = path.posix.join(config.workers.homeRoot, member);
+  const home = path.posix.join(config.workers.homeRoot, user);
   if (
     !account ||
     account.user !== user ||
@@ -142,6 +142,11 @@ export function checkCwd(worker: WorkerAccount, cwd: string): string {
 export function programArgv(config: BoundaryConfig, program: WorkerProgram): string[] {
   if (program === 'claude-trust')
     return [config.programs.node, path.posix.join(config.appDir, 'apps/server/dist/claude-trust.js')];
+  if (program === 'boundary-probe')
+    return [
+      config.programs.node,
+      path.posix.join(config.appDir, 'apps/server/dist/boundary-worker-probe.js'),
+    ];
   return [config.programs[program]];
 }
 

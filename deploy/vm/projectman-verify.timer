@@ -1,0 +1,11 @@
+# A fresh readiness report soon after boot and every 30 minutes (PM-140).
+[Unit]
+Description=projectman readiness report, every 30 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=30min
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

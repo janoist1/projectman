@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { SessionLauncher, WorkerLayout, WorkerProgram } from '../contracts';
 import { git, GitCommandError, SAFE_GIT_SETTINGS } from '../worktree';
 import type { WorkspaceAccess } from '../worktree';
-import { isWithin, MEMBER_HANDLE } from './config';
+import { isWithin } from './config';
 
 /**
  * Member workspaces in the managed VM (PM-138 workspaces, PM-140 boundary). A workspace lives in
@@ -17,17 +17,11 @@ import { isWithin, MEMBER_HANDLE } from './config';
  */
 export function workerWorkspaceAccess(opts: {
   layout: WorkerLayout;
-  homeRoot: string;
+  /** The member whose worker home holds a path (`memberOfPath`), or null for the server's own. */
+  ownerOf: (target: string) => string | null;
   launcher: SessionLauncher;
 }): WorkspaceAccess {
-  const { layout, launcher } = opts;
-
-  function ownerOf(target: string): string | null {
-    const resolved = path.posix.resolve(target);
-    if (!isWithin(resolved, opts.homeRoot) || resolved === opts.homeRoot) return null;
-    const handle = resolved.slice(opts.homeRoot.length + 1).split('/')[0]!;
-    return MEMBER_HANDLE.test(handle) ? handle : null;
-  }
+  const { layout, launcher, ownerOf } = opts;
 
   async function run(
     owner: string,

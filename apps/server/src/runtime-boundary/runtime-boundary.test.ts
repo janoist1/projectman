@@ -12,6 +12,7 @@ import {
   workerForUid,
   workerLayout,
 } from './index';
+import { memberOfPath } from './config';
 import { parsePasswd } from './launcher/accounts';
 import { readinessProblems } from './readiness';
 import { testBoundaryConfig } from './test-helpers';
@@ -83,20 +84,30 @@ describe('the boundary configuration', () => {
 
   it('lays out worker paths and refuses odd names', () => {
     const layout = workerLayout(testBoundaryConfig());
-    expect(layout.home('dev')).toBe('/var/lib/projectman-work/dev');
-    expect(layout.workspaces('dev')).toBe('/var/lib/projectman-work/dev/workspaces');
-    expect(layout.sessions('dev', 'PM')).toBe('/var/lib/projectman-work/dev/sessions/PM');
+    expect(layout.home('dev')).toBe('/var/lib/projectman-work/pmw-dev');
+    expect(layout.workspaces('dev')).toBe('/var/lib/projectman-work/pmw-dev/workspaces');
+    expect(layout.sessions('dev', 'PM')).toBe('/var/lib/projectman-work/pmw-dev/sessions/PM');
     expect(layout.spoolIn('dev')).toBe('/var/lib/projectman-spool/dev/in');
     expect(layout.spoolOut('dev')).toBe('/var/lib/projectman-spool/dev/out');
     expect(() => layout.home('../root')).toThrow();
     expect(() => layout.sessions('dev', '../x')).toThrow();
   });
 
+  it('tells which member a worker path belongs to', () => {
+    const config = testBoundaryConfig();
+    expect(memberOfPath(config, '/var/lib/projectman-work/pmw-dev/workspaces/AR')).toBe('dev');
+    expect(memberOfPath(config, '/var/lib/projectman-work/pmw-dev')).toBe('dev');
+    expect(memberOfPath(config, '/var/lib/projectman-work/dev/x')).toBeNull();
+    expect(memberOfPath(config, '/var/lib/projectman-work')).toBeNull();
+    expect(memberOfPath(config, '/var/lib/projectman/data/repos/app')).toBeNull();
+    expect(memberOfPath(config, '/var/lib/projectman-work/pmw-dev/../pmw-qa/x')).toBe('qa');
+  });
+
   it('maps a uid back to its worker only inside the worker range and home', () => {
     const accounts = parsePasswd(
       [
         'projectman:x:19000:19000::/var/lib/projectman:/usr/sbin/nologin',
-        'pmw-dev:x:20001:20001::/var/lib/projectman-work/dev:/usr/sbin/nologin',
+        'pmw-dev:x:20001:20001::/var/lib/projectman-work/pmw-dev:/usr/sbin/nologin',
         'pmw-odd:x:20003:20003::/home/odd:/usr/sbin/nologin',
       ].join('\n'),
     );

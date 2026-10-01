@@ -12,9 +12,19 @@ import type { AgentProvider, RuntimeBoundaryMode, RuntimeBoundaryStatus } from '
 /**
  * Programs the launcher runs as a worker; each maps to a fixed path in its configuration.
  * `claude-trust` is the app's own helper that records Claude Code's workspace trust for one
- * directory in the worker's ~/.claude.json (its only argument is that directory).
+ * directory in the worker's ~/.claude.json (its only argument is that directory);
+ * `boundary-probe` is the app's measurement of the boundary from inside a worker unit (verify.sh).
  */
-export const WORKER_PROGRAMS = ['git', 'mkdir', 'rm', 'mv', 'claude', 'codex', 'claude-trust'] as const;
+export const WORKER_PROGRAMS = [
+  'git',
+  'mkdir',
+  'rm',
+  'mv',
+  'claude',
+  'codex',
+  'claude-trust',
+  'boundary-probe',
+] as const;
 export type WorkerProgram = (typeof WORKER_PROGRAMS)[number];
 
 export interface LaunchSessionRequest {

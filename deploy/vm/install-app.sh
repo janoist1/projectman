@@ -50,5 +50,7 @@ systemctl stop projectman 2>/dev/null || true
 rm -rf "$APP_DIR.prev"
 [ -d "$APP_DIR" ] && mv "$APP_DIR" "$APP_DIR.prev"
 mv "$STAGE" "$APP_DIR"
+# The launcher (PM-140) runs from the app tree too: the new one takes over (its socket stays).
+systemctl try-restart projectman-launcher.service 2>/dev/null || true
 systemctl start projectman
 echo "installed $COMMIT in $APP_DIR (previous tree: $APP_DIR.prev)"

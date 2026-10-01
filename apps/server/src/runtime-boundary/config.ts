@@ -95,13 +95,29 @@ export function loadBoundaryConfig(file: string): BoundaryConfig {
 export const MEMBER_HANDLE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const PROJECT_KEY = /^[A-Z][A-Z0-9]{0,9}$/;
 
+/** A worker's home: `<homeRoot>/<account name>`, as bootstrap.sh creates it (`pmw-<handle>`). */
+export function workerHome(config: BoundaryConfig, member: string): string {
+  if (!MEMBER_HANDLE.test(member)) throw new Error(`invalid member handle: ${member}`);
+  return path.posix.join(config.workers.homeRoot, `${config.workers.prefix}${member}`);
+}
+
+/** The member whose worker home holds `target`, or null. */
+export function memberOfPath(config: BoundaryConfig, target: string): string | null {
+  const resolved = path.posix.resolve(target);
+  const { homeRoot, prefix } = config.workers;
+  if (!resolved.startsWith(`${homeRoot}/`)) return null;
+  const account = resolved.slice(homeRoot.length + 1).split('/')[0]!;
+  const member = account.startsWith(prefix) ? account.slice(prefix.length) : '';
+  return MEMBER_HANDLE.test(member) ? member : null;
+}
+
 /** Worker paths from the configuration (`WorkerLayout`). */
 export function workerLayout(config: BoundaryConfig): WorkerLayout {
   const handle = (member: string) => {
     if (!MEMBER_HANDLE.test(member)) throw new Error(`invalid member handle: ${member}`);
     return member;
   };
-  const home = (member: string) => path.posix.join(config.workers.homeRoot, handle(member));
+  const home = (member: string) => workerHome(config, member);
   return {
     home,
     workspaces: (member) => path.posix.join(home(member), 'workspaces'),

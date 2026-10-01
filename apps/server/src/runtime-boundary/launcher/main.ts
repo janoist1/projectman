@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import net from 'node:net';
 import * as pty from '@lydell/node-pty';
 import { loadBoundaryConfig } from '../config';
@@ -23,6 +23,15 @@ function main(): void {
   const configPath = process.argv[2] ?? '/etc/projectman/boundary.json';
   const config = loadBoundaryConfig(configPath);
   if (process.getuid?.() !== 0) throw new Error('the launcher must run as root');
+  // Units a previous launcher started have lost their relay (and their service connection): a
+  // session never runs on without one.
+  const leftovers = spawnSync(
+    config.systemctl,
+    ['stop', '--', 'projectman-session-*.service', 'projectman-run-*.service'],
+    { env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin' }, stdio: 'ignore', timeout: 30_000 },
+  );
+  if (leftovers.status !== 0)
+    log('warn', { status: leftovers.status }, 'could not stop leftover worker units');
   const launcher = createLauncher({
     config,
     accounts: passwdAccounts(),

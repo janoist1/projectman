@@ -23,17 +23,22 @@ const testBoundaryConfig: BoundaryConfig = makeTestBoundaryConfig();
 const PASSWD = [
   'root:x:0:0:root:/root:/bin/bash',
   'projectman:x:19000:19000::/var/lib/projectman:/usr/sbin/nologin',
-  'pmw-dev:x:20001:20001::/var/lib/projectman-work/dev:/usr/sbin/nologin',
-  'pmw-qa:x:20002:20002::/var/lib/projectman-work/qa:/usr/sbin/nologin',
+  'pmw-dev:x:20001:20001::/var/lib/projectman-work/pmw-dev:/usr/sbin/nologin',
+  'pmw-qa:x:20002:20002::/var/lib/projectman-work/pmw-qa:/usr/sbin/nologin',
   'pmw-odd:x:20003:20003::/home/odd:/usr/sbin/nologin',
-  'pmw-low:x:1500:1500::/var/lib/projectman-work/low:/usr/sbin/nologin',
+  'pmw-low:x:1500:1500::/var/lib/projectman-work/pmw-low:/usr/sbin/nologin',
 ].join('\n');
 
 const accounts: AccountLookup = {
   byName: (name) => parsePasswd(PASSWD).get(name) ?? null,
   list: () => [...parsePasswd(PASSWD).values()],
 };
-const dev: WorkerAccount = { user: 'pmw-dev', uid: 20001, gid: 20001, home: '/var/lib/projectman-work/dev' };
+const dev: WorkerAccount = {
+  user: 'pmw-dev',
+  uid: 20001,
+  gid: 20001,
+  home: '/var/lib/projectman-work/pmw-dev',
+};
 const TOKEN = 'egress-token-0123456789';
 
 const startRequest = (patch: Partial<StartRequest> = {}): StartRequest => ({
@@ -47,7 +52,7 @@ const startRequest = (patch: Partial<StartRequest> = {}): StartRequest => ({
     '--append-system-prompt',
     'Use ${HOME} as %h',
   ],
-  cwd: '/var/lib/projectman-work/dev/workspaces/PM/dev/projectman/repo',
+  cwd: '/var/lib/projectman-work/pmw-dev/workspaces/PM/dev/projectman/repo',
   cols: 120,
   rows: 40,
   egressToken: TOKEN,
@@ -169,8 +174,8 @@ describe('worker accounts and directories', () => {
     expect(checkCwd(dev, `${dev.home}/sessions/PM`)).toBe(`${dev.home}/sessions/PM`);
     for (const cwd of [
       '/var/lib/projectman/data',
-      '/var/lib/projectman-work/qa',
-      '/var/lib/projectman-work/dev-evil',
+      '/var/lib/projectman-work/pmw-qa',
+      '/var/lib/projectman-work/pmw-dev-evil',
       `${dev.home}/../qa`,
       `${dev.home}/sessions/`,
       'relative/path',
@@ -263,6 +268,22 @@ describe('the unit command line', () => {
         startRequest({ args: ['--settings', '{"env":{"ANTHROPIC_API_KEY":"x"}}'] }),
       ),
     ).toThrow(/ANTHROPIC_API_KEY/);
+  });
+
+  it('runs the boundary probe from the deployed app, as the worker', () => {
+    const command = runCommand(
+      testBoundaryConfig,
+      dev,
+      { op: 'run', member: 'dev', program: 'boundary-probe', args: ['{}'], cwd: dev.home },
+      'p1',
+    );
+    expect(command.args).toContain('-p');
+    expect(command.args).toContain('User=pmw-dev');
+    expect(command.args.slice(command.args.indexOf('--') + 1)).toEqual([
+      '/usr/local/bin/node',
+      '/srv/projectman/apps/server/dist/boundary-worker-probe.js',
+      '{}',
+    ]);
   });
 });
 

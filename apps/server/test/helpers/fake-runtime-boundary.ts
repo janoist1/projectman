@@ -15,7 +15,7 @@ export class FakeRuntimeBoundary implements RuntimeBoundary {
 
   constructor(homeRoot = '/var/lib/projectman-work') {
     this.homeRoot = homeRoot;
-    const home = (member: string) => path.posix.join(homeRoot, member);
+    const home = (member: string) => path.posix.join(homeRoot, `pmw-${member}`);
     this.layout = {
       home,
       workspaces: (member) => path.posix.join(home(member), 'workspaces'),

@@ -14,7 +14,7 @@ import type {
   WorkerRunRequest,
 } from '../contracts';
 import { createMemberWorkspaceManager, MemberWorkspaceError } from '../worktree';
-import { workerLayout } from './config';
+import { memberOfPath, workerLayout } from './config';
 import { testBoundaryConfig } from './test-helpers';
 import { workerWorkspaceAccess } from './worker-workspaces';
 
@@ -116,7 +116,7 @@ beforeEach(async () => {
   homeRoot = path.join(base, 'work');
   spoolRoot = path.join(base, 'spool');
   for (const member of ['dev', 'qa']) {
-    await mkdir(path.join(homeRoot, member), { recursive: true });
+    await mkdir(path.join(homeRoot, `pmw-${member}`), { recursive: true });
     await mkdir(path.join(spoolRoot, member, 'in'), { recursive: true });
     await mkdir(path.join(spoolRoot, member, 'out'), { recursive: true });
   }
@@ -140,7 +140,11 @@ beforeEach(async () => {
   manager = createMemberWorkspaceManager({
     rootDir: path.join(base, 'unused'),
     logger: silent,
-    access: workerWorkspaceAccess({ layout, homeRoot, launcher: fakeLauncher(layout) }),
+    access: workerWorkspaceAccess({
+      layout,
+      ownerOf: (target) => memberOfPath(config, target),
+      launcher: fakeLauncher(layout),
+    }),
     rootFor: (member) => layout.workspaces(member),
   });
 });
@@ -160,7 +164,7 @@ const spoolFiles = async () =>
 describe('member workspaces in worker homes', { timeout: 30_000 }, () => {
   it('clones the project repository into the member home as that member, through a bundle', async () => {
     const ws = await manager.ensure(key('dev'));
-    expect(ws.path).toBe(path.join(homeRoot, 'dev', 'workspaces', 'AR', 'dev', 'app', 'repo'));
+    expect(ws.path).toBe(path.join(homeRoot, 'pmw-dev', 'workspaces', 'AR', 'dev', 'app', 'repo'));
     expect(await git('-C', ws.path, 'log', '--format=%s', '-1')).toBe('Initial commit');
     expect(await git('-C', ws.path, 'remote')).toBe('');
     // Every command ran as dev; none in the project repository went through the launcher.
@@ -173,7 +177,7 @@ describe('member workspaces in worker homes', { timeout: 30_000 }, () => {
     // The hand-over is gone, and the workspace description is not written by the server.
     expect(await spoolFiles()).toEqual([]);
     await expect(
-      stat(path.join(homeRoot, 'dev', 'workspaces', 'AR', 'dev', 'app', 'workspace.json')),
+      stat(path.join(homeRoot, 'pmw-dev', 'workspaces', 'AR', 'dev', 'app', 'workspace.json')),
     ).rejects.toThrow();
   });
 

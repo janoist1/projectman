@@ -957,6 +957,21 @@ export const hu = {
       cwd: 'Mappa: {cwd}',
       model: 'Modell: {model}',
       permissions: 'Engedélyek: {mode}',
+      approver: 'Ha kérdez: {approver}',
+      sessionOwn: 'csak ebben a munkamenetben',
+    },
+    /** An owner's permission settings for one session (PM-170). */
+    permissions: {
+      mode: 'Mód',
+      approver: 'Ha kérdez, ki dönt',
+      memberValue: '{value} (a tag beállítása)',
+      reset: 'Vissza a tag beállítására',
+      saved: 'A munkamenet beállítása mentve.',
+      resetDone: 'A munkamenet újra a tag beállítását használja.',
+      restartPending:
+        'Az új mód a következő körtől érvényes: a munkamenet a mostani köre után újraindul, a beszélgetés megmarad.',
+      grantsLost:
+        'Az újraindítással elveszett, amit erre a munkamenetre engedélyeztek; ha kell, újra kérdez.',
     },
     stop: 'Leállítás',
     stopTitle: 'Leállítod a munkamenetet?',
@@ -1081,6 +1096,10 @@ export const hu = {
       session_started: 'Munkamenet indult',
       session_resumed: 'Munkamenet folytatva',
       session_ended: 'Munkamenet leállt',
+      session_permission_mode: 'A munkamenet módja ({member}): {from} → {to}',
+      session_permission_approver: 'A munkamenetben, ha kérdez, ki dönt ({member}): {from} → {to}',
+      session_permission_reset: '{change}, vissza a tag beállítására',
+      session_permission_restart: '{change}, a következő körtől',
       team_message: 'Üzenet → {to}: {excerpt}',
       permission_requested: 'Engedélyt kér: {summary}',
       permission_allowed: 'Engedélyezve',

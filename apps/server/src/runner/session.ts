@@ -246,6 +246,11 @@ export class AgentSession {
     return this.input.enqueue(text);
   }
 
+  /** A message is still on its way to the agent (queued, being typed, or not yet submitted). */
+  get hasPendingInput(): boolean {
+    return this.input.hasPending;
+  }
+
   /**
    * Checked by the input queue right before it types: the TUI may not have enabled bracketed
    * paste yet, and until a first prompt got through, a start-up dialog (e.g. approving the

@@ -28,6 +28,7 @@ export const TimelineEventType = z.enum([
   'schedule_skipped',
   'session_started',
   'session_ended',
+  'session_permission_changed',
   'team_message',
   'permission_requested',
   'boundary_changed',
@@ -124,6 +125,20 @@ export interface TimelineEventData {
   session_started: { member: string; resumed: boolean };
   /** `reason`: why the session ended when known (e.g. a lost login). */
   session_ended: { member: string; exitCode: number | null; reason?: string };
+  /**
+   * An owner changed one permission setting of a session (PM-170); the actor is that owner. `from`
+   * and `to` are the values that apply (a mode, or an approver), `reset` that the session went back
+   * to its member's setting. `restart`: the new mode waits for the session's restart at its next
+   * idle moment.
+   */
+  session_permission_changed: {
+    member: string;
+    field: 'mode' | 'approver';
+    from: string | null;
+    to: string | null;
+    reset?: true;
+    restart?: true;
+  };
   team_message: { messageId: string; from: string; to: string[]; excerpt: string };
   permission_requested: { inboxItemId: string; toolName: string; summary: string };
   /**

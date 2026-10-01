@@ -123,10 +123,13 @@ export class Messaging {
     const session = this.sessions.get(projectKey, sessionId);
     const body = text.trim();
     if (!body) throw invalid('invalid_request', 'the message text is empty', { field: 'text' });
-    const started = this.sessions.isRunning(session.id)
+    const running = this.sessions.isRunning(session.id);
+    const started = running
       ? null
       : await this.sessions.ensureSession(projectKey, session.member, session.workItem, { message: body });
     const sentAsFirstInput = started?.messageSent ?? false;
+    // A session about to restart into a new permission mode takes it after the restart (PM-170).
+    const held = running && this.sessions.permissionRestartDue(session);
     const message = this.messages.record({
       projectKey,
       from,
@@ -137,7 +140,8 @@ export class Messaging {
       sessionId: session.id,
       delivered: sentAsFirstInput,
     });
-    if (!sentAsFirstInput) this.delivery.deliver(started?.session ?? session, message, body);
+    if (held) this.delivery.holdAsWritten(session, message);
+    else if (!sentAsFirstInput) this.delivery.deliver(started?.session ?? session, message, body);
     return message;
   }
 
@@ -202,8 +206,10 @@ export class Messaging {
     message: TeamMessage,
   ): void {
     const running = this.sessions.findRunning(projectKey, handle, workItem);
-    // A reviewer still in a turn of a round that is over gets it after its restart on the new commit.
-    if (running && this.sessions.reviewRoundDue(running)) return;
+    // A reviewer still in a turn of a round that is over gets it after its restart on the new commit,
+    // and so does a session that waits for its restart into a new permission mode (PM-170).
+    if (running && (this.sessions.reviewRoundDue(running) || this.sessions.permissionRestartDue(running)))
+      return;
     if (running) this.delivery.deliver(running, message);
     else
       void this.ctx.events.emit('message_waiting', { projectKey, handle, workItem, messageId: message.id });

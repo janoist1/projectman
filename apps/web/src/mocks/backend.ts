@@ -33,6 +33,7 @@ import {
   SetupRequest,
   StartTaskRequest,
   UpdateMemberRequest,
+  UpdateSessionRequest,
   UpdateTaskRequest,
   aiLimitReached,
   applyConfigPatch,
@@ -64,6 +65,7 @@ import {
   approverBlocker,
   ownerOnlyChanges,
   permissionView,
+  effectiveSessionPermissions,
   planLabelChange,
   pullRequestsMerged,
   repoOf,
@@ -830,6 +832,8 @@ export class MockBackend {
     }
     if ((m = /^\/members\/([a-z0-9-]+)$/.exec(rest)) && method === 'DELETE') return this.retire(m[1]!, body);
 
+    if ((m = /^\/sessions\/([\w-]+)$/.exec(rest)) && method === 'PATCH')
+      return this.updateSessionPermissions(m[1]!, body);
     if ((m = /^\/sessions\/([\w-]+)$/.exec(rest))) {
       const session = this.findSession(m[1]!);
       if (!session) return error(404, 'not_found', 'Unknown session');
@@ -2421,6 +2425,70 @@ export class MockBackend {
       session.id,
     );
     return { status: 201, body: clone(run) };
+  }
+
+  /**
+   * An owner sets a session's own permission settings (PM-170), as the server does: only an owner,
+   * the AI approver only while it can be chosen, `null` back to the member's. A new mode of a
+   * session in a turn waits for its restart; an idle one restarts at once (nothing to show here).
+   */
+  private updateSessionPermissions(sessionId: string, body: unknown): MockResponse {
+    if (this.findMember(this.viewerHandle)?.role !== 'owner')
+      return error(403, 'insufficient_access', 'requires owner access');
+    const input = parseBody(UpdateSessionRequest, body);
+    if (!input) return error(400, 'invalid_request', 'Invalid session update');
+    const session = this.findSession(sessionId);
+    if (!session) return error(404, 'not_found', 'Unknown session');
+    const member = memberOf(this.config, session.member);
+    if (member?.kind !== 'ai') return error(404, 'not_found', 'Unknown member');
+    if (input.approver) {
+      const blocker = approverBlocker(this.config, member.handle, input.approver);
+      if (blocker) return error(422, 'approver_unavailable', 'This approver is not available', { blocker });
+    }
+    const from = effectiveSessionPermissions(member, session);
+    const next: Session = clone(session);
+    if (input.permissionMode !== undefined) {
+      if (input.permissionMode === null) delete next.permissionModeOverride;
+      else next.permissionModeOverride = input.permissionMode;
+    }
+    if (input.approver !== undefined) {
+      if (input.approver === null) delete next.approverOverride;
+      else next.approverOverride = input.approver;
+    }
+    const to = effectiveSessionPermissions(member, next);
+    const restart =
+      this.isLive(session) && session.state !== 'idle' && from.permissionMode !== to.permissionMode;
+    const taskKey = session.workItem.type === 'task' ? session.workItem.taskKey : null;
+    const record = (field: 'mode' | 'approver', values: [unknown, unknown], sources: [string, string]) => {
+      if (values[0] === values[1] && sources[0] === sources[1]) return;
+      this.addTimeline(
+        taskKey,
+        this.viewerHandle,
+        'session_permission_changed',
+        {
+          member: session.member,
+          field,
+          from: values[0] ?? null,
+          to: values[1] ?? null,
+          ...(sources[1] === 'member' ? { reset: true } : {}),
+          ...(field === 'mode' && restart ? { restart: true } : {}),
+        },
+        session.id,
+      );
+    };
+    if (input.permissionMode !== undefined)
+      record('mode', [from.permissionMode, to.permissionMode], [from.source.mode, to.source.mode]);
+    if (input.approver !== undefined)
+      record('approver', [from.approver, to.approver], [from.source.approver, to.source.approver]);
+    delete session.permissionModeOverride;
+    delete session.approverOverride;
+    delete session.permissionRestartPending;
+    const updated = this.updateSession(sessionId, {
+      ...(next.permissionModeOverride ? { permissionModeOverride: next.permissionModeOverride } : {}),
+      ...(next.approverOverride ? { approverOverride: next.approverOverride } : {}),
+      ...(restart ? { permissionRestartPending: true as const } : {}),
+    })!;
+    return ok(clone(updated));
   }
 
   private stopSession(sessionId: string): MockResponse {

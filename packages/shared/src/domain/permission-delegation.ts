@@ -5,6 +5,7 @@ import type { ProjectConfig } from '../config/schema';
 import { boundaryLeads } from './boundary';
 import type { InboxItem } from './inbox';
 import { MemberHandle } from './member';
+import type { Approver } from './member';
 import { permissionOwnerCategory } from './permission-category';
 import type { PermissionOwnerCategory } from './permission-category';
 
@@ -78,10 +79,17 @@ function inputLength(toolInput: unknown): number {
 export function routePermissionRequest(
   config: ProjectConfig,
   requester: string,
-  request: { toolName: string; toolInput: unknown; roots: readonly string[] },
+  request: {
+    toolName: string;
+    toolInput: unknown;
+    roots: readonly string[];
+    /** The approver that applies to the asking session (PM-170, `effectiveSessionPermissions`); absent: the member's. */
+    approver?: Approver;
+  },
 ): PermissionRoute {
   const member = memberOf(config, requester);
-  if (member?.kind !== 'ai' || approverOf(member) !== 'ai') return { to: 'human', why: 'approver_human' };
+  if (member?.kind !== 'ai' || (request.approver ?? approverOf(member)) !== 'ai')
+    return { to: 'human', why: 'approver_human' };
   const category = permissionOwnerCategory(request.toolName, request.toolInput, request.roots);
   if (category) return { to: 'human', why: 'owner_category', category };
   if (inputLength(request.toolInput) > DELEGATED_INPUT_LIMIT) return { to: 'human', why: 'too_long' };

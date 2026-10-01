@@ -366,6 +366,22 @@ export const SessionDetail = z.object({
 });
 export type SessionDetail = z.infer<typeof SessionDetail>;
 
+/**
+ * An owner sets a session's own permission settings (PM-170, `PATCH` of the session): the CLI mode
+ * (not `bypassPermissions`) and who answers when it asks. `null` goes back to the member's setting;
+ * an absent field stays as it is. The member's own settings never change.
+ */
+export const UpdateSessionRequest = z
+  .object({
+    permissionMode: SelectablePermissionMode.nullable().optional(),
+    approver: Approver.nullable().optional(),
+  })
+  .strict()
+  .refine((req) => req.permissionMode !== undefined || req.approver !== undefined, {
+    message: 'permissionMode or approver is required',
+  });
+export type UpdateSessionRequest = z.infer<typeof UpdateSessionRequest>;
+
 export const SendMessageRequest = z.object({ text: z.string().min(1) });
 export type SendMessageRequest = z.infer<typeof SendMessageRequest>;
 

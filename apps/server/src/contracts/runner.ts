@@ -189,6 +189,11 @@ export interface SessionRunner {
   start(spec: StartSessionSpec): Promise<RunningSessionInfo>;
   /** Types a user message into the session once it is idle (queued otherwise); resolves when typed. */
   sendUserMessage(sessionId: string, text: string): Promise<void>;
+  /**
+   * A message is still on its way into the session: queued, being typed, or typed but not yet
+   * submitted (a first message included). A restart waits until it got through. Absent: nothing waits.
+   */
+  hasPendingInput?(sessionId: string): boolean;
   /** Raw keyboard input from an attached browser terminal. */
   writeTerminal(sessionId: string, data: string): void;
   resize(sessionId: string, cols: number, rows: number): void;

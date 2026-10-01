@@ -409,6 +409,22 @@ hook, `escalate` hands it to the sponsor or owners). A deadline, a decider on le
 switched off do the same in `sweepDelegations`; nothing is ever an allowance by itself. The `managed_vm`
 profile has no local approvals and is untouched.
 
+An owner may set both settings for one session, as Claude Desktop switches the mode per session
+(PM-170): `PATCH /api/projects/:key/sessions/:id` (`UpdateSessionRequest`, owner only; `null`
+goes back to the member's). They are stored on the session row (`sessions.permission_mode`,
+`sessions.approver`, NULL for the member's), so a resume keeps them and a new session starts with
+the member's; the member's own settings never change. `effectiveSessionPermissions` (shared) is
+the one rule for what applies: every start and resume (the policy, the CLI's mode, the context
+pack's approver text), `InboxService.decide` (the refusal of `none`, and the approver it hands
+`routePermissionRequest`, so a session's own `ai` or `human` routes like a member's) and the session
+header. A new approver applies to the next question. A new mode needs the CLI's process to start again: a running session is marked
+`permissionRestartPending` and restarts with `--resume` (Codex `resume`) once it is idle and
+`SessionRunner.hasPendingInput` says no message is on its way in; messages for it wait meanwhile
+and are typed in after the restart, which gets no continue message. Behind the managed VM profile
+only a change into or out of `plan` restarts it. Grants "for this session" die with the process:
+`permissionGrantsLost` says so in the header. Each change is a `session_permission_changed`
+timeline event (the owner, `field`, `from`, `to`, `reset`, `restart`).
+
 ## Session policy migration (PM-87 / PM-127)
 
 `contracts/session-policy.ts` is the provider-neutral session intent: placement, semantic team,

@@ -338,6 +338,10 @@ export class SessionManager implements SessionRunner {
     return session.enqueue(text);
   }
 
+  hasPendingInput(sessionId: string): boolean {
+    return this.sessions.get(sessionId)?.hasPendingInput ?? false;
+  }
+
   writeTerminal(sessionId: string, data: string): void {
     this.sessions.get(sessionId)?.write(data);
   }

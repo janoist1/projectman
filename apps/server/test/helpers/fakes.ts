@@ -31,6 +31,8 @@ export class FakeRunner implements SessionRunner {
   readonly input: Array<{ sessionId: string; data: string }> = [];
   readonly resized: Array<{ sessionId: string; cols: number; rows: number }> = [];
   failNextStart: Error | null = null;
+  /** Sessions with a message still on its way in (`hasPendingInput`). */
+  readonly pendingInput = new Set<string>();
   private readonly running = new Map<string, RunningSessionInfo>();
   private readonly listeners = new Set<(event: RunnerEvent) => void>();
 
@@ -54,6 +56,10 @@ export class FakeRunner implements SessionRunner {
 
   async sendUserMessage(sessionId: string, text: string): Promise<void> {
     this.messages.push({ sessionId, text });
+  }
+
+  hasPendingInput(sessionId: string): boolean {
+    return this.pendingInput.has(sessionId);
   }
 
   writeTerminal(sessionId: string, data: string): void {

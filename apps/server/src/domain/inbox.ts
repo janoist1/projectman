@@ -1,8 +1,8 @@
 import {
   approvalRefusal,
-  approverOf,
   DELEGATED_INPUT_LIMIT,
   canDecidePermission,
+  effectiveSessionPermissions,
   gateRequestOf,
   memberOf,
   permissionDelegationOf,
@@ -528,8 +528,10 @@ export class InboxService {
         : null;
     // Nobody approves this member's questions (PM-165): refused at once, without an inbox item. The
     // command rules above still come first (a routine step is allowed, publishing is denied); only a
-    // request they leave open is refused here.
-    if (!verdict && member?.kind === 'ai' && approverOf(member) === 'none') {
+    // request they leave open is refused here. The approver is the one that applies to the session:
+    // its own, set by an owner, from the next question on (PM-170), else the member's.
+    const approver = member?.kind === 'ai' ? effectiveSessionPermissions(member, session).approver : null;
+    if (!verdict && approver === 'none') {
       this.refused(session, { toolName: request.toolName, summary, by: 'approver_none' });
       return { behavior: 'deny', message: APPROVER_NONE_REFUSAL };
     }
@@ -537,11 +539,12 @@ export class InboxService {
     // owner's categories or there is no decider at work, and then a person does, as for `human`.
     // The session's own directories, not the read-only attachments, are where it may write.
     const route =
-      !verdict && member?.kind === 'ai'
+      !verdict && member?.kind === 'ai' && approver
         ? routePermissionRequest(config, session.member, {
             toolName: request.toolName,
             toolInput: request.toolInput,
             roots: readableRoots.filter((root) => root !== attachmentsDir),
+            approver,
           })
         : null;
     const delegation =

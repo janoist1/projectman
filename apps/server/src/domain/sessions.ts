@@ -1,8 +1,10 @@
 import { homedir } from 'node:os';
 import path from 'node:path';
 import {
+  approverBlocker,
   DEFAULT_AGENT_PROVIDER,
   effectiveRepo,
+  effectiveSessionPermissions,
   isOnLeave,
   memberOf,
   repoOf,
@@ -10,6 +12,7 @@ import {
   stageOf,
 } from '@projectman/shared';
 import type {
+  Actor,
   AgentProvider,
   AiMemberConfig,
   Attachment,
@@ -21,6 +24,7 @@ import type {
   SessionDetail,
   SessionState,
   Task,
+  UpdateSessionRequest,
   WorkItemRef,
 } from '@projectman/shared';
 import { MANAGED_VM_UNAVAILABLE, openingTurnOrigin, PROVIDER_NOT_LOGGED_IN } from '../contracts';
@@ -223,6 +227,18 @@ function memberWorkspacePlacement(
   return { kind: 'member_workspace', path: cwd, use: 'home' };
 }
 
+/** One start, stop or settings change at a time per (member x work item). */
+function sessionLockKey(projectKey: string, handle: string, workItem: WorkItemRef): string {
+  const wi = encodeWorkItem(workItem);
+  return `${projectKey}:${handle}:${wi.type}:${wi.ref}`;
+}
+
+/** A restart of a session for a new permission mode: what it drops. */
+interface PermissionRestart {
+  /** The process had permissions granted "for this session", which the CLI forgets with it. */
+  grantsLost: boolean;
+}
+
 function workItemLabel(item: WorkItemRef, member: AiMemberConfig): string {
   if (item.type === 'task') return item.taskKey;
   if (item.type === 'meeting') return item.meetingId;
@@ -248,6 +264,10 @@ export class SessionOrchestrator {
   private readonly cleanupTimers = new Set<NodeJS.Timeout>();
   /** The provider each session's current process runs, for the transcript it reports. */
   private readonly processProviders = new Map<string, AgentProvider>();
+  /** The permission mode each session's current process runs in (PM-170): another one restarts it. */
+  private readonly processModes = new Map<string, string | undefined>();
+  /** The session's grants "for this session" when its current process started (`sessionGrants`). */
+  private readonly processGrants = new Map<string, number>();
   private readonly unsubscribe: () => void;
   /** Member workspaces (PM-138), when the server runs with them. */
   readonly workspaces: MemberWorkspaces | null;
@@ -364,8 +384,7 @@ export class SessionOrchestrator {
     workItem: WorkItemRef,
     opts: EnsureSessionOptions = {},
   ): Promise<EnsureSessionResult> {
-    const wi = encodeWorkItem(workItem);
-    return this.locks.run(`${projectKey}:${handle}:${wi.type}:${wi.ref}`, async () => {
+    return this.locks.run(sessionLockKey(projectKey, handle, workItem), async () => {
       const config = await this.deps.projects.config(projectKey);
       const member = requireAiMember(config, handle);
       const task = workItem.type === 'task' ? this.deps.tasks.get(projectKey, workItem.taskKey) : null;
@@ -381,6 +400,159 @@ export class SessionOrchestrator {
         opts.message?.trim() && opts.message.length <= MAX_FIRST_INPUT_CHARS ? opts.message : null;
       return this.start(config, member, workItem, task, existing, message);
     });
+  }
+
+  /**
+   * An owner sets the session's own permission settings (PM-170; the route checks the owner):
+   * `null` goes back to the member's, which never changes. The approver applies to the next
+   * question at once (`InboxService` reads it then). A new mode applies from the next start of the
+   * process: a running session restarts with its conversation (`--resume`) once it is idle and no
+   * message is on its way into it, so nothing it said or was told is lost. Until then messages for
+   * it wait (`permissionRestartDue`). Each changed setting is recorded on the timeline.
+   */
+  async updatePermissions(
+    projectKey: string,
+    sessionId: string,
+    req: UpdateSessionRequest,
+    actor: Actor,
+  ): Promise<Session> {
+    const found = this.get(projectKey, sessionId);
+    return this.locks.run(sessionLockKey(projectKey, found.member, found.workItem), async () => {
+      const config = await this.deps.projects.config(projectKey);
+      const member = requireAiMember(config, found.member);
+      if (req.approver) {
+        const blocker = approverBlocker(config, member.handle, req.approver);
+        if (blocker)
+          throw new DomainError(
+            'approver_unavailable',
+            `the approver ${req.approver} is not available: ${blocker}`,
+            {
+              status: 422,
+              details: { blocker },
+            },
+          );
+      }
+      const before = this.get(projectKey, sessionId);
+      const from = effectiveSessionPermissions(member, before);
+      let session = this.ctx.repos.sessions.update(sessionId, {
+        ...(req.permissionMode !== undefined ? { permissionModeOverride: req.permissionMode } : {}),
+        ...(req.approver !== undefined ? { approverOverride: req.approver } : {}),
+      })!;
+      const to = effectiveSessionPermissions(member, session);
+      const running = this.isRunning(sessionId);
+      const restart = running && this.modeNeedsRestart(sessionId, to.permissionMode);
+      const wasPending = Boolean(session.permissionRestartPending);
+      if (running && wasPending !== restart)
+        session = this.ctx.repos.sessions.update(sessionId, { permissionRestartPending: restart })!;
+      // The mode went back to the one the process runs in: what waited for the restart goes in now.
+      if (running && wasPending && !restart) void this.ctx.events.emit('session_input_released', session);
+      const record = (
+        field: 'mode' | 'approver',
+        values: [string | null, string | null],
+        sources: [string, string],
+        extra: { restart?: true },
+      ) => {
+        if (values[0] === values[1] && sources[0] === sources[1]) return;
+        this.deps.timeline.append({
+          projectKey,
+          taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
+          sessionId,
+          actor,
+          type: 'session_permission_changed',
+          data: {
+            member: session.member,
+            field,
+            from: values[0],
+            to: values[1],
+            ...(sources[1] === 'member' ? { reset: true } : {}),
+            ...extra,
+          },
+        });
+      };
+      if (req.permissionMode !== undefined)
+        record(
+          'mode',
+          [from.permissionMode ?? null, to.permissionMode ?? null],
+          [from.source.mode, to.source.mode],
+          restart ? { restart: true } : {},
+        );
+      if (req.approver !== undefined)
+        record('approver', [from.approver, to.approver], [from.source.approver, to.source.approver], {});
+      this.publishSession(session);
+      // The setting is saved either way: a restart that fails leaves the conversation for the next start.
+      if (restart)
+        await this.restartForPermissions(projectKey, sessionId).catch((err: unknown) =>
+          this.ctx.logger.warn({ err, sessionId }, 'could not restart the session into its new mode'),
+        );
+      return this.get(projectKey, sessionId);
+    });
+  }
+
+  /**
+   * Messages for a running session that waits for its restart into a new permission mode are not
+   * typed into the old process: it takes them after the restart (`session_started` delivers them).
+   */
+  permissionRestartDue(session: Session): boolean {
+    return Boolean(this.find(session.id)?.permissionRestartPending) && this.isRunning(session.id);
+  }
+
+  /**
+   * Whether the session's process runs in another mode than `mode`. Behind the managed VM profile
+   * only `plan` makes a difference there (research only); every other mode runs question-free.
+   */
+  private modeNeedsRestart(sessionId: string, mode: string | undefined): boolean {
+    if (!this.processModes.has(sessionId)) return false;
+    const current = this.processModes.get(sessionId);
+    if (this.ctx.repos.sessions.executionProfile(sessionId) === 'managed_vm')
+      return (current === 'plan') !== (mode === 'plan');
+    return (current ?? 'default') !== (mode ?? 'default');
+  }
+
+  /**
+   * Restarts a session that waits for a new permission mode, if it is idle with nothing on its way
+   * into it; otherwise its next idle moment does (`handleRunnerEvent`). The caller holds the
+   * session's lock. Nothing restarts while AI work is off or the member is on leave: the process
+   * keeps running in its mode until it ends, its next start takes the new one, and the messages
+   * held for the restart are typed in now (they would otherwise wait for a restart that does not come).
+   */
+  private async restartForPermissions(projectKey: string, sessionId: string): Promise<void> {
+    const ready = (s: Session | null): s is Session =>
+      Boolean(
+        s?.permissionRestartPending &&
+        s.state === 'idle' &&
+        this.isRunning(s.id) &&
+        !this.deps.runner.hasPendingInput?.(s.id),
+      );
+    if (!ready(this.find(sessionId))) return;
+    const config = await this.deps.projects.config(projectKey);
+    const session = this.find(sessionId);
+    if (!ready(session)) return;
+    const member = memberOf(config, session.member);
+    if (member?.kind !== 'ai' || isOnLeave(member) || !config.team.limits.aiEnabled) {
+      const released = this.ctx.repos.sessions.update(session.id, { permissionRestartPending: false })!;
+      this.publishSession(released);
+      void this.ctx.events.emit('session_input_released', released);
+      return;
+    }
+    const task = session.workItem.type === 'task' ? this.ctx.repos.tasks.get(session.workItem.taskKey) : null;
+    const grantsLost = this.grantedForSession(session);
+    await this.deps.runner.stop(session.id);
+    this.markEnded(session.id, null);
+    await this.start(config, member, session.workItem, task, this.find(sessionId), null, { grantsLost });
+  }
+
+  /** A person allowed something "for this session" since the session's process started. */
+  private grantedForSession(session: Session): boolean {
+    const before = this.processGrants.get(session.id);
+    return before !== undefined && this.sessionGrants(session) > before;
+  }
+
+  /** How many requests of the session a person allowed "for this session", ever. */
+  private sessionGrants(session: Pick<Session, 'id' | 'projectKey'>): number {
+    return this.ctx.repos.inbox
+      .list(session.projectKey, { kind: 'permission', state: 'resolved' })
+      .filter((item) => item.sessionId === session.id && item.resolution?.optionId === 'allow_session')
+      .length;
   }
 
   /** Types text into a running session (queued by the runner until the session is idle). */
@@ -515,7 +687,12 @@ export class SessionOrchestrator {
     const at = isoNow(this.ctx);
     for (const session of this.ctx.repos.sessions.listInStates(LIVE_SESSION_STATES)) {
       if (this.isRunning(session.id)) continue;
-      this.ctx.repos.sessions.update(session.id, { state: 'exited', activity: null, endedAt: at });
+      this.ctx.repos.sessions.update(session.id, {
+        state: 'exited',
+        activity: null,
+        endedAt: at,
+        permissionRestartPending: false,
+      });
     }
   }
 
@@ -527,10 +704,11 @@ export class SessionOrchestrator {
     task: Task | null,
     existing: Session | null,
     message: string | null,
+    restart: PermissionRestart | null = null,
   ): Promise<EnsureSessionResult> {
     const sessionId = existing?.id ?? newId('ses');
     try {
-      return await this.launch(config, member, workItem, task, existing, message, sessionId);
+      return await this.launch(config, member, workItem, task, existing, message, sessionId, restart);
     } catch (err) {
       this.workspaces?.ended(sessionId);
       throw err;
@@ -545,6 +723,7 @@ export class SessionOrchestrator {
     existing: Session | null,
     message: string | null,
     sessionId: string,
+    restart: PermissionRestart | null,
   ): Promise<EnsureSessionResult> {
     // A standby copy (PM-143) never works: only one copy of an installation may start AI sessions.
     if (this.deps.standby)
@@ -559,6 +738,11 @@ export class SessionOrchestrator {
     assertRepoChosen(config, member.role, task);
     const projectKey = config.project.key;
     const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
+    // The session's own permission settings, set by an owner, in place of the member's (PM-170):
+    // a resume keeps them (same row), a new session has none. The member's stay as they are.
+    const permissions = effectiveSessionPermissions(member, existing ?? {});
+    const permissionMode = permissions.permissionMode ?? member.permissionMode;
+    const acting: AiMemberConfig = { ...member, permissionMode, approver: permissions.approver };
     // Behind the VM boundary nothing starts while it does not hold (fail closed, PM-140).
     await this.assertBoundaryReady();
     // A CLI that is not logged in could only sit at its login screen: refuse before any work.
@@ -698,7 +882,7 @@ export class SessionOrchestrator {
       config,
       role: member.role,
       task,
-      permissionMode: member.permissionMode,
+      permissionMode,
       deniedPaths: sensitivePaths({
         userHome: this.deps.userHome ?? homedir(),
         appHome: this.deps.appHome,
@@ -717,7 +901,8 @@ export class SessionOrchestrator {
     const sandbox = vm || this.managed ? undefined : sessionSandbox(policy);
     const pack = this.deps.contextBuilder.build({
       project: config,
-      member,
+      // The settings that apply to this session: the system prompt tells the agent who answers.
+      member: acting,
       workItem,
       task,
       stage,
@@ -761,6 +946,9 @@ export class SessionOrchestrator {
         lastActivityAt: at,
         endedAt: null,
         ...(relocated ? { claudeSessionId: newUuid(), transcriptPath: null } : {}),
+        // This start takes the session's current mode; the header says when it dropped grants.
+        permissionRestartPending: false,
+        permissionGrantsLost: restart?.grantsLost ?? false,
       })!;
     } else {
       session = {
@@ -803,10 +991,17 @@ export class SessionOrchestrator {
         displayName: `${member.displayName} · ${workItemLabel(workItem, member)}`,
         model: member.model,
         effort: member.effort,
-        permissionMode: member.permissionMode,
+        // `--permission-mode` (Claude Code) and the `-c` settings (Codex) take it on a resume too.
+        permissionMode,
         appendSystemPrompt: pack.appendSystemPrompt,
-        // A resumed conversation has its brief already; it needs to know why it was woken.
-        initialMessage: resume ? (message ?? pack.continueMessage) : pack.initialMessage,
+        // A resumed conversation has its brief already; it needs to know why it was woken. One that
+        // restarts into a new mode (PM-170) was idle: it waits at its prompt, as it did, and its
+        // waiting messages are typed in once it runs.
+        initialMessage: resume
+          ? restart
+            ? message
+            : (message ?? pack.continueMessage)
+          : pack.initialMessage,
         firstUserOrigin: openingTurnOrigin(workItem),
         mcpUrl: `${this.deps.publicBaseUrl}${routes.mcp(token)}`,
         policy,
@@ -823,6 +1018,8 @@ export class SessionOrchestrator {
         ...(egressToken ? { egressToken } : {}),
       });
       this.ctx.repos.sessions.setExecutionProfile(session.id, vm ? 'managed_vm' : 'legacy');
+      this.processModes.set(session.id, permissionMode);
+      this.processGrants.set(session.id, this.sessionGrants(session));
       this.workspaces?.started(session.id, info.pid);
       const current = this.ctx.repos.sessions.get(session.id);
       if (current?.state === 'starting' && info.state !== 'starting') {
@@ -831,6 +1028,8 @@ export class SessionOrchestrator {
     } catch (err) {
       this.revokeToken(session.id);
       this.processProviders.delete(session.id);
+      this.processModes.delete(session.id);
+      this.processGrants.delete(session.id);
       const failed = this.ctx.repos.sessions.update(session.id, {
         state: 'failed',
         endedAt: isoNow(this.ctx),
@@ -1033,6 +1232,8 @@ export class SessionOrchestrator {
     const session = this.ctx.repos.sessions.get(sessionId);
     this.revokeToken(sessionId);
     this.processProviders.delete(sessionId);
+    this.processModes.delete(sessionId);
+    this.processGrants.delete(sessionId);
     if (!session || ENDED.has(session.state)) return null;
     const at = isoNow(this.ctx);
     const state: SessionState = exitCode !== null && exitCode !== 0 ? 'failed' : 'exited';
@@ -1041,6 +1242,8 @@ export class SessionOrchestrator {
       activity: reason,
       endedAt: at,
       lastActivityAt: at,
+      // No process waits for a restart now: the next start takes the session's mode anyway.
+      permissionRestartPending: false,
     })!;
     this.workspaces?.ended(sessionId);
     this.deps.timeline.append({
@@ -1088,6 +1291,7 @@ export class SessionOrchestrator {
           this.publishSession(updated);
           this.recomputeMemberState(session.projectKey, session.member);
           this.wakeForNewRound(updated);
+          if (updated.state === 'idle' && updated.permissionRestartPending) this.restartWhenIdle(updated);
           return;
         }
         case 'transcript_path': {
@@ -1155,6 +1359,20 @@ export class SessionOrchestrator {
       workItem: session.workItem,
       messageId: first.id,
     });
+  }
+
+  /** A session that waits for a new permission mode finished its turn: it restarts into it now. */
+  private restartWhenIdle(session: Session): void {
+    this.locks
+      .run(sessionLockKey(session.projectKey, session.member, session.workItem), () =>
+        this.restartForPermissions(session.projectKey, session.id),
+      )
+      .catch((err: unknown) =>
+        this.ctx.logger.warn(
+          { err, sessionId: session.id },
+          'could not restart the session into its new mode',
+        ),
+      );
   }
 
   private publishSession(session: Session): void {

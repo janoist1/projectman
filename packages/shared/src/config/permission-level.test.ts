@@ -5,6 +5,7 @@ import {
   aiApproverBlocker,
   approverBlocker,
   approverOf,
+  effectiveSessionPermissions,
   isLegacyBypass,
   permissionView,
 } from './permission-level';
@@ -103,5 +104,29 @@ describe('the roster fields', () => {
     expect(
       permissionView(config({ boundary: true }), { handle: 'dev-1', permissionMode: 'auto', approver: 'ai' }),
     ).toEqual({ permissionMode: 'auto', approver: 'ai' });
+  });
+});
+
+describe('the settings of one session (PM-170)', () => {
+  it('are the session’s own where an owner set them, else the member’s', () => {
+    const member = { permissionMode: 'auto' as const };
+    expect(effectiveSessionPermissions(member, {})).toEqual({
+      permissionMode: 'auto',
+      approver: 'human',
+      source: { mode: 'member', approver: 'member' },
+    });
+    expect(effectiveSessionPermissions(member, { permissionModeOverride: 'plan' })).toEqual({
+      permissionMode: 'plan',
+      approver: 'human',
+      source: { mode: 'session', approver: 'member' },
+    });
+    expect(
+      effectiveSessionPermissions({ ...member, approver: 'none' }, { approverOverride: 'human' }),
+    ).toMatchObject({ approver: 'human', source: { mode: 'member', approver: 'session' } });
+    // A session of a member that is gone keeps only its own settings.
+    expect(effectiveSessionPermissions(undefined, { permissionModeOverride: 'acceptEdits' })).toMatchObject({
+      permissionMode: 'acceptEdits',
+      approver: 'human',
+    });
   });
 });

@@ -34,6 +34,12 @@ export interface DomainEventMap {
   session_started: Session;
   /** A session ended: it exited, was stopped, or failed (also to start). */
   session_ended: Session;
+  /**
+   * A running session no longer waits for its restart into a new permission mode (PM-170) without
+   * having restarted: the mode went back, or it cannot restart now (AI work off, the member on
+   * leave). The messages held for it are typed in now.
+   */
+  session_input_released: Session;
   /** A stored message waits for an AI recipient that has no running session for its work item. */
   message_waiting: { projectKey: string; handle: string; workItem: WorkItemRef; messageId: string };
   /** An owner closed a network allowance (PM-140): the egress proxy ends its open tunnels. */

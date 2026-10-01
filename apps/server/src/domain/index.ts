@@ -418,6 +418,7 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_note_added', (note) => messaging.mentionNotice(note));
   // A started session gets the messages waiting for it; waiting messages wake their recipient.
   events.on('session_started', (session) => delivery.deliverWaiting(session));
+  events.on('session_input_released', (session) => delivery.deliverWaiting(session));
   events.on('message_waiting', ({ projectKey, handle, workItem, messageId }) => {
     background.run(
       () => messageStarts.wake(projectKey, handle, workItem),

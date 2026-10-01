@@ -7,6 +7,7 @@ import type {
   AcceptInviteRequest,
   CustomRoleRequest,
   UpdateMemberRequest,
+  UpdateSessionRequest,
   UpdateTaskRequest,
   CancelTaskRequest,
   CreateProjectRequest,
@@ -18,6 +19,7 @@ import type {
   LoginRequest,
   ResolveInboxRequest,
   RetireMemberRequest,
+  SessionDetail,
   SetupRequest,
   StartTaskRequest,
   CreateTaskCommentRequest,
@@ -264,6 +266,19 @@ export function useStopSession(key: string) {
   return useMutation({
     mutationFn: (sessionId: string) => api.stopSession(key, sessionId),
     onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.project(key) }),
+  });
+}
+
+/** An owner's permission settings for one session (PM-170): the answer is the session, written at once. */
+export function useUpdateSession(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sessionId, body }: { sessionId: string; body: UpdateSessionRequest }) =>
+      api.updateSession(key, sessionId, body),
+    onSuccess: (session) =>
+      client.setQueryData<SessionDetail>(queryKeys.session(key, session.id), (detail) =>
+        detail ? { ...detail, session } : detail,
+      ),
   });
 }
 

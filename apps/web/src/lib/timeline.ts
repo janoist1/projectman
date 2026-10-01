@@ -214,6 +214,27 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       return normal(d.resumed ? t('timeline.events.session_resumed') : t('timeline.events.session_started'));
     case 'session_ended':
       return normal(t('timeline.events.session_ended'));
+    case 'session_permission_changed': {
+      const approver = d.field === 'approver';
+      const value = (v: unknown) =>
+        !str(v)
+          ? t('common.dash')
+          : approver
+            ? tDynamic(`permissionControls.approvers.${str(v)}`, str(v))
+            : tDynamic(`permissionModes.${str(v)}`, str(v));
+      const change = t(
+        approver ? 'timeline.events.session_permission_approver' : 'timeline.events.session_permission_mode',
+        {
+          member: nameOf(str(d.member), ctx.members, ctx.myHandle),
+          from: value(d.from),
+          to: value(d.to),
+        },
+      );
+      const reset = d.reset === true ? t('timeline.events.session_permission_reset', { change }) : change;
+      return normal(
+        d.restart === true ? t('timeline.events.session_permission_restart', { change: reset }) : reset,
+      );
+    }
     case 'team_message':
       return normal(
         t('timeline.events.team_message', {

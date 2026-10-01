@@ -70,6 +70,11 @@ export class InputQueue {
     return this.awaitingSubmit !== null;
   }
 
+  /** Something is still on its way to the agent: queued, being typed, or not yet submitted. */
+  get hasPending(): boolean {
+    return !this.closed && (this.typing || this.queue.length > 0 || this.awaitingSubmit !== null);
+  }
+
   /** Queues a message; it is typed once the session is idle. Resolves once typed. */
   enqueue(text: string): Promise<void> {
     if (this.closed) return Promise.reject(new Error(`Session ${this.host.sessionId} is not running`));

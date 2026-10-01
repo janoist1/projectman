@@ -56,6 +56,8 @@ export interface RoleText {
   summary: string;
   /** What the role does not do (keeps roles apart). */
   notTheirJob: string;
+  /** When to turn to a member holding the role. */
+  whenToAsk: string;
 }
 
 /**

@@ -49,6 +49,32 @@ describe('role catalogue', () => {
     });
   });
 
+  it('says when to turn to a role: default texts, project overrides and custom roles', async () => {
+    await h.domain.roles.create('AR', { ...dataSteward, whenToAsk: 'When reference data looks wrong.' }, by);
+    await h.domain.projects.update('AR', by, (draft) => {
+      draft.team.roleOverrides = {
+        business_analyst: {
+          duties: ['requirements_analysis', 'task_breakdown'],
+          instructions: '',
+          whenToAsk: 'Ha egy kérés még homályos.',
+          notTheirJob: '  ',
+        },
+      };
+      return 'Rewrite the analyst texts';
+    });
+    const { roles } = await h.domain.roles.list('AR');
+    expect(roles.find((r) => r.id === 'business_analyst')).toMatchObject({
+      summary: hu.roles.business_analyst.summary,
+      notTheirJob: hu.roles.business_analyst.notTheirJob,
+      whenToAsk: 'Ha egy kérés még homályos.',
+    });
+    expect(roles.find((r) => r.id === 'qa')?.whenToAsk).toBe(hu.roles.qa.whenToAsk);
+    expect(roles.at(-1)?.whenToAsk).toBe('When reference data looks wrong.');
+    const teamYaml = readFileSync(join(h.configStore.rootDir, 'projects/AR/team.yaml'), 'utf8');
+    expect(teamYaml).toContain('whenToAsk: Ha egy kérés még homályos.');
+    expect(teamYaml).toContain('whenToAsk: When reference data looks wrong.');
+  });
+
   it('falls back to English texts for a language without a locale', async () => {
     await h.domain.projects.update('AR', by, (draft) => {
       draft.project.language = 'de';

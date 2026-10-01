@@ -15,6 +15,7 @@ const steward = {
   name: 'Acme steward',
   summary: 'Keeps data clean.',
   notTheirJob: 'Does not change schemas.',
+  whenToAsk: 'When the data looks wrong.',
   holders: 'both' as const,
   duties: [],
   instructions: 'Check duplicate records.',
@@ -35,11 +36,18 @@ describe('custom roles', () => {
     fireEvent.change(screen.getByLabelText(t('roleCatalogue.notTheirJob')), {
       target: { value: steward.notTheirJob },
     });
+    fireEvent.change(screen.getByLabelText(t('roleCatalogue.whenToAsk')), {
+      target: { value: steward.whenToAsk },
+    });
     fireEvent.change(screen.getByLabelText(t('roleCatalogue.instructions')), {
       target: { value: steward.instructions },
     });
     fireEvent.click(screen.getByRole('button', { name: t('memberEdit.save') }));
     await screen.findByText(steward.name);
+    expect(screen.getByText(`${t('roleCatalogue.whenToAsk')}: ${steward.whenToAsk}`)).toBeTruthy();
+    expect(
+      screen.getByText(`${t('roleCatalogue.whenToAsk')}: ${getLocale('hu').roles.operator.whenToAsk}`),
+    ).toBeTruthy();
     expect(project.requests.find((request) => request.method === 'POST')).toMatchObject({
       path: '/api/projects/AC/roles',
       body: steward,

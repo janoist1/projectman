@@ -64,6 +64,45 @@ describe('duty matrix', () => {
     expect(region.getAllByText(t('duties.missing')).length).toBeGreaterThan(0);
     expect(region.getAllByText(t('duties.ownerOnly')).length).toBeGreaterThan(0);
   });
+  it('edits the three texts of built-in and custom roles', async () => {
+    const project = mockProject();
+    project.backend.config.team.roles.push({
+      id: 'data_steward',
+      name: 'Data steward',
+      summary: 'Keeps the reference data clean.',
+      notTheirJob: '',
+      holders: 'both',
+      duties: ['docs'],
+      instructions: '',
+    });
+    project.render(<SettingsPage />);
+    const region = await matrix();
+    const locale = getLocale(project.backend.config.project.language);
+    const field = (key: 'summary' | 'notTheirJob' | 'whenToAsk', role: string) =>
+      region.getByLabelText(`${t(`roleCatalogue.${key}`)}: ${role}`) as HTMLTextAreaElement;
+    const developer = locale.roles.developer.name;
+    expect(field('whenToAsk', developer).value).toBe(locale.roles.developer.whenToAsk);
+    fireEvent.change(field('whenToAsk', developer), { target: { value: 'Ha kész a kártya.' } });
+    fireEvent.change(field('notTheirJob', developer), { target: { value: 'Nem dönt.' } });
+    fireEvent.change(field('summary', developer), { target: { value: locale.roles.developer.summary } });
+    fireEvent.change(field('whenToAsk', 'Data steward'), { target: { value: 'When data looks wrong.' } });
+    fireEvent.change(field('notTheirJob', 'Data steward'), {
+      target: { value: 'Does not change the schema.' },
+    });
+    fireEvent.click(region.getByRole('button', { name: t('memberEdit.save') }));
+    await waitFor(() =>
+      expect(project.backend.config.team.roleOverrides?.developer).toEqual({
+        duties: ['implementation'],
+        instructions: '',
+        notTheirJob: 'Nem dönt.',
+        whenToAsk: 'Ha kész a kártya.',
+      }),
+    );
+    expect(project.backend.config.team.roles[0]).toMatchObject({
+      whenToAsk: 'When data looks wrong.',
+      notTheirJob: 'Does not change the schema.',
+    });
+  });
   it('opens custom role creation from the matrix', async () => {
     const project = mockProject();
     project.render(<SettingsPage />);

@@ -27,6 +27,35 @@ describe('TeamPage role catalogue', () => {
     },
   );
 
+  it.each([false, true])('says on every member when to turn to them (mobile: %s)', async (mobile) => {
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+      matches: mobile,
+      media: query,
+      onchange: null,
+      addListener() {},
+      removeListener() {},
+      addEventListener() {},
+      removeEventListener() {},
+      dispatchEvent: () => false,
+    }));
+    const project = mockProject();
+    project.backend.config.team.roleOverrides = {
+      devops: { duties: ['deployment', 'monitoring'], instructions: '', whenToAsk: 'Ha élesíteni kell.' },
+    };
+    project.render(<TeamPage />);
+    const line = (text: string) => `${t('roleCatalogue.whenToAsk')}: ${text}`;
+    const roster = within(await screen.findByRole('region', { name: t('team.roster') }));
+    expect(await roster.findByText(line('Ha élesíteni kell.'))).toBeTruthy();
+    expect(roster.getByText(line(roleNames.qa.whenToAsk))).toBeTruthy();
+    expect(
+      roster.getByText(line(`${roleNames.operator.whenToAsk} ${roleNames.product_owner.whenToAsk}`)),
+    ).toBeTruthy();
+    const holders = project.backend.config.team.members.filter((m) => m.kind === 'ai' || m.roles.length > 0);
+    expect(roster.getAllByText(new RegExp(`^${t('roleCatalogue.whenToAsk')}: `))).toHaveLength(
+      holders.length,
+    );
+  });
+
   it('adds a colleague without an invitation, including handle, access and responsibilities', async () => {
     const project = mockProject();
     project.render(<TeamPage />);

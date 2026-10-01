@@ -7,7 +7,7 @@ import { Chip, StatusDot } from '../../components/Chip';
 import { ProviderBadge } from '../../components/ProviderBadge';
 import { t } from '../../i18n/t';
 import { memberStatusView, nameOf } from '../../lib/members';
-import { aiRoleView, humanRoleName } from '../../lib/roles';
+import { aiRoleView, humanRoleName, whenToAsk } from '../../lib/roles';
 import { MemberScheduleControl } from './ScheduledRuns';
 import styles from './Roster.module.css';
 
@@ -49,6 +49,7 @@ function MemberIdentity({
 }) {
   const { key, myHandle } = useProject();
   const { members } = useProjectIndexes(key);
+  const ask = whenToAsk(member.roles, roles);
   return (
     <div className={styles.memberCell}>
       <Avatar member={member} isMe={member.handle === myHandle} size="lg" status={status} />
@@ -66,6 +67,11 @@ function MemberIdentity({
         <span className={styles.handle}>
           <span className={styles.mono}>{member.handle}</span> · <RoleChips member={member} roles={roles} />
         </span>
+        {ask ? (
+          <span className={styles.whenToAsk}>
+            {t('roleCatalogue.whenToAsk')}: {ask}
+          </span>
+        ) : null}
       </span>
     </div>
   );

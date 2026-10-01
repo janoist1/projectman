@@ -22,6 +22,13 @@ import { errorMessage } from '../../lib/errors';
 import { RoleForm } from '../team/RoleSection';
 import styles from './DutiesMatrix.module.css';
 
+type RoleTextField = 'summary' | 'notTheirJob' | 'whenToAsk';
+const ROLE_TEXTS: { field: RoleTextField; maxLength: number }[] = [
+  { field: 'summary', maxLength: 280 },
+  { field: 'notTheirJob', maxLength: 200 },
+  { field: 'whenToAsk', maxLength: 280 },
+];
+
 export function DutiesMatrix({ config, version }: { config: ProjectConfig; version: string }) {
   const { key, isOwner, can } = useProject();
   const save = usePatchConfig(key);
@@ -47,6 +54,23 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
         bundle,
       );
     setDraft(next);
+  };
+  /** A built-in role shows its default text until the project writes its own. */
+  const text = (role: string, field: RoleTextField) =>
+    isBuiltInRole(role)
+      ? (draft.team.roleOverrides?.[role]?.[field] ?? locale.roles[role][field])
+      : (draft.team.roles.find((r) => r.id === role)?.[field] ?? '');
+  const setText = (role: string, field: RoleTextField, value: string) => {
+    if (!isBuiltInRole(role)) {
+      const next = structuredClone(draft);
+      next.team.roles.find((r) => r.id === role)![field] = value;
+      setDraft(next);
+      return;
+    }
+    change(role, (bundle) => {
+      if (value === locale.roles[role][field]) delete bundle[field];
+      else bundle[field] = value;
+    });
   };
   const toggle = (role: string, duty: DutyId) =>
     change(role, (bundle) => {
@@ -178,6 +202,26 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
           ))}
           {!people && (
             <tbody>
+              {ROLE_TEXTS.map(({ field, maxLength }) => (
+                <tr key={field}>
+                  <th scope="row">
+                    {t(`roleCatalogue.${field}`)}
+                    {roles.some(isBuiltInRole) ? <small>{t('roleCatalogue.defaultText')}</small> : null}
+                  </th>
+                  {roles.map((role) => (
+                    <td key={role}>
+                      <textarea
+                        aria-label={`${t(`roleCatalogue.${field}`)}: ${name(role)}`}
+                        disabled={!can.manageTeam}
+                        maxLength={maxLength}
+                        placeholder={isBuiltInRole(role) ? locale.roles[role][field] : undefined}
+                        value={text(role, field)}
+                        onChange={(e) => setText(role, field, e.target.value)}
+                      />
+                    </td>
+                  ))}
+                </tr>
+              ))}
               <tr>
                 <th>{t('duties.extra')}</th>
                 {roles.map((role) => (

@@ -137,6 +137,11 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
         <p>
           {t('roleCatalogue.notTheirJob')}: {selectedRole.notTheirJob}
         </p>
+        {selectedRole.whenToAsk ? (
+          <p>
+            {t('roleCatalogue.whenToAsk')}: {selectedRole.whenToAsk}
+          </p>
+        ) : null}
         <div className={styles.grid}>
           <TextField
             label={t('hire.displayName')}

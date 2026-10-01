@@ -34,6 +34,7 @@ export function RoleForm({
     name: role?.name ?? '',
     summary: role?.summary ?? '',
     notTheirJob: role?.notTheirJob ?? '',
+    whenToAsk: role?.whenToAsk ?? '',
     holders: role?.holders ?? ('both' as RoleHolders),
     duties: role?.duties ?? [],
     instructions,
@@ -85,6 +86,12 @@ export function RoleForm({
         maxLength={200}
         value={draft.notTheirJob}
         onChange={(event) => setDraft({ ...draft, notTheirJob: event.target.value })}
+      />
+      <TextAreaField
+        label={t('roleCatalogue.whenToAsk')}
+        maxLength={280}
+        value={draft.whenToAsk}
+        onChange={(event) => setDraft({ ...draft, whenToAsk: event.target.value })}
       />
       <p>
         {t('roleCatalogue.holders')}: {t(`roleCatalogue.${dutyHolders(draft.duties) ?? 'both'}`)}
@@ -145,6 +152,11 @@ export function RoleSection({ config }: { config?: ProjectConfig }) {
                 <p className={styles.muted}>
                   {t('roleCatalogue.notTheirJob')}: {view.notTheirJob}
                 </p>
+                {view.whenToAsk ? (
+                  <p className={styles.muted}>
+                    {t('roleCatalogue.whenToAsk')}: {view.whenToAsk}
+                  </p>
+                ) : null}
                 {!role.builtIn && can.manageTeam ? (
                   <div className={formStyles.actions}>
                     <Button size="sm" variant="ghost" disabled={!config} onClick={() => setEditing(role)}>

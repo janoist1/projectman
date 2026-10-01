@@ -217,9 +217,25 @@ export function MemberProfilePage() {
             />
           </>
         )}
-        <p>
-          {member.roles.map((role) => aiRoleView(role, member.specialty, roles.data?.roles).name).join(' · ')}
-        </p>
+        {member.roles.map((role) => {
+          const view = aiRoleView(role, member.specialty, roles.data?.roles);
+          return (
+            <div key={role} className={styles.role} aria-label={view.name}>
+              <h3>{view.name}</h3>
+              {view.summary ? <p>{view.summary}</p> : null}
+              {view.notTheirJob ? (
+                <p>
+                  {t('roleCatalogue.notTheirJob')}: {view.notTheirJob}
+                </p>
+              ) : null}
+              {view.whenToAsk ? (
+                <p>
+                  {t('roleCatalogue.whenToAsk')}: {view.whenToAsk}
+                </p>
+              ) : null}
+            </div>
+          );
+        })}
         <h2>{t('profile.duties')}</h2>
         <ul>
           {data.duties.map((duty) => (

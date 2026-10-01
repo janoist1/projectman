@@ -121,7 +121,7 @@ export function readableRootsFor(input: {
  * - deny: publishing (`git push`, `gh pr create`, `gh pr merge`) from a repository without GitHub;
  * - deny: a command that rewrites a file in place (`sed -i`, `perl -pi -e`), with a pointer to
  *   the editing tools, see `in-place-edits.ts`;
- * - allow: a developer's routine steps in the task's own worktree (lockfile install, `git add`,
+ * - allow: a developer's routine steps in the task's own worktree (lockfile install, formatting, `git add`,
  *   `git commit` with a message, `git merge --ff-only`), alone or in a chain with read-only
  *   steps, see `worktree-commands.ts`;
  * - allow: read-only commands inside `readableRoots`, for any AI session on a task, see

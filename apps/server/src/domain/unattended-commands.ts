@@ -6,7 +6,7 @@ import {
   READ_ONLY_GIT,
   READ_ONLY_PROGRAMS,
 } from './read-only-commands';
-import { ADD_FLAGS, COMMIT_FLAGS, INSTALL_FLAGS, MERGE_FLAGS } from './worktree-commands';
+import { ADD_FLAGS, COMMIT_FLAGS, FORMAT_WRITE_FLAGS, INSTALL_FLAGS, MERGE_FLAGS } from './worktree-commands';
 
 /**
  * What the server lets an AI member run without asking a human, worded for the member's system
@@ -89,6 +89,9 @@ export function describeUnattendedCommands(input: UnattendedCommandsInput): stri
     }`,
   ];
   if (worktree && hasRepo) {
+    lines.push(
+      `- Formatting is a routine step in your own worktree: ${code('npx prettier')} with ${flagList(FORMAT_WRITE_FLAGS)} and one or more paths inside the worktree (no other options), or ${code('npm run format')} without extra arguments. These are not read-only checks. They may run in a chain, as the first stage of a pipe into readers, and with ${code('>/dev/null 2>&1')}: ${code('npx prettier --write src/a.ts >/dev/null 2>&1; npm run typecheck 2>&1 | head -20')}. Paths outside the worktree wait for a human.`,
+    );
     // The rule takes the default branch, its remote branch or a commit id, and no other ref.
     const merge = `${code(`git merge --ff-only ${defaultBranch ?? '<commit id>'}`)}${
       defaultBranch ? ' (or a commit id)' : ''

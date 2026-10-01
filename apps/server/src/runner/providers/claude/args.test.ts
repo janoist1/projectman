@@ -437,9 +437,33 @@ describe('the managed VM profile (PM-141)', () => {
     expect(legacy.sandbox).toBeDefined();
     expect(legacy).not.toHaveProperty('skipDangerousModePermissionPrompt');
     const args = buildClaudeArgs(spec, legacy);
-    expect(args).not.toContain('--strict-mcp-config');
     expect(args).not.toContain('--setting-sources');
   });
+
+  it('turns Claude Code auto memory off on every profile (PM-208)', () => {
+    expect(buildSettings({ ...input, policy: undefined }).autoMemoryEnabled).toBe(false);
+    expect(buildSettings({ ...input, policy: policy() }).autoMemoryEnabled).toBe(false);
+  });
+
+  it.each([false, true])(
+    'reaches only the team server and no browser, with and without a policy, resume=%s (PM-208)',
+    (resume) => {
+      for (const withPolicy of [false, true]) {
+        const args = buildClaudeArgs(
+          { ...spec, resume, ...(withPolicy ? { policy: policy() } : {}) },
+          buildSettings({ ...input, policy: withPolicy ? policy() : undefined }),
+        );
+        expect(args).toContain('--strict-mcp-config');
+        expect(args).toContain('--no-chrome');
+        // The only MCP source is the team server; the variadic --mcp-config ends at the next flag.
+        expect(args.filter((arg) => arg === '--mcp-config')).toHaveLength(1);
+        expect(args[args.indexOf('--mcp-config') + 2]).toBe('--strict-mcp-config');
+        expect(args).not.toContain('--chrome');
+        // The settings the session starts with turn Claude Code's own auto memory off.
+        expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toMatchObject({ autoMemoryEnabled: false });
+      }
+    },
+  );
 
   it('refuses a managed VM policy that asks, or runs in a mode that does', () => {
     const asking = policy('bypassPermissions', {

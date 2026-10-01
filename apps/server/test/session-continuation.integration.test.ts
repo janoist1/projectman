@@ -89,6 +89,12 @@ it.each(PROVIDERS)(
     await idle(first.id);
     await said(first.id, /^Echo: # AR-1/);
     const conversation = domain.sessions.get('AR', first.id).claudeSessionId;
+    // A Claude member reaches only its team server and no browser, new or resumed (PM-208).
+    const reachesOnlyTeam = () => {
+      expect(argv()).toEqual(expect.arrayContaining(['--strict-mcp-config', '--no-chrome']));
+      expect(argv().filter((arg) => arg === '--mcp-config')).toHaveLength(1);
+    };
+    if (provider === 'claude') reachesOnlyTeam();
     await stopped(first.id);
 
     // Nothing but the start asks for the session again: it is told it was restarted.
@@ -107,6 +113,7 @@ it.each(PROVIDERS)(
     } else {
       expect(argv()).toEqual(expect.arrayContaining(['--resume', conversation]));
       expect(argv()).not.toContain(continueMessage);
+      reachesOnlyTeam();
     }
     await stopped(first.id);
 

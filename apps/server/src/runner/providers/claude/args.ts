@@ -108,6 +108,8 @@ export interface ClaudeSettings {
   sandbox?: ClaudeSandboxSettings;
   /** Environment variables Claude Code sets for the session and its commands (the sandbox's `env`, PM-193). */
   env?: Record<string, string>;
+  /** Claude Code's own auto memory is off: the team keeps its memory in projectman (PM-208). */
+  autoMemoryEnabled: false;
   /** Managed VM profile: no first-use confirmation of the bypass mode (it would wait in the terminal). */
   skipDangerousModePermissionPrompt?: true;
 }
@@ -253,6 +255,7 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
     // The managed VM profile keeps no inner limits, the classifier's guidance included.
     ...(managed ? {} : { autoMode: AUTO_MODE_SETTINGS }),
     hooks,
+    autoMemoryEnabled: false,
     ...(sandbox ? { sandbox: buildSandboxSettings(sandbox) } : {}),
     ...(sandbox?.env && Object.keys(sandbox.env).length > 0 ? { env: { ...sandbox.env } } : {}),
     ...(managed && input.policy!.permissions.claude === 'bypassPermissions'
@@ -294,9 +297,14 @@ export function buildClaudeArgs(spec: StartSessionSpec, settings: ClaudeSettings
   else args.push('--session-id', spec.claudeSessionId);
   if (spec.appendSystemPrompt) args.push('--append-system-prompt', spec.appendSystemPrompt);
   args.push('--mcp-config', JSON.stringify(buildMcpConfig(spec.mcpUrl)));
-  // The managed VM's start is protected (PM-49): only the team server of this session, and no
-  // settings of the project's own files; the user's file is inspected before the start.
-  if (isManagedVm(spec.policy)) args.push('--strict-mcp-config', '--setting-sources', 'user');
+  // Every session reaches only the team server of its own `--mcp-config` (PM-208): the strict flag
+  // leaves out the owner's claude.ai connectors (Gmail, Drive, Calendar, ClickUp...) and the
+  // `.mcp.json` of user and project, and `--no-chrome` keeps Claude in Chrome (the owner's logged-in
+  // browser) out. Both are the same on a new and on a resumed session.
+  args.push('--strict-mcp-config', '--no-chrome');
+  // The managed VM's start is also protected from the project's own settings (PM-49); the user's
+  // file is inspected before the start.
+  if (isManagedVm(spec.policy)) args.push('--setting-sources', 'user');
   args.push('--settings', JSON.stringify(settings));
   if (spec.subagents?.length) args.push('--agents', JSON.stringify(buildAgents(spec.subagents)));
   const directories = spec.policy

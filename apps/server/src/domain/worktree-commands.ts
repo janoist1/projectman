@@ -5,7 +5,7 @@ import type { ShellCommand, ShellSegment } from './shell-words';
 
 /**
  * The routine steps of a developer in the task's own worktree, which the server allows without
- * asking (PM-77): a lockfile install, `git add`, `git commit` with a message and a fast-forward
+ * asking (PM-77, PM-109): a lockfile install, formatting, `git add`, `git commit` with a message and a fast-forward
  * `git merge`. Codex's sandbox may write the repository's `.git` (the session makes it a writable
  * root), so the git steps run there on their own; the install needs the network, which is an
  * escalation for Codex members. Nothing here pushes, rewrites history or leaves the worktree.
@@ -13,6 +13,7 @@ import type { ShellCommand, ShellSegment } from './shell-words';
  */
 
 export const INSTALL_FLAGS = new Set(['--prefer-offline', '--no-audit', '--no-fund']);
+export const FORMAT_WRITE_FLAGS = new Set(['--write', '-w']);
 export const ADD_FLAGS = new Set(['-A', '--all', '-u', '--update']);
 export const COMMIT_FLAGS = new Set(['-a', '--all', '-q', '--quiet']);
 /** Options that take the commit message as the next word. */
@@ -96,8 +97,10 @@ function isRoutineStep(words: readonly string[], context: WorktreeRoutineContext
   // `-C`, `git -c key=value …`, `--git-dir` and `--work-tree` are not routine.
   const [program, subcommand, ...args] = withoutOwnDirectory(words, [context.cwd]);
   if (program === 'npm') {
+    if (subcommand === 'run' && args.length === 1 && args[0] === 'format') return true;
     return (subcommand === 'ci' || subcommand === 'install') && args.every((flag) => INSTALL_FLAGS.has(flag));
   }
+  if (program === 'npx' && subcommand === 'prettier') return isFormatting(args, context.cwd);
   if (program !== 'git') return false;
   switch (subcommand) {
     case 'add':
@@ -109,6 +112,27 @@ function isRoutineStep(words: readonly string[], context: WorktreeRoutineContext
     default:
       return false;
   }
+}
+
+/** Prettier writing explicitly named paths inside the worktree, with no other options. */
+function isFormatting(args: readonly string[], cwd: string): boolean {
+  const root = path.resolve(cwd);
+  let writes = false;
+  let paths = 0;
+  let onlyPaths = false;
+  for (const arg of args) {
+    if (!onlyPaths && FORMAT_WRITE_FLAGS.has(arg)) {
+      writes = true;
+    } else if (!onlyPaths && arg === '--') {
+      onlyPaths = true;
+    } else {
+      if (arg === '' || (!onlyPaths && arg.startsWith('-'))) return false;
+      const resolved = resolveWord(root, arg);
+      if (resolved === null || !isWithin(root, resolved)) return false;
+      paths += 1;
+    }
+  }
+  return writes && paths > 0;
 }
 
 /** `git add` of everything or of paths inside the worktree (the shell expands globs there). */

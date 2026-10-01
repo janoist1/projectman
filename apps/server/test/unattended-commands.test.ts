@@ -76,6 +76,9 @@ describe('commands that run without asking: the rules the section lists', () => 
   it.each([
     'npm ci',
     'npm install --prefer-offline --no-audit --no-fund',
+    'npx prettier --write src/a.ts',
+    'npx prettier -w .',
+    'npm run format',
     'git add -A',
     'git add -u',
     'git add src/a.ts docs',
@@ -99,6 +102,8 @@ describe('commands that run without asking: the rules the section lists', () => 
     "git log --oneline -5 | grep -n 'Add'",
     'git ls-files | xargs grep -n foo',
     'npm run typecheck 2>&1 | head -20',
+    'npx prettier --write src/a.ts >/dev/null 2>&1; npm run typecheck 2>&1 | head -20',
+    'npm run format 2>&1 | tail -3',
     'npm test 2>/dev/null; git status',
     'find . -name "*.ts" | wc -l',
   ])('allows the forms the section recommends: %s', (command) => {
@@ -184,6 +189,20 @@ describe('commands that run without asking: the section', () => {
     const noRepo = section({ worktree: true, hasRepo: false }).join('\n');
     expect(noRepo).not.toContain('git commit');
     expect(noRepo).toContain('in your working directory.');
+  });
+
+  it('describes formatting only as a routine step in a repository worktree', () => {
+    const text = section().join('\n');
+    expect(text).toContain('`npx prettier` with `--write`, `-w`');
+    expect(text).toContain('`npm run format` without extra arguments');
+    expect(text).toContain('These are not read-only checks');
+    expect(text).toContain('Paths outside the worktree wait for a human');
+    for (const input of [{ worktree: false }, { hasRepo: false }]) {
+      expect(section(input).join('\n')).not.toContain('Formatting is a routine step');
+    }
+    for (const command of ['npx prettier --write src/a.ts', 'npm run format']) {
+      expect(allowed('code_review', command)).toBe(false);
+    }
   });
 
   it('says a routine chain may start with a cd to the working directory only', () => {

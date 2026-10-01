@@ -217,6 +217,81 @@ describe('automatic command policy', () => {
   });
 });
 
+describe('routine formatting in the developer worktree (PM-109)', () => {
+  const allowed = { behavior: 'allow' };
+
+  it.each([
+    'npx prettier --write apps/web/src/features/board/TaskDrawer.test.tsx',
+    'npx prettier -w .',
+    'npx prettier src/a.ts --write docs/a.md',
+    'npx prettier --write "docs/a file.md"',
+    "npx prettier --write 'src/**/*.ts' *.md .prettierrc.json",
+    'npx prettier --write -- -odd-name.ts',
+    `npx prettier --write ${cwd}/src/a.ts ${cwd}`,
+    'npm run format',
+    'npx prettier --write src/a.ts && npx vitest run test/a.test.ts',
+    'npx prettier -w src/a.ts || npm run format',
+    'git status; npm run format; git add -A',
+    `cd ${cwd} && npm run format && npm run typecheck`,
+    'npx prettier --write src/a.ts 2>&1 | tail -3',
+    'npm run format 2>&1 | grep formatted | head -10',
+    'npm run format >/dev/null 2>&1; npm test',
+    "npx prettier --write apps/web/src/features/board/TaskDrawer.test.tsx >/dev/null 2>&1; npm run typecheck 2>&1 | grep -v '^npm\\|^$\\|^>' | head; npm test 2>&1 | grep -E 'Test Files|Tests |FAIL|×' | head -30",
+  ])('allows %s', (command) => {
+    expect(verdict(command)).toEqual(allowed);
+  });
+
+  it.each([
+    'npx prettier --write ../other/x.ts',
+    'npx prettier -w ..',
+    'npx prettier --write /elsewhere/x.ts',
+    `npx prettier --write ${cwd}-other/x.ts`,
+    'npx prettier --write src/a.ts ../other/x.ts',
+    'npx prettier --write -- ../other/x.ts',
+    'npx prettier --write src/../../other/x.ts',
+    "npx prettier --write '.*'",
+    'npx prettier --write',
+    'npx prettier --write ""',
+    'npx prettier --write=false .',
+    'npx prettier --write . --config /elsewhere/prettier.json',
+    'npx prettier --write . --plugin ./plugin.js',
+    'npx prettier --write . --ignore-path ../other/ignore',
+    'npm run format -- ../other/x.ts',
+    'npm run format --prefix /elsewhere',
+    'npm run format:other',
+    'cd apps && npx prettier --write .',
+    'npx prettier --write src/a.ts | tee log.txt',
+    'cat files.txt | npx prettier --write src/a.ts',
+    'npm run format > log.txt',
+    'npx prettier --write src/a.ts; touch other.ts',
+    'npx prettier --write ../other/x.ts && npm test',
+    'npx prettier --write /elsewhere/x.ts 2>&1 | head',
+  ])('leaves wider formatting commands for a human: %s', (command) => {
+    expect(commandVerdict({ ...input, readableRoots: [cwd], toolInput: { command } })).toBeNull();
+  });
+
+  it.each(['npx prettier --write src/a.ts', 'npx prettier -w .', 'npm run format'])(
+    'keeps %s to task sessions that may write in their worktree',
+    (command) => {
+      for (const overrides of [
+        { session: { cwd: '/workspace', role: 'developer' } },
+        { session: { cwd, role: 'code_review' } },
+        { task: null },
+        { worktreesRootDir: undefined },
+      ]) {
+        expect(
+          commandVerdict({
+            ...input,
+            ...overrides,
+            readableRoots: ['/workspace', cwd],
+            toolInput: { command },
+          }),
+        ).toBeNull();
+      }
+    },
+  );
+});
+
 describe('routine git steps in the developer worktree (PM-77)', () => {
   const allowed = { behavior: 'allow' };
 

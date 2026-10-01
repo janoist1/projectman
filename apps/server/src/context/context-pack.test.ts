@@ -276,7 +276,7 @@ describe('context pack snapshots', () => {
         timeline: timeline.slice(0, 4),
       }),
     );
-    await expect(pack.appendSystemPrompt).toMatchFileSnapshot(
+    await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
       '__snapshots__/developer-dev.system-prompt.txt',
     );
     await expect(pack.initialMessage).toMatchFileSnapshot('__snapshots__/developer-dev.brief.txt');

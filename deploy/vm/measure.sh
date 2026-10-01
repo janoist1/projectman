@@ -3,7 +3,7 @@
 # and of each worker account, as CSV. It only measures: no limit is set or implied. Run it while
 # a known number of AI sessions work, then read the peak of each column.
 #
-#   deploy/vm/measure.sh [INTERVAL_SECONDS=10] [SAMPLES=60] > measure.csv
+#   sudo bash deploy/vm/measure.sh [INTERVAL_SECONDS=10] [SAMPLES=60] > measure.csv
 #
 # Columns: time, cpus, load1, mem_total_mb, mem_available_mb, swap_used_mb, disk_used_mb,
 # disk_avail_mb, then, per account of the profile (service first, workers by uid): rss_mb of all

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Measures the managed VM profile (PM-137) and writes a readiness report as JSON.
 #
-#   sudo deploy/vm/verify.sh [--out FILE]
+#   sudo bash deploy/vm/verify.sh [--out FILE]
 #   cd /srv/projectman && npx tsx scripts/vm-readiness.ts FILE     # the verdict
 #
 # Run as root on the guest: the probes switch to the service and worker accounts (runuser) and

@@ -95,8 +95,8 @@ because the VM must run a recorded commit). `~/.ssh/<name>.pub` is a public key 
 private key never leaves the Mac.
 
 ```sh
-deploy/vm/mac-multipass.sh create --ssh-key ~/.ssh/<name>.pub          # default: projectman-vm, 2 CPUs, 4G, 10G
-deploy/vm/mac-multipass.sh deploy --workers "dev codex qa"             # bootstrap.sh + install-app.sh --smoke
+bash deploy/vm/mac-multipass.sh create --ssh-key ~/.ssh/<name>.pub     # default: projectman-vm, 2 CPUs, 4G, 10G
+bash deploy/vm/mac-multipass.sh deploy --workers "dev codex qa"        # bootstrap.sh + install-app.sh --smoke
 ```
 
 `deploy` copies the commit with `multipass transfer` (nothing is mounted), runs `bootstrap.sh` and
@@ -119,7 +119,7 @@ sudo bash deploy/vm/install-app.sh --archive projectman.tar.gz --commit <40-hex 
    `codex login` (ChatGPT account, not an API key). `gh auth login` and any GitHub identity are
    PM-142's, not part of this baseline. Then `sudo systemctl restart projectman`.
 2. **First owner**: forward the port and open the app locally, as in [DEPLOY.md](DEPLOY.md):
-   `deploy/vm/mac-multipass.sh forward --ssh-key ~/.ssh/<name>` (agent forwarding is off), then
+   `bash deploy/vm/mac-multipass.sh forward --ssh-key ~/.ssh/<name>` (agent forwarding is off), then
    `http://127.0.0.1:4700`. A new account or token for the VM is created by a person here, never
    copied from the live instance.
 3. **Phone**: install Tailscale in the VM with the vendor's instructions, `sudo tailscale up`, then

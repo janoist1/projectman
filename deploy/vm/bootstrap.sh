@@ -170,5 +170,5 @@ log "done"
 cat <<EOF
 Bootstrap finished: node $node_found, $count workers, egress gate loaded.
 Next (docs/VM.md): install-app.sh, the subscription logins as $SERVICE_USER, the first owner over
-the ssh forward, then 'sudo $APP_DIR/deploy/vm/verify.sh --out $STATE_DIR/readiness.json'.
+the ssh forward, then 'sudo bash $APP_DIR/deploy/vm/verify.sh --out $STATE_DIR/readiness.json'.
 EOF

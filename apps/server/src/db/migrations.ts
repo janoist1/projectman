@@ -368,5 +368,14 @@ export const migrations: Migration[] = [
     // allowed belong to that profile), so the start needs to know. Every older row is `legacy`.
     sql: `ALTER TABLE sessions ADD COLUMN execution_profile TEXT NOT NULL DEFAULT 'legacy';`,
   },
+  {
+    version: 15,
+    name: 'provenance of a published pull request author',
+    // Who authored a pull request that the publishing gate opened (PM-142). The author of such a link
+    // comes from the authenticated session, and `author_source = 'published'` keeps polling from
+    // replacing it with a member matched by the shared bot login. Every older link has none (NULL)
+    // and keeps the login-matching behavior it always had.
+    sql: `ALTER TABLE task_links ADD COLUMN author_source TEXT;`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

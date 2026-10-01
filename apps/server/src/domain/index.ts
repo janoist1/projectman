@@ -8,6 +8,7 @@ import type {
   ConfigStore,
   ContextPackBuilder,
   EventBus,
+  GithubPublisher,
   GithubService,
   ManagedVmBoundary,
   MemberMemoryStore,
@@ -37,6 +38,7 @@ import { MessageDelivery, MessageService, Messaging } from './messaging';
 import { PlanUsageMonitor } from './plan-usage';
 import { PresenceService } from './presence';
 import { ProjectService } from './projects';
+import { PublishingGate } from './publishing';
 import { RoleService } from './roles';
 import { ScheduleService } from './schedules';
 import type { ScheduleTimer } from './schedules';
@@ -115,6 +117,11 @@ export interface DomainOptions {
   /** Creates the runner module once the permission broker (the inbox) exists. */
   createRunner: (broker: PermissionBroker) => RunnerModule;
   github: GithubService;
+  /**
+   * The VM's GitHub publishing identity (PM-142): without it `publish_task_branch` refuses. It is
+   * separate from `github`, which only reads, so the poller never holds write rights.
+   */
+  githubPublisher?: GithubPublisher;
   contextBuilder: ContextPackBuilder;
   memory: MemberMemoryStore;
   worktrees: WorktreeManager;
@@ -265,8 +272,16 @@ export function createDomain(opts: DomainOptions) {
     timer: opts.scheduleTimer,
   });
   const githubSync = new GithubSync({ ctx, github: opts.github, tasks, projects });
+  const publishing = new PublishingGate({
+    ctx,
+    projects,
+    tasks,
+    githubSync,
+    publisher: opts.githubPublisher,
+  });
   const teamTools = new TeamToolsService({
     boundary,
+    publishing,
     ctx,
     projects,
     tasks,

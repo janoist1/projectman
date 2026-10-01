@@ -25,6 +25,12 @@ export interface FakeGhScenario {
   pullRequests?: Record<string, FakeGhResponse | FakeGhResponse[]>;
   /** Keyed by "owner/name@<branch>". */
   branches?: Record<string, FakeGhResponse | FakeGhResponse[]>;
+  /** `gh pr create`, keyed by "owner/name@<branch>"; unscripted calls create a pull request in the fake's state. */
+  create?: Record<string, FakeGhResponse | FakeGhResponse[]>;
+  /** What each token (GH_TOKEN) may do; an unknown token is login "bot" without the right to merge. */
+  identities?: Record<string, { login: string; canMerge?: boolean }>;
+  /** The number of the first created pull request (default 100). */
+  firstNumber?: number;
 }
 
 export interface FakeGhCall {
@@ -32,6 +38,8 @@ export interface FakeGhCall {
   key: string;
   argv: string[];
   env: Record<string, string | null>;
+  /** The variables an identity or configuration comes from (GH_TOKEN, GITHUB_TOKEN, HOME, GH_CONFIG_DIR). */
+  identity: Record<string, string | null>;
   start: number;
   end: number | null;
 }
@@ -70,6 +78,7 @@ export async function createFakeGh(scenario: FakeGhScenario = {}): Promise<FakeG
             key: line.key as string,
             argv: line.argv as string[],
             env: line.env as Record<string, string | null>,
+            identity: line.identity as Record<string, string | null>,
             start: line.at as number,
             end: null,
           });

@@ -181,6 +181,19 @@ the server's checkouts there: until the VM boundary (PM-140) separates the serve
 the members', they run as the same user the sessions already are. Workspaces are reserved for one
 session's process group at a time, so no session can switch the branch under another.
 
+**Publishing from the managed VM (PM-142).** The only way a task branch leaves the VM is the
+publishing gate ([GITHUB.md](GITHUB.md#publishing-from-the-managed-vm-pm-142)): the server takes
+member, task, repository and branch from its own records, builds the refspec itself and pushes with a
+separate GitHub identity whose token only the service reads (a file refused unless group and others
+cannot read it). The identity has no administration, workflow, secret, environment or deployment
+permission, is no bypass actor, and the repository's rulesets refuse it the default branch, force
+pushes, deletion, tags and merging; a deployment sits behind an environment with the owner as required
+reviewer. The token is redacted from every log and answer; the git and gh it is given run with a
+minimal environment of their own and never inside a worker's clone. The pull request's author is
+recorded from the authenticated session, so a shared bot login cannot launder authorship around the
+no-self-review rule. Enforcement by GitHub depends on the plan and the repository: it is verified by
+the trial script on a throwaway repository, not assumed.
+
 The model and fake CLI regression tests prove rendering and compatibility only. PM-126's
 corrected manual macOS subscription probe and the PM-130 adversarial matrix must establish
 the real filesystem/network boundary, hook/lifecycle confinement and publishing protection.

@@ -23,6 +23,9 @@ import { createShutdown } from './shutdown';
  *   `deploy/vm/verify.sh`, at most PROJECTMAN_VM_REPORT_MAX_AGE_MINUTES old, default 1440) proves
  *   the boundary at the start. It needs PROJECTMAN_WORKSPACES=member; an unknown or conflicting
  *   setting stops the server. The CLIs never see these variables.
+ *   PROJECTMAN_GITHUB_PUBLISH_TOKEN_FILE: the VM's separate GitHub identity for publishing task
+ *   branches (PM-142, docs/GITHUB.md): a file only the service can read, holding that identity's token.
+ *   Only the managed VM profile accepts it; without it nothing is published.
  * The agent CLIs start with this environment, minus billing and host-session variables (the
  * runner removes them); the git and gh commands the server runs inherit it.
  * Remote access goes through Tailscale (`tailscale serve`), not by binding publicly.
@@ -72,6 +75,7 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
       executionProfile,
       vmReadinessReport: env.PROJECTMAN_VM_READINESS_REPORT || undefined,
       vmReadinessMaxAgeMs: reportMinutes > 0 ? reportMinutes * 60_000 : undefined,
+      githubPublishTokenFile: env.PROJECTMAN_GITHUB_PUBLISH_TOKEN_FILE || undefined,
     },
   };
 }

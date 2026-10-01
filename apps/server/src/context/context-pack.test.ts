@@ -1627,6 +1627,22 @@ describe('the managed VM profile (PM-141)', () => {
     expect(policy).not.toContain('Enforcement is the existing provider and command policy');
   });
 
+  it('sends a developer on GitHub to the publishing gate, not to git push and gh (PM-142)', () => {
+    const project = buildProject();
+    const task = makeTask({ stageId: 'dev', repo: 'app' });
+    const managed = builder.build(
+      input({ project, handle: 'fe-1', task, sessionPolicy: managedPolicy(project, task, WORK) }),
+    ).appendSystemPrompt;
+    expect(managed).toContain('publish it with publish_task_branch');
+    expect(managed).not.toContain('Commit, push, open a pull request and attach it with link_pull_request.');
+    expect(section(managed, '# Session policy')).toContain('only through publish_task_branch');
+    expect(section(managed, '# Session policy')).toContain('hold no GitHub credentials');
+    // Everywhere else the member opens and links the pull request as before.
+    const legacy = builder.build(input({ project, handle: 'fe-1', task })).appendSystemPrompt;
+    expect(legacy).toContain('Commit, push, open a pull request and attach it with link_pull_request.');
+    expect(legacy).not.toContain('publish it with publish_task_branch');
+  });
+
   it('leaves out the command forms: nothing waits for a human, so there is nothing to write them for', () => {
     const project = buildLocalOnlyProject('.');
     const task = makeTask({ stageId: 'dev', repo: 'app' });

@@ -116,8 +116,10 @@ sudo bash deploy/vm/install-app.sh --archive projectman.tar.gz --commit <40-hex 
 
 1. **Subscription logins**, in the VM, as the service account: `multipass shell projectman-vm`, then
    `sudo -iu projectman` and `claude auth login` (choose the Claude subscription, not Console/API),
-   `codex login` (ChatGPT account, not an API key). `gh auth login` and any GitHub identity are
-   PM-142's, not part of this baseline. Then `sudo systemctl restart projectman`.
+   `codex login` (ChatGPT account, not an API key). `gh auth login` is never run for the VM; its
+   one GitHub identity is the separate publishing identity of PM-142, installed by a person as a token
+   file the service alone reads ([GITHUB.md](GITHUB.md#one-time-setup-by-the-owner)). Then
+   `sudo systemctl restart projectman`.
 2. **First owner**: forward the port and open the app locally, as in [DEPLOY.md](DEPLOY.md):
    `bash deploy/vm/mac-multipass.sh forward --ssh-key ~/.ssh/<name>` (agent forwarding is off), then
    `http://127.0.0.1:4700`. A new account or token for the VM is created by a person here, never

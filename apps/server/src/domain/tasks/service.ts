@@ -555,6 +555,53 @@ export class TaskService {
     });
   }
 
+  /**
+   * A published task branch and its pull request (PM-142). The pull request's author is `author`,
+   * the member whose authenticated session published it; polling by the bot's login never changes
+   * it, and it stays when the task is reassigned, so the no-self-review rule keeps holding.
+   */
+  recordPublication(
+    projectKey: string,
+    taskKey: string,
+    publication: { repo: string; branch: string; pullRequest: PullRequestInfo },
+    author: string,
+    actor: Actor,
+    sessionId: string | null,
+  ): Task {
+    return this.ctx.unitOfWork(() => {
+      const task = this.get(projectKey, taskKey);
+      const at = isoNow(this.ctx);
+      const { repo, branch, pullRequest } = publication;
+      const links: Array<{ link: TaskLink; result: 'inserted' | 'updated' | 'unchanged' }> = [
+        {
+          link: { kind: 'branch', ref: branch, repo },
+          result: this.ctx.repos.tasks.upsertLink(task.id, { kind: 'branch', ref: branch, repo }, at),
+        },
+      ];
+      const prLink: TaskLink = {
+        kind: 'pull_request',
+        ref: String(pullRequest.number),
+        repo: pullRequest.repo,
+        title: pullRequest.title,
+        state: pullRequest.state,
+      };
+      links.push({
+        link: prLink,
+        result: this.ctx.repos.tasks.recordPublication(task.id, prLink, author, at),
+      });
+      if (links.every((entry) => entry.result === 'unchanged')) return task;
+      for (const { link, result } of links) {
+        if (result !== 'inserted') continue;
+        const data: TimelineEventData['task_link_added'] = { kind: link.kind, ref: link.ref };
+        if (link.repo) data.repo = link.repo;
+        this.timeline.append({ projectKey, taskKey, sessionId, actor, type: 'task_link_added', data });
+      }
+      const next = this.get(projectKey, taskKey);
+      this.publish(next);
+      return next;
+    });
+  }
+
   /** Keeps the full snapshot already fetched by GitHub; unknown links remain nullable. */
   recordPullRequest(pr: PullRequestInfo): void {
     this.pullRequests.record(pr);

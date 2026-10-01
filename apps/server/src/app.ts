@@ -17,6 +17,7 @@ import type {
   AttachmentStorage,
   BoundaryOperationAdapter,
   ContextPackBuilder,
+  GithubPublisher,
   GithubService,
   ManagedVmBoundary,
   McpModule,
@@ -31,7 +32,7 @@ import { createRepositories, openDatabase } from './db';
 import type { Repositories } from './db';
 import { createAttachmentStorage, createDomain } from './domain';
 import type { Domain, ScheduleTimer, TemplateRegistry } from './domain';
-import { createGithubService } from './github';
+import { createGithubPublisher, createGithubService, createTokenFileReader } from './github';
 import { createMcpModule } from './mcp';
 import { createReadinessBoundary, createRunnerModule } from './runner';
 import { createMemberWorkspaceManager, createWorktreeManager } from './worktree';
@@ -61,6 +62,8 @@ export interface AppModules {
   createRunnerModule?: (opts: RunnerModuleOptions) => RunnerModule;
   createMcpModule?: (opts: McpModuleOptions) => McpModule;
   github?: GithubService;
+  /** The VM's GitHub publishing identity (default: built from `githubPublishTokenFile`, else none). */
+  githubPublisher?: GithubPublisher;
   contextPackBuilder?: ContextPackBuilder;
   memberMemory?: MemberMemoryStore;
   worktrees?: WorktreeManager;
@@ -139,6 +142,12 @@ export interface BuildAppOptions {
   vmReadinessReport?: string;
   /** How old that report may be (default one day). */
   vmReadinessMaxAgeMs?: number;
+  /**
+   * The file holding the VM's separate GitHub identity for publishing task branches (PM-142). Only
+   * the managed VM profile accepts it, and only the service reads it: the token never reaches a
+   * session. Without it (and without `modules.githubPublisher`) nothing is published.
+   */
+  githubPublishTokenFile?: string;
 }
 
 /** What `app.projectman` exposes (tests and tooling reach the services through it). */
@@ -185,6 +194,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   } else if (modules.managedVmBoundary || options.vmReadinessReport) {
     throw new Error('a VM readiness report is set, but the execution profile is not managed_vm');
   }
+  // The publishing identity belongs to the managed VM alone (decision 26): elsewhere agents do not push.
+  if (options.githubPublishTokenFile && executionProfile !== 'managed_vm')
+    throw new Error('a GitHub publishing token is set, but the execution profile is not managed_vm');
   const home = resolve(options.home);
   const attachmentsDir = join(home, 'attachments');
   for (const dir of [home, join(home, 'memory'), join(home, 'worktrees'), attachmentsDir]) {
@@ -227,6 +239,18 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         pollIntervalMs: options.githubPollIntervalMs ?? APP_DEFAULTS.githubPollIntervalMs,
         logger: log.child({ module: 'github' }),
       });
+    // A second identity, with its own token and home: the poller above only reads and never holds it.
+    const githubPublisher =
+      modules.githubPublisher ??
+      (options.githubPublishTokenFile
+        ? createGithubPublisher({
+            ghBin: options.ghBin ?? APP_DEFAULTS.ghBin,
+            host: options.ghHost ?? APP_DEFAULTS.ghHost,
+            stateDir: join(home, 'github-publish'),
+            token: createTokenFileReader(resolve(options.githubPublishTokenFile)),
+            logger: log.child({ module: 'github-publish' }),
+          })
+        : undefined);
     const contextBuilder = modules.contextPackBuilder ?? createContextPackBuilder();
     const memory = modules.memberMemory ?? createMemberMemoryStore({ rootDir: join(home, 'memory') });
     const worktrees =
@@ -260,6 +284,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           logger: log.child({ module: 'runner' }),
         }),
       github,
+      githubPublisher,
       contextBuilder,
       memory,
       worktrees,

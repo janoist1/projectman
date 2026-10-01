@@ -283,6 +283,31 @@ claude | codex ── transcript JSONL ────────────▶ r
   the first turn, and the member would work from the timeline's excerpts (up to 24 000
   characters; the rest is typed in once it runs). Codex has it on the command line
   of `codex resume`, Claude Code has it typed once SessionStart arrives ([PROVIDERS.md](PROVIDERS.md)).
+- **End-of-round compaction (PM-213, part of PM-209).** A member's round on a card ends when the
+  card leaves the stage the member worked it in (`isWorkingOnTask` false after a
+  `task_stage_changed`; a card that is done or cancelled needs nothing). The conversation then owes
+  a compaction (`sessions.compact_pending`): `SessionOrchestrator.roundEnded` marks every session of
+  the card and, at the session's idle moment, types `/compact <instruction>` through the runner
+  (`SessionRunner.compact`; the text is `COMPACT_INSTRUCTION` of the context module, which names what
+  to keep). Nothing is typed while a message is on its way in (`hasPendingInput`): it goes first, and
+  the next idle moment tries again; if the card is back in a stage the member works it in by then, the
+  conversation just goes on. The runner follows the CLI's PreCompact and PostCompact hooks: the
+  session is `working` ("Compacting the conversation") until PostCompact, so no message is typed
+  over it. A typed command that has not started holds the queue back as well (a message typed behind
+  a swallowed command would start a turn the give-up must not end). The runner gives the compaction up
+  (a `compaction` event, `abandoned`) if the command does not start within `compactStartTimeoutMs` or
+  end within `compactTimeoutMs`; only a compaction that had started is then ended (idle). Only
+  a conversation whose last measured context (input + cache read + cache write of its last step,
+  `sessions.context_tokens`, from the transcript) is above `COMPACT_MIN_CONTEXT_TOKENS` (100 000; a
+  fresh session already starts at 52-56k, so a small or just compacted conversation is not worth a
+  summary, and an unmeasured one counts as small) is compacted, at the end of its round and on resume.
+  A session that did not run at the end of its round (stopped, server restarted) is compacted when
+  it resumes, before the wake-up messages or the continue message (`StartSessionSpec.compactFirst`).
+  The compaction is the same conversation, in the same
+  transcript. Only Claude Code is compacted (`COMPACTING_PROVIDERS`): Codex's compaction command was
+  not checked, so its members work as before. A returning reviewer's continue message names the commit
+  it reviewed last (`sessions.reviewed_commit`, set when a session starts on a pinned commit) and asks
+  for only the change since and the fixes of its earlier findings.
 - The server's composition root is `apps/server/src/app.ts` (`buildApp`); the domain's is
   `apps/server/src/domain/index.ts` (`createDomain`), which builds the services (the board,
   member profiles and invitations included) and wires their reactions to the domain events.

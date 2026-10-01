@@ -90,7 +90,7 @@ export class TranscriptParser {
   }
 
   /** Parses complete JSONL lines; malformed lines are skipped. */
-  parseLines(lines: Iterable<string>): ParseResult & { usage: TokenUsage[] } {
+  parseLines(lines: Iterable<string>): ParseResult & { usage: TokenUsage[]; contextTokens?: number } {
     const items: ChatItem[] = [];
     const usage: TokenUsage[] = [];
     let interruptedAt: string | null = null;
@@ -109,7 +109,13 @@ export class TranscriptParser {
       const used = this.usage.add(entry, rec(entry)?.isSidechain === true ? 'subagent' : 'main');
       if (used) usage.push(used);
     }
-    return { items, interruptedAt, usage: mergeTokenUsage(usage) };
+    const contextTokens = this.usage.takeContext();
+    return {
+      items,
+      interruptedAt,
+      usage: mergeTokenUsage(usage),
+      ...(contextTokens !== null ? { contextTokens } : {}),
+    };
   }
 
   /**

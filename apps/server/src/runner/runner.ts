@@ -338,6 +338,10 @@ export class SessionManager implements SessionRunner {
     return session.enqueue(text);
   }
 
+  async compact(sessionId: string, instruction: string): Promise<boolean> {
+    return (await this.sessions.get(sessionId)?.compact(instruction)) ?? false;
+  }
+
   hasPendingInput(sessionId: string): boolean {
     return this.sessions.get(sessionId)?.hasPendingInput ?? false;
   }

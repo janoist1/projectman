@@ -119,3 +119,26 @@ describe('token usage of a Claude Code transcript (PM-178)', () => {
     ]);
   });
 });
+
+describe('the context of the last step (PM-213)', () => {
+  it('is the input, cache read and cache write of the latest main-conversation step', () => {
+    const parser = new TranscriptParser();
+    expect(
+      parser.parseLines([assistant('msg_1', FULL), assistant('msg_2', { ...FULL, input_tokens: 40 })]),
+    ).toMatchObject({
+      contextTokens: 40 + 100 + 20,
+    });
+    // Taken once: lines without a step carry none.
+    expect(parser.parseLines([''])).not.toHaveProperty('contextTokens');
+  });
+
+  it("ignores a subagent's steps, and keeps the step of a response whose usage was counted already", () => {
+    const parser = new TranscriptParser();
+    parser.parseLines([assistant('msg_1', FULL)]);
+    const { contextTokens } = parser.parseLines([
+      assistant('msg_1', { ...FULL, output_tokens: 9 }),
+      assistant('msg_side', { input_tokens: 900_000, output_tokens: 1 }, { isSidechain: true }),
+    ]);
+    expect(contextTokens).toBe(130);
+  });
+});

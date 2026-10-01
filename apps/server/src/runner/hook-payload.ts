@@ -29,6 +29,10 @@ export const HookPayload = z.looseObject({
   reason: z.string().optional(),
   /** PermissionDenied (Claude Code's auto mode): why the call was refused. */
   denial_reason: z.string().optional(),
+  /** PreCompact and PostCompact (Claude Code): "manual" (a typed /compact) or "auto". */
+  trigger: z.string().optional(),
+  /** PreCompact: the instruction a manual /compact was given. */
+  custom_instructions: z.string().optional(),
   /** Present when the hook fires inside a subagent. */
   agent_id: z.string().optional(),
   /** SubagentStop (Claude Code): the subagent's kind and its own transcript (PM-178). */

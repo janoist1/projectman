@@ -10,21 +10,58 @@ adapter declares its capabilities.
 
 ## Differences
 
-|                   | Claude Code                                     | Codex (codex-cli 0.159.1)                                                          |
-| ----------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Conversation id   | ours (`--session-id`), resume with `--resume`   | Codex's own, learned from the first hook (`provider_session_id`); `codex resume`   |
-| Hooks             | HTTP hooks (SessionStart through the forwarder) | command hooks running the forwarder; the PermissionRequest one prints the decision |
-| Ready for input   | first SessionStart hook                         | composer on screen, or the first SessionStart hook (it fires with the first turn)  |
-| Kick-off brief    | typed with bracketed paste                      | the prompt argument; later messages typed, Enter more than 120 ms after the paste  |
-| Resume: 1st input | typed once SessionStart arrives                 | the prompt argument of `codex resume <id> -- <prompt>`                             |
-| System prompt     | `--append-system-prompt`                        | `-c developer_instructions=…`                                                      |
-| Project rules     | `CLAUDE.md`                                     | `AGENTS.md`, else `CLAUDE.md` (`project_doc_fallback_filenames`)                   |
-| Allow for session | session rules in the hook answer                | remembered by the runner (Codex rejects `updatedPermissions`)                      |
-| Transcript        | `~/.claude/projects/…/<id>.jsonl`               | `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-…-<id>.jsonl`                             |
-| Plan usage        | `get_usage` probe of `claude -p`                | rate limits of the newest `token_count` records in the transcripts                 |
-| Token usage       | `message.usage` of assistant entries; subagents | `token_count` records (`total_token_usage`, `last_token_usage`); subagents not     |
-|                   | from their own file at `SubagentStop`           | measured                                                                           |
-| Login check       | `claude auth status`                            | `codex login status`                                                               |
+|                     | Claude Code                                                      | Codex (codex-cli 0.159.1)                                                          |
+| ------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Conversation id     | ours (`--session-id`), resume with `--resume`                    | Codex's own, learned from the first hook (`provider_session_id`); `codex resume`   |
+| Hooks               | HTTP hooks (SessionStart through the forwarder)                  | command hooks running the forwarder; the PermissionRequest one prints the decision |
+| Ready for input     | first SessionStart hook                                          | composer on screen, or the first SessionStart hook (it fires with the first turn)  |
+| Kick-off brief      | typed with bracketed paste                                       | the prompt argument; later messages typed, Enter more than 120 ms after the paste  |
+| Resume: 1st input   | typed once SessionStart arrives                                  | the prompt argument of `codex resume <id> -- <prompt>`                             |
+| System prompt       | `--append-system-prompt`                                         | `-c developer_instructions=…`                                                      |
+| Project rules       | `CLAUDE.md`                                                      | `AGENTS.md`, else `CLAUDE.md` (`project_doc_fallback_filenames`)                   |
+| Allow for session   | session rules in the hook answer                                 | remembered by the runner (Codex rejects `updatedPermissions`)                      |
+| Transcript          | `~/.claude/projects/…/<id>.jsonl`                                | `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-…-<id>.jsonl`                             |
+| Plan usage          | `get_usage` probe of `claude -p`                                 | rate limits of the newest `token_count` records in the transcripts                 |
+| Token usage         | `message.usage` of assistant entries; subagents                  | `token_count` records (`total_token_usage`, `last_token_usage`); subagents not     |
+|                     | from their own file at `SubagentStop`                            | measured                                                                           |
+| Login check         | `claude auth status`                                             | `codex login status`                                                               |
+| Compaction (PM-213) | `/compact <instruction>` typed; PreCompact and PostCompact hooks | not done: its compaction command was not checked                                   |
+
+## Compaction at the end of a round (PM-213)
+
+When a member's round on a card ends (the card leaves the stage the member worked it in), the
+server has Claude Code compact the member's conversation into a summary: it types
+`/compact <instruction>` once the session is idle (`COMPACT_INSTRUCTION`, `apps/server/src/context`,
+names what to keep: the card, decisions, changed files and commits, open questions and unfixed
+findings; not file contents or command output). The rule and its timing are in
+[ARCHITECTURE.md](ARCHITECTURE.md); this is what the runner relies on in the CLI.
+
+- **Hooks.** PreCompact and PostCompact (both in Claude Code 2.1.284) are HTTP hooks like the others.
+  The payload's `trigger` is `manual` (the typed command) or `auto` (the agent's own, in the middle of
+  a turn). The session is `working` (activity "Compacting the conversation") from PreCompact; after a
+  manual compaction PostCompact makes it idle, since no Stop hook follows a slash command, while an
+  auto one goes on with its turn. `/compact` sends no UserPromptSubmit, so PreCompact is what tells the
+  input queue the command got through.
+- **Time limits** (`SessionTiming`): the command must start (PreCompact) within
+  `compactStartTimeoutMs` (10 s) and end (PostCompact) within `compactTimeoutMs` (300 s). Past either
+  the runner logs, emits `compaction` `abandoned`, and the session takes messages again (a command
+  that started is ended as idle; one that never started changed no state, and held the queue back
+  until now, so no message ran into it); a dialog over the prompt or an error cannot hold it. Text left in the prompt box by a swallowed
+  command is not cleaned up.
+- **Same conversation.** A compaction writes a `compact_boundary` entry and a summary into the same
+  transcript file, and the session id stays: `--resume` of that id continues from the summary.
+- **Last measured context** (the threshold of a compaction at resume): the latest main-conversation
+  step's `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`
+  (`ClaudeUsageCounter.takeContext`). A subagent's steps do not count.
+- **Not verified here (needs the real CLI, the integrating session's manual trial).** Whether the
+  compaction's own summarising call is written to the transcript as an assistant entry with
+  `usage`. The usage counter counts every assistant entry with a model and `usage`, so if it is
+  there it is in the session's consumption (PM-178); if Claude Code does not write it, that
+  consumption is not measured and there is nothing to read it from. It also decides whether the
+  measured context right after a compaction can briefly show the pre-compaction size (until the
+  next step measures it again).
+- **Codex.** Unchanged: its compaction command was not checked, so Codex members are never
+  compacted (`COMPACTING_PROVIDERS` in `contracts/runner.ts` lists the providers that are).
 
 ## A resumed session's first input
 

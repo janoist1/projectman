@@ -3,7 +3,7 @@ import os from 'node:os';
 import { posix as posixPath } from 'node:path';
 import * as pty from '@lydell/node-pty';
 import type { FastifyBaseLogger } from 'fastify';
-import { MANAGED_VM_NO_LOCAL_APPROVAL } from '../contracts';
+import { COMPACTING_PROVIDERS, MANAGED_VM_NO_LOCAL_APPROVAL } from '../contracts';
 import type { PermissionBroker, RunnerEvent, RunningSessionInfo, StartSessionSpec } from '../contracts';
 import type { HookPayload } from './hook-payload';
 import { InputQueue } from './input-queue';
@@ -24,6 +24,15 @@ const QUESTION_FORWARDED =
 
 /** A conversation id of the agent CLIs (both use UUIDs). */
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * A compaction asked for: queued behind the messages before it, typed (PreCompact awaited, at most
+ * `compactStartTimeoutMs`), then started (PostCompact awaited, at most `compactTimeoutMs`).
+ */
+interface Compaction {
+  phase: 'queued' | 'typed' | 'started';
+  timer: NodeJS.Timeout | null;
+}
 
 /** The pseudo-terminal process of a session: node-pty's IPty, or a fake in tests. */
 export interface PtyProcess {
@@ -111,6 +120,8 @@ export class AgentSession {
   private authFailure: string | null = null;
 
   private readonly timers = new Set<NodeJS.Timeout>();
+  /** The compaction the server asked for, until PostCompact or until it is given up (PM-213). */
+  private compaction: Compaction | null = null;
   /** Tool calls whose questions went to the inbox already (see forwardQuestion). */
   private readonly forwardedQuestions = new Set<string>();
   private watchTimer: NodeJS.Timeout | null = null;
@@ -143,7 +154,10 @@ export class AgentSession {
       sessionId: this.id,
       timing: this.timing,
       logger: this.log,
-      isIdle: () => !this.hasExited && this.ready && this.current.state === 'idle',
+      // A typed compaction command that has not started yet holds the queue back: a message typed
+      // behind a swallowed command would start a turn the give-up must not mistake for idleness.
+      isIdle: () =>
+        !this.hasExited && this.ready && this.current.state === 'idle' && this.compaction?.phase !== 'typed',
       checkBeforeTyping: () => this.checkBeforeTyping(),
       write: (data) => this.write(data),
     });
@@ -158,6 +172,8 @@ export class AgentSession {
       onWaiting: (activity) => this.apply({ kind: 'permission_request', activity }),
       onSettled: (pending) => this.apply({ kind: 'permission_resolved', pending }),
     });
+    // A resumed conversation that owes a compaction gets it before the message that woke it (PM-213).
+    if (args.spec.compactFirst) void this.compact(args.spec.compactFirst);
     if (args.spec.initialMessage?.trim() && !this.initialMessageSent) {
       this.enqueue(args.spec.initialMessage).then(
         () => this.deps.emit({ type: 'first_input_sent', sessionId: this.id }),
@@ -283,6 +299,88 @@ export class AgentSession {
     return 0;
   }
 
+  // ---------------------------------------------------------------- compaction
+
+  /**
+   * Compacts the conversation (PM-213): types `/compact <instruction>` once the session is idle,
+   * after the messages already queued. Typed, the session is working until PostCompact, so nothing
+   * is typed over it. If the CLI does not report the start (a dialog, an autocomplete) or the end
+   * in time, the compaction is given up: logged, announced, and the session takes messages again.
+   * False when the provider has no such command or a compaction is on its way already.
+   */
+  async compact(instruction: string): Promise<boolean> {
+    if (this.hasExited || this.compaction || !COMPACTING_PROVIDERS.has(this.adapter.provider)) return false;
+    const compaction: Compaction = { phase: 'queued', timer: null };
+    this.compaction = compaction;
+    try {
+      await this.input.enqueue(`/compact ${instruction.replace(/\s+/g, ' ').trim()}`);
+    } catch {
+      // The process ended before the command was typed: nothing to give up.
+      if (this.compaction === compaction) this.compaction = null;
+      return false;
+    }
+    // A PreCompact hook that came before this resolved is the start already.
+    if (this.compaction === compaction && compaction.phase === 'queued') {
+      compaction.phase = 'typed';
+      this.watchCompaction(compaction, this.timing.compactStartTimeoutMs);
+    }
+    return true;
+  }
+
+  private watchCompaction(compaction: Compaction, ms: number): void {
+    if (compaction.timer) clearTimeout(compaction.timer);
+    compaction.timer = this.timer(() => this.abandonCompaction(compaction), ms);
+  }
+
+  /**
+   * PreCompact is the start of the compaction asked for only once its command was typed and the
+   * agent's own (auto) compaction is not what reports it; a compaction still queued is not it.
+   */
+  private compactionStarted(trigger: string | null): void {
+    const compaction = this.compaction;
+    const asked = compaction?.phase === 'typed' && trigger !== 'auto';
+    if (asked) {
+      compaction.phase = 'started';
+      this.watchCompaction(compaction, this.timing.compactTimeoutMs);
+    }
+    this.deps.emit({ type: 'compaction', sessionId: this.id, phase: 'started', trigger, requested: asked });
+  }
+
+  private compactionFinished(trigger: string | null): void {
+    const compaction = this.compaction;
+    const asked = compaction?.phase === 'started' && trigger !== 'auto';
+    if (asked) {
+      if (compaction.timer) clearTimeout(compaction.timer);
+      this.compaction = null;
+    }
+    this.deps.emit({ type: 'compaction', sessionId: this.id, phase: 'finished', trigger, requested: asked });
+  }
+
+  private abandonCompaction(compaction: Compaction): void {
+    if (this.compaction !== compaction || this.hasExited) return;
+    this.compaction = null;
+    this.log.warn(
+      { sessionId: this.id, phase: compaction.phase },
+      compaction.phase === 'started'
+        ? 'the compaction did not finish in time; giving it up'
+        : 'the compaction did not start in time; giving it up',
+    );
+    this.deps.emit({
+      type: 'compaction',
+      sessionId: this.id,
+      phase: 'abandoned',
+      trigger: null,
+      requested: true,
+    });
+    // A compaction that never started changed no state (a message that got through meanwhile may
+    // be working: it stays so); one that did start leaves the session working until it is given up.
+    if (compaction.phase === 'started') {
+      this.input.schedule(this.timing.stopSettleMs);
+      this.apply({ kind: 'compact_end', idle: true });
+    }
+    this.input.pump();
+  }
+
   // ---------------------------------------------------------------- hooks
 
   /**
@@ -358,6 +456,17 @@ export class AgentSession {
           type: payload.notification_type ?? null,
           message: payload.message ?? null,
         });
+        return null;
+      case 'PreCompact':
+        // The compaction command is a slash command: no UserPromptSubmit reports it, this does.
+        this.input.submitted();
+        this.compactionStarted(payload.trigger ?? null);
+        this.apply({ kind: 'compact_start' });
+        return null;
+      case 'PostCompact':
+        this.input.schedule(this.timing.stopSettleMs);
+        this.compactionFinished(payload.trigger ?? null);
+        this.apply({ kind: 'compact_end', idle: payload.trigger !== 'auto' });
         return null;
       case 'Stop':
         this.input.schedule(this.timing.stopSettleMs);
@@ -552,9 +661,16 @@ export class AgentSession {
 
   private onTranscriptLines(parser: TranscriptLineParser, lines: string[]): void {
     if (parser !== this.parser) return;
-    const { items, interruptedAt, authError, usage } = parser.parseLines(lines);
+    const { items, interruptedAt, authError, usage, contextTokens } = parser.parseLines(lines);
     if (items.length > 0) this.deps.emit({ type: 'chat', sessionId: this.id, items });
-    if (usage?.length) this.deps.emit({ type: 'usage', sessionId: this.id, entries: usage });
+    if (usage?.length || contextTokens !== undefined) {
+      this.deps.emit({
+        type: 'usage',
+        sessionId: this.id,
+        entries: usage ?? [],
+        ...(contextTokens !== undefined ? { contextTokens } : {}),
+      });
+    }
     if (authError) {
       this.authFailed(authError);
       return;
@@ -688,6 +804,7 @@ export class AgentSession {
     this.stopWatch();
     this.permissions.close();
     this.input.close();
+    this.compaction = null;
 
     // Pick up the last transcript lines before announcing the exit.
     const tailer = this.tailer;

@@ -35,6 +35,7 @@ import {
   holdersAllow,
   isBuiltInRole,
   isOpenTask,
+  isWorkingOnTask,
   labelDefinition,
   labelHolders,
   memberDuties,
@@ -2017,14 +2018,19 @@ export class MockBackend {
     return { status: 202 };
   }
 
-  /** What the member is working on now: open tasks and other chats it has a live session for. */
+  /** What the member is working on now (see `isWorkingOnTask`), plus its live other chats. */
   private memberLoad(handle: string): number {
     const live = this.sessions.filter((s) => s.member === handle && this.isLive(s));
-    const keys = new Set(live.flatMap((s) => (s.workItem.type === 'task' ? [s.workItem.taskKey] : [])));
-    return (
-      this.tasks.filter((t) => keys.has(t.key) && isOpenTask(t)).length +
-      live.filter((s) => s.workItem.type !== 'task').length
+    const keys = new Set(
+      live.flatMap((s) => {
+        if (s.workItem.type !== 'task') return [];
+        const task = this.findTask(s.workItem.taskKey);
+        return task && isOpenTask(task) && isWorkingOnTask(this.config, task, handle, s.state)
+          ? [task.key]
+          : [];
+      }),
     );
+    return keys.size + live.filter((s) => s.workItem.type !== 'task').length;
   }
 
   /** Like the server, a session records the agent CLI it runs: the member's provider. */

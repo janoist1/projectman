@@ -191,6 +191,26 @@ describe('admission checks', () => {
       'member_at_capacity',
     ],
     [
+      'does not count an idle session on a task that moved on to the next stage',
+      {
+        tasks: [task('AR-1', { assignee: 'dev-1', stageId: 'code_review' })],
+        sessions: [session('dev-1', onTask('AR-1'))],
+        running: ['ses_dev-1_task'],
+      },
+      { handle: 'dev-1', workItem: general },
+      null,
+    ],
+    [
+      'counts a session with a turn in progress wherever the task is',
+      {
+        tasks: [task('AR-1', { assignee: 'dev-1', stageId: 'code_review' })],
+        sessions: [{ ...session('dev-1', onTask('AR-1')), state: 'working' }],
+        running: ['ses_dev-1_task'],
+      },
+      { handle: 'dev-1', workItem: general },
+      'member_at_capacity',
+    ],
+    [
       'does not count an open task whose session ended',
       { tasks: [task('AR-1', { assignee: 'dev-1' })], sessions: [session('dev-1', onTask('AR-1'))] },
       { handle: 'dev-1', workItem: general },

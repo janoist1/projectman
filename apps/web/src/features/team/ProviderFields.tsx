@@ -1,5 +1,12 @@
 import { useState } from 'react';
-import { AgentEffort, AgentProvider, modelForProvider, PROVIDER_EFFORT_OPTIONS } from '@projectman/shared';
+import {
+  AgentEffort,
+  AgentProvider,
+  CheapSubagentModel,
+  modelForProvider,
+  PROVIDER_CHEAP_SUBAGENT_MODELS,
+  PROVIDER_EFFORT_OPTIONS,
+} from '@projectman/shared';
 import { useProviders } from '../../api/queries';
 import { SelectField, TextField } from '../../components/Field';
 import { t } from '../../i18n/t';
@@ -19,6 +26,8 @@ export function ProviderFields({
   onProviderChange,
   onModelChange,
   onEffortChange,
+  cheapSubagent,
+  onCheapSubagentChange,
 }: {
   provider: AgentProvider;
   model: string;
@@ -26,8 +35,12 @@ export function ProviderFields({
   onProviderChange: (provider: AgentProvider, model: string) => void;
   onModelChange: (model: string) => void;
   onEffortChange: (effort: AgentEffort | undefined) => void;
+  /** The cheap subagent's model (PM-179); the field shows when `onCheapSubagentChange` is given. */
+  cheapSubagent?: CheapSubagentModel;
+  onCheapSubagentChange?: (model: CheapSubagentModel | undefined) => void;
 }) {
   const providers = useProviders();
+  const cheapSubagentOptions = PROVIDER_CHEAP_SUBAGENT_MODELS[provider];
   const [custom, setCustom] = useState(!Object.hasOwn(PROVIDER_MODEL_LABELS[provider], model));
   const status = providers.data?.providers.find((entry) => entry.provider === provider);
   const modelOptions = (labels: typeof CODEX_LABELS) =>
@@ -103,6 +116,32 @@ export function ProviderFields({
           </option>
         ))}
       </SelectField>
+      {onCheapSubagentChange ? (
+        <SelectField
+          label={t('providerSettings.cheapSubagent')}
+          hint={t(
+            cheapSubagentOptions.length > 0
+              ? 'providerSettings.cheapSubagentHint'
+              : 'providerSettings.cheapSubagentUnavailable',
+            { provider: t(`providers.${provider}`) },
+          )}
+          // Kept as it is for a provider without one (Codex): it has no effect there.
+          disabled={cheapSubagentOptions.length === 0}
+          value={cheapSubagentOptions.length > 0 ? (cheapSubagent ?? '') : ''}
+          onChange={(event) =>
+            onCheapSubagentChange(
+              event.target.value ? CheapSubagentModel.parse(event.target.value) : undefined,
+            )
+          }
+        >
+          <option value="">{t('providerSettings.cheapSubagentOff')}</option>
+          {cheapSubagentOptions.map((entry) => (
+            <option key={entry} value={entry}>
+              {t(`providerSettings.cheapSubagentModels.${entry}`)}
+            </option>
+          ))}
+        </SelectField>
+      ) : null}
       {provider === 'codex' && model.trim() === 'gpt-6-astra' ? (
         <p className={styles.warning} role="alert">
           {t('providerSettings.astraWarning')}

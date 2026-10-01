@@ -43,6 +43,24 @@ export interface AgentSandbox {
   excludedCommands?: string[];
 }
 
+/**
+ * A subagent the session's agent may hand work to (PM-179: the cheap subagent). It gets no
+ * permissions of its own: its tool calls go through the session's rules, sandbox and hooks.
+ * Claude Code takes it in `--agents`; Codex ignores it.
+ */
+export interface SubagentDefinition {
+  /** What the agent calls it by (`subagent_type`). */
+  name: string;
+  /** When to use it (English prompt text): the agent reads it when it picks a subagent. */
+  description: string;
+  /** The subagent's own system prompt (English prompt text). */
+  prompt: string;
+  /** The only tools it may use, e.g. `["Read", "Grep"]`. */
+  tools: string[];
+  /** Model alias, e.g. "haiku". */
+  model: string;
+}
+
 export interface StartSessionSpec {
   /** Our session id ("ses_..."). */
   sessionId: string;
@@ -64,6 +82,8 @@ export interface StartSessionSpec {
    * Codex: `developer_instructions`).
    */
   appendSystemPrompt: string;
+  /** Subagents defined for the session (PM-179); absent or empty: none. */
+  subagents?: SubagentDefinition[];
   /**
    * First user message of the process: the task brief of a new conversation; for a resumed one,
    * the message that caused the resume or else a continue message, so it does not sit at its

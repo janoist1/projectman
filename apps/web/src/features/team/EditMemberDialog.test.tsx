@@ -37,6 +37,60 @@ describe('EditMemberDialog', () => {
     expect(project.backend.findMember('qa')?.effort).toBeUndefined();
   });
 
+  it('saves the cheap subagent of a Claude member and switches it off (PM-179)', async () => {
+    const project = mockProject();
+    const config = project.backend.config.team.members.find((member) => member.handle === 'qa')!;
+    if (config.kind !== 'ai') throw new Error('Expected AI fixture');
+    project.render(
+      <EditMemberDialog
+        member={project.backend.findMember('qa')!}
+        config={project.backend.config}
+        roles={builtInRoles}
+        onClose={() => {}}
+      />,
+    );
+    const cheap = screen.getByLabelText(t('providerSettings.cheapSubagent')) as HTMLSelectElement;
+    // Absent from the configuration: off.
+    expect(cheap.value).toBe('');
+    expect(cheap.disabled).toBe(false);
+    expect([...cheap.options].map((option) => option.textContent)).toEqual([
+      t('providerSettings.cheapSubagentOff'),
+      t('providerSettings.cheapSubagentModels.sonnet'),
+      t('providerSettings.cheapSubagentModels.haiku'),
+    ]);
+    fireEvent.change(cheap, { target: { value: 'haiku' } });
+    fireEvent.click(screen.getByRole('button', { name: t('memberEdit.save') }));
+    await waitFor(() => expect(config.cheapSubagent).toBe('haiku'));
+    expect(project.backend.findMember('qa')?.cheapSubagent).toBe('haiku');
+    fireEvent.change(cheap, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: t('memberEdit.save') }));
+    await waitFor(() => expect(config.cheapSubagent).toBeUndefined());
+    expect(project.requests.filter((request) => request.method === 'PATCH').at(-1)?.body).toMatchObject({
+      cheapSubagent: null,
+    });
+  });
+
+  it('shows the cheap subagent as not available for a Codex member (PM-179)', () => {
+    const project = mockProject();
+    project.render(
+      <EditMemberDialog
+        member={project.backend.findMember('be-1')!}
+        config={project.backend.config}
+        roles={builtInRoles}
+        onClose={() => {}}
+      />,
+    );
+    const cheap = screen.getByLabelText(t('providerSettings.cheapSubagent')) as HTMLSelectElement;
+    expect(cheap.disabled).toBe(true);
+    expect(cheap.value).toBe('');
+    expect(
+      screen.getByText(t('providerSettings.cheapSubagentUnavailable', { provider: t('providers.codex') })),
+    ).toBeTruthy();
+    // Back on Claude Code it can be chosen.
+    fireEvent.change(screen.getByLabelText(t('providerSettings.provider')), { target: { value: 'claude' } });
+    expect(cheap.disabled).toBe(false);
+  });
+
   it('sets the mode and the approver of an AI member at once, apart from the form, for an owner only', async () => {
     const project = mockProject();
     const dialog = (

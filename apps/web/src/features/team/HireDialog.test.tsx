@@ -27,6 +27,35 @@ describe('HireDialog', () => {
     });
   });
 
+  it('hires a Claude member with a cheap subagent (PM-179)', async () => {
+    const project = mockProject();
+    project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
+    fireEvent.change(await screen.findByLabelText(t('providerSettings.cheapSubagent')), {
+      target: { value: 'sonnet' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: t('hire.submit') }));
+    await waitFor(() =>
+      expect(project.backend.config.team.members.at(-1)).toMatchObject({ cheapSubagent: 'sonnet' }),
+    );
+  });
+
+  it('hires a Codex member without a cheap subagent, whatever was picked before (PM-179)', async () => {
+    const project = mockProject();
+    project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
+    fireEvent.change(await screen.findByLabelText(t('providerSettings.cheapSubagent')), {
+      target: { value: 'haiku' },
+    });
+    fireEvent.change(screen.getByLabelText(t('providerSettings.provider')), { target: { value: 'codex' } });
+    expect((screen.getByLabelText(t('providerSettings.cheapSubagent')) as HTMLSelectElement).disabled).toBe(
+      true,
+    );
+    fireEvent.click(screen.getByRole('button', { name: t('hire.submit') }));
+    await waitFor(() =>
+      expect(project.backend.config.team.members.at(-1)).toMatchObject({ provider: 'codex' }),
+    );
+    expect(project.backend.config.team.members.at(-1)).not.toHaveProperty('cheapSubagent');
+  });
+
   it('lists the AI-compatible catalogue and previews custom responsibilities', async () => {
     const project = mockProject();
     project.backend.config.team.roles.push({

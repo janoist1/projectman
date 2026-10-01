@@ -31,6 +31,30 @@ describe('runQuietly', () => {
     expect(out.stdout).toContain('Fake Claude Code');
   });
 
+  it('runs the fake Claude Code only with well-formed --agents, as Claude Code (PM-179)', async () => {
+    const env = { PATH: process.env.PATH ?? '' };
+    const run = (agents: unknown) =>
+      runQuietly(
+        FAKE_CLAUDE,
+        ['--agents', typeof agents === 'string' ? agents : JSON.stringify(agents), '--version'],
+        env,
+      );
+    const reader = { description: 'Reads logs.', prompt: 'Be short.', tools: ['Read'], model: 'haiku' };
+    expect(await run({ 'reader-haiku': reader })).toMatchObject({ code: 0 });
+    for (const bad of [
+      '{not json',
+      [reader],
+      { 'reader-haiku': { ...reader, prompt: undefined } },
+      { 'reader-haiku': { ...reader, description: '' } },
+      { 'reader-haiku': { ...reader, tools: 'Read' } },
+      { 'reader-haiku': { ...reader, model: 3 } },
+    ]) {
+      const out = await run(bad);
+      expect(out.code, JSON.stringify(bad)).toBe(1);
+      expect(out.stderr).toContain('fake-claude:');
+    }
+  });
+
   it('reports a command that cannot be started instead of rejecting', async () => {
     const out = await runQuietly('/nonexistent/cli', [], { PATH: '' });
     expect(out.code).toBeNull();

@@ -13,6 +13,7 @@ import { describeSandbox, describeUnattendedCommands } from '../domain';
 import { isHumanOnlyLabel, labelHolders } from '@projectman/shared';
 import { code, codeList, describeGate, labelRef, languageName, repoText, stageLabel } from './format';
 import { recentMemory } from './memory';
+import { cheapSubagentSection } from './subagents';
 import { dutyPrompt, expectedSteps, type Situation } from './work-item';
 
 /** English names of the built-in roles for prompt text. */
@@ -68,6 +69,7 @@ export function buildSystemPrompt(input: ContextPackInput, situation: Situation)
     workspaceSection(input),
     unattendedCommandsSection(input),
     boundarySection(input),
+    cheapSubagentSection(input.member),
     guardrailsSection(input),
     roleSection(input),
     memorySection(input),

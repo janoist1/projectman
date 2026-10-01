@@ -1,5 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
-import type { AgentSandbox } from './runner';
+import type { AgentSandbox, SubagentDefinition } from './runner';
 import type { SessionPolicy } from './session-policy';
 import type {
   AiMemberConfig,
@@ -64,6 +64,11 @@ export interface ContextPack {
    * the stopped session, a waiting team message) gets that message instead.
    */
   continueMessage: string | null;
+  /**
+   * Subagents the session is started with (`StartSessionSpec.subagents`): the cheap subagent when
+   * the member has one (PM-179), which the system prompt then tells it how to use; else empty.
+   */
+  subagents: SubagentDefinition[];
 }
 
 export interface ContextPackBuilder {

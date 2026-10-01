@@ -82,6 +82,21 @@ tenants into separate OS accounts or machines.
 
 ## Automatic command decisions
 
+PM-126 has not certified a strict agent boundary. Its revised [verification procedure](SANDBOX-PROBE.md)
+separates shell isolation, built-in file-tool permissions and trusted runner hooks/MCP. The
+earlier sibling-directory probe does not prove an exact worktree exception under the app home.
+Neither HTTP authentication nor a native Bash sandbox establishes that all agent tools are
+unable to read app data or connect to app ports. Decision 24's local-binding exception conflicts
+with the strict PM-87 requirement; its scope remains unresolved.
+
+The temporary-repository tests in `apps/server/test/sandbox-probe.test.js` reproduce host
+execution through shared `post-checkout`, `core.hooksPath` and `core.fsmonitor` using the actual
+worktree manager. This proves the host trigger if planting is possible, not native sandbox
+planting. PM-131 removed the normal Codex shared-git writable root, but the host git wrapper
+still trusts repository executable configuration and hooks. A root grant must not be restored
+to work around denied git operations. Narrow trusted git operations need their own validation;
+blanket hook disabling alone would leave other executable git settings to review.
+
 When the server auto-allows a Codex escalation (the routine git steps of a developer, lockfile
 installs), that command runs outside Codex's sandbox with the server user's rights, including
 the repository's git hooks and npm lifecycle scripts. The same holds for the read-only rule's
@@ -89,7 +104,8 @@ check commands (`npm test`, `npm run typecheck`, `npx vitest run`, `npx tsc --no
 Codex member's run escalates, for example because its tests listen on localhost, and the rule
 allows it, it runs the project's own scripts outside the sandbox. Even a read-only `git` command
 runs the programs the repository's configuration names (`core.fsmonitor`, diff and text
-conversion drivers), and a Codex developer's sandbox may write that configuration. The allowed
+conversion drivers). The historical shared-git root grant allowed config writes; removing
+that grant does not make host execution a sandboxed operation. The allowed
 forms are narrow, and a command the strict parser (`domain/shell-words.ts`) does not fully
 understand always goes to a human. The read-only rule reads the command's text only: it cannot
 see where a symbolic link in a worktree points. `xargs` takes names only from a lister

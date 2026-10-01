@@ -172,67 +172,58 @@ common OpenAI/Azure endpoint overrides from every session's environment.
 
 ## Sandboxes: what the CLIs enforce (PM-126 probe)
 
-Probed on 2026-10-01 on macOS 14.6 (arm64) with Claude Code 2.1.284 and codex-cli 0.159.1;
-Linux is not probed yet. `scripts/sandbox-probe.sh` builds the probe area with fictional data
-in the layout projectman uses: a repository with a linked worktree (the agent's working
-directory), a stand-in for the live data directory, another folder, and a local HTTP server
-standing in for the live instance's port. A person runs it by hand under each sandbox; the
-automated tests never run the real CLIs.
+**Strict feasibility remains unverified.** The 00af6f0 probe reported results on
+2026-10-01 / macOS 14.6 arm64 / Claude Code 2.1.284 / Codex 0.159.1. It placed the fake app
+home beside worktrees, whereas `buildApp` puts worktrees beneath the app home. It exercised
+shell commands, not built-in file tools, and classified every command failure as denial.
+Those observations do not certify the PM-87 boundary or establish supported minimum versions.
 
-Claude Code was started with these settings (`--settings`):
+The revised [manual procedure](SANDBOX-PROBE.md) and `scripts/sandbox-probe.sh` use nested
+worktrees, fictional data and positive host controls. The script never starts an agent CLI;
+real verification is interactive and subscription-only. Automated tests use temporary repos
+and no real agent CLI. No revised native run has yet been recorded here.
 
-```json
-{
-  "sandbox": {
-    "enabled": true,
-    "autoAllowBashIfSandboxed": true,
-    "allowUnsandboxedCommands": false,
-    "failIfUnavailable": true,
-    "filesystem": { "denyRead": ["<other folder>", "<live data>"], "allowWrite": ["~/.npm"] },
-    "network": {
-      "allowedDomains": ["registry.npmjs.org"],
-      "strictAllowlist": true,
-      "allowLocalBinding": true
-    }
-  }
-}
-```
+| CLI / OS / policy                                                           | Shell file boundary                                         | Built-in file tools | Own git / protected shared git                                                     | Network / test servers                                            | Strict minimum                        |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------- |
+| Claude 2.1.223 / macOS                                                      | Unverified                                                  | Unverified          | Unverified                                                                         | Unverified                                                        | Not established                       |
+| Claude 2.1.284 / macOS 14.6 arm64 / old probe settings                      | Reported sibling-folder denial; nested exception unverified | Unverified          | Reported commit allowed, hooks/config blocked; other protected metadata unverified | Reported npm allowed; local binding also opened other local ports | Not established; local-port conflict  |
+| Codex 0.159.1 / macOS 14.6 arm64 / legacy settings plus writable shared git | Reported broad reads, limited writes                        | Unverified          | Reported index lock blocked but hooks/config writable                              | Reported network/binding blocked; npm used warm cache             | Fails the strict policy as configured |
+| Codex 0.159.1 / macOS / restricted-read permission profile                  | Unverified                                                  | Unverified          | Unverified                                                                         | Unverified                                                        | Not established                       |
+| Claude 2.1.223 and 2.1.284 / Linux                                          | Unverified                                                  | Unverified          | Unverified                                                                         | Unverified                                                        | Not established                       |
+| Codex 0.159.1 / Linux                                                       | Unverified                                                  | Unverified          | Unverified                                                                         | Unverified                                                        | Not established                       |
+| Any later proposed release / macOS or Linux                                 | Repeat full procedure                                       | Repeat              | Repeat                                                                             | Repeat                                                            | No inferred support                   |
 
-The settings reference lists `allowUnsandboxedCommands` as a string (`"deny"`), but with that
-value this version asked for every command; the boolean `false` works. Codex ran with the
-settings projectman gives it today: `sandbox_mode = "workspace-write"`,
-`sandbox_workspace_write.writable_roots = [<the repository's git directory>]`, network off.
+The old settings used Claude `denyRead` for sibling live/secret folders, `allowWrite` for
+`~/.npm`, strict npm-only networking and `allowLocalBinding: true`. The old report says boolean
+`allowUnsandboxedCommands: false` worked where the string `"deny"` caused prompts; acceptance
+and enforcement of either type remain version-specific observations to reproduce.
 
-| Check                                        | Claude sandbox                   | Codex `workspace-write` (today) |
-| -------------------------------------------- | -------------------------------- | ------------------------------- |
-| Write in the working directory, temp         | yes                              | yes                             |
-| Write elsewhere, write the live data         | no                               | no                              |
-| Read another folder, read the live data      | no (`denyRead`)                  | **yes**                         |
-| `git add` / `git commit` in the worktree     | yes                              | **no** (index lock denied)      |
-| Write the shared `.git/hooks`, `.git/config` | no                               | **yes**                         |
-| npm registry / any other host                | yes / no (allowlist)             | no / no (network off)           |
-| `npm install` (cache in `~/.npm`)            | yes (`allowWrite`)               | yes (from the cache)            |
-| Listen on a local port (the tests' servers)  | only with `allowLocalBinding`    | no                              |
-| Reach another local server (the live port)   | **yes** with `allowLocalBinding` | no                              |
+Current source differs from that probe: `WORKTREE_SANDBOX` allows npm/development-data writes
+and local binding; `buildSandboxSettings` adds **no read denials**. Codex's normal session spec
+no longer grants the shared git root (PM-131), but its legacy sandbox does not implement the
+required restricted-read policy. Command-rule approval of Codex escalations is host execution,
+not strict isolation. PM-134's transitional Claude setup is not the final PM-128/129 proof.
 
-Findings:
+Current [Claude documentation](https://code.claude.com/docs/en/sandboxing) describes Seatbelt
+on macOS and bubblewrap/socat on Linux, with an additional seccomp filter for Unix sockets.
+It assigns built-in Read/Edit/Write to permission rules, separately from Bash isolation.
+It documents `strictAllowlist` from 2.1.219; that is a feature floor, not a project minimum.
+The parent-denial/own-worktree exception and each tool still need versioned tests.
+Current [Codex security docs](https://learn.chatgpt.com/docs/agent-approvals-security) describe
+Seatbelt on macOS and bubblewrap/seccomp on Linux. Record dependency/kernel support and
+startup refusal on each tested host; current docs are not old-release evidence.
 
-- Claude Code's sandbox meets the PM-87 goal on macOS: everything inside the worktree runs
-  without asking, `git commit` works in a linked worktree (the sandbox opens the shared `.git`
-  except `hooks/` and `config`), and nothing outside the allowed paths and hosts is reachable.
-  `strictAllowlist` needs Claude Code 2.1.219 or later (its docs); 2.1.284 is what was probed.
-- The open point is localhost. Without `allowLocalBinding` the test suite cannot start its
-  local servers; with it, sandboxed commands reach every local port, the live instance's
-  included, and `deniedDomains` entries for `localhost` / `127.0.0.1` do not change that. The
-  live API wants a login and the MCP and hook endpoints a per-session token, so this exposes
-  what an agent can already do with its own token, plus the login form. Serving the live
-  instance on a non-loopback address only would close it; running the tests outside the
-  sandbox would not be acceptable, since the test code is the agent's own.
-- Codex as configured at the probe was not the boundary it looks like: a Codex member could
-  read everything the owner can (the live data directory included), and it could write the
-  shared repository's `.git/hooks` and `.git/config`, because projectman gave it the git
-  directory as a writable root. A hook planted there runs when the host runs git in that
-  repository (the worktree manager, an integration merge), outside any sandbox. PM-131 stopped
-  giving it that root; the reads remain open. Its own `git add` and the tests escalate (the
-  index lock and local ports are denied), and the server's command rule approves those
-  escalations, which then run unsandboxed.
+The host half of the git attack is reproduced by `apps/server/test/sandbox-probe.test.js`:
+the actual worktree manager executes planted `post-checkout`, shared `core.hooksPath`, and
+`core.fsmonitor` programs in fictional repos. Native sandbox planting is a separate manual
+step, still unverified. General shared `.git` writes are therefore not a safe workaround for
+blocked add/commit; protected metadata and other sessions' refs require narrow git operations.
+
+Outstanding gates: complete version/OS evidence; built-in tool boundaries; settings/hook/MCP
+merging (PM-49); no exceptional execution or unavailable-sandbox fallback; fresh-cache npm and
+GitHub; forbidden-domain redirects/raw IP/IPv6/Unix sockets; test self-connections without
+arbitrary app-port access; trusted runner connections without exposing member tokens.
+Decision 24 and the strict local-port requirement remain in conflict. HTTP login and session
+tokens do not prove network isolation. Moving the live listener is not a verified fix.
+If native controls fail, the manual procedure lists concrete isolation/git-service alternatives
+for an explicit owner decision; general unsandboxed execution is not an alternative.

@@ -158,6 +158,14 @@ credential files until the CLI sandbox's `denyRead` covers them (PM-167), and it
 instance's port 4800 up to the VM. The owner decided that port stays reachable up to the VM. A
 Codex member is not bound by these rules at all before the VM; its own sandbox is its limit.
 
+`~/.claude` is not denied as a whole, because the members run with the user's own `~/.claude`
+(the runner sets no `CLAUDE_CONFIG_DIR`) and Claude Code saves large tool outputs under
+`projects/<cwd>/<session>/tool-results/` and the plan mode's plan under `plans/`; a deny rule wins
+over an allow rule, so no exception could be made. The consequence is a residual risk: the
+conversation transcripts of other sessions under `~/.claude/projects/` can be read by a member's
+file tools. Only the login and settings files are denied (`.credentials.json`, `settings.json`,
+`settings.local.json`, `hooks`). A separate configuration directory per member would close it.
+
 ## Findings
 
 | Severity | Finding                                                                                                                  | Status                                                                                                                         |

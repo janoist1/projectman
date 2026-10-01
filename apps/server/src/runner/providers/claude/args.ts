@@ -80,7 +80,7 @@ export const AUTO_MODE_SETTINGS: ClaudeAutoModeSettings = {
   hard_deny: [
     '$defaults',
     'Never publish: no git push, no gh pr create, no gh pr merge, whatever the target.',
-    "Never read or copy credential files (SSH keys, the GitHub CLI's and the agents' own configuration, .npmrc) or the data of the live projectman instance (its database, secret, logs and customization).",
+    "Never read or copy credential files (SSH keys, the GitHub CLI's configuration, the login and settings files of Claude Code and Codex, .npmrc) or the data of the live projectman instance (its database, secret, logs and customization).",
     'Never call the live projectman instance on localhost port 4800.',
   ],
 };

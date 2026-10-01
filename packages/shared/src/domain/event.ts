@@ -138,11 +138,16 @@ export interface TimelineEventData {
     reason?: string;
   };
   /**
-   * A request that never became an inbox item (PM-165): the member's Auto level refuses it
-   * (`by: 'level'`) or the agent's own auto mode did (`by: 'classifier'`). `reason` is the agent's
-   * raw (English) explanation, shown behind "Részletek".
+   * A request that never became an inbox item (PM-165): the member's approver is nobody
+   * (`by: 'approver_none'`) or the agent's own auto mode refused it (`by: 'classifier'`). `reason`
+   * is the agent's raw (English) explanation, shown behind "Részletek".
    */
-  permission_refused: { toolName: string; summary: string; by: 'level' | 'classifier'; reason?: string };
+  permission_refused: {
+    toolName: string;
+    summary: string;
+    by: 'approver_none' | 'classifier';
+    reason?: string;
+  };
   /**
    * An AI decider passed a request to a person (PM-169): it chose to (`cause: 'lead'`, with its
    * `reason`) or it did not answer in time (`cause: 'timeout'`, by the system).

@@ -384,10 +384,18 @@ mode into the configuration. The approver `ai` is selectable only with `team.bou
 and another AI member at work that holds `boundary_authorization` (`aiApproverBlocker`); the
 PATCH refuses it otherwise (422 `approver_unavailable`, `details.blocker`), the roster
 (`MemberView.aiApproverBlocker`) says why, and the Team page warns when a member keeps `ai` after
-its decider drops out. Who answers is the runner's job (PM-165 and following). The timeline events
-`permission_refused` (PM-165) and `permission_escalated` (PM-169), and `delegated`/`reason` on
-`permission_resolved` (PM-169), are part of the contract and render from this card on; the later
-cards only produce them.
+its decider drops out. The timeline events `permission_refused` (PM-165) and
+`permission_escalated` (PM-169), and `delegated`/`reason` on `permission_resolved` (PM-169), are
+part of the contract and render from PM-164 on.
+
+For Claude members (PM-165) the mode goes to the CLI as it is, and `InboxService.decide` answers
+what the CLI still asks: `commandVerdict`, then the approver (`human`: the inbox; `none`: an
+immediate refusal with no inbox item, a `permission_refused` event `by: 'approver_none'`; `ai`:
+PM-169, decided like `human` until then). The auto mode's own refusals arrive as the
+`PermissionDenied` hook, through `PermissionBroker.refused`, as `permission_refused` `by:
+'classifier'`. The hard denials (credentials, the live instance's data, `WebFetch` of localhost,
+publishing) are deny rules computed in `domain/session-policy.ts` and rendered in `--settings` by
+the Claude adapter; see `PROVIDERS.md` for the server-side decisions and their reasons.
 
 ## Session policy migration (PM-87 / PM-127)
 

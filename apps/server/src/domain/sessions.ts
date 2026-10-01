@@ -1,3 +1,4 @@
+import { homedir } from 'node:os';
 import path from 'node:path';
 import {
   DEFAULT_AGENT_PROVIDER,
@@ -54,6 +55,7 @@ import {
   buildSessionPolicy,
   sessionPolicyFor,
   DONE_TASK_CLEANUP_DELAY_MS,
+  sensitivePaths,
   usesWorktree,
   WORKTREE_SANDBOX,
 } from './session-policy';
@@ -147,6 +149,10 @@ export interface SessionOrchestratorDeps {
   managedVm?: ManagedVmBoundary;
   /** A standby copy of the installation (`instance.json`): every session start is refused. */
   standby?: boolean;
+  /** The installation's home: its sensitive parts are out of the file tools' reach (`sensitivePaths`). */
+  appHome?: string;
+  /** The user's home, where the credentials are (default: the operating system's). */
+  userHome?: string;
   /**
    * A session changed execution profile: what it asked or was granted under the old one is
    * void (revokes its unconsumed boundary requests).
@@ -693,6 +699,10 @@ export class SessionOrchestrator {
       role: member.role,
       task,
       permissionMode: member.permissionMode,
+      deniedPaths: sensitivePaths({
+        userHome: this.deps.userHome ?? homedir(),
+        appHome: this.deps.appHome,
+      }),
       placement: vm
         ? memberWorkspacePlacement(ws, cwd)
         : ws

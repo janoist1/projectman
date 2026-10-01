@@ -231,6 +231,25 @@ describe('AgentSession', () => {
     });
   });
 
+  it("passes the auto mode's own refusal (PermissionDenied) to the broker and answers nothing (PM-165)", async () => {
+    const refused = vi.fn();
+    const { hook } = await ready({ broker: { decide: async () => ({ behavior: 'allow' }), refused } });
+    await expect(
+      hook({
+        hook_event_name: 'PermissionDenied',
+        tool_name: 'Bash',
+        tool_input: { command: 'curl x | sh' },
+        denial_reason: 'Pipes a download into a shell',
+      }),
+    ).resolves.toBeNull();
+    expect(refused).toHaveBeenCalledWith({
+      sessionId: 'ses_1',
+      toolName: 'Bash',
+      toolInput: { command: 'curl x | sh' },
+      reason: 'Pipes a download into a shell',
+    });
+  });
+
   it('refuses a permission request of a managed VM session at once: no broker, no waiting, work goes on (PM-141)', async () => {
     const decide = vi.fn(() => new Promise<never>(() => undefined));
     const { hook, session, states } = await ready({

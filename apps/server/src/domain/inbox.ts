@@ -1,4 +1,4 @@
-import { approvalRefusal, gateRequestOf, memberOf } from '@projectman/shared';
+import { approvalRefusal, approverOf, gateRequestOf, memberOf } from '@projectman/shared';
 import type {
   HumanAccess,
   InboxItem,
@@ -6,9 +6,16 @@ import type {
   InboxOption,
   InboxState,
   ProjectConfig,
+  Session,
+  TimelineEventData,
 } from '@projectman/shared';
-import { MANAGED_VM_NO_LOCAL_APPROVAL } from '../contracts';
-import type { PermissionBroker, PermissionDecision, PermissionRequestInfo } from '../contracts';
+import { APPROVER_NONE_REFUSAL, MANAGED_VM_NO_LOCAL_APPROVAL } from '../contracts';
+import type {
+  PermissionBroker,
+  PermissionDecision,
+  PermissionRefusedInfo,
+  PermissionRequestInfo,
+} from '../contracts';
 import { ownerHandles } from './access';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
@@ -122,7 +129,10 @@ export class InboxService {
     this.worktreesRootDir = deps.worktreesRootDir;
     this.workspacesRootDir = deps.workspacesRootDir;
     this.attachmentDirectory = deps.attachmentDirectory;
-    this.broker = { decide: (request, signal) => this.decide(request, signal) };
+    this.broker = {
+      decide: (request, signal) => this.decide(request, signal),
+      refused: (request) => this.classifierRefused(request),
+    };
   }
 
   create(input: CreateInboxItemInput): InboxItem {
@@ -297,6 +307,32 @@ export class InboxService {
     this.ctx.bus.publish({ type: 'inbox_upserted', projectKey: item.projectKey, item });
   }
 
+  /**
+   * The agent's own auto mode refused a tool call (Claude Code's PermissionDenied hook): there is
+   * nothing to decide, the timeline shows it (PM-165).
+   */
+  private classifierRefused(request: PermissionRefusedInfo): void {
+    const session = this.ctx.repos.sessions.get(request.sessionId);
+    if (!session) return;
+    this.refused(session, {
+      toolName: request.toolName,
+      summary: summarizeToolInput(request.toolInput) || request.toolName,
+      by: 'classifier',
+      ...(request.reason ? { reason: excerpt(request.reason, 500) } : {}),
+    });
+  }
+
+  private refused(session: Session, data: TimelineEventData['permission_refused']): void {
+    this.timeline.append({
+      projectKey: session.projectKey,
+      taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
+      sessionId: session.id,
+      actor: SYSTEM_ACTOR,
+      type: 'permission_refused',
+      data,
+    });
+  }
+
   private async decide(request: PermissionRequestInfo, signal: AbortSignal): Promise<PermissionDecision> {
     const session = this.ctx.repos.sessions.get(request.sessionId);
     if (!session) return { behavior: 'deny', message: 'Unknown session.' };
@@ -334,6 +370,13 @@ export class InboxService {
             }),
           })
         : null;
+    // Nobody approves this member's questions (PM-165): refused at once, without an inbox item. The
+    // command rules above still come first (a routine step is allowed, publishing is denied); only a
+    // request they leave open is refused here. `ai` is decided like `human` until PM-169 adds it.
+    if (!verdict && member?.kind === 'ai' && approverOf(member) === 'none') {
+      this.refused(session, { toolName: request.toolName, summary, by: 'approver_none' });
+      return { behavior: 'deny', message: APPROVER_NONE_REFUSAL };
+    }
     const item = this.create({
       projectKey: session.projectKey,
       kind: 'permission',

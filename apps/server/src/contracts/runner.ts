@@ -138,6 +138,13 @@ export const MANAGED_VM_UNAVAILABLE = 'managed_vm_unavailable';
 export const MANAGED_VM_NO_LOCAL_APPROVAL =
   'This installation runs without local approvals: the work you do in your workspace needs none, so this request is refused, not queued for a human. A step that leaves the machine is decided at the network gate; for a registered operation use submit_boundary_request. Continue with what you can do here.';
 
+/**
+ * The answer to a permission request of a member whose approver is nobody (PM-165): read by the
+ * agent, so English. No inbox item exists; the refusal is final, and `ask_human` is the way forward.
+ */
+export const APPROVER_NONE_REFUSAL =
+  'Not allowed: nobody approves questions for this session. Do not retry it in another form. If you really need it, ask a human with ask_human and say why.';
+
 /** What a verified managed VM boundary says about itself, at the moment it was asked. */
 export interface ManagedVmAttestation {
   /** The readiness profile the boundary was verified for. */
@@ -213,6 +220,18 @@ export type PermissionDecision =
  */
 export interface PermissionBroker {
   decide(request: PermissionRequestInfo, signal: AbortSignal): Promise<PermissionDecision>;
+  /**
+   * The agent's own auto mode refused a tool call without asking (Claude Code's PermissionDenied
+   * hook, PM-165): nothing to answer, only to record. `reason` is the agent's explanation.
+   */
+  refused?(request: PermissionRefusedInfo): void;
+}
+
+export interface PermissionRefusedInfo {
+  sessionId: string;
+  toolName: string;
+  toolInput: unknown;
+  reason?: string;
 }
 
 export interface TranscriptReader {

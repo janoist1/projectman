@@ -129,6 +129,32 @@ one. The names are taken as found, so a file whose path holds a blank or a newli
 split into two items. A Codex member never runs in `bypassPermissions`, where nothing would be
 asked at all.
 
+## Claude members: the mode, the approver and the hard denials (PM-165)
+
+Claude Code enforces the member's mode itself (`--permission-mode`); the server adds no mapping.
+What the server adds, in every mode and on the legacy (Mac) profile:
+
+- **Deny rules in `--settings`** (they hold in `auto` too): `git push`, `gh pr create`,
+  `gh pr merge` where the repository has no GitHub; the built-in file tools may not read or change
+  the user's credential files (`~/.ssh`, `~/.config/gh`, `~/.claude`, `~/.claude.json`, `~/.codex`,
+  `~/.npmrc`) and the sensitive parts of the app home (database, cookie secret, logs,
+  customization repository, members' memory, publishing identity, spool); `WebFetch` may not reach
+  `localhost` or `127.0.0.1`. The list is `sensitivePaths` and `HARD_DENIED_HOSTS` in
+  `domain/session-policy.ts`.
+- **A question the CLI still asks** goes through `commandVerdict`, then to the member's approver.
+  Approver `none` (the default of a new member) refuses it without an inbox item and tells the agent
+  the refusal is final; the refusal is on the timeline (`permission_refused`). So does a refusal of
+  the auto mode's classifier (`PermissionDenied` hook).
+- The `autoMode` prose in `--settings` only guides the classifier; it is not a boundary.
+- The managed VM profile is unchanged: its limits are outside the CLI.
+
+**Residual risk (owner's decision, decision 24 and PM-156).** The deny rules bind the built-in file
+tools, and Claude Code applies them to the file-reading commands it recognises (`cat`, `head`, …),
+not to an arbitrary program a shell command starts. A developer's shell can therefore still read the
+credential files until the CLI sandbox's `denyRead` covers them (PM-167), and it reaches the live
+instance's port 4800 up to the VM. The owner decided that port stays reachable up to the VM. A
+Codex member is not bound by these rules at all before the VM; its own sandbox is its limit.
+
 ## Findings
 
 | Severity | Finding                                                                                                                  | Status                                                                                                                         |

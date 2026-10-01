@@ -16,9 +16,16 @@ function belowDirectory(dir: string): string {
   return `/${dir.replace(/\/+$/, '')}/**`;
 }
 
+/** Deny rules for a path (a file or a directory) of the built-in file tools: reading and changing it. */
+function denyFileRules(target: string): string[] {
+  const path = `/${target.replace(/\/+$/, '')}`;
+  return ['Read', 'Edit'].flatMap((tool) => [`${tool}(${path})`, `${tool}(${path}/**)`]);
+}
+
 export function claudeToolRules(
   policy: Pick<SessionPolicy, 'tools' | 'deniedOperations'> & {
-    filesystem?: Pick<SessionPolicy['filesystem'], 'readOnlyPaths'>;
+    filesystem?: Pick<SessionPolicy['filesystem'], 'readOnlyPaths' | 'deniedPaths'>;
+    network?: Pick<SessionPolicy['network'], 'deniedHosts'>;
   },
 ) {
   const readOnly = policy.filesystem?.readOnlyPaths ?? [];
@@ -37,6 +44,8 @@ export function claudeToolRules(
     deny: [
       ...policy.deniedOperations.map((name) => operations[name]),
       ...readOnly.map((dir) => `Edit(${belowDirectory(dir)})`),
+      ...(policy.filesystem?.deniedPaths ?? []).flatMap(denyFileRules),
+      ...(policy.network?.deniedHosts ?? []).map((host) => `WebFetch(domain:${host})`),
     ],
   };
 }

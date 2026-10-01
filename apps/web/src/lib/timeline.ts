@@ -258,7 +258,7 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
           t(
             d.by === 'classifier'
               ? 'timeline.events.permission_refused_classifier'
-              : 'timeline.events.permission_refused_level',
+              : 'timeline.events.permission_refused_approver_none',
             { summary: str(d.summary) || str(d.toolName) },
           ),
         ),

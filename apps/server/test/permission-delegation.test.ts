@@ -376,6 +376,48 @@ describe('permission questions delegated to the AI decider (PM-169)', () => {
       await pending;
     });
 
+    describe('when the AI team is switched off', () => {
+      const switchAi = (aiEnabled: boolean) =>
+        h.domain.projects.update(
+          'AR',
+          { actor: OWNER_ACTOR, author: { name: 'Owner', email: 'owner@example.com' } },
+          (config) => {
+            config.team.limits.aiEnabled = aiEnabled;
+            return `Switch the AI team ${aiEnabled ? 'on' : 'off'}`;
+          },
+        );
+
+      it('sends a new question to the owner, as no decider is at work', async () => {
+        await start();
+        await switchAi(false);
+        const controller = new AbortController();
+        const pending = ask('curl https://example.com/data.json', controller.signal);
+        await flush();
+        expect(onlyOpen()).toMatchObject({ assignees: ['owner'] });
+        expect(onlyOpen().payload).not.toHaveProperty('delegation');
+        expect(h.domain.sessions.list('AR', { member: 'cr' })).toHaveLength(0);
+        controller.abort();
+        await pending;
+      });
+
+      it('hands a question the decider has to the owner', async () => {
+        await start();
+        const controller = new AbortController();
+        const pending = ask('curl https://example.com/data.json', controller.signal);
+        await flush();
+        expect(onlyOpen().assignees).toEqual(['cr']);
+        await switchAi(false);
+        await flush();
+        expect(onlyOpen().assignees).toEqual(['owner']);
+        expect(permissionEvents().at(-1)).toMatchObject({
+          type: 'permission_escalated',
+          data: { cause: 'timeout' },
+        });
+        controller.abort();
+        await pending;
+      });
+    });
+
     it('sends it to the owner when delegation is switched off', async () => {
       await start(undefined, { boundary: false });
       const controller = new AbortController();

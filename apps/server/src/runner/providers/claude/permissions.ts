@@ -92,6 +92,30 @@ export function denyOutput(message: string): PermissionHookOutput {
   };
 }
 
+/** Output of a PreToolUse hook that refuses the call. */
+export interface PreToolUseDenyOutput {
+  hookSpecificOutput: {
+    hookEventName: 'PreToolUse';
+    permissionDecision: 'deny';
+    permissionDecisionReason: string;
+  };
+}
+
+/** A question tool's call turned away, in the form of the hook it came with (PM-199). */
+export function refuseQuestionOutput(
+  event: 'PreToolUse' | 'PermissionRequest',
+  message: string,
+): PermissionHookOutput | PreToolUseDenyOutput {
+  if (event === 'PermissionRequest') return denyOutput(message);
+  return {
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'deny',
+      permissionDecisionReason: message,
+    },
+  };
+}
+
 /** The documented PermissionRequest decision JSON for a broker decision. */
 export function permissionOutput(decision: PermissionDecision, payload: HookPayload): PermissionHookOutput {
   if (decision.behavior === 'deny') return denyOutput(decision.message?.trim() || DENY_DEFAULT);

@@ -99,6 +99,14 @@ export function alertText(item: InboxItem, members: MemberIndex, myHandle: strin
       minutes: alert.minutes,
       members: joinNames(namesOf(alert.members, members, myHandle)),
     });
+  if (alert.alert === 'session_input')
+    return t('inbox.alerts.session_input.body', {
+      member: nameOf(item.source, members, myHandle),
+      work: workText(alert.workItem),
+      since: formatStamp(alert.since),
+      minutes: alert.minutes,
+      activity: alert.activity ?? t('inbox.alerts.session_input.noActivity'),
+    });
   return t('inbox.alerts.session_tokens.body', {
     member: nameOf(item.source, members, myHandle),
     work: workText(alert.workItem),

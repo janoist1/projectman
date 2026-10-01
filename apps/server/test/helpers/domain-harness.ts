@@ -87,6 +87,8 @@ export async function createDomainHarness(
     managedVm?: ManagedVmBoundary;
     /** The VM's GitHub publishing identity (PM-142); absent, nothing can be published. */
     githubPublisher?: GithubPublisher;
+    /** How long a session may wait for input before the owners are told (PM-199). */
+    inputStallMs?: number;
   } = {},
 ) {
   const restarted = opts.directory !== undefined;
@@ -123,6 +125,7 @@ export async function createDomainHarness(
     createRunner: (broker) => runnerModule.createWithBroker(broker),
     github,
     githubPublisher: opts.githubPublisher,
+    inputStallMs: opts.inputStallMs,
     contextBuilder,
     memory,
     worktrees,

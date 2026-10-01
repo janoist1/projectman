@@ -130,7 +130,26 @@ export const MessageBurstAlert = z.object({
 });
 export type MessageBurstAlert = z.infer<typeof MessageBurstAlert>;
 
-export const AlertPayload = z.discriminatedUnion('alert', [SessionTokensAlert, MessageBurstAlert]);
+/**
+ * `session_input` (PM-199): a session has waited for input at its terminal for `minutes` minutes
+ * (`since`, ISO time) and no inbox item of it shows a question, so nobody knows it waits: messages for
+ * it are held back until it carries on. `activity` is what the runner saw (a tool, a dialog), when it
+ * knew; the item's `source` is the member and its `sessionId` the session.
+ */
+export const SessionInputAlert = z.object({
+  alert: z.literal('session_input'),
+  workItem: WorkItemRef,
+  since: z.string(),
+  minutes: z.number().int().positive(),
+  activity: z.string().nullable(),
+});
+export type SessionInputAlert = z.infer<typeof SessionInputAlert>;
+
+export const AlertPayload = z.discriminatedUnion('alert', [
+  SessionTokensAlert,
+  MessageBurstAlert,
+  SessionInputAlert,
+]);
 export type AlertPayload = z.infer<typeof AlertPayload>;
 
 /** The alert payload of an item, or null when it is no alert (or an unreadable or unknown one). */

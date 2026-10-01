@@ -71,6 +71,7 @@ import {
 } from './session-policy';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
+import type { InputStallAlerts } from './input-stall-alert';
 import type { UsageAlerts } from './usage-alerts';
 import { aiActor, KeyedMutex, newId, newToken, newUuid, SYSTEM_ACTOR } from './util';
 import { MemberWorkspaces } from './workspaces';
@@ -218,7 +219,14 @@ export interface SessionOrchestratorDeps {
   onExecutionProfileChange?: (projectKey: string, sessionId: string) => Promise<unknown>;
   /** The warning limit of a session's tokens (PM-187), checked whenever its usage grows. */
   usageAlerts?: Pick<UsageAlerts, 'check'>;
+  /** Tells the owners of a session that waits for input unseen (PM-199). */
+  inputStall?: Pick<InputStallAlerts, 'raise'>;
+  /** How long a session may wait for input before they are told (default `INPUT_STALL_MS`). */
+  inputStallMs?: number;
 }
+
+/** A session waiting for input at its terminal this long is reported to the owners (PM-199). */
+export const INPUT_STALL_MS = 10 * 60_000;
 
 /** Worktree removals that are refused on purpose (the worktree module's error codes). */
 const KEPT_WORKTREE_CODES = new Set(['dirty', 'outside_root', 'not_a_worktree', 'main_worktree']);
@@ -318,6 +326,8 @@ export class SessionOrchestrator {
   private readonly egressTokens = new Map<string, ToolContext>();
   private readonly egressTokenBySession = new Map<string, string>();
   private readonly cleanupTimers = new Set<NodeJS.Timeout>();
+  /** The wait of each session that waits for input at its terminal (PM-199), until it is over. */
+  private readonly inputWaits = new Map<string, { since: string; timer: NodeJS.Timeout }>();
   /**
    * Sessions that moved their task to done in the middle of a turn (PM-190): the task's cleanup
    * runs once the turn ends, or at the limit.
@@ -359,6 +369,38 @@ export class SessionOrchestrator {
     this.cleanupTimers.clear();
     for (const { timer } of this.finishingTurns.values()) clearTimeout(timer);
     this.finishingTurns.clear();
+    for (const { timer } of this.inputWaits.values()) clearTimeout(timer);
+    this.inputWaits.clear();
+  }
+
+  /**
+   * A session in `waiting_input` holds its messages back, and nothing in the app need show why:
+   * after `inputStallMs` the owners are told (PM-199). The wait is timed from its first state event;
+   * a repeated one (a new activity) does not restart it.
+   */
+  private watchInputWait(session: Session): void {
+    const waiting = session.state === 'waiting_input';
+    const current = this.inputWaits.get(session.id);
+    if (!waiting) {
+      if (current) clearTimeout(current.timer);
+      this.inputWaits.delete(session.id);
+      return;
+    }
+    const alerts = this.deps.inputStall;
+    if (current || !alerts) return;
+    const since = isoNow(this.ctx);
+    const delay = this.deps.inputStallMs ?? INPUT_STALL_MS;
+    const timer = setTimeout(() => {
+      this.inputWaits.delete(session.id);
+      try {
+        const item = alerts.raise(session.id, since, Math.max(1, Math.round(delay / 60_000)));
+        if (item) this.ctx.logger.warn({ sessionId: session.id, since }, 'session waits for input unseen');
+      } catch (err) {
+        this.ctx.logger.warn({ err, sessionId: session.id }, 'input wait alert failed');
+      }
+    }, delay);
+    timer.unref();
+    this.inputWaits.set(session.id, { since, timer });
   }
 
   /** MCP: maps /mcp/:token to the calling session; null rejects the call. */
@@ -1462,6 +1504,9 @@ export class SessionOrchestrator {
     this.processModes.delete(sessionId);
     this.processGrants.delete(sessionId);
     this.turnEnded(sessionId);
+    const wait = this.inputWaits.get(sessionId);
+    if (wait) clearTimeout(wait.timer);
+    this.inputWaits.delete(sessionId);
     if (!session || ENDED.has(session.state)) return null;
     const at = isoNow(this.ctx);
     const state: SessionState = exitCode !== null && exitCode !== 0 ? 'failed' : 'exited';
@@ -1521,6 +1566,7 @@ export class SessionOrchestrator {
             lastActivityAt: at,
           })!;
           this.publishSession(updated);
+          this.watchInputWait(updated);
           this.recomputeMemberState(session.projectKey, session.member);
           this.wakeForNewRound(updated);
           if (updated.state === 'idle') this.turnEnded(updated.id);

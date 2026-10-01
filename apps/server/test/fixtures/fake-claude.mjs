@@ -49,7 +49,8 @@
  *     in order and in this one turn, each after its delay: tool_use mcp__team__<tool>, the same
  *     permission flow, then a real tools/call to the "team" server of --mcp-config; its answer
  *     (or the HTTP error) is the tool_result.
- *   - contains "ASK": tool_use AskUserQuestion, PreToolUse, waits for a key in the terminal.
+ *   - contains "ASK": tool_use AskUserQuestion, PreToolUse, waits for a key in the terminal (a
+ *     PreToolUse hook that answers permissionDecision "deny" turns the call away: no dialog).
  *   - contains "SUBAGENT": a subagent's own transcript
  *     `<transcript dir>/<session id>/subagents/agent-<id>.jsonl` (model "claude-fake-haiku",
  *     usage input 3, output 2, cache read 30), then the SubagentStop hook with agent_id,
@@ -778,30 +779,42 @@ async function interactive() {
         questions: [{ question: 'Which option?', options: [{ label: 'One' }, { label: 'Two' }] }],
       };
       assistantEntry([{ type: 'tool_use', id: toolUseId, name: 'AskUserQuestion', input: toolInput }]);
-      await runHooks(
+      const outputs = await runHooks(
         'PreToolUse',
         { tool_name: 'AskUserQuestion', tool_input: toolInput, tool_use_id: toolUseId },
         'AskUserQuestion',
       );
-      line('Which option? 1. One  2. Two');
-      mode = 'question';
-      const key = await keys.wait();
-      mode = 'prompt';
-      if (!busy || turn !== myTurn) return;
-      const answer = key === '2' ? 'Two' : 'One';
-      userEntry([{ type: 'tool_result', tool_use_id: toolUseId, content: `User answered: ${answer}` }], {
-        toolUseResult: { answers: { 'Which option?': answer } },
-      });
-      await runHooks(
-        'PostToolUse',
-        {
-          tool_name: 'AskUserQuestion',
-          tool_input: toolInput,
-          tool_use_id: toolUseId,
-          tool_response: { answer },
-        },
-        'AskUserQuestion',
-      );
+      // A PreToolUse hook that refuses the call (the question went to the inbox): no dialog.
+      const refusal = outputs
+        .map((o) => o.hookSpecificOutput)
+        .find((o) => o?.hookEventName === 'PreToolUse' && o.permissionDecision === 'deny');
+      if (refusal) {
+        const message = refusal.permissionDecisionReason ?? 'Refused';
+        userEntry([{ type: 'tool_result', tool_use_id: toolUseId, content: message, is_error: true }], {
+          toolUseResult: `Error: ${message}`,
+        });
+        line(`  ⎿ ${message}`);
+      } else {
+        line('Which option? 1. One  2. Two');
+        mode = 'question';
+        const key = await keys.wait();
+        mode = 'prompt';
+        if (!busy || turn !== myTurn) return;
+        const answer = key === '2' ? 'Two' : 'One';
+        userEntry([{ type: 'tool_result', tool_use_id: toolUseId, content: `User answered: ${answer}` }], {
+          toolUseResult: { answers: { 'Which option?': answer } },
+        });
+        await runHooks(
+          'PostToolUse',
+          {
+            tool_name: 'AskUserQuestion',
+            tool_input: toolInput,
+            tool_use_id: toolUseId,
+            tool_response: { answer },
+          },
+          'AskUserQuestion',
+        );
+      }
     }
 
     if (text.includes('SUBAGENT')) {

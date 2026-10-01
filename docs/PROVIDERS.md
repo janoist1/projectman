@@ -157,6 +157,25 @@ until they are named one by one. The `Read` deny rules of the file tools take th
 (decision 24).
 Codex ignores the deny rules (its sandbox is its own, PM-166). See `SECURITY.md`.
 
+### Questions at the terminal (PM-199)
+
+Nobody reads a member's terminal, and a dialog there shows up nowhere in the app: a session that waits
+in `waiting_input` holds its messages back (nothing is typed into a waiting terminal). So Claude Code's
+`AskUserQuestion`, called by a session that has a member, is turned away: the PreToolUse hook (or, for
+a call that reaches it, the PermissionRequest hook) answers a denial that says the question went to the
+inbox, and the broker's `forwardQuestion` asks the humans one inbox question per question of the
+call, as `ask_human` would (options with their descriptions as consequences; the sponsor or the
+owners). The answer comes back as a team message, and the session never leaves `working`. A call the
+broker cannot take is left to the terminal as before. The PreToolUse hook is a deciding hook for the
+sandboxed (forwarder) start for this reason. The system prompt tells members to use `ask_human`.
+Codex's `request_user_input` stays at the terminal (its adapter has no refusal answer).
+
+A session that stays in `waiting_input` for 10 minutes (`INPUT_STALL_MS`) with no open question or alert
+of its own gets one `session_input` alert for the owners ("Rád vár"): a dialog nobody saw, or a stray
+hook. Nothing else is done to the session. Each hook that puts a session into that wait is logged
+(`session waits for input at its terminal`) with the conversation id, agent id and type, transcript,
+tool use id and whether the prompt is visible on the screen, to find where a stray one comes from.
+
 ## Codex
 
 Codex is started as `codex [resume] --no-alt-screen --no-daemon
@@ -324,7 +343,7 @@ A `PermissionRequest` that reaches a managed VM session anyway is **not** shown 
 judged by the command rules (`commandVerdict` is the legacy path's): the runner (and, one step
 further, the inbox's broker) refuses it at once with the way forward (`MANAGED_VM_NO_LOCAL_APPROVAL`),
 and the session carries on. A question for a person at the terminal (`AskUserQuestion`,
-`request_user_input`) is not a permission and is handled as before. The context pack leaves out the
+`request_user_input`) is not a permission and is handled as in every profile (below). The context pack leaves out the
 "Commands that run without asking" section and says the member works freely; the business limits
 (owner exceptions, publishing, cost) apply at the domain, network and operation gate (BOUNDARY.md),
 not as deny rules in the CLI.

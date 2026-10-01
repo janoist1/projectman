@@ -218,7 +218,8 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
         : event === 'SessionEnd'
           ? SESSION_END_TIMEOUT_S
           : FAST_HOOK_TIMEOUT_S;
-    hooks[event] = [{ hooks: [handler(timeout, event === 'PermissionRequest')] }];
+    // A PreToolUse answer turns a question tool's call away (PM-199); every other one is empty.
+    hooks[event] = [{ hooks: [handler(timeout, event === 'PermissionRequest' || event === 'PreToolUse')] }];
   }
   // Rules pass through unchanged: both the server-level "mcp__team" and "mcp__team__*" are
   // valid allow rules for every tool of the team MCP server.

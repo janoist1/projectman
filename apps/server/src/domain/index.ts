@@ -52,6 +52,8 @@ import { SessionOrchestrator } from './sessions';
 import { TaskService } from './tasks';
 import { TeamToolsService } from './team-tools';
 import { TimelineService } from './timeline';
+import { AgentQuestions } from './agent-question';
+import { InputStallAlerts } from './input-stall-alert';
 import { UsageAlerts } from './usage-alerts';
 import { SYSTEM_ACTOR } from './util';
 
@@ -174,6 +176,8 @@ export interface DomainOptions {
    * home may work, and a rehearsal or not yet released copy is never it.
    */
   standby?: boolean;
+  /** How long a session may wait for input before the owners are told (PM-199; default 10 minutes). */
+  inputStallMs?: number;
   templates?: TemplateRegistry;
   bus?: EventBus;
   now?: () => Date;
@@ -212,7 +216,12 @@ export function createDomain(opts: DomainOptions) {
     workspacesRootDir: opts.memberWorkspaces ? opts.workspacesRootDir : undefined,
     attachmentDirectory,
   });
-  const runnerModule = opts.createRunner(inbox.broker);
+  // `agentQuestions` is built once the team tools exist; the callback only runs during a session.
+  const runnerModule = opts.createRunner({
+    ...inbox.broker,
+    forwardQuestion: ({ sessionId, toolName, toolInput }) =>
+      agentQuestions.forward(sessionId, toolName, toolInput),
+  });
   const presence = new PresenceService();
   // The deferred automatic starts live in SQLite too: a restart loads them back (see `start`).
   const deferredStarts = new DeferredStarts(opts.repos.deferredStarts);
@@ -264,6 +273,8 @@ export function createDomain(opts: DomainOptions) {
     // `boundary` is built below; the callback only runs when a session starts.
     onExecutionProfileChange: (projectKey, sessionId) => boundary.invalidateSession(projectKey, sessionId),
     usageAlerts: new UsageAlerts({ ctx, projects, inbox }),
+    inputStall: new InputStallAlerts({ ctx, projects, inbox }),
+    inputStallMs: opts.inputStallMs,
   });
   const usage = new PlanUsageMonitor({
     provider: runnerModule.planUsage,
@@ -382,6 +393,10 @@ export function createDomain(opts: DomainOptions) {
     githubSync,
     attachments,
     attachmentDirectory,
+  });
+  const agentQuestions = new AgentQuestions({
+    ctx,
+    askHuman: (toolContext, args) => teamTools.askHuman(toolContext, args),
   });
   // Read models and flows over the services above.
   const board = new BoardService({ projects, tasks, members, inbox, planUsage });

@@ -124,6 +124,11 @@ export interface ProviderAdapter {
   permissionOutput(decision: PermissionDecision, payload: HookPayload): unknown;
   /** The PermissionRequest hook answer that denies with `message`. */
   denyOutput(message: string): unknown;
+  /**
+   * The hook answer that turns a question tool's call away with `message` (PM-199), for the
+   * PreToolUse or PermissionRequest hook it came with. Absent: the CLI's questions stay at its terminal.
+   */
+  refuseQuestionOutput?(event: 'PreToolUse' | 'PermissionRequest', message: string): unknown;
   /** A login failure a hook reports (e.g. Claude's StopFailure), or null. */
   hookAuthError(payload: HookPayload): string | null;
   /** A dialog that blocks the session (trust, login, ...) in the given screen text, or null. */

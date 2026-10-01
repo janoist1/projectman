@@ -4,7 +4,7 @@ import { resolveCommand, runQuietly } from '../../cli';
 import { parseClaudeAuthStatus } from '../login';
 import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from '../types';
 import { buildClaudeArgs, buildSettings } from './args';
-import { ClaudeHookPayload, denyOutput, permissionOutput } from './permissions';
+import { ClaudeHookPayload, denyOutput, permissionOutput, refuseQuestionOutput } from './permissions';
 import { createPlanUsageProvider } from './plan-usage';
 import { TranscriptParser } from './transcript';
 import { defaultClaudeConfigPath, ensureWorkspaceTrusted } from './trust';
@@ -181,6 +181,7 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
     isSubagentHook: () => false,
     permissionOutput,
     denyOutput,
+    refuseQuestionOutput,
     hookAuthError(payload) {
       if (payload.hook_event_name !== 'StopFailure') return null;
       const error = typeof payload.error === 'string' ? payload.error : null;

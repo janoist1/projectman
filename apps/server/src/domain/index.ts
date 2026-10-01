@@ -1,5 +1,5 @@
 import { isOnLeave, memberOf } from '@projectman/shared';
-import type { Me } from '@projectman/shared';
+import type { ExecutionProfile, Me } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AuthService } from '../auth';
 import type {
@@ -9,6 +9,7 @@ import type {
   ContextPackBuilder,
   EventBus,
   GithubService,
+  ManagedVmBoundary,
   MemberMemoryStore,
   MemberWorkspaceManager,
   PermissionBroker,
@@ -132,6 +133,13 @@ export interface DomainOptions {
   workspacesRootDir?: string;
   /** Whether a process group still runs (tests replace it): a workspace reservation outlives a restart until it is gone. */
   processExists?: ProcessProbe;
+  /**
+   * The installation's execution profile (PM-141): `legacy` (default) or the owner's `managed_vm`,
+   * which starts sessions question-free in the member's own workspace, on a verified boundary only.
+   */
+  executionProfile?: ExecutionProfile;
+  /** The proof of the managed VM boundary, asked at every session start of a `managed_vm` installation. */
+  managedVm?: ManagedVmBoundary;
   templates?: TemplateRegistry;
   bus?: EventBus;
   now?: () => Date;
@@ -198,6 +206,10 @@ export function createDomain(opts: DomainOptions) {
     attachmentDirectory,
     memberWorkspaces: opts.memberWorkspaces,
     processExists: opts.processExists,
+    executionProfile: opts.executionProfile,
+    managedVm: opts.managedVm,
+    // `boundary` is built below; the callback only runs when a session starts.
+    onExecutionProfileChange: (projectKey, sessionId) => boundary.invalidateSession(projectKey, sessionId),
   });
   const usage = new PlanUsageMonitor({
     provider: runnerModule.planUsage,

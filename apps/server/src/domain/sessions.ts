@@ -13,6 +13,7 @@ import type {
   AiMemberConfig,
   Attachment,
   ChatItem,
+  ExecutionProfile,
   MemberStatus,
   ProjectConfig,
   Session,
@@ -21,10 +22,12 @@ import type {
   Task,
   WorkItemRef,
 } from '@projectman/shared';
-import { openingTurnOrigin, PROVIDER_NOT_LOGGED_IN } from '../contracts';
+import { MANAGED_VM_UNAVAILABLE, openingTurnOrigin, PROVIDER_NOT_LOGGED_IN } from '../contracts';
 import type {
   AttachmentOperations,
   ContextPackBuilder,
+  ManagedVmAttestation,
+  ManagedVmBoundary,
   MemberMemoryStore,
   MemberWorkspaceManager,
   RunnerEvent,
@@ -127,6 +130,19 @@ export interface SessionOrchestratorDeps {
   memberWorkspaces?: MemberWorkspaceManager;
   /** Whether a process group still runs (tests replace it); see `processExists`. */
   processExists?: ProcessProbe;
+  /**
+   * The installation's execution profile (PM-141; default `legacy`). `managed_vm` is the owner's
+   * choice for a verified managed VM: every session then starts question-free in the member's own
+   * workspace, but only while `managedVm` proves the boundary at that start.
+   */
+  executionProfile?: ExecutionProfile;
+  /** The proof of the managed VM boundary; without it a `managed_vm` installation starts nothing. */
+  managedVm?: ManagedVmBoundary;
+  /**
+   * A session changed execution profile: what it asked or was granted under the old one is
+   * void (revokes its unconsumed boundary requests).
+   */
+  onExecutionProfileChange?: (projectKey: string, sessionId: string) => Promise<unknown>;
 }
 
 /** Worktree removals that are refused on purpose (the worktree module's error codes). */
@@ -144,6 +160,52 @@ function providerNotLoggedIn(provider: AgentProvider, details: Record<string, un
     `${provider} is not logged in with a subscription${detail ? `: ${detail}` : ''}`,
     { provider, ...details },
   );
+}
+
+/**
+ * A managed VM start that is refused (PM-141): the boundary is not proven now, the installed CLI is
+ * not a version the question-free settings are proven for, or the VM's own configuration would
+ * override the protected start. Only facts the runner or the boundary gave (never file content).
+ */
+function managedVmUnavailable(err: unknown, details: Record<string, unknown> = {}) {
+  const known = errorCode(err) === MANAGED_VM_UNAVAILABLE;
+  const reason = (err as { reason?: unknown } | null)?.reason;
+  const more = (err as { details?: unknown } | null)?.details;
+  return conflict(
+    MANAGED_VM_UNAVAILABLE,
+    known ? (err as Error).message : 'the managed VM boundary could not be verified',
+    {
+      reason: known && typeof reason === 'string' ? reason : 'verification_failed',
+      ...(known && more && typeof more === 'object' ? (more as Record<string, unknown>) : {}),
+      ...details,
+    },
+  );
+}
+
+/** The managed VM's placement of a session: the member's own workspace as PM-138 prepared it, or its home. */
+function memberWorkspacePlacement(
+  ws: WorkspacePlacement | null,
+  cwd: string,
+): Extract<SessionPolicy['placement'], { kind: 'member_workspace' }> {
+  const placement = ws?.placement;
+  if (placement?.kind === 'task_worktree' && placement.workspace)
+    return { kind: 'member_workspace', path: placement.path, use: 'work', workspace: placement.workspace };
+  if (placement?.kind === 'review_copy') {
+    const { sourceCommit, roundId, sourceBranch, baseBranch, baseCommit } = placement;
+    return {
+      kind: 'member_workspace',
+      path: placement.path,
+      use: 'review',
+      review: {
+        sourceCommit,
+        roundId,
+        ...(sourceBranch ? { sourceBranch } : {}),
+        ...(baseBranch ? { baseBranch } : {}),
+        ...(baseCommit ? { baseCommit } : {}),
+      },
+    };
+  }
+  return { kind: 'member_workspace', path: cwd, use: 'home' };
 }
 
 function workItemLabel(item: WorkItemRef, member: AiMemberConfig): string {
@@ -462,6 +524,9 @@ export class SessionOrchestrator {
     const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
     // A CLI that is not logged in could only sit at its login screen: refuse before any work.
     await this.assertProviderReady(provider);
+    // The question-free profile starts only on a boundary proven right now (PM-141); the runner asks
+    // again at the spawn. Nothing is prepared before the proof.
+    const vm = await this.managedVmAttestation();
     let cwd = config.project.workspacePath;
     let branch: string | null = null;
     let additionalDirectories: string[] | undefined;
@@ -486,6 +551,14 @@ export class SessionOrchestrator {
           SYSTEM_ACTOR,
         );
       }
+    } else if (vm) {
+      // The managed VM has no shared checkouts and no worktrees: a session without a repository to
+      // work in has the member's own directory (`<workspaces>/<KEY>/<handle>/.home`).
+      if (!this.deps.memberWorkspaces)
+        throw conflict(MANAGED_VM_UNAVAILABLE, 'the managed VM profile needs member workspaces', {
+          reason: 'no_member_workspaces',
+        });
+      cwd = await this.deps.memberWorkspaces.home({ projectKey, member: member.handle });
     } else if (task && repoName && usesWorktree(member.role, config)) {
       // Code-changing roles work in the task's own worktree and branch; others in the workspace.
       try {
@@ -514,7 +587,15 @@ export class SessionOrchestrator {
         SYSTEM_ACTOR,
       );
     }
-    if (task && repoName && !ws && this.workspaces && sessionPolicyFor(member.role, config).readOnlyTools) {
+    if (vm) {
+      // A worker reads no other member's directory (docs/VM.md): nothing is added for readers.
+    } else if (
+      task &&
+      repoName &&
+      !ws &&
+      this.workspaces &&
+      sessionPolicyFor(member.role, config).readOnlyTools
+    ) {
       // A reader without a workspace of its own reads the developer's, while it is on this task.
       const readable = await this.workspaces.readableWork(config, task.key);
       if (readable) additionalDirectories = [readable];
@@ -540,10 +621,20 @@ export class SessionOrchestrator {
     // worktree is somewhere else (the task had no repository then, or another one) it cannot carry on
     // there: the session starts a new conversation in the worktree instead of working elsewhere.
     // So does a conversation of an older generation of the member's workspace (made again or moved).
-    const relocated = Boolean(
-      existing && (placed || ws) && (path.resolve(existing.cwd) !== path.resolve(cwd) || ws?.newGeneration),
+    // A conversation of the other execution profile is never resumed either (PM-141): its directory
+    // and what it was allowed belong to that profile. It starts a new conversation where this
+    // profile places it, and what it asked or was granted at the boundary under the old one is void.
+    const profileChanged = Boolean(
+      existing && this.ctx.repos.sessions.executionProfile(existing.id) !== (vm ? 'managed_vm' : 'legacy'),
     );
-    if (existing && !relocated && !ws) {
+    const relocated = Boolean(
+      existing &&
+      (profileChanged ||
+        // The managed VM always places the session itself: it never goes back to where it ran.
+        (vm && path.resolve(existing.cwd) !== path.resolve(cwd)) ||
+        ((placed || ws) && (path.resolve(existing.cwd) !== path.resolve(cwd) || ws?.newGeneration))),
+    );
+    if (existing && !relocated && !ws && !vm) {
       // Claude Code keeps conversations per working directory: resume where it started.
       cwd = existing.cwd;
       branch = existing.branch ?? branch;
@@ -564,13 +655,16 @@ export class SessionOrchestrator {
       role: member.role,
       task,
       permissionMode: member.permissionMode,
-      placement: ws
-        ? ws.placement
-        : placed
-          ? { kind: 'task_worktree', path: cwd, ...(placed.gitDir ? { gitDir: placed.gitDir } : {}) }
-          : ({ kind: 'read_only', path: cwd } satisfies SessionPolicy['placement']),
+      placement: vm
+        ? memberWorkspacePlacement(ws, cwd)
+        : ws
+          ? ws.placement
+          : placed
+            ? { kind: 'task_worktree', path: cwd, ...(placed.gitDir ? { gitDir: placed.gitDir } : {}) }
+            : ({ kind: 'read_only', path: cwd } satisfies SessionPolicy['placement']),
       readableRoots: additionalDirectories,
       ...(attachmentDir ? { readOnlyPaths: [attachmentDir] } : {}),
+      ...(vm ? { managedVm: { boundary: vm.profile } } : {}),
     });
     const pack = this.deps.contextBuilder.build({
       project: config,
@@ -637,6 +731,14 @@ export class SessionOrchestrator {
       };
       this.ctx.repos.sessions.insert(session);
     }
+    if (profileChanged) {
+      await this.deps.onExecutionProfileChange?.(projectKey, session.id).catch((err: unknown) => {
+        this.ctx.logger.warn(
+          { err, sessionId: session.id },
+          'could not void the requests of the old profile',
+        );
+      });
+    }
     const token = this.issueToken(session);
     this.processProviders.set(session.id, provider);
 
@@ -657,14 +759,17 @@ export class SessionOrchestrator {
         firstUserOrigin: openingTurnOrigin(workItem),
         mcpUrl: `${this.deps.publicBaseUrl}${routes.mcp(token)}`,
         policy,
-        allowedTools: [...allowedToolsFor(member.role, config), ...attachmentRules.allow],
-        deniedTools: [...deniedToolsFor(config, task), ...attachmentRules.deny],
+        // The managed VM profile (PM-141) hands the CLI no tool rules, no denied tools and no sandbox of
+        // its own: the legacy ones below would put inner limits back (PM-134's sandbox included).
+        allowedTools: vm ? [] : [...allowedToolsFor(member.role, config), ...attachmentRules.allow],
+        deniedTools: vm ? [] : [...deniedToolsFor(config, task), ...attachmentRules.deny],
         additionalDirectories,
         // Work in a task's own worktree (or workspace branch) runs in the OS sandbox; other sessions
         // are not sandboxed yet.
-        ...(placed || ws?.binding.kind === 'work' ? { sandbox: WORKTREE_SANDBOX } : {}),
+        ...(!vm && (placed || ws?.binding.kind === 'work') ? { sandbox: WORKTREE_SANDBOX } : {}),
         provider,
       });
+      this.ctx.repos.sessions.setExecutionProfile(session.id, vm ? 'managed_vm' : 'legacy');
       this.workspaces?.started(session.id, info.pid);
       const current = this.ctx.repos.sessions.get(session.id);
       if (current?.state === 'starting' && info.state !== 'starting') {
@@ -684,6 +789,9 @@ export class SessionOrchestrator {
       this.recomputeMemberState(projectKey, member.handle);
       if (errorCode(err) === PROVIDER_NOT_LOGGED_IN) {
         throw providerNotLoggedIn(provider, { sessionId: session.id }, (err as Error).message);
+      }
+      if (errorCode(err) === MANAGED_VM_UNAVAILABLE) {
+        throw managedVmUnavailable(err, { sessionId: session.id });
       }
       throw new DomainError(
         'session_start_failed',
@@ -746,6 +854,25 @@ export class SessionOrchestrator {
     const attachmentRules = attachmentToolRules(dir);
     // The rules are empty when the directory cannot be a plain rule path; then it is not granted.
     return { attachments, attachmentRules, attachmentDir: attachmentRules.allow.length > 0 ? dir : null };
+  }
+
+  /**
+   * The proof of the managed VM boundary for this start, or null in the legacy profile. A
+   * `managed_vm` installation without a boundary, or whose boundary does not verify, refuses the
+   * start (`managed_vm_unavailable`): the profile is never entered on a flag.
+   */
+  private async managedVmAttestation(): Promise<ManagedVmAttestation | null> {
+    if ((this.deps.executionProfile ?? 'legacy') !== 'managed_vm') return null;
+    const boundary = this.deps.managedVm;
+    if (!boundary)
+      throw conflict(MANAGED_VM_UNAVAILABLE, 'this installation has no verified managed VM boundary', {
+        reason: 'no_boundary',
+      });
+    try {
+      return await boundary.verify();
+    } catch (err) {
+      throw managedVmUnavailable(err);
+    }
   }
 
   /** Throws `provider_not_logged_in` when the runner knows the provider's CLI is not logged in. */

@@ -61,6 +61,10 @@
  * "apiProvider": "firstParty"}`; with FAKE_CLAUDE_LOGGED_OUT set, `loggedIn` is false and
  * `authMethod` is "none" (exit code 1). FAKE_CLAUDE_AUTH_METHOD overrides the method.
  *
+ * VERSION: `--version` prints `<FAKE_CLAUDE_VERSION, else 0.0.0> (Fake Claude Code)`. With
+ * `--permission-mode bypassPermissions` no tool asks for permission (FAKE_CLAUDE_FORCE_PERMISSION_REQUEST
+ * makes it ask anyway: a request that arrives where none is expected).
+ *
  * DIAGNOSTICS: FAKE_CLAUDE_ARGS_FILE, when set, receives {argv, cwd, env} at start-up (env
  * without values of variables whose name contains KEY, TOKEN or SECRET, which are "<set>").
  *
@@ -178,7 +182,7 @@ const opts = parseArgs(process.argv.slice(2));
 if (process.env.FAKE_CLAUDE_ARGS_FILE) writeArgsFile(process.env.FAKE_CLAUDE_ARGS_FILE);
 
 if (opts.version) {
-  process.stdout.write(`${VERSION} (Fake Claude Code)\n`);
+  process.stdout.write(`${process.env.FAKE_CLAUDE_VERSION ?? VERSION} (Fake Claude Code)\n`);
   process.exit(0);
 }
 if (opts.positional[0] === 'auth' && opts.positional[1] === 'status') {
@@ -470,7 +474,11 @@ async function interactive() {
     assistantEntry([{ type: 'tool_use', id: toolUseId, name, input: toolInput }]);
     line(`● ${name}(${JSON.stringify(toolInput).slice(0, 60)})`);
     await runHooks('PreToolUse', { tool_name: name, tool_input: toolInput, tool_use_id: toolUseId }, name);
-    let allowed = isAllowed(name, toolInput);
+    // bypassPermissions asks nothing (FAKE_CLAUDE_FORCE_PERMISSION_REQUEST asks anyway, to test a
+    // request that arrives where none is expected).
+    let allowed =
+      (permissionMode === 'bypassPermissions' && !process.env.FAKE_CLAUDE_FORCE_PERMISSION_REQUEST) ||
+      isAllowed(name, toolInput);
     let denyMessage = 'Permission denied';
     if (!allowed) {
       const suggestions = [

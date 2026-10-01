@@ -329,6 +329,8 @@ export const hu = {
       ai_limit_reached: 'Most dolgozik a megengedett számú AI-tag; az új munka később indul.',
       plan_usage_paused: 'A szolgáltatói keret magas, ezért új AI-munka most nem indul.',
       ai_disabled: 'Ebben a projektben ki van kapcsolva az AI-munka (Beállítások → Keretek).',
+      managed_vm_unavailable:
+        'A kérdésmentes VM-profil határa nincs igazolva (vagy a telepített szolgáltatói program nem a jóváhagyott verzió), ezért a munkamenet nem indul el.',
       workspace_busy:
         'A tag munkaállomásán most egy másik feladat munkamenete fut ebben a repóban; az előbb annak kell véget érnie.',
       workspace_dirty:

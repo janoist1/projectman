@@ -245,6 +245,24 @@ export class BoundaryService {
     return this.transition(request, 'revoked', 'owner_revoked', { kind: 'human', handle }, project.config);
   }
 
+  /**
+   * A session changed execution profile (PM-141): what it asked or was granted under the old one does
+   * not carry over. Every request of the session that is still waiting or granted and not yet consumed
+   * is revoked (a consumed one is final, as everywhere). Returns how many were revoked.
+   */
+  async invalidateSession(projectKey: string, sessionId: string): Promise<number> {
+    const project = await this.projects.load(projectKey);
+    let revoked = 0;
+    for (const stored of this.ctx.repos.boundary.listActive()) {
+      if (stored.projectKey !== projectKey) continue;
+      const request = this.get(projectKey, stored.id);
+      if (request.sessionId !== sessionId || !active(request) || this.consumed(request.id)) continue;
+      this.transition(request, 'revoked', 'policy_changed', SYSTEM_ACTOR, project.config);
+      revoked += 1;
+    }
+    return revoked;
+  }
+
   /** The protected executor consumes one exact grant before execution. This only returns
    * authorization metadata; it never performs a command or changes CLI permissions. */
   async consume(requester: BoundaryRequester, id: string, operationId: string): Promise<BoundaryGrant> {

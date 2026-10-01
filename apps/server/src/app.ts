@@ -1,5 +1,7 @@
 import { chmodSync, existsSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { EXECUTION_PROFILES } from '@projectman/shared';
+import type { ExecutionProfile } from '@projectman/shared';
 import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
@@ -16,6 +18,7 @@ import type {
   BoundaryOperationAdapter,
   ContextPackBuilder,
   GithubService,
+  ManagedVmBoundary,
   McpModule,
   McpModuleOptions,
   MemberMemoryStore,
@@ -30,7 +33,7 @@ import { createAttachmentStorage, createDomain } from './domain';
 import type { Domain, ScheduleTimer, TemplateRegistry } from './domain';
 import { createGithubService } from './github';
 import { createMcpModule } from './mcp';
-import { createRunnerModule } from './runner';
+import { createReadinessBoundary, createRunnerModule } from './runner';
 import { createMemberWorkspaceManager, createWorktreeManager } from './worktree';
 import { registerWebsocket } from './ws';
 
@@ -53,6 +56,8 @@ export function loopbackBaseUrl(host: LoopbackHost, port: number): string {
 /** Module factories and instances; each can be replaced (tests inject fakes). */
 export interface AppModules {
   boundaryAdapter?: BoundaryOperationAdapter;
+  /** The proof of the managed VM boundary (default: the readiness report, `vmReadinessReport`). */
+  managedVmBoundary?: ManagedVmBoundary;
   createRunnerModule?: (opts: RunnerModuleOptions) => RunnerModule;
   createMcpModule?: (opts: McpModuleOptions) => McpModule;
   github?: GithubService;
@@ -122,6 +127,18 @@ export interface BuildAppOptions {
    * worktree per task. Off by default: switching the live instance over is its own decision (PM-143).
    */
   memberWorkspaces?: boolean;
+  /**
+   * The installation's execution profile (PM-141): `legacy` (default, the Mac as it always was) or
+   * `managed_vm`, the owner's choice for the verified managed VM (docs/VM.md). It starts every
+   * session question-free, but only while a verified boundary proves itself at that start; the
+   * setting alone proves nothing. It needs member workspaces and a way to verify
+   * (`vmReadinessReport`, or an injected boundary): otherwise the server does not start.
+   */
+  executionProfile?: ExecutionProfile;
+  /** The readiness report of `deploy/vm/verify.sh` (a root-owned file) that proves the boundary. */
+  vmReadinessReport?: string;
+  /** How old that report may be (default one day). */
+  vmReadinessMaxAgeMs?: number;
 }
 
 /** What `app.projectman` exposes (tests and tooling reach the services through it). */
@@ -147,6 +164,27 @@ declare module 'fastify' {
  * optionally the built web app.
  */
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
+  const modules = options.modules ?? {};
+  // An installation that names a profile it cannot run is a start-up error, never a quiet fallback
+  // to something else (PM-141): the managed VM needs member workspaces and a way to verify itself.
+  const executionProfile = options.executionProfile ?? 'legacy';
+  if (!(EXECUTION_PROFILES as readonly string[]).includes(executionProfile))
+    throw new Error(`unknown execution profile: ${String(executionProfile)}`);
+  let managedVm: ManagedVmBoundary | undefined;
+  if (executionProfile === 'managed_vm') {
+    if (!options.memberWorkspaces)
+      throw new Error('execution profile managed_vm needs member workspaces (PROJECTMAN_WORKSPACES=member)');
+    if (!modules.managedVmBoundary && !options.vmReadinessReport)
+      throw new Error('execution profile managed_vm needs a readiness report to verify the boundary');
+    managedVm =
+      modules.managedVmBoundary ??
+      createReadinessBoundary({
+        reportPath: options.vmReadinessReport!,
+        maxAgeMs: options.vmReadinessMaxAgeMs,
+      });
+  } else if (modules.managedVmBoundary || options.vmReadinessReport) {
+    throw new Error('a VM readiness report is set, but the execution profile is not managed_vm');
+  }
   const home = resolve(options.home);
   const attachmentsDir = join(home, 'attachments');
   for (const dir of [home, join(home, 'memory'), join(home, 'worktrees'), attachmentsDir]) {
@@ -156,7 +194,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const publicBaseUrl = (
     options.publicBaseUrl ?? loopbackBaseUrl(APP_DEFAULTS.host, APP_DEFAULTS.port)
   ).replace(/\/+$/, '');
-  const modules = options.modules ?? {};
 
   const logger = options.logger ?? { level: APP_DEFAULTS.logLevel };
   const app = Fastify({
@@ -216,6 +253,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           codexHome: options.codexHome,
           claudeConfigPath: options.claudeConfigPath,
           env: options.agentEnv,
+          managedVm,
           publicBaseUrl,
           broker,
           permissionTimeoutMs: options.permissionTimeoutMs ?? APP_DEFAULTS.permissionTimeoutMs,
@@ -230,6 +268,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       worktreesRootDir: join(home, 'worktrees'),
       memberWorkspaces,
       workspacesRootDir: workspacesDir,
+      executionProfile,
+      managedVm,
       templates: modules.templates,
       now: options.now,
       scheduleTimer: options.scheduleTimer,

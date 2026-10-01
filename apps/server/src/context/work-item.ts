@@ -217,7 +217,12 @@ const reviewing: StepRule = ({ input, s, task, duty, author, localOnly }) => {
   }
   const placement = input.sessionPolicy?.placement;
   // In the member's own workspace (PM-138) the handed-over commit is already checked out.
-  const ownWorkspace = placement?.kind === 'review_copy' && placement.sourceBranch !== undefined;
+  const ownWorkspace =
+    placement?.kind === 'review_copy'
+      ? placement.sourceBranch !== undefined
+      : placement?.kind === 'member_workspace' &&
+        placement.use === 'review' &&
+        placement.review?.sourceBranch !== undefined;
   return [
     localOnly && ownWorkspace
       ? `Review the handed-over commit checked out in your workspace against its review base (see "Review round"): there is no pull request, because ${LOCAL_ONLY_REASON}. Do not commit, merge or push.`

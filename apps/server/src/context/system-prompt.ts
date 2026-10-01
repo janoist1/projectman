@@ -308,6 +308,9 @@ function unattendedCommandsSection({
   sessionPolicy,
 }: ContextPackInput): string {
   if (workItem.type !== 'task') return '';
+  // The managed VM profile (PM-141) has no command rules: nothing waits for a human, so there is no
+  // form to write commands in (the legacy rules of PM-104/105/109/116 stay in the legacy path).
+  if (sessionPolicy?.execution?.profile === 'managed_vm') return '';
   const repo = repoOf(project, effectiveRepo(project, task));
   const worktree = roleUsesWorktree(project, member.role);
   return [
@@ -330,6 +333,18 @@ function unattendedCommandsSection({
 
 function sessionPolicySection({ sessionPolicy: policy }: ContextPackInput): string {
   if (!policy) return '';
+  if (policy.execution?.profile === 'managed_vm') {
+    const research = policy.permissions.sandbox === 'read-only';
+    return [
+      '# Session policy',
+      `Execution profile: managed VM. Placement: ${policy.access}; working directory: ${code(policy.placement.path)}.`,
+      research
+        ? 'Your member mode is research-only (plan): you read and report; you do not change files.'
+        : 'You work freely in your own workspace: shell commands (with substitution, redirections and pipes), installs, test runs of any kind, and commits run without asking, in any form. Nothing waits for a human, and nothing needs a special form.',
+      'The limits are outside your session: your own account, the protected paths and the network gate. A step that leaves the machine is decided at that gate, not by a prompt; for a registered external operation use submit_boundary_request. Do not look for a way around a refusal there: report it instead.',
+      'A permission request that reaches you anyway is refused, not queued for a human.',
+    ].join('\n');
+  }
   return [
     '# Session policy',
     `Placement: ${policy.access}; working directory: ${code(policy.placement.path)}.`,
@@ -348,8 +363,20 @@ function sessionPolicySection({ sessionPolicy: policy }: ContextPackInput): stri
  */
 function workspaceSection({ sessionPolicy: policy }: ContextPackInput): string {
   const placement = policy?.placement;
-  if (placement?.kind === 'task_worktree' && placement.workspace) {
-    const { branch, baseCommit } = placement.workspace;
+  if (placement?.kind === 'member_workspace' && placement.use === 'home') {
+    return [
+      '# Your workspace',
+      `You work in your own directory ${code(placement.path)}: it has no repository, and it stays yours across sessions.`,
+    ].join('\n');
+  }
+  const work =
+    placement?.kind === 'task_worktree'
+      ? placement.workspace
+      : placement?.kind === 'member_workspace'
+        ? placement.workspace
+        : undefined;
+  if (placement && work) {
+    const { branch, baseCommit } = work;
     return [
       '# Your workspace',
       `You work in your own durable workspace for this repository, an independent clone at ${code(placement.path)}, on the task's branch ${code(branch)}${baseCommit ? ` (it started from ${code(baseCommit)})` : ''}.`,
@@ -357,13 +384,19 @@ function workspaceSection({ sessionPolicy: policy }: ContextPackInput): string {
       'It has no remote. Teammates who review or test your work get your committed branch from here; uncommitted files never reach them.',
     ].join('\n');
   }
-  if (placement?.kind === 'review_copy' && placement.sourceBranch) {
+  const round =
+    placement?.kind === 'review_copy'
+      ? placement
+      : placement?.kind === 'member_workspace'
+        ? placement.review
+        : undefined;
+  if (placement && round?.sourceBranch) {
     return [
       '# Review round',
-      `Round ${placement.roundId}: your own workspace at ${code(placement.path)} has the handed-over commit ${code(placement.sourceCommit)} of ${code(placement.sourceBranch)} checked out (detached HEAD); the developer's uncommitted files are not in it.`,
-      ...(placement.baseCommit
+      `Round ${round.roundId}: your own workspace at ${code(placement.path)} has the handed-over commit ${code(round.sourceCommit)} of ${code(round.sourceBranch)} checked out (detached HEAD); the developer's uncommitted files are not in it.`,
+      ...(round.baseCommit
         ? [
-            `The review base is ${code(placement.baseBranch ?? 'the default branch')} at ${code(placement.baseCommit)}: read the change with ${code(`git log ${placement.baseCommit}..HEAD`)} and ${code(`git diff ${placement.baseCommit}...HEAD`)}.`,
+            `The review base is ${code(round.baseBranch ?? 'the default branch')} at ${code(round.baseCommit)}: read the change with ${code(`git log ${round.baseCommit}..HEAD`)} and ${code(`git diff ${round.baseCommit}...HEAD`)}.`,
           ]
         : []),
       'You keep this commit while the round lasts. A new round with the latest commit starts when the task enters a stage or its developer asks you for a re-review; you are restarted on it then.',

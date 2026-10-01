@@ -31,3 +31,4 @@ export * from './schedule/cron';
 export * from './domain/provider-model';
 export * from './domain/mentions';
 export * from './deploy/vm-readiness';
+export * from './deploy/managed-vm';

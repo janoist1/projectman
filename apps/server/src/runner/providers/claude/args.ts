@@ -65,6 +65,13 @@ export interface ClaudeSettings {
   permissions: { allow: string[]; deny?: string[] };
   hooks: Record<string, Array<{ hooks: HookHandler[] }>>;
   sandbox?: ClaudeSandboxSettings;
+  /** Managed VM profile: no first-use confirmation of the bypass mode (it would wait in the terminal). */
+  skipDangerousModePermissionPrompt?: true;
+}
+
+/** Whether the policy asks for the managed VM profile (PM-141): the question-free start. */
+export function isManagedVm(policy: StartSessionSpec['policy']): boolean {
+  return policy?.execution?.profile === 'managed_vm';
 }
 
 /**
@@ -90,12 +97,28 @@ export function buildSandboxSettings(sandbox: AgentSandbox): ClaudeSandboxSettin
 export function buildSettings(input: HookSettingsInput): ClaudeSettings {
   if (input.policy?.enforcement === 'strict')
     throw new Error('Strict Claude sandbox enforcement is not available yet; refusing to start.');
-  const rules = input.policy
-    ? claudeToolRules(input.policy)
-    : { allow: input.allowedTools, deny: input.deniedTools ?? [] };
+  const managed = isManagedVm(input.policy);
+  if (
+    managed &&
+    (input.policy!.permissions.approval !== 'never' ||
+      !['bypassPermissions', 'plan'].includes(input.policy!.permissions.claude))
+  )
+    throw new Error('The managed VM profile asks nothing locally; refusing a policy that does.');
+  // The managed VM profile keeps no inner limits: the legacy tool rules, the denied operations and
+  // the PM-134 sandbox stay out (the boundary is outside the CLI). Only the team tools are named,
+  // which a research-only (`plan`) member still needs to answer.
+  const rules = managed
+    ? claudeToolRules({
+        tools: { team: input.policy!.tools.team, files: [], shell: [] },
+        deniedOperations: [],
+      })
+    : input.policy
+      ? claudeToolRules(input.policy)
+      : { allow: input.allowedTools, deny: input.deniedTools ?? [] };
+  const sandbox = managed ? undefined : input.sandbox;
   const permissionTimeoutS = permissionHookTimeoutS(input.permissionTimeoutMs);
   const handler = (timeout: number, decides: boolean): HookHandler =>
-    input.sandbox
+    sandbox
       ? {
           type: 'command',
           command: forwarderCommand(input.hookUrl, input.nodePath, {
@@ -135,7 +158,10 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
       ...(rules.deny.length ? { deny: [...new Set(rules.deny)] } : {}),
     },
     hooks,
-    ...(input.sandbox ? { sandbox: buildSandboxSettings(input.sandbox) } : {}),
+    ...(sandbox ? { sandbox: buildSandboxSettings(sandbox) } : {}),
+    ...(managed && input.policy!.permissions.claude === 'bypassPermissions'
+      ? { skipDangerousModePermissionPrompt: true as const }
+      : {}),
   };
 }
 
@@ -151,6 +177,9 @@ export function buildClaudeArgs(spec: StartSessionSpec, settings: ClaudeSettings
   else args.push('--session-id', spec.claudeSessionId);
   if (spec.appendSystemPrompt) args.push('--append-system-prompt', spec.appendSystemPrompt);
   args.push('--mcp-config', JSON.stringify(buildMcpConfig(spec.mcpUrl)));
+  // The managed VM's start is protected (PM-49): only the team server of this session, and no
+  // settings of the project's own files; the user's file is inspected before the start.
+  if (isManagedVm(spec.policy)) args.push('--strict-mcp-config', '--setting-sources', 'user');
   args.push('--settings', JSON.stringify(settings));
   const directories = spec.policy
     ? spec.policy.filesystem.readableRoots.filter((dir) => dir !== spec.cwd)

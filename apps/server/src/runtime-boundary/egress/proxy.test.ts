@@ -134,6 +134,17 @@ describe('the egress proxy', () => {
     socket.destroy();
   });
 
+  it('keeps the bytes a client sends right after its ClientHello (early data)', async () => {
+    const hello = await captureClientHello('docs.example.org');
+    const { socket } = await connectThrough('docs.example.org:443');
+    socket.write(hello);
+    socket.write(Buffer.from('EARLY-DATA'));
+    const expected = Buffer.concat([hello, Buffer.from('EARLY-DATA')]);
+    await until(() => received.length >= expected.length);
+    expect(received.equals(expected)).toBe(true);
+    socket.destroy();
+  });
+
   it('refuses a destination the gate refuses, with the operation to ask for', async () => {
     decision = { allowed: false, denial: 'not_allowed', operationId: 'egr_abc' };
     const { head, body, socket } = await connectThrough('docs.example.org:443');

@@ -137,6 +137,9 @@ export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
         clearTimeout(timer);
         socket.removeListener('data', onData);
         socket.removeListener('end', onEnd);
+        // Bytes after the ClientHello (TLS early data) wait until the upstream is connected and
+        // piped; a flowing stream without a listener would drop them.
+        socket.pause();
         resolve(value);
       };
       const check = () => {

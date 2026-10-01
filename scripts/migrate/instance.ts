@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
   clearInstanceMarker,
@@ -6,6 +6,7 @@ import {
   readInstanceMarker,
   writeInstanceMarker,
 } from '../../apps/server/src/instance';
+import { ACTIVATED_FILE, APPLY_REPORT_FILE, MIGRATED_DIR } from './apply';
 import { databaseInUse } from './database';
 import { MigrationRefused } from './package';
 
@@ -63,6 +64,19 @@ export function activateHome(options: ActivateOptions): void {
   } else if (!options.confirmSourceRetired) {
     throw new MigrationRefused(
       'name the other installation: --other-home PATH (its marker must be retired) or --confirm-source-retired (it is stopped and retired on another machine)',
+    );
+  }
+  const migrated = join(home, MIGRATED_DIR);
+  if (existsSync(migrated)) {
+    // A copy whose apply did not finish is incomplete data: it is never released.
+    if (!existsSync(join(migrated, APPLY_REPORT_FILE)))
+      throw new MigrationRefused(
+        `${home} is a migrated copy whose apply did not finish (no ${join(MIGRATED_DIR, APPLY_REPORT_FILE)}): apply the package again into a new home`,
+      );
+    writeFileSync(
+      join(migrated, ACTIVATED_FILE),
+      `${JSON.stringify({ version: 1, activatedAt: new Date().toISOString() }, null, 2)}\n`,
+      { mode: 0o600 },
     );
   }
   clearInstanceMarker(home);

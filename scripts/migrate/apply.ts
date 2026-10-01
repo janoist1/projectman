@@ -35,6 +35,8 @@ const run = promisify(execFile);
 export const MIGRATED_DIR = 'migrated';
 export const PENDING_WORK_FILE = 'pending-work.json';
 export const APPLY_REPORT_FILE = 'report.json';
+/** Written by `instance activate` into a migrated home: the missing role marker is then a person's decision. */
+export const ACTIVATED_FILE = 'activated.json';
 
 export interface ApplyOptions {
   packageDir: string;
@@ -89,6 +91,19 @@ export async function applyPackage(options: ApplyOptions): Promise<ApplyReport> 
     throw new MigrationRefused(`${target} exists and is not empty: the move never overwrites a home`);
   mkdirSync(target, { recursive: true, mode: 0o700 });
   chmodSync(target, 0o700);
+  // The first writes: a standby role (a copy interrupted from here on is never an active instance) and
+  // the folders the later steps fill (an empty package leaves them empty, but they exist). The report is
+  // the last write: a `migrated/` folder without it is an apply that did not finish.
+  writeInstanceMarker(
+    target,
+    'standby',
+    'migrated copy: not yet released as the active instance',
+    options.now?.(),
+  );
+  const migrated = join(target, MIGRATED_DIR);
+  const pendingDir = join(migrated, 'pending-work');
+  mkdirSync(pendingDir, { recursive: true, mode: 0o700 });
+  mkdirSync(join(migrated, 'transcripts'), { recursive: true, mode: 0o700 });
 
   // The old home maps onto the new one unless the person named something more specific.
   const mappings: PathMapping[] = [
@@ -113,6 +128,8 @@ export async function applyPackage(options: ApplyOptions): Promise<ApplyReport> 
     verbatimSymlinks: true,
   });
   chmodSync(target, 0o700);
+  // A packaged home that was itself a migrated copy brings its old report: this apply has not finished.
+  rmSync(join(migrated, APPLY_REPORT_FILE), { force: true });
   if (existsSync(join(target, 'secret'))) chmodSync(join(target, 'secret'), 0o600);
   chmodSync(join(target, 'db.sqlite'), 0o600);
 
@@ -278,7 +295,6 @@ export async function applyPackage(options: ApplyOptions): Promise<ApplyReport> 
 
   // --- the old machine's uncommitted work: pending, never applied on its own
   const pending: PendingWork[] = [];
-  const pendingDir = join(target, MIGRATED_DIR, 'pending-work');
   for (const w of manifest.work) {
     mkdirSync(join(pendingDir, w.id), { recursive: true, mode: 0o700 });
     if (w.archive) cpSync(join(packageDir, w.archive), join(pendingDir, w.id, 'files.tar.gz'));
@@ -291,7 +307,7 @@ export async function applyPackage(options: ApplyOptions): Promise<ApplyReport> 
       subject: 'work',
       message: `${pending.length} dirty checkouts and worktrees of the old machine wait as pending work (${join(MIGRATED_DIR, PENDING_WORK_FILE)}): a person assigns each to a member, or keeps it pending`,
     });
-  writeFileSync(join(target, MIGRATED_DIR, PENDING_WORK_FILE), `${JSON.stringify(pending, null, 2)}\n`, {
+  writeFileSync(join(migrated, PENDING_WORK_FILE), `${JSON.stringify(pending, null, 2)}\n`, {
     mode: 0o600,
   });
 
@@ -303,13 +319,6 @@ export async function applyPackage(options: ApplyOptions): Promise<ApplyReport> 
       message: `${count} stored paths under ${group} are not covered by a mapping and stay as they were (history of the old machine)`,
     });
 
-  // --- a standby copy, never the active one
-  writeInstanceMarker(
-    target,
-    'standby',
-    'migrated copy: not yet released as the active instance',
-    options.now?.(),
-  );
   const report: ApplyReport = {
     version: 1,
     appliedAt: (options.now?.() ?? new Date()).toISOString(),
@@ -326,14 +335,15 @@ export async function applyPackage(options: ApplyOptions): Promise<ApplyReport> 
     sessionsNotResumed,
     findings,
   };
-  writeFileSync(join(target, MIGRATED_DIR, APPLY_REPORT_FILE), `${JSON.stringify(report, null, 2)}\n`, {
-    mode: 0o600,
-  });
   writeFileSync(
-    join(target, MIGRATED_DIR, 'manifest.json'),
+    join(migrated, 'manifest.json'),
     `${JSON.stringify({ ...manifest, files: undefined }, null, 2)}\n`,
     { mode: 0o600 },
   );
+  // Last: its presence says the apply finished (`verify` refuses a migrated home without it).
+  writeFileSync(join(migrated, APPLY_REPORT_FILE), `${JSON.stringify(report, null, 2)}\n`, {
+    mode: 0o600,
+  });
   return report;
 }
 

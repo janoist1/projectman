@@ -275,6 +275,69 @@ describe('the first input of a resumed session', () => {
     ]);
   });
 
+  describe('a first input that is not typed (PM-189)', () => {
+    beforeEach(() => {
+      h.runner.holdFirstInput = true;
+    });
+
+    it.each(PROVIDERS)(
+      'keeps the messages of a %s session that ends before its first input waiting for the next start',
+      async (_provider, member) => {
+        const one = waiting(member, 'First: check the title.', 1);
+        const two = waiting(member, 'Second: and the label.', 2);
+        await h.domain.messageStarts.wake('AR', member, task);
+        await flush();
+        // Started with them, but not typed yet: they wait, and are not typed again.
+        const session = h.repos.sessions.findByWorkItem('AR', member, task)!;
+        expect(h.repos.messages.pending('AR', member)).toHaveLength(2);
+        expect(h.runner.messages).toEqual([]);
+
+        // The process ends at its start-up dialog, before anything was typed.
+        h.runner.emit({ type: 'exit', sessionId: session.id, exitCode: 1, signal: null });
+        await flush();
+        expect(h.repos.messages.pending('AR', member)).toHaveLength(2);
+
+        // No conversation exists yet: the next start is a new one, and gets the messages in full.
+        await h.domain.messageStarts.wake('AR', member, task);
+        await flush();
+        expect(h.runner.started).toHaveLength(2);
+        expect(h.runner.lastStarted()).toMatchObject({
+          resume: false,
+          initialMessage: `Brief for AR-1: Login page\n\n${WAITING_HEADER}\n\n${one}\n\n${two}`,
+        });
+        expect(h.repos.messages.pending('AR', member)).toHaveLength(2);
+
+        // Once that input is typed they count as delivered.
+        h.runner.emit({ type: 'first_input_sent', sessionId: session.id });
+        await flush();
+        expect(h.repos.messages.pending('AR', member)).toEqual([]);
+        expect(h.runner.messages).toEqual([]);
+      },
+    );
+
+    it('keeps the message a person wrote into a stopped session waiting until it is typed', async () => {
+      const session = await stopped('dev-1');
+      const message = await h.domain.messaging.sendToSession('AR', session.id, 'Please rename it.', 'owner');
+      await flush();
+      expect(h.runner.lastStarted()).toMatchObject({ resume: true, initialMessage: 'Please rename it.' });
+      expect(h.repos.messages.get(message.id)?.deliveredAt).toBeNull();
+      expect(h.runner.messages).toEqual([]);
+
+      h.runner.emit({ type: 'first_input_sent', sessionId: session.id });
+      await flush();
+      expect(h.repos.messages.get(message.id)?.deliveredAt).toBeTruthy();
+      expect(h.runner.messages).toEqual([]);
+    });
+
+    it('keeps the message a person wrote waiting when the session ends before it is typed', async () => {
+      const session = await stopped('dev-1');
+      const message = await h.domain.messaging.sendToSession('AR', session.id, 'Please rename it.', 'owner');
+      h.runner.emit({ type: 'exit', sessionId: session.id, exitCode: 1, signal: null });
+      await flush();
+      expect(h.repos.messages.pending('AR', 'dev-1').map((m) => m.id)).toEqual([message.id]);
+    });
+  });
+
   it('leaves the message waiting when the start that would carry it fails', async () => {
     await stopped('dev-1');
     h.runner.failNextStart = new Error('Fictional runner failure');

@@ -114,6 +114,13 @@ export type RunnerEvent =
   | { type: 'chat'; sessionId: string; items: ChatItem[] }
   | { type: 'exit'; sessionId: string; exitCode: number | null; signal: number | null }
   /**
+   * The process got its first input (`StartSessionSpec.initialMessage`): Codex has it on its command
+   * line as soon as it is started; Claude Code has it typed into the prompt once it reports
+   * SessionStart. A process that ends before that never sends it, so the messages in that input
+   * did not reach the agent.
+   */
+  | { type: 'first_input_sent'; sessionId: string }
+  /**
    * The agent CLI's own conversation id, when the runner learns it instead of choosing it
    * (Codex: from the first hook). Store it as the session's `claudeSessionId` to resume later.
    */

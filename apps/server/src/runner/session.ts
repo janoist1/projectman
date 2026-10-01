@@ -153,7 +153,10 @@ export class AgentSession {
       onSettled: (pending) => this.apply({ kind: 'permission_resolved', pending }),
     });
     if (args.spec.initialMessage?.trim() && !this.initialMessageSent) {
-      this.enqueue(args.spec.initialMessage).catch(() => undefined);
+      this.enqueue(args.spec.initialMessage).then(
+        () => this.deps.emit({ type: 'first_input_sent', sessionId: this.id }),
+        () => undefined,
+      );
     }
   }
 
@@ -200,6 +203,7 @@ export class AgentSession {
     if (this.initialMessageSent) {
       // The CLI submits the brief itself; nothing is typed before it reports the prompt.
       this.input.awaitCommandLinePrompt(this.timing.argumentSubmitTimeoutMs);
+      this.deps.emit({ type: 'first_input_sent', sessionId: this.id });
     }
     this.startWatch();
     this.emitState();

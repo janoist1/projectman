@@ -110,6 +110,7 @@ function admissionFor(world: World = {}) {
       resumed: false,
       started: true,
       messagesSent: 0,
+      firstInput: Promise.resolve(true),
     })),
   };
   const config = testConfig();

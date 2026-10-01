@@ -489,6 +489,7 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
 
   it("reads the user's core.excludesfile and nothing else of the home (PM-216)", async () => {
     writeFileSync(join(home, '.gitconfig'), '[core]\n\texcludesfile = ~/.gitignore_global\n');
+    writeFileSync(join(home, '.gitignore_global'), '*.log\n');
     h = await createDomainHarness({ userHome: home, appHome });
     const task = await h.domain.tasks.create('AR', { title: 'With repo', repo: 'web' }, OWNER_ACTOR);
     await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: task.key });

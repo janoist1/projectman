@@ -82,17 +82,24 @@ export const SANDBOX_HOME_READS = ['.gitconfig', '.config/git', '.claude/shell-s
 
 /**
  * Git settings of a developer's sandboxed commands (PM-216), through git's own environment
- * configuration: no automatic gc or maintenance. After a commit git would run `gc --auto`, whose
- * `pack-refs` rewrites the shared `packed-refs` (denied, `sharedGitDenials`) and ends in
- * "Unable to create packed-refs.lock" although the commit exists. Every `GIT_CONFIG_*` variable of
- * a session is set here, so none of them is overwritten.
+ * configuration (every `GIT_CONFIG_*` variable of a session is set here, so none is overwritten):
+ * - no automatic gc or maintenance: `gc --auto` / `pack-refs` would rewrite the shared
+ *   `packed-refs`, which `sharedGitDenials` keeps out;
+ * - `core.packedRefsTimeout=0`: git waits 1 s for a `packed-refs.lock` it cannot take. A
+ *   `git commit` ends by deleting the `CHERRY_PICK_HEAD`/`REVERT_HEAD` pseudo-refs, and any
+ *   ref-deleting transaction locks the shared `packed-refs`: the denied lock makes it print
+ *   "Unable to create '.../packed-refs.lock'" after the commit, which already exists. No git
+ *   setting avoids that message; allowing the lock would let a sandbox change the host's lock
+ *   window, so the message is known and harmless, and only its delay is removed.
  */
 export const SANDBOX_GIT_ENV = {
-  GIT_CONFIG_COUNT: '2',
+  GIT_CONFIG_COUNT: '3',
   GIT_CONFIG_KEY_0: 'gc.auto',
   GIT_CONFIG_VALUE_0: '0',
   GIT_CONFIG_KEY_1: 'maintenance.auto',
   GIT_CONFIG_VALUE_1: 'false',
+  GIT_CONFIG_KEY_2: 'core.packedRefsTimeout',
+  GIT_CONFIG_VALUE_2: '0',
 } as const;
 
 /**
@@ -187,7 +194,10 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
     ...own.map((dir) => dir.path),
     ...(gitDir ? [gitDir] : []),
     ...SANDBOX_HOME_READS.map((name) => path.join(userHome, name)),
-    ...(excludesFile && !(appHome && isWithin(appHome, excludesFile)) ? [excludesFile] : []),
+    // Never the home or a directory above it, whatever the config says.
+    ...(excludesFile && !isWithin(excludesFile, userHome) && !(appHome && isWithin(appHome, excludesFile))
+      ? [excludesFile]
+      : []),
   ].filter((dir) => !isWithinAny(denied, dir));
   return {
     allowWrite: own.map((dir) => dir.path).filter((dir) => !isWithinAny(denied, dir)),

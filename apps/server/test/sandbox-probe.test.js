@@ -37,9 +37,13 @@ describe('PM-126 fictional probe fixtures (no agent CLI)', () => {
       servers = await serve(p, { ipv4: 0, ipv6: 0 });
     } catch (error) {
       // An agent's own sandbox does not let its commands bind a Unix socket (PM-216): this control
-      // needs one, so it is reported as skipped there, not as a failure of the probe fixtures.
-      if (error.code === 'EPERM' || error.code === 'EACCES')
-        ctx.skip(`this environment does not allow binding a Unix socket (${error.code})`);
+      // needs one. Like the PTY tests (PM-194) it is left out only on that sandbox's explicit signal;
+      // anywhere else the failure stands.
+      if (
+        (error.code === 'EPERM' || error.code === 'EACCES') &&
+        process.env.PROJECTMAN_SKIP_PTY_TESTS === '1'
+      )
+        ctx.skip(`this sandbox does not allow binding a Unix socket (${error.code})`);
       throw error;
     }
     const ports = { ipv4: servers[0].address().port, ipv6: servers[1].address().port };

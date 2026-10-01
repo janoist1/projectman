@@ -14,25 +14,35 @@ afterEach(() => rmSync(home, { recursive: true, force: true }));
 
 describe("the git settings of a developer's sandbox (PM-216)", () => {
   it('finds the global core.excludesfile the way the user configured it', () => {
+    const config = path.join(home, '.gitconfig');
+    const ignore = path.join(home, '.gitignore_global');
+    writeFileSync(ignore, '*.log\n');
     expect(userExcludesFile(home)).toBeUndefined();
-    writeFileSync(
-      path.join(home, '.gitconfig'),
-      '[user]\n\texcludesfile = /nope\n[core]\n\tautocrlf = false\n',
-    );
+    writeFileSync(config, '[user]\n\texcludesfile = /nope\n[core]\n\tautocrlf = false\n');
     expect(userExcludesFile(home)).toBeUndefined();
-    writeFileSync(path.join(home, '.gitconfig'), '[core]\n\texcludesFile = ~/.gitignore_global # mine\n');
-    expect(userExcludesFile(home)).toBe(path.join(home, '.gitignore_global'));
-    writeFileSync(path.join(home, '.gitconfig'), '[core]\n\texcludesfile = "/etc/ignore"\n');
-    expect(userExcludesFile(home)).toBe('/etc/ignore');
-    // A relative path means nothing to git; the XDG file comes after ~/.gitconfig.
-    writeFileSync(path.join(home, '.gitconfig'), '[core]\n\texcludesfile = relative/ignore\n');
+    writeFileSync(config, '[core]\n\texcludesFile = ~/.gitignore_global # mine\n');
+    expect(userExcludesFile(home)).toBe(ignore);
+    writeFileSync(config, `[core] excludesfile = ${ignore}\n`);
+    expect(userExcludesFile(home)).toBe(ignore);
+    writeFileSync(config, `[core "other"]\n\texcludesfile = ${ignore}\n`);
     expect(userExcludesFile(home)).toBeUndefined();
+    // A relative path means nothing to git.
+    writeFileSync(config, '[core]\n\texcludesfile = relative/ignore\n');
+    expect(userExcludesFile(home)).toBeUndefined();
+    // Only an existing regular file: not the home, a directory above it, or a missing file.
+    for (const value of ['~', '~/', path.dirname(home), path.join(home, 'missing')]) {
+      writeFileSync(config, `[core]\n\texcludesfile = ${value}\n`);
+      expect(userExcludesFile(home)).toBeUndefined();
+    }
+    // The XDG file comes after ~/.gitconfig.
+    const xdg = path.join(home, 'xdg-ignore');
+    writeFileSync(xdg, '*.tmp\n');
     mkdirSync(path.join(home, '.config', 'git'), { recursive: true });
-    writeFileSync(path.join(home, '.config', 'git', 'config'), '[core]\n\texcludesfile = /xdg/ignore\n');
-    expect(userExcludesFile(home)).toBe('/xdg/ignore');
+    writeFileSync(path.join(home, '.config', 'git', 'config'), `[core]\n\texcludesfile = ${xdg}\n`);
+    expect(userExcludesFile(home)).toBe(xdg);
   });
 
-  it('keeps git from running gc or maintenance on its own', () => {
+  it('keeps git from running gc or maintenance on its own and from waiting for the denied lock', () => {
     const env = {
       PATH: process.env.PATH ?? '',
       HOME: home,
@@ -43,5 +53,6 @@ describe("the git settings of a developer's sandbox (PM-216)", () => {
     const get = (key: string) => execFileSync('git', ['config', '--get', key], { env }).toString().trim();
     expect(get('gc.auto')).toBe('0');
     expect(get('maintenance.auto')).toBe('false');
+    expect(get('core.packedRefsTimeout')).toBe('0');
   });
 });

@@ -199,12 +199,17 @@ describe('provider-neutral session policy', () => {
         excludesFile: '/fictional/app/x',
       })!.allowRead,
     ).not.toContain('/fictional/app/x');
+    // Never the home or a directory above it, whatever the config says.
+    for (const dir of [home, '/fictional'])
+      expect(sessionSandbox(development(), { ...paths, excludesFile: dir })!.allowRead).not.toContain(dir);
     expect(sandbox.env).toMatchObject({
-      GIT_CONFIG_COUNT: '2',
+      GIT_CONFIG_COUNT: '3',
       GIT_CONFIG_KEY_0: 'gc.auto',
       GIT_CONFIG_VALUE_0: '0',
       GIT_CONFIG_KEY_1: 'maintenance.auto',
       GIT_CONFIG_VALUE_1: 'false',
+      GIT_CONFIG_KEY_2: 'core.packedRefsTimeout',
+      GIT_CONFIG_VALUE_2: '0',
     });
   });
 

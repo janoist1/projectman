@@ -103,10 +103,14 @@ describe('message storm warning', () => {
     expect(alerts()).toHaveLength(1);
   });
 
-  it('arms again once a whole window has passed since the last alert', async () => {
+  it('arms again once a whole quiet window followed the storm', async () => {
     await notes(10);
     await seen();
+    // The storm's ten entries keep the windows hot for 15 minutes; a quiet window comes after that.
     now = new Date(now.getTime() + 15 * MINUTE + 1);
+    await notes(10);
+    expect(alerts()).toHaveLength(1);
+    now = new Date(now.getTime() + 30 * MINUTE);
     await notes(9);
     expect(alerts()).toHaveLength(1);
     await note();

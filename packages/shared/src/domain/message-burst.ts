@@ -37,13 +37,36 @@ export function burstMembers(entries: readonly BurstEntry[]): string[] {
 }
 
 /**
- * The alert a card's conversation calls for now, or null. `entries` are those of the card since
- * `messageBurstSince`; `earlier` are the card's message storm alerts so far (open or not, `at`
- * being the `at` of their payload).
+ * Whether a whole window of quiet came between `from` and the end of `times` (ascending, ms): a
+ * stretch of at least `windowMs` in which no window of that length held `count` entries. An entry
+ * at time t is counted by the windows that end from t to t + `windowMs`; `count` entries within
+ * `windowMs` of each other make everything from the last of them until the first one leaves the
+ * window "hot". The last of `times` is the entry now, and it ends a hot stretch.
+ */
+function hadQuietWindow(times: readonly number[], from: number, burst: MessageBurst): boolean {
+  const windowMs = burst.minutes * MINUTE_MS;
+  let quietFrom = from;
+  for (let i = burst.count - 1; i < times.length; i++) {
+    const first = times[i - burst.count + 1]!;
+    if (times[i]! - first > windowMs) continue;
+    if (times[i]! - quietFrom >= windowMs) return true;
+    quietFrom = Math.max(quietFrom, first + windowMs);
+  }
+  return false;
+}
+
+/**
+ * The alert a card's conversation calls for now, or null. `entries` are the card's, the most
+ * recent ones, oldest first, at least those of the window ending at `now` and, when there is an
+ * earlier alert, those since the last one was raised; `coveredFrom` (ISO time) is where they begin
+ * when the list was cut short, else they are taken to cover everything. `earlier` are the card's
+ * message storm alerts so far (open or not, `at` being the `at` of their payload).
  *
- * One alert per storm: none while an earlier one is open, and once it is closed the next one comes
- * only when a whole window has passed since the last alert was raised, so every entry counted is
- * new.
+ * One alert per storm: none while an earlier one is open. Once it is closed the next one comes
+ * only when the entries since the last alert was raised show a whole window of quiet (a stretch of
+ * `minutes` minutes in which fewer than `count` entries fell in any window) before the storm that
+ * is on now; the entries before that alert belong to its storm and do not count. A storm that goes
+ * on after the owner has seen its alert therefore raises nothing more.
  */
 export function messageBurstAlertFor(input: {
   taskKey: string;
@@ -51,17 +74,29 @@ export function messageBurstAlertFor(input: {
   now: Date;
   entries: readonly BurstEntry[];
   earlier: readonly { open: boolean; at: string }[];
+  coveredFrom?: string;
 }): MessageBurstAlert | null {
-  const { burst, entries } = input;
-  if (entries.length < burst.count) return null;
-  const since = messageBurstSince(burst, input.now);
-  if (input.earlier.some((alert) => alert.open || alert.at > since)) return null;
+  const { burst, earlier } = input;
+  if (earlier.some((alert) => alert.open)) return null;
+  const lastAlert = Math.max(...earlier.map((alert) => Date.parse(alert.at)));
+  // Only what was written after the last alert counts (the entry that raised it belongs to it).
+  const entries = earlier.length
+    ? input.entries.filter((entry) => Date.parse(entry.createdAt) > lastAlert)
+    : input.entries;
+  const windowStart = Date.parse(messageBurstSince(burst, input.now));
+  const counted = entries.filter((entry) => Date.parse(entry.createdAt) >= windowStart);
+  if (counted.length < burst.count) return null;
+  if (earlier.length) {
+    const covered = input.coveredFrom ? Date.parse(input.coveredFrom) : lastAlert;
+    const times = entries.map((entry) => Date.parse(entry.createdAt));
+    if (!hadQuietWindow(times, Math.max(lastAlert, covered), burst)) return null;
+  }
   return {
     alert: 'message_burst',
     taskKey: input.taskKey,
-    count: entries.length,
+    count: counted.length,
     minutes: burst.minutes,
-    members: burstMembers(entries),
+    members: burstMembers(counted),
     at: input.now.toISOString(),
   };
 }

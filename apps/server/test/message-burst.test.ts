@@ -114,6 +114,24 @@ describe('message storm warning', () => {
     expect(alerts()[1]).toMatchObject({ state: 'open', payload: { count: 10 } });
   });
 
+  it('stays quiet for a storm that goes on after "Láttam", and speaks again after a quiet window', async () => {
+    // One note a minute: the tenth raises the alert.
+    await notes(10, MINUTE);
+    expect(alerts()).toHaveLength(1);
+    await seen();
+    // The owner saw it; the storm goes on for another hour.
+    await notes(60, MINUTE);
+    expect(alerts()).toHaveLength(1);
+
+    // It stops, and a new one after twenty quiet minutes is told again.
+    now = new Date(now.getTime() + 20 * MINUTE);
+    await notes(9, MINUTE);
+    expect(alerts()).toHaveLength(1);
+    await note();
+    expect(alerts()).toHaveLength(2);
+    expect(alerts()[1]).toMatchObject({ state: 'open', payload: { count: 10 } });
+  });
+
   it('is not raised twice for one card while the alert is open, even after the window', async () => {
     await notes(10);
     now = new Date(now.getTime() + 60 * MINUTE);

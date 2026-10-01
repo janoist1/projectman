@@ -67,10 +67,78 @@ describe('the message storm alert', () => {
     expect(alertFor(10, [{ open: true, at: '2026-10-01T09:00:00.000Z' }])).toBeNull();
   });
 
-  it('comes after a closed one only when a whole window has passed since it was raised', () => {
-    expect(alertFor(10, [{ open: false, at: '2026-10-01T11:50:00.000Z' }])).toBeNull();
-    expect(alertFor(10, [{ open: false, at: '2026-10-01T11:45:00.001Z' }])).toBeNull();
-    expect(alertFor(10, [{ open: false, at: '2026-10-01T11:45:00.000Z' }])).not.toBeNull();
+  describe('after a closed one', () => {
+    // The last alert was raised at 12:00; `later` are the entries since, in minutes after it, and
+    // the newest of them is now.
+    const closed = [{ open: false, at: NOW.toISOString() }];
+    const later = (...minutes: number[]) => {
+      const at = (m: number) => new Date(NOW.getTime() + m * 60_000);
+      return messageBurstAlertFor({
+        taskKey: 'AR-1',
+        burst: DEFAULT_MESSAGE_BURST,
+        now: at(minutes.at(-1)!),
+        entries: minutes.map((m) => ({ createdAt: at(m).toISOString(), actor: 'owner' })),
+        earlier: closed,
+      });
+    };
+    const every = (from: number, to: number, step = 1) =>
+      Array.from({ length: Math.floor((to - from) / step) + 1 }, (_, i) => from + i * step);
+
+    it('stays quiet while the storm goes on, however long after the owner saw it', () => {
+      // One entry a minute for two hours.
+      for (const end of [10, 15, 16, 30, 60, 120]) expect(later(...every(1, end))).toBeNull();
+    });
+
+    it('comes for a new storm after a whole window of quiet', () => {
+      expect(later(...every(20, 29))).toMatchObject({ count: 10, at: '2026-10-01T12:29:00.000Z' });
+      // A trickle below the threshold is quiet too.
+      expect(later(...every(2, 62, 10), ...every(70, 79))).not.toBeNull();
+    });
+
+    it('counts the quiet from the alert to the first entry of the storm, ends included', () => {
+      const burst = Array.from({ length: 10 }, () => 15);
+      expect(later(...burst)).not.toBeNull();
+      expect(later(...burst.map(() => 14.99))).toBeNull();
+    });
+
+    it('needs a whole window of quiet between storms, not only before the first entry', () => {
+      // A storm of 10 in the first 5 minutes, and the next one 10 minutes after it ends: the quiet
+      // in between (while fewer than 10 fell in any window) is shorter than 15 minutes.
+      expect(later(...every(1, 5.5, 0.5), ...every(15, 20, 0.5))).toBeNull();
+      // With the next one 30 minutes later the quiet is long enough.
+      expect(later(...every(1, 5.5, 0.5), ...every(35, 40, 0.5))).not.toBeNull();
+    });
+
+    it('leaves out what was written up to the alert', () => {
+      const entriesBefore = Array.from({ length: 10 }, () => ({
+        createdAt: new Date(NOW.getTime() - 60_000).toISOString(),
+        actor: 'owner',
+      }));
+      expect(
+        messageBurstAlertFor({
+          taskKey: 'AR-1',
+          burst: DEFAULT_MESSAGE_BURST,
+          now: new Date(NOW.getTime() + 30_000),
+          entries: entriesBefore,
+          earlier: closed,
+        }),
+      ).toBeNull();
+    });
+
+    it('does not take a list cut short for a quiet one', () => {
+      // The list begins at 12:50: what came before is unknown, and the storm there may be on.
+      const at = (m: number) => new Date(NOW.getTime() + m * 60_000);
+      expect(
+        messageBurstAlertFor({
+          taskKey: 'AR-1',
+          burst: DEFAULT_MESSAGE_BURST,
+          now: at(60),
+          entries: every(51, 60).map((m) => ({ createdAt: at(m).toISOString(), actor: 'owner' })),
+          earlier: closed,
+          coveredFrom: at(50).toISOString(),
+        }),
+      ).toBeNull();
+    });
   });
 
   it('names who wrote and who was written to once each', () => {

@@ -187,6 +187,28 @@ describe('applying a package', () => {
     );
     expect(existsSync(target)).toBe(false);
   });
+
+  it('carries a registered submodule of the customization repository (the documents of a project) whole', async () => {
+    // PM-148: documents live in their own repository, registered in the customization repository.
+    const documents = join(src.root, 'documents-AR');
+    mkdirSync(documents);
+    git(documents, 'init', '-q', '-b', 'main');
+    writeFileSync(join(documents, 'plan.md'), '# Plan\n');
+    git(documents, 'add', '-A');
+    git(documents, 'commit', '-q', '-m', 'First document');
+    const customization = join(src.home, 'customization');
+    git(customization, 'submodule', 'add', '-q', documents, 'documents/AR');
+    git(customization, 'commit', '-q', '-m', 'Register the documents of AR');
+    const second = join(src.root, 'pkg-with-documents');
+    await createPackage({ home: src.home, out: second });
+    await applyPackage({ packageDir: second, targetHome: target, mappings: mapping() });
+    const moved = join(target, 'customization');
+    expect(readFileSync(join(moved, 'documents', 'AR', 'plan.md'), 'utf8')).toBe('# Plan\n');
+    expect(git(join(moved, 'documents', 'AR'), 'log', '-1', '--format=%s').trim()).toBe('First document');
+    expect(git(moved, 'submodule', 'status').trim()).toMatch(/^[0-9a-f]{40} documents\/AR/);
+    const verified = await verifyHome({ home: target, checkPaths: true });
+    expect(verified.findings.filter((f) => f.severity === 'blocker')).toEqual([]);
+  });
 });
 
 describe('pending work', () => {

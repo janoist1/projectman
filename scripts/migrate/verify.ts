@@ -161,6 +161,23 @@ export async function verifyHome(options: VerifyOptions): Promise<VerifyResult> 
         'customization',
         `git fsck failed: ${fsck.stderr.trim().split('\n')[0] ?? ''}`,
       );
+    // Registered submodules (the projects' documents, PM-148) move inside the customization directory:
+    // each must still be a repository, and the working tree must not show one as not initialised.
+    if (existsSync(join(customization, '.gitmodules'))) {
+      const status = await git(customization, ['submodule', 'status'], { okCodes: [128] });
+      for (const line of status.stdout.split('\n').filter(Boolean)) {
+        const path = line.slice(1).trim().split(' ')[1] ?? line;
+        if (line.startsWith('-'))
+          add(
+            'warning',
+            'submodule_not_initialized',
+            path,
+            'the submodule is registered but has no repository here',
+          );
+        else if (line.startsWith('U'))
+          add('blocker', 'submodule_conflict', path, 'the submodule has merge conflicts');
+      }
+    }
     const store = createConfigStore({ rootDir: customization });
     for (const key of await store.list()) {
       try {

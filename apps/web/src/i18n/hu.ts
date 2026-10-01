@@ -170,6 +170,8 @@ export const hu = {
     search: 'Keresés',
     searchPlaceholder: 'Keresés: feladat, PR, címke',
     searchClear: 'Keresés törlése',
+    searchOpen: 'Keresés megnyitása',
+    searchCancel: 'Mégse',
     newTask: 'Új feladat',
     inboxPill: 'Rád vár',
     inboxPillLabel: 'Rád vár: {count} tétel',
@@ -187,6 +189,7 @@ export const hu = {
     title: '{provider}-előfizetés: 5 órás keret {fiveHour}, heti keret {weekly}',
     resets: 'Visszaáll: {time}',
     paused: 'A keret {limit}% fölött van: új AI-munka nem indul.',
+    badgeLabel: 'Legmagasabb AI-keret: {percent}. Részletek a Csapat oldalon.',
   },
 
   connection: {
@@ -407,7 +410,8 @@ export const hu = {
     teamStrip: 'A csapat most',
     teamSummary: '{members} tag · {tasks} feladat',
     teamSummaryDetail: '{humans} ember és {ai} AI-tag',
-    stagesLabel: 'Lépések',
+    doneAll: 'Mind ({count})',
+    doneFewer: 'Kevesebb',
     groups: {
       needsYou: 'Rád vár',
       working: 'Dolgozik',

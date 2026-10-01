@@ -82,7 +82,10 @@ export function ProjectLayout() {
         {isMobile ? null : <NavRail inboxCount={inboxCount} />}
         <div className={clsx(styles.column, isMobile && styles.withTabbar)}>
           {isMobile ? (
-            <MobileHeader board={board.data} inboxCount={inboxCount} />
+            <MobileHeader
+              board={board.data}
+              pauseAbove={config.data?.config.team.limits.pauseAbovePlanUsagePercent}
+            />
           ) : (
             <TopBar
               board={board.data}

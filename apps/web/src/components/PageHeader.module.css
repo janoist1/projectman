@@ -21,6 +21,27 @@
   line-height: 1.1;
 }
 
+@media (max-width: 767px) {
+  .titleHiddenOnPhone .title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  /* Nothing visible left in the title block: do not reserve a row for it. */
+  .titleHiddenOnPhone:not(:has(.subtitle)) {
+    gap: 0;
+  }
+
+  .titleHiddenOnPhone:not(:has(.subtitle)) .titles {
+    flex: 0 0 0;
+  }
+}
+
 .subtitle {
   font-size: var(--page-subtitle-size, 13.5px);
   color: var(--c-ink-3);

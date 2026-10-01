@@ -135,6 +135,7 @@ export function TeamPage() {
     <div className={styles.page}>
       <PageHeader
         className={styles.header}
+        hideTitleOnPhone
         title={t('team.title')}
         subtitle={
           <>

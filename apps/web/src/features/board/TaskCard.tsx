@@ -102,12 +102,16 @@ export function TaskCard({
         <StatusDot phase={state.phase} pulse={state.phase === 'working'} />
         <span className={styles.statusText}>{state.label}</span>
         {compact ? (
-          <span className={styles.age}>{stage?.name}</span>
+          <span className={styles.age}>
+            {stage?.name}
+            {' · '}
+            <span className={styles.key}>{task.key}</span>
+          </span>
         ) : state.phase !== 'done' ? (
           <span className={styles.age}>{formatAge(state.since)}</span>
         ) : null}
       </span>
-      <span className="visually-hidden">{task.key}</span>
+      {compact ? null : <span className="visually-hidden">{task.key}</span>}
     </Link>
   );
 }

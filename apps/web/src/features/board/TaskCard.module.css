@@ -41,12 +41,19 @@
 }
 
 .compact {
-  padding: 12px 14px;
+  padding: 9px 12px;
+  gap: 5px;
   border-radius: var(--radius-xl);
 }
 
 .compact .title {
   font-size: var(--text-lg);
+  line-height: 1.25;
+}
+
+.key {
+  color: var(--c-ink-4);
+  font-variant-numeric: tabular-nums;
 }
 
 .meta {

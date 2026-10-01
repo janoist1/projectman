@@ -121,20 +121,91 @@ describe('desktop board moving', () => {
       screen.queryByRole('link', { name: new RegExp(project.backend.findTask('AC-20')!.title) }),
     ).toBeNull();
   });
+  it('says an empty column is empty only when a filter or search narrowed the board', async () => {
+    const project = mockProject();
+    const view = project.render(<BoardPage />);
+    await screen.findByRole('region', { name: project.backend.config.pipeline.columns[0]!.name });
+    // The fixture board has a column without tasks; unfiltered it stays silent.
+    expect(screen.queryByText(t('board.columnEmpty'))).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(t('board.filters.waiting')) }));
+    expect(screen.getAllByText(t('board.columnEmpty')).length).toBeGreaterThan(0);
+    view.unmount();
+    project.render(<BoardPage />, '/', { search: 'zzz-no-such-task' });
+    await screen.findByText(t('board.noResults', { query: 'zzz-no-such-task' }));
+  });
+});
+
+function phone() {
+  vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+    matches: true,
+    media: query,
+    onchange: null,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+    dispatchEvent: () => false,
+  }));
+}
+
+describe('phone board', () => {
   it('has no draggable controls on phones', async () => {
-    vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
-      matches: true,
-      media: query,
-      onchange: null,
-      addEventListener() {},
-      removeEventListener() {},
-      addListener() {},
-      removeListener() {},
-      dispatchEvent: () => false,
-    }));
+    phone();
     const project = mockProject();
     const view = project.render(<BoardPage />);
     await screen.findByRole('link', { name: new RegExp(project.backend.findTask('AC-20')!.title) });
     expect(view.container.querySelector('[draggable="true"]')).toBeNull();
+  });
+
+  it('puts the filter where the title was and drops the subtitle and stage chips', async () => {
+    phone();
+    const project = mockProject();
+    project.render(<BoardPage />);
+    await screen.findByRole('group', { name: t('board.filtersLabel') });
+    // The page title stays for screen readers; the subtitle is gone.
+    expect(screen.getByRole('heading', { level: 1, name: t('board.title') })).toBeTruthy();
+    expect(screen.queryByText(/folyamatban$/)).toBeNull();
+    expect(screen.queryByRole('list', { name: 'Lépések' })).toBeNull();
+  });
+
+  it('shows the task key on the card', async () => {
+    phone();
+    const project = mockProject();
+    project.render(<BoardPage />);
+    const link = await screen.findByRole('link', {
+      name: new RegExp(project.backend.findTask('AC-20')!.title),
+    });
+    expect(within(link).getByText('AC-20')).toBeTruthy();
+  });
+
+  it('collapses the finished group to the newest few and expands it on request', async () => {
+    phone();
+    const project = mockProject();
+    for (const [index, key] of ['AC-17', 'AC-18', 'AC-19', 'AC-20', 'AC-21'].entries()) {
+      project.backend.updateTask(key, { status: 'done', closedAt: `2026-09-2${index}T10:00:00.000Z` });
+    }
+    project.render(<BoardPage />);
+    const done = await screen.findByRole('region', { name: t('board.groups.done') });
+    expect(within(done).getAllByRole('link')).toHaveLength(3);
+    const all = within(done).getByRole('button', { name: /^Mind \(\d+\)$/ });
+    expect(all.getAttribute('aria-expanded')).toBe('false');
+    const total = Number(/\((\d+)\)/.exec(all.textContent!)![1]);
+    expect(total).toBeGreaterThanOrEqual(5);
+    fireEvent.click(all);
+    expect(within(done).getAllByRole('link')).toHaveLength(total);
+    fireEvent.click(within(done).getByRole('button', { name: t('board.doneFewer') }));
+    expect(within(done).getAllByRole('link')).toHaveLength(3);
+  });
+
+  it('shows every finished match while searching', async () => {
+    phone();
+    const project = mockProject();
+    for (const [index, key] of ['AC-17', 'AC-18', 'AC-19', 'AC-20', 'AC-21'].entries()) {
+      project.backend.updateTask(key, { status: 'done', closedAt: `2026-09-2${index}T10:00:00.000Z` });
+    }
+    project.render(<BoardPage />, '/', { search: 'AC-' });
+    const done = await screen.findByRole('region', { name: t('board.groups.done') });
+    expect(within(done).queryByRole('button', { name: /^Mind/ })).toBeNull();
+    expect(within(done).getAllByRole('link').length).toBeGreaterThanOrEqual(5);
   });
 });

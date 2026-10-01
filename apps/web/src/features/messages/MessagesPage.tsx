@@ -50,7 +50,7 @@ export function MessagesPage() {
 
   return (
     <div className={styles.page}>
-      <PageHeader title={t('messages.title')} subtitle={t('messages.subtitle')}>
+      <PageHeader hideTitleOnPhone title={t('messages.title')} subtitle={t('messages.subtitle')}>
         {canSend ? (
           <Button variant="primary" onClick={() => setCompose({ to: [], task: '' })}>
             {t('messages.new')}

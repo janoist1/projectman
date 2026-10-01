@@ -14,7 +14,7 @@ import { joinNames, t } from '../i18n/t';
 import { nameOf } from '../lib/members';
 import type { MemberIndex } from '../lib/members';
 import { AccountMenu, ProjectSwitcher } from './Menus';
-import { PlanUsageMeter } from './PlanUsageMeter';
+import { PlanUsageBadge, PlanUsageMeter } from './PlanUsageMeter';
 import { useProject } from './contexts';
 import styles from './Shell.module.css';
 
@@ -138,27 +138,23 @@ export function TabBar({ inboxCount }: { inboxCount: number }) {
   );
 }
 
-function InboxPill({ count, compact = false }: { count: number; compact?: boolean }) {
+function InboxPill({ count }: { count: number }) {
   const { key } = useProject();
-  if (count === 0 && compact) return null;
   return (
     <Link
       to={`/p/${key}/inbox`}
-      className={clsx(
-        styles.inboxPill,
-        compact && styles.inboxPillCompact,
-        count === 0 && styles.inboxPillQuiet,
-      )}
+      className={clsx(styles.inboxPill, count === 0 && styles.inboxPillQuiet)}
       aria-label={t('topbar.inboxPillLabel', { count })}
     >
-      {compact ? null : <Icon name="bell" size={18} strokeWidth={2} />}
+      <Icon name="bell" size={18} strokeWidth={2} />
       <span>{t('topbar.inboxPill')}</span>
       {count > 0 ? <span className={styles.pillCount}>{count}</span> : null}
     </Link>
   );
 }
 
-function SearchBox() {
+/** The search field: in the desktop top bar, or (`phone`) filling the phone header while it is open. */
+function SearchBox({ phone = false }: { phone?: boolean }) {
   const { key, search, setSearch } = useProject();
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -166,6 +162,7 @@ function SearchBox() {
   const onBoard = pathname === `/p/${key}` || pathname.startsWith(`/p/${key}/tasks`);
 
   useEffect(() => {
+    if (phone) return;
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const typing = target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
@@ -176,15 +173,16 @@ function SearchBox() {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, []);
+  }, [phone]);
 
   return (
     <form
       role="search"
-      className={styles.search}
+      className={clsx(styles.search, phone && styles.searchPhone)}
       onSubmit={(event) => {
         event.preventDefault();
         if (!onBoard) navigate(`/p/${key}`);
+        if (phone) inputRef.current?.blur();
       }}
     >
       <Icon name="search" size={17} strokeWidth={2} />
@@ -198,6 +196,7 @@ function SearchBox() {
         className={styles.searchInput}
         placeholder={t('topbar.searchPlaceholder')}
         value={search}
+        autoFocus={phone}
         onChange={(event) => setSearch(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === 'Escape') setSearch('');
@@ -212,7 +211,7 @@ function SearchBox() {
         >
           <Icon name="close" size={14} strokeWidth={2.2} />
         </button>
-      ) : (
+      ) : phone ? null : (
         <kbd className={styles.kbd} aria-hidden="true">
           /
         </kbd>
@@ -243,6 +242,19 @@ function Presence({ board, members }: { board: BoardView | undefined; members: M
   );
 }
 
+/** The plan usage of every provider an AI member of the project runs on. */
+function planUsages(board: BoardView | undefined) {
+  const providers = new Set(
+    board?.members.flatMap((member) =>
+      member.kind === 'ai' ? [member.provider ?? DEFAULT_AGENT_PROVIDER] : [],
+    ) ?? [],
+  );
+  return [...providers].map((provider) => ({
+    provider,
+    usage: board?.planUsageByProvider[provider] ?? (provider === 'claude' ? board?.planUsage : null),
+  }));
+}
+
 /** Desktop top bar: project, search, plan usage, who is here, inbox, new task. */
 export function TopBar({
   board,
@@ -262,19 +274,8 @@ export function TopBar({
       <SearchBox />
       <span className={styles.spacer} />
       <span className={styles.hideNarrow}>
-        {[
-          ...new Set(
-            board?.members.flatMap((member) =>
-              member.kind === 'ai' ? [member.provider ?? DEFAULT_AGENT_PROVIDER] : [],
-            ) ?? [],
-          ),
-        ].map((provider) => (
-          <PlanUsageMeter
-            key={provider}
-            provider={provider}
-            usage={board?.planUsageByProvider[provider] ?? (provider === 'claude' ? board?.planUsage : null)}
-            pauseAbove={pauseAbove}
-          />
+        {planUsages(board).map(({ provider, usage }) => (
+          <PlanUsageMeter key={provider} provider={provider} usage={usage} pauseAbove={pauseAbove} />
         ))}
       </span>
       <span className={styles.hideNarrow}>
@@ -290,16 +291,55 @@ export function TopBar({
   );
 }
 
-/** Phone header: project chip, inbox pill, account. */
-export function MobileHeader({ board, inboxCount }: { board: BoardView | undefined; inboxCount: number }) {
-  const { key, openNewTask, can } = useProject();
+/**
+ * Phone header: project chip, search, plan usage, new task, account. The inbox count lives on
+ * the tab bar. Search opens over the whole row.
+ */
+export function MobileHeader({
+  board,
+  pauseAbove,
+}: {
+  board: BoardView | undefined;
+  pauseAbove?: number | undefined;
+}) {
+  const { key, openNewTask, can, search, setSearch } = useProject();
+  const [searching, setSearching] = useState(search !== '');
+  if (searching) {
+    return (
+      <header className={styles.mobileHeader}>
+        <SearchBox phone />
+        <Button
+          variant="ghost"
+          size="lg"
+          onClick={() => {
+            setSearch('');
+            setSearching(false);
+          }}
+        >
+          {t('topbar.searchCancel')}
+        </Button>
+      </header>
+    );
+  }
   return (
     <header className={styles.mobileHeader}>
       <span className={styles.mobileProject}>
         <ProjectSwitcher currentKey={key} currentName={board?.project.name ?? key} compact />
       </span>
       <span className={styles.spacer} />
-      <InboxPill count={inboxCount} compact />
+      <Button
+        variant="ghost"
+        size="lg"
+        iconOnly
+        icon="search"
+        onClick={() => setSearching(true)}
+        aria-label={t('topbar.searchOpen')}
+      />
+      <PlanUsageBadge
+        usages={planUsages(board).map(({ usage }) => usage)}
+        pauseAbove={pauseAbove}
+        to={`/p/${key}/team`}
+      />
       {can.createTasks ? (
         <Button
           variant="primary"

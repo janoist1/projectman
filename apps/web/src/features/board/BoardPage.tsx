@@ -34,7 +34,10 @@ function Column({
   projectKey,
   selectedKey,
   drag,
+  filtered,
 }: {
+  /** A filter or a search narrows the board: only then does an empty column say so. */
+  filtered: boolean;
   subtasksByParent: Map<string, Task[]>;
   column: BoardColumnView;
   entries: BoardEntry[];
@@ -85,7 +88,9 @@ function Column({
         </p>
       ) : null}
       <div className={styles.cards}>
-        {entries.length === 0 ? <p className={styles.columnEmpty}>{t('board.columnEmpty')}</p> : null}
+        {entries.length === 0 && filtered ? (
+          <p className={styles.columnEmpty}>{t('board.columnEmpty')}</p>
+        ) : null}
         {entries.map(({ task, state }) => (
           <div
             key={task.id}
@@ -210,6 +215,7 @@ export function BoardPage() {
       value={filter}
       onChange={setFilter}
       size={isMobile ? 'sm' : 'md'}
+      className={styles.filters}
       options={[
         { value: 'all', label: t('board.filters.all'), count: counts.all },
         { value: 'needsYou', label: t('board.filters.needsYou'), count: counts.needsYou },
@@ -225,8 +231,9 @@ export function BoardPage() {
       )}
       <PageHeader
         className={styles.header}
+        hideTitleOnPhone
         title={t('board.title')}
-        subtitle={t('board.subtitle', { count: total, active: activeCount })}
+        subtitle={isMobile ? null : t('board.subtitle', { count: total, active: activeCount })}
       >
         {filters}
       </PageHeader>
@@ -244,6 +251,7 @@ export function BoardPage() {
           entries={visible}
           pipeline={pipeline}
           projectKey={key}
+          searching={search !== ''}
         />
       ) : (
         <div className={styles.columns}>
@@ -266,6 +274,7 @@ export function BoardPage() {
                 projectKey={key}
                 selectedKey={selected}
                 drag={drag}
+                filtered={filter !== 'all' || search !== ''}
               />
             );
           })}

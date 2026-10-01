@@ -1,4 +1,5 @@
 import clsx from 'clsx';
+import { Link } from 'react-router';
 import type { AgentProvider, PlanUsage } from '@projectman/shared';
 import { formatPercent, formatStamp } from '../i18n/format';
 import { t } from '../i18n/t';
@@ -46,6 +47,38 @@ function Bar({
         />
       </span>
     </span>
+  );
+}
+
+/**
+ * Phone header: one small figure, the highest plan usage across providers and both windows,
+ * coloured like the bars; it opens the Team page, where each member's profile has the meter.
+ */
+export function PlanUsageBadge({
+  usages,
+  pauseAbove = 80,
+  to,
+}: {
+  usages: ReadonlyArray<PlanUsage | null | undefined>;
+  pauseAbove?: number;
+  to: string;
+}) {
+  const known = usages.flatMap((usage) =>
+    [usage?.fiveHourPercent, usage?.weeklyPercent].filter((value): value is number => value != null),
+  );
+  if (known.length === 0) return null;
+  const peak = Math.max(...known);
+  const percent = formatPercent(peak);
+  return (
+    <Link
+      to={to}
+      className={clsx(styles.badge, styles[`badge_${level(peak, pauseAbove)}`])}
+      aria-label={t('planUsage.badgeLabel', { percent })}
+    >
+      <span className={styles.badgeValue} aria-hidden="true">
+        {percent}
+      </span>
+    </Link>
   );
 }
 

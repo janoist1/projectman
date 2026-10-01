@@ -86,3 +86,40 @@
 .compact .meter {
   width: 64px;
 }
+
+/* The link is a 40px touch target; the pill inside is smaller. */
+.badge {
+  height: 40px;
+  min-width: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.badgeValue {
+  height: 26px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border-radius: 13px;
+  background: var(--c-muted);
+  color: var(--c-ink-2);
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-xs);
+  font-weight: 800;
+}
+
+.badge:hover .badgeValue {
+  color: var(--c-ink);
+}
+
+.badge_high .badgeValue {
+  background: var(--c-needs-bg);
+  color: var(--c-needs-text);
+}
+
+.badge_critical .badgeValue {
+  background: var(--c-blocked-bg);
+  color: var(--c-blocked-text);
+}

@@ -124,6 +124,7 @@ export function InboxPage() {
       <div className={styles.main}>
         <PageHeader
           className={styles.header}
+          hideTitleOnPhone
           title={t('inbox.title')}
           subtitle={
             // On phones an empty inbox says it in the empty state below; no repeat here.

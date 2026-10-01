@@ -130,6 +130,8 @@ export interface BuildAppOptions {
   logger?: FastifyServerOptions['logger'];
   /** Built web app served with an SPA fallback; null = API only. */
   webDistDir?: string | null;
+  /** The checkout the server runs from: reading sessions never change it (PM-188). */
+  installDir?: string;
   /** How long a permission request waits for a human (default 10 minutes). */
   permissionTimeoutMs?: number;
   /** How often linked pull requests are polled (default 1 minute). */
@@ -390,6 +392,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       accounts: auth,
       worktreesRootDir: join(home, 'worktrees'),
       appHome: home,
+      installDir: options.installDir,
       memberWorkspaces,
       workspacesRootDir: workspacesDir,
       // Behind the boundary a session's pid is the launcher's (root's) process, and the launcher

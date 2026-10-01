@@ -11,9 +11,26 @@ const operations: Record<DeniedSessionOperation, string> = {
 };
 const files = { read: 'Read', grep: 'Grep', glob: 'Glob' } as const;
 
+/**
+ * Characters a directory may hold to be named in a Claude Code path rule as it is: letters, marks and
+ * digits of any script (an accented project path too, PM-188), `_ . / @ + ~ -` and the space; none of
+ * the pattern or rule syntax (`* ? [ ] { } ( ) \`).
+ */
+const PLAIN_RULE_PATH = /^\/[\p{L}\p{M}\p{N}_./@+~ -]*$/u;
+
 /** An absolute directory as a Claude Code rule path: `//dir/**` takes everything below it. */
 function belowDirectory(dir: string): string {
   return `/${dir.replace(/\/+$/, '')}/**`;
+}
+
+/**
+ * The rule paths of everything below an absolute directory, for `Read(...)` or `Edit(...)`; null
+ * when a rule cannot name it as it is. An accented name is named both composed (NFC) and decomposed
+ * (NFD, as macOS often hands it out): a rule matches the text it is given.
+ */
+export function directoryRulePaths(dir: string): string[] | null {
+  if (!PLAIN_RULE_PATH.test(dir)) return null;
+  return [...new Set([dir, dir.normalize('NFC'), dir.normalize('NFD')])].map(belowDirectory);
 }
 
 /** Deny rules for a path (a file or a directory) of the built-in file tools: reading and changing it. */

@@ -80,6 +80,8 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
       ghHost: env.GH_HOST || undefined,
       logger: env.LOG_LEVEL === undefined ? undefined : { level: env.LOG_LEVEL },
       webDistDir: existsSync(join(webDist, 'index.html')) ? webDist : null,
+      // The checkout the server runs from (three levels up from src/ or dist/).
+      installDir: fileURLToPath(new URL('../../..', import.meta.url)),
       memberWorkspaces: workspaces === 'member',
       runtimeBoundary,
       executionProfile,

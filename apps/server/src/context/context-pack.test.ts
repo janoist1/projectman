@@ -1747,9 +1747,40 @@ describe("the CLI's own sandbox (PM-167)", () => {
     expect(text).toContain('`/work/acme` and `/worktrees/AR/AR-21-app` are read-only');
     expect(text).toContain('`/home/anna/.ssh`');
     expect(text).toContain('only `registry.npmjs.org`');
-    expect(text).toContain('`gh pr view` and `gh pr diff` run outside the sandbox');
+    // A local-only repository has no pull request to read with `gh` (PM-188).
+    expect(text).not.toContain('`gh pr view`');
     expect(text).toContain('Refused outright: `git push`');
     expect(text).toContain('ask_human');
+  });
+
+  it('tells a reader of a repository on GitHub to run gh as a command of its own (PM-188)', () => {
+    const github = buildProject();
+    const policy = buildSessionPolicy({
+      config: github,
+      role: 'code_review',
+      task,
+      permissionMode: 'auto',
+      placement: { kind: 'read_only', path: '/work/acme' },
+    });
+    const text = section(
+      builder.build(
+        input({
+          project: github,
+          handle: 'code-review',
+          task,
+          sessionPolicy: policy,
+          sandbox: sessionSandbox(policy, { github: true })!,
+        }),
+      ).appendSystemPrompt,
+      '# Your sandbox',
+    );
+    expect(text).toContain(
+      "`gh pr view` and `gh pr diff` with their arguments run outside the sandbox (they need the GitHub CLI's login), allowed by your permission rules, but only as a command of their own: `gh pr view 12`.",
+    );
+    expect(text).toContain(
+      'In a chain, a pipe, a substitution or with a redirection into a file they run inside',
+    );
+    expect(text).not.toContain('Refused outright');
   });
 
   it('tells a sandboxed developer where it writes, in a chat too', () => {
@@ -1768,18 +1799,27 @@ describe("the CLI's own sandbox (PM-167)", () => {
           handle: 'fe-1',
           task,
           sessionPolicy: developerPolicy,
-          sandbox: sessionSandbox(developerPolicy, sandboxPaths)!,
+          sandbox: sessionSandbox(developerPolicy, {
+            ...sandboxPaths,
+            memberDir: '/pm/member-caches/AR/fe-1',
+          })!,
         }),
       ).appendSystemPrompt,
       '# Your sandbox',
     );
     expect(text).toContain('Writing: your working directory `/pm/worktrees/AR/AR-21-app`');
-    expect(text).toContain('and `/home/anna/.npm`, `/home/anna/.projectman-dev`');
+    expect(text).toContain(
+      'and `/pm/member-caches/AR/fe-1/npm-cache`, `/pm/member-caches/AR/fe-1/projectman-dev`',
+    );
+    // PM-193: npm and the development instance use the member's own directories.
+    expect(text).toContain(
+      '`npm_config_cache` is `/pm/member-caches/AR/fe-1/npm-cache`, `PROJECTMAN_HOME` is `/pm/member-caches/AR/fe-1/projectman-dev`',
+    );
     expect(text).toContain(
       'Never the default branch and the integrating checkout of the shared git directory: `/src/app/.git/refs/heads/main`, `/src/app/.git/HEAD`, `/src/app/.git/index`, `/src/app/.git/packed-refs` (and their lock files)',
     );
     expect(text).toContain(
-      'Reading: nothing below `/home/anna` and `/pm` except `/pm/worktrees/AR/AR-21-app`, `/src/app/.git`, `/home/anna/.gitconfig`',
+      'Reading: nothing below `/home/anna` and `/pm` except `/pm/worktrees/AR/AR-21-app`, `/pm/member-caches/AR/fe-1/npm-cache`, `/pm/member-caches/AR/fe-1/projectman-dev`, `/src/app/.git`, `/home/anna/.gitconfig`',
     );
     expect(text).toContain(
       '`GH_TOKEN`, `GITHUB_TOKEN`, `NPM_TOKEN`, `NODE_AUTH_TOKEN`, `SSH_AUTH_SOCK` are unset',

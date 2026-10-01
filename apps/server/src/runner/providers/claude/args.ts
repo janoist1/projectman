@@ -1,6 +1,6 @@
 import type { AgentSandbox, StartSessionSpec } from '../../../contracts';
 import { FAST_HOOK_TIMEOUT_S, forwarderCommand, permissionHookTimeoutS } from '../../hook-forwarder';
-import { claudeToolRules } from './policy';
+import { claudeToolRules, directoryRulePaths } from './policy';
 
 /**
  * Command line and inline settings for an interactive Claude Code session.
@@ -57,7 +57,10 @@ export interface ClaudeSandboxSettings {
   network: { allowedDomains: string[]; strictAllowlist: true; allowLocalBinding: boolean };
   /** Environment variables unset for sandboxed commands (`mode: "deny"`, PM-153). */
   credentials?: { envVars: Array<{ name: string; mode: 'deny' }> };
-  /** Commands run outside the sandbox, asked or allowed by the permission rules as any other. */
+  /**
+   * Command patterns run outside the sandbox (`gh pr view:*`), asked or allowed by the permission
+   * rules as any other; see `excludedCommandPattern`.
+   */
   excludedCommands?: string[];
 }
 
@@ -96,6 +99,8 @@ export interface ClaudeSettings {
   autoMode?: ClaudeAutoModeSettings;
   hooks: Record<string, Array<{ hooks: HookHandler[] }>>;
   sandbox?: ClaudeSandboxSettings;
+  /** Environment variables Claude Code sets for the session and its commands (the sandbox's `env`, PM-193). */
+  env?: Record<string, string>;
   /** Managed VM profile: no first-use confirmation of the bypass mode (it would wait in the terminal). */
   skipDangerousModePermissionPrompt?: true;
 }
@@ -135,12 +140,11 @@ export function buildSandboxSettings(sandbox: AgentSandbox): ClaudeSandboxSettin
           },
         }
       : {}),
-    ...(sandbox.excludedCommands?.length ? { excludedCommands: [...sandbox.excludedCommands] } : {}),
+    ...(sandbox.excludedCommands?.length
+      ? { excludedCommands: [...new Set(sandbox.excludedCommands)].map(excludedCommandPattern) }
+      : {}),
   };
 }
-
-/** Characters a directory may hold to be named in a Claude Code path rule as it is. */
-const PLAIN_RULE_PATH = /^\/[\w./@+~ -]*$/;
 
 /**
  * Deny rules for the built-in file tools on the sandbox's `denyWrite` paths (PM-167): the sandbox
@@ -151,12 +155,24 @@ const PLAIN_RULE_PATH = /^\/[\w./@+~ -]*$/;
  */
 export function denyWriteRules(sandbox: AgentSandbox | undefined): string[] {
   return (sandbox?.denyWrite ?? []).flatMap((target) => {
-    if (!PLAIN_RULE_PATH.test(target))
+    const paths = directoryRulePaths(target);
+    if (!paths)
       throw new Error(`Cannot keep ${JSON.stringify(target)} read-only with a rule; refusing to start.`);
-    // An absolute path in a rule starts with `//`; `**` takes everything below.
-    const rulePath = `/${target.replace(/\/+$/, '')}`;
-    return [`Edit(${rulePath})`, `Edit(${rulePath}/**)`];
+    // `//<path>/**` takes everything below; the path itself too, for a file.
+    return paths.flatMap((below) => [`Edit(${below.slice(0, -'/**'.length)})`, `Edit(${below})`]);
   });
+}
+
+/**
+ * An `excludedCommands` entry: the command with any arguments (`gh pr view:*`). Claude Code 2.1.284
+ * reads an entry without `:*` or `*` as the exact command, so a bare `gh pr view` never matched
+ * `gh pr view 12` (PM-188). It leaves a command out of the sandbox only when every part of it
+ * matches an entry and it has no substitution and no redirection into a file (`2>&1` is fine), so
+ * a chain, a pipe, `$(...)` or `> file` around it stays inside (read in 2.1.284's code; the manual
+ * run in docs/SANDBOX-PROBE.md checks it).
+ */
+export function excludedCommandPattern(command: string): string {
+  return `${command}:*`;
 }
 
 /** The `--settings` object: hooks for every event we need and pre-allowed tools. */
@@ -228,6 +244,7 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
     ...(managed ? {} : { autoMode: AUTO_MODE_SETTINGS }),
     hooks,
     ...(sandbox ? { sandbox: buildSandboxSettings(sandbox) } : {}),
+    ...(sandbox?.env && Object.keys(sandbox.env).length > 0 ? { env: { ...sandbox.env } } : {}),
     ...(managed && input.policy!.permissions.claude === 'bypassPermissions'
       ? { skipDangerousModePermissionPrompt: true as const }
       : {}),

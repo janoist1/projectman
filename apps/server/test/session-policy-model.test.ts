@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { roleSessionAccess, sessionPermissions } from '@projectman/shared';
 import type { SessionPolicy, StartSessionSpec } from '../src/contracts';
-import { buildSessionPolicy, sensitivePaths, sessionSandbox } from '../src/domain/session-policy';
+import {
+  attachmentToolRules,
+  buildSessionPolicy,
+  sensitivePaths,
+  sessionSandbox,
+} from '../src/domain/session-policy';
 import { buildSettings, buildClaudeArgs } from '../src/runner/providers/claude/args';
 import { buildCodexArgs, tomlValue } from '../src/runner/providers/codex/args';
 import { testConfig } from './helpers/test-template';
@@ -105,6 +110,63 @@ describe('provider-neutral session policy', () => {
       expect(() => policy(role, { kind: 'task_worktree', path: source })).toThrow(/file-changing duty/);
     },
   );
+
+  it("keeps the installation's checkouts read-only for a reader, each once (PM-188)", () => {
+    const p = policy('code_review', { kind: 'read_only', path: source });
+    const sandbox = sessionSandbox(p, {
+      readerDenyWrite: [
+        source,
+        '/fictional/home/',
+        '/fictional/home/worktrees',
+        undefined,
+        '/fictional/live',
+        '/fictional/home',
+      ],
+    })!;
+    // A member's worktree inside the app home is covered by the app home itself.
+    expect(sandbox.denyWrite).toEqual([source, '/fictional/home', '/fictional/live']);
+    // The file tools get an `Edit` deny rule for each of them.
+    expect(
+      buildSettings({ hookUrl: 'http://fake/hooks', permissionTimeoutMs: 1000, allowedTools: [], sandbox })
+        .permissions.deny,
+    ).toEqual([
+      'Edit(//fictional/source)',
+      'Edit(//fictional/source/**)',
+      'Edit(//fictional/home)',
+      'Edit(//fictional/home/**)',
+      'Edit(//fictional/live)',
+      'Edit(//fictional/live/**)',
+    ]);
+    // A developer's sandbox is unchanged: its own worktree stays writable.
+    expect(
+      sessionSandbox(development(), { userHome: '/fictional/user', readerDenyWrite: ['/fictional/home'] })!
+        .denyWrite,
+    ).toBeUndefined();
+  });
+
+  it('names an accented attachment directory in its rules, and none with rule syntax (PM-188)', () => {
+    const dir = '/Users/anna/.projectman/attachments/ÁR/ÁR-1'.normalize('NFC');
+    const nfd = dir.normalize('NFD');
+    expect(attachmentToolRules(dir)).toEqual({
+      allow: [`Read(/${dir}/**)`, `Read(/${nfd}/**)`],
+      deny: [`Edit(/${dir}/**)`, `Edit(/${nfd}/**)`],
+    });
+    expect(attachmentToolRules('/fictional/attachments(1)')).toEqual({ allow: [], deny: [] });
+    expect(attachmentToolRules('/fictional/*')).toEqual({ allow: [], deny: [] });
+  });
+
+  it('runs gh outside the sandbox only for a repository on GitHub (PM-188)', () => {
+    const p = policy('code_review', { kind: 'read_only', path: source });
+    expect(sessionSandbox(p)!.excludedCommands).toBeUndefined();
+    expect(sessionSandbox(p, { github: false })!.excludedCommands).toBeUndefined();
+    const sandbox = sessionSandbox(p, { github: true })!;
+    expect(sandbox.excludedCommands).toEqual(['gh pr view', 'gh pr diff']);
+    // Claude Code takes them with any arguments, and only as a command of their own.
+    expect(
+      buildSettings({ hookUrl: 'http://fake/hooks', permissionTimeoutMs: 1000, allowedTools: [], sandbox })
+        .sandbox?.excludedCommands,
+    ).toEqual(['gh pr view:*', 'gh pr diff:*']);
+  });
 
   it('resolves mixed/custom duty bundles instead of role names', () => {
     const config = testConfig();

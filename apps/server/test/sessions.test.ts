@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -271,16 +271,16 @@ describe('session orchestrator', () => {
     });
     expect(h.runner.lastStarted().writableRoots).toBeUndefined();
     // A reviewer runs in a sandbox that writes only the temp directory (PM-167): its working
-    // directory and the developer's worktree are read-only, the credentials unreadable.
+    // directory, the developer's worktree and every other worktree (PM-188) are read-only, the
+    // credentials unreadable. A local-only repository has no pull request: no `gh` outside it.
     const reviewer = h.runner.lastStarted();
     expect(reviewer.policy!.access).toBe('read_only');
     expect(reviewer.sandbox).toEqual({
       allowWrite: [],
-      denyWrite: [h.workspace, developer.session.cwd],
+      denyWrite: [h.workspace, developer.session.cwd, join(h.dir, 'worktrees')],
       denyRead: reviewer.policy!.filesystem.deniedPaths,
       allowedDomains: ['registry.npmjs.org'],
       allowLocalBinding: true,
-      excludedCommands: ['gh pr view', 'gh pr diff'],
     });
     expect(h.worktrees.calls).toHaveLength(1);
   });
@@ -302,14 +302,22 @@ describe('session orchestrator', () => {
       sandbox: 'read-only',
       approval: 'on-request',
     });
-    expect(review.sandbox).toMatchObject({ allowWrite: [], denyWrite: [h.workspace] });
+    // On a repository on GitHub the pull request is read with `gh` outside the sandbox (PM-188).
+    expect(review.sandbox).toMatchObject({
+      allowWrite: [],
+      denyWrite: [h.workspace, join(h.dir, 'worktrees')],
+      excludedCommands: ['gh pr view', 'gh pr diff'],
+    });
 
     // A developer's general chat reads only too: it runs outside its worktree.
     await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'general' });
     const chat = h.runner.lastStarted();
     expect(chat.policy!.access).toBe('read_only');
     expect(chat.policy!.permissions.claude).toBe('auto');
-    expect(chat.sandbox).toMatchObject({ allowWrite: [], denyWrite: [h.workspace] });
+    expect(chat.sandbox).toMatchObject({
+      allowWrite: [],
+      denyWrite: [h.workspace, join(h.dir, 'worktrees')],
+    });
   });
 
   it('logs worktree lookup failures and starts the reviewer anyway', async () => {
@@ -389,11 +397,16 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
 
   /** What every developer reads below its home besides its own directories. */
   const homeReads = () =>
-    ['.gitconfig', '.config/git', '.npm', '.projectman-dev', '.claude/shell-snapshots'].map((name) =>
-      join(home, name),
-    );
+    ['.gitconfig', '.config/git', '.claude/shell-snapshots'].map((name) => join(home, name));
+  /** The member's own npm cache and development data (PM-193), below the app home. */
+  const memberDirs = (app = appHome) => [
+    join(app, 'member-caches', 'AR', 'dev-1', 'npm-cache'),
+    join(app, 'member-caches', 'AR', 'dev-1', 'projectman-dev'),
+  ];
   const common = () => ({
-    allowWrite: [join(home, '.npm'), join(home, '.projectman-dev')],
+    // Neither `~/.npm` (the host's `npx` runs code from its `_npx`) nor `~/.projectman-dev`.
+    allowWrite: memberDirs(),
+    env: { npm_config_cache: memberDirs()[0], PROJECTMAN_HOME: memberDirs()[1] },
     deniedEnvVars: SANDBOX_DENIED_ENV_VARS,
     allowedDomains: ['registry.npmjs.org'],
     allowLocalBinding: true,
@@ -422,8 +435,10 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
       // The app home is not below the user's home here, so it is closed on its own; the credentials
       // and the live data stay closed too: the narrower path wins over any re-opened one.
       denyRead: [home, appHome, ...sensitivePaths({ userHome: home, appHome })],
-      allowRead: [spec.cwd, attachments, gitDir, ...homeReads()],
+      allowRead: [spec.cwd, attachments, ...memberDirs(), gitDir, ...homeReads()],
     });
+    // The server makes the member's directories, which the sandbox could not make in a closed home.
+    for (const dir of memberDirs()) expect(statSync(dir).isDirectory()).toBe(true);
   });
 
   it('opens no attachment directory it cannot name, and lists an app home inside the home once', async () => {
@@ -443,7 +458,32 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
     await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: task.key });
     const spec = h.runner.lastStarted();
     expect(spec.sandbox!.denyRead).toEqual([home, ...sensitivePaths({ userHome: home, appHome: inside })]);
-    expect(spec.sandbox!.allowRead).toEqual([spec.cwd, join(h.workspace, '.git'), ...homeReads()]);
+    expect(spec.sandbox!.allowRead).toEqual([
+      spec.cwd,
+      ...memberDirs(inside),
+      join(h.workspace, '.git'),
+      ...homeReads(),
+    ]);
+    expect(spec.sandbox!.allowWrite).toEqual(memberDirs(inside));
+  });
+
+  it('writes nothing outside its worktree without an app home to keep its npm cache in (PM-193)', async () => {
+    h = await createDomainHarness({ userHome: home });
+    const task = await h.domain.tasks.create('AR', { title: 'With repo', repo: 'web' }, OWNER_ACTOR);
+    await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: task.key });
+    const sandbox = h.runner.lastStarted().sandbox!;
+    expect(sandbox.allowWrite).toEqual([]);
+    expect(sandbox).not.toHaveProperty('env');
+  });
+
+  it("gives a reader no npm cache or development data of the member's (PM-193)", async () => {
+    h = await createDomainHarness({ userHome: home, appHome });
+    const task = await h.domain.tasks.create('AR', { title: 'With repo', repo: 'web' }, OWNER_ACTOR);
+    await h.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: task.key });
+    const sandbox = h.runner.lastStarted().sandbox!;
+    expect(sandbox.allowWrite).toEqual([]);
+    expect(sandbox).not.toHaveProperty('env');
+    expect(existsSync(join(appHome, 'member-caches'))).toBe(false);
   });
 
   describe('in a member workstation (PM-138)', () => {
@@ -486,7 +526,7 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
       expect(spec.sandbox).toEqual({
         ...common(),
         denyRead: [home, appHome, ...sensitivePaths({ userHome: home, appHome })],
-        allowRead: [spec.cwd, attachments, ...homeReads()],
+        allowRead: [spec.cwd, attachments, ...memberDirs(), ...homeReads()],
       });
     });
   });

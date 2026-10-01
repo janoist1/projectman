@@ -13,7 +13,7 @@ import {
 } from '@projectman/shared';
 import type { RoleId, ProjectConfig, Task } from '@projectman/shared';
 import type { SessionPolicy } from '../contracts';
-import { claudeShellRule, claudeToolRules } from '../runner';
+import { claudeShellRule, claudeToolRules, directoryRulePaths } from '../runner';
 import type { AgentSandbox } from '../contracts';
 import { isWithin, isWithinAny } from './command-paths';
 import { editsFilesInPlace, IN_PLACE_EDIT_MESSAGE } from './in-place-edits';
@@ -65,20 +65,32 @@ export const SANDBOX_DENIED_ENV_VARS = [
 
 /**
  * What a developer's sandboxed commands read below the user's home besides their own directories
- * (PM-153): git's and npm's own files, the development data directory, and the shell snapshot
- * Claude Code sources before every command (its own `blockReadsOutsideWorkingDirectories` re-opens
- * that directory for the same reason). Never the credentials, the app home or another `.claude` path.
+ * (PM-153): git's own configuration and the shell snapshot Claude Code sources before every command
+ * (its own `blockReadsOutsideWorkingDirectories` re-opens that directory for the same reason).
+ * Never the credentials, the app home or another `.claude` path; not the user's npm cache and
+ * development data either, which the host uses outside any sandbox (PM-193).
  */
-export const SANDBOX_HOME_READS = [
-  '.gitconfig',
-  '.config/git',
-  '.npm',
-  '.projectman-dev',
-  '.claude/shell-snapshots',
-];
+export const SANDBOX_HOME_READS = ['.gitconfig', '.config/git', '.claude/shell-snapshots'];
 
-/** What a developer's sandboxed commands write below the user's home: the npm cache and the development data. */
-export const SANDBOX_HOME_WRITES = ['.npm', '.projectman-dev'];
+/**
+ * A member's own directory for what its sandboxed commands keep between sessions (PM-193): its npm
+ * cache and its development instance's data. Nothing outside a sandbox runs or loads them; the
+ * user's `~/.npm` (whose `_npx` the host's `npx` runs code from) and `~/.projectman-dev` (the host's
+ * `npm run dev`) stay unwritten.
+ */
+export function memberSandboxDir(appHome: string, projectKey: string, handle: string): string {
+  return path.join(appHome, 'member-caches', projectKey, handle);
+}
+
+/**
+ * The directories in a member's sandbox directory and the variables that point there: npm's cache
+ * (`npm_config_cache`, `npx` included) and the development instance's home (`PROJECTMAN_HOME`,
+ * which `npm run dev` and `npm start` take).
+ */
+export const MEMBER_SANDBOX_DIRS = [
+  { name: 'npm-cache', variable: 'npm_config_cache' },
+  { name: 'projectman-dev', variable: 'PROJECTMAN_HOME' },
+] as const;
 
 /**
  * The files of a shared git directory a worktree's commands never write (PM-153): the default
@@ -102,41 +114,53 @@ export interface SandboxPaths {
   appHome?: string;
   /** The task repository's default branch, which a worktree's commands never move. */
   defaultBranch?: string;
+  /**
+   * The member's own sandbox directory (`memberSandboxDir`, PM-193), made by the caller with its
+   * `MEMBER_SANDBOX_DIRS`; absent (no app home), the commands keep no npm cache or development data.
+   */
+  memberDir?: string;
 }
 
 /**
- * The OS sandbox of a session in a task's own worktree (PM-134, PM-153; see the probe in
+ * The OS sandbox of a session in a task's own worktree (PM-134, PM-153, PM-193; see the probe in
  * docs/PROVIDERS.md): its shell commands run without asking.
  * - Reading: nothing below the user's home and the app home (`denyRead`), except the session's own
- *   directories (the worktree, the task's attachments), the shared git directory and
- *   `SANDBOX_HOME_READS` (`allowRead`). The credentials and the live instance's data stay in
- *   `denyRead` as well: the narrower path wins, so no `allowRead` re-opens them, and an `allowRead`
- *   inside one of them is left out.
+ *   directories (the worktree, the task's attachments, the member's sandbox directory), the shared
+ *   git directory and `SANDBOX_HOME_READS` (`allowRead`). The credentials and the live instance's
+ *   data stay in `denyRead` as well: the narrower path wins, so no `allowRead` re-opens them, and an
+ *   `allowRead` inside one of them is left out.
  * - Writing: the worktree (with the shared git directory, minus hooks and config, Claude Code's own
- *   rule), the temp directory and `SANDBOX_HOME_WRITES`; never the default branch and the
- *   integrating checkout's `HEAD` and `index` (`sharedGitDenials`). A member workspace is an
- *   independent clone with its own `.git`: nothing is shared there, so nothing is denied.
+ *   rule), the temp directory and the member's npm cache and development data
+ *   (`MEMBER_SANDBOX_DIRS`, set in the environment); never the default branch and the integrating
+ *   checkout's `HEAD` and `index` (`sharedGitDenials`), and nothing the host runs or loads outside a
+ *   sandbox. A member workspace is an independent clone with its own `.git`: nothing is shared
+ *   there, so nothing is denied.
  * - Environment: without `SANDBOX_DENIED_ENV_VARS`.
  * - Network: only the npm registry; the tests may listen on local ports, which also opens every
  *   local port (decision 24).
  */
 function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandbox {
-  const { userHome, appHome, defaultBranch } = paths;
+  const { userHome, appHome, defaultBranch, memberDir } = paths;
   const denied = policy.filesystem.deniedPaths ?? [];
   const gitDir = policy.placement.kind === 'task_worktree' ? policy.placement.gitDir : undefined;
+  const own = memberDir
+    ? MEMBER_SANDBOX_DIRS.map((dir) => ({ ...dir, path: path.join(memberDir, dir.name) }))
+    : [];
   const allowRead = [
     ...policy.filesystem.readableRoots,
     ...(policy.filesystem.readOnlyPaths ?? []),
+    ...own.map((dir) => dir.path),
     ...(gitDir ? [gitDir] : []),
     ...SANDBOX_HOME_READS.map((name) => path.join(userHome, name)),
   ].filter((dir) => !isWithinAny(denied, dir));
   return {
-    allowWrite: SANDBOX_HOME_WRITES.map((name) => path.join(userHome, name)),
+    allowWrite: own.map((dir) => dir.path).filter((dir) => !isWithinAny(denied, dir)),
     ...(gitDir && defaultBranch ? { denyWrite: sharedGitDenials(gitDir, defaultBranch) } : {}),
     denyRead: [
       ...new Set([userHome, ...(appHome && !isWithin(userHome, appHome) ? [appHome] : []), ...denied]),
     ],
     allowRead: [...new Set(allowRead)],
+    ...(own.length > 0 ? { env: Object.fromEntries(own.map((dir) => [dir.variable, dir.path])) } : {}),
     deniedEnvVars: [...SANDBOX_DENIED_ENV_VARS],
     allowedDomains: [...SANDBOX_ALLOWED_DOMAINS],
     allowLocalBinding: true,
@@ -146,34 +170,58 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
 /**
  * Commands a reader runs outside its sandbox, through the usual permission rules (its allow list
  * pre-approves them): they need the GitHub CLI's login, which the sandbox does not let it read.
+ * Only for a repository on GitHub, each only as a command of its own (PM-188).
  */
 export const READER_UNSANDBOXED_COMMANDS = ['gh pr view', 'gh pr diff'];
 
 /**
  * The CLI's own sandbox of a legacy session (decision 28, PM-167), from the policy's actual paths;
  * none for the managed VM profile, whose boundary is outside the CLI.
- * - Work in a task's own worktree: `worktreeSandbox`, from `paths` too (PM-153).
+ * - Work in a task's own worktree: `worktreeSandbox`, from the `SandboxPaths` too (PM-153).
  * - A reading placement (read-only, or a review copy without the test opt-in): its commands write
- *   only the temp directory; the working directory and every extra directory (`--add-dir`, the
- *   developer's worktree among them) are `denyWrite`, so the member's own mode (Auto too) runs
- *   reads, git queries, tests and type checks without asking and changes nothing. The npm registry
- *   and local ports as for a developer (decision 24).
+ *   only the temp directory; the working directory, every extra directory (`--add-dir`, the
+ *   developer's worktree among them) and the installation's other checkouts (`readerDenyWrite`:
+ *   the app home with every member's worktree, the project's workspace, the server's own
+ *   checkout; PM-188) are `denyWrite`, so the member's own mode (Auto too) runs reads, git queries,
+ *   tests and type checks without asking and changes nothing, and the file tools get an `Edit` deny
+ *   rule for each of them. The npm registry and local ports as for a developer (decision 24). On a
+ *   repository on GitHub (`github`), `gh pr view` and `gh pr diff` run outside the sandbox.
  * Both never read the credentials and the live instance's data (`deniedPaths`, PM-165) from the
  * shell either. A placement the CLI writes as a whole without a sandbox (a review copy's test
  * opt-in) gets none: that is the strict path, refused before the start.
  */
-export function sessionSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandbox | undefined {
+export function sessionSandbox(
+  policy: SessionPolicy,
+  options: Partial<SandboxPaths> & {
+    github?: boolean;
+    readerDenyWrite?: readonly (string | undefined)[];
+  } = {},
+): AgentSandbox | undefined {
   if (policy.execution?.profile === 'managed_vm') return undefined;
-  if (policy.access === 'task_worktree') return worktreeSandbox(policy, paths);
+  if (policy.access === 'task_worktree') {
+    // Without the user's home the sandbox could not close it: no start rather than an open one.
+    if (!options.userHome) throw new Error("A worktree session's sandbox needs the user's home.");
+    return worktreeSandbox(policy, { ...options, userHome: options.userHome });
+  }
   if (!placementReadsOnly(policy.access, { mode: policy.reviewCopyMode, enforcement: policy.enforcement }))
     return undefined;
+  const own = [...new Set([policy.placement.path, ...policy.filesystem.readableRoots])];
+  // The installation's directories, each once: none inside another (a member's worktree in the app home).
+  const listed = [
+    ...new Set(
+      (options.readerDenyWrite ?? []).filter((dir): dir is string => !!dir).map((dir) => path.resolve(dir)),
+    ),
+  ];
+  const others = listed.filter(
+    (dir) => !own.includes(dir) && !listed.some((other) => other !== dir && isWithin(other, dir)),
+  );
   return {
     allowWrite: [],
-    denyWrite: [...new Set([policy.placement.path, ...policy.filesystem.readableRoots])],
+    denyWrite: [...own, ...others],
     ...(policy.filesystem.deniedPaths?.length ? { denyRead: [...policy.filesystem.deniedPaths] } : {}),
     allowedDomains: [...SANDBOX_ALLOWED_DOMAINS],
     allowLocalBinding: true,
-    excludedCommands: [...READER_UNSANDBOXED_COMMANDS],
+    ...(options.github ? { excludedCommands: [...READER_UNSANDBOXED_COMMANDS] } : {}),
   };
 }
 
@@ -264,9 +312,6 @@ export function readableRootsFor(input: {
   return roots;
 }
 
-/** Characters a directory may hold to be named in a Claude Code path rule as it is (no pattern or rule syntax). */
-const PLAIN_RULE_PATH = /^\/[\w./@+~ -]*$/;
-
 /**
  * Claude Code rules for the attachment directory of the session's task: its files are read without
  * asking (`read_attachment` gives their paths) and never edited, whatever the permission mode. Not
@@ -276,10 +321,9 @@ const PLAIN_RULE_PATH = /^\/[\w./@+~ -]*$/;
  * a human, as anywhere else outside the session's directories.
  */
 export function attachmentToolRules(dir: string | null): { allow: string[]; deny: string[] } {
-  if (!dir || !PLAIN_RULE_PATH.test(dir)) return { allow: [], deny: [] };
-  // An absolute path in a rule starts with `//`; `**` takes everything below.
-  const pattern = `/${dir.replace(/\/+$/, '')}/**`;
-  return { allow: [`Read(${pattern})`], deny: [`Edit(${pattern})`] };
+  const paths = dir ? directoryRulePaths(dir) : null;
+  if (!paths) return { allow: [], deny: [] };
+  return { allow: paths.map((p) => `Read(${p})`), deny: paths.map((p) => `Edit(${p})`) };
 }
 
 /**

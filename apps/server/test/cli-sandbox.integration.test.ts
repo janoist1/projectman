@@ -11,8 +11,8 @@ import type { CliAppHarness } from './helpers/app-harness';
 /**
  * The CLI's own sandbox as the real runner hands it to the fake CLIs (PM-167): a reviewer in Auto
  * with approver none runs in Auto, in a sandbox that writes only the temp directory, with its
- * working directory and the developer's worktree read-only for the shell and the file tools and
- * the credentials unreadable; the developer's sandbox gets the same read denials; a Codex reviewer
+ * working directory, the developer's worktree and the app home read-only for the shell and the
+ * file tools and the credentials unreadable; the developer's sandbox gets the same read denials; a Codex reviewer
  * keeps its read-only sandbox and nothing else.
  */
 
@@ -82,23 +82,29 @@ it(
     // PM-153: nothing below the user's home and the app home is read but its own work; the default
     // branch and the integrating checkout of the shared git directory are not written; no tokens.
     const shared = ['refs/heads/main', 'HEAD', 'index', 'packed-refs'];
+    // PM-193: its npm cache and development data are its own, not the host's `~/.npm` and `~/.projectman-dev`.
+    const own = [
+      join(home, 'member-caches', 'AR', 'dev-1', 'npm-cache'),
+      join(home, 'member-caches', 'AR', 'dev-1', 'projectman-dev'),
+    ];
     expect(developer.sandbox).toEqual({
       enabled: true,
       autoAllowBashIfSandboxed: true,
       allowUnsandboxedCommands: false,
       failIfUnavailable: true,
       filesystem: {
-        allowWrite: [join(userHome, '.npm'), join(userHome, '.projectman-dev')],
+        allowWrite: own,
         denyWrite: shared.flatMap((file) => [
           expect.stringMatching(new RegExp(`/\\.git/${file}$`)),
           expect.stringMatching(new RegExp(`/\\.git/${file}\\.lock$`)),
         ]),
         denyRead: [userHome, home, ...denyRead],
-        allowRead: expect.arrayContaining([worktree, join(userHome, '.gitconfig'), join(userHome, '.npm')]),
+        allowRead: expect.arrayContaining([worktree, ...own, join(userHome, '.gitconfig')]),
       },
       network: { allowedDomains: ['registry.npmjs.org'], strictAllowlist: true, allowLocalBinding: true },
       credentials: { envVars: SANDBOX_DENIED_ENV_VARS.map((name) => ({ name, mode: 'deny' })) },
     });
+    expect(developer.env).toEqual({ npm_config_cache: own[0], PROJECTMAN_HOME: own[1] });
     // The developer edits its worktree: no rule takes that away; the shared git files it cannot.
     expect(developer.permissions.deny).not.toContain(`Edit(/${worktree}/**)`);
     expect(developer.permissions.deny).toEqual(
@@ -114,17 +120,20 @@ it(
       autoAllowBashIfSandboxed: true,
       allowUnsandboxedCommands: false,
       failIfUnavailable: true,
-      filesystem: { allowWrite: [], denyWrite: [workspace, worktree], denyRead },
+      // The app home holds every member's worktree and workspace: read-only as a whole (PM-188).
+      filesystem: { allowWrite: [], denyWrite: [workspace, worktree, home], denyRead },
       network: { allowedDomains: ['registry.npmjs.org'], strictAllowlist: true, allowLocalBinding: true },
-      excludedCommands: ['gh pr view', 'gh pr diff'],
+      // The repository is on GitHub: `gh` with any arguments, as a command of its own (PM-188).
+      excludedCommands: ['gh pr view:*', 'gh pr diff:*'],
     });
-    // The built-in file tools are outside the sandbox: the rules keep both directories read-only and
+    // The built-in file tools are outside the sandbox: the rules keep the directories read-only and
     // the credentials out of reach.
     expect(reader.permissions.deny).toEqual(
       expect.arrayContaining([
         `Edit(/${workspace})`,
         `Edit(/${workspace}/**)`,
         `Edit(/${worktree}/**)`,
+        `Edit(/${home}/**)`,
         `Read(/${join(userHome, '.ssh')})`,
         `Read(/${join(userHome, '.ssh')}/**)`,
       ]),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { StartSessionSpec } from '../../../contracts';
-import { HTTP_HOOK_EVENTS, buildClaudeArgs, buildMcpConfig, buildSettings } from './args';
+import { HTTP_HOOK_EVENTS, buildClaudeArgs, buildMcpConfig, buildSettings, denyWriteRules } from './args';
 
 const spec: StartSessionSpec = {
   sessionId: 'ses_1',
@@ -104,7 +104,7 @@ describe('buildSettings', () => {
         allowRead: ['/home/a/.ssh/known_hosts'],
         allowedDomains: ['registry.npmjs.org'],
         allowLocalBinding: true,
-        excludedCommands: ['gh pr view', 'gh pr diff'],
+        excludedCommands: ['gh pr view', 'gh pr diff', 'gh pr view'],
       },
     });
     expect(sandboxed.sandbox).toEqual({
@@ -119,7 +119,8 @@ describe('buildSettings', () => {
         allowRead: ['/home/a/.ssh/known_hosts'],
       },
       network: { allowedDomains: ['registry.npmjs.org'], strictAllowlist: true, allowLocalBinding: true },
-      excludedCommands: ['gh pr view', 'gh pr diff'],
+      // With any arguments (PM-188): a bare `gh pr view` is the exact command for Claude Code.
+      excludedCommands: ['gh pr view:*', 'gh pr diff:*'],
     });
     // The sandbox binds only the shell: `Edit` (also Write and NotebookEdit) is denied by rules.
     expect(sandboxed.permissions.deny).toEqual([
@@ -133,15 +134,20 @@ describe('buildSettings', () => {
 
   it("renders a developer's sandbox exactly: closed homes, its own reads, the protected shared git, no tokens (PM-153)", () => {
     const git = '/src/app/.git';
+    const own = {
+      cache: '/pm/member-caches/AR/dev-1/npm-cache',
+      dev: '/pm/member-caches/AR/dev-1/projectman-dev',
+    };
     const sandboxed = buildSettings({
       hookUrl: 'http://h/hooks/t',
       allowedTools: [],
       permissionTimeoutMs: 1000,
       sandbox: {
-        allowWrite: ['/home/a/.npm', '/home/a/.projectman-dev'],
+        allowWrite: [own.cache, own.dev],
         denyWrite: [`${git}/refs/heads/main`, `${git}/HEAD`, `${git}/index`, `${git}/packed-refs`],
         denyRead: ['/home/a', '/pm', '/home/a/.ssh', '/pm/secret'],
         allowRead: ['/pm/worktrees/AR/AR-1-web', '/pm/attachments/AR/AR-1', git, '/home/a/.gitconfig'],
+        env: { npm_config_cache: own.cache, PROJECTMAN_HOME: own.dev },
         deniedEnvVars: ['GH_TOKEN', 'SSH_AUTH_SOCK', 'GH_TOKEN'],
         allowedDomains: ['registry.npmjs.org'],
         allowLocalBinding: true,
@@ -153,7 +159,7 @@ describe('buildSettings', () => {
       allowUnsandboxedCommands: false,
       failIfUnavailable: true,
       filesystem: {
-        allowWrite: ['/home/a/.npm', '/home/a/.projectman-dev'],
+        allowWrite: [own.cache, own.dev],
         denyWrite: [`${git}/refs/heads/main`, `${git}/HEAD`, `${git}/index`, `${git}/packed-refs`],
         denyRead: ['/home/a', '/pm', '/home/a/.ssh', '/pm/secret'],
         allowRead: ['/pm/worktrees/AR/AR-1-web', '/pm/attachments/AR/AR-1', git, '/home/a/.gitconfig'],
@@ -167,6 +173,10 @@ describe('buildSettings', () => {
         ],
       },
     });
+    // PM-193: npm and the development instance use the member's own directories; Claude Code sets
+    // `env` for the session and its commands.
+    expect(sandboxed.env).toEqual({ npm_config_cache: own.cache, PROJECTMAN_HOME: own.dev });
+    expect(settings).not.toHaveProperty('env');
     // A file of the shared git directory is named itself, so the file tools cannot rewrite it.
     expect(sandboxed.permissions.deny).toEqual([
       `Edit(/${git}/refs/heads/main)`,
@@ -189,6 +199,27 @@ describe('buildSettings', () => {
         sandbox: { allowWrite: [], denyWrite: ['/work(1)'], allowedDomains: [], allowLocalBinding: true },
       }),
     ).toThrow(/refusing to start/);
+  });
+
+  it('names an accented read-only directory as it is, composed and decomposed (PM-188)', () => {
+    const composed = '/Users/anna/Projektek/Ügyfél'.normalize('NFC');
+    const decomposed = composed.normalize('NFD');
+    const sandboxed = buildSettings({
+      hookUrl: 'http://h/hooks/t',
+      allowedTools: [],
+      permissionTimeoutMs: 1000,
+      sandbox: { allowWrite: [], denyWrite: [composed], allowedDomains: [], allowLocalBinding: true },
+    });
+    expect(sandboxed.permissions.deny).toEqual([
+      `Edit(/${composed})`,
+      `Edit(/${composed}/**)`,
+      `Edit(/${decomposed})`,
+      `Edit(/${decomposed}/**)`,
+    ]);
+    // An ASCII path has one spelling.
+    expect(
+      denyWriteRules({ allowWrite: [], denyWrite: ['/work'], allowedDomains: [], allowLocalBinding: true }),
+    ).toEqual(['Edit(//work)', 'Edit(//work/**)']);
   });
 
   it('forwards every hook of a sandboxed session with the forwarder, past the sandbox proxy', () => {

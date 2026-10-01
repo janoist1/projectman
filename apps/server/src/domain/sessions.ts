@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import {
@@ -65,6 +66,8 @@ import {
   sessionPolicyFor,
   DONE_TASK_CLEANUP_DELAY_MS,
   DONE_TASK_TURN_LIMIT_MS,
+  MEMBER_SANDBOX_DIRS,
+  memberSandboxDir,
   sensitivePaths,
   sessionSandbox,
   usesWorktree,
@@ -203,6 +206,12 @@ export interface SessionOrchestratorDeps {
   standby?: boolean;
   /** The installation's home: its sensitive parts are out of the file tools' reach (`sensitivePaths`). */
   appHome?: string;
+  /**
+   * The installation's directories a reading session never changes, from the shell or with the file
+   * tools (PM-188): the app home with every member's worktree and workspace, and the server's own
+   * checkout. The project's workspace is added per session.
+   */
+  readerDenyWrite?: string[];
   /** The user's home, where the credentials are (default: the operating system's). */
   userHome?: string;
   /**
@@ -1056,6 +1065,11 @@ export class SessionOrchestrator {
       ...(attachmentDir ? { readOnlyPaths: [attachmentDir] } : {}),
       ...(vm ? { managedVm: { boundary: vm.profile } } : {}),
     });
+    // A developer's npm cache and development data live in its own directory (PM-193).
+    const memberDir =
+      !vm && !this.managed && policy.access === 'task_worktree' && this.deps.appHome
+        ? this.prepareMemberSandboxDir(this.deps.appHome, projectKey, member.handle)
+        : undefined;
     const sandbox =
       vm || this.managed
         ? undefined
@@ -1063,6 +1077,10 @@ export class SessionOrchestrator {
             userHome,
             ...(this.deps.appHome ? { appHome: this.deps.appHome } : {}),
             ...(repoName ? { defaultBranch: repoOf(config, repoName)?.defaultBranch } : {}),
+            ...(memberDir ? { memberDir } : {}),
+            github: Boolean(repoOf(config, effectiveRepo(config, task))?.github),
+            // A reader changes no checkout of the project or the installation (PM-188).
+            readerDenyWrite: [config.project.workspacePath, ...(this.deps.readerDenyWrite ?? [])],
           });
     const pack = this.deps.contextBuilder.build({
       project: config,
@@ -1342,6 +1360,23 @@ export class SessionOrchestrator {
   }
 
   /** The member's directory for sessions without a workspace, made as its worker (managed VM). */
+  /** The member's sandbox directory with its npm cache and development data, made if missing (PM-193). */
+  private prepareMemberSandboxDir(appHome: string, projectKey: string, handle: string): string {
+    const dir = memberSandboxDir(appHome, projectKey, handle);
+    try {
+      // Two small local directories: made at once, so the start does not wait an extra turn.
+      for (const sub of MEMBER_SANDBOX_DIRS)
+        mkdirSync(path.join(dir, sub.name), { recursive: true, mode: 0o700 });
+    } catch (err) {
+      throw new DomainError(
+        'session_start_failed',
+        `could not prepare the member's sandbox directory: ${(err as Error).message}`,
+        { status: 502, details: { stage: 'member_sandbox_dir', reason: errorCode(err) } },
+      );
+    }
+    return dir;
+  }
+
   private async workerSessionDir(handle: string, projectKey: string): Promise<string> {
     const boundary = this.deps.runtimeBoundary!;
     const layout = boundary.layout!;

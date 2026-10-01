@@ -44,7 +44,16 @@ export interface AgentSandbox {
   allowRead?: string[];
   /** Environment variables commands never see (unset in the sandbox, PM-153): tokens, the SSH agent. */
   deniedEnvVars?: string[];
-  /** Commands that run outside the sandbox, through the usual permission path (`gh pr view`). */
+  /**
+   * Environment variables set for the session and its commands (PM-193): the member's own npm cache
+   * and development data, so nothing the host uses outside a sandbox needs to be writable.
+   */
+  env?: Record<string, string>;
+  /**
+   * Commands that run outside the sandbox with any arguments, through the usual permission path
+   * (`gh pr view`): only as a command of their own, never inside a chain, a pipe or a substitution
+   * (the provider adapter renders the pattern, PM-188).
+   */
   excludedCommands?: string[];
 }
 

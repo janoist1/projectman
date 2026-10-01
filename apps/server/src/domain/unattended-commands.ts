@@ -98,6 +98,15 @@ export function describeSandbox(input: {
     sandbox.allowRead?.length
       ? `- Reading: nothing below ${closed.map(code).join(' and ')} except ${sandbox.allowRead.map(code).join(', ')}; everything outside them (the system, the installed tools). Other worktrees, the app's data and the credentials stay closed: do not look for them.`
       : `- Reading: everything${denyRead.length ? `, except the credentials and the live instance's data: ${denyRead.map(code).join(', ')}` : ''}.`,
+    ...(sandbox.env && Object.keys(sandbox.env).length > 0
+      ? [
+          `- Your own npm cache and development data: ${Object.entries(sandbox.env)
+            .map(([name, value]) => `${code(name)} is ${code(value)}`)
+            .join(
+              ', ',
+            )}. Leave them set: npm, ${code('npx')} and ${code('npm run dev')} use them, and the user's ${code('~/.npm')} and ${code('~/.projectman-dev')} are not writable.`,
+        ]
+      : []),
     ...(sandbox.deniedEnvVars?.length
       ? [`- Environment: ${sandbox.deniedEnvVars.map(code).join(', ')} are unset for your commands.`]
       : []),
@@ -108,7 +117,7 @@ export function describeSandbox(input: {
   ];
   if (sandbox.excludedCommands?.length) {
     lines.push(
-      `- ${sandbox.excludedCommands.map(code).join(' and ')} run outside the sandbox (they need the GitHub CLI's login), allowed by your permission rules.`,
+      `- ${sandbox.excludedCommands.map(code).join(' and ')} with their arguments run outside the sandbox (they need the GitHub CLI's login), allowed by your permission rules, but only as a command of their own: ${code(`${sandbox.excludedCommands[0]} 12`)}. In a chain, a pipe, a substitution or with a redirection into a file they run inside the sandbox, where the login is out of reach.`,
     );
   }
   if (localOnly) {

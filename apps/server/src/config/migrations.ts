@@ -1,6 +1,8 @@
 import type { FastifyBaseLogger } from 'fastify';
 import {
   AgentProvider,
+  BUILT_IN_ROLE_DUTIES,
+  BuiltInRoleId,
   DEFAULT_AGENT_PROVIDER,
   FALLBACK_PERMISSION_MODE,
   LabelDefinition,
@@ -132,10 +134,58 @@ function migrateReleaseApproval(raw: unknown, { projectKey, logger }: MigrationC
   return raw;
 }
 
+/** The texts of a role that carry over to the override; an empty text would only hide the default. */
+const ROLE_TEXT_FIELDS = ['summary', 'notTheirJob', 'whenToAsk'] as const;
+
+/**
+ * A custom role whose id became a built-in role's (such as `lead_developer`, which the app now
+ * ships): the team's own definition is kept as the override of that built-in role, so its
+ * duties and texts stay what the team wrote and its members keep the role. Where an override of the
+ * built-in role exists already, the custom role's duties and texts win and the override's other
+ * fields stay. The display name is dropped: a built-in role is named by the locale. Roles without
+ * duties (written before duties existed) keep the built-in role's default duties.
+ */
+function migrateShadowingRoles(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
+  const team = asRecord(asRecord(raw)?.team);
+  if (!team || !Array.isArray(team.roles)) return raw;
+  const kept: unknown[] = [];
+  const shadowing: Array<{ id: BuiltInRoleId; role: Record<string, unknown> }> = [];
+  for (const entry of team.roles) {
+    const role = asRecord(entry);
+    const id = BuiltInRoleId.safeParse(role?.id);
+    if (role && id.success) shadowing.push({ id: id.data, role });
+    else kept.push(entry);
+  }
+  if (shadowing.length === 0) return raw;
+  const overrides = asRecord(team.roleOverrides) ?? {};
+  for (const { id, role } of shadowing) {
+    const existing = asRecord(overrides[id]);
+    const bundle: Record<string, unknown> = {
+      ...existing,
+      duties: role.duties ?? existing?.duties ?? BUILT_IN_ROLE_DUTIES[id],
+    };
+    if (typeof role.instructions === 'string' && role.instructions.trim() !== '')
+      bundle.instructions = role.instructions;
+    for (const field of ROLE_TEXT_FIELDS) {
+      const text = role[field];
+      if (typeof text === 'string' && text.trim() !== '') bundle[field] = text;
+    }
+    overrides[id] = bundle;
+    logger.warn(
+      { projectKey, role: id },
+      'Migrated custom role that shadows a built-in role to a role override',
+    );
+  }
+  team.roles = kept;
+  team.roleOverrides = overrides;
+  return raw;
+}
+
 /**
  * Upgrades a merged, not yet validated project configuration of an older shape, in memory: the
  * customization files keep their content until the next save. Used wherever the store reads
  * a configuration (the working tree and earlier versions alike).
+ *   - a custom role with a built-in role's id becomes that role's override (above);
  *   - the removed `scheduled` AI role becomes `maintainer` (above);
  *   - a Codex member in `bypassPermissions` becomes `acceptEdits` (above);
  *   - gate conditions from before labels (check_passed, pr_merged, human_approval) become label
@@ -147,7 +197,9 @@ function migrateReleaseApproval(raw: unknown, { projectKey, logger }: MigrationC
  */
 export function migrateProjectConfig(raw: unknown, context: MigrationContext): unknown {
   return migrateReleaseApproval(
-    migrateLegacyConfig(migrateCodexBypass(migrateScheduledRole(raw, context), context)),
+    migrateLegacyConfig(
+      migrateCodexBypass(migrateScheduledRole(migrateShadowingRoles(raw, context), context), context),
+    ),
     context,
   );
 }

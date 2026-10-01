@@ -496,6 +496,45 @@ describe('ConfigStore: configurations that predate a rule', () => {
     expect((await store.load('AR')).config).toEqual(testConfig());
   });
 
+  it('keeps a project loading whose own role took the id of a role the app ships since, and persists the override on the next save', async () => {
+    await store.save('AR', testConfig(), { author, message: 'Create' });
+    const ownLead = {
+      id: 'lead_developer',
+      name: 'Lead developer',
+      summary: 'Leads the fictional development.',
+      duties: ['technical_direction', 'code_review', 'boundary_authorization'],
+      instructions: 'Review every change twice.',
+    };
+    handEdit('team.yaml', (document) => {
+      document.roles = [ownLead];
+      document.members[1].role = 'lead_developer';
+    });
+    const stored = commitHandEdits('Own lead developer role');
+
+    const loaded = await store.load('AR');
+    expect(loaded.version).toBe(stored);
+    expect(loaded.config.team.roles).toEqual([]);
+    expect(loaded.config.team.roleOverrides?.lead_developer).toMatchObject({
+      duties: ownLead.duties,
+      instructions: ownLead.instructions,
+      summary: ownLead.summary,
+    });
+    expect(loaded.config.team.members[1]).toMatchObject({ role: 'lead_developer' });
+    expect(warn).toHaveBeenCalledWith(
+      { projectKey: 'AR', role: 'lead_developer' },
+      'Migrated custom role that shadows a built-in role to a role override',
+    );
+    // The files keep their content until the next save, which accepts the migrated configuration.
+    expect(readFileSync(join(store.rootDir, 'projects/AR/team.yaml'), 'utf8')).toContain(
+      'name: Lead developer',
+    );
+    await store.save('AR', loaded.config, { author, message: 'Save it back' });
+    const teamFile = readFileSync(join(store.rootDir, 'projects/AR/team.yaml'), 'utf8');
+    expect(teamFile).toContain('roleOverrides:');
+    expect(teamFile).not.toContain('name: Lead developer');
+    expect((await store.load('AR')).config).toEqual(loaded.config);
+  });
+
   it('narrows a release approval any human may set when it loads, persists that on the next save and refuses the wide right', async () => {
     await store.save('AR', testConfig(), { author, message: 'Create' });
     const pipelineYaml = join(store.rootDir, 'projects/AR/pipeline.yaml');

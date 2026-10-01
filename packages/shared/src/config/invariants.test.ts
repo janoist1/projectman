@@ -521,7 +521,12 @@ describe('validateProjectConfig team and pipeline', () => {
 
 describe('errors a stored configuration may keep', () => {
   it('tolerates the rules added after configurations were written, and nothing else', () => {
-    const tolerated = ['duplicate_repo', 'duplicate_column', 'release_approval_needs_duty'] as const;
+    const tolerated = [
+      'duplicate_repo',
+      'duplicate_column',
+      'release_approval_needs_duty',
+      'custom_role_shadows_builtin',
+    ] as const;
     for (const code of tolerated) expect(isToleratedOnLoad({ code })).toBe(true);
     for (const code of [
       'no_owner',

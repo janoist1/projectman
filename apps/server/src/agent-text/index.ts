@@ -10,6 +10,7 @@ export { describeRepo, type TaskRepoInfo } from './repo';
 export { formatTimestamp, oneLine, PLAIN_STYLE, truncate, type TextStyle } from './text';
 export {
   describeEvent,
+  eventFullText,
   recentTimeline,
   timelineLine,
   type RecentTimeline,

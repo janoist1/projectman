@@ -42,6 +42,7 @@ export function createTimelineRepository(db: Db) {
       'SELECT * FROM timeline_events WHERE project_key = ? AND task_key = ? ORDER BY seq DESC LIMIT ?',
     ),
     ofProject: db.prepare('SELECT * FROM timeline_events WHERE project_key = ? ORDER BY seq DESC LIMIT ?'),
+    byId: db.prepare('SELECT * FROM timeline_events WHERE project_key = ? AND id = ?'),
     // Imported comments (a ClickUp import) are history, not conversation.
     talkSince: db.prepare(
       `SELECT * FROM timeline_events WHERE project_key = ? AND task_key = ? AND created_at >= ?
@@ -51,6 +52,11 @@ export function createTimelineRepository(db: Db) {
     ),
   };
   return {
+    /** One event of a project, or null. */
+    get(projectKey: string, id: string): TimelineEvent | null {
+      const row = statements.byId.get(projectKey, id) as TimelineRow | undefined;
+      return row ? toEvent(row) : null;
+    },
     insert(e: TimelineEvent): void {
       statements.insert.run(
         e.id,

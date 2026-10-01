@@ -96,7 +96,29 @@ describe('formatTaskDetail', () => {
     expect(out).toContain(`Description:\n${'x'.repeat(19_999)}Z\n`);
     expect(out).not.toContain('only part of it');
     expect(out).toContain('note: multi line yyy');
-    expect(out.split('\n').find((l) => l.includes('note: multi'))!.length).toBeLessThan(400);
+    // The text is cut to 300 characters; the rest is the line's prefix and the cut hint (PM-191).
+    expect(out.split('\n').find((l) => l.includes('note: multi'))!.length).toBeLessThan(480);
+  });
+
+  it('says on a cut note how long it is and how to read it whole, and leaves short ones alone (PM-191)', () => {
+    const detail = sampleTaskDetail();
+    detail.timeline = [note(0, 'x'.repeat(2000)), note(1, 'short')];
+
+    const out = formatTaskDetail(detail);
+
+    expect(out).toContain('(cut, 2000 chars; read it whole: get_task task_key AR-21, event_id evt_note_0)');
+    expect(out).toContain('note: short');
+    expect(out.split('read it whole:')).toHaveLength(2);
+  });
+
+  it('shows one event whole, line breaks kept, when get_task is asked for it by id (PM-191)', () => {
+    const detail = sampleTaskDetail();
+    const text = `Measured:\n${'row 1234\n'.repeat(200)}end`;
+    const out = formatTaskDetail({ ...detail, event: note(5, text) });
+
+    expect(out).toContain(`evt_note_5`);
+    expect(out).toContain(`characters, shown whole:\n${text}`);
+    expect(out).not.toContain('Timeline (oldest first)');
   });
 
   it('shows a longer description in parts and says what is missing and how to read it', () => {

@@ -309,9 +309,20 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       'its parent, subtasks (keys, titles, stages, statuses), attachments (open one with read_attachment) and ' +
       'recent timeline (who did what). The description is shown whole up to ' +
       `${MAX_DESCRIPTION_CHARS} characters; a longer one is shown in parts, and the result says how to ` +
-      'read the rest.',
+      'read the rest. The timeline shows a long note, question or answer cut; with event_id (named on the ' +
+      'cut line) the call returns that one text whole instead of the task.',
     input: {
       task_key: taskKeyInput,
+      event_id: z
+        .string()
+        .trim()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe(
+          'Id of a timeline event of this task: returns its whole text. Only needed when a timeline line ' +
+            'says it is cut, and it names the id.',
+        ),
       description_offset: z
         .number()
         .int()
@@ -323,7 +334,8 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         ),
     },
     async run({ ctx, args, handler }) {
-      return formatTaskDetail(await handler.getTask(ctx, { taskKey: args.task_key }), {
+      const event = args.event_id === undefined ? {} : { eventId: args.event_id };
+      return formatTaskDetail(await handler.getTask(ctx, { taskKey: args.task_key, ...event }), {
         descriptionOffset: args.description_offset ?? 0,
       });
     },

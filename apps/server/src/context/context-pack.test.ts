@@ -3,6 +3,7 @@ import { AI_BUILT_IN_ROLE_IDS, DUTIES, DUTY_IDS } from '@projectman/shared';
 import type {
   Actor,
   AiMemberConfig,
+  Attachment,
   DutyId,
   MemberView,
   ProjectConfig,
@@ -202,6 +203,30 @@ const memory =
     'The team wants pull request descriptions to list manual test steps.',
   );
 
+const screenshot = (overrides: Partial<Attachment> = {}): Attachment => ({
+  id: 'att_screenshot01',
+  projectKey: 'AR',
+  taskKey: 'AR-21',
+  fileName: 'reset-mail.png',
+  size: 48_213,
+  mediaType: 'image/png',
+  preview: 'image',
+  uploadedBy: { kind: 'human', handle: 'owner' },
+  createdAt: '2026-09-27T09:15:00.000Z',
+  ...overrides,
+});
+
+const testReport = (): Attachment => ({
+  ...screenshot(),
+  id: 'att_testreport01',
+  fileName: 'test-run.log',
+  size: 1_250_000,
+  mediaType: 'application/octet-stream',
+  preview: 'none',
+  uploadedBy: { kind: 'ai', handle: 'fe-1' },
+  createdAt: '2026-09-28T10:02:00.000Z',
+});
+
 function input(overrides: Partial<ContextPackInput> & { handle?: string } = {}): ContextPackInput {
   const { handle = 'code-review', ...rest } = overrides;
   const project = rest.project ?? buildProject();
@@ -283,7 +308,7 @@ describe('context pack snapshots', () => {
   });
 
   it('code reviewer reviewing a pull request', async () => {
-    const pack = builder.build(input({ handle: 'code-review' }));
+    const pack = builder.build(input({ handle: 'code-review', attachments: [screenshot(), testReport()] }));
     await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
       '__snapshots__/code-review-code_review.system-prompt.txt',
     );
@@ -393,7 +418,7 @@ describe('continue message', () => {
     expect(message).toBe(
       'Your session was restarted. ' +
         'You are working on AR-21 "Fix the booking confirmation email", now in stage Code review (`code_review`). ' +
-        "Check where you left off (git status in your working directory, and the task's comments in get_task), " +
+        "Check where you left off (git status in your working directory, and the task's comments and attachments in get_task), " +
         "then carry on as usual, writing in English (`en`), the project's language.",
     );
     // Short: three sentences, one line, English.
@@ -689,6 +714,31 @@ describe('system prompt', () => {
 });
 
 describe('kick-off brief', () => {
+  it('lists the attachments with the tools, and says how to get the rest of a long list', () => {
+    const brief = (attachments?: Attachment[]) =>
+      (builder.build(input({ attachments })).initialMessage ?? '')
+        .split('\n\n')
+        .find((part) => part.startsWith('## Attachments\n'));
+    expect(brief()).toBe(
+      '## Attachments\nNone. attach_file attaches a file from your working directory; get_task lists files attached later.',
+    );
+
+    const one = brief([screenshot()]);
+    expect(one).toContain(
+      '- `att_screenshot01` "reset-mail.png" · image/png · 48.2 kB · by `owner`, 2026-09-27 09:15 UTC',
+    );
+    expect(one).toContain('read_attachment gives the local path of one');
+    expect(one).not.toContain('more; list them');
+
+    const many = Array.from({ length: 13 }, (_, i) =>
+      screenshot({ id: `att_screenshot${String(i).padStart(2, '0')}`, fileName: `shot-${i}.png` }),
+    );
+    const long = brief(many);
+    expect(long).toContain('shot-9.png');
+    expect(long).not.toContain('shot-10.png');
+    expect(long).toContain('(3 more; list them with list_attachments, task_key AR-21, offset 10.)');
+  });
+
   it('keeps the brief compact', () => {
     const many = Array.from({ length: 40 }, (_, i) =>
       event(`2026-09-29T10:${String(i).padStart(2, '0')}:00.000Z`, 'fe-1', 'task_note', {

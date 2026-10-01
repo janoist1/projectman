@@ -2,7 +2,7 @@ import type { Readable, Writable } from 'node:stream';
 import type { Actor, Attachment } from '@projectman/shared';
 
 /**
- * The boundary between whoever receives a file (the REST route today, an MCP tool later) and the
+ * The boundary between whoever receives a file (the REST route, the team tool `attach_file`) and the
  * attachments service: it takes a stream and applies one size, storage and access check, whoever
  * asks. Access is judged for the acting member against the current roster and task visibility.
  */
@@ -41,6 +41,18 @@ export interface AttachmentOperations {
    * the same call (or the next start of the server) finishes it, once.
    */
   delete(projectKey: string, taskKey: string, id: string, actor: Actor): Promise<void>;
+  /**
+   * Where a ready attachment of this task is stored, for an AI member that opens it with its own
+   * tools (the team tool `read_attachment`): the same access check as `open`, and the file must be
+   * the regular file of the recorded size.
+   */
+  locate(projectKey: string, taskKey: string, id: string, actor: Actor): Promise<LocatedAttachment>;
+}
+
+export interface LocatedAttachment {
+  attachment: Attachment;
+  /** Absolute path of the stored file, under the resolved storage root. */
+  path: string;
 }
 
 /** Where an attachment lives in storage; the id names the file. */
@@ -76,6 +88,13 @@ export interface AttachmentStorage {
   create(ref: AttachmentRef): Promise<AttachmentWriter>;
   /** Opens the published file for reading; throws unless it is a regular file of `size` bytes. */
   openRead(ref: AttachmentRef, size: number): Promise<Readable>;
+  /** The published file's absolute path; throws unless it is a regular file of `size` bytes. */
+  locate(ref: AttachmentRef, size: number): Promise<string>;
+  /**
+   * The absolute directory that holds (or will hold) a task's attachments, under the resolved
+   * storage root; nothing is created. What an AI session on the task may read.
+   */
+  taskDirectory(projectKey: string, taskKey: string): Promise<string>;
   /** Removes the published file and any temporary one; a missing file is fine. */
   remove(ref: AttachmentRef): Promise<void>;
   /** Removes only the temporary file; a missing file is fine. */

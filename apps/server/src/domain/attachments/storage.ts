@@ -15,11 +15,12 @@ const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 
 /** A path component that is not what storage creates itself: a bug, never a user's input. */
 function checkRef(ref: AttachmentRef): void {
-  if (
-    !PROJECT_KEY.test(ref.projectKey) ||
-    !TaskKey.safeParse(ref.taskKey).success ||
-    !AttachmentId.safeParse(ref.id).success
-  ) {
+  checkTask(ref.projectKey, ref.taskKey);
+  if (!AttachmentId.safeParse(ref.id).success) throw new Error('unsafe attachment storage reference');
+}
+
+function checkTask(projectKey: string, taskKey: string): void {
+  if (!PROJECT_KEY.test(projectKey) || !TaskKey.safeParse(taskKey).success) {
     throw new Error('unsafe attachment storage reference');
   }
 }
@@ -133,8 +134,26 @@ export class FileAttachmentStorage implements AttachmentStorage {
   }
 
   async openRead(ref: AttachmentRef, size: number): Promise<Readable> {
+    const { handle } = await this.openChecked(ref, size);
+    return handle.createReadStream();
+  }
+
+  async locate(ref: AttachmentRef, size: number): Promise<string> {
+    const { handle, path } = await this.openChecked(ref, size);
+    await handle.close();
+    return path;
+  }
+
+  async taskDirectory(projectKey: string, taskKey: string): Promise<string> {
+    checkTask(projectKey, taskKey);
+    return join(await this.root(), projectKey, taskKey);
+  }
+
+  /** The published file, opened without following a link; it must be a regular file of `size` bytes. */
+  private async openChecked(ref: AttachmentRef, size: number): Promise<{ handle: FileHandle; path: string }> {
     const dir = await this.taskDir(ref, false);
-    const handle = await open(join(dir, ref.id), constants.O_RDONLY | O_NOFOLLOW);
+    const path = join(dir, ref.id);
+    const handle = await open(path, constants.O_RDONLY | O_NOFOLLOW);
     try {
       const stat = await handle.stat();
       if (!stat.isFile()) throw new Error('attachment is not a regular file');
@@ -143,7 +162,7 @@ export class FileAttachmentStorage implements AttachmentStorage {
       await handle.close().catch(() => undefined);
       throw err;
     }
-    return handle.createReadStream();
+    return { handle, path };
   }
 
   async remove(ref: AttachmentRef): Promise<void> {

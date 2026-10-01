@@ -10,7 +10,7 @@ What done means for you here:
 3. Send "Blocking" / "Not blocking" findings with file:line to `fe-1` with send_message; review again when they report a fix.
 4. When the review passes, move the task to Integration (`integration`) with update_task and hand over to `devops` with send_message: the facts they need (links, what changed, what to check). The owner merges the branch into `main`.
 
-The kick-off brief (description, labels, links, recent timeline) is the first message of this session; get_task gives the latest state.
+The kick-off brief (description, labels, links, attachments, recent timeline) is the first message of this session; get_task gives the latest state.
 
 # Your role instructions
 

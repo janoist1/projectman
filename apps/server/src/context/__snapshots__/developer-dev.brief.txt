@@ -20,6 +20,9 @@ None.
 ## Prerequisites
 - AR-19 "Update mail templates" (done)
 
+## Attachments
+None. attach_file attaches a file from your working directory; get_task lists files attached later.
+
 ## Recent timeline
 - 2026-09-28 08:00 UTC · `owner`: created the task "Fix the booking confirmation email"
 - 2026-09-28 08:05 UTC · `owner`: assigned it to `fe-1`

@@ -11,6 +11,7 @@ import {
 import type {
   AgentProvider,
   AiMemberConfig,
+  Attachment,
   ChatItem,
   MemberStatus,
   ProjectConfig,
@@ -22,6 +23,7 @@ import type {
 } from '@projectman/shared';
 import { openingTurnOrigin, PROVIDER_NOT_LOGGED_IN } from '../contracts';
 import type {
+  AttachmentOperations,
   ContextPackBuilder,
   MemberMemoryStore,
   RunnerEvent,
@@ -41,6 +43,7 @@ import type { MemberService } from './members';
 import type { ConfigChange, ProjectService } from './projects';
 import {
   allowedToolsFor,
+  attachmentToolRules,
   deniedToolsFor,
   sessionPolicyFor,
   DONE_TASK_CLEANUP_DELAY_MS,
@@ -107,6 +110,10 @@ export interface SessionOrchestratorDeps {
   publicBaseUrl: string;
   /** Delay before a done task's sessions are stopped and its worktrees removed. */
   doneCleanupDelayMs?: number;
+  /** The task's attachments, listed in the kick-off brief (as the member may read them). */
+  attachments?: Pick<AttachmentOperations, 'list'>;
+  /** The attachment directory of a task (`AttachmentStorage.taskDirectory`): its session reads it without asking. */
+  attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
 }
 
 /** Worktree removals that are refused on purpose (the worktree module's error codes). */
@@ -444,6 +451,7 @@ export class SessionOrchestrator {
       this.ctx.logger.warn({ err, member: member.handle }, 'could not read member memory');
       return '';
     });
+    const { attachments, attachmentRules } = await this.attachmentsFor(projectKey, member.handle, task);
     const pack = this.deps.contextBuilder.build({
       project: config,
       member,
@@ -453,6 +461,7 @@ export class SessionOrchestrator {
       timeline: task ? this.deps.timeline.list(projectKey, { taskKey: task.key, limit: 30 }) : [],
       team: this.deps.members.rosterFor(config),
       memory,
+      ...(attachments.length > 0 ? { attachments } : {}),
     });
 
     // Configuration may change while login, worktree and memory preparation await I/O. So may the
@@ -526,8 +535,8 @@ export class SessionOrchestrator {
         initialMessage: resume ? (message ?? pack.continueMessage) : pack.initialMessage,
         firstUserOrigin: openingTurnOrigin(workItem),
         mcpUrl: `${this.deps.publicBaseUrl}${routes.mcp(token)}`,
-        allowedTools: allowedToolsFor(member.role, config),
-        deniedTools: deniedToolsFor(config, task),
+        allowedTools: [...allowedToolsFor(member.role, config), ...attachmentRules.allow],
+        deniedTools: [...deniedToolsFor(config, task), ...attachmentRules.deny],
         additionalDirectories,
         provider,
       });
@@ -579,6 +588,30 @@ export class SessionOrchestrator {
       started: true,
       messageSent: resume && message !== null,
     };
+  }
+
+  /**
+   * A task session's attachments: the list for its brief, and the rules that let it read (never
+   * edit) the task's attachment directory without asking. Only that one directory: not the other
+   * tasks' ones, nor the rest of the server's home. A failure leaves the session without them.
+   */
+  private async attachmentsFor(
+    projectKey: string,
+    handle: string,
+    task: Task | null,
+  ): Promise<{ attachments: Attachment[]; attachmentRules: { allow: string[]; deny: string[] } }> {
+    if (!task) return { attachments: [], attachmentRules: attachmentToolRules(null) };
+    const attachments =
+      (await this.deps.attachments?.list(projectKey, task.key, aiActor(handle)).catch((err: unknown) => {
+        this.ctx.logger.warn({ err, taskKey: task.key }, 'could not list the task attachments');
+        return undefined;
+      })) ?? [];
+    const dir =
+      (await this.deps.attachmentDirectory?.(projectKey, task.key).catch((err: unknown) => {
+        this.ctx.logger.warn({ err, taskKey: task.key }, 'could not find the task attachment directory');
+        return undefined;
+      })) ?? null;
+    return { attachments, attachmentRules: attachmentToolRules(dir) };
   }
 
   /** Throws `provider_not_logged_in` when the runner knows the provider's CLI is not logged in. */

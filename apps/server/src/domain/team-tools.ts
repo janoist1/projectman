@@ -1,6 +1,8 @@
 import {
+  AttachmentId,
   effectiveRepo,
   isOpenTask,
+  MAX_ATTACHMENT_BYTES,
   memberOf,
   needsRepoChoice,
   questionChoices,
@@ -8,6 +10,7 @@ import {
   TaskKey,
 } from '@projectman/shared';
 import type {
+  Attachment,
   InboxOption,
   MemberView,
   ProjectConfig,
@@ -17,14 +20,18 @@ import type {
 } from '@projectman/shared';
 import { TeamToolError } from '../contracts';
 import type {
+  AttachmentOperations,
+  AttachmentPage,
   GithubService,
   ListTasksInput,
+  LocatedAttachmentForTool,
   MemberMemoryStore,
   TaskSummary,
   TaskToolDetail,
   TeamToolsHandler,
   ToolContext,
 } from '../contracts';
+import { openWorkspaceFile, WorkspaceFileRefusal } from './attachments';
 import type { DomainContext } from './context';
 import { DomainError } from './errors';
 import type { ApprovalRequirement, UnmetCondition } from '@projectman/shared';
@@ -35,10 +42,14 @@ import type { MemberService } from './members';
 import type { Messaging } from './messaging';
 import type { ProjectService } from './projects';
 import type { TaskService } from './tasks';
+import { attachmentToolRules } from './session-policy';
 import type { TimelineService } from './timeline';
 import { aiActor, unique } from './util';
 
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
+/** Attachments get_task shows; the rest are paged with list_attachments. */
+const ATTACHMENTS_IN_TASK = 20;
+const MAX_ATTACHMENT_PAGE = 200;
 
 /** Explains a blocked stage move to the agent in plain English. */
 function describeGateBlock(err: DomainError): string {
@@ -78,6 +89,35 @@ function toMessageToolError(err: unknown): unknown {
   return err;
 }
 
+/** An attachment that is not (or no longer) there, in words that say where to look. */
+function toAttachmentToolError(err: unknown, taskKey: string, id: string): unknown {
+  if (
+    err instanceof DomainError &&
+    err.code === 'not_found' &&
+    (err.details as { what?: string })?.what === 'attachment'
+  )
+    return new TeamToolError(
+      'not_found',
+      `${taskKey} has no attachment ${id} (or it is being deleted); list them with list_attachments.`,
+    );
+  return err;
+}
+
+/** attach_file refusals: the file's own (path, kind, size, change), and the size limit hit while reading. */
+function toFileToolError(err: unknown, requested: string): unknown {
+  if (err instanceof WorkspaceFileRefusal)
+    return new TeamToolError(
+      err.reason === 'outside' ? 'forbidden' : 'invalid',
+      `${err.message} Nothing was attached.`,
+    );
+  if (err instanceof DomainError && err.code === 'attachment_too_large')
+    return new TeamToolError(
+      'invalid',
+      `${requested} grew past ${MAX_ATTACHMENT_BYTES} bytes while it was read; nothing was attached.`,
+    );
+  return err;
+}
+
 function toToolError(err: unknown): unknown {
   if (err instanceof TeamToolError || !(err instanceof DomainError)) return err;
   if (err.code === 'not_found') return new TeamToolError('not_found', err.message);
@@ -104,6 +144,8 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly memory: MemberMemoryStore;
   private readonly github: GithubService;
   private readonly githubSync: GithubSync;
+  private readonly attachments: AttachmentOperations;
+  private readonly attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
 
   constructor(deps: {
     ctx: DomainContext;
@@ -116,6 +158,9 @@ export class TeamToolsService implements TeamToolsHandler {
     memory: MemberMemoryStore;
     github: GithubService;
     githubSync: GithubSync;
+    attachments: AttachmentOperations;
+    /** The attachment directory of a task (`AttachmentStorage.taskDirectory`). */
+    attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
   }) {
     this.ctx = deps.ctx;
     this.projects = deps.projects;
@@ -127,6 +172,8 @@ export class TeamToolsService implements TeamToolsHandler {
     this.memory = deps.memory;
     this.github = deps.github;
     this.githubSync = deps.githubSync;
+    this.attachments = deps.attachments;
+    this.attachmentDirectory = deps.attachmentDirectory;
   }
 
   async sendMessage(
@@ -193,12 +240,119 @@ export class TeamToolsService implements TeamToolsHandler {
   async getTask(ctx: ToolContext, args: { taskKey: string }): Promise<TaskToolDetail> {
     return this.guard(async () => {
       const config = await this.caller(ctx);
-      const detail = this.tasks.detail(ctx.projectKey, this.validTaskKey(ctx, args.taskKey), 50);
+      const taskKey = this.validTaskKey(ctx, args.taskKey);
+      const detail = this.tasks.detail(ctx.projectKey, taskKey, 50);
+      const attachments = await this.attachments.list(ctx.projectKey, taskKey, aiActor(ctx.member));
       return {
         ...detail,
         effectiveRepo: effectiveRepo(config, detail.task),
         repoChoiceNeeded: needsRepoChoice(config, detail.task),
+        attachments: {
+          attachments: attachments.slice(0, ATTACHMENTS_IN_TASK),
+          total: attachments.length,
+          offset: 0,
+        },
       };
+    });
+  }
+
+  async listAttachments(
+    ctx: ToolContext,
+    args: { taskKey: string; offset?: number; limit?: number },
+  ): Promise<AttachmentPage> {
+    return this.guard(async () => {
+      await this.caller(ctx);
+      const taskKey = this.validTaskKey(ctx, args.taskKey);
+      const offset = args.offset ?? 0;
+      const limit = args.limit ?? 50;
+      if (!Number.isInteger(offset) || offset < 0)
+        throw new TeamToolError('invalid', 'offset must be a whole number, 0 or more.');
+      if (!Number.isInteger(limit) || limit < 1 || limit > MAX_ATTACHMENT_PAGE)
+        throw new TeamToolError('invalid', `limit must be an integer between 1 and ${MAX_ATTACHMENT_PAGE}.`);
+      const all = await this.attachments.list(ctx.projectKey, taskKey, aiActor(ctx.member));
+      return { attachments: all.slice(offset, offset + limit), total: all.length, offset };
+    });
+  }
+
+  async readAttachment(
+    ctx: ToolContext,
+    args: { taskKey: string; attachmentId: string },
+  ): Promise<LocatedAttachmentForTool> {
+    return this.guard(async () => {
+      await this.caller(ctx);
+      const taskKey = this.validTaskKey(ctx, args.taskKey);
+      const id = this.validAttachmentId(args.attachmentId);
+      const located = await this.attachments
+        .locate(ctx.projectKey, taskKey, id, aiActor(ctx.member))
+        .catch((err: unknown) => {
+          throw toAttachmentToolError(err, taskKey, id);
+        });
+      // The session reads without asking only its own task's attachment directory (see `attachmentToolRules`).
+      const own =
+        ctx.taskKey === taskKey &&
+        attachmentToolRules(await this.attachmentDirectory(ctx.projectKey, taskKey).catch(() => null)).allow
+          .length > 0;
+      return { ...located, readableWithoutAsking: own };
+    });
+  }
+
+  async attachFile(
+    ctx: ToolContext,
+    args: { taskKey: string; path: string },
+  ): Promise<{ attachment: Attachment }> {
+    return this.guard(async () => {
+      await this.caller(ctx);
+      const taskKey = this.validTaskKey(ctx, args.taskKey);
+      const actor = aiActor(ctx.member);
+      await this.attachments.assertCanUpload(ctx.projectKey, taskKey, actor);
+      // The directory is the one the server started the session in; the caller never names it.
+      const cwd = this.sessionDirectory(ctx);
+      const file = await openWorkspaceFile(cwd, args.path, { maxBytes: MAX_ATTACHMENT_BYTES }).catch(
+        (err: unknown) => {
+          throw toFileToolError(err, args.path);
+        },
+      );
+      try {
+        const attachment = await this.attachments.upload({
+          projectKey: ctx.projectKey,
+          taskKey,
+          actor,
+          fileName: file.name,
+          content: file.stream(),
+          beforeCommit: () => file.verifyUnchanged(),
+        });
+        return { attachment };
+      } catch (err) {
+        throw toFileToolError(err, args.path);
+      } finally {
+        await file.close();
+      }
+    });
+  }
+
+  async deleteAttachment(
+    ctx: ToolContext,
+    args: { taskKey: string; attachmentId: string },
+  ): Promise<{ attachmentId: string; fileName: string | null }> {
+    return this.guard(async () => {
+      await this.caller(ctx);
+      const taskKey = this.validTaskKey(ctx, args.taskKey);
+      const id = this.validAttachmentId(args.attachmentId);
+      const actor = aiActor(ctx.member);
+      const fileName =
+        (await this.attachments.list(ctx.projectKey, taskKey, actor)).find((a) => a.id === id)?.fileName ??
+        null;
+      // The same rule as the REST route: the uploader, or a human owner or admin.
+      await this.attachments.delete(ctx.projectKey, taskKey, id, actor).catch((err: unknown) => {
+        if (err instanceof DomainError && err.status === 403)
+          throw new TeamToolError(
+            'forbidden',
+            `You can delete only the attachments you attached yourself; ${id} is someone else's. Ask an ` +
+              'owner or admin if it has to go.',
+          );
+        throw toAttachmentToolError(err, taskKey, id);
+      });
+      return { attachmentId: id, fileName };
     });
   }
 
@@ -449,6 +603,29 @@ export class TeamToolsService implements TeamToolsHandler {
     if (!this.tasks.find(ctx.projectKey, taskKey))
       throw new TeamToolError('not_found', `Task ${taskKey} does not exist in this project.`);
     return taskKey;
+  }
+
+  private validAttachmentId(id: string): string {
+    if (!AttachmentId.safeParse(id).success)
+      throw new TeamToolError(
+        'invalid',
+        `Invalid attachment id "${id}"; attachment ids look like "att_…" (see get_task or list_attachments).`,
+      );
+    return id;
+  }
+
+  /**
+   * The working directory of the calling session, as the server recorded it when it started the
+   * session. The token names the session; it must still be this member's session in this project.
+   */
+  private sessionDirectory(ctx: ToolContext): string {
+    const session = this.ctx.repos.sessions.get(ctx.sessionId);
+    if (!session || session.projectKey !== ctx.projectKey || session.member !== ctx.member)
+      throw new TeamToolError(
+        'forbidden',
+        'Your session is not known to the server, so no file can be attached.',
+      );
+    return session.cwd;
   }
 
   /** The explicit task key, else the session's task, else null. */

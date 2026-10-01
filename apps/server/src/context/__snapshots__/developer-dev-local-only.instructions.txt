@@ -10,7 +10,7 @@ What done means for you here:
 3. Commit the work on the task's own branch in your worktree. Never push and never open a pull request: the repository is local-only (the owner has not allowed publishing from it). Before you hand over, make sure everything is committed: `git status` shows nothing left to commit.
 4. Move the task to Code review (`code_review`) with update_task and hand over to `code-review` with send_message: the facts they need (the branch and its last commit, what changed, what to check).
 
-The kick-off brief (description, labels, links, recent timeline) is the first message of this session; get_task gives the latest state.
+The kick-off brief (description, labels, links, attachments, recent timeline) is the first message of this session; get_task gives the latest state.
 
 # Your role instructions
 

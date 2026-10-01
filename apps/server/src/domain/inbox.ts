@@ -100,6 +100,7 @@ export class InboxService {
   private readonly timeline: TimelineService;
   private readonly projects: ProjectService;
   private readonly worktreesRootDir?: string;
+  private readonly attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
   private readonly waiters = new Map<string, (item: InboxItem) => void>();
 
   constructor(deps: {
@@ -107,11 +108,14 @@ export class InboxService {
     timeline: TimelineService;
     projects: ProjectService;
     worktreesRootDir?: string;
+    /** The attachment directory of a task: read-only commands there are allowed for its sessions. */
+    attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
   }) {
     this.ctx = deps.ctx;
     this.timeline = deps.timeline;
     this.projects = deps.projects;
     this.worktreesRootDir = deps.worktreesRootDir;
+    this.attachmentDirectory = deps.attachmentDirectory;
     this.broker = { decide: (request, signal) => this.decide(request, signal) };
   }
 
@@ -293,6 +297,10 @@ export class InboxService {
     const taskKey = session.workItem.type === 'task' ? session.workItem.taskKey : null;
     const member = memberOf(config, session.member);
     const task = taskKey ? this.ctx.repos.tasks.get(taskKey) : null;
+    const attachmentsDir =
+      task && task.projectKey === session.projectKey
+        ? await this.attachmentDirectory?.(session.projectKey, task.key).catch(() => null)
+        : null;
     const verdict =
       member?.kind === 'ai'
         ? commandVerdict({
@@ -308,6 +316,7 @@ export class InboxService {
               projectKey: session.projectKey,
               task,
               worktreesRootDir: this.worktreesRootDir,
+              attachmentsDir,
             }),
           })
         : null;

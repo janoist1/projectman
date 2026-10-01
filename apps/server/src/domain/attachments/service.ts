@@ -17,6 +17,7 @@ import type {
   AttachmentStorage,
   AttachmentUploadInput,
   AttachmentWriter,
+  LocatedAttachment,
 } from '../../contracts';
 import type { AttachmentRecord } from '../../db';
 import { isoNow } from '../context';
@@ -83,7 +84,7 @@ const toDto = (r: AttachmentRecord): Attachment => ({
  *   stop in between never reports a success nor writes the event twice: `recover` or a repeated
  *   delete finishes it.
  *
- * Whoever calls (REST, later MCP) gets the same checks: the rules are those of `packages/shared`,
+ * Whoever calls (REST, the team tools) gets the same checks: the rules are those of `packages/shared`,
  * judged for the acting member against the current roster and the task's current visibility.
  */
 export class AttachmentService implements AttachmentOperations {
@@ -176,6 +177,18 @@ export class AttachmentService implements AttachmentOperations {
       throw storageFailed('the file could not be read');
     }
     return { attachment: toDto(record), stream };
+  }
+
+  async locate(projectKey: string, taskKey: string, id: string, actor: Actor): Promise<LocatedAttachment> {
+    await this.authorize(projectKey, taskKey, actor);
+    const record = this.find(projectKey, taskKey, id, ['ready']);
+    try {
+      const path = await this.storage.locate({ projectKey, taskKey, id }, record.size);
+      return { attachment: toDto(record), path };
+    } catch (err) {
+      this.ctx.logger.error({ err, attachment: id }, 'attachment file could not be found');
+      throw storageFailed('the file could not be read');
+    }
   }
 
   async delete(projectKey: string, taskKey: string, id: string, actor: Actor): Promise<void> {

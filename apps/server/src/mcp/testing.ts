@@ -1,4 +1,10 @@
-import type { MemberView, TaskDetail, TimelineEvent, TimelineEventType } from '@projectman/shared';
+import type {
+  Attachment,
+  MemberView,
+  TaskDetail,
+  TimelineEvent,
+  TimelineEventType,
+} from '@projectman/shared';
 import { TeamToolError, type TeamToolsHandler, type ToolContext } from '../contracts';
 
 /**
@@ -19,6 +25,8 @@ export interface FakeTeamToolsHandler extends TeamToolsHandler {
   readonly members: MemberView[];
   readonly tasks: Map<string, TaskDetail>;
   readonly memory: Map<string, string[]>;
+  /** Attachments per task key (AR-21 starts with `sampleAttachment()`). */
+  readonly attachments: Map<string, Attachment[]>;
   /** The names of the project's repositories; the fake refuses others (default: `web` and `api`). */
   readonly repos: string[];
   /** The next call of `method` throws `error`, or never settles when given 'hang'. */
@@ -160,6 +168,7 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
   const initial = sampleTaskDetail();
   const tasks = new Map<string, TaskDetail>([[initial.task.key, initial]]);
   const memory = new Map<string, string[]>();
+  const attachments = new Map<string, Attachment[]>([[initial.task.key, [sampleAttachment()]]]);
   const repos = ['web', 'api'];
   let seq = 0;
 
@@ -178,6 +187,13 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
     return detail;
   }
 
+  function findAttachment(taskKey: string, id: string): Attachment {
+    findTask(taskKey);
+    const found = (attachments.get(taskKey) ?? []).find((a) => a.id === id);
+    if (!found) throw new TeamToolError('not_found', `${taskKey} has no attachment ${id}.`);
+    return found;
+  }
+
   function record(
     detail: TaskDetail,
     ctx: ToolContext,
@@ -192,6 +208,7 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
     members,
     tasks,
     memory,
+    attachments,
     repos,
     failNext(method, error) {
       failures.set(method, error);
@@ -232,7 +249,13 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       // The repository the work happens in is the domain's to work out (`effectiveRepo`); the
       // fake's project has several, so a task that names none has no repository to work in.
       const detail = findTask(args.taskKey);
-      return { ...detail, effectiveRepo: detail.task.repo, repoChoiceNeeded: detail.task.repo === null };
+      const all = attachments.get(args.taskKey) ?? [];
+      return {
+        ...detail,
+        effectiveRepo: detail.task.repo,
+        repoChoiceNeeded: detail.task.repo === null,
+        attachments: { attachments: all.slice(0, 20), total: all.length, offset: 0 },
+      };
     },
 
     async updateTask(ctx, args) {
@@ -346,5 +369,65 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       memory.set(ctx.member, [...(memory.get(ctx.member) ?? []), args.note]);
       return { ok: true };
     },
+
+    async listAttachments(ctx, args) {
+      await enter('listAttachments', ctx, args);
+      findTask(args.taskKey);
+      const all = attachments.get(args.taskKey) ?? [];
+      const offset = args.offset ?? 0;
+      return { attachments: all.slice(offset, offset + (args.limit ?? 50)), total: all.length, offset };
+    },
+
+    async readAttachment(ctx, args) {
+      await enter('readAttachment', ctx, args);
+      const attachment = findAttachment(args.taskKey, args.attachmentId);
+      return {
+        attachment,
+        path: `/tmp/attachments/AR/${args.taskKey}/${attachment.id}`,
+        readableWithoutAsking: ctx.taskKey === args.taskKey,
+      };
+    },
+
+    async attachFile(ctx, args) {
+      await enter('attachFile', ctx, args);
+      findTask(args.taskKey);
+      seq += 1;
+      const attachment: Attachment = {
+        ...sampleAttachment(),
+        id: `att_fake${String(seq).padStart(8, '0')}`,
+        taskKey: args.taskKey,
+        fileName: args.path.split('/').pop()!,
+        uploadedBy: { kind: 'ai', handle: ctx.member },
+      };
+      attachments.set(args.taskKey, [...(attachments.get(args.taskKey) ?? []), attachment]);
+      return { attachment };
+    },
+
+    async deleteAttachment(ctx, args) {
+      await enter('deleteAttachment', ctx, args);
+      const attachment = findAttachment(args.taskKey, args.attachmentId);
+      if (attachment.uploadedBy.handle !== ctx.member)
+        throw new TeamToolError('forbidden', 'You can delete only the attachments you attached yourself.');
+      attachments.set(
+        args.taskKey,
+        (attachments.get(args.taskKey) ?? []).filter((a) => a.id !== attachment.id),
+      );
+      return { attachmentId: attachment.id, fileName: attachment.fileName };
+    },
+  };
+}
+
+/** A screenshot the owner attached to AR-21. */
+export function sampleAttachment(): Attachment {
+  return {
+    id: 'att_screenshot01',
+    projectKey: 'AR',
+    taskKey: 'AR-21',
+    fileName: 'login-error.png',
+    size: 48_213,
+    mediaType: 'image/png',
+    preview: 'image',
+    uploadedBy: { kind: 'human', handle: 'owner' },
+    createdAt: '2026-09-29T08:30:00.000Z',
   };
 }

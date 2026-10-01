@@ -6,7 +6,13 @@ import { AuthService } from '../../src/auth';
 import { createConfigStore } from '../../src/config';
 import { createRepositories, openDatabase } from '../../src/db';
 import type { AttachmentStorage } from '../../src/contracts';
-import { createAttachmentStorage, createDomain, createTemplateRegistry, humanActor } from '../../src/domain';
+import {
+  attachmentToolRules,
+  createAttachmentStorage,
+  createDomain,
+  createTemplateRegistry,
+  humanActor,
+} from '../../src/domain';
 import type { ScheduleTimer } from '../../src/domain/schedules';
 import type { Domain } from '../../src/domain';
 import {
@@ -119,6 +125,11 @@ export async function createDomainHarness(
     worktrees,
     log,
     attachmentsDir: join(dir, 'attachments'),
+    attachmentStorage,
+    /** The Claude Code rules a session of the task gets for the task's attachment directory. */
+    async attachmentRules(taskKey: string, projectKey = 'AR') {
+      return attachmentToolRules(await attachmentStorage.taskDirectory(projectKey, taskKey));
+    },
     /** Closes everything; fails the test if a service logged an error (e.g. a swallowed listener failure). */
     async cleanup() {
       await domain.stop();

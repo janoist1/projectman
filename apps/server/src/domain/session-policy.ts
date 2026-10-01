@@ -104,8 +104,10 @@ export function readableRootsFor(input: {
   projectKey: string;
   task: Pick<Task, 'key' | 'repo'> | null;
   worktreesRootDir?: string;
+  /** The task's own attachment directory (`AttachmentStorage.taskDirectory`), read-only. */
+  attachmentsDir?: string | null;
 }): string[] {
-  const { config, cwd, projectKey, task, worktreesRootDir } = input;
+  const { config, cwd, projectKey, task, worktreesRootDir, attachmentsDir } = input;
   const roots = [cwd];
   const repo = effectiveRepo(config, task);
   if (task && repo && worktreesRootDir) {
@@ -113,7 +115,26 @@ export function readableRootsFor(input: {
     const worktree = path.join(projectDir, `${task.key}-${repo}`);
     if (worktree !== projectDir && isWithin(projectDir, worktree)) roots.push(worktree);
   }
+  if (task && attachmentsDir) roots.push(attachmentsDir);
   return roots;
+}
+
+/** Characters a directory may hold to be named in a Claude Code path rule as it is (no pattern or rule syntax). */
+const PLAIN_RULE_PATH = /^\/[\w./@+~ -]*$/;
+
+/**
+ * Claude Code rules for the attachment directory of the session's task: its files are read without
+ * asking (`read_attachment` gives their paths) and never edited, whatever the permission mode. Not
+ * an extra working directory (`--add-dir`): in `acceptEdits` mode Claude Code would accept edits
+ * there too. Codex ignores these rules; its sandbox lets it read and never write there. A path
+ * with characters that mean something in a rule gets no rules: reading and editing there then ask
+ * a human, as anywhere else outside the session's directories.
+ */
+export function attachmentToolRules(dir: string | null): { allow: string[]; deny: string[] } {
+  if (!dir || !PLAIN_RULE_PATH.test(dir)) return { allow: [], deny: [] };
+  // An absolute path in a rule starts with `//`; `**` takes everything below.
+  const pattern = `/${dir.replace(/\/+$/, '')}/**`;
+  return { allow: [`Read(${pattern})`], deny: [`Edit(${pattern})`] };
 }
 
 /**

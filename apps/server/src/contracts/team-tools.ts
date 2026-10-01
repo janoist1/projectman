@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import type {
+  Attachment,
   MemberHandle,
   MemberView,
   QuestionOptionInput,
@@ -47,6 +48,26 @@ export interface TaskToolDetail extends TaskDetail {
   effectiveRepo?: string | null;
   /** The project has several repositories and the task names none: a person has to choose. */
   repoChoiceNeeded?: boolean;
+  /** The first page of the task's readable attachments (oldest first); the rest with list_attachments. */
+  attachments?: AttachmentPage;
+}
+
+/** A page of a task's readable attachments, oldest first. */
+export interface AttachmentPage {
+  attachments: Attachment[];
+  /** How many readable attachments the task has in all. */
+  total: number;
+  /** Index of the first one on this page. */
+  offset: number;
+}
+
+/** read_attachment: where the agent opens the file with its own tools. */
+export interface LocatedAttachmentForTool {
+  attachment: Attachment;
+  /** Absolute path of the stored file. */
+  path: string;
+  /** The file is in the attachment directory of the session's own task, which it reads without asking. */
+  readableWithoutAsking: boolean;
 }
 
 export interface TeamToolsHandler {
@@ -121,6 +142,30 @@ export interface TeamToolsHandler {
   ): Promise<{ inboxItemId: string }>;
   /** save_memory: append a durable learning to this member's memory. */
   saveMemory(ctx: ToolContext, args: { note: string }): Promise<{ ok: true }>;
+  /** list_attachments: a page of the task's attachments, oldest first. */
+  listAttachments(
+    ctx: ToolContext,
+    args: { taskKey: string; offset?: number; limit?: number },
+  ): Promise<AttachmentPage>;
+  /**
+   * read_attachment: where a ready attachment is stored, after the same access check as the REST
+   * routes. The content is neither read into the answer nor ever run.
+   */
+  readAttachment(
+    ctx: ToolContext,
+    args: { taskKey: string; attachmentId: string },
+  ): Promise<LocatedAttachmentForTool>;
+  /**
+   * attach_file: attaches a regular file from the calling session's working directory (as the
+   * server recorded it; never a directory the caller names) in the caller's name. The path is
+   * relative to that directory or absolute inside it.
+   */
+  attachFile(ctx: ToolContext, args: { taskKey: string; path: string }): Promise<{ attachment: Attachment }>;
+  /** delete_attachment: deletes an attachment under the REST rules (an AI member deletes its own). */
+  deleteAttachment(
+    ctx: ToolContext,
+    args: { taskKey: string; attachmentId: string },
+  ): Promise<{ attachmentId: string; fileName: string | null }>;
 }
 
 /** Errors thrown by the handler; the MCP layer turns them into tool errors. */

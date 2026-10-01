@@ -56,7 +56,14 @@ export type {
   StartTaskOptions,
   StartTaskResult,
 } from './admission';
-export { AttachmentService, contentDisposition, createAttachmentStorage } from './attachments';
+export {
+  AttachmentService,
+  contentDisposition,
+  createAttachmentStorage,
+  openWorkspaceFile,
+  WorkspaceFileRefusal,
+} from './attachments';
+export type { WorkspaceFile, WorkspaceFileHooks, WorkspaceFileRefusalReason } from './attachments';
 export { BackgroundTasks } from './background';
 export { BoardService } from './board';
 export { GithubSync } from './github-sync';
@@ -133,7 +140,15 @@ export function createDomain(opts: DomainOptions) {
 
   const timeline = new TimelineService(ctx);
   const projects = new ProjectService({ ctx, configStore: opts.configStore, templates, timeline });
-  const inbox = new InboxService({ ctx, timeline, projects, worktreesRootDir: opts.worktreesRootDir });
+  const attachmentDirectory = (projectKey: string, taskKey: string) =>
+    opts.attachmentStorage.taskDirectory(projectKey, taskKey);
+  const inbox = new InboxService({
+    ctx,
+    timeline,
+    projects,
+    worktreesRootDir: opts.worktreesRootDir,
+    attachmentDirectory,
+  });
   const runnerModule = opts.createRunner(inbox.broker);
   const presence = new PresenceService();
   // The deferred automatic starts live in SQLite too: a restart loads them back (see `start`).
@@ -162,6 +177,8 @@ export function createDomain(opts: DomainOptions) {
     worktrees: opts.worktrees,
     publicBaseUrl: opts.publicBaseUrl,
     doneCleanupDelayMs: opts.doneCleanupDelayMs,
+    attachments,
+    attachmentDirectory,
   });
   const usage = new PlanUsageMonitor({
     provider: runnerModule.planUsage,
@@ -199,6 +216,8 @@ export function createDomain(opts: DomainOptions) {
     memory: opts.memory,
     github: opts.github,
     githubSync,
+    attachments,
+    attachmentDirectory,
   });
   // Read models and flows over the services above.
   const board = new BoardService({ projects, tasks, members, inbox, planUsage });

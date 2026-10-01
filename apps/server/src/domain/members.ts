@@ -139,6 +139,7 @@ export class MemberService {
         model: m.model,
         effort: m.effort,
         permissionMode: m.permissionMode,
+        ...(m.onLeave ? { onLeave: true } : {}),
       };
     });
   }
@@ -290,11 +291,12 @@ export class MemberService {
           req.model !== undefined ||
           req.schedule !== undefined ||
           req.provider !== undefined ||
-          req.effort !== undefined
+          req.effort !== undefined ||
+          req.onLeave !== undefined
         ) {
           throw invalid(
             'not_ai_member',
-            'specialty, provider, model, effort and schedule apply to AI members only',
+            'specialty, provider, model, effort, schedule and leave apply to AI members only',
           );
         }
         if (req.roles !== undefined) {
@@ -332,6 +334,11 @@ export class MemberService {
           if (req.schedule) member.schedule = req.schedule;
           else delete member.schedule;
           fields.push('schedule');
+        }
+        if (req.onLeave !== undefined) {
+          if (req.onLeave) member.onLeave = true;
+          else delete member.onLeave;
+          fields.push(req.onLeave ? 'sent on leave' : 'called back from leave');
         }
       }
       if (req.displayName !== undefined) {

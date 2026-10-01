@@ -1,5 +1,6 @@
 import {
   evaluateMove,
+  isOnLeave,
   isOpenTask,
   memberOf,
   roleBundle,
@@ -177,7 +178,9 @@ export class TaskStarts {
 
   /**
    * The explicit assignee (an owner of the work stage), else the current assignee if it owns
-   * the stage, else the least loaded free AI owner, else a human owner; null when nobody is free.
+   * the stage, else the least loaded free AI owner not on leave, else a human owner; null when
+   * nobody is free. An explicit or current assignee on leave is refused by admission
+   * (`member_on_leave`) rather than replaced.
    */
   private chooseMember(
     config: ProjectConfig,
@@ -201,7 +204,8 @@ export class TaskStarts {
     const candidates = config.team.members
       .map((m, index) => ({ m, index }))
       .filter(
-        (c): c is { m: AiMemberConfig; index: number } => c.m.kind === 'ai' && eligible.includes(c.m.handle),
+        (c): c is { m: AiMemberConfig; index: number } =>
+          c.m.kind === 'ai' && eligible.includes(c.m.handle) && !isOnLeave(c.m),
       )
       .map((c) => ({ ...c, load: this.admission.memberLoad(config, c.m.handle) }))
       .filter(

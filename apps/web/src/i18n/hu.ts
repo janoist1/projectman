@@ -66,6 +66,7 @@ export const hu = {
     reasons: {
       previous_run_live: 'Az előző ütemezett futás még él.',
       member_at_capacity: 'A tag elérte a kapacitását.',
+      member_on_leave: 'A tag szabadságon van.',
       ai_limit_reached: 'Elértük az egyidejű AI-munkák korlátját.',
       plan_usage_paused: 'A szolgáltató előfizetésének használata túl magas.',
       ai_disabled: 'Az AI-munka ki van kapcsolva ebben a projektben.',
@@ -273,6 +274,7 @@ export const hu = {
       inbox_item_closed: 'Ezt már elintézték.',
       handle_taken: 'Ez az azonosító már foglalt.',
       member_at_capacity: 'Ennek a tagnak most nincs szabad kapacitása.',
+      member_on_leave: 'Ez a tag szabadságon van; amíg vissza nem hívod, nem kap munkát.',
       ai_limit_reached: 'Most dolgozik a megengedett számú AI-tag; az új munka később indul.',
       plan_usage_paused: 'A szolgáltatói keret magas, ezért új AI-munka most nem indul.',
       ai_disabled: 'Ebben a projektben ki van kapcsolva az AI-munka (Beállítások → Keretek).',
@@ -428,6 +430,7 @@ export const hu = {
       plan_usage_paused: 'Indulásra vár: a {provider}-keret {percent}% fölött szünetel',
       ai_disabled: 'Indulásra vár: az AI-munka ki van kapcsolva',
       member_at_capacity: 'Indulásra vár: {name} tele van',
+      member_on_leave: 'Indulásra vár: {name} szabadságon van',
       repo_required: 'Válassz repót a feladathoz',
     },
     stageOwners: 'a lépés összes felelőse',
@@ -437,6 +440,7 @@ export const hu = {
         'Várj a keret megújulására, vagy emeld a szüneteltetési küszöböt a Beállítások → Keretek alatt.',
       ai_disabled: 'Kapcsold be a Beállítások → Keretek alatt.',
       member_at_capacity: 'Szabadíts fel egy tagot: fejezd be vagy add át a többi feladatát.',
+      member_on_leave: 'Hívd vissza a tagot a szabadságról a Csapat oldalon, vagy add át a feladatot másnak.',
       repo_required:
         'Az AI-fejlesztő addig nem indulhat, amíg nincs repó kiválasztva: válaszd ki a feladat adatainál.',
     },
@@ -638,6 +642,16 @@ export const hu = {
     needsYou: 'Rád vár: engedély',
   },
 
+  leave: {
+    onLeave: 'Szabadságon',
+    send: 'Szabadságra küld',
+    callBack: 'Visszahív',
+    sendMember: 'Szabadságra küldés: {name}',
+    callBackMember: 'Visszahívás a szabadságról: {name}',
+    sent: '{name} szabadságra ment: nem kap munkát, a futó munkamenetei leálltak.',
+    calledBack: '{name} visszatért: a várakozó üzenetei és indításai elindulnak.',
+    status: 'Szabadságon: nem kap munkát, az üzenetei várnak, amíg vissza nem hívod.',
+  },
   memberEdit: {
     title: 'Tag szerkesztése: {name}',
     edit: 'Szerkesztés',
@@ -947,6 +961,7 @@ export const hu = {
     aiDisabledSettings: 'Beállítások → Keretek',
     aiLimit: 'AI egyszerre',
     aiLimitValue: '{working} / {max} dolgozik',
+    aiNoLimitValue: '{working} dolgozik · nincs korlát',
     aiLimitHint: '{percent}% keret fölött nem indul új',
     filtersLabel: 'Tagok szűrése',
     filters: {
@@ -1255,6 +1270,9 @@ export const hu = {
         'Kikapcsolva az AI-tagok nem kezdenek és nem folytatnak munkát ebben a projektben; a futó munkamenetek tovább működnek, a várakozó munka visszakapcsolás után indul.',
       aiEnabledOn: 'Bekapcsolva',
       aiEnabledOff: 'Kikapcsolva',
+      noAiLimit: 'Nincs korlát',
+      noAiLimitHelp:
+        'Annyi AI dolgozhat egyszerre, amennyi a csapat; csak a tagok kapacitása és a keretfigyelés szab határt. Aki szabadságon van, nem dolgozik.',
       maxConcurrentAi: 'AI egyszerre legfeljebb',
       maxConcurrentAiValue: '{count} munkamenet',
       pauseAbove: 'Új AI-munka szünetel e fölött',

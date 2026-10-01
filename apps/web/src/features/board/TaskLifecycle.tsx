@@ -161,8 +161,13 @@ export function TaskAssigneeSelect({ task, members }: { task: Task; members: Mem
         {[...members.values()]
           .filter((member) => member.status !== 'retired' || member.handle === task.assignee)
           .map((member) => (
-            <option key={member.handle} value={member.handle}>
+            <option
+              key={member.handle}
+              value={member.handle}
+              disabled={member.onLeave === true && member.handle !== task.assignee}
+            >
               {nameOf(member.handle, members, myHandle)}
+              {member.onLeave ? ` · ${t('leave.onLeave')}` : ''}
             </option>
           ))}
       </select>

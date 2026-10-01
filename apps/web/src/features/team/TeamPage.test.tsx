@@ -27,6 +27,48 @@ describe('TeamPage role catalogue', () => {
     },
   );
 
+  it('sends an AI member on leave and calls it back from the roster (decision 23)', async () => {
+    const project = mockProject();
+    project.render(<TeamPage />);
+    const name = project.backend.members.find((member) => member.handle === 'fe-1')!.displayName;
+    const row = (await screen.findByRole('link', { name })).closest('tr')!;
+    expect(within(row).queryByText(t('leave.onLeave'))).toBeNull();
+
+    fireEvent.click(within(row).getByRole('button', { name: t('leave.sendMember', { name }) }));
+    await within(row).findByText(t('leave.onLeave'));
+    expect(
+      project.requests.find((request) => request.method === 'PATCH' && request.path.endsWith('/members/fe-1'))
+        ?.body,
+    ).toEqual({ onLeave: true });
+
+    fireEvent.click(within(row).getByRole('button', { name: t('leave.callBackMember', { name }) }));
+    await waitFor(() => expect(within(row).queryByText(t('leave.onLeave'))).toBeNull());
+    expect(
+      project.requests
+        .filter((request) => request.method === 'PATCH' && request.path.endsWith('/members/fe-1'))
+        .at(-1)?.body,
+    ).toEqual({ onLeave: false });
+    expect(within(row).getByRole('button', { name: t('leave.sendMember', { name }) })).toBeTruthy();
+  });
+
+  it('offers no leave for humans, and not to those who cannot manage the team', async () => {
+    const project = mockProject();
+    project.render(<TeamPage />, '/', {
+      can: { manageTeam: false, createTasks: true, workInSessions: true },
+    });
+    await screen.findByText(project.backend.members.find((member) => member.handle === 'fe-1')!.displayName);
+    expect(screen.queryAllByText(t('leave.send'))).toHaveLength(0);
+  });
+
+  it('says there is no cap on concurrent AI sessions when the project names none', async () => {
+    const project = mockProject();
+    delete project.backend.config.team.limits.maxConcurrentAi;
+    project.render(<TeamPage />);
+    expect(
+      await screen.findByText((text) => text.includes(t('settings.limits.noAiLimit').toLowerCase())),
+    ).toBeTruthy();
+  });
+
   it('adds a colleague without an invitation, including handle, access and responsibilities', async () => {
     const project = mockProject();
     project.render(<TeamPage />);

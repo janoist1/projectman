@@ -4,6 +4,7 @@ import { MemberHandle } from './member';
 export const ScheduleSkipReason = z.enum([
   'previous_run_live',
   'member_at_capacity',
+  'member_on_leave',
   'ai_limit_reached',
   'plan_usage_paused',
   'ai_disabled',

@@ -96,6 +96,20 @@ describe('task drawer lifecycle', () => {
       body: { assignee: null },
     });
   });
+  it('does not offer a member on leave as the assignee, but still shows one it already has', async () => {
+    const project = mockProject();
+    for (const handle of ['fe-1', 'be-1'])
+      project.backend.handle('PATCH', `/api/projects/AC/members/${handle}`, { onLeave: true });
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    const select = (await screen.findByLabelText(t('taskLifecycle.assignee'))) as HTMLSelectElement;
+    const option = (handle: string) => Array.from(select.options).find((o) => o.value === handle)!;
+    expect(option('fe-1').disabled).toBe(true);
+    expect(option('fe-1').textContent).toContain(t('leave.onLeave'));
+    // The assignee of the task stays selectable, so the select can show it.
+    expect(option('be-1').disabled).toBe(false);
+    expect(select.value).toBe('be-1');
+    expect(option('kata').disabled).toBe(false);
+  });
   it('hides lifecycle controls from non-admin members', async () => {
     const project = mockProject();
     project.render(drawer, '/p/AC/tasks/AC-20', {

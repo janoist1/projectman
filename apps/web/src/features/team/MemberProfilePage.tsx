@@ -40,6 +40,7 @@ import { MessageComposer } from '../messages/MessageComposer';
 import { MessageList } from '../messages/MessageList';
 import { ChatView } from '../session/ChatView';
 import { EditMemberDialog } from './EditMemberDialog';
+import { LeaveButton } from './LeaveButton';
 import { RetireDialog } from './RetireDialog';
 import { MemberScheduleControl } from './ScheduledRuns';
 import styles from './MemberProfilePage.module.css';
@@ -132,6 +133,7 @@ export function MemberProfilePage() {
             {status.label}
             {member.activity ? ` · ${member.activity}` : ''}
           </p>
+          {member.onLeave ? <p role="status">{t('leave.status')}</p> : null}
         </div>
         <div className={styles.actions}>
           {can.manageTeam ? (
@@ -139,12 +141,14 @@ export function MemberProfilePage() {
               {t('memberEdit.edit')}
             </Button>
           ) : null}
+          {ai && can.manageTeam ? <LeaveButton member={member} /> : null}
           {!ai && can.manageTeam && member.status === 'no_account' ? (
             <Button onClick={() => setInviting(true)}>{t('invites.create')}</Button>
           ) : null}
           {ai && can.workInSessions ? (
             <Button
               variant="primary"
+              disabled={member.onLeave === true}
               loading={start.isPending}
               onClick={() =>
                 start.mutate(handle, {

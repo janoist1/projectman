@@ -9,6 +9,9 @@ import type { SectionEditorProps } from '../SettingsEditor';
 import shared from '../settings.module.css';
 import { SettingsSection } from './SettingsSection';
 
+/** The number the field starts at when the owner turns "no limit" off. */
+const DEFAULT_MAX_CONCURRENT_AI_CHOICE = 3;
+
 function LimitsEditor({ draft, change }: SectionEditorProps) {
   const { key } = useProject();
   const roles = useRoles(key);
@@ -30,19 +33,36 @@ function LimitsEditor({ draft, change }: SectionEditorProps) {
       </label>
       <p id="ai-enabled-help">{t('settings.limits.aiEnabledHelp')}</p>
       <label className={shared.field}>
-        {t('settings.limits.maxConcurrentAi')}
+        {t('settings.limits.noAiLimit')}
         <input
-          type="number"
-          min={1}
-          max={20}
-          value={limits.maxConcurrentAi}
+          type="checkbox"
+          checked={limits.maxConcurrentAi === undefined}
+          aria-describedby="ai-limit-help"
           onChange={(event) =>
             change((config) => {
-              config.team.limits.maxConcurrentAi = Number(event.target.value);
+              if (event.target.checked) delete config.team.limits.maxConcurrentAi;
+              else config.team.limits.maxConcurrentAi = DEFAULT_MAX_CONCURRENT_AI_CHOICE;
             })
           }
         />
       </label>
+      <p id="ai-limit-help">{t('settings.limits.noAiLimitHelp')}</p>
+      {limits.maxConcurrentAi !== undefined ? (
+        <label className={shared.field}>
+          {t('settings.limits.maxConcurrentAi')}
+          <input
+            type="number"
+            min={1}
+            max={20}
+            value={limits.maxConcurrentAi}
+            onChange={(event) =>
+              change((config) => {
+                config.team.limits.maxConcurrentAi = Number(event.target.value);
+              })
+            }
+          />
+        </label>
+      ) : null}
       <label className={shared.field}>
         {t('settings.limits.pauseAbove')}
         <input
@@ -128,7 +148,11 @@ export function LimitsSection({ config }: { config: ProjectConfig }) {
           </div>
           <div>
             <dt>{t('settings.limits.maxConcurrentAi')}</dt>
-            <dd>{t('settings.limits.maxConcurrentAiValue', { count: limits.maxConcurrentAi })}</dd>
+            <dd>
+              {limits.maxConcurrentAi === undefined
+                ? t('settings.limits.noAiLimit')
+                : t('settings.limits.maxConcurrentAiValue', { count: limits.maxConcurrentAi })}
+            </dd>
           </div>
           <div>
             <dt>{t('settings.limits.pauseAbove')}</dt>

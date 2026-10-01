@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { Pipeline } from '../domain/pipeline';
-import { ProjectConfig, TeamLimits } from './schema';
+import { MaxConcurrentAi, ProjectConfig, TeamLimits } from './schema';
 
 const tempWorkersSchema = TeamLimits.shape.tempWorkers.removeDefault();
 
@@ -20,7 +20,8 @@ export const PatchConfigRequest = z
       .optional(),
     limits: TeamLimits.extend({
       aiEnabled: TeamLimits.shape.aiEnabled.removeDefault(),
-      maxConcurrentAi: TeamLimits.shape.maxConcurrentAi.removeDefault(),
+      /** null removes the cap (no limit). */
+      maxConcurrentAi: MaxConcurrentAi.nullable(),
       pauseAbovePlanUsagePercent: TeamLimits.shape.pauseAbovePlanUsagePercent.removeDefault(),
       tempWorkers: tempWorkersSchema
         .extend({
@@ -49,6 +50,14 @@ export function configSchemaIssues(issues: readonly { code: string; path: readon
 }
 
 export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigRequest): ProjectConfig {
+  const { maxConcurrentAi, ...limitChanges } = patch.limits ?? {};
+  const limits: TeamLimits = {
+    ...config.team.limits,
+    ...limitChanges,
+    tempWorkers: { ...config.team.limits.tempWorkers, ...patch.limits?.tempWorkers },
+  };
+  if (maxConcurrentAi === null) delete limits.maxConcurrentAi;
+  else if (maxConcurrentAi !== undefined) limits.maxConcurrentAi = maxConcurrentAi;
   return {
     ...config,
     project: { ...config.project, ...patch.project },
@@ -57,11 +66,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
       ...(patch.roleOverrides !== undefined ? { roleOverrides: patch.roleOverrides } : {}),
       ...(patch.roles !== undefined ? { roles: patch.roles } : {}),
       ...(patch.releaseFourEyes !== undefined ? { releaseFourEyes: patch.releaseFourEyes } : {}),
-      limits: {
-        ...config.team.limits,
-        ...patch.limits,
-        tempWorkers: { ...config.team.limits.tempWorkers, ...patch.limits?.tempWorkers },
-      },
+      limits,
     },
     pipeline: patch.pipeline ?? config.pipeline,
   };

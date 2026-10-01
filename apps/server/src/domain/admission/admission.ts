@@ -1,4 +1,10 @@
-import { DEFAULT_AGENT_PROVIDER, isOpenTask, isWorkingOnTask } from '@projectman/shared';
+import {
+  aiLimitReached,
+  DEFAULT_AGENT_PROVIDER,
+  isHandleOnLeave,
+  isOpenTask,
+  isWorkingOnTask,
+} from '@projectman/shared';
 import type { AiMemberConfig, ProjectConfig, Task, WorkItemRef } from '@projectman/shared';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
@@ -10,7 +16,7 @@ import type { EnsureSessionResult, SessionOrchestrator } from '../sessions';
 import type { TaskService } from '../tasks';
 import { KeyedMutex } from '../util';
 import type { AutomaticStart, DeferredStarts, StartSpec } from './deferred-starts';
-import { assertAiEnabled, assertRepoChosen, isDeferrable, waitingOf } from './rules';
+import { assertAiEnabled, assertNotOnLeave, assertRepoChosen, isDeferrable, waitingOf } from './rules';
 
 export interface AdmissionRequest {
   config: ProjectConfig;
@@ -30,10 +36,12 @@ export interface AdmissionRequest {
 /**
  * Admission: every AI session start that no person asked for directly (task start, stage
  * hand-over, message wake-up, schedule run) passes the same checks, in this order: the
- * project's AI master switch; for a task, that a role which changes files has a repository to
+ * project's AI master switch; that the member is not on leave (`member_on_leave`, decision 23);
+ * for a task, that a role which changes files has a repository to
  * work in (`repo_required`: a person has to choose it, so waiting does not help); for a scheduled
  * run, the member's previous run has ended; the member's capacity (open tasks it has a running session for plus its
- * other running chats); the concurrent AI sessions (`maxConcurrentAi`); the plan usage of the
+ * other running chats); the concurrent AI sessions (`maxConcurrentAi`, when the project sets
+ * one: there is no cap otherwise); the plan usage of the
  * member's provider. Decisions and the starts they allow are serialized. An automatic start
  * refused for a reason that can clear waits in the deferred-start store, which SQLite backs, and
  * is retried.
@@ -99,6 +107,7 @@ export class Admission {
     const { config, member, workItem } = request;
     const projectKey = config.project.key;
     assertAiEnabled(config);
+    assertNotOnLeave(member);
     if (workItem?.type === 'task') {
       // A temp worker yet to be hired has the role the limits name for it.
       const role = member?.role ?? config.team.limits.tempWorkers.role;
@@ -113,9 +122,9 @@ export class Admission {
           capacity: member.capacity,
         });
     }
-    const max = config.team.limits.maxConcurrentAi;
     const busy = this.sessions.busyCount();
-    if (busy >= max) {
+    if (aiLimitReached(config, busy)) {
+      const max = config.team.limits.maxConcurrentAi;
       throw conflict('ai_limit_reached', `${busy} AI sessions are working (limit ${max})`, { busy, max });
     }
     const provider = member?.provider ?? DEFAULT_AGENT_PROVIDER;
@@ -190,11 +199,12 @@ export class Admission {
 
   /**
    * Retries the deferred starts that still apply; the others are dropped. A start that waits for
-   * the project's master switch is left alone while the switch is off: a retry could only be
-   * refused and logged again, and turning the switch on retries it.
+   * the project's master switch is left alone while the switch is off, and one that waits for a
+   * member on leave while the member is away: a retry could only be refused and logged again,
+   * and turning the switch on or calling the member back retries them.
    */
   async retryDeferred(): Promise<void> {
-    const switches = new Map<string, boolean>();
+    const configs = new Map<string, ProjectConfig | null>();
     for (const entry of this.deferred.list()) {
       if (!this.deferred.holds(entry)) continue;
       const { start } = entry;
@@ -204,8 +214,15 @@ export class Admission {
         if (task) this.tasks.publish(task);
         continue;
       }
-      if (entry.waiting.reason === 'ai_disabled' && !(await this.aiEnabled(start.projectKey, switches)))
-        continue;
+      const { reason, member } = entry.waiting;
+      if (reason === 'ai_disabled' || reason === 'member_on_leave') {
+        const config = await this.configOf(start.projectKey, configs);
+        if (
+          config &&
+          (reason === 'ai_disabled' ? !config.team.limits.aiEnabled : isHandleOnLeave(config, member))
+        )
+          continue;
+      }
       try {
         await start.retry();
       } catch (err) {
@@ -225,17 +242,17 @@ export class Admission {
       .some((s) => s.workItem.type === 'schedule' && this.sessions.isRunning(s.id));
   }
 
-  /** Whether the project's AI master switch is on (read once per project in `known`); on when it cannot be read. */
-  private async aiEnabled(projectKey: string, known: Map<string, boolean>): Promise<boolean> {
-    let enabled = known.get(projectKey);
-    if (enabled === undefined) {
-      enabled = await this.projects.config(projectKey).then(
-        (config) => config.team.limits.aiEnabled,
-        () => true,
-      );
-      known.set(projectKey, enabled);
+  /** The project's configuration (read once per project in `known`); null when it cannot be read. */
+  private async configOf(
+    projectKey: string,
+    known: Map<string, ProjectConfig | null>,
+  ): Promise<ProjectConfig | null> {
+    let config = known.get(projectKey);
+    if (config === undefined) {
+      config = await this.projects.config(projectKey).catch(() => null);
+      known.set(projectKey, config);
     }
-    return enabled;
+    return config;
   }
 
   private taskOf(start: AutomaticStart): Task | null {

@@ -1,3 +1,4 @@
+import { isOnLeave, memberOf } from '@projectman/shared';
 import type { Me } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AuthService } from '../auth';
@@ -213,6 +214,12 @@ export function createDomain(opts: DomainOptions) {
   // AI work switched back on: the deferred starts continue.
   events.on('config_changed', (change) => {
     if (change.previous?.team.limits.aiEnabled === false && change.next.team.limits.aiEnabled)
+      retryDeferredStarts();
+  });
+  // A member called back from leave: the starts and messages that waited for it continue.
+  events.on('config_changed', (change) => {
+    const { previous, next } = change;
+    if (previous?.team.members.some((m) => isOnLeave(m) && !isOnLeave(memberOf(next, m.handle))))
       retryDeferredStarts();
   });
   // New projects and provider changes get a probe without blocking the config response.

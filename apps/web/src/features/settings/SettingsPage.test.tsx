@@ -92,6 +92,36 @@ describe('settings section editors', () => {
     ).toBe(false);
   });
 
+  it('turns the cap on concurrent AI sessions off and on (decision 23)', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    let section = await editSection('limits');
+    const noLimit = section.getByRole('checkbox', {
+      name: t('settings.limits.noAiLimit'),
+    }) as HTMLInputElement;
+    // The mock project names a cap of its own: the number is shown, "no limit" is not ticked.
+    expect(noLimit.checked).toBe(false);
+    expect(section.getByLabelText(t('settings.limits.maxConcurrentAi'))).toBeTruthy();
+    fireEvent.click(noLimit);
+    expect(section.queryByLabelText(t('settings.limits.maxConcurrentAi'))).toBeNull();
+    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
+    await section.findByText(t('settings.limits.noAiLimit'));
+    expect(project.requests.find((request) => request.method === 'PATCH')?.body).toMatchObject({
+      limits: { maxConcurrentAi: null },
+    });
+    expect(project.backend.config.team.limits).not.toHaveProperty('maxConcurrentAi');
+
+    // A number can be given again.
+    section = await editSection('limits');
+    fireEvent.click(section.getByRole('checkbox', { name: t('settings.limits.noAiLimit') }));
+    fireEvent.change(section.getByLabelText(t('settings.limits.maxConcurrentAi')), {
+      target: { value: '4' },
+    });
+    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
+    await section.findByText(t('settings.limits.maxConcurrentAiValue', { count: 4 }));
+    expect(project.backend.config.team.limits.maxConcurrentAi).toBe(4);
+  });
+
   it('edits limits with a 10–100 slider and AI-capable role choices', async () => {
     const project = mockProject();
     project.render(<SettingsPage />);

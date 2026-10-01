@@ -70,11 +70,18 @@ export const AiMemberConfig = z.object({
   temp: z.boolean().default(false),
   /** Recurring runs, e.g. every weekday morning. */
   schedule: MemberSchedule.optional(),
+  /**
+   * On leave (decision 23): nothing starts a session for this member and it is not picked as an
+   * assignee or stage owner. Absent means at work (see `isOnLeave`).
+   */
+  onLeave: z.boolean().optional(),
 });
 export type AiMemberConfig = z.infer<typeof AiMemberConfig>;
 
 export const MemberConfig = z.discriminatedUnion('kind', [HumanMemberConfig, AiMemberConfig]);
 export type MemberConfig = z.infer<typeof MemberConfig>;
+
+export const MaxConcurrentAi = z.number().int().min(1).max(20);
 
 export const TeamLimits = z.object({
   /**
@@ -83,8 +90,11 @@ export const TeamLimits = z.object({
    * Running sessions keep running.
    */
   aiEnabled: z.boolean().default(true),
-  /** Global cap on concurrently working AI sessions (protects the subscription). */
-  maxConcurrentAi: z.number().int().min(1).max(20).default(3),
+  /**
+   * Optional cap on concurrently working AI sessions across the project. Absent: no cap (decision
+   * 23); the members' capacities and `pauseAbovePlanUsagePercent` still limit the work.
+   */
+  maxConcurrentAi: MaxConcurrentAi.optional(),
   /** Do not start new AI work above this plan usage percentage. */
   pauseAbovePlanUsagePercent: z.number().int().min(10).max(100).default(80),
   tempWorkers: z

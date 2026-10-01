@@ -1,10 +1,26 @@
-import { repoRequired } from '@projectman/shared';
-import type { AgentProvider, ErrorCode, ProjectConfig, Task, TaskStartWaiting } from '@projectman/shared';
+import { isOnLeave, repoRequired } from '@projectman/shared';
+import type {
+  AgentProvider,
+  ErrorCode,
+  MemberConfig,
+  ProjectConfig,
+  Task,
+  TaskStartWaiting,
+} from '@projectman/shared';
 import { conflict, DomainError } from '../errors';
 
 /** The project's AI master switch: while it is off, no AI session starts or resumes. */
 export function assertAiEnabled(config: ProjectConfig): void {
   if (!config.team.limits.aiEnabled) throw conflict('ai_disabled', 'AI work is switched off in this project');
+}
+
+/**
+ * A member on leave gets no session (decision 23). Whatever started it waits (`DEFERRABLE`): the
+ * messages for the member stay, and the starts retry once the member is called back.
+ */
+export function assertNotOnLeave(member: MemberConfig | undefined): void {
+  if (member && isOnLeave(member))
+    throw conflict('member_on_leave', `${member.handle} is on leave`, { member: member.handle });
 }
 
 /**
@@ -39,6 +55,7 @@ const DEFERRABLE = new Set<ErrorCode>([
   'plan_usage_paused',
   'ai_disabled',
   'member_at_capacity',
+  'member_on_leave',
 ] satisfies DeferrableReason[]);
 
 export function isDeferrable(err: unknown): err is DomainError & { code: DeferrableReason } {

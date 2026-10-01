@@ -13,7 +13,14 @@ import type {
   TimelineEventData,
   Visibility,
 } from '@projectman/shared';
-import { evaluateMove, isOpenTask, memberOf, repoOf, subtaskParentRefusal } from '@projectman/shared';
+import {
+  evaluateMove,
+  isHandleOnLeave,
+  isOpenTask,
+  memberOf,
+  repoOf,
+  subtaskParentRefusal,
+} from '@projectman/shared';
 import type { LabelChangeReason, LabelClearTrigger, SubtaskParentRefusal } from '@projectman/shared';
 import type { PullRequestInfo } from '../../contracts';
 import type { TaskPatch } from '../../db';
@@ -281,7 +288,12 @@ export class TaskService {
       const live = this.liveSession(task);
       if (live)
         throw conflict('task_session_live', `task ${task.key} has a live session`, { sessionId: live.id });
-      if (change.assignee !== task.assignee) patch.assignee = change.assignee;
+      if (change.assignee !== task.assignee) {
+        // A member on leave cannot take over work (decision 23); keeping it as it is stays allowed.
+        if (isHandleOnLeave(config, change.assignee))
+          throw conflict('member_on_leave', `${change.assignee} is on leave`, { member: change.assignee });
+        patch.assignee = change.assignee;
+      }
     }
     const note = change.note?.trim() || undefined;
     const wanted = change.labels && unique(change.labels.map((label) => label.trim()).filter(Boolean));

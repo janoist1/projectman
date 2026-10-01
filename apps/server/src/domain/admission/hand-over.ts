@@ -1,4 +1,4 @@
-import { memberOf, stageOf, stageOwners } from '@projectman/shared';
+import { isOnLeave, memberOf, stageOf, stageOwners } from '@projectman/shared';
 import type { AiMemberConfig, Stage } from '@projectman/shared';
 import type { MessageDelivery } from '../messaging';
 import type { ProjectService } from '../projects';
@@ -92,13 +92,16 @@ export class StageHandOver {
         const workItem = { type: 'task', taskKey } as const;
         const working = owners.find((m) => this.sessions.findRunning(projectKey, m.handle, workItem));
         if (working) return this.notify(current, stage, working.handle);
-        const free = owners
+        // Members on leave are not picked; when every owner is away, admission refuses the first.
+        const present = owners.filter((m) => !isOnLeave(m));
+        const candidates = present.length > 0 ? present : owners;
+        const free = present
           .map((member) => ({ member, load: this.admission.memberLoad(config, member.handle, taskKey) }))
           .filter(({ member, load }) => load < member.capacity)
           .sort((a, b) => a.load - b.load)[0]?.member;
-        waitsFor = (free ?? (owners.length === 1 ? owners[0] : undefined))?.handle;
-        // Nobody free: admission refuses the first owner (at capacity, unless the switch is off).
-        const result = await this.admission.start({ config, member: free ?? owners[0]!, workItem });
+        waitsFor = (free ?? (candidates.length === 1 ? candidates[0] : undefined))?.handle;
+        // Nobody free: admission refuses the first owner (on leave or at capacity, unless the switch is off).
+        const result = await this.admission.start({ config, member: free ?? candidates[0]!, workItem });
         // Resumed sessions get no brief, so tell them which stage the task is in now.
         if (result.resumed) this.notify(current, stage, result.session.member);
       },

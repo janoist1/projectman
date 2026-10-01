@@ -47,6 +47,10 @@ Documentation map:
   a permission mode, a capacity, optional instructions, an optional **schedule** (cron in the
   project's time zone, e.g. a daily worker) and a **sponsor**: the human whose subscription
   runs it. Colleagues can be added as unclaimed seats and invited with single-use links.
+  An AI member can be sent **on leave** (decision 23, the optional `onLeave` flag of its
+  configuration; `isOnLeave` in `packages/shared`): nothing starts a session for it, its running
+  sessions stop (their conversations stay, so a call-back resumes them), it is not picked or named
+  as an assignee, a stage hand-over goes to another owner, and the messages for it wait.
 - **Duties and roles** (decision 16, [design/duties.md](design/duties.md)) — a fixed,
   code-backed catalogue of 26 duties (implementation, code review, testing and acceptance,
   release approval, …) defines who may hold them, the English prompt fragment an AI holder
@@ -100,21 +104,25 @@ Documentation map:
   transcripts can be parsed.
 - **Admission** — every automatic session start (task start, stage hand-over, message
   wake-up, schedule run) passes the same checks, in this order: the project's AI master
-  switch (`team.limits.aiEnabled`), for a task that a role which changes files has a repository
+  switch (`team.limits.aiEnabled`), that the member is not on leave (`member_on_leave`), for a
+  task that a role which changes files has a repository
   to work in (`repo_required`), for a schedule run that the member's previous run ended, the
   member's capacity (what it works on now, decision 19: the open tasks it has a running
   session for that are mid-turn or waiting for an answer, or sit in a stage it works in, plus
   its other running chats; a session idling after the task moved on, a finished session and a
   bare assignment do not count; a temp worker also keeps one open assigned task at a time),
-  `maxConcurrentAi`, and the provider's plan usage against
-  `pauseAbovePlanUsagePercent`. A refused hand-over or message wake-up is retried every 30 s
+  `maxConcurrentAi` (optional: without it there is no project-wide cap, decision 23, and only
+  the members' capacities and the plan usage limit the work), and the provider's plan usage
+  against `pauseAbovePlanUsagePercent`. A refused hand-over or message wake-up is retried every 30 s
   while it is still valid; the task shows why it waits. Such a deferred start is kept in
   SQLite (`deferred_starts`) as well as in memory: the server loads the table back when it
   starts and retries what it finds, under admission as usual (decision 19); nothing is inferred
   from the state of tasks, so imported or idle tasks start nothing. While the master switch is
   off, no AI session starts or resumes and schedule runs are skipped; running sessions keep
   running, the retry timer leaves the starts that wait for the switch alone, and they continue
-  once it is back on (or at startup with it on). When every eligible holder is busy, an
+  once it is back on (or at startup with it on). Starts that wait for a member on leave are left
+  alone the same way, and are retried the moment the member is called back; a person writing into
+  the stopped session of a member on leave is refused (`member_on_leave`). When every eligible holder is busy, an
   optional **temp worker** of the configured role is hired for one task and retired when it
   is done. `repo_required` is the one refusal that is not retried, because only a person's
   choice clears it: the start fails and nothing is kept; the board shows the task of an AI

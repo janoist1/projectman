@@ -13,6 +13,7 @@ import {
   readInstanceMarker,
   writeInstanceMarker,
 } from '../src/instance';
+import { humanActor } from '../src/domain';
 import { createFakeMcp, createFakeRunnerModule, FakeGithub } from './helpers/fakes';
 import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
@@ -149,8 +150,16 @@ describe('the server', () => {
       payload: { assignee: 'dev-1' },
     });
     expect(start.statusCode).toBe(409);
-    expect(start.json()).toMatchObject({ error: { code: 'ai_disabled' } });
+    expect(start.json()).toMatchObject({ error: { code: 'instance_standby' } });
     expect(standby.projectman.domain.sessions.list('AR')).toEqual([]);
+    // A stage move hands the task over to the stage's AI owner, which a standby copy never does: the
+    // move works as a record, starts nothing, and keeps no deferred start for an activation to run.
+    await standby.projectman.domain.tasks.moveToStage('AR', key, 'development', humanActor('owner'));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(standby.projectman.domain.sessions.list('AR')).toEqual([]);
+    expect(standby.projectman.repos.db.prepare('SELECT count(*) AS n FROM deferred_starts').get()).toEqual({
+      n: 0,
+    });
     await standby.close();
 
     // Taking the marker away is the person's step; the next start is not refused as a standby.
@@ -162,7 +171,7 @@ describe('the server', () => {
       headers: { cookie },
       payload: { assignee: 'dev-1' },
     });
-    expect(again.statusCode === 200 || again.json().error.code !== 'ai_disabled').toBe(true);
+    expect(again.statusCode === 200 || again.json().error.code !== 'instance_standby').toBe(true);
     await active.close();
   });
 });

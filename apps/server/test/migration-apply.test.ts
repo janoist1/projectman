@@ -326,7 +326,7 @@ describe('the migrated copy as a running server', () => {
         payload: { assignee: 'dev-1' },
       });
       expect(refused.statusCode).toBe(409);
-      expect(refused.json()).toMatchObject({ error: { code: 'ai_disabled' } });
+      expect(refused.json()).toMatchObject({ error: { code: 'instance_standby' } });
       await app.close();
       apps.length = 0;
 
@@ -352,7 +352,7 @@ describe('the migrated copy as a running server', () => {
         payload: { assignee: 'dev-1' },
       });
       // (A sandbox that forbids pseudo-terminals makes the start itself fail, but not as a refusal.)
-      expect(session.statusCode === 200 || session.json().error.code !== 'ai_disabled').toBe(true);
+      expect(session.statusCode === 200 || session.json().error.code !== 'instance_standby').toBe(true);
     },
   );
 

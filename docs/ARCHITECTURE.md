@@ -451,7 +451,7 @@ expected); the real CLIs are only run in the human trial of [VM.md](VM.md).
 Moving an installation, or restoring a backup beside it, makes **copies of one home**. Only one copy may run the
 scheduler and start AI sessions, so a home has a role (`packages/shared/src/deploy/instance-role.ts`,
 `apps/server/src/instance`): no `instance.json` is the **active** instance (every earlier installation),
-`standby` shows its data and refuses every session start (`ai_disabled`; `DomainOptions.standby` stops the
+`standby` shows its data and refuses every session start (`instance_standby`; `DomainOptions.standby` stops the
 scheduler, the GitHub polling, the retry timers and the usage monitor), and `retired` stops the server before it
 creates or opens anything in the home. The marker is read in `buildApp`, once; an unreadable one stops the
 server (no role is never read as active), and the server never writes it: only a person does, with

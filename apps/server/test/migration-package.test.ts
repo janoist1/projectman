@@ -1,5 +1,13 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -234,6 +242,15 @@ describe('the package', () => {
     // Every file has a checksum, and the package reads back whole.
     expect(Object.keys(manifest.files)).toEqual(expect.arrayContaining(['inventory.json', 'home/db.sqlite']));
     await expect(readPackage(out)).resolves.toMatchObject({ version: 1 });
+  });
+
+  it('carries a symbolic link as a link, even when it points nowhere', async () => {
+    await src.stop();
+    symlinkSync('/nowhere/at/all', join(src.home, 'memory', 'AR', 'dangling'));
+    const out = join(src.root, 'pkg');
+    await createPackage({ home: src.home, out });
+    expect(readlinkSync(join(out, 'home', 'memory', 'AR', 'dangling'))).toBe('/nowhere/at/all');
+    await expect(readPackage(out)).resolves.toBeDefined();
   });
 
   it('is found damaged when a file changes, goes missing or is added', async () => {

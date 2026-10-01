@@ -10,6 +10,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -108,8 +109,13 @@ export class MigrationRefused extends Error {
   }
 }
 
+/** The checksum of a file; of a symbolic link, the checksum of where it points (a dangling link is no error). */
 export async function sha256File(path: string): Promise<string> {
   const hash = createHash('sha256');
+  if (lstatSync(path).isSymbolicLink()) {
+    hash.update(`link:${readlinkSync(path)}`);
+    return hash.digest('hex');
+  }
   for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
   return hash.digest('hex');
 }
@@ -366,7 +372,8 @@ export async function readPackage(dir: string): Promise<PackageManifest> {
   const seen = new Set<string>();
   for (const [name, expected] of Object.entries(manifest.files)) {
     const path = join(root, name);
-    if (!existsSync(path)) throw new MigrationRefused(`the package lacks ${name}`);
+    // lstat, not exists: a symbolic link that points nowhere is still a file of the package.
+    if (!lstatSync(path, { throwIfNoEntry: false })) throw new MigrationRefused(`the package lacks ${name}`);
     if ((await sha256File(path)) !== expected.sha256)
       throw new MigrationRefused(`${name} does not match its checksum`);
     seen.add(name);

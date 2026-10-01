@@ -43,7 +43,7 @@ The rule is a marker file in the home directory (`packages/shared/src/deploy/ins
 
 - **no file** — the active instance. Every installation made before this rule is one.
 - **`standby`** — a rehearsal copy or a copy not yet released. The server starts and shows its data, but runs
-  no scheduler, no GitHub polling and no automatic start, and refuses every AI session start (`ai_disabled`).
+  no scheduler, no GitHub polling and no automatic start, and refuses every AI session start (`instance_standby`).
 - **`retired`** — the home was moved away. The server refuses to start on it, before it creates or opens
   anything in it.
 - A marker that cannot be read stops the server (the role is unknown), and nothing in the server changes a role.
@@ -83,7 +83,7 @@ npm run migrate -- verify --home ~/pm-rehearsal/target
 Then start a server on the target on a spare port, with its own data, and look at it as a person would:
 `cd apps/server && env PORT=4701 PROJECTMAN_HOME=$HOME/pm-rehearsal/target npx tsx src/index.ts` (the port 4800 and
 `~/.projectman` are the live instance's; `npm run dev` may pick them, so it is not used here). Check the owner's login (the same password), the board, a task's
-attachment, a conversation's history, and that starting an AI session is refused as `ai_disabled` (standby).
+attachment, a conversation's history, and that starting an AI session is refused as `instance_standby`.
 Stop it, delete only the rehearsal directory. The automated version of exactly this is
 `apps/server/test/migration-apply.test.ts` (“keeps the logins and the data …”). The dry run never changes the
 source: compare `git status` of the repositories before and after if in doubt.

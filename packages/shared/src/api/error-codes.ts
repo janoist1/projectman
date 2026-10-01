@@ -104,6 +104,8 @@ export const ERROR_CODES = [
   'session_start_failed',
   // The question-free managed VM profile (PM-141): its boundary is not verified, or a CLI does not fit
   'managed_vm_unavailable',
+  // A standby copy of the installation (PM-143, `instance.json`): only the active instance starts AI work
+  'instance_standby',
   // Member workspaces (PM-138)
   'workspace_busy',
   'workspace_dirty',

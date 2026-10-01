@@ -519,7 +519,10 @@ export class SessionOrchestrator {
   ): Promise<EnsureSessionResult> {
     // A standby copy (PM-143) never works: only one copy of an installation may start AI sessions.
     if (this.deps.standby)
-      throw conflict('ai_disabled', 'this instance is a standby copy: AI work runs only in the active one');
+      throw conflict(
+        'instance_standby',
+        'this instance is a standby copy: AI work runs only in the active one',
+      );
     assertAiEnabled(config);
     assertNotOnLeave(member);
     // A role that changes files works in the task's worktree: without a repository to make it in, it

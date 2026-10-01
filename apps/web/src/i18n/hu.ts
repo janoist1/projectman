@@ -330,6 +330,8 @@ export const hu = {
       ai_limit_reached: 'Most dolgozik a megengedett számú AI-tag; az új munka később indul.',
       plan_usage_paused: 'A szolgáltatói keret magas, ezért új AI-munka most nem indul.',
       ai_disabled: 'Ebben a projektben ki van kapcsolva az AI-munka (Beállítások → Keretek).',
+      instance_standby:
+        'Ez a példány készenléti másolat: az AI-munka csak az éles (aktív) példányban indul, itt csak az adatok láthatók.',
       managed_vm_unavailable:
         'A kérdésmentes VM-profil határa nincs igazolva (vagy a telepített szolgáltatói program nem a jóváhagyott verzió), ezért a munkamenet nem indul el.',
       workspace_busy:

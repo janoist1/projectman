@@ -160,6 +160,18 @@ describe('commands that run without asking: the section', () => {
     expect(text).toContain("your working directory (the task's worktree)");
   });
 
+  it('tells that an in-place edit is refused at once, as the server does', () => {
+    const text = section().join('\n');
+    expect(text).toContain('Refused without asking anyone');
+    for (const example of ['sed -i', 'sed --in-place', 'perl -i', 'perl -pi -e ...'])
+      expect(text).toContain(`\`${example}\``);
+    for (const command of ['sed -i s/a/b/ file', 'sed --in-place s/a/b/ file', 'perl -pi -e s/a/b/ file']) {
+      expect(verdictFor('developer', command)?.behavior).toBe('deny');
+      expect(verdictFor('code_review', command)?.behavior).toBe('deny');
+    }
+    expect(section({ worktree: false }).join('\n')).toContain('Refused without asking anyone');
+  });
+
   it('names the routine steps and the default branch for a role in a worktree only', () => {
     expect(section().join('\n')).toContain('`git merge --ff-only main`');
     expect(section().join('\n')).toContain('`git commit -m "message"`');

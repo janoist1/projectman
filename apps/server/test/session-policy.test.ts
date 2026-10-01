@@ -1815,7 +1815,6 @@ describe('read-only commands for any AI session on a task (PM-69)', () => {
     'mkdir x',
     'touch x',
     'tee out',
-    'sed -i s/a/b/ README.md',
     'sed s/a/b/ README.md',
     'awk 1 README.md',
     'curl https://example.com',
@@ -2149,5 +2148,114 @@ describe('the repository of a task that names none (PM-68)', () => {
       '/workspace',
       '/worktrees/AR/AR-1-other',
     ]);
+  });
+});
+
+describe('a command that rewrites a file in place is refused at once (PM-104)', () => {
+  const guidance = {
+    behavior: 'deny',
+    message:
+      'Edit files with your Edit or Write tool; in-place edits through the shell are refused without asking anyone.',
+  };
+  const roots = [cwd];
+  const run = (command: string, overrides: Partial<Parameters<typeof commandVerdict>[0]> = {}) =>
+    commandVerdict({ ...input, readableRoots: roots, ...overrides, toolInput: { command } });
+
+  it.each([
+    'sed -i s/a/b/ README.md',
+    "sed -i 's/a/b/' README.md",
+    "sed -i '' 's/a/b/' README.md",
+    "sed -i.bak 's/a/b/' README.md",
+    'sed --in-place s/a/b/ README.md',
+    'sed --in-place=.bak s/a/b/ README.md',
+    'sed -ni s/a/b/p README.md',
+    'sed -Ei s/a/b/ README.md',
+    'sed -e s/a/b/ -i README.md',
+    'sed s/a/b/ -i README.md',
+    'sed -i -e s/a/b/ -e s/c/d/ README.md',
+    'sed -I s/a/b/ README.md',
+    'perl -i s/a/b/ README.md',
+    'perl -i.bak -pe s/a/b/ README.md',
+    'perl -pi -e s/a/b/ README.md',
+    "perl -pi -e 's/a/b/' README.md",
+    "perl -p -i -e 's/a/b/' README.md",
+    "perl -0777 -pi -e 's/a/b/g' README.md",
+    "perl -lpi -e 's/a/b/' README.md",
+    'perl -pie s/a/b/ README.md',
+    "perl -e 'print 1' -i README.md",
+    '/usr/bin/sed -i s/a/b/ README.md',
+  ])('refuses %s with guidance, without a question', (command) => {
+    expect(run(command)).toEqual(guidance);
+  });
+
+  it.each([
+    `cd ${cwd} && sed -i s/a/b/ README.md`,
+    `cd ${cwd}/apps && sed -i s/a/b/ README.md && git status`,
+    "git status && perl -pi -e 's/a/b/' README.md",
+    'git status; sed -i s/a/b/ README.md',
+    'ls || sed -i s/a/b/ README.md',
+    'git ls-files | xargs sed -i s/a/b/',
+    'git ls-files | xargs -n 1 sed -i s/a/b/',
+    "find . -name '*.md' -exec sed -i s/a/b/ ';'",
+    'env FOO=1 sed -i s/a/b/ README.md',
+    'FOO=1 sed -i s/a/b/ README.md',
+    'sudo -u nobody sed -i s/a/b/ README.md',
+    'nohup sed -i s/a/b/ README.md',
+    'bash -c "sed -i s/a/b/ README.md"',
+    "sh -c 'cd apps && perl -pi -e s/a/b/ README.md'",
+    'sed -i s/a/b/ README.md 2>&1',
+    'sed -i s/a/b/ README.md >/dev/null',
+  ])('refuses it inside a chain, a pipeline or a wrapper: %s', (command) => {
+    expect(run(command)).toEqual(guidance);
+  });
+
+  it('refuses it for every kind of session, on a task or not', () => {
+    const command = 'sed -i s/a/b/ README.md';
+    expect(run(command, { session: { cwd: '/workspace', role: 'code_review' } })).toEqual(guidance);
+    expect(run(command, { task: null })).toEqual(guidance);
+    expect(run(command, { readableRoots: undefined })).toEqual(guidance);
+    expect(run(command, { worktreesRootDir: undefined })).toEqual(guidance);
+  });
+
+  it.each([
+    // sed that only reads, or does not edit in place: no verdict, as before.
+    'sed -n 1,5p README.md',
+    "sed -n '1,5p' README.md",
+    'sed s/a/b/ README.md',
+    "sed -e 's/i/x/' README.md",
+    'sed -e -i README.md',
+    'sed -f script.sed README.md',
+    'sed -- s/a/b/ -i',
+    'sed -s -n p README.md',
+    "sed -l 5 's/a/b/' README.md",
+    'sed --version',
+    // Mentions of the program or the flag that are not the program.
+    'grep sed -i README.md',
+    'grep -i sed README.md',
+    'echo sed -i s/a/b/ README.md',
+    'cat sed-i.txt',
+    'ls -i',
+    'git diff -i',
+    // perl that does not edit in place.
+    "perl -pe 's/a/b/' README.md",
+    "perl -ne 'print if /i/' README.md",
+    'perl script.pl -i README.md',
+    'perl -MList::Util=sum -e print README.md',
+    "perl -e 'print 1'",
+    // Quoted text and unparseable commands keep their old treatment.
+    'echo "sed -i"',
+    'sed -i s/a/b/ $(ls)',
+    'sed -i s/a/b/ README.md &',
+  ])('does not refuse %j as an in-place edit', (command) => {
+    expect(run(command)?.behavior).not.toBe('deny');
+  });
+
+  it('keeps the readers running without a question', () => {
+    for (const command of ['git status', 'cat README.md', 'grep -rn foo .', 'git log -1 | head -1'])
+      expect(run(command)).toEqual({ behavior: 'allow' });
+  });
+
+  it('still lets the developer routine run next to refused commands', () => {
+    expect(run('git add -A && git commit -m "Edit sed -i docs"')).toEqual({ behavior: 'allow' });
   });
 });

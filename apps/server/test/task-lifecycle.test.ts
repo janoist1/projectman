@@ -204,8 +204,11 @@ describe('task lifecycle', () => {
       h.repos.sessions.update(temp.session.id, { state: 'exited' });
       expect(await loadOf(temp.handle)).toBe(0);
       expect(h.domain.admission.hasOpenAssignment('AR', temp.handle)).toBe(true);
-      const next = await h.domain.taskStarts.start('AR', 'AR-4', by).catch(() => null);
-      expect(next?.task.assignee).not.toBe(temp.handle);
+      // dev-1 and dev-2 are busy and the temp worker still carries AR-3: nobody is free.
+      await expect(h.domain.taskStarts.start('AR', 'AR-4', by)).rejects.toMatchObject({
+        code: 'no_free_member',
+      });
+      expect(h.domain.tasks.get('AR', 'AR-4').assignee).toBeNull();
     });
 
     it('retires a temp worker only when no open task is assigned to it', async () => {

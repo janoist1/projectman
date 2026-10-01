@@ -29,7 +29,11 @@ export function dutyMembers(config: Pick<ProjectConfig, 'team'>, duty: DutyId): 
 export function stageOwners(config: Pick<ProjectConfig, 'team'>, stage: Stage): string[] {
   return stage.owners ?? (stage.duty ? dutyMembers(config, stage.duty).map((m) => m.handle) : []);
 }
-/** Session states of a member that is doing something now: a turn runs, or it waits for an answer. */
+/**
+ * Session states of a member that is doing something now: a turn runs, or it waits for an answer.
+ * The server's `BUSY_SESSION_STATES` (the concurrency limit) leaves out `waiting_input`: a session
+ * waiting for a person's answer does no work, but its member still holds the task.
+ */
 const ENGAGED_SESSION_STATES: SessionState[] = ['starting', 'working', 'waiting_permission', 'waiting_input'];
 /**
  * Whether a member's live session on an open task is work it does now (what counts against its

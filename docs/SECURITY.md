@@ -264,13 +264,25 @@ run a fixed probe as a worker in its real unit, with root's positive controls):
   per-session token, not the MCP token, revoked when the session ends); a token presented by
   another member is refused. The hook and MCP endpoints keep their per-session tokens.
 
-What it does not establish: a worker can read its own session's tokens and its own login (the CLI
-runs as the worker); a launcher command line can still name a billing variable where a CLI reads
-it from a file the member controls (its own `~/.claude/settings.json`): the subscription check of
-the login and the provider profile (PM-141) cover that, not the launcher; data can leave to an allowed
-destination; the readiness report is at most two hours old, so a change made in between shows on the
-next report; the boundary does not defend against root, the admin, the hypervisor or a kernel
-flaw. Each worker has its own subscription login (the owner's choice on PM-140, 2026-10-01).
+What it does not establish:
+
+- A worker reads its own login and the tokens of its own sessions (the CLI runs as the worker), in
+  every project: all of a member's sessions share its uid, and `ProtectProc=invisible` hides only
+  other accounts' processes, so one session can read another live session's egress token from
+  `/proc` and use that session's project allowances. A handle's worker is shared by every project
+  of the instance (one `pmw-<handle>`): accounts per member and project are an open question for
+  the owner ([ROADMAP.md](ROADMAP.md)).
+- A CLI can still read a billing variable from a file the member controls (its own
+  `~/.claude/settings.json`); the launcher refuses one only on the command line. The subscription
+  check of the login and the provider profile (PM-141) cover that.
+- Data can leave to an allowed destination. The readiness report is at most two hours old, so a
+  change of the rules made in between shows on the next report (the units' own IP filters and
+  network namespaces hold meanwhile). `/api/providers` reports the service's own CLI logins, not
+  each worker's (a session start checks the worker's). Codex plan usage is not read from worker
+  transcripts.
+- The boundary does not defend against root, the admin, the hypervisor or a kernel flaw.
+
+Each worker has its own subscription login (the owner's choice on PM-140, 2026-10-01).
 
 ## Before server hosting
 

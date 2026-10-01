@@ -312,6 +312,7 @@ export function createDomain(opts: DomainOptions) {
   });
   events.on('config_changed', (change) => sessions.handleConfigChange(change));
   events.on('config_changed', () => boundary.sweep());
+  events.on('config_changed', (change) => egress.handleConfigChange(change));
   events.on('task_cancelled', () => boundary.sweep());
   // AI work switched back on: the deferred starts continue.
   events.on('config_changed', (change) => {

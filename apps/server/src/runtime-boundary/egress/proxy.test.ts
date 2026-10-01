@@ -68,7 +68,11 @@ describe('the egress proxy', () => {
       host: '127.0.0.1',
       port: 0,
       logger: silent,
-      helloTimeoutMs: 2000,
+      helloTimeoutMs: 500,
+      maxTunnels: 6,
+      keyOf: (who) => who.token ?? 'anonymous',
+      maxPerIdentity: 3,
+      localAddresses: () => ['93.184.216.99'],
       identify: async (_peer, token, bridged) => {
         bridgedSeen.push(bridged);
         return identity ?? { identity: { token } };
@@ -141,7 +145,7 @@ describe('the egress proxy', () => {
 
   it('ends the open tunnels of a revoked permission, and only those', async () => {
     const hello = await captureClientHello('docs.example.org');
-    decision = { allowed: true, tag: 'egw_1' };
+    decision = { allowed: true, tags: ['egw_1'] };
     const tagged = await connectThrough('docs.example.org:443');
     tagged.socket.write(hello);
     decision = { allowed: true };
@@ -153,6 +157,61 @@ describe('the egress proxy', () => {
     expect(base.socket.destroyed).toBe(false);
     expect(proxy.closeTagged('egw_1')).toBe(0);
     base.socket.destroy();
+  });
+
+  it('limits the tunnels of one identity, and of the proxy as a whole', async () => {
+    const mine = await Promise.all([1, 2, 3].map(() => connectThrough('docs.example.org:443')));
+    expect(mine.every((c) => /^HTTP\/1\.1 200/.test(c.head))).toBe(true);
+    const fourth = await connectThrough('docs.example.org:443');
+    expect(fourth.head).toContain('X-Projectman-Denial: too_many_requests');
+    // Another identity still gets its own share, up to the proxy's cap.
+    const other = (n: number) => [`Proxy-Authorization: ${basic(`other-token-${n}-0123456789`)}`];
+    const theirs = await Promise.all([1, 2, 3].map((n) => connectThrough('docs.example.org:443', other(n))));
+    expect(theirs.every((c) => /^HTTP\/1\.1 200/.test(c.head))).toBe(true);
+    const over = await connectThrough('docs.example.org:443', other(4));
+    expect(over.head).toContain('X-Projectman-Denial: too_many_requests');
+    // A closed tunnel frees its slot.
+    mine[0]!.socket.destroy();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const again = await connectThrough('docs.example.org:443');
+    expect(again.head).toMatch(/^HTTP\/1\.1 200/);
+    for (const c of [...mine, ...theirs, again, fourth, over]) c.socket.destroy();
+  });
+
+  it('closes a tunnel whose ClientHello does not come in time, or is too large', async () => {
+    const slow = await connectThrough('docs.example.org:443');
+    slow.socket.write(Buffer.from([0x16, 0x03, 0x01, 0x10, 0x00])); // a record header, then nothing
+    const started = Date.now();
+    await closed(slow.socket);
+    expect(Date.now() - started).toBeLessThan(2000);
+    const huge = await connectThrough('docs.example.org:443');
+    huge.socket.write(Buffer.concat([Buffer.from([0x16, 0x03, 0x01, 0x40, 0x00]), Buffer.alloc(70 * 1024)]));
+    await closed(huge.socket);
+    expect(connects).toEqual([]);
+  });
+
+  it('wants no server name for an IP literal and the host’s name otherwise', async () => {
+    const named = await captureClientHello('docs.example.org');
+    const literal = await connectThrough('93.184.216.34:443');
+    literal.socket.write(named);
+    await closed(literal.socket);
+    const bare = await captureClientHello();
+    const host = await connectThrough('docs.example.org:443');
+    host.socket.write(bare);
+    await closed(host.socket);
+    expect(connects).toEqual([]);
+    const plain = await connectThrough('93.184.216.34:443');
+    plain.socket.write(bare);
+    await until(() => connects.length === 1);
+    expect(connects).toEqual([{ address: '93.184.216.34', port: 443 }]);
+    plain.socket.destroy();
+  });
+
+  it('refuses a name that resolves to this machine’s own address', async () => {
+    addresses = ['93.184.216.99'];
+    const { head, socket } = await connectThrough('docs.example.org:443');
+    expect(head).toContain('X-Projectman-Denial: private_address');
+    await closed(socket);
   });
 
   it('knows the member of a connection handed over from its bridge socket', async () => {
@@ -186,7 +245,7 @@ describe('the egress proxy', () => {
 
   it('refuses a permission revoked before its tunnel was registered', async () => {
     proxy.closeTagged('egw_late');
-    decision = { allowed: true, tag: 'egw_late' };
+    decision = { allowed: true, tags: ['egw_late'] };
     const { head, socket } = await connectThrough('docs.example.org:443');
     expect(head).toMatch(/^HTTP\/1\.1 403/);
     await closed(socket);
@@ -195,13 +254,13 @@ describe('the egress proxy', () => {
 
   it('ends a busy tunnel when its permission expires, and refuses an expired one', async () => {
     const hello = await captureClientHello('docs.example.org');
-    decision = { allowed: true, tag: 'egw_2', expiresAt: new Date(Date.now() + 300).toISOString() };
+    decision = { allowed: true, tags: ['egw_2'], expiresAt: new Date(Date.now() + 300).toISOString() };
     const { socket } = await connectThrough('docs.example.org:443');
     socket.write(hello);
     await until(() => received.length >= hello.length);
     expect(socket.destroyed).toBe(false);
     await closed(socket);
-    decision = { allowed: true, tag: 'egw_3', expiresAt: new Date(Date.now() - 1000).toISOString() };
+    decision = { allowed: true, tags: ['egw_3'], expiresAt: new Date(Date.now() - 1000).toISOString() };
     const late = await connectThrough('docs.example.org:443');
     expect(late.head).toMatch(/^HTTP\/1\.1 403/);
   });

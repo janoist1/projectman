@@ -13,6 +13,8 @@ export type ClientHello =
 const RECORD_HANDSHAKE = 0x16;
 const HANDSHAKE_CLIENT_HELLO = 0x01;
 const EXTENSION_SERVER_NAME = 0x0000;
+/** encrypted_client_hello (ECH) and the draft encrypted_server_name (ESNI). */
+const ENCRYPTED_HELLO_EXTENSIONS = new Set([0xfe0d, 0xffce]);
 /** A ClientHello is far smaller; anything longer is not one we accept. */
 export const MAX_CLIENT_HELLO_BYTES = 64 * 1024;
 
@@ -59,31 +61,39 @@ export function parseClientHello(buffer: Buffer): ClientHello {
     const extensionsEnd = p + 2 + hello.readUInt16BE(p);
     p += 2;
     if (extensionsEnd > hello.length) return { status: 'not_tls' };
+    let serverName: string | null = null;
+    let seenName = false;
     while (p + 4 <= extensionsEnd) {
       const type = hello.readUInt16BE(p);
       const length = hello.readUInt16BE(p + 2);
       const start = p + 4;
-      if (start + length > extensionsEnd) return { status: 'not_tls' };
+      const end = start + length;
+      if (end > extensionsEnd) return { status: 'not_tls' };
+      // An encrypted ClientHello hides the real server name behind the outer one: refused.
+      if (ENCRYPTED_HELLO_EXTENSIONS.has(type)) return { status: 'not_tls' };
       if (type === EXTENSION_SERVER_NAME) {
-        let q = start + 2; // server_name_list length
+        if (seenName || length < 2) return { status: 'not_tls' };
+        seenName = true;
         const listEnd = start + 2 + hello.readUInt16BE(start);
+        if (listEnd > end) return { status: 'not_tls' };
+        let q = start + 2;
         while (q + 3 <= listEnd) {
           const nameType = hello[q]!;
           const nameLength = hello.readUInt16BE(q + 1);
-          const name = hello.subarray(q + 3, q + 3 + nameLength);
+          if (q + 3 + nameLength > listEnd) return { status: 'not_tls' };
           if (nameType === 0) {
-            const text = name.toString('ascii');
-            return /^[\x21-\x7e]+$/.test(text)
-              ? { status: 'hello', serverName: text.toLowerCase().replace(/\.$/, '') }
-              : { status: 'not_tls' };
+            if (serverName !== null) return { status: 'not_tls' };
+            // latin1 keeps the high bit, so a non-ASCII byte fails the check below.
+            const text = hello.subarray(q + 3, q + 3 + nameLength).toString('latin1');
+            if (!/^[\x21-\x7e]+$/.test(text)) return { status: 'not_tls' };
+            serverName = text.toLowerCase().replace(/\.$/, '');
           }
           q += 3 + nameLength;
         }
-        return { status: 'hello', serverName: null };
       }
-      p = start + length;
+      p = end;
     }
-    return { status: 'hello', serverName: null };
+    return { status: 'hello', serverName };
   } catch {
     return { status: 'not_tls' };
   }

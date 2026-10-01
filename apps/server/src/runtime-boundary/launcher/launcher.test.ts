@@ -239,7 +239,14 @@ describe('the unit command line', () => {
       ]),
     );
     const inaccessible = properties.find((p) => p.startsWith('InaccessiblePaths='))!;
-    for (const path of ['/run/dbus', '/run/systemd/transient', '/run/systemd/resolve', '/var/lib/projectman'])
+    expect(properties).toContain('TimeoutStopSec=10');
+    for (const path of [
+      '/run/dbus',
+      '/run/systemd/transient',
+      '/run/systemd/resolve',
+      '/var/lib/projectman',
+      '/run/projectman-launcher.sock',
+    ])
       expect(inaccessible).toContain(`-${path}`);
   });
 

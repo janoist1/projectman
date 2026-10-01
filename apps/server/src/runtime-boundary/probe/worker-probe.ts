@@ -33,6 +33,11 @@ export const ProbeInput = z.strictObject({
   /** host:port that is not allowed. */
   deniedDestination: z.string().regex(/^[a-z0-9.-]+:\d+$/),
   proxyPort: z.number().int(),
+  /** The worker uid range of the profile. */
+  uidMin: z.number().int(),
+  uidMax: z.number().int(),
+  /** sshd's port (profile.env SSH_PORT). */
+  sshPort: z.number().int(),
   appPort: z.number().int(),
   launcherSocket: z.string(),
   peerHome: z.string().nullable(),
@@ -121,10 +126,14 @@ function proxyStatus(port: number, authority: string): Promise<string> {
     socket.setEncoding('latin1');
     socket.on('data', (chunk: string) => {
       data += chunk;
-      if (data.includes('\r\n')) {
-        socket.destroy();
-        resolve(data.split('\r\n')[0]!.split(' ')[1] ?? 'malformed');
-      }
+      const end = data.indexOf('\r\n\r\n');
+      if (end === -1) return;
+      socket.destroy();
+      const head = data.slice(0, end);
+      const status = head.split('\r\n')[0]!.split(' ')[1] ?? 'malformed';
+      // The proxy's reason, so the evidence says which refusal answered (no_session, private_address...).
+      const denial = /^X-Projectman-Denial: ([a-z_]+)$/im.exec(head)?.[1];
+      resolve(denial ? `${status} ${denial}` : status);
     });
     socket.once('error', (err) => resolve(errorName(err)));
     socket.write(`CONNECT ${authority} HTTP/1.1\r\nHost: ${authority}\r\n\r\n`);
@@ -164,7 +173,7 @@ export async function runProbes(input: ProbeInput): Promise<Array<[string, Outco
   const capEff = /^CapEff:\s*0+$/m.test(status);
   add(
     'identity',
-    uid >= 1000 && groups.every((g) => g === gid) && noNewPrivs && capEff
+    uid >= input.uidMin && uid <= input.uidMax && groups.every((g) => g === gid) && noNewPrivs && capEff
       ? held(`uid ${uid}, gid ${gid}, no other group, NoNewPrivs, no capabilities`)
       : broke(`uid ${uid}, groups ${groups.join(',')}, NoNewPrivs ${noNewPrivs}, CapEff zero ${capEff}`),
   );
@@ -281,7 +290,7 @@ export async function runProbes(input: ProbeInput): Promise<Array<[string, Outco
     const r = await tcpOpens(input.ipv6, 443);
     add('ipv6', r.open ? broke(`${input.ipv6}:443 connected`) : held(`${input.ipv6}:443: ${r.why}`));
   } else add('ipv6', skipped('no IPv6 internet from this guest'));
-  const ssh = await tcpOpens('127.0.0.1', 22);
+  const ssh = await tcpOpens('127.0.0.1', input.sshPort);
   add(
     'loopback-ssh',
     ssh.open
@@ -301,16 +310,18 @@ export async function runProbes(input: ProbeInput): Promise<Array<[string, Outco
       : broke(`CONNECT ${input.baseDestination}: ${base}`),
   );
   const refused = await proxyStatus(input.proxyPort, input.deniedDestination);
+  // Without session credentials (as here) both are refused before any name is resolved; the
+  // private-address and not-allowed branches are tested with a session in the manual trial.
   add(
     'proxy-denied',
-    refused === '403'
-      ? held(`CONNECT ${input.deniedDestination}: 403`)
+    refused.startsWith('403')
+      ? held(`CONNECT ${input.deniedDestination}: ${refused}`)
       : broke(`CONNECT ${input.deniedDestination}: ${refused}`),
   );
   const metadata = await proxyStatus(input.proxyPort, '169.254.169.254:80');
   add(
     'proxy-private',
-    metadata === '403' || metadata === '400'
+    metadata.startsWith('403') || metadata.startsWith('400')
       ? held(`CONNECT 169.254.169.254:80: ${metadata}`)
       : broke(`CONNECT 169.254.169.254:80: ${metadata}`),
   );

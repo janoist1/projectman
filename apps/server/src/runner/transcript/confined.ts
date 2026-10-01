@@ -17,6 +17,8 @@ export async function openConfined(path: string, root: string): Promise<FileHand
   try {
     const info = await handle.stat();
     if (!info.isFile()) throw new Error('not a regular file');
+    // A hard link to a file elsewhere would pass the path checks below.
+    if (info.nlink !== 1) throw new Error('a file with other links');
     const [real, realRoot] = await Promise.all([realpath(path), realpath(root)]);
     if (!real.startsWith(`${realRoot}/`)) throw new Error('outside the worker home');
     const named = await stat(real);

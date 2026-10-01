@@ -19,7 +19,7 @@ import type { BoundaryRequester } from '../contracts';
 import type { BoundaryService } from './boundary';
 import type { DomainContext } from './context';
 import { conflict, forbidden, notFound } from './errors';
-import type { ProjectService } from './projects';
+import type { ConfigChange, ProjectService } from './projects';
 import type { TimelineService } from './timeline';
 import { newId } from './util';
 
@@ -187,6 +187,24 @@ export class EgressService {
     // The proxy ends the tunnels the allowance opened (after the commit, so nothing reopens them).
     void this.ctx.events.emit('egress_allowance_revoked', closed);
     return closed;
+  }
+
+  /**
+   * Config change listener: the AI members who could work before and may not now (removed, sent on
+   * leave, AI work switched off) get `egress_member_inactive`, so the proxy ends their tunnels in
+   * the project; new connections are refused by `authorize` already.
+   */
+  handleConfigChange(change: ConfigChange): void {
+    if (!change.previous) return;
+    for (const member of change.previous.team.members) {
+      if (member.kind !== 'ai') continue;
+      if (!this.memberActive(change.previous, member.handle)) continue;
+      if (this.memberActive(change.next, member.handle)) continue;
+      void this.ctx.events.emit('egress_member_inactive', {
+        projectKey: change.projectKey,
+        member: member.handle,
+      });
+    }
   }
 
   private memberActive(config: ProjectConfig, handle: string): boolean {

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { BoundaryId, routes } from '@projectman/shared';
 import type { EgressAllowance, RuntimeBoundaryStatus } from '@projectman/shared';
 import type { Domain } from '../domain';
+import { disabledRuntimeBoundary } from '../runtime-boundary';
 import { requireAccess } from './context';
 import { parseBody } from './validation';
 
@@ -13,19 +14,9 @@ type Params = { Params: { key: string; id: string } };
  * list and close.
  */
 export function registerRuntimeBoundaryRoutes(app: FastifyInstance, domain: Domain): void {
-  app.get(routes.runtimeBoundary(), async (): Promise<RuntimeBoundaryStatus> => {
-    const boundary = domain.runtimeBoundary;
-    if (boundary) return boundary.status();
-    return {
-      mode: 'off',
-      ready: false,
-      checkedAt: domain.ctx.now().toISOString(),
-      problems: ['not_configured'],
-      launcher: 'off',
-      egress: 'off',
-      readiness: null,
-    };
-  });
+  app.get(routes.runtimeBoundary(), async (): Promise<RuntimeBoundaryStatus> =>
+    (domain.runtimeBoundary ?? disabledRuntimeBoundary(domain.ctx.now)).status(),
+  );
   app.get<{ Params: { key: string } }>(
     routes.egressAllowances(':key'),
     async (request): Promise<EgressAllowance[]> => {

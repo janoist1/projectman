@@ -158,6 +158,16 @@ Still open, roughly by value:
 From the backlog: the eight phase 2 questions ([design/phase2.md](design/phase2.md)) and the
 product name (PM-47).
 
+From the VM boundary (PM-140), not decided yet:
+
+- **One worker account per member, or per member and project?** Today a handle's worker
+  (`pmw-<handle>`) is the same in every project of the instance: a `dev` in a client project and a
+  `dev` in projectman share a home, their workspaces' files and each other's live session tokens
+  (all their processes run as one uid), so a network allowance of one project can be used from the
+  other through a token read from a running session. Accounts per member and project (or a
+  separate VM per client) would separate them; it costs an account, a login and a workspace set per
+  pair. Until decided, give a member of a client project a handle used nowhere else.
+
 The fifteen questions of the 2026-09-30 review were answered by the owner the same day: every
 recommendation was accepted (decision 19). The work they call for is on the board:
 

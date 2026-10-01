@@ -458,7 +458,7 @@ boundary_probe() {
   PROBE_OUT=$(timeout 300 node "$APP_DIR/apps/server/dist/boundary-probe.js" --config "$BOUNDARY_CONFIG" \
     --worker "$worker" --peer "${peer:-$worker}" --service-home "$SERVICE_HOME" --public-name "$PROBE_PUBLIC_NAME" \
     --dns-server "$PROBE_DNS_SERVER" --ipv6 "$PROBE_IPV6_PUBLIC" --base "$EGRESS_OPEN_PROBE" \
-    --denied "$PROBE_DENIED_DESTINATION" 2>/dev/null)
+    --denied "$PROBE_DENIED_DESTINATION" --ssh-port "$SSH_PORT" 2>/dev/null)
 }
 # probe_word KIND ID: ok | fail | skip of a line, or nothing.
 probe_word() { printf '%s\n' "$PROBE_OUT" | awk -v k="$1" -v id="$2" '$1 == k && $2 == id { print $3; exit }'; }

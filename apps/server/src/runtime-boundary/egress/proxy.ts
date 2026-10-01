@@ -2,6 +2,7 @@ import { lookup as dnsLookup } from 'node:dns/promises';
 import http from 'node:http';
 import type { IncomingMessage } from 'node:http';
 import net from 'node:net';
+import { networkInterfaces } from 'node:os';
 import type { Duplex } from 'node:stream';
 import type { FastifyBaseLogger } from 'fastify';
 import { parseEgressAuthority } from '@projectman/shared';
@@ -12,11 +13,11 @@ import { MAX_CLIENT_HELLO_BYTES, parseClientHello } from './sni';
 /** The account and session of a connection, or why it has none. */
 export type ProxyIdentity<I> = { identity: I } | { denial: EgressDenial };
 /**
- * `tag` groups tunnels that one revocable permission opened (an allowance id); `expiresAt` ends
- * them when that permission expires.
+ * `tags` group tunnels for a later `closeTagged` (the allowance that opened them, the member's
+ * scope in a project); `expiresAt` ends them when their permission expires.
  */
 export type ProxyDecision =
-  | { allowed: true; tag?: string; expiresAt?: string }
+  | { allowed: true; tags?: string[]; expiresAt?: string }
   | { allowed: false; denial: EgressDenial; operationId: string | null };
 
 export interface PeerAddress {
@@ -46,6 +47,11 @@ export interface EgressProxyOptions<I> {
   idleTimeoutMs?: number;
   /** Concurrent tunnels at most (default 512). */
   maxTunnels?: number;
+  /** Who a connection counts against (a member); with `maxPerIdentity` (default 64) at most. */
+  keyOf?(identity: I): string;
+  maxPerIdentity?: number;
+  /** This machine's own IPv4 addresses, never a destination (default: its interfaces). */
+  localAddresses?(): string[];
 }
 
 const defaultLookup = async (host: string): Promise<string[]> =>
@@ -95,6 +101,16 @@ export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
   const helloTimeoutMs = opts.helloTimeoutMs ?? 10_000;
   const idleTimeoutMs = opts.idleTimeoutMs ?? 10 * 60_000;
   const maxTunnels = opts.maxTunnels ?? 512;
+  const maxPerIdentity = opts.maxPerIdentity ?? 64;
+  const localAddresses =
+    opts.localAddresses ??
+    (() =>
+      Object.values(networkInterfaces())
+        .flat()
+        .filter((entry) => entry !== undefined && entry.family === 'IPv4')
+        .map((entry) => entry!.address));
+  /** Connections per identity key, so one member cannot take every tunnel. */
+  const perIdentity = new Map<string, number>();
   let tunnels = 0;
   let listening = false;
   /** CONNECT sockets leave the HTTP server's bookkeeping: closing the proxy ends them here. */
@@ -136,6 +152,8 @@ export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
         body,
       ].join('\r\n'),
     );
+    // A client that never reads the answer does not keep its slot.
+    setTimeout(() => socket.destroy(), 2000).unref();
   }
 
   /** Waits for the client's ClientHello; resolves with its bytes and server name, or a refusal. */
@@ -184,14 +202,20 @@ export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
     // Counted from here (not after the awaits below), so concurrent connections cannot pass the cap.
     tunnels += 1;
     let released = false;
-    let tag: string | null = null;
+    let tags: string[] = [];
+    let key: string | null = null;
     let expiry: NodeJS.Timeout | null = null;
     const release = () => {
       if (released) return;
       released = true;
       tunnels -= 1;
       if (expiry) clearTimeout(expiry);
-      if (tag) {
+      if (key) {
+        const left = (perIdentity.get(key) ?? 1) - 1;
+        if (left > 0) perIdentity.set(key, left);
+        else perIdentity.delete(key);
+      }
+      for (const tag of tags) {
         byTag.get(tag)?.delete(socket);
         if (byTag.get(tag)?.size === 0) byTag.delete(tag);
       }
@@ -210,13 +234,21 @@ export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
       bridgedMember.get(raw) ?? null,
     );
     if ('denial' in who) return refuse(socket, 403, destination, who.denial, null);
+    if (opts.keyOf) {
+      const counted = opts.keyOf(who.identity);
+      if ((perIdentity.get(counted) ?? 0) >= maxPerIdentity)
+        return refuse(socket, 403, destination, 'too_many_requests', null);
+      key = counted;
+      perIdentity.set(key, (perIdentity.get(key) ?? 0) + 1);
+    }
     const decision = await opts.authorize(who.identity, destination);
     if (!decision.allowed) return refuse(socket, 403, destination, decision.denial, decision.operationId);
-    if (decision.tag) {
-      // Registered in the same tick as the decision: a revocation after it finds this tunnel, and
-      // one that came first is remembered.
-      if (revokedTags.has(decision.tag)) return refuse(socket, 403, destination, 'not_allowed', null);
-      tag = decision.tag;
+    // Registered in the same tick as the decision: a revocation after it finds this tunnel, and an
+    // allowance revoked before is remembered.
+    if (decision.tags?.some((tag) => revokedTags.has(tag)))
+      return refuse(socket, 403, destination, 'not_allowed', null);
+    tags = decision.tags ?? [];
+    for (const tag of tags) {
       const tagged = byTag.get(tag) ?? new Set<Duplex>();
       tagged.add(socket);
       byTag.set(tag, tagged);
@@ -238,8 +270,10 @@ export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
       }
     }
     if (addresses.length === 0) return refuse(socket, 502, destination, 'unresolved', null);
-    // One private or special address in the answer refuses the name (DNS rebinding, split views).
-    if (!addresses.every(isPublicIPv4)) {
+    // One private or special address in the answer refuses the name (DNS rebinding, split views),
+    // and so does one of this machine's own (a rented server's public address).
+    const own = new Set(localAddresses());
+    if (!addresses.every((address) => isPublicIPv4(address) && !own.has(address))) {
       log.warn({ host: destination.host }, 'egress destination resolves to a private address');
       return refuse(socket, 403, destination, 'private_address', null);
     }
@@ -301,14 +335,17 @@ export function createEgressProxy<I>(opts: EgressProxyOptions<I>) {
     },
     listening: () => listening && server.listening,
     address: () => server.address(),
-    /** Ends every open tunnel a revoked permission opened. */
     /** Serves a connection of a member's bridge socket; the member is known from the socket. */
     acceptFrom(socket: Duplex, member: string): void {
       bridgedMember.set(socket, member);
       server.emit('connection', socket);
     },
-    closeTagged(tag: string): number {
-      revokedTags.add(tag);
+    /**
+     * Ends every open tunnel with the tag. `remember` (a revoked allowance: its id never comes
+     * back) also refuses a decision for it that is still on its way.
+     */
+    closeTagged(tag: string, { remember = true }: { remember?: boolean } = {}): number {
+      if (remember) revokedTags.add(tag);
       const tagged = [...(byTag.get(tag) ?? [])];
       for (const socket of tagged) socket.destroy();
       byTag.delete(tag);

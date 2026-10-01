@@ -37,6 +37,7 @@ import {
   createRuntimeBoundary,
   createServiceBridges,
   disabledRuntimeBoundary,
+  egressScopeTag,
   isManagedBoundary,
   passwdAccounts,
 } from './runtime-boundary';
@@ -307,16 +308,26 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         async authorize(identity, destination) {
           const decision = await domain.egress.authorize(identity, destination);
           if (!decision.allowed) return decision;
+          // A session's tunnels carry its member's scope in its project, so they can be ended.
+          const scope = identity.session
+            ? [egressScopeTag(identity.session.projectKey, identity.member)]
+            : [];
           return decision.via === 'allowance'
-            ? { allowed: true, tag: decision.allowanceId, expiresAt: decision.expiresAt }
-            : { allowed: true };
+            ? { allowed: true, tags: [decision.allowanceId, ...scope], expiresAt: decision.expiresAt }
+            : { allowed: true, tags: scope };
         },
       });
-      // A revoked allowance ends its open tunnels too, not only new connections.
+      // A revoked allowance ends its open tunnels too, not only new connections...
       domain.ctx.events.on('egress_allowance_revoked', (allowance) => {
         const closed = proxy.closeTagged(allowance.id);
         if (closed > 0)
           log.info({ allowanceId: allowance.id, closed }, 'closed egress tunnels of a revoked allowance');
+      });
+      // ... and so does a member who may no longer work in the project (removed, on leave, AI off).
+      domain.ctx.events.on('egress_member_inactive', ({ projectKey, member }) => {
+        const closed = proxy.closeTagged(egressScopeTag(projectKey, member), { remember: false });
+        if (closed > 0)
+          log.info({ projectKey, member, closed }, 'closed egress tunnels of an inactive member');
       });
       egressProxy = proxy;
     }

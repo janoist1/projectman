@@ -35,6 +35,8 @@ table inet projectman_gate {
 	chain service_egress {
 		ip daddr 127.0.0.0/8 accept
 		ip6 daddr ::1 accept
+		# This machine's own other addresses (a rented server's public one): not a way to itself.
+		fib daddr type local reject with icmpx type admin-prohibited
 		# Private, shared (CGNAT: the tailnet), link-local (metadata), multicast and reserved ranges.
 		ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4 } reject with icmpx type admin-prohibited
 		# All other IPv6, global addresses included: at home the Mac and the LAN machines have global

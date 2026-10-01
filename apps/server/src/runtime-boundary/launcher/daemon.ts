@@ -285,7 +285,10 @@ export function unitProperties(config: BoundaryConfig, worker: WorkerAccount, me
     // And a kernel filter for the unit's cgroup on top: loopback only.
     'IPAddressDeny=any',
     'IPAddressAllow=localhost',
-    `InaccessiblePaths=${INACCESSIBLE.map((p) => `-${p}`).join(' ')}`,
+    `InaccessiblePaths=${[...INACCESSIBLE, config.launcher.socket].map((p) => `-${p}`).join(' ')}`,
+    // A stop (the service's connection gone, a kill) does not wait long for a process that ignores
+    // SIGTERM: the unit is gone before a new session takes its workspace.
+    'TimeoutStopSec=10',
     'SystemCallArchitectures=native',
     'SystemCallFilter=~@mount @swap @reboot @raw-io @module @clock @cpu-emulation @obsolete',
     'TasksMax=1024',

@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs';
 import type { FastifyBaseLogger } from 'fastify';
 import type { EgressDestination, RuntimeBoundaryStatus } from '@projectman/shared';
 import type { RuntimeBoundary, SessionLauncher, WorkerLayout } from '../contracts';
@@ -57,6 +58,24 @@ export interface ManagedRuntimeBoundary extends RuntimeBoundary {
   workspacesRoot(member: string): string;
 }
 
+/**
+ * The worker and spool roots must be real paths: whose files a path holds is decided by its text
+ * (`memberOfPath`) against resolved workspace paths, so a symlinked root would make a worker's
+ * repository look like the server's own. A root that does not exist yet is created by bootstrap.sh
+ * as root, where no account of the profile can make it a symlink.
+ */
+export function assertRealRoots(config: BoundaryConfig): void {
+  for (const root of [config.workers.homeRoot, config.workers.spoolRoot]) {
+    let real: string;
+    try {
+      real = realpathSync(root);
+    } catch {
+      continue;
+    }
+    if (real !== root) throw new Error(`the boundary path ${root} must not be a symlink (it is ${real})`);
+  }
+}
+
 /** A boundary built by `createRuntimeBoundary` (not a test's fake). */
 export function isManagedBoundary(boundary: RuntimeBoundary): boundary is ManagedRuntimeBoundary {
   return boundary.mode === 'managed_vm' && 'workspaceAccess' in boundary;
@@ -73,6 +92,7 @@ export function createRuntimeBoundary(opts: {
   readReport?: (file: string) => Promise<string>;
 }): ManagedRuntimeBoundary {
   const { config } = opts;
+  assertRealRoots(config);
   const now = opts.now ?? (() => new Date());
   const client = opts.launcher ?? createLauncherClient({ socketPath: config.launcher.socket });
   const prepare = opts.prepare;
@@ -148,6 +168,11 @@ export function createRuntimeBoundary(opts: {
   };
 }
 
+/** The proxy tag of a member's tunnels in a project (closed when the member may no longer work). */
+export function egressScopeTag(projectKey: string, member: string): string {
+  return `scope:${projectKey}:${member}`;
+}
+
 /** The worker account (its member) behind a uid, from the account table and the configuration. */
 export function workerForUid(config: BoundaryConfig, accounts: AccountLookup, uid: number): string | null {
   if (uid < config.workers.uidMin || uid > config.workers.uidMax) return null;
@@ -185,6 +210,8 @@ export function createManagedEgressProxy<S>(opts: {
     host: opts.config.egress.host,
     port: opts.config.egress.port,
     logger: opts.logger,
+    // One member cannot take every tunnel of the proxy.
+    keyOf: (identity) => identity.member,
     async identify(
       peer: PeerAddress,
       token,

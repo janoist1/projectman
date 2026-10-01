@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { isIpLiteral, isPublicIPv4 } from './addresses';
 import { findSocketUid } from './peer';
 import { parseClientHello } from './sni';
-import { captureClientHello } from './test-helpers';
+import { captureClientHello, syntheticHello } from './test-helpers';
 
 describe('TLS server names', () => {
   it('reads the server name of a real ClientHello', async () => {
@@ -20,6 +20,33 @@ describe('TLS server names', () => {
     // Node sends no SNI for an IP address.
     const hello = await captureClientHello();
     expect(parseClientHello(hello)).toEqual({ status: 'hello', serverName: null });
+  });
+
+  it('refuses an encrypted ClientHello (ECH, ESNI): its real server name is hidden', () => {
+    expect(parseClientHello(syntheticHello({ serverName: 'docs.example.org' }))).toEqual({
+      status: 'hello',
+      serverName: 'docs.example.org',
+    });
+    for (const type of [0xfe0d, 0xffce])
+      expect(
+        parseClientHello(syntheticHello({ serverName: 'chatgpt.com', extensions: [{ type }] })).status,
+      ).toBe('not_tls');
+  });
+
+  it('refuses a server name with non-ASCII bytes, two names, or a list longer than its extension', () => {
+    expect(
+      parseClientHello(syntheticHello({ serverName: Buffer.from([0x64, 0xe9, 0x2e, 0x63]) })).status,
+    ).toBe('not_tls');
+    const twice = syntheticHello({
+      serverName: 'a.example',
+      extensions: [{ type: 0, data: Buffer.from([0, 4, 0, 0, 1, 0x62]) }],
+    });
+    expect(parseClientHello(twice).status).toBe('not_tls');
+    const long = syntheticHello({ serverName: 'a.example' });
+    // The server_name_list length (right after the extension header) claims more than the extension.
+    const at = long.indexOf(Buffer.from('a.example')) - 5;
+    long.writeUInt16BE(0x0100, at);
+    expect(parseClientHello(long).status).toBe('not_tls');
   });
 
   it('refuses what is not a TLS handshake (an SSH banner, plain HTTP)', () => {
@@ -82,6 +109,24 @@ describe('the socket owner of a loopback connection', () => {
         { address: '127.0.0.1', port: 4780 },
       ),
     ).toBe(20001);
+  });
+
+  it('finds an IPv4-mapped client in the IPv6 table', () => {
+    const table6 = [
+      '  sl  local_address                         remote_address                        st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode',
+      '   0: 0000000000000000FFFF00000100007F:D431 0000000000000000FFFF00000100007F:12AC 01 00000000:00000000 00:00000000 00000000 20002        0 4444 1 0 20 4 30 10 -1',
+    ].join('\n');
+    expect(
+      findSocketUid(
+        table6,
+        { address: '::ffff:127.0.0.1', port: 54321 },
+        { address: '::ffff:127.0.0.1', port: 4780 },
+        6,
+      ),
+    ).toBe(20002);
+    expect(
+      findSocketUid(table6, { address: '127.0.0.1', port: 54321 }, { address: '127.0.0.1', port: 4780 }),
+    ).toBeNull();
   });
 
   it('finds nothing for an unknown connection or a malformed address', () => {

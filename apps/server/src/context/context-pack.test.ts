@@ -561,6 +561,23 @@ describe('continue message', () => {
     expect(message!.match(/\. /g)).toHaveLength(2);
   });
 
+  it("names the member's other running sessions in one more sentence, when there are any (PM-184)", () => {
+    const message = builder.build(
+      input({
+        relatedSessions: [
+          { taskKey: 'AR-20', title: 'Booking flow rework', relation: 'parent', state: 'working' },
+          { taskKey: 'AR-19', title: 'Update mail templates', relation: 'prerequisite', state: 'idle' },
+        ],
+      }),
+    ).continueMessage;
+    expect(message).toContain(
+      "the project's language. Your other running sessions: AR-20 (the parent card), AR-19 (a prerequisite of this card); " +
+        'the standing is on the cards, so read them before you give direction.',
+    );
+    expect(message).not.toContain('\n');
+    expect(builder.build(input()).continueMessage).not.toContain('Your other running sessions');
+  });
+
   it('names the current stage and the project language', () => {
     const project = buildProject('web-client-project', 'hu');
     const message = builder.build(
@@ -864,6 +881,35 @@ describe('kick-off brief', () => {
     expect(long).toContain('shot-9.png');
     expect(long).not.toContain('shot-10.png');
     expect(long).toContain('(3 more; list them with list_attachments, task_key AR-21, offset 10.)');
+  });
+
+  it("names the member's other running sessions on related cards, and where the standing is (PM-184)", async () => {
+    const brief =
+      builder.build(
+        input({
+          handle: 'fe-1',
+          task: makeTask({ stageId: 'dev', parentKey: 'AR-20' }),
+          relatedSessions: [
+            { taskKey: 'AR-20', title: 'Booking flow rework', relation: 'parent', state: 'working' },
+            { taskKey: 'AR-22', title: 'Mail template fixes', relation: 'prerequisite_of', state: 'idle' },
+          ],
+        }),
+      ).initialMessage ?? '';
+    const start = brief.indexOf('## Your other running sessions');
+    const end = brief.indexOf('\n\n## ', start + 1);
+    await expect(brief.slice(start, end)).toMatchFileSnapshot(
+      '__snapshots__/developer-dev-related-sessions.section.txt',
+    );
+    // After the prerequisites, before the attachments.
+    expect(brief.indexOf('## Prerequisites')).toBeLessThan(start);
+    expect(start).toBeLessThan(brief.indexOf('## Attachments'));
+  });
+
+  it('has no section about other sessions when the member has none', () => {
+    expect(builder.build(input()).initialMessage).not.toContain('Your other running sessions');
+    expect(builder.build(input({ relatedSessions: [] })).initialMessage).not.toContain(
+      'Your other running sessions',
+    );
   });
 
   it('keeps the brief compact', () => {

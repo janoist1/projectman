@@ -376,6 +376,8 @@ export class TaskService {
             ...(patch.repo !== undefined ? { repo: patch.repo, previousRepo: task.repo } : {}),
           },
         });
+      if (patch.description !== undefined)
+        effects.push(() => this.ctx.events.emit('task_description_changed', { task: next, actor }));
       if (labelsChanged)
         this.labels.record(config, next, labels, actor, { comment: note, sessionId }, effects);
       if (patch.assignee !== undefined)

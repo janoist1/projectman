@@ -1,9 +1,11 @@
 import {
+  formatInjectedTeamMessage,
   isOpenTask,
   labelDefinition,
   memberOf,
   routeFor,
   sameWorkItem,
+  stageHandsOverForReview,
   stageOf,
   stageOwners,
 } from '@projectman/shared';
@@ -185,6 +187,44 @@ export class Messaging {
       },
       { actor },
     );
+  }
+
+  /**
+   * A card's description changed while it is in development or in a review stage (PM-184): every
+   * session running on the card, but the one of the member who wrote the change, is told to stop and
+   * read it again. A reviewer's review measures the old description, so its session is stopped and
+   * resumed at once with the notice as its first input. The notice is not stored as a message. It
+   * reaches a session that is in a turn only when the turn ends (the runner queues it): urgent
+   * messages into running work are PM-117.
+   */
+  async descriptionNotice(change: DomainEventMap['task_description_changed']): Promise<void> {
+    const { actor } = change;
+    const task = this.tasks.find(change.task.projectKey, change.task.key);
+    if (!task || !isOpenTask(task)) return;
+    const config = await this.projects.config(task.projectKey);
+    const stage = stageOf(config, task.stageId);
+    const reviewing = stage?.kind === 'step' && stageHandsOverForReview(config, stage);
+    if (!stage || (stage.kind !== 'work' && !reviewing)) return;
+    const reviewers = reviewing ? stageOwners(config, stage) : [];
+    const from = actorHandle(actor);
+    const text = `The description of ${task.key} changed (by ${from}). Stop and read it with get_task before you continue.`;
+    for (const session of this.sessions.list(task.projectKey, { taskKey: task.key })) {
+      if (session.workItem.type !== 'task' || session.member === actor.handle) continue;
+      if (!this.sessions.isRunning(session.id)) continue;
+      const prefixed = formatInjectedTeamMessage(from, text, task.key);
+      // A reviewer that cannot be restarted now (AI work off, on leave) is told like the others.
+      if (reviewers.includes(session.member) && task.assignee !== session.member) {
+        const restarted = await this.sessions
+          .restartWithMessages(task.projectKey, session.id, [prefixed])
+          .catch((err: unknown) => {
+            // The session was stopped before the start failed: there is nothing left to tell.
+            this.ctx.logger.warn({ err, sessionId: session.id }, 'could not restart the reviewer');
+            return true;
+          });
+        if (restarted) continue;
+      }
+      this.delivery.notice(session, from, text, task.key);
+    }
   }
 
   /** The members a task comment mentions get it as a message from its author. */

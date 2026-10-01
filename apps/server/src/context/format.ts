@@ -2,6 +2,7 @@ import { effectiveRepo, isHumanOnlyLabel, needsRepoChoice } from '@projectman/sh
 import type { Gate, LabelDefinition, ProjectConfig, Stage, Task } from '@projectman/shared';
 import { describeRepo } from '../agent-text';
 import type { TextStyle } from '../agent-text';
+import type { CardRelation } from '../contracts';
 
 /** Inline-code form of a handle, task key or id: `fe-1`. */
 export function code(value: string): string {
@@ -26,6 +27,18 @@ export function repoText(project: Pick<ProjectConfig, 'project'>, task: Pick<Tas
 /** "Code review (`code_review`)" */
 export function stageLabel(stage: Stage): string {
   return `${stage.name} (${code(stage.id)})`;
+}
+
+const RELATION_TEXT: Record<CardRelation, string> = {
+  parent: 'the parent card',
+  subtask: 'a subtask of this card',
+  prerequisite: 'a prerequisite of this card',
+  prerequisite_of: 'a card that has this one as a prerequisite',
+};
+
+/** How a related card is worded: "the parent card". */
+export function relationText(relation: CardRelation): string {
+  return RELATION_TEXT[relation];
 }
 
 /** "`qa-ok` (QA ok)": a label by id and name. */

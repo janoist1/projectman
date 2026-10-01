@@ -140,6 +140,11 @@ export const QuestionPayload = z.object({
   recommendationReason: z.string().optional(),
   /** Markdown technical background for whoever wants to dig in; shown folded. */
   details: z.string().optional(),
+  /**
+   * True when the system put the waiting label on the card for this question, so it takes the label
+   * off when the last such question closes; absent when a person had put it on, or it was not set.
+   */
+  autoLabel: z.boolean().optional(),
 });
 export type QuestionPayload = z.infer<typeof QuestionPayload>;
 

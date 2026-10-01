@@ -35,6 +35,7 @@ import type { DomainContext, TemplateRegistry } from './context';
 import { createEventBus } from './event-bus';
 import { GithubSync } from './github-sync';
 import { InboxService, delegatedPermissionPrompt } from './inbox';
+import { OpenQuestionLabel } from './open-question-label';
 import { InvitationService } from './invitations';
 import { MemberProfiles, MemberService } from './members';
 import { MessageDelivery, MessageService, Messaging } from './messaging';
@@ -354,7 +355,9 @@ export function createDomain(opts: DomainOptions) {
     publisher: opts.githubPublisher,
     memberWorkspaces: opts.memberWorkspaces,
   });
+  const openQuestionLabel = new OpenQuestionLabel({ ctx, projects, tasks, inbox });
   const teamTools = new TeamToolsService({
+    openQuestionLabel,
     boundary,
     egress,
     publishing,
@@ -418,6 +421,9 @@ export function createDomain(opts: DomainOptions) {
     item.kind === 'decision' ? tasks.handleDecisionResolved(item) : undefined,
   );
   events.on('inbox_resolved', (item) => (item.kind === 'question' ? messaging.answer(item) : undefined));
+  // An open AI question holds its card back with the waiting label; the last one closing frees it.
+  events.on('inbox_resolved', (item) => openQuestionLabel.release(item));
+  events.on('inbox_cancelled', (item) => openQuestionLabel.release(item));
   // Cancelled tasks stop their sessions; moves and closures drop the starts they made obsolete.
   events.on('task_cancelled', (task) => sessions.stopTask(task.projectKey, task.key));
   events.on('task_cancelled', (task) => admission.discardStale(task));
@@ -445,6 +451,8 @@ export function createDomain(opts: DomainOptions) {
   // Labels that notify the assignee and @mentions reach members as team messages.
   events.on('task_labels_notice', (notice) => messaging.labelNotice(notice));
   events.on('task_note_added', (note) => messaging.mentionNotice(note));
+  // A changed description reaches the sessions working the card; a reviewer restarts on it (PM-184).
+  events.on('task_description_changed', (change) => messaging.descriptionNotice(change));
   // A started session gets the messages waiting for it; waiting messages wake their recipient.
   events.on('session_started', (session) => delivery.deliverWaiting(session));
   events.on('session_input_released', (session) => delivery.deliverWaiting(session));

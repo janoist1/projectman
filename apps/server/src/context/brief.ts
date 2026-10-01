@@ -1,8 +1,8 @@
 import type { Attachment } from '@projectman/shared';
 import { describeAttachment, describeLink, linkTarget, recentTimeline } from '../agent-text';
 import type { TextStyle } from '../agent-text';
-import type { ContextPackInput } from '../contracts';
-import { code, promptStyle, repoText, stageLabel } from './format';
+import type { ContextPackInput, RelatedSession } from '../contracts';
+import { code, promptStyle, relationText, repoText, stageLabel } from './format';
 import type { Situation } from './work-item';
 
 /** Timeline entries shown in the brief (the most recent ones). */
@@ -70,6 +70,9 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
     .map((l) => `- ${linkTarget(l, style)}`);
   sections.push(['## Prerequisites', ...(prerequisites.length > 0 ? prerequisites : ['None.'])].join('\n'));
 
+  const related = input.relatedSessions ?? [];
+  if (related.length > 0) sections.push(relatedSessionsSection(task.key, related));
+
   sections.push(attachmentsSection(task.key, input.attachments ?? [], style));
 
   const { lines, total } = recentTimeline(input.timeline, {
@@ -88,6 +91,21 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
   );
 
   return sections.join('\n\n');
+}
+
+/**
+ * The member's other running sessions on cards that belong with this one (PM-184): each works
+ * from its own conversation, so the card is the one place that holds the standing; they agree
+ * through notes on it. Only built when there is such a session.
+ */
+function relatedSessionsSection(taskKey: string, related: RelatedSession[]): string {
+  return [
+    '## Your other running sessions',
+    ...related.map(
+      (s) => `- ${code(s.taskKey)} "${s.title}": ${relationText(s.relation)}, ${s.state.replace('_', ' ')}`,
+    ),
+    `These sessions are yours and run in parallel, and none sees the conversation of another. The standing is on the cards: read ${taskKey} with get_task (and the related card when it matters) before you give direction, and settle anything between your sessions with a note on the card.`,
+  ].join('\n');
 }
 
 /**

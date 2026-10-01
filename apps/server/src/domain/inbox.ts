@@ -444,10 +444,14 @@ export class InboxService {
   }
 
   /** Cancels open questions and permission requests raised by a member (e.g. when it is retired). */
-  cancelOpenFromSource(projectKey: string, handle: string): void {
+  cancelOpenFromSource(projectKey: string, handle: string): InboxItem[] {
+    const cancelled: InboxItem[] = [];
     for (const item of this.ctx.repos.inbox.list(projectKey, { state: 'open' })) {
-      if (item.source === handle && item.kind !== 'decision') this.cancel(item.id);
+      if (item.source !== handle || item.kind === 'decision') continue;
+      const closed = this.cancel(item.id);
+      if (closed) cancelled.push(closed);
     }
+    return cancelled;
   }
 
   private close(id: string, state: 'cancelled' | 'expired', publish = true): InboxItem | null {

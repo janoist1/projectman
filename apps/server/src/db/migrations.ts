@@ -486,7 +486,8 @@ export const migrations: Migration[] = [
     sql: `ALTER TABLE sessions ADD COLUMN state_since TEXT;`,
   },
   {
-    version: 23,
+    // 23 is left to another card on purpose: a database already at 24 would never run a lower number.
+    version: 24,
     name: 'end-of-round compaction of sessions',
     // PM-213: a task session whose round ended (the card left its stage) owes a compaction of its
     // conversation until one ran or was given up; and the context the conversation last measured

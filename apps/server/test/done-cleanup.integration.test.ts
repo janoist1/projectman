@@ -24,7 +24,8 @@ it(
   'lets the session that moved its task to done finish the turn, then stops it',
   { timeout: 90_000 },
   async () => {
-    h = await createAppHarness({ runner: 'fake-cli' });
+    // The real team MCP endpoint: the fake CLI's calls (the move, the message) must reach the domain.
+    h = await createAppHarness({ runner: 'fake-cli', real: { mcp: true } });
     const { app } = h;
     const cookie = await setupOwner(app);
     const headers = { cookie };

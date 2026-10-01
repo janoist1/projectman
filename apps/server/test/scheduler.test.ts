@@ -196,6 +196,33 @@ describe('scheduler', () => {
     expect(h.worktrees.removed).toEqual([dev.cwd]);
   });
 
+  it('delivers what the mover sends after the move through the team tools, then stops it (PM-190)', async () => {
+    h = await createDomainHarness({ adjust: withoutGates });
+    await h.domain.tasks.create('AR', { title: 'Login page', repo: 'web' }, OWNER_ACTOR);
+    const dev = (await start(h, 'AR-1')).session!;
+    h.runner.setState(dev.id, 'working');
+    const token = h.runner.started
+      .find((s) => s.sessionId === dev.id)!
+      .mcpUrl.split('/')
+      .pop()!;
+    const ctx = h.domain.sessions.resolveToken(token)!;
+
+    // The calls of the session's own turn: the move, and after it a message.
+    await h.domain.teamTools.updateTask(ctx, { taskKey: 'AR-1', stageId: 'done' });
+    await settle();
+    expect(h.runner.isRunning(dev.id)).toBe(true);
+    await h.domain.teamTools.sendMessage(ctx, { to: ['owner'], text: 'Five notes that do not block' });
+    expect(h.repos.messages.list('AR').find((m) => m.body === 'Five notes that do not block')).toMatchObject({
+      from: 'dev-1',
+      to: ['owner'],
+      taskKey: 'AR-1',
+    });
+
+    h.runner.setState(dev.id, 'idle');
+    await waitFor(() => !h.runner.isRunning(dev.id), { what: 'the mover stopped at the end of its turn' });
+    expect(h.domain.sessions.get('AR', dev.id).state).toBe('exited');
+  });
+
   it('stops a mover that does not finish its turn at the limit, and a mover already idle at once', async () => {
     h = await createDomainHarness({ adjust: withoutGates, doneTurnLimitMs: 50 });
     const { review } = await inReview(h);

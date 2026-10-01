@@ -81,6 +81,8 @@ export function sensitivePaths(input: { userHome: string; appHome?: string }): s
     '.codex',
     '.npmrc',
   ];
+  // `logs` is not created by the server itself: the owner's live home has it (the process logs of
+  // `npm start`). A name that does not exist denies nothing.
   const app = ['db.sqlite*', 'secret', 'logs', 'customization', 'memory', 'github-publish', 'spool'];
   return [
     ...user.map((name) => path.join(input.userHome, name)),

@@ -81,14 +81,18 @@ on its own only where the CLI does not cover a case or the owner asked for it.
   (`by: 'classifier'`, `reason` from `denial_reason`). It cannot block and has no answer.
 - **Hard denials, in every mode.** `permissions.deny` in `--settings` holds in `auto` and
   `bypassPermissions` too: `git push`, `gh pr create`, `gh pr merge` (a repository without GitHub),
-  `Read` and `Edit` of the user's credentials (`~/.ssh`, `~/.config/gh`, `~/.claude`,
-  `~/.claude.json`, `~/.codex`, `~/.npmrc`) and of the sensitive parts of the app home (database,
+  `Read` and `Edit` of the user's credentials (`~/.ssh`, `~/.config/gh`, `~/.claude/.credentials.json`,
+  `~/.claude/settings.json`, `~/.claude/settings.local.json`, `~/.claude/hooks`, `~/.claude.json`,
+  `~/.codex`, `~/.npmrc`; not the whole `~/.claude`: the member's saved tool outputs under
+  `projects/` and the plan mode's `plans/` live there) and of the sensitive parts of the app home (database,
   cookie secret, logs, customization repository, members' memory, publishing identity, spool), and
   `WebFetch` of `localhost` and `127.0.0.1`. `domain/session-policy.ts` (`sensitivePaths`,
   `HARD_DENIED_HOSTS`) lists them, `SessionPolicy.filesystem.deniedPaths` and
   `network.deniedHosts` carry them, `runner/providers/claude/policy.ts` renders the rules. The
   whole app home is not denied: worktrees, workspaces and attachments live there, and deny wins
   over allow. Read rules also cover Grep and Glob (best effort, per the Claude Code docs).
+- **Codex members too:** `decide` is provider-neutral, so approver `none` refuses a Codex member's
+  escalation the same way (after `commandVerdict`). Only the deny rules and `autoMode` are Claude's.
 - **`autoMode` in `--settings`** (`environment`, `hard_deny`, both with `$defaults`) is prose for
   the classifier only; the deny rules are what hold.
 - **The managed VM profile is unchanged:** no deny rules, no `autoMode`, no approver path (decision 26).

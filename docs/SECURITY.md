@@ -136,15 +136,18 @@ What the server adds, in every mode and on the legacy (Mac) profile:
 
 - **Deny rules in `--settings`** (they hold in `auto` too): `git push`, `gh pr create`,
   `gh pr merge` where the repository has no GitHub; the built-in file tools may not read or change
-  the user's credential files (`~/.ssh`, `~/.config/gh`, `~/.claude`, `~/.claude.json`, `~/.codex`,
-  `~/.npmrc`) and the sensitive parts of the app home (database, cookie secret, logs,
+  the user's credential files (`~/.ssh`, `~/.config/gh`, `~/.claude/.credentials.json`,
+  `~/.claude/settings.json`, `~/.claude/settings.local.json`, `~/.claude/hooks`, `~/.claude.json`,
+  `~/.codex`, `~/.npmrc`; the rest of `~/.claude` stays open: saved tool outputs and the plan
+  mode's plan file are there) and the sensitive parts of the app home (database, cookie secret, logs,
   customization repository, members' memory, publishing identity, spool); `WebFetch` may not reach
   `localhost` or `127.0.0.1`. The list is `sensitivePaths` and `HARD_DENIED_HOSTS` in
   `domain/session-policy.ts`.
 - **A question the CLI still asks** goes through `commandVerdict`, then to the member's approver.
   Approver `none` (the default of a new member) refuses it without an inbox item and tells the agent
   the refusal is final; the refusal is on the timeline (`permission_refused`). So does a refusal of
-  the auto mode's classifier (`PermissionDenied` hook).
+  the auto mode's classifier (`PermissionDenied` hook). The approver applies to Codex members too
+  (the refusal is the same); the deny rules and `autoMode` are Claude's only.
 - The `autoMode` prose in `--settings` only guides the classifier; it is not a boundary.
 - The managed VM profile is unchanged: its limits are outside the CLI.
 

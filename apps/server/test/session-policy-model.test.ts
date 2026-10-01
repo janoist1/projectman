@@ -306,7 +306,8 @@ describe('provider-neutral session policy', () => {
       expect.arrayContaining([
         '/Users/anna/.ssh',
         '/Users/anna/.config/gh',
-        '/Users/anna/.claude',
+        '/Users/anna/.claude/.credentials.json',
+        '/Users/anna/.claude/settings.json',
         '/Users/anna/.claude.json',
         '/Users/anna/.codex',
         '/Users/anna/.npmrc',
@@ -319,6 +320,8 @@ describe('provider-neutral session policy', () => {
     );
     // The whole home is not denied: worktrees, workspaces and attachments live there.
     expect(deniedPaths).not.toContain('/Users/anna/.projectman');
+    // The member's own saved tool outputs and the plan mode's plan file stay reachable.
+    expect(deniedPaths).not.toContain('/Users/anna/.claude');
     for (const permissionMode of ['default', 'acceptEdits', 'auto', 'plan', undefined]) {
       const p = buildSessionPolicy({
         config: testConfig(),

@@ -68,7 +68,19 @@ export const WORKTREE_SANDBOX: AgentSandbox = {
  * workspaces and the task attachments live there, and a deny rule wins over an allow rule.
  */
 export function sensitivePaths(input: { userHome: string; appHome?: string }): string[] {
-  const user = ['.ssh', '.config/gh', '.claude', '.claude.json', '.codex', '.npmrc'];
+  // Not the whole `.claude`: the member's own saved tool outputs (`projects/.../tool-results`) and the
+  // plan file of the plan mode (`plans`) live there. Only the credentials and the settings.
+  const user = [
+    '.ssh',
+    '.config/gh',
+    '.claude/.credentials.json',
+    '.claude/settings.json',
+    '.claude/settings.local.json',
+    '.claude/hooks',
+    '.claude.json',
+    '.codex',
+    '.npmrc',
+  ];
   const app = ['db.sqlite*', 'secret', 'logs', 'customization', 'memory', 'github-publish', 'spool'];
   return [
     ...user.map((name) => path.join(input.userHome, name)),

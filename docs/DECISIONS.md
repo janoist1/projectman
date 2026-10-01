@@ -201,6 +201,8 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     derived mode) and, separately, who answers when it asks (`approver`: a person, the AI decider,
     or nobody); only an owner sets either. Answering who gets the rare question of an Auto member:
     „Senkihez, a rendszer elutasítja”, so a new member is hired in Auto with approver `none`.
+    Answering the sandbox question of the same design: „Homokozó, a CLI-k saját kerítése”, that
+    is, the sandbox is the CLIs' own.
     The earlier answer „Mind Auto-ra, egyszerre” stands for the members' mode (the PM members
     already run in Auto). No code migration changes existing members (decision 26): an unset
     approver reads as a person until the owner sets it, per member or in one configuration

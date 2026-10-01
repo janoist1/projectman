@@ -69,6 +69,13 @@
   color: var(--c-ink-3);
 }
 
+.whenToAsk {
+  max-width: 60ch;
+  font-size: var(--text-xs);
+  color: var(--c-ink-3);
+  white-space: normal;
+}
+
 .mono {
   font-family: var(--font-mono);
   font-size: 11.5px;

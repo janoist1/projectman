@@ -138,109 +138,134 @@ export const hu: TemplateLocale = {
       name: 'Operátor',
       summary: 'Futtatja és felügyeli a rendszert, visszaterel minden félrement munkát, és övé a végső szó.',
       notTheirJob: 'Nem végzi a napi feladatokat: irányítja a csapatot, nem helyettesíti.',
+      whenToAsk:
+        'Ha valami félrement, elakadt egy döntés, vagy olyan jóváhagyás kell, amit csak ő adhat meg.',
     },
     product_owner: {
       name: 'Terméktulajdonos',
       summary: 'Eldönti, mi készüljön és milyen sorrendben, és ő fogadja el a kész munkát.',
       notTheirJob: 'Nem ír specifikációt és nem ütemez.',
+      whenToAsk: 'Ha el kell dönteni, mi a legfontosabb, vagy elfogadható-e a kész munka.',
     },
     project_manager: {
       name: 'Projektmenedzser',
       summary: 'Az ütemezést viszi: standup, tervezés, határidők, emlékeztetők, heti jelentés.',
       notTheirJob: 'Nem rangsorol, és nem vezeti a retrót.',
+      whenToAsk:
+        'Ha tudni szeretnéd, hol tart a munka és mi mikorra készül, vagy emlékeztető, jelentés kell.',
     },
     business_analyst: {
       name: 'Elemző',
       summary:
         'Az ügyfél kéréséből pontos leírást és elfogadási feltételeket ír, és visszakérdez, mielőtt a munka elindul.',
       notTheirJob: 'Nem ütemez, és nem tervez technikai megoldást.',
+      whenToAsk:
+        'Ha van egy ötleted vagy kérésed, de még nem tiszta, pontosan mi kell, vagy több részből áll. Kis, világos feladathoz nem kell.',
     },
     architect: {
       name: 'Architekt',
       summary:
         'Fejlesztés előtt megtervezi a technikai megoldást, feladatokra bontja, és átnézi a nagyobb döntéseket.',
       notTheirJob: 'Nem nézi át sorról sorra a kódot.',
+      whenToAsk:
+        'Ha műszaki kérdésed van (felépítés, átalakítás, gyorsaság), vagy egy nagyobb ötletet kell műszakilag felbontani.',
     },
     designer: {
       name: 'Designer',
       summary:
         'Képernyőterveket és kattintható mockupot készít, és ellenőrzi, hogy a kész felület a terv szerint készült-e.',
       notTheirJob: 'Nem programozza le a felületet.',
+      whenToAsk: 'Ha felületet, elrendezést vagy szöveget terveztetnél, mielőtt a fejlesztés indul.',
     },
     developer: {
       name: 'Fejlesztő',
       summary: 'Saját ágon, tesztekkel együtt megvalósítja a feladatot, és PR-t nyit.',
       notTheirJob: 'Nem hagyja jóvá a saját munkáját.',
+      whenToAsk: 'Ha egy kártya készen áll a megvalósításra; nem írsz neki, hanem elindítod a kártyát.',
     },
     code_review: {
       name: 'Code review',
       summary: 'Minden PR-t átnéz az integration előtt, és fájl:sor pontossággal jelzi, mi blokkol.',
       notTheirJob: 'Nem ír és nem javít kódot.',
+      whenToAsk: 'Átnézi a kész munkát; műszaki kérdésben is kérdezheted.',
     },
     security_review: {
       name: 'Biztonsági átnéző',
       summary: 'A PR-okban a hozzáférést, a titokkezelést és a kockázatos részeket nézi át.',
       notTheirJob: 'Nem javít, csak jelez.',
+      whenToAsk: 'Ha hozzáférést, titkokat vagy kockázatos részt érintő változást nézetnél át.',
     },
     qa: {
       name: 'QA',
       summary:
         'Integrationön és böngészőben teszteli a kész munkát, és reprodukálható hibajelentést ad vissza.',
       notTheirJob: 'Nem javítja a hibát.',
+      whenToAsk:
+        'Ha egy kész funkciót a felhasználó szemével kipróbáltatnál, vagy egy hibát reprodukáltatnál.',
     },
     devops: {
       name: 'Devops',
       summary: 'Kitelepít, felügyeli a szervereket és az infrastruktúrát.',
       notTheirJob: 'Élesbe csak jóváhagyás után ad ki, funkciót nem fejleszt.',
+      whenToAsk: 'Kitelepítés és szerverek.',
     },
     communication: {
       name: 'Kommunikáció',
       summary:
         'Megírja a tesztkéréseket, az összefoglalókat és az ügyfélnek szóló leveleket, küldés előtt jóváhagyásra.',
       notTheirJob: 'Nem dönt az ügyfél helyett.',
+      whenToAsk: 'Ha üzenetet, összefoglalót vagy levelet kell írni az ügyfélnek.',
     },
     support: {
       name: 'Hibafelvevő',
       summary: 'Fogadja és reprodukálja a hibajelentéseket, és kidolgozott kártyát készít belőlük.',
       notTheirJob: 'Nem javítja a hibát.',
+      whenToAsk: 'Ha hibát találtál vagy hibajelentés érkezett, és kártyát kell készíteni belőle.',
     },
     researcher: {
       name: 'Kutató',
       summary: 'Rövid felméréseket végez: melyik könyvtár, járható-e egy megoldás, mit csinál a versenytárs.',
       notTheirJob: 'Nem valósítja meg, csak ajánl.',
+      whenToAsk: 'Ha előbb utána kell nézni valaminek: melyik eszköz jó, járható-e egy út.',
     },
     maintainer: {
       name: 'Karbantartó',
       summary:
         'Frissíti a függőségeket, rendbe teszi az instabil teszteket, csökkenti a technikai adósságot. Ütemezve fut a legjobban.',
       notTheirJob: 'Nem fejleszt új funkciót.',
+      whenToAsk: 'Ha elavult függőség, instabil teszt vagy technikai adósság zavar.',
     },
     coach: {
       name: 'Coach',
       summary:
         'A retrók gazdája: gyűjti az észrevételeket, és javaslatot tesz a szerepek és a folyamat javítására.',
       notTheirJob: 'Nem lépteti életbe a változást: azt jóváhagyják.',
+      whenToAsk: 'Ha a csapat működésén vagy a folyamaton javítanál, vagy retró kell.',
     },
     watchdog: {
       name: 'Felügyelő',
       summary:
         'Az Operátor segítője: jelez, ha egy tag elakadt, körbe-körbe jár, túl sokat fogyaszt vagy túllépi a hatáskörét.',
       notTheirJob: 'Nem avatkozik be, csak jelez.',
+      whenToAsk: 'Ha gyanús, hogy egy tag elakadt vagy túl sokat fogyaszt.',
     },
     content: {
       name: 'Tartalom',
       summary: 'Szövegeket, SEO-t és marketinganyagot készít.',
       notTheirJob: 'Nem fejleszti a felületet.',
+      whenToAsk: 'Ha szöveg, SEO vagy marketinganyag kell.',
     },
     translator: {
       name: 'Fordító',
       summary: 'Kezeli a többnyelvű felületek szövegeit, és vigyáz a következetes szóhasználatra.',
       notTheirJob: 'Nem ír új tartalmat.',
+      whenToAsk: 'Ha egy szöveget le kell fordítani, vagy egységesíteni kell a szóhasználatot.',
     },
     docs: {
       name: 'Dokumentáló',
       summary: 'Naprakészen tartja a leírásokat és a döntésnaplót.',
       notTheirJob: 'Nem hoz döntést, csak rögzíti.',
+      whenToAsk: 'Ha egy leírást vagy a döntésnaplót frissíteni kell.',
     },
   },
   members: {

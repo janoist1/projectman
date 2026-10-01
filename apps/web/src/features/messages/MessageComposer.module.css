@@ -25,3 +25,7 @@
 .recipient small {
   display: block;
 }
+.recipient .whenToAsk {
+  max-width: 32ch;
+  color: var(--c-ink-3);
+}

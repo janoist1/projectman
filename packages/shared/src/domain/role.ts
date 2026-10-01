@@ -68,6 +68,10 @@ export const BUILT_IN_ROLE_DUTIES: Record<BuiltInRoleId, DutyId[]> = {
 export const RoleBundle = z.object({
   duties: z.array(DutyId).refine((ids) => new Set(ids).size === ids.length, 'duplicate duties'),
   instructions: z.string().default(''),
+  /** The project's own texts of a built-in role; missing or empty keeps the default text. */
+  summary: z.string().max(280).optional(),
+  notTheirJob: z.string().max(200).optional(),
+  whenToAsk: z.string().max(280).optional(),
 });
 export type RoleBundle = z.infer<typeof RoleBundle>;
 export const RoleOverrides = z.partialRecord(BuiltInRoleId, RoleBundle);
@@ -96,6 +100,8 @@ export const CustomRoleDefinition = z.object({
   summary: z.string().min(1).max(280),
   /** What the role does not do, one short sentence (keeps roles apart). */
   notTheirJob: z.string().max(200).default(''),
+  /** When to turn to a member holding the role, one or two short sentences. */
+  whenToAsk: z.string().max(280).optional(),
   /** Legacy eligibility for roles without duties; explicit duties determine eligibility. */
   holders: RoleHolders.default('both'),
   duties: z

@@ -1,5 +1,6 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { getLocale } from '@projectman/templates';
 import { setFetchImplementation } from '../../api/client';
 import { MeContext } from '../../app/contexts';
 import { NavRail } from '../../app/Shell';
@@ -39,6 +40,15 @@ describe('messages composer and receipts', () => {
       from: 'owner',
     });
     expect(await screen.findByText('Acme delivery discussion')).toBeTruthy();
+  });
+  it('says when to turn to each recipient while choosing them', async () => {
+    const p = mockProject();
+    p.render(<MessagesPage />);
+    fireEvent.click(await screen.findByRole('button', { name: t('messages.new') }));
+    const dialog = within(screen.getByRole('dialog'));
+    const qa = getLocale('hu').roles.qa.whenToAsk;
+    const recipient = await dialog.findByRole('checkbox', { name: new RegExp(qa.slice(0, 20)) });
+    expect(recipient.closest('label')?.textContent).toContain(`${t('roleCatalogue.whenToAsk')}: ${qa}`);
   });
   it('prefills reply recipients and task and displays independent delivery states', async () => {
     const p = mockProject();

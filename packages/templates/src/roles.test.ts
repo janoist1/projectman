@@ -221,7 +221,7 @@ describe('locales', () => {
     const texts = [
       ...Object.values(locale.columns).flatMap((c) => [c.name, c.hint]),
       ...Object.values(locale.stages),
-      ...Object.values(locale.roles).flatMap((r) => [r.name, r.summary, r.notTheirJob]),
+      ...Object.values(locale.roles).flatMap((r) => [r.name, r.summary, r.notTheirJob, r.whenToAsk]),
       ...Object.values(locale.members),
       ...Object.values(locale.specialties),
       ...Object.values(locale.labels).flatMap((l) => [l.name, l.meaning]),
@@ -231,6 +231,8 @@ describe('locales', () => {
     for (const role of Object.values(locale.roles)) {
       expect(role.summary).toMatch(/\.$/);
       expect(role.notTheirJob).toMatch(/\.$/);
+      expect(role.whenToAsk).toMatch(/\.$/);
+      expect(role.whenToAsk.length).toBeLessThanOrEqual(280);
     }
     const names = Object.values(locale.roles).map((r) => r.name);
     expect(new Set(names).size).toBe(names.length);
@@ -239,7 +241,9 @@ describe('locales', () => {
 
   it('writes the English role texts in English', () => {
     for (const role of Object.values(en.roles)) {
-      expect(`${role.name} ${role.summary} ${role.notTheirJob}`).not.toMatch(HUNGARIAN_LETTERS);
+      expect(`${role.name} ${role.summary} ${role.notTheirJob} ${role.whenToAsk}`).not.toMatch(
+        HUNGARIAN_LETTERS,
+      );
     }
   });
 

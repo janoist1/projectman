@@ -658,6 +658,8 @@ export const hu = {
     name: 'Név',
     summary: 'Feladata',
     notTheirJob: 'Nem az ő feladata',
+    whenToAsk: 'Mikor fordulj hozzá',
+    defaultText: 'Üresen hagyva az alapértelmezett szöveg marad.',
     holders: 'Ki töltheti be?',
     human: 'Ember',
     ai: 'AI',

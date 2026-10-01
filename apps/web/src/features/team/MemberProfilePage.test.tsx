@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
+import { getLocale } from '@projectman/templates';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
@@ -65,6 +66,15 @@ describe('member profiles', () => {
     expect(screen.getByLabelText(t('messages.text'))).toBeTruthy();
     expect(screen.getByRole('button', { name: t('profile.conversation') })).toBeTruthy();
     expect(screen.getByText(t('dutyNames.implementation'))).toBeTruthy();
+  });
+  it('shows what each role of the member does, does not do, and when to turn to them', async () => {
+    const p = mockProject();
+    const qa = getLocale('hu').roles.qa;
+    p.render(page(), '/team/qa');
+    const role = within(await screen.findByRole('generic', { name: qa.name }));
+    expect(role.getByText(qa.summary)).toBeTruthy();
+    expect(role.getByText(`${t('roleCatalogue.notTheirJob')}: ${qa.notTheirJob}`)).toBeTruthy();
+    expect(role.getByText(`${t('roleCatalogue.whenToAsk')}: ${qa.whenToAsk}`)).toBeTruthy();
   });
   it('starts a general conversation and opens the session', async () => {
     const p = mockProject();

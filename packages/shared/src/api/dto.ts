@@ -202,6 +202,8 @@ export const RoleView = z.object({
   name: z.string(),
   summary: z.string(),
   notTheirJob: z.string(),
+  /** When to turn to a member holding the role; omitted by older servers. */
+  whenToAsk: z.string().optional(),
   holders: RoleHolders,
   builtIn: z.boolean(),
   duties: z.array(DutyId).optional(),

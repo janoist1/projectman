@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useBoard, useSendTeamMessage } from '../../api/queries';
+import { useBoard, useRoles, useSendTeamMessage } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
@@ -7,6 +7,7 @@ import { SelectField, TextAreaField } from '../../components/Field';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
+import { whenToAsk } from '../../lib/roles';
 import styles from './MessageComposer.module.css';
 
 export function MessageComposer({
@@ -20,6 +21,7 @@ export function MessageComposer({
 }) {
   const { key, myHandle, me } = useProject();
   const board = useBoard(key);
+  const roles = useRoles(key);
   const send = useSendTeamMessage(key);
   const toast = useToast();
   const [to, setTo] = useState(initialTo);
@@ -51,21 +53,29 @@ export function MessageComposer({
     >
       <fieldset className={styles.recipients} disabled={send.isPending}>
         <legend>{t('messages.recipients')}</legend>
-        {recipients.map((member) => (
-          <label key={member.handle} className={styles.recipient}>
-            <input
-              type="checkbox"
-              checked={to.includes(member.handle)}
-              onChange={(event) =>
-                setTo(event.target.checked ? [...to, member.handle] : to.filter((h) => h !== member.handle))
-              }
-            />
-            <Avatar member={member} size="sm" />
-            <span>
-              {member.displayName} <small>{member.handle}</small>
-            </span>
-          </label>
-        ))}
+        {recipients.map((member) => {
+          const ask = whenToAsk(member.roles, roles.data?.roles);
+          return (
+            <label key={member.handle} className={styles.recipient}>
+              <input
+                type="checkbox"
+                checked={to.includes(member.handle)}
+                onChange={(event) =>
+                  setTo(event.target.checked ? [...to, member.handle] : to.filter((h) => h !== member.handle))
+                }
+              />
+              <Avatar member={member} size="sm" />
+              <span>
+                {member.displayName} <small>{member.handle}</small>
+                {ask ? (
+                  <small className={styles.whenToAsk}>
+                    {t('roleCatalogue.whenToAsk')}: {ask}
+                  </small>
+                ) : null}
+              </span>
+            </label>
+          );
+        })}
       </fieldset>
       <SelectField
         label={t('messages.task')}

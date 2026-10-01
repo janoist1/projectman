@@ -1,4 +1,4 @@
-import { messageBurstOf } from '@projectman/shared';
+import { DEFAULT_AUTO_COMPACT_WINDOW_TOKENS, messageBurstOf } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import { useRoles } from '../../../api/queries';
 import { useProject } from '../../../app/contexts';
@@ -155,6 +155,25 @@ function LimitsEditor({ draft, change, isOwner }: SectionEditorProps) {
           />
         </label>
       ) : null}
+      <p id="auto-compact-help">{t('settings.limits.autoCompactWindowHelp')}</p>
+      <label className={shared.field}>
+        {t('settings.limits.autoCompactWindow')}
+        <input
+          type="number"
+          min={100_000}
+          max={1_000_000}
+          step={10_000}
+          placeholder={String(DEFAULT_AUTO_COMPACT_WINDOW_TOKENS)}
+          aria-describedby="auto-compact-help"
+          value={limits.autoCompactWindowTokens ?? ''}
+          onChange={(event) =>
+            change((config) => {
+              if (event.target.value === '') delete config.team.limits.autoCompactWindowTokens;
+              else config.team.limits.autoCompactWindowTokens = Number(event.target.value);
+            })
+          }
+        />
+      </label>
       <p id="message-burst-help">{t('settings.limits.messageBurstHelp')}</p>
       <label className={shared.field}>
         {t('settings.limits.messageBurstCount')}
@@ -291,6 +310,14 @@ export function LimitsSection({ config }: { config: ProjectConfig }) {
                 : t('settings.limits.warnAboveSessionTokensValue', {
                     count: formatTokens(limits.warnAboveSessionTokens),
                   })}
+            </dd>
+          </div>
+          <div>
+            <dt>{t('settings.limits.autoCompactWindow')}</dt>
+            <dd>
+              {t('settings.limits.autoCompactWindowValue', {
+                count: formatTokens(limits.autoCompactWindowTokens ?? DEFAULT_AUTO_COMPACT_WINDOW_TOKENS),
+              })}
             </dd>
           </div>
           <div>

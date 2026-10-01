@@ -287,6 +287,28 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     expect(env.no_proxy.split(',')).toEqual(expect.arrayContaining(['127.0.0.1', 'localhost', '::1']));
   });
 
+  it('gives the fake claude the compaction window in --settings, on a new and a resumed session (PM-212)', async () => {
+    await setup();
+    const s = spec({ autoCompactWindowTokens: 200_000 });
+    await runner.runner.start(s);
+    await waitState(s.sessionId, 'idle');
+    const settingsOf = async () => {
+      const { argv } = JSON.parse(await readFile(argsFile, 'utf8')) as { argv: string[] };
+      return { argv, settings: JSON.parse(argv[argv.indexOf('--settings') + 1]!) };
+    };
+    const fresh = await settingsOf();
+    expect(fresh.argv).toContain('--session-id');
+    expect(fresh.settings.autoCompactWindow).toBe(200_000);
+    await runner.runner.stop(s.sessionId);
+
+    await runner.runner.start({ ...s, resume: true, autoCompactWindowTokens: 150_000 });
+    await waitState(s.sessionId, 'idle');
+    const resumed = await settingsOf();
+    expect(resumed.argv).toContain('--resume');
+    expect(resumed.settings.autoCompactWindow).toBe(150_000);
+    await runner.runner.stop(s.sessionId, { force: true });
+  });
+
   it('queues messages while working and types long, multi-line text without paste collapse', async () => {
     await setup();
     const s = spec();

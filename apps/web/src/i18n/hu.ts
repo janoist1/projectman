@@ -795,6 +795,11 @@ export const hu = {
     edit: 'Szerkesztés',
     roles: 'Betöltött szerepek',
     instructions: 'Saját utasítások',
+    autoCompactWindow: 'A beszélgetés tömörítése e méret fölött (token)',
+    autoCompactWindowHint:
+      'Üresen hagyva a projekt értéke érvényes (a projekt korlátainál, alapból 200 000). 100 000 és 1 000 000 között adható meg.',
+    autoCompactWindowCodex: 'Csak a Claude-tagoknál hat; a Codex-tagok beszélgetését ez nem tömöríti.',
+    autoCompactWindowPlaceholder: 'a projekt értéke',
     save: 'Mentés',
     saved: 'A tag adatai mentve.',
   },
@@ -1584,6 +1589,10 @@ export const hu = {
         'Ha megadsz egy határt, és egy munkamenet fogyasztása eléri, egyszer jelzést kapsz a Rád vár listában. A munkamenet nem áll meg. A gyorsítótárból olvasott tokenek egytizedükkel számítanak.',
       warnAboveSessionTokens: 'Figyelmeztetés munkamenetenként e fölött (token)',
       warnAboveSessionTokensValue: '{count} token',
+      autoCompactWindow: 'A beszélgetés tömörítése e méret fölött (token)',
+      autoCompactWindowHelp:
+        'A Claude Code ekkora beszélgetésnél tömöríti a tag beszélgetését, így az nem nő a végtelenségig, és a lépések kevesebbet olvasnak újra. Üresen hagyva 200 000 token érvényes. 100 000 és 1 000 000 között adható meg. Csak a Claude-tagokra hat, a Codex-tagokra nem. A tag beállításai között tagonként felülírható.',
+      autoCompactWindowValue: '{count} token',
       messageBurst: 'Üzenetvihar-jelzés',
       messageBurstHelp:
         'Ha egy kártyán ennyi csapatüzenet és jegyzet születik ennyi perc alatt (az emberek közti beszélgetést is beleértve), egyszer jelzést kapsz a Rád vár listában. Semmi nem áll meg.',

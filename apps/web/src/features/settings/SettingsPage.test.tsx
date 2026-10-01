@@ -123,6 +123,33 @@ describe('settings section editors', () => {
     expect(project.backend.config.team.limits.maxConcurrentAi).toBe(4);
   });
 
+  it('sets the compaction window of conversations and removes it again (PM-212)', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    let section = await editSection('limits');
+    const field = () => section.getByLabelText(t('settings.limits.autoCompactWindow')) as HTMLInputElement;
+    // Not set in the mock project: the field is empty and names the default.
+    expect(field().value).toBe('');
+    expect(field().placeholder).toBe('200000');
+    expect(section.getByText(t('settings.limits.autoCompactWindowHelp'))).toBeTruthy();
+    fireEvent.change(field(), { target: { value: '300000' } });
+    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
+    await section.findByText(
+      t('settings.limits.autoCompactWindowValue', { count: formatTokens(300_000) }).replace(/\s/g, ' '),
+    );
+    expect(lastConfigPatch(project.requests).limits).toMatchObject({ autoCompactWindowTokens: 300_000 });
+    expect(project.backend.config.team.limits.autoCompactWindowTokens).toBe(300_000);
+
+    section = await editSection('limits');
+    fireEvent.change(field(), { target: { value: '' } });
+    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
+    await section.findByText(
+      t('settings.limits.autoCompactWindowValue', { count: formatTokens(200_000) }).replace(/\s/g, ' '),
+    );
+    expect(lastConfigPatch(project.requests).limits).toMatchObject({ autoCompactWindowTokens: null });
+    expect(project.backend.config.team.limits).not.toHaveProperty('autoCompactWindowTokens');
+  });
+
   it("sets and removes the warning limit of a session's tokens (PM-187)", async () => {
     const project = mockProject();
     project.render(<SettingsPage />);

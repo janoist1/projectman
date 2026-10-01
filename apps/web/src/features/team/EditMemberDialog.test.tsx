@@ -37,6 +37,39 @@ describe('EditMemberDialog', () => {
     expect(project.backend.findMember('qa')?.effort).toBeUndefined();
   });
 
+  it('saves the compaction window of a Claude member, clears it, and says it is for Claude members only (PM-212)', async () => {
+    const project = mockProject();
+    const config = project.backend.config.team.members.find((member) => member.handle === 'qa')!;
+    if (config.kind !== 'ai') throw new Error('Expected AI fixture');
+    project.render(
+      <EditMemberDialog
+        member={project.backend.findMember('qa')!}
+        config={project.backend.config}
+        roles={builtInRoles}
+        onClose={() => {}}
+      />,
+    );
+    const field = screen.getByLabelText(t('memberEdit.autoCompactWindow')) as HTMLInputElement;
+    expect(field.value).toBe('');
+    expect(field.disabled).toBe(false);
+    expect(screen.getByText(t('memberEdit.autoCompactWindowHint'))).toBeTruthy();
+    fireEvent.change(field, { target: { value: '150000' } });
+    fireEvent.click(screen.getByRole('button', { name: t('memberEdit.save') }));
+    await waitFor(() => expect(config.autoCompactWindowTokens).toBe(150_000));
+    expect(project.backend.findMember('qa')?.autoCompactWindowTokens).toBe(150_000);
+    fireEvent.change(field, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: t('memberEdit.save') }));
+    await waitFor(() => expect(config.autoCompactWindowTokens).toBeUndefined());
+    expect(project.requests.filter((request) => request.method === 'PATCH').at(-1)?.body).toMatchObject({
+      autoCompactWindowTokens: null,
+    });
+
+    // A Codex member's conversation is not compacted by this setting: the field says so.
+    fireEvent.change(screen.getByLabelText(t('providerSettings.provider')), { target: { value: 'codex' } });
+    expect(field.disabled).toBe(true);
+    expect(screen.getByText(t('memberEdit.autoCompactWindowCodex'))).toBeTruthy();
+  });
+
   it('saves the cheap subagent of a Claude member and switches it off (PM-179)', async () => {
     const project = mockProject();
     const config = project.backend.config.team.members.find((member) => member.handle === 'qa')!;

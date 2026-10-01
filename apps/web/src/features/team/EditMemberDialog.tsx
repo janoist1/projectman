@@ -60,6 +60,10 @@ function EditMemberForm({
   const [cheapSubagent, setCheapSubagent] = useState<CheapSubagentModel | undefined>(
     ai?.cheapSubagent ?? member.cheapSubagent,
   );
+  // Empty: the project's value (a string, so a half-typed number stays as typed).
+  const [compactWindow, setCompactWindow] = useState(
+    String(ai?.autoCompactWindowTokens ?? member.autoCompactWindowTokens ?? ''),
+  );
   const [model, setModel] = useState(ai?.model ?? member.model ?? DEFAULT_PROVIDER_MODELS[provider]);
   const [instructions, setInstructions] = useState(ai?.instructions ?? '');
   const [schedule, setSchedule] = useState<ScheduleDraft>({
@@ -81,6 +85,7 @@ function EditMemberForm({
                 specialty: specialty.trim(),
                 provider,
                 effort: effort ?? null,
+                autoCompactWindowTokens: compactWindow.trim() ? Number(compactWindow) : null,
                 cheapSubagent: cheapSubagent ?? null,
                 model: model.trim(),
                 instructions: instructions.trim(),
@@ -155,6 +160,23 @@ function EditMemberForm({
             onEffortChange={setEffort}
             cheapSubagent={cheapSubagent}
             onCheapSubagentChange={setCheapSubagent}
+          />
+          <TextField
+            label={t('memberEdit.autoCompactWindow')}
+            hint={t(
+              provider === 'claude'
+                ? 'memberEdit.autoCompactWindowHint'
+                : 'memberEdit.autoCompactWindowCodex',
+            )}
+            type="number"
+            min={100_000}
+            max={1_000_000}
+            step={10_000}
+            placeholder={t('memberEdit.autoCompactWindowPlaceholder')}
+            // Kept as it is for a Codex member: it has no effect there.
+            disabled={provider !== 'claude'}
+            value={compactWindow}
+            onChange={(event) => setCompactWindow(event.target.value)}
           />
           <TextAreaField
             label={t('memberEdit.instructions')}

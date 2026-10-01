@@ -168,6 +168,46 @@ describe('provider-neutral session policy', () => {
     ).toEqual(['gh pr view:*', 'gh pr diff:*']);
   });
 
+  it("reads the user's core.excludesfile and runs no automatic gc in a developer's sandbox (PM-216)", () => {
+    const home = '/fictional/user';
+    const paths = { userHome: home, defaultBranch: 'main' };
+    expect(sessionSandbox(development(), paths)!.allowRead).not.toContain(`${home}/.gitignore_global`);
+    const sandbox = sessionSandbox(development(), { ...paths, excludesFile: `${home}/.gitignore_global` })!;
+    expect(sandbox.allowRead).toContain(`${home}/.gitignore_global`);
+    // Only that file: the home stays closed, and the protections of the shared git directory stay.
+    expect(sandbox.denyRead).toContain(home);
+    expect(sandbox.allowRead).not.toContain(home);
+    expect(sandbox.denyWrite).toContain(`${sharedGit}/packed-refs`);
+    expect(sandbox.denyWrite).toContain(`${sharedGit}/packed-refs.lock`);
+    // A file in a denied path or the app home is not re-opened.
+    const denied = sessionSandbox(
+      buildSessionPolicy({
+        config: testConfig(),
+        role: 'developer',
+        task: { repo: 'web' },
+        placement: { kind: 'task_worktree', path: source, gitDir: sharedGit },
+        permissionMode: 'acceptEdits',
+        deniedPaths: [`${home}/.ssh`],
+      }),
+      { ...paths, appHome: '/fictional/app', excludesFile: `${home}/.ssh/ignore` },
+    )!;
+    expect(denied.allowRead).not.toContain(`${home}/.ssh/ignore`);
+    expect(
+      sessionSandbox(development(), {
+        ...paths,
+        appHome: '/fictional/app',
+        excludesFile: '/fictional/app/x',
+      })!.allowRead,
+    ).not.toContain('/fictional/app/x');
+    expect(sandbox.env).toMatchObject({
+      GIT_CONFIG_COUNT: '2',
+      GIT_CONFIG_KEY_0: 'gc.auto',
+      GIT_CONFIG_VALUE_0: '0',
+      GIT_CONFIG_KEY_1: 'maintenance.auto',
+      GIT_CONFIG_VALUE_1: 'false',
+    });
+  });
+
   it('resolves mixed/custom duty bundles instead of role names', () => {
     const config = testConfig();
     config.team.roles.push({

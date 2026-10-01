@@ -189,7 +189,10 @@ version must be checked again (SANDBOX-PROBE.md). A local-only repository gets n
 user's home and the app home but its worktree, its task's attachments, its own npm cache and
 development data (below), the shared git directory, `~/.gitconfig`, `~/.config/git` and Claude
 Code's shell snapshots (`~/.claude/shell-snapshots`, sourced before every command; they hold the
-shell's functions, aliases and options). Other worktrees, the app's data, the integrating checkout and the
+shell's functions, aliases and options) and the one file the user's git configuration names as
+`core.excludesfile` (PM-216; git warns about it in every command otherwise; not when it lies in a
+denied path or the app home). Its git environment sets `gc.auto=0` and `maintenance.auto=false`:
+an automatic `pack-refs` after a commit would only fail at the denied `packed-refs`. Other worktrees, the app's data, the integrating checkout and the
 credentials stay closed; a credential path stays in `denyRead` as well, and the narrower path
 wins, so nothing re-opens it. Its commands never write the default branch and the integrating
 checkout's `HEAD`, `index` and `packed-refs` (with their lock files) in the shared git directory,

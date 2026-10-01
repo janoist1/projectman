@@ -54,6 +54,7 @@ import { encodeWorkItem } from '../db';
 import { requireAiMember } from './access';
 import { assertAiEnabled, assertNotOnLeave, assertRepoChosen } from './admission/rules';
 import { isoNow } from './context';
+import { userExcludesFile } from './git-excludes';
 import type { DomainContext } from './context';
 import { conflict, DomainError, notFound } from './errors';
 import type { MemberService } from './members';
@@ -1115,6 +1116,7 @@ export class SessionOrchestrator {
       !vm && !this.managed && policy.access === 'task_worktree' && this.deps.appHome
         ? this.prepareMemberSandboxDir(this.deps.appHome, projectKey, member.handle)
         : undefined;
+    const excludesFile = userExcludesFile(userHome);
     const sandbox =
       vm || this.managed
         ? undefined
@@ -1123,6 +1125,7 @@ export class SessionOrchestrator {
             ...(this.deps.appHome ? { appHome: this.deps.appHome } : {}),
             ...(repoName ? { defaultBranch: repoOf(config, repoName)?.defaultBranch } : {}),
             ...(memberDir ? { memberDir } : {}),
+            ...(excludesFile ? { excludesFile } : {}),
             github: Boolean(repoOf(config, effectiveRepo(config, task))?.github),
             // A reader changes no checkout of the project or the installation (PM-188).
             readerDenyWrite: [config.project.workspacePath, ...(this.deps.readerDenyWrite ?? [])],

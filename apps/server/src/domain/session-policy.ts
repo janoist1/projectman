@@ -81,6 +81,21 @@ export const SANDBOX_PTY_ENV = { [PTY_SKIP_VARIABLE]: '1' } as const;
 export const SANDBOX_HOME_READS = ['.gitconfig', '.config/git', '.claude/shell-snapshots'];
 
 /**
+ * Git settings of a developer's sandboxed commands (PM-216), through git's own environment
+ * configuration: no automatic gc or maintenance. After a commit git would run `gc --auto`, whose
+ * `pack-refs` rewrites the shared `packed-refs` (denied, `sharedGitDenials`) and ends in
+ * "Unable to create packed-refs.lock" although the commit exists. Every `GIT_CONFIG_*` variable of
+ * a session is set here, so none of them is overwritten.
+ */
+export const SANDBOX_GIT_ENV = {
+  GIT_CONFIG_COUNT: '2',
+  GIT_CONFIG_KEY_0: 'gc.auto',
+  GIT_CONFIG_VALUE_0: '0',
+  GIT_CONFIG_KEY_1: 'maintenance.auto',
+  GIT_CONFIG_VALUE_1: 'false',
+} as const;
+
+/**
  * A member's own directory for what its sandboxed commands keep between sessions (PM-193): its npm
  * cache and its development instance's data. Nothing outside a sandbox runs or loads them; the
  * user's `~/.npm` (whose `_npx` the host's `npx` runs code from) and `~/.projectman-dev` (the host's
@@ -134,6 +149,11 @@ export interface SandboxPaths {
    * `MEMBER_SANDBOX_DIRS`; absent (no app home), the commands keep no npm cache or development data.
    */
   memberDir?: string;
+  /**
+   * The user's `core.excludesfile` (`userExcludesFile`, PM-216): read-only for the commands, so git
+   * does not warn about it. Left out when it lies in a denied path or in the app home.
+   */
+  excludesFile?: string;
 }
 
 /**
@@ -155,7 +175,7 @@ export interface SandboxPaths {
  *   local port (decision 24).
  */
 function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandbox {
-  const { userHome, appHome, defaultBranch, memberDir } = paths;
+  const { userHome, appHome, defaultBranch, memberDir, excludesFile } = paths;
   const denied = policy.filesystem.deniedPaths ?? [];
   const gitDir = policy.placement.kind === 'task_worktree' ? policy.placement.gitDir : undefined;
   const own = memberDir
@@ -167,6 +187,7 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
     ...own.map((dir) => dir.path),
     ...(gitDir ? [gitDir] : []),
     ...SANDBOX_HOME_READS.map((name) => path.join(userHome, name)),
+    ...(excludesFile && !(appHome && isWithin(appHome, excludesFile)) ? [excludesFile] : []),
   ].filter((dir) => !isWithinAny(denied, dir));
   return {
     allowWrite: own.map((dir) => dir.path).filter((dir) => !isWithinAny(denied, dir)),
@@ -175,7 +196,11 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
       ...new Set([userHome, ...(appHome && !isWithin(userHome, appHome) ? [appHome] : []), ...denied]),
     ],
     allowRead: [...new Set(allowRead)],
-    env: { ...Object.fromEntries(own.map((dir) => [dir.variable, dir.path])), ...SANDBOX_PTY_ENV },
+    env: {
+      ...Object.fromEntries(own.map((dir) => [dir.variable, dir.path])),
+      ...SANDBOX_PTY_ENV,
+      ...SANDBOX_GIT_ENV,
+    },
     deniedEnvVars: [...SANDBOX_DENIED_ENV_VARS],
     allowedDomains: [...SANDBOX_ALLOWED_DOMAINS],
     allowLocalBinding: true,

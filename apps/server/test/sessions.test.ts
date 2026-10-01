@@ -12,6 +12,7 @@ import {
   DomainError,
   LOCAL_ONLY_DENIED_TOOLS,
   SANDBOX_DENIED_ENV_VARS,
+  SANDBOX_GIT_ENV,
   SANDBOX_PTY_ENV,
   sensitivePaths,
 } from '../src/domain';
@@ -408,7 +409,12 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
   const common = () => ({
     // Neither `~/.npm` (the host's `npx` runs code from its `_npx`) nor `~/.projectman-dev`.
     allowWrite: memberDirs(),
-    env: { npm_config_cache: memberDirs()[0], PROJECTMAN_HOME: memberDirs()[1], ...SANDBOX_PTY_ENV },
+    env: {
+      npm_config_cache: memberDirs()[0],
+      PROJECTMAN_HOME: memberDirs()[1],
+      ...SANDBOX_PTY_ENV,
+      ...SANDBOX_GIT_ENV,
+    },
     deniedEnvVars: SANDBOX_DENIED_ENV_VARS,
     allowedDomains: ['registry.npmjs.org'],
     allowLocalBinding: true,
@@ -478,7 +484,18 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
     await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: task.key });
     const sandbox = h.runner.lastStarted().sandbox!;
     expect(sandbox.allowWrite).toEqual([]);
-    expect(sandbox.env).toEqual(SANDBOX_PTY_ENV);
+    expect(sandbox.env).toEqual({ ...SANDBOX_PTY_ENV, ...SANDBOX_GIT_ENV });
+  });
+
+  it("reads the user's core.excludesfile and nothing else of the home (PM-216)", async () => {
+    writeFileSync(join(home, '.gitconfig'), '[core]\n\texcludesfile = ~/.gitignore_global\n');
+    h = await createDomainHarness({ userHome: home, appHome });
+    const task = await h.domain.tasks.create('AR', { title: 'With repo', repo: 'web' }, OWNER_ACTOR);
+    await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: task.key });
+    const sandbox = h.runner.lastStarted().sandbox!;
+    expect(sandbox.allowRead).toContain(join(home, '.gitignore_global'));
+    expect(sandbox.allowRead).not.toContain(home);
+    expect(sandbox.denyRead).toContain(home);
   });
 
   it("gives a reader no npm cache or development data of the member's (PM-193)", async () => {

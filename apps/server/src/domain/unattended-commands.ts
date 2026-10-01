@@ -30,6 +30,12 @@ export interface UnattendedCommandsInput {
    * any arguments), as `allowedToolsFor` lists them.
    */
   preApproved?: readonly string[];
+  /**
+   * The member runs in Codex: its sandbox runs commands on its own, and only what the sandbox does
+   * not allow (a write outside the working directory such as the shared `.git`, the network) is an
+   * escalation that waits for a human.
+   */
+  codex?: boolean;
 }
 
 /**
@@ -57,7 +63,7 @@ export const PROJECT_CHECK_COMMANDS: readonly string[] = [
 
 /** The lines of the section, without its heading; the caller joins them. */
 export function describeUnattendedCommands(input: UnattendedCommandsInput): string[] {
-  const { worktree, hasRepo, defaultBranch, localOnly } = input;
+  const { worktree, hasRepo, defaultBranch, localOnly, codex } = input;
   const where =
     worktree && hasRepo
       ? "your working directory (the task's worktree)"
@@ -71,7 +77,9 @@ export function describeUnattendedCommands(input: UnattendedCommandsInput): stri
   );
 
   const lines = [
-    'Every other shell command waits in a human inbox until someone approves it, and the owner is often away: a blocked session can lose hours. So write your commands in the forms below. The server judges the command text only, not what it would do.',
+    codex
+      ? 'Your sandbox runs commands on its own as far as it allows them. What it does not allow (a write outside your working directory such as the shared .git, the network) is an escalation, and an escalation waits in a human inbox until someone approves it, unless it is one of the forms below; the owner is often away, so a blocked session can lose hours. So write those commands in the forms below. The server judges the command text only, not what it would do.'
+      : 'Every other shell command waits in a human inbox until someone approves it, and the owner is often away: a blocked session can lose hours. So write your commands in the forms below. The server judges the command text only, not what it would do.',
     `- Reading: read-only commands run without asking in ${where}. They are ${code('git')} with ${gitReaders.map(code).join(', ')} (and ${code('git branch')} only to list); ${READ_ONLY_PROGRAMS.map(code).join(', ')} (${code('find')} without ${code('-exec')} or ${code('-delete')}, ${code('sort')} without ${code('-o')}, ${code('tail')} without ${code('-f')}, ${code('xargs')} only after a lister such as ${code('git ls-files')}); no ${code('git -c')}, no ${code('--output')}.`,
     `- Project checks: ${PROJECT_CHECK_COMMANDS.map(code).join(', ')}, without ${NPX_REFUSED_OPTIONS.map(code).join(', ')}.${
       extras.length > 0
@@ -85,14 +93,14 @@ export function describeUnattendedCommands(input: UnattendedCommandsInput): stri
       defaultBranch ? ' (or a commit id)' : ''
     } with ${flagList(MERGE_FLAGS)} if you like`;
     lines.push(
-      `- Your routine steps in your own worktree: ${code('npm ci')} or ${code('npm install')} (only with ${flagList(INSTALL_FLAGS)}), ${code('git add')} (${flagList(ADD_FLAGS)} or paths inside the worktree), ${code('git commit -m "message"')} (also ${flagList(COMMIT_FLAGS)}; a message of several lines inside the quotes is fine, so is a second ${code('-m')}; no ${code('--amend')}, ${code('--no-verify')} or ${code('-F')}), ${merge}. Each is one command. It may be followed by ${code('2>&1')} and a pipe into readers that only filter its output (${code('npm install --prefer-offline --no-audit --no-fund 2>&1 | tail -3')}), but a ${code('tee')} or any other writer after the pipe waits for a human. Readers may stand between them in a chain.`,
+      `- Your routine steps in your own worktree: ${code('npm ci')} or ${code('npm install')} (only with ${flagList(INSTALL_FLAGS)}), ${code('git add')} (${flagList(ADD_FLAGS)} or paths inside the worktree), ${code('git commit -m "message"')} (also ${flagList(COMMIT_FLAGS)}; a message of several lines inside the quotes is fine, so is a second ${code('-m')}; no ${code('--amend')}, ${code('--no-verify')} or ${code('-F')}), ${merge}. Each is one command. It may be followed by ${code('2>&1')} and a pipe into readers that only filter its output (${code('npm install --prefer-offline --no-audit --no-fund 2>&1 | tail -3')}), but a ${code('tee')} or any other writer after the pipe waits for a human. Readers may stand between them in a chain. A chain with a routine step may start with ${code('cd')} to the working directory itself and has no other ${code('cd')}: ${code('cd apps/server && npx vitest run && git add -A')} waits for a human.`,
     );
   }
   lines.push(
     `- Chaining: ${code('&&')}, ${code('||')} and ${code(';')} between commands, ${code('|')} between the stages of a pipeline, all on one line (a newline between commands is refused). Redirections: only ${SHELL_REDIRECTIONS.map(code).join(', ')}.`,
     `- Quotes: put a pattern or a message in single quotes, which are literal: ${code("grep -n 'task\\.(edit|save)' src")}. Double quotes work too, but a ${code('$')} or a backtick inside them refuses the command, and a backslash there escapes only ${code('$')}, a backtick, ${code('"')} and ${code('\\')}. A text with an apostrophe goes in double quotes.`,
     `- Paths: relative or absolute, but inside the directories above; no ${code('~')}, no ${code('..')} behind a directory name. ${code('cd')} only into such a directory; ${code('git -C <dir>')} only when the directory is the one you are in.`,
-    `- Never without asking: interpreters and shells (${code('python')}, ${code('node')}, ${code('perl')}, ${code('sed')}, ${code('bash -c')}), shell variables and substitution (${code('$VAR')}, ${code('$(...)')}, backticks), ${code('{a,b}')} braces, ${code('~')}, ${code('!')}, a single ${code('&')}, here-documents and any redirection into a file (${code('>')}, ${code('>>')}, ${code('<')}). Change files with your file-editing tools, not through the shell.`,
+    `- ${codex ? 'Never without asking, as an escalation' : 'Never without asking'}: interpreters and shells (${code('python')}, ${code('node')}, ${code('perl')}, ${code('sed')}, ${code('bash -c')}), shell variables and substitution (${code('$VAR')}, ${code('$(...)')}, backticks), ${code('{a,b}')} braces, ${code('~')}, ${code('!')}, a single ${code('&')}, here-documents and any redirection into a file (${code('>')}, ${code('>>')}, ${code('<')}). Change files with your file-editing tools, not through the shell.`,
   );
   lines.push(
     `- Refused without asking anyone: a command that rewrites a file in place (${code('sed -i')}, ${code('sed --in-place')}, ${code('perl -i')}, ${code('perl -pi -e ...')}), alone or in a chain. It is answered at once with a pointer to your ${code('Edit')} and ${code('Write')} tools, which need no permission: use them.`,

@@ -485,6 +485,8 @@ describe('system prompt', () => {
       const text = commandsOf({ project, member });
       expect(text).toContain('`git commit -m "message"`');
       expect(text).not.toContain('Claude Code');
+      expect(text).toContain('Your sandbox runs commands on its own');
+      expect(text).not.toContain('Every other shell command');
     });
 
     it('is left out of work that is not a task', () => {

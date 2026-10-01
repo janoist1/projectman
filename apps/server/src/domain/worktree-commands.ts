@@ -15,7 +15,7 @@ export const INSTALL_FLAGS = new Set(['--prefer-offline', '--no-audit', '--no-fu
 export const ADD_FLAGS = new Set(['-A', '--all', '-u', '--update']);
 export const COMMIT_FLAGS = new Set(['-a', '--all', '-q', '--quiet']);
 /** Options that take the commit message as the next word. */
-export const COMMIT_MESSAGE_FLAGS = new Set(['-m', '-am', '--message']);
+const COMMIT_MESSAGE_FLAGS = new Set(['-m', '-am', '--message']);
 export const MERGE_FLAGS = new Set(['-q', '--quiet']);
 const COMMIT_ID = /^[0-9a-f]{7,40}$/i;
 

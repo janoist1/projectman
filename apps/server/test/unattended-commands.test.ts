@@ -133,6 +133,9 @@ describe('commands that run without asking: the rules the section lists', () => 
     'git -C /elsewhere status',
     'git -c core.pager=x log',
     'git merge --ff-only feature',
+    // A routine step allows only a first `cd` to the working directory itself.
+    'cd apps/server && npx vitest run && git add -A',
+    `cd ${worktree} && git add -A && cd apps && git commit -m "x"`,
     'git push',
     'npm install left-pad',
     'cat ../outside',
@@ -181,6 +184,27 @@ describe('commands that run without asking: the section', () => {
     const noRepo = section({ worktree: true, hasRepo: false }).join('\n');
     expect(noRepo).not.toContain('git commit');
     expect(noRepo).toContain('in your working directory.');
+  });
+
+  it('says a routine chain may start with a cd to the working directory only', () => {
+    const text = section().join('\n');
+    expect(text).toContain('`cd apps/server && npx vitest run && git add -A` waits for a human');
+    expect(allowed('developer', `cd ${worktree} && npx vitest run && git add -A`)).toBe(true);
+    expect(allowed('developer', 'cd apps/server && npx vitest run && git add -A')).toBe(false);
+    expect(section({ worktree: false }).join('\n')).not.toContain('git add -A');
+  });
+
+  it("words the introduction for a Codex member's sandbox", () => {
+    const claude = section().join('\n');
+    expect(claude).toContain('Every other shell command waits in a human inbox');
+    expect(claude).toContain('- Never without asking: ');
+    const codex = section({ codex: true }).join('\n');
+    expect(codex).not.toContain('Every other shell command');
+    expect(codex).toContain('Your sandbox runs commands on its own');
+    expect(codex).toContain('an escalation waits in a human inbox');
+    expect(codex).toContain('- Never without asking, as an escalation: ');
+    // The rules themselves are the same for both.
+    expect(codex).toContain('`git commit -m "message"`');
   });
 
   it('says publishing is refused for a local-only repository only', () => {

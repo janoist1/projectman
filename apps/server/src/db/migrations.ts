@@ -274,6 +274,32 @@ export const migrations: Migration[] = [
         waiting     TEXT NOT NULL
       );`,
   },
+  {
+    version: 11,
+    name: 'task attachments',
+    // The file system and SQLite share no transaction, so a row carries a durable state:
+    // 'pending' (the upload is being written; recovered by removing it), 'ready' (the only
+    // readable state), 'deleting' (the intent to delete, with who asked, until the file is gone
+    // and the audit event is written). The id also names the file in storage.
+    sql: `CREATE TABLE attachments (
+        seq                 INTEGER PRIMARY KEY AUTOINCREMENT,
+        id                  TEXT NOT NULL UNIQUE,
+        project_key         TEXT NOT NULL REFERENCES projects(key),
+        task_key            TEXT NOT NULL REFERENCES tasks(key),
+        file_name           TEXT NOT NULL,
+        size                INTEGER NOT NULL,
+        media_type          TEXT NOT NULL,
+        preview             TEXT NOT NULL CHECK(preview IN ('image', 'pdf', 'none')),
+        uploaded_by_kind    TEXT NOT NULL CHECK(uploaded_by_kind IN ('human', 'ai', 'system')),
+        uploaded_by_handle  TEXT,
+        created_at          TEXT NOT NULL,
+        state               TEXT NOT NULL CHECK(state IN ('pending', 'ready', 'deleting')),
+        deleted_by_kind     TEXT,
+        deleted_by_handle   TEXT,
+        delete_requested_at TEXT
+      );
+      CREATE INDEX attachments_task ON attachments(project_key, task_key, state, seq);`,
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

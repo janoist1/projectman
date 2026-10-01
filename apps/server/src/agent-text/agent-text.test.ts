@@ -125,6 +125,12 @@ describe('describeEvent', () => {
     expect(describeEvent(event('task_created', {}), 100)).toBe('created the task');
   });
 
+  it('words attachment events with the file name kept in the audit', () => {
+    const data = { attachmentId: 'att_1234567890', fileName: 'plan.png', size: 5, mediaType: 'image/png' };
+    expect(describeEvent(event('attachment_added', data), 100)).toBe('attached the file plan.png');
+    expect(describeEvent(event('attachment_deleted', data), 100)).toBe('deleted the attachment plan.png');
+  });
+
   it('says why a task was updated when the event tells', () => {
     const updated = (data: Record<string, unknown>) =>
       describeEvent(event('task_updated', { fields: ['status'], ...data }), 100, named);

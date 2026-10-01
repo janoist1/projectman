@@ -1,3 +1,4 @@
+import { canSeeTask } from '@projectman/shared';
 import type {
   InboxItem,
   ServerEvent,
@@ -31,10 +32,8 @@ export function isClient(viewer: Viewer): boolean {
   return viewer.access === 'client';
 }
 
-/** Internal tasks are hidden from client members. */
-export function canSeeTask(viewer: Viewer, task: Task): boolean {
-  return !isClient(viewer) || task.visibility === 'shared';
-}
+/** Internal tasks are hidden from client members (the rule lives in `packages/shared`). */
+export { canSeeTask };
 
 /** A client sees only the inbox items assigned to them. */
 export function canSeeInboxItem(viewer: Viewer, item: InboxItem): boolean {
@@ -55,6 +54,8 @@ const CLIENT_TASK_TIMELINE = new Set<TimelineEvent['type']>([
   'task_created',
   'task_stage_changed',
   'task_check_changed',
+  'attachment_added',
+  'attachment_deleted',
 ]);
 
 /** The main milestones of a task, the part of its timeline a client sees in the task detail. */
@@ -75,12 +76,24 @@ export function visibleTaskDetail(viewer: Viewer, detail: TaskDetail): TaskDetai
   };
 }
 
-/** Whether a live event of the viewer's project reaches them (websocket). */
-export function canSeeProjectEvent(viewer: Viewer, event: ProjectEvent): boolean {
+/**
+ * Whether a live event of the viewer's project reaches them (websocket). `taskOf` reads a task as
+ * it is now: an event that names only a task (attachments changed) reaches a client only while
+ * that task is shared with them at delivery.
+ */
+export function canSeeProjectEvent(
+  viewer: Viewer,
+  event: ProjectEvent,
+  taskOf?: (taskKey: string) => Task | null | undefined,
+): boolean {
   if (!isClient(viewer)) return true;
   switch (event.type) {
     case 'task_upserted':
       return canSeeTask(viewer, event.task);
+    case 'task_attachments_changed': {
+      const task = taskOf?.(event.taskKey);
+      return task ? canSeeTask(viewer, task) : false;
+    }
     case 'inbox_upserted':
       return canSeeInboxItem(viewer, event.item);
     case 'team_message':

@@ -95,7 +95,10 @@ export function registerWebsocket(
             if (!client.projects.has(event.projectKey)) continue;
             const access = await domain.accessFor(event.projectKey, client.user.email).catch(() => null);
             if (!access) client.projects.delete(event.projectKey);
-            else if (canSeeProjectEvent(access, event)) send(client, event);
+            else if (
+              canSeeProjectEvent(access, event, (taskKey) => domain.tasks.find(event.projectKey, taskKey))
+            )
+              send(client, event);
           }
         }
       })

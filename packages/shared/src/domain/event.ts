@@ -22,6 +22,8 @@ export const TimelineEventType = z.enum([
   'task_labels_changed',
   'task_link_added',
   'task_note',
+  'attachment_added',
+  'attachment_deleted',
   'schedule_started',
   'schedule_skipped',
   'session_started',
@@ -100,6 +102,10 @@ export interface TimelineEventData {
   task_labels_changed: { added: string[]; removed: string[]; reason?: LabelChangeReason };
   task_link_added: { kind: string; ref: string; repo?: string };
   task_note: { text: string; mentions?: string[]; importedAuthor?: string; importedAt?: string };
+  /** The file name is the sanitised metadata; the audit keeps it after the attachment is deleted. */
+  attachment_added: { attachmentId: string; fileName: string; size: number; mediaType: string };
+  /** The actor is who deleted it; the uploader is in the matching `attachment_added`. */
+  attachment_deleted: { attachmentId: string; fileName: string; size: number; mediaType: string };
   schedule_started: { runId: string; member: string; scheduledFor: string };
   schedule_skipped: { runId: string; member: string; scheduledFor: string; reason: string };
   session_started: { member: string; resumed: boolean };

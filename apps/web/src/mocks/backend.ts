@@ -28,6 +28,7 @@ import {
   aiLimitReached,
   applyConfigPatch,
   approvalRefusal,
+  canSeeTask,
   commentMentions,
   configSchemaIssues,
   evaluateMove,
@@ -73,6 +74,7 @@ import type {
   ConfigVersionEntry,
   ErrorCode,
   GateEvaluation,
+  HumanAccess,
   GateRequestPayload,
   InboxItem,
   InvitationView as Invitation,
@@ -305,6 +307,12 @@ export class MockBackend {
     return this.members.find((member) => member.handle === handle);
   }
 
+  /** Whether the viewer may see the task: the rule the server uses (`packages/shared`). */
+  canSee(task: Task): boolean {
+    const viewer = this.findMember(this.viewerHandle);
+    return canSeeTask({ access: viewer?.kind === 'human' ? (viewer.role as HumanAccess) : 'ai' }, task);
+  }
+
   /** A session that has not exited or failed. */
   isLive(session: Session): boolean {
     return session.state !== 'exited' && session.state !== 'failed';
@@ -501,11 +509,7 @@ export class MockBackend {
         ...clone(label),
         holders: labelHolders(this.config, label),
       })),
-      tasks: clone(
-        this.tasks.filter(
-          (task) => this.findMember(this.viewerHandle)?.role !== 'client' || task.visibility === 'shared',
-        ),
-      ),
+      tasks: clone(this.tasks.filter((task) => this.canSee(task))),
       members: clone(this.members.filter((member) => member.status !== 'retired')),
       openInboxCount: this.inbox.filter(
         (item) => item.state === 'open' && item.assignees.includes(this.owner),
@@ -834,7 +838,7 @@ export class MockBackend {
       }
       if (m[2] === 'profile' && method === 'GET') {
         const internal = viewer.role !== 'client';
-        const visible = this.tasks.filter((t) => isOpenTask(t) && (internal || t.visibility === 'shared'));
+        const visible = this.tasks.filter((t) => isOpenTask(t) && this.canSee(t));
         const awaiting = new Set(
           this.inbox.filter((i) => i.state === 'open' && i.assignees.includes(handle)).map((i) => i.taskKey),
         );
@@ -2102,8 +2106,7 @@ export class MockBackend {
     if (!input) return error(400, 'invalid_request', 'Invalid message');
     if (input.taskKey) {
       const task = this.findTask(input.taskKey);
-      if (!task || (viewer.role === 'client' && task.visibility !== 'shared'))
-        return error(404, 'not_found', 'Unknown task');
+      if (!task || !this.canSee(task)) return error(404, 'not_found', 'Unknown task');
     }
     const refusal = this.teamMessageRefusal(this.viewerHandle, input.to, input.text);
     if (refusal) return refusal;

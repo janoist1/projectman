@@ -6,7 +6,7 @@ import { InboxItem } from '../domain/inbox';
 import { AgentProvider, MemberHandle, MemberStatus } from '../domain/member';
 import { TeamMessage } from '../domain/message';
 import { Session } from '../domain/session';
-import { Task } from '../domain/task';
+import { Task, TaskKey } from '../domain/task';
 
 /** Server -> browser events over the /ws websocket (JSON text frames). */
 export const ServerEvent = z.discriminatedUnion('type', [
@@ -53,6 +53,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
     rows: z.number().int(),
   }),
   z.object({ type: z.literal('config_changed'), projectKey: z.string(), version: z.string() }),
+  /** A task's attachments changed (after the commit); clients read the list again. No more than the key. */
+  z.object({ type: z.literal('task_attachments_changed'), projectKey: z.string(), taskKey: TaskKey }),
   z.object({ type: z.literal('error'), message: z.string() }),
 ]);
 export type ServerEvent = z.infer<typeof ServerEvent>;

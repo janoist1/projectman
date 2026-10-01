@@ -121,8 +121,12 @@ rule. The login is returned in `MemberView`; editing it currently uses config on
 
 For a consistent backup, stop the service and archive **all of `PROJECTMAN_HOME`**,
 then restart. This includes `db.sqlite` (and any WAL/SHM files), `customization/`
-**including `.git`**, `secret` (the cookie signing key), memory and worktrees. Also
-protect CLI transcripts/login state in the service user's home and project repositories.
+**including `.git`**, `secret` (the cookie signing key), memory, worktrees and
+`attachments/` (the files attached to tasks; the database holds their names and states, so the
+two belong to the same backup: a database restored without its files, or the other way round,
+leaves attachments that cannot be opened). Also protect CLI transcripts/login state in the
+service user's home and project repositories. On start the server cleans up the uploads and
+deletions that were cut short (it logs what it finds); a restored copy needs nothing else.
 Encrypt backups, restrict readers, and test restoring ownership/modes on an isolated host.
 Restoring a different secret invalidates existing browser logins. An online SQLite backup
 must use SQLite's backup API/`.backup`, never copy just the live database file.

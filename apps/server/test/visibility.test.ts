@@ -76,4 +76,40 @@ describe('client visibility', () => {
       true,
     ]);
   });
+
+  it('shows attachment events in a shared task of a client, and no other internal event', () => {
+    const detail = {
+      task: task('AR-1', 'shared'),
+      parent: null,
+      pullRequests: [],
+      timeline: [
+        'task_created',
+        'attachment_added',
+        'attachment_deleted',
+        'task_note',
+        'session_started',
+      ].map((type) => timeline(type as TimelineEvent['type'])),
+      sessions: [],
+    } as unknown as TaskDetail;
+    expect(visibleTaskDetail(client, detail).timeline).toEqual([
+      timeline('task_created'),
+      timeline('attachment_added'),
+      timeline('attachment_deleted'),
+    ]);
+  });
+
+  it('tells a client of a changed attachment list only while the task is shared with them', () => {
+    const event = { type: 'task_attachments_changed', projectKey: 'AR', taskKey: 'AR-1' } as ProjectEvent;
+    const tasks: Record<string, Task> = { 'AR-1': task('AR-1', 'shared') };
+    const taskOf = (key: string) => tasks[key];
+    expect(canSeeProjectEvent(client, event, taskOf)).toBe(true);
+    expect(canSeeProjectEvent(developer, event, taskOf)).toBe(true);
+    // Judged at delivery, with the task as it is then.
+    tasks['AR-1'] = task('AR-1', 'internal');
+    expect(canSeeProjectEvent(client, event, taskOf)).toBe(false);
+    expect(canSeeProjectEvent(developer, event, taskOf)).toBe(true);
+    // A task that cannot be found, or no way to look it up: not for a client.
+    expect(canSeeProjectEvent(client, event, () => undefined)).toBe(false);
+    expect(canSeeProjectEvent(client, event)).toBe(false);
+  });
 });

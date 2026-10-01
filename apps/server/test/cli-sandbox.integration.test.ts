@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { routes } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import { afterEach, expect, it, vi } from 'vitest';
-import { SANDBOX_DENIED_ENV_VARS, sensitivePaths } from '../src/domain';
+import { SANDBOX_DENIED_ENV_VARS, SANDBOX_PTY_ENV, sensitivePaths } from '../src/domain';
 import { waitFor } from '../src/runner/test-helpers';
 import { createAppHarness, createProject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
 import type { CliAppHarness } from './helpers/app-harness';
@@ -108,7 +108,11 @@ it(
       network: { allowedDomains: ['registry.npmjs.org'], strictAllowlist: true, allowLocalBinding: true },
       credentials: { envVars: SANDBOX_DENIED_ENV_VARS.map((name) => ({ name, mode: 'deny' })) },
     });
-    expect(developer.env).toEqual({ npm_config_cache: own[0], PROJECTMAN_HOME: own[1] });
+    expect(developer.env).toEqual({
+      npm_config_cache: own[0],
+      PROJECTMAN_HOME: own[1],
+      ...SANDBOX_PTY_ENV,
+    });
     // The developer edits its worktree: no rule takes that away; the shared git files it cannot.
     expect(developer.permissions.deny).not.toContain(`Edit(/${worktree}/**)`);
     expect(developer.permissions.deny).toEqual(

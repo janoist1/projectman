@@ -64,6 +64,14 @@ export const SANDBOX_DENIED_ENV_VARS = [
 ];
 
 /**
+ * Set in every session's sandbox (PM-194): Claude Code's sandbox cannot open a pseudo-terminal, so
+ * the server's PTY tests (`apps/server/vitest.config.ts`) may be left out there. Without it a PTY
+ * that cannot be opened fails the test run.
+ */
+export const PTY_SKIP_VARIABLE = 'PROJECTMAN_SKIP_PTY_TESTS';
+export const SANDBOX_PTY_ENV = { [PTY_SKIP_VARIABLE]: '1' } as const;
+
+/**
  * What a developer's sandboxed commands read below the user's home besides their own directories
  * (PM-153): git's own configuration and the shell snapshot Claude Code sources before every command
  * (its own `blockReadsOutsideWorkingDirectories` re-opens that directory for the same reason).
@@ -142,7 +150,7 @@ export interface SandboxPaths {
  *   checkout's `HEAD` and `index` (`sharedGitDenials`), and nothing the host runs or loads outside a
  *   sandbox. A member workspace is an independent clone with its own `.git`: nothing is shared
  *   there, so nothing is denied.
- * - Environment: without `SANDBOX_DENIED_ENV_VARS`.
+ * - Environment: without `SANDBOX_DENIED_ENV_VARS`, with `SANDBOX_PTY_ENV`.
  * - Network: only the npm registry; the tests may listen on local ports, which also opens every
  *   local port (decision 24).
  */
@@ -167,7 +175,7 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
       ...new Set([userHome, ...(appHome && !isWithin(userHome, appHome) ? [appHome] : []), ...denied]),
     ],
     allowRead: [...new Set(allowRead)],
-    ...(own.length > 0 ? { env: Object.fromEntries(own.map((dir) => [dir.variable, dir.path])) } : {}),
+    env: { ...Object.fromEntries(own.map((dir) => [dir.variable, dir.path])), ...SANDBOX_PTY_ENV },
     deniedEnvVars: [...SANDBOX_DENIED_ENV_VARS],
     allowedDomains: [...SANDBOX_ALLOWED_DOMAINS],
     allowLocalBinding: true,
@@ -228,6 +236,7 @@ export function sessionSandbox(
     ...(policy.filesystem.deniedPaths?.length ? { denyRead: [...policy.filesystem.deniedPaths] } : {}),
     allowedDomains: [...SANDBOX_ALLOWED_DOMAINS],
     allowLocalBinding: true,
+    env: { ...SANDBOX_PTY_ENV },
     ...(options.github ? { excludedCommands: [...READER_UNSANDBOXED_COMMANDS] } : {}),
   };
 }

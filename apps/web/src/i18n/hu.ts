@@ -932,6 +932,13 @@ export const hu = {
     recentEmpty: 'Még nem döntöttél semmiről.',
     resolveFailed: 'Nem ment át a döntés. Próbáld újra.',
     assignedTo: 'Neki szól: {names}',
+    /** A permission question that did not go the plain way ("Ha kérdez, ki dönt: AI"). */
+    delegation: {
+      pendingLead: 'Az AI-döntnök dönt róla: {names} · határidő: {time}',
+      escalatedLead: 'Az AI-döntnök ({who}) továbbküldte neked: {reason}',
+      escalatedTimeout: 'Az AI-döntnök nem döntött időben, ezért rád vár.',
+      ownerCategory: 'Ezt AI nem döntheti el, ezért rád vár: {category}',
+    },
   },
 
   session: {

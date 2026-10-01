@@ -66,6 +66,19 @@ describe('the permission settings in the session header (PM-170)', () => {
     expect(screen.queryByRole('button', { name: t('session.permissions.reset') })).toBeNull();
   });
 
+  it('goes back to the member’s setting when its own value is picked, instead of copying it', async () => {
+    const project = mockProject();
+    project.render(sessionRoute, `/sessions/${SESSION}`);
+    await screen.findByLabelText(t('session.permissions.mode'));
+    fireEvent.change(modeSelect(), { target: { value: 'plan' } });
+    await waitFor(() => expect(modeSelect().value).toBe('plan'));
+    fireEvent.change(modeSelect(), { target: { value: 'acceptEdits' } });
+    await waitFor(() => expect(patches(project)).toHaveLength(2));
+    expect(patches(project)[1]!.body).toEqual({ permissionMode: null });
+    await waitFor(() => expect(modeSelect().value).toBe('acceptEdits'));
+    expect(project.backend.findSession(SESSION)!.permissionModeOverride).toBeUndefined();
+  });
+
   it('keeps the AI approver disabled, with the reason, while it cannot be chosen', async () => {
     const project = mockProject();
     project.render(sessionRoute, `/sessions/${SESSION}`);

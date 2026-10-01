@@ -1,4 +1,4 @@
-import { isOnLeave, memberOf } from '@projectman/shared';
+import { isOnLeave, memberOf, permissionDelegationOf } from '@projectman/shared';
 import type { ExecutionProfile, Me } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AuthService } from '../auth';
@@ -34,7 +34,7 @@ import { createDomainContext, defaultTemplateRegistry } from './context';
 import type { DomainContext, TemplateRegistry } from './context';
 import { createEventBus } from './event-bus';
 import { GithubSync } from './github-sync';
-import { InboxService } from './inbox';
+import { InboxService, delegatedPermissionPrompt } from './inbox';
 import { InvitationService } from './invitations';
 import { MemberProfiles, MemberService } from './members';
 import { MessageDelivery, MessageService, Messaging } from './messaging';
@@ -291,6 +291,24 @@ export function createDomain(opts: DomainOptions) {
     },
   });
   egress.attach(boundary);
+  // A member's tool question went to its AI decider: wake it like a boundary request's lead. The
+  // sponsor and owners are not told; they hear of it only if it comes to them.
+  events.on('permission_delegated', (item) => {
+    const leads = permissionDelegationOf(item)?.leads ?? [];
+    if (!leads.length) return;
+    background.run(
+      () =>
+        messaging
+          .send(
+            item.projectKey,
+            'system',
+            { to: leads, taskKey: item.taskKey, text: delegatedPermissionPrompt(item) },
+            { actor: SYSTEM_ACTOR },
+          )
+          .then(() => undefined),
+      () => opts.logger.warn({ itemId: item.id }, 'permission decider notification failed'),
+    );
+  });
   const taskStarts = new TaskStarts({ projects, tasks, members, sessions, admission });
   const handOver = new StageHandOver({ projects, tasks, sessions, admission, delivery });
   const messageStarts = new MessageStarts({ projects, tasks, admission, messages, delivery });
@@ -351,6 +369,7 @@ export function createDomain(opts: DomainOptions) {
   });
   events.on('config_changed', (change) => sessions.handleConfigChange(change));
   events.on('config_changed', () => boundary.sweep());
+  events.on('config_changed', () => inbox.sweepDelegations());
   events.on('config_changed', (change) => egress.handleConfigChange(change));
   events.on('task_cancelled', () => boundary.sweep());
   // AI work switched back on: the deferred starts continue.
@@ -399,6 +418,7 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_note_added', (note) => messaging.mentionNotice(note));
   // A started session gets the messages waiting for it; waiting messages wake their recipient.
   events.on('session_started', (session) => delivery.deliverWaiting(session));
+  events.on('session_input_released', (session) => delivery.deliverWaiting(session));
   events.on('message_waiting', ({ projectKey, handle, workItem, messageId }) => {
     background.run(
       () => messageStarts.wake(projectKey, handle, workItem),
@@ -470,7 +490,10 @@ export function createDomain(opts: DomainOptions) {
       boundaryTimer = setInterval(
         () =>
           background.run(
-            () => boundary.sweep(),
+            async () => {
+              await boundary.sweep();
+              await inbox.sweepDelegations();
+            },
             () => opts.logger.warn('boundary deadline sweep failed'),
           ),
         1000,

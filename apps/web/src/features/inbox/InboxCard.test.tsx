@@ -291,6 +291,51 @@ describe('InboxCard: a question that explains itself', () => {
     expect(within(card).getAllByRole('button').length).toBeGreaterThanOrEqual(3);
   });
 
+  describe('a permission question the AI decider has or had (PM-169)', () => {
+    const withPayload = (extra: Record<string, unknown>): InboxItem => {
+      const base = item('inb_perm_push');
+      return { ...base, payload: { ...base.payload, ...extra } };
+    };
+    const delegation = {
+      state: 'pending_lead',
+      leads: ['code-review'],
+      leadDeadline: '2026-10-01T11:02:00.000Z',
+    };
+
+    it('says that the decider has it, until when', () => {
+      const { card } = renderCard(withPayload({ delegation }));
+      expect(within(card).getByText(/Az AI-döntnök dönt róla/)).toBeTruthy();
+      expect(within(card).getByText(/határidő/)).toBeTruthy();
+    });
+
+    const handed = (escalation: Record<string, unknown>) =>
+      withPayload({ delegation: { ...delegation, state: 'pending_owner', escalation } });
+
+    it('gives the decider’s reason when it passed the question on', () => {
+      const { card } = renderCard(handed({ cause: 'lead', by: 'code-review', reason: 'I cannot tell.' }));
+      expect(within(card).getByText(/továbbküldte neked: I cannot tell\./)).toBeTruthy();
+    });
+
+    it('says when the decider did not answer in time', () => {
+      const { card } = renderCard(handed({ cause: 'timeout', by: 'system' }));
+      expect(within(card).getByText(t('inbox.delegation.escalatedTimeout'))).toBeTruthy();
+    });
+
+    it('names the category an AI never decides', () => {
+      const { card } = renderCard(withPayload({ ownerCategory: 'production' }));
+      expect(
+        within(card).getByText(
+          t('inbox.delegation.ownerCategory', { category: t('boundary.categories.production') }),
+        ),
+      ).toBeTruthy();
+    });
+
+    it('says nothing for an ordinary question', () => {
+      const { card } = renderCard(item('inb_perm_push'));
+      expect(within(card).queryByText(/döntnök/)).toBeNull();
+    });
+  });
+
   it('renders an old-style question as a row of buttons, without badge, list or fold', () => {
     const old = item('inb_q_ga4');
     const { card } = renderCard(old);

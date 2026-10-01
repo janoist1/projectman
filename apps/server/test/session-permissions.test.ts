@@ -5,7 +5,7 @@ import { APPROVER_NONE_REFUSAL } from '../src/contracts';
 import { humanActor } from '../src/domain';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
-import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 
@@ -133,19 +133,25 @@ describe('the permission settings of one session (PM-170)', () => {
     h.runner.setState(sessionId, 'idle');
     await flush();
     expect(h.runner.started).toHaveLength(2);
+    // A team message keeps its prefix; what a person wrote into the session is typed as written.
     expect(h.runner.messages.map((m) => m.text)).toEqual([
-      expect.stringContaining('Team note'),
-      expect.stringContaining('Direct note'),
+      expect.stringMatching(/^\[team message from owner about AR-1\].*Team note/s),
+      'Direct note',
     ]);
   });
 
-  it('does not restart when the mode goes back to the one the process runs in', async () => {
+  it('does not restart when the mode goes back to the one the process runs in, and lets messages in', async () => {
     const sessionId = await running();
     h.runner.setState(sessionId, 'working');
     await set(sessionId, { permissionMode: 'plan' });
+    await h.domain.messaging.sendToSession('AR', sessionId, 'Direct note', 'owner');
+    await flush();
+    expect(h.runner.messages).toEqual([]);
     const back = await set(sessionId, { permissionMode: null });
     expect(back.permissionModeOverride).toBeUndefined();
     expect(back.permissionRestartPending).toBeUndefined();
+    await flush();
+    expect(h.runner.messages.map((m) => m.text)).toEqual(['Direct note']);
     h.runner.setState(sessionId, 'idle');
     await flush();
     expect(h.runner.started).toHaveLength(1);
@@ -153,6 +159,56 @@ describe('the permission settings of one session (PM-170)', () => {
       { member: 'dev-1', field: 'mode', from: 'auto', to: 'plan', restart: true },
       { member: 'dev-1', field: 'mode', from: 'plan', to: 'auto', reset: true },
     ]);
+  });
+
+  it('gives up a restart AI work cannot make now, and lets the held messages in', async () => {
+    const sessionId = await running();
+    h.runner.setState(sessionId, 'working');
+    await set(sessionId, { permissionMode: 'plan' });
+    await h.domain.messaging.send('AR', 'owner', { to: ['dev-1'], text: 'Team note', taskKey: 'AR-1' });
+    await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
+      draft.team.limits.aiEnabled = false;
+      return 'Switch AI work off';
+    });
+    h.runner.setState(sessionId, 'idle');
+    await flush();
+    expect(h.runner.started).toHaveLength(1);
+    expect(h.domain.sessions.get('AR', sessionId).permissionRestartPending).toBeUndefined();
+    expect(h.runner.messages.map((m) => m.text)).toEqual([expect.stringContaining('Team note')]);
+    // The next start takes the new mode.
+    await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
+      draft.team.limits.aiEnabled = true;
+      return 'Switch AI work on';
+    });
+    await h.domain.sessions.stop('AR', sessionId);
+    await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+    expect(h.runner.lastStarted()).toMatchObject({ resume: true, permissionMode: 'plan' });
+  });
+
+  it('routes a question by the session’s own approver to the AI decider, or to a person', async () => {
+    const sessionId = await running(withDecider);
+    await set(sessionId, { approver: 'ai' });
+    void ask(sessionId, 'curl https://example.com/data.json');
+    await flush();
+    const [delegated] = h.domain.inbox.list('AR', { kind: 'permission', state: 'open' });
+    expect(delegated).toMatchObject({
+      assignees: ['cr'],
+      payload: { delegation: { state: 'pending_lead' } },
+    });
+    h.cleanup();
+
+    // The member asks the AI decider; this session asks a person.
+    const other = await running((config) => {
+      withDecider(config);
+      const dev = config.team.members.find((m) => m.handle === 'dev-1');
+      if (dev?.kind === 'ai') dev.approver = 'ai';
+    });
+    await set(other, { approver: 'human' });
+    void ask(other, 'curl https://example.com/data.json');
+    await flush();
+    const [personal] = h.domain.inbox.list('AR', { kind: 'permission', state: 'open' });
+    expect(personal!.assignees).toEqual(['owner']);
+    expect(personal!.payload).not.toHaveProperty('delegation');
   });
 
   it('says when the restart dropped what was allowed for the session', async () => {

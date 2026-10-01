@@ -93,6 +93,20 @@ export function createInboxRepository(db: Db) {
         id,
       );
     },
+    /** The payload and the assignees of an item still open (a delegated permission question, PM-169). */
+    updateOpen(
+      id: string,
+      payload: Record<string, unknown>,
+      assignees: string[],
+      at: string,
+    ): InboxItem | null {
+      const changes = db
+        .prepare(
+          "UPDATE inbox_items SET payload = ?, assignees = ?, updated_at = ? WHERE id = ? AND state = 'open'",
+        )
+        .run(toJson(payload), toJson(assignees), at, id).changes;
+      return changes > 0 ? get(id) : null;
+    },
     get,
     insert(item: InboxItem): void {
       statements.insert.run(

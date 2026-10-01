@@ -148,6 +148,21 @@ What the server adds, in every mode and on the legacy (Mac) profile:
   the refusal is final; the refusal is on the timeline (`permission_refused`). So does a refusal of
   the auto mode's classifier (`PermissionDenied` hook). The approver applies to Codex members too
   (the refusal is the same); the deny rules and `autoMode` are Claude's only.
+- **Approver `ai`** (PM-169, only with the owner's switch `team.boundary.enabled`) sends the question
+  to an AI member holding `boundary_authorization` instead of the sponsor; see PROVIDERS.md. The AI
+  never decides publishing, a release or `main`, credentials, the live instance or a lasting
+  widening of the host, the decider's own requests, or anything once the lead deadline
+  (`team.boundary.leadTimeoutSeconds`) has passed or the decider is gone: those go to the sponsor or
+  an owner, an error or a timeout never means permission, and the owner may answer any item at any
+  time. Gates and release approvals stay human-only (`resolve` refuses an AI; the one other way an AI
+  closes an item, `resolveDelegated`, takes only a delegated permission item).
+  **Residual risk:** the decision is about free text, and the pre-filter in front of it
+  (`permissionOwnerCategory`) is pattern matching a command can hide from; a mistaken `allow` of the
+  decider is a lasting one for that call. The decider's duty text tells it to escalate doubtful
+  requests, and the routing itself sends a request whose input is longer than 4,000 characters, a
+  tool of another MCP server (email, shared documents, ...), an unknown tool, and a file write or
+  patch outside the session's directories (Codex `apply_patch` included) to a person. Waking the
+  decider uses subscription capacity and competes with its own work.
 - The `autoMode` prose in `--settings` only guides the classifier; it is not a boundary.
 - The managed VM profile is unchanged: its limits are outside the CLI.
 

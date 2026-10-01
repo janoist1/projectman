@@ -20,6 +20,11 @@ export class MessageDelivery {
   private readonly claims = new Set<string>();
   /** Recipients whose session is starting for their waiting messages: nothing is typed before it runs. */
   private readonly starting = new Set<string>();
+  /**
+   * Messages a person wrote into a session that waited for its restart (PM-170), by message and
+   * recipient: typed as they were written once it runs, like the ones that reach it at once.
+   */
+  private readonly asWritten = new Set<string>();
 
   constructor(deps: {
     ctx: DomainContext;
@@ -39,14 +44,19 @@ export class MessageDelivery {
     const claim = `${message.id}:${session.member}`;
     if (this.claims.has(claim)) return;
     this.claims.add(claim);
+    const plain = this.asWritten.has(claim);
     Promise.resolve()
       .then(() =>
         this.sessions.typeInto(
           session,
-          text ?? formatInjectedTeamMessage(message.from, message.body, message.taskKey),
+          text ??
+            (plain ? message.body : formatInjectedTeamMessage(message.from, message.body, message.taskKey)),
         ),
       )
-      .then(() => this.messages.markRecipientDelivered(message.id, session.member))
+      .then(() => {
+        this.asWritten.delete(claim);
+        return this.messages.markRecipientDelivered(message.id, session.member);
+      })
       .catch((err: unknown) =>
         this.ctx.logger.warn({ err, messageId: message.id }, 'team message delivery failed'),
       )
@@ -78,6 +88,14 @@ export class MessageDelivery {
       this.starting.delete(recipient);
     }
     this.deliverWaiting(result.session);
+  }
+
+  /**
+   * A person wrote into a session that waits for its restart (PM-170): the message waits with the
+   * others and is typed as it was written, without the team prefix, once the session runs again.
+   */
+  holdAsWritten(session: Session, message: TeamMessage): void {
+    this.asWritten.add(`${message.id}:${session.member}`);
   }
 
   /** Types the messages waiting for the session's member and work item (after it started). */

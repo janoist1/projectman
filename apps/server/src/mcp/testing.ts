@@ -216,6 +216,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('decideBoundaryRequest', ctx, args);
       throw new TeamToolError('not_found', 'Unknown boundary request.');
     },
+    async decidePermissionRequest(ctx, args) {
+      await enter('decidePermissionRequest', ctx, args);
+      throw new TeamToolError('not_found', 'Unknown permission request.');
+    },
     async listNetworkDenials(ctx) {
       await enter('listNetworkDenials', ctx, {});
       return [];

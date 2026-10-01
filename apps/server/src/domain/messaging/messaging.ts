@@ -140,7 +140,8 @@ export class Messaging {
       sessionId: session.id,
       delivered: sentAsFirstInput,
     });
-    if (!sentAsFirstInput && !held) this.delivery.deliver(started?.session ?? session, message, body);
+    if (held) this.delivery.holdAsWritten(session, message);
+    else if (!sentAsFirstInput) this.delivery.deliver(started?.session ?? session, message, body);
     return message;
   }
 

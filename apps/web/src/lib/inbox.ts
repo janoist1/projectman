@@ -1,8 +1,8 @@
-import { BoundaryRequest, questionPayloadOf } from '@projectman/shared';
+import { BoundaryRequest, permissionDelegationOf, questionPayloadOf } from '@projectman/shared';
 import type { InboxItem, InboxOption } from '@projectman/shared';
-import { t, tDynamic } from '../i18n/t';
+import { joinNames, t, tDynamic } from '../i18n/t';
 import { toolPresentationFor } from './chat';
-import { nameOf } from './members';
+import { nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
 import type { PipelineIndex } from './pipeline';
 
@@ -89,6 +89,42 @@ export function decisionSubject(item: InboxItem): string {
 export function boundaryOf(item: InboxItem): BoundaryRequest | null {
   const parsed = item.kind === 'boundary' ? BoundaryRequest.safeParse(item.payload.boundary) : null;
   return parsed?.success ? parsed.data : null;
+}
+
+const OWNER_CATEGORIES = ['cost', 'production', 'credentials', 'host_expansion'] as const;
+
+/**
+ * Who has a permission question and why, when it did not go the plain way (the AI decider, PM-169):
+ * with the decider and until when; or with a person because the decider passed it on or did not answer
+ * in time; or because it is one an AI never decides. Null for any other item.
+ */
+export function delegationNote(
+  item: InboxItem,
+  members: MemberIndex,
+  myHandle: string | null,
+): string | null {
+  if (item.kind !== 'permission') return null;
+  const delegation = permissionDelegationOf(item);
+  if (delegation?.state === 'pending_lead')
+    return t('inbox.delegation.pendingLead', {
+      names: joinNames(namesOf(delegation.leads, members, myHandle)),
+      time: new Date(delegation.leadDeadline).toLocaleTimeString('hu-HU', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }),
+    });
+  const escalation = delegation?.escalation;
+  if (escalation?.cause === 'lead')
+    return t('inbox.delegation.escalatedLead', {
+      who: nameOf(escalation.by, members, myHandle),
+      reason: escalation.reason ?? '',
+    }).trim();
+  if (escalation) return t('inbox.delegation.escalatedTimeout');
+  const category = OWNER_CATEGORIES.find((known) => known === item.payload.ownerCategory);
+  return category
+    ? t('inbox.delegation.ownerCategory', { category: t(`boundary.categories.${category}`) })
+    : null;
 }
 
 function record(value: unknown): Record<string, unknown> | null {

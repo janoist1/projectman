@@ -87,12 +87,13 @@ export function SessionPermissions({
           value={legacy ? '' : (effective.permissionMode ?? 'default')}
           disabled={update.isPending}
           fieldClassName={styles.field}
-          onChange={(event) =>
-            save(
-              { permissionMode: SelectablePermissionMode.parse(event.target.value) },
-              t('session.permissions.saved'),
-            )
-          }
+          onChange={(event) => {
+            const mode = SelectablePermissionMode.parse(event.target.value);
+            // The member's own value is "back to the member's", not a copy that stops following it.
+            if (mode === member?.permissionMode)
+              save({ permissionMode: null }, t('session.permissions.resetDone'));
+            else save({ permissionMode: mode }, t('session.permissions.saved'));
+          }}
         >
           {legacy ? (
             <option value="" disabled>
@@ -110,9 +111,11 @@ export function SessionPermissions({
           value={effective.approver}
           disabled={update.isPending}
           fieldClassName={styles.field}
-          onChange={(event) =>
-            save({ approver: Approver.parse(event.target.value) }, t('session.permissions.saved'))
-          }
+          onChange={(event) => {
+            const approver = Approver.parse(event.target.value);
+            if (approver === member?.approver) save({ approver: null }, t('session.permissions.resetDone'));
+            else save({ approver }, t('session.permissions.saved'));
+          }}
         >
           {Approver.options.map((approver) => (
             <option key={approver} value={approver} disabled={approver === 'ai' && blocker !== undefined}>

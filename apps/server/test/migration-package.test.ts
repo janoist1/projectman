@@ -100,8 +100,15 @@ describe('the inventory', () => {
     expect(repo.branches.find((b) => b.name === 'feature/local-only')?.localOnlyCommits).toBe(1);
     expect(repo.branches.find((b) => b.name === 'main')?.localOnlyCommits).toBe(0);
     expect(repo.dirty).toMatchObject({ untracked: 1, modified: 0 });
-    expect(repo.worktrees).toHaveLength(1);
-    expect(repo.worktrees[0]).toMatchObject({
+    expect(repo.worktrees).toHaveLength(2);
+    // Three stash entries, oldest first, each with its message; the detached HEAD no branch holds.
+    expect(repo.stashList.map((s) => s.message)).toEqual([
+      expect.stringContaining('stash first'),
+      expect.stringContaining('stash second'),
+      expect.stringContaining('stash third'),
+    ]);
+    expect(repo.orphanHeads).toEqual([{ sha: src.orphanHead, where: src.orphanWorktree }]);
+    expect(repo.worktrees.find((w) => w.path === src.worktree)).toMatchObject({
       path: src.worktree,
       branch: 'task/ar-1',
       managed: true,
@@ -219,6 +226,12 @@ describe('the package', () => {
     expect(heads).toContain('refs/heads/feature/local-only');
     expect(heads).toContain('refs/heads/task/ar-1');
     expect(heads).toContain('refs/remotes/origin/main');
+    // Every stash entry (not only the newest) and the commit only a detached HEAD holds.
+    for (const n of ['0000', '0001', '0002']) expect(heads).toContain(`refs/pm-stash/${n}`);
+    expect(heads).toContain(`refs/pm-orphan/${src.orphanHead}`);
+    expect(heads).not.toContain('refs/stash');
+    expect(manifest.repos[0]!.stashes).toHaveLength(3);
+    expect(manifest.repos[0]!.orphanHeads).toEqual([src.orphanHead]);
 
     // The dirty work of both checkouts, assigned to the member where the database knows it.
     expect(manifest.work.map((w) => [w.kind, w.files, w.assignedTo?.member ?? null]).sort()).toEqual([
@@ -250,6 +263,37 @@ describe('the package', () => {
     const out = join(src.root, 'pkg');
     await createPackage({ home: src.home, out });
     expect(readlinkSync(join(out, 'home', 'memory', 'AR', 'dangling'))).toBe('/nowhere/at/all');
+    await expect(readPackage(out)).resolves.toBeDefined();
+  });
+
+  it('refuses a manifest that names a place outside the package or a file it does not list', async () => {
+    await src.stop();
+    const out = join(src.root, 'pkg');
+    await createPackage({ home: src.home, out });
+    const manifestPath = join(out, 'manifest.json');
+    const original = readFileSync(manifestPath, 'utf8');
+    const edit = (change: (m: any) => void) => {
+      const m = JSON.parse(original);
+      change(m);
+      writeFileSync(manifestPath, JSON.stringify(m));
+    };
+    edit((m) => (m.files['../escape'] = { sha256: 'x', bytes: 0 }));
+    await expect(readPackage(out)).rejects.toThrow(/unsafe file/);
+    edit((m) => (m.files['/etc/passwd'] = { sha256: 'x', bytes: 0 }));
+    await expect(readPackage(out)).rejects.toThrow(/unsafe file/);
+    edit((m) => (m.repos[0].bundle = 'home/../../elsewhere'));
+    await expect(readPackage(out)).rejects.toThrow(/unsafe bundle/);
+    edit((m) => (m.work[0].id = '../../x'));
+    await expect(readPackage(out)).rejects.toThrow(/unsafe work id/);
+    edit((m) => (m.transcripts[0].sessionId = '../x'));
+    await expect(readPackage(out)).rejects.toThrow(/unsafe session id/);
+    edit((m) => (m.transcripts[0].file = 'home/secret'));
+    await expect(readPackage(out)).resolves.toBeDefined();
+    edit((m) => (m.repos[0].bundle = 'inventory.json'));
+    await expect(readPackage(out)).resolves.toBeDefined();
+    edit((m) => (m.repos[0].bundle = 'not/listed.bundle'));
+    await expect(readPackage(out)).rejects.toThrow(/not a file of the package/);
+    writeFileSync(manifestPath, original);
     await expect(readPackage(out)).resolves.toBeDefined();
   });
 

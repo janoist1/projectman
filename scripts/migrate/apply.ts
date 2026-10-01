@@ -15,7 +15,7 @@ import { parseDocument } from 'yaml';
 import { openDatabase, schemaVersion } from '../../apps/server/src/db';
 import { writeInstanceMarker } from '../../apps/server/src/instance';
 import { git } from './git';
-import { readPackage } from './package';
+import { ORPHAN_REF_PREFIX, readPackage, STASH_REF_PREFIX } from './package';
 import type { PackageManifest, PackagedWork } from './package';
 import type { Finding } from './inventory';
 import { assertMappings, mapPath, pathGroup } from './paths';
@@ -341,11 +341,28 @@ export async function applyPackage(options: ApplyOptions): Promise<ApplyReport> 
 async function restoreRepository(
   bundle: string,
   path: string,
-  repo: { branch: string | null; defaultBranch: string; remotes: { name: string; url: string }[] },
+  repo: {
+    branch: string | null;
+    defaultBranch: string;
+    remotes: { name: string; url: string }[];
+    stashes: { sha: string; message: string }[];
+    orphanHeads: string[];
+  },
 ): Promise<{ head: string; branches: number }> {
   mkdirSync(path, { recursive: true });
   await git(path, ['init', '-q']);
   await git(path, ['fetch', '-q', '--update-head-ok', bundle, '+refs/*:refs/*']);
+  // Every stash entry is stored again, oldest first, with its own message: the stash list is the old one.
+  for (const stash of repo.stashes) await git(path, ['stash', 'store', '-m', stash.message, stash.sha]);
+  // A commit only a detached HEAD held becomes a branch, so it is named and never garbage.
+  for (const sha of repo.orphanHeads)
+    await git(path, ['branch', '-q', `migrated/detached-${sha.slice(0, 12)}`, sha], { okCodes: [128] });
+  const temporary = (
+    await git(path, ['for-each-ref', '--format=%(refname)', STASH_REF_PREFIX, ORPHAN_REF_PREFIX])
+  ).stdout
+    .split('\n')
+    .filter(Boolean);
+  for (const ref of temporary) await git(path, ['update-ref', '-d', ref]);
   const branches = (await git(path, ['for-each-ref', '--format=%(refname:short)', 'refs/heads'])).stdout
     .split('\n')
     .filter(Boolean);

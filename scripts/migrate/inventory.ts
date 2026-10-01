@@ -64,6 +64,10 @@ export interface RepoInventory {
   branches: BranchInfo[];
   remotes: { name: string; url: string }[];
   stashes: number;
+  /** Every stash entry, oldest first: its commit and its message (a bundle alone keeps only the newest). */
+  stashList: { sha: string; message: string }[];
+  /** HEADs of detached checkouts and worktrees that no branch, tag or remote ref contains: they would be lost. */
+  orphanHeads: { sha: string; where: string }[];
   dirty: DirtyInfo;
   /** Linked worktrees (the main checkout is the repository itself). */
   worktrees: WorktreeInfo[];
@@ -172,6 +176,18 @@ async function dirtyOf(dir: string): Promise<DirtyInfo> {
 }
 
 export const isDirty = (dirty: DirtyInfo): boolean => dirty.modified + dirty.deleted + dirty.untracked > 0;
+
+/** Whether any reference (branch, tag, remote-tracking) contains the commit. */
+async function refContains(repo: string, sha: string): Promise<boolean> {
+  const { stdout } = await git(
+    repo,
+    ['for-each-ref', '--contains', sha, '--count=1', '--format=%(refname)'],
+    {
+      okCodes: [128],
+    },
+  );
+  return stdout.trim() !== '';
+}
 
 async function branchesOf(repo: string): Promise<BranchInfo[]> {
   const { stdout } = await git(repo, [
@@ -593,6 +609,8 @@ export async function buildInventory(options: InventoryOptions): Promise<Invento
         branches: [],
         remotes: [],
         stashes: 0,
+        stashList: [],
+        orphanHeads: [],
         dirty: { modified: 0, deleted: 0, untracked: 0, paths: [] },
         worktrees: [],
       };
@@ -634,7 +652,17 @@ export async function buildInventory(options: InventoryOptions): Promise<Invento
             'the remote URL carries credentials: they are not recorded and not carried; the VM uses its own identity',
           );
       }
-      entry.stashes = (await git(repo.path, ['stash', 'list'])).stdout.split('\n').filter(Boolean).length;
+      const stashLines = (await git(repo.path, ['stash', 'list', '--format=%H%x09%gs'])).stdout
+        .split('\n')
+        .filter(Boolean);
+      entry.stashes = stashLines.length;
+      // `stash list` is newest first; the list is kept oldest first so a restore can store them in order.
+      entry.stashList = stashLines
+        .map((line) => {
+          const at = line.indexOf('\t');
+          return { sha: line.slice(0, at), message: line.slice(at + 1) };
+        })
+        .reverse();
       entry.dirty = await dirtyOf(repo.path);
       if (isDirty(entry.dirty))
         add(
@@ -659,7 +687,14 @@ export async function buildInventory(options: InventoryOptions): Promise<Invento
             `${branch.localOnlyCommits} commits are on no remote: they travel in the bundle`,
           );
       if (entry.stashes > 0)
-        add('info', 'stashes', subject, `${entry.stashes} stash entries travel with the bundle (refs/stash)`);
+        add(
+          'info',
+          'stashes',
+          subject,
+          `${entry.stashes} stash entries travel in the bundle, each with its message, and are stored again in the same order`,
+        );
+      if (!entry.branch && entry.head && !(await refContains(repo.path, entry.head)))
+        entry.orphanHeads.push({ sha: entry.head, where: repo.path });
       const listed = parseWorktrees((await git(repo.path, ['worktree', 'list', '--porcelain'])).stdout);
       for (const w of listed.slice(1)) {
         const info: WorktreeInfo = {
@@ -684,13 +719,18 @@ export async function buildInventory(options: InventoryOptions): Promise<Invento
             `${subject} worktree ${basename(w.path)}`,
             `${info.dirty.modified + info.dirty.deleted} changed and ${info.dirty.untracked} untracked files in ${w.path}: captured${info.assignedTo ? ` for ${info.assignedTo.member}` : ' (no member known)'}, never discarded`,
           );
-        if (w.detached)
+        if (w.detached && w.head) {
+          const orphan = !(await refContains(repo.path, w.head));
+          if (orphan) entry.orphanHeads.push({ sha: w.head, where: w.path });
           add(
             'warning',
             'detached_head',
             `${subject} worktree ${basename(w.path)}`,
-            `HEAD is detached at ${w.head?.slice(0, 12)}: a commit on no branch is not carried by the bundle`,
+            orphan
+              ? `HEAD is detached at ${w.head.slice(0, 12)}, a commit no branch holds: it is carried and kept as the branch migrated/detached-${w.head.slice(0, 12)}`
+              : `HEAD is detached at ${w.head.slice(0, 12)} (a commit a branch holds, carried with it)`,
           );
+        }
         if (w.prunable)
           add(
             'info',

@@ -116,9 +116,21 @@ describe('applying a package', () => {
     expect(git(vmRepo, 'branch', '--format=%(refname:short)').trim().split('\n').sort()).toEqual([
       'feature/local-only',
       'main',
+      `migrated/detached-${src.orphanHead.slice(0, 12)}`,
       'task/ar-1',
     ]);
     expect(git(vmRepo, 'rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('main');
+    // The stash list is the old one: three entries, the same messages, the same order, none of them lost.
+    expect(git(vmRepo, 'stash', 'list', '--format=%gs').trim().split('\n')).toEqual(
+      git(src.workspace, 'stash', 'list', '--format=%gs').trim().split('\n'),
+    );
+    expect(git(vmRepo, 'stash', 'list')).toContain('stash first');
+    expect(git(vmRepo, 'show', 'stash@{2}:README.md')).toContain('stashed first');
+    // The commit only a detached HEAD held is a branch now; no temporary reference is left.
+    expect(git(vmRepo, 'rev-parse', `migrated/detached-${src.orphanHead.slice(0, 12)}`).trim()).toBe(
+      src.orphanHead,
+    );
+    expect(git(vmRepo, 'for-each-ref', 'refs/pm-stash', 'refs/pm-orphan')).toBe('');
     expect(git(vmRepo, 'status', '--porcelain')).toBe('');
     expect(git(vmRepo, 'show', 'feature/local-only:local.txt')).toContain('only on this machine');
     expect(git(vmRepo, 'remote', 'get-url', 'origin').trim()).toBe(src.remote);

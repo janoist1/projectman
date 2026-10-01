@@ -24,13 +24,17 @@ export function databaseFiles(home: string): string[] {
 /**
  * Whether another process has the database open. SQLite keeps a shared lock on the file for as long
  * as a connection to a write-ahead-log database exists; a connection in exclusive locking mode
- * cannot be opened beside it. Opening one therefore proves that the database is closed everywhere
- * (and leaves no file behind: the probe works on a copy of the files in a scratch directory only
- * when the source is closed, which is the case it tests for).
+ * cannot be opened beside it. Opening one therefore proves that the database is closed everywhere.
+ * A source without a log and shared-memory file is closed by definition and is not opened here.
  */
 export function databaseInUse(home: string): boolean {
   const path = join(home, DB_FILE);
   if (!existsSync(path)) return false;
+  // The server keeps the database in write-ahead-log mode and holds its log and shared-memory files for
+  // as long as it runs; when neither exists, nothing has the database open and the source is not opened
+  // at all. Only with leftovers is the lock probed, and that open may fold a left-over log into the main
+  // file, as SQLite itself would at the next start (no data changes).
+  if (!existsSync(`${path}-wal`) && !existsSync(`${path}-shm`)) return false;
   let db: Database.Database | null = null;
   try {
     db = new Database(path, { fileMustExist: true, timeout: 0 });

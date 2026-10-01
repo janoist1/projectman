@@ -16,7 +16,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { LATEST_SCHEMA_VERSION } from '../../apps/server/src/db';
@@ -76,6 +76,10 @@ export interface PackagedRepo {
   /** The path on the old machine. */
   sourcePath: string;
   bundle: string;
+  /** Every stash entry, oldest first; each is in the bundle as `refs/pm-stash/<n>` and stored again by `apply`. */
+  stashes: { sha: string; message: string }[];
+  /** Commits only a detached HEAD held, in the bundle as `refs/pm-orphan/<sha>`; `apply` keeps each as a branch. */
+  orphanHeads: string[];
   head: string;
   branch: string | null;
   defaultBranch: string;
@@ -169,6 +173,46 @@ async function archiveFiles(dir: string, files: string[], destination: string): 
     const list = join(scratch, 'files');
     writeFileSync(list, files.map((f) => `${f}\0`).join(''));
     await run('tar', ['-czf', destination, '-C', dir, '--null', '-T', list]);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+export const STASH_REF_PREFIX = 'refs/pm-stash/';
+export const ORPHAN_REF_PREFIX = 'refs/pm-orphan/';
+
+/**
+ * One bundle of a repository with everything git itself would lose or not name: a plain `bundle --all`
+ * carries only the newest stash (`refs/stash`, without its reflog) and no commit a detached HEAD alone
+ * holds. The bundle is made from a scratch repository that borrows the source's objects (alternates, so
+ * nothing is copied and the source is only read) and fetches every reference plus each stash entry and each
+ * orphan HEAD by commit id under a name of its own.
+ */
+async function bundleRepository(repo: RepoInventory, destination: string): Promise<void> {
+  const scratch = mkdtempSync(join(tmpdir(), 'pm-migrate-bundle-'));
+  try {
+    const common = (
+      await git(repo.path, ['rev-parse', '--path-format=absolute', '--git-common-dir'])
+    ).stdout.trim();
+    await git(scratch, ['init', '-q', '--bare']);
+    writeFileSync(join(scratch, 'objects', 'info', 'alternates'), `${join(common, 'objects')}\n`);
+    const refspecs = ['+refs/*:refs/*'];
+    repo.stashList.forEach((s, n) =>
+      refspecs.push(`+${s.sha}:${STASH_REF_PREFIX}${String(n).padStart(4, '0')}`),
+    );
+    for (const o of repo.orphanHeads) refspecs.push(`+${o.sha}:${ORPHAN_REF_PREFIX}${o.sha}`);
+    await git(scratch, [
+      '-c',
+      'uploadpack.allowAnySHA1InWant=true',
+      'fetch',
+      '-q',
+      '--no-tags',
+      repo.path,
+      ...refspecs,
+    ]);
+    // The newest stash is also the numbered one: the plain reference would restore without its reflog.
+    await git(scratch, ['update-ref', '-d', 'refs/stash'], { okCodes: [1, 128] });
+    await git(scratch, ['bundle', 'create', destination, '--all']);
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
@@ -297,12 +341,14 @@ export async function createPackage(options: PackageOptions): Promise<PackageRes
       bundled.add(resolve(repo.path));
       const bundle = `repos/${project.key}__${repo.name}.bundle`;
       mkdirSync(join(out, 'repos'), { recursive: true, mode: 0o700 });
-      await git(repo.path, ['bundle', 'create', join(out, bundle), '--all']);
+      await bundleRepository(repo, join(out, bundle));
       repos.push({
         project: project.key,
         name: repo.name,
         sourcePath: resolve(repo.path),
         bundle,
+        stashes: repo.stashList,
+        orphanHeads: repo.orphanHeads.map((o) => o.sha),
         head: repo.head,
         branch: repo.branch,
         defaultBranch: repo.defaultBranch,
@@ -376,6 +422,36 @@ export async function readPackage(dir: string): Promise<PackageManifest> {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as PackageManifest;
   if (manifest.version !== PACKAGE_VERSION)
     throw new MigrationRefused(`unsupported package version ${String(manifest.version)}`);
+  // The manifest is read from a file that was carried: nothing in it may name a place outside the package,
+  // and every file a section points at must be one of the checksummed files.
+  const safe = (name: unknown, what: string): string => {
+    if (
+      typeof name !== 'string' ||
+      name === '' ||
+      name.includes('\0') ||
+      name.includes('\\') ||
+      isAbsolute(name) ||
+      name.split('/').some((part) => part === '' || part === '.' || part === '..')
+    )
+      throw new MigrationRefused(`the manifest names an unsafe ${what}: ${JSON.stringify(name)}`);
+    return name;
+  };
+  for (const name of Object.keys(manifest.files)) safe(name, 'file');
+  const listed = (name: unknown, what: string): void => {
+    if (!Object.hasOwn(manifest.files, safe(name, what)))
+      throw new MigrationRefused(`${what} ${String(name)} is not a file of the package`);
+  };
+  for (const repo of manifest.repos ?? []) listed(repo.bundle, 'bundle');
+  for (const work of manifest.work ?? []) {
+    if (!/^\d{1,6}$/.test(work.id))
+      throw new MigrationRefused(`the manifest names an unsafe work id: ${JSON.stringify(work.id)}`);
+    if (work.archive !== null) listed(work.archive, 'work archive');
+  }
+  for (const t of manifest.transcripts ?? []) {
+    if (!/^[A-Za-z0-9_-]{1,100}$/.test(t.sessionId))
+      throw new MigrationRefused(`the manifest names an unsafe session id: ${JSON.stringify(t.sessionId)}`);
+    listed(t.file, 'transcript');
+  }
   const seen = new Set<string>();
   for (const [name, expected] of Object.entries(manifest.files)) {
     const path = join(root, name);

@@ -27,6 +27,9 @@ export interface SourceHome {
   remote: string;
   /** The task worktree under `<home>/worktrees`, with uncommitted work. */
   worktree: string;
+  /** A clean detached worktree whose only commit no branch holds, and that commit. */
+  orphanWorktree: string;
+  orphanHead: string;
   claudeTranscript: string;
   codexTranscript: string;
   taskKey: string;
@@ -80,6 +83,17 @@ export async function createSourceHome(): Promise<SourceHome> {
   writeFileSync(join(worktree, 'README.md'), 'acme\nhalf-done change\n');
   writeFileSync(join(worktree, 'scratch.txt'), 'untracked work\n');
   writeFileSync(join(workspace, 'notes.txt'), 'a note in the main checkout\n');
+  // Three stash entries (a bundle alone keeps only the newest), and a commit only a detached HEAD holds.
+  for (const name of ['first', 'second', 'third']) {
+    writeFileSync(join(workspace, 'README.md'), `acme\nstashed ${name}\n`);
+    git(workspace, 'stash', 'push', '-q', '-m', `stash ${name}`);
+  }
+  const orphanWorktree = join(home, 'worktrees', 'AR', 'AR-orphan');
+  git(workspace, 'worktree', 'add', '-q', '--detach', orphanWorktree, 'main');
+  writeFileSync(join(orphanWorktree, 'orphan.txt'), 'a commit on no branch\n');
+  git(orphanWorktree, 'add', '-A');
+  git(orphanWorktree, 'commit', '-q', '-m', 'Commit on a detached HEAD');
+  const orphanHead = git(orphanWorktree, 'rev-parse', 'HEAD').trim();
 
   // The server's own data.
   const cookie = await setupOwner(harness.app);
@@ -186,6 +200,8 @@ export async function createSourceHome(): Promise<SourceHome> {
     workspace,
     remote,
     worktree,
+    orphanWorktree,
+    orphanHead,
     claudeTranscript,
     codexTranscript,
     taskKey,

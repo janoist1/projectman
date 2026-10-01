@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ServerEvent } from '@projectman/shared';
@@ -12,7 +12,8 @@ import {
   DomainError,
   LOCAL_ONLY_DENIED_TOOLS,
   SANDBOX_DENIED_ENV_VARS,
-  SANDBOX_GIT_ENV,
+  SANDBOX_GIT_CONFIG,
+  SANDBOX_GIT_CONFIG_FILE,
   SANDBOX_PTY_ENV,
   sensitivePaths,
 } from '../src/domain';
@@ -406,6 +407,8 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
     join(app, 'member-caches', 'AR', 'dev-1', 'npm-cache'),
     join(app, 'member-caches', 'AR', 'dev-1', 'projectman-dev'),
   ];
+  /** The git settings file of the member's sandbox directory (PM-216). */
+  const memberGitConfig = (app = appHome) => join(dirname(memberDirs(app)[0]!), SANDBOX_GIT_CONFIG_FILE);
   const common = () => ({
     // Neither `~/.npm` (the host's `npx` runs code from its `_npx`) nor `~/.projectman-dev`.
     allowWrite: memberDirs(),
@@ -413,7 +416,7 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
       npm_config_cache: memberDirs()[0],
       PROJECTMAN_HOME: memberDirs()[1],
       ...SANDBOX_PTY_ENV,
-      ...SANDBOX_GIT_ENV,
+      GIT_CONFIG_SYSTEM: memberGitConfig(),
     },
     deniedEnvVars: SANDBOX_DENIED_ENV_VARS,
     allowedDomains: ['registry.npmjs.org'],
@@ -446,8 +449,11 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
       // The app home is not below the user's home here, so it is closed on its own; the credentials
       // and the live data stay closed too: the narrower path wins over any re-opened one.
       denyRead: [home, appHome, ...sensitivePaths({ userHome: home, appHome })],
-      allowRead: [spec.cwd, attachments, ...memberDirs(), gitDir, ...homeReads()],
+      allowRead: [spec.cwd, attachments, ...memberDirs(), memberGitConfig(), gitDir, ...homeReads()],
     });
+    // Read-only for the commands, and written by the server at every start (PM-216).
+    expect(spec.sandbox!.allowWrite).not.toContain(memberGitConfig());
+    expect(readFileSync(memberGitConfig(), 'utf8')).toBe(SANDBOX_GIT_CONFIG);
     // The server makes the member's directories, which the sandbox could not make in a closed home.
     for (const dir of memberDirs()) expect(statSync(dir).isDirectory()).toBe(true);
   });
@@ -472,6 +478,7 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
     expect(spec.sandbox!.allowRead).toEqual([
       spec.cwd,
       ...memberDirs(inside),
+      memberGitConfig(inside),
       join(h.workspace, '.git'),
       ...homeReads(),
     ]);
@@ -484,7 +491,7 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
     await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: task.key });
     const sandbox = h.runner.lastStarted().sandbox!;
     expect(sandbox.allowWrite).toEqual([]);
-    expect(sandbox.env).toEqual({ ...SANDBOX_PTY_ENV, ...SANDBOX_GIT_ENV });
+    expect(sandbox.env).toEqual(SANDBOX_PTY_ENV);
   });
 
   it("reads the user's core.excludesfile and nothing else of the home (PM-216)", async () => {
@@ -550,7 +557,7 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
       expect(spec.sandbox).toEqual({
         ...common(),
         denyRead: [home, appHome, ...sensitivePaths({ userHome: home, appHome })],
-        allowRead: [spec.cwd, attachments, ...memberDirs(), ...homeReads()],
+        allowRead: [spec.cwd, attachments, ...memberDirs(), memberGitConfig(), ...homeReads()],
       });
     });
   });

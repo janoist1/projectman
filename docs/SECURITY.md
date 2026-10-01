@@ -192,7 +192,9 @@ Code's shell snapshots (`~/.claude/shell-snapshots`, sourced before every comman
 shell's functions, aliases and options) and the one file the user's git configuration names as
 `core.excludesfile` (PM-216; git warns about it in every command otherwise; only an existing
 regular file, never the home or a directory above it, nor one in a denied path or the app home).
-Its git environment sets `gc.auto=0` and `maintenance.auto=false` (no automatic `pack-refs` at the
+Its git settings are a system-level file in its sandbox directory (`GIT_CONFIG_SYSTEM`, readable
+but not writable, rewritten at every start; not `GIT_CONFIG_COUNT` entries, which would replace a
+session's own): `gc.auto=0` and `maintenance.auto=false` (no automatic `pack-refs` at the
 denied `packed-refs`) and `core.packedRefsTimeout=0`. A `git commit` still prints "Unable to create
 '…/packed-refs.lock'" after it: its last step deletes the `CHERRY_PICK_HEAD` pseudo-ref, and every
 ref-deleting transaction locks the shared `packed-refs`. The commit exists; the message is known

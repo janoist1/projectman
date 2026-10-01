@@ -1900,8 +1900,12 @@ describe("the CLI's own sandbox (PM-167)", () => {
       'Never these paths of the shared git directory (the default branch, the integrating checkout, replacements and grafts): `/src/app/.git/refs/heads/main`, `/src/app/.git/HEAD`, `/src/app/.git/index`, `/src/app/.git/packed-refs`, `/src/app/.git/refs/replace`, `/src/app/.git/info/grafts` (and their lock files)',
     );
     expect(text).toContain(
-      'Reading: nothing below `/home/anna` and `/pm` except `/pm/worktrees/AR/AR-21-app`, `/pm/member-caches/AR/fe-1/npm-cache`, `/pm/member-caches/AR/fe-1/projectman-dev`, `/src/app/.git`, `/home/anna/.gitconfig`',
+      'Reading: nothing below `/home/anna` and `/pm` except `/pm/worktrees/AR/AR-21-app`, `/pm/member-caches/AR/fe-1/npm-cache`, `/pm/member-caches/AR/fe-1/projectman-dev`, `/pm/member-caches/AR/fe-1/gitconfig`, `/src/app/.git`, `/home/anna/.gitconfig`',
     );
+    // PM-216: git's settings file is told apart from the npm cache and the development data.
+    expect(text).not.toContain('`GIT_CONFIG_SYSTEM` is');
+    expect(text).toContain('its system settings come from `/pm/member-caches/AR/fe-1/gitconfig`');
+    expect(text).toContain("`Unable to create '…/packed-refs.lock'`: the commit exists");
     expect(text).toContain(
       '`GH_TOKEN`, `GITHUB_TOKEN`, `NPM_TOKEN`, `NODE_AUTH_TOKEN`, `SSH_AUTH_SOCK` are unset',
     );

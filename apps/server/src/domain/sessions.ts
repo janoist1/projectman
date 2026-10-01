@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import {
@@ -69,6 +69,8 @@ import {
   DONE_TASK_TURN_LIMIT_MS,
   MEMBER_SANDBOX_DIRS,
   memberSandboxDir,
+  SANDBOX_GIT_CONFIG,
+  SANDBOX_GIT_CONFIG_FILE,
   sensitivePaths,
   sessionSandbox,
   usesWorktree,
@@ -1416,6 +1418,8 @@ export class SessionOrchestrator {
       // Two small local directories: made at once, so the start does not wait an extra turn.
       for (const sub of MEMBER_SANDBOX_DIRS)
         mkdirSync(path.join(dir, sub.name), { recursive: true, mode: 0o700 });
+      // Written at every start, so the commands' git settings are always the current ones (PM-216).
+      writeFileSync(path.join(dir, SANDBOX_GIT_CONFIG_FILE), SANDBOX_GIT_CONFIG, { mode: 0o600 });
     } catch (err) {
       throw new DomainError(
         'session_start_failed',

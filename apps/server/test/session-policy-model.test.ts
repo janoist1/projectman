@@ -202,15 +202,13 @@ describe('provider-neutral session policy', () => {
     // Never the home or a directory above it, whatever the config says.
     for (const dir of [home, '/fictional'])
       expect(sessionSandbox(development(), { ...paths, excludesFile: dir })!.allowRead).not.toContain(dir);
-    expect(sandbox.env).toMatchObject({
-      GIT_CONFIG_COUNT: '3',
-      GIT_CONFIG_KEY_0: 'gc.auto',
-      GIT_CONFIG_VALUE_0: '0',
-      GIT_CONFIG_KEY_1: 'maintenance.auto',
-      GIT_CONFIG_VALUE_1: 'false',
-      GIT_CONFIG_KEY_2: 'core.packedRefsTimeout',
-      GIT_CONFIG_VALUE_2: '0',
-    });
+    // The git settings are a file, not GIT_CONFIG_COUNT entries that would replace a session's own.
+    expect(sandbox.env).not.toHaveProperty('GIT_CONFIG_COUNT');
+    expect(sandbox.env).not.toHaveProperty('GIT_CONFIG_SYSTEM');
+    const withDir = sessionSandbox(development(), { ...paths, appHome: '/pm', memberDir: '/pm/m/AR/dev' })!;
+    expect(withDir.env).toMatchObject({ GIT_CONFIG_SYSTEM: '/pm/m/AR/dev/gitconfig' });
+    expect(withDir.allowRead).toContain('/pm/m/AR/dev/gitconfig');
+    expect(withDir.allowWrite).not.toContain('/pm/m/AR/dev/gitconfig');
   });
 
   it('resolves mixed/custom duty bundles instead of role names', () => {

@@ -81,8 +81,12 @@ export const SANDBOX_PTY_ENV = { [PTY_SKIP_VARIABLE]: '1' } as const;
 export const SANDBOX_HOME_READS = ['.gitconfig', '.config/git', '.claude/shell-snapshots'];
 
 /**
- * Git settings of a developer's sandboxed commands (PM-216), through git's own environment
- * configuration (every `GIT_CONFIG_*` variable of a session is set here, so none is overwritten):
+ * Git settings of a developer's sandboxed commands (PM-216): a system-level git configuration
+ * file in the member's sandbox directory (`GIT_CONFIG_SYSTEM`; written by the host at every start,
+ * readable but not writable for the commands). Not `GIT_CONFIG_COUNT`/`KEY_n`: a session's
+ * environment may already carry such entries (`safe.directory`), and ours would replace them. The
+ * user's own configuration still comes after it; the machine's system file (`credential.helper`
+ * and the like) is not loaded, which a sandbox without credentials does not miss.
  * - no automatic gc or maintenance: `gc --auto` / `pack-refs` would rewrite the shared
  *   `packed-refs`, which `sharedGitDenials` keeps out;
  * - `core.packedRefsTimeout=0`: git waits 1 s for a `packed-refs.lock` it cannot take. A
@@ -92,15 +96,10 @@ export const SANDBOX_HOME_READS = ['.gitconfig', '.config/git', '.claude/shell-s
  *   setting avoids that message; allowing the lock would let a sandbox change the host's lock
  *   window, so the message is known and harmless, and only its delay is removed.
  */
-export const SANDBOX_GIT_ENV = {
-  GIT_CONFIG_COUNT: '3',
-  GIT_CONFIG_KEY_0: 'gc.auto',
-  GIT_CONFIG_VALUE_0: '0',
-  GIT_CONFIG_KEY_1: 'maintenance.auto',
-  GIT_CONFIG_VALUE_1: 'false',
-  GIT_CONFIG_KEY_2: 'core.packedRefsTimeout',
-  GIT_CONFIG_VALUE_2: '0',
-} as const;
+export const SANDBOX_GIT_CONFIG_FILE = 'gitconfig';
+export const GIT_SETTINGS_VARIABLE = 'GIT_CONFIG_SYSTEM';
+export const SANDBOX_GIT_CONFIG =
+  '[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n[core]\n\tpackedRefsTimeout = 0\n';
 
 /**
  * A member's own directory for what its sandboxed commands keep between sessions (PM-193): its npm
@@ -188,10 +187,12 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
   const own = memberDir
     ? MEMBER_SANDBOX_DIRS.map((dir) => ({ ...dir, path: path.join(memberDir, dir.name) }))
     : [];
+  const gitConfig = memberDir ? path.join(memberDir, SANDBOX_GIT_CONFIG_FILE) : undefined;
   const allowRead = [
     ...policy.filesystem.readableRoots,
     ...(policy.filesystem.readOnlyPaths ?? []),
     ...own.map((dir) => dir.path),
+    ...(gitConfig ? [gitConfig] : []),
     ...(gitDir ? [gitDir] : []),
     ...SANDBOX_HOME_READS.map((name) => path.join(userHome, name)),
     // Never the home or a directory above it, whatever the config says.
@@ -209,7 +210,7 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
     env: {
       ...Object.fromEntries(own.map((dir) => [dir.variable, dir.path])),
       ...SANDBOX_PTY_ENV,
-      ...SANDBOX_GIT_ENV,
+      ...(gitConfig ? { [GIT_SETTINGS_VARIABLE]: gitConfig } : {}),
     },
     deniedEnvVars: [...SANDBOX_DENIED_ENV_VARS],
     allowedDomains: [...SANDBOX_ALLOWED_DOMAINS],

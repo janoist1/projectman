@@ -1,0 +1,15 @@
+# The protected launcher's socket (PM-140). systemd creates it, so the launcher never chowns
+# anything: root's, group = the service account's, mode 0660. The service is the only member of
+# that group; workers cannot reach it (verify.sh's launcher check holds it to that).
+[Unit]
+Description=projectman protected launcher socket
+
+[Socket]
+ListenStream=/run/projectman-launcher.sock
+SocketUser=root
+SocketGroup=projectman
+SocketMode=0660
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

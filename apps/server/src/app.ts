@@ -26,6 +26,7 @@ import type {
   MemberWorkspaceManager,
   RunnerModule,
   RunnerModuleOptions,
+  RuntimeBoundary,
   WorktreeManager,
 } from './contracts';
 import { createRepositories, openDatabase } from './db';
@@ -34,7 +35,17 @@ import { createAttachmentStorage, createDomain } from './domain';
 import type { Domain, ScheduleTimer, TemplateRegistry } from './domain';
 import { createGithubPublisher, createGithubService, createTokenFileReader } from './github';
 import { createMcpModule } from './mcp';
-import { createReadinessBoundary, createRunnerModule } from './runner';
+import { createReadinessBoundary, createRunnerModule, ManagedVmUnavailableError } from './runner';
+import {
+  createManagedEgressProxy,
+  createRuntimeBoundary,
+  createServiceBridges,
+  disabledRuntimeBoundary,
+  egressScopeTag,
+  isManagedBoundary,
+  passwdAccounts,
+} from './runtime-boundary';
+import type { BoundaryConfig } from './runtime-boundary';
 import { createMemberWorkspaceManager, createWorktreeManager } from './worktree';
 import { registerWebsocket } from './ws';
 
@@ -72,6 +83,8 @@ export interface AppModules {
   templates?: TemplateRegistry;
   /** The files of task attachments (default: PROJECTMAN_HOME/attachments). */
   attachmentStorage?: AttachmentStorage;
+  /** The VM boundary (default: from `runtimeBoundary` in the options, else none). Tests pass a fake. */
+  runtimeBoundary?: RuntimeBoundary;
 }
 
 /** Defaults of the server's options, including those index.ts reads from the environment. */
@@ -131,6 +144,13 @@ export interface BuildAppOptions {
    */
   memberWorkspaces?: boolean;
   /**
+   * The managed VM boundary (PM-140), from the root-owned boundary configuration the service unit
+   * names. It only makes the server stricter: every session starts through the protected launcher
+   * as its member's worker, workspaces live in worker homes, workers reach the network through the
+   * egress proxy, and no session starts while the boundary is not ready. Needs `memberWorkspaces`.
+   */
+  runtimeBoundary?: BoundaryConfig;
+  /**
    * The installation's execution profile (PM-141): `legacy` (default, the Mac as it always was) or
    * `managed_vm`, the owner's choice for the verified managed VM (docs/VM.md). It starts every
    * session question-free, but only while a verified boundary proves itself at that start; the
@@ -183,13 +203,22 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   if (executionProfile === 'managed_vm') {
     if (!options.memberWorkspaces)
       throw new Error('execution profile managed_vm needs member workspaces (PROJECTMAN_WORKSPACES=member)');
-    if (!modules.managedVmBoundary && !options.vmReadinessReport)
+    // Question-free sessions only behind the VM boundary (PM-140): without it they would run as the
+    // service itself. A test may inject its own proof instead.
+    if (!modules.managedVmBoundary && !options.runtimeBoundary)
+      throw new Error(
+        'execution profile managed_vm needs the VM boundary configuration (PROJECTMAN_BOUNDARY_CONFIG)',
+      );
+    const reportPath = options.vmReadinessReport ?? options.runtimeBoundary?.readiness.report;
+    if (!modules.managedVmBoundary && !reportPath)
       throw new Error('execution profile managed_vm needs a readiness report to verify the boundary');
     managedVm =
       modules.managedVmBoundary ??
       createReadinessBoundary({
-        reportPath: options.vmReadinessReport!,
-        maxAgeMs: options.vmReadinessMaxAgeMs,
+        reportPath: reportPath!,
+        maxAgeMs:
+          options.vmReadinessMaxAgeMs ??
+          (options.runtimeBoundary ? options.runtimeBoundary.readiness.maxAgeSeconds * 1000 : undefined),
       });
   } else if (modules.managedVmBoundary || options.vmReadinessReport) {
     throw new Error('a VM readiness report is set, but the execution profile is not managed_vm');
@@ -256,15 +285,72 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const worktrees =
       modules.worktrees ??
       createWorktreeManager({ rootDir: join(home, 'worktrees'), logger: log.child({ module: 'worktree' }) });
+    // The VM boundary (PM-140): fail closed. Its proxy is the workers' only way out; the status
+    // reports it down until it listens, and no session starts meanwhile.
+    const boundaryConfig = options.runtimeBoundary;
+    if (boundaryConfig && !options.memberWorkspaces)
+      throw new Error('the managed VM boundary needs member workspaces (PROJECTMAN_WORKSPACES=member)');
+    let egressProxy: ReturnType<typeof createManagedEgressProxy> | null = null;
+    // Each worker unit reaches the app and the proxy only through its member's bridge sockets.
+    const bridges = boundaryConfig
+      ? createServiceBridges({
+          root: boundaryConfig.bridgeRoot,
+          appPort: boundaryConfig.appPort,
+          groupOf: (member) =>
+            passwdAccounts().byName(`${boundaryConfig.workers.prefix}${member}`)?.gid ?? null,
+          onEgress: (socket, member) => {
+            if (egressProxy?.listening()) egressProxy.acceptFrom(socket, member);
+            else socket.destroy();
+          },
+          logger: log.child({ module: 'bridge' }),
+        })
+      : null;
+    const runtimeBoundary: RuntimeBoundary =
+      modules.runtimeBoundary ??
+      (boundaryConfig
+        ? createRuntimeBoundary({
+            config: boundaryConfig,
+            egressUp: () => egressProxy?.listening() ?? false,
+            prepare: (member) => bridges!.ensure(member),
+            serverSpool: join(home, 'spool'),
+          })
+        : disabledRuntimeBoundary(options.now));
+    const managed = isManagedBoundary(runtimeBoundary) ? runtimeBoundary : null;
+    // The question-free profile (PM-141) holds only while the boundary holds now: the report, and
+    // the launcher and the egress proxy answering (PM-140), at every session start.
+    const verifiedManagedVm: ManagedVmBoundary | undefined =
+      managedVm && runtimeBoundary.mode === 'managed_vm'
+        ? {
+            async verify() {
+              const attestation = await managedVm.verify();
+              const status = await runtimeBoundary.status();
+              if (!status.ready)
+                throw new ManagedVmUnavailableError(
+                  'not_ready',
+                  'the VM boundary is not ready (readiness, launcher or egress proxy)',
+                  { problems: status.problems },
+                );
+              return attestation;
+            },
+          }
+        : managedVm;
     const workspacesDir = join(home, 'workspaces');
     const memberWorkspaces = options.memberWorkspaces
       ? (modules.memberWorkspaces ??
-        createMemberWorkspaceManager({ rootDir: workspacesDir, logger: log.child({ module: 'workspace' }) }))
+        createMemberWorkspaceManager({
+          rootDir: workspacesDir,
+          logger: log.child({ module: 'workspace' }),
+          ...(managed ? { access: managed.workspaceAccess, rootFor: managed.workspacesRoot } : {}),
+        }))
       : undefined;
     const makeRunner = modules.createRunnerModule ?? createRunnerModule;
     const auth = new AuthService({ repos, now: options.now });
 
     const domain = createDomain({
+      runtimeBoundary,
+      ...(boundaryConfig
+        ? { egress: { base: boundaryConfig.egress.base, grantHours: boundaryConfig.egress.grantHours } }
+        : {}),
       boundaryAdapter: modules.boundaryAdapter,
       repos,
       configStore,
@@ -277,11 +363,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           codexHome: options.codexHome,
           claudeConfigPath: options.claudeConfigPath,
           env: options.agentEnv,
-          managedVm,
+          managedVm: verifiedManagedVm,
           publicBaseUrl,
           broker,
           permissionTimeoutMs: options.permissionTimeoutMs ?? APP_DEFAULTS.permissionTimeoutMs,
           logger: log.child({ module: 'runner' }),
+          ...(runtimeBoundary.mode === 'managed_vm' && runtimeBoundary.launcher && runtimeBoundary.layout
+            ? { launcher: runtimeBoundary.launcher, workerLayout: runtimeBoundary.layout }
+            : {}),
         }),
       github,
       githubPublisher,
@@ -293,14 +382,48 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       worktreesRootDir: join(home, 'worktrees'),
       memberWorkspaces,
       workspacesRootDir: workspacesDir,
+      // Behind the boundary a session's pid is the launcher's (root's) process, and the launcher
+      // stops every session whose service connection drops: none outlives a restart of the server.
+      ...(runtimeBoundary.mode === 'managed_vm' ? { processExists: () => false } : {}),
       executionProfile,
-      managedVm,
+      managedVm: verifiedManagedVm,
       templates: modules.templates,
       now: options.now,
       scheduleTimer: options.scheduleTimer,
       planUsageTtlMs: options.planUsageTtlMs,
       doneCleanupDelayMs: options.doneCleanupDelayMs,
     });
+    if (boundaryConfig) {
+      const proxy = createManagedEgressProxy({
+        config: boundaryConfig,
+        logger: log.child({ module: 'egress' }),
+        resolveToken: (token) => domain.sessions.resolveEgressToken(token),
+        async authorize(identity, destination) {
+          const decision = await domain.egress.authorize(identity, destination);
+          if (!decision.allowed) return decision;
+          // A session's tunnels carry its member's scope in its project, so they can be ended.
+          const scope = identity.session
+            ? [egressScopeTag(identity.session.projectKey, identity.member)]
+            : [];
+          return decision.via === 'allowance'
+            ? { allowed: true, tags: [decision.allowanceId, ...scope], expiresAt: decision.expiresAt }
+            : { allowed: true, tags: scope };
+        },
+      });
+      // A revoked allowance ends its open tunnels too, not only new connections...
+      domain.ctx.events.on('egress_allowance_revoked', (allowance) => {
+        const closed = proxy.closeTagged(allowance.id);
+        if (closed > 0)
+          log.info({ allowanceId: allowance.id, closed }, 'closed egress tunnels of a revoked allowance');
+      });
+      // ... and so does a member who may no longer work in the project (removed, on leave, AI off).
+      domain.ctx.events.on('egress_member_inactive', ({ projectKey, member }) => {
+        const closed = proxy.closeTagged(egressScopeTag(projectKey, member), { remember: false });
+        if (closed > 0)
+          log.info({ projectKey, member, closed }, 'closed egress tunnels of an inactive member');
+      });
+      egressProxy = proxy;
+    }
     const mcpModule = (modules.createMcpModule ?? createMcpModule)({
       handler: domain.teamTools,
       // O(1) in-memory lookup: runs on every MCP request.
@@ -331,9 +454,15 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
     app.addHook('onReady', async () => {
       await domain.start();
+      if (egressProxy) {
+        const proxy = egressProxy;
+        await proxy.listen().catch((err: unknown) => log.error({ err }, 'the egress proxy could not listen'));
+      }
     });
     const db = repos.db;
     app.addHook('onClose', async () => {
+      await egressProxy?.close();
+      await bridges?.close();
       await domain.stop();
       try {
         await domain.runnerModule.runner.shutdown();

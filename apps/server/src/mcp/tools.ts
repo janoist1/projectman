@@ -42,6 +42,7 @@ export const TEAM_TOOL_NAMES = [
   'submit_boundary_request',
   'get_boundary_request',
   'decide_boundary_request',
+  'list_network_denials',
   'send_message',
   'list_members',
   'get_task',
@@ -187,6 +188,17 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
           reason: args.reason,
         }),
       );
+    },
+  }),
+  defineTool({
+    name: 'list_network_denials',
+    title: 'List refused network destinations',
+    readOnly: true,
+    description:
+      'Only where projectman runs behind its VM boundary: there every connection to the internet goes through the projectman egress proxy, which refuses destinations outside its base list (the subscription CLIs, npm, GitHub) unless a lead or the owner allowed them, and a refused connection fails with HTTP 403 from the proxy. This lists the destinations it refused for your session, each with an operation id (elsewhere the list is empty). To ask for one, call submit_boundary_request with that operation id; an allowed request opens exactly that host and port for you in this project until it expires. Ask only for destinations the task needs.',
+    input: {},
+    async run({ ctx, handler }) {
+      return JSON.stringify(await handler.listNetworkDenials(ctx));
     },
   }),
   defineTool({

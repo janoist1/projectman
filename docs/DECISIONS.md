@@ -186,3 +186,9 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
       them are done (PM-141, PM-142). In every other profile they apply as before.
     - Old `permissionMode` values are never migrated to a freer mode automatically; the VM
       profile and the delegation rights are owner-only settings.
+27. **Each worker has its own subscription login.** Decided by the owner on 2026-10-01 (PM-140,
+    "Tagonként saját bejelentkezés"). In the managed VM the members' sessions run as their own
+    worker accounts, so each worker gets its own Claude and Codex login on the same subscription,
+    made once by a person per worker and provider; the login file stays in that worker's home,
+    readable by nobody else. No login is copied between accounts or handed to a session by the
+    launcher, and no API key is used (decisions 1 and 15 stand).

@@ -83,12 +83,12 @@ project and run a first task end to end.
   plus 1–1.5 GB per concurrent AI developer). [DEPLOY.md](DEPLOY.md) is ready.
 - **PM-135 / PM-137** — the VM direction (decisions 25, 26): `deploy/vm/` builds a reproducible
   Ubuntu guest (Multipass on the owner's Mac first, the same files on a server later) with a
-  readiness report; see [VM.md](VM.md). The real VM trial is a person's step; the protected
-  launcher and network gate (PM-140), workstations (PM-138), delegation (PM-139), the question-free
-  profile (PM-141, built behind the verified boundary; its activation waits for PM-140's launcher
-  and domain gate and for the human trial in VM.md), publishing (PM-142: built, with the fake gh and
-  a temporary remote; the owner still creates the identity and runs `deploy/github/trial.sh` on a
-  throwaway repository, see GITHUB.md) and the move and rollback (PM-143) follow.
+  readiness report; see [VM.md](VM.md). Workstations (PM-138), delegation (PM-139), the
+  protected launcher and network gate (PM-140) and the question-free profile (PM-141, which runs
+  only behind PM-140's boundary) are built; the real VM trial of each is a person's step (VM.md's
+  trial protocol). Publishing (PM-142) is built with the fake gh and a temporary remote; the owner
+  still creates the identity and runs `deploy/github/trial.sh` on a throwaway repository (see
+  GITHUB.md). The move and rollback (PM-143) follow.
 - **PM-46** — verify `X-Forwarded-Proto` behind Tailscale Serve from a phone (Secure cookies,
   origin checks); DEPLOY.md lists the curl checks.
 - **PM-50** — remove the merged `codex*` and `agent-*` worktrees and branches (local chore).
@@ -159,6 +159,16 @@ Still open, roughly by value:
 
 From the backlog: the eight phase 2 questions ([design/phase2.md](design/phase2.md)) and the
 product name (PM-47).
+
+From the VM boundary (PM-140), not decided yet:
+
+- **One worker account per member, or per member and project?** Today a handle's worker
+  (`pmw-<handle>`) is the same in every project of the instance: a `dev` in a client project and a
+  `dev` in projectman share a home, their workspaces' files and each other's live session tokens
+  (all their processes run as one uid), so a network allowance of one project can be used from the
+  other through a token read from a running session. Accounts per member and project (or a
+  separate VM per client) would separate them; it costs an account, a login and a workspace set per
+  pair. Until decided, give a member of a client project a handle used nowhere else.
 
 The fifteen questions of the 2026-09-30 review were answered by the owner the same day: every
 recommendation was accepted (decision 19). The work they call for is on the board:

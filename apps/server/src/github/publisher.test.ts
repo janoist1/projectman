@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -133,6 +133,27 @@ describe('publishing a task branch', () => {
     });
     expect(git(remote, 'rev-parse', `refs/heads/${BRANCH}`)).toBe(tip);
     expect(git(remote, 'rev-parse', 'refs/heads/main')).toBe(mainBefore);
+  });
+
+  it("publishes from the worker's bundle of the branch behind the VM boundary, never from a link", async () => {
+    const tip = commit(workspace, 'feature.ts', 'one\n');
+    const bundle = join(dir, 'handed.bundle');
+    git(workspace, 'bundle', 'create', '-q', bundle, `refs/heads/${BRANCH}`);
+    const result = await publisher().publish(request(tip, { sourcePath: bundle, sourceKind: 'bundle' }));
+    expect(result).toMatchObject({ commit: tip, pullRequestCreated: true });
+    expect(git(remote, 'rev-parse', `refs/heads/${BRANCH}`)).toBe(tip);
+
+    const link = join(dir, 'link.bundle');
+    symlinkSync(bundle, link);
+    const refused = await failure(
+      publisher().publish(request(tip, { sourcePath: link, sourceKind: 'bundle' })),
+    );
+    expect(refused.code).toBe('no_task_branch');
+    // A bundle whose branch tip is another commit is refused like a moved branch.
+    const later = commit(workspace, 'later.ts', 'two\n');
+    expect(
+      (await failure(publisher().publish(request(later, { sourcePath: bundle, sourceKind: 'bundle' })))).code,
+    ).toBe('commit_mismatch');
   });
 
   it('gives gh the identity through its environment only, never the command line or the log', async () => {

@@ -303,6 +303,10 @@ claude | codex ── transcript JSONL ────────────▶ r
   safe branch switches, pinned review checkouts; PM-138).
 - `github/` — `gh`-based pull request lookups and polling (the owner's read login); the publisher
   with the VM's separate identity (PM-142).
+- `runtime-boundary/` — the VM boundary (PM-140): the boundary configuration, the launcher
+  (root daemon, protocol, client), the worker bridge (inside each unit's own network namespace)
+  and the service's per-member bridge sockets, the egress proxy, the worker workspace access, the
+  readiness verdict and the boundary probe verify.sh runs.
 - `http/` — request guards shared by the internal endpoints (local-only checks).
 - `config/` — the customization repository: YAML load and save, git history, revert,
   configuration migrations.
@@ -393,15 +397,36 @@ The running boundary of the VM direction (decisions 25, 26) is **outside** the a
   boundary settings (`/etc/projectman`, the nftables egress table `projectman_gate`, the units).
   None of it is writable by the workers; the data is not readable by them.
 - **Free side**: one unprivileged account per member, `pmw-<handle>` (uids 20000–20999, own group
-  and home under `/var/lib/projectman-work`). The protected launcher that starts a session as such
-  an account, and the domain-level network gate, are PM-140; per-member workstations are PM-138.
-  Until then the runner starts the CLIs as the service, which the egress rules confine too.
+  and home under `/var/lib/projectman-work`), where that member's sessions and workspaces live.
 - **Contract**: `packages/shared/src/deploy/vm-readiness.ts` lists the checks (version, worker
-  privileges, protected paths, host isolation, network gate, service), which are required, and the
-  one verdict rule `evaluateVmReadiness()`. `verify.sh` writes a report in that shape;
-  `scripts/vm-readiness.ts` prints the verdict. The server reads the report only to let the
-  question-free profile start (below); PM-143 consumes it for the move. A flag such as `VM=true` is
-  never an input; the report is strict and a missing check fails.
+  privileges, protected paths, host isolation, network gate, launcher, service), which are
+  required, and the one verdict rule `evaluateVmReadiness()`. `verify.sh` writes a report in that
+  shape; `scripts/vm-readiness.ts` prints the verdict and the server enforces it (below); PM-143
+  consumes it for the move. A flag such as `VM=true` is never an input; the report is strict and a
+  missing check fails.
+
+**The runtime boundary (PM-140, `src/runtime-boundary`).** `index.ts` reads nothing from the
+environment: `index.ts` of the server loads the root-owned boundary configuration
+(`PROJECTMAN_BOUNDARY_CONFIG`, `BoundaryConfig`), and `app.ts` builds from it:
+
+- the **launcher client** (`SessionLauncher`): the runner starts every session through it as the
+  member's worker (`RunnerModuleOptions.launcher`), the member workspace manager runs every
+  workspace command through it (`WorkspaceAccess`), and the session orchestrator prepares a
+  worker's session directory with it. The launcher itself (`launcher/daemon.ts`, entry
+  `dist/launcher.js`) runs as root behind a socket only the service's group reaches and turns a
+  narrow, validated request into a `systemd-run` unit with a fixed sandbox;
+- the **egress proxy** (`egress/proxy.ts`, in the service process): the workers' only way out;
+  it asks the domain's `EgressService` for every connection, which allows the base list and
+  allowances and turns allowed PM-139 grants into allowances (DB migration 16);
+- the **verdict** (`RuntimeBoundary.status()`): the readiness report, the launcher's answer and the
+  proxy's listener. `SessionOrchestrator` refuses every start while it is not ready
+  (`runtime_boundary_not_ready`). The question-free profile (PM-141, `managed_vm`) needs this
+  configuration (the server does not start without it), and its per-start proof
+  (`ManagedVmBoundary.verify()`) also requires `status().ready`, so question-free sessions only ever
+  run through the launcher as the member's worker.
+
+Without the configuration the boundary is `off` (`disabledRuntimeBoundary`), nothing changes for
+other installations, and `status().ready` is always false.
 
 Details, the manual trial and backup/restore are in [VM.md](VM.md).
 
@@ -414,20 +439,24 @@ is outside the CLIs, so Claude Code and Codex run without local approval questio
 [PROVIDERS.md](PROVIDERS.md) lists what each CLI is given and what is not yet proven by hand.
 
 - **Selection is not proof.** `PROJECTMAN_EXECUTION_PROFILE=managed_vm` (read in `index.ts`, with
-  `PROJECTMAN_WORKSPACES=member` and `PROJECTMAN_VM_READINESS_REPORT`) only selects. Every start,
-  resume included, asks a `ManagedVmBoundary` (`contracts/runner.ts`): the report boundary needs a
-  Linux host, a ready, current report with the launcher and the domain gate passed
-  (`evaluateManagedVmActivation`). Otherwise the start fails with `managed_vm_unavailable`, before
+  `PROJECTMAN_WORKSPACES=member`, `PROJECTMAN_BOUNDARY_CONFIG` and optionally
+  `PROJECTMAN_VM_READINESS_REPORT`, which defaults to the boundary configuration's report) only
+  selects. Every start, resume included, asks a `ManagedVmBoundary` (`contracts/runner.ts`): the
+  report boundary needs a Linux host, a ready, current report with the launcher and the domain gate
+  passed (`evaluateManagedVmActivation`), and `app.ts` adds the runtime boundary's verdict (launcher
+  answering, egress proxy listening). Otherwise the start fails with `managed_vm_unavailable`, before
   any workspace is prepared or process spawned, and never falls back to a legacy start. An unknown
-  profile, or a managed VM without member workspaces or a way to verify, stops the server; a readiness
-  report on a legacy installation does too. On the Mac the profile cannot be entered by a file or a flag.
+  profile, or a managed VM without member workspaces or the boundary configuration, stops the
+  server; a readiness report on a legacy installation does too. On the Mac the profile cannot be
+  entered by a file or a flag.
 - **The policy** (`SessionPolicy.execution`, placement `member_workspace`, built by
   `buildManagedVmPolicy` in `domain/session-policy.ts`) keeps `enforcement: 'legacy'`: it neither
   claims strict isolation nor migrates a `permissionMode` (`managedVmPermissions` reads the member's
   mode; `plan` stays research-only). It has no tool grants to render, no denied operations and no
   sandbox; the business rules and owner exceptions apply at the domain, network and operation gate
-  (BOUNDARY.md). Sessions without a repository (chats, schedule runs, a task without one) work in the
-  member's own `<workspaces>/<KEY>/<handle>/.home`, never a shared directory.
+  (BOUNDARY.md). Sessions without a repository (chats, schedule runs, a task without one) work in a
+  directory of the member's own worker account (behind the launcher) or in the member's own
+  `<workspaces>/<KEY>/<handle>/.home`, never a shared directory.
 - **No local approval path.** A permission request that arrives anyway is refused at once in the
   runner (and in the inbox broker): no inbox item, no `commandVerdict`, no command-form rules; the
   context pack drops the "Commands that run without asking" section. The legacy path keeps all of it.
@@ -436,7 +465,8 @@ is outside the CLIs, so Claude Code and Codex run without local approval questio
   placement and its unconsumed boundary requests are revoked (`BoundaryService.invalidateSession`).
 - **Checks before each spawn** (runner, `runner/managed-vm.ts`): the installed CLI version is one the
   question-free settings are proven for, and the VM's own provider configuration (managed policy, user
-  files, Codex's project file) sets nothing that overrides the protected start (PM-49); the Claude
+  files, Codex's project file) sets nothing that overrides the protected start (PM-49); behind the
+  launcher the user files are read from the member's worker home without following links; the Claude
   start also leaves out the project's settings and `.mcp.json`.
 
 The fake CLIs model this (`FAKE_*_VERSION`, bypass modes, `FAKE_*_FORCE_*` for a request where none is

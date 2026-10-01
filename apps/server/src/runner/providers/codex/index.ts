@@ -151,7 +151,7 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
     async launch({ spec, hookUrl, permissionTimeoutMs }) {
       const realCwd = await realpath(spec.cwd).catch(() => spec.cwd);
       const { args, initialMessageSent } = buildCodexArgs({ spec, hookUrl, permissionTimeoutMs, realCwd });
-      return { ...resolveCommand(opts.bin, args), initialMessageSent };
+      return { ...resolveCommand(opts.bin, args), cliArgs: args, initialMessageSent };
     },
 
     parseHook(body): HookPayload | null {
@@ -176,6 +176,8 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
     async checkLogin(env): Promise<ProviderStatus> {
       return parseCodexLoginStatus(await runQuietly(opts.bin, ['login', 'status'], env));
     },
+    loginCommand: ['login', 'status'],
+    parseLogin: (out) => parseCodexLoginStatus(out),
     planUsage,
     noteTranscript: (file) => planUsage.noteTranscript(file),
   };

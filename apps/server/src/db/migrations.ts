@@ -377,5 +377,40 @@ export const migrations: Migration[] = [
     // and keeps the login-matching behavior it always had.
     sql: `ALTER TABLE task_links ADD COLUMN author_source TEXT;`,
   },
+  {
+    version: 16,
+    name: 'egress operations and allowances',
+    // The network side of the VM boundary (PM-140). An operation is a destination a session was
+    // refused, registered so it can be asked for (its id is the boundary operation id); an
+    // allowance is an allowed request the egress proxy consumed: one member, one project, one
+    // host and port, until a fixed time, revocable by an owner. Existing rows need nothing new.
+    sql: `CREATE TABLE egress_operations (
+        id          TEXT PRIMARY KEY,
+        project_key TEXT NOT NULL REFERENCES projects(key),
+        member      TEXT NOT NULL,
+        session_id  TEXT NOT NULL,
+        task_key    TEXT,
+        host        TEXT NOT NULL,
+        port        INTEGER NOT NULL,
+        created_at  TEXT NOT NULL,
+        expires_at  TEXT NOT NULL
+      );
+      CREATE INDEX egress_operations_session ON egress_operations(session_id, host, port);
+      CREATE INDEX egress_operations_member ON egress_operations(project_key, member, host, port);
+      CREATE TABLE egress_allowances (
+        id           TEXT PRIMARY KEY,
+        project_key  TEXT NOT NULL REFERENCES projects(key),
+        member       TEXT NOT NULL,
+        host         TEXT NOT NULL,
+        port         INTEGER NOT NULL,
+        request_id   TEXT NOT NULL UNIQUE REFERENCES boundary_requests(id),
+        operation_id TEXT NOT NULL REFERENCES egress_operations(id),
+        granted_at   TEXT NOT NULL,
+        expires_at   TEXT NOT NULL,
+        revoked_at   TEXT,
+        revoked_by   TEXT
+      );
+      CREATE INDEX egress_allowances_member ON egress_allowances(project_key, member, host, port);`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

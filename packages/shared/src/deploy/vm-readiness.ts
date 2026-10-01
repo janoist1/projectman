@@ -10,8 +10,11 @@ import { z } from 'zod';
  * a report that carries a `vm: true` style flag is refused, and a missing check is a failure.
  */
 
-/** Bump when a check is added, removed or changes meaning; an old report is then not ready. */
-export const VM_PROFILE_VERSION = 1;
+/**
+ * Bump when a check is added, removed or changes meaning; an old report is then not ready.
+ * 2 (PM-140): the protected launcher and the egress gate are required checks.
+ */
+export const VM_PROFILE_VERSION = 2;
 export const VM_PROFILE_NAME = 'managed-vm';
 const CLOCK_SKEW_MS = 5 * 60_000;
 
@@ -31,9 +34,9 @@ export interface VmCheckDefinition {
 }
 
 /**
- * Every check of the profile. The ones that are not required describe work that later parts of
- * PM-135 deliver (the protected launcher and the domain-level network gate, PM-140) or that depends
- * on the network of the day; the report shows their state so nobody mistakes them for done.
+ * Every check of the profile. The ones that are not required depend on the network of the day or
+ * on a step a person takes later (Tailscale); the report shows their state so nobody mistakes them
+ * for done.
  */
 export const VM_CHECKS: readonly VmCheckDefinition[] = [
   // versions
@@ -111,7 +114,8 @@ export const VM_CHECKS: readonly VmCheckDefinition[] = [
     id: 'no-credential-copies',
     group: 'protected-paths',
     required: true,
-    meaning: 'No provider or GitHub login file lies in a worker home: the login is not a standing copy.',
+    meaning:
+      "No copied login lies in a worker home: a worker's subscription login is its own (its file, mode 600, not the service's bytes), and no GitHub or SSH key is there.",
   },
   {
     id: 'proc-hidden',
@@ -177,19 +181,21 @@ export const VM_CHECKS: readonly VmCheckDefinition[] = [
     group: 'network-gate',
     required: false,
     meaning:
-      'A worker can still reach the public internet (a registry); a gate that blocks everything is not usable.',
+      'A worker can still reach a base destination (a registry) through the egress proxy; a gate that blocks everything is not usable.',
   },
   {
     id: 'domain-gate',
     group: 'network-gate',
-    required: false,
-    meaning: 'Outgoing traffic is limited to allowed domains (the protected network gate of PM-140).',
+    required: true,
+    meaning:
+      'From a worker unit nothing leaves but through the egress proxy (no DNS, direct TCP, UDP, IPv6, loopback SSH or resolver), and the proxy refuses destinations outside its list and private addresses.',
   },
   {
     id: 'launcher',
     group: 'network-gate',
-    required: false,
-    meaning: 'The protected launcher starts sessions as the worker accounts (PM-140).',
+    required: true,
+    meaning:
+      'The protected launcher is reachable by the service alone and starts a worker unit with only its own account, no privileges, no secrets and no access to control sockets, other homes or other processes.',
   },
   // service
   {
@@ -238,7 +244,7 @@ export interface VmReadiness {
   failed: string[];
   /** Required checks that were not measured. */
   unverified: string[];
-  /** Checks that are not required and did not pass: later parts of PM-135 or the network of the day. */
+  /** Checks that are not required and did not pass: the network of the day or a later step (Tailscale). */
   pending: string[];
   /** Problems with the report itself: other profile, duplicated checks, an old report. */
   problems: string[];
@@ -266,9 +272,7 @@ export function formatVmReadiness(report: VmReadinessReport, readiness: VmReadin
   for (const problem of readiness.problems) lines.push(`PROBLEM   ${problem}`);
   lines.push(readiness.ready ? 'READY: every required check passed.' : 'NOT READY.');
   if (readiness.pending.length > 0)
-    lines.push(
-      `Not passed, not required (later parts of PM-135 or the network): ${readiness.pending.join(', ')}`,
-    );
+    lines.push(`Not passed, not required (the network, or a later step): ${readiness.pending.join(', ')}`);
   return lines.join('\n');
 }
 

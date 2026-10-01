@@ -5,6 +5,7 @@ import type {
   ProviderStatus,
   StartSessionSpec,
 } from '../../contracts';
+import type { CommandOutput } from '../cli';
 import type { HookPayload } from '../hook-payload';
 
 /**
@@ -89,6 +90,8 @@ export interface LaunchInput {
 export interface Launch {
   file: string;
   args: string[];
+  /** The CLI's own arguments (`args` may start with a script for a fake CLI); the launcher gets these. */
+  cliArgs: string[];
   /** The kick-off brief went on the command line: it must not be typed again. */
   initialMessageSent: boolean;
 }
@@ -127,6 +130,10 @@ export interface ProviderAdapter {
   }): TranscriptLineParser;
   /** Login state, from a check that spends no usage. */
   checkLogin(env: Record<string, string>): Promise<ProviderStatus>;
+  /** The arguments of that check, for running it elsewhere (as a worker, through the launcher). */
+  readonly loginCommand: string[];
+  /** Reads that check's output. */
+  parseLogin(out: CommandOutput): ProviderStatus;
   readonly planUsage: PlanUsageProvider;
   /** A transcript the provider's plan usage may read (Codex records rate limits there). */
   noteTranscript?(path: string): void;

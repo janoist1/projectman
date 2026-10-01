@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { openConfined } from './transcript/confined';
 import {
   evaluateManagedVmActivation,
   MANAGED_VM_PROVIDER_VERSIONS,
@@ -211,8 +212,21 @@ const CODEX_OVERRIDING_ROOTS: ReadonlySet<string> = new Set([
   'forced_login_method',
 ]);
 
-async function readIfPresent(file: string): Promise<string | null> {
+/**
+ * A file's text, null when it is missing. Below `confineTo` (a worker home the worker controls,
+ * PM-140) it is read only as a regular file in place: a symlink, a FIFO or a file swapped in
+ * elsewhere reads as unreadable, which refuses the start.
+ */
+async function readIfPresent(file: string, confineTo?: string): Promise<string | null> {
   try {
+    if (confineTo && file.startsWith(`${confineTo}/`)) {
+      const handle = await openConfined(file, confineTo);
+      try {
+        return await handle.readFile('utf8');
+      } finally {
+        await handle.close();
+      }
+    }
     return await readFile(file, 'utf8');
   } catch (err) {
     return (err as NodeJS.ErrnoException).code === 'ENOENT' ||
@@ -234,8 +248,8 @@ async function jsonFilesIn(dir: string): Promise<string[]> {
   }
 }
 
-async function claudeSettingsIssue(file: string): Promise<AmbientIssue | null> {
-  const text = await readIfPresent(file);
+async function claudeSettingsIssue(file: string, confineTo?: string): Promise<AmbientIssue | null> {
+  const text = await readIfPresent(file, confineTo);
   if (text === null) return null;
   if (text === '\u0000unreadable') return { file, keys: ['(unreadable)'] };
   if (text.trim() === '') return null;
@@ -270,8 +284,12 @@ function tomlRoots(text: string): Set<string> {
   return roots;
 }
 
-async function codexConfigIssue(file: string, everything: boolean): Promise<AmbientIssue | null> {
-  const text = await readIfPresent(file);
+async function codexConfigIssue(
+  file: string,
+  everything: boolean,
+  confineTo?: string,
+): Promise<AmbientIssue | null> {
+  const text = await readIfPresent(file, confineTo);
   if (text === null) return null;
   if (text === '\u0000unreadable') return { file, keys: ['(unreadable)'] };
   const roots = tomlRoots(text);
@@ -313,6 +331,8 @@ export async function inspectAmbientConfig(input: {
   cwd: string;
   env: NodeJS.ProcessEnv;
   locations?: AmbientConfigLocations;
+  /** A worker home (PM-140): files below it are read confined (see `readIfPresent`). */
+  confineTo?: string;
 }): Promise<AmbientIssue[]> {
   const where = { ...defaultLocations(input.env), ...input.locations };
   const issues: Array<AmbientIssue | null> = [];
@@ -324,11 +344,13 @@ export async function inspectAmbientConfig(input: {
       else files.push(entry);
     }
     files.push(where.claudeUser);
-    for (const file of files) issues.push(await claudeSettingsIssue(file));
+    for (const file of files) issues.push(await claudeSettingsIssue(file, input.confineTo));
   } else {
     for (const file of where.codexManaged) issues.push(await codexConfigIssue(file, true));
-    issues.push(await codexConfigIssue(where.codexUser, false));
-    issues.push(await codexConfigIssue(path.join(input.cwd, '.codex', 'config.toml'), false));
+    issues.push(await codexConfigIssue(where.codexUser, false, input.confineTo));
+    issues.push(
+      await codexConfigIssue(path.join(input.cwd, '.codex', 'config.toml'), false, input.confineTo),
+    );
   }
   return issues.filter((issue): issue is AmbientIssue => issue !== null);
 }

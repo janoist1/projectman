@@ -7,11 +7,13 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   MANAGED_VM_PROVIDER_VERSIONS,
   evaluateVmReadiness,
+  parseEgressAuthority,
   VM_CHECKS,
   VM_PROFILE_NAME,
   VM_PROFILE_VERSION,
   VmReadinessReport,
 } from '@projectman/shared';
+import { BoundaryConfig } from '../src/runtime-boundary';
 
 /**
  * The managed VM profile's files (PM-137) can only be run on a Linux guest, and that is done by
@@ -86,10 +88,23 @@ describe('profile, units and rules agree', () => {
 
   it('names the confined uids the same way in the egress rules', () => {
     const nft = read('deploy/vm/projectman-gate.nft');
-    expect(nft).toContain(
-      `meta skuid { ${p.SERVICE_UID}, ${p.WORKER_UID_MIN}-${p.WORKER_UID_MAX} } jump worker_egress`,
-    );
+    expect(nft).toContain(`meta skuid ${p.SERVICE_UID} jump service_egress`);
+    expect(nft).toContain(`meta skuid ${p.WORKER_UID_MIN}-${p.WORKER_UID_MAX} jump worker_egress`);
     expect(Number(p.SERVICE_UID)).toBeLessThan(Number(p.WORKER_UID_MIN));
+  });
+
+  it('lets a worker in the host namespace reach the egress proxy port and nothing else (PM-140)', () => {
+    const nft = read('deploy/vm/projectman-gate.nft');
+    const worker = /chain worker_egress \{([\s\S]*?)\n\t\}/.exec(nft)![1]!;
+    const rules = worker
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith('#'));
+    const egressPort = /^EGRESS_PORT=(\d+)$/m.exec(read('deploy/vm/profile.env'))![1];
+    expect(rules).toEqual([
+      `ip daddr 127.0.0.1 tcp dport ${egressPort} accept`,
+      'reject with icmpx type admin-prohibited',
+    ]);
   });
 
   it('keeps the SSH port of the rules and the profile together', () => {
@@ -149,6 +164,74 @@ describe('profile, units and rules agree', () => {
       const text = readFileSync(join(vmDir, name), 'utf8');
       expect(text, name).not.toMatch(/NOPASSWD|sudoers|ANTHROPIC_API_KEY|OPENAI_API_KEY|CODEX_API_KEY/);
     }
+  });
+
+  it('writes a boundary configuration the server and the launcher accept (PM-140)', () => {
+    const bootstrap = read('deploy/vm/bootstrap.sh');
+    const loop = /base_json=\n(for destination in \$EGRESS_BASE; do[\s\S]*?\ndone)\n/.exec(bootstrap)![1]!;
+    const heredoc = /cat > "\$work\/boundary\.json" <<EOF\n([\s\S]*?)\nEOF\n/.exec(bootstrap)![1]!;
+    const result = spawnSync(
+      'bash',
+      [
+        '-c',
+        `set -eu\n. "$1"\nbase_json=\n${loop}\ncat <<EOF\n${heredoc}\nEOF`,
+        '_',
+        join(vmDir, 'profile.env'),
+      ],
+      { encoding: 'utf8' },
+    );
+    expect(result.stderr).toBe('');
+    const config = BoundaryConfig.parse(JSON.parse(result.stdout));
+    expect(config.profileVersion).toBe(VM_PROFILE_VERSION);
+    expect(config.serviceUser).toBe(p.SERVICE_USER);
+    expect(config.workers).toMatchObject({
+      uidMin: Number(p.WORKER_UID_MIN),
+      uidMax: Number(p.WORKER_UID_MAX),
+    });
+    expect(config.appDir).toBe(p.APP_DIR);
+    expect(config.appPort).toBe(Number(p.APP_PORT));
+    expect(config.programs.claude).toBe(`${p.CLI_PREFIX}/bin/claude`);
+    expect(config.egress.base).toContainEqual({ host: 'registry.npmjs.org', port: 443 });
+    expect(config.egress.base).toContainEqual({ host: 'api.anthropic.com', port: 443 });
+    expect(config.egress.base).toContainEqual({ host: 'chatgpt.com', port: 443 });
+  });
+
+  it('runs the launcher from the profile paths, behind a socket only the service group reaches', () => {
+    const profileText = read('deploy/vm/profile.env');
+    const socketPath = /^LAUNCHER_SOCKET=(.*)$/m.exec(profileText)![1]!;
+    const socket = read('deploy/vm/projectman-launcher.socket');
+    expect(socket).toContain(`ListenStream=${socketPath}`);
+    expect(socket).toContain('SocketUser=root');
+    expect(socket).toContain(`SocketGroup=${p.SERVICE_USER}`);
+    expect(socket).toContain('SocketMode=0660');
+    const service = read('deploy/vm/projectman-launcher.service');
+    expect(service).toContain(
+      `ExecStart=/usr/local/bin/node ${p.APP_DIR}/apps/server/dist/launcher.js /etc/projectman/boundary.json`,
+    );
+    for (const setting of [
+      'NoNewPrivileges=yes',
+      'CapabilityBoundingSet=\n',
+      'PrivateNetwork=yes',
+      'ProtectSystem=strict',
+      'RestrictAddressFamilies=AF_UNIX',
+    ])
+      expect(service).toContain(setting);
+    expect(read('deploy/vm/projectman-verify.service')).toContain(
+      `${p.APP_DIR}/deploy/vm/verify.sh --out /var/lib/projectman-boundary/readiness.json`,
+    );
+    const bootstrap = read('deploy/vm/bootstrap.sh');
+    expect(bootstrap).toContain('Environment=PROJECTMAN_BOUNDARY_CONFIG=$BOUNDARY_CONFIG');
+    expect(bootstrap).toContain('Environment=PROJECTMAN_WORKSPACES=member');
+    expect(bootstrap).toContain('-m 2750 "$SPOOL_ROOT/$handle/in"');
+    // The plain service unit stays a template for installs without the boundary.
+    expect(read('deploy/projectman.service')).not.toContain('PROJECTMAN_BOUNDARY_CONFIG');
+  });
+
+  it('lists only exact, valid base destinations', () => {
+    const base = /^EGRESS_BASE="(.*)"$/m.exec(read('deploy/vm/profile.env'))![1]!.split(' ');
+    expect(base.length).toBeGreaterThan(5);
+    for (const entry of base) expect(parseEgressAuthority(entry), entry).not.toBeNull();
+    expect(base.some((entry) => entry.includes('*'))).toBe(false);
   });
 
   it('does not share anything of the Mac with the VM', () => {
@@ -255,7 +338,7 @@ line two $(printf '\\001\\302\\251')"`);
   });
 
   it('is not ready when verify.sh style output misses a check or fails one', () => {
-    const lines = VM_CHECKS.filter((check) => check.id !== 'launcher').map(
+    const lines = VM_CHECKS.filter((check) => check.id !== 'tailscale').map(
       (check) => `record ${check.id} ${check.id === 'gate-control' ? 'fail' : 'pass'} ok`,
     );
     const parsed = VmReadinessReport.parse(emit(lines.join('\n')));

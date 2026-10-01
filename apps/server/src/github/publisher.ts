@@ -55,7 +55,8 @@ interface Outcome {
 /**
  * Publishes a task branch under the VM's GitHub identity (PM-142).
  *
- * - The member's workspace is only read. Its commit is fetched into a bare repository the server
+ * - The member's workspace is only read (behind the VM boundary not even that: its worker hands the
+ *   branch over as a bundle). Its commit is fetched into a bare repository the server
  *   owns, and the push runs from there with a fixed command line and no repository configuration of
  *   the member (no hooks, no config includes, no `pushurl`, no helpers). The push refspec is one
  *   commit to one fully named branch, never forced; the default branch and other protected names
@@ -199,8 +200,21 @@ export function createGithubPublisher(opts: GithubPublisherOptions): GithubPubli
     });
   }
 
-  /** The source must be an ordinary repository: not a linked worktree, and without borrowed objects. */
-  function assertPlainSource(sourcePath: string): void {
+  /**
+   * The source must be an ordinary repository: not a linked worktree, and without borrowed objects;
+   * or a bundle: a regular file, not a link.
+   */
+  function assertPlainSource(sourcePath: string, kind: 'repository' | 'bundle'): void {
+    if (kind === 'bundle') {
+      let file = false;
+      try {
+        file = lstatSync(sourcePath).isFile();
+      } catch {
+        file = false;
+      }
+      if (!file) throw new PublishError('no_task_branch', 'The hand-over of the task branch is not a file.');
+      return;
+    }
     const dotGit = join(sourcePath, '.git');
     let plain = false;
     try {
@@ -283,21 +297,26 @@ export function createGithubPublisher(opts: GithubPublisherOptions): GithubPubli
     if (!decision.ok) throw new PublishError(decision.code, decision.message);
     if (!isPlainBranchName(request.baseBranch))
       throw new PublishError('invalid_branch', `"${request.baseBranch}" is not a plain branch name.`);
-    assertPlainSource(request.sourcePath);
+    const sourceKind = request.sourceKind ?? 'repository';
+    assertPlainSource(request.sourcePath, sourceKind);
     const { token, list } = await secrets();
 
     return serialized(`${request.repo}#${request.branch}`, async () => {
       const git = await ensureStaging(request.repo);
       const incoming = `${STAGING_REF_PREFIX}in/${request.commit}`;
-      // 1. Take the branch from the member's workspace into the server's own repository and check
-      //    that its tip is exactly the commit the member named.
+      // 1. Take the branch from the member's workspace (or from its worker's bundle of it) into the
+      //    server's own repository and check that its tip is exactly the commit the member named.
       const fetched = await run(
         gitBin,
         [
-          '-c',
-          `safe.directory=${request.sourcePath}`,
-          '-c',
-          `safe.directory=${join(request.sourcePath, '.git')}`,
+          ...(sourceKind === 'repository'
+            ? [
+                '-c',
+                `safe.directory=${request.sourcePath}`,
+                '-c',
+                `safe.directory=${join(request.sourcePath, '.git')}`,
+              ]
+            : []),
           `--git-dir=${git}`,
           'fetch',
           '--quiet',

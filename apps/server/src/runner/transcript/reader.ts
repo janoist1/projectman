@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { MAX_CONFINED_TRANSCRIPT_BYTES, openConfined } from './confined';
 import type { AgentProvider, ChatItem } from '@projectman/shared';
 import type { TranscriptReader } from '../../contracts';
 import { CODEX_ROLLOUT_FILE, parseCodexTranscript } from '../providers/codex/transcript';
@@ -11,11 +12,20 @@ import { parseTranscript, type TranscriptParserOptions } from '../providers/clau
  */
 export async function readTranscript(
   path: string,
-  opts: TranscriptParserOptions & { provider?: AgentProvider } = {},
+  opts: TranscriptParserOptions & { provider?: AgentProvider; confineTo?: string } = {},
 ): Promise<ChatItem[]> {
   let text: string;
   try {
-    text = await readFile(path, 'utf8');
+    if (opts.confineTo) {
+      const handle = await openConfined(path, opts.confineTo);
+      try {
+        if ((await handle.stat()).size > MAX_CONFINED_TRANSCRIPT_BYTES)
+          throw new Error('transcript too large');
+        text = await handle.readFile('utf8');
+      } finally {
+        await handle.close();
+      }
+    } else text = await readFile(path, 'utf8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
     throw err;
@@ -33,6 +43,7 @@ export function createTranscriptReader(): TranscriptReader {
         self: opts?.self ?? null,
         cwd: opts?.cwd ?? null,
         firstUserOrigin: opts?.firstUserOrigin,
+        confineTo: opts?.confineTo,
       }),
   };
 }

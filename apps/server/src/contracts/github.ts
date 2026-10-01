@@ -59,6 +59,11 @@ export interface PublishRequest {
   commit: string;
   /** A repository that holds the branch (the member's workspace clone); read, never written. */
   sourcePath: string;
+  /**
+   * `bundle`: `sourcePath` is a git bundle of the branch the server owns (behind the VM boundary
+   * the member's worker made it, PM-140); default `repository`.
+   */
+  sourceKind?: 'repository' | 'bundle';
   title: string;
   body: string;
   /** The task key, for the log only. */

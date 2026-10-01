@@ -339,6 +339,8 @@ export const hu = {
       workspace_fetch_failed: 'A friss alapágat nem sikerült letölteni, ezért az új feladat nem indult el.',
       workspace_branch_missing: 'A feladat ága hiányzik a tag munkaállomásáról.',
       workspace_source_missing: 'Az átadott commit már nincs rajta a feladat ágán; kérj új átadást.',
+      runtime_boundary_not_ready:
+        'A virtuális gép védelme most nincs rendben (ellenőrzés, indító vagy hálózati kapu), ezért AI-munkamenet nem indul.',
       project_exists: 'Ilyen kulcsú projekt már van.',
       workspace_not_found: 'Ez a munkaterület-útvonal nem létezik ezen a gépen.',
       unknown_template: 'Ismeretlen sablon.',

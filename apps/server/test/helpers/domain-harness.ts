@@ -10,7 +10,10 @@ import type {
   BoundaryOperationAdapter,
   GithubPublisher,
   ManagedVmBoundary,
+  MemberWorkspaceManager,
+  RuntimeBoundary,
 } from '../../src/contracts';
+import type { EgressSettings } from '../../src/domain';
 import {
   attachmentToolRules,
   createAttachmentStorage,
@@ -70,8 +73,14 @@ export async function createDomainHarness(
      * the project's repositories must then be real git repositories.
      */
     memberWorkspaces?: boolean;
+    /** Wraps the real member workspace manager (fault injection, the VM's hand-overs). */
+    wrapMemberWorkspaces?: (inner: MemberWorkspaceManager) => MemberWorkspaceManager;
     /** The process ids the workspace reservation sees as still running (default: none). */
     liveProcesses?: Set<number>;
+    /** The VM boundary (PM-140); default none. */
+    runtimeBoundary?: RuntimeBoundary;
+    /** The network gate's settings (PM-140). */
+    egress?: EgressSettings;
     /** The installation's execution profile (PM-141, default legacy) and the proof of its boundary. */
     executionProfile?: ExecutionProfile;
     managedVm?: ManagedVmBoundary;
@@ -104,6 +113,8 @@ export async function createDomainHarness(
 
   const domain: Domain = createDomain({
     boundaryAdapter: opts.boundaryAdapter,
+    runtimeBoundary: opts.runtimeBoundary,
+    egress: opts.egress,
     repos,
     configStore,
     logger: log.logger,
@@ -119,7 +130,9 @@ export async function createDomainHarness(
     worktreesRootDir: join(dir, 'worktrees'),
     ...(opts.memberWorkspaces
       ? {
-          memberWorkspaces: createMemberWorkspaceManager({ rootDir: workspacesDir, logger: log.logger }),
+          memberWorkspaces: (opts.wrapMemberWorkspaces ?? ((inner) => inner))(
+            createMemberWorkspaceManager({ rootDir: workspacesDir, logger: log.logger }),
+          ),
           workspacesRootDir: workspacesDir,
         }
       : {}),

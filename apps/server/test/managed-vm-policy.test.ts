@@ -6,6 +6,8 @@ import { managedVmPermissions, parseExecutionProfile, sessionPermissions } from 
 import { buildApp } from '../src/app';
 import type { ManagedVmBoundary, SessionPolicy } from '../src/contracts';
 import { buildSessionPolicy } from '../src/domain/session-policy';
+import { freePort } from '../src/runner/test-helpers';
+import { testBoundaryConfig } from '../src/runtime-boundary/test-helpers';
 import { testConfig } from './helpers/test-template';
 
 /*
@@ -143,10 +145,19 @@ describe('the profile setting at start-up', () => {
     ).rejects.toThrow(/needs member workspaces/);
   });
 
-  it('refuses the managed VM with no way to verify the boundary', async () => {
+  it('refuses the managed VM outside the VM boundary (PM-140), even with a readiness report', async () => {
     await expect(
       buildApp({ home: home(), logger: false, executionProfile: 'managed_vm', memberWorkspaces: true }),
-    ).rejects.toThrow(/needs a readiness report/);
+    ).rejects.toThrow(/needs the VM boundary configuration/);
+    await expect(
+      buildApp({
+        home: home(),
+        logger: false,
+        executionProfile: 'managed_vm',
+        memberWorkspaces: true,
+        vmReadinessReport: '/var/lib/projectman-boundary/readiness.json',
+      }),
+    ).rejects.toThrow(/needs the VM boundary configuration/);
   });
 
   it('refuses a readiness report on a legacy installation: the setting that would use it is not there', async () => {
@@ -159,14 +170,19 @@ describe('the profile setting at start-up', () => {
   });
 
   it('starts the managed VM installation, which then proves its boundary at every session start', async () => {
+    const dir = home();
     const app = await buildApp({
-      home: home(),
+      home: dir,
       logger: false,
       executionProfile: 'managed_vm',
       memberWorkspaces: true,
-      // On a machine that is not the guest, the report boundary never verifies: a start-up check
-      // only needs the path, the proof comes at the first session.
-      vmReadinessReport: '/var/lib/projectman-boundary/readiness.json',
+      // On a machine that is not the guest, the boundary never verifies: a start-up check only
+      // needs the configuration (and the report path it names), the proof comes at the first session.
+      runtimeBoundary: testBoundaryConfig({
+        launcher: { socket: join(dir, 'no-launcher.sock'), maxSessions: 4 },
+        readiness: { report: join(dir, 'no-report.json'), maxAgeSeconds: 3600 },
+        egress: { ...testBoundaryConfig().egress, port: await freePort() },
+      }),
     });
     await app.close();
   });

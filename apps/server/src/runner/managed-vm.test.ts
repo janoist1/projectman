@@ -86,8 +86,10 @@ describe('the readiness boundary', () => {
     });
   });
 
-  it('refuses the baseline report, where the launcher and the domain gate are still unverified', async () => {
-    await expect(verifyWith(reportJson())).rejects.toMatchObject({
+  it('refuses a report in which the launcher and the domain gate are still unverified', async () => {
+    await expect(
+      verifyWith(reportJson({ launcher: 'unverified', 'domain-gate': 'unverified' })),
+    ).rejects.toMatchObject({
       code: MANAGED_VM_UNAVAILABLE,
       reason: 'not_ready',
       details: { notPassed: ['launcher', 'domain-gate'] },

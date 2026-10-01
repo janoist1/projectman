@@ -10,6 +10,7 @@ import type {
   BoundaryOperationAdapter,
   GithubPublisher,
   ManagedVmBoundary,
+  MemberWorkspaceManager,
   RuntimeBoundary,
 } from '../../src/contracts';
 import type { EgressSettings } from '../../src/domain';
@@ -72,6 +73,8 @@ export async function createDomainHarness(
      * the project's repositories must then be real git repositories.
      */
     memberWorkspaces?: boolean;
+    /** Wraps the real member workspace manager (fault injection, the VM's hand-overs). */
+    wrapMemberWorkspaces?: (inner: MemberWorkspaceManager) => MemberWorkspaceManager;
     /** The process ids the workspace reservation sees as still running (default: none). */
     liveProcesses?: Set<number>;
     /** The VM boundary (PM-140); default none. */
@@ -127,7 +130,9 @@ export async function createDomainHarness(
     worktreesRootDir: join(dir, 'worktrees'),
     ...(opts.memberWorkspaces
       ? {
-          memberWorkspaces: createMemberWorkspaceManager({ rootDir: workspacesDir, logger: log.logger }),
+          memberWorkspaces: (opts.wrapMemberWorkspaces ?? ((inner) => inner))(
+            createMemberWorkspaceManager({ rootDir: workspacesDir, logger: log.logger }),
+          ),
           workspacesRootDir: workspacesDir,
         }
       : {}),

@@ -45,8 +45,13 @@ export function workerWorkspaceAccess(opts: {
   /** The member whose worker home holds a path (`memberOfPath`), or null for the server's own. */
   ownerOf: (target: string) => string | null;
   launcher: SessionLauncher;
+  /**
+   * The server's own directory for bundles it receives from a worker (a task branch to publish,
+   * PM-142); without it the server receives nothing from a worker.
+   */
+  serverSpool?: string;
 }): WorkspaceAccess {
-  const { layout, launcher, ownerOf } = opts;
+  const { layout, launcher, ownerOf, serverSpool } = opts;
 
   async function run(
     owner: string,
@@ -103,9 +108,14 @@ export function workerWorkspaceAccess(opts: {
     },
     async transfer(owner, source) {
       if (owner === source.owner) return { from: source.path, done: async () => undefined };
-      if (owner === null) throw new Error('the server receives no hand-over from a worker');
+      if (owner === null && !serverSpool) throw new Error('the server receives no hand-over from a worker');
       const id = randomBytes(8).toString('hex');
-      const handed = path.posix.join(layout.spoolIn(owner), `${id}.bundle`);
+      // The server never reads a worker's repository itself: the worker bundles, the server copies.
+      if (owner === null) await mkdir(serverSpool!, { recursive: true, mode: 0o700 });
+      const handed =
+        owner === null
+          ? path.posix.join(serverSpool!, `${id}.bundle`)
+          : path.posix.join(layout.spoolIn(owner), `${id}.bundle`);
       try {
         if (source.owner === null) {
           await git(
@@ -135,7 +145,8 @@ export function workerWorkspaceAccess(opts: {
           }
         }
         // The spool directory is set-group-id to the member's group: the file is the member's to read.
-        await chmod(handed, 0o640);
+        // What the server received is its own alone.
+        await chmod(handed, owner === null ? 0o600 : 0o640);
       } catch (err) {
         await rm(handed, { force: true });
         throw err;

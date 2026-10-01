@@ -156,6 +156,7 @@ beforeEach(async () => {
       layout,
       ownerOf: (target) => memberOfPath(config, target),
       launcher: fakeLauncher(layout),
+      serverSpool: path.join(base, 'server-spool'),
     }),
     rootFor: (member) => layout.workspaces(member),
   });
@@ -240,6 +241,49 @@ describe('member workspaces in worker homes', { timeout: 30_000 }, () => {
       source: found!.source!,
     });
     expect(checkout.branch).toBe('AR-2-old');
+  });
+
+  it('hands a branch to the server (publishing) only as a bundle its worker made, into the server spool', async () => {
+    const devWs = await manager.ensure(key('dev'));
+    const { commit } = await manager.fetchBase(key('dev'));
+    await manager.checkoutTaskBranch(key('dev'), { mode: 'create', branch: 'AR-1-work', startPoint: commit });
+    const work = await commitFile(devWs.path, 'feature.md', 'Feature');
+    calls = [];
+
+    const handed = await manager.exportBranch(key('dev'), 'AR-1-work');
+    expect(handed.bundle).toBe(true);
+    expect(path.dirname(handed.path)).toBe(path.join(base, 'server-spool'));
+    expect((await stat(handed.path)).mode & 0o777).toBe(0o600);
+    // The worker bundled its own branch; the server's copy holds exactly that tip.
+    const bundled = calls.find((c) => c.program === 'git' && c.args.includes('bundle'))!;
+    expect(bundled.member).toBe('dev');
+    expect(bundled.args.slice(-1)).toEqual(['refs/heads/AR-1-work']);
+    expect(await git('bundle', 'list-heads', handed.path)).toBe(`${work} refs/heads/AR-1-work`);
+    expect(await spoolFiles()).toEqual([]);
+    await handed.done();
+    expect(await readdir(path.join(base, 'server-spool'))).toEqual([]);
+
+    await expect(manager.exportBranch(key('dev'), '--upload-pack=x')).rejects.toMatchObject({
+      code: 'workspace_invalid',
+    });
+  });
+
+  it('gives the server nothing from a worker without its own spool', async () => {
+    const config = testBoundaryConfig({ workers: { ...testBoundaryConfig().workers, homeRoot, spoolRoot } });
+    const layout = workerLayout(config);
+    const access = workerWorkspaceAccess({
+      layout,
+      ownerOf: (target) => memberOfPath(config, target),
+      launcher: fakeLauncher(layout),
+    });
+    await expect(
+      access.transfer(null, {
+        path: path.join(layout.workspaces('dev'), 'x'),
+        refs: ['--all'],
+        owner: 'dev',
+      }),
+    ).rejects.toThrow(/no hand-over/);
+    expect(calls).toEqual([]);
   });
 
   it('reports a failed command of a worker as the usual refusal', async () => {

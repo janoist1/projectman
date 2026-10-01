@@ -50,7 +50,8 @@ export interface WorkspaceAccess {
   rename(owner: string | null, from: string, to: string): Promise<void>;
   /**
    * Makes the source's refs fetchable by `owner`: the source path itself when the owner may read
-   * it, else a bundle handed over through the owner's spool. `done` removes what it made.
+   * it, else a bundle handed over through the owner's spool (for the server, null: a bundle the
+   * source's worker made, copied into the server's own spool). `done` removes what it made.
    */
   transfer(owner: string | null, source: TransferSource): Promise<{ from: string; done(): Promise<void> }>;
   /** Whether a workspace's description file can be written (only where the server owns it). */

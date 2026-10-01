@@ -172,7 +172,10 @@ no `GITHUB_TOKEN`, none of the owner's `gh` login or git configuration). The pub
 `git` inside the member's repository: it fetches the branch into its own bare repository
 (`PROJECTMAN_HOME/github-publish/staging`) and pushes from there, so hooks, config includes, `pushurl`
 and credential helpers of a worker's clone never run. It refuses a workspace that borrows objects
-(`alternates`) or is a linked worktree. The poller (`GithubService`) is another object with the
+(`alternates`) or is a linked worktree. Behind the VM boundary (PM-140) the service does not even read
+the worker's repository: the member's worker bundles the task branch into its own spool, the service
+copies that file (no link, no FIFO, the worker's own) into `PROJECTMAN_HOME/spool` and fetches from the
+copy, which is removed afterwards. The poller (`GithubService`) is another object with the
 owner's read login and holds no write right.
 
 Repeated calls are idempotent: the same commit uploads nothing and returns the same pull request; a

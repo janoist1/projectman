@@ -520,6 +520,21 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
     });
   }
 
+  async function exportBranch(
+    key: MemberWorkspaceKey,
+    branch: string,
+  ): Promise<{ path: string; bundle: boolean; done(): Promise<void> }> {
+    await assertBranchName(branch);
+    const { info } = await locate(key);
+    await assertWorkspace(info);
+    const handed = await access.transfer(null, {
+      path: info.path,
+      refs: [`refs/heads/${branch}`],
+      owner: access.ownerOf(info.path),
+    });
+    return { path: handed.from, bundle: handed.from !== info.path, done: handed.done };
+  }
+
   return {
     location,
     home,
@@ -530,6 +545,7 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
     resolveSource,
     checkoutTaskBranch,
     checkoutReview,
+    exportBranch,
   };
 }
 

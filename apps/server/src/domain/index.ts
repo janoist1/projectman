@@ -297,6 +297,7 @@ export function createDomain(opts: DomainOptions) {
     tasks,
     githubSync,
     publisher: opts.githubPublisher,
+    memberWorkspaces: opts.memberWorkspaces,
   });
   const teamTools = new TeamToolsService({
     boundary,

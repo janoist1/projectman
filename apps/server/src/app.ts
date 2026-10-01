@@ -312,6 +312,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
             config: boundaryConfig,
             egressUp: () => egressProxy?.listening() ?? false,
             prepare: (member) => bridges!.ensure(member),
+            serverSpool: join(home, 'spool'),
           })
         : disabledRuntimeBoundary(options.now));
     const managed = isManagedBoundary(runtimeBoundary) ? runtimeBoundary : null;

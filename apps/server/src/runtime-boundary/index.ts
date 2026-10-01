@@ -88,6 +88,8 @@ export function createRuntimeBoundary(opts: {
   launcher?: SessionLauncher;
   /** Runs before a member's unit starts: its bridge sockets (`ServiceBridges.ensure`). */
   prepare?: (member: string) => Promise<void>;
+  /** The server's own directory for bundles it receives from workers (`workerWorkspaceAccess`). */
+  serverSpool?: string;
   now?: () => Date;
   readReport?: (file: string) => Promise<string>;
 }): ManagedRuntimeBoundary {
@@ -148,6 +150,7 @@ export function createRuntimeBoundary(opts: {
       layout,
       ownerOf: (target) => memberOfPath(config, target),
       launcher,
+      ...(opts.serverSpool ? { serverSpool: opts.serverSpool } : {}),
     }),
     workspacesRoot: (member) => layout.workspaces(member),
     status({ refresh } = {}) {

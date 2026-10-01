@@ -172,6 +172,15 @@ describe('buildCodexArgs', () => {
     expect(args).not.toContain('resume');
   });
 
+  it('ignores the subagents of the spec: Codex has no cheap subagent yet (PM-179)', () => {
+    const subagents = [
+      { name: 'reader-haiku', description: 'd', prompt: 'p', tools: ['Read'], model: 'haiku' },
+    ];
+    expect(buildCodexArgs({ ...input, spec: { ...input.spec, subagents } }).args).toEqual(
+      buildCodexArgs(input).args,
+    );
+  });
+
   it('sets everything with -c overrides whose keys never contain a path', () => {
     const c = overrides(buildCodexArgs(input).args);
     for (const key of c.keys()) expect(key).toMatch(/^[A-Za-z_]+(?:\.[A-Za-z_]+)*$/);

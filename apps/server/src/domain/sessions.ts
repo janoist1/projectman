@@ -1047,6 +1047,8 @@ export class SessionOrchestrator {
         // `--permission-mode` (Claude Code) and the `-c` settings (Codex) take it on a resume too.
         permissionMode,
         appendSystemPrompt: pack.appendSystemPrompt,
+        // The cheap subagent (PM-179), on a resume too: the CLI takes its subagents per process.
+        ...(pack.subagents.length > 0 ? { subagents: pack.subagents } : {}),
         // A resumed conversation has its brief already; it needs to know why it was woken: by the
         // messages that did it, else by the continue message. One that restarts into a new mode
         // (PM-170) was idle: it waits at its prompt, as it did, and its waiting messages are typed in

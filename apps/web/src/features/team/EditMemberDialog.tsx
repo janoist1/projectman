@@ -6,7 +6,14 @@ import {
   holdersAllow,
   HumanAccess,
 } from '@projectman/shared';
-import type { AgentProvider, AgentEffort, MemberView, ProjectConfig, RoleView } from '@projectman/shared';
+import type {
+  AgentProvider,
+  AgentEffort,
+  CheapSubagentModel,
+  MemberView,
+  ProjectConfig,
+  RoleView,
+} from '@projectman/shared';
 import { useUpdateMember } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Button } from '../../components/Button';
@@ -50,6 +57,9 @@ function EditMemberForm({
   const [effort, setEffort] = useState<AgentEffort | undefined>(
     ai?.effort ?? member.effort ?? (provider === 'codex' ? 'medium' : undefined),
   );
+  const [cheapSubagent, setCheapSubagent] = useState<CheapSubagentModel | undefined>(
+    ai?.cheapSubagent ?? member.cheapSubagent,
+  );
   const [model, setModel] = useState(ai?.model ?? member.model ?? DEFAULT_PROVIDER_MODELS[provider]);
   const [instructions, setInstructions] = useState(ai?.instructions ?? '');
   const [schedule, setSchedule] = useState<ScheduleDraft>({
@@ -71,6 +81,7 @@ function EditMemberForm({
                 specialty: specialty.trim(),
                 provider,
                 effort: effort ?? null,
+                cheapSubagent: cheapSubagent ?? null,
                 model: model.trim(),
                 instructions: instructions.trim(),
                 schedule: schedule.enabled
@@ -142,6 +153,8 @@ function EditMemberForm({
             }}
             onModelChange={setModel}
             onEffortChange={setEffort}
+            cheapSubagent={cheapSubagent}
+            onCheapSubagentChange={setCheapSubagent}
           />
           <TextAreaField
             label={t('memberEdit.instructions')}

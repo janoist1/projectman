@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AgentEffort } from '../domain/member';
+import { AgentEffort, CheapSubagentModel } from '../domain/member';
 import {
   AgentProvider,
   Approver,
@@ -65,6 +65,11 @@ export const AiMemberConfig = z.object({
   model: z.string().default(DEFAULT_PROVIDER_MODELS.claude),
   /** Agent reasoning effort; omitted values use the provider default. */
   effort: AgentEffort.optional(),
+  /**
+   * The model of the member's cheap subagent (PM-179); absent means off. Only Claude Code members
+   * get one (`cheapSubagentOf`).
+   */
+  cheapSubagent: CheapSubagentModel.optional(),
   /** Claude Code permission mode; for Codex members it maps to a sandbox and approval policy. */
   permissionMode: PermissionMode.default('default'),
   /**

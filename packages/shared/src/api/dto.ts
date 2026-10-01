@@ -8,6 +8,7 @@ import {
   AgentProvider,
   AgentEffort,
   Approver,
+  CheapSubagentModel,
   GithubLogin,
   HumanAccess,
   MemberHandle,
@@ -125,6 +126,8 @@ export const MemberView = z.object({
   /** AI members only: why the AI approver cannot be chosen now; absent when it can. */
   aiApproverBlocker: z.enum(['delegation_off', 'no_ai_decider']).optional(),
   effort: AgentEffort.optional(),
+  /** AI members only: the cheap subagent's model as configured (PM-179); omitted: off. */
+  cheapSubagent: CheapSubagentModel.optional(),
   /** AI members only: on leave, nothing starts a session for the member (omitted: at work). */
   onLeave: z.boolean().optional(),
 });
@@ -142,6 +145,8 @@ export type AddHumanMemberRequest = z.infer<typeof AddHumanMemberRequest>;
 /** Hires an AI member for a role an AI may hold (built-in or custom). */
 export const HireMemberRequest = z.object({
   effort: AgentEffort.optional(),
+  /** The cheap subagent's model (PM-179); omitted: off. */
+  cheapSubagent: CheapSubagentModel.optional(),
   role: RoleId,
   displayName: z.string().min(1).optional(),
   handle: MemberHandle.optional(),
@@ -159,6 +164,8 @@ export const UpdateMemberRequest = z.object({
   provider: AgentProvider.optional(),
   /** AI only; null restores the provider default. */
   effort: AgentEffort.nullable().optional(),
+  /** AI only; the cheap subagent's model (PM-179), null switches it off. */
+  cheapSubagent: CheapSubagentModel.nullable().optional(),
   displayName: z.string().trim().min(1).optional(),
   /** Humans only: the roles they hold (replaces the list). An AI member holds exactly one role. */
   roles: z.array(RoleId).optional(),

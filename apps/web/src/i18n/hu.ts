@@ -1229,6 +1229,13 @@ export const hu = {
       max: 'Maximális',
     },
     effortHint: 'A nagyobb erőfeszítés több előfizetési keretet használ és lassabb lehet.',
+    cheapSubagent: 'Olcsó alügynök',
+    cheapSubagentOff: 'Ki',
+    cheapSubagentModels: { sonnet: 'Sonnet', haiku: 'Haiku' },
+    cheapSubagentHint:
+      'A tag a sok szöveggel, kevés logikával járó részmunkát (naplók, tesztkimenetek, keresés sok fájlban, összefoglalás) erre az olcsóbb modellre bízhatja, és csak a tömör eredményt olvassa. A következő munkamenettől érvényes.',
+    cheapSubagentUnavailable: '{provider}-tagnál nem érvényes: ehhez még nincs megfelelője.',
+    cheapSubagentProfile: 'Olcsó alügynök: {model}',
     astraWarning: 'Költségfigyelmeztetés: az Astra drága, csak kritikus feladatra válaszd.',
     loginWarning: '{provider} nincs bejelentkezve. Futtasd a szerveren:',
     loginCommands: { claude: 'claude auth login', codex: 'codex login' },

@@ -1,6 +1,7 @@
 import type { ContextPack, ContextPackBuilder, ContextPackInput } from '../contracts';
 import { buildBrief } from './brief';
 import { buildContinueMessage } from './continue-message';
+import { cheapSubagent } from './subagents';
 import { buildSystemPrompt } from './system-prompt';
 import { assess } from './work-item';
 
@@ -22,6 +23,8 @@ import { assess } from './work-item';
  * - `continueMessage`: what a resumed task session gets when no message caused the resume (it
  *   was restarted; the task, its stage and to check where it left off); null for other work
  *   items. The caller types it, in place of the brief, unless a message caused the resume.
+ * - `subagents`: the member's cheap subagent when it has one (PM-179); the system prompt then has
+ *   the rule for using it.
  *
  * The project's own rules file is not included: Claude Code loads CLAUDE.md from the working
  * directory, Codex AGENTS.md (else CLAUDE.md).
@@ -34,6 +37,7 @@ export function createContextPackBuilder(): ContextPackBuilder {
         appendSystemPrompt: buildSystemPrompt(input, situation),
         initialMessage: buildBrief(input, situation),
         continueMessage: buildContinueMessage(input, situation),
+        subagents: [cheapSubagent(input.member)].filter((agent) => agent !== null),
       };
     },
   };

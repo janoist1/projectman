@@ -22,6 +22,7 @@ import type {
   WorktreeInfo,
   WorktreeManager,
 } from '../../src/contracts';
+import { cheapSubagent } from '../../src/context';
 
 /** In-memory SessionRunner: records calls; tests drive state with emit()/setState(). */
 export class FakeRunner implements SessionRunner {
@@ -199,6 +200,8 @@ export class FakeContextBuilder implements ContextPackBuilder {
         input.workItem.type === 'task' && input.task
           ? `Continue ${input.task.key}: ${input.task.title}`
           : null,
+      // The real definition: the session start passes it on as it is.
+      subagents: [cheapSubagent(input.member)].filter((agent) => agent !== null),
     };
   }
 }

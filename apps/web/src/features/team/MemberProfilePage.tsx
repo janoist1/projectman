@@ -2,7 +2,7 @@ import { InviteDialog } from './InviteDialog';
 import { useState } from 'react';
 import { providerModelLabel } from './providerModels';
 import { Link, useNavigate, useParams } from 'react-router';
-import { DEFAULT_AGENT_PROVIDER, roleBundle } from '@projectman/shared';
+import { cheapSubagentOf, DEFAULT_AGENT_PROVIDER, roleBundle } from '@projectman/shared';
 import type { TeamMessage } from '@projectman/shared';
 import {
   useBoard,
@@ -114,6 +114,7 @@ export function MemberProfilePage() {
   const data = profile.data;
   const member = data.member;
   const ai = member.kind === 'ai';
+  const cheapSubagent = cheapSubagentOf(member);
   const ownConfig = config.data?.config.team.members.find((entry) => entry.handle === handle);
   const status = memberStatusView(member, data.inbox, myHandle);
   const live = data.sessions.filter(isLiveSession);
@@ -216,6 +217,13 @@ export function MemberProfilePage() {
                   ? t('providerSettings.efforts.medium')
                   : t('providerSettings.defaultEffort')}
             </p>
+            {cheapSubagent ? (
+              <p>
+                {t('providerSettings.cheapSubagentProfile', {
+                  model: t(`providerSettings.cheapSubagentModels.${cheapSubagent}`),
+                })}
+              </p>
+            ) : null}
             <p>{t('profile.capacity', { used: data.capacityUsed, max: data.capacity ?? 0 })}</p>
             <PermissionLevelControl member={member} />
             <PlanUsageMeter

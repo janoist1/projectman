@@ -375,6 +375,61 @@ describe('context pack snapshots', () => {
   });
 });
 
+describe('cheap subagent (PM-179)', () => {
+  const withCheapSubagent = (cheapSubagent: AiMemberConfig['cheapSubagent'], provider?: 'codex') => {
+    const project = buildProject();
+    const member: AiMemberConfig = {
+      ...aiMember(project, 'fe-1'),
+      ...(cheapSubagent ? { cheapSubagent } : {}),
+      ...(provider ? { provider } : {}),
+    };
+    return builder.build(input({ project, member, handle: 'fe-1', task: makeTask({ stageId: 'dev' }) }));
+  };
+
+  it('gives the member the rule and the reader on the chosen model when it is on', async () => {
+    const pack = withCheapSubagent('haiku');
+    await expect(section(pack.appendSystemPrompt, '# Cheap subagent')).toMatchFileSnapshot(
+      '__snapshots__/developer-dev-cheap-subagent.section.txt',
+    );
+    expect(pack.subagents).toEqual([
+      {
+        name: 'reader-haiku',
+        description: expect.stringContaining('Haiku'),
+        prompt: expect.stringContaining('short, precise result'),
+        tools: ['Read', 'Grep', 'Glob', 'Bash'],
+        model: 'haiku',
+      },
+    ]);
+    const sonnet = withCheapSubagent('sonnet');
+    expect(sonnet.subagents.map((agent) => [agent.name, agent.model])).toEqual([['reader-sonnet', 'sonnet']]);
+    expect(section(sonnet.appendSystemPrompt, '# Cheap subagent')).toContain('`reader-sonnet`');
+  });
+
+  it('puts the rule after the external operations and before the guardrails', () => {
+    const headings = withCheapSubagent('haiku')
+      .appendSystemPrompt.split('\n')
+      .filter((line) => line.startsWith('# '));
+    expect(headings.indexOf('# Cheap subagent')).toBe(headings.indexOf('# Guardrails') - 1);
+  });
+
+  it('changes nothing when it is off', () => {
+    const off = withCheapSubagent(undefined);
+    expect(off.subagents).toEqual([]);
+    expect(off.appendSystemPrompt).not.toContain('# Cheap subagent');
+    expect(off.appendSystemPrompt).not.toContain('reader-');
+    // The rest of the prompt is the same with the subagent on.
+    const on = withCheapSubagent('haiku').appendSystemPrompt;
+    // (A section ends with its line break; another one separates it from the next.)
+    expect(on.replace(`${section(on, '# Cheap subagent')}\n`, '')).toBe(off.appendSystemPrompt);
+  });
+
+  it('gives a Codex member neither the rule nor the subagent', () => {
+    const codex = withCheapSubagent('haiku', 'codex');
+    expect(codex.subagents).toEqual([]);
+    expect(codex.appendSystemPrompt).not.toContain('# Cheap subagent');
+  });
+});
+
 describe('context pack builder', () => {
   it('is deterministic', () => {
     const first = builder.build(input());

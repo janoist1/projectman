@@ -228,6 +228,27 @@ export function buildMcpConfig(mcpUrl: string): { mcpServers: { team: { type: 'h
   return { mcpServers: { team: { type: 'http', url: mcpUrl } } };
 }
 
+/** A subagent as Claude Code's `--agents` takes it. */
+export interface ClaudeAgentDefinition {
+  description: string;
+  prompt: string;
+  tools: string[];
+  model: string;
+}
+
+/**
+ * The `--agents` object: the session's subagents by name. Deliberately without `permissionMode`,
+ * `mcpServers` and `hooks` (PM-179): the subagent works within the session's own rules, sandbox
+ * and hooks, never with more.
+ */
+export function buildAgents(subagents: StartSessionSpec['subagents']): Record<string, ClaudeAgentDefinition> {
+  const agents: Record<string, ClaudeAgentDefinition> = {};
+  for (const { name, description, prompt, tools, model } of subagents ?? []) {
+    agents[name] = { description, prompt, tools: [...tools], model };
+  }
+  return agents;
+}
+
 /** Full argument list for `claude` (interactive). */
 export function buildClaudeArgs(spec: StartSessionSpec, settings: ClaudeSettings): string[] {
   const args: string[] = [];
@@ -239,6 +260,7 @@ export function buildClaudeArgs(spec: StartSessionSpec, settings: ClaudeSettings
   // settings of the project's own files; the user's file is inspected before the start.
   if (isManagedVm(spec.policy)) args.push('--strict-mcp-config', '--setting-sources', 'user');
   args.push('--settings', JSON.stringify(settings));
+  if (spec.subagents?.length) args.push('--agents', JSON.stringify(buildAgents(spec.subagents)));
   const directories = spec.policy
     ? spec.policy.filesystem.readableRoots.filter((dir) => dir !== spec.cwd)
     : (spec.additionalDirectories ?? []);

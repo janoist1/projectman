@@ -13,7 +13,7 @@ export function createBoundaryRepository(db: Db) {
   );
   const list = db.prepare('SELECT record FROM boundary_requests ORDER BY rowid');
   const listActive = db.prepare(
-    "SELECT record FROM boundary_requests WHERE json_extract(record, '$.state') IN ('pending_lead', 'pending_owner', 'allowed') ORDER BY rowid",
+    "SELECT id, project_key FROM boundary_requests WHERE json_extract(record, '$.state') IN ('pending_lead', 'pending_owner', 'allowed') AND NOT EXISTS (SELECT 1 FROM boundary_grants WHERE request_id = boundary_requests.id AND (json_extract(record, '$.state') = 'consumed' OR json_extract(record, '$.consumedAt') IS NOT NULL)) ORDER BY rowid",
   );
   const consume = db.prepare(
     "UPDATE boundary_grants SET record = json_set(record, '$.consumedAt', ?, '$.state', 'consumed') WHERE request_id = ? AND json_extract(record, '$.state') = 'active' AND json_extract(record, '$.consumedAt') IS NULL AND json_extract(record, '$.revokedAt') IS NULL RETURNING record",
@@ -25,7 +25,11 @@ export function createBoundaryRepository(db: Db) {
     duplicate: (projectKey: string, sessionId: string, key: string) =>
       decodeRequest(dedupe.get(projectKey, sessionId, key)),
     list: () => list.all().map((row) => decodeRequest(row)!),
-    listActive: () => listActive.all().map((row) => decodeRequest(row)!),
+    listActive: () =>
+      (listActive.all() as Array<{ id: string; project_key: string }>).map((row) => ({
+        id: row.id,
+        projectKey: row.project_key,
+      })),
     consume(requestId: string, at: string): BoundaryGrant | null {
       const row = consume.get(at, requestId) as { record: string } | undefined;
       return row ? BoundaryGrant.parse(JSON.parse(row.record)) : null;

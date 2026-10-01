@@ -131,6 +131,14 @@ describe('boundary rules', () => {
     expect(canDecideBoundary(c, request('read_external'), 'ai-lead')).toBe(false);
     expect(canDecideBoundary(c, request('read_external'), 'owner')).toBe(false);
   });
+  it('keeps a consumed approval unchanged by the deadline rule', () => {
+    const r = {
+      ...request('read_external'),
+      state: 'allowed' as const,
+      consumedAt: '2026-10-01T11:01:00.000Z',
+    };
+    expect(boundaryWaitingState(config(), r, Date.parse(r.expiresAt))).toBe('allowed');
+  });
   it.each([
     (c: ProjectConfig) => {
       c.team.boundary!.enabled = false;

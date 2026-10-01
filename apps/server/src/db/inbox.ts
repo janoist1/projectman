@@ -85,16 +85,6 @@ export function createInboxRepository(db: Db) {
   };
 
   return {
-    retireBoundary(
-      id: string,
-      state: 'cancelled' | 'expired',
-      resolution: InboxItem['resolution'],
-      at: string,
-    ): void {
-      db.prepare(
-        "UPDATE inbox_items SET state = ?, resolution = ?, updated_at = ? WHERE id = ? AND kind = 'boundary'",
-      ).run(state, toJson(resolution), at, id);
-    },
     updateBoundary(id: string, payload: Record<string, unknown>, assignees: string[], at: string): void {
       db.prepare('UPDATE inbox_items SET payload = ?, assignees = ?, updated_at = ? WHERE id = ?').run(
         toJson(payload),

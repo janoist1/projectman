@@ -15,6 +15,7 @@ import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
 import {
   decisionSubject,
+  boundaryOf,
   detailsHrefFor,
   isAssignedTo,
   isPositiveResolution,
@@ -50,6 +51,7 @@ function RecentDecisions({
         {items.map((item) => {
           const positive = isPositiveResolution(item);
           const note = resolutionNote(item);
+          const boundary = boundaryOf(item);
           return (
             <li key={item.id} className={styles.recentItem}>
               <span
@@ -74,7 +76,15 @@ function RecentDecisions({
                     : formatAgo(item.createdAt)}
                 </span>
                 {note ? <span className={styles.recentNote}>{note}</span> : null}
-                {onRevoke && item.kind === 'boundary' && positive ? (
+                {boundary ? (
+                  <span className={styles.recentNote}>
+                    {boundary.consumedAt ? t('boundary.consumed') : t(`boundary.states.${boundary.state}`)}
+                    {boundary.invalidation
+                      ? ` · ${t(`boundary.reasons.${boundary.invalidation.reason}`)}`
+                      : ''}
+                  </span>
+                ) : null}
+                {onRevoke && boundary?.state === 'allowed' && !boundary.consumedAt ? (
                   <Button variant="ghost" onClick={() => onRevoke(item.id)}>
                     {t('boundary.revoke')}
                   </Button>

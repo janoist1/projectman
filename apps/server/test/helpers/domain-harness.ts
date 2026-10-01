@@ -42,6 +42,8 @@ export const OWNER_ACTOR = humanActor('owner');
 export async function createDomainHarness(
   opts: {
     boundaryAdapter?: BoundaryOperationAdapter;
+    /** Wraps the configuration store for read-failure injection. */
+    configStore?: (inner: ReturnType<typeof createConfigStore>) => ReturnType<typeof createConfigStore>;
     adjust?: (config: ProjectConfig) => void;
     now?: () => Date;
     scheduleTimer?: ScheduleTimer;
@@ -66,7 +68,9 @@ export async function createDomainHarness(
   const repos = createRepositories(
     openDatabase(restarted || opts.persistent ? join(dir, 'db.sqlite') : ':memory:'),
   );
-  const configStore = createConfigStore({ rootDir: join(dir, 'customization') });
+  const configStore = (opts.configStore ?? ((inner) => inner))(
+    createConfigStore({ rootDir: join(dir, 'customization') }),
+  );
   const runnerModule = createFakeRunnerModule();
   if (opts.planUsagePercent !== undefined) runnerModule.planUsage.value = planUsage(opts.planUsagePercent);
   const github = new FakeGithub();

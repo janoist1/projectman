@@ -106,6 +106,12 @@ export const BoundaryRequest = z.object({
   updatedAt: z.string().datetime(),
   decidedBy: Actor.nullable(),
   reason: BoundaryAuditReason.nullable(),
+  /** Separate grant lifecycle from the original decision (older records omit these fields). */
+  consumedAt: z.string().datetime().nullable().optional(),
+  invalidation: z
+    .object({ actor: Actor, reason: BoundaryAuditReason, at: z.string().datetime() })
+    .nullable()
+    .optional(),
 });
 export type BoundaryRequest = z.infer<typeof BoundaryRequest>;
 export const BoundaryGrant = z.object({
@@ -187,6 +193,7 @@ export function boundaryWaitingState(
   request: BoundaryRequest,
   now: number,
 ): BoundaryState {
+  if (request.consumedAt) return request.state;
   if (!['pending_lead', 'pending_owner', 'allowed'].includes(request.state)) return request.state;
   if (now >= Date.parse(request.expiresAt)) return 'expired';
   if (

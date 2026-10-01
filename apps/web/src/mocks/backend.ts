@@ -2449,22 +2449,32 @@ export class MockBackend {
       const parsed = BoundaryRequest.safeParse(item.payload.boundary);
       if (!parsed.success) continue;
       const request = parsed.data;
+      const grant = this.boundaryGrants.get(request.id);
+      if (request.consumedAt || grant?.state === 'consumed' || grant?.consumedAt) continue;
       const state = boundaryWaitingState(this.config, request, Date.now());
       if (state === request.state) continue;
-      const grant = this.boundaryGrants.get(request.id);
-      if (grant && state === 'expired')
+      if (grant?.state === 'active' && state === 'expired')
         this.boundaryGrants.set(request.id, { ...grant, state: 'expired', revokedAt: nowIso() });
       const next = {
         ...request,
         state,
         updatedAt: nowIso(),
         assignees: state === 'pending_owner' ? boundaryOwners(this.config) : request.assignees,
+        ...(state === 'expired'
+          ? {
+              invalidation: {
+                actor: { kind: 'system', handle: null },
+                reason: 'deadline_expired',
+                at: nowIso(),
+              },
+            }
+          : {}),
       };
       this.upsertInbox({
         ...item,
         payload: { boundary: next },
         assignees: [...new Set([...next.assignees, ...boundaryOwners(this.config)])],
-        state: state === 'expired' ? 'expired' : item.state,
+        state: state === 'expired' && item.state === 'open' ? 'expired' : item.state,
       });
     }
   }
@@ -2478,6 +2488,9 @@ export class MockBackend {
     const viewer = memberOf(this.config, this.viewerHandle);
     if (revoke && (viewer?.kind !== 'human' || viewer.access !== 'owner'))
       return error(403, 'owner_only', 'Only owners may revoke');
+    const storedGrant = this.boundaryGrants.get(id);
+    if (revoke && (request.consumedAt || storedGrant?.state === 'consumed' || storedGrant?.consumedAt))
+      return error(409, 'inbox_item_closed', 'Boundary grant was already consumed');
     if (
       revoke ? !['pending_lead', 'pending_owner', 'allowed'].includes(request.state) : item.state !== 'open'
     )
@@ -2491,9 +2504,18 @@ export class MockBackend {
     const next: BoundaryRequest = {
       ...request,
       state,
-      reason,
+      reason: revoke && request.decidedBy ? request.reason : reason,
       updatedAt: nowIso(),
-      decidedBy: { kind: viewer!.kind, handle: viewer!.handle },
+      decidedBy: revoke ? request.decidedBy : { kind: viewer!.kind, handle: viewer!.handle },
+      ...(revoke
+        ? {
+            invalidation: {
+              actor: { kind: viewer!.kind, handle: viewer!.handle },
+              reason: 'owner_revoked' as const,
+              at: nowIso(),
+            },
+          }
+        : {}),
     };
     if (state === 'allowed')
       this.boundaryGrants.set(id, {
@@ -2515,17 +2537,21 @@ export class MockBackend {
         consumedAt: null,
       });
     const grant = this.boundaryGrants.get(id);
-    if (revoke && grant) this.boundaryGrants.set(id, { ...grant, state: 'revoked', revokedAt: nowIso() });
+    if (revoke && grant?.state === 'active')
+      this.boundaryGrants.set(id, { ...grant, state: 'revoked', revokedAt: nowIso() });
     this.upsertInbox({
       ...item,
-      state: revoke ? 'cancelled' : 'resolved',
+      state: revoke && item.state === 'open' ? 'cancelled' : 'resolved',
       payload: { boundary: next },
-      resolution: {
-        optionId: state === 'allowed' ? 'allow' : 'deny',
-        by: this.viewerHandle,
-        at: nowIso(),
-        note: reason,
-      },
+      resolution:
+        revoke && item.resolution
+          ? item.resolution
+          : {
+              optionId: state === 'allowed' ? 'allow' : 'deny',
+              by: this.viewerHandle,
+              at: nowIso(),
+              note: reason,
+            },
     });
     this.addTimeline(
       item.taskKey,

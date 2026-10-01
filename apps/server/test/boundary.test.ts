@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BoundaryTarget, ProjectConfig } from '@projectman/shared';
 import type { BoundaryRequester, ToolContext } from '../src/contracts';
 import { createDomainHarness, restartDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
@@ -326,10 +326,18 @@ describe('boundary requests', () => {
     });
     const second = await submit({}, 'second');
     await h.domain.boundary.decide('AR', second.id, 'cr', allow);
+    const approvalResolution = structuredClone(h.repos.inbox.get(second.id)!.resolution);
     await expect(h.domain.boundary.revoke('AR', second.id, 'cr')).rejects.toMatchObject({
       code: 'owner_only',
     });
     await h.domain.boundary.revoke('AR', second.id, 'owner');
+    expect(h.repos.boundary.get(second.id)).toMatchObject({
+      state: 'revoked',
+      decidedBy: { kind: 'ai', handle: 'cr' },
+      reason: 'scope_verified',
+      invalidation: { actor: { kind: 'human', handle: 'owner' }, reason: 'owner_revoked' },
+    });
+    expect(h.repos.inbox.get(second.id)).toMatchObject({ state: 'resolved', resolution: approvalResolution });
     h = await restartDomainHarness(h, { now: () => now, boundaryAdapter: adapter });
     expect(h.repos.boundary.grant(second.id)?.revokedAt).not.toBeNull();
     await expect(h.domain.boundary.consume(requester, second.id, 'second')).rejects.toMatchObject({
@@ -358,5 +366,167 @@ describe('boundary requests', () => {
     await expect(
       h.domain.inbox.resolve('AR', item.id, { optionId: 'approve' }, { handle: 'cr', access: 'owner' }),
     ).rejects.toMatchObject({ code: 'ai_approval_forbidden' });
+  });
+
+  it.each(['expiry', 'policy'] as const)(
+    'preserves the original unused approval after %s invalidation',
+    async (cause) => {
+      const request = await submit();
+      const approved = await h.domain.boundary.decide('AR', request.id, 'cr', allow);
+      const resolution = structuredClone(h.repos.inbox.get(request.id)!.resolution);
+      if (cause === 'expiry') now = new Date(request.expiresAt);
+      else
+        await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+          config.team.boundary!.enabled = false;
+          return 'Disable delegation';
+        });
+      await h.domain.boundary.sweep();
+      const state = cause === 'expiry' ? 'expired' : 'revoked';
+      const reason = cause === 'expiry' ? 'deadline_expired' : 'policy_changed';
+      expect(h.repos.boundary.get(request.id)).toMatchObject({
+        state,
+        decidedBy: approved.decidedBy,
+        reason: approved.reason,
+        invalidation: { actor: { kind: 'system', handle: null }, reason },
+      });
+      expect(h.repos.boundary.grant(request.id)).toMatchObject({
+        state,
+        decidedBy: approved.decidedBy,
+        reason: approved.reason,
+      });
+      expect(h.repos.inbox.get(request.id)).toMatchObject({ state: 'resolved', resolution });
+      expect(
+        h.domain.timeline
+          .list('AR')
+          .filter((e) => e.type === 'boundary_changed')
+          .at(-1),
+      ).toMatchObject({
+        actor: { kind: 'system', handle: null },
+        data: { state, reason },
+      });
+      await expect(
+        h.domain.boundary.consume(requester, request.id, request.operationId),
+      ).rejects.toMatchObject({ code: 'insufficient_access' });
+      h = await restartDomainHarness(h, { now: () => now, boundaryAdapter: adapter });
+      expect(h.repos.inbox.get(request.id)!.resolution).toEqual(resolution);
+      expect(h.repos.boundary.get(request.id)!.decidedBy).toEqual(approved.decidedBy);
+    },
+  );
+
+  it.each(['expiry', 'policy'] as const)(
+    'keeps consumed grants final across %s, target removal, revocation and restart',
+    async (cause) => {
+      const request = await submit();
+      await h.domain.boundary.decide('AR', request.id, 'cr', allow);
+      const consumed = await h.domain.boundary.consume(requester, request.id, request.operationId);
+      expect(h.repos.boundary.get(request.id)?.consumedAt).toBe(consumed.consumedAt);
+      // A previously persisted consumed grant may predate the additive request marker.
+      if (cause === 'policy') {
+        const legacy = h.repos.boundary.get(request.id)!;
+        delete legacy.consumedAt;
+        h.repos.boundary.update(legacy);
+      }
+      const historical = structuredClone(h.repos.boundary.get(request.id));
+      const inbox = structuredClone(h.repos.inbox.get(request.id));
+      adapter.operations.delete(request.operationId);
+      if (cause === 'expiry') now = new Date(request.expiresAt);
+      else
+        await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+          config.team.boundary!.enabled = false;
+          return 'Disable delegation';
+        });
+      await h.domain.boundary.sweep();
+      expect(h.repos.boundary.listActive().some((r) => r.id === request.id)).toBe(false);
+      await expect(h.domain.boundary.revoke('AR', request.id, 'owner')).rejects.toMatchObject({
+        code: 'inbox_item_closed',
+      });
+      expect((await h.domain.boundary.read('AR', request.id, 'owner')).request).toEqual(historical);
+      expect(h.repos.boundary.grant(request.id)).toEqual(consumed);
+      expect(h.repos.inbox.get(request.id)).toEqual(inbox);
+      h = await restartDomainHarness(h, { now: () => now, boundaryAdapter: adapter });
+      expect(h.repos.boundary.get(request.id)).toEqual(historical);
+      expect(h.repos.boundary.grant(request.id)).toEqual(consumed);
+      expect(h.repos.inbox.get(request.id)).toEqual(inbox);
+      await expect(
+        h.domain.boundary.consume(requester, request.id, request.operationId),
+      ).rejects.toMatchObject({ code: 'insufficient_access' });
+    },
+  );
+
+  it('isolates a failed request read and retries it without blocking other requests in the same project', async () => {
+    const broken = await submit({}, 'broken');
+    const healthy = await submit({}, 'healthy');
+    now = new Date(broken.leadDeadline);
+    const get = h.repos.boundary.get;
+    const fault = vi.spyOn(h.repos.boundary, 'get').mockImplementation((id) => {
+      if (id === broken.id) throw new Error('Fictional record failure');
+      return get(id);
+    });
+    try {
+      await expect(h.domain.boundary.sweep()).resolves.toBeUndefined();
+      expect(get(broken.id)?.state).toBe('pending_lead');
+      expect(get(healthy.id)?.state).toBe('pending_owner');
+      expect(h.log.warnings).toContainEqual([
+        { projectKey: 'AR', requestId: broken.id },
+        'boundary request refresh failed',
+      ]);
+    } finally {
+      fault.mockRestore();
+    }
+    await h.domain.boundary.sweep();
+    expect(get(broken.id)?.state).toBe('pending_owner');
+    expect(h.repos.boundary.grant(broken.id)).toBeNull();
+  });
+
+  it('starts and processes healthy project deadlines while another project configuration is unreadable, then recovers', async () => {
+    const broken = await submit({}, 'broken');
+    await h.domain.projects.create(
+      { key: 'BR', name: 'Healthy', workspacePath: h.workspace, templateId: 'test' },
+      OWNER,
+    );
+    await h.domain.projects.update('BR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+      configure(config);
+      return 'Enable delegation';
+    });
+    await h.domain.tasks.create('BR', { title: 'Healthy operation' }, OWNER_ACTOR);
+    const started = await h.domain.taskStarts.start('BR', 'BR-1', { actor: OWNER_ACTOR, author: OWNER });
+    const healthyRequester = {
+      projectKey: 'BR',
+      member: 'dev-1',
+      sessionId: started.session!.id,
+      taskKey: 'BR-1',
+    };
+    const healthy = await submit({}, 'healthy', healthyRequester);
+    now = new Date(broken.leadDeadline);
+    let unreadable = true;
+    h = await restartDomainHarness(h, {
+      now: () => now,
+      boundaryAdapter: adapter,
+      configStore: (inner) => ({
+        ...inner,
+        async load(key) {
+          if (key === 'AR' && unreadable) throw new Error('Fictional unreadable configuration');
+          return inner.load(key);
+        },
+      }),
+    });
+    expect(h.log.errors).toHaveLength(1); // Existing project startup logs the configuration failure.
+    h.log.errors.splice(0);
+    expect(h.log.warnings).toContainEqual([
+      { projectKey: 'AR', requestId: broken.id },
+      'boundary request refresh failed',
+    ]);
+    expect(h.repos.boundary.get(broken.id)?.state).toBe('pending_lead');
+    expect(h.repos.boundary.get(healthy.id)?.state).toBe('pending_owner');
+    const periodic = await submit({}, 'periodic', healthyRequester);
+    now = new Date(periodic.leadDeadline);
+    await vi.waitFor(() => expect(h.repos.boundary.get(periodic.id)?.state).toBe('pending_owner'), {
+      timeout: 3000,
+    });
+    expect(h.repos.boundary.get(broken.id)?.state).toBe('pending_lead');
+    expect(h.repos.boundary.grant(broken.id)).toBeNull();
+    unreadable = false;
+    await h.domain.boundary.sweep();
+    expect(h.repos.boundary.get(broken.id)?.state).toBe('pending_owner');
   });
 });

@@ -26,6 +26,7 @@ export const hu = {
     expiry: 'Érvényes eddig: {time}',
     deadline: 'Vezetői határidő: {time}',
     revoke: 'Engedély visszavonása',
+    consumed: 'Az engedélyt már felhasználták',
     revokeFailed: 'Az engedélyt nem sikerült visszavonni.',
     environment: 'Célkörnyezet: {environment}',
     branch: 'Ág: {branch}',

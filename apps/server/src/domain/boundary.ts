@@ -28,7 +28,7 @@ import type { TimelineService } from './timeline';
 import { newId, SYSTEM_ACTOR } from './util';
 
 const pending = (r: BoundaryRequest) => r.state === 'pending_lead' || r.state === 'pending_owner';
-const active = (r: BoundaryRequest) => pending(r) || r.state === 'allowed';
+const active = (r: BoundaryRequest) => pending(r) || (r.state === 'allowed' && !r.consumedAt);
 const requesterOf = (r: BoundaryRequest): BoundaryRequester => ({
   projectKey: r.projectKey,
   member: r.member,
@@ -65,6 +65,11 @@ export class BoundaryService {
     const request = this.ctx.repos.boundary.get(id);
     if (!request || request.projectKey !== projectKey) throw notFound('boundary request', id);
     return request;
+  }
+
+  private consumed(id: string): boolean {
+    const grant = this.ctx.repos.boundary.grant(id);
+    return grant?.state === 'consumed' || !!grant?.consumedAt;
   }
 
   /** Bind the caller to the server's session and task records, never to MCP/HTTP text. */
@@ -235,7 +240,8 @@ export class BoundaryService {
     if (member?.kind !== 'human' || member.access !== 'owner')
       throw forbidden('owner_only', 'only an owner may revoke boundary requests');
     const request = this.get(projectKey, id);
-    if (!active(request)) throw conflict('inbox_item_closed', 'boundary request is closed');
+    if (!active(request) || this.consumed(id))
+      throw conflict('inbox_item_closed', 'boundary request is closed');
     return this.transition(request, 'revoked', 'owner_revoked', { kind: 'human', handle }, project.config);
   }
 
@@ -258,23 +264,44 @@ export class BoundaryService {
       grant.consumedAt
     )
       throw forbidden('insufficient_access', 'no valid single-operation boundary grant');
-    const consumed = this.ctx.repos.boundary.consume(id, this.ctx.now().toISOString());
-    if (!consumed) throw forbidden('insufficient_access', 'boundary grant was already consumed or revoked');
-    return consumed;
+    return this.ctx.unitOfWork(() => {
+      const at = this.ctx.now().toISOString();
+      const consumed = this.ctx.repos.boundary.consume(id, at);
+      if (!consumed) throw forbidden('insufficient_access', 'boundary grant was already consumed or revoked');
+      const next = { ...request, consumedAt: at, updatedAt: at };
+      this.ctx.repos.boundary.update(next);
+      const item = this.ctx.repos.inbox.get(id)!;
+      this.ctx.repos.inbox.updateBoundary(id, { boundary: next }, item.assignees, at);
+      this.ctx.bus.publish({
+        type: 'inbox_upserted',
+        projectKey: request.projectKey,
+        item: this.ctx.repos.inbox.get(id)!,
+      });
+      return consumed;
+    });
   }
 
   /** Absolute timestamps survive restart. Missing/on-leave approvers escalate; busy wake-ups
    * wait at most the lead deadline. No failed wake-up or timeout ever means allow. */
   async sweep(): Promise<void> {
     for (const stored of this.ctx.repos.boundary.listActive()) {
-      const project = await this.projects.load(stored.projectKey);
-      this.current(stored.projectKey, project);
-      this.refresh(this.get(stored.projectKey, stored.id), project);
+      try {
+        const project = await this.projects.load(stored.projectKey);
+        this.current(stored.projectKey, project);
+        this.refresh(this.get(stored.projectKey, stored.id), project);
+      } catch {
+        // The next sweep retries this request. Never log config/adapter input or grant permission
+        // on failure, and never let one unavailable project block startup or another deadline.
+        this.ctx.logger.warn(
+          { projectKey: stored.projectKey, requestId: stored.id },
+          'boundary request refresh failed',
+        );
+      }
     }
   }
 
   private refresh(request: BoundaryRequest, project: LoadedProject): BoundaryRequest {
-    if (!active(request)) return request;
+    if (!active(request) || this.consumed(request.id)) return request;
     const now = this.ctx.now().getTime();
     if (boundaryWaitingState(project.config, request, now) === 'expired')
       return this.transition(request, 'expired', 'deadline_expired', SYSTEM_ACTOR, project.config);
@@ -326,10 +353,11 @@ export class BoundaryService {
     const next: BoundaryRequest = {
       ...request,
       state,
-      reason,
+      reason: request.decidedBy ? request.reason : reason,
       updatedAt: at,
       assignees: state === 'pending_owner' ? boundaryOwners(config) : request.assignees,
-      decidedBy: state === 'pending_owner' ? null : actor,
+      decidedBy: state === 'allowed' || state === 'denied' ? actor : request.decidedBy,
+      ...(state === 'revoked' || state === 'expired' ? { invalidation: { actor, reason, at } } : {}),
     };
     const result = this.ctx.unitOfWork(() => {
       this.ctx.repos.boundary.update(next);
@@ -350,7 +378,7 @@ export class BoundaryService {
           consumedAt: null,
         });
       const grant = this.ctx.repos.boundary.grant(request.id);
-      if (grant && (state === 'revoked' || state === 'expired'))
+      if (grant?.state === 'active' && (state === 'revoked' || state === 'expired'))
         this.ctx.repos.boundary.updateGrant({ ...grant, state, revokedAt: at });
       const item = this.ctx.repos.inbox.get(request.id)!;
       this.ctx.repos.inbox.updateBoundary(
@@ -373,27 +401,20 @@ export class BoundaryService {
           },
           at,
         );
-      } else if (state === 'revoked' || state === 'expired') {
-        this.ctx.repos.inbox.retireBoundary(
-          item.id,
-          state === 'revoked' ? 'cancelled' : 'expired',
-          { optionId: 'deny', by: actor.handle ?? 'system', at, note: reason },
-          at,
-        );
       }
       this.ctx.bus.publish({
         type: 'inbox_upserted',
         projectKey: request.projectKey,
         item: this.ctx.repos.inbox.get(request.id)!,
       });
-      this.audit(next, actor);
+      this.audit(next, actor, reason);
       return next;
     });
     if (state !== 'pending_owner') this.notify(result, [request.member]);
     return result;
   }
 
-  private audit(request: BoundaryRequest, actor: Actor): void {
+  private audit(request: BoundaryRequest, actor: Actor, reason = request.reason): void {
     this.timeline.append({
       projectKey: request.projectKey,
       taskKey: request.taskKey,
@@ -406,7 +427,7 @@ export class BoundaryService {
         resource: request.target.resource,
         category: request.category,
         state: request.state,
-        reason: request.reason,
+        reason,
         assignees: request.assignees,
         policyVersion: request.policyVersion,
       },

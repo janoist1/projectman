@@ -47,6 +47,13 @@ revoke existing grants. Changed or missing adapter targets and removed/inactive 
 requests. Late/double decisions are refused. The server stores the request, grant, inbox projection
 and attributed `boundary_changed` audit in one transaction (DB migration 12). Older inbox kinds
 and timeline event types remain readable. The owner sees AI decisions and can revoke grants.
+The original decision actor/reason and resolved inbox entry are preserved when an unused grant
+expires or is revoked. `BoundaryRequest.invalidation` records that separate lifecycle change;
+its attributed timeline event carries the invalidation reason. After consumption,
+`BoundaryRequest.consumedAt` and the grant's consumed state are final: sweeps and revocation
+cannot turn an operation already handed to the executor into a historical denial.
+Each sweep isolates a failed project/request, logs only its identifiers and retries it on the next
+tick. Other deadlines and server startup continue; failure never grants authorization.
 
 The protected executor calls `domain.boundary.consume(requester, requestId, operationId)` before
 execution. It checks the current policy/target and all identity fields and atomically consumes

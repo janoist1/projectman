@@ -85,6 +85,14 @@ export function createInboxRepository(db: Db) {
   };
 
   return {
+    updateBoundary(id: string, payload: Record<string, unknown>, assignees: string[], at: string): void {
+      db.prepare('UPDATE inbox_items SET payload = ?, assignees = ?, updated_at = ? WHERE id = ?').run(
+        toJson(payload),
+        toJson(assignees),
+        at,
+        id,
+      );
+    },
     get,
     insert(item: InboxItem): void {
       statements.insert.run(

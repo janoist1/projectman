@@ -27,6 +27,7 @@ const ROLE_CAPACITY: Partial<Record<BuiltInRoleId, number>> = {
   business_analyst: 2,
   architect: 2,
   code_review: 2,
+  lead_developer: 2,
   communication: 2,
   researcher: 2,
 };

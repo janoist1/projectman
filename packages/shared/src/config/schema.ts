@@ -146,6 +146,13 @@ export const ProjectConfig = z.object({
     roles: z.array(CustomRoleDefinition).default([]),
     roleOverrides: RoleOverrides.optional(),
     releaseFourEyes: z.boolean().default(false).optional(),
+    /** Owner-controlled delegation; absent configurations keep delegation disabled. */
+    boundary: z
+      .object({
+        enabled: z.boolean().default(false),
+        leadTimeoutSeconds: z.number().int().min(1).max(600).default(120),
+      })
+      .optional(),
     limits: TeamLimits,
   }),
   pipeline: Pipeline,

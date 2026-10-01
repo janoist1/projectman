@@ -52,11 +52,18 @@ Documentation map:
   sessions stop (their conversations stay, so a call-back resumes them), it is not picked or named
   as an assignee, a stage hand-over goes to another owner, and the messages for it wait.
 - **Duties and roles** (decision 16, [design/duties.md](design/duties.md)) — a fixed,
-  code-backed catalogue of 26 duties (implementation, code review, testing and acceptance,
+  code-backed catalogue of 27 duties (implementation, code review, testing and acceptance,
   release approval, …) defines who may hold them, the English prompt fragment an AI holder
-  receives and its tool policy. A **role** is a named bundle of duties: 20 built-in roles with
+  receives and its tool policy. A **role** is a named bundle of duties: 21 built-in roles with
   default bundles (`team.roleOverrides` replaces one) and custom roles defined in `team.yaml`.
   Release approval and final decision are human-only.
+- **External operation requests** — a protected adapter supplies exact, credential-free target
+  metadata for an opaque operation id. The server derives owner exceptions and routes other
+  requests to independent holders of `boundary_authorization` (the `lead_developer` bundle),
+  when the owner enables delegation. A persisted lead deadline escalates to owners, never
+  automatically allows; requests/grants and attributed audit survive restart. CLI permission
+  hooks and human gate/release decisions stay separate. See [BOUNDARY.md](BOUNDARY.md) for the
+  contracts, adapter integration and single-operation grant consumption.
 - **Pipeline** — ordered **stages** grouped into **board columns**. A stage has a kind:
   `queue` (waiting to start), `work` (the assignee builds it), `step` (the owners do one thing
   — review, deploy, test, client test, merge — as the stage's duty says, and record the result

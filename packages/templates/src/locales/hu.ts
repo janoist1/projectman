@@ -27,6 +27,11 @@ export const hu: TemplateLocale = {
     done: 'Kész',
   },
   duties: {
+    boundary_authorization: {
+      name: 'Külső műveletek engedélyezése',
+      description:
+        'A delegálható külső műveletekről dönt. Költség, éles rendszer, új hozzáférés és tartós határtágítás esetén a tulajdonos dönt.',
+    },
     prioritization: {
       name: 'Prioritáskezelés',
       description: 'Érték és sürgősség szerint rendezi a munkát. Jelzi az ütköző prioritásokat.',
@@ -182,6 +187,12 @@ export const hu: TemplateLocale = {
       summary: 'Saját ágon, tesztekkel együtt megvalósítja a feladatot, és PR-t nyit.',
       notTheirJob: 'Nem hagyja jóvá a saját munkáját.',
       whenToAsk: 'Ha egy kártya készen áll a megvalósításra; nem írsz neki, hanem elindítod a kártyát.',
+    },
+    lead_developer: {
+      name: 'Vezető fejlesztő',
+      summary: 'Műszaki irányt ad, átnézi a kész munkát és dönt a delegálható külső műveletekről.',
+      notTheirJob: 'Nem dönt a saját kéréséről vagy tulajdonosi ügyekről.',
+      whenToAsk: 'Műszaki irányítás, átnézés vagy delegálható külső művelet engedélyezése esetén.',
     },
     code_review: {
       name: 'Code review',

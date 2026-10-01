@@ -8,6 +8,10 @@ import type {
   TaskDetail,
   TaskStatus,
   Visibility,
+  BoundaryRequest,
+  BoundaryGrant,
+  SubmitBoundaryRequest,
+  DecideBoundaryRequest,
 } from '@projectman/shared';
 
 /**
@@ -71,6 +75,15 @@ export interface LocatedAttachmentForTool {
 }
 
 export interface TeamToolsHandler {
+  submitBoundaryRequest(ctx: ToolContext, args: SubmitBoundaryRequest): Promise<BoundaryRequest>;
+  getBoundaryRequest(
+    ctx: ToolContext,
+    args: { requestId: string },
+  ): Promise<{ request: BoundaryRequest; grant: BoundaryGrant | null }>;
+  decideBoundaryRequest(
+    ctx: ToolContext,
+    args: DecideBoundaryRequest & { requestId: string },
+  ): Promise<BoundaryRequest>;
   /** list_tasks: visible board tasks, newest update first. */
   listTasks(ctx: ToolContext, args: ListTasksInput): Promise<TaskSummary[]>;
   /** send_message: deliver a message to team members (AI sessions or human inboxes). */

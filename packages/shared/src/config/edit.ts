@@ -39,6 +39,7 @@ export const PatchConfigRequest = z
     roleOverrides: ProjectConfig.shape.team.shape.roleOverrides,
     roles: ProjectConfig.shape.team.shape.roles.removeDefault().optional(),
     releaseFourEyes: z.boolean().optional(),
+    boundary: ProjectConfig.shape.team.shape.boundary,
     pipeline: Pipeline.optional(),
   })
   .strict();
@@ -66,6 +67,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
       ...(patch.roleOverrides !== undefined ? { roleOverrides: patch.roleOverrides } : {}),
       ...(patch.roles !== undefined ? { roles: patch.roles } : {}),
       ...(patch.releaseFourEyes !== undefined ? { releaseFourEyes: patch.releaseFourEyes } : {}),
+      ...(patch.boundary !== undefined ? { boundary: patch.boundary } : {}),
       limits,
     },
     pipeline: patch.pipeline ?? config.pipeline,

@@ -17,6 +17,8 @@ import type {
   QuestionOptionInput,
   Task,
   Visibility,
+  SubmitBoundaryRequest,
+  DecideBoundaryRequest,
 } from '@projectman/shared';
 import { TeamToolError } from '../contracts';
 import type {
@@ -33,6 +35,7 @@ import type {
 } from '../contracts';
 import { openWorkspaceFile, WorkspaceFileRefusal } from './attachments';
 import type { DomainContext } from './context';
+import type { BoundaryService } from './boundary';
 import { DomainError } from './errors';
 import type { ApprovalRequirement, UnmetCondition } from '@projectman/shared';
 import type { GithubSync } from './github-sync';
@@ -134,6 +137,40 @@ function toToolError(err: unknown): unknown {
  * to the calling AI member.
  */
 export class TeamToolsService implements TeamToolsHandler {
+  async submitBoundaryRequest(ctx: ToolContext, args: SubmitBoundaryRequest) {
+    try {
+      await this.caller(ctx);
+      return await this.boundary.submit(
+        { projectKey: ctx.projectKey, member: ctx.member, sessionId: ctx.sessionId, taskKey: ctx.taskKey },
+        args,
+      );
+    } catch (err) {
+      throw toToolError(err);
+    }
+  }
+  async getBoundaryRequest(ctx: ToolContext, args: { requestId: string }) {
+    try {
+      await this.caller(ctx);
+      return await this.boundary.read(ctx.projectKey, args.requestId, ctx.member);
+    } catch (err) {
+      throw toToolError(err);
+    }
+  }
+  async decideBoundaryRequest(ctx: ToolContext, args: DecideBoundaryRequest & { requestId: string }) {
+    try {
+      await this.caller(ctx);
+      return await this.boundary.decide(
+        ctx.projectKey,
+        args.requestId,
+        ctx.member,
+        { decision: args.decision, reason: args.reason },
+        { delegatedOnly: true },
+      );
+    } catch (err) {
+      throw toToolError(err);
+    }
+  }
+  private readonly boundary: BoundaryService;
   private readonly ctx: DomainContext;
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
@@ -148,6 +185,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
 
   constructor(deps: {
+    boundary: BoundaryService;
     ctx: DomainContext;
     projects: ProjectService;
     tasks: TaskService;
@@ -162,6 +200,7 @@ export class TeamToolsService implements TeamToolsHandler {
     /** The attachment directory of a task (`AttachmentStorage.taskDirectory`). */
     attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
   }) {
+    this.boundary = deps.boundary;
     this.ctx = deps.ctx;
     this.projects = deps.projects;
     this.tasks = deps.tasks;

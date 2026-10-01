@@ -7,6 +7,7 @@ export * from './domain/event';
 export * from './domain/attachment';
 export * from './domain/message';
 export * from './domain/inbox';
+export * from './domain/boundary';
 export * from './chat/chat';
 export * from './config/schema';
 export * from './config/invariants';

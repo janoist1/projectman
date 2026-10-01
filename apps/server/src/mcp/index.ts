@@ -4,7 +4,7 @@ import type { McpModule, McpModuleOptions, ToolContext } from '../contracts';
 import { nonLocalReason } from '../http/local-guard';
 import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS, type TeamServerDeps } from './server';
 
-export { TEAM_TOOL_NAMES, type TeamToolName } from './tools';
+export { TEAM_TOOLS, TEAM_TOOL_NAMES, type TeamToolName } from './tools';
 
 /**
  * Team tools MCP endpoint (`/mcp/:token`) for AI members' Claude Code sessions.

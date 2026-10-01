@@ -1,5 +1,7 @@
 import {
   AttachmentListResponse,
+  BoundaryRequest,
+  BoundaryRequestView,
   ChangeTaskLabelsRequest,
   DeleteAttachmentResponse,
   UploadAttachmentResponse,
@@ -29,6 +31,7 @@ import {
 } from '@projectman/shared';
 import type {
   SendTeamMessageRequest,
+  DecideBoundaryRequest,
   PatchConfigRequest,
   CreateInviteRequest,
   AcceptInviteRequest,
@@ -57,6 +60,12 @@ import { apiRequest } from './client';
  * refetch instead of relying on the body.
  */
 export const api = {
+  boundaryRequest: (key: string, id: string) =>
+    apiRequest(routes.boundaryRequest(key, id), { schema: BoundaryRequestView }),
+  decideBoundary: (key: string, id: string, body: DecideBoundaryRequest) =>
+    apiRequest(routes.decideBoundary(key, id), { method: 'POST', body, schema: BoundaryRequest }),
+  revokeBoundary: (key: string, id: string) =>
+    apiRequest(routes.revokeBoundary(key, id), { method: 'POST', schema: BoundaryRequest }),
   addHumanMember: (key: string, body: AddHumanMemberRequest) =>
     apiRequest(routes.addHumanMember(key), { method: 'POST', body, schema: MemberView }),
   providers: () => apiRequest(routes.providers(), { schema: ProvidersView }),

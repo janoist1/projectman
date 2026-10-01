@@ -27,6 +27,7 @@ export interface StyledRole extends CatalogueRole {
 
 const visuals: Record<BuiltInRoleId, { tone: RoleTone; icon: IconName }> = {
   developer: { tone: 'developer', icon: 'branch' },
+  lead_developer: { tone: 'review', icon: 'code' },
   code_review: { tone: 'review', icon: 'code' },
   security_review: { tone: 'security', icon: 'shield' },
   qa: { tone: 'qa', icon: 'flask' },

@@ -4,6 +4,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { AuthService } from '../auth';
 import type {
   AttachmentStorage,
+  BoundaryOperationAdapter,
   ConfigStore,
   ContextPackBuilder,
   EventBus,
@@ -21,6 +22,7 @@ import type { StartSpec } from './admission';
 import { AttachmentService } from './attachments';
 import { BackgroundTasks } from './background';
 import { BoardService } from './board';
+import { BoundaryService } from './boundary';
 import { createDomainContext, defaultTemplateRegistry } from './context';
 import type { DomainContext, TemplateRegistry } from './context';
 import { createEventBus } from './event-bus';
@@ -39,6 +41,7 @@ import { SessionOrchestrator } from './sessions';
 import { TaskService } from './tasks';
 import { TeamToolsService } from './team-tools';
 import { TimelineService } from './timeline';
+import { SYSTEM_ACTOR } from './util';
 
 export * from './access';
 export * from './context';
@@ -66,6 +69,7 @@ export {
 export type { WorkspaceFile, WorkspaceFileHooks, WorkspaceFileRefusalReason } from './attachments';
 export { BackgroundTasks } from './background';
 export { BoardService } from './board';
+export { BoundaryService } from './boundary';
 export { GithubSync } from './github-sync';
 export { InboxService, PERMISSION_OPTIONS, DECISION_OPTIONS, ANSWER_OPTION } from './inbox';
 export { InvitationService } from './invitations';
@@ -99,6 +103,7 @@ export { TimelineService } from './timeline';
 export { SYSTEM_ACTOR, SYSTEM_AUTHOR, humanActor, aiActor } from './util';
 
 export interface DomainOptions {
+  boundaryAdapter?: BoundaryOperationAdapter;
   repos: Repositories;
   configStore: ConfigStore;
   logger: FastifyBaseLogger;
@@ -194,6 +199,35 @@ export function createDomain(opts: DomainOptions) {
   const admission = new Admission({ ctx, sessions, planUsage, tasks, projects, deferred: deferredStarts });
   const delivery = new MessageDelivery({ ctx, sessions, messages });
   const messaging = new Messaging({ ctx, projects, tasks, sessions, messages, delivery });
+  const boundary = new BoundaryService({
+    ctx,
+    projects,
+    inbox,
+    timeline,
+    adapter: opts.boundaryAdapter,
+    notify(request, recipients) {
+      const config = projects.cachedConfig(request.projectKey);
+      // Humans receive the localized inbox/timeline; this English message is an agent prompt.
+      const agents = recipients.filter((h) => config && memberOf(config, h)?.kind === 'ai');
+      if (!agents.length) return;
+      background.run(
+        () =>
+          messaging
+            .send(
+              request.projectKey,
+              'system',
+              {
+                to: agents,
+                taskKey: request.taskKey,
+                text: `Boundary request ${request.id}: ${request.state}. Operation: ${request.target.operation}; resource: ${request.target.resource}. Inspect with get_boundary_request. Delegated approvers use decide_boundary_request; owner exceptions require the owner's inbox decision.`,
+              },
+              { actor: SYSTEM_ACTOR },
+            )
+            .then(() => undefined),
+        () => opts.logger.warn({ requestId: request.id }, 'boundary notification failed'),
+      );
+    },
+  });
   const taskStarts = new TaskStarts({ projects, tasks, members, sessions, admission });
   const handOver = new StageHandOver({ projects, tasks, sessions, admission, delivery });
   const messageStarts = new MessageStarts({ projects, tasks, admission, messages, delivery });
@@ -206,6 +240,7 @@ export function createDomain(opts: DomainOptions) {
   });
   const githubSync = new GithubSync({ ctx, github: opts.github, tasks, projects });
   const teamTools = new TeamToolsService({
+    boundary,
     ctx,
     projects,
     tasks,
@@ -242,6 +277,8 @@ export function createDomain(opts: DomainOptions) {
     tasks.handOverTasks(change.projectKey, removed, change.actor, change.handovers);
   });
   events.on('config_changed', (change) => sessions.handleConfigChange(change));
+  events.on('config_changed', () => boundary.sweep());
+  events.on('task_cancelled', () => boundary.sweep());
   // AI work switched back on: the deferred starts continue.
   events.on('config_changed', (change) => {
     if (change.previous?.team.limits.aiEnabled === false && change.next.team.limits.aiEnabled)
@@ -293,6 +330,7 @@ export function createDomain(opts: DomainOptions) {
   });
 
   let retryTimer: ReturnType<typeof setInterval> | undefined;
+  let boundaryTimer: ReturnType<typeof setInterval> | undefined;
 
   return {
     ctx,
@@ -301,6 +339,7 @@ export function createDomain(opts: DomainOptions) {
     timeline,
     projects,
     inbox,
+    boundary,
     runnerModule,
     presence,
     messages,
@@ -328,6 +367,7 @@ export function createDomain(opts: DomainOptions) {
       sessions.reconcileAfterRestart();
       members.reconcileAfterRestart();
       inbox.expireOpenPermissions();
+      await boundary.sweep();
       // Uploads and deletions the last run left half done (files and rows share no transaction).
       await attachments.recover();
       githubSync.start();
@@ -340,11 +380,21 @@ export function createDomain(opts: DomainOptions) {
       // ... and refused hand-overs and message wake-ups retry once admission allows them.
       retryTimer = setInterval(retryDeferredStarts, opts.handOffRetryMs ?? 30_000);
       retryTimer.unref();
+      boundaryTimer = setInterval(
+        () =>
+          background.run(
+            () => boundary.sweep(),
+            () => opts.logger.warn('boundary deadline sweep failed'),
+          ),
+        1000,
+      );
+      boundaryTimer.unref();
     },
 
     async stop(): Promise<void> {
       usage.stop();
       if (retryTimer) clearInterval(retryTimer);
+      if (boundaryTimer) clearInterval(boundaryTimer);
       const drained = schedules.stop();
       githubSync.stop();
       await background.stop();

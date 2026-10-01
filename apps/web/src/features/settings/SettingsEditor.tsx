@@ -61,6 +61,7 @@ function patchBody(section: Section, draft: ProjectConfig, baseVersion: string):
     return {
       baseVersion,
       limits: { ...draft.team.limits, maxConcurrentAi: draft.team.limits.maxConcurrentAi ?? null },
+      ...(draft.team.boundary ? { boundary: draft.team.boundary } : {}),
     };
   if (section === 'project')
     return {

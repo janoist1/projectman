@@ -2,7 +2,8 @@ import clsx from 'clsx';
 import { useMemo, useState } from 'react';
 import { InboxKind } from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
-import { useBoard, useInbox, useResolveInbox } from '../../api/queries';
+import { useBoard, useInbox, useResolveInbox, useRevokeBoundary } from '../../api/queries';
+import { Button } from '../../components/Button';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Icon } from '../../components/Icon';
 import { PageHeader } from '../../components/PageHeader';
@@ -14,6 +15,7 @@ import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
 import {
   decisionSubject,
+  boundaryOf,
   detailsHrefFor,
   isAssignedTo,
   isPositiveResolution,
@@ -32,10 +34,12 @@ function RecentDecisions({
   items,
   members,
   myHandle,
+  onRevoke,
 }: {
   items: InboxItem[];
   members: MemberIndex;
   myHandle: string | null;
+  onRevoke?: (id: string) => void;
 }) {
   return (
     <section className={styles.recent} aria-labelledby="inbox-recent">
@@ -47,6 +51,7 @@ function RecentDecisions({
         {items.map((item) => {
           const positive = isPositiveResolution(item);
           const note = resolutionNote(item);
+          const boundary = boundaryOf(item);
           return (
             <li key={item.id} className={styles.recentItem}>
               <span
@@ -71,6 +76,19 @@ function RecentDecisions({
                     : formatAgo(item.createdAt)}
                 </span>
                 {note ? <span className={styles.recentNote}>{note}</span> : null}
+                {boundary ? (
+                  <span className={styles.recentNote}>
+                    {boundary.consumedAt ? t('boundary.consumed') : t(`boundary.states.${boundary.state}`)}
+                    {boundary.invalidation
+                      ? ` · ${t(`boundary.reasons.${boundary.invalidation.reason}`)}`
+                      : ''}
+                  </span>
+                ) : null}
+                {onRevoke && boundary?.state === 'allowed' && !boundary.consumedAt ? (
+                  <Button variant="ghost" onClick={() => onRevoke(item.id)}>
+                    {t('boundary.revoke')}
+                  </Button>
+                ) : null}
               </span>
             </li>
           );
@@ -82,13 +100,17 @@ function RecentDecisions({
 
 /** Everything that waits for the viewer, by kind. */
 export function InboxPage() {
-  const { key, myHandle } = useProject();
+  const { key, myHandle, isOwner } = useProject();
   const isMobile = useIsMobile();
   const inbox = useInbox(key);
   const board = useBoard(key);
   const { members, pipeline } = useProjectIndexes(key);
   const resolve = useResolveInbox(key, myHandle);
+  const revoke = useRevokeBoundary(key);
   const toast = useToast();
+  const onRevoke = isOwner
+    ? (id: string) => revoke.mutate(id, { onError: () => toast.show(t('boundary.revokeFailed'), 'error') })
+    : undefined;
   const [filter, setFilter] = useState<KindFilter>('all');
   useDocumentTitle(t('inbox.title'), board.data?.project.name);
 
@@ -180,12 +202,17 @@ export function InboxPage() {
           ) : null}
         </div>
         {isMobile ? (
-          <RecentDecisions items={recent.slice(0, 4)} members={members} myHandle={myHandle} />
+          <RecentDecisions
+            items={recent.slice(0, 4)}
+            members={members}
+            myHandle={myHandle}
+            onRevoke={onRevoke}
+          />
         ) : null}
       </div>
       {isMobile ? null : (
         <aside className={styles.aside}>
-          <RecentDecisions items={recent} members={members} myHandle={myHandle} />
+          <RecentDecisions items={recent} members={members} myHandle={myHandle} onRevoke={onRevoke} />
         </aside>
       )}
     </div>

@@ -42,6 +42,7 @@ const ROLE_HANDLES: Record<Exclude<BuiltInRoleId, 'developer'>, string> = {
   architect: 'architect',
   designer: 'designer',
   code_review: 'code-review',
+  lead_developer: 'lead-dev',
   security_review: 'security',
   qa: 'qa',
   devops: 'devops',

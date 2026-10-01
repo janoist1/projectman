@@ -2,6 +2,7 @@ import clsx from 'clsx';
 import { useId, useState } from 'react';
 import { Link } from 'react-router';
 import type { InboxItem, InboxOption, ResolveInboxRequest } from '@projectman/shared';
+import { BoundaryReason } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import type { ButtonVariant } from '../../components/Button';
@@ -11,6 +12,7 @@ import { formatAgo } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
 import {
   FREE_ANSWER_OPTION_ID,
+  boundaryOf,
   gateMoveText,
   inboxHeading,
   optionLabel,
@@ -48,7 +50,7 @@ export interface InboxCardProps {
   headingLevel?: 2 | 3;
 }
 
-/** One item waiting for a human: permission, decision, approval or question. */
+/** One inbox request, including delegated boundary decisions. */
 export function InboxCard({
   item,
   members,
@@ -80,6 +82,8 @@ export function InboxCard({
   const assignedToOthers = myHandle !== null && !item.assignees.includes(myHandle);
   const buttonSize = mobile ? 'xl' : 'lg';
   const extras = questionExtras(item);
+  const boundary = boundaryOf(item);
+  const [boundaryReason, setBoundaryReason] = useState<BoundaryReason>('scope_verified');
   // A question that recommends an option or describes what each one does lists its options with
   // that text; every other item keeps its row of buttons.
   const describesChoices =
@@ -115,6 +119,40 @@ export function InboxCard({
         </time>
       </div>
       <Heading className={styles.title}>{heading}</Heading>
+      {boundary ? (
+        <div>
+          <p>
+            {t(`boundary.operations.${boundary.target.operation}`)} · <code>{boundary.target.resource}</code>
+          </p>
+          <p>
+            {t(`boundary.categories.${boundary.category}`)} · {t(`boundary.states.${boundary.state}`)}
+          </p>
+          <p>
+            {t('boundary.environment', {
+              environment: t(`boundary.environments.${boundary.target.environment}`),
+            })}
+          </p>
+          {boundary.target.branch ? <p>{t('boundary.branch', { branch: boundary.target.branch })}</p> : null}
+          <p>{t('boundary.scope')}</p>
+          <p>{t('boundary.expiry', { time: new Date(boundary.expiresAt).toLocaleString('hu-HU') })}</p>
+          {boundary.state === 'pending_lead' ? (
+            <p>{t('boundary.deadline', { time: new Date(boundary.leadDeadline).toLocaleString('hu-HU') })}</p>
+          ) : null}
+          <label>
+            {t('boundary.reason')}{' '}
+            <select
+              value={boundaryReason}
+              onChange={(event) => setBoundaryReason(BoundaryReason.parse(event.target.value))}
+            >
+              {BoundaryReason.options.map((reason) => (
+                <option key={reason} value={reason}>
+                  {t(`boundary.reasons.${reason}`)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      ) : null}
       {item.body ? (
         item.kind === 'approval' ? (
           <blockquote className={styles.preview}>{item.body}</blockquote>
@@ -191,7 +229,9 @@ export function InboxCard({
                   variant={answering ? 'secondary' : variantFor[option.style]}
                   size={buttonSize}
                   disabled={pending}
-                  onClick={() => onResolve(item, { optionId: option.id })}
+                  onClick={() =>
+                    onResolve(item, { optionId: option.id, ...(boundary ? { note: boundaryReason } : {}) })
+                  }
                 >
                   {optionLabel(option)}
                 </Button>

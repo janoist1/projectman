@@ -16,6 +16,27 @@ const creation: TimelineEvent = {
 const context = { pipeline: null, members: new Map(), myHandle: 'owner', openInboxIds: new Set<string>() };
 
 describe('creation timeline labels', () => {
+  it('describes an AI boundary decision and keeps old check events readable', () => {
+    const decision = {
+      ...creation,
+      type: 'boundary_changed' as const,
+      actor: { kind: 'ai' as const, handle: 'lead' },
+      data: {
+        requestId: 'bnd_fixture',
+        resource: 'example.test/docs',
+        state: 'allowed',
+        reason: 'scope_verified',
+      },
+    };
+    expect(describeEvent(decision, context).text).toContain(t('boundary.states.allowed'));
+    expect(describeEvent(decision, context).text).toContain(t('boundary.reasons.scope_verified'));
+    expect(
+      describeEvent(
+        { ...creation, type: 'task_check_changed', data: { check: 'code_review', to: 'passed' } },
+        context,
+      ).text,
+    ).toContain(t('timeline.legacyChecks.states.passed'));
+  });
   it('distinguishes imported history from normal creation', () => {
     expect(describeEvent(creation, context).text).toBe(t('timeline.events.task_created'));
     expect(describeEvent({ ...creation, data: { ...creation.data, imported: true } }, context).text).toBe(

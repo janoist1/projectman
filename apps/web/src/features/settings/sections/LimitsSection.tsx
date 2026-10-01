@@ -12,12 +12,47 @@ import { SettingsSection } from './SettingsSection';
 /** The number the field starts at when the owner turns "no limit" off. */
 const DEFAULT_MAX_CONCURRENT_AI_CHOICE = 3;
 
-function LimitsEditor({ draft, change }: SectionEditorProps) {
+function LimitsEditor({ draft, change, isOwner }: SectionEditorProps) {
   const { key } = useProject();
   const roles = useRoles(key);
   const { limits } = draft.team;
   return (
     <>
+      <label className={shared.field}>
+        {t('settings.limits.boundaryEnabled')}
+        <input
+          type="checkbox"
+          disabled={!isOwner}
+          checked={draft.team.boundary?.enabled ?? false}
+          onChange={(event) =>
+            change((config) => {
+              config.team.boundary = {
+                enabled: event.target.checked,
+                leadTimeoutSeconds: config.team.boundary?.leadTimeoutSeconds ?? 120,
+              };
+            })
+          }
+        />
+      </label>
+      <p>{t('settings.limits.boundaryHelp')}</p>
+      <label className={shared.field}>
+        {t('settings.limits.boundaryTimeout')}
+        <input
+          type="number"
+          min={1}
+          max={600}
+          disabled={!isOwner}
+          value={draft.team.boundary?.leadTimeoutSeconds ?? 120}
+          onChange={(event) =>
+            change((config) => {
+              config.team.boundary = {
+                enabled: config.team.boundary?.enabled ?? false,
+                leadTimeoutSeconds: Number(event.target.value),
+              };
+            })
+          }
+        />
+      </label>
       <label className={shared.field}>
         {t('settings.limits.aiEnabled')}
         <input
@@ -142,6 +177,16 @@ export function LimitsSection({ config }: { config: ProjectConfig }) {
     <SettingsSection id="settings-limits" title={t('settings.sections.limits')}>
       <EditableSection section="limits" editor={(props) => <LimitsEditor {...props} />}>
         <dl className={shared.facts}>
+          <div>
+            <dt>{t('settings.limits.boundaryEnabled')}</dt>
+            <dd>
+              {t(
+                config.team.boundary?.enabled
+                  ? 'settings.limits.aiEnabledOn'
+                  : 'settings.limits.aiEnabledOff',
+              )}
+            </dd>
+          </div>
           <div>
             <dt>{t('settings.limits.aiEnabled')}</dt>
             <dd>{t(limits.aiEnabled ? 'settings.limits.aiEnabledOn' : 'settings.limits.aiEnabledOff')}</dd>

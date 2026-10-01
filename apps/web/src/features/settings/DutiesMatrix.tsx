@@ -80,7 +80,8 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
     });
   const reason = (role: string, duty: DutyId) => {
     if (!can.manageTeam) return t('duties.readOnly');
-    if (duty === 'release_approval' && !isOwner) return t('duties.ownerOnly');
+    if ((duty === 'release_approval' || duty === 'boundary_authorization') && !isOwner)
+      return t('duties.ownerOnly');
     if (
       DUTIES[duty].holders === 'human' &&
       (holders(role).some((m) => m.kind === 'ai') || draft.team.limits.tempWorkers.role === role)
@@ -130,11 +131,12 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
                           disabled={
                             !can.manageTeam ||
                             (!isOwner &&
-                              (roleBundle(draft, role).duties.includes('release_approval') ||
-                                roleBundle(
-                                  { team: { ...draft.team, roleOverrides: {} } },
-                                  role,
-                                ).duties.includes('release_approval')))
+                              (roleBundle(draft, role).duties.some(
+                                (d) => d === 'release_approval' || d === 'boundary_authorization',
+                              ) ||
+                                roleBundle({ team: { ...draft.team, roleOverrides: {} } }, role).duties.some(
+                                  (d) => d === 'release_approval' || d === 'boundary_authorization',
+                                )))
                           }
                           onClick={() => {
                             const next = structuredClone(draft);

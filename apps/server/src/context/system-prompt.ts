@@ -23,6 +23,7 @@ const ROLE_LABELS: Record<BuiltInRoleId, string> = {
   architect: 'architect',
   designer: 'designer',
   developer: 'developer',
+  lead_developer: 'lead developer',
   code_review: 'code reviewer',
   security_review: 'security reviewer',
   qa: 'QA engineer',
@@ -64,6 +65,7 @@ export function buildSystemPrompt(input: ContextPackInput, situation: Situation)
     workItemSection(input, situation),
     sessionPolicySection(input),
     unattendedCommandsSection(input),
+    boundarySection(input),
     guardrailsSection(input),
     roleSection(input),
     memorySection(input),
@@ -75,6 +77,11 @@ export function buildSystemPrompt(input: ContextPackInput, situation: Situation)
 /** Codex members differ in a few words: their plan, the tool naming and the project's rules file. */
 function isCodex(member: ContextPackInput['member']): boolean {
   return member.provider === 'codex';
+}
+
+function boundarySection({ project }: ContextPackInput): string {
+  if (!project.team.boundary?.enabled) return '';
+  return '# External operations\nThe protected adapter registers external operations. Use submit_boundary_request with its operation id and a stable retry key, then inspect with get_boundary_request. Pending means retry later, never automatic permission. A grant covers one exact operation and does not replace CLI permissions or human gate/release decisions. Never put credentials, secrets or raw commands in a request. Only independent live boundary_authorization duty holders may use decide_boundary_request for delegated operations; owner exceptions and escalated requests stay with the owner.';
 }
 
 function identitySection({ project, member }: ContextPackInput): string {
@@ -172,7 +179,7 @@ function teamworkSection({ project, member }: ContextPackInput): string {
   return [
     '# How the team works',
     '- You are one member of a mixed team of humans and AI members. Every AI member works in a fresh session per work item (a task, a meeting or a general chat); follow-ups about the same task come back to the same session.',
-    `- Work with the others through the team tools (MCP server "team"; in ${cli} they are named mcp__team__<tool>): send_message, list_members, list_tasks, get_task, update_task, create_task, link_pull_request, ask_human, save_memory, and for files attached to tasks list_attachments, read_attachment, attach_file and delete_attachment. Each tool's description says when and how to use it.`,
+    `- Work with the others through the team tools (MCP server "team"; in ${cli} they are named mcp__team__<tool>): send_message, list_members, list_tasks, get_task, update_task, create_task, link_pull_request, ask_human, save_memory, and for files attached to tasks list_attachments, read_attachment, attach_file and delete_attachment; external operations use submit_boundary_request, get_boundary_request and decide_boundary_request. Each tool's description says when and how to use it.`,
     '- Text you write in your own session reaches nobody: to tell a teammate something, or to answer a team message, use send_message. Team messages arrive in your session as "[team message from <handle> about <task key>]" followed by the text. Messages without that prefix come from the app (like the kick-off brief) or from a human using it.',
     '- Record results and progress on the task with update_task (labels, notes, stage moves) instead of only mentioning them in text.',
     '- Message only when someone has something to do, and send humans only what needs their decision or action. Be concise: facts first, no pleasantries.',

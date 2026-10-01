@@ -204,6 +204,18 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
   }
 
   return {
+    async submitBoundaryRequest(ctx, args) {
+      await enter('submitBoundaryRequest', ctx, args);
+      throw new TeamToolError('not_found', 'No protected operation adapter in this transport fake.');
+    },
+    async getBoundaryRequest(ctx, args) {
+      await enter('getBoundaryRequest', ctx, args);
+      throw new TeamToolError('not_found', 'Unknown boundary request.');
+    },
+    async decideBoundaryRequest(ctx, args) {
+      await enter('decideBoundaryRequest', ctx, args);
+      throw new TeamToolError('not_found', 'Unknown boundary request.');
+    },
     calls,
     members,
     tasks,

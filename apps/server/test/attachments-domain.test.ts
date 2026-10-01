@@ -58,6 +58,9 @@ function faultyStorage(faults: Faults) {
       };
     },
     openRead: (ref, size) => (faults.openRead ? Promise.reject(faults.openRead) : inner.openRead(ref, size)),
+    locate: (ref, size, mediaType) =>
+      faults.openRead ? Promise.reject(faults.openRead) : inner.locate(ref, size, mediaType),
+    taskDirectory: (projectKey, taskKey) => inner.taskDirectory(projectKey, taskKey),
     async remove(ref) {
       if (faults.remove) throw faults.remove;
       return inner.remove(ref);

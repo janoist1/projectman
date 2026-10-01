@@ -87,7 +87,7 @@ Documentation map:
   `canDeleteAttachment`, with `canSeeTask` underneath): project membership always; a client only
   on a shared task; a viewer only reads; AI members and the other workers upload; the uploader or
   a human owner or admin deletes. The attachments service (`domain/attachments`, the contract in
-  `contracts/attachments.ts`) takes a stream, so REST and a later MCP tool share one size,
+  `contracts/attachments.ts`) takes a stream, so REST and the team tools share one size,
   storage and access check, and judges the member against the current roster and the task's
   current visibility again just before an upload is published. The media type is proven from the
   file's content (PNG, JPEG, GIF, WebP and PDF may be shown inline; HTML, SVG, a renamed or an
@@ -116,10 +116,12 @@ Documentation map:
   of the current stage, for tasks the shell commands the server runs without asking (generated
   from the command rules in `domain/`, `unattended-commands.ts`, so that a member writes them in
   a form that passes), the member's memory, and for tasks a kick-off brief (title,
-  description, links, prerequisites, recent timeline) sent as the first message.
+  description, links, prerequisites, attachments, recent timeline) sent as the first message.
 - **Team tools** — an MCP server (`/mcp/:token`) through which AI members message teammates,
   read and update tasks (labels, notes, stage moves, subtasks), create tasks, link PRs, ask
-  humans and save memories. Text an agent writes in its own session reaches nobody.
+  humans, save memories and work with attachments (list, read by local path, attach a file of
+  their own working directory, delete their own; PM-113, see [SECURITY.md](SECURITY.md)). Text
+  an agent writes in its own session reaches nobody.
 - **Team messages** — a message about a task goes to the recipient's session for that task
   (typed in when idle, queued otherwise; a stopped session is started or resumed through
   admission); messages to humans go to the web app. A message never goes to its sender.
@@ -296,7 +298,8 @@ memory/<KEY>/<handle>.md  AI member memory (durable learnings)
 worktrees/<KEY>/…         git worktrees created for tasks
 attachments/<KEY>/<TASK>/<id>   task attachments: private (0700 directories, 0600 files),
                           named by the generated id (the uploaded name lives only in SQLite);
-                          a file still being written is <id>.part
+                          a file still being written is <id>.part; an image or PDF
+                          an agent asked for also has <id>.<ext> (a hard link)
 ```
 
 SQLite tables: `users`, `auth_sessions`, `invitations`, `projects`, `counters`, `tasks`,

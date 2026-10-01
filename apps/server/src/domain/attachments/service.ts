@@ -17,6 +17,7 @@ import type {
   AttachmentStorage,
   AttachmentUploadInput,
   AttachmentWriter,
+  LocatedAttachment,
 } from '../../contracts';
 import type { AttachmentRecord } from '../../db';
 import { isoNow } from '../context';
@@ -28,7 +29,7 @@ import type { TimelineService } from '../timeline';
 import { KeyedMutex, SYSTEM_ACTOR, newId } from '../util';
 import { sanitizeFileName } from './file-name';
 import { SNIFF_BYTES, sniffMediaType } from './media-type';
-import { TEMPORARY_SUFFIX } from './storage';
+import { TEMPORARY_SUFFIX, viewOwner } from './storage';
 
 const storageFailed = (message: string) =>
   new DomainError('attachment_storage_failed', message, { status: 500 });
@@ -83,7 +84,7 @@ const toDto = (r: AttachmentRecord): Attachment => ({
  *   stop in between never reports a success nor writes the event twice: `recover` or a repeated
  *   delete finishes it.
  *
- * Whoever calls (REST, later MCP) gets the same checks: the rules are those of `packages/shared`,
+ * Whoever calls (REST, the team tools) gets the same checks: the rules are those of `packages/shared`,
  * judged for the acting member against the current roster and the task's current visibility.
  */
 export class AttachmentService implements AttachmentOperations {
@@ -178,6 +179,18 @@ export class AttachmentService implements AttachmentOperations {
     return { attachment: toDto(record), stream };
   }
 
+  async locate(projectKey: string, taskKey: string, id: string, actor: Actor): Promise<LocatedAttachment> {
+    await this.authorize(projectKey, taskKey, actor);
+    const record = this.find(projectKey, taskKey, id, ['ready']);
+    try {
+      const path = await this.storage.locate({ projectKey, taskKey, id }, record.size, record.mediaType);
+      return { attachment: toDto(record), path };
+    } catch (err) {
+      this.ctx.logger.error({ err, attachment: id }, 'attachment file could not be found');
+      throw storageFailed('the file could not be read');
+    }
+  }
+
   async delete(projectKey: string, taskKey: string, id: string, actor: Actor): Promise<void> {
     const { viewer, task } = await this.authorize(projectKey, taskKey, actor);
     await this.deletions.run(id, async () => {
@@ -231,6 +244,13 @@ export class AttachmentService implements AttachmentOperations {
             .catch((err: unknown) =>
               logger.warn({ err, file }, 'could not remove a temporary attachment file'),
             );
+        } else if (viewOwner(file.name) !== null) {
+          // A second name of a file: it goes when its attachment is gone.
+          const id = viewOwner(file.name)!;
+          if (!known.has(id))
+            await this.storage
+              .remove({ projectKey: file.projectKey, taskKey: file.taskKey, id })
+              .catch((err: unknown) => logger.warn({ err, file }, 'could not remove an attachment view'));
         } else if (!known.has(file.name)) {
           logger.warn({ file }, 'attachment storage holds a file that belongs to no attachment');
         }

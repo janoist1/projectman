@@ -11,6 +11,7 @@ import {
 import type {
   AgentProvider,
   AiMemberConfig,
+  Attachment,
   ChatItem,
   MemberStatus,
   ProjectConfig,
@@ -22,6 +23,7 @@ import type {
 } from '@projectman/shared';
 import { openingTurnOrigin, PROVIDER_NOT_LOGGED_IN } from '../contracts';
 import type {
+  AttachmentOperations,
   ContextPackBuilder,
   MemberMemoryStore,
   RunnerEvent,
@@ -41,6 +43,7 @@ import type { MemberService } from './members';
 import type { ConfigChange, ProjectService } from './projects';
 import {
   allowedToolsFor,
+  attachmentToolRules,
   deniedToolsFor,
   buildSessionPolicy,
   sessionPolicyFor,
@@ -109,6 +112,10 @@ export interface SessionOrchestratorDeps {
   publicBaseUrl: string;
   /** Delay before a done task's sessions are stopped and its worktrees removed. */
   doneCleanupDelayMs?: number;
+  /** The task's attachments, listed in the kick-off brief (as the member may read them). */
+  attachments?: Pick<AttachmentOperations, 'list'>;
+  /** The attachment directory of a task (`AttachmentStorage.taskDirectory`): its session reads it without asking. */
+  attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
 }
 
 /** Worktree removals that are refused on purpose (the worktree module's error codes). */
@@ -446,6 +453,11 @@ export class SessionOrchestrator {
       this.ctx.logger.warn({ err, member: member.handle }, 'could not read member memory');
       return '';
     });
+    const { attachments, attachmentRules, attachmentDir } = await this.attachmentsFor(
+      projectKey,
+      member.handle,
+      task,
+    );
     const policy = buildSessionPolicy({
       config,
       role: member.role,
@@ -455,6 +467,7 @@ export class SessionOrchestrator {
         ? { kind: 'task_worktree', path: cwd, ...(placed.gitDir ? { gitDir: placed.gitDir } : {}) }
         : { kind: 'read_only', path: cwd },
       readableRoots: additionalDirectories,
+      ...(attachmentDir ? { readOnlyPaths: [attachmentDir] } : {}),
     });
     const pack = this.deps.contextBuilder.build({
       project: config,
@@ -466,6 +479,7 @@ export class SessionOrchestrator {
       team: this.deps.members.rosterFor(config),
       memory,
       sessionPolicy: policy,
+      ...(attachments.length > 0 ? { attachments } : {}),
     });
 
     // Configuration may change while login, worktree and memory preparation await I/O. So may the
@@ -540,8 +554,8 @@ export class SessionOrchestrator {
         firstUserOrigin: openingTurnOrigin(workItem),
         mcpUrl: `${this.deps.publicBaseUrl}${routes.mcp(token)}`,
         policy,
-        allowedTools: allowedToolsFor(member.role, config),
-        deniedTools: deniedToolsFor(config, task),
+        allowedTools: [...allowedToolsFor(member.role, config), ...attachmentRules.allow],
+        deniedTools: [...deniedToolsFor(config, task), ...attachmentRules.deny],
         additionalDirectories,
         // Work in a task's own worktree runs in the OS sandbox; other sessions are not sandboxed yet.
         ...(placed ? { sandbox: WORKTREE_SANDBOX } : {}),
@@ -595,6 +609,38 @@ export class SessionOrchestrator {
       started: true,
       messageSent: resume && message !== null,
     };
+  }
+
+  /**
+   * A task session's attachments: the list for its brief, and the task's attachment directory,
+   * which it reads (never edits) without asking: in the session policy as a read-only path, and as
+   * rules for sessions without a policy. Only that one directory: not the other tasks' ones, nor
+   * the rest of the server's home, and only when it can be written as a plain rule path. A failure
+   * leaves the session without them.
+   */
+  private async attachmentsFor(
+    projectKey: string,
+    handle: string,
+    task: Task | null,
+  ): Promise<{
+    attachments: Attachment[];
+    attachmentRules: { allow: string[]; deny: string[] };
+    attachmentDir: string | null;
+  }> {
+    if (!task) return { attachments: [], attachmentRules: attachmentToolRules(null), attachmentDir: null };
+    const attachments =
+      (await this.deps.attachments?.list(projectKey, task.key, aiActor(handle)).catch((err: unknown) => {
+        this.ctx.logger.warn({ err, taskKey: task.key }, 'could not list the task attachments');
+        return undefined;
+      })) ?? [];
+    const dir =
+      (await this.deps.attachmentDirectory?.(projectKey, task.key).catch((err: unknown) => {
+        this.ctx.logger.warn({ err, taskKey: task.key }, 'could not find the task attachment directory');
+        return undefined;
+      })) ?? null;
+    const attachmentRules = attachmentToolRules(dir);
+    // The rules are empty when the directory cannot be a plain rule path; then it is not granted.
+    return { attachments, attachmentRules, attachmentDir: attachmentRules.allow.length > 0 ? dir : null };
   }
 
   /** Throws `provider_not_logged_in` when the runner knows the provider's CLI is not logged in. */

@@ -2,6 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { SessionPolicy } from './session-policy';
 import type {
   AiMemberConfig,
+  Attachment,
   MemberView,
   ProjectConfig,
   Stage,
@@ -30,6 +31,11 @@ export interface ContextPackInput {
   team: MemberView[];
   /** The member's own durable memory (markdown). */
   memory: string;
+  /**
+   * The task's readable attachments (metadata only, oldest first), listed in the kick-off brief.
+   * Omitted (or empty) when the task has none or the work item is not a task.
+   */
+  attachments?: Attachment[];
 }
 
 export interface ContextPack {

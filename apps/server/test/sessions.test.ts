@@ -193,8 +193,12 @@ describe('session orchestrator', () => {
   it('runs reviewers in the workspace with read-only tools, developers in the task worktree', async () => {
     const withRepo = await h.domain.tasks.create('AR', { title: 'With repo', repo: 'web' }, OWNER_ACTOR);
     const review = await h.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: withRepo.key });
+    const files = await h.attachmentRules(withRepo.key);
     expect(review.session).toMatchObject({ cwd: h.workspace, branch: null });
-    expect(h.runner.lastStarted().allowedTools).toEqual(allowedToolsFor('code_review', testConfig()));
+    expect(h.runner.lastStarted().allowedTools).toEqual([
+      ...allowedToolsFor('code_review', testConfig()),
+      ...files.allow,
+    ]);
     expect(h.runner.lastStarted().additionalDirectories).toBeUndefined();
     expect(h.runner.lastStarted().policy).toMatchObject({
       version: 1,
@@ -208,7 +212,10 @@ describe('session orchestrator', () => {
     const dev = await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: withRepo.key });
     expect(dev.session.branch).toBe('task/AR-2');
     expect(dev.session.cwd).not.toBe(h.workspace);
-    expect(h.runner.lastStarted().allowedTools).toEqual(allowedToolsFor('developer', testConfig()));
+    expect(h.runner.lastStarted().allowedTools).toEqual([
+      ...allowedToolsFor('developer', testConfig()),
+      ...files.allow,
+    ]);
     // No writable git directory: hooks or configuration planted there would run on the host (PM-131).
     expect(h.runner.lastStarted().writableRoots).toBeUndefined();
     expect(h.runner.lastStarted().policy).toMatchObject({
@@ -219,7 +226,7 @@ describe('session orchestrator', () => {
     });
     // Work in its own worktree runs in the OS sandbox, so its shell commands do not ask.
     expect(h.runner.lastStarted().sandbox).toEqual(WORKTREE_SANDBOX);
-    expect(h.runner.lastStarted().deniedTools).toEqual([]);
+    expect(h.runner.lastStarted().deniedTools).toEqual(files.deny);
     expect(h.domain.tasks.get('AR', withRepo.key).links).toContainEqual({
       kind: 'branch',
       ref: 'task/AR-2',
@@ -235,11 +242,12 @@ describe('session orchestrator', () => {
     const withRepo = await h.domain.tasks.create('AR', { title: 'Example change', repo: 'web' }, OWNER_ACTOR);
     const item = { type: 'task' as const, taskKey: withRepo.key };
     const developer = await h.domain.sessions.ensureSession('AR', 'dev-1', item);
-    expect(h.runner.lastStarted().deniedTools).toEqual(LOCAL_ONLY_DENIED_TOOLS);
+    const files = await h.attachmentRules(withRepo.key);
+    expect(h.runner.lastStarted().deniedTools).toEqual([...LOCAL_ONLY_DENIED_TOOLS, ...files.deny]);
     await h.domain.sessions.ensureSession('AR', 'cr', item);
     expect(h.runner.lastStarted()).toMatchObject({
       additionalDirectories: [developer.session.cwd],
-      deniedTools: LOCAL_ONLY_DENIED_TOOLS,
+      deniedTools: [...LOCAL_ONLY_DENIED_TOOLS, ...files.deny],
     });
     expect(h.runner.lastStarted().writableRoots).toBeUndefined();
     // A reviewer works outside a worktree of its own: not sandboxed yet (PM-87).
@@ -277,9 +285,10 @@ describe('session orchestrator', () => {
     await h.domain.members.hire('AR', { role: 'data_steward' }, hireBy);
 
     const maintainer = await h.domain.sessions.ensureSession('AR', 'maintainer', item);
+    const files = await h.attachmentRules(withRepo.key);
     expect(maintainer.session.branch).toBe(`task/${withRepo.key}`);
     expect(h.runner.lastStarted()).toMatchObject({
-      allowedTools: allowedToolsFor('maintainer', testConfig()),
+      allowedTools: [...allowedToolsFor('maintainer', testConfig()), ...files.allow],
       permissionMode: 'acceptEdits',
     });
 
@@ -290,7 +299,7 @@ describe('session orchestrator', () => {
     const steward = await h.domain.sessions.ensureSession('AR', 'data-steward', item);
     expect(steward.session).toMatchObject({ cwd: h.workspace, branch: null });
     expect(h.runner.lastStarted()).toMatchObject({
-      allowedTools: ['mcp__team__*'],
+      allowedTools: ['mcp__team__*', ...files.allow],
       permissionMode: 'default',
     });
   });

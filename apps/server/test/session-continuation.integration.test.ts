@@ -98,7 +98,7 @@ it.each(PROVIDERS)(
     await idle(first.id);
     const continueMessage = userTexts(await chatOf(first.id)).at(-1)!;
     expect(continueMessage).toMatch(
-      /^Your session was restarted\. You are working on AR-1 "Acme checkout", now in stage Development \(`development`\)\. Check where you left off \(git status in your working directory, and the task's comments in get_task\), then carry on as usual, writing in \w+ \(`\w+`\), the project's language\.$/,
+      /^Your session was restarted\. You are working on AR-1 "Acme checkout", now in stage Development \(`development`\)\. Check where you left off \(git status in your working directory, and the task's comments and attachments in get_task\), then carry on as usual, writing in \w+ \(`\w+`\), the project's language\.$/,
     );
     if (provider === 'codex') {
       // On the command line of `codex resume`, so the session needs no composer on screen.

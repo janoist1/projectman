@@ -16,6 +16,6 @@ export function buildContinueMessage(input: ContextPackInput, situation: Situati
   return [
     'Your session was restarted.',
     `You are working on ${task.key} "${task.title}", now in stage ${stage}.`,
-    `Check where you left off (git status in your working directory, and the task's comments in get_task), then carry on as usual, writing in ${languageName(language)} (${code(language)}), the project's language.`,
+    `Check where you left off (git status in your working directory, and the task's comments and attachments in get_task), then carry on as usual, writing in ${languageName(language)} (${code(language)}), the project's language.`,
   ].join(' ');
 }

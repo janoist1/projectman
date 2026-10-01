@@ -11,7 +11,17 @@ const operations: Record<DeniedSessionOperation, string> = {
 };
 const files = { read: 'Read', grep: 'Grep', glob: 'Glob' } as const;
 
-export function claudeToolRules(policy: Pick<SessionPolicy, 'tools' | 'deniedOperations'>) {
+/** An absolute directory as a Claude Code rule path: `//dir/**` takes everything below it. */
+function belowDirectory(dir: string): string {
+  return `/${dir.replace(/\/+$/, '')}/**`;
+}
+
+export function claudeToolRules(
+  policy: Pick<SessionPolicy, 'tools' | 'deniedOperations'> & {
+    filesystem?: Pick<SessionPolicy['filesystem'], 'readOnlyPaths'>;
+  },
+) {
+  const readOnly = policy.filesystem?.readOnlyPaths ?? [];
   return {
     allow: [
       ...new Set([
@@ -19,8 +29,14 @@ export function claudeToolRules(policy: Pick<SessionPolicy, 'tools' | 'deniedOpe
         ...policy.tools.team.names.map((name) => `mcp__team__${name}`),
         ...policy.tools.files.map((name) => files[name]),
         ...policy.tools.shell.map(claudeShellRule),
+        // Read without asking, never edit: not an extra working directory, whose files
+        // acceptEdits would let it change.
+        ...readOnly.map((dir) => `Read(${belowDirectory(dir)})`),
       ]),
     ],
-    deny: policy.deniedOperations.map((name) => operations[name]),
+    deny: [
+      ...policy.deniedOperations.map((name) => operations[name]),
+      ...readOnly.map((dir) => `Edit(${belowDirectory(dir)})`),
+    ],
   };
 }

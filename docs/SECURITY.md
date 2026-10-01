@@ -65,6 +65,19 @@ tenants into separate OS accounts or machines.
   every content and download response carried exactly the headers listed here. Repeat the
   check after a Chrome major update or a change of these headers: the sandbox directive
   is what a browser may one day refuse to show a PDF under.
+- AI members reach attachments through the team tools (PM-113), in their own name and under the
+  same rules. `attach_file` never takes a directory from the caller: the server uses the working
+  directory it recorded for the session the MCP token names. It opens only a regular file inside
+  it (by whole path components, so a sibling with the same prefix is outside), refuses symbolic
+  links anywhere on the way, files with several hard links, directories, FIFOs (opened without
+  blocking), sockets and devices, and checks the opened handle afterwards: its real location
+  must still be inside and be the very file opened, so a path swapped between the checks and the
+  open is refused. The content is streamed from that handle and refused when its size or time
+  changes meanwhile. A task session may read (never edit) only its own task's attachment
+  directory without asking: Claude Code gets `Read(//…/**)` allowed and `Edit(//…/**)` denied for
+  it, not an extra working directory, and nothing of the rest of `PROJECTMAN_HOME`; Codex gets
+  no writable root there. `read_attachment` gives a path (images and PDFs through a hard link
+  `<id>.<ext>` next to the file, removed with it), never the content.
 - Git/gh and agents receive argument arrays. Task branches are sanitized; default
   branches pass git validation and fetch uses an option terminator. Repository
   paths stay inside their workspace; task worktrees stay inside their project

@@ -83,7 +83,7 @@ describe('a task without a repository', () => {
 
       expect(h.runner.lastStarted()).toMatchObject({
         cwd: worktreeOf('AR-1'),
-        deniedTools: LOCAL_ONLY_DENIED_TOOLS,
+        deniedTools: [...LOCAL_ONLY_DENIED_TOOLS, ...(await h.attachmentRules('AR-1')).deny],
       });
       // No GitHub name, so the branch link has none either.
       expect(h.domain.tasks.get('AR', 'AR-1').links).toContainEqual({ kind: 'branch', ref: 'task/AR-1' });
@@ -103,7 +103,7 @@ describe('a task without a repository', () => {
       expect(review.session).toMatchObject({ cwd: h.workspace, branch: null });
       expect(h.runner.lastStarted()).toMatchObject({
         additionalDirectories: [worktreeOf('AR-1')],
-        deniedTools: LOCAL_ONLY_DENIED_TOOLS,
+        deniedTools: [...LOCAL_ONLY_DENIED_TOOLS, ...(await h.attachmentRules('AR-1')).deny],
       });
       expect(h.runner.lastStarted().writableRoots).toBeUndefined();
     });
@@ -151,7 +151,7 @@ describe('a task without a repository', () => {
 
       expect(started.session).toMatchObject({ member: 'dev-1', cwd: h.workspace, branch: null });
       expect(h.worktrees.calls).toEqual([]);
-      expect(h.runner.lastStarted().deniedTools).toEqual([]);
+      expect(h.runner.lastStarted().deniedTools).toEqual((await h.attachmentRules('AR-1')).deny);
     });
   });
 

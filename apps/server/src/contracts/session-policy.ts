@@ -29,7 +29,13 @@ export interface SessionPolicy {
     files: Array<'read' | 'grep' | 'glob'>;
     shell: ShellToolRule[];
   };
-  filesystem: { readableRoots: string[]; writableRoots: string[]; protectedPaths: string[] };
+  filesystem: {
+    readableRoots: string[];
+    writableRoots: string[];
+    protectedPaths: string[];
+    /** Directories outside the placement the session reads but never changes (a task's attachments). */
+    readOnlyPaths?: string[];
+  };
   deniedOperations: DeniedSessionOperation[];
   network: { allowedDomains: string[]; allowLocalBinding: boolean };
   outsideSandbox: 'ask' | 'deny';

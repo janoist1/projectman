@@ -1,8 +1,10 @@
 import type { TaskLink, TimelineEvent, TimelineEventType } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
 import {
+  describeAttachment,
   describeEvent,
   describeLink,
+  formatBytes,
   describeRepo,
   formatTimestamp,
   linkTarget,
@@ -225,6 +227,40 @@ describe('recentTimeline', () => {
     ]);
     expect(recentTimeline(events, { limit: 10, textLimit: 100 }).lines[3]).toBe(
       '- 2026-09-29 10:04 UTC · system: session_started (member=qa)',
+    );
+  });
+});
+
+describe('attachments', () => {
+  it('formats sizes in decimal units, like the 25 MB limit', () => {
+    expect([0, 999, 1000, 48_213, 1_250_000, 25_000_000, 3_400_000_000].map(formatBytes)).toEqual([
+      '0 B',
+      '999 B',
+      '1 kB',
+      '48.2 kB',
+      '1.3 MB',
+      '25 MB',
+      '3.4 GB',
+    ]);
+  });
+
+  it('names the uploader, or the system for an attachment without one', () => {
+    const attachment = {
+      id: 'att_abcdefghij',
+      projectKey: 'AR',
+      taskKey: 'AR-1',
+      fileName: 'a  long\nname.png',
+      size: 10,
+      mediaType: 'image/png',
+      preview: 'image' as const,
+      uploadedBy: { kind: 'ai' as const, handle: 'fe-1' },
+      createdAt: '2026-09-29T10:00:00.000Z',
+    };
+    expect(describeAttachment(attachment)).toBe(
+      'att_abcdefghij "a long name.png" · image/png · 10 B · by fe-1, 2026-09-29 10:00 UTC',
+    );
+    expect(describeAttachment({ ...attachment, uploadedBy: { kind: 'system', handle: null } })).toContain(
+      'by the system,',
     );
   });
 });

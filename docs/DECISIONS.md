@@ -132,3 +132,8 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     error codes sit behind "Részletek", settings versions in a tooltip, and a schedule has a
     plain label with an example instead of raw cron. The strings live only in
     `apps/web/src/i18n/hu.ts`, so changing a word is one edit.
+23. **As many AIs work as the team has, except those on leave.** Decided by the owner on
+    2026-10-01: "ne legyen korlátozás, annyi AI fut amennyi a csapat - kivéve, akit
+    »szabadságra küldünk«". There is no project-wide cap on concurrent AI sessions, and a
+    member sent on leave does not work. PM-106 builds it; until then the PM project's
+    `maxConcurrentAi` is set to its maximum.

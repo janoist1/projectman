@@ -195,12 +195,15 @@ const TOLERATED_ON_LOAD: ReadonlySet<ConfigIssue['code']> = new Set([
   'duplicate_repo',
   'duplicate_column',
   'release_approval_needs_duty',
+  'custom_role_shadows_builtin',
 ]);
 
 /**
  * Whether a configuration read back from storage may still carry this error. These are rules added
  * after configurations were written that no migration can repair without guessing: which of two
  * repositories or columns with the same name is meant, who should hold the release approval duty.
+ * A custom role that shadows a built-in role (the app ships more built-in roles over time) is
+ * tolerated too: the built-in role wins everywhere, so the shadowing definition is only ignored.
  * A stored configuration that breaks one still loads (the project stays usable and its owner can
  * repair it), and every change refuses it like any other error. Every other error stops a load.
  */

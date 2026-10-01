@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { isToleratedOnLoad, ProjectConfig, validateProjectConfig } from '@projectman/shared';
+import {
+  BUILT_IN_ROLE_DUTIES,
+  isToleratedOnLoad,
+  ProjectConfig,
+  validateProjectConfig,
+} from '@projectman/shared';
 import { DAILY_WORKER_SCHEDULE } from '@projectman/templates';
 import { migrateProjectConfig } from '../src/config/migrations';
 import { testConfig } from './helpers/test-template';
@@ -248,6 +253,102 @@ describe('release approval migration (decision 19)', () => {
       expect(migrateProjectConfig(config, { projectKey: 'AR', logger: { warn } })).toBe(config);
     }
     expect(migrateProjectConfig(null, { projectKey: 'AR', logger: { warn } })).toBeNull();
+    expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+/** A configuration from before `lead_developer` was built in: the team's own role of that id. */
+describe('custom roles that became built-in roles', () => {
+  const ownLead = {
+    id: 'lead_developer',
+    name: 'Lead developer',
+    summary: 'Leads the fictional development.',
+    notTheirJob: 'Does not deploy.',
+    whenToAsk: 'Ask about design.',
+    holders: 'ai',
+    duties: ['technical_direction', 'code_review', 'boundary_authorization'],
+    instructions: 'Review every change twice.',
+  };
+
+  function legacyConfig(roles: unknown[] = [ownLead], roleOverrides?: unknown) {
+    const legacy = raw();
+    legacy.team.members[1] = { ...legacy.team.members[1], role: 'lead_developer' };
+    Object.assign(legacy.team, { roles });
+    if (roleOverrides !== undefined) Object.assign(legacy.team, { roleOverrides });
+    return legacy;
+  }
+
+  it('turns the custom role into the override of the built-in role, keeping duties and texts', () => {
+    const { config, warn } = migrate(legacyConfig());
+    expect(config.team.roles).toEqual([]);
+    expect(config.team.roleOverrides).toEqual({
+      lead_developer: {
+        duties: ['technical_direction', 'code_review', 'boundary_authorization'],
+        instructions: 'Review every change twice.',
+        summary: 'Leads the fictional development.',
+        notTheirJob: 'Does not deploy.',
+        whenToAsk: 'Ask about design.',
+      },
+    });
+    expect(config.team.members[1]).toMatchObject({ role: 'lead_developer' });
+    expect(validateProjectConfig(config).filter((issue) => issue.severity !== 'warning')).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      { projectKey: 'AR', role: 'lead_developer' },
+      'Migrated custom role that shadows a built-in role to a role override',
+    );
+  });
+
+  it('leaves the other custom roles and the other overrides in place', () => {
+    const steward = { id: 'data_steward', name: 'Data steward', summary: 'Keeps the data tidy.' };
+    const qaOverride = { duties: ['testing_acceptance'], instructions: 'Test it.' };
+    const { config } = migrate(legacyConfig([steward, ownLead], { qa: qaOverride }));
+    expect(config.team.roles.map((role) => role.id)).toEqual(['data_steward']);
+    expect(config.team.roleOverrides).toMatchObject({
+      qa: qaOverride,
+      lead_developer: { duties: ownLead.duties },
+    });
+  });
+
+  it('lets the custom role win over an override of the same built-in role, but keeps what it does not say', () => {
+    const existing = {
+      duties: ['implementation'],
+      instructions: 'The override text.',
+      summary: 'The override summary.',
+      whenToAsk: 'The override question.',
+    };
+    const { config } = migrate(
+      legacyConfig([{ ...ownLead, instructions: '', whenToAsk: undefined }], { lead_developer: existing }),
+    );
+    expect(config.team.roleOverrides?.lead_developer).toEqual({
+      duties: ownLead.duties,
+      instructions: 'The override text.',
+      summary: ownLead.summary,
+      notTheirJob: ownLead.notTheirJob,
+      whenToAsk: 'The override question.',
+    });
+  });
+
+  it('gives a role from before duties existed the built-in role defaults', () => {
+    const { duties: _duties, ...old } = ownLead;
+    const { config } = migrate(legacyConfig([old]));
+    expect(config.team.roleOverrides?.lead_developer?.duties).toEqual(BUILT_IN_ROLE_DUTIES.lead_developer);
+  });
+
+  it('is the one repair: the same configuration migrates once and then passes through untouched', () => {
+    const { migrated } = migrate(legacyConfig());
+    const warn = vi.fn();
+    expect(migrateProjectConfig(migrated, { projectKey: 'AR', logger: { warn } })).toBe(migrated);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('leaves a malformed roles list to the schema', () => {
+    const warn = vi.fn();
+    for (const roles of [null, 'lead_developer', [null, 7, 'x', { id: 7 }, { name: 'no id' }]]) {
+      const config = { team: { members: [], roles } };
+      expect(migrateProjectConfig(config, { projectKey: 'AR', logger: { warn } })).toBe(config);
+      expect(config.team.roles).toBe(roles);
+    }
     expect(warn).not.toHaveBeenCalled();
   });
 });

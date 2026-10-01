@@ -1343,6 +1343,8 @@ export const hu = {
     unread: 'Olvasatlan',
     queued: 'Kézbesítésre vár',
     typed: 'Munkamenetbe kézbesítve',
+    routeGeneral: 'általános beszélgetésbe',
+    routeTask: 'a(z) {taskKey} munkamenetébe',
     humanRead: 'Elolvasva',
     humanUnread: 'Kézbesítve, olvasatlan',
     title: 'Üzenetfolyam',

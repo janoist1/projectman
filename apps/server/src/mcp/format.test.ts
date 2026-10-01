@@ -159,6 +159,24 @@ describe('formatSentMessage', () => {
       formatSentMessage({ messageId: 'msg_1', requested: ['qa', 'cr'], deliveredTo: ['qa'], taskKey: null }),
     ).toBe('Message msg_1 sent to qa. Not delivered to: cr.');
   });
+
+  it('says where a message went when it did not go to its own card (PM-182)', () => {
+    expect(
+      formatSentMessage({
+        messageId: 'msg_x',
+        requested: ['dev', 'claude'],
+        deliveredTo: ['dev', 'claude'],
+        taskKey: 'PM-164',
+        routed: [
+          { handle: 'claude', workItem: { type: 'general' } },
+          { handle: 'dev', workItem: { type: 'task', taskKey: 'PM-162' } },
+        ],
+      }),
+    ).toBe(
+      'Message msg_x about PM-164 sent to dev, claude. claude gets it in their general chat, because PM-164 is closed. ' +
+        'dev gets it in their running session on PM-162, a card of the same family as PM-164.',
+    );
+  });
 });
 
 describe('questionHint', () => {

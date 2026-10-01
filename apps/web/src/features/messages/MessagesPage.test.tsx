@@ -97,6 +97,39 @@ describe('messages composer and receipts', () => {
     expect(screen.getByText(new RegExp(t('messages.typed')))).toBeTruthy();
     expect(screen.getByText(new RegExp(t('messages.humanRead')))).toBeTruthy();
   });
+  it('shows where a message went when it did not go to its own card', async () => {
+    const p = mockProject();
+    p.backend.messages = [];
+    const message = p.backend.sendTeamMessage(
+      'owner',
+      ['fe-1', 'qa', 'kata'],
+      'AC-21',
+      'Acme routed message',
+    );
+    message.receipts = [
+      {
+        handle: 'fe-1',
+        kind: 'ai',
+        deliveredAt: message.createdAt,
+        readAt: null,
+        route: { type: 'general' },
+      },
+      {
+        handle: 'qa',
+        kind: 'ai',
+        deliveredAt: message.createdAt,
+        readAt: null,
+        route: { type: 'task', taskKey: 'AC-2' },
+      },
+      { handle: 'kata', kind: 'human', deliveredAt: message.createdAt, readAt: null },
+    ];
+    p.render(<MessagesPage />);
+    await screen.findByText('Acme routed message');
+    expect(screen.getAllByText(t('messages.routeGeneral'), { exact: false })).toHaveLength(1);
+    expect(screen.getAllByText(t('messages.routeTask', { taskKey: 'AC-2' }), { exact: false })).toHaveLength(
+      1,
+    );
+  });
   it('offers clients an active composer', async () => {
     const p = mockProject();
     p.backend.viewerHandle = 'kata';

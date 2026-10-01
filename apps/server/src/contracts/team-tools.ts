@@ -8,6 +8,7 @@ import type {
   TaskDetail,
   TaskStatus,
   Visibility,
+  WorkItemRef,
   BoundaryRequest,
   BoundaryGrant,
   SubmitBoundaryRequest,
@@ -136,7 +137,12 @@ export interface TeamToolsHandler {
   sendMessage(
     ctx: ToolContext,
     args: { to: MemberHandle[]; text: string; taskKey?: string },
-  ): Promise<{ messageId: string; deliveredTo: MemberHandle[] }>;
+  ): Promise<{
+    messageId: string;
+    deliveredTo: MemberHandle[];
+    /** Only the recipients that get the message somewhere else than on its own card (PM-182). */
+    routed?: { handle: MemberHandle; workItem: WorkItemRef }[];
+  }>;
   /** list_members: roster with handles, roles and status. */
   listMembers(ctx: ToolContext): Promise<MemberView[]>;
   /** get_task: task with recent timeline, and where its work happens. */

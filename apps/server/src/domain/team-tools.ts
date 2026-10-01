@@ -17,6 +17,7 @@ import type {
   QuestionOptionInput,
   Task,
   Visibility,
+  WorkItemRef,
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
 } from '@projectman/shared';
@@ -269,7 +270,11 @@ export class TeamToolsService implements TeamToolsHandler {
   async sendMessage(
     ctx: ToolContext,
     args: { to: string[]; text: string; taskKey?: string },
-  ): Promise<{ messageId: string; deliveredTo: string[] }> {
+  ): Promise<{
+    messageId: string;
+    deliveredTo: string[];
+    routed?: { handle: string; workItem: WorkItemRef }[];
+  }> {
     return this.guard(async () => {
       await this.caller(ctx);
       const taskKey = this.taskKeyFor(ctx, args.taskKey);
@@ -285,7 +290,10 @@ export class TeamToolsService implements TeamToolsHandler {
         .catch((err: unknown) => {
           throw toMessageToolError(err);
         });
-      return { messageId: message.id, deliveredTo: message.to };
+      const routed = (message.receipts ?? []).flatMap((r) =>
+        r.route ? [{ handle: r.handle, workItem: r.route }] : [],
+      );
+      return { messageId: message.id, deliveredTo: message.to, ...(routed.length > 0 ? { routed } : {}) };
     });
   }
 

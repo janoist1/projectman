@@ -20,6 +20,8 @@ export interface DomainEventMap {
   config_changed: ConfigChange;
   /** A human resolved an inbox item. */
   inbox_resolved: InboxItem;
+  /** A member's tool question went to its AI decider (PM-169): the decider is woken to answer it. */
+  permission_delegated: InboxItem;
   /** A task entered another stage (after the change committed). */
   task_stage_changed: StageChange;
   /** A task was cancelled. */

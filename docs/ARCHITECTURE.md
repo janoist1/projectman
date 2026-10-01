@@ -390,12 +390,24 @@ part of the contract and render from PM-164 on.
 
 For Claude members (PM-165) the mode goes to the CLI as it is, and `InboxService.decide` answers
 what the CLI still asks: `commandVerdict`, then the approver (`human`: the inbox; `none`: an
-immediate refusal with no inbox item, a `permission_refused` event `by: 'approver_none'`; `ai`:
-PM-169, decided like `human` until then). The auto mode's own refusals arrive as the
+immediate refusal with no inbox item, a `permission_refused` event `by: 'approver_none'`; `ai`: the
+AI decider of PM-169, below). The auto mode's own refusals arrive as the
 `PermissionDenied` hook, through `PermissionBroker.refused`, as `permission_refused` `by:
 'classifier'`. The hard denials (credentials, the live instance's data, `WebFetch` of localhost,
 publishing) are deny rules computed in `domain/session-policy.ts` and rendered in `--settings` by
 the Claude adapter; see `PROVIDERS.md` for the server-side decisions and their reasons.
+
+**The AI decider on the host (PM-169).** With approver `ai` (and the owner's `team.boundary.enabled`) a
+question the CLI still asks goes to the AI members holding `boundary_authorization`, not to the sponsor:
+the routing rule (`routePermissionRequest`), the owner's categories it never delegates
+(`permissionOwnerCategory`: publishing, release, live instance, credentials, lasting host changes) and
+the one rule for who may answer (`canDecidePermission`) are pure rules in `packages/shared`; the item is
+a `permission` inbox item whose `payload.delegation` carries the decider(s) and the lead deadline. The
+decider is woken by a team message and answers with `decide_permission_request`
+(`InboxService.resolveDelegated`: `allow` and `deny` close the item in its name and answer the waiting
+hook, `escalate` hands it to the sponsor or owners). A deadline, a decider on leave or delegation
+switched off do the same in `sweepDelegations`; nothing is ever an allowance by itself. The `managed_vm`
+profile has no local approvals and is untouched.
 
 ## Session policy migration (PM-87 / PM-127)
 

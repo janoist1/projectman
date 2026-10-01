@@ -8,6 +8,8 @@ export * from './domain/attachment';
 export * from './domain/message';
 export * from './domain/inbox';
 export * from './domain/boundary';
+export * from './domain/permission-category';
+export * from './domain/permission-delegation';
 export * from './domain/egress';
 export * from './chat/chat';
 export * from './config/schema';

@@ -115,6 +115,14 @@ export interface TeamToolsHandler {
     ctx: ToolContext,
     args: DecideBoundaryRequest & { requestId: string },
   ): Promise<BoundaryRequest>;
+  /**
+   * decide_permission_request: the AI decider answers a member's tool question delegated to it
+   * (PM-169), or hands it to a person (`escalate`). The reason is required.
+   */
+  decidePermissionRequest(
+    ctx: ToolContext,
+    args: { requestId: string; decision: 'allow' | 'deny' | 'escalate'; reason: string },
+  ): Promise<{ requestId: string; decision: 'allow' | 'deny' | 'escalate'; outcome: string }>;
   /** list_network_denials: destinations the egress proxy refused this session (PM-140), newest first. */
   listNetworkDenials(ctx: ToolContext): Promise<NetworkDenial[]>;
   /** list_tasks: visible board tasks, newest update first. */

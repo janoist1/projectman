@@ -173,6 +173,25 @@ export class TeamToolsService implements TeamToolsHandler {
       throw toToolError(err);
     }
   }
+  async decidePermissionRequest(
+    ctx: ToolContext,
+    args: { requestId: string; decision: 'allow' | 'deny' | 'escalate'; reason: string },
+  ) {
+    try {
+      await this.caller(ctx);
+      const item = await this.inbox.resolveDelegated(ctx.projectKey, args.requestId, ctx.member, {
+        decision: args.decision,
+        reason: args.reason,
+      });
+      return {
+        requestId: item.id,
+        decision: args.decision,
+        outcome: args.decision === 'escalate' ? 'handed to a person' : 'decided; the request is answered',
+      };
+    } catch (err) {
+      throw toToolError(err);
+    }
+  }
   async listNetworkDenials(ctx: ToolContext): Promise<NetworkDenial[]> {
     try {
       await this.caller(ctx);

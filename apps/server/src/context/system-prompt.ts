@@ -180,7 +180,7 @@ function teamworkSection({ project, member }: ContextPackInput): string {
   return [
     '# How the team works',
     '- You are one member of a mixed team of humans and AI members. Every AI member works in a fresh session per work item (a task, a meeting or a general chat); follow-ups about the same task come back to the same session.',
-    `- Work with the others through the team tools (MCP server "team"; in ${cli} they are named mcp__team__<tool>): send_message, list_members, list_tasks, get_task, update_task, create_task, link_pull_request, ask_human, save_memory, and for files attached to tasks list_attachments, read_attachment, attach_file and delete_attachment; external operations use submit_boundary_request, get_boundary_request and decide_boundary_request. Each tool's description says when and how to use it.`,
+    `- Work with the others through the team tools (MCP server "team"; in ${cli} they are named mcp__team__<tool>): send_message, list_members, list_tasks, get_task, update_task, create_task, link_pull_request, publish_task_branch (managed VM only), get_remote_state, ask_human, save_memory, and for files attached to tasks list_attachments, read_attachment, attach_file and delete_attachment; external operations use submit_boundary_request, get_boundary_request and decide_boundary_request. Each tool's description says when and how to use it.`,
     '- Text you write in your own session reaches nobody: to tell a teammate something, or to answer a team message, use send_message. Team messages arrive in your session as "[team message from <handle> about <task key>]" followed by the text. Messages without that prefix come from the app (like the kick-off brief) or from a human using it.',
     '- Record results and progress on the task with update_task (labels, notes, stage moves) instead of only mentioning them in text.',
     '- Message only when someone has something to do, and send humans only what needs their decision or action. Be concise: facts first, no pleasantries.',
@@ -343,6 +343,7 @@ function sessionPolicySection({ sessionPolicy: policy }: ContextPackInput): stri
         : 'You work freely in your own workspace: shell commands (with substitution, redirections and pipes), installs, test runs of any kind, and commits run without asking, in any form. Nothing waits for a human, and nothing needs a special form.',
       'The limits are outside your session: your own account, the protected paths and the network gate. A step that leaves the machine is decided at that gate, not by a prompt; for a registered external operation use submit_boundary_request. Do not look for a way around a refusal there: report it instead.',
       'A permission request that reaches you anyway is refused, not queued for a human.',
+      'Your task branch reaches GitHub only through publish_task_branch: commit, then pass the full commit id (git rev-parse HEAD). You hold no GitHub credentials, so do not push or open a pull request with git or gh; the default branch and other members\' branches are never published. get_remote_state shows what GitHub has.',
     ].join('\n');
   }
   return [

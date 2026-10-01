@@ -151,7 +151,9 @@ Documentation map:
 - **Team tools** — an MCP server (`/mcp/:token`) through which AI members message teammates,
   read and update tasks (labels, notes, stage moves, subtasks), create tasks, link PRs, ask
   humans, save memories and work with attachments (list, read by local path, attach a file of
-  their own working directory, delete their own; PM-113, see [SECURITY.md](SECURITY.md)). Text
+  their own working directory, delete their own; PM-113, see [SECURITY.md](SECURITY.md)), and
+  in the managed VM publish their own task branch (`publish_task_branch`) and read the remote
+  (`get_remote_state`; PM-142, [GITHUB.md](GITHUB.md)). Text
   an agent writes in its own session reaches nobody.
 - **Team messages** — a message about a task goes to the recipient's session for that task
   (typed in when idle, queued otherwise; a stopped session is started or resumed through
@@ -239,6 +241,7 @@ browser (React) ── REST /api, websocket /ws ──▶ server (Fastify, Node,
                                                  ├─ domain services ─▶ SQLite (runtime state)
                                                  ├─ config store ────▶ customization git repo (YAML)
                                                  ├─ github ──────────▶ gh CLI (owner's login, read-only)
+                                                 │                  └─ publisher: git + gh as the VM's own identity (PM-142)
                                                  └─ runner ──▶ node-pty ──▶ claude | codex (interactive TUI)
 claude ── HTTP hooks  POST /hooks/:token ─────▶ runner (state machine, permission broker)
 codex ─── command hooks ─▶ forwarder ─▶ POST /hooks/:token ─▶ runner
@@ -298,7 +301,8 @@ claude | codex ── transcript JSONL ────────────▶ r
   events, links, the repository of a task, one-line text.
 - `worktree/` — git worktrees and branches for tasks; member workspaces (independent clones,
   safe branch switches, pinned review checkouts; PM-138).
-- `github/` — `gh`-based pull request lookups and polling.
+- `github/` — `gh`-based pull request lookups and polling (the owner's read login); the publisher
+  with the VM's separate identity (PM-142).
 - `http/` — request guards shared by the internal endpoints (local-only checks).
 - `config/` — the customization repository: YAML load and save, git history, revert,
   configuration migrations.
@@ -441,6 +445,13 @@ expected); the real CLIs are only run in the human trial of [VM.md](VM.md).
 ## GitHub
 
 Tasks live in our database (decision 9); GitHub is used for pull requests, reviews, checks
-and merges. projectman only reads from GitHub: it polls the PRs linked to tasks, keeps the
+and merges. projectman reads from GitHub: it polls the PRs linked to tasks, keeps the
 `pr-merged` label, clears `pr_updated` labels when new commits land, and attributes PR authors
-to members (`githubLogin`). See [GITHUB.md](GITHUB.md).
+to members (`githubLogin`). The one writing path is the managed VM's **publishing gate** (PM-142,
+decision 26): the team tool `publish_task_branch` (`domain/publishing.ts`) takes member, task,
+repository and branch from the server's records, and `GithubPublisher` (`github/publisher.ts`)
+pushes that branch (never the default branch, never forced) and opens its pull request once, with a
+separate GitHub identity whose token only the service holds. The pull request's author is recorded
+from the authenticated session (`task_links.author_source = 'published'`, migration 15), so polling
+by the shared bot login never rewrites it and no-self-review keeps holding. `get_remote_state` lets
+the integrator and reviewers read the remote. See [GITHUB.md](GITHUB.md).

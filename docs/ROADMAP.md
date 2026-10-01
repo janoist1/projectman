@@ -86,8 +86,9 @@ project and run a first task end to end.
   readiness report; see [VM.md](VM.md). The real VM trial is a person's step; the protected
   launcher and network gate (PM-140), workstations (PM-138), delegation (PM-139), the question-free
   profile (PM-141, built behind the verified boundary; its activation waits for PM-140's launcher
-  and domain gate and for the human trial in VM.md), publishing (PM-142) and the move and rollback
-  (PM-143) follow.
+  and domain gate and for the human trial in VM.md), publishing (PM-142: built, with the fake gh and
+  a temporary remote; the owner still creates the identity and runs `deploy/github/trial.sh` on a
+  throwaway repository, see GITHUB.md) and the move and rollback (PM-143) follow.
 - **PM-46** — verify `X-Forwarded-Proto` behind Tailscale Serve from a phone (Secure cookies,
   origin checks); DEPLOY.md lists the curl checks.
 - **PM-50** — remove the merged `codex*` and `agent-*` worktrees and branches (local chore).

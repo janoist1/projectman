@@ -55,6 +55,12 @@ cannot turn an operation already handed to the executor into a historical denial
 Each sweep isolates a failed project/request, logs only its identifiers and retries it on the next
 tick. Other deadlines and server startup continue; failure never grants authorization.
 
+Publishing a task branch (PM-142) is not a boundary operation: it is the managed VM's own gate
+(`publish_task_branch`, [GITHUB.md](GITHUB.md#publishing-from-the-managed-vm-pm-142)), so a member
+needs no request or grant for its own branch. Publishing the default branch (`publish_main`) is not
+offered at all: the gate refuses it and the publishing identity could not do it anyway, so that
+category stays the owner's own act with the owner's own identity.
+
 The protected executor calls `domain.boundary.consume(requester, requestId, operationId)` before
 execution. It checks the current policy/target and all identity fields and atomically consumes
 the single-operation grant. A consumed, expired or revoked grant cannot be reused. The executor

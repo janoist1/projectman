@@ -13,6 +13,7 @@ import type {
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
 } from '@projectman/shared';
+import type { PullRequestInfo, RemoteState } from './github';
 
 /**
  * Team tools exposed to AI members through an MCP server ("team"), replacing the
@@ -72,6 +73,26 @@ export interface LocatedAttachmentForTool {
   path: string;
   /** The file is in the attachment directory of the session's own task, which it reads without asking. */
   readableWithoutAsking: boolean;
+}
+
+/** The result of `publish_task_branch`. */
+export interface PublishedTaskBranch {
+  repo: string;
+  branch: string;
+  commit: string;
+  /** The remote branch already had this commit, so nothing was uploaded. */
+  alreadyPublished: boolean;
+  pullRequest: PullRequestInfo;
+  /** False when the branch's open pull request already existed. */
+  pullRequestCreated: boolean;
+  task: Task;
+}
+
+/** The result of `get_remote_state`. */
+export interface PublishedTaskState extends RemoteState {
+  taskKey: string;
+  /** The member who published the task's pull request; null when none did. */
+  publishedBy: string | null;
 }
 
 export interface TeamToolsHandler {
@@ -134,6 +155,17 @@ export interface TeamToolsHandler {
     ctx: ToolContext,
     args: { taskKey: string; repo: string; number: number },
   ): Promise<{ task: Task }>;
+  /**
+   * publish_task_branch (PM-142, managed VM profile only): puts the caller's own task branch at the
+   * named commit on GitHub through the VM's publishing identity, and opens its pull request once.
+   * Everything but the commit, the title and the body comes from the server's records.
+   */
+  publishTaskBranch(
+    ctx: ToolContext,
+    args: { taskKey?: string; commit: string; title?: string; body?: string },
+  ): Promise<PublishedTaskBranch>;
+  /** get_remote_state (PM-142): the remote default branch and task branch heads, their distance and the pull requests. */
+  getRemoteState(ctx: ToolContext, args: { taskKey: string }): Promise<PublishedTaskState>;
   /**
    * ask_human: create a question in a human's inbox; the answer arrives later as a team message.
    * The question is written for a non-specialist. Each option is a label, or a label with its

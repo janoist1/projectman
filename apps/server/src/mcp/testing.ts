@@ -366,6 +366,53 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       return { task: detail.task };
     },
 
+    async publishTaskBranch(ctx, args) {
+      await enter('publishTaskBranch', ctx, args);
+      const detail = findTask(args.taskKey ?? ctx.taskKey ?? 'AR-21');
+      const pullRequest = {
+        repo: 'acme/web',
+        number: 7,
+        title: args.title ?? detail.task.title,
+        url: 'https://github.com/acme/web/pull/7',
+        state: 'open' as const,
+        draft: false,
+        headRef: `${detail.task.key}-work`,
+        baseRef: 'main',
+        checks: 'none' as const,
+        reviewDecision: null,
+        additions: 1,
+        deletions: 0,
+        changedFiles: 1,
+        updatedAt: '2026-10-01T10:00:00Z',
+      };
+      return {
+        repo: 'acme/web',
+        branch: `${detail.task.key}-work`,
+        commit: args.commit,
+        alreadyPublished: false,
+        pullRequest,
+        pullRequestCreated: true,
+        task: detail.task,
+      };
+    },
+
+    async getRemoteState(ctx, args) {
+      await enter('getRemoteState', ctx, args);
+      findTask(args.taskKey);
+      return {
+        taskKey: args.taskKey,
+        repo: 'acme/web',
+        baseBranch: 'main',
+        baseCommit: 'a'.repeat(40),
+        branch: `${args.taskKey}-work`,
+        branchCommit: 'b'.repeat(40),
+        ahead: 2,
+        behind: 0,
+        pullRequests: [],
+        publishedBy: null,
+      };
+    },
+
     async askHuman(ctx, args) {
       await enter('askHuman', ctx, args);
       const notHuman = (args.to ?? []).filter((h) => members.find((m) => m.handle === h)?.kind !== 'human');

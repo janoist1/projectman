@@ -44,6 +44,7 @@ import type { InboxService } from './inbox';
 import type { MemberService } from './members';
 import type { Messaging } from './messaging';
 import type { ProjectService } from './projects';
+import type { PublishingGate } from './publishing';
 import type { TaskService } from './tasks';
 import { attachmentToolRules } from './session-policy';
 import type { TimelineService } from './timeline';
@@ -170,7 +171,17 @@ export class TeamToolsService implements TeamToolsHandler {
       throw toToolError(err);
     }
   }
+  async publishTaskBranch(
+    ctx: ToolContext,
+    args: { taskKey?: string; commit: string; title?: string; body?: string },
+  ) {
+    return this.publishing.publish(ctx, args);
+  }
+  async getRemoteState(ctx: ToolContext, args: { taskKey: string }) {
+    return this.publishing.remoteState(ctx, { taskKey: this.validTaskKey(ctx, args.taskKey) });
+  }
   private readonly boundary: BoundaryService;
+  private readonly publishing: PublishingGate;
   private readonly ctx: DomainContext;
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
@@ -186,6 +197,7 @@ export class TeamToolsService implements TeamToolsHandler {
 
   constructor(deps: {
     boundary: BoundaryService;
+    publishing: PublishingGate;
     ctx: DomainContext;
     projects: ProjectService;
     tasks: TaskService;
@@ -201,6 +213,7 @@ export class TeamToolsService implements TeamToolsHandler {
     attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
   }) {
     this.boundary = deps.boundary;
+    this.publishing = deps.publishing;
     this.ctx = deps.ctx;
     this.projects = deps.projects;
     this.tasks = deps.tasks;

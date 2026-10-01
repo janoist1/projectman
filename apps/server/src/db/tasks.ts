@@ -165,7 +165,12 @@ export function createTaskRepository(db: Db) {
       `UPDATE task_links SET author = ?, updated_at = ?
        WHERE kind = 'pull_request' AND repo = ? AND ref = ?
          AND (author IS NULL OR author <> ?)
+         AND (author_source IS NULL OR author_source <> 'published')
          AND task_id IN (SELECT id FROM tasks WHERE project_key = ?)`,
+    ),
+    publishAuthor: db.prepare(
+      `UPDATE task_links SET author = ?, author_source = 'published', updated_at = ?
+       WHERE id = ? AND (author_source IS NULL OR author_source <> 'published')`,
     ),
     findByPullRequest: db.prepare(
       `SELECT DISTINCT t.project_key AS projectKey, t.key AS taskKey FROM task_links l
@@ -226,8 +231,28 @@ export function createTaskRepository(db: Db) {
     return 'updated';
   }
 
+  /**
+   * Adds or refreshes a link a publication made, and records `author` as its durable author: the
+   * authenticated member who published it. The first publication of a link wins, and polling never
+   * replaces it (`attributePullRequestAuthor` skips it). A link that exists without such provenance
+   * (an earlier `link_pull_request`, or the login match) takes it over.
+   */
+  function recordPublication(
+    taskId: string,
+    link: TaskLink,
+    author: string,
+    at: string,
+  ): 'inserted' | 'updated' | 'unchanged' {
+    const result = upsertLink(taskId, link, at);
+    const row = statements.findLink.get(taskId, link.kind, link.repo ?? '', link.ref) as LinkRow | undefined;
+    if (!row) return result;
+    const changed = statements.publishAuthor.run(author, at, row.id).changes > 0;
+    return changed && result === 'unchanged' ? 'updated' : result;
+  }
+
   return {
     upsertLink,
+    recordPublication,
 
     insert(task: Task): void {
       db.transaction(() => {

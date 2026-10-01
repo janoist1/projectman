@@ -187,7 +187,9 @@ function building(work: (where: string) => string[], ownerReview?: StepRule): St
         ...work(where),
         localOnly
           ? `Commit the work on the task's own branch in your worktree. Never push and never open a pull request: ${LOCAL_ONLY_REASON}. Before you hand over, make sure everything is committed: \`git status\` shows nothing left to commit.`
-          : 'Commit, push, open a pull request and attach it with link_pull_request.',
+          : input.sessionPolicy?.execution?.profile === 'managed_vm'
+            ? 'Commit on the task branch, then publish it with publish_task_branch (the full commit id of HEAD): it pushes the branch and opens the pull request, recorded on the task under your name. Do not push or open a pull request yourself, and do not link it again.'
+            : 'Commit, push, open a pull request and attach it with link_pull_request.',
         handover(
           input,
           working ? stageAfter(s.stages, working) : null,

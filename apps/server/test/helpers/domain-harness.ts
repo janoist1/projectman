@@ -5,7 +5,12 @@ import type { ExecutionProfile, ProjectConfig } from '@projectman/shared';
 import { AuthService } from '../../src/auth';
 import { createConfigStore } from '../../src/config';
 import { createRepositories, openDatabase } from '../../src/db';
-import type { AttachmentStorage, BoundaryOperationAdapter, ManagedVmBoundary } from '../../src/contracts';
+import type {
+  AttachmentStorage,
+  BoundaryOperationAdapter,
+  GithubPublisher,
+  ManagedVmBoundary,
+} from '../../src/contracts';
 import {
   attachmentToolRules,
   createAttachmentStorage,
@@ -70,6 +75,8 @@ export async function createDomainHarness(
     /** The installation's execution profile (PM-141, default legacy) and the proof of its boundary. */
     executionProfile?: ExecutionProfile;
     managedVm?: ManagedVmBoundary;
+    /** The VM's GitHub publishing identity (PM-142); absent, nothing can be published. */
+    githubPublisher?: GithubPublisher;
   } = {},
 ) {
   const restarted = opts.directory !== undefined;
@@ -103,6 +110,7 @@ export async function createDomainHarness(
     publicBaseUrl: 'http://127.0.0.1:4700',
     createRunner: (broker) => runnerModule.createWithBroker(broker),
     github,
+    githubPublisher: opts.githubPublisher,
     contextBuilder,
     memory,
     worktrees,

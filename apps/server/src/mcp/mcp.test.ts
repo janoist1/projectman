@@ -433,6 +433,61 @@ describe('team tools', () => {
     expect(out).toContain('- 2026-09-29 09:00 UTC · owner: moved it from ready to dev');
   });
 
+  it('get_task shows a 15 000 character description whole', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-qa');
+    const description = `## Plan\n${'Lorem ipsum dolor sit amet. '.repeat(535)}\n## End\nThe last line.`;
+    expect(description.length).toBeGreaterThan(15_000);
+    h.handler.tasks.get('AR-21')!.task.description = description;
+
+    const out = text(await call(client, 'get_task', { task_key: 'AR-21' }));
+
+    expect(out).toContain(`Description:\n${description}\n`);
+    expect(out).not.toContain('only part of it');
+  });
+
+  it('a long description survives get_task, an edit of its beginning and update_task', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+    const tail = `${'Technical plan, step by step. '.repeat(300)}\n## Last section\nKeep this.`;
+    h.handler.tasks.get('AR-21')!.task.description = `## Goal\nOld goal.\n\n${tail}`;
+
+    const out = text(await call(client, 'get_task', { task_key: 'AR-21' }));
+    const read = out.slice(
+      out.indexOf('Description:\n') + 'Description:\n'.length,
+      out.indexOf('\n\nAttachments ('),
+    );
+    expect(read.length).toBeGreaterThan(9_000);
+    const result = await call(client, 'update_task', {
+      task_key: 'AR-21',
+      description: read.replace('Old goal.', 'New goal.'),
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(h.handler.tasks.get('AR-21')!.task.description).toBe(`## Goal\nNew goal.\n\n${tail}`);
+  });
+
+  it('get_task reads a description longer than update_task accepts in parts, saying what is missing', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-qa');
+    h.handler.tasks.get('AR-21')!.task.description = `${'a'.repeat(20_000)}${'b'.repeat(1_500)}`;
+
+    const first = text(await call(client, 'get_task', { task_key: 'AR-21' }));
+    expect(first).toContain('Description (characters 1–20000 of 21500; only part of it):');
+    expect(first).toContain(
+      'The description is cut: 1500 more characters are not shown. Read them with get_task, task_key AR-21, ' +
+        'description_offset 20000.',
+    );
+
+    const rest = text(await call(client, 'get_task', { task_key: 'AR-21', description_offset: 20_000 }));
+    expect(rest).toContain(
+      `Description (characters 20001–21500 of 21500; only part of it):\n${'b'.repeat(1_500)}\n`,
+    );
+    expect((await call(client, 'get_task', { task_key: 'AR-21', description_offset: -1 })).isError).toBe(
+      true,
+    );
+  });
+
   it('update_task records labels, their note and a stage move in one call', async () => {
     const h = await startServer();
     const client = await connect(h, 'token-dev');

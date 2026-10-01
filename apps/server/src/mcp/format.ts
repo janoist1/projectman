@@ -8,7 +8,6 @@ import {
   linkTarget,
   oneLine,
   recentTimeline,
-  truncate,
 } from '../agent-text';
 import type {
   AttachmentPage,
@@ -25,7 +24,12 @@ import type {
  * events are worded by src/agent-text, like in the kick-off brief, with plain ids.
  */
 
-const MAX_DESCRIPTION_CHARS = 6000;
+/**
+ * The longest description update_task and create_task accept, and how much of one get_task shows
+ * in one go: whatever an agent may write back, it has seen whole. Longer ones (written in the app)
+ * are read in parts with description_offset.
+ */
+export const MAX_DESCRIPTION_CHARS = 20_000;
 const MAX_TIMELINE_EVENTS = 20;
 const MAX_EVENT_TEXT_CHARS = 300;
 
@@ -71,9 +75,51 @@ function timelineLines(events: TimelineEvent[]): string[] {
   return [header, ...lines];
 }
 
-export function formatTaskDetail(detail: TaskToolDetail): string {
+/**
+ * The description from `offset` (in characters), at most MAX_DESCRIPTION_CHARS of it. A part is
+ * never passed off as the whole: the lines say which characters are shown, how many are not and
+ * how to read them, so that nobody replaces the description having seen only its beginning.
+ */
+function descriptionLines(taskKey: string, text: string, offset: number): string[] {
+  const chars = Array.from(text.trim());
+  const total = chars.length;
+  if (total === 0) return ['Description:', '(none)'];
+  if (offset === 0 && total <= MAX_DESCRIPTION_CHARS) return ['Description:', chars.join('')];
+  if (offset >= total)
+    return [
+      `Description: nothing from offset ${offset}; it has ${total} characters (description_offset 0 reads it from the start).`,
+    ];
+  const end = Math.min(offset + MAX_DESCRIPTION_CHARS, total);
+  const lines = [
+    `Description (characters ${offset + 1}–${end} of ${total}; only part of it):`,
+    chars.slice(offset, end).join(''),
+  ];
+  const notes: string[] = [];
+  if (offset > 0)
+    notes.push(`The first ${offset} characters are not shown (description_offset 0 reads them).`);
+  if (end < total)
+    notes.push(
+      `The description is cut: ${total - end} more characters are not shown. Read them with get_task, ` +
+        `task_key ${taskKey}, description_offset ${end}.`,
+    );
+  notes.push(
+    'Do not replace the description with update_task before you have read all of it: the replacement ' +
+      'must hold the whole text.',
+  );
+  if (total > MAX_DESCRIPTION_CHARS)
+    notes.push(
+      `It is longer than update_task accepts (${MAX_DESCRIPTION_CHARS} characters), so it cannot be ` +
+        'replaced without losing text: add a note instead, or ask a human to edit it in the app.',
+    );
+  lines.push(`(${notes.join(' ')})`);
+  return lines;
+}
+
+export function formatTaskDetail(
+  detail: TaskToolDetail,
+  options: { descriptionOffset?: number } = {},
+): string {
   const { task, timeline, sessions } = detail;
-  const description = task.description.trim();
   const repo = describeRepo({
     name: detail.effectiveRepo ?? task.repo,
     choiceNeeded: detail.repoChoiceNeeded ?? false,
@@ -85,8 +131,7 @@ export function formatTaskDetail(detail: TaskToolDetail): string {
     `Links: ${task.links.length > 0 ? task.links.map((l) => describeLink(l)).join('; ') : 'none'}`,
     `Created by ${task.createdBy} at ${formatTimestamp(task.createdAt)} · Updated ${formatTimestamp(task.updatedAt)}`,
     '',
-    'Description:',
-    description ? truncate(description, MAX_DESCRIPTION_CHARS) : '(none)',
+    ...descriptionLines(task.key, task.description, options.descriptionOffset ?? 0),
   ];
   if (detail.parent)
     lines.push(

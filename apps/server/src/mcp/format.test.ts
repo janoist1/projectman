@@ -65,17 +65,59 @@ describe('formatTaskDetail', () => {
     expect(out.trimEnd().endsWith('- 2026-09-29 11:24 UTC · qa: note: note 24')).toBe(true);
   });
 
-  it('keeps long free text short', () => {
+  it('shows a description as long as update_task accepts whole, and keeps timeline text short', () => {
     const detail = sampleTaskDetail();
-    detail.task.description = 'x'.repeat(10_000);
+    detail.task.description = `${'x'.repeat(19_999)}Z`;
     detail.timeline = [note(0, `multi\nline   ${'y'.repeat(1000)}`)];
 
     const out = formatTaskDetail(detail);
 
-    expect(out).toContain(`${'x'.repeat(5999)}…`);
-    expect(out).not.toContain('x'.repeat(6000));
+    expect(out).toContain(`Description:\n${'x'.repeat(19_999)}Z\n`);
+    expect(out).not.toContain('only part of it');
     expect(out).toContain('note: multi line yyy');
     expect(out.split('\n').find((l) => l.includes('note: multi'))!.length).toBeLessThan(400);
+  });
+
+  it('shows a longer description in parts and says what is missing and how to read it', () => {
+    const detail = sampleTaskDetail();
+    detail.task.description = `${'a'.repeat(20_000)}${'b'.repeat(5_000)}`;
+
+    const first = formatTaskDetail(detail);
+    expect(first).toContain(
+      `Description (characters 1–20000 of 25000; only part of it):\n${'a'.repeat(20_000)}\n`,
+    );
+    expect(first).not.toContain('bbb');
+    expect(first).toContain(
+      '(The description is cut: 5000 more characters are not shown. Read them with get_task, task_key AR-21, ' +
+        'description_offset 20000. Do not replace the description with update_task before you have read all ' +
+        'of it: the replacement must hold the whole text. It is longer than update_task accepts (20000 ' +
+        'characters), so it cannot be replaced without losing text: add a note instead, or ask a human to ' +
+        'edit it in the app.)',
+    );
+
+    const rest = formatTaskDetail(detail, { descriptionOffset: 20_000 });
+    expect(rest).toContain(
+      `Description (characters 20001–25000 of 25000; only part of it):\n${'b'.repeat(5_000)}\n`,
+    );
+    expect(rest).toContain('(The first 20000 characters are not shown (description_offset 0 reads them).');
+    expect(rest).not.toContain('more characters are not shown');
+
+    expect(formatTaskDetail(detail, { descriptionOffset: 30_000 })).toContain(
+      'Description: nothing from offset 30000; it has 25000 characters (description_offset 0 reads it from the start).',
+    );
+  });
+
+  it('counts characters, not UTF-16 units, and reads a short description from an offset', () => {
+    const detail = sampleTaskDetail();
+    detail.task.description = '  ÁrvíztűrŐ 🙂 tükörfúrógép  ';
+
+    const out = formatTaskDetail(detail, { descriptionOffset: 10 });
+
+    expect(out).toContain('Description (characters 11–24 of 24; only part of it):\n🙂 tükörfúrógép\n');
+    expect(out).toContain(
+      '(The first 10 characters are not shown (description_offset 0 reads them). Do not replace',
+    );
+    expect(out).not.toContain('longer than update_task accepts');
   });
 
   it('renders unknown event types generically', () => {

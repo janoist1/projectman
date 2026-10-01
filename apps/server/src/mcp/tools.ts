@@ -26,6 +26,7 @@ import {
   formatTaskCreated,
   formatTaskDetail,
   formatTaskUpdate,
+  MAX_DESCRIPTION_CHARS,
 } from './format';
 
 /**
@@ -72,7 +73,6 @@ export const TEAM_INSTRUCTIONS =
 const MAX_MESSAGE_CHARS = 20_000;
 const MAX_NOTE_CHARS = 10_000;
 const MAX_TITLE_CHARS = 200;
-const MAX_DESCRIPTION_CHARS = 20_000;
 const MAX_LABEL_CHARS = 40;
 const MAX_REPO_CHARS = 64;
 const MAX_QUESTION_CHARS = 4_000;
@@ -273,10 +273,25 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     description:
       'Get a task: title, description, stage, status, assignee, labels, links (pull requests, branches) and ' +
       'its parent, subtasks (keys, titles, stages, statuses), attachments (open one with read_attachment) and ' +
-      'recent timeline (who did what).',
-    input: { task_key: taskKeyInput },
+      'recent timeline (who did what). The description is shown whole up to ' +
+      `${MAX_DESCRIPTION_CHARS} characters; a longer one is shown in parts, and the result says how to ` +
+      'read the rest.',
+    input: {
+      task_key: taskKeyInput,
+      description_offset: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe(
+          'Show the description from this character on (default 0). Only needed when an earlier get_task ' +
+            'said the description is cut, and it names the offset.',
+        ),
+    },
     async run({ ctx, args, handler }) {
-      return formatTaskDetail(await handler.getTask(ctx, { taskKey: args.task_key }));
+      return formatTaskDetail(await handler.getTask(ctx, { taskKey: args.task_key }), {
+        descriptionOffset: args.description_offset ?? 0,
+      });
     },
   }),
 
@@ -337,7 +352,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         .optional()
         .describe(
           'New description (markdown). It replaces the whole description, so include everything that ' +
-            'should stay; read the current one with get_task first.',
+            'should stay; read the current one with get_task first, all of it if get_task says it is cut.',
         ),
       repo: z
         .string()

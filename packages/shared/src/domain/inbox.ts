@@ -114,7 +114,23 @@ export const SessionTokensAlert = z.object({
 });
 export type SessionTokensAlert = z.infer<typeof SessionTokensAlert>;
 
-export const AlertPayload = z.discriminatedUnion('alert', [SessionTokensAlert]);
+/**
+ * `message_burst` (PM-186): `count` team messages and notes landed on card `taskKey` within
+ * `minutes` minutes (the threshold the project set then). `members` are those who wrote or were
+ * written to; `at` is when the alert was raised (ISO time), which decides when a later storm on the
+ * card may raise the next one.
+ */
+export const MessageBurstAlert = z.object({
+  alert: z.literal('message_burst'),
+  taskKey: TaskKey,
+  count: z.number().int().positive(),
+  minutes: z.number().int().positive(),
+  members: z.array(MemberHandle),
+  at: z.string(),
+});
+export type MessageBurstAlert = z.infer<typeof MessageBurstAlert>;
+
+export const AlertPayload = z.discriminatedUnion('alert', [SessionTokensAlert, MessageBurstAlert]);
 export type AlertPayload = z.infer<typeof AlertPayload>;
 
 /** The alert payload of an item, or null when it is no alert (or an unreadable or unknown one). */

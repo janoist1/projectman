@@ -1,3 +1,4 @@
+import { messageBurstOf } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import { useRoles } from '../../../api/queries';
 import { useProject } from '../../../app/contexts';
@@ -20,6 +21,7 @@ function LimitsEditor({ draft, change, isOwner }: SectionEditorProps) {
   const { key } = useProject();
   const roles = useRoles(key);
   const { limits } = draft.team;
+  const messageBurst = messageBurstOf(limits);
   return (
     <>
       <label className={shared.field}>
@@ -153,6 +155,45 @@ function LimitsEditor({ draft, change, isOwner }: SectionEditorProps) {
           />
         </label>
       ) : null}
+      <p id="message-burst-help">{t('settings.limits.messageBurstHelp')}</p>
+      <label className={shared.field}>
+        {t('settings.limits.messageBurstCount')}
+        <input
+          type="number"
+          min={3}
+          max={100}
+          step={1}
+          aria-describedby="message-burst-help"
+          value={messageBurst.count}
+          onChange={(event) =>
+            change((config) => {
+              config.team.limits.messageBurst = {
+                ...messageBurstOf(config.team.limits),
+                count: Number(event.target.value),
+              };
+            })
+          }
+        />
+      </label>
+      <label className={shared.field}>
+        {t('settings.limits.messageBurstMinutes')}
+        <input
+          type="number"
+          min={1}
+          max={240}
+          step={1}
+          aria-describedby="message-burst-help"
+          value={messageBurst.minutes}
+          onChange={(event) =>
+            change((config) => {
+              config.team.limits.messageBurst = {
+                ...messageBurstOf(config.team.limits),
+                minutes: Number(event.target.value),
+              };
+            })
+          }
+        />
+      </label>
       <label className={shared.field}>
         {t('settings.limits.tempWorkers')}
         <input
@@ -251,6 +292,10 @@ export function LimitsSection({ config }: { config: ProjectConfig }) {
                     count: formatTokens(limits.warnAboveSessionTokens),
                   })}
             </dd>
+          </div>
+          <div>
+            <dt>{t('settings.limits.messageBurst')}</dt>
+            <dd>{t('settings.limits.messageBurstValue', messageBurstOf(limits))}</dd>
           </div>
           <div>
             <dt>{t('settings.limits.tempWorkers')}</dt>

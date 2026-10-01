@@ -159,6 +159,33 @@ describe('settings section editors', () => {
     );
   });
 
+  it('sets the message storm threshold, 10 in 15 minutes until then (PM-186)', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    let section = await editSection('limits');
+    const count = section.getByLabelText(t('settings.limits.messageBurstCount')) as HTMLInputElement;
+    const minutes = section.getByLabelText(t('settings.limits.messageBurstMinutes')) as HTMLInputElement;
+    expect([count.value, minutes.value]).toEqual(['10', '15']);
+    fireEvent.change(count, { target: { value: '6' } });
+    fireEvent.change(minutes, { target: { value: '30' } });
+    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
+    await section.findByText(t('settings.limits.messageBurstValue', { count: 6, minutes: 30 }));
+    expect(lastConfigPatch(project.requests).limits).toMatchObject({
+      messageBurst: { count: 6, minutes: 30 },
+    });
+    expect(project.backend.config.team.limits.messageBurst).toEqual({ count: 6, minutes: 30 });
+
+    // One field changed keeps the other.
+    section = await editSection('limits');
+    fireEvent.change(section.getByLabelText(t('settings.limits.messageBurstCount')), {
+      target: { value: '4' },
+    });
+    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
+    await waitFor(() =>
+      expect(project.backend.config.team.limits.messageBurst).toEqual({ count: 4, minutes: 30 }),
+    );
+  });
+
   it('edits limits with a 10–100 slider and AI-capable role choices', async () => {
     const project = mockProject();
     project.render(<SettingsPage />);

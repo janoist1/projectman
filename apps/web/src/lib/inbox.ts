@@ -85,12 +85,20 @@ function workText(workItem: WorkItemRef): string {
 
 /**
  * What an alert says, from its payload: for a session over the token warning limit (PM-187) the
- * member, the card or chat, when the session started, what it used and the limit. Null for an item
- * that is no alert, or an alert of a kind this web app does not know.
+ * member, the card or chat, when the session started, what it used and the limit; for a message
+ * storm on a card (PM-186) the card, the count, the window and who took part. Null for an item that
+ * is no alert, or an alert of a kind this web app does not know.
  */
 export function alertText(item: InboxItem, members: MemberIndex, myHandle: string | null): string | null {
   const alert = alertPayloadOf(item);
   if (!alert) return null;
+  if (alert.alert === 'message_burst')
+    return t('inbox.alerts.message_burst.body', {
+      key: alert.taskKey,
+      count: alert.count,
+      minutes: alert.minutes,
+      members: joinNames(namesOf(alert.members, members, myHandle)),
+    });
   return t('inbox.alerts.session_tokens.body', {
     member: nameOf(item.source, members, myHandle),
     work: workText(alert.workItem),

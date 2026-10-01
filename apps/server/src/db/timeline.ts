@@ -42,6 +42,13 @@ export function createTimelineRepository(db: Db) {
       'SELECT * FROM timeline_events WHERE project_key = ? AND task_key = ? ORDER BY seq DESC LIMIT ?',
     ),
     ofProject: db.prepare('SELECT * FROM timeline_events WHERE project_key = ? ORDER BY seq DESC LIMIT ?'),
+    // Imported comments (a ClickUp import) are history, not conversation.
+    talkSince: db.prepare(
+      `SELECT * FROM timeline_events WHERE project_key = ? AND task_key = ? AND created_at >= ?
+         AND type IN ('team_message', 'task_note')
+         AND json_extract(data, '$.importedAuthor') IS NULL AND json_extract(data, '$.importedAt') IS NULL
+       ORDER BY seq DESC LIMIT ?`,
+    ),
   };
   return {
     insert(e: TimelineEvent): void {
@@ -67,6 +74,14 @@ export function createTimelineRepository(db: Db) {
         handle,
         limit,
       ) as TimelineRow[];
+      return rows.reverse().map(toEvent);
+    },
+    /**
+     * The team messages and notes (not imported ones) on a card from `since` (an ISO time) on,
+     * oldest first; at most `limit`, the most recent ones.
+     */
+    talkSince(projectKey: string, taskKey: string, since: string, limit = 1000): TimelineEvent[] {
+      const rows = statements.talkSince.all(projectKey, taskKey, since, limit) as TimelineRow[];
       return rows.reverse().map(toEvent);
     },
     /** The most recent `limit` events, oldest first. */

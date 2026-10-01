@@ -289,8 +289,10 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
 
   it('gives the fake claude the compaction window in --settings, on a new and a resumed session (PM-212)', async () => {
     await setup();
-    const s = spec({ autoCompactWindowTokens: 200_000 });
+    // A conversation with a turn in it, as the restart tests above: only that can be resumed.
+    const s = spec({ autoCompactWindowTokens: 200_000, initialMessage: 'first run' });
     await runner.runner.start(s);
+    await assistantSaid(s.sessionId, 'Echo: first run');
     await waitState(s.sessionId, 'idle');
     const settingsOf = async () => {
       const { argv } = JSON.parse(await readFile(argsFile, 'utf8')) as { argv: string[] };
@@ -301,8 +303,13 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     expect(fresh.settings.autoCompactWindow).toBe(200_000);
     await runner.runner.stop(s.sessionId);
 
-    await runner.runner.start({ ...s, resume: true, autoCompactWindowTokens: 150_000 });
-    await waitState(s.sessionId, 'idle');
+    await runner.runner.start({
+      ...s,
+      resume: true,
+      initialMessage: 'second run',
+      autoCompactWindowTokens: 150_000,
+    });
+    await assistantSaid(s.sessionId, 'Echo: second run');
     const resumed = await settingsOf();
     expect(resumed.argv).toContain('--resume');
     expect(resumed.settings.autoCompactWindow).toBe(150_000);

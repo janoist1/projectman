@@ -304,6 +304,32 @@ SQLite tables: `users`, `auth_sessions`, `invitations`, `projects`, `counters`, 
 `schedule_runs`, `deferred_starts`, `attachments`. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
 the server refuses a database a newer build migrated.
 
+## Session policy migration (PM-87 / PM-127)
+
+`contracts/session-policy.ts` is the provider-neutral session intent: placement, semantic team,
+file and shell tool grants, roots, protected paths, denied operations, network intent and
+outside-sandbox handling. Pure duty/access rules and the historical `permissionMode` mapping
+live in `packages/shared/src/config/session-policy.ts`. The domain builds a fresh policy from
+the actual placement on every start/resume and supplies the same object to the context pack
+and runner. Claude renders its tool syntax; Codex consumes team tool names directly.
+
+The active enforcement remains `legacy`; this migration does not enable strict isolation or
+remove the command broker. `strict` intent is refused by both adapters until their verified
+implementation is available. A reading placement caps edit modes to `default` (preserving
+`plan`), and never receives a writable root. A review-copy placement carries its independent
+git directory, source commit and round id; creation/cleanup belongs to PM-132.
+
+Review copies have a separate `reviewCopyMode` intent (`inherit`, `read_only`, `test`;
+absent means `inherit`). Historical `permissionMode` values never opt a copy into writes.
+Only `test` with strict enforcement intent grants its own repository, independent git,
+cache and temporary roots; `plan` and explicit `read_only` remain read-only. This is a
+synthetic policy capability, not activation: both current adapters refuse strict starts.
+Configuration/UI wiring and verified provider activation belong to PM-130; no old member
+permission is rewritten or classified as implicitly versus explicitly chosen.
+
+The existing PM-134 Claude shell sandbox remains a separate legacy setting. This migration
+preserves it and does not certify it as the strict filesystem and network boundary.
+
 ## GitHub
 
 Tasks live in our database (decision 9); GitHub is used for pull requests, reviews, checks

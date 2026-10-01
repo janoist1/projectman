@@ -137,10 +137,11 @@ Still open, roughly by value:
 - **Storage.** Message receipts are a JSON blob scanned in JavaScript on every session start;
   a `team_message_recipients` table would fix that (PM-88). The legacy `tasks.checks` column
   is converted to labels on every read (PM-86).
-- **Providers.** The context pack still branches on provider, and the session policy is
-  written in Claude Code's rule syntax that Codex parses back; a provider-neutral policy
-  (team tools, read-only commands, denied operations, readable and writable directories)
-  rendered by each adapter would remove that (PM-87). Codex does not enforce denied tools;
+- **Providers.** PM-87/PM-127 introduces a provider-neutral policy for domain starts and
+  resumes, rendered by each adapter and explained in the context pack; Codex no longer parses
+  Claude tool patterns. Active enforcement remains legacy. Strict sandbox activation, the
+  verified filesystem/network boundary, isolated review copies and inherited hook isolation
+  still require PM-126/128/129/130/132 and PM-49. Codex does not enforce Claude deny tools;
   PM-84 takes away the one mode where nothing else stops it.
 - **Tests.** Every domain test builds a full domain with a git-backed configuration store;
   the pure parts (admission checks, label planning) now have fast unit tests, the rest could

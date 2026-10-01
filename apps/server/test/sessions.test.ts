@@ -39,6 +39,8 @@ describe('session orchestrator', () => {
     expect(resumed).toMatchObject({ created: false, resumed: true, started: true });
     expect(resumed.session.id).toBe(first.session.id);
     const spec = h.runner.lastStarted();
+    expect(h.contextBuilder.inputs.at(-1)?.sessionPolicy).toBe(spec.policy);
+    expect(spec.policy).toMatchObject({ access: 'read_only', enforcement: 'legacy' });
     // Nothing caused the resume but the start itself: the session is told to carry on.
     expect(spec).toMatchObject({
       resume: true,
@@ -194,6 +196,13 @@ describe('session orchestrator', () => {
     expect(review.session).toMatchObject({ cwd: h.workspace, branch: null });
     expect(h.runner.lastStarted().allowedTools).toEqual(allowedToolsFor('code_review', testConfig()));
     expect(h.runner.lastStarted().additionalDirectories).toBeUndefined();
+    expect(h.runner.lastStarted().policy).toMatchObject({
+      version: 1,
+      enforcement: 'legacy',
+      access: 'read_only',
+      tools: { team: { all: true, names: [] } },
+      filesystem: { readableRoots: [h.workspace], writableRoots: [] },
+    });
     expect(h.worktrees.calls).toEqual([]);
 
     const dev = await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: withRepo.key });
@@ -202,6 +211,12 @@ describe('session orchestrator', () => {
     expect(h.runner.lastStarted().allowedTools).toEqual(allowedToolsFor('developer', testConfig()));
     // No writable git directory: hooks or configuration planted there would run on the host (PM-131).
     expect(h.runner.lastStarted().writableRoots).toBeUndefined();
+    expect(h.runner.lastStarted().policy).toMatchObject({
+      access: 'task_worktree',
+      // This fixture explicitly retains the stricter historical default permission mode.
+      permissions: { claude: 'default', sandbox: 'read-only' },
+      filesystem: { readableRoots: [dev.session.cwd], writableRoots: [] },
+    });
     // Work in its own worktree runs in the OS sandbox, so its shell commands do not ask.
     expect(h.runner.lastStarted().sandbox).toEqual(WORKTREE_SANDBOX);
     expect(h.runner.lastStarted().deniedTools).toEqual([]);

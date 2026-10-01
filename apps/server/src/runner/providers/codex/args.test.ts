@@ -6,7 +6,6 @@ import {
   CODEX_HOOK_EVENTS,
   codexModel,
   codexPermissions,
-  teamToolApprovals,
   tomlString,
   tomlValue,
 } from './args';
@@ -107,15 +106,6 @@ describe('Codex settings from the member', () => {
     expect(codexModel('gpt-6.1-codex')).toBe('gpt-6.1-codex');
     expect(codexModel(' o4-mini ')).toBe('o4-mini');
   });
-
-  it('pre-approves the team tools named by the allow rules', () => {
-    expect(teamToolApprovals(['mcp__team__*', 'Read'])).toEqual({ all: true, tools: [] });
-    expect(teamToolApprovals(['mcp__team'])).toEqual({ all: true, tools: [] });
-    expect(teamToolApprovals(['mcp__team__send_message', 'mcp__team__get_task', 'mcp__other__x'])).toEqual({
-      all: false,
-      tools: ['send_message', 'get_task'],
-    });
-  });
 });
 
 describe('buildCodexArgs', () => {
@@ -189,9 +179,7 @@ describe('buildCodexArgs', () => {
     expect(c.get('projects')).toBe('{"/Users/anna/.projectman/worktrees/AR/AR-1"={trust_level="trusted"}}');
     expect(c.get('project_doc_fallback_filenames')).toBe('["CLAUDE.md"]');
     expect(c.get('developer_instructions')).toBe('"- You are fe-1.\\n- Speak Hungarian."');
-    expect(c.get('mcp_servers.team')).toBe(
-      '{url="http://127.0.0.1:4700/mcp/tok",default_tools_approval_mode="approve"}',
-    );
+    expect(c.get('mcp_servers.team')).toBe('{url="http://127.0.0.1:4700/mcp/tok"}');
     expect(c.has('notice.hide_full_access_warning')).toBe(false);
     for (const event of CODEX_HOOK_EVENTS) expect(c.has(`hooks.${event}`)).toBe(true);
   });

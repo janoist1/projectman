@@ -141,6 +141,29 @@ waiters, expired capabilities, body limits, path escapes, YAML limits, URL redac
 provider environments and hostile markdown. Integration tests use fictional data,
 temporary repositories and fake CLIs only.
 
+## Provider-neutral policy preparation (PM-87 / PM-127)
+
+The policy contract records access intent, including the distinction between an original
+developer worktree and an independent disposable review copy. It is not yet an OS isolation
+boundary: current starts explicitly use legacy enforcement and retain the broker's existing
+automatic decisions and remembered permissions. Both adapters reject strict enforcement
+until it can be implemented and verified; listing protected paths or network domains alone
+does not enforce them. Codex consumes semantic team-tool grants without interpreting Claude
+allow rules. Shared git metadata is not granted as an extra writable root (PM-131).
+
+A review-copy placement alone grants no writes, even with historical `acceptEdits`.
+The separate `reviewCopyMode: test` requires strict intent, and grants only the copy's own
+repository/git/cache/temp roots. `plan` and explicit `read_only` cap it to reading. Strict
+provider verification is still required before any such policy can run; the current
+adapters reject it. The original worktree and other members' copies do not become writable
+merely because they are listed as readable roots.
+
+The model and fake CLI regression tests prove rendering and compatibility only. PM-126's
+corrected manual macOS subscription probe and the PM-130 adversarial matrix must establish
+the real filesystem/network boundary, hook/lifecycle confinement and publishing protection.
+The accepted local-port exception is recorded in decision 24; Linux is not certified by the
+macOS probe.
+
 ## Before server hosting
 
 1. Use a dedicated Unix account and private application home. Separate mutually

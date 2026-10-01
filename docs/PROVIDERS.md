@@ -178,6 +178,19 @@ home beside worktrees, whereas `buildApp` puts worktrees beneath the app home. I
 shell commands, not built-in file tools, and classified every command failure as denial.
 Those observations do not certify the PM-87 boundary or establish supported minimum versions.
 
+The PM-127 policy migration uses semantic grants for both providers. All domain starts,
+including resumed, scheduled and non-task starts, supply `SessionPolicy`; the Codex adapter
+no longer parses Claude tool patterns. Historical `permissionMode` configuration still loads
+and maps centrally. A read-only placement does not become writable through `acceptEdits`,
+`auto` or `bypassPermissions`; explicit `default`/`plan` remain stricter.
+
+This is preparatory: active policies use legacy enforcement. Strict policies currently fail
+before spawning either CLI, rather than silently using legacy settings. The probe versions
+below are evidence for that probe, not certified minimum versions for full PM-87 isolation.
+PM-126 review and PM-49 hook isolation remain activation prerequisites. Decision 24 accepts
+local port binding for tests; it also accepts the resulting local-port reachability described
+below. No live instance settings are changed by this migration.
+
 The revised [manual procedure](SANDBOX-PROBE.md) and `scripts/sandbox-probe.sh` use nested
 worktrees, fictional data and positive host controls. The script never starts an agent CLI;
 real verification is interactive and subscription-only. Automated tests use temporary repos

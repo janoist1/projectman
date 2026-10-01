@@ -1,7 +1,14 @@
-import { effectiveRepo, isBuiltInRole, repoOf, roleBundle, roleUsesWorktree } from '@projectman/shared';
+import {
+  effectiveRepo,
+  isBuiltInRole,
+  repoOf,
+  roleBundle,
+  roleUsesWorktree,
+  roleSessionTools,
+} from '@projectman/shared';
 import type { BuiltInRoleId, CustomRoleDefinition } from '@projectman/shared';
 import type { ContextPackInput } from '../contracts';
-import { allowedToolsFor, describeUnattendedCommands, preApprovedPrefixes } from '../domain';
+import { describeUnattendedCommands } from '../domain';
 import { isHumanOnlyLabel, labelHolders } from '@projectman/shared';
 import { code, codeList, describeGate, labelRef, languageName, repoText, stageLabel } from './format';
 import { recentMemory } from './memory';
@@ -55,6 +62,7 @@ export function buildSystemPrompt(input: ContextPackInput, situation: Situation)
     pipelineSection(input, situation),
     labelsSection(input),
     workItemSection(input, situation),
+    sessionPolicySection(input),
     unattendedCommandsSection(input),
     guardrailsSection(input),
     roleSection(input),
@@ -284,7 +292,13 @@ function workItemSection(input: ContextPackInput, situation: Situation): string 
  * member writes commands in a form that passes instead of waiting for approval. Only task work
  * items have such rules (`commandVerdict` gives no verdict without a task).
  */
-function unattendedCommandsSection({ project, member, task, workItem }: ContextPackInput): string {
+function unattendedCommandsSection({
+  project,
+  member,
+  task,
+  workItem,
+  sessionPolicy,
+}: ContextPackInput): string {
   if (workItem.type !== 'task') return '';
   const repo = repoOf(project, effectiveRepo(project, task));
   const worktree = roleUsesWorktree(project, member.role);
@@ -297,8 +311,26 @@ function unattendedCommandsSection({ project, member, task, workItem }: ContextP
       localOnly: repo !== undefined && !repo.github,
       // Codex has no allow list of its own; Claude Code's comes from the role (session-policy).
       codex: isCodex(member),
-      preApproved: isCodex(member) ? [] : preApprovedPrefixes(allowedToolsFor(member.role, project)),
+      preApproved: isCodex(member)
+        ? []
+        : (sessionPolicy?.tools ?? roleSessionTools(project, member.role)).shell
+            .filter((rule) => rule.arguments === 'prefix')
+            .map((rule) => rule.command),
     }),
+  ].join('\n');
+}
+
+function sessionPolicySection({ sessionPolicy: policy }: ContextPackInput): string {
+  if (!policy) return '';
+  return [
+    '# Session policy',
+    `Placement: ${policy.access}; working directory: ${code(policy.placement.path)}.`,
+    ...(policy.access === 'review_copy' ? [`Review copy mode: ${policy.reviewCopyMode ?? 'inherit'}.`] : []),
+    `Readable roots for automatic command decisions: ${codeList(policy.filesystem.readableRoots)}.`,
+    `Writable workspace roots: ${codeList(policy.filesystem.writableRoots)}.`,
+    `Protected paths: ${codeList(policy.filesystem.protectedPaths)}.`,
+    `Denied operations: ${codeList(policy.deniedOperations)}.`,
+    'Enforcement is the existing provider and command policy. These roots do not establish strict read or network isolation yet; outside-sandbox execution still requires permission.',
   ].join('\n');
 }
 

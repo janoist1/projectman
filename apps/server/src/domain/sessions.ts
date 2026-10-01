@@ -42,6 +42,7 @@ import type { ConfigChange, ProjectService } from './projects';
 import {
   allowedToolsFor,
   deniedToolsFor,
+  buildSessionPolicy,
   sessionPolicyFor,
   DONE_TASK_CLEANUP_DELAY_MS,
   usesWorktree,
@@ -445,6 +446,16 @@ export class SessionOrchestrator {
       this.ctx.logger.warn({ err, member: member.handle }, 'could not read member memory');
       return '';
     });
+    const policy = buildSessionPolicy({
+      config,
+      role: member.role,
+      task,
+      permissionMode: member.permissionMode,
+      placement: placed
+        ? { kind: 'task_worktree', path: cwd, ...(placed.gitDir ? { gitDir: placed.gitDir } : {}) }
+        : { kind: 'read_only', path: cwd },
+      readableRoots: additionalDirectories,
+    });
     const pack = this.deps.contextBuilder.build({
       project: config,
       member,
@@ -454,6 +465,7 @@ export class SessionOrchestrator {
       timeline: task ? this.deps.timeline.list(projectKey, { taskKey: task.key, limit: 30 }) : [],
       team: this.deps.members.rosterFor(config),
       memory,
+      sessionPolicy: policy,
     });
 
     // Configuration may change while login, worktree and memory preparation await I/O. So may the
@@ -527,6 +539,7 @@ export class SessionOrchestrator {
         initialMessage: resume ? (message ?? pack.continueMessage) : pack.initialMessage,
         firstUserOrigin: openingTurnOrigin(workItem),
         mcpUrl: `${this.deps.publicBaseUrl}${routes.mcp(token)}`,
+        policy,
         allowedTools: allowedToolsFor(member.role, config),
         deniedTools: deniedToolsFor(config, task),
         additionalDirectories,

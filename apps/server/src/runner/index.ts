@@ -4,6 +4,9 @@ import { createProviderAdapters } from './providers';
 import { SessionManager } from './runner';
 import { createTranscriptReader } from './transcript/reader';
 
+/** Legacy callers may request rendered tool grants during the policy migration. */
+export { claudeShellRule, claudeToolRules } from './providers/claude/policy';
+
 /**
  * Runs AI members as real, interactive agent CLI sessions in pseudo-terminals, on the
  * owner's subscription: Claude Code (Claude plan) or OpenAI Codex CLI (ChatGPT plan), each

@@ -1,4 +1,4 @@
-import { modelForProvider } from '@projectman/shared';
+import { modelForProvider, sessionPermissions } from '@projectman/shared';
 import type { StartSessionSpec } from '../../../contracts';
 import { FAST_HOOK_TIMEOUT_S, forwarderCommand, permissionHookTimeoutS } from '../../hook-forwarder';
 import { sanitizeMessage } from '../../typing';
@@ -101,16 +101,8 @@ export interface CodexPermissions {
  *   members; this is the last line of defence should one reach the runner anyway.
  */
 export function codexPermissions(mode: string | undefined): CodexPermissions {
-  switch (mode) {
-    case 'acceptEdits':
-    case 'auto':
-    case 'bypassPermissions':
-      return { sandbox: 'workspace-write', approval: 'on-request' };
-    case 'plan':
-      return { sandbox: 'read-only', approval: 'never' };
-    default:
-      return { sandbox: 'read-only', approval: 'on-request' };
-  }
+  const { sandbox, approval } = sessionPermissions(mode);
+  return { sandbox, approval };
 }
 
 /** Default reasoning effort for Codex members (overrides the owner's interactive default). */
@@ -118,23 +110,6 @@ export const DEFAULT_CODEX_EFFORT = 'medium';
 
 export function codexModel(model: string | undefined): string {
   return modelForProvider('codex', model?.trim());
-}
-
-/** The team server's tool approvals, from the session's allow rules (e.g. "mcp__team__*"). */
-export function teamToolApprovals(allowedTools: string[]): {
-  all: boolean;
-  tools: string[];
-} {
-  let all = false;
-  const tools: string[] = [];
-  for (const rule of allowedTools) {
-    if (rule === 'mcp__team' || rule === 'mcp__team__*') all = true;
-    else {
-      const m = /^mcp__team__([A-Za-z0-9_-]+)$/.exec(rule);
-      if (m) tools.push(m[1]!);
-    }
-  }
-  return { all, tools: [...new Set(tools)] };
 }
 
 export interface CodexArgsInput {
@@ -162,6 +137,8 @@ export interface CodexCommandLine {
 /** Full argument list for `codex` (interactive TUI). */
 export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
   const { spec, hookUrl } = input;
+  if (spec.policy?.enforcement === 'strict')
+    throw new Error('Strict Codex sandbox enforcement is not available yet; refusing to start.');
   const permissionTimeoutS = permissionHookTimeoutS(input.permissionTimeoutMs);
   const args: string[] = [];
   if (spec.resume) args.push('resume');
@@ -173,11 +150,12 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
   c('project_doc_fallback_filenames', ['CLAUDE.md']);
   if (spec.appendSystemPrompt) c('developer_instructions', spec.appendSystemPrompt);
 
-  const approvals = teamToolApprovals(spec.allowedTools);
+  // Never infer a Codex grant from another provider's tool syntax.
+  const approvals = spec.policy?.tools.team ?? { all: false, names: [] };
   const team: Record<string, unknown> = { url: spec.mcpUrl };
   if (approvals.all) team.default_tools_approval_mode = 'approve';
-  if (approvals.tools.length > 0) {
-    team.tools = Object.fromEntries(approvals.tools.map((t) => [t, { approval_mode: 'approve' }]));
+  if (approvals.names.length > 0) {
+    team.tools = Object.fromEntries(approvals.names.map((t) => [t, { approval_mode: 'approve' }]));
   }
   c('mcp_servers.team', team);
 
@@ -191,8 +169,8 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
     c(`hooks.${event}`, hookGroups(command, timeoutS));
   }
 
-  const permissions = codexPermissions(spec.permissionMode);
-  if (permissions.sandbox === 'workspace-write' && spec.writableRoots?.length)
+  const permissions = spec.policy?.permissions ?? codexPermissions(spec.permissionMode);
+  if (!spec.policy && permissions.sandbox === 'workspace-write' && spec.writableRoots?.length)
     c('sandbox_workspace_write.writable_roots', spec.writableRoots);
   args.push('--sandbox', permissions.sandbox, '--ask-for-approval', permissions.approval);
   args.push('--model', codexModel(spec.model));

@@ -17,6 +17,7 @@ export * from './ws/protocol';
 export * from './domain/role';
 export * from './domain/duty';
 export * from './config/duties';
+export * from './config/session-policy';
 export * from './config/labels';
 export * from './config/gates';
 export * from './config/lookup';

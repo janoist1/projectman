@@ -452,7 +452,7 @@ export const migrations: Migration[] = [
       ALTER TABLE sessions ADD COLUMN usage_since TEXT;`,
   },
   {
-    version: 19,
+    version: 20,
     name: 'review pins',
     // The commit of the developer's branch handed over when a task entered a review or test stage
     // (PM-183): one row per task, replaced by the next hand-over or a new review round, and removed

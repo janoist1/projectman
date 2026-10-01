@@ -281,7 +281,7 @@ describe('the retry timer', () => {
     await h.domain.tasks.moveToStage('AR', off.key, 'code_review', OWNER_ACTOR);
     // BR: the switch is on, but the reviewer is at capacity.
     const busy = await h.domain.tasks.create('BR', { title: 'Keeps the reviewer busy' }, OWNER_ACTOR);
-    h.domain.tasks.assign('BR', busy.key, 'cr', OWNER_ACTOR);
+    await h.domain.sessions.ensureSession('BR', 'cr', { type: 'task', taskKey: busy.key });
     const full = await h.domain.tasks.create('BR', { title: 'Waits for capacity' }, OWNER_ACTOR);
     await h.domain.tasks.moveToStage('BR', full.key, 'code_review', OWNER_ACTOR);
     await waitFor(
@@ -302,7 +302,8 @@ describe('the retry timer', () => {
     ]);
     expect(h.domain.tasks.get('AR', off.key).startWaiting).toMatchObject({ reason: 'ai_disabled' });
     expect(stored(h)).toEqual(['hand-over:AR:AR-1', 'hand-over:BR:BR-2']);
-    expect(h.runner.started).toHaveLength(0);
+    // Only the reviewer's session on the busy task runs.
+    expect(h.runner.started).toHaveLength(1);
 
     // Turning the switch on retries it at once, without a tick.
     await setEnabled(h, true, 'AR');
@@ -314,7 +315,7 @@ describe('the retry timer', () => {
   it('retries a start once when the switch went off after it was deferred, then leaves it alone', async () => {
     h = await createDomainHarness();
     const busy = await h.domain.tasks.create('AR', { title: 'Keeps the reviewer busy' }, OWNER_ACTOR);
-    h.domain.tasks.assign('AR', busy.key, 'cr', OWNER_ACTOR);
+    await h.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: busy.key });
     const full = await h.domain.tasks.create('AR', { title: 'Waits for capacity' }, OWNER_ACTOR);
     await h.domain.tasks.moveToStage('AR', full.key, 'code_review', OWNER_ACTOR);
     await waitFor(() => h.domain.tasks.get('AR', full.key).startWaiting);

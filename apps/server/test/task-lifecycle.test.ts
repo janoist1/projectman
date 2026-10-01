@@ -148,25 +148,34 @@ describe('task lifecycle', () => {
     });
   });
 
-  it.each(['cancelled', 'done'] as const)(
-    'excludes %s tasks from capacity, including failed sessions',
-    async (status) => {
-      const { session } = await start(h, 'AR-1');
-      h.runner.emit({ type: 'exit', sessionId: session!.id, exitCode: 1, signal: null });
-      h.repos.sessions.update(session!.id, { state: 'failed' });
-      const second = await h.domain.tasks.create('AR', { title: 'Acme order summary' }, OWNER_ACTOR);
-      await expect(start(h, second.key)).rejects.toMatchObject({ code: 'member_at_capacity' });
-      if (status === 'cancelled') await h.domain.tasks.cancel('AR', 'AR-1', {}, OWNER_ACTOR);
-      else
-        h.repos.tasks.update(h.domain.tasks.get('AR', 'AR-1').id, {
-          status,
-          closedAt: new Date().toISOString(),
-        });
-      expect(h.domain.admission.memberLoad('AR', 'dev-1')).toBe(0);
-      expect((await start(h, second.key)).task.assignee).toBe('dev-1');
-      expect(h.domain.tasks.get('AR', 'AR-1').assignee).toBe('dev-1');
-    },
-  );
+  it('counts only what the member is working on now', async () => {
+    const { session } = await start(h, 'AR-1');
+    const second = await h.domain.tasks.create('AR', { title: 'Acme order summary' }, OWNER_ACTOR);
+    expect(h.domain.admission.memberLoad('AR', 'dev-1')).toBe(1);
+    await expect(start(h, second.key)).rejects.toMatchObject({ code: 'member_at_capacity' });
+    // The session ended but the task stays open and assigned: nothing is being worked on.
+    h.runner.emit({ type: 'exit', sessionId: session!.id, exitCode: 0, signal: null });
+    h.repos.sessions.update(session!.id, { state: 'exited' });
+    expect(h.domain.tasks.get('AR', 'AR-1')).toMatchObject({ assignee: 'dev-1', status: 'active' });
+    expect(h.domain.admission.memberLoad('AR', 'dev-1')).toBe(0);
+    expect((await start(h, second.key)).task.assignee).toBe('dev-1');
+    expect(h.domain.admission.memberLoad('AR', 'dev-1')).toBe(1);
+  });
+
+  it.each(['cancelled', 'done'] as const)('excludes %s tasks from capacity', async (status) => {
+    await start(h, 'AR-1');
+    const second = await h.domain.tasks.create('AR', { title: 'Acme order summary' }, OWNER_ACTOR);
+    await expect(start(h, second.key)).rejects.toMatchObject({ code: 'member_at_capacity' });
+    if (status === 'cancelled') await h.domain.tasks.cancel('AR', 'AR-1', {}, OWNER_ACTOR);
+    else
+      h.repos.tasks.update(h.domain.tasks.get('AR', 'AR-1').id, {
+        status,
+        closedAt: new Date().toISOString(),
+      });
+    expect(h.domain.admission.memberLoad('AR', 'dev-1')).toBe(0);
+    expect((await start(h, second.key)).task.assignee).toBe('dev-1');
+    expect(h.domain.tasks.get('AR', 'AR-1').assignee).toBe('dev-1');
+  });
 
   it.each(['active', 'waiting', 'blocked', 'done'] satisfies TaskStatus[])(
     'rejects reopening a %s task',

@@ -72,7 +72,7 @@ describe('human messages wake idle AI members', () => {
     async (reason) => {
       const info = vi.spyOn(h.log.logger, 'info');
       if (reason === 'capacity') {
-        h.domain.tasks.assign('AR', 'AR-1', 'cr', OWNER_ACTOR);
+        await h.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: 'AR-1' });
       } else if (reason === 'concurrency') {
         await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
           draft.team.limits.maxConcurrentAi = 1;

@@ -2017,14 +2017,13 @@ export class MockBackend {
     return { status: 202 };
   }
 
-  /** Open tasks the member is assigned to or has a session for, plus its live other sessions. */
+  /** What the member is working on now: open tasks and other chats it has a live session for. */
   private memberLoad(handle: string): number {
-    const keys = new Set(this.tasks.filter((t) => t.assignee === handle).map((t) => t.key));
-    for (const s of this.sessions)
-      if (s.member === handle && s.workItem.type === 'task') keys.add(s.workItem.taskKey);
+    const live = this.sessions.filter((s) => s.member === handle && this.isLive(s));
+    const keys = new Set(live.flatMap((s) => (s.workItem.type === 'task' ? [s.workItem.taskKey] : [])));
     return (
       this.tasks.filter((t) => keys.has(t.key) && isOpenTask(t)).length +
-      this.sessions.filter((s) => s.member === handle && s.workItem.type !== 'task' && this.isLive(s)).length
+      live.filter((s) => s.workItem.type !== 'task').length
     );
   }
 

@@ -102,7 +102,9 @@ Documentation map:
   wake-up, schedule run) passes the same checks, in this order: the project's AI master
   switch (`team.limits.aiEnabled`), for a task that a role which changes files has a repository
   to work in (`repo_required`), for a schedule run that the member's previous run ended, the
-  member's capacity, `maxConcurrentAi`, and the provider's plan usage against
+  member's capacity (the open tasks it has a running session for plus its other running
+  chats; finished sessions and bare assignments do not count, decision 19),
+  `maxConcurrentAi`, and the provider's plan usage against
   `pauseAbovePlanUsagePercent`. A refused hand-over or message wake-up is retried every 30 s
   while it is still valid; the task shows why it waits. Such a deferred start is kept in
   SQLite (`deferred_starts`) as well as in memory: the server loads the table back when it

@@ -32,7 +32,7 @@ export interface AdmissionRequest {
  * hand-over, message wake-up, schedule run) passes the same checks, in this order: the
  * project's AI master switch; for a task, that a role which changes files has a repository to
  * work in (`repo_required`: a person has to choose it, so waiting does not help); for a scheduled
- * run, the member's previous run has ended; the member's capacity (open tasks it carries plus its
+ * run, the member's previous run has ended; the member's capacity (open tasks it has a running session for plus its
  * other running chats); the concurrent AI sessions (`maxConcurrentAi`); the plan usage of the
  * member's provider. Decisions and the starts they allow are serialized. An automatic start
  * refused for a reason that can clear waits in the deferred-start store, which SQLite backs, and
@@ -68,25 +68,25 @@ export class Admission {
     return this.locks.run('ai-admission', fn);
   }
 
-  /** Open tasks a member carries (tasks it has a session for or is assigned to) plus its other running chats. */
+  /**
+   * What a member is working on now: the open tasks it has a running session for plus its other
+   * running chats. A finished session on an open task, or an assignment without a running
+   * session, does not count (decision 19).
+   */
   memberLoad(projectKey: string, handle: string, excludeTaskKey?: string): number {
-    const keys = new Set<string>();
+    const taskKeys = new Set<string>();
+    let chats = 0;
     for (const s of this.sessions.list(projectKey, { member: handle })) {
-      if (s.workItem.type === 'task') keys.add(s.workItem.taskKey);
+      if (!this.sessions.isRunning(s.id)) continue;
+      if (s.workItem.type !== 'task') chats++;
+      else if (s.workItem.taskKey !== excludeTaskKey) taskKeys.add(s.workItem.taskKey);
     }
-    for (const t of this.ctx.repos.tasks.listByAssignee(projectKey, handle)) keys.add(t.key);
-    if (excludeTaskKey) keys.delete(excludeTaskKey);
-    let load = 0;
-    for (const key of keys) {
+    let load = chats;
+    for (const key of taskKeys) {
       const task = this.ctx.repos.tasks.get(key);
       if (task && isOpenTask(task)) load++;
     }
-    return (
-      load +
-      this.sessions
-        .list(projectKey, { member: handle })
-        .filter((s) => s.workItem.type !== 'task' && this.sessions.isRunning(s.id)).length
-    );
+    return load;
   }
 
   /** Throws the refusal when the work must wait (see the class comment for the checks). */

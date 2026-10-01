@@ -1,5 +1,5 @@
 import type { ContextPackInput } from '../contracts';
-import { code, languageName, stageLabel } from './format';
+import { code, languageName, relationText, stageLabel } from './format';
 import type { Situation } from './work-item';
 
 /**
@@ -13,9 +13,15 @@ export function buildContinueMessage(input: ContextPackInput, situation: Situati
   if (!task) return null;
   const stage = situation.current ? stageLabel(situation.current) : code(task.stageId);
   const language = input.project.project.language;
+  const related = input.relatedSessions ?? [];
   return [
     'Your session was restarted.',
     `You are working on ${task.key} "${task.title}", now in stage ${stage}.`,
     `Check where you left off (git status in your working directory, and the task's comments and attachments in get_task), then carry on as usual, writing in ${languageName(language)} (${code(language)}), the project's language.`,
+    ...(related.length > 0
+      ? [
+          `Your other running sessions: ${related.map((s) => `${s.taskKey} (${relationText(s.relation)})`).join(', ')}; the standing is on the cards, so read them before you give direction.`,
+        ]
+      : []),
   ].join(' ');
 }

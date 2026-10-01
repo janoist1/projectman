@@ -32,11 +32,13 @@ import type {
 import { MANAGED_VM_UNAVAILABLE, openingTurnOrigin, PROVIDER_NOT_LOGGED_IN } from '../contracts';
 import type {
   AttachmentOperations,
+  CardRelation,
   ContextPackBuilder,
   ManagedVmAttestation,
   ManagedVmBoundary,
   MemberMemoryStore,
   MemberWorkspaceManager,
+  RelatedSession,
   RunnerEvent,
   RuntimeBoundary,
   SessionPolicy,
@@ -469,6 +471,37 @@ export class SessionOrchestrator {
         this.markEnded(existing.id, null);
       }
       return this.start(config, member, workItem, task, existing, messagesForFirstInput(opts.messages));
+    });
+  }
+
+  /**
+   * Stops a running task session and resumes its conversation at once, with `messages` as its first
+   * input (PM-184: a review made against a description that has changed is worthless, and the reviewer
+   * must not go on with it until its turn ends). The system prompt is built again. False, with nothing
+   * stopped, when the session does not run or cannot restart now (AI work off, the member on leave).
+   */
+  async restartWithMessages(projectKey: string, sessionId: string, messages: string[]): Promise<boolean> {
+    const found = this.find(sessionId);
+    if (!found || found.projectKey !== projectKey) return false;
+    return this.locks.run(sessionLockKey(projectKey, found.member, found.workItem), async () => {
+      const session = this.find(sessionId);
+      if (!session || !this.isRunning(session.id)) return false;
+      const config = await this.deps.projects.config(projectKey);
+      const member = memberOf(config, session.member);
+      if (member?.kind !== 'ai' || isOnLeave(member) || !config.team.limits.aiEnabled) return false;
+      const task =
+        session.workItem.type === 'task' ? this.deps.tasks.get(projectKey, session.workItem.taskKey) : null;
+      await this.deps.runner.stop(session.id);
+      this.markEnded(session.id, null);
+      await this.start(
+        config,
+        member,
+        session.workItem,
+        task,
+        this.find(sessionId),
+        messagesForFirstInput(messages),
+      );
+      return true;
     });
   }
 
@@ -948,6 +981,7 @@ export class SessionOrchestrator {
       member.handle,
       task,
     );
+    const relatedSessions = task ? this.relatedSessions(projectKey, member.handle, task) : [];
     const policy = buildSessionPolicy({
       config,
       role: member.role,
@@ -982,6 +1016,7 @@ export class SessionOrchestrator {
       sessionPolicy: policy,
       ...(sandbox ? { sandbox } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
+      ...(relatedSessions.length > 0 ? { relatedSessions } : {}),
     });
 
     // Configuration may change while login, worktree and memory preparation await I/O. So may the
@@ -1157,6 +1192,33 @@ export class SessionOrchestrator {
       messagesSent: messages.length,
       firstInput,
     };
+  }
+
+  /**
+   * The member's running sessions on the cards that belong with `task` (PM-184): its parent and its
+   * subtasks (`TaskService.family`), and the cards on the prerequisite links, in both directions. A
+   * card that belongs in several ways is named once, by the first. The task's own session is not one.
+   */
+  private relatedSessions(projectKey: string, member: string, task: Task): RelatedSession[] {
+    const related = new Map<string, CardRelation>();
+    for (const card of this.deps.tasks.family(projectKey, task.key))
+      related.set(card.key, card.key === task.parentKey ? 'parent' : 'subtask');
+    for (const link of task.links)
+      if (link.kind === 'prerequisite' && !related.has(link.ref)) related.set(link.ref, 'prerequisite');
+    for (const card of this.deps.tasks.list(projectKey))
+      if (
+        !related.has(card.key) &&
+        card.links.some((link) => link.kind === 'prerequisite' && link.ref === task.key)
+      )
+        related.set(card.key, 'prerequisite_of');
+    const found: RelatedSession[] = [];
+    for (const [taskKey, relation] of related) {
+      if (taskKey === task.key) continue;
+      const card = this.deps.tasks.find(projectKey, taskKey);
+      const session = card && this.findRunning(projectKey, member, { type: 'task', taskKey });
+      if (card && session) found.push({ taskKey, title: card.title, relation, state: session.state });
+    }
+    return found;
   }
 
   /** A promise for the session's first input: see `EnsureSessionResult.firstInput`. */

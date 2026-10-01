@@ -439,6 +439,8 @@ export function createDomain(opts: DomainOptions) {
   // Labels that notify the assignee and @mentions reach members as team messages.
   events.on('task_labels_notice', (notice) => messaging.labelNotice(notice));
   events.on('task_note_added', (note) => messaging.mentionNotice(note));
+  // A changed description reaches the sessions working the card; a reviewer restarts on it (PM-184).
+  events.on('task_description_changed', (change) => messaging.descriptionNotice(change));
   // A started session gets the messages waiting for it; waiting messages wake their recipient.
   events.on('session_started', (session) => delivery.deliverWaiting(session));
   events.on('session_input_released', (session) => delivery.deliverWaiting(session));

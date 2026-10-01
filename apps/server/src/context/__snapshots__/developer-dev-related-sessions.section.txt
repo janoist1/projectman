@@ -1,0 +1,4 @@
+## Your other running sessions
+- `AR-20` "Booking flow rework": the parent card, working
+- `AR-22` "Mail template fixes": a card that has this one as a prerequisite, idle
+These sessions are yours and run in parallel, and none sees the conversation of another. The standing is on the cards: read AR-21 with get_task (and the related card when it matters) before you give direction, and settle anything between your sessions with a note on the card.

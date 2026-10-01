@@ -60,6 +60,7 @@ describe('aiRoleDefaults', () => {
       const defaults = aiRoleDefaults(role);
       expect(defaults.permissionMode, role).toBe('auto');
       expect(defaults.approver, role).toBe(DEFAULT_NEW_MEMBER_APPROVER);
+      expect(defaults.approver, role).toBe('none');
     }
   });
   it('runs analysts, architects, leads, reviewers, communication and researchers two at a time on opus', () => {
@@ -99,6 +100,7 @@ describe('aiMemberDefaults', () => {
       instructions: '',
       model: 'opus',
       permissionMode: 'auto',
+      approver: 'none',
       capacity: 1,
     });
     expect(aiMemberDefaults('data_steward', [dataSteward])).not.toBe(

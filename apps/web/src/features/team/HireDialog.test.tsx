@@ -111,7 +111,7 @@ describe('HireDialog', () => {
     });
   });
 
-  it('shows Auto as the mode of a hire, for every role and for a Codex member too, asked like a person', async () => {
+  it('shows Auto as the mode of a hire, for every role and for a Codex member too, with nobody to ask', async () => {
     const project = mockProject();
     project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
     const fact = async (label: string) => (await screen.findByText(label)).parentElement!.textContent;
@@ -126,7 +126,7 @@ describe('HireDialog', () => {
           `${t('hire.permissionMode')}${t('permissionModes.auto')}`,
         );
         expect(await fact(t('hire.approver')), `${provider}: ${role}`).toBe(
-          `${t('hire.approver')}${t('permissionControls.approvers.human')}`,
+          `${t('hire.approver')}${t('permissionControls.approvers.none')}`,
         );
       }
     }

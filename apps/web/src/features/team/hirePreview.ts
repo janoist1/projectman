@@ -29,7 +29,7 @@ export function previewFor(
     model: match?.model ?? DEFAULT_PROVIDER_MODELS.claude,
     // The server gives every new member the same mode and approver, whatever the role or provider.
     permissionMode: defaults?.permissionMode ?? DEFAULT_PERMISSION_MODE,
-    approver: defaults?.approver ?? DEFAULT_NEW_MEMBER_APPROVER ?? 'human',
+    approver: defaults?.approver ?? DEFAULT_NEW_MEMBER_APPROVER,
     capacity: match?.capacity ?? 1,
     instructions: config
       ? [

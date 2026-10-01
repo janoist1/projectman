@@ -19,8 +19,8 @@ export interface AiRoleDefaults {
   model: string;
   /** Every new member starts in the default mode (Auto), whatever its role or provider. */
   permissionMode: PermissionMode;
-  /** Who answers when the CLI asks; absent: a person. The one default is `DEFAULT_NEW_MEMBER_APPROVER`. */
-  approver?: Approver;
+  /** Who answers when the CLI asks: nobody for a new member (`DEFAULT_NEW_MEMBER_APPROVER`). */
+  approver: Approver;
   capacity: number;
 }
 
@@ -44,7 +44,7 @@ function defaultsFor(capacity = 1): AiRoleDefaults {
     instructions: '',
     model: DEFAULT_PROVIDER_MODELS.claude,
     permissionMode: DEFAULT_PERMISSION_MODE,
-    ...(DEFAULT_NEW_MEMBER_APPROVER ? { approver: DEFAULT_NEW_MEMBER_APPROVER } : {}),
+    approver: DEFAULT_NEW_MEMBER_APPROVER,
     capacity,
   };
 }

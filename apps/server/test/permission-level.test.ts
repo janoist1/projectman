@@ -53,17 +53,16 @@ describe('the permission mode and the approver of an AI member (PM-164)', () => 
     h.domain.members.update('AR', handle, body, owner());
 
   describe('on hiring', () => {
-    it('is Auto for every role, and for a Codex member too, with no approver written', async () => {
+    it('is Auto with nobody to ask for every role, and for a Codex member too', async () => {
       h = await createDomainHarness();
       const sponsor = { ...owner(), sponsor: 'owner' };
       for (const role of ['developer', 'architect', 'code_review', 'qa'] as const) {
         const hired = await h.domain.members.hire('AR', { role }, sponsor);
-        expect(hired, role).toMatchObject({ permissionMode: 'auto' });
-        expect(hired, role).not.toHaveProperty('approver');
+        expect(hired, role).toMatchObject({ permissionMode: 'auto', approver: 'none' });
       }
       const codex = await h.domain.members.hire('AR', { role: 'developer', provider: 'codex' }, sponsor);
-      expect(codex).toMatchObject({ permissionMode: 'auto' });
-      expect(await view(codex.handle)).toMatchObject({ permissionMode: 'auto', approver: 'human' });
+      expect(codex).toMatchObject({ permissionMode: 'auto', approver: 'none' });
+      expect(await view(codex.handle)).toMatchObject({ permissionMode: 'auto', approver: 'none' });
     });
 
     it('may be done by an admin, who then cannot change the mode', async () => {

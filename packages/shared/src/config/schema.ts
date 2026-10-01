@@ -103,6 +103,19 @@ export const MaxConcurrentAi = z.number().int().min(1).max(20);
 /** A session's warning limit in tokens, as `limitTokens` counts them (PM-187). */
 export const WarnAboveSessionTokens = z.number().int().min(10_000).max(1_000_000_000);
 
+/**
+ * The message storm threshold of a card (PM-186): `count` team messages and notes within `minutes`
+ * minutes raise one warning to the owners.
+ */
+export const MessageBurst = z.object({
+  count: z.number().int().min(3).max(100),
+  minutes: z.number().int().min(1).max(240),
+});
+export type MessageBurst = z.infer<typeof MessageBurst>;
+
+/** The threshold of a project that does not set one: 10 messages and notes in 15 minutes. */
+export const DEFAULT_MESSAGE_BURST: MessageBurst = { count: 10, minutes: 15 };
+
 export const TeamLimits = z.object({
   /**
    * When false, no AI session starts or resumes in this project: automatic hand-overs,
@@ -122,6 +135,11 @@ export const TeamLimits = z.object({
    * (PM-187); the session keeps running. Absent: no warning.
    */
   warnAboveSessionTokens: WarnAboveSessionTokens.optional(),
+  /**
+   * How many team messages and notes on one card within how long make a message storm that is
+   * warned about (PM-186). Absent: `DEFAULT_MESSAGE_BURST`.
+   */
+  messageBurst: MessageBurst.optional(),
   tempWorkers: z
     .object({
       enabled: z.boolean().default(false),

@@ -82,7 +82,11 @@ import {
   validateProjectConfig,
   mergeTokenUsage,
   ALERT_SEEN_OPTION,
+  alertPayloadOf,
   limitTokens,
+  messageBurstAlertFor,
+  messageBurstOf,
+  messageBurstSince,
   usageTotal,
 } from '@projectman/shared';
 import type {
@@ -437,7 +441,56 @@ export class MockBackend {
     };
     this.timeline.push(event);
     this.emit({ type: 'timeline_appended', projectKey: event.projectKey, event: clone(event) });
+    if (taskKey && (type === 'team_message' || type === 'task_note')) this.checkMessageBurst(taskKey);
     return event;
+  }
+
+  /** The message storm rule (PM-186) on the card's conversation: one alert per storm, as the server. */
+  private checkMessageBurst(taskKey: string): void {
+    const burst = messageBurstOf(this.config.team.limits);
+    const now = new Date(nowIso());
+    const since = messageBurstSince(burst, now);
+    const alerts = this.inbox.flatMap((item) => {
+      const payload = item.taskKey === taskKey ? alertPayloadOf(item) : null;
+      return payload?.alert === 'message_burst' ? [{ open: item.state === 'open', at: payload.at }] : [];
+    });
+    const payload = messageBurstAlertFor({
+      taskKey,
+      burst,
+      now,
+      earlier: alerts,
+      entries: this.timeline
+        .filter(
+          (event) =>
+            event.taskKey === taskKey &&
+            event.createdAt >= since &&
+            (event.type === 'team_message' || event.type === 'task_note') &&
+            event.data.importedAuthor === undefined &&
+            event.data.importedAt === undefined,
+        )
+        .map((event) => ({
+          createdAt: event.createdAt,
+          actor: event.actor.handle,
+          to: Array.isArray(event.data.to) ? (event.data.to as string[]) : [],
+        })),
+    });
+    if (!payload) return;
+    this.upsertInbox({
+      id: mockId('inb'),
+      projectKey: fixtures.PROJECT_KEY,
+      kind: 'alert',
+      assignees: boundaryOwners(this.config),
+      source: this.owner,
+      sessionId: null,
+      taskKey,
+      title: `${payload.count} messages and notes on ${taskKey} in ${payload.minutes} minutes`,
+      body: null,
+      payload,
+      options: [ALERT_SEEN_OPTION],
+      state: 'open',
+      resolution: null,
+      createdAt: nowIso(),
+    });
   }
 
   setMemberState(handle: string, status: MemberView['status'], activity: string | null): void {

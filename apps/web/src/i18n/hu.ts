@@ -940,6 +940,10 @@ export const hu = {
         heading: 'Sok tokent használ egy munkamenet',
         body: '{member} munkamenete ({work}, indult: {started}) {counted} tokent használt; a figyelmeztetési határ {limit} token. A munkamenet fut tovább, nem állt meg.',
       },
+      message_burst: {
+        heading: 'Üzenetvihar egy kártyán',
+        body: 'A(z) {key} kártyán {minutes} perc alatt {count} üzenet és jegyzet született ({members}). Érdemes ránézni, nem pörög-e egy beszélgetés. Semmi nem állt meg.',
+      },
       work: {
         task: '{key} kártya',
         general: 'általános beszélgetés',
@@ -1547,6 +1551,12 @@ export const hu = {
         'Ha megadsz egy határt, és egy munkamenet fogyasztása eléri, egyszer jelzést kapsz a Rád vár listában. A munkamenet nem áll meg. A gyorsítótárból olvasott tokenek egytizedükkel számítanak.',
       warnAboveSessionTokens: 'Figyelmeztetés munkamenetenként e fölött (token)',
       warnAboveSessionTokensValue: '{count} token',
+      messageBurst: 'Üzenetvihar-jelzés',
+      messageBurstHelp:
+        'Ha egy kártyán ennyi csapatüzenet és jegyzet születik ennyi perc alatt (az emberek közti beszélgetést is beleértve), egyszer jelzést kapsz a Rád vár listában. Semmi nem áll meg.',
+      messageBurstCount: 'Üzenetek és jegyzetek száma',
+      messageBurstMinutes: 'Ennyi perc alatt',
+      messageBurstValue: '{count} üzenet {minutes} perc alatt',
       tempWorkers: 'Beugrók',
       tempWorkersOn: 'be · legfeljebb {max} · {role}',
       tempWorkersOff: 'ki',

@@ -34,6 +34,8 @@ export interface DomainEventMap {
   task_description_changed: { task: Task; actor: Actor };
   /** A task comment mentions members (never its author). */
   task_note_added: { event: TimelineEvent; mentions: string[] };
+  /** A team message or a note was recorded on a card (PM-186), imported comments included. */
+  task_talk_recorded: { event: TimelineEvent };
   /** A session's process started (a new or a resumed conversation). */
   session_started: Session;
   /** A session ended: it exited, was stopped, or failed (also to start). */

@@ -91,8 +91,22 @@ it.each(PROVIDERS)(
         expect(JSON.stringify(config ?? {})).not.toContain(join(home, 'attachments'));
       }
       // Never the whole server home: no rule or root names it, apart from the task's own directory.
+      // The sandbox's `denyRead` and `denyWrite` close the home (PM-153): a prohibition may name it,
+      // so those two lists are left out; everything else (`permissions.allow`, `allowRead`,
+      // `allowWrite`, `--add-dir`, any other argument) is checked as before.
+      const granting = argv.map((arg, i) => {
+        if (argv[i - 1] !== '--settings') return arg;
+        const settings = JSON.parse(arg);
+        const opened = { ...settings.sandbox?.filesystem };
+        delete opened.denyRead;
+        delete opened.denyWrite;
+        return JSON.stringify({
+          ...settings,
+          ...(settings.sandbox ? { sandbox: { ...settings.sandbox, filesystem: opened } } : {}),
+        });
+      });
       const homePattern = new RegExp(`${home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^"\\s)*]*`, 'g');
-      const named = argv
+      const named = granting
         .flatMap((arg) => arg.match(homePattern) ?? [])
         .map((path) => path.replace(/\/+$/, ''));
       for (const path of named)

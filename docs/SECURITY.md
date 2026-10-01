@@ -44,8 +44,21 @@ tenants into separate OS accounts or machines.
   session and a unique inbox waiter, never a caller-supplied session identifier.
   Exit revokes capabilities; MCP rechecks after body reception. Hooks reject
   non-loopback peers, nonlocal Host/Origin and proxy headers before body parsing.
-  MCP applies equivalent restrictions. Limits: API 5 MiB, hooks 32 MiB, MCP 1 MiB,
-  WebSocket frames 1 MiB. The executable refuses non-loopback listen addresses.
+  MCP applies equivalent restrictions. Limits: API 5 MiB (JSON), attachment upload 25 MB
+  per file (streamed, on its routes only), hooks 32 MiB, MCP 1 MiB, WebSocket frames
+  1 MiB. The executable refuses non-loopback listen addresses.
+- Task attachments live only under `PROJECTMAN_HOME/attachments`, behind the same cookie,
+  origin and no-store protection and the project, task and attachment id check on every
+  list, content, download, HEAD and delete; there is no static route. The size is counted
+  from the bytes received (the limit applies to chunked bodies too) and the access is
+  checked before the upload and again before it is published. Storage names are generated
+  (project key, task key, id), the uploaded name is sanitised metadata only; directories
+  are checked not to be symlinks, files are created exclusively and read without following
+  links, and only regular files of the recorded size are served. Only a PNG, JPEG, GIF,
+  WebP or PDF proven by its content is shown inline; everything else (HTML, SVG, renamed or
+  unknown files) is an `application/octet-stream` download. All responses carry
+  `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`,
+  `Cross-Origin-Resource-Policy: same-origin` and an encoded `Content-Disposition`.
 - Git/gh and agents receive argument arrays. Task branches are sanitized; default
   branches pass git validation and fetch uses an option terminator. Repository
   paths stay inside their workspace; task worktrees stay inside their project

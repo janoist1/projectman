@@ -74,11 +74,34 @@ Documentation map:
 - **Task** — key (`AR-21`), title, markdown description, stage, status, assignee (the work
   stage owner), repo, labels, links (PRs with their attributed authors, branches, issues,
   prerequisites), visibility (`internal` or `shared` with clients), optional parent (one level
-  of subtasks), and comments with @mentions. Tasks can be imported with their original dates.
+  of subtasks), comments with @mentions and **attachments**. Tasks can be imported with their original dates.
   A task works in one repository: its own `repo`, else the project's only one when it has
   exactly one (`effectiveRepo`, the one rule in `packages/shared` that placement, the command
   policy, the context pack and the web read). The repo can be set later (task drawer, REST
   `PATCH`, `update_task`), but not while a session of the task runs.
+- **Attachment** — a file (at most `MAX_ATTACHMENT_BYTES`, 25 MB) attached to a task, kept in
+  `PROJECTMAN_HOME/attachments` and reached only through the protected REST routes
+  (`routes.taskAttachments` and its `content`/`download` children, a multipart upload of one
+  file per request, never buffered whole); there is no public static route. Who may read, upload
+  and delete is one rule in `packages/shared` (`canReadAttachments`, `canUploadAttachment`,
+  `canDeleteAttachment`, with `canSeeTask` underneath): project membership always; a client only
+  on a shared task; a viewer only reads; AI members and the other workers upload; the uploader or
+  a human owner or admin deletes. The attachments service (`domain/attachments`, the contract in
+  `contracts/attachments.ts`) takes a stream, so REST and a later MCP tool share one size,
+  storage and access check, and judges the member against the current roster and the task's
+  current visibility again just before an upload is published. The media type is proven from the
+  file's content (PNG, JPEG, GIF, WebP and PDF may be shown inline; HTML, SVG, a renamed or an
+  unknown file is always an `application/octet-stream` download); every response is `nosniff`,
+  sandboxed by CSP and has a safely encoded `Content-Disposition`; the uploaded name is
+  sanitised metadata and never a path. The file system and SQLite share no transaction, so a row
+  has a durable state: `pending` (being written), `ready` (the only readable one) and `deleting`
+  (the recorded intent to delete, with who asked). A deletion removes the file first and then
+  the row and the audit event together, a failure leaves it `deleting` (not readable, finished by
+  the next try or the next start), and the start of the server finishes what a stop left half
+  done. `attachment_added` and `attachment_deleted` stay in the task's timeline with the file
+  name; the websocket event `task_attachments_changed` carries only the task key and reaches a
+  client only while the task is shared with them. Cancelling a task keeps its attachments, and
+  no task is ever hard-deleted (deleting one for good would have to remove its files too).
 - **Work item and session** — every AI member works in a **fresh session per work item**:
   member × task, member × meeting or member × general chat (decision 5). A task session lives
   through the whole pipeline; later messages about the task resume it. Persistent identity
@@ -247,7 +270,8 @@ claude | codex ── transcript JSONL ────────────▶ r
 - `domain/` — domain services: projects and roles; tasks (`tasks/`: CRUD, labels, stage moves
   and approvals); members and profiles; sessions; admission (`admission/`: checks, deferred
   starts, task starts with temp workers, stage hand-overs, message wake-ups); schedules;
-  messaging (`messaging/`: send, delivery, receipts); inbox; invitations; the board; GitHub
+  messaging (`messaging/`: send, delivery, receipts); attachments (`attachments/`: the service,
+  file storage, content check, file names); inbox; invitations; the board; GitHub
   sync and pull request records; the team tools handler; domain events.
 - `api/`, `auth/`, `ws/` — REST routes, login and invitations, the websocket hub.
 - `app.ts` builds the application; `index.ts` reads the environment and starts it.
@@ -270,11 +294,14 @@ secret                    cookie signing key
 customization/            git repo: projects/<KEY>/{project,team,pipeline}.yaml
 memory/<KEY>/<handle>.md  AI member memory (durable learnings)
 worktrees/<KEY>/…         git worktrees created for tasks
+attachments/<KEY>/<TASK>/<id>   task attachments: private (0700 directories, 0600 files),
+                          named by the generated id (the uploaded name lives only in SQLite);
+                          a file still being written is <id>.part
 ```
 
 SQLite tables: `users`, `auth_sessions`, `invitations`, `projects`, `counters`, `tasks`,
 `task_links`, `timeline_events`, `sessions`, `team_messages`, `inbox_items`, `member_state`,
-`schedule_runs`, `deferred_starts`. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
+`schedule_runs`, `deferred_starts`, `attachments`. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
 the server refuses a database a newer build migrated.
 
 ## GitHub

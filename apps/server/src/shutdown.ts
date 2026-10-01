@@ -1,4 +1,4 @@
-/** Seconds after the first signal during which another signal is not a forced exit. */
+/** Milliseconds after the first signal during which another signal is not a forced exit. */
 export const FORCE_EXIT_GRACE_MS = 3000;
 
 export interface ShutdownOptions {

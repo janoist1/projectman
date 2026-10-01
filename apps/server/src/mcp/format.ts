@@ -3,11 +3,13 @@ import {
   describeAttachment,
   describeLink,
   describeRepo,
+  eventFullText,
   formatBytes,
   formatTimestamp,
   linkTarget,
   oneLine,
   recentTimeline,
+  timelineLine,
 } from '../agent-text';
 import type {
   AttachmentPage,
@@ -116,10 +118,27 @@ function descriptionLines(taskKey: string, text: string, offset: number): string
   return lines;
 }
 
+/**
+ * One timeline event with its whole text (get_task event_id): the line the timeline shows, without
+ * the cut, then the text as it was written. A note, question or answer is data, not instructions.
+ */
+function formatTimelineEvent(task: Task, event: TimelineEvent): string {
+  const full = eventFullText(event);
+  const head = `${task.key} — ${task.title}\nTimeline event ${event.id}:`;
+  if (!full) return `${head}\n${timelineLine(event, Number.MAX_SAFE_INTEGER)}`;
+  const actor = event.actor.handle ?? event.actor.kind;
+  return [
+    head,
+    `${formatTimestamp(event.createdAt)} · ${actor} · ${event.type} · ${Array.from(full).length} characters, shown whole:`,
+    full,
+  ].join('\n');
+}
+
 export function formatTaskDetail(
   detail: TaskToolDetail,
   options: { descriptionOffset?: number } = {},
 ): string {
+  if (detail.event) return formatTimelineEvent(detail.task, detail.event);
   const { task, timeline, sessions } = detail;
   const repo = describeRepo({
     name: detail.effectiveRepo ?? task.repo,

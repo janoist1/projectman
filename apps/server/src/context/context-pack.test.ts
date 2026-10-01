@@ -531,6 +531,17 @@ describe('context pack builder', () => {
     expect(pack.appendSystemPrompt).toContain(source.member.handle);
   });
 
+  it('shows a long note cut, with the event id to read it whole with get_task (PM-191)', () => {
+    const long = event('2026-09-28T11:00:00.000Z', 'fe-1', 'task_note', { text: 'z'.repeat(2000) });
+    const short = event('2026-09-28T11:01:00.000Z', 'fe-1', 'task_note', { text: 'short note' });
+    const brief = builder.build(input({ timeline: [long, short] })).initialMessage!;
+    expect(brief).toContain(`note: ${'z'.repeat(279)}…`);
+    expect(brief).not.toContain('z'.repeat(281));
+    expect(brief).toContain(`(cut, 2000 chars; read it whole: get_task task_key AR-21, event_id ${long.id})`);
+    expect(brief).toContain('note: short note');
+    expect(brief.split('read it whole:')).toHaveLength(2);
+  });
+
   it('writes a brief only for known tasks', () => {
     const general = builder.build(input({ workItem: { type: 'general' }, task: null, stage: null }));
     expect(general.initialMessage).toBeNull();
@@ -923,7 +934,9 @@ describe('kick-off brief', () => {
     expect(brief).toContain('Note 39');
     expect(brief).not.toContain('Note 24 ');
     const noteLine = brief.split('\n').find((l) => l.includes('Note 39')) ?? '';
-    expect(noteLine.length).toBeLessThan(360);
+    // The text is cut to 280 characters; the rest is the line's prefix and the cut hint (PM-191).
+    expect(noteLine.length).toBeLessThan(440);
+    expect(noteLine).toContain('read it whole: get_task task_key AR-21, event_id ');
   });
 
   it('names the labels of label changes in the timeline', () => {

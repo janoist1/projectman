@@ -159,7 +159,33 @@ function repoName(value: unknown, style: TextStyle): string {
   return typeof value === 'string' && value ? style.code(value) : 'none';
 }
 
-/** `- 2026-09-28 08:06 UTC · fe-1: moved it from Ready to Development` */
+/** The data field that holds the whole text of the events whose line shows only the start of it. */
+const FULL_TEXT_FIELD: Partial<Record<TimelineEvent['type'], string>> = {
+  task_note: 'text',
+  question_asked: 'question',
+  question_answered: 'answer',
+};
+
+/**
+ * The whole text of a note, a question or an answer as it was written (line breaks kept), or
+ * null for an event without such a text. The timeline lines show it shortened (PM-191).
+ */
+export function eventFullText(event: TimelineEvent): string | null {
+  const field = FULL_TEXT_FIELD[event.type];
+  const value = field ? event.data[field] : undefined;
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+/** How to read the whole text of an event with get_task. */
+export function eventReadHint(event: TimelineEvent): string {
+  const task = event.taskKey ? `task_key ${event.taskKey}, ` : '';
+  return `get_task ${task}event_id ${event.id}`;
+}
+
+/**
+ * `- 2026-09-28 08:06 UTC · fe-1: moved it from Ready to Development`. A note, question or answer
+ * that was shortened says so and how to read the rest.
+ */
 export function timelineLine(
   event: TimelineEvent,
   textLimit: number,
@@ -167,7 +193,10 @@ export function timelineLine(
   undelivered?: ReadonlySet<string>,
 ): string {
   const actor = event.actor.handle ? style.code(event.actor.handle) : event.actor.kind;
-  return `- ${formatTimestamp(event.createdAt)} · ${actor}: ${describeEvent(event, textLimit, style, undelivered)}`;
+  const line = `- ${formatTimestamp(event.createdAt)} · ${actor}: ${describeEvent(event, textLimit, style, undelivered)}`;
+  const full = eventFullText(event);
+  const length = full ? Array.from(full.replace(/\s+/g, ' ')).length : 0;
+  return length > textLimit ? `${line} (cut, ${length} chars; read it whole: ${eventReadHint(event)})` : line;
 }
 
 export interface TimelineOptions {

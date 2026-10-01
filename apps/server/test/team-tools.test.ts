@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { questionPayloadOf } from '@projectman/shared';
 import type { TaskStatus } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
+import { TEAM_TOOLS } from '../src/mcp';
 import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -245,6 +246,25 @@ describe('team tools', () => {
     expect(detail.task.key).toBe('AR-1');
     expect(detail.sessions).toHaveLength(1);
     expect((await toolError(h.domain.teamTools.getTask(dev, { taskKey: 'AR-99' }))).code).toBe('not_found');
+  });
+
+  it('get_task shows a long note cut, and event_id returns the whole text (PM-191)', async () => {
+    const reviewer: ToolContext = { ...dev, member: 'cr', sessionId: 'ses_cr' };
+    const note = `Measured values:\n${'0123456789'.repeat(200)}`;
+    await h.domain.teamTools.updateTask(reviewer, { taskKey: 'AR-1', note });
+
+    const getTask = TEAM_TOOLS.find((t) => t.name === 'get_task')!;
+    const read = (args: Record<string, unknown>) =>
+      getTask.run({ ctx: dev, args: { task_key: 'AR-1', ...args }, handler: h.domain.teamTools });
+    const line = (await read({})).split('\n').find((l) => l.includes('note: Measured'))!;
+    const id = /event_id (\S+)\)/.exec(line)![1]!;
+    expect(line).toContain('(cut, 2017 chars; read it whole: get_task task_key AR-1, event_id ');
+    expect(line).not.toContain(note.slice(0, 400));
+
+    const whole = await read({ event_id: id });
+    expect(whole).toContain(`shown whole:\n${note}`);
+
+    expect((await toolError(read({ event_id: 'evt_nope' }))).code).toBe('not_found');
   });
 
   it("get_task names the caller's messages that are not delivered yet, and only those", async () => {

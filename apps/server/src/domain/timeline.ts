@@ -40,6 +40,11 @@ export class TimelineService {
     return event;
   }
 
+  /** One event of a project, or null. */
+  get(projectKey: string, id: string): TimelineEvent | null {
+    return this.ctx.repos.timeline.get(projectKey, id);
+  }
+
   /** Most recent events, oldest first. */
   list(projectKey: string, opts: { taskKey?: string; limit?: number } = {}): TimelineEvent[] {
     return this.ctx.repos.timeline.list(projectKey, opts);

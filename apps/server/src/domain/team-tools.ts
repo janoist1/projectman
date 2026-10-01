@@ -339,11 +339,17 @@ export class TeamToolsService implements TeamToolsHandler {
     });
   }
 
-  async getTask(ctx: ToolContext, args: { taskKey: string }): Promise<TaskToolDetail> {
+  async getTask(ctx: ToolContext, args: { taskKey: string; eventId?: string }): Promise<TaskToolDetail> {
     return this.guard(async () => {
       const config = await this.caller(ctx);
       const taskKey = this.validTaskKey(ctx, args.taskKey);
       const detail = this.tasks.detail(ctx.projectKey, taskKey, 50);
+      if (args.eventId !== undefined) {
+        const event = this.timeline.get(ctx.projectKey, args.eventId);
+        if (!event || event.taskKey !== taskKey)
+          throw new TeamToolError('not_found', `${taskKey} has no timeline event ${args.eventId}.`);
+        return { ...detail, event };
+      }
       const attachments = await this.attachments.list(ctx.projectKey, taskKey, aiActor(ctx.member));
       return {
         ...detail,

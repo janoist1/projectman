@@ -7,6 +7,7 @@ import type {
   Task,
   TaskDetail,
   TaskStatus,
+  TimelineEvent,
   Visibility,
   WorkItemRef,
   BoundaryRequest,
@@ -61,6 +62,8 @@ export interface TaskToolDetail extends TaskDetail {
    * timeline lines say that the full text is on its way (PM-180).
    */
   undeliveredMessageIds?: string[];
+  /** The timeline event asked for by id (get_task event_id): its whole text is shown instead of the task. */
+  event?: TimelineEvent;
 }
 
 /** A page of a task's readable attachments, oldest first. */
@@ -145,8 +148,11 @@ export interface TeamToolsHandler {
   }>;
   /** list_members: roster with handles, roles and status. */
   listMembers(ctx: ToolContext): Promise<MemberView[]>;
-  /** get_task: task with recent timeline, and where its work happens. */
-  getTask(ctx: ToolContext, args: { taskKey: string }): Promise<TaskToolDetail>;
+  /**
+   * get_task: task with recent timeline, and where its work happens. With `eventId`, the detail
+   * also carries that event of the task (not_found when the task has no such event).
+   */
+  getTask(ctx: ToolContext, args: { taskKey: string; eventId?: string }): Promise<TaskToolDetail>;
   /**
    * update_task: rewrite the title or description, set or clear the repository, add or remove
    * labels (under the labels' rules), add a note, move stage (gates enforced). Everything else is

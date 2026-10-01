@@ -1,0 +1,17 @@
+#cloud-config
+# First boot of the managed VM (PM-137), for `multipass launch --cloud-init`. Only what must exist
+# before bootstrap.sh runs: the admin's ssh key and the packages bootstrap.sh needs anyway.
+# Everything else is bootstrap.sh's job, so a rented Ubuntu server without cloud-init gets the
+# same machine by running that script alone. mac-multipass.sh replaces the key placeholder with
+# the PUBLIC key file you name; no private key, token or password goes in here.
+ssh_authorized_keys:
+  - __SSH_PUBLIC_KEY__
+ssh_pwauth: false
+disable_root: true
+package_update: true
+packages:
+  - ca-certificates
+  - curl
+  - git
+  - nftables
+  - xz-utils

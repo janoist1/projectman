@@ -24,7 +24,9 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
    QA → client test → merge → release: bad code is not worth deploying.
 7. **Gatekeeping can be delegated** (release and other approvals) to other humans; an AI
    never approves; changing the release approvers is owner-only. _Refined by 16 and 17:
-   approvals are labels only humans may set; release approval is a duty._
+   approvals are labels only humans may set; release approval is a duty. Decision 26 keeps
+   this unchanged for gates and releases and adds a separate kind of request, to leave the
+   machine._
 8. **Customizations live in a separate git repository** (independent from the app
    source): every change is a commit; the main admin can revert.
 9. **Our own database is the source of truth for tasks.** GitHub Projects would constrain
@@ -74,6 +76,8 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     old custom-role YAML continue loading, with in-memory duty defaults. This supersedes
     decision 14's hard-coded holder restrictions and prompt responsibilities. Meetings and
     monitoring execution remain future work; their attachment metadata is already defined.
+    _Decision 26 leaves the duties, gates and human-only approvals as they are; a duty for the
+    leader's part in exit requests is an addition (PM-139)._
 17. **Meaningful labels replace checks and gate condition types.** Approved by the owner on
     2026-09-30 (`docs/design/labels.md`). The fixed checks (code review, security review,
     QA, client test with five states) and the three gate condition types mirrored one kind
@@ -108,7 +112,9 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     - Release approval needs the release approval duty; a label any human may set does not
       pass a release gate.
     - Codex members cannot run in `bypassPermissions` mode; routine steps in their own
-      worktree are allowed by the server's command rule (PM-77).
+      worktree are allowed by the server's command rule (PM-77). _Differs only in the
+      managed VM profile (decision 26), and only once its boundary is verified (PM-141); the
+      legacy profile keeps this rule._
     - Watchdog alerts, prioritisation questions and release news follow duties
       (`monitoring`, `prioritization`, `client_communication`), not role names.
     - The invariants refuse duplicate repository names and column ids.
@@ -125,7 +131,10 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
 21. **The integrating session pushes `main` after each verified merge.** Decided by the owner
     on 2026-09-30 (review question 12). Cloud sessions then start from the current state.
     Agents and workstreams still commit on their own branch and do not push. The repository
-    is public, so whatever reaches `main` is published.
+    is public, so whatever reaches `main` is published. _Differs only in the managed VM
+    profile (decision 26): members there may publish their own task branches through a
+    restricted gate and a separate GitHub identity, never `main` (PM-142); everywhere else
+    agents do not push._
 22. **One word per thing in the Hungarian UI.** Decided by the owner on 2026-10-01, answering
     the reviewer's question on PM-96. A session is a "munkamenet" (not "session") and a
     pipeline stage is a "lépés" (not "szakasz"). Developer words stay out of plain UI text:
@@ -142,3 +151,32 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     although sandboxed commands then also reach the live instance's port on the same machine.
     The live instance stays protected by its login and the per-session tokens of the MCP and
     hook endpoints; the question goes away once the server runs on its own machine (PM-45).
+    _Decision 25 replaces the strict native sandbox direction this exception belonged to; in
+    the managed VM the workers' loopback access is the one documented in `docs/VM.md`._
+25. **The work moves to the virtual-machine direction.** Decided by the owner on 2026-10-01
+    (PM-135, "Átállás a VM-es irányra"). The remaining parts of the old strict native sandbox
+    direction stop: further work on PM-128, PM-129, PM-130, PM-132 and PM-136 ends, and what
+    they already produced stays. The PM-126 procedure and the PM-127 provider-neutral policy
+    model stay. PM-134's content on `main` is not withdrawn and not activated: its activation
+    still waits for the owner's earlier answer. The VM is built first as a reproducible guest on
+    the owner's Mac, later from the same files on a Linux server (PM-137, `docs/VM.md`); it is
+    not a migration of the live instance, which needs its own approval (PM-143).
+26. **Protected control, free workspace.** Decided by the owner on 2026-10-01 (PM-135, "Védett
+    vezérlés, szabad munkatér"). Inside the VM the daily work of the AI members is free; the live
+    projectman, its data (database, cookie secret, audit, logs, other members' tokens) and the
+    rules for what may leave the machine are protected separately, by the system and not by the
+    workers' cooperation. The technical plan (PM-135) works this out as: a protected service and
+    system-managed egress rules; unprivileged, per-member workers with no general sudo and no
+    shared home; the protected launcher and network gate (PM-140). The plan's consequences for
+    earlier decisions, recorded here so the differences are exact and not silent:
+    - Decisions 7 and 16 stand: gates and release approval stay human-only, and an AI never
+      approves. What is added is a typed request for an exit permission (leaving the machine),
+      with an audit trail (PM-139). Who decides it first, and the owner's categories, are
+      decided on that card; nothing here pre-decides them, and nothing is ever allowed
+      automatically.
+    - Decision 19 (no `bypassPermissions` for Codex, command-by-command rule) and decision 21
+      (agents do not push) are different only in the **new managed VM profile**, only behind a
+      verified boundary (readiness report of `docs/VM.md`) and only once the cards that build
+      them are done (PM-141, PM-142). In every other profile they apply as before.
+    - Old `permissionMode` values are never migrated to a freer mode automatically; the VM
+      profile and the delegation rights are owner-only settings.

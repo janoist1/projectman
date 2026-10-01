@@ -19,6 +19,7 @@ Documentation map:
 | [design/labels.md](design/labels.md), [design/duties.md](design/duties.md) | labels and gates; roles as duty bundles (reference, built)          |
 | [design/phase2.md](design/phase2.md)                                       | the phase 2 proposal (meetings, retro loop, "Rendszer", notices)    |
 | [GITHUB.md](GITHUB.md), [SECURITY.md](SECURITY.md), [DEPLOY.md](DEPLOY.md) | GitHub integration; threat model and protections; server deployment |
+| [VM.md](VM.md)                                                             | the managed VM profile: build, readiness report, trial, restore     |
 
 ## Hard constraints
 
@@ -332,6 +333,29 @@ permission is rewritten or classified as implicitly versus explicitly chosen.
 
 The existing PM-134 Claude shell sandbox remains a separate legacy setting. This migration
 preserves it and does not certify it as the strict filesystem and network boundary.
+
+## Managed VM profile (PM-137, part of PM-135)
+
+The running boundary of the VM direction (decisions 25, 26) is **outside** the app and measured:
+`deploy/vm/` builds a Linux guest from a root-managed profile (`profile.env`, one source for
+`bootstrap.sh` and `verify.sh`), and the app only consumes a result. The pieces:
+
+- **Protected side**: the service account (`projectman`, uid 19000), the app and CLIs owned by root,
+  `PROJECTMAN_HOME` (database, cookie secret, attachments, memory, worktrees), the logs, and the
+  boundary settings (`/etc/projectman`, the nftables egress table `projectman_gate`, the units).
+  None of it is writable by the workers; the data is not readable by them.
+- **Free side**: one unprivileged account per member, `pmw-<handle>` (uids 20000–20999, own group
+  and home under `/var/lib/projectman-work`). The protected launcher that starts a session as such
+  an account, and the domain-level network gate, are PM-140; per-member workstations are PM-138.
+  Until then the runner starts the CLIs as the service, which the egress rules confine too.
+- **Contract**: `packages/shared/src/deploy/vm-readiness.ts` lists the checks (version, worker
+  privileges, protected paths, host isolation, network gate, service), which are required, and the
+  one verdict rule `evaluateVmReadiness()`. `verify.sh` writes a report in that shape;
+  `scripts/vm-readiness.ts` prints the verdict. The server does not read the report yet: PM-140 and
+  PM-143 consume it, and a start path may refuse to run a managed-VM profile without a ready report.
+  A flag such as `VM=true` is never an input; the report is strict and a missing check fails.
+
+Details, the manual trial and backup/restore are in [VM.md](VM.md).
 
 ## GitHub
 

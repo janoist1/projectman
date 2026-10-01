@@ -14,6 +14,41 @@ export function approverOf(member: Pick<PermissionFields, 'approver'>): Approver
   return member.approver ?? 'human';
 }
 
+/** The part of a session the permission rules read: an owner's settings for that session only (PM-170). */
+export interface SessionPermissionFields {
+  permissionModeOverride?: PermissionMode;
+  approverOverride?: Approver;
+}
+
+/** Where a setting that applies to a session comes from: its member, or the session's own. */
+export type PermissionSource = 'member' | 'session';
+
+export interface EffectiveSessionPermissions {
+  /** The CLI mode the session runs in (absent only for a member without one, which reads as `default`). */
+  permissionMode: PermissionMode | undefined;
+  approver: Approver;
+  source: { mode: PermissionSource; approver: PermissionSource };
+}
+
+/**
+ * The permission settings that apply to a session (PM-170): the session's own, set by an owner,
+ * else its member's. One rule for the server (every start and resume, the permission inbox) and
+ * the web (the session header). A session of a member that is gone has only its own settings.
+ */
+export function effectiveSessionPermissions(
+  member: PermissionFields | null | undefined,
+  session: SessionPermissionFields,
+): EffectiveSessionPermissions {
+  return {
+    permissionMode: session.permissionModeOverride ?? member?.permissionMode,
+    approver: session.approverOverride ?? approverOf(member ?? {}),
+    source: {
+      mode: session.permissionModeOverride ? 'session' : 'member',
+      approver: session.approverOverride ? 'session' : 'member',
+    },
+  };
+}
+
 /** The member still runs in the historical "everything allowed" mode, which an owner can no longer pick. */
 export function isLegacyBypass(member: Pick<PermissionFields, 'permissionMode'>): boolean {
   return member.permissionMode === 'bypassPermissions';

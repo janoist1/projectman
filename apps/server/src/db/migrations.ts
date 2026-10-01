@@ -412,5 +412,18 @@ export const migrations: Migration[] = [
       );
       CREATE INDEX egress_allowances_member ON egress_allowances(project_key, member, host, port);`,
   },
+  {
+    version: 17,
+    name: 'permission settings of a session',
+    // An owner's permission settings for one session (PM-170): the CLI mode and who answers when it
+    // asks. NULL is the member's setting, which every older row and every new session has; resumes
+    // use the same row, so they keep it. `permission_restart_pending`: a new mode waits for the
+    // session's next idle moment; `permission_grants_lost`: that restart dropped what was allowed
+    // for the session.
+    sql: `ALTER TABLE sessions ADD COLUMN permission_mode TEXT;
+      ALTER TABLE sessions ADD COLUMN approver TEXT;
+      ALTER TABLE sessions ADD COLUMN permission_restart_pending INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE sessions ADD COLUMN permission_grants_lost INTEGER NOT NULL DEFAULT 0;`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

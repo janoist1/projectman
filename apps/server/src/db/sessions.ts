@@ -1,4 +1,4 @@
-import { DEFAULT_AGENT_PROVIDER } from '@projectman/shared';
+import { Approver, DEFAULT_AGENT_PROVIDER, SelectablePermissionMode } from '@projectman/shared';
 import type { AgentProvider, ExecutionProfile, Session, SessionState, WorkItemRef } from '@projectman/shared';
 import type { Statement } from 'better-sqlite3';
 import type { Db } from './database';
@@ -19,6 +19,10 @@ interface SessionRow {
   started_at: string;
   last_activity_at: string;
   ended_at: string | null;
+  permission_mode: string | null;
+  approver: string | null;
+  permission_restart_pending: number;
+  permission_grants_lost: number;
 }
 
 /** Column encoding of a work item: (type, ref). */
@@ -57,6 +61,12 @@ const toSession = (r: SessionRow): Session => ({
   startedAt: r.started_at,
   lastActivityAt: r.last_activity_at,
   endedAt: r.ended_at,
+  ...(SelectablePermissionMode.safeParse(r.permission_mode).success
+    ? { permissionModeOverride: r.permission_mode as SelectablePermissionMode }
+    : {}),
+  ...(Approver.safeParse(r.approver).success ? { approverOverride: r.approver as Approver } : {}),
+  ...(r.permission_restart_pending ? { permissionRestartPending: true as const } : {}),
+  ...(r.permission_grants_lost ? { permissionGrantsLost: true as const } : {}),
 });
 
 export type SessionPatch = Partial<
@@ -73,9 +83,19 @@ export type SessionPatch = Partial<
     | 'lastActivityAt'
     | 'endedAt'
   >
->;
+> & {
+  /** The session's own permission settings (PM-170); null goes back to the member's. */
+  permissionModeOverride?: SelectablePermissionMode | null;
+  approverOverride?: Approver | null;
+  permissionRestartPending?: boolean;
+  permissionGrantsLost?: boolean;
+};
 
 const COLUMNS: Record<keyof SessionPatch, string> = {
+  permissionModeOverride: 'permission_mode',
+  approverOverride: 'approver',
+  permissionRestartPending: 'permission_restart_pending',
+  permissionGrantsLost: 'permission_grants_lost',
   claudeSessionId: 'claude_session_id',
   provider: 'provider',
   cwd: 'cwd',
@@ -195,7 +215,8 @@ export function createSessionRepository(db: Db) {
           statement = db.prepare(`UPDATE sessions SET ${set} WHERE id = ?`);
           updates.set(set, statement);
         }
-        statement.run(...entries.map(([, v]) => v), id);
+        // SQLite binds no booleans: the flags are stored as 0 and 1.
+        statement.run(...entries.map(([, v]) => (typeof v === 'boolean' ? Number(v) : v)), id);
       }
       return get(id);
     },

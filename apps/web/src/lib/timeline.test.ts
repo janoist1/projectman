@@ -88,6 +88,31 @@ it.each([
   );
 });
 
+it('describes an owner changing a session’s permission settings, from what to what (PM-170)', () => {
+  const event = (data: Record<string, unknown>): TimelineEvent => ({
+    ...creation,
+    type: 'session_permission_changed',
+    actor: { kind: 'human', handle: 'owner' },
+    data: { member: 'dev', ...data },
+  });
+  const mode = t('timeline.events.session_permission_mode', {
+    member: 'dev',
+    from: t('permissionModes.auto'),
+    to: t('permissionModes.plan'),
+  });
+  expect(describeEvent(event({ field: 'mode', from: 'auto', to: 'plan', restart: true }), context).text).toBe(
+    t('timeline.events.session_permission_restart', { change: mode }),
+  );
+  const approver = t('timeline.events.session_permission_approver', {
+    member: 'dev',
+    from: t('permissionControls.approvers.none'),
+    to: t('permissionControls.approvers.human'),
+  });
+  expect(
+    describeEvent(event({ field: 'approver', from: 'none', to: 'human', reset: true }), context).text,
+  ).toBe(t('timeline.events.session_permission_reset', { change: approver }));
+});
+
 it('shows the AI decider reason as a detail, and an escalation to a person', () => {
   const resolved: TimelineEvent = {
     ...creation,

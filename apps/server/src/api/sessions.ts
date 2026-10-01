@@ -6,12 +6,13 @@ import {
   SendMessageRequest,
   SendTeamMessageRequest,
   TaskKey,
+  UpdateSessionRequest,
 } from '@projectman/shared';
 import type { Session, SessionDetail, TeamMessagesView } from '@projectman/shared';
 import { notFound } from '../domain';
 import type { Domain } from '../domain';
 import { canSeeTask, teamMessageMember } from '../domain/visibility';
-import { requireAccess } from './context';
+import { actorOf, requireAccess } from './context';
 import { parseBody } from './validation';
 
 type ProjectParams = { Params: { key: string } };
@@ -31,6 +32,17 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
     const { key, sessionId } = request.params;
     await requireAccess(domain, request, key, { internal: true });
     return domain.sessions.detail(key, sessionId);
+  });
+
+  /**
+   * An owner sets the session's own permission mode and approver (PM-170); `null` goes back to the
+   * member's. Nobody else may: not an admin, and not an AI member (which has no web access).
+   */
+  app.patch<SessionParams>(routes.session(':key', ':sessionId'), async (request): Promise<Session> => {
+    const { key, sessionId } = request.params;
+    const access = await requireAccess(domain, request, key, { minimum: 'owner' });
+    const body = parseBody(UpdateSessionRequest, request.body);
+    return domain.sessions.updatePermissions(key, sessionId, body, actorOf(access));
   });
 
   /** A human writes into the session (plain text); a stopped session is resumed for it. */

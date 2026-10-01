@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AgentProvider, MemberHandle } from './member';
+import { AgentProvider, Approver, MemberHandle, SelectablePermissionMode } from './member';
 import { TaskKey } from './task';
 
 /**
@@ -48,5 +48,23 @@ export const Session = z.object({
   startedAt: z.string(),
   lastActivityAt: z.string(),
   endedAt: z.string().nullable(),
+  /**
+   * The session's own permission mode (PM-170), set by an owner in place of the member's. Absent:
+   * the member's mode. Resumes of the session keep it; a new session starts without it. The value
+   * that applies is `effectiveSessionPermissions`.
+   */
+  permissionModeOverride: SelectablePermissionMode.optional(),
+  /** Who answers when the CLI asks, for this session only (PM-170); absent: the member's approver. */
+  approverOverride: Approver.optional(),
+  /**
+   * The permission mode changed while the session was in a turn: it restarts with its conversation
+   * (`--resume`) at its next idle moment, and takes the new mode from then on.
+   */
+  permissionRestartPending: z.literal(true).optional(),
+  /**
+   * The restart for a new permission mode dropped what a person allowed "for this session"
+   * (the CLI forgets it with its process); the CLI asks again.
+   */
+  permissionGrantsLost: z.literal(true).optional(),
 });
 export type Session = z.infer<typeof Session>;

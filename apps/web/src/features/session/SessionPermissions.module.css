@@ -1,0 +1,29 @@
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-basis: 100%;
+}
+
+.line {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.field {
+  min-width: 180px;
+}
+
+.note {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--c-ink-4);
+}
+
+.warning {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--c-needs-text);
+}

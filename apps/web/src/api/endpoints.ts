@@ -37,6 +37,7 @@ import type {
   AcceptInviteRequest,
   CustomRoleRequest,
   UpdateMemberRequest,
+  UpdateSessionRequest,
   UpdateTaskRequest,
   CancelTaskRequest,
   CreateProjectRequest,
@@ -146,6 +147,8 @@ export const api = {
     apiRequest<unknown>(routes.sessionMessages(key, sessionId), { method: 'POST', body }),
   stopSession: (key: string, sessionId: string) =>
     apiRequest<unknown>(routes.stopSession(key, sessionId), { method: 'POST' }),
+  updateSession: (key: string, sessionId: string, body: UpdateSessionRequest) =>
+    apiRequest(routes.session(key, sessionId), { method: 'PATCH', body, schema: Session }),
 
   memberProfile: (key: string, handle: string) =>
     apiRequest(routes.memberProfile(key, handle), { schema: MemberProfile }),

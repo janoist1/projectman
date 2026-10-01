@@ -19,11 +19,13 @@ import type { SessionStatus } from '../../lib/sessions';
 import type { TaskPhase } from '../../lib/taskState';
 import { prChip } from '../board/cardModel';
 import { shortPath } from './sessionModel';
+import { SessionPermissions } from './SessionPermissions';
 import styles from './SessionHeader.module.css';
 
 /**
  * The session's crumbs, live status and stop, its title, and chips for stage, PR, branch, the
- * agent CLI the session runs (the member's for sessions from before it was recorded) and model.
+ * agent CLI the session runs (the member's for sessions from before it was recorded), model, and
+ * the permission settings that apply to it (an owner changes them here, PM-170).
  */
 export function SessionHeader({
   session,
@@ -118,11 +120,7 @@ export function SessionHeader({
         </Chip>
         <ProviderBadge provider={session.provider ?? member?.provider} />
         {member?.model ? <Chip size="md">{t('session.chips.model', { model: member.model })}</Chip> : null}
-        {member?.permissionMode ? (
-          <Chip size="md">
-            {t('session.chips.permissions', { mode: t(`permissionModes.${member.permissionMode}`) })}
-          </Chip>
-        ) : null}
+        <SessionPermissions session={session} member={member} />
       </div>
       <Dialog
         open={confirmStop}

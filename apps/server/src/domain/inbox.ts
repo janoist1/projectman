@@ -1,4 +1,4 @@
-import { approvalRefusal, approverOf, gateRequestOf, memberOf } from '@projectman/shared';
+import { approvalRefusal, effectiveSessionPermissions, gateRequestOf, memberOf } from '@projectman/shared';
 import type {
   HumanAccess,
   InboxItem,
@@ -373,7 +373,12 @@ export class InboxService {
     // Nobody approves this member's questions (PM-165): refused at once, without an inbox item. The
     // command rules above still come first (a routine step is allowed, publishing is denied); only a
     // request they leave open is refused here. `ai` is decided like `human` until PM-169 adds it.
-    if (!verdict && member?.kind === 'ai' && approverOf(member) === 'none') {
+    // The session's own approver, set by an owner, applies from the next question on (PM-170).
+    if (
+      !verdict &&
+      member?.kind === 'ai' &&
+      effectiveSessionPermissions(member, session).approver === 'none'
+    ) {
       this.refused(session, { toolName: request.toolName, summary, by: 'approver_none' });
       return { behavior: 'deny', message: APPROVER_NONE_REFUSAL };
     }

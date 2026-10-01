@@ -41,6 +41,7 @@ describe('session header public settings', () => {
     member.model = 'fictional-public-model';
     member.permissionMode = 'plan';
     project.render(sessionRoute, '/sessions/ses_ac21_fe1', {
+      isOwner: false,
       can: { createTasks: false, manageTeam: false, workInSessions: false },
     });
     expect(

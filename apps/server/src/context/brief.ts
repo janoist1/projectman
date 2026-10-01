@@ -17,6 +17,7 @@ const TEXT_LIMIT = 280;
 const QUIET_EVENTS = new Set<string>([
   'session_started',
   'session_ended',
+  'session_permission_changed',
   'permission_requested',
   'permission_resolved',
   'permission_refused',

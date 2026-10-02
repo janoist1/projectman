@@ -1218,6 +1218,9 @@ export const hu = {
     },
     details: 'Megnyitás',
     tool: 'Eszköz: {tool}',
+    /** A long command of a permission request is folded after four lines. */
+    commandFull: 'Teljes parancs',
+    commandLess: 'Kevesebb',
     permissionHeading: 'Engedélyt kér: {tool}',
     gateMove: 'Továbblépés: {from} → {to}',
     answerLabel: 'Válaszod',
@@ -1226,7 +1229,6 @@ export const hu = {
     answerOwn: 'Saját válasz',
     answerRequired: 'Írj választ, vagy válassz egy lehetőséget.',
     recent: 'Mostanában döntöttél',
-    recentEmpty: 'Még nem döntöttél semmiről.',
     resolveFailed: 'Nem ment át a döntés. Próbáld újra.',
     assignedTo: 'Neki szól: {names}',
     /** A permission question that did not go the plain way ("Ha kérdez, ki dönt: AI"). */

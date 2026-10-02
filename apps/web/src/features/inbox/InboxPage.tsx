@@ -15,6 +15,7 @@ import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
 import {
   decisionSubject,
+  decisionToast,
   boundaryOf,
   detailsHrefFor,
   isAssignedTo,
@@ -41,12 +42,13 @@ function RecentDecisions({
   myHandle: string | null;
   onRevoke?: (id: string) => void;
 }) {
+  // Nothing decided yet: no empty box.
+  if (items.length === 0) return null;
   return (
     <section className={styles.recent} aria-labelledby="inbox-recent">
       <h2 id="inbox-recent" className={styles.recentTitle}>
         {t('inbox.recent')}
       </h2>
-      {items.length === 0 ? <p className={styles.recentEmpty}>{t('inbox.recentEmpty')}</p> : null}
       <ul className={styles.recentList}>
         {items.map((item) => {
           const positive = isPositiveResolution(item);
@@ -188,7 +190,10 @@ export function InboxPage() {
               onResolve={(target, body) =>
                 resolve.mutate(
                   { item: target, body },
-                  { onError: () => toast.show(t('inbox.resolveFailed'), 'error') },
+                  {
+                    onSuccess: () => toast.show(decisionToast(target, body.optionId, myHandle), 'ok'),
+                    onError: () => toast.show(t('inbox.resolveFailed'), 'error'),
+                  },
                 )
               }
             />

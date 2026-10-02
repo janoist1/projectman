@@ -162,6 +162,12 @@ describe('ChatView', () => {
     expect(onResolve).toHaveBeenCalledWith(request, { optionId: 'allow_session' });
     fireEvent.click(within(prompt).getByRole('button', { name: t('inbox.options.deny') }));
     expect(onResolve).toHaveBeenLastCalledWith(request, { optionId: 'deny' });
+    // The same row as in the inbox: refusal and permission together, the rarer option apart.
+    const deny = within(prompt).getByRole('button', { name: t('inbox.options.deny') });
+    const allow = within(prompt).getByRole('button', { name: t('inbox.options.allow') });
+    const always = within(prompt).getByRole('button', { name: t('inbox.options.allow_session') });
+    expect(deny.parentElement).toBe(allow.parentElement);
+    expect(always.parentElement).not.toBe(allow.parentElement);
   });
 
   it('shows decisions on earlier permission requests in the stream', () => {

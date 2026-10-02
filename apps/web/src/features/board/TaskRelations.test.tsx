@@ -1,11 +1,13 @@
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Task } from '@projectman/shared';
+import { BoardView, Task } from '@projectman/shared';
 import type { AddableRelationKind, TaskRelationKind } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
+import { indexPipeline } from '../../lib/pipeline';
+import { RelationDialog } from './RelationDialog';
 import { TaskDrawer } from './TaskDrawer';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
@@ -263,8 +265,20 @@ describe('relations in the drawer (PM-203)', () => {
       const theme = Task.parse(
         project.backend.handle('POST', '/api/projects/AC/tasks', { title: 'Epic', kind: 'theme' }).body,
       );
-      project.render(drawer, `/p/AC/tasks/${theme.key}`);
-      const dialog = await openDialog();
+      // A theme opens in its own drawer, which has no Relations section (PM-226 decides); the dialog
+      // itself already knows what a theme cannot have.
+      const board = BoardView.parse(project.backend.handle('GET', '/api/projects/AC/board', undefined).body);
+      project.render(
+        <RelationDialog
+          open
+          onClose={() => undefined}
+          task={theme}
+          tasks={board.tasks}
+          pipeline={indexPipeline(board)}
+        />,
+        '/p/AC',
+      );
+      const dialog = await screen.findByRole('dialog');
       for (const kind of ['part_of', 'prerequisite'] as const)
         expect(
           within(dialog)

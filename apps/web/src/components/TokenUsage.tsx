@@ -1,5 +1,5 @@
 import { mergeTokenUsage, tokenTotal, usageTotal } from '@projectman/shared';
-import type { TokenUsage } from '@projectman/shared';
+import type { ModelTokens, TokenUsage } from '@projectman/shared';
 import { formatTokens } from '../i18n/format';
 import { t } from '../i18n/t';
 import styles from './TokenUsage.module.css';
@@ -33,6 +33,39 @@ export function TokenUsageList({ rows, noData }: { rows: readonly TokenUsage[] |
                 t('tokenUsage.cacheWrite', { count: formatTokens(row.cacheWrite) }),
               ].join(' · ')}
             </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * The weighted tokens (`limitTokens`, PM-222) one line per model, subagents' included: the unit the
+ * cards are compared in. With `showTotal` the sum comes first.
+ */
+export function WeightedTokensList({
+  models,
+  showTotal = false,
+}: {
+  models: readonly ModelTokens[];
+  showTotal?: boolean;
+}) {
+  if (models.length === 0) return <p className={styles.muted}>{t('tokenUsage.none')}</p>;
+  return (
+    <div className={styles.usage}>
+      {showTotal ? (
+        <p className={styles.total}>
+          {t('tokenUsage.weightedTotal', {
+            total: formatTokens(models.reduce((sum, entry) => sum + entry.tokens, 0)),
+          })}
+        </p>
+      ) : null}
+      <ul className={styles.rows}>
+        {models.map((entry) => (
+          <li key={entry.model} className={styles.head}>
+            <span className={styles.model}>{entry.model}</span>
+            <span className={styles.rowTotal}>{formatTokens(entry.tokens)}</span>
           </li>
         ))}
       </ul>

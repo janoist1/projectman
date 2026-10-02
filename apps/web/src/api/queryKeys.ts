@@ -6,6 +6,9 @@ export const queryKeys = {
   profiles: (key: string) => ['project', key, 'profile'] as const,
   profile: (key: string, handle: string) => ['project', key, 'profile', handle] as const,
   memories: (key: string, handle: string) => ['project', key, 'memory', handle] as const,
+  /** The closed cards comparison (PM-222); `closedCardsAll` is the prefix of every period. */
+  closedCards: (key: string, days: number) => ['project', key, 'closed-cards', days] as const,
+  closedCardsAll: (key: string) => ['project', key, 'closed-cards'] as const,
   providers: ['providers'] as const,
   invitations: (key: string) => ['project', key, 'invitations'] as const,
   invite: (token: string) => ['invite', token] as const,

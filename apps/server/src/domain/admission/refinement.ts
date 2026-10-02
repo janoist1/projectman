@@ -192,6 +192,7 @@ export class RefinementSteps {
             taskKey,
           );
           this.record(task, label, working.handle);
+          this.handOverWaiting(projectKey, working.handle, workItem);
           return;
         }
         // Members on leave are not picked; when every owner is away, admission refuses the first.
@@ -212,8 +213,19 @@ export class RefinementSteps {
           }),
         );
         this.record(this.tasks.get(projectKey, taskKey), label, member.handle);
+        this.handOverWaiting(projectKey, member.handle, workItem);
       },
     };
+  }
+
+  /**
+   * The member's turn began: the messages that waited for it (PM-255) are typed into its session.
+   * A session that was started took them in its first input already; this catches the ones that
+   * came in after that and before the turn was recorded.
+   */
+  private handOverWaiting(projectKey: string, handle: string, workItem: { type: 'task'; taskKey: string }) {
+    const session = this.sessions.findRunning(projectKey, handle, workItem);
+    if (session) this.delivery.deliverWaiting(session);
   }
 
   /** Every label is on: `refine` goes, the card moves to the stage before development, people are told. */

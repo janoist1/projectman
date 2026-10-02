@@ -386,4 +386,179 @@ describe('Refinement line', () => {
     await flush();
     expect(alerts('done')).toHaveLength(1);
   });
+
+  /** PM-255: a message about a card that is being refined waits for its AI recipient's turn. */
+  describe('messages while the card is being refined', () => {
+    const send = (to: string, text: string, from = 'owner') =>
+      h.domain.messaging.send('AR', from, { to: [to], text, taskKey: 'AR-1' });
+    const typed = () => h.runner.messages.map((m) => m.text);
+    const firstInputs = () => h.runner.started.map((spec) => spec.initialMessage ?? '');
+    const receipt = (id: string, handle: string) =>
+      h.domain.messages.get(id)!.receipts!.find((r) => r.handle === handle)!;
+
+    async function refining() {
+      await prepare();
+      await label({ add: ['refine'] });
+      await vi.waitFor(() => expect(members()).toEqual(['ana']));
+    }
+
+    it('keeps a message for the designer until its turn, then gives it in its first input', async () => {
+      await refining();
+
+      const message = await send('des', 'Please keep the header sticky.');
+      await flush();
+      expect(members()).toEqual(['ana']);
+      expect(h.runner.started).toHaveLength(1);
+      expect(receipt(message.id, 'des').deliveredAt).toBeNull();
+
+      await label({ add: ['scope-ok'] }, aiActor('ana'));
+      endTurn('ana');
+      await vi.waitFor(() => expect(members()).toEqual(['ana', 'des']));
+      expect(firstInputs()[1]).toContain('Please keep the header sticky.');
+      expect(firstInputs()[1]).toContain('[team message from owner about AR-1]');
+    });
+
+    it('keeps a note that mentions the designer the same way', async () => {
+      await refining();
+
+      await h.domain.tasks.addNote('AR', 'AR-1', '@des mind the contrast', OWNER_ACTOR);
+      await flush();
+      expect(members()).toEqual(['ana']);
+
+      await label({ add: ['scope-ok'] }, aiActor('ana'));
+      endTurn('ana');
+      await vi.waitFor(() => expect(members()).toEqual(['ana', 'des']));
+      expect(firstInputs()[1]).toContain('@des mind the contrast');
+    });
+
+    it('gives a message for a member with no step on the card when the card is worked out', async () => {
+      await refining();
+
+      const message = await send('ana2', 'Ana2, you may know the old flow.');
+      await flush();
+      expect(members()).toEqual(['ana']);
+
+      await label({ add: ['scope-ok'] }, aiActor('ana'));
+      endTurn('ana');
+      await vi.waitFor(() => expect(members()).toEqual(['ana', 'des']));
+      // Still held: the card is being refined, and it is the designer's turn.
+      expect(members()).not.toContain('ana2');
+      await label({ add: ['design-ok'] }, aiActor('des'));
+      endTurn('des');
+
+      await vi.waitFor(() => expect(members()).toEqual(['ana', 'ana2', 'des']));
+      expect(task().labels).not.toContain('refine');
+      expect(firstInputs().some((text) => text.includes('Ana2, you may know the old flow.'))).toBe(true);
+      await vi.waitFor(() => expect(receipt(message.id, 'ana2').deliveredAt).not.toBeNull());
+    });
+
+    it('types the held message into a running session when the card is worked out', async () => {
+      await refining();
+      await label({ add: ['scope-ok'] }, aiActor('ana'));
+      endTurn('ana');
+      await vi.waitFor(() => expect(members()).toEqual(['ana', 'des']));
+
+      // The analyst's session is running, but it is the designer's turn.
+      await send('ana', 'Ana, one more thing about the scope.');
+      await flush();
+      expect(typed().some((text) => text.includes('one more thing'))).toBe(false);
+
+      await label({ add: ['design-ok'] }, aiActor('des'));
+      endTurn('des');
+      await vi.waitFor(() => expect(typed().some((text) => text.includes('one more thing'))).toBe(true));
+      expect(h.runner.started).toHaveLength(2);
+    });
+
+    it('types the held message into the running session when its turn comes', async () => {
+      await refining();
+      await label({ add: ['scope-ok'] }, aiActor('ana'));
+      endTurn('ana');
+      await vi.waitFor(() => expect(members()).toEqual(['ana', 'des']));
+      h.runner.setState(sessionsOf().find((s) => s.member === 'des')!.id, 'working');
+
+      await send('ana', 'Ana, the scope changed.');
+      await label({ remove: ['scope-ok'] });
+      await flush();
+      expect(typed().some((text) => text.includes('the scope changed'))).toBe(false);
+
+      // The designer ends its turn; the turn goes back to the analyst, whose session is running.
+      h.runner.setState(sessionsOf().find((s) => s.member === 'des')!.id, 'idle');
+      await vi.waitFor(() => expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBe('ana'));
+      await vi.waitFor(() => expect(typed().some((text) => text.includes('the scope changed'))).toBe(true));
+      expect(h.runner.started).toHaveLength(2);
+    });
+
+    it('lets a message for the member whose turn it is through at once', async () => {
+      await refining();
+      h.runner.setState(sessionsOf()[0]!.id, 'idle');
+
+      const message = await send('ana', 'Ana, a hint for your step.');
+      await vi.waitFor(() =>
+        expect(typed().some((text) => text.includes('a hint for your step'))).toBe(true),
+      );
+      await vi.waitFor(() => expect(receipt(message.id, 'ana').deliveredAt).not.toBeNull());
+    });
+
+    it('lets the answer to a member’s own question through at once', async () => {
+      await refining();
+      const item = h.domain.inbox.create({
+        projectKey: 'AR',
+        kind: 'question',
+        assignees: ['owner'],
+        source: 'des',
+        taskKey: 'AR-1',
+        title: 'Which header?',
+        payload: { question: 'Which header?', options: ['Sticky'] },
+        options: [{ id: 'option_1', label: 'Sticky', style: 'primary' }],
+      });
+
+      await h.domain.inbox.resolve(
+        'AR',
+        item.id,
+        { optionId: 'option_1' },
+        { handle: 'owner', access: 'owner' },
+      );
+      await vi.waitFor(() => expect(members()).toEqual(['ana', 'des']));
+      expect(firstInputs().some((text) => text.includes('Answer to your question "Which header?"'))).toBe(
+        true,
+      );
+    });
+
+    it('changes nothing for a card that is not being refined', async () => {
+      await prepare();
+
+      await send('des', 'Please look at the header.');
+      await vi.waitFor(() => expect(members()).toEqual(['des']));
+      expect(firstInputs()[0]).toContain('Please look at the header.');
+    });
+
+    it('leaves a deferred wake-up alone when a card that was never refined moves on', async () => {
+      h = await createDomainHarness({
+        persistent: true,
+        adjust: (config) => {
+          setup()(config);
+          config.team.limits.maxConcurrentAi = 1;
+        },
+      });
+      await h.domain.tasks.create('AR', { title: 'Screen', labels: ['ui'] }, OWNER_ACTOR);
+
+      await send('ana', 'Ana, first.');
+      await vi.waitFor(() => expect(members()).toEqual(['ana']));
+      // No capacity left: the wake-up of the designer waits, and a move makes it obsolete.
+      await send('des', 'Please look at the header.');
+      await flush();
+      expect(members()).toEqual(['ana']);
+
+      await label({ add: ['scope-ok'] });
+      await label({ add: ['design-ok'] }, aiActor('des'));
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'ready', OWNER_ACTOR);
+      await flush();
+      expect(members()).toEqual(['ana']);
+
+      // Capacity frees up: the obsolete wake-up is not made again.
+      await h.domain.sessions.stop('AR', sessionsOf()[0]!.id);
+      await flush();
+      expect(members()).toEqual(['ana']);
+    });
+  });
 });

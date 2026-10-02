@@ -573,6 +573,61 @@ describe('task drawer layout', () => {
   });
 });
 
+describe('who works on the card (PM-237)', () => {
+  const developer = 'Backend fejlesztő';
+
+  it('names the worker with the time, keeps the command out and opens their session', async () => {
+    const project = mockProject();
+    const command = project.backend.sessions.find((session) => session.id === 'ses_ac20_be1')!.activity!;
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    const line = await screen.findAllByText(t('taskStatus.worker.working', { name: developer }));
+    expect(line.length).toBeGreaterThan(0);
+    // The command is not on the page: not in the head, nor in the list of sessions.
+    expect(document.body.textContent).not.toContain(command);
+    expect(document.body.textContent).not.toContain('restore-drill');
+    const open = await screen.findByRole('link', { name: t('task.openSession') });
+    expect(open.getAttribute('href')).toBe('/p/AC/sessions/ses_ac20_be1');
+    const sessions = screen.getByRole('heading', { name: t('task.sessions') }).parentElement!;
+    expect(within(sessions).getByText(t('sessionState.working'))).toBeTruthy();
+  });
+
+  it('gives each worker a row of their own, with their own verb, and opens the first one’s session', async () => {
+    const project = mockProject();
+    const first = project.backend.sessions.find((session) => session.id === 'ses_ac20_be1')!;
+    project.backend.sessions.push({
+      ...first,
+      id: 'ses_ac20_qa',
+      member: 'qa',
+      activity: 'Bash: npm test',
+      startedAt: first.startedAt,
+    });
+    const qa = project.backend.findMember('qa')!.displayName;
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    const list = await screen.findByRole('list', {
+      name: t('taskStatus.workersTwo', { names: `${developer}${t('common.and')}${qa}` }),
+    });
+    expect(
+      within(list)
+        .getAllByRole('listitem')
+        .map((row) => row.textContent),
+    ).toEqual([
+      expect.stringContaining(t('taskStatus.worker.working', { name: developer })),
+      expect.stringContaining(t('taskStatus.worker.testing', { name: qa })),
+    ]);
+    expect(document.body.textContent).not.toContain('npm test');
+    const open = await screen.findByRole('link', { name: t('task.openSession') });
+    expect(open.getAttribute('href')).toBe('/p/AC/sessions/ses_ac20_be1');
+  });
+
+  it('shows no one as working on a card nobody works on', async () => {
+    const project = mockProject();
+    project.backend.sessions = project.backend.sessions.filter((session) => session.id !== 'ses_ac20_be1');
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    await screen.findByRole('heading', { name: project.backend.findTask('AC-20')!.title });
+    expect(screen.queryByText(t('taskStatus.worker.working', { name: developer }))).toBeNull();
+  });
+});
+
 describe('starting a card whose prerequisite is open (PM-204)', () => {
   const startButton = async () => screen.findByRole('button', { name: t('task.start') });
   const startRequests = (project: ReturnType<typeof mockProject>) =>

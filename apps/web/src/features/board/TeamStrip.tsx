@@ -4,17 +4,19 @@ import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { ProviderBadge } from '../../components/ProviderBadge';
 import { t } from '../../i18n/t';
-import { isStandingRole, memberStatusView } from '../../lib/members';
+import { cardsLine, isStandingRole, memberCardKeys, memberStatusView } from '../../lib/members';
 import styles from './TeamStrip.module.css';
 
 interface TeamStripProps {
   members: readonly MemberView[];
   inbox: readonly InboxItem[] | undefined;
   activeTaskCount: number;
+  /** Task titles by key, for the card a member is on. */
+  titles: ReadonlyMap<string, string>;
 }
 
-/** Standing roles with their status, plus the whole mixed team at a glance. */
-export function TeamStrip({ members, inbox, activeTaskCount }: TeamStripProps) {
+/** Standing roles with their status and the card they are on, plus the whole mixed team at a glance. */
+export function TeamStrip({ members, inbox, activeTaskCount, titles }: TeamStripProps) {
   const { key, myHandle } = useProject();
   const standing = members.filter(isStandingRole);
   const active = members.filter((member) => member.status !== 'retired');
@@ -41,7 +43,9 @@ export function TeamStrip({ members, inbox, activeTaskCount }: TeamStripProps) {
                   {view.label}
                 </span>
               </span>
-              <span className={styles.activity}>{member.activity ?? t('team.noTask')}</span>
+              <span className={styles.activity}>
+                {cardsLine(memberCardKeys(member), titles) ?? t('team.noTask')}
+              </span>
             </span>
           </Link>
         );

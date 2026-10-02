@@ -349,7 +349,12 @@ export function BoardPage() {
         </p>
       ) : null}
       {isMobile ? null : (
-        <TeamStrip members={board.data.members} inbox={inbox.data?.items} activeTaskCount={activeCount} />
+        <TeamStrip
+          members={board.data.members}
+          inbox={inbox.data?.items}
+          activeTaskCount={activeCount}
+          titles={new Map(board.data.tasks.map((task) => [task.key, task.title]))}
+        />
       )}
       <PageHeader
         className={styles.header}

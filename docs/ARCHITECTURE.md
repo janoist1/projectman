@@ -95,6 +95,11 @@ Documentation map:
   `CreateTaskRequest.relations` change them all or nothing with the rest of the call; both cards'
   timelines get `task_relation_added/removed`. A card marked a duplicate is cancelled (cards that have
   not started: anyone who can edit; started ones: admin or owner only).
+  The web (PM-203): the drawer's "Kapcsolatok" section (`TaskRelations`, replacing the subtasks row)
+  lists them by kind from the board's cards, closed ones included (no request of its own), and the
+  "+" dialog (`RelationDialog`) pre-checks a choice with `relationRefusal`; a card with an open
+  prerequisite (`openPrerequisites`) says "Előfeltételre vár: PM-xxx" in its status line when it stands
+  on it, and as a small chip when something else is happening to it (`lib/taskState.ts`).
   A task works in one repository: its own `repo`, else the project's only one when it has
   exactly one (`effectiveRepo`, the one rule in `packages/shared` that placement, the command
   policy, the context pack and the web read). The repo can be set later (task drawer, REST

@@ -213,3 +213,12 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     be marked by anyone who can edit it, an AI member included; a card that has started only by
     whoever may cancel a card today (an admin or the owner). On a card that is closed already only
     the relation is made. The rule is `duplicateMarkRefusal` in `packages/shared` (PM-202).
+30. **Subtasks merge into the Relations section; the prerequisite sign sits in the status line
+    when the card stands on it.** Decided by the owner on 2026-10-02 (PM-203, the designer's two
+    questions; answers: „Beolvad” and „Állapotsor, ha emiatt áll”). The drawer has one section,
+    „Kapcsolatok”, where the subtasks row was: the parts, their progress and the new-subtask form
+    live in it (`TaskSubtasks` is gone). On the board a card shows „Előfeltételre vár: PM-xxx” in
+    its status line when it stands because of the prerequisite (waiting in a queue stage, or its
+    start waits); when something else is happening to it (working, waiting for you, blocked, waiting
+    on someone) the status line says that, and a small chip names the prerequisite. The text never
+    stands twice on a card.

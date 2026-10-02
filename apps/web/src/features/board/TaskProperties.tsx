@@ -5,24 +5,28 @@ import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import { shortCommit } from '../../lib/timeline';
 import type { PipelineIndex } from '../../lib/pipeline';
+import type { TaskPhase } from '../../lib/taskState';
 import { TaskAssigneeSelect } from './TaskLifecycle';
 import { TaskLabels } from './TaskLabels';
 import { TaskRepo } from './TaskRepo';
-import { TaskSubtasks } from './TaskSubtasks';
+import { TaskRelations } from './TaskRelations';
 import styles from './drawer.module.css';
 
 /**
- * The task's properties as tight rows: assignee, repository, visibility, labels, subtasks. Each row
+ * The task's properties as tight rows: assignee, repository, visibility, labels, relations. Each row
  * is one line of label and value, with a small "+" where something can be added.
  */
 export function TaskProperties({
   task,
-  subtasks,
+  tasks,
+  phases,
   members,
   pipeline,
 }: {
   task: Task;
-  subtasks: Task[];
+  /** The project's cards as the viewer sees them (the board's, closed ones included). */
+  tasks: readonly Task[];
+  phases: ReadonlyMap<string, TaskPhase>;
   members: MemberIndex;
   pipeline: PipelineIndex;
 }) {
@@ -55,15 +59,13 @@ export function TaskProperties({
         </div>
       ) : null}
       <TaskLabels task={task} />
-      {!task.parentKey ? (
-        <TaskSubtasks
-          key={`subtasks:${task.key}`}
-          task={task}
-          children={subtasks}
-          members={members}
-          pipeline={pipeline}
-        />
-      ) : null}
+      <TaskRelations
+        key={`relations:${task.key}`}
+        task={task}
+        tasks={tasks}
+        phases={phases}
+        pipeline={pipeline}
+      />
     </section>
   );
 }

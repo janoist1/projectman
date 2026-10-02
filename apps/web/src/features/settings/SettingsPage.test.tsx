@@ -21,7 +21,9 @@ async function limitsSection() {
 }
 /** Every change made so far has been sent and answered. */
 async function saved(section: ReturnType<typeof within>) {
-  await waitFor(() => expect(section.queryByText(t('settings.edit.saving'))).toBeNull(), { timeout: 4000 });
+  await waitFor(() => expect(section.getByRole('group').getAttribute('aria-busy')).not.toBe('true'), {
+    timeout: 4000,
+  });
 }
 /** The body of the last configuration PATCH the page sent. */
 function lastConfigPatch(requests: readonly MockRequest[]): PatchConfigRequest {
@@ -140,6 +142,20 @@ describe('settings section editors', () => {
     });
     await saved(section);
     expect(toggle.checked).toBe(false);
+  });
+
+  it('puts the AI switch first and shows a dependent field only while its switch is on', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    const section = await limitsSection();
+    expect(section.getAllByRole('checkbox')[0]).toBe(
+      section.getByRole('checkbox', { name: t('settings.limits.aiEnabled') }),
+    );
+    expect(section.queryByLabelText(t('settings.limits.boundaryTimeout'))).toBeNull();
+    expect(section.queryByLabelText(t('settings.edit.tempMax'))).toBeNull();
+    fireEvent.click(section.getByRole('checkbox', { name: t('settings.limits.boundaryEnabled') }));
+    await section.findByLabelText(t('settings.limits.boundaryTimeout'));
+    await saved(section);
   });
 
   it('locks the limits while another section is being edited, so the open editor keeps its version', async () => {
@@ -316,6 +332,9 @@ describe('settings section editors', () => {
     const project = mockProject();
     project.render(<SettingsPage />);
     const section = await limitsSection();
+    // The temp worker fields appear once the temp workers are on.
+    expect(section.queryByLabelText(t('settings.edit.tempMax'))).toBeNull();
+    fireEvent.click(section.getByRole('checkbox', { name: t('settings.limits.tempWorkers') }));
     await waitFor(() =>
       expect(
         section.getByLabelText(t('settings.team.role')).querySelectorAll('option').length,
@@ -327,14 +346,16 @@ describe('settings section editors', () => {
     const slider = section.getByRole('slider') as HTMLInputElement;
     expect([slider.min, slider.max]).toEqual(['10', '100']);
     // Dragging the slider saves nothing until it is released.
+    const patches = () => project.requests.filter((request) => request.method === 'PATCH').length;
+    await saved(section);
+    const before = patches();
     fireEvent.change(slider, { target: { value: '60' } });
-    expect(project.requests.some((request) => request.method === 'PATCH')).toBe(false);
+    expect(patches()).toBe(before);
     fireEvent.pointerUp(slider);
     fireEvent.change(section.getByLabelText(t('settings.limits.maxConcurrentAi')), {
       target: { value: '2' },
     });
     fireEvent.keyDown(section.getByLabelText(t('settings.limits.maxConcurrentAi')), { key: 'Enter' });
-    fireEvent.click(section.getByRole('checkbox', { name: t('settings.limits.tempWorkers') }));
     fireEvent.change(section.getByLabelText(t('settings.edit.tempMax')), { target: { value: '3' } });
     fireEvent.blur(section.getByLabelText(t('settings.edit.tempMax')));
     fireEvent.change(role, { target: { value: 'qa' } });

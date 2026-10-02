@@ -153,7 +153,10 @@ export function useInstantLimits(config: ProjectConfig) {
       } catch (caught) {
         failed.current = true;
         setError(caught);
-        if (isApiError(caught) && caught.code === 'config_conflict') await reload?.();
+        // The control may be off screen (a phone), so the refusal is also a toast.
+        const conflict = isApiError(caught) && caught.code === 'config_conflict';
+        toast.show(conflict ? t('settings.limits.conflict') : errorMessage(caught), 'error');
+        if (conflict) await reload?.();
       } finally {
         inflight.current -= 1;
         if (inflight.current === 0) {

@@ -59,6 +59,13 @@
   border-color: var(--c-blocked);
 }
 
+/* iOS zooms into a field with text under 16px when it gets focus. */
+@media (max-width: 767px) {
+  .input {
+    font-size: 16px;
+  }
+}
+
 .textarea {
   height: auto;
   min-height: 90px;

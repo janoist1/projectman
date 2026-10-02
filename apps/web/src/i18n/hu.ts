@@ -1792,14 +1792,14 @@ export const hu = {
     },
     team: {
       role: 'Szerep',
-      manage: 'Modell, engedélyek, kapacitás és előfizetés a Csapat oldalon',
+      manage: 'Tagok kezelése a Csapat oldalon',
     },
     limits: {
       boundaryEnabled: 'Külső műveletek delegálása',
       boundaryTimeout: 'Vezetői döntés határideje (másodperc)',
       boundaryHelp:
         'A vezető fejlesztő az egyszeri, delegálható műveletekről dönt. A határidő után a tulajdonos dönt; automatikus engedély nincs. Csak tulajdonos módosíthatja.',
-      aiEnabled: 'AI-munka',
+      aiEnabled: 'AI-munka engedélyezve',
       aiEnabledHelp:
         'Kikapcsolva az AI-tagok nem kezdenek és nem folytatnak munkát ebben a projektben; a futó munkamenetek tovább működnek, a várakozó munka visszakapcsolás után indul.',
       aiEnabledOn: 'Bekapcsolva',
@@ -1877,7 +1877,6 @@ export const hu = {
         'A beállítások közben megváltoztak. Töltsd újra a legfrissebb verziót; a szerkesztésed elvész.',
       reload: 'Legfrissebb beállítások betöltése',
       saved: 'A beállítások mentve.',
-      saving: 'Mentés…',
     },
     issues: {
       invalid_value: 'Érvénytelen érték.',

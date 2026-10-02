@@ -19,45 +19,21 @@ const DEFAULT_MAX_CONCURRENT_AI_CHOICE = 3;
 /** The number the token warning field starts at when the owner turns "no warning" off (PM-187). */
 const DEFAULT_TOKEN_WARNING_CHOICE = 5_000_000;
 
-/** The limits as controls that save as soon as they change; no edit mode, no save button. */
+/**
+ * The limits as controls that save as soon as they change; no edit mode, no save button. The most
+ * used ones come first (the AI switch is most of the saves), and a setting that depends on a switch
+ * is shown only while the switch is on.
+ */
 function LimitsControls({ config }: { config: ProjectConfig }) {
   const { key, isOwner } = useProject();
   const roles = useRoles(key);
   const { shown, saving, commit, error, locked } = useInstantLimits(config);
   const { limits } = shown.team;
   const messageBurst = messageBurstOf(limits);
+  const boundaryEnabled = shown.team.boundary?.enabled ?? false;
   return (
-    <fieldset className={shared.controls} disabled={locked}>
+    <fieldset className={shared.controls} disabled={locked} aria-busy={saving}>
       {locked ? <p className={shared.help}>{t('settings.limits.locked')}</p> : null}
-      <ToggleField
-        label={t('settings.limits.boundaryEnabled')}
-        help={t('settings.limits.boundaryHelp')}
-        disabled={!isOwner}
-        checked={shown.team.boundary?.enabled ?? false}
-        onChange={(enabled) =>
-          commit((draft) => {
-            draft.team.boundary = {
-              enabled,
-              leadTimeoutSeconds: draft.team.boundary?.leadTimeoutSeconds ?? 120,
-            };
-          })
-        }
-      />
-      <InstantNumber
-        label={t('settings.limits.boundaryTimeout')}
-        min={1}
-        max={600}
-        disabled={!isOwner}
-        value={shown.team.boundary?.leadTimeoutSeconds ?? 120}
-        onCommit={(seconds) =>
-          commit((draft) => {
-            draft.team.boundary = {
-              enabled: draft.team.boundary?.enabled ?? false,
-              leadTimeoutSeconds: seconds ?? 120,
-            };
-          })
-        }
-      />
       <ToggleField
         label={t('settings.limits.aiEnabled')}
         help={t('settings.limits.aiEnabledHelp')}
@@ -104,6 +80,48 @@ function LimitsControls({ config }: { config: ProjectConfig }) {
           })
         }
       />
+      <ToggleField
+        label={t('settings.limits.tempWorkers')}
+        checked={limits.tempWorkers.enabled}
+        onChange={(enabled) =>
+          commit((draft) => {
+            draft.team.limits.tempWorkers.enabled = enabled;
+          })
+        }
+      />
+      {limits.tempWorkers.enabled ? (
+        <div className={shared.fieldRow}>
+          <InstantNumber
+            label={t('settings.edit.tempMax')}
+            min={0}
+            max={5}
+            value={limits.tempWorkers.max}
+            onCommit={(max) =>
+              commit((draft) => {
+                draft.team.limits.tempWorkers.max = max ?? 0;
+              })
+            }
+          />
+          <SelectField
+            label={t('settings.team.role')}
+            value={limits.tempWorkers.role}
+            disabled={!roles.data}
+            onChange={(event) =>
+              commit((draft) => {
+                draft.team.limits.tempWorkers.role = event.target.value;
+              })
+            }
+          >
+            {(roles.data?.roles ?? [])
+              .filter((role) => role.holders !== 'human')
+              .map((role) => (
+                <option key={role.id} value={role.id}>
+                  {role.name}
+                </option>
+              ))}
+          </SelectField>
+        </div>
+      ) : null}
       <ToggleField
         label={t('settings.limits.noTokenWarning')}
         help={t('settings.limits.noTokenWarningHelp')}
@@ -174,51 +192,37 @@ function LimitsControls({ config }: { config: ProjectConfig }) {
         />
       </div>
       <ToggleField
-        label={t('settings.limits.tempWorkers')}
-        checked={limits.tempWorkers.enabled}
+        label={t('settings.limits.boundaryEnabled')}
+        help={t('settings.limits.boundaryHelp')}
+        disabled={!isOwner}
+        checked={boundaryEnabled}
         onChange={(enabled) =>
           commit((draft) => {
-            draft.team.limits.tempWorkers.enabled = enabled;
+            draft.team.boundary = {
+              enabled,
+              leadTimeoutSeconds: draft.team.boundary?.leadTimeoutSeconds ?? 120,
+            };
           })
         }
       />
-      <div className={shared.fieldRow}>
+      {boundaryEnabled ? (
         <InstantNumber
-          label={t('settings.edit.tempMax')}
-          min={0}
-          max={5}
-          value={limits.tempWorkers.max}
-          onCommit={(max) =>
+          label={t('settings.limits.boundaryTimeout')}
+          min={1}
+          max={600}
+          disabled={!isOwner}
+          value={shown.team.boundary?.leadTimeoutSeconds ?? 120}
+          onCommit={(seconds) =>
             commit((draft) => {
-              draft.team.limits.tempWorkers.max = max ?? 0;
+              draft.team.boundary = {
+                enabled: draft.team.boundary?.enabled ?? false,
+                leadTimeoutSeconds: seconds ?? 120,
+              };
             })
           }
         />
-        <SelectField
-          label={t('settings.team.role')}
-          value={limits.tempWorkers.role}
-          disabled={!roles.data}
-          onChange={(event) =>
-            commit((draft) => {
-              draft.team.limits.tempWorkers.role = event.target.value;
-            })
-          }
-        >
-          {(roles.data?.roles ?? [])
-            .filter((role) => role.holders !== 'human')
-            .map((role) => (
-              <option key={role.id} value={role.id}>
-                {role.name}
-              </option>
-            ))}
-        </SelectField>
-      </div>
-      {roles.isError ? <p role="alert">{errorMessage(roles.error)}</p> : null}
-      {saving ? (
-        <p role="status" className={shared.help}>
-          {t('settings.edit.saving')}
-        </p>
       ) : null}
+      {roles.isError ? <p role="alert">{errorMessage(roles.error)}</p> : null}
       {error ? (
         <p role="alert" className={shared.validation}>
           {isApiError(error) && error.code === 'config_conflict'

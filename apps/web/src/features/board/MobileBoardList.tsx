@@ -1,13 +1,13 @@
-import { useState } from 'react';
 import { useLabels } from '../../api/queries';
 import type { Task } from '@projectman/shared';
-import { Button } from '../../components/Button';
 import { StatusDot } from '../../components/Chip';
 import { t } from '../../i18n/t';
 import type { PlainMessageKey } from '../../i18n/t';
+import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
 import type { TaskPhase } from '../../lib/taskState';
 import { coverSrcOf } from './cardModel';
+import { useDoneFold } from './doneFold';
 import { TaskCard } from './TaskCard';
 import { sortGroupEntries } from './useBoardModel';
 import type { BoardEntry } from './useBoardModel';
@@ -21,9 +21,6 @@ const groups: ReadonlyArray<{ id: string; label: PlainMessageKey; phases: TaskPh
   { id: 'done', label: 'board.groups.done', phases: ['done'], dot: 'done' },
 ];
 
-/** How many of the newest finished tasks the collapsed "Kész" group shows. */
-export const DONE_PREVIEW = 3;
-
 /**
  * Phone board: tasks grouped by what they wait for. The finished group is collapsed to its
  * newest few; a search shows every match.
@@ -34,15 +31,26 @@ export function MobileBoardList({
   pipeline,
   projectKey,
   searching = false,
+  members,
+  myHandle,
 }: {
   entries: BoardEntry[];
   subtasksByParent?: Map<string, Task[]>;
   pipeline: PipelineIndex;
   projectKey: string;
   searching?: boolean;
+  members?: MemberIndex;
+  myHandle?: string | null;
 }) {
   const labels = useLabels(projectKey);
-  const [doneExpanded, setDoneExpanded] = useState(false);
+  // The finished cards are those in the "done" phase (a done stage or a closed card), not those named "Kész".
+  const done = useDoneFold(
+    sortGroupEntries(
+      entries.filter((entry) => entry.state.phase === 'done'),
+      pipeline,
+    ),
+    searching,
+  );
   return (
     <div className={styles.wrap}>
       {groups.map((group) => {
@@ -52,8 +60,8 @@ export function MobileBoardList({
         );
         if (list.length === 0) return null;
         const headingId = `group-${group.id}`;
-        const collapsible = group.id === 'done' && !searching && list.length > DONE_PREVIEW;
-        const shown = collapsible && !doneExpanded ? list.slice(0, DONE_PREVIEW) : list;
+        const isDone = group.id === 'done';
+        const shown = isDone ? done.shown : list;
         return (
           <section key={group.id} className={styles.group} aria-labelledby={headingId}>
             <div className={styles.groupHead}>
@@ -73,20 +81,12 @@ export function MobileBoardList({
                 to={`/p/${projectKey}/tasks/${task.key}`}
                 labels={labels}
                 coverSrc={coverSrcOf(projectKey, task)}
+                members={members}
+                myHandle={myHandle}
                 compact
               />
             ))}
-            {collapsible ? (
-              <Button
-                variant="muted"
-                size="sm"
-                fullWidth
-                aria-expanded={doneExpanded}
-                onClick={() => setDoneExpanded((open) => !open)}
-              >
-                {doneExpanded ? t('board.doneFewer') : t('board.doneAll', { count: list.length })}
-              </Button>
-            ) : null}
+            {isDone ? done.toggle : null}
           </section>
         );
       })}

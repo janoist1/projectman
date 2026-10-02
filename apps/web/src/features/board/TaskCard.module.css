@@ -66,9 +66,27 @@
   line-height: 1.25;
 }
 
+/* The first line says which card this is, how far it has come and whose it is. */
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .key {
+  flex-shrink: 0;
   color: var(--c-ink-4);
+  font-size: var(--text-xs);
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.head .progress {
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
 }
 
 .meta {

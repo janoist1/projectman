@@ -575,6 +575,19 @@ export const hu = {
       waiting: 'Másra vár',
     },
     columnEmpty: 'Ebben a szűrésben nincs itt semmi.',
+    /** The member and label filters of the board (PM-120). */
+    filterMember: 'Felelős',
+    filterLabel: 'Címke',
+    filterAny: 'Mind',
+    filterNoAssignee: 'Nincs felelőse',
+    clearFilters: 'Szűrők törlése',
+    filterButton: 'Szűrés',
+    filterButtonActive: 'Szűrés, {count} aktív',
+    filterSheetTitle: 'Szűrés',
+    filterShow: 'Mutasd ({count})',
+    filterChipRemove: 'Szűrő törlése: {value}',
+    filteredEmpty: 'Ebben a szűrésben nincs kártya.',
+    assigneeLabel: 'Felelős: {name}',
     columnCount: '{count} feladat',
     noResults: 'Nincs találat erre: „{query}”',
     workingNow: 'Most dolgozik',
@@ -601,7 +614,7 @@ export const hu = {
       done: 'Kész',
     },
     noTasks: 'Még nincs feladat. Hozd létre az elsőt az „Új feladat” gombbal.',
-    subtitleFiltered: 'Szűrve: {title} · {count} feladat',
+    subtitleFiltered: 'Szűrve: {values} · {count} feladat',
     /** The strip of themes above the board (PM-192). */
     themes: {
       title: 'Témák',
@@ -823,6 +836,13 @@ export const hu = {
     start: 'Indítás',
     starting: 'Indítás…',
     started: 'Elindult: {key}',
+    /** The "Kidolgozás" button (decision 31) and the hint a refused Start gets in a project with refinement. */
+    refine: {
+      button: 'Kidolgozás',
+      starting: 'Kidolgozás…',
+      started: 'Kidolgozásra vár: {key}',
+      suggestion: 'Dolgoztasd ki a Kidolgozás gombbal.',
+    },
     assigneeLabel: 'Ki vigye?',
     assigneeAuto: 'Automatikusan: az első szabad fejlesztő',
     repo: 'Repó: {repo}',
@@ -1459,8 +1479,18 @@ export const hu = {
     labelsAdded: 'Rátette: {labels}',
     labelsRemoved: 'Levette: {labels}',
     refinement: {
-      member: 'Kidolgozás: „{label}” – {member} következik',
-      person: 'Kidolgozás: „{label}” – ember következik',
+      started: {
+        member: 'Kidolgozás indult: {member} soron, „{label}”',
+        person: 'Kidolgozás indult: ember soron, „{label}”',
+      },
+      label_set: {
+        member: '{member} soron: „{label}”',
+        person: 'Ember soron: „{label}”',
+      },
+      label_removed: {
+        member: 'Egy lépés visszavonva, {member} soron: „{label}”',
+        person: 'Egy lépés visszavonva, ember soron: „{label}”',
+      },
       done: 'Kidolgozva: minden lépés kész',
     },
     labelReasons: {

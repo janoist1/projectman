@@ -5,24 +5,26 @@ import type { DragEvent, KeyboardEvent } from 'react';
 import { isChronologicalColumn, placeInOrder, placementAt } from '@projectman/shared';
 import type { BoardColumnView, BoardPlacement, LabelView, Task } from '@projectman/shared';
 import { useProject } from '../../app/contexts';
+import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
-import { SegmentedControl } from '../../components/SegmentedControl';
 import { PageHeader } from '../../components/PageHeader';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
+import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
-import { matchesFilter } from '../../lib/taskState';
-import type { BoardFilter, TaskPhase } from '../../lib/taskState';
+import type { TaskPhase } from '../../lib/taskState';
 import { dragHasFiles } from '../../lib/attachmentInput';
 import { useCanAttach, useUploadQueue, useUploadingCounts } from './attachmentUploads';
-import { coverSrcOf, matchesSearch } from './cardModel';
+import { DesktopFilters, FilterChips, PhoneFilters } from './BoardFilterControls';
+import { coverSrcOf } from './cardModel';
+import { useDoneFold } from './doneFold';
 import { useFileDrop } from './useFileDrop';
+import { useBoardFilters } from './useBoardFilters';
 import { MobileBoardList } from './MobileBoardList';
 import { TaskCard } from './TaskCard';
 import { TeamStrip } from './TeamStrip';
 import { ThemeStrip } from './ThemeStrip';
-import { sortedThemes } from './themeModel';
 import { sortColumnEntries, useBoardModel } from './useBoardModel';
 import type { BoardEntry } from './useBoardModel';
 import { ApiError } from '../../api/client';
@@ -108,9 +110,16 @@ function Column({
   drag,
   uploadingCounts,
   filtered,
+  searching,
+  members,
+  myHandle,
 }: {
   /** A filter or a search narrows the board: only then does an empty column say so. */
   filtered: boolean;
+  /** A search shows every finished card; without one the finished column shows its newest few. */
+  searching: boolean;
+  members: MemberIndex;
+  myHandle: string | null;
   subtasksByParent: Map<string, Task[]>;
   column: BoardColumnView;
   entries: BoardEntry[];
@@ -123,6 +132,17 @@ function Column({
 }) {
   const labels = useLabels(projectKey);
   const headingId = `col-${column.id}`;
+  // The finished column is the one with a stage of the done kind, not the one named "Kész".
+  const finishes = pipeline.stages.some(
+    (stage) => stage.kind === 'done' && pipeline.columnOfStage.get(stage.id)?.id === column.id,
+  );
+  const done = useDoneFold(
+    finishes ? entries.filter((entry) => entry.state.phase === 'done') : [],
+    searching,
+  );
+  const shown = finishes
+    ? [...entries.filter((entry) => entry.state.phase !== 'done'), ...done.shown]
+    : entries;
   const chronological = isChronologicalColumn(pipeline.stages, column.id);
   const hovered = drag.hover?.columnId === column.id;
   // Another column's card is held over this one: the column takes it by its first stage.
@@ -168,7 +188,7 @@ function Column({
         {entries.length === 0 && filtered ? (
           <p className={styles.columnEmpty}>{t('board.columnEmpty')}</p>
         ) : null}
-        {entries.map(({ task, state }, position) => {
+        {shown.map(({ task, state }, position) => {
           const isDragged = task.key === drag.draggedKey;
           const before = !isDragged && lineIndex === place;
           if (!isDragged) place += 1;
@@ -183,6 +203,8 @@ function Column({
                 projectKey={projectKey}
                 selected={task.key === selectedKey}
                 labels={labels}
+                members={members}
+                myHandle={myHandle}
                 uploading={uploadingCounts.get(task.key) ?? 0}
                 drag={drag}
               />
@@ -190,6 +212,7 @@ function Column({
           );
         })}
         {lineLast(lineIndex, place) ? line(entries.length === 0 ? 'start' : 'end') : null}
+        {done.toggle}
       </div>
     </section>
   );
@@ -213,6 +236,8 @@ function BoardCard({
   projectKey,
   selected,
   labels,
+  members,
+  myHandle,
   uploading,
   drag,
 }: {
@@ -223,6 +248,8 @@ function BoardCard({
   projectKey: string;
   selected: boolean;
   labels: readonly LabelView[];
+  members: MemberIndex;
+  myHandle: string | null;
   uploading: number;
   drag: ColumnDrag;
 }) {
@@ -260,6 +287,8 @@ function BoardCard({
         to={`/p/${projectKey}/tasks/${task.key}`}
         selected={selected}
         labels={labels}
+        members={members}
+        myHandle={myHandle}
         coverSrc={coverSrcOf(projectKey, task)}
         uploading={uploading}
         fileState={fileDrop.state}
@@ -270,7 +299,7 @@ function BoardCard({
 
 /** "Folyamat": the pipeline board; the task drawer renders through the nested route. */
 export function BoardPage() {
-  const { key, search, can, themeFilter, setThemeFilter, openNewTask } = useProject();
+  const { key, myHandle, search, can, setThemeFilter, openNewTask } = useProject();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const { board, pipeline, model } = useBoardModel();
@@ -286,7 +315,6 @@ export function BoardPage() {
   const refocus = useRef<string | null>(null);
   // A drop that waits for the person to accept the open prerequisites (PM-204).
   const [warning, setWarning] = useState<{ drop: BoardDrop; keys: string[] } | null>(null);
-  const [filter, setFilter] = useState<BoardFilter>('all');
   const selected = useMatch('/p/:projectKey/tasks/:taskKey')?.params.taskKey ?? null;
   const uploadingCounts = useUploadingCounts();
   // A file from outside is dragged over the board: over a card, or not (then it says where to drop it).
@@ -303,24 +331,9 @@ export function BoardPage() {
       ) ?? [],
     [model, pending],
   );
-  const searched = useMemo(
-    () => optimisticEntries.filter((entry) => matchesSearch(entry.task, search, model?.ctx.labels)),
-    [optimisticEntries, search, model],
-  );
-  // The theme filter narrows with the search and the phase filter: a card matches by its computed theme,
-  // so the subtasks of a collecting card in the theme are in the list too (PM-192).
-  const activeTheme = useMemo(
-    () => sortedThemes(board.data?.tasks ?? []).find((theme) => theme.key === themeFilter) ?? null,
-    [board.data, themeFilter],
-  );
-  const themed = useMemo(
-    () => (activeTheme ? searched.filter((entry) => entry.task.themeKey === activeTheme.key) : searched),
-    [searched, activeTheme],
-  );
-  const visible = useMemo(
-    () => themed.filter((entry) => matchesFilter(entry.state.phase, filter)),
-    [themed, filter],
-  );
+  // What the search, the theme and the state, member and label filters leave of the board (PM-120).
+  const view = useBoardFilters({ entries: optimisticEntries, model, board: board.data });
+  const { visible, activeTheme, counts } = view;
 
   // Every column's cards in the order shown: the stored order, the card on its way already in its new place.
   const columnOrder = useMemo(() => {
@@ -515,28 +528,9 @@ export function BoardPage() {
     },
   };
 
-  const counts = {
-    all: themed.filter((entry) => matchesFilter(entry.state.phase, 'all')).length,
-    needsYou: themed.filter((entry) => matchesFilter(entry.state.phase, 'needsYou')).length,
-    waiting: themed.filter((entry) => matchesFilter(entry.state.phase, 'waiting')).length,
-  };
   const activeCount = model.entries.filter((entry) => inProgress.has(entry.state.phase)).length;
   const total = model.entries.filter((entry) => entry.state.phase !== 'cancelled').length;
-
-  const filters = (
-    <SegmentedControl<BoardFilter>
-      label={t('board.filtersLabel')}
-      value={filter}
-      onChange={setFilter}
-      size={isMobile ? 'sm' : 'md'}
-      className={styles.filters}
-      options={[
-        { value: 'all', label: t('board.filters.all'), count: counts.all },
-        { value: 'needsYou', label: t('board.filters.needsYou'), count: counts.needsYou },
-        { value: 'waiting', label: t('board.filters.waiting'), count: counts.waiting },
-      ]}
-    />
-  );
+  const filters = isMobile ? <PhoneFilters view={view} /> : <DesktopFilters view={view} />;
 
   // A file dropped anywhere but on a card must not open in the browser in place of the board. The
   // cards (and the open card) take a file's drag first; what they did not take is refused here.
@@ -588,13 +582,14 @@ export function BoardPage() {
         subtitle={
           isMobile
             ? null
-            : activeTheme
-              ? t('board.subtitleFiltered', { title: activeTheme.title, count: counts.all })
+            : view.values.length > 0
+              ? t('board.subtitleFiltered', { values: view.values.join(', '), count: counts.all })
               : t('board.subtitle', { count: total, active: activeCount })
         }
       >
         {filters}
       </PageHeader>
+      {isMobile ? <FilterChips view={view} /> : null}
       <ThemeStrip
         tasks={board.data.tasks}
         active={activeTheme?.key ?? null}
@@ -606,9 +601,23 @@ export function BoardPage() {
         <div className={styles.emptyWrap}>
           <EmptyState icon="board" title={t('board.noTasks')} />
         </div>
-      ) : search && searched.length === 0 ? (
+      ) : search && view.searched.length === 0 ? (
         <div className={styles.emptyWrap}>
           <EmptyState icon="search" title={t('board.noResults', { query: search })} />
+        </div>
+      ) : visible.length === 0 && view.narrowing ? (
+        <div className={styles.emptyWrap}>
+          <EmptyState
+            icon="board"
+            title={t('board.filteredEmpty')}
+            action={
+              view.clearable > 0 ? (
+                <Button variant="secondary" size="sm" onClick={view.clear}>
+                  {t('board.clearFilters')}
+                </Button>
+              ) : undefined
+            }
+          />
         </div>
       ) : isMobile ? (
         <MobileBoardList
@@ -617,6 +626,8 @@ export function BoardPage() {
           pipeline={pipeline}
           projectKey={key}
           searching={search !== ''}
+          members={model.ctx.members}
+          myHandle={myHandle}
         />
       ) : (
         <div className={styles.columns}>
@@ -631,7 +642,10 @@ export function BoardPage() {
               selectedKey={selected}
               drag={drag}
               uploadingCounts={uploadingCounts}
-              filtered={filter !== 'all' || search !== '' || activeTheme !== null}
+              filtered={view.narrowing}
+              searching={search !== ''}
+              members={model.ctx.members}
+              myHandle={myHandle}
             />
           ))}
         </div>

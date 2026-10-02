@@ -80,7 +80,9 @@ describe('themes on the board', () => {
     const cards = project.backend.tasks.filter(
       (task) => task.kind !== 'theme' && task.status !== 'cancelled',
     );
-    const all = screen.getByRole('button', { name: new RegExp(`^${t('board.filters.all')}`) });
+    const all = within(screen.getByRole('group', { name: t('board.filtersLabel') })).getByRole('button', {
+      name: new RegExp(`^${t('board.filters.all')}`),
+    });
     expect(within(all).getByText(String(cards.length))).toBeTruthy();
   });
 
@@ -99,7 +101,7 @@ describe('themes on the board', () => {
     expect(hasCard(titleOf(backend, 'AC-24'))).toBe(true);
     expect(hasCard(collector.title)).toBe(true);
     expect(hasCard(subtask.title)).toBe(true);
-    expect(screen.getByText(t('board.subtitleFiltered', { title: theme.title, count: 4 }))).toBeTruthy();
+    expect(screen.getByText(t('board.subtitleFiltered', { values: theme.title, count: 4 }))).toBeTruthy();
     expect(filterTile(theme.title).getAttribute('aria-pressed')).toBe('true');
     fireEvent.click(filterTile(theme.title));
     await waitFor(() => expect(hasCard(titleOf(backend, 'AC-20'))).toBe(true));
@@ -124,7 +126,9 @@ describe('themes on the board', () => {
     expect(hasCard(subtask.title)).toBe(true);
     expect(hasCard(titleOf(backend, 'AC-24'))).toBe(false);
     // The counts of the filter buttons follow the theme too: the open subtask waits for work.
-    const all = screen.getByRole('button', { name: new RegExp(`^${t('board.filters.all')}`) });
+    const all = within(screen.getByRole('group', { name: t('board.filtersLabel') })).getByRole('button', {
+      name: new RegExp(`^${t('board.filters.all')}`),
+    });
     expect(within(all).getByText('1')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${t('board.filters.needsYou')}`) }));
     await waitFor(() => expect(hasCard(subtask.title)).toBe(false));
@@ -279,7 +283,7 @@ describe("a theme's card", () => {
     project.render(boardRoutes, `/p/AC/tasks/${theme.key}`);
     fireEvent.click(await screen.findByRole('button', { name: t('theme.filterBoard') }));
     await waitFor(() => expect(filterTile(theme.title).getAttribute('aria-pressed')).toBe('true'));
-    expect(screen.getByText(t('board.subtitleFiltered', { title: theme.title, count: 4 }))).toBeTruthy();
+    expect(screen.getByText(t('board.subtitleFiltered', { values: theme.title, count: 4 }))).toBeTruthy();
   });
 });
 

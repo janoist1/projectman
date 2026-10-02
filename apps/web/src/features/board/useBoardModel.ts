@@ -12,8 +12,12 @@ export interface BoardEntry {
   state: TaskState;
 }
 
+/** Cards with the same time keep a stable order: the higher key (the newer card) first. */
+const newerKeyFirst = (a: BoardEntry, b: BoardEntry) =>
+  b.task.key.localeCompare(a.task.key, undefined, { numeric: true });
+
 const byClosing = (a: BoardEntry, b: BoardEntry) =>
-  (b.task.closedAt ?? '').localeCompare(a.task.closedAt ?? '');
+  (b.task.closedAt ?? '').localeCompare(a.task.closedAt ?? '') || newerKeyFirst(a, b);
 
 const rankedOf = ({ task }: BoardEntry): RankedCard => ({
   key: task.key,

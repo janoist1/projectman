@@ -71,6 +71,7 @@ import {
   isOnLeave,
   isOpenTask,
   openPrerequisites,
+  projectRefines,
   isWorkingOnTask,
   labelDefinition,
   labelHolders,
@@ -2573,12 +2574,15 @@ export class MockBackend {
       workStage &&
       stageIndex(this.config.pipeline, task.stageId) < stageIndex(this.config.pipeline, workStage.id)
     ) {
-      const unmet = evaluateStart(task, this.config, workStage.id).unmet;
-      const setters = aiLabelSetters(this.config, unmet, (handle) =>
-        this.sessions.some(
-          (s) => s.member === handle && s.workItem.type === 'task' && s.workItem.taskKey === task.key,
-        ),
-      );
+      const evaluation = evaluateStart(task, this.config, workStage.id);
+      // A project with refinement (decision 31) does not start the setters from the Start button.
+      const setters = projectRefines(this.config)
+        ? null
+        : aiLabelSetters(this.config, evaluation.unmet, (handle) =>
+            this.sessions.some(
+              (s) => s.member === handle && s.workItem.type === 'task' && s.workItem.taskKey === task.key,
+            ),
+          );
       if (setters) {
         for (const member of setters.members) this.openTaskSession(task, member.handle);
         this.labelWaits.set(task.key, { input, workStageId: workStage.id });
@@ -2592,6 +2596,8 @@ export class MockBackend {
         });
         return ok(this.taskDetail(task));
       }
+      // Like the server: a gate no AI member can open refuses the Start.
+      if (evaluation.unmet.length > 0) return gateBlockedError(evaluation);
     }
     return this.startDeveloper(task, input);
   }

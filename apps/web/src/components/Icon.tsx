@@ -47,6 +47,7 @@ const icons = {
       <path d="M20 20l-4.2-4.2" />
     </>
   ),
+  filter: <path d="M4 5.5h16l-6 7.2v5.3l-4 1.8v-7.1z" />,
   chevronDown: <path d="M6 9l6 6 6-6" />,
   chevronRight: <path d="M9 6l6 6-6 6" />,
   chevronLeft: <path d="M15 6l-6 6 6 6" />,

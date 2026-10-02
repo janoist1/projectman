@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo } from 'react';
 import type { Me } from '@projectman/shared';
 import { useBoard, useInbox } from '../api/queries';
+import type { BoardFilters } from '../features/board/boardFilters';
 import { openItemsFor } from '../lib/inbox';
 import { indexMembers } from '../lib/members';
 import type { MemberIndex } from '../lib/members';
@@ -30,6 +31,9 @@ export interface ProjectContextValue {
   /** The theme the board is filtered to (PM-192), kept here so the board, a theme's card and the new-card dialog agree. */
   themeFilter: string | null;
   setThemeFilter: (themeKey: string | null) => void;
+  /** The state, member and label the board is filtered to (PM-120), kept beside the theme filter so they survive opening a card. */
+  boardFilters: BoardFilters;
+  setBoardFilters: (filters: BoardFilters) => void;
 }
 
 export const ProjectContext = createContext<ProjectContextValue | null>(null);

@@ -5,6 +5,8 @@ import { isApiError } from '../api/client';
 import { useBoard, useConfig, useInbox } from '../api/queries';
 import { useProjectSubscription } from '../api/socketHooks';
 import { AttachmentUploadsProvider } from '../features/board/attachmentUploads';
+import { noBoardFilters } from '../features/board/boardFilters';
+import type { BoardFilters } from '../features/board/boardFilters';
 import { NewTaskDialog } from '../features/board/NewTaskDialog';
 import { t } from '../i18n/t';
 import { useIsMobile, writeStorage } from '../lib/hooks';
@@ -39,6 +41,7 @@ export function ProjectLayout() {
   const [search, setSearch] = useState('');
   const [newTask, setNewTask] = useState<{ kind: 'task' | 'theme' } | null>(null);
   const [themeFilter, setThemeFilter] = useState<string | null>(null);
+  const [boardFilters, setBoardFilters] = useState<BoardFilters>(noBoardFilters);
   const access = me.projects.find((project) => project.key === projectKey)?.access;
   const config = useConfig(projectKey, access === 'owner' || access === 'admin' || access === 'developer');
   const isOwner = access === 'owner';
@@ -56,6 +59,7 @@ export function ProjectLayout() {
     writeStorage('lastProject', projectKey);
     setSearch('');
     setThemeFilter(null);
+    setBoardFilters(noBoardFilters);
   }, [projectKey]);
 
   const value = useMemo<ProjectContextValue>(
@@ -70,8 +74,10 @@ export function ProjectLayout() {
       openNewTask: (options) => setNewTask({ kind: options?.kind ?? 'task' }),
       themeFilter,
       setThemeFilter,
+      boardFilters,
+      setBoardFilters,
     }),
-    [projectKey, me, myHandle, isOwner, can, search, themeFilter],
+    [projectKey, me, myHandle, isOwner, can, search, themeFilter, boardFilters],
   );
 
   if (board.isError && isApiError(board.error) && board.error.status === 404) {

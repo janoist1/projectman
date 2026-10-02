@@ -174,6 +174,24 @@ function evaluateGates(
   return evaluation;
 }
 
+/**
+ * Gates of a person's Start of a card (PM-248): every gate on the way to the work stage, and the
+ * entry gate of the stage the card is in as well. A card that sits in a stage while its entry gate
+ * does not hold (it got there before the gate existed, or the label the gate is `when` on came
+ * later) is not let through by a Start. A card already in or past the work stage has no start to
+ * gate: the result is empty.
+ */
+export function evaluateStart(
+  task: GateTask & Pick<Task, 'stageId'>,
+  config: GateConfig,
+  workStageId: string,
+): GateEvaluation {
+  const from = stageIndex(config.pipeline, task.stageId);
+  const to = stageIndex(config.pipeline, workStageId);
+  if (from < 0 || to <= from) return { unmet: [], approvals: [] };
+  return evaluateGates(task, config.pipeline.stages.slice(from, to + 1), config, { forward: true });
+}
+
 /** Gates of a move from one stage to another; forward moves also respect blocking labels. */
 export function evaluateMove(
   task: GateTask,

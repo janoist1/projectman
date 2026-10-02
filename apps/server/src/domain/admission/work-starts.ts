@@ -1,4 +1,4 @@
-import { evaluateMove, stageOf } from '@projectman/shared';
+import { evaluateStart, stageOf } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import { DomainError } from '../errors';
 import type { ProjectService } from '../projects';
@@ -133,8 +133,7 @@ export class WorkStarts implements LabelWait {
       // A card with an open prerequisite waits for the last one to close (PM-204).
       defers: ['no_free_member', 'prerequisite_open'],
       // Still short of a label the gate asks for: the card does not start yet.
-      blocked: (task, config) =>
-        task.stageId !== to && evaluateMove(task, config, task.stageId, to).unmet.length > 0,
+      blocked: (task, config) => task.stageId !== to && evaluateStart(task, config, to).unmet.length > 0,
       retry: () => this.attempt(start),
       log: {
         deferred: 'work start deferred',

@@ -1510,6 +1510,20 @@ describe('the designer round on a UI card (PM-235)', () => {
     expect(steps).not.toContain('Commit');
   });
 
+  it('has the designer set design-ok when the gate of the stage the card is in asks for it (PM-248)', () => {
+    const project = uiProject();
+    const ready = project.pipeline.stages.find((s) => s.id === 'ready')!;
+    ready.gate = { conditions: [{ type: 'has_label', label: 'design-ok', when: 'ui' }] };
+    project.pipeline.stages.find((s) => s.id === 'dev')!.gate = undefined;
+    const steps = stepsOf({
+      project,
+      handle: 'ux',
+      task: makeTask({ stageId: 'ready', assignee: null, labels: ['ui'] }),
+    });
+    expect(steps).toContain('`design-ok`');
+    expect(steps).toContain('only you may set it');
+  });
+
   it('has the designer review once in development and write nothing there', async () => {
     const steps = stepsOf({
       project: uiProject(),

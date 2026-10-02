@@ -1,6 +1,6 @@
 import {
   aiLabelSetters,
-  evaluateMove,
+  evaluateStart,
   isOnLeave,
   isOpenTask,
   isTheme,
@@ -13,6 +13,7 @@ import {
 import type {
   Actor,
   AiMemberConfig,
+  GateEvaluation,
   MemberConfig,
   ProjectConfig,
   Session,
@@ -100,6 +101,15 @@ function workStageOf(config: ProjectConfig, task: Task): Stage | undefined {
 }
 
 /**
+ * A label that only a person sets, missing from the entry gate of the stage the card is in: the
+ * move to the work stage would not ask for it (it enters the stages after this one), so the start
+ * is refused here, the refusal naming the label.
+ */
+function refuseOwnStageApproval(task: Task, evaluation: GateEvaluation): void {
+  if (evaluation.approvals.some((a) => a.stageId === task.stageId)) throw gateBlockedError(evaluation);
+}
+
+/**
  * Starts work on tasks: picks the developer (the explicit one, the current assignee, else the
  * least loaded free owner of the work stage), hires a temp worker when nobody is free and the
  * limits allow it, passes admission, assigns, moves the task into the work stage and starts
@@ -153,6 +163,9 @@ export class TaskStarts {
     if (!(opts.despitePrerequisites && opts.actor.kind === 'human'))
       assertPrerequisitesClosed(task, this.tasks.list(projectKey));
     const needsMove = stageIndex(config.pipeline, task.stageId) < stageIndex(config.pipeline, workStage.id);
+    // PM-248: the gate of the stage the card is in holds the Start too; a label only a person
+    // sets there is no approval this Start can ask for, so it is refused before anyone is started.
+    if (needsMove) refuseOwnStageApproval(task, evaluateStart(task, config, workStage.id));
     if (needsMove && opts.startSetters && opts.actor.kind === 'human' && this.labelWait) {
       const waiting = await this.startLabelSetters(config, task, workStage, opts);
       if (waiting) return { ...skipped, task: this.tasks.get(projectKey, taskKey), awaiting: waiting };
@@ -174,8 +187,10 @@ export class TaskStarts {
       });
 
     if (needsMove) {
-      const evaluation = evaluateMove(task, config, task.stageId, workStage.id);
+      const evaluation = evaluateStart(task, config, workStage.id);
       if (evaluation.unmet.length > 0) throw gateBlockedError(evaluation);
+      // Again: admission and a hire waited since the first check, and labels may have changed.
+      refuseOwnStageApproval(task, evaluation);
       if (evaluation.approvals.length > 0) {
         const result = await this.tasks.moveToStage(projectKey, taskKey, workStage.id, opts.actor);
         throw approvalRequestedError(result.pendingApproval);
@@ -234,7 +249,7 @@ export class TaskStarts {
     opts: StartTaskOptions,
   ): Promise<{ labels: string[]; members: string[] } | null> {
     const projectKey = config.project.key;
-    const evaluation = evaluateMove(task, config, task.stageId, workStage.id);
+    const evaluation = evaluateStart(task, config, workStage.id);
     const setters = aiLabelSetters(config, evaluation.unmet, (handle) =>
       this.sessions
         .list(projectKey, { member: handle })

@@ -5,6 +5,7 @@ import type { Task, TaskLink } from '../domain/task';
 import {
   aiLabelSetters,
   evaluateMove,
+  evaluateStart,
   gateAcceptsCondition,
   gateAcceptsWhen,
   pullRequestsMerged,
@@ -361,5 +362,57 @@ describe('gateAcceptsCondition (decision 19)', () => {
     expect(gateAcceptsCondition(release, { type: 'lacks_label', when: 'ui' }, fact)).toBe(false);
     expect(gateAcceptsCondition(merge, bound, fact)).toBe(true);
     expect(gateAcceptsWhen(release, {})).toBe(true);
+  });
+});
+
+describe('evaluateStart (PM-248)', () => {
+  /** The queue stage holds the entry gate, as `ready` does on a `ui` card; `dev` is the work stage. */
+  function gated() {
+    const c = config();
+    c.pipeline.stages.find((s) => s.id === 'backlog')!.gate = {
+      conditions: [{ type: 'has_label', label: 'review-ok', when: 'wip' }],
+    };
+    return c;
+  }
+  const at = (stageId: string, labels: string[]) => ({ ...task(labels), stageId });
+
+  it('evaluates the entry gate of the stage the card is in, which a move does not', () => {
+    const c = gated();
+    const card = at('backlog', ['wip']);
+    expect(evaluateMove(card, c, 'backlog', 'dev')).toEqual({ unmet: [], approvals: [] });
+    expect(evaluateStart(card, c, 'dev')).toEqual({
+      unmet: [
+        {
+          stageId: 'backlog',
+          condition: { type: 'has_label', label: 'review-ok', when: 'wip' },
+          setters: ['rev'],
+        },
+      ],
+      approvals: [],
+    });
+  });
+
+  it('lets the card through when the label is there or the condition does not bind it', () => {
+    const c = gated();
+    expect(evaluateStart(at('backlog', ['wip', 'review-ok']), c, 'dev')).toEqual({
+      unmet: [],
+      approvals: [],
+    });
+    expect(evaluateStart(at('backlog', []), c, 'dev')).toEqual({ unmet: [], approvals: [] });
+  });
+
+  it('still evaluates the stages entered on the way, and blocking labels', () => {
+    const c = gated();
+    c.pipeline.stages.find((s) => s.id === 'dev')!.gate = {
+      conditions: [{ type: 'has_label', label: 'merged' }],
+    };
+    const result = evaluateStart(at('backlog', ['waiting']), c, 'dev');
+    expect(result.unmet.map((u) => u.stageId)).toEqual(['dev', 'backlog']);
+  });
+
+  it('has nothing to gate for a card in or past the work stage', () => {
+    const c = gated();
+    expect(evaluateStart(at('dev', ['wip']), c, 'dev')).toEqual({ unmet: [], approvals: [] });
+    expect(evaluateStart(at('review', ['wip']), c, 'dev')).toEqual({ unmet: [], approvals: [] });
   });
 });

@@ -344,6 +344,66 @@ describe('automatic start of unassigned cards moved into a work stage', () => {
     expect(storedKeys()).toEqual([]);
   });
 
+  it('starts again a card moved out and back into the stage after its wait was dropped', async () => {
+    h = await createDomainHarness({ adjust: roomy });
+    await setLeave('dev-1', true);
+    await setLeave('dev-2', true);
+    const key = await create();
+    await move(key);
+    await vi.waitFor(() => expect(storedKeys()).toEqual(['work-start:AR:AR-1']));
+    await move(key, 'backlog');
+    expect(storedKeys()).toEqual([]);
+    expect(waiting(key)).toBeUndefined();
+
+    await move(key);
+    await vi.waitFor(() => expect(waiting(key)).toMatchObject({ reason: 'no_free_member' }));
+    expect(storedKeys()).toEqual(['work-start:AR:AR-1']);
+    await setLeave('dev-1', false);
+    await vi.waitFor(() => expect(task(key).assignee).toBe('dev-1'));
+    expect(h.runner.started).toHaveLength(1);
+  });
+
+  it('starts again a card that was assigned by hand, unassigned and moved back in', async () => {
+    h = await createDomainHarness({ adjust: roomy });
+    await setLeave('dev-1', true);
+    await setLeave('dev-2', true);
+    const key = await create();
+    await move(key);
+    await vi.waitFor(() => expect(storedKeys()).toHaveLength(1));
+    await h.domain.tasks.update('AR', key, { assignee: 'owner' }, OWNER_ACTOR);
+    await h.domain.admission.retryDeferred();
+    expect(storedKeys()).toEqual([]);
+    await h.domain.tasks.update('AR', key, { assignee: null }, OWNER_ACTOR);
+    await move(key, 'backlog');
+    await move(key);
+    await vi.waitFor(() => expect(waiting(key)).toMatchObject({ reason: 'no_free_member' }));
+    await setLeave('dev-2', false);
+    await vi.waitFor(() => expect(task(key).assignee).toBe('dev-2'));
+  });
+
+  it('does not take for its own an assignment somebody made while its admission check ran', async () => {
+    h = await createDomainHarness({ adjust: roomy });
+    const check = h.domain.admission.check.bind(h.domain.admission);
+    let taken = false;
+    vi.spyOn(h.domain.admission, 'check').mockImplementation(async (request) => {
+      if (!taken) {
+        taken = true;
+        // Not under the admission lock, like the REST assignment.
+        h.domain.tasks.assign('AR', 'AR-1', 'dev-2', OWNER_ACTOR);
+        throw conflict('member_at_capacity', 'fictional refusal');
+      }
+      return check(request);
+    });
+    const key = await create();
+    await move(key);
+    await vi.waitFor(() => expect(task(key).assignee).toBe('dev-2'));
+    await flush();
+    await h.domain.admission.retryDeferred();
+    expect(sessionsOf(key)).toEqual([]);
+    expect(storedKeys()).toEqual([]);
+    expect(waiting(key)).toBeUndefined();
+  });
+
   it('retries on the periodic timer too', async () => {
     h = await createDomainHarness({ handOffRetryMs: 20, adjust: roomy });
     const first = await create('One');

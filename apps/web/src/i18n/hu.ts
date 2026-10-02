@@ -593,7 +593,7 @@ export const hu = {
       workspace_fetch_failed:
         'Az új feladatág csak friss alapról indulhat. Ellenőrizd a hálózatot és a repó elérését; az indítás magától újrapróbálkozik.',
       no_free_member:
-        'Most nincs szabad fejlesztő. A feladat magától elindul, amint felszabadul egy, vagy ha a Beállítások → Keretek alatt engedélyezed a beugrókat; az Indítás gombbal kézzel is elindíthatod.',
+        'Most nincs szabad fejlesztő. A feladat magától elindul, amint felszabadul egy, vagy ha a Beállítások → Keretek alatt engedélyezed a beugrókat; addig kézzel is hozzárendelhetsz valakit.',
     },
     needsYou: 'Rád vár: {what}',
     needsYouDetail: '{kind} ({detail})',

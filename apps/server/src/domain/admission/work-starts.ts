@@ -31,6 +31,8 @@ export class WorkStarts {
   private readonly starts: TaskStarts;
   /** The start of each card that is running or waiting: a repeated move event does not replace it. */
   private readonly pending = new Map<string, AutomaticStart>();
+  /** The starts with an attempt under way (their deferral is out of the store meanwhile). */
+  private readonly running = new Set<AutomaticStart>();
 
   constructor(deps: {
     projects: ProjectService;
@@ -54,8 +56,10 @@ export class WorkStarts {
     const config = await this.projects.config(projectKey);
     if (stageOf(config, change.to)?.kind !== 'work' || !config.team.limits.aiEnabled) return;
     const key = keyOf(projectKey, taskKey);
+    // A start that runs or waits (stored) carries on; one the store dropped is replaced.
     const existing = this.pending.get(key);
-    if (existing?.stillValid(task)) return;
+    if (existing?.stillValid(task) && (this.running.has(existing) || this.admission.isWaiting(existing)))
+      return;
     const start = this.startFor({
       kind: 'work_start',
       projectKey,
@@ -112,21 +116,18 @@ export class WorkStarts {
         if (!stillValid(task)) return;
         const config = await this.projects.config(projectKey);
         if (stageOf(config, to)?.kind !== 'work') return;
-        try {
-          await this.starts.startLocked(projectKey, taskKey, {
-            actor,
-            author: SYSTEM_AUTHOR,
-            stillWanted: stillValid,
-            onChosen: (member) => {
-              waitsFor = member?.handle;
-            },
-          });
-        } catch (err) {
-          // The card was free when this run began: an assignee now is this start's own, which the
-          // next try carries on with instead of taking it for someone else's.
-          assigned ??= this.tasks.find(projectKey, taskKey)?.assignee ?? undefined;
-          throw err;
-        }
+        await this.starts.startLocked(projectKey, taskKey, {
+          actor,
+          author: SYSTEM_AUTHOR,
+          stillWanted: stillValid,
+          onChosen: (member) => {
+            waitsFor = member?.handle;
+          },
+          // Only an assignment this start made is its own: the next try carries on with that one.
+          onAssigned: (handle) => {
+            assigned = handle;
+          },
+        });
       },
     };
     this.pending.set(key, start);
@@ -134,9 +135,11 @@ export class WorkStarts {
   }
 
   private async attempt(start: AutomaticStart): Promise<void> {
+    this.running.add(start);
     try {
       await this.admission.attempt(start);
     } finally {
+      this.running.delete(start);
       // Settled for good (started, or no longer applies) unless it waits again.
       if (!this.admission.isWaiting(start) && this.pending.get(start.key) === start)
         this.pending.delete(start.key);

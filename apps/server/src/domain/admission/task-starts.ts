@@ -42,6 +42,8 @@ export interface StartTaskOptions {
    * (somebody assigned the card meanwhile), nothing is changed and no session starts.
    */
   stillWanted?: (task: Task) => boolean;
+  /** Told the member this start assigned the task to (not one that was already assigned). */
+  onAssigned?: (handle: string) => void;
 }
 
 export interface StartTaskResult {
@@ -131,16 +133,29 @@ export class TaskStarts {
       }
     }
 
+    const wanted = () => !opts.stillWanted || opts.stillWanted(this.tasks.get(projectKey, taskKey));
     let hired: AiMemberConfig | null = null;
     if (!member) {
+      if (!wanted()) return skipped;
       hired = await this.hireTempWorker(config, workStage, opts);
       member = hired;
     }
 
-    if (opts.stillWanted && !opts.stillWanted(this.tasks.get(projectKey, taskKey)))
-      return { ...skipped, hired };
-    if (task.assignee !== member.handle)
+    if (!wanted()) {
+      // The card was taken while the temp worker was hired: it has no task to carry.
+      if (hired)
+        await this.members.retire(
+          projectKey,
+          hired.handle,
+          {},
+          { actor: SYSTEM_ACTOR, author: SYSTEM_AUTHOR },
+        );
+      return skipped;
+    }
+    if (task.assignee !== member.handle) {
       task = this.tasks.assign(projectKey, taskKey, member.handle, opts.actor);
+      opts.onAssigned?.(member.handle);
+    }
     if (needsMove) {
       const result = await this.tasks.moveToStage(projectKey, taskKey, workStage.id, opts.actor);
       if (!result.moved) throw approvalRequestedError(result.pendingApproval);

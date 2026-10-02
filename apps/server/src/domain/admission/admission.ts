@@ -185,7 +185,9 @@ export class Admission {
             start,
             waiting: waitingOf(err, { member: start.waitsFor(), previous: since, at: isoNow(this.ctx) }),
           });
-          this.ctx.logger.info({ ...start.log.fields(), reason: err.code }, start.log.deferred);
+          // Capacity-freeing events retry often: it is said when the reason is new, not at every refusal that stays.
+          if (previous?.waiting.reason !== err.code)
+            this.ctx.logger.info({ ...start.log.fields(), reason: err.code }, start.log.deferred);
           return;
         }
         // The start happened, or it no longer applies.

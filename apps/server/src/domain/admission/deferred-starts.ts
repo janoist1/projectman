@@ -41,6 +41,17 @@ export const StartSpec = z.discriminatedUnion('kind', [
     afterLabels: z.boolean().optional(),
     developer: MemberHandle.optional(),
   }),
+  /**
+   * The turn of an AI member for the refinement step `label` of a card (decision 31); `stageId` is
+   * the card's stage when it was tried.
+   */
+  z.object({
+    kind: z.literal('refinement_turn'),
+    projectKey: z.string(),
+    taskKey: TaskKey,
+    stageId: z.string(),
+    label: z.string(),
+  }),
   /** The wake-up of an AI recipient of waiting messages; `stageId` is the task's stage when it was tried. */
   z.object({
     kind: z.literal('message_wake'),

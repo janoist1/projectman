@@ -331,6 +331,11 @@ export const en: TemplateLocale = {
       name: 'Waiting for an answer',
       meaning: 'Waiting for an outside answer; the task cannot move forward meanwhile.',
     },
+    refine: {
+      name: 'Waiting to be worked out',
+      meaning:
+        'The card is worked out before development, one step at a time, by one member at a time; the system takes the label off when it is done.',
+    },
   },
   stageApproval: (stageName) => `${stageName}: approved`,
   specialist: (specialty, roleName) => `${specialty} ${lowerFirstWord(roleName)}`,

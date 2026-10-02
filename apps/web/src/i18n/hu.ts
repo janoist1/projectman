@@ -1231,6 +1231,14 @@ export const hu = {
         heading: 'Fogy a lemezhely',
         body: 'Már csak {free} szabad hely van a lemezen; a határ {threshold}. Amíg nincs elég hely, új AI-munkamenet nem indul, a futók befejezhetik a lépésüket. Szabadíts fel helyet (régi munkafák, buildek), vagy állítsd a határt a Beállítások → Keretek alatt. Ha újra van elég hely, a figyelmeztetés magától megszűnik.',
       },
+      refinement: {
+        heading: 'Kidolgozás',
+        manual_step:
+          'A(z) {key} kártya kidolgozásában a(z) „{label}” címkét ember teheti rá; addig a kártya áll.',
+        stalled:
+          'A(z) {key} kártyán a „{label}” címkéhez kijelölt tag köre véget ért, de a címke nincs rajta. A kártya áll.',
+        done: 'A(z) {key} kártya kidolgozva, mehet a fejlesztésre.',
+      },
       worktree_kept: {
         heading: 'Egy lezárt kártya munkafája megmaradt',
         body: 'A(z) {key} kártya munkafáján ({path}) {changes} el nem mentett változás van, ezért a takarítás nem törölte. Mentsd el (commit) vagy dobd el a változásokat; a következő takarítás utána eltávolítja. Az ág megmarad.',
@@ -1438,6 +1446,11 @@ export const hu = {
     details: 'Részletek',
     labelsAdded: 'Rátette: {labels}',
     labelsRemoved: 'Levette: {labels}',
+    refinement: {
+      member: 'Kidolgozás: „{label}” – {member} következik',
+      person: 'Kidolgozás: „{label}” – ember következik',
+      done: 'Kidolgozva: minden lépés kész',
+    },
     labelReasons: {
       approval: 'jóváhagyással',
       moved_back: 'visszalépés miatt',
@@ -2055,6 +2068,8 @@ export const hu = {
       codex_bypass_not_allowed: 'A Codex-tag nem kaphat »mindent szabad« módot.',
       unknown_label: 'A kapu olyan címkére hivatkozik, amely nincs megadva a Címkék között.',
       missing_label_setter: 'A kapu által kért címkét senki nem teheti rá.',
+      refinement_step_manual:
+        'Egy kidolgozási lépés címkéjét egyetlen AI-tag sem teheti rá, ezért azt embernek kell elvégeznie.',
       duplicate_label: 'A címkék azonosítói nem ismétlődhetnek.',
     },
     problems: {

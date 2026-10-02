@@ -103,6 +103,8 @@ export function alertText(item: InboxItem, members: MemberIndex, myHandle: strin
       minutes: alert.minutes,
       members: joinNames(namesOf(alert.members, members, myHandle)),
     });
+  if (alert.alert === 'refinement')
+    return t(`inbox.alerts.refinement.${alert.reason}`, { key: alert.taskKey, label: alert.label ?? '' });
   if (alert.alert === 'disk_low')
     return t('inbox.alerts.disk_low.body', {
       free: gigabytes(alert.freeBytes),

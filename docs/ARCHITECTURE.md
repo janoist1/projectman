@@ -279,6 +279,19 @@ Documentation map:
 - **Stage hand-over** — when a task enters a later stage owned by AI members, by anyone's
   move, the least loaded free owner (never the task's assignee) gets a session for the task.
   An owner that already has a session for the task gets a notice instead.
+- **Refinement line** (decision 31, `RefinementSteps`) — a card carrying `refine` (or standing in a
+  `task_breakdown` step stage) is worked out one step at a time, before development. The steps are
+  the labels the gates up to the work stage lack, in gate order (`refinementTurn` in
+  `packages/shared`, the same set `evaluateStart` refuses a Start for). Each step has one member:
+  an AI setter (already working on the card, else not on leave, else least loaded) is started
+  (a running session only gets a notice), a person gets a `manual_step` alert. Nothing is done
+  while a session is mid-turn on the card; a step is not handed out twice (its member's turn
+  ending without the label raises one `stalled` alert). When every label is on, the system takes
+  `refine` off, moves the card to the stage before development and tells who prioritises (`done`).
+  Every change of turn is a `refinement_turn` timeline event (`turnMember` reads the latest). A
+  refused start is deferred (`StartSpec` kind `refinement_turn`) like a hand-over. In such a
+  project a person's Start does not start label setters (PM-236): it is refused until the card is
+  worked out, and the stage hand-over starts nobody on entering a refinement stage.
 - **Inbox ("Rád vár")** — everything waiting for a human: tool permission requests (the
   agent's PermissionRequest hook, answered from the browser), approval decisions for gates,
   and questions from AI members (`ask_human`). The answer to a question returns to the asking

@@ -222,6 +222,16 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       return normal(checkLine(str(d.check), str(d.to)));
     case 'task_labels_changed':
       return normal(labelsChanged(d, ctx));
+    case 'refinement_turn': {
+      const label = d.label ? labelName(str(d.label), ctx.labels ?? []) : '';
+      if (d.reason === 'done') return normal(t('timeline.refinement.done'));
+      return normal(
+        t(d.member ? 'timeline.refinement.member' : 'timeline.refinement.person', {
+          label,
+          member: d.member ? nameOf(str(d.member), ctx.members, ctx.myHandle) : '',
+        }),
+      );
+    }
     case 'task_link_added':
       return normal(
         t('timeline.events.task_link_added', {

@@ -169,12 +169,28 @@ export const WorktreeKeptAlert = z.object({
 });
 export type WorktreeKeptAlert = z.infer<typeof WorktreeKeptAlert>;
 
+/**
+ * `refinement` (PM-254, decision 31): the refinement of card `taskKey` needs a person. `label` is the
+ * label the step lacks (null for `done`). `manual_step`: no AI member may set it, so the people who may
+ * should write what the step asks for and set it; `stalled`: the member whose turn it was finished
+ * without setting it and no blocking label holds the card; `done`: every step is done, the card is
+ * worked out (and was moved on when the pipeline had a stage for it).
+ */
+export const RefinementAlert = z.object({
+  alert: z.literal('refinement'),
+  taskKey: TaskKey,
+  label: LabelId.nullable(),
+  reason: z.enum(['manual_step', 'stalled', 'done']),
+});
+export type RefinementAlert = z.infer<typeof RefinementAlert>;
+
 export const AlertPayload = z.discriminatedUnion('alert', [
   SessionTokensAlert,
   MessageBurstAlert,
   SessionInputAlert,
   DiskLowAlert,
   WorktreeKeptAlert,
+  RefinementAlert,
 ]);
 export type AlertPayload = z.infer<typeof AlertPayload>;
 

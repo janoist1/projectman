@@ -29,6 +29,7 @@ export * from './config/duties';
 export * from './config/session-policy';
 export * from './config/labels';
 export * from './config/gates';
+export * from './config/refinement';
 export * from './config/lookup';
 export * from './config/leave';
 export * from './config/repos';

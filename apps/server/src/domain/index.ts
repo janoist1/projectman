@@ -24,7 +24,15 @@ import type { EgressSettings } from './egress';
 import type { ProcessProbe } from './workspaces';
 import { projectAccessFor } from './access';
 import type { ProjectAccess } from './access';
-import { Admission, DeferredStarts, MessageStarts, StageHandOver, TaskStarts, WorkStarts } from './admission';
+import {
+  Admission,
+  DeferredStarts,
+  MessageStarts,
+  RefinementSteps,
+  StageHandOver,
+  TaskStarts,
+  WorkStarts,
+} from './admission';
 import type { StartSpec } from './admission';
 import { AttachmentService } from './attachments';
 import { BackgroundTasks } from './background';
@@ -66,7 +74,15 @@ export * from './errors';
 export { createEventBus } from './event-bus';
 export { createDomainEvents } from './events';
 export type { DomainEventMap, DomainEvents } from './events';
-export { Admission, DeferredStarts, MessageStarts, StageHandOver, TaskStarts, WorkStarts } from './admission';
+export {
+  Admission,
+  DeferredStarts,
+  MessageStarts,
+  RefinementSteps,
+  StageHandOver,
+  TaskStarts,
+  WorkStarts,
+} from './admission';
 export type {
   AdmissionRequest,
   AutomaticStart,
@@ -391,6 +407,7 @@ export function createDomain(opts: DomainOptions) {
   taskStarts.useLabelWait(workStarts);
   const handOver = new StageHandOver({ projects, tasks, sessions, admission, delivery });
   const messageStarts = new MessageStarts({ projects, tasks, admission, messages, delivery });
+  const refinement = new RefinementSteps({ projects, tasks, sessions, admission, delivery, inbox, timeline });
   const schedules = new ScheduleService({
     ctx,
     projects,
@@ -459,6 +476,8 @@ export function createDomain(opts: DomainOptions) {
         return handOver.rebuild(spec);
       case 'work_start':
         return workStarts.rebuild(spec);
+      case 'refinement_turn':
+        return refinement.rebuild(spec);
       case 'message_wake':
         return messageStarts.rebuild(spec);
     }
@@ -571,6 +590,22 @@ export function createDomain(opts: DomainOptions) {
   events.on('session_idle', () => {
     retryDeferredStarts();
   });
+  // A card that is being worked out goes on to its next step (decision 31), in the background.
+  const refine = (run: () => Promise<void>) => {
+    background.run(run, (err) => opts.logger.warn({ err }, 'refinement step failed'));
+  };
+  events.on('task_labels_changed', ({ task }) => {
+    refine(() => refinement.changed(task));
+  });
+  events.on('task_stage_changed', (change) => {
+    refine(() => refinement.moved(change));
+  });
+  events.on('session_idle', (session) => {
+    refine(() => refinement.turnEnded(session));
+  });
+  events.on('session_ended', (session) => {
+    refine(() => refinement.turnEnded(session));
+  });
   events.on('task_stage_changed', (change) => {
     if (change.task.status !== 'done') return;
     // An AI member that moved the task finishes its turn first (its messages and notes, PM-190).
@@ -624,6 +659,7 @@ export function createDomain(opts: DomainOptions) {
     handOver,
     workStarts,
     messageStarts,
+    refinement,
     schedules,
     githubSync,
     reviewWatch,

@@ -1,7 +1,9 @@
 import { DUTIES, DUTY_IDS } from '../domain/duty';
 import { dutyMembers } from './duties';
-import { gateAcceptsCondition, gateAcceptsWhen } from './gates';
+import { gateAcceptsCondition, gateAcceptsWhen, stageIndex } from './gates';
 import { labelDefinition, labelHolders } from './labels';
+import { memberOf } from './lookup';
+import { developmentStage, projectRefines } from './refinement';
 import { isHumanOnlyLabel } from '../domain/label';
 import { DEFAULT_AGENT_PROVIDER } from '../domain/member';
 import { permissionModeFitsProvider } from '../domain/provider-model';
@@ -19,6 +21,7 @@ export interface ConfigIssue {
     | 'unknown_label'
     | 'duplicate_label'
     | 'missing_label_setter'
+    | 'refinement_step_manual'
     | 'release_without_human_approval'
     | 'release_approval_needs_duty'
     | 'conditional_release_gate'
@@ -197,6 +200,34 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
     if (DUTIES[id].recommended && !dutyMembers(config, id).length)
       issues.push({ code: 'recommended_duty_unfilled', severity: 'warning', path: 'team', detail: id });
   }
+  issues.push(...manualRefinementSteps(config));
+  return issues;
+}
+
+/**
+ * Refinement (decision 31) warns about a step no AI member can do: a label a gate before the work
+ * stage requires (the work stage's own gate included) that no AI member may set, while the project has
+ * refinement. That step goes to the people who may set it (an alert), so it is not an error. Labels the
+ * system sets and approvals (only humans may set them) are meant to be a person's.
+ */
+function manualRefinementSteps(config: ProjectConfig): ConfigIssue[] {
+  const work = developmentStage(config);
+  if (!work || !projectRefines(config)) return [];
+  const issues: ConfigIssue[] = [];
+  const stages = config.pipeline.stages;
+  stages.slice(0, stageIndex(config.pipeline, work.id) + 1).forEach((stage, i) => {
+    (stage.gate?.conditions ?? []).forEach((condition, j) => {
+      const label = condition.type === 'has_label' ? labelDefinition(config, condition.label) : undefined;
+      if (!label || label.setBy === 'system' || isHumanOnlyLabel(label)) return;
+      if (labelHolders(config, label).some((handle) => memberOf(config, handle)?.kind === 'ai')) return;
+      issues.push({
+        code: 'refinement_step_manual',
+        severity: 'warning',
+        path: `pipeline.stages[${i}].gate.conditions[${j}]`,
+        detail: label.id,
+      });
+    });
+  });
   return issues;
 }
 

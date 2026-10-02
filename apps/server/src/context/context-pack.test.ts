@@ -1536,6 +1536,35 @@ describe('refinement steps (PM-256)', () => {
     expect(steps).not.toContain('`ui` (UI): A screen changes');
   });
 
+  it('gives the member on turn the step of its own duty when the label is set by named members', () => {
+    const project = refiningProject();
+    project.pipeline.labels.find((l) => l.id === 'design-ok')!.setBy = { members: ['ux'] };
+    const steps = stepsOf('ux', cardWith('ui', 'scope-ok'), project);
+    expect(steps).toContain('Write a short plan into the description with update_task');
+    expect(steps).toContain('add label `design-ok` (Design ready) with update_task');
+    expect(steps).not.toContain('now comes the step of');
+  });
+
+  it('offers the responsible only the labels it may set, and sends the rest to a person', () => {
+    const project = refiningProject();
+    project.pipeline.labels.find((l) => l.id === 'ui')!.setBy = { members: ['owner'] };
+    const steps = stepsOf('arch', cardWith(), project);
+    expect(steps).toContain('`needs-analysis` (Needs analysis): The request is unclear; `needs-plan`');
+    expect(steps).toContain(
+      'You may not set these labels yourself: `ui` (UI): A screen changes. If the card needs that step, ask a person with ask_human',
+    );
+    expect(steps).not.toContain('by the labels that call for them: `ui`');
+  });
+
+  it('names nobody when no one can set the label of the turn', () => {
+    const project = refiningProject();
+    project.pipeline.labels.find((l) => l.id === 'scope-ok')!.setBy = { members: [] };
+    const task = cardWith();
+    expect(stepsOf('arch', task, project)).toContain('now comes the step of nobody who could set it.');
+    const brief = builder.build(input({ project, handle: 'arch', task })).initialMessage ?? '';
+    expect(brief).toContain('- On turn: nobody who could set it, for');
+  });
+
   it('gives the analyst the requirements steps, even though the analyst also holds task breakdown', () => {
     const steps = stepsOf('analyst', cardWith('needs-analysis', 'scope-ok'));
     expect(steps).toContain('Rewrite the description with update_task');

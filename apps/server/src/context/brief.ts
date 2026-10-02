@@ -131,9 +131,11 @@ function refinementSection(input: ContextPackInput, task: Task, situation: Situa
         ),
     ),
   ];
+  const setters =
+    turn.kind === 'step' ? (turn.aiSetters.length > 0 ? turn.aiSetters : turn.humanSetters) : [];
   const onTurn =
     turn.kind === 'step'
-      ? `${codeList(turn.aiSetters.length > 0 ? turn.aiSetters : turn.humanSetters)}, for ${labelRef(turn.label, labels)}`
+      ? `${setters.length > 0 ? codeList(setters) : 'nobody who could set it'}, for ${labelRef(turn.label, labels)}`
       : turn.kind === 'blocked'
         ? `nobody: the card is held back by ${labelRef(turn.label, labels)}`
         : 'nobody: every step is done, the system moves the card on';

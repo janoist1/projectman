@@ -590,12 +590,19 @@ const REFINEMENT_DUTIES: readonly DutyId[] = [
   'task_breakdown',
 ];
 
-/** The duty the member works the label's step with: one of the label's setters' duties it holds. */
+/**
+ * The duty the member works the label's step with: one of the label's setters' duties it holds. A label
+ * set by named members (or by anyone) names no duty: then the member's own first refinement duty is it.
+ */
 function refinementDuty(input: ContextPackInput, label: LabelDefinition): DutyId | null {
   const setBy = label.setBy;
   const labelDuties = typeof setBy === 'object' ? (setBy.duties ?? []) : [];
   const held = roleBundle(input.project, input.member.role).duties;
-  return REFINEMENT_DUTIES.find((duty) => labelDuties.includes(duty) && held.includes(duty)) ?? null;
+  return (
+    REFINEMENT_DUTIES.find((duty) => labelDuties.includes(duty) && held.includes(duty)) ??
+    REFINEMENT_DUTIES.find((duty) => held.includes(duty)) ??
+    null
+  );
 }
 
 /**
@@ -623,13 +630,29 @@ function labelMeaning(project: ContextPackInput['project'], id: string): string 
 
 /** The responsible's step: decide which steps the card needs, and put their labels on it. */
 function breakdownWork(c: StepContext, step: string): string[] {
-  const { input } = c;
+  const { input, task } = c;
   const optional = optionalStepLabels(c);
+  const mayAdd = (id: string): boolean => {
+    const label = labelDefinition(input.project, id);
+    return (
+      !label ||
+      (label.setBy !== 'system' &&
+        !isHumanOnlyLabel(label) &&
+        labelSetters(input.project, label, task).includes(input.member.handle))
+    );
+  };
+  const mine = optional.filter(mayAdd);
+  const others = optional.filter((id) => !mayAdd(id));
   return [
     'Read the card with get_task.',
-    ...(optional.length > 0
+    ...(mine.length > 0
       ? [
-          `Decide which of the steps the card needs, and why, by the labels that call for them: ${optional.map((id) => labelMeaning(input.project, id)).join('; ')}.`,
+          `Decide which of the steps the card needs, and why, by the labels that call for them: ${mine.map((id) => labelMeaning(input.project, id)).join('; ')}.`,
+        ]
+      : []),
+    ...(others.length > 0
+      ? [
+          `You may not set these labels yourself: ${others.map((id) => labelMeaning(input.project, id)).join('; ')}. If the card needs ${others.length === 1 ? 'that step' : 'one of them'}, ask a person with ask_human to set the label, and leave it out of your update_task call.`,
         ]
       : []),
     `When the answers to your questions have come in, add the labels you chose and ${step} in one update_task call (add_labels), with your reasons as the note. A small card needs only ${step}.`,
@@ -664,7 +687,7 @@ function refinementSteps(
   if (!turn.aiSetters.includes(input.member.handle) || !duty) {
     const members = turn.aiSetters.length > 0 ? turn.aiSetters : turn.humanSetters;
     return [
-      `The card is being worked out before development, now comes the step of ${codeList(members)}. ${asked}`,
+      `The card is being worked out before development, now comes the step of ${members.length > 0 ? codeList(members) : 'nobody who could set it'}. ${asked}`,
     ];
   }
   const c = context(duty);

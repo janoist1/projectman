@@ -1234,7 +1234,8 @@ export const hu = {
     resolutionRules: {
       command_policy: 'Automatikus: szabály szerint',
     },
-    resolutionLine: '{decision}: {title}',
+    /** The folded row of the history for what the system decided by a rule. */
+    automaticDecisions: '{count} automatikus döntés',
     resolvedBy: '{who} · {time}',
     allDone: 'Ebben a szűrésben minden el van intézve.',
     allDoneEverywhere: 'Minden el van intézve.',

@@ -135,6 +135,13 @@ export function decisionSubject(item: InboxItem): string {
   return item.title;
 }
 
+/** One line of a history list: what was decided · who asked · for which task ("Engedélyezve · Senior Fejlesztő · PM-141"). */
+export function decisionLine(item: InboxItem, members: MemberIndex, myHandle: string | null): string {
+  return [resolutionLabel(item), nameOf(item.source, members, myHandle), item.taskKey]
+    .filter((part): part is string => Boolean(part))
+    .join(' · ');
+}
+
 export function boundaryOf(item: InboxItem): BoundaryRequest | null {
   const parsed = item.kind === 'boundary' ? BoundaryRequest.safeParse(item.payload.boundary) : null;
   return parsed?.success ? parsed.data : null;
@@ -229,16 +236,21 @@ export function shortCommand(command: string | null): string | null {
 }
 
 /** How an item was closed: "Engedélyezve", "Válasz: B", "Lejárt". */
+/** A permission the system decided by itself (a command-policy rule, or the system in older records). */
+export function isAutomaticDecision(item: InboxItem): boolean {
+  return (
+    item.kind === 'permission' &&
+    item.state === 'resolved' &&
+    (item.resolution?.rule !== undefined || item.resolution?.by === 'system')
+  );
+}
+
 export function resolutionLabel(item: InboxItem): string {
   if (item.state === 'expired') return t('inbox.resolutions.expired');
   if (item.state === 'cancelled') return t('inbox.resolutions.cancelled');
   const optionId = item.resolution?.optionId;
   if (!optionId) return t('inbox.resolutions.answer');
-  if (
-    item.kind === 'permission' &&
-    (item.resolution?.rule !== undefined || item.resolution?.by === 'system') &&
-    (optionId === 'allow' || optionId === 'deny')
-  )
+  if (isAutomaticDecision(item) && (optionId === 'allow' || optionId === 'deny'))
     return t(`inbox.resolutions.automatic_${optionId}`);
   if (isBuiltIn(optionId)) return t(`inbox.resolutions.${optionId}`);
   const option = item.options.find((entry) => entry.id === optionId);

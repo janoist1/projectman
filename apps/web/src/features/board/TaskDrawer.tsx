@@ -2,7 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { isOnLeave, isTheme } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
-import { useInbox, useLabels, useResolveInbox, useStartTask, useTaskDetail } from '../../api/queries';
+import {
+  useConfig,
+  useInbox,
+  useLabels,
+  useResolveInbox,
+  useStartTask,
+  useTaskDetail,
+} from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button, ButtonLink } from '../../components/Button';
@@ -22,11 +29,13 @@ import { isTaskClosed } from '../../lib/taskState';
 import { isApiError } from '../../api/client';
 import { useDocumentTitle } from '../../lib/hooks';
 import { nameOf } from '../../lib/members';
+import { canStartRefinement, suggestsRefinement } from '../../lib/refinement';
 import { isDeveloperRole } from '../../lib/roles';
 import type { MemberIndex } from '../../lib/members';
 import { InboxCard } from '../inbox/InboxCard';
 import { openPrerequisiteKeys, PrerequisiteWarning, refusedPrerequisites } from './PrerequisiteWarning';
 import { nextStepLine } from './NextStep';
+import { RefineButton } from './RefineButton';
 import { primarySession } from './taskModel';
 import { useBoardModel } from './useBoardModel';
 import { useCanAttach, useUploadQueue } from './attachmentUploads';
@@ -44,8 +53,9 @@ import { TaskHeader } from './TaskHeader';
 import { ThemeCards, ThemeHeader, ThemeSummary } from './ThemeDrawer';
 
 function StartPanel({ task, members, tasks }: { task: Task; members: MemberIndex; tasks: readonly Task[] }) {
-  const { key } = useProject();
+  const { key, can } = useProject();
   const labels = useLabels(key);
+  const config = useConfig(key, can.createTasks).data?.config;
   const start = useStartTask(key);
   const toast = useToast();
   const [assignee, setAssignee] = useState('');
@@ -101,6 +111,9 @@ function StartPanel({ task, members, tasks }: { task: Task; members: MemberIndex
           unmetGateTexts(start.error.details, labels).length > 0
             ? ` ${t('errors.gateUnmet', { conditions: joinNames(unmetGateTexts(start.error.details, labels)) })}`
             : null}
+          {isGateBlocked(start.error) && suggestsRefinement(config)
+            ? ` ${t('task.refine.suggestion')}`
+            : null}
         </p>
       ) : null}
       <Button
@@ -130,6 +143,7 @@ export function TaskDrawer() {
   const { board, members, pipeline, model } = useBoardModel();
   const detail = useTaskDetail(key, taskKey);
   const labels = useLabels(key);
+  const config = useConfig(key, can.createTasks).data?.config;
   const inbox = useInbox(key);
   const resolve = useResolveInbox(key, myHandle);
   const toast = useToast();
@@ -193,8 +207,12 @@ export function TaskDrawer() {
       !isTaskClosed(task) &&
       !task.assignee &&
       (stage?.kind === 'queue' || task.startWaiting?.reason === 'prerequisite_open');
+    // A person who may put the `refine` label on a card that is not being refined can start it with a button.
+    const canRefine =
+      !theme && can.createTasks && config && myHandle ? canStartRefinement(task, config, myHandle) : false;
     const hasActions =
       (isQueued && can.createTasks) ||
+      canRefine ||
       Boolean(session && can.workInSessions) ||
       canMoveTask(task, can.createTasks);
     return (
@@ -222,6 +240,7 @@ export function TaskDrawer() {
                   members={members}
                   myHandle={myHandle}
                   pipeline={pipeline}
+                  labels={labels}
                   compact
                   headingLevel={3}
                   pending={resolve.isPending && resolve.variables?.item.id === item.id}
@@ -242,6 +261,7 @@ export function TaskDrawer() {
 
           {task.startWaiting ? <p className={drawer.section}>{startWaitingHint(task)}</p> : null}
           <div className={styles.actions} hidden={!hasActions}>
+            {canRefine ? <RefineButton task={task} /> : null}
             {isQueued && can.createTasks ? (
               <StartPanel task={task} members={members} tasks={board.data?.tasks ?? []} />
             ) : session && can.workInSessions ? (

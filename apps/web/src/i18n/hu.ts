@@ -811,6 +811,13 @@ export const hu = {
     start: 'Indítás',
     starting: 'Indítás…',
     started: 'Elindult: {key}',
+    /** The "Kidolgozás" button (decision 31) and the hint a refused Start gets in a project with refinement. */
+    refine: {
+      button: 'Kidolgozás',
+      starting: 'Kidolgozás…',
+      started: 'Kidolgozásra vár: {key}',
+      suggestion: 'Dolgoztasd ki a Kidolgozás gombbal.',
+    },
     assigneeLabel: 'Ki vigye?',
     assigneeAuto: 'Automatikusan: az első szabad fejlesztő',
     repo: 'Repó: {repo}',
@@ -1447,8 +1454,18 @@ export const hu = {
     labelsAdded: 'Rátette: {labels}',
     labelsRemoved: 'Levette: {labels}',
     refinement: {
-      member: 'Kidolgozás: „{label}” – {member} következik',
-      person: 'Kidolgozás: „{label}” – ember következik',
+      started: {
+        member: 'Kidolgozás indult: {member} soron, „{label}”',
+        person: 'Kidolgozás indult: ember soron, „{label}”',
+      },
+      label_set: {
+        member: '{member} soron: „{label}”',
+        person: 'Ember soron: „{label}”',
+      },
+      label_removed: {
+        member: 'Egy lépés visszavonva, {member} soron: „{label}”',
+        person: 'Egy lépés visszavonva, ember soron: „{label}”',
+      },
       done: 'Kidolgozva: minden lépés kész',
     },
     labelReasons: {

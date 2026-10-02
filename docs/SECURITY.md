@@ -23,14 +23,25 @@ tenants into separate OS accounts or machines.
   the presented session. Tokens have 256 random bits, are stored as SHA-256 hashes,
   and expire after 30 days without sliding renewal. Logout revokes the session.
 - Argon2id passwords: 19 MiB memory, two iterations, one lane. Unknown accounts also
-  perform password verification. Login reserves one of ten attempts per peer per
-  15 minutes before hashing and gives it back when the login succeeds, so only failures
-  count; invitation inspection/acceptance is limited the same way.
+  perform password verification. Login reserves one of ten attempts per client per
+  15 minutes, and one of 50 for all clients together, before hashing and gives both back
+  when the login succeeds, so only failures count; invitation inspection/acceptance is
+  limited the same way (own budgets). The client is the connection's address, which behind
+  a loopback proxy is the proxy's. With `PROJECTMAN_CLIENT_IP_HEADER` set (PM-211, e.g.
+  `cf-connecting-ip` behind Cloudflare) it is the address in that header, but only for a
+  loopback peer and a header holding exactly one valid IP; any other request counts under
+  the connection's address. `X-Forwarded-For` is never read. The shared cap bounds guessing
+  when a client can change its address; its price is that a flood of failures can refuse
+  every login and invitation attempt until the window ends. Both limits are in memory (a
+  restart resets them).
 - Mutating API requests compare Origin against the exact scheme, Host and port;
   cross-site Fetch Metadata is rejected. Missing Origin supports non-browser
   clients; opaque `null` origins are rejected. WebSockets use the same origin
   comparison, revalidate sessions and check current membership for deliveries and
   terminal operations. API responses are not cached; pages suppress referrers.
+  Every response (pages, API, errors, attachments) carries `Content-Security-Policy:
+frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site can frame
+  the interface to trick a signed-in user (clickjacking). The interface uses no iframe.
 - REST and team tools check membership, access, project/resource ownership and
   current gate eligibility. Initial host owner alone creates projects. Account
   rebinding, filesystem locations, admin grants and release approvers are owner-only.
@@ -57,14 +68,19 @@ tenants into separate OS accounts or machines.
   links, and only regular files of the recorded size are served. Only a PNG, JPEG, GIF,
   WebP or PDF proven by its content is shown inline; everything else (HTML, SVG, renamed or
   unknown files) is an `application/octet-stream` download. All responses carry
-  `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`,
-  `Cross-Origin-Resource-Policy: same-origin` and an encoded `Content-Disposition`.
-  Checked in Chrome against a local development server (2026-10-01): the PDF viewer opens a
-  PDF served with that sandbox CSP, both as a page of its own and inside an iframe, a PNG
-  loads in an `<img>`, HTML and SVG uploads are not rendered (they are downloads), and
-  every content and download response carried exactly the headers listed here. Repeat the
-  check after a Chrome major update or a change of these headers: the sandbox directive
-  is what a browser may one day refuse to show a PDF under.
+  `X-Content-Type-Options: nosniff`,
+  `Content-Security-Policy: default-src 'none'; sandbox; frame-ancestors 'none'`,
+  `X-Frame-Options: DENY`, `Cross-Origin-Resource-Policy: same-origin`,
+  `Referrer-Policy: no-referrer`, `Cache-Control: private, no-store` and an encoded
+  `Content-Disposition` (a test asserts the CSP and the frame header on every route).
+  Checked in Chrome against a local development server (2026-10-01, before `frame-ancestors`
+  and `X-Frame-Options` were added, PM-211): the PDF viewer opens a PDF served with that
+  sandbox CSP, as a page of its own and inside an iframe (which these two headers now
+  forbid; the interface opens an attachment in a page of its own), a PNG loads in an
+  `<img>`, HTML and SVG uploads are not rendered (they are downloads), and every content
+  and download response carried exactly the headers listed here. Repeat the check (the PDF
+  as a page of its own) after a Chrome major update or a change of these headers: the
+  sandbox directive is what a browser may one day refuse to show a PDF under.
 - AI members reach attachments through the team tools (PM-113), in their own name and under the
   same rules. `attach_file` never takes a directory from the caller: the server uses the working
   directory it recorded for the session the MCP token names. It opens only a regular file inside
@@ -257,22 +273,23 @@ file tools. Only the login and settings files are denied (`.credentials.json`, `
 
 ## Findings
 
-| Severity | Finding                                                                                                                  | Status                                                                                                                         |
-| -------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| High     | Missing API CSRF checks; WebSocket origin comparison ignored scheme/port                                                 | Fixed: exact origin checks, including login/logout                                                                             |
-| High     | Logged-out, expired or removed members retained WebSocket streams                                                        | Fixed: live session/membership checks and serialized commands                                                                  |
-| High     | Invited users could select arbitrary host workspaces by creating projects                                                | Fixed: initial host owner creates projects                                                                                     |
-| High     | Admin configuration edits could rebind privileged accounts or grant admin access                                         | Fixed: owner-only bindings, grants and filesystem changes; invite acceptance rechecks inviter                                  |
-| High     | Hook bearer tokens appeared in request logs                                                                              | Fixed: capability-path redaction and generic request errors                                                                    |
-| High     | Hook guards lacked rebinding checks; MCP accepted a token revoked during body reception                                  | Fixed: early local guards and late capability check                                                                            |
-| High     | Repository paths and existing worktrees could escape project boundaries; customization parent symlinks redirected writes | Fixed: canonical containment and symlink rejection                                                                             |
-| Medium   | Missing Secure cookies behind HTTPS and old sessions surviving login rotation                                            | Fixed: proxy-aware flag and presented-session revocation                                                                       |
-| Medium   | Concurrent login attempts bypassed the failure counter                                                                   | Fixed: reserve attempts before hashing; explicit Argon2id parameters                                                           |
-| Medium   | YAML parsing lacked explicit resource limits; local curl/git configuration influenced internal operations                | Fixed: bounded YAML, disabled customization hooks/signing and curl config/proxy bypass                                         |
-| Medium   | Additional provider endpoint/billing overrides survived environment filtering                                            | Fixed: common OpenAI/Azure overrides stripped for all providers                                                                |
-| High     | Shared Unix identity permits agent/terminal users to access host files and credentials                                   | Accepted for a trusted team only; requires OS isolation for hostile tenants                                                    |
-| Medium   | Arbitrary transcripts, tool input and terminal output can contain user/repository secrets                                | Accepted: these are intentionally visible to internal project members; no general secret detector is claimed                   |
-| Medium   | Proxy users share an in-memory login throttle, and a restart resets it                                                   | Accepted locally: conservative shared limit avoids trusting spoofable client IP headers; add proxy-level limits before hosting |
+| Severity | Finding                                                                                                                  | Status                                                                                                                                                                                                                                                                                         |
+| -------- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| High     | Missing API CSRF checks; WebSocket origin comparison ignored scheme/port                                                 | Fixed: exact origin checks, including login/logout                                                                                                                                                                                                                                             |
+| High     | Logged-out, expired or removed members retained WebSocket streams                                                        | Fixed: live session/membership checks and serialized commands                                                                                                                                                                                                                                  |
+| High     | Invited users could select arbitrary host workspaces by creating projects                                                | Fixed: initial host owner creates projects                                                                                                                                                                                                                                                     |
+| High     | Admin configuration edits could rebind privileged accounts or grant admin access                                         | Fixed: owner-only bindings, grants and filesystem changes; invite acceptance rechecks inviter                                                                                                                                                                                                  |
+| High     | Hook bearer tokens appeared in request logs                                                                              | Fixed: capability-path redaction and generic request errors                                                                                                                                                                                                                                    |
+| High     | Hook guards lacked rebinding checks; MCP accepted a token revoked during body reception                                  | Fixed: early local guards and late capability check                                                                                                                                                                                                                                            |
+| High     | Repository paths and existing worktrees could escape project boundaries; customization parent symlinks redirected writes | Fixed: canonical containment and symlink rejection                                                                                                                                                                                                                                             |
+| Medium   | Missing Secure cookies behind HTTPS and old sessions surviving login rotation                                            | Fixed: proxy-aware flag and presented-session revocation                                                                                                                                                                                                                                       |
+| Medium   | Concurrent login attempts bypassed the failure counter                                                                   | Fixed: reserve attempts before hashing; explicit Argon2id parameters                                                                                                                                                                                                                           |
+| Medium   | YAML parsing lacked explicit resource limits; local curl/git configuration influenced internal operations                | Fixed: bounded YAML, disabled customization hooks/signing and curl config/proxy bypass                                                                                                                                                                                                         |
+| Medium   | Additional provider endpoint/billing overrides survived environment filtering                                            | Fixed: common OpenAI/Azure overrides stripped for all providers                                                                                                                                                                                                                                |
+| High     | Shared Unix identity permits agent/terminal users to access host files and credentials                                   | Accepted for a trusted team only; requires OS isolation for hostile tenants                                                                                                                                                                                                                    |
+| Medium   | Arbitrary transcripts, tool input and terminal output can contain user/repository secrets                                | Accepted: these are intentionally visible to internal project members; no general secret detector is claimed                                                                                                                                                                                   |
+| Medium   | Proxy users share an in-memory login throttle, and a restart resets it                                                   | Fixed (PM-211) for a trusted entrance: `PROJECTMAN_CLIENT_IP_HEADER` counts per client address (loopback peer, one valid IP only, never `X-Forwarded-For`), plus a shared cap of 50 per 15 minutes; unset (`tailscale serve`) all users still share one address, and a restart still resets it |
+| Medium   | No clickjacking protection: another site could frame the interface                                                       | Fixed (PM-211): `frame-ancestors 'none'` and `X-Frame-Options: DENY` on every response                                                                                                                                                                                                         |
 
 Regression coverage includes cookie rotation/expiry, concurrent login attempts,
 origin checks, revoked terminal access, project privileges, isolated permission

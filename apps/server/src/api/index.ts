@@ -22,6 +22,8 @@ export { parseBody } from './validation';
 export interface ApiServices {
   domain: Domain;
   auth: AuthService;
+  /** The header that names the real client behind a trusted entrance (see clientAddress). */
+  clientIpHeader?: string;
 }
 
 /** Every route of the shared route table except auth (src/auth) and the websocket (src/ws). */

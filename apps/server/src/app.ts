@@ -122,6 +122,13 @@ export interface BuildAppOptions {
    * variables); index.ts passes the server's. Default: the runner's own default.
    */
   agentEnv?: NodeJS.ProcessEnv;
+  /**
+   * PROJECTMAN_CLIENT_IP_HEADER: the header the public entrance (e.g. `cf-connecting-ip` behind
+   * Cloudflare) sets to the real client's address. Only the attempt limiters read it, and only
+   * from a loopback peer (auth/local-request `clientAddress`). Default: none, the connection's
+   * address counts.
+   */
+  clientIpHeader?: string;
   /** GitHub CLI (default "gh"). */
   ghBin?: string;
   /** Host whose `gh` login is checked (default "github.com"). */
@@ -451,8 +458,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         ? resolve(options.webDistDir)
         : null;
     registerErrorHandling(app, { spaIndex: webDistDir !== null });
-    registerAuth(app, { auth, domain });
-    registerApiRoutes(app, { domain, auth });
+    const clientIpHeader = options.clientIpHeader;
+    registerAuth(app, { auth, domain, clientIpHeader });
+    registerApiRoutes(app, { domain, auth, clientIpHeader });
     registerWebsocket(app, { domain, auth, heartbeatMs: options.wsHeartbeatMs });
     domain.runnerModule.registerHookRoutes(app);
     mcpModule.registerRoutes(app);

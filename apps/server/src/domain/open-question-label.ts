@@ -1,4 +1,4 @@
-import { labelDefinition, stageOf, WAITING_ANSWER_LABEL } from '@projectman/shared';
+import { isRefining, labelDefinition, stageOf, WAITING_ANSWER_LABEL } from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
 import type { DomainContext } from './context';
 import type { InboxService } from './inbox';
@@ -14,8 +14,9 @@ import { excerpt, SYSTEM_ACTOR } from './util';
  * `payload.autoLabel`.
  *
  * - A project that does not define the label gets nothing.
- * - Only work and step stages: a queue stage hands nothing over, and the label would stop the
- *   owner's own sorting there.
+ * - Only work and step stages, and a card that is being refined (PM-264) in any stage: a queue stage
+ *   hands nothing over, and the label would stop the owner's own sorting there, but a card under
+ *   refinement has a member's turn that waits for the answer.
  * - The label comes off when the last question that carries `autoLabel` closes. A person who took it
  *   off in the meantime is not overruled: nothing is put back, and removing a label that is gone
  *   changes nothing.
@@ -49,7 +50,7 @@ export class OpenQuestionLabel {
       const task = this.tasks.find(projectKey, taskKey);
       if (!task || task.status !== 'active' || !labelDefinition(config, WAITING_ANSWER_LABEL)) return false;
       const kind = stageOf(config, task.stageId)?.kind;
-      if (kind !== 'work' && kind !== 'step') return false;
+      if (kind !== 'work' && kind !== 'step' && !isRefining(task, config)) return false;
       if (task.labels.includes(WAITING_ANSWER_LABEL))
         return this.openAutoQuestions(projectKey, taskKey).length > 0;
       await this.tasks.changeLabels(projectKey, taskKey, { add: [WAITING_ANSWER_LABEL] }, SYSTEM_ACTOR, {

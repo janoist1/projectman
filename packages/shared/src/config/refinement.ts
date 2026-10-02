@@ -1,4 +1,5 @@
 import { isHumanOnlyLabel, REFINE_LABEL } from '../domain/label';
+import type { InboxItem } from '../domain/inbox';
 import type { Stage } from '../domain/pipeline';
 import { isOpenTask, isTheme } from '../domain/task';
 import type { Task } from '../domain/task';
@@ -104,4 +105,19 @@ export function refinementTurn(task: RefinementTask, config: RefinementConfig): 
   }
   if (forbidden !== undefined) return { kind: 'blocked', label: forbidden };
   return { kind: 'done', targetStageId: to - 1 > from ? stages[to - 1]!.id : null };
+}
+
+/**
+ * Whether a member's turn that ended without its label is a stall worth telling. It is not while an
+ * AI member's question about the card is open: the member waits for the answer, with or without the
+ * blocking label (PM-264). `items` are the inbox items of the card.
+ */
+export function turnStalled(
+  items: Pick<InboxItem, 'kind' | 'state' | 'source'>[],
+  config: Pick<ProjectConfig, 'team'>,
+): boolean {
+  return !items.some(
+    (item) =>
+      item.kind === 'question' && item.state === 'open' && memberOf(config, item.source)?.kind === 'ai',
+  );
 }

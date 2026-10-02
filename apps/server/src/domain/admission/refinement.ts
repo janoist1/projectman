@@ -8,6 +8,7 @@ import {
   isOpenTask,
   memberOf,
   refinementTurn,
+  turnStalled,
 } from '@projectman/shared';
 import type {
   AiMemberConfig,
@@ -140,7 +141,13 @@ export class RefinementSteps {
     const taken = this.recorded(projectKey, taskKey);
     if (taken && taken.label === turn.label && taken.member !== null && taken.reason !== 'done') {
       // Handed out already: not again. Its member's turn having ended without the label is told once.
-      if (endedMember === taken.member && !this.alerted(task, 'stalled', turn.label, taken.at))
+      // An open question of an AI member is no stall: it waits for the answer.
+      const items = this.inbox.list(projectKey, { state: 'open', kind: 'question', taskKey });
+      if (
+        endedMember === taken.member &&
+        turnStalled(items, config) &&
+        !this.alerted(task, 'stalled', turn.label, taken.at)
+      )
         this.alert(config, task, turn.label, 'stalled', []);
       return;
     }

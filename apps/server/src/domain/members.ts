@@ -13,6 +13,7 @@ import {
   roleHolders,
   stageApprovers,
   stageOf,
+  stagesToJoin,
   taskSeq,
   taskWorkOf,
 } from '@projectman/shared';
@@ -267,6 +268,8 @@ export class MemberService {
       if (opts.temp && opts.stageId) {
         const stage = stageOf(draft, opts.stageId);
         if (stage?.owners) stage.owners = [...stage.owners, handle];
+      } else if (!opts.temp) {
+        for (const stage of stagesToJoin(draft, member)) stage.owners = [...(stage.owners ?? []), handle];
       }
       hired = member;
       return opts.temp ? `Hire temporary ${req.role} ${handle}` : `Hire ${req.role} ${handle}`;

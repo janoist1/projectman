@@ -5,7 +5,7 @@
  * (flags, texts, thresholds, transcripts, hook transport) stays in each fake.
  */
 import { spawn } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { renameSync, writeFileSync } from 'node:fs';
 
 export const VERSION = '0.0.0';
 
@@ -21,10 +21,14 @@ export const line = (text = '') => out(`${text}\r\n`);
 export function writeArgsFile(file, extra = {}) {
   const env = {};
   for (const [k, v] of Object.entries(process.env)) env[k] = /KEY|TOKEN|SECRET/.test(k) ? '<set>' : v;
+  // Write a temporary file and rename it over `file`: a test polling the file never reads it
+  // half written (a resumed session rewrites it while the test may be reading).
+  const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(
-    file,
+    tmp,
     JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), env, ...extra }, null, 2),
   );
+  renameSync(tmp, file);
 }
 
 /**

@@ -44,6 +44,9 @@ import {
   canDeleteAttachment,
   canReadAttachments,
   canSeeTask,
+  canSeeTeamMessage,
+  isUnreadBy,
+  threadPeersOf,
   canUploadAttachment,
   commentMentions,
   configSchemaIssues,
@@ -335,13 +338,7 @@ export class MockBackend {
 
   /** Publishes a project event to every subscribed connection. */
   emit(event: ServerEvent): void {
-    if (
-      event.type === 'team_message' &&
-      this.findMember(this.viewerHandle)?.role === 'client' &&
-      event.message.from !== this.viewerHandle &&
-      !event.message.to.includes(this.viewerHandle)
-    )
-      return;
+    if (event.type === 'team_message' && !canSeeTeamMessage(this.taskViewer(), event.message)) return;
     const projectKey = 'projectKey' in event ? event.projectKey : null;
     for (const [connection, projects] of this.connections) {
       if (projectKey === null || projects.has(projectKey)) connection.deliver(event);
@@ -384,6 +381,12 @@ export class MockBackend {
       access: viewer?.kind === 'human' ? (viewer.role as HumanAccess) : 'ai',
       handle: this.viewerHandle,
     };
+  }
+
+  /** The team messages the viewer may see, oldest first: the rule the server uses (`packages/shared`). */
+  private visibleMessages(): TeamMessage[] {
+    const viewer = this.taskViewer();
+    return this.messages.filter((message) => canSeeTeamMessage(viewer, message));
   }
 
   /** Whether the viewer may see the task: the rule the server uses (`packages/shared`). */
@@ -987,35 +990,20 @@ export class MockBackend {
 
     if (rest === '/messages') {
       if (method === 'POST') return this.humanTeamMessage(body);
+      const peer = query.get('threadWith');
+      const member = query.get('member');
+      const taskKey = query.get('taskKey');
+      const involves = (message: TeamMessage, handle: string) =>
+        message.from === handle || message.to.includes(handle);
+      const limit = Number(query.get('limit') ?? 200);
+      const listed = this.visibleMessages()
+        .filter((message) => !peer || threadPeersOf(message, this.viewerHandle).includes(peer))
+        .filter((message) => !member || involves(message, member))
+        .filter((message) => !taskKey || message.taskKey === taskKey)
+        .filter((message) => query.get('unreadOnly') !== 'true' || isUnreadBy(message, this.viewerHandle));
       return ok({
-        messages: clone(
-          this.messages
-            .filter((message) => {
-              const peer = query.get('threadWith');
-              return (
-                !peer ||
-                (message.from === this.viewerHandle && message.to.includes(peer)) ||
-                (message.from === peer && message.to.includes(this.viewerHandle))
-              );
-            })
-            .filter(
-              (message) =>
-                query.get('unreadOnly') !== 'true' ||
-                (message.to.includes(this.viewerHandle) &&
-                  !message.receipts?.find((r) => r.handle === this.viewerHandle)?.readAt),
-            )
-            .filter(
-              (message) =>
-                viewer.role !== 'client' ||
-                message.from === this.viewerHandle ||
-                message.to.includes(this.viewerHandle),
-            ),
-        ),
-        unreadCount: this.messages.filter(
-          (message) =>
-            message.to.includes(this.viewerHandle) &&
-            !message.receipts?.find((r) => r.handle === this.viewerHandle)?.readAt,
-        ).length,
+        messages: clone(listed.slice(-limit)),
+        unreadCount: this.messages.filter((message) => isUnreadBy(message, this.viewerHandle)).length,
       });
     }
     if ((m = /^\/messages\/([\w-]+)\/read$/.exec(rest)) && method === 'POST') {

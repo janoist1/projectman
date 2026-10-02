@@ -4,7 +4,7 @@ import {
   canSeeProjectEvent,
   canSeeTask,
   memberForViewer,
-  teamMessageMember,
+  teamMessageParticipant,
   visibleProjectEvent,
   visibleTaskDetail,
   visibleTasks,
@@ -87,20 +87,44 @@ describe('client visibility', () => {
     expect(visibleTasks(developer, cards).find((t) => t.key === 'AR-1')!.themeKey).toBe('AR-8');
   });
 
-  it('limits a client to their own inbox items and messages', () => {
-    expect(teamMessageMember(client, 'someone-else')).toBe('acme-client');
-    expect(teamMessageMember(developer, 'someone-else')).toBe('someone-else');
+  it('limits a client to their own inbox items', () => {
     const events: Array<[ProjectEvent, boolean]> = [
       [{ type: 'inbox_upserted', projectKey: 'AR', item: item(['acme-client']) }, true],
       [{ type: 'inbox_upserted', projectKey: 'AR', item: item(['owner']) }, false],
-      [{ type: 'team_message', projectKey: 'AR', message: message('owner', ['acme-client']) }, true],
-      [{ type: 'team_message', projectKey: 'AR', message: message('acme-client', ['owner']) }, true],
-      [{ type: 'team_message', projectKey: 'AR', message: message('owner', ['dev']) }, false],
     ];
     for (const [event, visible] of events) {
       expect(canSeeProjectEvent(client, event)).toBe(visible);
       expect(canSeeProjectEvent(developer, event)).toBe(true);
     }
+  });
+
+  it('narrows team messages to those a member sent or got, except for an owner and an admin (PM-78)', () => {
+    const owner = { access: 'owner' as const, handle: 'owner' };
+    const admin = { access: 'admin' as const, handle: 'boss' };
+    const viewer = { access: 'viewer' as const, handle: 'reader' };
+    expect(teamMessageParticipant(owner)).toBeUndefined();
+    expect(teamMessageParticipant(admin)).toBeUndefined();
+    for (const member of [developer, viewer, client])
+      expect(teamMessageParticipant(member)).toBe(member.handle);
+    const fromTo = (from: string, to: string[]): ProjectEvent => ({
+      type: 'team_message',
+      projectKey: 'AR',
+      message: message(from, to),
+    });
+    const others = fromTo('qa', ['designer']);
+    const toDeveloper = fromTo('qa', ['designer', 'dev']);
+    const fromDeveloper = fromTo('dev', ['qa']);
+    for (const viewerOf of [owner, admin]) {
+      expect(canSeeProjectEvent(viewerOf, others)).toBe(true);
+    }
+    for (const member of [developer, viewer, client]) {
+      expect(canSeeProjectEvent(member, others)).toBe(false);
+    }
+    expect(canSeeProjectEvent(developer, toDeveloper)).toBe(true);
+    expect(canSeeProjectEvent(developer, fromDeveloper)).toBe(true);
+    expect(canSeeProjectEvent(client, fromTo('owner', ['acme-client']))).toBe(true);
+    expect(canSeeProjectEvent(client, fromTo('acme-client', ['owner']))).toBe(true);
+    expect(canSeeProjectEvent(client, fromTo('owner', ['dev']))).toBe(false);
   });
 
   it('keeps live timeline events and member state internal (the REST views differ, see the module)', () => {

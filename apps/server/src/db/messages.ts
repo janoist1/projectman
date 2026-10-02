@@ -73,12 +73,16 @@ export function createMessageRepository(db: Db) {
         m.receipts ? toJson(m.receipts) : null,
       );
     },
-    /** Most recent messages, oldest first. `member` matches sender or recipient. */
+    /**
+     * Most recent messages, oldest first. `member` and `participant` both match sender or recipient and
+     * both apply when given: `participant` is the viewer's own narrowing, which no other filter widens.
+     */
     list(
       projectKey: string,
       filter: {
         taskKey?: string;
         member?: string;
+        participant?: string;
         between?: [string, string];
         unreadFor?: string;
         limit?: number;
@@ -90,9 +94,10 @@ export function createMessageRepository(db: Db) {
         sql += ' AND task_key = ?';
         params.push(filter.taskKey);
       }
-      if (filter.member) {
+      for (const handle of [filter.member, filter.participant]) {
+        if (!handle) continue;
         sql += ' AND (from_handle = ? OR EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?))';
-        params.push(filter.member, filter.member);
+        params.push(handle, handle);
       }
       if (filter.between) {
         const [a, b] = filter.between;

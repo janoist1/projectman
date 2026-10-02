@@ -63,6 +63,32 @@ describe('mock team messaging and profiles', () => {
     b.viewerHandle = 'owner';
     expect(b.handle('POST', `${base}/messages/${message.id}/read`, {}).status).toBe(403);
   });
+  it('gives only an owner and an admin the messages of others, with every filter (PM-78)', () => {
+    const b = backend();
+    for (const [from, to, taskKey] of [
+      ['fe-1', ['qa'], 'AC-1'],
+      ['qa', ['fe-1', 'kata'], null],
+      ['kata', ['owner'], null],
+    ] as const)
+      b.sendTeamMessage(from, [...to], taskKey, `${from} writes`);
+    const bodies = (query = '') =>
+      TeamMessagesView.parse(
+        b.handle('GET', `${base}/messages`, {}, new URLSearchParams(query)).body,
+      ).messages.map((m) => m.body);
+    expect(bodies()).toEqual(['fe-1 writes', 'qa writes', 'kata writes']);
+    expect(bodies('?member=qa')).toEqual(['fe-1 writes', 'qa writes']);
+    expect(bodies('?taskKey=AC-1')).toEqual(['fe-1 writes']);
+    expect(bodies('?limit=1')).toEqual(['kata writes']);
+    b.viewerHandle = 'kata';
+    expect(bodies()).toEqual(['qa writes', 'kata writes']);
+    expect(bodies('?member=fe-1')).toEqual(['qa writes']);
+    expect(bodies('?taskKey=AC-1')).toEqual([]);
+    expect(bodies('?threadWith=owner')).toEqual(['kata writes']);
+    b.findMember('kata')!.role = 'viewer';
+    expect(bodies()).toEqual(['qa writes', 'kata writes']);
+    b.findMember('kata')!.role = 'admin';
+    expect(bodies()).toEqual(['fe-1 writes', 'qa writes', 'kata writes']);
+  });
   it('allows clients to write, denies viewers and rejects invalid data atomically', () => {
     const b = backend();
     b.viewerHandle = 'kata';

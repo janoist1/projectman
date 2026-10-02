@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { MemberHandle } from './member';
 import { WorkItemRef } from './session';
 import { TaskKey } from './task';
+import type { TaskViewer } from './task';
 
 export const MessageReceipt = z.object({
   handle: MemberHandle,
@@ -30,6 +31,34 @@ export const TeamMessage = z.object({
   receipts: z.array(MessageReceipt).optional(),
 });
 export type TeamMessage = z.infer<typeof TeamMessage>;
+
+/** Whether the viewer sees every team message of the project: an owner or an admin. */
+export function canSeeAllTeamMessages(viewer: Pick<TaskViewer, 'access'>): boolean {
+  return viewer.access === 'owner' || viewer.access === 'admin';
+}
+
+/** An owner and an admin see every team message; everyone else only what they sent or what was sent to them. */
+export function canSeeTeamMessage(viewer: TaskViewer, message: Pick<TeamMessage, 'from' | 'to'>): boolean {
+  return (
+    canSeeAllTeamMessages(viewer) || message.from === viewer.handle || message.to.includes(viewer.handle)
+  );
+}
+
+/** Whether the message was sent to `handle` and `handle` has not read it yet. */
+export function isUnreadBy(message: Pick<TeamMessage, 'to' | 'receipts'>, handle: string | null): boolean {
+  return (
+    !!handle && message.to.includes(handle) && !message.receipts?.find((r) => r.handle === handle)?.readAt
+  );
+}
+
+/**
+ * The conversations `handle` has the message in: the sender's, one with each recipient (not with
+ * themselves); a recipient's, the one with the sender. Anyone else has it in none.
+ */
+export function threadPeersOf(message: Pick<TeamMessage, 'from' | 'to'>, handle: string): string[] {
+  if (message.from === handle) return message.to.filter((to) => to !== handle);
+  return message.to.includes(handle) ? [message.from] : [];
+}
 
 /** The default place of an AI recipient's message about a task: its session for the task, else its general chat. */
 export function routeFor(taskKey: string | null): WorkItemRef {

@@ -11,7 +11,7 @@ import {
 import type { Session, SessionDetail, TeamMessagesView } from '@projectman/shared';
 import { notFound } from '../domain';
 import type { Domain } from '../domain';
-import { canSeeTask, teamMessageMember } from '../domain/visibility';
+import { canSeeTask, teamMessageParticipant } from '../domain/visibility';
 import { actorOf, requireAccess } from './context';
 import { parseBody } from './validation';
 
@@ -85,7 +85,8 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
     return {
       messages: domain.messages.list(key, {
         taskKey: query.taskKey,
-        member: teamMessageMember(access, query.member),
+        member: query.member,
+        participant: teamMessageParticipant(access),
         between: query.threadWith ? [access.handle, query.threadWith] : undefined,
         limit: query.limit,
         unreadFor: query.unreadOnly === 'true' ? access.handle : undefined,

@@ -136,6 +136,7 @@ export class MessageService {
     filter: {
       taskKey?: string;
       member?: string;
+      participant?: string;
       between?: [string, string];
       unreadFor?: string;
       limit?: number;

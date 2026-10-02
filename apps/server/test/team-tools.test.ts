@@ -88,6 +88,16 @@ describe('team tools', () => {
     expect(blocked.message).toContain('the label "pr-merged" is missing');
   });
 
+  it('update_task names who may set the label a blocked move is missing', async () => {
+    const blocked = await toolError(
+      h.domain.teamTools.updateTask(dev, { taskKey: 'AR-1', stageId: 'merge' }),
+    );
+    expect(blocked.code).toBe('gate_blocked');
+    expect(blocked.message).toContain(
+      'the label "code-review-ok" is missing (required to enter stage "merge"; only cr may set it)',
+    );
+  });
+
   it('ask_human creates a question and delivers the answer back to the asking session', async () => {
     const { inboxItemId } = await h.domain.teamTools.askHuman(dev, {
       question: 'Which font should the login page use?',

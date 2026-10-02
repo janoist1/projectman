@@ -1,0 +1,5 @@
+1. Read the task, its links and relations to other cards; ask with ask_human if the goal or a decision is unclear.
+2. Implement the change in your working directory (the task's own worktree and branch) and run the project's tests.
+3. Commit, push, open a pull request and attach it with link_pull_request.
+4. The gate of Code review (`code_review`) asks for `design-review-ok` (Design review ok), which `ux` set instead of you: ask for that review with send_message now, once everything is committed (the pull request), and do the fixes they report before you hand over. Commit nothing after the label is set, unless they ask for it.
+5. Move the task to Code review (`code_review`) with update_task and hand over to `code-review` with send_message: the facts they need (links, what changed, what to check).

@@ -47,16 +47,20 @@ export function labelRef(id: string, labels: readonly LabelDefinition[]): string
   return label && label.name !== id ? `${code(id)} (${label.name})` : code(id);
 }
 
-/** "label `code-review-ok` (Code review ok) and no label `waiting-answer` (...)", or null without a gate. */
+/**
+ * "label `code-review-ok` (Code review ok) and no label `waiting-answer` (...)", or null without a
+ * gate. A condition that binds only some cards says which: "..., only on cards with label `ui`".
+ */
 export function describeGate(gate: Gate | undefined, labels: readonly LabelDefinition[]): string | null {
   if (!gate || gate.conditions.length === 0) return null;
   return gate.conditions
     .map((condition) => {
       const label = labels.find((l) => l.id === condition.label);
       const approval = label && isHumanOnlyLabel(label) ? ', a human approval' : '';
+      const only = condition.when ? `, only on cards with label ${labelRef(condition.when, labels)}` : '';
       return condition.type === 'has_label'
-        ? `label ${labelRef(condition.label, labels)}${approval}`
-        : `no label ${labelRef(condition.label, labels)}`;
+        ? `label ${labelRef(condition.label, labels)}${approval}${only}`
+        : `no label ${labelRef(condition.label, labels)}${only}`;
     })
     .join(' and ');
 }

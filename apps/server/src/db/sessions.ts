@@ -11,6 +11,7 @@ import type {
   SessionState,
   SessionUsageAlert,
   TokenUsage,
+  WorkDoing,
   WorkItemRef,
 } from '@projectman/shared';
 import type { Statement } from 'better-sqlite3';
@@ -44,6 +45,8 @@ interface SessionRow {
   compact_pending: number;
   context_tokens: number | null;
   reviewed_commit: string | null;
+  doing_summary: string | null;
+  doing_detail: string | null;
 }
 
 /** What a session's conversation owes and measures for the end-of-round compaction (PM-213). */
@@ -117,6 +120,9 @@ const baseSession = (r: SessionRow): Session => ({
         },
       }
     : {}),
+  ...(r.doing_summary
+    ? { doing: { summary: r.doing_summary, ...(r.doing_detail ? { detail: r.doing_detail } : {}) } }
+    : {}),
 });
 
 /** A summed row of the token_usage table. */
@@ -154,9 +160,12 @@ export type SessionPatch = Partial<
   permissionGrantsLost?: boolean;
   /** Since when the session's token usage is counted (PM-178). */
   usageSince?: string;
+  /** What the member says it does now (PM-238); null clears it. */
+  doing?: WorkDoing | null;
 };
 
-const COLUMNS: Record<keyof SessionPatch, string> = {
+/** The patch with `doing` spread over its two columns; the other keys are columns of their own. */
+const COLUMNS: Record<Exclude<keyof SessionPatch, 'doing'>, string> = {
   usageSince: 'usage_since',
   permissionModeOverride: 'permission_mode',
   approverOverride: 'approver',
@@ -322,18 +331,23 @@ export function createSessionRepository(db: Db) {
       return (statement.all(...states) as SessionRow[]).map(toSession);
     },
     update(id: string, patch: SessionPatch): Session | null {
-      const entries = Object.entries(patch).filter(([, v]) => v !== undefined) as Array<
-        [keyof SessionPatch, unknown]
+      const { doing, ...columns } = patch;
+      const entries = Object.entries(columns).filter(([, v]) => v !== undefined) as Array<
+        [keyof typeof COLUMNS, unknown]
       >;
-      if (entries.length > 0) {
-        const set = entries.map(([k]) => `${COLUMNS[k]} = ?`).join(', ');
+      const named: Array<[string, unknown]> = entries.map(([k, v]) => [COLUMNS[k], v]);
+      if (doing !== undefined) {
+        named.push(['doing_summary', doing?.summary ?? null], ['doing_detail', doing?.detail ?? null]);
+      }
+      if (named.length > 0) {
+        const set = named.map(([column]) => `${column} = ?`).join(', ');
         let statement = updates.get(set);
         if (!statement) {
           statement = db.prepare(`UPDATE sessions SET ${set} WHERE id = ?`);
           updates.set(set, statement);
         }
         // SQLite binds no booleans: the flags are stored as 0 and 1.
-        statement.run(...entries.map(([, v]) => (typeof v === 'boolean' ? Number(v) : v)), id);
+        statement.run(...named.map(([, v]) => (typeof v === 'boolean' ? Number(v) : v)), id);
       }
       return get(id);
     },

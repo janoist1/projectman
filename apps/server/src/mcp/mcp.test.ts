@@ -1064,6 +1064,53 @@ describe('team tools', () => {
     expect(out).toContain('Saved to your memory');
     expect(h.handler.memory.get('qa')).toEqual(['E2E tests run with npm run e2e.']);
   });
+
+  it('set_current_work passes the sentence of the caller session and takes no task', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+    const { tools } = await client.listTools();
+    const input = tools.find((t) => t.name === 'set_current_work')!.inputSchema as unknown as {
+      required: string[];
+      properties: Record<string, { maxLength?: number }>;
+    };
+    expect(input.required).toEqual(['summary']);
+    expect(Object.keys(input.properties).sort()).toEqual(['detail', 'summary']);
+    expect(input.properties.summary?.maxLength).toBe(80);
+    expect(input.properties.detail?.maxLength).toBe(300);
+
+    const out = text(
+      await call(client, 'set_current_work', {
+        summary: 'The gateway tests are being written',
+        detail: 'More.',
+      }),
+    );
+
+    expect(out).toBe('Noted.');
+    expect(h.handler.calls.at(-1)).toEqual({
+      method: 'setCurrentWork',
+      ctx: devContext,
+      args: { summary: 'The gateway tests are being written', detail: 'More.' },
+    });
+  });
+
+  it('set_current_work refuses a long or many-line sentence and a session without a task', async () => {
+    const h = await startServer();
+    const dev = await connect(h, 'token-dev');
+    for (const args of [
+      { summary: 'x'.repeat(81) },
+      { summary: 'First line\nsecond line' },
+      { summary: '   ' },
+      { summary: 'Fine', detail: 'x'.repeat(301) },
+    ]) {
+      expect((await call(dev, 'set_current_work', args)).isError).toBe(true);
+    }
+    expect(h.handler.calls.filter((c) => c.method === 'setCurrentWork')).toHaveLength(0);
+
+    const qa = await connect(h, 'token-qa');
+    const refused = await call(qa, 'set_current_work', { summary: 'Something is being tested' });
+    expect(refused.isError).toBe(true);
+    expect(text(refused)).toContain('only for a session working on a task');
+  });
 });
 
 /* ---------- errors ---------- */

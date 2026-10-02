@@ -184,6 +184,66 @@ describe('session orchestrator', () => {
     expect(await workOf()).toEqual([]);
   });
 
+  it('keeps the sentence a member gives with set_current_work until the round or the session ends (PM-238)', async () => {
+    const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
+    h.runner.setState(session.id, 'working', 'Bash: npm test');
+    const ctx = { sessionId: session.id, projectKey: 'AR', member: 'cr', taskKey: 'AR-1' };
+    const workOf = async () => (await h.domain.members.roster('AR')).find((m) => m.handle === 'cr')?.taskWork;
+    const timelineBefore = h.domain.timeline.list('AR', { taskKey: 'AR-1' }).length;
+
+    const first = { summary: 'The gateway tests are being written', detail: 'Covers retries and timeouts.' };
+    await expect(h.domain.teamTools.setCurrentWork(ctx, first)).resolves.toEqual({ recorded: true });
+    expect(h.domain.sessions.get('AR', session.id).doing).toEqual(first);
+    expect(await workOf()).toMatchObject([{ taskKey: 'AR-1', doing: first }]);
+    expect(events.filter((e) => e.type === 'session_upserted').at(-1)).toMatchObject({
+      session: { id: session.id, doing: first },
+    });
+
+    // Only the latest counts; a call without detail drops the earlier detail.
+    await h.domain.teamTools.setCurrentWork(ctx, { summary: 'The review findings are being fixed' });
+    expect(h.domain.sessions.get('AR', session.id).doing).toEqual({
+      summary: 'The review findings are being fixed',
+    });
+
+    // The next activity of the same round keeps it; the end of the round clears it.
+    h.runner.setState(session.id, 'working', 'Read: package.json');
+    expect(h.domain.sessions.get('AR', session.id).doing?.summary).toBe(
+      'The review findings are being fixed',
+    );
+    h.runner.setState(session.id, 'idle');
+    expect(h.domain.sessions.get('AR', session.id).doing).toBeUndefined();
+    expect(await workOf()).toEqual([]);
+    expect(events.filter((e) => e.type === 'session_upserted').at(-1)).toMatchObject({
+      session: { id: session.id },
+    });
+
+    // An idle session has no work to describe: nothing is written.
+    await expect(h.domain.teamTools.setCurrentWork(ctx, first)).resolves.toEqual({ recorded: false });
+    expect(h.domain.sessions.get('AR', session.id).doing).toBeUndefined();
+
+    // The end of the session clears it too.
+    h.runner.setState(session.id, 'working');
+    await h.domain.teamTools.setCurrentWork(ctx, first);
+    h.runner.emit({ type: 'exit', sessionId: session.id, exitCode: 0, signal: null });
+    expect(h.domain.sessions.get('AR', session.id)).toMatchObject({ state: 'exited' });
+    expect(h.domain.sessions.get('AR', session.id).doing).toBeUndefined();
+
+    // The sentence is a state of the session, not an event of the card.
+    const timeline = h.domain.timeline.list('AR', { taskKey: 'AR-1' }).slice(timelineBefore);
+    expect(timeline.map((e) => e.type)).not.toContain('note');
+    expect(JSON.stringify(timeline)).not.toContain('gateway tests');
+  });
+
+  it('refuses set_current_work from a session that is not working on a task (PM-238)', async () => {
+    const { session } = await h.domain.sessions.ensureSession('AR', 'cr', { type: 'general' });
+    h.runner.setState(session.id, 'working');
+    const ctx = { sessionId: session.id, projectKey: 'AR', member: 'cr', taskKey: null };
+    await expect(
+      h.domain.teamTools.setCurrentWork(ctx, { summary: 'Something is being done' }),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    expect(h.domain.sessions.get('AR', session.id).doing).toBeUndefined();
+  });
+
   it('delivers human messages into the session and records them as team messages', async () => {
     const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
     const message = await h.domain.messaging.sendToSession(

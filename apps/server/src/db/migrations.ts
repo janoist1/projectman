@@ -529,5 +529,15 @@ export const migrations: Migration[] = [
         CHECK ((mode = 'pinned') = (attachment_id IS NOT NULL))
       );`,
   },
+  {
+    // 23 is another card's, 24 to 26 are taken, so this is 27.
+    version: 27,
+    name: 'current work sentence of sessions',
+    // PM-238: what a member says it does on its card now: a one-line summary and an optional longer
+    // detail. NULL: none given (every existing session). Only the latest is kept, and it is cleared
+    // when the session's round or the session ends.
+    sql: `ALTER TABLE sessions ADD COLUMN doing_summary TEXT;
+      ALTER TABLE sessions ADD COLUMN doing_detail TEXT;`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

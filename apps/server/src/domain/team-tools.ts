@@ -19,6 +19,7 @@ import type {
   Task,
   TaskKind,
   Visibility,
+  WorkDoing,
   WorkItemRef,
   AddRelationRef,
   RelationsChange,
@@ -52,6 +53,7 @@ import type { MemberService } from './members';
 import type { Messaging } from './messaging';
 import type { OpenQuestionLabel } from './open-question-label';
 import type { ProjectService } from './projects';
+import type { SessionOrchestrator } from './sessions';
 import type { PublishingGate } from './publishing';
 import type { TaskService } from './tasks';
 import { attachmentToolRules } from './session-policy';
@@ -224,6 +226,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly egress: EgressService | null;
   private readonly publishing: PublishingGate;
   private readonly ctx: DomainContext;
+  private readonly sessions: Pick<SessionOrchestrator, 'setDoing'>;
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
   private readonly members: MemberService;
@@ -243,6 +246,8 @@ export class TeamToolsService implements TeamToolsHandler {
     egress?: EgressService;
     publishing: PublishingGate;
     ctx: DomainContext;
+    /** The session service: set_current_work records the sentence on the caller's session. */
+    sessions: Pick<SessionOrchestrator, 'setDoing'>;
     projects: ProjectService;
     tasks: TaskService;
     members: MemberService;
@@ -261,6 +266,7 @@ export class TeamToolsService implements TeamToolsHandler {
     this.egress = deps.egress ?? null;
     this.publishing = deps.publishing;
     this.ctx = deps.ctx;
+    this.sessions = deps.sessions;
     this.projects = deps.projects;
     this.tasks = deps.tasks;
     this.members = deps.members;
@@ -725,6 +731,24 @@ export class TeamToolsService implements TeamToolsHandler {
       if (!note) throw new TeamToolError('invalid', 'The memory note is empty.');
       await this.memory.append(ctx.projectKey, ctx.member, note);
       return { ok: true as const };
+    });
+  }
+
+  async setCurrentWork(ctx: ToolContext, args: WorkDoing): Promise<{ recorded: boolean }> {
+    return this.guard(async () => {
+      await this.caller(ctx);
+      const session = this.ctx.repos.sessions.get(ctx.sessionId);
+      if (
+        !session ||
+        session.projectKey !== ctx.projectKey ||
+        session.member !== ctx.member ||
+        session.workItem.type !== 'task'
+      )
+        throw new TeamToolError(
+          'invalid',
+          'set_current_work is only for a session working on a task: this one is a meeting, a general chat or a scheduled run.',
+        );
+      return { recorded: this.sessions.setDoing(ctx.sessionId, args) };
     });
   }
 

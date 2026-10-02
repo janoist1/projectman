@@ -2,6 +2,7 @@ import {
   evaluateMove,
   isOnLeave,
   isOpenTask,
+  isTheme,
   memberOf,
   roleBundle,
   stageIndex,
@@ -18,7 +19,7 @@ import type {
   Task,
 } from '@projectman/shared';
 import { ownerHandles } from '../access';
-import { conflict, invalid, notFound } from '../errors';
+import { conflict, invalid, notFound, themeRefused } from '../errors';
 import type { MemberService } from '../members';
 import type { Author, ProjectService } from '../projects';
 import type { SessionOrchestrator } from '../sessions';
@@ -102,6 +103,7 @@ export class TaskStarts {
   async startLocked(projectKey: string, taskKey: string, opts: StartTaskOptions): Promise<StartTaskResult> {
     const config = await this.projects.config(projectKey);
     let task = this.tasks.get(projectKey, taskKey);
+    if (isTheme(task)) throw themeRefused(taskKey, 'be started');
     if (!isOpenTask(task)) throw conflict('task_closed', `task ${taskKey} is ${task.status}`);
     const skipped = { task, session: null, hired: null };
     if (opts.stillWanted && !opts.stillWanted(task)) return skipped;

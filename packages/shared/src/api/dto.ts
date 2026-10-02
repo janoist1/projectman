@@ -26,7 +26,7 @@ import { Session, TaskWork } from '../domain/session';
 import { CardRounds } from '../domain/card-measure';
 import { MemberUsage } from '../domain/token-usage';
 import { AddRelationRef, RelationsChange } from '../domain/relations';
-import { Task, TaskKey, Visibility } from '../domain/task';
+import { Task, TaskKey, TaskKind, Visibility } from '../domain/task';
 
 /* ---------- auth ---------- */
 
@@ -330,6 +330,10 @@ export const CreateTaskRequest = z.object({
   visibility: Visibility.optional(),
   /** Relations the new card starts with (PM-192); a refused one refuses the creation. */
   relations: z.array(AddRelationRef).optional(),
+  /** `theme` creates a theme (PM-192); absent: a task. A theme takes no stage, repository, parent, theme or label of its own. */
+  kind: TaskKind.optional(),
+  /** The theme the new card belongs to (not for a theme or a subtask). */
+  themeKey: TaskKey.optional(),
 });
 export type CreateTaskRequest = z.infer<typeof CreateTaskRequest>;
 
@@ -352,6 +356,11 @@ export const UpdateTaskRequest = z.object({
    * first. Added: the four forward kinds. Removed: any kind, the reverse of a stored one included.
    */
   relations: RelationsChange.optional(),
+  /**
+   * The theme the card belongs to (PM-192); null removes it. Refused for a theme and for a subtask,
+   * which reads its parent's theme, and for a theme that is closed.
+   */
+  themeKey: TaskKey.nullable().optional(),
 });
 export type UpdateTaskRequest = z.infer<typeof UpdateTaskRequest>;
 
@@ -378,6 +387,10 @@ export type ChangeTaskLabelsRequest = z.infer<typeof ChangeTaskLabelsRequest>;
 
 export const CancelTaskRequest = z.object({ reason: z.string().optional() });
 export type CancelTaskRequest = z.infer<typeof CancelTaskRequest>;
+
+/** Closes a theme (PM-192): it only closes; the cards that belong to it are not touched. */
+export const CloseThemeRequest = z.object({});
+export type CloseThemeRequest = z.infer<typeof CloseThemeRequest>;
 
 export const ReopenTaskRequest = z.object({});
 export type ReopenTaskRequest = z.infer<typeof ReopenTaskRequest>;

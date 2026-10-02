@@ -1,6 +1,12 @@
 import { isCardLink } from '@projectman/shared';
 import type { Attachment } from '@projectman/shared';
-import { describeAttachment, describeLink, recentTimeline, relationLines } from '../agent-text';
+import {
+  describeAttachment,
+  describeLink,
+  describeTheme,
+  recentTimeline,
+  relationLines,
+} from '../agent-text';
 import type { TextStyle } from '../agent-text';
 import type { ContextPackInput, RelatedSession } from '../contracts';
 import { code, promptStyle, relationText, repoText, stageLabel } from './format';
@@ -68,6 +74,10 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
 
   const relations = relationLines(input.relations ?? [], style);
   sections.push(['## Relations', ...(relations.length > 0 ? relations : ['None.'])].join('\n'));
+
+  // The theme the card belongs to (PM-192), its own or its parent's; left out when it has none, so the
+  // brief of a card without a theme does not grow (PM-181).
+  if (input.theme) sections.push(['## Theme', describeTheme(input.theme, style)].join('\n'));
 
   const related = input.relatedSessions ?? [];
   if (related.length > 0) sections.push(relatedSessionsSection(task.key, related));

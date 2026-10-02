@@ -9,6 +9,7 @@ import {
   AddHumanMemberRequest,
   AgentProvider,
   CancelTaskRequest,
+  CloseThemeRequest,
   ChangeTaskLabelsRequest,
   CreateInviteRequest,
   CreateProjectRequest,
@@ -81,6 +82,8 @@ import {
   stageOf,
   stageOwners,
   subtaskParentRefusal,
+  isTheme,
+  themeRefusal,
   taskSeq,
   taskWorkOf,
   validateProjectConfig,
@@ -829,7 +832,9 @@ export class MockBackend {
       (rest === '/roles' && method !== 'GET') ||
       (rest.startsWith('/roles/') && method !== 'GET') ||
       (rest.startsWith('/members') && method !== 'GET' && !rest.endsWith('/conversation')) ||
-      /\/tasks\/[^/]+\/(cancel|reopen)$/.test(rest) ||
+      /\/tasks\/[^/]+\/cancel$/.test(rest) ||
+      // A theme is reopened from developer access, any other card by an admin (like the server).
+      this.reopensNonTheme(rest) ||
       (rest.startsWith('/tasks/') &&
         method === 'PATCH' &&
         body !== null &&
@@ -839,7 +844,11 @@ export class MockBackend {
     if (!viewer) return error(403, 'not_a_member', 'Not a member');
     if (restricted && (viewer.kind !== 'human' || !['owner', 'admin'].includes(viewer.role)))
       return error(403, 'insufficient_access', 'Owner or admin required');
-    if ((rest === '/tasks' && method === 'POST') || (rest.startsWith('/tasks/') && method === 'PATCH')) {
+    if (
+      (rest === '/tasks' && method === 'POST') ||
+      (rest.startsWith('/tasks/') && method === 'PATCH') ||
+      /\/tasks\/[^/]+\/(close-theme|reopen)$/.test(rest)
+    ) {
       if (viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))
         return error(403, 'insufficient_access', 'Developer access required');
     }
@@ -903,7 +912,10 @@ export class MockBackend {
       return this.startTask(m[1]!, body);
     }
 
-    if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/(cancel|reopen)$/.exec(rest)) && method === 'POST') {
+    if (
+      (m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/(cancel|reopen|close-theme)$/.exec(rest)) &&
+      method === 'POST'
+    ) {
       return this.taskLifecycle(m[1]!, m[2]!, body);
     }
     if (rest === '/roles') {
@@ -1591,13 +1603,37 @@ export class MockBackend {
     );
   }
 
+  /** Whether the path reopens a card that is not a theme (an admin does that; a theme, a developer). */
+  private reopensNonTheme(rest: string): boolean {
+    const match = /^\/tasks\/([^/]+)\/reopen$/.exec(rest);
+    const task = match ? this.findTask(match[1]!) : undefined;
+    return !!match && !(task && isTheme(task));
+  }
+
   private taskLifecycle(taskKey: string, action: string, body: unknown): MockResponse {
     const input =
-      action === 'cancel' ? parseBody(CancelTaskRequest, body) : parseBody(ReopenTaskRequest, body);
+      action === 'cancel'
+        ? parseBody(CancelTaskRequest, body)
+        : action === 'close-theme'
+          ? parseBody(CloseThemeRequest, body)
+          : parseBody(ReopenTaskRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid lifecycle request');
     const task = this.findTask(taskKey);
     if (!task) return error(404, 'not_found', 'Unknown task');
+    if (action === 'close-theme') {
+      // A theme closes like a cancelled card, with its own timeline wording; its cards stay as they are.
+      if (!isTheme(task)) return error(409, 'task_not_theme', 'Not a theme');
+      if (!isOpenTask(task)) return error(409, 'task_closed', 'Theme is closed');
+      this.updateTask(taskKey, { status: 'cancelled', closedAt: nowIso() });
+      this.addTimeline(taskKey, this.viewerHandle, 'task_updated', {
+        action: 'closed',
+        previousStatus: task.status,
+        fields: ['status', 'closedAt'],
+      });
+      return ok(clone(task));
+    }
     if (action === 'cancel') {
+      if (isTheme(task)) return error(409, 'task_is_theme', 'A theme is closed, not cancelled');
       if (!isOpenTask(task)) return error(409, 'task_closed', 'Task is closed');
       const reason = 'reason' in input ? input.reason : undefined;
       this.cancelTask(taskKey, reason === undefined ? {} : { reason });
@@ -1714,6 +1750,14 @@ export class MockBackend {
     const actor = this.viewerActor();
     const patch: Partial<Task> = {};
     const fields: string[] = [];
+    // A theme does not move, have an assignee or a repository.
+    if (
+      isTheme(task) &&
+      ((input.stageId !== undefined && input.stageId !== task.stageId) ||
+        (input.assignee !== undefined && input.assignee !== null) ||
+        (input.repo !== undefined && input.repo !== null))
+    )
+      return error(409, 'task_is_theme', 'A theme has no stage, assignee or repository');
     if (input.title !== undefined && input.title.trim() !== task.title) {
       patch.title = input.title.trim();
       if (!patch.title) return error(400, 'invalid_request', 'Empty title');
@@ -1734,13 +1778,29 @@ export class MockBackend {
     if (relationPlan?.closes && input.stageId !== undefined && input.stageId !== task.stageId)
       return error(400, 'invalid_request', 'A card marked as a duplicate cannot move in the same call');
     if (input.parentKey) {
-      const refusal = this.validateParent(task.key, input.parentKey);
+      const refusal = this.validateParent(task.key, input.parentKey, task.kind);
       if (refusal) return refusal;
     }
     if (input.parentKey !== undefined && input.parentKey !== (task.parentKey ?? null)) {
       patch.parentKey = input.parentKey;
       fields.push('parentKey');
     }
+    // Like the server: the theme the card stores (a subtask stores none), the rule, and the loss of the
+    // card's own theme when it becomes a subtask.
+    const ownTheme = task.parentKey ? null : (task.themeKey ?? null);
+    let themeAfter = ownTheme;
+    let parentAfter = input.parentKey !== undefined ? input.parentKey : (task.parentKey ?? null);
+    for (const step of relationPlan?.steps ?? [])
+      if (step.type === 'parent' && step.child === task.key) parentAfter = step.parent;
+    if (input.themeKey !== undefined && input.themeKey !== ownTheme) {
+      if (input.themeKey !== null) {
+        const refusal = this.themeError(input.themeKey, task, parentAfter);
+        if (refusal) return refusal;
+      }
+      themeAfter = input.themeKey;
+    }
+    if (parentAfter) themeAfter = null;
+    if (themeAfter !== ownTheme) patch.themeKey = themeAfter;
     // Like the server: a repository of the project, and not while a session of the task runs.
     if (input.repo !== undefined && input.repo !== task.repo) {
       if (input.repo !== null && !repoOf(this.config, input.repo))
@@ -1796,7 +1856,7 @@ export class MockBackend {
 
     const previous = { assignee: task.assignee, parentKey: task.parentKey ?? null, repo: task.repo };
     const labelsChanged = labels.added.length > 0 || labels.removed.length > 0;
-    if (fields.length || patch.assignee !== undefined || labelsChanged) {
+    if (fields.length || patch.assignee !== undefined || patch.themeKey !== undefined || labelsChanged) {
       this.updateTask(task.key, { ...patch, ...(labelsChanged ? { labels: labels.labels } : {}) });
       if (fields.length)
         this.addTimeline(task.key, actor.handle, 'task_updated', {
@@ -1811,8 +1871,10 @@ export class MockBackend {
         });
       if (patch.parentKey !== undefined)
         this.recordParentChange(task.key, previous.parentKey, task.parentKey ?? null);
+      if (patch.themeKey !== undefined) this.recordThemeChange(task.key, ownTheme, themeAfter);
     }
     if (relationPlan) this.applyRelationPlan(relationPlan.steps, task, actor);
+    this.syncSubtaskThemes();
     return moving ? this.move(task, input.stageId!, actor) : ok(clone(task));
   }
 
@@ -1880,6 +1942,7 @@ export class MockBackend {
 
   /** A stage move under the gates: blocked, an approval request in the inbox, or the move itself. */
   private move(task: Task, stageId: string, actor: Actor): MockResponse {
+    if (isTheme(task)) return error(409, 'task_is_theme', 'A theme does not move between stages');
     if (task.status === 'cancelled') return error(409, 'task_closed', 'Task is cancelled');
     const target = stageOf(this.config, stageId);
     if (!target) return error(400, 'unknown_stage', 'Unknown stage');
@@ -2064,13 +2127,48 @@ export class MockBackend {
     );
   }
 
-  private validateParent(taskKey: string | null, parentKey: string): MockResponse | null {
+  private validateParent(
+    taskKey: string | null,
+    parentKey: string,
+    kind?: Task['kind'],
+  ): MockResponse | null {
     const refusal = subtaskParentRefusal(parentKey, this.findTask(parentKey), {
       key: taskKey,
       projectKey: fixtures.PROJECT_KEY,
       hasSubtasks: taskKey !== null && this.tasks.some((child) => child.parentKey === taskKey),
+      kind,
     });
     return refusal ? error(400, refusal, `The task cannot become a subtask of ${parentKey}`) : null;
+  }
+
+  /** The theme rule of the server (`themeRefusal`) for a card that is not a subtask by the time the change is done. */
+  private themeError(
+    themeKey: string,
+    card: Pick<Task, 'kind'>,
+    parentKey: string | null,
+  ): MockResponse | null {
+    const code = themeRefusal(this.findTask(themeKey), {
+      projectKey: fixtures.PROJECT_KEY,
+      kind: card.kind,
+      parentKey,
+    });
+    return code ? error(400, code, `The card cannot be put into the theme ${themeKey}: ${code}`) : null;
+  }
+
+  /** Records that a card went from one theme to another on its own timeline and on both themes'. */
+  private recordThemeChange(taskKey: string, previous: string | null, themeKey: string | null): void {
+    if (previous === themeKey) return;
+    for (const key of new Set([taskKey, previous, themeKey]))
+      if (key) this.addTimeline(key, this.viewerHandle, 'task_theme_changed', { themeKey, previous });
+  }
+
+  /** A subtask reads its parent's theme, like the server: the mock keeps them equal and announces a change. */
+  private syncSubtaskThemes(): void {
+    for (const task of this.tasks) {
+      if (!task.parentKey) continue;
+      const next = this.findTask(task.parentKey)?.themeKey ?? null;
+      if ((task.themeKey ?? null) !== next) this.updateTask(task.key, { themeKey: next });
+    }
   }
 
   private recordParentChange(subtaskKey: string, previous: string | null, next: string | null): void {
@@ -2136,8 +2234,11 @@ export class MockBackend {
       } else if (step.type === 'parent') {
         const child = this.findTask(step.child)!;
         const previous = child.parentKey ?? null;
-        this.updateTask(child.key, { parentKey: step.parent });
+        // A card that becomes a subtask loses the theme it had: it reads its parent's from now on.
+        const ownTheme = !previous && step.parent ? (child.themeKey ?? null) : null;
+        this.updateTask(child.key, { parentKey: step.parent, ...(ownTheme ? { themeKey: null } : {}) });
         this.recordParentChange(child.key, previous, step.parent);
+        if (ownTheme) this.recordThemeChange(child.key, ownTheme, null);
       } else if (isOpenTask(this.findTask(task.key)!)) {
         this.cancelTask(task.key, {
           reason: `duplicate of ${step.original}`,
@@ -2155,6 +2256,9 @@ export class MockBackend {
     if (input.importedAt !== undefined && this.findMember(this.viewerHandle)?.role !== 'owner')
       return error(403, 'owner_only', 'Only an owner may import tasks');
     const first = this.config.pipeline.stages[0]!;
+    const kind = input.kind ?? 'task';
+    if (kind === 'theme' && (input.stageId !== undefined || input.repo))
+      return error(400, 'task_is_theme', 'A theme has no stage and no repository');
     const target = input.stageId ? stageOf(this.config, input.stageId) : first;
     if (!target) return error(400, 'unknown_stage', 'Unknown stage');
     const title = input.title.trim();
@@ -2162,11 +2266,21 @@ export class MockBackend {
     const repo = input.repo ?? null;
     if (repo && !repoOf(this.config, repo)) return error(400, 'unknown_repo', 'Unknown repository');
     if (input.parentKey) {
-      const refusal = this.validateParent(null, input.parentKey);
+      const refusal = this.validateParent(null, input.parentKey, kind);
+      if (refusal) return refusal;
+    }
+    if (input.themeKey) {
+      const refusal = this.themeError(
+        input.themeKey,
+        { kind },
+        input.parentKey ?? (input.relations?.some((r) => r.kind === 'part_of') ? '-' : null),
+      );
       if (refusal) return refusal;
     }
     const at = input.importedAt ?? nowIso();
     const task: Task = {
+      ...(kind === 'theme' ? { kind } : {}),
+      ...(input.themeKey ? { themeKey: input.themeKey } : {}),
       parentKey: input.parentKey ?? null,
       id: mockId('tsk'),
       projectKey: fixtures.PROJECT_KEY,
@@ -2220,7 +2334,9 @@ export class MockBackend {
       at,
     );
     if (task.parentKey) this.recordParentChange(task.key, null, task.parentKey);
+    if (task.themeKey) this.recordThemeChange(task.key, null, task.themeKey);
     if (relationPlan) this.applyRelationPlan(relationPlan.steps, task, actor);
+    this.syncSubtaskThemes();
     return { status: 201, body: clone(this.findTask(task.key)!) };
   }
 
@@ -2228,6 +2344,7 @@ export class MockBackend {
     const input = parseBody(StartTaskRequest, body);
     const task = this.findTask(taskKey);
     if (!task || !input) return error(404, 'not_found', 'Unknown task');
+    if (isTheme(task)) return error(409, 'task_is_theme', 'A theme is not started');
     if (!isOpenTask(task)) return error(409, 'task_closed', 'Task is closed');
     const workStage = this.config.pipeline.stages.find((stage) => stage.kind === 'work');
     const eligible = workStage ? stageOwners(this.config, workStage) : [];

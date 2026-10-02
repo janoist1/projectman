@@ -23,6 +23,7 @@ export const TimelineEventType = z.enum([
   'task_link_added',
   'task_relation_added',
   'task_relation_removed',
+  'task_theme_changed',
   'task_note',
   'attachment_added',
   'attachment_deleted',
@@ -79,7 +80,8 @@ export interface TimelineEventData {
   task_created: { title: string; imported?: boolean };
   task_updated: {
     fields: string[];
-    action?: 'cancelled' | 'reopened';
+    /** `closed`: a theme was closed (PM-192); it is closed like a cancelled card, and reopened the same way. */
+    action?: 'cancelled' | 'reopened' | 'closed';
     previousStatus?: string;
     previousAssignee?: string | null;
     /** `fields` names `repo`: the repository it was set to (null: cleared) and the one it had. */
@@ -141,6 +143,12 @@ export interface TimelineEventData {
    */
   task_relation_added: { kind: string; ref: string };
   task_relation_removed: { kind: string; ref: string };
+  /**
+   * A card was put into, moved between or taken out of themes (PM-192). Recorded on the card, on the
+   * theme it left (`previous`) and on the one it joined (`themeKey`); null: none. A card that became a
+   * subtask loses its own theme this way (it reads its parent's from then on).
+   */
+  task_theme_changed: { themeKey: string | null; previous: string | null };
   task_note: { text: string; mentions?: string[]; importedAuthor?: string; importedAt?: string };
   /** The file name is the sanitised metadata; the audit keeps it after the attachment is deleted. */
   attachment_added: { attachmentId: string; fileName: string; size: number; mediaType: string };

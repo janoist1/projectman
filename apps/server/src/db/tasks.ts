@@ -6,6 +6,11 @@ import type { Db } from './database';
 import { parseJson, toJson } from './json';
 
 interface TaskRow {
+  kind: string;
+  /** The theme stored on this card (none on a subtask). */
+  theme_key: string | null;
+  /** The theme the card reads: its parent's for a subtask, else its own. */
+  effective_theme: string | null;
   parent_key: string | null;
   id: string;
   project_key: string;
@@ -62,6 +67,8 @@ export type TaskPatch = Partial<
     | 'updatedAt'
     | 'closedAt'
     | 'parentKey'
+    /** The theme to store: a card's own (null removes it), never a subtask's. */
+    | 'themeKey'
   >
 >;
 
@@ -78,7 +85,15 @@ const COLUMNS: Record<keyof TaskPatch, string> = {
   updatedAt: 'updated_at',
   closedAt: 'closed_at',
   parentKey: 'parent_key',
+  themeKey: 'theme_key',
 };
+
+/**
+ * A card as it is read: with the theme it shows. A subtask shows its parent's (read here, so a parent
+ * changing theme writes nothing to its subtasks); any other card shows its own.
+ */
+const TASK_SELECT = `SELECT t.*, CASE WHEN t.parent_key IS NOT NULL THEN p.theme_key ELSE t.theme_key END
+    AS effective_theme FROM tasks t LEFT JOIN tasks p ON p.key = t.parent_key`;
 
 function toLink(r: LinkRow): TaskLink {
   const link: TaskLink = { kind: r.kind as TaskLink['kind'], ref: r.ref };
@@ -91,6 +106,9 @@ function toLink(r: LinkRow): TaskLink {
 
 function toTask(r: TaskRow, links: TaskLink[]): Task {
   return {
+    // Only what is not the default is present, so a plain card reads as it did before themes.
+    ...(r.kind === 'theme' ? { kind: 'theme' as const } : {}),
+    ...(r.effective_theme ? { themeKey: r.effective_theme } : {}),
     parentKey: r.parent_key,
     id: r.id,
     projectKey: r.project_key,
@@ -120,18 +138,18 @@ function toTask(r: TaskRow, links: TaskLink[]): Task {
 
 export function createTaskRepository(db: Db) {
   const statements = {
-    get: db.prepare('SELECT * FROM tasks WHERE key = ?'),
-    list: db.prepare('SELECT * FROM tasks WHERE project_key = ? ORDER BY seq'),
+    get: db.prepare(`${TASK_SELECT} WHERE t.key = ?`),
+    list: db.prepare(`${TASK_SELECT} WHERE t.project_key = ? ORDER BY t.seq`),
     listLinks: db.prepare(
       `SELECT l.* FROM task_links l JOIN tasks t ON t.id = l.task_id
        WHERE t.project_key = ? ORDER BY l.id`,
     ),
-    byAssignee: db.prepare('SELECT * FROM tasks WHERE project_key = ? AND assignee = ? ORDER BY seq'),
+    byAssignee: db.prepare(`${TASK_SELECT} WHERE t.project_key = ? AND t.assignee = ? ORDER BY t.seq`),
     byAssigneeLinks: db.prepare(
       `SELECT l.* FROM task_links l JOIN tasks t ON t.id = l.task_id
        WHERE t.project_key = ? AND t.assignee = ? ORDER BY l.id`,
     ),
-    children: db.prepare('SELECT * FROM tasks WHERE project_key = ? AND parent_key = ? ORDER BY seq'),
+    children: db.prepare(`${TASK_SELECT} WHERE t.project_key = ? AND t.parent_key = ? ORDER BY t.seq`),
     childrenLinks: db.prepare(
       `SELECT l.* FROM task_links l JOIN tasks t ON t.id = l.task_id
        WHERE t.project_key = ? AND t.parent_key = ? ORDER BY l.id`,
@@ -139,14 +157,16 @@ export function createTaskRepository(db: Db) {
     linksOf: db.prepare('SELECT * FROM task_links WHERE task_id = ? ORDER BY id'),
     // Uses the `task_links_ref` index: card relations are links with no repository.
     linking: db.prepare(
-      `SELECT t.* FROM task_links l JOIN tasks t ON t.id = l.task_id
+      `SELECT t.*, CASE WHEN t.parent_key IS NOT NULL THEN p.theme_key ELSE t.theme_key END AS effective_theme
+       FROM task_links l JOIN tasks t ON t.id = l.task_id LEFT JOIN tasks p ON p.key = t.parent_key
        WHERE l.kind = ? AND l.repo = '' AND l.ref = ? AND t.project_key = ? ORDER BY t.seq`,
     ),
     deleteLink: db.prepare(`DELETE FROM task_links WHERE task_id = ? AND kind = ? AND repo = '' AND ref = ?`),
     insert: db.prepare(
       `INSERT INTO tasks (id, project_key, key, seq, title, description, stage_id, status, assignee,
-         repo, priority, labels, checks, visibility, created_by, created_at, updated_at, closed_at, parent_key)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         repo, priority, labels, checks, visibility, created_by, created_at, updated_at, closed_at, parent_key,
+         kind, theme_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     findLink: db.prepare('SELECT * FROM task_links WHERE task_id = ? AND kind = ? AND repo = ? AND ref = ?'),
     insertLink: db.prepare(
@@ -282,6 +302,9 @@ export function createTaskRepository(db: Db) {
           task.updatedAt,
           task.closedAt,
           task.parentKey ?? null,
+          task.kind ?? 'task',
+          // A subtask has none of its own: it reads its parent's.
+          task.parentKey ? null : (task.themeKey ?? null),
         );
         for (const link of task.links) upsertLink(task.id, link, task.createdAt);
       })();

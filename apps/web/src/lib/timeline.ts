@@ -153,6 +153,7 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
               : t('timeline.events.task_cancelled'),
         );
       if (d.action === 'reopened') return normal(t('timeline.events.task_reopened'));
+      if (d.action === 'closed') return normal(t('timeline.events.theme_closed'));
       // Gate outcomes are recorded as task updates by the server.
       const request = record(d.gateRequest);
       if (request) {
@@ -235,6 +236,14 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
           ref: str(d.ref),
         }),
       );
+    case 'task_theme_changed': {
+      const themeKey = d.themeKey ? str(d.themeKey) : '';
+      const previous = d.previous ? str(d.previous) : '';
+      if (!themeKey) return normal(t('timeline.themeRemoved', { previous }));
+      return normal(
+        previous ? t('timeline.themeMoved', { previous, themeKey }) : t('timeline.themeSet', { themeKey }),
+      );
+    }
     case 'task_note':
       return normal(str(d.text));
     case 'attachment_added':

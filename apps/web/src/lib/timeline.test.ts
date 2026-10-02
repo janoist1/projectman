@@ -162,6 +162,26 @@ it('describes checks recorded before labels replaced them', () => {
   );
 });
 
+describe('themes on the timeline (PM-192)', () => {
+  const theme = (themeKey: string | null, previous: string | null) =>
+    describeEvent({ ...creation, type: 'task_theme_changed', data: { themeKey, previous } }, context).text;
+
+  it('words putting a card into a theme, moving it between themes and taking it out', () => {
+    expect(theme('AC-9', null)).toBe('Téma beállítva: AC-9');
+    expect(theme('AC-9', 'AC-8')).toBe('Téma módosítva: AC-8 → AC-9');
+    expect(theme(null, 'AC-8')).toBe('Téma eltávolítva: AC-8');
+  });
+
+  it('words the closing of a theme, apart from the cancelling of a card', () => {
+    expect(
+      describeEvent(
+        { ...creation, type: 'task_updated', data: { action: 'closed', fields: ['status', 'closedAt'] } },
+        context,
+      ).text,
+    ).toBe('Lezárta a témát.');
+  });
+});
+
 describe('card relations on the timeline (PM-192)', () => {
   const relation = (type: 'task_relation_added' | 'task_relation_removed', kind: string, ref: string) =>
     describeEvent({ ...creation, type, data: { kind, ref } }, context).text;

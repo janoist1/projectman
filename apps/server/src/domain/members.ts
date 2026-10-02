@@ -40,7 +40,7 @@ import type { PresenceService } from './presence';
 import type { Admission } from './admission';
 import type { Author, ConfigChange, ProjectService } from './projects';
 import type { SessionOrchestrator } from './sessions';
-import { isOpenTask } from './tasks';
+import { isOpenTask, isTheme } from './tasks';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
 import { unique } from './util';
@@ -94,7 +94,8 @@ export class MemberService {
     const openTasks = new Map(
       this.ctx.repos.tasks
         .list(projectKey)
-        .filter(isOpenTask)
+        // A theme is carried by nobody and never counts as work (PM-192).
+        .filter((t) => isOpenTask(t) && !isTheme(t))
         .map((t) => [t.key, t]),
     );
     const sessions = this.ctx.repos.sessions.list(projectKey);
@@ -615,6 +616,7 @@ export class MemberProfiles {
       tasks: visibleTasks.filter(
         (t) =>
           isOpenTask(t) &&
+          !isTheme(t) &&
           (t.assignee === handle ||
             member.currentTaskKeys.includes(t.key) ||
             approverStages.has(t.stageId) ||

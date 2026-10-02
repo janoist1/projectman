@@ -5,6 +5,7 @@ import {
   MAX_CLOSED_CARDS_DAYS,
   CreateTaskCommentRequest,
   CancelTaskRequest,
+  CloseThemeRequest,
   CreateTaskRequest,
   ReopenTaskRequest,
   routes,
@@ -84,9 +85,18 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
     return domain.tasks.cancel(key, taskKey, body, actorOf(access));
   });
 
+  /** Closes a theme (PM-192): a person of developer access; 409 task_not_theme for any other card. */
+  app.post<TaskParams>(routes.closeTheme(':key', ':taskKey'), async (request): Promise<Task> => {
+    const { key, taskKey } = request.params;
+    const access = await requireAccess(domain, request, key, { minimum: 'developer' });
+    parseBody(CloseThemeRequest, request.body);
+    return domain.tasks.closeTheme(key, taskKey, actorOf(access));
+  });
+
+  /** An admin reopens a card; a theme is reopened from developer access (the domain checks which). */
   app.post<TaskParams>(routes.reopenTask(':key', ':taskKey'), async (request): Promise<Task> => {
     const { key, taskKey } = request.params;
-    const access = await requireAccess(domain, request, key, { minimum: 'admin' });
+    const access = await requireAccess(domain, request, key, { minimum: 'developer' });
     parseBody(ReopenTaskRequest, request.body);
     return domain.tasks.reopen(key, taskKey, actorOf(access));
   });

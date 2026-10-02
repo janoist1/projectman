@@ -524,7 +524,7 @@ describe('team tools', () => {
 
     expect(result.isError).toBe(true);
     expect(text(result)).toBe(
-      'Error [invalid]: Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description, repo, add_relations and/or remove_relations.',
+      'Error [invalid]: Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description, repo, add_relations, remove_relations and/or theme_key.',
     );
     expect(h.handler.calls).toEqual([]);
   });
@@ -598,6 +598,70 @@ describe('team tools', () => {
       method: 'createTask',
       args: { title: 'Follow-up', relations: [{ kind: 'prerequisite', key: 'AR-21' }] },
     });
+  });
+
+  it('update_task passes the theme on, and null removes it (PM-192)', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+
+    const set = await call(client, 'update_task', { task_key: 'AR-21', theme_key: 'AR-30' });
+    expect(set.isError).toBeFalsy();
+    expect(h.handler.calls[0]).toEqual({
+      method: 'updateTask',
+      ctx: devContext,
+      args: { taskKey: 'AR-21', themeKey: 'AR-30' },
+    });
+    expect(text(set)).toContain('theme set to AR-30');
+
+    const removed = await call(client, 'update_task', { task_key: 'AR-21', theme_key: null });
+    expect(removed.isError).toBeFalsy();
+    expect(h.handler.calls[1]).toMatchObject({ args: { taskKey: 'AR-21', themeKey: null } });
+    expect(text(removed)).toContain('theme removed');
+
+    const bad = await call(client, 'update_task', { task_key: 'AR-21', theme_key: 'nope' });
+    expect(bad.isError).toBe(true);
+    expect(text(bad)).toContain('Input validation error');
+    expect(h.handler.calls).toHaveLength(2);
+  });
+
+  it('create_task creates a theme, or a card in one (PM-192)', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+
+    const theme = await call(client, 'create_task', { title: 'Epic', kind: 'theme' });
+    expect(theme.isError).toBeFalsy();
+    expect(h.handler.calls[0]).toMatchObject({
+      method: 'createTask',
+      args: { title: 'Epic', kind: 'theme' },
+    });
+
+    const card = await call(client, 'create_task', { title: 'Card', theme_key: 'AR-30' });
+    expect(card.isError).toBeFalsy();
+    expect(h.handler.calls[1]).toMatchObject({ args: { title: 'Card', themeKey: 'AR-30' } });
+    // A plain task is no kind to send.
+    await call(client, 'create_task', { title: 'Plain', kind: 'task' });
+    expect(h.handler.calls[2]!.args).not.toHaveProperty('kind');
+
+    const bad = await call(client, 'create_task', { title: 'Card', kind: 'epic' });
+    expect(bad.isError).toBe(true);
+    expect(h.handler.calls).toHaveLength(3);
+  });
+
+  it('tells the agent about themes in create_task, update_task, list_tasks and get_task', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+    const tools = (await client.listTools()).tools;
+    const description = (name: string) => tools.find((t) => t.name === name)!.description ?? '';
+    const schema = (name: string) =>
+      tools.find((t) => t.name === name)!.inputSchema as unknown as {
+        properties: Record<string, any>;
+      };
+    expect(description('create_task')).toContain('kind "theme"');
+    expect(schema('create_task').properties.kind.enum).toEqual(['task', 'theme']);
+    expect(schema('create_task').properties.theme_key.type).toBe('string');
+    expect(description('update_task')).toContain('theme_key');
+    expect(description('list_tasks')).toContain('kind "theme"');
+    expect(description('get_task')).toContain('its theme');
   });
 
   it('tells the agent to order cards with a prerequisite relation and that a started card is no duplicate', async () => {

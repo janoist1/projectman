@@ -3,6 +3,7 @@ export * from './domain/pipeline';
 export * from './domain/label';
 export * from './domain/task';
 export * from './domain/relations';
+export * from './domain/theme';
 export * from './domain/session';
 export * from './domain/token-usage';
 export * from './domain/card-measure';

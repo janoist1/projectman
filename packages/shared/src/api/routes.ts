@@ -32,6 +32,7 @@ export const routes = {
   taskLabels: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/labels`,
   startTask: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/start`,
   cancelTask: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/cancel`,
+  closeTheme: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/close-theme`,
   reopenTask: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/reopen`,
 
   /** GET lists, POST uploads one file (multipart/form-data, field "file"). */

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   formatQuestionAsked,
   formatSentMessage,
+  formatTaskCreated,
   formatTaskDetail,
   formatTaskUpdate,
   questionHint,
@@ -268,6 +269,85 @@ describe('formatTaskUpdate relations', () => {
     expect(formatTaskUpdate({ ...task, status: 'cancelled' }, { note: false, relations })).toContain(
       '; the card is closed (cancelled) as a duplicate.',
     );
+  });
+});
+
+describe('themes in the tool results (PM-192)', () => {
+  it('shows a card its theme: key, title and state', () => {
+    const detail = sampleTaskDetail();
+    const theme = { key: 'AR-30', title: 'The epic', stageId: 'backlog', status: 'active' as const };
+    expect(formatTaskDetail({ ...detail, theme })).toContain('\nTheme: AR-30 "The epic" · Status: open\n');
+    // A closed theme says so, whatever status the card behind it has.
+    expect(formatTaskDetail({ ...detail, theme: { ...theme, status: 'cancelled' } })).toContain(
+      'Theme: AR-30 "The epic" · Status: closed',
+    );
+    expect(formatTaskDetail(detail)).not.toContain('Theme:');
+  });
+
+  it('shows a theme its cards, collecting cards with their subtasks, and its progress', () => {
+    const detail = sampleTaskDetail();
+    detail.task = { ...detail.task, key: 'AR-30', title: 'The epic', kind: 'theme', stageId: 'backlog' };
+    const out = formatTaskDetail({
+      ...detail,
+      themeProgress: { done: 1, total: 3 },
+      themeCards: [
+        {
+          key: 'AR-1',
+          title: 'Collecting',
+          stageId: 'dev',
+          status: 'active',
+          subtasks: [{ key: 'AR-2', title: 'Part', stageId: 'done', status: 'done' }],
+        },
+        { key: 'AR-5', title: 'Alone', stageId: 'qa', status: 'active', subtasks: [] },
+      ],
+    });
+    expect(out).toContain('AR-30 — The epic (a theme)\nKind: theme · Status: open · Labels: frontend\n');
+    expect(out).not.toContain('Stage: backlog');
+    expect(out).not.toContain('Assignee:');
+    expect(out).toContain(
+      [
+        'Progress: 1 of 3 cards done (cancelled cards are not counted)',
+        'Cards of this theme (collecting cards with their subtasks):',
+        '- AR-1 "Collecting" · Stage: dev · Status: active',
+        '  - AR-2 "Part" · Stage: done · Status: done',
+        '- AR-5 "Alone" · Stage: qa · Status: active',
+      ].join('\n'),
+    );
+    expect(formatTaskDetail({ ...detail, themeProgress: { done: 0, total: 0 }, themeCards: [] })).toContain(
+      'Progress: 0 of 0 cards done (cancelled cards are not counted)\nCards of this theme: none.',
+    );
+  });
+
+  it('words the theme events of a card and of a theme', () => {
+    const detail = sampleTaskDetail();
+    const event = (data: Record<string, unknown>, minute: number) => ({
+      ...note(minute, ''),
+      type: 'task_theme_changed' as const,
+      data,
+    });
+    detail.timeline = [
+      event({ themeKey: 'AR-30', previous: null }, 1),
+      event({ themeKey: 'AR-31', previous: 'AR-30' }, 2),
+      event({ themeKey: null, previous: 'AR-31' }, 3),
+      { ...note(4, ''), type: 'task_updated', data: { action: 'closed', fields: ['status', 'closedAt'] } },
+    ];
+    const out = formatTaskDetail(detail);
+    expect(out).toContain('put it into the theme AR-30');
+    expect(out).toContain('moved it from the theme AR-30 to AR-31');
+    expect(out).toContain('took it out of the theme AR-31');
+    expect(out).toContain('closed the theme');
+  });
+
+  it('says what update_task did with the theme, and that a theme was created', () => {
+    const task = sampleTaskDetail().task;
+    expect(formatTaskUpdate(task, { note: false, themeKey: 'AR-30' })).toContain('theme set to AR-30');
+    expect(formatTaskUpdate(task, { note: false, themeKey: null })).toContain('theme removed');
+    expect(formatTaskUpdate(task, { note: false })).not.toContain('theme');
+    const created = formatTaskCreated({ ...task, key: 'AR-30', kind: 'theme', labels: [] });
+    expect(created).toContain('Created the theme AR-30');
+    expect(created).toContain('in no stage');
+    expect(created).not.toContain('unassigned');
+    expect(formatTaskCreated(task)).toContain('unassigned');
   });
 });
 

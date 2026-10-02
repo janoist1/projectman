@@ -303,7 +303,9 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     readOnly: true,
     description:
       'Read the project board as a compact list, newest update first. Defaults to open tasks ' +
-      '(active, waiting or blocked). Filter by status, stage or assignee; use get_task for details.',
+      '(active, waiting or blocked). Filter by status, stage or assignee; use get_task for details. A ' +
+      'theme (a card that groups other cards) is marked kind "theme"; it is in no stage, so a stage filter ' +
+      'leaves themes out.',
     input: {
       status: z.union([z.literal('open'), TaskStatus]).default('open'),
       stage: StageId.optional(),
@@ -322,7 +324,8 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     description:
       'Get a task: title, description, stage, status, assignee, labels, links (pull requests, branches) and ' +
       'its relations to other cards by kind (part of, prerequisite, related, duplicate of, both ' +
-      'directions: key, title, stage, status), its parent, subtasks (keys, titles, stages, statuses), attachments (open one with read_attachment) and ' +
+      'directions: key, title, stage, status), its theme (key, title, status; a theme shows its cards, ' +
+      'collecting cards with their subtasks, and its progress), its parent, subtasks (keys, titles, stages, statuses), attachments (open one with read_attachment) and ' +
       'recent timeline (who did what). The description is shown whole up to ' +
       `${MAX_DESCRIPTION_CHARS} characters; a longer one is shown in parts, and the result says how to ` +
       'read the rest. The timeline shows a long note, question or answer cut; with event_id (named on the ' +
@@ -373,7 +376,10 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       'approval records the rest and waits for the approval. Relations between cards (part of, prerequisite, ' +
       'related, duplicate of) are set with add_relations and removed with remove_relations, in the same ' +
       'call: give the order of work as a prerequisite relation, not as a "Dependencies" text in the ' +
-      'description. You cannot mark a card that has started as a duplicate.',
+      'description. You cannot mark a card that has started as a duplicate. theme_key puts the card into a ' +
+      'theme (an open card of kind theme in this project; null removes it); a card belongs to one theme, ' +
+      'a subtask takes the theme of its parent and cannot be given one, and a theme cannot be given one or ' +
+      'moved.',
     input: {
       task_key: taskKeyInput,
       stage_id: StageId.optional().describe(
@@ -455,6 +461,10 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         .max(10)
         .optional()
         .describe('Relations of this card to other cards to remove; removals apply before additions.'),
+      theme_key: taskKeyInput
+        .nullable()
+        .optional()
+        .describe('The theme this card belongs to (a theme of this project that is open); null removes it.'),
     },
     async run({ ctx, args, handler }) {
       const {
@@ -468,9 +478,11 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         repo,
         add_relations: addRelations,
         remove_relations: removeRelations,
+        theme_key: themeKey,
       } = args;
       if (
         !stageId &&
+        themeKey === undefined &&
         !addLabels?.length &&
         !removeLabels?.length &&
         !note &&
@@ -483,7 +495,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         throw new TeamToolError(
           'invalid',
           'Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description, repo, ' +
-            'add_relations and/or remove_relations.',
+            'add_relations, remove_relations and/or theme_key.',
         );
       }
       const relations = {
@@ -500,9 +512,11 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         ...(description ? { description } : {}),
         ...(repo !== undefined ? { repo } : {}),
         ...(relations.add.length + relations.remove.length > 0 ? { relations } : {}),
+        ...(themeKey !== undefined ? { themeKey } : {}),
       });
       return formatTaskUpdate(task, {
         stageId,
+        ...(themeKey !== undefined ? { themeKey } : {}),
         labels: { added: addLabels ?? [], removed: removeLabels ?? [] },
         note: !!note,
         title: !!title,
@@ -523,8 +537,17 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       'prioritise it; it does not start any work. Give it a self-contained description. Set parent_key ' +
       'for a one-level subtask in the same project, and relations for the other relations to existing ' +
       'cards (a card it needs first is a prerequisite relation, not a "Dependencies" text). If it came ' +
-      'from another task, note the new key there with update_task.',
+      'from another task, note the new key there with update_task. kind "theme" creates a theme instead: ' +
+      'a card that groups other cards (an epic) and is only open or closed; it is in no stage, has no ' +
+      'assignee and no work is started on it. theme_key puts the new card into an open theme.',
     input: {
+      kind: z
+        .enum(['task', 'theme'])
+        .optional()
+        .describe('task (default) or theme: a card that groups other cards; no stage, no work.'),
+      theme_key: taskKeyInput
+        .optional()
+        .describe('The theme the new card belongs to: an open card of kind theme in this project.'),
       parent_key: taskKeyInput
         .optional()
         .describe('Parent task in this project; must not itself be a subtask.'),
@@ -563,6 +586,8 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
           ? { relations: args.relations.map((r) => ({ kind: r.kind, key: r.task_key })) }
           : {}),
         ...(args.parent_key ? { parentKey: args.parent_key } : {}),
+        ...(args.kind === 'theme' ? { kind: args.kind } : {}),
+        ...(args.theme_key ? { themeKey: args.theme_key } : {}),
         ...(args.description ? { description: args.description } : {}),
         ...(args.labels ? { labels: unique(args.labels) } : {}),
         ...(args.visibility ? { visibility: args.visibility } : {}),

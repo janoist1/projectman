@@ -151,7 +151,8 @@
 
   /* A confirmation is a bottom sheet that is as tall as its content, with the dimmed page above. */
   .sm {
-    height: auto;
+    /* Not auto: a modal dialog is pinned top and bottom, which stretches an auto height to the max-height. */
+    height: fit-content;
     max-height: calc(100dvh - 48px);
     margin: auto 0 0;
     border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;

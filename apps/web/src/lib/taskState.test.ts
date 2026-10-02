@@ -216,6 +216,9 @@ describe('the cards of a member, for the team strip (PM-237)', () => {
       }),
     ).toEqual(['AC-22', 'AC-20']);
     expect(workingCardKeys({})).toEqual([]);
+    expect(
+      workingCardKeys({ taskWork: [work('be-1', 'AC-22', '2026-10-01T10:00:00.000Z')] }, new Set(['AC-20'])),
+    ).toEqual([]);
   });
 
   it('gives the key and title for one card, the keys for two, and a count from three', () => {

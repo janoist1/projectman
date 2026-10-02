@@ -127,17 +127,32 @@ export function aiSponsors(members: readonly MemberView[]): {
   };
 }
 
-/** The cards a member works on right now (a running task session each), without repeats. */
-export function workingCardKeys(member: Pick<MemberView, 'taskWork'>): string[] {
-  return [...new Set((member.taskWork ?? []).map((work) => work.taskKey))];
+/**
+ * The cards a member works on right now (a running task session each), without repeats. With
+ * `visibleKeys` only the cards the viewer can see: the board's member list carries the work on
+ * cards the viewer may not open too.
+ */
+export function workingCardKeys(
+  member: Pick<MemberView, 'taskWork'>,
+  visibleKeys?: ReadonlySet<string>,
+): string[] {
+  const keys = [...new Set((member.taskWork ?? []).map((work) => work.taskKey))];
+  return visibleKeys ? keys.filter((key) => visibleKeys.has(key)) : keys;
 }
 
 /**
- * Who works on a card right now: the AI members with a running task session, in the team's order.
- * The same data the cards use for "X is working on it", so the board and its team strip agree.
+ * Who works on a card right now: the AI members with a running task session on a card the viewer
+ * can see, in the team's order, each with those cards. The same data the cards use for "X is
+ * working on it", so the board and its team strip agree.
  */
-export function workingNow(members: readonly MemberView[]): MemberView[] {
-  return members.filter((member) => member.kind === 'ai' && workingCardKeys(member).length > 0);
+export function workingNow(
+  members: readonly MemberView[],
+  visibleKeys: ReadonlySet<string>,
+): { member: MemberView; keys: string[] }[] {
+  return members
+    .filter((member) => member.kind === 'ai')
+    .map((member) => ({ member, keys: workingCardKeys(member, visibleKeys) }))
+    .filter((entry) => entry.keys.length > 0);
 }
 
 /**

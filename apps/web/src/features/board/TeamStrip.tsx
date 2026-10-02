@@ -5,12 +5,12 @@ import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Icon } from '../../components/Icon';
 import { t } from '../../i18n/t';
-import { cardsLine, workingCardKeys, workingNow } from '../../lib/members';
+import { cardsLine, workingNow } from '../../lib/members';
 import styles from './TeamStrip.module.css';
 
 interface TeamStripProps {
   members: readonly MemberView[];
-  /** Task titles by key, for the card a member is on. */
+  /** Task titles by key of the cards on the board; a chip names only these. */
   titles: ReadonlyMap<string, string>;
 }
 
@@ -19,7 +19,7 @@ export function TeamStrip({ members, titles }: TeamStripProps) {
   const { key } = useProject();
   const labelId = useId();
   if (!members.some((member) => member.kind === 'ai' && member.status !== 'retired')) return null;
-  const working = workingNow(members);
+  const working = workingNow(members, new Set(titles.keys()));
 
   if (working.length === 0) {
     return (
@@ -41,8 +41,7 @@ export function TeamStrip({ members, titles }: TeamStripProps) {
         {t('board.workingNow')}
       </span>
       <ul className={styles.list}>
-        {working.map((member) => {
-          const keys = workingCardKeys(member);
+        {working.map(({ member, keys }) => {
           const onlyKey = keys.length === 1 ? keys[0]! : null;
           const cardTitle = onlyKey ? titles.get(onlyKey) : undefined;
           const cards = cardsLine(keys, titles) ?? '';

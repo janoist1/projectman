@@ -57,8 +57,27 @@ describe('who the board team strip shows (PM-241)', () => {
   });
 
   it('shows a member with a working and a waiting session by the working card', () => {
-    strip({ qa: ['AC-21'] }, { qa: { status: 'working', currentTaskKeys: ['AC-21', 'AC-22'] } });
+    // The server says "waiting for a human" while any of the member's sessions waits.
+    strip({ qa: ['AC-21'] }, { qa: { status: 'waiting_for_human', currentTaskKeys: ['AC-21', 'AC-22'] } });
+    expect(chips()).toHaveLength(1);
     expect(chips()[0]!.getAttribute('href')).toBe('/p/AC/tasks/AC-21');
+  });
+
+  it('names only cards on the board, and leaves out a member whose cards are all hidden', () => {
+    strip({ qa: ['AC-50'], 'fe-1': ['AC-50', 'AC-20'], 'code-review': ['AC-50', 'AC-21', 'AC-22'] });
+    // The work on AC-50 is in the member list, but the viewer has no such card.
+    expect(chips().map((link) => link.getAttribute('href'))).toEqual([
+      '/p/AC/team/code-review',
+      '/p/AC/tasks/AC-20',
+    ]);
+    expect(within(chips()[0]!).getByText('AC-21, AC-22')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('AC-50');
+  });
+
+  it('says nobody works when every working card is hidden', () => {
+    strip({ qa: ['AC-50'] });
+    expect(chips()).toHaveLength(0);
+    expect(screen.getByText(new RegExp(t('board.nobodyWorking')))).toBeTruthy();
   });
 });
 

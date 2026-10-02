@@ -1,5 +1,6 @@
 import clsx from 'clsx';
 import { useLayoutEffect, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import type { InboxOption } from '@projectman/shared';
 import { Button } from '../../components/Button';
 import type { ButtonSize, ButtonVariant } from '../../components/Button';
@@ -68,7 +69,16 @@ export function PermissionActions({
 }
 
 /** A command or target of a permission request: four lines at most, the rest behind "Teljes parancs". */
-export function FoldedCommand({ text, className }: { text: string; className?: string | undefined }) {
+export function FoldedCommand({
+  text,
+  className,
+  lines,
+}: {
+  text: string;
+  className?: string | undefined;
+  /** How many lines show while folded; four by default. */
+  lines?: number | undefined;
+}) {
   const [open, setOpen] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
   const ref = useRef<HTMLElement>(null);
@@ -90,7 +100,11 @@ export function FoldedCommand({ text, className }: { text: string; className?: s
 
   return (
     <div className={styles.command}>
-      <code ref={ref} className={clsx(className, !open && styles.clamped)}>
+      <code
+        ref={ref}
+        className={clsx(className, !open && styles.clamped)}
+        style={lines ? ({ '--command-lines': lines } as CSSProperties) : undefined}
+      >
         {text}
       </code>
       {overflowing || open ? (

@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { isOpenTask, subtaskParentRefusal, TaskKey, taskSeq } from './task';
-import type { SubtaskParentRefusal, Task, TaskLink } from './task';
+import { isOpenTask, isTheme, subtaskParentRefusal, TaskKey, taskSeq } from './task';
+import type { SubtaskParentRefusal, Task, TaskKind, TaskLink } from './task';
 import type { StageKind } from './pipeline';
 
 /**
@@ -66,7 +66,7 @@ export interface TaskRelation extends RelatedCard {
 /** What `taskRelations` reads of a card. */
 export type RelationCard = Pick<
   Task,
-  'key' | 'title' | 'stageId' | 'status' | 'projectKey' | 'parentKey' | 'links'
+  'key' | 'title' | 'stageId' | 'status' | 'projectKey' | 'parentKey' | 'links' | 'kind'
 >;
 
 /** The key a card-to-card link points at, for the link kinds that relate cards. */
@@ -136,10 +136,13 @@ export type RelationRefusalCode =
   | 'relation_target_project'
   | 'relation_cycle'
   | 'relation_duplicate_of_duplicate'
-  | 'relation_parent_exists';
+  | 'relation_parent_exists'
+  | 'relation_theme';
 
 export interface RelationRefusal {
   code: RelationRefusalCode;
+  /** `relation_theme`: the kind a theme may not have in that way (a theme has no prerequisites; it duplicates only a theme). */
+  kind?: AddableRelationKind;
   /** `relation_parent_exists`: the card the card is part of already. */
   parent?: string;
   /** `relation_cycle`: the cards of the loop, starting and ending with the card that would close it. */
@@ -156,21 +159,26 @@ export interface RelationRefusal {
  *
  * - every kind: not itself, the target exists, in the same project;
  * - `part_of`: the one-level rule of `subtaskParentRefusal`;
- * - `prerequisite`: no loop, directly or through other prerequisites;
- * - `duplicate_of`: the target is not a duplicate itself (point at the original, not a chain).
+ * - `prerequisite`: no loop, directly or through other prerequisites; a theme has none and is none;
+ * - `duplicate_of`: the target is not a duplicate itself (point at the original, not a chain); a theme
+ *   duplicates only a theme, and a card only a card;
+ * - `related`: any card, a theme too.
+ * `from.kind` is the kind of a card that does not exist yet; an existing card's is read from `tasks`.
  */
 export function relationRefusal(
   kind: AddableRelationKind,
-  from: { key: string | null; projectKey: string },
+  from: { key: string | null; projectKey: string; kind?: TaskKind | undefined },
   to: string,
   tasks: readonly RelationCard[],
 ): RelationRefusal | null {
   const target = tasks.find((card) => card.key === to);
+  const fromKind = from.kind ?? tasks.find((card) => card.key === from.key)?.kind;
   if (kind === 'part_of') {
     const code = subtaskParentRefusal(to, target, {
       key: from.key,
       projectKey: from.projectKey,
       hasSubtasks: from.key !== null && tasks.some((card) => card.parentKey === from.key),
+      kind: fromKind,
     });
     if (code) return { code };
     // A card is part of one card: moving it means removing the relation first (a call may do both).
@@ -180,6 +188,10 @@ export function relationRefusal(
   if (to === from.key) return { code: 'relation_self' };
   if (!target) return { code: 'relation_target_not_found' };
   if (target.projectKey !== from.projectKey) return { code: 'relation_target_project' };
+  if (kind === 'prerequisite' && (isTheme({ kind: fromKind }) || isTheme(target)))
+    return { code: 'relation_theme', kind };
+  if (kind === 'duplicate_of' && isTheme({ kind: fromKind }) !== isTheme(target))
+    return { code: 'relation_theme', kind };
   if (kind === 'duplicate_of') {
     const original = linkTargets(target, 'duplicate_of')[0];
     return original ? { code: 'relation_duplicate_of_duplicate', original } : null;
@@ -314,7 +326,7 @@ export type RelationPlan =
  * does so.
  */
 export function planRelations(input: {
-  task: Pick<RelationCard, 'key' | 'projectKey'>;
+  task: Pick<RelationCard, 'key' | 'projectKey' | 'kind'>;
   cards: readonly RelationCard[];
   elsewhere: (key: string) => RelationCard | undefined;
   change: RelationsChange;
@@ -355,9 +367,12 @@ export function planRelations(input: {
         ? self.parentKey === key
         : !!target && (kind === 'related' ? hasRelated(self, target) : linkTargets(self, kind).includes(key));
     if (stored) continue;
-    const refusal = relationRefusal(kind, { key: task.key, projectKey: task.projectKey }, key, [
-      ...cards.values(),
-    ]);
+    const refusal = relationRefusal(
+      kind,
+      { key: task.key, projectKey: task.projectKey, kind: task.kind },
+      key,
+      [...cards.values()],
+    );
     if (refusal) return { ok: false, key, refusal };
     if (kind === 'part_of') {
       self.parentKey = key;

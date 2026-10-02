@@ -9,6 +9,7 @@ import {
   effectiveSessionPermissions,
   isOnLeave,
   isOpenTask,
+  isTheme,
   isWorkingOnTask,
   memberOf,
   messageRoute,
@@ -64,7 +65,7 @@ import { assertAiEnabled, assertNotOnLeave, assertRepoChosen } from './admission
 import { isoNow } from './context';
 import { userExcludesFile } from './git-excludes';
 import type { DomainContext } from './context';
-import { conflict, DomainError, notFound } from './errors';
+import { conflict, DomainError, notFound, themeRefused } from './errors';
 import type { MemberService } from './members';
 import type { ConfigChange, ProjectService } from './projects';
 import {
@@ -939,6 +940,8 @@ export class SessionOrchestrator {
     messages: string[],
     restart: PermissionRestart | null = null,
   ): Promise<EnsureSessionResult> {
+    // A theme is not worked on: its description is written from the member's general chat.
+    if (task && isTheme(task)) throw themeRefused(task.key, 'have a session');
     const sessionId = existing?.id ?? newId('ses');
     try {
       return await this.launch(config, member, workItem, task, existing, messages, sessionId, restart);
@@ -1113,6 +1116,7 @@ export class SessionOrchestrator {
     );
     const relatedSessions = task ? this.relatedSessions(projectKey, member.handle, task) : [];
     const relations = task ? this.deps.tasks.relationsOf(projectKey, task.key) : [];
+    const themeCard = task?.themeKey ? this.deps.tasks.find(projectKey, task.themeKey) : null;
     // What a returning reviewer reviewed last (PM-213), named in the message that wakes it.
     const lastReviewedCommit = existing ? this.ctx.repos.sessions.reviewedCommit(existing.id) : null;
     const userHome = this.deps.userHome ?? homedir();
@@ -1167,6 +1171,16 @@ export class SessionOrchestrator {
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(relatedSessions.length > 0 ? { relatedSessions } : {}),
       ...(relations.length > 0 ? { relations } : {}),
+      ...(themeCard
+        ? {
+            theme: {
+              key: themeCard.key,
+              title: themeCard.title,
+              stageId: themeCard.stageId,
+              status: themeCard.status,
+            },
+          }
+        : {}),
       ...(lastReviewedCommit ? { lastReviewedCommit } : {}),
     });
 

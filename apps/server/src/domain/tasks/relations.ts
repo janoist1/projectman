@@ -31,6 +31,7 @@ export const SUBTASK_PARENT_REFUSALS: Record<SubtaskParentRefusal, string> = {
   subtask_parent_project: 'the parent must belong to the same project',
   subtask_parent_is_subtask: 'a subtask cannot have subtasks',
   subtask_has_children: 'a task with subtasks cannot become a subtask',
+  subtask_theme: 'a theme is neither the parent nor a subtask: cards belong to a theme through their theme',
 };
 
 /** The error of a refused relation, in words that say what to do instead. */
@@ -42,7 +43,16 @@ function refusalError(refusal: RelationRefusal, key: string) {
     case 'subtask_parent_project':
     case 'subtask_parent_is_subtask':
     case 'subtask_has_children':
+    case 'subtask_theme':
       return invalid(refusal.code, SUBTASK_PARENT_REFUSALS[refusal.code], details);
+    case 'relation_theme':
+      return invalid(
+        'relation_theme',
+        refusal.kind === 'prerequisite'
+          ? 'a theme has no prerequisite relations, in either direction'
+          : 'a theme can be the duplicate of a theme only, and a card of a card',
+        details,
+      );
     case 'relation_self':
       return invalid('relation_self', 'a card cannot be related to itself', details);
     case 'relation_target_not_found':
@@ -83,6 +93,14 @@ export interface RelationDeps {
   liveSession: (task: Task) => boolean;
   /** Records a task's change of parent on the timelines of both cards. */
   recordParentChange: (task: Task, previous: string | null, actor: Actor, sessionId: string | null) => void;
+  /** Records a card's change of theme on its timeline and on those of the themes it left and joined. */
+  recordThemeChange: (
+    task: Task,
+    previous: string | null,
+    themeKey: string | null,
+    actor: Actor,
+    sessionId: string | null,
+  ) => void;
   /** Cancels an open task as a duplicate, like any cancellation; returns it as written. */
   cancel: (
     task: Task,
@@ -174,11 +192,23 @@ export class TaskRelations {
         case 'parent': {
           const child = repo.get(step.child)!;
           const previous = child.parentKey ?? null;
+          // A card that becomes a subtask loses the theme it had: it reads its parent's from now on.
+          const ownTheme = !previous && step.parent ? (child.themeKey ?? null) : null;
           const written = this.store.write(child, {
             parentKey: step.parent,
+            ...(ownTheme ? { themeKey: null } : {}),
             updatedAt: isoNow(this.store.ctx),
           });
           this.deps.recordParentChange(written, previous, actor, sessionId);
+          // What the card shows changes with its parent: the theme of the card it joins, or none (its own,
+          // which it had before it became a subtask, is gone) when it leaves. The timelines say so.
+          const shown = child.themeKey ?? null;
+          const shownNow = repo.get(step.child)?.themeKey ?? null;
+          if (shown !== shownNow) {
+            this.deps.recordThemeChange(written, shown, shownNow, actor, sessionId);
+            if (shown) touched.add(shown);
+            if (shownNow) touched.add(shownNow);
+          }
           touched.add(step.child);
           if (previous) touched.add(previous);
           if (step.parent) touched.add(step.parent);

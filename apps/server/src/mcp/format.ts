@@ -1,9 +1,13 @@
-import { isCardLink } from '@projectman/shared';
+import { isCardLink, isTheme } from '@projectman/shared';
 import type { Attachment, MemberView, Task, TimelineEvent, WorkItemRef } from '@projectman/shared';
 import {
   describeAttachment,
   describeLink,
   describeRepo,
+  describeTheme,
+  themeCardLines,
+  themeProgressText,
+  themeState,
   eventFullText,
   formatBytes,
   formatTimestamp,
@@ -148,10 +152,16 @@ export function formatTaskDetail(
     name: detail.effectiveRepo ?? task.repo,
     choiceNeeded: detail.repoChoiceNeeded ?? false,
   });
+  const theme = isTheme(task);
   const lines = [
-    `${task.key} — ${task.title}`,
-    taskStatusLine(task),
-    `Repo: ${repo} · Visibility: ${task.visibility} · Priority: ${task.priority ?? 'none'}`,
+    theme ? `${task.key} — ${task.title} (a theme)` : `${task.key} — ${task.title}`,
+    // A theme is in no stage, has no assignee and no repository: it is open or closed.
+    theme
+      ? `Kind: theme · Status: ${themeState(task)} · Labels: ${task.labels.length > 0 ? task.labels.join(', ') : 'none'}`
+      : taskStatusLine(task),
+    theme
+      ? `Visibility: ${task.visibility}`
+      : `Repo: ${repo} · Visibility: ${task.visibility} · Priority: ${task.priority ?? 'none'}`,
     // Links to other cards are the relations below, from both cards' sides.
     `Links: ${links.length > 0 ? links.map((l) => describeLink(l)).join('; ') : 'none'}`,
     `Created by ${task.createdBy} at ${formatTimestamp(task.createdAt)} · Updated ${formatTimestamp(task.updatedAt)}`,
@@ -163,6 +173,17 @@ export function formatTaskDetail(
       '',
       `Parent: ${detail.parent.key} — ${detail.parent.title} · Stage: ${detail.parent.stageId} · Status: ${detail.parent.status}`,
     );
+  if (detail.theme) lines.push('', `Theme: ${describeTheme(detail.theme)}`);
+  if (detail.themeCards || detail.themeProgress) {
+    const cards = detail.themeCards ?? [];
+    lines.push(
+      '',
+      `Progress: ${themeProgressText(detail.themeProgress ?? { done: 0, total: 0 })}`,
+      ...(cards.length > 0
+        ? ['Cards of this theme (collecting cards with their subtasks):', ...themeCardLines(cards)]
+        : ['Cards of this theme: none.']),
+    );
+  }
   if (detail.subtasks?.length)
     lines.push(
       '',
@@ -262,9 +283,13 @@ export function formatTaskUpdate(
     repo?: string | null | undefined;
     /** The relations the call asked to add and to remove (PM-192). */
     relations?: { add: Array<{ kind: string; key: string }>; remove: Array<{ kind: string; key: string }> };
+    /** The theme the call set (null: removed); undefined when it did not touch it. */
+    themeKey?: string | null | undefined;
   },
 ): string {
   const done: string[] = [];
+  if (change.themeKey !== undefined)
+    done.push(change.themeKey === null ? 'theme removed' : `theme set to ${change.themeKey}`);
   if (change.title) done.push('title changed');
   if (change.description) done.push('description replaced');
   if (change.repo !== undefined)
@@ -286,6 +311,11 @@ export function formatTaskUpdate(
 /** What the call did; what happens next with the task is in the tool's description. */
 export function formatTaskCreated(task: Task): string {
   const labels = task.labels.length > 0 ? ` · Labels: ${task.labels.join(', ')}` : '';
+  if (isTheme(task))
+    return (
+      `Created the theme ${task.key} "${oneLine(task.title, 200)}" (open; a theme is in no stage and no ` +
+      `work starts on it; visibility ${task.visibility}${labels}). Put cards into it with theme_key.`
+    );
   return (
     `Created ${task.key} "${oneLine(task.title, 200)}" in stage ${task.stageId}, unassigned ` +
     `(visibility ${task.visibility}${labels}).`

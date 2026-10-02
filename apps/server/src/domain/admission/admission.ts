@@ -3,6 +3,7 @@ import {
   DEFAULT_AGENT_PROVIDER,
   isHandleOnLeave,
   isOpenTask,
+  isTheme,
   isWorkingOnTask,
   openPrerequisites,
 } from '@projectman/shared';
@@ -91,7 +92,7 @@ export class Admission {
       if (s.workItem.type !== 'task') chats++;
       else if (s.workItem.taskKey !== excludeTaskKey) {
         const task = this.ctx.repos.tasks.get(s.workItem.taskKey);
-        if (task && isOpenTask(task) && isWorkingOnTask(config, task, handle, s.state))
+        if (task && isOpenTask(task) && !isTheme(task) && isWorkingOnTask(config, task, handle, s.state))
           taskKeys.add(task.key);
       }
     }

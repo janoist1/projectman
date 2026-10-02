@@ -7,6 +7,7 @@ import type { TaskService } from './tasks';
 import { SYSTEM_ACTOR } from './util';
 import {
   isOpenTask,
+  isTheme,
   labelDefinition,
   PR_MERGED_LABEL,
   pullRequestsMerged,
@@ -111,7 +112,8 @@ export class GithubSync {
 
   private async advanceAfterMerge(projectKey: string, taskKey: string): Promise<void> {
     const task = this.tasks.find(projectKey, taskKey);
-    if (!task || task.status !== 'active') return;
+    // A theme does not move: a pull request linked to it advances nothing (PM-192).
+    if (!task || task.status !== 'active' || isTheme(task)) return;
     const config = await this.projects.config(projectKey);
     // The system label stands for the merged pull request when the project defines it.
     if (

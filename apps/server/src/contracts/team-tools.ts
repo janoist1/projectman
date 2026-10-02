@@ -9,7 +9,10 @@ import type {
   QuestionOptionInput,
   Task,
   TaskDetail,
+  TaskKind,
   TaskStatus,
+  ThemeCard,
+  ThemeProgress,
   TimelineEvent,
   Visibility,
   WorkItemRef,
@@ -45,7 +48,10 @@ export interface ListTasksInput {
 export type TaskSummary = Pick<
   Task,
   'key' | 'title' | 'stageId' | 'status' | 'assignee' | 'labels' | 'updatedAt'
->;
+> & {
+  /** `theme` for a theme (PM-192); absent for a task. */
+  kind?: TaskKind;
+};
 
 /**
  * What get_task shows of a task: the task with its timeline, and where its work happens. The
@@ -69,6 +75,11 @@ export interface TaskToolDetail extends TaskDetail {
   event?: TimelineEvent;
   /** The task's relations to other cards, both directions (PM-192); omitted by handlers that know none. */
   relations?: TaskRelation[];
+  /** The theme the card belongs to, its own or its parent's (PM-192); omitted when it has none. */
+  theme?: Pick<Task, 'key' | 'title' | 'stageId' | 'status'>;
+  /** On a theme: the cards that belong to it, collecting cards with their subtasks, and how far it is (PM-192). */
+  themeCards?: ThemeCard[];
+  themeProgress?: ThemeProgress;
 }
 
 /** A page of a task's readable attachments, oldest first. */
@@ -178,6 +189,8 @@ export interface TeamToolsHandler {
       repo?: string | null;
       /** Relations to other cards (PM-192): removals first, then additions, in the same all-or-nothing call. */
       relations?: RelationsChange;
+      /** The theme the card belongs to (PM-192); null removes it. */
+      themeKey?: string | null;
     },
   ): Promise<{ task: Task }>;
   /**
@@ -194,6 +207,10 @@ export interface TeamToolsHandler {
       parentKey?: string;
       /** Relations the new card starts with (PM-192). */
       relations?: AddRelationRef[];
+      /** `theme` creates a theme (PM-192). */
+      kind?: TaskKind;
+      /** The theme the new card belongs to. */
+      themeKey?: string;
     },
   ): Promise<{ task: Task }>;
   /** link_pull_request: attach a GitHub PR to the task. */

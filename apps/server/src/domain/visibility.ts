@@ -51,12 +51,18 @@ export function teamMessageMember(viewer: Viewer, requested: string | undefined)
 }
 
 /**
- * A task as the viewer sees it: a client gets a task's links to other cards (relations, PM-192)
- * only when the other card is shared with them. `canSeeKey` says whether the viewer sees a card.
+ * A task as the viewer sees it: a client gets a task's links to other cards (relations, PM-192) and its
+ * theme only when the other card is shared with them. `canSeeKey` says whether the viewer sees a card.
  */
 export function withVisibleCardLinks(viewer: Viewer, task: Task, canSeeKey: (key: string) => boolean): Task {
-  if (!isClient(viewer) || !task.links.some(isCardLink)) return task;
-  return { ...task, links: task.links.filter((link) => !isCardLink(link) || canSeeKey(link.ref)) };
+  if (!isClient(viewer)) return task;
+  const hideTheme = !!task.themeKey && !canSeeKey(task.themeKey);
+  if (!hideTheme && !task.links.some(isCardLink)) return task;
+  const { themeKey: _theme, ...shown } = task;
+  return {
+    ...(hideTheme ? shown : task),
+    links: task.links.filter((link) => !isCardLink(link) || canSeeKey(link.ref)),
+  };
 }
 
 /** The tasks the viewer sees, each as they see it: a client's links to other cards lead only to cards they see. */

@@ -56,6 +56,11 @@ export interface ContextPackInput {
    */
   relations?: TaskRelation[];
   /**
+   * The theme the task belongs to, its own or its parent's (PM-192), named in the kick-off brief. Omitted
+   * when it has none.
+   */
+  theme?: Pick<Task, 'key' | 'title' | 'stageId' | 'status'>;
+  /**
    * The commit the member's session reviewed in its last round on this task (PM-213). Set only for a
    * resumed reviewer whose round before pinned one; the continue message names it, so the reviewer
    * reads only what changed since.

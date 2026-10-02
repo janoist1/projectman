@@ -37,6 +37,16 @@ export const invalid = (code: ErrorCode, message: string, details?: unknown) =>
 export const conflict = (code: ErrorCode, message: string, details?: unknown) =>
   new DomainError(code, message, { status: 409, details });
 
+/**
+ * A pipeline action on a theme (PM-192): a theme does not move, start, have an assignee or a repository,
+ * nor take part in subtasks or prerequisites. `what` is the action, in words.
+ */
+export const themeRefused = (taskKey: string, what: string) =>
+  new DomainError('task_is_theme', `${taskKey} is a theme: a theme cannot ${what}`, {
+    status: 409,
+    details: { taskKey, action: what },
+  });
+
 /** The server cannot take the request now (e.g. it is stopping); the client may retry later. */
 export const unavailable = (code: ErrorCode, message: string, details?: unknown) =>
   new DomainError(code, message, { status: 503, details });

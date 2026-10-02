@@ -499,5 +499,17 @@ export const migrations: Migration[] = [
       ALTER TABLE sessions ADD COLUMN context_tokens INTEGER;
       ALTER TABLE sessions ADD COLUMN reviewed_commit TEXT;`,
   },
+  {
+    // 22 and 24 are taken and 23 is another card's, so this is 25.
+    version: 25,
+    name: 'card kind and theme',
+    // PM-205: a card is a `task` (every existing row) or a `theme`, and a card that is not a subtask can
+    // belong to one theme. A subtask's theme is read from its parent, never stored (the parent changing
+    // theme writes nothing to its subtasks). Existing cards are tasks with no theme; their timeline events
+    // and links are not touched.
+    sql: `ALTER TABLE tasks ADD COLUMN kind TEXT NOT NULL DEFAULT 'task';
+      ALTER TABLE tasks ADD COLUMN theme_key TEXT REFERENCES tasks(key);
+      CREATE INDEX tasks_theme ON tasks(project_key, theme_key);`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

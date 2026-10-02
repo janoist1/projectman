@@ -72,6 +72,20 @@ describe('client visibility', () => {
     expect(visibleProjectEvent(developer, event, (key) => byKey.get(key))).toBe(event);
   });
 
+  it('shows a client the theme of a card only when the theme is shared with them (PM-192)', () => {
+    const themed = (key: string, themeKey: string) => ({ ...task(key, 'shared'), themeKey }) as Task;
+    const cards = [
+      task('AR-8', 'internal'),
+      task('AR-9', 'shared'),
+      themed('AR-1', 'AR-8'),
+      themed('AR-2', 'AR-9'),
+    ];
+    const forClient = visibleTasks(client, cards);
+    expect(forClient.find((t) => t.key === 'AR-1')).not.toHaveProperty('themeKey');
+    expect(forClient.find((t) => t.key === 'AR-2')!.themeKey).toBe('AR-9');
+    expect(visibleTasks(developer, cards).find((t) => t.key === 'AR-1')!.themeKey).toBe('AR-8');
+  });
+
   it('limits a client to their own inbox items and messages', () => {
     expect(teamMessageMember(client, 'someone-else')).toBe('acme-client');
     expect(teamMessageMember(developer, 'someone-else')).toBe('someone-else');

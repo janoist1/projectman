@@ -532,8 +532,11 @@ verification: [DEPLOY.md](DEPLOY.md), [deploy/cloudflare](../deploy/cloudflare))
 1. HTTPS ends at Cloudflare; `cloudflared` reaches the app over loopback and the edge sends
    `X-Forwarded-Proto: https`, so cookies are Secure. The Host is preserved (no `httpHostHeader`
    or other rewrite in the tunnel): the origin check and "is this request local" both depend on
-   it. Cloudflare adds the visitor's address (`X-Forwarded-For`), so the first-setup endpoint
-   treats remote requests as remote. `check.sh` verifies the Secure cookie, both origin cases and
+   it. The first-setup endpoint refuses the request because its Host is `chopper.istvan.io`,
+   not a loopback name (`isLocalRequest`): with a Host rewritten to `127.0.0.1` the peer
+   (`cloudflared`, loopback) and the Host would both look local, and only Cloudflare's
+   `X-Forwarded-For` with the visitor's public address would still tell the difference, a second,
+   weaker reason. `check.sh` verifies the Secure cookie, both origin cases and
    the refusal of `POST /api/setup` against the real entrance.
 2. The Access application covers the whole hostname with one Allow policy of **exact email
    addresses**. "Emails ending in", "Everyone" and service-token or bypass policies are not
@@ -543,8 +546,11 @@ verification: [DEPLOY.md](DEPLOY.md), [deploy/cloudflare](../deploy/cloudflare))
    only service is `127.0.0.1:4800`; the development ports are not served.
 4. Edge: Always Use HTTPS and HSTS on; nothing cached; Rocket Loader, Email Obfuscation, the
    automatic Web Analytics beacon and every other script injection off; a response-header rule
-   sets `Content-Security-Policy: frame-ancestors 'none'` and `X-Frame-Options: DENY` on every
-   response (the server sets them too, PM-211).
+   sets `X-Frame-Options: DENY` (Set) and **adds** `Content-Security-Policy: frame-ancestors
+'none'` (Add, never Set) on every response. The server sends both too (PM-211), and its
+   attachment routes send a stricter CSP of their own (`default-src 'none'; sandbox;
+frame-ancestors 'none'`) for uploads shown inline: a Set rule would replace it and drop the
+   sandbox on the public address.
 5. Set `PROJECTMAN_CLIENT_IP_HEADER=cf-connecting-ip` (PM-211) so the attempt limiters count
    per real client.
 6. The tunnel's credentials file, its token and the account certificate stay at mode 600 outside
@@ -565,7 +571,10 @@ verification: [DEPLOY.md](DEPLOY.md), [deploy/cloudflare](../deploy/cloudflare))
   Without `PROJECTMAN_CLIENT_IP_HEADER` (or on a build from before PM-211) all remote clients
   share one per-client budget (the shared cap of 50 still holds) and one failing client can lock
   out the others. With it set, the address is Cloudflare's `cf-connecting-ip` for requests that
-  come from the loopback proxy.
+  come from the loopback proxy. If `tailscale serve` stays on next to the tunnel, a tailnet client
+  reaches the same port through a loopback proxy and can send its own `cf-connecting-ip`, so it
+  can pick its own address and get a fresh per-client budget each time (the shared cap of 50
+  still holds); turn `tailscale serve` off, or accept that.
 - A mistake in the Access policy (a wildcard rule, an extra policy) opens the second lock; the
   login and the origin and attempt limits are then the only barrier. Re-read the policy after
   every change and rerun `check.sh`.

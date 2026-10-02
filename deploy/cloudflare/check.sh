@@ -164,7 +164,7 @@ done
 code=$(acurl -o "$tmp/post-setup.body" -w '%{http_code}' -X POST -H "Origin: $origin" \
   -H 'Content-Type: application/json' --data '{}' "$origin/api/setup")
 if grep -q 'setup_requires_localhost' "$tmp/post-setup.body" ||
-  { [ "$code" -ge 400 ] && grep -q '"needsSetup":false' "$tmp/setup.body"; }; then
+  { [[ "$code" =~ ^[45][0-9][0-9]$ ]] && grep -q '"needsSetup":false' "$tmp/setup.body"; }; then
   pass "POST /api/setup is refused (HTTP $code)"
 else
   fail "POST /api/setup was not refused (HTTP $code)"

@@ -234,21 +234,36 @@ cloudflared tunnel --config ~/.cloudflared/config.yml ingress rule https://chopp
 cloudflared tunnel --config ~/.cloudflared/config.yml ingress rule https://chopper.istvan.io/api/setup # the 4800 rule
 ```
 
+Also run the static check of the verification script (`brew install shellcheck` if it is not
+installed); it must print nothing:
+
+```sh
+bash -n deploy/cloudflare/check.sh
+shellcheck deploy/cloudflare/check.sh
+```
+
 Make the live instance count login attempts per real client: in the environment of the process
 that runs `npm start` add `PROJECTMAN_CLIENT_IP_HEADER=cf-connecting-ip` (see "Client address
-behind a public entrance" above) and restart it. Then run `cloudflared` as a launchd service:
+behind a public entrance" above) and restart it. Then run `cloudflared` as a launchd service,
+**as your own user, without `sudo`**:
 
 ```sh
 cloudflared tunnel --config ~/.cloudflared/config.yml run projectman   # once in the foreground first; stop it with Ctrl-C
-sudo cloudflared service install                                      # reads ~/.cloudflared/config.yml
+cloudflared service install                                           # a user LaunchAgent; reads ~/.cloudflared/config.yml
 launchctl list | grep -i cloudflared                                  # it is loaded
 ```
 
-Check the plist the installer wrote and that it holds no token (`cloudflared service install`
-without an argument uses the config file); restrict it to its owner. After a change to the
-configuration, restart the service. If the installer puts the service where it does not read
-`~/.cloudflared`, give it the configuration as the installer's documentation says rather than
-copying the credentials elsewhere.
+Without `sudo` the installer makes a LaunchAgent (`~/Library/LaunchAgents`) that runs as the same
+user as `npm start` and reads `~/.cloudflared`, which is what this guide assumes. It starts when
+that user logs in, as the live instance does. Check the plist it wrote: it must name the config
+file and hold no token (the installer without an argument uses the config file); keep it at
+mode 600. After a change to the configuration, restart the service. Compare the installer's
+behavior with the cloudflared documentation for the version you installed.
+
+With `sudo` the installer is documented to make a root LaunchDaemon (`/Library/LaunchDaemons`)
+instead. That one runs as root, does not look in your `~/.cloudflared`, and would need the
+credentials file and the config copied to a root-owned place: another copy of the secret, and a
+root process facing the internet. Prefer the user agent.
 
 ### 5. Edge settings
 
@@ -265,10 +280,17 @@ The dashboard moves these around; look for the feature by name, in the `istvan.i
   beacon), Zaraz and any other feature that adds a script, a tag or rewrites the HTML. The
   terminal shows code and secrets, and the pages must be exactly what the server sent.
 - **Rules > Transform Rules > Modify Response Header:** a rule for the hostname
-  `chopper.istvan.io` that sets, on **every response**, `Content-Security-Policy` to
-  `frame-ancestors 'none'` and `X-Frame-Options` to `DENY`. The server sets both itself (PM-211);
-  the rule also covers the answers it does not make (the Access login redirect, the tunnel's
-  404s).
+  `chopper.istvan.io`, on **every response**, with two header operations:
+  - `X-Frame-Options`: operation **Set**, value `DENY`.
+  - `Content-Security-Policy`: operation **Add** (not Set), value `frame-ancestors 'none'`.
+
+  The server sends both headers itself (PM-211); the rule also covers the answers it does not
+  make (the Access login redirect, the tunnel's 404s). The CSP must be **Add**: the server's
+  attachment routes send a stricter policy of their own (`default-src 'none'; sandbox;
+frame-ancestors 'none'`) for the uploads shown inline (images, PDF), and **Set** would replace
+  it with the bare `frame-ancestors` and silently drop the `sandbox`. With **Add** a response that
+  already has a policy gets a second one, and a browser enforces both; do not "tidy" it into
+  Set.
 
 ### 6. Verify
 

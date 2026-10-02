@@ -27,6 +27,9 @@ const COMMAND = 'Bash: ./scripts/restore-drill.sh';
 const permissionFor = (detail: string) =>
   needsYou(t('taskStatus.needsYouDetail', { kind: t('inbox.kindsLower.permission'), detail }));
 
+/** The status line's tooltip: the responsible member's avatar has a title of its own. */
+const statusTitle = '[title]:not([role="img"])';
+
 function taskByKey(key: string): Task {
   const task = tasks.find((entry) => entry.key === key);
   if (!task) throw new Error(`no fixture ${key}`);
@@ -147,7 +150,7 @@ describe('TaskCard', () => {
       const line = `Backend fejlesztő: ${gateway.summary}`;
       expect(within(card).getByText(line)).toBeTruthy();
       expect(within(card).getByText(gateway.summary)).toBeTruthy();
-      expect(card.querySelector('[title]')!.getAttribute('title')).toBe(line);
+      expect(card.querySelector(statusTitle)!.getAttribute('title')).toBe(line);
       expect(card.textContent).not.toContain(gateway.detail);
       expect(within(card).queryByText(working('Backend fejlesztő'))).toBeNull();
       expect(card.textContent).not.toContain('Bash');
@@ -163,7 +166,7 @@ describe('TaskCard', () => {
       const fe = members.get('fe-1')!.displayName;
       expect(within(card).getByText(working('Backend fejlesztő'))).toBeTruthy();
       expect(within(card).getByText(`${fe}: A diff átnézése folyik`)).toBeTruthy();
-      expect(card.querySelector('[title]')!.getAttribute('title')).toBe(
+      expect(card.querySelector(statusTitle)!.getAttribute('title')).toBe(
         [working('Backend fejlesztő'), `${fe}: A diff átnézése folyik`].join('\n'),
       );
       expect(within(card).queryByText(/^\+\d/)).toBeNull();
@@ -178,7 +181,7 @@ describe('TaskCard', () => {
       expect(within(card).getByText(t('taskStatus.workersMore', { more: 1 }))).toBeTruthy();
       expect(within(card).getByText(t('taskStatus.workersMoreLabel', { more: 1 }))).toBeTruthy();
       // Only two rows are named; the third worker is in the tooltip.
-      expect(card.querySelector('[title]')!.getAttribute('title')!.split('\n')).toHaveLength(3);
+      expect(card.querySelector(statusTitle)!.getAttribute('title')!.split('\n')).toHaveLength(3);
     });
   });
 

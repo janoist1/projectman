@@ -11,12 +11,20 @@ export interface BoardEntry {
   state: TaskState;
 }
 
+/** Cards with the same time keep a stable order: the higher key (the newer card) first. */
+function newerKeyFirst(a: BoardEntry, b: BoardEntry): number {
+  return b.task.key.localeCompare(a.task.key, undefined, { numeric: true });
+}
+
 export function sortEntries(entries: BoardEntry[]): BoardEntry[] {
   return [...entries].sort((a, b) => {
     const phase = phaseOrder[a.state.phase] - phaseOrder[b.state.phase];
     if (phase !== 0) return phase;
-    if (a.state.phase === 'done') return (b.task.closedAt ?? '').localeCompare(a.task.closedAt ?? '');
-    return b.task.updatedAt.localeCompare(a.task.updatedAt);
+    const time =
+      a.state.phase === 'done'
+        ? (b.task.closedAt ?? '').localeCompare(a.task.closedAt ?? '')
+        : b.task.updatedAt.localeCompare(a.task.updatedAt);
+    return time !== 0 ? time : newerKeyFirst(a, b);
   });
 }
 

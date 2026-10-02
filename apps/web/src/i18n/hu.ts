@@ -572,6 +572,19 @@ export const hu = {
       waiting: 'Másra vár',
     },
     columnEmpty: 'Ebben a szűrésben nincs itt semmi.',
+    /** The member and label filters of the board (PM-120). */
+    filterMember: 'Felelős',
+    filterLabel: 'Címke',
+    filterAny: 'Mind',
+    filterNoAssignee: 'Nincs felelőse',
+    clearFilters: 'Szűrők törlése',
+    filterButton: 'Szűrés',
+    filterButtonActive: 'Szűrés, {count} aktív',
+    filterSheetTitle: 'Szűrés',
+    filterShow: 'Mutasd ({count})',
+    filterChipRemove: 'Szűrő törlése: {value}',
+    filteredEmpty: 'Ebben a szűrésben nincs kártya.',
+    assigneeLabel: 'Felelős: {name}',
     columnCount: '{count} feladat',
     noResults: 'Nincs találat erre: „{query}”',
     workingNow: 'Most dolgozik',
@@ -589,7 +602,7 @@ export const hu = {
       done: 'Kész',
     },
     noTasks: 'Még nincs feladat. Hozd létre az elsőt az „Új feladat” gombbal.',
-    subtitleFiltered: 'Szűrve: {title} · {count} feladat',
+    subtitleFiltered: 'Szűrve: {values} · {count} feladat',
     /** The strip of themes above the board (PM-192). */
     themes: {
       title: 'Témák',

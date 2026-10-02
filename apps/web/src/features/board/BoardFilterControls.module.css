@@ -1,0 +1,107 @@
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.phase {
+  flex-shrink: 0;
+}
+
+/* Its own row inside the header, so the gap between the state filter and the button holds whatever the header does. */
+.phoneBar {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The state filter takes the title's place: one row of equal buttons, the filter sheet's button after it. */
+@media (max-width: 767px) {
+  .phase {
+    flex: 1 1 0;
+  }
+  .phase button {
+    flex: 1 1 0;
+    justify-content: center;
+  }
+}
+
+.sheetButton {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--c-surface);
+  color: var(--c-ink-3);
+}
+
+.sheetButton[data-active='true'] {
+  border-color: var(--c-accent);
+  background: var(--c-accent-bg);
+  color: var(--c-accent-text);
+}
+
+.badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--c-accent);
+  color: var(--c-on-accent, #fff);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 18px;
+  text-align: center;
+}
+
+.sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.chips {
+  list-style: none;
+  margin: 0;
+  padding: 0 14px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  height: 36px;
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 0 10px 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--c-accent);
+  border-radius: var(--radius-lg);
+  background: var(--c-accent-bg);
+  color: var(--c-accent-text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.chipValue {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

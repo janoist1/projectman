@@ -111,14 +111,6 @@
   .emptyWrap {
     padding: 0 14px 24px;
   }
-  /* The filter takes the title's place: one full-width row of equal buttons. */
-  .filters {
-    flex: 1 1 auto;
-  }
-  .filters button {
-    flex: 1 1 0;
-    justify-content: center;
-  }
 }
 
 .dropTarget {

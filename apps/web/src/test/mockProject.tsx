@@ -4,6 +4,7 @@ import { setFetchImplementation } from '../api/client';
 import { ProjectContext } from '../app/contexts';
 import type { ProjectContextValue } from '../app/contexts';
 import { AttachmentUploadsProvider } from '../features/board/attachmentUploads';
+import { noBoardFilters } from '../features/board/boardFilters';
 import { MockBackend } from '../mocks/backend';
 import { renderUi } from './render';
 
@@ -60,6 +61,8 @@ export function mockProject(backend = new MockBackend()) {
     openNewTask: () => {},
     themeFilter: null,
     setThemeFilter: () => {},
+    boardFilters: noBoardFilters,
+    setBoardFilters: () => {},
   };
   return {
     backend,
@@ -75,11 +78,12 @@ export function mockProject(backend = new MockBackend()) {
   };
 }
 
-/** The project context with a theme filter that keeps its state, as the project layout does. */
+/** The project context with the theme and board filters keeping their state, as the project layout does. */
 function StatefulProject({ value, children }: { value: ProjectContextValue; children: ReactElement }) {
   const [themeFilter, setThemeFilter] = useState(value.themeFilter);
+  const [boardFilters, setBoardFilters] = useState(value.boardFilters);
   return (
-    <ProjectContext.Provider value={{ ...value, themeFilter, setThemeFilter }}>
+    <ProjectContext.Provider value={{ ...value, themeFilter, setThemeFilter, boardFilters, setBoardFilters }}>
       {children}
     </ProjectContext.Provider>
   );

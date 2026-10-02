@@ -1,5 +1,6 @@
 import {
   AttachmentListResponse,
+  BoardMoveResult,
   BoundaryRequest,
   BoundaryRequestView,
   ChangeTaskLabelsRequest,
@@ -33,6 +34,7 @@ import {
   routes,
 } from '@projectman/shared';
 import type {
+  BoardMoveRequest,
   SendTeamMessageRequest,
   DecideBoundaryRequest,
   PatchConfigRequest,
@@ -136,6 +138,9 @@ export const api = {
     apiRequest<unknown>(routes.member(key, handle), { method: 'PATCH', body }),
   updateTask: (key: string, taskKey: string, body: UpdateTaskRequest) =>
     apiRequest<unknown>(routes.task(key, taskKey), { method: 'PATCH', body }),
+  /** A card dropped on the board: a place in a column (PM-118). */
+  boardMoveTask: (key: string, taskKey: string, body: BoardMoveRequest) =>
+    apiRequest(routes.boardMoveTask(key, taskKey), { method: 'POST', body, schema: BoardMoveResult }),
   cancelTask: (key: string, taskKey: string, body: CancelTaskRequest) =>
     apiRequest<unknown>(routes.cancelTask(key, taskKey), { method: 'POST', body }),
   closeTheme: (key: string, taskKey: string) =>

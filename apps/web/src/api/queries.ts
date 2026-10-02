@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   AttachmentListResponse,
+  BoardMoveRequest,
   SendTeamMessageRequest,
   PatchConfigRequest,
   CreateInviteRequest,
@@ -487,6 +488,26 @@ export function useMoveTask(key: string) {
       despitePrerequisites?: boolean;
     }) =>
       api.updateTask(key, taskKey, { stageId, ...(despitePrerequisites ? { despitePrerequisites } : {}) }),
+    onSettled: async (_data, _error, { taskKey }) => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.board(key) }),
+        client.invalidateQueries({ queryKey: queryKeys.task(key, taskKey) }),
+        client.invalidateQueries({ queryKey: queryKeys.inbox(key) }),
+      ]);
+    },
+  });
+}
+
+/**
+ * A card dropped on the board (PM-118): the server computes the place from the anchor and answers 409
+ * `board_stale` when the picture the drop was made on no longer holds. Refreshes even then, so the board
+ * shows what it is now.
+ */
+export function useBoardMove(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ taskKey, ...body }: { taskKey: string } & BoardMoveRequest) =>
+      api.boardMoveTask(key, taskKey, body),
     onSettled: async (_data, _error, { taskKey }) => {
       await Promise.all([
         client.invalidateQueries({ queryKey: queryKeys.board(key) }),

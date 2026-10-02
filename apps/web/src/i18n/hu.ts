@@ -421,6 +421,10 @@ export const hu = {
       prerequisite_open: 'A feladat előfeltétele még nincs lezárva.',
       unknown_member: 'Ismeretlen csapattag.',
       task_closed: 'Ez a feladat már lezárult.',
+      board_stale:
+        'A tábla közben megváltozott, ezért a kártya nem került át. Nézd meg az új sorrendet, és próbáld újra.',
+      board_column_chronological: 'A Kész oszlop időrendben marad, abban nem lehet sorrendet változtatni.',
+      unknown_column: 'Ilyen oszlop nincs a táblán.',
       no_free_member: 'Most nincs szabad fejlesztő.',
       inbox_item_closed: 'Ezt már elintézték.',
       handle_taken: 'Ez az azonosító már foglalt.',
@@ -581,6 +585,15 @@ export const hu = {
     workingChip: '{name}: {cards}',
     doneAll: 'Mind ({count})',
     doneFewer: 'Kevesebb',
+    /** The Done column keeps the order of closing: no insertion line, no manual order (PM-118). */
+    doneChronological: 'időrendben',
+    reorder: {
+      help: 'Húzással vagy Alt és fel/le nyíllal rendezheted a kártyát az oszlopon belül.',
+      moved: '{column} oszlop, {position}. hely: {key}',
+      atTop: 'Már az oszlop tetején van.',
+      atBottom: 'Már az oszlop alján van.',
+      doneFixed: 'A Kész oszlop időrendben marad.',
+    },
     groups: {
       needsYou: 'Rád vár',
       working: 'Dolgozik',

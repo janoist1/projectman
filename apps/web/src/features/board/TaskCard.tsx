@@ -32,6 +32,8 @@ interface TaskCardProps {
   uploading?: number;
   /** A file is dragged over the card: it will be attached here (`over`) or may not be (`denied`). */
   fileState?: 'over' | 'denied' | null;
+  /** The card can be reordered by keyboard (Alt+Up/Down); this element explains how. */
+  reorderHelpId?: string | undefined;
 }
 
 /**
@@ -69,6 +71,7 @@ export function TaskCard({
   coverSrc = null,
   uploading = 0,
   fileState = null,
+  reorderHelpId,
 }: TaskCardProps) {
   const pr = prChip(task);
   const rows = compact ? [] : stageRows(task, pipeline);
@@ -89,6 +92,8 @@ export function TaskCard({
         fileState && styles.fileTarget,
       )}
       aria-current={selected ? 'true' : undefined}
+      aria-describedby={reorderHelpId}
+      aria-keyshortcuts={reorderHelpId ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
       data-phase={state.phase}
       data-file={fileState ?? undefined}
     >

@@ -9,7 +9,7 @@ import type { PipelineIndex } from '../../lib/pipeline';
 import type { TaskPhase } from '../../lib/taskState';
 import { coverSrcOf } from './cardModel';
 import { TaskCard } from './TaskCard';
-import { sortEntries } from './useBoardModel';
+import { sortGroupEntries } from './useBoardModel';
 import type { BoardEntry } from './useBoardModel';
 import styles from './MobileBoardList.module.css';
 
@@ -46,7 +46,10 @@ export function MobileBoardList({
   return (
     <div className={styles.wrap}>
       {groups.map((group) => {
-        const list = sortEntries(entries.filter((entry) => group.phases.includes(entry.state.phase)));
+        const list = sortGroupEntries(
+          entries.filter((entry) => group.phases.includes(entry.state.phase)),
+          pipeline,
+        );
         if (list.length === 0) return null;
         const headingId = `group-${group.id}`;
         const collapsible = group.id === 'done' && !searching && list.length > DONE_PREVIEW;

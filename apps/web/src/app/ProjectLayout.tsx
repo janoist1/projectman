@@ -22,6 +22,10 @@ export function ProjectLayout() {
   const boardIndex = useMatch('/p/:projectKey');
   const boardTask = useMatch('/p/:projectKey/tasks/:taskKey');
   const fixedBoard = !isMobile && !!(boardIndex || boardTask);
+  // A session fills the phone: its own header replaces the app's (project, search, new task, account)
+  // and its back arrow the tab bar.
+  const sessionRoute = useMatch('/p/:projectKey/sessions/:sessionId');
+  const phoneSession = isMobile && !!sessionRoute;
   useProjectSubscription(projectKey);
   const board = useBoard(projectKey);
   const inbox = useInbox(projectKey);
@@ -87,8 +91,8 @@ export function ProjectLayout() {
             {t('app.skipToContent')}
           </a>
           {isMobile ? null : <NavRail inboxCount={inboxCount} />}
-          <div className={clsx(styles.column, isMobile && styles.withTabbar)}>
-            {isMobile ? (
+          <div className={clsx(styles.column, isMobile && !phoneSession && styles.withTabbar)}>
+            {phoneSession ? null : isMobile ? (
               <MobileHeader
                 board={board.data}
                 pauseAbove={config.data?.config.team.limits.pauseAbovePlanUsagePercent}
@@ -106,7 +110,7 @@ export function ProjectLayout() {
               <Outlet />
             </main>
           </div>
-          {isMobile ? <TabBar inboxCount={inboxCount} /> : null}
+          {isMobile && !phoneSession ? <TabBar inboxCount={inboxCount} /> : null}
         </div>
         <NewTaskDialog
           open={newTask !== null}

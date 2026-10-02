@@ -78,8 +78,14 @@ export function FoldedCommand({ text, className }: { text: string; className?: s
     if (!element || open) return;
     const measure = () => setOverflowing(element.scrollHeight > element.clientHeight + 1);
     measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    // The width changes with the window and with a drawer or sidebar opening, not only on resize.
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure);
+      return () => window.removeEventListener('resize', measure);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
   }, [text, open]);
 
   return (

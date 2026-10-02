@@ -167,8 +167,13 @@
   flex-wrap: wrap;
 }
 
+/* The details link lines up with the first row of buttons, not the middle of both rows. */
 .actionsTop {
   align-items: flex-start;
+}
+
+.actionsTop .details {
+  min-height: 40px;
 }
 
 .details {

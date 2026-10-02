@@ -15,7 +15,7 @@ import { startWaitingHint } from '../../lib/taskState';
 import { joinNames, t } from '../../i18n/t';
 import { errorMessage, isApprovalRequested, isGateBlocked } from '../../lib/errors';
 import { unmetGateTexts } from '../../lib/gates';
-import { openItemIds, openItemsFor } from '../../lib/inbox';
+import { decisionToast, openItemIds, openItemsFor } from '../../lib/inbox';
 import { sessionStatus } from '../../lib/sessions';
 import { isTaskClosed } from '../../lib/taskState';
 import { isApiError } from '../../api/client';
@@ -221,7 +221,10 @@ export function TaskDrawer() {
                   onResolve={(target, request) =>
                     resolve.mutate(
                       { item: target, body: request },
-                      { onError: () => toast.show(t('inbox.resolveFailed'), 'error') },
+                      {
+                        onSuccess: () => toast.show(decisionToast(target, request.optionId, myHandle), 'ok'),
+                        onError: () => toast.show(t('inbox.resolveFailed'), 'error'),
+                      },
                     )
                   }
                   detailsHref={item.sessionId ? `/p/${key}/sessions/${item.sessionId}` : null}

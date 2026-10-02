@@ -46,6 +46,10 @@
 }
 
 @media (max-width: 767px) {
+  /* Full width wherever it sits, also in the card's row of actions. */
+  .actions {
+    width: 100%;
+  }
   .main {
     flex: 1 1 0;
     min-height: 44px;

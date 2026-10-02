@@ -31,6 +31,24 @@
   font-variant-numeric: tabular-nums;
 }
 
+.rounds {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.round {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--text-sm);
+}
+
+.round dd {
+  margin: 0;
+}
+
 .note {
   margin: 0;
   font-size: var(--text-xs);

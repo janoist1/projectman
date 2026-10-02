@@ -75,7 +75,7 @@ describe('attachment thumbnails and the card cover', () => {
         'x-content-type-options': 'nosniff',
         'cross-origin-resource-policy': 'same-origin',
         'cache-control': 'private, no-store',
-        'content-security-policy': "default-src 'none'; sandbox",
+        'content-security-policy': "default-src 'none'; sandbox; frame-ancestors 'none'",
       });
       const meta = await sharp(response.rawPayload).metadata();
       expect(meta.format).toBe('webp');

@@ -120,6 +120,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
         void client.invalidateQueries({ queryKey: queryKeys.attachments(key, task.key) });
       }
       writeTask(client, key, task);
+      if (task.status === 'done') void client.invalidateQueries({ queryKey: queryKeys.closedCardsAll(key) });
       if (task.links.some((link) => link.kind === 'pull_request')) {
         void client.invalidateQueries({ queryKey: queryKeys.task(key, task.key) });
       }
@@ -131,6 +132,10 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       client.setQueryData<TaskDetail>(queryKeys.task(key, entry.taskKey), (detail) =>
         detail ? { ...detail, timeline: appendUnique(detail.timeline, [entry]) } : detail,
       );
+      // The card's rounds (PM-222) are counted by the server from the whole timeline.
+      if (entry.type === 'task_stage_changed' || entry.type === 'task_labels_changed') {
+        void client.invalidateQueries({ queryKey: queryKeys.task(key, entry.taskKey) });
+      }
       return;
     }
     case 'session_upserted': {

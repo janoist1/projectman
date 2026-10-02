@@ -31,6 +31,11 @@ import { createShutdown } from './shutdown';
  *   PROJECTMAN_GITHUB_PUBLISH_TOKEN_FILE: the VM's separate GitHub identity for publishing task
  *   branches (PM-142, docs/GITHUB.md): a file only the service can read, holding that identity's token.
  *   Only the managed VM profile accepts it; without it nothing is published.
+ *   PROJECTMAN_CLIENT_IP_HEADER (unset): the header the public entrance sets to the real client's
+ *   address (`cf-connecting-ip` behind Cloudflare, PM-211, docs/DEPLOY.md). The login and invitation
+ *   limiters then count per that address instead of the proxy's, but only for requests from
+ *   loopback whose header holds exactly one IP; unset (and always behind `tailscale serve`, which
+ *   sets no such header) the connection's address counts. X-Forwarded-For is never read.
  * The agent CLIs start with this environment, minus billing and host-session variables (the
  * runner removes them); the git and gh commands the server runs inherit it.
  * Remote access goes through Tailscale (`tailscale serve`), not by binding publicly.
@@ -63,6 +68,13 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
     throw new Error(
       `invalid PROJECTMAN_VM_REPORT_MAX_AGE_MINUTES: ${env.PROJECTMAN_VM_REPORT_MAX_AGE_MINUTES}`,
     );
+  // The header a trusted entrance sets to the client's address; a header name, and never the
+  // forgeable X-Forwarded-For chain.
+  const clientIpHeader = env.PROJECTMAN_CLIENT_IP_HEADER?.trim().toLowerCase() || undefined;
+  if (clientIpHeader && (!/^[a-z0-9-]+$/.test(clientIpHeader) || clientIpHeader === 'x-forwarded-for'))
+    throw new Error(
+      `invalid PROJECTMAN_CLIENT_IP_HEADER: ${env.PROJECTMAN_CLIENT_IP_HEADER} (one header name, not x-forwarded-for)`,
+    );
   // apps/web/dist, from src/index.ts (tsx) as well as from dist/index.js (bundle).
   const webDist = fileURLToPath(new URL('../../web/dist', import.meta.url));
   return {
@@ -71,6 +83,7 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
     app: {
       home: resolve(env.PROJECTMAN_HOME ?? join(homedir(), '.projectman')),
       publicBaseUrl: loopbackBaseUrl(host, port),
+      clientIpHeader,
       claudeBin: env.CLAUDE_BIN,
       codexBin: env.CODEX_BIN,
       codexHome: env.CODEX_HOME || undefined,

@@ -13,6 +13,7 @@ import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
 import { memberStatusView } from '../../lib/members';
 import { MessageList } from '../messages/MessageList';
+import { ClosedCardsComparison } from './ClosedCardsComparison';
 import { LeaveButton } from './LeaveButton';
 import { RecentScheduleRuns } from './ScheduledRuns';
 import { EditMemberDialog } from './EditMemberDialog';
@@ -254,6 +255,7 @@ export function TeamPage() {
         )}
       </div>
 
+      <ClosedCardsComparison />
       <RecentScheduleRuns />
       <PendingInvites />
       <AddHumanDialog open={dialog?.kind === 'addHuman'} onClose={close} />

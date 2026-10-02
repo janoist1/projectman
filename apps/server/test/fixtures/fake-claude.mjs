@@ -61,6 +61,11 @@
  *   cache write 20, model --model (default "claude-fake").
  * - "/clear": SessionEnd (reason "clear"), a new session id and transcript file, then
  *   SessionStart with source "clear" (no UserPromptSubmit, like Claude Code's own commands).
+ * - "/compact [instructions]": PreCompact (trigger "manual", custom_instructions), a pause
+ *   (FAKE_CLAUDE_COMPACT_DELAY_MS, default the work delay), a compact_boundary and a summary in the
+ *   transcript, PostCompact, SessionStart (source "compact"); no UserPromptSubmit and no Stop.
+ *   FAKE_CLAUDE_COMPACT_IGNORED: the command does nothing (no hook, like a dialog over the
+ *   prompt); FAKE_CLAUDE_COMPACT_HANG: PostCompact never comes.
  * - "/exit", double Ctrl+C, Ctrl+D, SIGTERM or SIGHUP: SessionEnd hook, exit code 0.
  * - OSC 9;4 progress (busy/idle) and an OSC 0 title are emitted like Claude Code.
  *
@@ -616,7 +621,39 @@ async function interactive() {
       line('(conversation cleared)');
       return showPrompt();
     }
+    if (text === '/compact' || text.startsWith('/compact '))
+      return runCompact(text.slice('/compact'.length).trim());
     await runTurn(text);
+  }
+
+  /**
+   * "/compact [instructions]" (a manual compaction): like Claude Code's own commands it sends no
+   * UserPromptSubmit and no Stop. PreCompact, a pause, a boundary and a summary in the same
+   * transcript (the conversation goes on in the same file), PostCompact, then SessionStart with
+   * source "compact". FAKE_CLAUDE_COMPACT_IGNORED: the command is swallowed (no hook at all, like
+   * a dialog over the prompt); FAKE_CLAUDE_COMPACT_HANG: PostCompact never comes.
+   */
+  async function runCompact(instructions) {
+    userEntry(
+      `<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args>${instructions}</command-args>`,
+    );
+    if (process.env.FAKE_CLAUDE_COMPACT_IGNORED) return showPrompt();
+    const trigger = 'manual';
+    busy = true;
+    progress(true);
+    await runHooks('PreCompact', { trigger, custom_instructions: instructions }, trigger);
+    line('Compacting conversation…');
+    await sleep(Number(process.env.FAKE_CLAUDE_COMPACT_DELAY_MS ?? workDelay));
+    if (process.env.FAKE_CLAUDE_COMPACT_HANG) return;
+    writeEntry({ type: 'system', subtype: 'compact_boundary', content: 'Conversation compacted' });
+    const summary = `This session is being continued from a previous conversation. Summary: ${instructions}`;
+    userEntry(summary, { isCompactSummary: true });
+    await runHooks('PostCompact', { trigger, compact_summary: summary }, trigger);
+    await runHooks('SessionStart', { source: 'compact' }, 'compact');
+    busy = false;
+    progress(false);
+    line('Conversation compacted');
+    showPrompt();
   }
 
   /**

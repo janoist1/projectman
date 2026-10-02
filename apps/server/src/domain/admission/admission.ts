@@ -177,7 +177,7 @@ export class Admission {
         try {
           await start.run();
         } catch (err) {
-          if (!isDeferrable(err)) {
+          if (!isDeferrable(err, start.defers)) {
             this.deferred.drop(start.key);
             throw err;
           }
@@ -185,7 +185,9 @@ export class Admission {
             start,
             waiting: waitingOf(err, { member: start.waitsFor(), previous: since, at: isoNow(this.ctx) }),
           });
-          this.ctx.logger.info({ ...start.log.fields(), reason: err.code }, start.log.deferred);
+          // Capacity-freeing events retry often: it is said when the reason is new, not at every refusal that stays.
+          if (previous?.waiting.reason !== err.code)
+            this.ctx.logger.info({ ...start.log.fields(), reason: err.code }, start.log.deferred);
           return;
         }
         // The start happened, or it no longer applies.
@@ -239,6 +241,11 @@ export class Admission {
         this.ctx.logger.warn({ err, ...start.log.fields() }, start.log.retryFailed);
       }
     }
+  }
+
+  /** Whether this start waits in the deferred-start store now. */
+  isWaiting(start: AutomaticStart): boolean {
+    return this.deferred.list().some((entry) => entry.start === start);
   }
 
   /** A task move or closure drops the starts it made obsolete, even if the task later returns. */

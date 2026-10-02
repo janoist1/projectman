@@ -148,6 +148,7 @@ export class MemberService {
         provider: m.provider ?? DEFAULT_AGENT_PROVIDER,
         model: m.model,
         effort: m.effort,
+        ...(m.autoCompactWindowTokens ? { autoCompactWindowTokens: m.autoCompactWindowTokens } : {}),
         ...(m.cheapSubagent ? { cheapSubagent: m.cheapSubagent } : {}),
         ...permissionView(config, m),
         ...(m.onLeave ? { onLeave: true } : {}),
@@ -282,7 +283,7 @@ export class MemberService {
 
   /**
    * Changes a member (a configuration commit): the display name of anyone, the roles a human
-   * holds, and an AI member's specialty, provider, model, effort, cheap subagent, schedule and own instructions. An AI member's one role stays.
+   * holds, and an AI member's specialty, provider, model, effort, compaction window, cheap subagent, schedule and own instructions. An AI member's one role stays.
    */
   async update(
     projectKey: string,
@@ -305,6 +306,7 @@ export class MemberService {
           req.schedule !== undefined ||
           req.provider !== undefined ||
           req.effort !== undefined ||
+          req.autoCompactWindowTokens !== undefined ||
           req.cheapSubagent !== undefined ||
           req.onLeave !== undefined ||
           req.instructions !== undefined ||
@@ -313,7 +315,7 @@ export class MemberService {
         ) {
           throw invalid(
             'not_ai_member',
-            'specialty, provider, model, effort, cheap subagent, schedule, leave, instructions, permission mode and approver apply to AI members only',
+            'specialty, provider, model, effort, compaction window, cheap subagent, schedule, leave, instructions, permission mode and approver apply to AI members only',
           );
         }
         if (req.roles !== undefined) {
@@ -346,6 +348,12 @@ export class MemberService {
           if (req.effort === null) delete member.effort;
           else member.effort = req.effort;
           fields.push('effort');
+        }
+        // Kept for a Codex member too, where it has no effect.
+        if (req.autoCompactWindowTokens !== undefined) {
+          if (req.autoCompactWindowTokens === null) delete member.autoCompactWindowTokens;
+          else member.autoCompactWindowTokens = req.autoCompactWindowTokens;
+          fields.push('compaction window');
         }
         // Kept for a Codex member too, where it has no effect (`cheapSubagentOf`).
         if (req.cheapSubagent !== undefined) {

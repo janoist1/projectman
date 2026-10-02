@@ -64,6 +64,7 @@ function patchBody(section: Section, draft: ProjectConfig, baseVersion: string):
         ...draft.team.limits,
         maxConcurrentAi: draft.team.limits.maxConcurrentAi ?? null,
         warnAboveSessionTokens: draft.team.limits.warnAboveSessionTokens ?? null,
+        autoCompactWindowTokens: draft.team.limits.autoCompactWindowTokens ?? null,
       },
       ...(draft.team.boundary ? { boundary: draft.team.boundary } : {}),
     };

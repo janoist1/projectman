@@ -41,6 +41,11 @@ export function createTimelineRepository(db: Db) {
     ofTask: db.prepare(
       'SELECT * FROM timeline_events WHERE project_key = ? AND task_key = ? ORDER BY seq DESC LIMIT ?',
     ),
+    // What the card's rounds are counted from (PM-222), all of it: the card's whole history.
+    roundEvents: db.prepare(
+      `SELECT * FROM timeline_events WHERE project_key = ? AND task_key = ?
+         AND type IN ('task_stage_changed', 'task_labels_changed') ORDER BY seq`,
+    ),
     ofProject: db.prepare('SELECT * FROM timeline_events WHERE project_key = ? ORDER BY seq DESC LIMIT ?'),
     byId: db.prepare('SELECT * FROM timeline_events WHERE project_key = ? AND id = ?'),
     // Imported comments (a ClickUp import) are history, not conversation.
@@ -89,6 +94,10 @@ export function createTimelineRepository(db: Db) {
     talkSince(projectKey: string, taskKey: string, since: string, limit = 1000): TimelineEvent[] {
       const rows = statements.talkSince.all(projectKey, taskKey, since, limit) as TimelineRow[];
       return rows.reverse().map(toEvent);
+    },
+    /** Every stage change and label change of a card, oldest first (see `countCardRounds`). */
+    roundEvents(projectKey: string, taskKey: string): TimelineEvent[] {
+      return (statements.roundEvents.all(projectKey, taskKey) as TimelineRow[]).map(toEvent);
     },
     /** The most recent `limit` events, oldest first. */
     list(projectKey: string, opts: { taskKey?: string; limit?: number } = {}): TimelineEvent[] {

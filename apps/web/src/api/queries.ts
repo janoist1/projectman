@@ -540,6 +540,15 @@ export function useAcceptInvite(token: string) {
   });
 }
 
+/** The cards closed in the last `days` days with their rounds and tokens (PM-222). */
+export function useClosedCardsMeasure(key: string, days: number, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.closedCards(key, days),
+    queryFn: () => api.closedCardsMeasure(key, days),
+    enabled,
+  });
+}
+
 export function useMemberProfile(key: string, handle: string) {
   return useQuery({
     queryKey: queryKeys.profile(key, handle),

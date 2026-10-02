@@ -295,12 +295,10 @@ describe('the retry timer', () => {
     const info = vi.spyOn(h.log.logger, 'info');
     await tick();
     await tick();
-    // Two ticks: the capacity refusal was retried (and logged) each time, the other start not at all.
+    // Two ticks: the capacity refusal was retried each time, the other start not at all. The
+    // refusal was logged when it began (above the spy), not again while it stays the same.
     expect(handOff.mock.calls.map(([change]) => change.task.key)).toEqual(['BR-2', 'BR-2']);
-    expect(logged(info, 'stage hand-over deferred')).toEqual([
-      expect.objectContaining({ taskKey: 'BR-2', reason: 'member_at_capacity' }),
-      expect.objectContaining({ taskKey: 'BR-2', reason: 'member_at_capacity' }),
-    ]);
+    expect(logged(info, 'stage hand-over deferred')).toEqual([]);
     expect(h.domain.tasks.get('AR', off.key).startWaiting).toMatchObject({ reason: 'ai_disabled' });
     expect(stored(h)).toEqual(['hand-over:AR:AR-1', 'hand-over:BR:BR-2']);
     // Only the reviewer's session on the busy task runs.

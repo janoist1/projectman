@@ -23,7 +23,8 @@ type AttachmentParams = { Params: { key: string; taskKey: string; id: string } }
  * CSP of every attachment response: nothing loads, no script runs, the document is a unique
  * origin. A PDF is sandboxed too (the viewer needs no more than the file itself).
  */
-const CONTENT_SECURITY_POLICY = "default-src 'none'; sandbox";
+// Replaces the auth hook's header on these responses, so it repeats the frame-ancestors directive.
+const CONTENT_SECURITY_POLICY = "default-src 'none'; sandbox; frame-ancestors 'none'";
 
 const tooLarge = () =>
   new DomainError('attachment_too_large', `an attachment is at most ${MAX_ATTACHMENT_BYTES} bytes`, {

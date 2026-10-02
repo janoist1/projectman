@@ -76,6 +76,9 @@ export const routes = {
   removeHuman: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/remove`,
   teamMessages: (key: string) => `/api/projects/${key}/messages`,
 
+  /** GET (internal members; query `days`): the cards closed lately with their rounds and tokens (PM-222). */
+  closedCardsMeasure: (key: string) => `/api/projects/${key}/measure/closed-cards`,
+
   inbox: (key: string) => `/api/projects/${key}/inbox`,
   resolveInbox: (key: string, itemId: string) => `/api/projects/${key}/inbox/${itemId}/resolve`,
 

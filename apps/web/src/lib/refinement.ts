@@ -4,7 +4,6 @@ import {
   isRefining,
   isTheme,
   labelDefinition,
-  projectRefines,
   REFINE_LABEL,
   stageIndex,
 } from '@projectman/shared';
@@ -25,9 +24,4 @@ export function canStartRefinement(task: Task, config: RefinementConfig, me: str
   if (!work || stageIndex(config.pipeline, task.stageId) >= stageIndex(config.pipeline, work.id))
     return false;
   return viewerLabelRefusal(config, REFINE_LABEL, me, task) === null;
-}
-
-/** Whether the project works its cards out before development: a refused Start points at the button. */
-export function suggestsRefinement(config: Pick<ProjectConfig, 'pipeline'> | undefined): boolean {
-  return config !== undefined && projectRefines(config);
 }

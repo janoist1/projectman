@@ -29,7 +29,7 @@ import { isTaskClosed } from '../../lib/taskState';
 import { isApiError } from '../../api/client';
 import { useDocumentTitle } from '../../lib/hooks';
 import { nameOf } from '../../lib/members';
-import { canStartRefinement, suggestsRefinement } from '../../lib/refinement';
+import { canStartRefinement } from '../../lib/refinement';
 import { isDeveloperRole } from '../../lib/roles';
 import type { MemberIndex } from '../../lib/members';
 import { InboxCard } from '../inbox/InboxCard';
@@ -52,10 +52,20 @@ import styles from './TaskDrawer.module.css';
 import { TaskHeader } from './TaskHeader';
 import { ThemeCards, ThemeHeader, ThemeSummary } from './ThemeDrawer';
 
-function StartPanel({ task, members, tasks }: { task: Task; members: MemberIndex; tasks: readonly Task[] }) {
-  const { key, can } = useProject();
+function StartPanel({
+  task,
+  members,
+  tasks,
+  canRefine,
+}: {
+  task: Task;
+  members: MemberIndex;
+  tasks: readonly Task[];
+  /** Whether the "Kidolgozás" button is shown beside the panel: only then is it pointed at. */
+  canRefine: boolean;
+}) {
+  const { key } = useProject();
   const labels = useLabels(key);
-  const config = useConfig(key, can.createTasks).data?.config;
   const start = useStartTask(key);
   const toast = useToast();
   const [assignee, setAssignee] = useState('');
@@ -111,9 +121,7 @@ function StartPanel({ task, members, tasks }: { task: Task; members: MemberIndex
           unmetGateTexts(start.error.details, labels).length > 0
             ? ` ${t('errors.gateUnmet', { conditions: joinNames(unmetGateTexts(start.error.details, labels)) })}`
             : null}
-          {isGateBlocked(start.error) && suggestsRefinement(config)
-            ? ` ${t('task.refine.suggestion')}`
-            : null}
+          {isGateBlocked(start.error) && canRefine ? ` ${t('task.refine.suggestion')}` : null}
         </p>
       ) : null}
       <Button
@@ -263,7 +271,12 @@ export function TaskDrawer() {
           <div className={styles.actions} hidden={!hasActions}>
             {canRefine ? <RefineButton task={task} /> : null}
             {isQueued && can.createTasks ? (
-              <StartPanel task={task} members={members} tasks={board.data?.tasks ?? []} />
+              <StartPanel
+                task={task}
+                members={members}
+                tasks={board.data?.tasks ?? []}
+                canRefine={canRefine}
+              />
             ) : session && can.workInSessions ? (
               <>
                 <ButtonLink

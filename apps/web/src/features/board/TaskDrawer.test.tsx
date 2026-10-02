@@ -953,6 +953,36 @@ describe('the Kidolgozás button and the refused Start (decision 31)', () => {
     expect(project.backend.findTask('AC-24')!.assignee).toBeNull();
   });
 
+  it('points at no button that is not there: the card is already being refined', async () => {
+    const project = gatedProject(true);
+    project.backend.findTask('AC-24')!.labels = ['refine'];
+    project.render(drawer, '/p/AC/tasks/AC-24');
+    await configLoaded();
+
+    fireEvent.click(await screen.findByRole('button', { name: t('task.start') }));
+
+    const message = await screen.findByRole('alert');
+    expect(message.textContent).toContain(t('errors.codes.gate_blocked'));
+    expect(message.textContent).not.toContain(t('task.refine.suggestion'));
+    expect(screen.queryByRole('button', { name: t('task.refine.button') })).toBeNull();
+  });
+
+  it('points at no button that is not there: the viewer may not put the label on', async () => {
+    const project = gatedProject(true);
+    project.backend.config.pipeline.labels = project.backend.config.pipeline.labels.map((label) =>
+      label.id === 'refine' ? { ...label, setBy: 'system' as const } : label,
+    );
+    project.render(drawer, '/p/AC/tasks/AC-24');
+    await configLoaded();
+
+    fireEvent.click(await screen.findByRole('button', { name: t('task.start') }));
+
+    const message = await screen.findByRole('alert');
+    expect(message.textContent).toContain(t('errors.codes.gate_blocked'));
+    expect(message.textContent).not.toContain(t('task.refine.suggestion'));
+    expect(screen.queryByRole('button', { name: t('task.refine.button') })).toBeNull();
+  });
+
   it('adds no suggestion where the project has no refinement', async () => {
     const project = gatedProject(false);
     project.render(drawer, '/p/AC/tasks/AC-24');

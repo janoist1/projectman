@@ -52,6 +52,11 @@
 
 @media (max-width: 767px) {
   .composer {
-    padding: 8px 12px 10px;
+    /* The tab bar is hidden on this page, so the home indicator's inset is the composer's to keep. */
+    padding: 8px 12px calc(10px + env(safe-area-inset-bottom));
+  }
+  /* 16px keeps iOS from zooming the page in when the field gets the focus. */
+  .input {
+    font-size: 16px;
   }
 }

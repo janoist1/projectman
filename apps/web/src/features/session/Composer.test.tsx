@@ -5,9 +5,10 @@ import { Composer } from './Composer';
 
 afterEach(() => vi.restoreAllMocks());
 
-function phone() {
+/** A screen where the media queries accepted by `matching` apply. */
+function screenMatching(matching: (query: string) => boolean) {
   vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
-    matches: true,
+    matches: matching(query),
     media: query,
     onchange: null,
     addEventListener() {},
@@ -17,6 +18,8 @@ function phone() {
     dispatchEvent: () => false,
   }));
 }
+
+const phone = () => screenMatching(() => true);
 
 const input = () => screen.getByLabelText(t('session.composer.label')) as HTMLTextAreaElement;
 const sendButton = () => screen.getByRole('button', { name: t('common.send') }) as HTMLButtonElement;
@@ -55,5 +58,22 @@ describe('Composer', () => {
     fireEvent.click(sendButton());
     expect(onSend).toHaveBeenCalledWith('Mehet?');
     expect(input().value).toBe('');
+  });
+
+  it('lets the touch screen, not the width, decide about Enter', () => {
+    const onSend = vi.fn();
+    // A tablet: wide, but touched.
+    screenMatching((query) => query.includes('coarse'));
+    const { unmount } = render(<Composer onSend={onSend} />);
+    fireEvent.change(input(), { target: { value: 'Mehet?' } });
+    expect(fireEvent.keyDown(input(), { key: 'Enter' })).toBe(true);
+    expect(onSend).not.toHaveBeenCalled();
+    unmount();
+    // A narrow desktop window: a keyboard, so Enter sends.
+    screenMatching((query) => query.includes('max-width'));
+    render(<Composer onSend={onSend} />);
+    fireEvent.change(input(), { target: { value: 'Mehet?' } });
+    expect(fireEvent.keyDown(input(), { key: 'Enter' })).toBe(false);
+    expect(onSend).toHaveBeenCalledWith('Mehet?');
   });
 });

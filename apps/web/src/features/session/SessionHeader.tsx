@@ -88,12 +88,14 @@ export function SessionHeader({
       )}
     </MoreMenu>
   ) : null;
-  const memberTag = (
+  // A conversation's or meeting's title already names the member; a task's or a schedule's does not.
+  const showMember = task !== null || session.workItem.type === 'schedule';
+  const memberTag = showMember ? (
     <span className={styles.member}>
-      <Avatar member={member} handle={session.member} size="sm" />
+      <Avatar member={member} handle={session.member} size={isMobile ? 'xs' : 'sm'} />
       <span className={styles.memberName}>{memberName}</span>
     </span>
-  );
+  ) : null;
   const stageChip =
     task && pipeline && taskPhase ? (
       <span className={styles.stageChip}>
@@ -137,9 +139,11 @@ export function SessionHeader({
           </Link>
           <div className={styles.phoneTitle}>
             <h1 className={styles.phoneHeading}>{title}</h1>
-            {memberTag}
+            <div className={styles.phoneSub}>
+              {memberTag}
+              {liveStatus}
+            </div>
           </div>
-          {liveStatus}
           {stopMenu}
         </div>
       ) : (
@@ -165,14 +169,14 @@ export function SessionHeader({
           <h1 className={styles.title}>{title}</h1>
         </>
       )}
-      {isMobile && !hasChips ? null : (
+      {hasChips || (!isMobile && memberTag) ? (
         <div className={styles.chips}>
           {isMobile ? null : memberTag}
           {stageChip}
           {prBadge}
           {alertChip}
         </div>
-      )}
+      ) : null}
       <Dialog
         open={confirmStop}
         onClose={() => setConfirmStop(false)}

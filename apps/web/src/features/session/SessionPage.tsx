@@ -166,13 +166,13 @@ function SessionView({ detail }: { detail: SessionDetail }) {
   const member = members.get(session.member);
   const sidePanels = (
     <>
-      <SessionDetailsPanel session={session} member={member} />
       <PrPanel
         task={task}
         session={session}
         pullRequests={taskDetail.data?.pullRequests ?? []}
         labels={labels}
       />
+      <SessionDetailsPanel session={session} member={member} />
       <ParticipantsPanel participants={participants} members={members} myHandle={myHandle} />
       <UsagePanel session={session} provider={session.provider ?? member?.provider} />
     </>

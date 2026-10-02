@@ -141,7 +141,20 @@ describe('session header', () => {
     expect(screen.queryByRole('button', { name: t('session.stop') })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: t('common.moreActions') }));
     expect(screen.getByRole('button', { name: t('session.stop') })).toBeTruthy();
-    expect(title.textContent).not.toBe('');
+    // The member and the live status are the title's second line; the tab bar is gone.
+    const second = title.nextElementSibling as HTMLElement;
+    expect(within(second).getByText(project.backend.findMember('fe-1')!.displayName)).toBeTruthy();
+    expect(within(second).getByRole('status')).toBeTruthy();
+    expect(screen.queryByRole('navigation', { name: t('nav.main') })).toBeNull();
+  });
+
+  it('does not repeat the member where the title names it', async () => {
+    const project = mockProject();
+    const member = project.backend.findMember('communication')!;
+    project.render(sessionRoute, '/sessions/ses_gen_comm');
+    const title = await screen.findByRole('heading', { level: 1 });
+    expect(title.textContent).toContain(member.displayName);
+    expect(title.parentElement!.querySelector('[data-tone]')).toBeNull();
   });
 });
 

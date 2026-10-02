@@ -250,8 +250,6 @@ export const hu = {
     noDataSession: 'Nincs adat: ez a munkamenet a mérés bevezetése előtt futott.',
     none: 'Még nem használt tokent.',
     total: 'Összesen: {total} token',
-    chip: 'Token: {total}',
-    chipNoData: 'Token: nincs adat',
     main: 'saját',
     subagent: 'alügynök',
     input: 'Bemenet {count}',
@@ -1254,7 +1252,7 @@ export const hu = {
     back: 'Vissza',
     /** The "Részletek" panel: where and how the session runs. */
     details: {
-      title: 'A munkamenet',
+      title: 'Környezet',
       branch: 'Ág',
       cwd: 'Munkakönyvtár',
       provider: 'Szolgáltató',

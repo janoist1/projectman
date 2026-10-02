@@ -141,3 +141,48 @@
     overflow-y: visible;
   }
 }
+
+/* A file is dragged over the open card: the whole drawer is the target, and says whose it is. */
+.dropOverlay {
+  position: absolute;
+  inset: 8px;
+  z-index: 2;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 20px;
+  border: 2px dashed var(--c-accent);
+  border-radius: var(--radius-2xl);
+  background: color-mix(in srgb, var(--c-accent-soft) 94%, transparent);
+  color: var(--c-accent-text);
+  text-align: center;
+  /* The drag events belong to what lies under it: the overlay must never take them. */
+  pointer-events: none;
+  animation: drop-in 120ms ease-out;
+}
+
+.dropOverlay[data-state='denied'] {
+  border-color: var(--c-blocked);
+  background: color-mix(in srgb, var(--c-blocked-bg) 94%, transparent);
+  color: var(--c-blocked-text);
+}
+
+.dropOverlay b {
+  font-size: var(--text-xl);
+}
+
+.dropOverlay span {
+  max-width: 300px;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+  overflow-wrap: anywhere;
+}
+
+@keyframes drop-in {
+  from {
+    opacity: 0;
+  }
+}

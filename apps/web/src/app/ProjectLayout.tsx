@@ -4,6 +4,7 @@ import { Outlet, useMatch, useParams } from 'react-router';
 import { isApiError } from '../api/client';
 import { useBoard, useConfig, useInbox } from '../api/queries';
 import { useProjectSubscription } from '../api/socketHooks';
+import { AttachmentUploadsProvider } from '../features/board/attachmentUploads';
 import { NewTaskDialog } from '../features/board/NewTaskDialog';
 import { t } from '../i18n/t';
 import { useIsMobile, writeStorage } from '../lib/hooks';
@@ -75,33 +76,36 @@ export function ProjectLayout() {
 
   return (
     <ProjectContext.Provider value={value}>
-      <div className={clsx(styles.shell, fixedBoard && styles.boardShell)}>
-        <a href="#main" className={styles.skip}>
-          {t('app.skipToContent')}
-        </a>
-        {isMobile ? null : <NavRail inboxCount={inboxCount} />}
-        <div className={clsx(styles.column, isMobile && styles.withTabbar)}>
-          {isMobile ? (
-            <MobileHeader
-              board={board.data}
-              pauseAbove={config.data?.config.team.limits.pauseAbovePlanUsagePercent}
-            />
-          ) : (
-            <TopBar
-              board={board.data}
-              members={members}
-              inboxCount={inboxCount}
-              pauseAbove={config.data?.config.team.limits.pauseAbovePlanUsagePercent}
-            />
-          )}
-          <ConnectionBanner />
-          <main id="main" tabIndex={-1} className={clsx(styles.main, fixedBoard && styles.boardMain)}>
-            <Outlet />
-          </main>
+      {/* Above the board and the open card: a file dropped on a card goes on when the card is opened. */}
+      <AttachmentUploadsProvider key={projectKey}>
+        <div className={clsx(styles.shell, fixedBoard && styles.boardShell)}>
+          <a href="#main" className={styles.skip}>
+            {t('app.skipToContent')}
+          </a>
+          {isMobile ? null : <NavRail inboxCount={inboxCount} />}
+          <div className={clsx(styles.column, isMobile && styles.withTabbar)}>
+            {isMobile ? (
+              <MobileHeader
+                board={board.data}
+                pauseAbove={config.data?.config.team.limits.pauseAbovePlanUsagePercent}
+              />
+            ) : (
+              <TopBar
+                board={board.data}
+                members={members}
+                inboxCount={inboxCount}
+                pauseAbove={config.data?.config.team.limits.pauseAbovePlanUsagePercent}
+              />
+            )}
+            <ConnectionBanner />
+            <main id="main" tabIndex={-1} className={clsx(styles.main, fixedBoard && styles.boardMain)}>
+              <Outlet />
+            </main>
+          </div>
+          {isMobile ? <TabBar inboxCount={inboxCount} /> : null}
         </div>
-        {isMobile ? <TabBar inboxCount={inboxCount} /> : null}
-      </div>
-      <NewTaskDialog open={newTaskOpen} onClose={() => setNewTaskOpen(false)} />
+        <NewTaskDialog open={newTaskOpen} onClose={() => setNewTaskOpen(false)} />
+      </AttachmentUploadsProvider>
     </ProjectContext.Provider>
   );
 }

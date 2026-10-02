@@ -90,6 +90,12 @@ export const Task = z.object({
   parentKey: TaskKey.nullable().optional(),
   startWaiting: TaskStartWaiting.optional(),
   reviewPin: TaskReviewPin.optional(),
+  /**
+   * The attachment whose thumbnail is the card's cover (`coverAttachmentId` in `domain/attachment`):
+   * the task's first image. Null or absent when the task has no image. A plain string here, as
+   * `attachment.ts` imports this file.
+   */
+  coverAttachmentId: z.string().nullable().optional(),
   id: z.string(),
   projectKey: z.string(),
   key: TaskKey,

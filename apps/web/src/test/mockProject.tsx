@@ -2,6 +2,7 @@ import type { ReactElement } from 'react';
 import { setFetchImplementation } from '../api/client';
 import { ProjectContext } from '../app/contexts';
 import type { ProjectContextValue } from '../app/contexts';
+import { AttachmentUploadsProvider } from '../features/board/attachmentUploads';
 import { MockBackend } from '../mocks/backend';
 import { renderUi } from './render';
 
@@ -62,8 +63,11 @@ export function mockProject(backend = new MockBackend()) {
     requests,
     context,
     render: (ui: ReactElement, route = '/', overrides: Partial<ProjectContextValue> = {}) =>
-      renderUi(<ProjectContext.Provider value={{ ...context, ...overrides }}>{ui}</ProjectContext.Provider>, {
-        route,
-      }),
+      renderUi(
+        <ProjectContext.Provider value={{ ...context, ...overrides }}>
+          <AttachmentUploadsProvider>{ui}</AttachmentUploadsProvider>
+        </ProjectContext.Provider>,
+        { route },
+      ),
   };
 }

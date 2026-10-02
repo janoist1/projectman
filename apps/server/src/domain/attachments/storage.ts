@@ -5,10 +5,30 @@ import { join } from 'node:path';
 import { Writable } from 'node:stream';
 import type { Readable } from 'node:stream';
 import { AttachmentId, TaskKey } from '@projectman/shared';
-import type { AttachmentRef, AttachmentStorage, AttachmentWriter, StoredFile } from '../../contracts';
+import type {
+  AttachmentRef,
+  AttachmentStorage,
+  AttachmentThumbnail,
+  AttachmentWriter,
+  StoredFile,
+} from '../../contracts';
 
 /** Suffix of a file still being written; recovery removes every one it finds. */
 export const TEMPORARY_SUFFIX = '.part';
+
+/** Suffix of an attachment's thumbnail (`<id>.thumb`); it is written as `<id>.thumb.part` first. */
+export const THUMBNAIL_SUFFIX = '.thumb';
+
+/**
+ * The attachment id of the name of a thumbnail (`<id>.thumb`) or of its temporary file
+ * (`<id>.thumb.part`), or null when the name is neither.
+ */
+export function thumbnailOwner(name: string): string | null {
+  const stem = name.endsWith(TEMPORARY_SUFFIX) ? name.slice(0, -TEMPORARY_SUFFIX.length) : name;
+  if (!stem.endsWith(THUMBNAIL_SUFFIX)) return null;
+  const id = stem.slice(0, -THUMBNAIL_SUFFIX.length);
+  return AttachmentId.safeParse(id).success ? id : null;
+}
 
 /**
  * The extension of a published file's view (`<id>.<ext>`, a second name of the same file): the
@@ -116,10 +136,19 @@ export class FileAttachmentStorage implements AttachmentStorage {
     return dir;
   }
 
-  async create(ref: AttachmentRef): Promise<AttachmentWriter> {
+  create(ref: AttachmentRef): Promise<AttachmentWriter> {
+    return this.createFile(ref, ref.id);
+  }
+
+  createThumbnail(ref: AttachmentRef): Promise<AttachmentWriter> {
+    return this.createFile(ref, `${ref.id}${THUMBNAIL_SUFFIX}`);
+  }
+
+  /** A file under `name` in the task's directory, written as `name.part` and renamed into place. */
+  private async createFile(ref: AttachmentRef, name: string): Promise<AttachmentWriter> {
     const dir = await this.taskDir(ref, true);
-    const temporary = join(dir, `${ref.id}${TEMPORARY_SUFFIX}`);
-    const published = join(dir, ref.id);
+    const temporary = join(dir, `${name}${TEMPORARY_SUFFIX}`);
+    const published = join(dir, name);
     // O_EXCL: never an existing file, and never through a link.
     const handle = await open(temporary, 'wx', 0o600);
     // Flushed to disk when the stream ends, closed whenever it ends or fails.
@@ -159,6 +188,29 @@ export class FileAttachmentStorage implements AttachmentStorage {
   async openRead(ref: AttachmentRef, size: number): Promise<Readable> {
     const { handle } = await this.openChecked(ref, size);
     return handle.createReadStream();
+  }
+
+  async openThumbnail(ref: AttachmentRef): Promise<AttachmentThumbnail | null> {
+    const dir = await this.taskDir(ref, false).catch((err: unknown) => {
+      if (isMissing(err)) return null;
+      throw err;
+    });
+    if (dir === null) return null;
+    let handle: FileHandle;
+    try {
+      handle = await open(join(dir, `${ref.id}${THUMBNAIL_SUFFIX}`), constants.O_RDONLY | O_NOFOLLOW);
+    } catch (err) {
+      if (isMissing(err)) return null;
+      throw err;
+    }
+    try {
+      const stat = await handle.stat();
+      if (!stat.isFile()) throw new Error('attachment thumbnail is not a regular file');
+      return { stream: handle.createReadStream(), size: stat.size };
+    } catch (err) {
+      await handle.close().catch(() => undefined);
+      throw err;
+    }
   }
 
   async locate(ref: AttachmentRef, size: number, mediaType: string): Promise<string> {
@@ -217,6 +269,8 @@ export class FileAttachmentStorage implements AttachmentStorage {
     // The file first: a view made meanwhile is then removed below, and none can be made after.
     await unlinkIfThere(join(dir, ref.id));
     await unlinkIfThere(join(dir, `${ref.id}${TEMPORARY_SUFFIX}`));
+    await unlinkIfThere(join(dir, `${ref.id}${THUMBNAIL_SUFFIX}`));
+    await unlinkIfThere(join(dir, `${ref.id}${THUMBNAIL_SUFFIX}${TEMPORARY_SUFFIX}`));
     for (const suffix of VIEW_SUFFIXES) await unlinkIfThere(join(dir, `${ref.id}${suffix}`));
   }
 
@@ -229,6 +283,7 @@ export class FileAttachmentStorage implements AttachmentStorage {
       throw err;
     }
     await unlinkIfThere(join(dir, `${ref.id}${TEMPORARY_SUFFIX}`));
+    await unlinkIfThere(join(dir, `${ref.id}${THUMBNAIL_SUFFIX}${TEMPORARY_SUFFIX}`));
   }
 
   async scan(): Promise<StoredFile[]> {

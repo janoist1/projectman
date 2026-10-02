@@ -24,6 +24,7 @@
     "@xterm/headless": "^6.0.0",
     "better-sqlite3": "^13.0.3",
     "fastify": "^5.12.5",
+    "sharp": "^0.35.5",
     "yaml": "^2.9.1",
     "zod": "^4.6.5"
   },

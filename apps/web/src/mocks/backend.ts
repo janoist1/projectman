@@ -45,6 +45,7 @@ import {
   canUploadAttachment,
   commentMentions,
   configSchemaIssues,
+  coverAttachmentId,
   evaluateMove,
   expiredLabels,
   gateRequestOf,
@@ -408,7 +409,22 @@ export class MockBackend {
       mediaType,
     });
     this.emit({ type: 'task_attachments_changed', projectKey: fixtures.PROJECT_KEY, taskKey });
+    this.syncCover(taskKey);
     return attachment;
+  }
+
+  /**
+   * The card's cover follows the task's first image (the shared rule); a changed cover is pushed
+   * as the changed task, as the server does, and the task's update time stays.
+   */
+  private syncCover(taskKey: string): void {
+    const task = this.findTask(taskKey);
+    if (!task) return;
+    const cover = coverAttachmentId(this.attachments.filter((entry) => entry.taskKey === taskKey));
+    if ((task.coverAttachmentId ?? null) === cover) return;
+    if (cover) task.coverAttachmentId = cover;
+    else delete task.coverAttachmentId;
+    this.emit({ type: 'task_upserted', projectKey: task.projectKey, task: clone(task) });
   }
 
   /** Removes a file, as the viewer: the timeline keeps the name. */
@@ -427,6 +443,7 @@ export class MockBackend {
       projectKey: fixtures.PROJECT_KEY,
       taskKey: attachment.taskKey,
     });
+    this.syncCover(attachment.taskKey);
   }
 
   /** A session that has not exited or failed. */

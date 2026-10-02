@@ -58,6 +58,8 @@ function faultyStorage(faults: Faults) {
       };
     },
     openRead: (ref, size) => (faults.openRead ? Promise.reject(faults.openRead) : inner.openRead(ref, size)),
+    createThumbnail: (ref) => inner.createThumbnail(ref),
+    openThumbnail: (ref) => inner.openThumbnail(ref),
     locate: (ref, size, mediaType) =>
       faults.openRead ? Promise.reject(faults.openRead) : inner.locate(ref, size, mediaType),
     taskDirectory: (projectKey, taskKey) => inner.taskDirectory(projectKey, taskKey),

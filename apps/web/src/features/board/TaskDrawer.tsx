@@ -25,6 +25,8 @@ import type { MemberIndex } from '../../lib/members';
 import { InboxCard } from '../inbox/InboxCard';
 import { nextStepText, primarySession } from './taskModel';
 import { useBoardModel } from './useBoardModel';
+import { useCanAttach, useUploadQueue } from './attachmentUploads';
+import { useFileDrop } from './useFileDrop';
 import { TaskAttachments } from './TaskAttachments';
 import { TaskCommentComposer } from './TaskCommentComposer';
 import { TaskDescription } from './TaskEdit';
@@ -109,6 +111,14 @@ export function TaskDrawer() {
   const boardTask = board.data?.tasks.find((task) => task.key === taskKey);
   const task = detail.data?.task ?? boardTask;
   const entry = model?.byKey.get(taskKey);
+  // The whole open card takes files: they join the same queue as the files chosen in its list.
+  const uploads = useUploadQueue();
+  const canAttach = useCanAttach();
+  const fileDrop = useFileDrop({
+    allowed: task ? canAttach(task) : false,
+    onFiles: (files) => task && uploads.add(task.key, files),
+    isolate: true,
+  });
   useDocumentTitle(task ? `${task.key} ${task.title}` : taskKey, board.data?.project.name);
 
   useEffect(() => {
@@ -273,8 +283,15 @@ export function TaskDrawer() {
   })();
 
   return (
-    <aside className={styles.drawer} aria-label={t('task.drawerLabel')}>
+    <aside className={styles.drawer} aria-label={t('task.drawerLabel')} {...fileDrop.props}>
       {body}
+      {fileDrop.state && task ? (
+        <div className={styles.dropOverlay} data-state={fileDrop.state} role="status">
+          <Icon name="paperclip" size={28} />
+          <b>{t(fileDrop.state === 'over' ? 'attachments.dropActive' : 'attachments.dropDenied')}</b>
+          <span>{task.title}</span>
+        </div>
+      ) : null}
     </aside>
   );
 }

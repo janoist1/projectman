@@ -169,12 +169,12 @@ export function useAttachments(key: string, taskKey: string, enabled = true) {
 }
 
 /** One file per call; calls may run side by side. The new file joins the cached list at once. */
-export function useUploadAttachment(key: string, taskKey: string) {
+export function useUploadAttachment(key: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ file, signal }: { file: File; signal?: AbortSignal }) =>
+    mutationFn: ({ taskKey, file, signal }: { taskKey: string; file: File; signal?: AbortSignal }) =>
       api.uploadAttachment(key, taskKey, file, signal),
-    onSuccess: ({ attachment }) => {
+    onSuccess: ({ attachment }, { taskKey }) => {
       client.setQueryData<AttachmentListResponse>(queryKeys.attachments(key, taskKey), (list) =>
         list ? { attachments: upsertBy(list.attachments, attachment, (entry) => entry.id) } : list,
       );

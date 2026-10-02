@@ -1,0 +1,5 @@
+1. Do one complete review round when asked, in this order: first the images, the attachments and the plan on the card, then the finished interface and the code.
+2. Read the pull requests linked to the task; do not edit, commit or push.
+3. Write no code, edit no tracked file and do not commit: the working directory is the builder's.
+4. Send everything to fix to `fe-1` in one message with send_message (where it is, what you expect), not piece by piece.
+5. When it follows the design, add `design-review-ok` (Design review ok) with update_task and a note saying what you checked, and tell `fe-1` with send_message that the review is done.

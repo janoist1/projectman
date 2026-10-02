@@ -1,10 +1,10 @@
-import type { MemberView, Stage, Task } from '@projectman/shared';
+import type { MemberView, Stage, Task, WorkDoing } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
 import { t } from '../i18n/t';
 import { buildConfig, tasks } from '../mocks/fixtures';
 import { mockIndexes } from '../test/render';
 import { cardsLine, workingCardKeys } from './members';
-import { deriveTaskState, groupOpenInboxByTask } from './taskState';
+import { cardWorkerRows, deriveTaskState, groupOpenInboxByTask } from './taskState';
 import type { TaskStateContext } from './taskState';
 
 const COMMAND = 'Bash: npm test';
@@ -18,16 +18,17 @@ const card = (key: string): Task => {
 };
 
 /** AC-20 sits in Fejlesztés (a work stage, assignee be-1); AC-21 in QA (a step stage). */
-const work = (handle: string, taskKey: string, since: string) => ({
+const work = (handle: string, taskKey: string, since: string, doing?: WorkDoing) => ({
   sessionId: `ses_${handle}`,
   taskKey,
   activity: COMMAND,
   since,
+  ...(doing ? { doing } : {}),
 });
 
 /** The fixture team with exactly these members working on the card; nobody else works. */
 function contextWith(
-  workers: { handle: string; taskKey: string; since: string; role?: string }[],
+  workers: { handle: string; taskKey: string; since: string; role?: string; doing?: WorkDoing }[],
   stageOwners: Record<string, string[]> = {},
 ): TaskStateContext {
   const members = new Map<string, MemberView>(
@@ -38,7 +39,7 @@ function contextWith(
         {
           ...member,
           ...(found?.role ? { role: found.role, roles: [found.role] } : {}),
-          taskWork: found ? [work(handle, found.taskKey, found.since)] : [],
+          taskWork: found ? [work(handle, found.taskKey, found.since, found.doing)] : [],
         },
       ];
     }),
@@ -195,6 +196,78 @@ describe('who works on a card (PM-237)', () => {
     const ctx = contextWith([]);
     expect(deriveTaskState(card('AC-20'), ctx).workers).toEqual([]);
     expect(deriveTaskState(card('AC-16'), ctx).workers).toEqual([]);
+  });
+});
+
+describe('what a worker says they do (PM-239)', () => {
+  const early = '2026-10-01T10:00:00.000Z';
+  const mid = '2026-10-01T10:05:00.000Z';
+  const late = '2026-10-01T10:10:00.000Z';
+  const gateway = { summary: 'A hálózati kapu tesztjei készülnek', detail: 'A hibaágak jönnek utoljára.' };
+  const diff = { summary: 'A diff átnézése folyik' };
+
+  it('takes the sentence over from the work and reads "{name}: {summary}"', () => {
+    const ctx = contextWith([{ handle: 'be-1', taskKey: 'AC-20', since: early, doing: gateway }]);
+    const [worker] = deriveTaskState(card('AC-20'), ctx).workers;
+    expect(worker).toMatchObject({ doing: gateway, line: `${name(ctx, 'be-1')}: ${gateway.summary}` });
+    // The capacity sentence stays for a card with no sentence on it.
+    expect(worker!.sentence).toBe(sentence('working', name(ctx, 'be-1')));
+  });
+
+  it('falls back to the capacity sentence when the member gave none', () => {
+    const ctx = contextWith([{ handle: 'be-1', taskKey: 'AC-20', since: early }]);
+    const state = deriveTaskState(card('AC-20'), ctx);
+    expect(state.workers[0]).toMatchObject({ doing: null, line: sentence('working', name(ctx, 'be-1')) });
+    expect(cardWorkerRows(state)).toBeNull();
+  });
+
+  it('keeps the label of the card as it was: the sentence is the member’s, the label says who works', () => {
+    const ctx = contextWith([{ handle: 'be-1', taskKey: 'AC-20', since: early, doing: gateway }]);
+    expect(deriveTaskState(card('AC-20'), ctx).label).toBe(sentence('working', name(ctx, 'be-1')));
+  });
+
+  describe('the rows of the card', () => {
+    it('is empty while nobody has a sentence, with one worker or several', () => {
+      const one = contextWith([{ handle: 'be-1', taskKey: 'AC-20', since: early }]);
+      expect(cardWorkerRows(deriveTaskState(card('AC-20'), one))).toBeNull();
+      const two = contextWith([
+        { handle: 'be-1', taskKey: 'AC-20', since: early },
+        { handle: 'fe-1', taskKey: 'AC-20', since: mid },
+      ]);
+      expect(cardWorkerRows(deriveTaskState(card('AC-20'), two))).toBeNull();
+    });
+
+    it('is the one worker who has a sentence', () => {
+      const ctx = contextWith([{ handle: 'be-1', taskKey: 'AC-20', since: early, doing: gateway }]);
+      const rows = cardWorkerRows(deriveTaskState(card('AC-20'), ctx))!;
+      expect(rows.rows.map((row) => row.member.handle)).toEqual(['be-1']);
+      expect(rows.more).toBe(0);
+    });
+
+    it('gives each of two workers a row, in the order of the card, one of them without a sentence', () => {
+      const ctx = contextWith([
+        { handle: 'fe-1', taskKey: 'AC-20', since: early, doing: diff },
+        { handle: 'be-1', taskKey: 'AC-20', since: late },
+      ]);
+      const rows = cardWorkerRows(deriveTaskState(card('AC-20'), ctx))!;
+      // The assignee of AC-20 comes first, whoever began first.
+      expect(rows.rows.map((row) => [row.member.handle, row.doing])).toEqual([
+        ['be-1', null],
+        ['fe-1', diff],
+      ]);
+      expect(rows.more).toBe(0);
+    });
+
+    it('shows two rows and counts the rest from three workers on', () => {
+      const ctx = contextWith([
+        { handle: 'be-1', taskKey: 'AC-20', since: early, doing: gateway },
+        { handle: 'fe-1', taskKey: 'AC-20', since: mid },
+        { handle: 'dev-1', taskKey: 'AC-20', since: late, doing: diff },
+      ]);
+      const rows = cardWorkerRows(deriveTaskState(card('AC-20'), ctx))!;
+      expect(rows.rows.map((row) => row.member.handle)).toEqual(['be-1', 'fe-1']);
+      expect(rows.more).toBe(1);
+    });
   });
 });
 

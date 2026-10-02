@@ -91,6 +91,22 @@ describe('ownerOnlyChanges', () => {
       ['admin_or_account'],
     ],
     ['who may approve a merge', (c) => void (c.pipeline.labels[0]!.setBy = 'humans'), ['approval_policy']],
+    [
+      'narrowing an approval to the cards with a label',
+      (c) =>
+        void (c.pipeline.stages[1]!.gate!.conditions[0] = {
+          type: 'has_label',
+          label: 'merge-ok',
+          when: 'tag',
+        }),
+      ['approval_policy'],
+    ],
+    [
+      'binding a condition on a label nobody has to approve',
+      (c) =>
+        void c.pipeline.stages[1]!.gate!.conditions.push({ type: 'lacks_label', label: 'tag', when: 'tag' }),
+      [],
+    ],
     ['removing an approval gate', (c) => void delete c.pipeline.stages[1]!.gate, ['approval_policy']],
     ['release four eyes', (c) => void (c.team.releaseFourEyes = true), ['approval_policy']],
     [

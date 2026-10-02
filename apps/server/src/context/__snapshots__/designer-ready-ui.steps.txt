@@ -1,0 +1,7 @@
+1. Read the task with get_task, then the images and attachments its description names and the project's design guidelines, if it has any.
+2. Write a short plan into the description with update_task, under its own heading and keeping the rest as it is: what changes and how, the states (empty, loading, error, first use) and the texts.
+3. For a larger screen make a clickable plan under `.demo/` in your working directory (it is git-ignored) and attach it to the task with attach_file.
+4. Ask `owner` with ask_human whatever is still open.
+5. When the plan is done and the answers are in, add `design-ok` (Design plan ready) with update_task: the gate in front of the task asks for it, and only you may set it.
+6. Do not move the task, do not commit and do not edit a tracked file: the card is not yours to build, and the developer starts after the plan.
+7. Tell `owner` with send_message that the task is ready to be prioritised; leave it in Ready (`ready`).

@@ -31,8 +31,8 @@
 .command > .clamped {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
+  -webkit-line-clamp: var(--command-lines, 4);
+  line-clamp: var(--command-lines, 4);
   overflow: hidden;
 }
 

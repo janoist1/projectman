@@ -45,12 +45,90 @@ describe('inbox history', () => {
     );
     project.render(<InboxPage />, '/p/AC/inbox');
     const history = await screen.findByRole('complementary');
-    const [byRule, byNote] = await within(history).findAllByRole('listitem');
+    const rowOf = async (command: string) =>
+      (await within(history).findByText(command, { selector: 'code' })).closest('li')!;
+    const byRule = await rowOf('npm publish');
+    const byNote = await rowOf('git push');
     expect(byRule!.textContent).toContain(t('inbox.resolutions.automatic_deny'));
     expect(byRule!.textContent).toContain(t('inbox.resolutionRules.command_policy'));
     expect(byRule!.textContent).not.toContain(t('common.system'));
     expect(within(byNote!).getByText('Fictional note from before rules')).toBeTruthy();
     expect(byNote!.textContent).toContain(t('common.system'));
+  });
+
+  it('shows who asked and for which task in one line, the whole command behind a one-line fold (PM-231)', async () => {
+    const project = mockProject();
+    const command = "cat <<'EOF' > notes.md\nline two\nline three\nEOF";
+    project.backend.inbox.push({
+      ...automaticDecision('inb_human', command, { note: null }, 3),
+      taskKey: 'AC-141',
+      resolution: { optionId: 'allow', by: 'owner', at: new Date().toISOString(), note: null },
+    });
+    project.render(<InboxPage />, '/p/AC/inbox');
+    const history = await screen.findByRole('complementary');
+    const row = (await within(history).findByText(/AC-141/)).closest('li')!;
+    const line = within(row).getByText(/AC-141/);
+    const requester = project.backend.members.find((member) => member.handle === 'fe-1')!.displayName;
+    expect(line.textContent).toBe(`${t('inbox.resolutions.allow')} · ${requester} · AC-141`);
+    const code = row.querySelector('code')!;
+    expect(code.textContent).toBe(command);
+    expect(code.style.getPropertyValue('--command-lines')).toBe('1');
+  });
+
+  it('folds what the system decided by a rule into one counted row, out of the way of real decisions (PM-231)', async () => {
+    const project = mockProject();
+    project.backend.inbox.push(
+      automaticDecision('inb_auto_1', 'npm run build', { note: null, rule: 'command_policy' }, 1),
+      automaticDecision('inb_auto_2', 'ls -la', { note: null, rule: 'command_policy' }, 2),
+      automaticDecision('inb_auto_3', 'git status', { note: null, rule: 'command_policy' }, 3),
+      {
+        ...automaticDecision('inb_human', 'git push', { note: null }, 90),
+        resolution: { optionId: 'allow', by: 'owner', at: new Date().toISOString(), note: null },
+      },
+    );
+    project.render(<InboxPage />, '/p/AC/inbox');
+    const history = await screen.findByRole('complementary');
+    const fold = history.querySelector('details')!;
+    expect(fold.open).toBe(false);
+    expect(within(fold).getByText(t('inbox.automaticDecisions', { count: 3 }))).toBeTruthy();
+    expect(within(fold).getAllByRole('listitem')).toHaveLength(3);
+    // The real decision is listed outside the fold, the automatic ones are not.
+    const outside = within(history)
+      .getAllByRole('listitem')
+      .filter((item) => !fold.contains(item));
+    expect(outside.some((item) => item.textContent?.includes('git push'))).toBe(true);
+    for (const item of outside)
+      expect(item.textContent).not.toContain(t('inbox.resolutionRules.command_policy'));
+  });
+
+  it('has no folded row when the system decided nothing', async () => {
+    const project = mockProject();
+    project.backend.inbox.push({
+      ...automaticDecision('inb_human', 'git push', { note: null }, 5),
+      resolution: { optionId: 'allow', by: 'owner', at: new Date().toISOString(), note: null },
+    });
+    project.render(<InboxPage />, '/p/AC/inbox');
+    const history = await screen.findByRole('complementary');
+    expect(history.querySelector('details')).toBeNull();
+  });
+});
+
+describe('the filter row (PM-231)', () => {
+  it('shows the filter row only while something waits', async () => {
+    const project = mockProject();
+    project.render(<InboxPage />, '/p/AC/inbox');
+    await screen.findByRole('heading', {
+      name: t('inbox.permissionHeading', { tool: t('session.tools.git') }),
+    });
+    expect(screen.getByRole('group', { name: t('inbox.filtersLabel') })).toBeTruthy();
+  });
+
+  it('leaves out the five empty buttons when nothing is open', async () => {
+    const project = mockProject();
+    project.backend.inbox = project.backend.inbox.filter((item) => item.state !== 'open');
+    project.render(<InboxPage />, '/p/AC/inbox');
+    await screen.findByText(t('inbox.allDoneEverywhere'));
+    expect(screen.queryByText(t('inbox.filters.all'))).toBeNull();
   });
 });
 

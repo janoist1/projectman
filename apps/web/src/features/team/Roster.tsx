@@ -102,19 +102,13 @@ function MemberTasks({ member, titles }: { member: MemberView; titles: RosterPro
 
 /**
  * Whose subscription runs an AI member, shown only where it tells something: nothing while every AI
- * member runs on the same one (the page subtitle says so), else the members that differ from the
- * most common one (all of them when no one subscription leads).
+ * member runs on the same one (the page subtitle says whose), else next to every AI member.
  */
 function useSponsorNote(members: readonly MemberView[]) {
   const { key, myHandle } = useProject();
   const { members: all } = useProjectIndexes(key);
-  const counts = new Map<string, number>();
-  for (const member of members)
-    if (member.kind === 'ai') counts.set(member.sponsor ?? '', (counts.get(member.sponsor ?? '') ?? 0) + 1);
-  const top = Math.max(0, ...counts.values());
-  const leaders = [...counts].filter(([, count]) => count === top);
-  const mixed = counts.size > 1;
-  const usual = leaders.length === 1 ? leaders[0]![0] : null;
+  const mixed =
+    new Set(members.filter((member) => member.kind === 'ai').map((member) => member.sponsor ?? '')).size > 1;
   const text = (member: MemberView) => {
     if (member.kind === 'human')
       return t(member.status === 'no_account' ? 'memberStatus.no_account' : 'team.ownAccount');
@@ -127,11 +121,8 @@ function useSponsorNote(members: readonly MemberView[]) {
     /** Whether the subscription column of the table is worth its room. */
     mixed,
     text,
-    /** The line on a card: only an AI member with an unusual subscription has one. */
-    note: (member: MemberView) =>
-      member.kind === 'ai' && mixed && (usual === null || (member.sponsor ?? '') !== usual)
-        ? text(member)
-        : null,
+    /** The line on a card: every AI member has one while the subscriptions are mixed. */
+    note: (member: MemberView) => (member.kind === 'ai' && mixed ? text(member) : null),
   };
 }
 

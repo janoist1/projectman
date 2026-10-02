@@ -228,7 +228,7 @@ describe('TeamPage role catalogue', () => {
     },
   );
 
-  it('marks the one member whose subscription differs from the others on a card', async () => {
+  it('names the subscription next to every AI member on a card while they are mixed', async () => {
     phone(true);
     const project = mockProject();
     project.backend.findMember('qa')!.sponsor = 'kata';
@@ -238,8 +238,37 @@ describe('TeamPage role catalogue', () => {
       await roster.findByRole('link', { name: project.backend.findMember('qa')!.displayName })
     ).closest('li')!;
     expect(within(qa).getByText(t('team.sponsorOther', { name: 'Kata' }))).toBeTruthy();
-    expect(roster.queryAllByText(t('team.sponsorYou'))).toHaveLength(0);
-    expect(roster.getAllByText(/előfizetése$/)).toHaveLength(1);
+    const aiCount = project.backend.members.filter((member) => member.kind === 'ai').length;
+    expect(roster.getAllByText(/előfizetés/)).toHaveLength(aiCount);
+    expect(screen.getByText(new RegExp(t('team.subscriptionMixed')))).toBeTruthy();
+  });
+
+  it('says in the subtitle whose subscription runs the AI members when it is not the viewer', async () => {
+    const project = mockProject();
+    for (const member of project.backend.members) if (member.kind === 'ai') member.sponsor = 'kata';
+    project.render(<TeamPage />);
+    const roster = within(await screen.findByRole('region', { name: t('team.roster') }));
+    await roster.findByRole('link', { name: project.backend.findMember('qa')!.displayName });
+    expect(screen.getByText(new RegExp(t('team.subscriptionOther', { name: 'Kata' })))).toBeTruthy();
+    expect(roster.queryByText(t('team.columns.subscription'))).toBeNull();
+  });
+
+  it('starts the add-colleague dialog in the direct mode each time it opens', async () => {
+    const project = mockProject();
+    project.render(<TeamPage />);
+    const page = within(await screen.findByRole('banner'));
+    fireEvent.click(page.getByRole('button', { name: t('addHuman.title') }));
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: t('addHuman.modeInvite') }),
+    );
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: t('common.close') }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    fireEvent.click(page.getByRole('button', { name: t('addHuman.title') }));
+    expect(
+      within(screen.getByRole('dialog'))
+        .getByRole('button', { name: t('addHuman.modeDirect') })
+        .getAttribute('aria-pressed'),
+    ).toBe('true');
   });
 
   it('opens the profile from anywhere on a card, with the controls above the link', async () => {

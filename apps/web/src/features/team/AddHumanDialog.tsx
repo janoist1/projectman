@@ -18,22 +18,29 @@ type AddMode = 'direct' | 'invite';
 
 /** "Kolléga hozzáadása": a member without an account, or an invitation link for one. */
 export function AddHumanDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [mode, setMode] = useState<AddMode>('direct');
   return (
     <Dialog open={open} onClose={onClose} title={t('addHuman.title')}>
-      <div className={styles.form}>
-        <SegmentedControl<AddMode>
-          label={t('addHuman.modeLabel')}
-          value={mode}
-          onChange={setMode}
-          options={[
-            { value: 'direct', label: t('addHuman.modeDirect') },
-            { value: 'invite', label: t('addHuman.modeInvite') },
-          ]}
-        />
-        {mode === 'direct' ? <AddHumanForm onDone={onClose} /> : <InviteForm />}
-      </div>
+      <AddHumanBody onClose={onClose} />
     </Dialog>
+  );
+}
+
+/** Mounted only while the dialog is open, so the chosen mode starts over each time. */
+function AddHumanBody({ onClose }: { onClose: () => void }) {
+  const [mode, setMode] = useState<AddMode>('direct');
+  return (
+    <div className={styles.form}>
+      <SegmentedControl<AddMode>
+        label={t('addHuman.modeLabel')}
+        value={mode}
+        onChange={setMode}
+        options={[
+          { value: 'direct', label: t('addHuman.modeDirect') },
+          { value: 'invite', label: t('addHuman.modeInvite') },
+        ]}
+      />
+      {mode === 'direct' ? <AddHumanForm onDone={onClose} /> : <InviteForm />}
+    </div>
   );
 }
 

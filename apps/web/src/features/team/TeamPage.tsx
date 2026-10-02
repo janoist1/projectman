@@ -10,7 +10,7 @@ import { SegmentedControl } from '../../components/SegmentedControl';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
-import { memberStatusView } from '../../lib/members';
+import { memberStatusView, nameOf } from '../../lib/members';
 import { MessageList } from '../messages/MessageList';
 import { ClosedCardsComparison } from './ClosedCardsComparison';
 import { MemberMenu } from './MemberMenu';
@@ -93,7 +93,17 @@ export function TeamPage() {
   // Members whose approver is the AI while no AI member can decide for them any more.
   const lostDecider = ai.filter((member) => member.approver === 'ai' && member.aiApproverBlocker);
   const sponsors = new Set(ai.map((member) => member.sponsor));
-  const allMine = sponsors.size === 1 && myHandle !== null && sponsors.has(myHandle);
+  const onlySponsor = sponsors.size === 1 ? ([...sponsors][0] ?? null) : null;
+  const subscriptionNote =
+    ai.length === 0
+      ? null
+      : sponsors.size > 1
+        ? t('team.subscriptionMixed')
+        : onlySponsor === null
+          ? null
+          : onlySponsor === myHandle
+            ? t('team.subscriptionYours')
+            : t('team.subscriptionOther', { name: nameOf(onlySponsor, indexes.members, myHandle) });
 
   const memberActions = (member: MemberView) =>
     can.manageTeam ? (
@@ -118,9 +128,7 @@ export function TeamPage() {
         subtitle={
           <>
             {t('team.subtitle', { humans: humans.length, ai: ai.length, tasks: activeTaskKeys.size })}
-            {ai.length > 0
-              ? ` · ${allMine ? t('team.subscriptionYours') : t('team.subscriptionMixed')}`
-              : null}
+            {subscriptionNote ? ` · ${subscriptionNote}` : null}
           </>
         }
       >

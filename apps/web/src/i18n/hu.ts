@@ -1460,6 +1460,7 @@ export const hu = {
     title: 'Csapat',
     subtitle: '{humans} ember és {ai} AI-tag, {tasks} feladaton',
     subscriptionYours: 'az AI-tagok a te előfizetéseiden futnak (Claude, ChatGPT)',
+    subscriptionOther: 'az AI-tagok {name} előfizetésén futnak',
     subscriptionMixed: 'minden AI-tag mellett ott van, kinek az előfizetésén fut',
     hire: 'AI-tag felvétele',
     aiDisabled: 'Az AI-munka ki van kapcsolva ebben a projektben.',

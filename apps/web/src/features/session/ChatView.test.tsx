@@ -224,6 +224,24 @@ describe('ChatView', () => {
     );
     expect(screen.getByText('Mehet a push?')).toBeTruthy();
     expect(screen.getByText(t('session.composer.pending'))).toBeTruthy();
+    expect(screen.queryByRole('button', { name: t('session.composer.retry') })).toBeNull();
+  });
+
+  it('offers to send a message that did not go out again', () => {
+    const onRetry = vi.fn();
+    render(
+      <ChatView
+        items={[]}
+        sessionMember="fe-1"
+        members={members}
+        myHandle="owner"
+        pending={[{ id: 'p1', text: 'Mehet a push?', failed: true }]}
+        onRetry={onRetry}
+      />,
+    );
+    expect(screen.getByText(t('session.composer.failed'))).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: t('session.composer.retry') }));
+    expect(onRetry).toHaveBeenCalledWith('p1');
   });
 });
 

@@ -14,6 +14,14 @@ const sessionRoute = (
   </Routes>
 );
 const SESSION = 'ses_ac21_fe1';
+/** The session page with its details tab open, where the permission settings are. */
+const openSession = async (
+  project: ReturnType<typeof mockProject>,
+  options?: Parameters<ReturnType<typeof mockProject>['render']>[2],
+) => {
+  project.render(sessionRoute, `/sessions/${SESSION}`, options);
+  fireEvent.click(await screen.findByRole('tab', { name: t('session.tabs.details') }));
+};
 const modeSelect = () => screen.getByLabelText(t('session.permissions.mode')) as HTMLSelectElement;
 const approverSelect = () => screen.getByLabelText(t('session.permissions.approver')) as HTMLSelectElement;
 const patches = (project: ReturnType<typeof mockProject>) =>
@@ -23,10 +31,10 @@ const memberMode = (project: ReturnType<typeof mockProject>) => {
   return member?.kind === 'ai' ? member.permissionMode : undefined;
 };
 
-describe('the permission settings in the session header (PM-170)', () => {
+describe('the permission settings in the session details (PM-170)', () => {
   it('gives an owner both selectors with the member’s values, naming them in the list', async () => {
     const project = mockProject();
-    project.render(sessionRoute, `/sessions/${SESSION}`);
+    await openSession(project);
     await screen.findByLabelText(t('session.permissions.mode'));
     expect(modeSelect().value).toBe('acceptEdits');
     expect(approverSelect().value).toBe('human');
@@ -40,7 +48,7 @@ describe('the permission settings in the session header (PM-170)', () => {
 
   it('sets the mode for this session only; it applies from the next turn of a busy session', async () => {
     const project = mockProject();
-    project.render(sessionRoute, `/sessions/${SESSION}`);
+    await openSession(project);
     await screen.findByLabelText(t('session.permissions.mode'));
     fireEvent.change(modeSelect(), { target: { value: 'plan' } });
     await waitFor(() => expect(patches(project)).toHaveLength(1));
@@ -53,7 +61,7 @@ describe('the permission settings in the session header (PM-170)', () => {
 
   it('sets who answers at once, and goes back to the member’s settings', async () => {
     const project = mockProject();
-    project.render(sessionRoute, `/sessions/${SESSION}`);
+    await openSession(project);
     await screen.findByLabelText(t('session.permissions.approver'));
     fireEvent.change(approverSelect(), { target: { value: 'none' } });
     await waitFor(() => expect(approverSelect().value).toBe('none'));
@@ -68,7 +76,7 @@ describe('the permission settings in the session header (PM-170)', () => {
 
   it('goes back to the member’s setting when its own value is picked, instead of copying it', async () => {
     const project = mockProject();
-    project.render(sessionRoute, `/sessions/${SESSION}`);
+    await openSession(project);
     await screen.findByLabelText(t('session.permissions.mode'));
     fireEvent.change(modeSelect(), { target: { value: 'plan' } });
     await waitFor(() => expect(modeSelect().value).toBe('plan'));
@@ -81,7 +89,7 @@ describe('the permission settings in the session header (PM-170)', () => {
 
   it('keeps the AI approver disabled, with the reason, while it cannot be chosen', async () => {
     const project = mockProject();
-    project.render(sessionRoute, `/sessions/${SESSION}`);
+    await openSession(project);
     await screen.findByLabelText(t('session.permissions.approver'));
     const ai = [...approverSelect().options].find((o) => o.value === 'ai')!;
     expect(ai.disabled).toBe(true);
@@ -94,7 +102,7 @@ describe('the permission settings in the session header (PM-170)', () => {
       permissionModeOverride: 'plan',
       permissionGrantsLost: true,
     });
-    project.render(sessionRoute, `/sessions/${SESSION}`, { isOwner: false });
+    await openSession(project, { isOwner: false });
     const own = t('session.chips.sessionOwn');
     expect(
       await screen.findByText(

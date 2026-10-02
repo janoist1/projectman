@@ -51,5 +51,10 @@ export function usePendingEchoes(chat: readonly ChatItem[]) {
       setPending((list) =>
         list.map((message) => (message.id === id ? { ...message, failed: true } : message)),
       ),
+    /** Marks a failed echo as sending again. */
+    retry: (id: string) =>
+      setPending((list) =>
+        list.map((message) => (message.id === id ? { ...message, failed: false } : message)),
+      ),
   };
 }

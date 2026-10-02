@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { BoardPlacement } from '../domain/board-order';
 import { DutyId } from '../domain/duty';
 import { ChatItem } from '../chat/chat';
 import { AutoCompactWindowTokens, MemberSchedule, ProjectConfig, RepoConfig } from '../config/schema';
@@ -369,6 +370,39 @@ export const UpdateTaskRequest = z.object({
   despitePrerequisites: z.boolean().optional(),
 });
 export type UpdateTaskRequest = z.infer<typeof UpdateTaskRequest>;
+
+/**
+ * A card dropped on the board (PM-118): into the column `columnId` at `placement`. The card is the
+ * one in the route; `fromStageId` is the stage the person saw it in, so a card that moved meanwhile is
+ * refused (409 `board_stale`) rather than placed by a stale picture. Dropped in its own column it only
+ * changes its place; dropped in another it enters that column's first stage through the usual gates
+ * (409 `gate_blocked`, or `approval_requested`, which keeps the placement for the approval). The
+ * client sends the place relative to a card it sees, never a rank and never a whole list.
+ */
+export const BoardMoveRequest = z
+  .object({
+    columnId: z.string(),
+    fromStageId: StageId,
+    placement: BoardPlacement,
+    /** As `UpdateTaskRequest.despitePrerequisites`, for a drop that starts work (PM-204). */
+    despitePrerequisites: z.boolean().optional(),
+    // Strict: the client never sends a rank or a list of cards; the server computes the place.
+  })
+  .strict();
+export type BoardMoveRequest = z.infer<typeof BoardMoveRequest>;
+
+/**
+ * What a board move did to the card: `reordered` (its place in its column changed), `moved` (it entered
+ * another column), or `unchanged` (it was there already). `task` is the card as it is now; `reranked` are
+ * the keys of the cards whose rank was written, the card included (each of them was published as
+ * `task_upserted`). Meant to grow a per-card result list when several cards are moved at once.
+ */
+export const BoardMoveResult = z.object({
+  task: Task,
+  outcome: z.enum(['reordered', 'moved', 'unchanged']),
+  reranked: z.array(TaskKey),
+});
+export type BoardMoveResult = z.infer<typeof BoardMoveResult>;
 
 export const CreateTaskCommentRequest = z.object({
   text: z.string().trim().min(1).max(10000),

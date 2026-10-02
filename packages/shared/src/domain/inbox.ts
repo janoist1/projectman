@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { BoardPlacement } from './board-order';
 import { Actor } from './event';
 import { LabelId } from './label';
 import { MemberHandle } from './member';
@@ -87,6 +88,11 @@ export const GateRequestPayload = z.object({
   /** The human-only label the approver puts on the task by approving; missing on requests from before labels. */
   label: LabelId.optional(),
   requestedBy: Actor,
+  /**
+   * Where the card goes in the target column when the move comes from the board (PM-118), kept so the
+   * wish survives a restart: checked again on approval, the top of the column when the anchor is gone.
+   */
+  placement: BoardPlacement.optional(),
 });
 export type GateRequestPayload = z.infer<typeof GateRequestPayload>;
 

@@ -1,9 +1,10 @@
 import { useMemo } from 'react';
-import { isTheme } from '@projectman/shared';
-import type { Task } from '@projectman/shared';
+import { compareBoardOrder, isTheme } from '@projectman/shared';
+import type { RankedCard, Task } from '@projectman/shared';
 import { useBoard, useInbox } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
-import { deriveTaskState, groupOpenInboxByTask, phaseOrder } from '../../lib/taskState';
+import type { PipelineIndex } from '../../lib/pipeline';
+import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
 import type { TaskState, TaskStateContext } from '../../lib/taskState';
 
 export interface BoardEntry {
@@ -12,19 +13,40 @@ export interface BoardEntry {
 }
 
 /** Cards with the same time keep a stable order: the higher key (the newer card) first. */
-function newerKeyFirst(a: BoardEntry, b: BoardEntry): number {
-  return b.task.key.localeCompare(a.task.key, undefined, { numeric: true });
+const newerKeyFirst = (a: BoardEntry, b: BoardEntry) =>
+  b.task.key.localeCompare(a.task.key, undefined, { numeric: true });
+
+const byClosing = (a: BoardEntry, b: BoardEntry) =>
+  (b.task.closedAt ?? '').localeCompare(a.task.closedAt ?? '') || newerKeyFirst(a, b);
+
+const rankedOf = ({ task }: BoardEntry): RankedCard => ({
+  key: task.key,
+  rank: task.boardRank,
+  updatedAt: task.updatedAt,
+});
+const byRank = (a: BoardEntry, b: BoardEntry) => compareBoardOrder(rankedOf(a), rankedOf(b));
+
+/**
+ * The cards of one board column in the order the board shows them (PM-118): the stored manual order,
+ * the same for everyone; a column of finished work by closing time, newest first. A card's phase or
+ * colour never decides its place.
+ */
+export function sortColumnEntries(entries: BoardEntry[], chronological: boolean): BoardEntry[] {
+  return [...entries].sort(chronological ? byClosing : byRank);
 }
 
-export function sortEntries(entries: BoardEntry[]): BoardEntry[] {
+/**
+ * The phone list's group: the finished ones by closing time; the others with the later column first
+ * (the card nearest to done), each column in its stored order. There is no manual ordering on a phone.
+ */
+export function sortGroupEntries(entries: BoardEntry[], pipeline: PipelineIndex): BoardEntry[] {
+  const columnOf = (entry: BoardEntry) => {
+    const column = pipeline.columnOfStage.get(entry.task.stageId);
+    return column ? pipeline.columns.indexOf(column) : -1;
+  };
   return [...entries].sort((a, b) => {
-    const phase = phaseOrder[a.state.phase] - phaseOrder[b.state.phase];
-    if (phase !== 0) return phase;
-    const time =
-      a.state.phase === 'done'
-        ? (b.task.closedAt ?? '').localeCompare(a.task.closedAt ?? '')
-        : b.task.updatedAt.localeCompare(a.task.updatedAt);
-    return time !== 0 ? time : newerKeyFirst(a, b);
+    if (a.state.phase === 'done' && b.state.phase === 'done') return byClosing(a, b);
+    return columnOf(b) - columnOf(a) || byRank(a, b);
   });
 }
 

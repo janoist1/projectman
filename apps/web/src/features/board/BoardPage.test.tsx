@@ -46,7 +46,7 @@ describe('desktop board moving', () => {
     });
     const backendFetch = createMockFetch(project.backend);
     setFetchImplementation(async (path, init) => {
-      if (init?.method === 'PATCH') await held;
+      if (path.endsWith('/board-move')) await held;
       return backendFetch(path, init);
     });
     project.render(
@@ -94,7 +94,14 @@ describe('desktop board moving', () => {
   });
   describe('dropping a card with an open prerequisite into the work stage (PM-204)', () => {
     const patches = (project: ReturnType<typeof mockProject>) =>
-      project.requests.filter((request) => request.method === 'PATCH');
+      project.requests.filter((request) => request.path.endsWith('/board-move'));
+    // The jsdom layout has no boxes, so a drop on a column lands before its first card.
+    const intoWork = (extra: object = {}) => ({
+      columnId: 'dev',
+      fromStageId: 'ready',
+      placement: { at: 'before', anchor: 'AC-20' },
+      ...extra,
+    });
     const dropOnWork = async (project: ReturnType<typeof mockProject>, taskKey: string) => {
       project.render(
         <ToastProvider>
@@ -134,7 +141,7 @@ describe('desktop board moving', () => {
 
       await waitFor(() => expect(project.backend.findTask('AC-23')?.stageId).toBe('dev'));
       expect(patches(project).map((request) => request.body)).toEqual([
-        { stageId: 'dev', despitePrerequisites: true },
+        intoWork({ despitePrerequisites: true }),
       ]);
     });
 
@@ -145,7 +152,7 @@ describe('desktop board moving', () => {
       fireEvent.click(await screen.findByRole('button', { name: t('prerequisiteWarning.moveAndWait') }));
 
       await waitFor(() => expect(project.backend.findTask('AC-23')?.stageId).toBe('dev'));
-      expect(patches(project).map((request) => request.body)).toEqual([{ stageId: 'dev' }]);
+      expect(patches(project).map((request) => request.body)).toEqual([intoWork()]);
     });
 
     it('moves a card without an open prerequisite at once', async () => {
@@ -154,7 +161,7 @@ describe('desktop board moving', () => {
 
       await waitFor(() => expect(project.backend.findTask('AC-24')?.stageId).toBe('dev'));
       expect(screen.queryByRole('dialog')).toBeNull();
-      expect(patches(project).map((request) => request.body)).toEqual([{ stageId: 'dev' }]);
+      expect(patches(project).map((request) => request.body)).toEqual([intoWork()]);
     });
   });
   it('disables dragging for clients', async () => {

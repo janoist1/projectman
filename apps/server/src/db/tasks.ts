@@ -1,5 +1,5 @@
 import { taskSeq } from '@projectman/shared';
-import type { Task, TaskLink } from '@projectman/shared';
+import type { RankedCard, Task, TaskLink } from '@projectman/shared';
 import { legacyCheckLabels } from '@projectman/templates';
 import type { Statement } from 'better-sqlite3';
 import type { Db } from './database';
@@ -23,6 +23,7 @@ interface TaskRow {
   assignee: string | null;
   repo: string | null;
   priority: number | null;
+  board_rank: number;
   labels: string;
   checks: string;
   visibility: string;
@@ -62,6 +63,7 @@ export type TaskPatch = Partial<
     | 'assignee'
     | 'repo'
     | 'priority'
+    | 'boardRank'
     | 'labels'
     | 'visibility'
     | 'updatedAt'
@@ -80,6 +82,7 @@ const COLUMNS: Record<keyof TaskPatch, string> = {
   assignee: 'assignee',
   repo: 'repo',
   priority: 'priority',
+  boardRank: 'board_rank',
   labels: 'labels',
   visibility: 'visibility',
   updatedAt: 'updated_at',
@@ -120,6 +123,7 @@ function toTask(r: TaskRow, links: TaskLink[]): Task {
     assignee: r.assignee,
     repo: r.repo,
     priority: r.priority,
+    boardRank: r.board_rank,
     // Checks recorded before labels read as their labels; the next label write clears the column.
     labels: [
       ...new Set([
@@ -165,8 +169,15 @@ export function createTaskRepository(db: Db) {
     insert: db.prepare(
       `INSERT INTO tasks (id, project_key, key, seq, title, description, stage_id, status, assignee,
          repo, priority, labels, checks, visibility, created_by, created_at, updated_at, closed_at, parent_key,
-         kind, theme_key)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         kind, theme_key, board_rank)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ),
+    setBoardRank: db.prepare('UPDATE tasks SET board_rank = ? WHERE key = ? AND project_key = ?'),
+    // The open cards of a project that stand in these stages (themes are no cards of the board).
+    boardCards: db.prepare(
+      `SELECT key, seq, board_rank, updated_at FROM tasks
+       WHERE project_key = ? AND kind = 'task' AND status NOT IN ('done', 'cancelled')
+         AND stage_id IN (SELECT value FROM json_each(?))`,
     ),
     findLink: db.prepare('SELECT * FROM task_links WHERE task_id = ? AND kind = ? AND repo = ? AND ref = ?'),
     insertLink: db.prepare(
@@ -305,6 +316,7 @@ export function createTaskRepository(db: Db) {
           task.kind ?? 'task',
           // A subtask has none of its own: it reads its parent's.
           task.parentKey ? null : (task.themeKey ?? null),
+          task.boardRank ?? 0,
         );
         for (const link of task.links) upsertLink(task.id, link, task.createdAt);
       })();
@@ -327,6 +339,24 @@ export function createTaskRepository(db: Db) {
         statements.byAssignee.all(projectKey, handle) as TaskRow[],
         () => statements.byAssigneeLinks.all(projectKey, handle) as LinkRow[],
       );
+    },
+
+    /**
+     * The open cards standing in `stageIds` with what orders them (`board-order` in the shared package),
+     * read without their links: the manual order of a board column (PM-118).
+     */
+    boardCards(projectKey: string, stageIds: readonly string[]): RankedCard[] {
+      const rows = statements.boardCards.all(projectKey, JSON.stringify(stageIds)) as Array<{
+        key: string;
+        board_rank: number;
+        updated_at: string;
+      }>;
+      return rows.map((row) => ({ key: row.key, rank: row.board_rank, updatedAt: row.updated_at }));
+    },
+
+    /** Writes ranks and nothing else: no card's update time moves with its place. */
+    setBoardRanks(projectKey: string, ranks: ReadonlyArray<{ key: string; rank: number }>): void {
+      for (const { key, rank } of ranks) statements.setBoardRank.run(rank, key, projectKey);
     },
 
     /** The subtasks of a task. */

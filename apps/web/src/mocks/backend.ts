@@ -1,5 +1,13 @@
 import {
   AcceptInviteRequest,
+  BOARD_RANK_STEP,
+  BoardMoveRequest,
+  boardColumnOf,
+  compareBoardOrder,
+  dropStageOfColumn,
+  isChronologicalColumn,
+  planRanks,
+  stagesOfColumn,
   BoundaryRequest,
   DecideBoundaryRequest,
   boundaryOwners,
@@ -118,7 +126,10 @@ import type {
   Attachment,
   AttachmentViewer,
   TaskCoverChoice,
+  BoardMoveResult,
+  BoardPlacement,
   BoardView,
+  RankedCard,
   ChatItem,
   ClientCommand,
   ConfigVersionEntry,
@@ -192,6 +203,19 @@ function withPrMergedLabel(task: Task, config: Pick<ProjectConfig, 'pipeline'>):
       ? [...task.labels, PR_MERGED_LABEL]
       : task.labels.filter((label) => label !== PR_MERGED_LABEL),
   };
+}
+
+/** A task as the board's order rules read it. */
+function rankedOf(task: Task): RankedCard {
+  return { key: task.key, rank: task.boardRank, updatedAt: task.updatedAt };
+}
+
+function boardResult(
+  task: Task,
+  outcome: BoardMoveResult['outcome'],
+  reranked: readonly string[],
+): BoardMoveResult {
+  return { task: clone(task), outcome, reranked: [...reranked] };
 }
 
 function unique<T>(values: readonly T[]): T[] {
@@ -297,6 +321,13 @@ export class MockBackend {
 
   constructor(auth: MockAuthState = 'ready') {
     this.auth = auth;
+    // The migration's first order: by the latest update, the highest number first (themes have none).
+    this.tasks
+      .filter((task) => !isTheme(task))
+      .sort((a, b) => compareBoardOrder(rankedOf(a), rankedOf(b)))
+      .forEach((task, index) => {
+        task.boardRank = (index + 1) * BOARD_RANK_STEP;
+      });
     for (const member of this.members) {
       const config = memberOf(this.config, member.handle);
       if (config?.kind === 'ai')
@@ -897,7 +928,7 @@ export class MockBackend {
     if (
       (rest === '/tasks' && method === 'POST') ||
       (rest.startsWith('/tasks/') && method === 'PATCH') ||
-      /\/tasks\/[^/]+\/(close-theme|reopen)$/.test(rest)
+      /\/tasks\/[^/]+\/(close-theme|reopen|board-move)$/.test(rest)
     ) {
       if (viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))
         return error(403, 'insufficient_access', 'Developer access required');
@@ -963,6 +994,9 @@ export class MockBackend {
     }
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/start$/.exec(rest)) && method === 'POST') {
       return this.startTask(m[1]!, body);
+    }
+    if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/board-move$/.exec(rest)) && method === 'POST') {
+      return this.boardMove(m[1]!, body);
     }
 
     if (
@@ -2021,7 +2055,7 @@ export class MockBackend {
   }
 
   /** A stage move under the gates: blocked, an approval request in the inbox, or the move itself. */
-  private move(task: Task, stageId: string, actor: Actor): MockResponse {
+  private move(task: Task, stageId: string, actor: Actor, placement?: BoardPlacement): MockResponse {
     if (isTheme(task)) return error(409, 'task_is_theme', 'A theme does not move between stages');
     if (task.status === 'cancelled') return error(409, 'task_closed', 'Task is cancelled');
     const target = stageOf(this.config, stageId);
@@ -2029,9 +2063,102 @@ export class MockBackend {
     if (task.stageId === target.id) return ok(clone(task));
     const evaluation = evaluateMove(task, this.config, task.stageId, target.id);
     if (evaluation.unmet.length) return gateBlockedError(evaluation);
-    if (evaluation.approvals.length) return this.requestApproval(task, target, evaluation.approvals, actor);
-    this.applyMove(task, target, actor, {});
+    if (evaluation.approvals.length)
+      return this.requestApproval(task, target, evaluation.approvals, actor, placement);
+    this.applyMove(task, target, actor, {}, placement);
     return ok(clone(task));
+  }
+
+  /** The open cards of a board column (themes and closed cards stand outside the order). */
+  private boardCards(columnId: string): RankedCard[] {
+    const stageIds = new Set(stagesOfColumn(this.config.pipeline.stages, columnId).map((stage) => stage.id));
+    return this.tasks
+      .filter(
+        (task) =>
+          !isTheme(task) &&
+          task.status !== 'done' &&
+          task.status !== 'cancelled' &&
+          stageIds.has(task.stageId),
+      )
+      .map(rankedOf);
+  }
+
+  /** Writes ranks and nothing else: the update time of a card stays; each card written is announced. */
+  private writeRanks(ranks: ReadonlyArray<{ key: string; rank: number }>): void {
+    for (const { key, rank } of ranks) {
+      const task = this.findTask(key);
+      if (!task) continue;
+      task.boardRank = rank;
+      this.emit({ type: 'task_upserted', projectKey: task.projectKey, task: clone(task) });
+    }
+  }
+
+  /**
+   * A card that has come into a column takes its place there: the top unless told, the top as well when
+   * the anchor is gone. A column of finished work has no order of its own.
+   */
+  private enterColumn(task: Task, placement: BoardPlacement = { at: 'top' }): void {
+    const columnId = boardColumnOf(stageOf(this.config, task.stageId));
+    if (!columnId || isChronologicalColumn(this.config.pipeline.stages, columnId)) return;
+    const column = this.boardCards(columnId).filter((card) => card.key !== task.key);
+    let plan = planRanks(column, rankedOf(task), placement);
+    if (plan.status !== 'planned') plan = planRanks(column, rankedOf(task), { at: 'top' });
+    if (plan.status === 'planned') this.writeRanks(plan.ranks);
+  }
+
+  /** A card dropped on the board: a place in a column (PM-118), like the server's route. */
+  private boardMove(taskKey: string, body: unknown): MockResponse {
+    const input = parseBody(BoardMoveRequest, body);
+    if (!input) return error(400, 'invalid_request', 'Invalid board move');
+    const target = dropStageOfColumn(this.config.pipeline.stages, input.columnId);
+    if (!target) return error(400, 'unknown_column', `The board has no column ${input.columnId}`);
+    const task = this.findTask(taskKey);
+    if (!task) return error(404, 'not_found', 'Unknown task');
+    if (isTheme(task)) return error(409, 'task_is_theme', 'A theme does not move on the board');
+    if (task.status === 'cancelled') return error(409, 'task_closed', 'Task is cancelled');
+    if (task.stageId !== input.fromStageId)
+      return error(409, 'board_stale', 'The card is not in that stage any more', {
+        reason: 'source',
+        stageId: task.stageId,
+      });
+    const chronological = isChronologicalColumn(this.config.pipeline.stages, input.columnId);
+    const own = boardColumnOf(stageOf(this.config, task.stageId)) === input.columnId;
+    const column = this.boardCards(input.columnId);
+    const stale = () =>
+      error(409, 'board_stale', 'The board changed: the anchor is not a card of the column any more', {
+        reason: 'anchor',
+        columnId: input.columnId,
+      });
+    if (own) {
+      if (chronological || task.status === 'done')
+        return error(409, 'board_column_chronological', 'A column of finished work is ordered by time');
+      const plan = planRanks(column, rankedOf(task), input.placement);
+      if (plan.status === 'stale') return stale();
+      if (plan.status === 'unchanged') return ok(boardResult(task, 'unchanged', []));
+      this.writeRanks(plan.ranks);
+      return ok(
+        boardResult(
+          task,
+          'reordered',
+          plan.ranks.map((entry) => entry.key),
+        ),
+      );
+    }
+    const placement = input.placement;
+    if (
+      !chronological &&
+      (placement.at === 'before' || placement.at === 'after') &&
+      !column.some((card) => card.key === placement.anchor)
+    )
+      return stale();
+    const before = new Map(this.tasks.map((other) => [other.key, other.boardRank]));
+    const response = this.move(task, target.id, this.viewerActor(), placement);
+    if (response.status >= 400) return response;
+    const moved = task.stageId !== input.fromStageId;
+    const reranked = this.tasks
+      .filter((other) => other.key !== task.key && other.boardRank !== before.get(other.key))
+      .map((other) => other.key);
+    return ok(boardResult(task, moved ? 'moved' : 'unchanged', moved ? reranked : []));
   }
 
   private openDecisions(task: Task): InboxItem[] {
@@ -2070,6 +2197,7 @@ export class MockBackend {
     target: Stage,
     approvals: ApprovalRequirement[],
     actor: Actor,
+    placement?: BoardPlacement,
   ): MockResponse {
     const open = this.openGateRequests(task, target);
     if (open.length) return approvalRequestedError(open);
@@ -2085,6 +2213,7 @@ export class MockBackend {
         stageId: approval.stageId,
         label: approval.label,
         requestedBy: actor,
+        ...(placement ? { placement } : {}),
       };
       const item: InboxItem = {
         id: mockId('inb'),
@@ -2124,6 +2253,7 @@ export class MockBackend {
     target: Stage,
     actor: Actor,
     extra: Pick<TimelineEventData['task_stage_changed'], 'approvedBy' | 'inboxItemIds'>,
+    placement?: BoardPlacement,
   ): void {
     const from = task.stageId;
     const patch: Partial<Task> = { stageId: target.id };
@@ -2131,6 +2261,9 @@ export class MockBackend {
     else if (task.status === 'done' || task.status === 'waiting')
       Object.assign(patch, { status: 'active', closedAt: null });
     this.updateTask(task.key, patch);
+    // Into another column the card takes a place (the top unless the drop said where).
+    if (boardColumnOf(stageOf(this.config, from)) !== boardColumnOf(target))
+      this.enterColumn(task, placement);
     this.addTimeline(task.key, actor.handle, 'task_stage_changed', { from, to: target.id, ...extra });
     if (stageIndex(this.config.pipeline, target.id) < stageIndex(this.config.pipeline, from))
       this.expireLabels(task, 'moved_back');
@@ -2204,6 +2337,7 @@ export class MockBackend {
         approvedBy: unique(siblings.map((sibling) => sibling.resolution!.by)),
         inboxItemIds: siblings.map((sibling) => sibling.id),
       },
+      gate.placement,
     );
   }
 
@@ -2404,6 +2538,8 @@ export class MockBackend {
     this.lastTaskSeq += 1;
     task.key = nextKey;
     this.tasks.push(task);
+    // A new card goes to the top of its column (no rank for a theme, nor in a column of finished work).
+    if (!isTheme(task)) this.enterColumn(task);
     this.emit({ type: 'task_upserted', projectKey: task.projectKey, task: clone(task) });
     this.addTimeline(
       task.key,

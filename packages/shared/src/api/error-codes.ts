@@ -65,6 +65,11 @@ export const ERROR_CODES = [
   'unknown_stage',
   'unknown_repo',
   'task_closed',
+  // A board move (PM-118): the card or the anchor is not where the request saw it (409); the column
+  // is ordered by closing time, or does not exist (400/409).
+  'board_stale',
+  'board_column_chronological',
+  'unknown_column',
   'task_not_cancelled',
   'task_session_live',
   'subtask_self_parent',

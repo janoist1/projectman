@@ -539,5 +539,20 @@ export const migrations: Migration[] = [
     sql: `ALTER TABLE sessions ADD COLUMN doing_summary TEXT;
       ALTER TABLE sessions ADD COLUMN doing_detail TEXT;`,
   },
+  {
+    version: 28,
+    name: 'manual board order of tasks',
+    // PM-118: a card's place in the manual order of its board column, independent of `priority`. The
+    // cards that exist get one project-wide order, newest update first and the highest number first
+    // among equals (the order the board showed within a phase), spaced 1024 apart like the ranks the
+    // board writes (`BOARD_RANK_STEP` in the shared package). A column's order is that order filtered to
+    // the cards in it, so it is stable whatever the stages of a column are.
+    sql: `ALTER TABLE tasks ADD COLUMN board_rank INTEGER NOT NULL DEFAULT 0;
+      UPDATE tasks SET board_rank = ranked.position * 1024
+        FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY project_key ORDER BY updated_at DESC, seq DESC) AS position
+              FROM tasks) AS ranked
+        WHERE ranked.id = tasks.id;
+      CREATE INDEX tasks_board_order ON tasks(project_key, stage_id, board_rank);`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

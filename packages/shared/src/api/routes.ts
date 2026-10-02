@@ -32,6 +32,8 @@ export const routes = {
   taskLabels: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/labels`,
   startTask: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/start`,
   cancelTask: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/cancel`,
+  /** POST (`BoardMoveRequest` -> `BoardMoveResult`): drops a card on the board, by column and place (PM-118). */
+  boardMoveTask: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/board-move`,
   closeTheme: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/close-theme`,
   reopenTask: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/reopen`,
 

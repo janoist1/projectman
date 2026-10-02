@@ -9,7 +9,7 @@ import type { TaskPhase } from '../../lib/taskState';
 import { coverSrcOf } from './cardModel';
 import { useDoneFold } from './doneFold';
 import { TaskCard } from './TaskCard';
-import { sortEntries } from './useBoardModel';
+import { sortGroupEntries } from './useBoardModel';
 import type { BoardEntry } from './useBoardModel';
 import styles from './MobileBoardList.module.css';
 
@@ -43,16 +43,21 @@ export function MobileBoardList({
   myHandle?: string | null;
 }) {
   const labels = useLabels(projectKey);
-  const sorted = sortEntries(entries);
   // The finished cards are those in the "done" phase (a done stage or a closed card), not those named "Kész".
   const done = useDoneFold(
-    sorted.filter((entry) => entry.state.phase === 'done'),
+    sortGroupEntries(
+      entries.filter((entry) => entry.state.phase === 'done'),
+      pipeline,
+    ),
     searching,
   );
   return (
     <div className={styles.wrap}>
       {groups.map((group) => {
-        const list = sorted.filter((entry) => group.phases.includes(entry.state.phase));
+        const list = sortGroupEntries(
+          entries.filter((entry) => group.phases.includes(entry.state.phase)),
+          pipeline,
+        );
         if (list.length === 0) return null;
         const headingId = `group-${group.id}`;
         const isDone = group.id === 'done';

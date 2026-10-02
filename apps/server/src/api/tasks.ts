@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
+  BoardMoveRequest,
   ChangeTaskLabelsRequest,
   MAX_CLOSED_CARDS_DAYS,
   CreateTaskCommentRequest,
@@ -12,7 +13,7 @@ import {
   StartTaskRequest,
   UpdateTaskRequest,
 } from '@projectman/shared';
-import type { ClosedCardsMeasure, Task, TaskDetail } from '@projectman/shared';
+import type { BoardMoveResult, ClosedCardsMeasure, Task, TaskDetail } from '@projectman/shared';
 import type { Domain } from '../domain';
 import { notFound } from '../domain';
 import { canSeeTask, visibleTaskDetail, visibleTasks } from '../domain/visibility';
@@ -58,6 +59,17 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
     if (body.assignee !== undefined) await requireAccess(domain, request, key, { minimum: 'admin' });
     return domain.tasks.update(key, taskKey, body, actorOf(access));
   });
+
+  /** A card dropped on the board: a place in a column, with the gates of a stage move (PM-118). */
+  app.post<TaskParams>(
+    routes.boardMoveTask(':key', ':taskKey'),
+    async (request): Promise<BoardMoveResult> => {
+      const { key, taskKey } = request.params;
+      const access = await requireAccess(domain, request, key, { minimum: 'developer' });
+      const body = parseBody(BoardMoveRequest, request.body);
+      return domain.tasks.moveOnBoard(key, taskKey, body, actorOf(access));
+    },
+  );
 
   app.post<TaskParams>(routes.taskComments(':key', ':taskKey'), async (request, reply) => {
     const { key, taskKey } = request.params;

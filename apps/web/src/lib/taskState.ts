@@ -76,7 +76,7 @@ function needsYouLabel(item: InboxItem): string {
 }
 
 /** In what capacity a member works on a card; the verb of "X átnézi" / "X dolgozik rajta". */
-export type WorkerVerb = 'working' | 'reviewing' | 'testing' | 'designing' | 'analysing';
+export type WorkerVerb = 'working' | 'reviewing' | 'testing' | 'designing' | 'planning' | 'analysing';
 
 /** A member's role says the capacity first; the others fall through to the stage rule. */
 const ROLE_VERBS: Readonly<Record<string, WorkerVerb>> = {
@@ -84,7 +84,7 @@ const ROLE_VERBS: Readonly<Record<string, WorkerVerb>> = {
   code_review: 'reviewing',
   security_review: 'reviewing',
   designer: 'designing',
-  architect: 'designing',
+  architect: 'planning',
   business_analyst: 'analysing',
 };
 

@@ -677,7 +677,8 @@ export const hu = {
       working: '{name} dolgozik rajta',
       reviewing: '{name} átnézi',
       testing: '{name} teszteli',
-      designing: '{name} tervezi',
+      designing: '{name} a felületet tervezi',
+      planning: '{name} a műszaki tervet készíti',
       analysing: '{name} elemzi',
     },
     /** The card's line while several work on it: the names share one verb, as their capacities may differ. */
@@ -1673,7 +1674,7 @@ export const hu = {
     triage: 'Besorolás',
     scheduling: 'Ütemezés',
     technical_direction: 'Műszaki irányítás',
-    ux_design: 'UX-tervezés',
+    ux_design: 'UI/UX tervezés',
     implementation: 'Megvalósítás',
     docs: 'Dokumentáció',
     content: 'Tartalomkészítés',

@@ -30,6 +30,13 @@ export const TASK_RELATION_KINDS: readonly TaskRelationKind[] = TaskRelationKind
 export const AddableRelationKind = z.enum(['part_of', 'prerequisite', 'related', 'duplicate_of']);
 export type AddableRelationKind = z.infer<typeof AddableRelationKind>;
 
+/**
+ * The kinds a theme cannot have from its own side: it is no part of another card, and it has no
+ * prerequisites (`relationRefusal` refuses both). A theme also collects no subtasks (the other
+ * direction of `part_of`). A theme may be related to any card and duplicate only a theme.
+ */
+export const THEME_REFUSED_KINDS: readonly AddableRelationKind[] = ['part_of', 'prerequisite'];
+
 /** The `TaskLink` kinds that relate two cards. */
 export const RELATION_LINK_KINDS = ['prerequisite', 'related', 'duplicate_of'] as const;
 export type RelationLinkKind = (typeof RELATION_LINK_KINDS)[number];

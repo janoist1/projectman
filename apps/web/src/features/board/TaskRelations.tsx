@@ -6,6 +6,7 @@ import { useUpdateTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Chip, StatusDot } from '../../components/Chip';
+import { Icon } from '../../components/Icon';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import type { PipelineIndex } from '../../lib/pipeline';
@@ -27,6 +28,7 @@ function RelationRow({
   phase,
   pipeline,
   editable,
+  onRemoved,
 }: {
   relation: TaskRelation;
   task: Task;
@@ -34,6 +36,8 @@ function RelationRow({
   phase: TaskPhase;
   pipeline: PipelineIndex;
   editable: boolean;
+  /** The row is gone: the focus it held goes elsewhere. */
+  onRemoved: () => void;
 }) {
   const { key } = useProject();
   const update = useUpdateTask(key);
@@ -56,6 +60,7 @@ function RelationRow({
         onSuccess: () => {
           setConfirming(false);
           toast.show(t('timeline.relationRemoved', { kind, ref: relation.key }));
+          onRemoved();
         },
       },
     );
@@ -85,7 +90,7 @@ function RelationRow({
             disabled={update.isPending}
             onClick={() => setConfirming(true)}
           >
-            ×
+            <Icon name="close" size={14} strokeWidth={2.2} />
           </button>
         ) : null}
       </div>
@@ -140,6 +145,7 @@ export function TaskRelations({
 }) {
   const { can } = useProject();
   const [adding, setAdding] = useState(false);
+  const addRef = useRef<HTMLButtonElement>(null);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const groups = relationGroups(task, tasks);
   const count = groups.reduce((sum, group) => sum + group.relations.length, 0);
@@ -151,6 +157,7 @@ export function TaskRelations({
       </span>
       {can.createTasks ? (
         <Button
+          ref={addRef}
           size="sm"
           variant="muted"
           iconOnly
@@ -190,6 +197,7 @@ export function TaskRelations({
                   phase={phases.get(relation.key) ?? 'waiting'}
                   pipeline={pipeline}
                   editable={can.createTasks}
+                  onRemoved={() => addRef.current?.focus()}
                 />
               ))}
             </ul>

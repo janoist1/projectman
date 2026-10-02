@@ -35,9 +35,9 @@
 }
 
 .kind[aria-checked='true'] {
-  border-color: var(--c-ink-3);
-  background: var(--c-muted);
-  color: var(--c-ink);
+  border-color: var(--c-primary);
+  background: var(--c-primary);
+  color: var(--c-on-primary);
   font-weight: 700;
 }
 
@@ -94,8 +94,12 @@
   background: var(--c-muted);
 }
 
+/* The dimming is on the line only: the reason under it keeps its full colour (contrast). */
 .off {
   cursor: not-allowed;
+}
+
+.off .optionLine {
   opacity: 0.6;
 }
 
@@ -146,7 +150,11 @@
   gap: 8px;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 767px) {
+  .kind {
+    min-height: 40px;
+  }
+
   .actions {
     flex-direction: column-reverse;
   }

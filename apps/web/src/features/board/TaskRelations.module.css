@@ -75,16 +75,16 @@
 
 /* The remove cross: its place is kept, so a row does not jump; hidden until hover or focus on a mouse. */
 .remove {
+  display: grid;
   flex: none;
+  place-items: center;
   width: 28px;
   height: 28px;
+  padding: 0;
   border: 0;
   border-radius: var(--radius-xs);
   background: none;
   color: var(--c-ink-3);
-  font: inherit;
-  font-size: var(--text-md);
-  line-height: 1;
   cursor: pointer;
 }
 
@@ -126,7 +126,7 @@
   gap: 8px;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 767px) {
   .link {
     min-height: 44px;
   }

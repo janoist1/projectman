@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { useId, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { isOpenTask, Task } from '@projectman/shared';
+import { isOpenTask, isTheme, Task, THEME_REFUSED_KINDS } from '@projectman/shared';
 import { useCreateTask, useUpdateTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
@@ -11,7 +11,14 @@ import { TextField } from '../../components/Field';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import type { PipelineIndex } from '../../lib/pipeline';
-import { DIALOG_KINDS, addRelationChange, candidates, relationErrorText, whyText } from './relationModel';
+import {
+  DIALOG_KINDS,
+  addRelationChange,
+  candidateRefusal,
+  candidates,
+  relationErrorText,
+  whyText,
+} from './relationModel';
 import type { Candidate, DialogKind } from './relationModel';
 import drawer from './drawer.module.css';
 import styles from './RelationDialog.module.css';
@@ -42,6 +49,15 @@ function previewText(kind: DialogKind | null, target: string | null, task: Task)
 
 /** The reason a kind cannot be chosen for this card, or null. */
 function kindOff(kind: DialogKind, task: Task, tasks: readonly Task[]): string | null {
+  // What a theme cannot have is the shared rule's (`THEME_REFUSED_KINDS`). A new subtask is the
+  // other direction of `part_of` (both are `subtask_theme`), so it follows the same rule.
+  if (isTheme(task)) {
+    const relation = kind === 'subtask' ? 'part_of' : kind;
+    if (THEME_REFUSED_KINDS.includes(relation))
+      return kind === 'subtask'
+        ? t('relationDialog.off.themeSubtask')
+        : t('relationDialog.off.theme', { kind: t(`relations.kinds.${relation}`) });
+  }
   if (kind === 'part_of' && tasks.some((card) => card.parentKey === task.key))
     return t('relationDialog.off.part_of');
   if (kind === 'subtask' && task.parentKey) return t('relationDialog.off.subtask');
@@ -128,7 +144,17 @@ function RelationForm({
 
   const list =
     kind && kind !== 'subtask' ? candidates(kind, task, tasks, query) : { rows: [] as Candidate[], total: 0 };
-  const chosenRow = list.rows.find((row) => row.card.key === target && !row.why);
+  // The chosen card stays on the list (first) when a later search no longer matches it.
+  const relation = kind && kind !== 'subtask' ? kind : null;
+  const keptCard =
+    relation && target && !list.rows.some((row) => row.card.key === target)
+      ? tasks.find((card) => card.key === target)
+      : undefined;
+  const rows: Candidate[] =
+    relation && keptCard
+      ? [{ card: keptCard, why: candidateRefusal(relation, task, keptCard, tasks) }, ...list.rows]
+      : list.rows;
+  const chosenRow = rows.find((row) => row.card.key === target && !row.why);
   const duplicate = kind === 'duplicate_of' && isOpenTask(task);
   const ready = kind === 'subtask' ? title.trim() !== '' : Boolean(kind && chosenRow);
 
@@ -190,7 +216,7 @@ function RelationForm({
   };
 
   const onSearchKey = (event: KeyboardEvent<HTMLInputElement>) => {
-    const choosable = list.rows.filter((row) => !row.why);
+    const choosable = rows.filter((row) => !row.why);
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
       if (choosable.length === 0) return;
@@ -284,7 +310,6 @@ function RelationForm({
             aria-autocomplete="list"
             aria-activedescendant={active ? `${listId}-${active}` : undefined}
             placeholder={t('relationDialog.search')}
-            aria-label={t('relationDialog.search')}
             autoComplete="off"
             value={query}
             disabled={pending}
@@ -294,9 +319,9 @@ function RelationForm({
             }}
             onKeyDown={onSearchKey}
           />
-          {list.rows.length > 0 ? (
+          {rows.length > 0 ? (
             <ul id={listId} role="listbox" aria-label={t('relationDialog.card')} className={styles.options}>
-              {list.rows.map((row) => (
+              {rows.map((row) => (
                 <CandidateRow
                   key={row.card.key}
                   id={`${listId}-${row.card.key}`}
@@ -316,6 +341,9 @@ function RelationForm({
               {t('relationDialog.noMatch')}
             </p>
           )}
+          {keptCard && list.rows.length === 0 ? (
+            <p className={styles.empty}>{t('relationDialog.noMatch')}</p>
+          ) : null}
           {list.total > list.rows.length ? <p className={styles.hint}>{t('relationDialog.refine')}</p> : null}
         </div>
       ) : null}
@@ -368,7 +396,13 @@ export function RelationDialog({
   pipeline: PipelineIndex;
 }) {
   return (
-    <Dialog open={open} onClose={onClose} title={t('relationDialog.title')} size="md">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={t('relationDialog.title')}
+      description={`${task.key} · ${task.title}`}
+      size="md"
+    >
       <RelationForm task={task} tasks={tasks} pipeline={pipeline} onClose={onClose} />
     </Dialog>
   );

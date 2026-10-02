@@ -1,10 +1,13 @@
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
+import { BoardView, Task } from '@projectman/shared';
 import type { AddableRelationKind, TaskRelationKind } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
+import { indexPipeline } from '../../lib/pipeline';
+import { RelationDialog } from './RelationDialog';
 import { TaskDrawer } from './TaskDrawer';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
@@ -257,6 +260,68 @@ describe('relations in the drawer (PM-203)', () => {
       expect(within(dialog).queryByRole('combobox')).toBeNull();
     });
 
+    it('turns off what a theme cannot have: part-of, prerequisite and a subtask', async () => {
+      const project = mockProject();
+      const theme = Task.parse(
+        project.backend.handle('POST', '/api/projects/AC/tasks', { title: 'Epic', kind: 'theme' }).body,
+      );
+      // A theme opens in its own drawer, which has no Relations section (PM-226 decides); the dialog
+      // itself already knows what a theme cannot have.
+      const board = BoardView.parse(project.backend.handle('GET', '/api/projects/AC/board', undefined).body);
+      project.render(
+        <RelationDialog
+          open
+          onClose={() => undefined}
+          task={theme}
+          tasks={board.tasks}
+          pipeline={indexPipeline(board)}
+        />,
+        '/p/AC',
+      );
+      const dialog = await screen.findByRole('dialog');
+      for (const kind of ['part_of', 'prerequisite'] as const)
+        expect(
+          within(dialog)
+            .getByRole('radio', { name: kindName(kind) })
+            .getAttribute('aria-disabled'),
+        ).toBe('true');
+      expect(
+        within(dialog)
+          .getByRole('radio', { name: t('relationDialog.newSubtask') })
+          .getAttribute('aria-disabled'),
+      ).toBe('true');
+      for (const kind of ['part_of', 'prerequisite'] as const)
+        expect(
+          within(dialog).getByText(t('relationDialog.off.theme', { kind: kindName(kind) })),
+        ).toBeTruthy();
+      expect(within(dialog).getByText(t('relationDialog.off.themeSubtask'))).toBeTruthy();
+      chooseKind(dialog, 'related');
+      expect(within(dialog).getByRole('combobox')).toBeTruthy();
+    });
+
+    it('names the card in the dialog and keeps the chosen card when a later search drops it', async () => {
+      const project = mockProject();
+      project.render(drawer, '/p/AC/tasks/AC-24');
+      const dialog = await openDialog();
+      expect(within(dialog).getByText(/^AC-24 · /)).toBeTruthy();
+      chooseKind(dialog, 'related');
+      chooseCard(dialog, 'AC-17');
+      fireEvent.change(within(dialog).getByRole('combobox'), { target: { value: 'AC-22' } });
+      const keys = within(dialog)
+        .getAllByRole('option')
+        .map((option) => option.textContent!.slice(0, 5));
+      expect(keys).toEqual(['AC-17', 'AC-22']);
+      expect(
+        within(dialog)
+          .getByRole('option', { name: /^AC-17/ })
+          .getAttribute('aria-selected'),
+      ).toBe('true');
+      expect(within(dialog).getByRole('button', { name: t('relationDialog.submit') })).toHaveProperty(
+        'disabled',
+        false,
+      );
+    });
+
     it('finds a card by key or by title, ignoring accents', async () => {
       const project = mockProject();
       project.render(drawer, '/p/AC/tasks/AC-24');
@@ -378,6 +443,14 @@ describe('relations in the drawer (PM-203)', () => {
       );
       fireEvent.click(within(list).getByRole('button', { name: t('task.relations.removeAction') }));
       await waitFor(() => expect(project.backend.findTask('AC-24')!.links).toEqual([]));
+      // The row is gone with the focus it had: the "+" takes it.
+      await waitFor(() =>
+        expect(document.activeElement).toBe(
+          within(screen.getByRole('region', { name: t('task.relations.title') })).getByRole('button', {
+            name: t('task.relations.add'),
+          }),
+        ),
+      );
       expect(patches(project, 'AC-17').map((r) => r.body)).toEqual([
         { relations: { remove: [{ kind: 'prerequisite_of', key: 'AC-24' }] } },
       ]);

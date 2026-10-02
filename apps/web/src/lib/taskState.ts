@@ -15,9 +15,10 @@ import type { PipelineIndex } from './pipeline';
 export type TaskPhase = 'needs_you' | 'working' | 'waiting' | 'blocked' | 'ready' | 'done' | 'cancelled';
 
 /**
- * The prerequisites a card still waits for (PM-192): the first by key, how many more, and all of them
- * for the tooltip. `key` is null when none is visible to the viewer (a client does not see an
- * internal card's key).
+ * The prerequisites a card still waits for (PM-192): the first in the order of the card's prerequisite
+ * links (or of the waiting start's list), how many more, and all of them for the tooltip. Only those
+ * the viewer sees count (a client does not see an internal card), so a card none of whose
+ * prerequisites is visible has no wait at all; `key` is null only for a label made without one.
  */
 export interface PrerequisiteWait {
   key: string | null;

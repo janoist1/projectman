@@ -1,4 +1,4 @@
-import { isOnLeave, memberOf, stageOf, stageOwners } from '@projectman/shared';
+import { isOnLeave, isRefinementStage, memberOf, stageOf, stageOwners } from '@projectman/shared';
 import type { AiMemberConfig, Stage } from '@projectman/shared';
 import type { MessageDelivery } from '../messaging';
 import type { ProjectService } from '../projects';
@@ -81,6 +81,8 @@ export class StageHandOver {
         const config = await this.projects.config(projectKey);
         const stage = stageOf(config, change.to);
         if (!stage || stage.kind === 'queue' || stage.kind === 'done') return;
+        // A stage for refinement has its own line: one member per step, never the whole stage's owners.
+        if (isRefinementStage(stage)) return;
         if (stage.kind === 'work') {
           if (task.assignee) this.notify(current, stage, task.assignee);
           return;

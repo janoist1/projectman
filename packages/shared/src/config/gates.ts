@@ -53,7 +53,8 @@ function stagesEntered(pipeline: Pick<Pipeline, 'stages'>, fromStageId: string, 
   return pipeline.stages.slice(from + 1, to + 1);
 }
 
-function conditionHolds(task: Pick<Task, 'labels'>, condition: GateCondition): boolean {
+/** Whether the task meets a gate condition (one bound to a `when` label the task lacks always holds). */
+export function conditionHolds(task: Pick<Task, 'labels'>, condition: GateCondition): boolean {
   if (condition.when !== undefined && !task.labels.includes(condition.when)) return true;
   const has = task.labels.includes(condition.label);
   return condition.type === 'has_label' ? has : !has;

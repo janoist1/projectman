@@ -49,6 +49,11 @@ export class TimelineService {
     return this.ctx.repos.timeline.get(projectKey, id);
   }
 
+  /** The most recent event of a type on a card, or null. */
+  latest(projectKey: string, taskKey: string, type: TimelineEventType): TimelineEvent | null {
+    return this.ctx.repos.timeline.latestOfType(projectKey, taskKey, type);
+  }
+
   /** Most recent events, oldest first. */
   list(projectKey: string, opts: { taskKey?: string; limit?: number } = {}): TimelineEvent[] {
     return this.ctx.repos.timeline.list(projectKey, opts);

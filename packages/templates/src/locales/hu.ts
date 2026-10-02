@@ -336,6 +336,11 @@ export const hu: TemplateLocale = {
       name: 'Válaszra vár',
       meaning: 'Külső válaszra vár; amíg rajta van, a feladat nem léphet tovább.',
     },
+    refine: {
+      name: 'Kidolgozásra vár',
+      meaning:
+        'A kártyát a fejlesztés előtt kidolgozzák, lépésenként, egyszerre egy taggal; a címkét a rendszer leveszi, amikor kész.',
+    },
   },
   stageApproval: (stageName) => `${stageName}: jóváhagyva`,
   specialist: (specialty, roleName) => `${specialty} ${lowerFirstWord(roleName)}`,

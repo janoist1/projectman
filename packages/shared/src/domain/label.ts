@@ -70,6 +70,13 @@ export const PR_MERGED_LABEL = 'pr-merged';
  */
 export const WAITING_ANSWER_LABEL = 'waiting-answer';
 
+/**
+ * Id of the standard label that sends a card to be worked out before development (decision 31): a
+ * card that carries it is refined one step at a time, by one member at a time, and the system takes
+ * it off when the gates before the work stage are met.
+ */
+export const REFINE_LABEL = 'refine';
+
 /** Labels only humans may set: the ones that stand for approvals and decisions. */
 export function isHumanOnlyLabel(label: Pick<LabelDefinition, 'setBy'>): boolean {
   return label.setBy === 'humans' || (typeof label.setBy === 'object' && label.setBy.humansOnly === true);

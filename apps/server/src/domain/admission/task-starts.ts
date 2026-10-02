@@ -5,6 +5,7 @@ import {
   isOpenTask,
   isTheme,
   memberOf,
+  projectRefines,
   roleBundle,
   stageIndex,
   stageOf,
@@ -166,7 +167,15 @@ export class TaskStarts {
     // PM-248: the gate of the stage the card is in holds the Start too; a label only a person
     // sets there is no approval this Start can ask for, so it is refused before anyone is started.
     if (needsMove) refuseOwnStageApproval(task, evaluateStart(task, config, workStage.id));
-    if (needsMove && opts.startSetters && opts.actor.kind === 'human' && this.labelWait) {
+    // A project with refinement works its cards out first (decision 31): the Start button does not
+    // start their setters, it is refused until the card is worked out.
+    if (
+      needsMove &&
+      opts.startSetters &&
+      opts.actor.kind === 'human' &&
+      this.labelWait &&
+      !projectRefines(config)
+    ) {
       const waiting = await this.startLabelSetters(config, task, workStage, opts);
       if (waiting) return { ...skipped, task: this.tasks.get(projectKey, taskKey), awaiting: waiting };
     }

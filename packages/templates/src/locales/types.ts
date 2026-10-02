@@ -44,7 +44,8 @@ export type StandardLabelId =
   | 'pr-merged'
   | 'merge-approved'
   | 'release-approved'
-  | 'waiting-answer';
+  | 'waiting-answer'
+  | 'refine';
 
 export type TemplateId = 'web-client-project' | 'small-team' | 'internal-tool' | 'daily-routine';
 

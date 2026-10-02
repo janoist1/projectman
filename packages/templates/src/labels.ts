@@ -1,6 +1,7 @@
 import {
   DEFAULT_PROJECT_LANGUAGE,
   PR_MERGED_LABEL,
+  REFINE_LABEL,
   type GateCondition,
   type LabelDefinition,
 } from '@projectman/shared';
@@ -91,6 +92,8 @@ const STANDARD_LABEL_RULES: Record<StandardLabelId, LabelRules> = {
     clearedWhen: ['moved_back', 'pr_updated'],
   },
   'waiting-answer': { color: 'yellow', setBy: 'anyone', blocks: true },
+  // Sends the card to be worked out before development; the system takes it off when that is done.
+  [REFINE_LABEL]: { color: 'blue', setBy: { duties: ['prioritization', 'task_breakdown'] } },
 };
 
 const STANDARD_IDS = Object.keys(STANDARD_LABEL_RULES) as StandardLabelId[];

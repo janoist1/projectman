@@ -22,6 +22,7 @@ export const CONFIG_ISSUE_MESSAGES: Record<ConfigIssue['code'], PlainMessageKey>
   unknown_label: 'settings.issues.unknown_label',
   duplicate_label: 'settings.issues.duplicate_label',
   missing_label_setter: 'settings.issues.missing_label_setter',
+  refinement_step_manual: 'settings.issues.refinement_step_manual',
   release_without_human_approval: 'settings.issues.release_without_human_approval',
   release_approval_needs_duty: 'settings.issues.release_approval_needs_duty',
   conditional_release_gate: 'settings.issues.conditional_release_gate',

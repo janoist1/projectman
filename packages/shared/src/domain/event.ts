@@ -41,6 +41,7 @@ export const TimelineEventType = z.enum([
   'permission_escalated',
   'question_asked',
   'question_answered',
+  'refinement_turn',
   'member_hired',
   'member_retired',
   'config_changed',
@@ -216,6 +217,18 @@ export interface TimelineEventData {
   };
   question_asked: { inboxItemId: string; question: string };
   question_answered: { inboxItemId: string; answer: string };
+  /**
+   * The turn on a card that is being refined changed (PM-254): `label` is the label the step lacks
+   * and `member` the AI member started for it (null: nobody, the people who may set it were told, or
+   * `done`). `reason`: `started` the first step of this refinement, `label_set` the previous step's
+   * label is on, `label_removed` a label came off and the card went back a step, `done` the last label
+   * is on and the card was worked out (`label` is null then).
+   */
+  refinement_turn: {
+    label: string | null;
+    member: string | null;
+    reason: 'started' | 'label_set' | 'label_removed' | 'done';
+  };
   member_hired: { handle: string; role: string; temp: boolean; sponsor: string };
   member_retired: { handle: string; handoverTo: string | null };
   config_changed: { version: string; message: string };

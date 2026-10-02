@@ -4,6 +4,7 @@ export { DeferredStarts, StartSpec } from './deferred-starts';
 export type { AutomaticStart, DeferredStart, DeferredStartStore } from './deferred-starts';
 export { StageHandOver } from './hand-over';
 export { MessageStarts } from './message-starts';
+export { RefinementSteps } from './refinement';
 export { assertAiEnabled, assertRepoChosen, isDeferrable, waitingOf } from './rules';
 export { WorkStarts } from './work-starts';
 export { TaskStarts } from './task-starts';

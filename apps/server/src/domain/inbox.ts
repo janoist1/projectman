@@ -509,6 +509,10 @@ export class InboxService {
       task && task.projectKey === session.projectKey
         ? await this.attachmentDirectory?.(session.projectKey, task.key).catch(() => null)
         : null;
+    const parentAttachmentsDir =
+      task?.parentKey && task.projectKey === session.projectKey
+        ? await this.attachmentDirectory?.(session.projectKey, task.parentKey).catch(() => null)
+        : null;
     const readableRoots = readableRootsFor({
       config,
       cwd: session.cwd,
@@ -516,6 +520,7 @@ export class InboxService {
       task,
       worktreesRootDir: this.worktreesRootDir,
       attachmentsDir,
+      parentAttachmentsDir,
     });
     const verdict =
       member?.kind === 'ai'
@@ -547,7 +552,7 @@ export class InboxService {
         ? routePermissionRequest(config, session.member, {
             toolName: request.toolName,
             toolInput: request.toolInput,
-            roots: readableRoots.filter((root) => root !== attachmentsDir),
+            roots: readableRoots.filter((root) => root !== attachmentsDir && root !== parentAttachmentsDir),
             approver,
           })
         : null;

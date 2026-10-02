@@ -46,6 +46,12 @@ export interface ContextPackInput {
    */
   attachments?: Attachment[];
   /**
+   * The readable attachments of the task's direct parent (PM-228), named in the kick-off brief next to the
+   * task's own, since the team tools read them with the parent's key. Omitted when the task has no parent,
+   * the parent has none, or the member may not read the parent.
+   */
+  parentAttachments?: { taskKey: string; attachments: Attachment[] };
+  /**
    * The member's other running sessions on cards that belong with this task (PM-184), for the brief
    * and the continue message. Omitted (or empty) when there are none.
    */

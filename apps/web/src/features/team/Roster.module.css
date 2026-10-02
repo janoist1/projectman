@@ -177,6 +177,34 @@
   z-index: 1;
 }
 
+/* The state and the task share one line: "● Pihen · nincs feladata". */
+.cardState {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cardState .tasks {
+  flex: 1;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.cardState .taskLink {
+  min-width: 0;
+}
+
+.moreTasks {
+  flex-shrink: 0;
+}
+
+/* The handle line of a card stays on one line: the handle, one role chip and a "+N". */
+.card .handle {
+  flex-wrap: nowrap;
+}
+
 /* The name and the "⋯" menu share a row. */
 .cardHead {
   display: flex;

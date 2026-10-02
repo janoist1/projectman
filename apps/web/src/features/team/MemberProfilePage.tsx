@@ -24,6 +24,7 @@ import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
 import { Fold } from '../../components/Fold';
+import { Icon } from '../../components/Icon';
 import { ErrorBanner } from '../../components/ErrorBanner';
 import { Chip } from '../../components/Chip';
 import { PageHeader } from '../../components/PageHeader';
@@ -107,6 +108,7 @@ export function MemberProfilePage() {
   const [editing, setEditing] = useState(false);
   const [retiring, setRetiring] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [reply, setReply] = useState<TeamMessage | null>(null);
   const access = me.projects.find((p) => p.key === key)?.access;
   const internal = access !== 'client';
@@ -206,41 +208,12 @@ export function MemberProfilePage() {
           <p>
             {t('invites.access')}: {humanRoleName(member.role)}
           </p>
-        ) : (
-          <>
-            <ProviderBadge provider={member.provider} />
-            <p>
-              {member.model
-                ? providerModelLabel(member.provider ?? DEFAULT_AGENT_PROVIDER, member.model)
-                : t('common.dash')}{' '}
-              ·{' '}
-              {member.effort
-                ? t(`providerSettings.efforts.${member.effort}`)
-                : member.provider === 'codex'
-                  ? t('providerSettings.efforts.medium')
-                  : t('providerSettings.defaultEffort')}
-            </p>
-            {cheapSubagent ? (
-              <p>
-                {t('providerSettings.cheapSubagentProfile', {
-                  model: t(`providerSettings.cheapSubagentModels.${cheapSubagent}`),
-                })}
-              </p>
-            ) : null}
-            <p>{t('profile.capacity', { used: data.capacityUsed, max: data.capacity ?? 0 })}</p>
-            <PermissionLevelControl member={member} />
-            <PlanUsageMeter
-              provider={member.provider ?? DEFAULT_AGENT_PROVIDER}
-              usage={board.data?.planUsageByProvider[member.provider ?? DEFAULT_AGENT_PROVIDER]}
-              pauseAbove={config.data?.config.team.limits.pauseAbovePlanUsagePercent}
-            />
-          </>
-        )}
+        ) : null}
         {member.roles.map((role) => {
           const view = aiRoleView(role, member.specialty, roles.data?.roles);
           return (
             <div key={role} className={styles.role} aria-label={view.name}>
-              <h3>{view.name}</h3>
+              <h2 className={styles.panelTitle}>{view.name}</h2>
               {view.summary ? <p>{view.summary}</p> : null}
               {view.notTheirJob ? (
                 <p>
@@ -256,7 +229,7 @@ export function MemberProfilePage() {
           );
         })}
         {data.duties.length ? (
-          <>
+          <div className={styles.role}>
             <h2 className={styles.panelTitle}>{t('profile.duties')}</h2>
             <ul className={styles.chips}>
               {data.duties.map((duty) => (
@@ -265,7 +238,7 @@ export function MemberProfilePage() {
                 </li>
               ))}
             </ul>
-          </>
+          </div>
         ) : null}
         {data.email ? (
           <p>
@@ -326,6 +299,51 @@ export function MemberProfilePage() {
         {ai && internal && schedules.error ? <ErrorState compact error={schedules.error} /> : null}
       </div>
       {nothingYet.length ? <p className={styles.quiet}>{nothingYet.join(' ')}</p> : null}
+      {ai ? (
+        <details className={styles.fold} open={settingsOpen}>
+          <summary
+            className={styles.foldSummary}
+            aria-expanded={settingsOpen}
+            onClick={(event) => {
+              event.preventDefault();
+              setSettingsOpen(!settingsOpen);
+            }}
+          >
+            <Icon name="chevronRight" size={14} strokeWidth={2.4} className={styles.chevron} />
+            <h2 className={styles.panelTitle}>{t('profile.settings')}</h2>
+          </summary>
+          <div className={styles.settings}>
+            <div className={styles.modelLine}>
+              <ProviderBadge provider={member.provider} />
+              <span>
+                {member.model
+                  ? providerModelLabel(member.provider ?? DEFAULT_AGENT_PROVIDER, member.model)
+                  : t('common.dash')}{' '}
+                ·{' '}
+                {member.effort
+                  ? t(`providerSettings.efforts.${member.effort}`)
+                  : member.provider === 'codex'
+                    ? t('providerSettings.efforts.medium')
+                    : t('providerSettings.defaultEffort')}
+              </span>
+            </div>
+            {cheapSubagent ? (
+              <p>
+                {t('providerSettings.cheapSubagentProfile', {
+                  model: t(`providerSettings.cheapSubagentModels.${cheapSubagent}`),
+                })}
+              </p>
+            ) : null}
+            <p>{t('profile.capacity', { used: data.capacityUsed, max: data.capacity ?? 0 })}</p>
+            <PermissionLevelControl member={member} />
+            <PlanUsageMeter
+              provider={member.provider ?? DEFAULT_AGENT_PROVIDER}
+              usage={board.data?.planUsageByProvider[member.provider ?? DEFAULT_AGENT_PROVIDER]}
+              pauseAbove={config.data?.config.team.limits.pauseAbovePlanUsagePercent}
+            />
+          </div>
+        </details>
+      ) : null}
       {ai && internal ? (
         <>
           {live.length || pastSessions.length ? (

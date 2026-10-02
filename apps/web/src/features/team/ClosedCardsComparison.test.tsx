@@ -113,6 +113,36 @@ describe('closed cards comparison (PM-222)', () => {
     );
   });
 
+  it('says the model source in one sentence and keeps the weighted-token note behind a fold (PM-240)', async () => {
+    const project = measuredProject();
+    project.render(<ClosedCardsComparison />);
+    await screen.findByRole('table');
+    expect(screen.getByText(t('cardMeasure.hint')).closest('details')).toBeNull();
+    const details = screen.getByText(t('cardMeasure.weightedHintSummary')).closest('details')!;
+    expect(details.open).toBe(false);
+    expect(within(details).getByText(t('cardMeasure.weightedHint'))).toBeTruthy();
+    fireEvent.click(screen.getByText(t('cardMeasure.weightedHintSummary')));
+    expect(details.open).toBe(true);
+  });
+
+  it('shows the explanation only above a table, not while loading or when nothing closed (PM-240)', async () => {
+    const project = measuredProject();
+    project.render(<ClosedCardsComparison />);
+    expect(screen.queryByText(t('cardMeasure.hint'))).toBeNull();
+    expect(screen.queryByText(t('cardMeasure.weightedHintSummary'))).toBeNull();
+    await screen.findByRole('table');
+    expect(screen.getByText(t('cardMeasure.hint'))).toBeTruthy();
+  });
+
+  it('has no explanation when no card closed in the period, as there is no table (PM-240)', async () => {
+    const project = mockProject();
+    for (const task of project.backend.tasks) task.closedAt = null;
+    project.render(<ClosedCardsComparison />);
+    await screen.findByText(t('cardMeasure.empty'));
+    expect(screen.queryByText(t('cardMeasure.hint'))).toBeNull();
+    expect(screen.queryByText(t('cardMeasure.weightedHintSummary'))).toBeNull();
+  });
+
   it('sorts by weighted tokens and by review rounds, and takes another period', async () => {
     const project = measuredProject();
     project.render(<ClosedCardsComparison />);

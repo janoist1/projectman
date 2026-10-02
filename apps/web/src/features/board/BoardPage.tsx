@@ -25,7 +25,8 @@ import type { BoardEntry } from './useBoardModel';
 import { useLabels, useMoveTask } from '../../api/queries';
 import { useToast } from '../../components/toastContext';
 import { isApprovalRequested } from '../../lib/errors';
-import { canMoveTask, dropStage, moveErrorText } from './moveTask';
+import { PrerequisiteWarning } from './PrerequisiteWarning';
+import { canMoveTask, dropStage, moveErrorText, prerequisitesToWarnAbout } from './moveTask';
 import styles from './BoardPage.module.css';
 
 const inProgress: ReadonlySet<TaskPhase> = new Set(['needs_you', 'working', 'waiting', 'blocked']);
@@ -188,6 +189,8 @@ export function BoardPage() {
   const [dragged, setDragged] = useState<Task | null>(null);
   const [targetColumn, setTargetColumn] = useState<string | null>(null);
   const [pending, setPending] = useState<{ taskKey: string; stageId: string } | null>(null);
+  // A drop that waits for the person to accept the open prerequisites (PM-204).
+  const [warning, setWarning] = useState<{ taskKey: string; stageId: string; keys: string[] } | null>(null);
   const [filter, setFilter] = useState<BoardFilter>('all');
   const selected = useMatch('/p/:projectKey/tasks/:taskKey')?.params.taskKey ?? null;
   const uploadingCounts = useUploadingCounts();
@@ -213,6 +216,19 @@ export function BoardPage() {
     () => searched.filter((entry) => matchesFilter(entry.state.phase, filter)),
     [searched, filter],
   );
+
+  const runMove = (variables: { taskKey: string; stageId: string; despitePrerequisites?: boolean }) => {
+    setPending(variables);
+    move.mutate(variables, {
+      onSuccess: () => toast.show(t('task.move.success')),
+      onError: (error) =>
+        toast.show(
+          moveErrorText(error, board.data?.labels ?? []),
+          isApprovalRequested(error) ? 'info' : 'error',
+        ),
+      onSettled: () => setPending(null),
+    });
+  };
 
   if (board.isPending) return <LoadingState />;
   if (board.isError) return <ErrorState error={board.error} onRetry={() => void board.refetch()} />;
@@ -252,17 +268,10 @@ export function BoardPage() {
       if (!dragged || !canMoveTask(dragged, can.createTasks) || isMobile || pending) return;
       const stageId = dropStage(dragged, column, pipeline);
       if (!stageId) return;
-      const variables = { taskKey: dragged.key, stageId };
-      setPending(variables);
-      move.mutate(variables, {
-        onSuccess: () => toast.show(t('task.move.success')),
-        onError: (error) =>
-          toast.show(
-            moveErrorText(error, board.data?.labels ?? []),
-            isApprovalRequested(error) ? 'info' : 'error',
-          ),
-        onSettled: () => setPending(null),
-      });
+      // A card that would start with an open prerequisite asks first (PM-204).
+      const open = prerequisitesToWarnAbout(dragged, stageId, pipeline, board.data?.tasks ?? []);
+      if (open.length > 0) setWarning({ taskKey: dragged.key, stageId, keys: open });
+      else runMove({ taskKey: dragged.key, stageId });
     },
   };
 
@@ -381,6 +390,20 @@ export function BoardPage() {
           })}
         </div>
       )}
+      <PrerequisiteWarning
+        keys={warning?.keys ?? null}
+        tasks={board.data.tasks}
+        onConfirm={() => {
+          if (warning)
+            runMove({ taskKey: warning.taskKey, stageId: warning.stageId, despitePrerequisites: true });
+          setWarning(null);
+        }}
+        onWait={() => {
+          if (warning) runMove({ taskKey: warning.taskKey, stageId: warning.stageId });
+          setWarning(null);
+        }}
+        onClose={() => setWarning(null)}
+      />
       <Outlet />
     </div>
   );

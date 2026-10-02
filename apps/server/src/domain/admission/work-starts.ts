@@ -67,6 +67,7 @@ export class WorkStarts {
       from: change.from,
       to: change.to,
       actor: change.actor,
+      ...(change.despitePrerequisites ? { despitePrerequisites: true } : {}),
     });
     try {
       await this.attempt(start);
@@ -103,7 +104,8 @@ export class WorkStarts {
       spec: () => ({ ...spec, assignee: assigned }),
       stillValid,
       waitsFor: () => waitsFor,
-      defers: ['no_free_member'],
+      // A card with an open prerequisite waits for the last one to close (PM-204).
+      defers: ['no_free_member', 'prerequisite_open'],
       retry: () => this.attempt(start),
       log: {
         deferred: 'work start deferred',
@@ -120,6 +122,7 @@ export class WorkStarts {
           actor,
           author: SYSTEM_AUTHOR,
           stillWanted: stillValid,
+          despitePrerequisites: spec.despitePrerequisites,
           onChosen: (member) => {
             waitsFor = member?.handle;
           },

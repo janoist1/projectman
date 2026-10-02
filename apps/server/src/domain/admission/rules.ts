@@ -1,4 +1,4 @@
-import { isOnLeave, repoRequired } from '@projectman/shared';
+import { isOnLeave, openPrerequisites, repoRequired } from '@projectman/shared';
 import type {
   AgentProvider,
   ErrorCode,
@@ -42,16 +42,30 @@ export function assertRepoChosen(config: ProjectConfig, role: string, task: Task
   );
 }
 
+/**
+ * A card whose prerequisite (PM-192) is not closed does not start by itself (`prerequisite_open`,
+ * with the open keys in the details): the automatic work start waits for the last one to close
+ * (`AutomaticStart.defers`), and a person's start is refused until they start despite the warning.
+ */
+export function assertPrerequisitesClosed(task: Task, tasks: readonly Task[]): void {
+  const open = openPrerequisites(task, tasks).map((card) => card.key);
+  if (open.length > 0)
+    throw conflict('prerequisite_open', `task ${task.key} waits for ${open.join(', ')}`, {
+      prerequisites: open,
+    });
+}
+
 /** Why a start waits, as a task shows it. */
 export type WaitingReason = TaskStartWaiting['reason'];
 
 /**
  * The reasons every automatic start waits for that a later retry can overcome. Every reason the
  * board shows but `repo_required`: only a person's choice clears that one, so the start fails
- * instead of waiting (the task shows why, see `TaskStore`). `no_free_member` is one only for the
- * start that picks its developer itself (`AutomaticStart.defers`).
+ * instead of waiting (the task shows why, see `TaskStore`). `no_free_member` and
+ * `prerequisite_open` are ones only for the start that picks its developer itself and moves a
+ * card into work (`AutomaticStart.defers`).
  */
-type DeferrableReason = Exclude<WaitingReason, 'repo_required' | 'no_free_member'>;
+type DeferrableReason = Exclude<WaitingReason, 'repo_required' | 'no_free_member' | 'prerequisite_open'>;
 
 /** Admission refusals that a later retry can overcome; an automatic start waits for them. */
 const DEFERRABLE = new Set<ErrorCode>([
@@ -83,13 +97,15 @@ export function waitingOf(
   err: DomainError & { code: WaitingReason },
   opts: { member?: string; previous?: TaskStartWaiting; at: string },
 ): TaskStartWaiting {
-  const details = err.details as { provider?: AgentProvider; threshold?: number } | undefined;
+  const details = err.details as
+    { provider?: AgentProvider; threshold?: number; prerequisites?: string[] } | undefined;
   return {
     reason: err.code,
     member: opts.member,
     ...(err.code === 'plan_usage_paused'
       ? { provider: details?.provider, threshold: details?.threshold }
       : {}),
+    ...(err.code === 'prerequisite_open' ? { prerequisites: details?.prerequisites } : {}),
     since: opts.previous?.since ?? opts.at,
   };
 }

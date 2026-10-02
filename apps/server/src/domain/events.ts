@@ -28,6 +28,8 @@ export interface DomainEventMap {
   task_stage_changed: StageChange;
   /** A task was cancelled. */
   task_cancelled: Task;
+  /** A prerequisite relation of this task was removed (PM-204): its start may no longer have to wait. */
+  task_prerequisite_removed: Task;
   /** Someone other than the assignee put labels on a task that notify its assignee. */
   task_labels_notice: { task: Task; labels: string[]; actor: Actor; comment?: string };
   /** A task's description was changed (PM-184): the sessions working the card are told. */

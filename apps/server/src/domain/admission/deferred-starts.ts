@@ -31,6 +31,8 @@ export const StartSpec = z.discriminatedUnion('kind', [
     to: z.string(),
     actor: Actor,
     assignee: MemberHandle.optional(),
+    /** A person moved the card after the warning that a prerequisite is open (PM-204): it does not wait for it. */
+    despitePrerequisites: z.boolean().optional(),
   }),
   /** The wake-up of an AI recipient of waiting messages; `stageId` is the task's stage when it was tried. */
   z.object({

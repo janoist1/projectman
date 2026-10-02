@@ -461,8 +461,17 @@ export function useReopenTask(key: string) {
 export function useMoveTask(key: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ taskKey, stageId }: { taskKey: string; stageId: string }) =>
-      api.updateTask(key, taskKey, { stageId }),
+    mutationFn: ({
+      taskKey,
+      stageId,
+      despitePrerequisites,
+    }: {
+      taskKey: string;
+      stageId: string;
+      /** A person moves the card after the warning that a prerequisite is open (PM-204). */
+      despitePrerequisites?: boolean;
+    }) =>
+      api.updateTask(key, taskKey, { stageId, ...(despitePrerequisites ? { despitePrerequisites } : {}) }),
     onSettled: async (_data, _error, { taskKey }) => {
       await Promise.all([
         client.invalidateQueries({ queryKey: queryKeys.board(key) }),

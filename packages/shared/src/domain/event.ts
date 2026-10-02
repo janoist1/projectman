@@ -23,6 +23,7 @@ export const TimelineEventType = z.enum([
   'task_link_added',
   'task_relation_added',
   'task_relation_removed',
+  'task_prerequisite_closed',
   'task_note',
   'attachment_added',
   'attachment_deleted',
@@ -141,6 +142,12 @@ export interface TimelineEventData {
    */
   task_relation_added: { kind: string; ref: string };
   task_relation_removed: { kind: string; ref: string };
+  /**
+   * A prerequisite of this card closed (PM-204): `ref` is the prerequisite, `status` how it closed
+   * (`done` or `cancelled`), `remaining` the prerequisites still open (none: the card is free).
+   * Recorded on every open card that needed it.
+   */
+  task_prerequisite_closed: { ref: string; status: string; remaining: string[] };
   task_note: { text: string; mentions?: string[]; importedAuthor?: string; importedAt?: string };
   /** The file name is the sanitised metadata; the audit keeps it after the attachment is deleted. */
   attachment_added: { attachmentId: string; fileName: string; size: number; mediaType: string };

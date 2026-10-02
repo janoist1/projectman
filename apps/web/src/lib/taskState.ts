@@ -86,6 +86,7 @@ function startWaitingLabel(task: Task, ctx: TaskStateContext): string {
   return t(`taskStatus.startWaiting.${waiting.reason}`, {
     provider: t(`providers.${waiting.provider ?? DEFAULT_AGENT_PROVIDER}`),
     percent: waiting.threshold ?? '',
+    prerequisites: (waiting.prerequisites ?? []).join(', '),
     name: waiting.member ? nameOf(waiting.member, ctx.members, ctx.myHandle) : t('taskStatus.stageOwners'),
   });
 }

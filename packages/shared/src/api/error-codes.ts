@@ -108,6 +108,9 @@ export const ERROR_CODES = [
   'member_on_leave',
   'previous_run_live',
   'repo_required',
+  // A card whose prerequisite is not closed (PM-204): an automatic start waits, a person's start is
+  // refused until the request says they start despite the warning.
+  'prerequisite_open',
   'no_free_member',
   'no_work_stage',
   'not_stage_owner',

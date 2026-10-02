@@ -54,7 +54,14 @@ export function ConversationList({
   // Coming back from a conversation the focus returns to its row.
   useEffect(() => {
     if (!focusPeer) return;
-    nav.current?.querySelector<HTMLElement>(`[data-peer="${focusPeer}"]`)?.focus();
+    // Compare instead of building a selector: a peer from the address may hold any character.
+    const rowElements = nav.current?.querySelectorAll<HTMLElement>('[data-peer]') ?? [];
+    for (const element of rowElements) {
+      if (element.dataset.peer === focusPeer) {
+        element.focus();
+        break;
+      }
+    }
   }, [focusPeer]);
   return (
     <nav ref={nav} className={styles.list} aria-label={t('messages.list.label')}>

@@ -60,6 +60,65 @@ describe('board API', () => {
     },
   );
 
+  it('sends a client no key of an internal card an AI member works on, on the board, the member list and the profile (PM-244)', async () => {
+    const { domain } = h.app.projectman;
+    const member = await domain.members.hire('AR', { role: 'qa' }, by);
+    const internal = await domain.tasks.create(
+      'AR',
+      { title: 'Internal job', visibility: 'internal' },
+      OWNER_ACTOR,
+    );
+    const shared = await domain.tasks.create(
+      'AR',
+      { title: 'Shared job', visibility: 'shared' },
+      OWNER_ACTOR,
+    );
+    for (const task of [internal, shared]) {
+      const { session } = await domain.sessions.ensureSession('AR', member.handle, {
+        type: 'task',
+        taskKey: task.key,
+      });
+      h.runner.setState(session.id, 'working', 'Bash: npm test');
+    }
+    const invite = await inject(h.app, 'POST', '/api/projects/AR/invites', cookie, {
+      email: 'client@example.test',
+      access: 'client',
+      roles: [],
+    });
+    const accepted = await inject(
+      h.app,
+      'POST',
+      invite.json().path.replace('/invite/', '/api/invites/') + '/accept',
+      null,
+      { name: 'Fictional client', password: 'correct horse battery' },
+    );
+    const login = cookieOf(accepted);
+    const workKeys = (m: MemberView | undefined) => (m?.taskWork ?? []).map((w) => w.taskKey);
+    const get = async (path: string, as: string) =>
+      (await inject(h.app, 'GET', `/api/projects/AR/${path}`, as)).json();
+
+    const clientBoard = BoardView.parse(await get('board', login));
+    const ownerBoard = BoardView.parse(await get('board', cookie));
+    const ownerMember = ownerBoard.members.find((m) => m.handle === member.handle);
+    expect(workKeys(ownerMember).sort()).toEqual([internal.key, shared.key].sort());
+    expect(ownerMember?.currentTaskKeys).toContain(internal.key);
+    const clientMember = clientBoard.members.find((m) => m.handle === member.handle);
+    expect(workKeys(clientMember)).toEqual([shared.key]);
+    expect(clientMember?.currentTaskKeys).toEqual([shared.key]);
+    expect(JSON.stringify(clientBoard)).not.toContain(internal.key);
+
+    const clientList = (await get('members', login)) as MemberView[];
+    const clientListed = clientList.find((m) => m.handle === member.handle);
+    expect(workKeys(clientListed)).toEqual([shared.key]);
+    expect(clientListed?.currentTaskKeys).toEqual([shared.key]);
+    const ownerList = (await get('members', cookie)) as MemberView[];
+    expect(workKeys(ownerList.find((m) => m.handle === member.handle))).toHaveLength(2);
+
+    const clientProfile = JSON.stringify(await get(`members/${member.handle}/profile`, login));
+    expect(clientProfile).not.toContain(internal.key);
+    expect(clientProfile).toContain(shared.key);
+  });
+
   it('uses the runner’s per-provider plan usage for snapshots and fetched events', async () => {
     const module = h.runnerModule.createWithBroker(h.runnerModule.broker());
     const values = { claude: planUsage(12), codex: planUsage(34) };

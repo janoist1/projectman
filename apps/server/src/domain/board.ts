@@ -55,7 +55,7 @@ export class BoardService {
       stages: resolvedStages(config),
       labels: config.pipeline.labels.map((label) => ({ ...label, holders: labelHolders(config, label) })),
       tasks: visibleTasks(viewer, this.tasks.list(projectKey)),
-      members: this.members.rosterFor(config),
+      members: this.members.rosterForViewer(config, viewer),
       openInboxCount: this.inbox.countOpenFor(projectKey, viewer.handle),
       planUsage: planUsageByProvider.claude ?? null,
       planUsageByProvider,

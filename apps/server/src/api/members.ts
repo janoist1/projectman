@@ -17,8 +17,8 @@ type MemberParams = { Params: { key: string; handle: string } };
 
 export function registerMemberRoutes(app: FastifyInstance, domain: Domain): void {
   app.get<ProjectParams>(routes.members(':key'), async (request): Promise<MemberView[]> => {
-    await requireAccess(domain, request, request.params.key);
-    return domain.members.roster(request.params.key);
+    const access = await requireAccess(domain, request, request.params.key);
+    return domain.members.rosterOf(request.params.key, access);
   });
 
   app.get<MemberParams>(routes.memberProfile(':key', ':handle'), async (request): Promise<MemberProfile> => {

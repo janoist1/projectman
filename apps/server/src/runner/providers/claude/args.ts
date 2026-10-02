@@ -350,7 +350,7 @@ export function buildClaudeArgs(spec: StartSessionSpec, settings: ClaudeSettings
   args.push('--strict-mcp-config', '--no-chrome');
   // Only the built-in tools the role needs (PM-221), the same on a new and on a resumed session. One
   // comma-separated value: the flag is variadic, so it must be followed by another flag, never a value.
-  args.push('--tools', claudeBuiltinTools(spec.policy).join(','));
+  args.push('--tools', claudeBuiltinTools().join(','));
   // The managed VM's start is also protected from the project's own settings (PM-49); the user's
   // file is inspected before the start.
   if (isManagedVm(spec.policy)) args.push('--setting-sources', 'user');

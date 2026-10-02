@@ -517,6 +517,8 @@ describe('the built-in tools and skills of a member session (PM-221)', () => {
   const toolsOf = (args: string[]) => args[args.indexOf('--tools') + 1]!.split(',');
   const core = [
     'Read',
+    'Edit',
+    'Write',
     'Bash',
     'TaskStop',
     'WebFetch',
@@ -528,24 +530,21 @@ describe('the built-in tools and skills of a member session (PM-221)', () => {
   const settingsFor = (policy: NonNullable<StartSessionSpec['policy']>) =>
     buildSettings({ hookUrl: 'http://h/hooks/t', allowedTools: [], permissionTimeoutMs: 1000, policy });
 
-  it.each([false, true])(
-    'passes --tools with Edit and Write only for a writing role, resume=%s',
-    (resume) => {
-      for (const [access, managed] of [
-        ['task_worktree', false],
-        ['member_workspace', true],
-      ] as const) {
-        const policy = policyFor(access, managed);
-        const args = buildClaudeArgs({ ...spec, resume, policy }, settingsFor(policy));
-        expect(toolsOf(args)).toEqual([...core, 'Edit', 'Write']);
-      }
-      for (const access of ['read_only', 'review_copy'] as const) {
-        const policy = policyFor(access);
-        const args = buildClaudeArgs({ ...spec, resume, policy }, settingsFor(policy));
-        expect(toolsOf(args)).toEqual(core);
-      }
-    },
-  );
+  // Every role gets Edit and Write, a reading one too: what it must not change is kept by the deny
+  // rules and the sandbox, and its prompts name the file tools (architect's decision on PM-221).
+  it.each([false, true])('passes the same --tools with Edit and Write to every role, resume=%s', (resume) => {
+    for (const [access, managed] of [
+      ['task_worktree', false],
+      ['member_workspace', true],
+      ['read_only', false],
+      ['review_copy', false],
+    ] as const) {
+      const policy = policyFor(access, managed);
+      const args = buildClaudeArgs({ ...spec, resume, policy }, settingsFor(policy));
+      expect(toolsOf(args)).toEqual(core);
+      expect(toolsOf(args)).toEqual(expect.arrayContaining(['Edit', 'Write']));
+    }
+  });
 
   it('leaves out the tools a member never uses, and ends the variadic flag', () => {
     const policy = policyFor('task_worktree');
@@ -559,6 +558,9 @@ describe('the built-in tools and skills of a member session (PM-221)', () => {
       'ScheduleWakeup',
       'SendMessage',
       'ListAgents',
+      'NotebookEdit',
+      'Grep',
+      'Glob',
       'Skill',
     ])
       expect(tools).not.toContain(left);
@@ -566,9 +568,9 @@ describe('the built-in tools and skills of a member session (PM-221)', () => {
     expect(args[args.indexOf('--tools') + 2]).toMatch(/^-/);
   });
 
-  it('keeps the legacy start without a policy on the writer list', () => {
+  it('passes the same list to a start without a policy', () => {
     const args = buildClaudeArgs(spec, settingsFor(policyFor('task_worktree')));
-    expect(toolsOf(args)).toEqual([...core, 'Edit', 'Write']);
+    expect(toolsOf(args)).toEqual(core);
   });
 
   it('turns the bundled skills off on every profile', () => {

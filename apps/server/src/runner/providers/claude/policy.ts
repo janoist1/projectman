@@ -41,7 +41,9 @@ function denyFileRules(target: string): string[] {
 
 /**
  * The built-in Claude Code tools every member session gets (PM-221), and why each stays:
- * - Read, Bash: the work itself;
+ * - Read, Edit, Write, Bash: the work itself. A reading role gets Edit and Write too (it had them
+ *   before PM-221, and the prompts name them, e.g. for a file in `$TMPDIR`): what it must not change
+ *   is kept by the deny rules and the sandbox (PM-167, PM-188), not by this list;
  * - TaskStop: ends a background command the session started;
  * - WebFetch, WebSearch: reading documentation (the network rules and the denied hosts limit them);
  * - Agent: the cheap subagent (PM-179);
@@ -51,8 +53,10 @@ function denyFileRules(target: string): string[] {
  * triggers, worktree and plan mode tools, notebooks...) is left out: a tool's description is paid
  * for in every step, and several of them act with the owner's account or reach their other sessions.
  */
-const CORE_BUILTIN_TOOLS = [
+const BUILTIN_TOOLS = [
   'Read',
+  'Edit',
+  'Write',
   'Bash',
   'TaskStop',
   'WebFetch',
@@ -62,18 +66,12 @@ const CORE_BUILTIN_TOOLS = [
   'AskUserQuestion',
 ] as const;
 
-/** The file-changing built-in tools, only for a role that works in a repository of its own. */
-const WRITE_BUILTIN_TOOLS = ['Edit', 'Write'] as const;
-
 /**
- * The `--tools` list of a session: the built-in set it may use, by the role's tool rule. A role that
- * only reads (a read-only placement, a review copy) gets no Edit and no Write; a writer
- * (`task_worktree`, `member_workspace`) does. A start without a policy is a legacy one and gets the
- * writer's list. MCP tools (the team server) are not part of `--tools`.
+ * The `--tools` list of a session: the built-in set it may use, the same for every role and profile.
+ * MCP tools (the team server) are not part of `--tools`.
  */
-export function claudeBuiltinTools(policy: Pick<SessionPolicy, 'access'> | undefined): string[] {
-  const readsOnly = policy?.access === 'read_only' || policy?.access === 'review_copy';
-  return readsOnly ? [...CORE_BUILTIN_TOOLS] : [...CORE_BUILTIN_TOOLS, ...WRITE_BUILTIN_TOOLS];
+export function claudeBuiltinTools(): string[] {
+  return [...BUILTIN_TOOLS];
 }
 
 export function claudeToolRules(

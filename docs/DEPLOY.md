@@ -146,6 +146,175 @@ client can reach the proxy directly with its own value for the header, it can pi
 address and gets a fresh per-client budget each time (the shared cap of 50 still holds).
 Behind `tailscale serve` there is no such header: leave the variable unset.
 
+## Public entry through Cloudflare Tunnel and Access (PM-200)
+
+The owner's live instance (the Mac, `127.0.0.1:4800`) is reached publicly at
+`https://chopper.istvan.io`, behind **Cloudflare Access** (who may come in) and a **Cloudflare
+Tunnel** (how the request gets to the Mac). The server and the UI stay on the Mac: there is no
+separate frontend hosting and no inbound port. The tunnel is an outbound connection from
+`cloudflared`; the only listener stays loopback. Cloudflare terminates TLS and sees the traffic
+in clear (see "Public entrance through Cloudflare" in [SECURITY.md](SECURITY.md)). Projectman's
+own login still applies after Access: Access is a second lock, not a replacement.
+
+Files: [config.example.yml](../deploy/cloudflare/config.example.yml) (the tunnel's ingress
+rules, no secrets) and [check.sh](../deploy/cloudflare/check.sh) (the verification below). Do the
+steps in this order: the Access application must exist before the hostname points at the Mac,
+or the hostname is open to everybody for the minutes in between.
+
+### 1. Cloudflare account
+
+Create or open the account and protect it with a **passkey or a hardware security key** (not
+only a password and an authenticator code or SMS). Whoever controls this account can change
+Access, the DNS and the tunnel, which is the same as full access to the Mac. Keep the recovery
+codes offline and enable no API token you do not need.
+
+### 2. The istvan.io zone
+
+1. Add `istvan.io` as a site (the free plan is enough).
+2. Cloudflare imports the DNS records it finds. **Compare them with the current zone** at the
+   registrar or DNS host, record by record: the scan misses some (MX, SPF/DKIM/DMARC TXT,
+   verification records, other subdomains). Add what is missing.
+3. Leave every existing record **DNS only** (grey cloud), mail records especially (MX cannot be
+   proxied). The only proxied record is the one the tunnel creates in step 4.
+4. If DNSSEC is on at the registrar, turn it off before changing the nameservers and turn it on
+   again at Cloudflare afterwards.
+5. Set the two nameservers Cloudflare names at the registrar. The zone is active when the
+   dashboard says so; mail and the other sites keep working because the records are the same.
+
+### 3. Zero Trust team and the Access application
+
+1. Open Zero Trust, choose a team name (it is part of the login address,
+   `https://<team>.cloudflareaccess.com`), and the free plan.
+2. Under the login methods add **Google** or keep the built-in **One-time PIN** (a code sent to
+   the email address). Nothing else is needed.
+3. Access > Applications > Add an application > **Self-hosted**. Domain `chopper.istvan.io`,
+   no path (the whole hostname). Set the **session duration** (for example 24 hours; shorter is
+   safer, longer is less typing) and allow only the login methods you chose.
+4. Add one policy: action **Allow**, rule **Include > Emails** with the **exact email addresses**
+   of the people who may come in, one per address. Do **not** use "Emails ending in", "Everyone",
+   "Any valid service token" or a Service Auth/Bypass policy: each of them lets in somebody who
+   is not on the list (a whole domain, the whole internet, or a long-lived credential).
+5. Note the application's **Audience (AUD) tag** (Overview) and the team name: they go into the
+   tunnel's configuration.
+
+### 4. The tunnel on the Mac
+
+Install `cloudflared` (`brew install cloudflared`) and keep it updated. Use a **locally managed**
+configuration (a file you can read and review), not a token-managed tunnel: a token sits in the
+service definition and gives a tunnel to whoever reads it.
+
+```sh
+cloudflared tunnel login                       # opens the browser, writes ~/.cloudflared/cert.pem
+cloudflared tunnel create projectman           # writes ~/.cloudflared/<TUNNEL-UUID>.json, prints the UUID
+cloudflared tunnel route dns projectman chopper.istvan.io   # the proxied CNAME for the hostname
+chmod 700 ~/.cloudflared && chmod 600 ~/.cloudflared/*.json ~/.cloudflared/cert.pem
+```
+
+The credentials file (`<TUNNEL-UUID>.json`), the account certificate (`cert.pem`) and any tunnel
+token are secrets: keep them at mode **600 outside any repository** (`~/.cloudflared/`), and
+never write them into a document, a note, a task, a message, a commit or the clipboard history.
+After the DNS route exists `cert.pem` is no longer needed by the service; delete it and log in
+again when you need it.
+
+Copy [config.example.yml](../deploy/cloudflare/config.example.yml) to
+`~/.cloudflared/config.yml` and fill in the tunnel UUID, the credentials file's absolute path,
+the team name and the AUD tag. It has one hostname rule (`chopper.istvan.io` to
+`http://127.0.0.1:4800`), in front of it `404` rules for `^/hooks` and `^/mcp`, and a final
+catch-all `404`. Its `originRequest.access` block makes `cloudflared` verify the Access token
+before it passes a request on. Do not add `httpHostHeader` or any other Host rewrite (the server
+computes the expected origin from the Host header, and with a loopback Host a remote request
+would look local) and do not add a rule for port 4700 (the development server).
+
+Validate it before the first start. If `cloudflared` is not installed where you read this, this
+is a step for you, on the Mac:
+
+```sh
+cloudflared tunnel --config ~/.cloudflared/config.yml ingress validate
+cloudflared tunnel --config ~/.cloudflared/config.yml ingress rule https://chopper.istvan.io/hooks/x  # the 404 rule
+cloudflared tunnel --config ~/.cloudflared/config.yml ingress rule https://chopper.istvan.io/api/setup # the 4800 rule
+```
+
+Make the live instance count login attempts per real client: in the environment of the process
+that runs `npm start` add `PROJECTMAN_CLIENT_IP_HEADER=cf-connecting-ip` (see "Client address
+behind a public entrance" above) and restart it. Then run `cloudflared` as a launchd service:
+
+```sh
+cloudflared tunnel --config ~/.cloudflared/config.yml run projectman   # once in the foreground first; stop it with Ctrl-C
+sudo cloudflared service install                                      # reads ~/.cloudflared/config.yml
+launchctl list | grep -i cloudflared                                  # it is loaded
+```
+
+Check the plist the installer wrote and that it holds no token (`cloudflared service install`
+without an argument uses the config file); restrict it to its owner. After a change to the
+configuration, restart the service. If the installer puts the service where it does not read
+`~/.cloudflared`, give it the configuration as the installer's documentation says rather than
+copying the credentials elsewhere.
+
+### 5. Edge settings
+
+The dashboard moves these around; look for the feature by name, in the `istvan.io` zone.
+
+- **SSL/TLS > Edge Certificates:** **Always Use HTTPS** on; **HSTS** on (max age at least six
+  months; "include subdomains" and "preload" only if every other subdomain of `istvan.io` serves
+  HTTPS, because both are hard to undo). Minimum TLS version 1.2.
+- **Caching:** no "Cache Everything" rule, no Cache Rule or Page Rule that caches this
+  hostname. A cached API answer would be shown to somebody else. (A "Bypass cache" rule for the
+  hostname is allowed and harmless.)
+- **Everything that injects script into the pages is off:** **Rocket Loader**, **Email Address
+  Obfuscation** (Scrape Shield), the **automatic insertion of Web Analytics** (the JavaScript
+  beacon), Zaraz and any other feature that adds a script, a tag or rewrites the HTML. The
+  terminal shows code and secrets, and the pages must be exactly what the server sent.
+- **Rules > Transform Rules > Modify Response Header:** a rule for the hostname
+  `chopper.istvan.io` that sets, on **every response**, `Content-Security-Policy` to
+  `frame-ancestors 'none'` and `X-Frame-Options` to `DENY`. The server sets both itself (PM-211);
+  the rule also covers the answers it does not make (the Access login redirect, the tunnel's
+  404s).
+
+### 6. Verify
+
+Work from any computer. Log in to Access once with your own account (no service token is
+created, and the token this fetches expires with the Access session):
+
+```sh
+cloudflared access login https://chopper.istvan.io >/dev/null
+```
+
+Create a mode-0600 `login.json` (`{"email": "...", "password": "..."}`) of a projectman account
+and run the script, then remove the file:
+
+```sh
+LOGIN_JSON=$PWD/login.json bash deploy/cloudflare/check.sh   # or give another origin as the first argument
+rm -f login.json
+```
+
+The script prints one line per check and exits non-zero if one failed. It writes no secret and
+leaves no cookie file (it logs out the session it made). Without Access:
+`/`, `/api/setup` and `/ws` must not reach the application (a redirect to the Access login, or
+403). With your Access login: the session cookie is `Secure`; the own origin gives no
+`invalid_origin` and a foreign one gives 403 `invalid_origin`; `/ws` answers 101; `/hooks/x` and
+`/mcp/x` are 404; `POST /api/setup` is refused (`setup_requires_localhost`); and the answers
+carry `Strict-Transport-Security` and `frame-ancestors 'none'`. These extend the curl checks of
+the tailnet section above to the public address. The result goes on PM-200 (statuses, not tokens
+or cookies). Also try the login once from a browser in a private window with an email address
+that is **not** on the list: it must be refused at Access.
+
+### Inviting somebody
+
+The invitation link is built from the address in the browser (`InviteDialog`), so create the
+invitation while you have projectman open at `https://chopper.istvan.io`: the link then points
+there. Before you send it, add the invitee's email address to the Access application's policy
+(step 3, exact address): without it they stop at the Access login and never see the invitation.
+
+### Taking it down
+
+Remove in this order, and check each: delete the Access application; stop the service and
+remove it (`sudo cloudflared service uninstall`); delete the tunnel
+(`cloudflared tunnel cleanup projectman`, then `cloudflared tunnel delete projectman`); delete the
+`chopper` DNS record at Cloudflare; delete `~/.cloudflared/<TUNNEL-UUID>.json`, `cert.pem` and
+`config.yml`; remove `PROJECTMAN_CLIENT_IP_HEADER` from the live instance if nothing else sets
+that header. If the credentials file may have been seen by somebody else, delete the tunnel
+first and make a new one.
+
 ## GitHub attribution
 
 Optionally set `githubLogin: acme-developer` on a human or AI member in

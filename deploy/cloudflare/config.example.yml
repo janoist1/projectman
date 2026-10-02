@@ -1,0 +1,52 @@
+# Template for the public entrance of the live projectman (PM-200, PM-210); guide: docs/DEPLOY.md,
+# section "Public entry through Cloudflare Tunnel and Access".
+#
+# Copy it to ~/.cloudflared/config.yml (outside the repository, mode 600) and replace every
+# <PLACEHOLDER>. Nothing in this file is a secret, but the files it points to are: never commit,
+# paste or message the credentials file, the tunnel token or the account certificate.
+#
+# Check it with:
+#   cloudflared tunnel --config ~/.cloudflared/config.yml ingress validate
+#   cloudflared tunnel --config ~/.cloudflared/config.yml ingress rule https://chopper.istvan.io/hooks/x
+# (the second command must print the http_status:404 rule; /api/setup must print the 4800 rule).
+
+# The tunnel's id, printed by `cloudflared tunnel create <name>`.
+tunnel: <TUNNEL-UUID>
+# Written by `cloudflared tunnel create`. Keep it at mode 600, in a mode-700 directory, outside
+# the repository.
+credentials-file: /Users/<USER>/.cloudflared/<TUNNEL-UUID>.json
+
+# Rules are tried in order and the first match wins.
+ingress:
+  # The agents' internal endpoints (/hooks, /mcp) are for processes on this Mac only. They would
+  # refuse a remote request anyway; the entrance does not even pass it on.
+  - hostname: chopper.istvan.io
+    path: ^/hooks
+    service: http_status:404
+  - hostname: chopper.istvan.io
+    path: ^/mcp
+    service: http_status:404
+
+  # The live instance, and only it (never the development ports, 4700 or 5173).
+  #
+  # Deliberately NO `httpHostHeader` and no other Host rewrite: the server derives the expected
+  # origin from the Host header (https://chopper.istvan.io). Rewriting it to 127.0.0.1 would
+  # break the origin check and make a remote request look local.
+  - hostname: chopper.istvan.io
+    service: http://127.0.0.1:4800
+    originRequest:
+      # cloudflared verifies the Cloudflare Access token itself before it passes the request to
+      # this Mac, so a request that did not go through the Access application is refused here
+      # too.
+      access:
+        required: true
+        # The Zero Trust team name: <TEAM> in https://<TEAM>.cloudflareaccess.com
+        teamName: <TEAM>
+        # The Application Audience (AUD) tag of the Access application for chopper.istvan.io
+        # (Zero Trust > Access > Applications > the application > Overview).
+        audTag:
+          - <AUD-TAG>
+
+  # Everything else (another hostname pointed at this tunnel by mistake, no hostname at all).
+  # cloudflared requires the last rule to be a catch-all.
+  - service: http_status:404

@@ -269,7 +269,9 @@ claude | codex ── transcript JSONL ────────────▶ r
 
 - One HTTP port, bound to loopback. `/hooks` and `/mcp` accept only local connections with a
   per-session random token. Everything under `/api` and `/ws` requires a login cookie.
-  Remote access goes through `tailscale serve` ([SECURITY.md](SECURITY.md)).
+  Remote access goes through `tailscale serve` ([SECURITY.md](SECURITY.md)); the owner's live
+  instance is also public at chopper.istvan.io through a Cloudflare Tunnel behind Cloudflare
+  Access ([DEPLOY.md](DEPLOY.md), PM-200), which still ends at this one loopback port.
 - Session states come from hooks: SessionStart → idle, UserPromptSubmit → working,
   PermissionRequest → waiting_permission (a blocking call answered by the inbox decision,
   with a timeout), Stop → idle, SessionEnd or exit → exited; a lost login → failed.

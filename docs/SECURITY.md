@@ -10,6 +10,15 @@ users attempting actions outside their project membership and access level.
 Tailscale connectivity is not authentication. First-run setup is a local operation:
 complete it before granting other people access to the machine.
 
+The owner's live instance is also reachable from the internet at `https://chopper.istvan.io`
+(PM-200). The public entrance adds two attackers to the list: anybody on the internet who finds
+the address, and whoever gets into the Cloudflare account or the Access login. It is defended in
+layers: Cloudflare Access (an allow list of exact email addresses) in front, `cloudflared`
+re-checking the Access token before it passes a request on, only the application's own paths
+let through (not `/hooks` or `/mcp`), and projectman's own login, origin check and attempt
+limits behind them. See "Public entrance through Cloudflare" below for what it requires and what
+risk it leaves.
+
 The host owner, project owners, executable paths, repositories and agent CLI
 configuration are trusted. Developers can send terminal input and run code as the
 server's Unix user. Processes already running as that user can inspect credentials,
@@ -514,3 +523,49 @@ profile cannot be activated (its report check stays `unverified`).
    history. Rotate exposed capabilities, review log retention and redact secrets
    before sharing transcripts. Audit dependencies and installed CLI versions during
    deployment; dependency vulnerability scanning was outside this source review.
+
+### Public entrance through Cloudflare (PM-200, PM-210)
+
+The Cloudflare variant of points 2 and 3, for the live instance on the owner's Mac (set-up and
+verification: [DEPLOY.md](DEPLOY.md), [deploy/cloudflare](../deploy/cloudflare)):
+
+1. HTTPS ends at Cloudflare; `cloudflared` reaches the app over loopback and the edge sends
+   `X-Forwarded-Proto: https`, so cookies are Secure. The Host is preserved (no `httpHostHeader`
+   or other rewrite in the tunnel): the origin check and "is this request local" both depend on
+   it. Cloudflare adds the visitor's address (`X-Forwarded-For`), so the first-setup endpoint
+   treats remote requests as remote. `check.sh` verifies the Secure cookie, both origin cases and
+   the refusal of `POST /api/setup` against the real entrance.
+2. The Access application covers the whole hostname with one Allow policy of **exact email
+   addresses**. "Emails ending in", "Everyone" and service-token or bypass policies are not
+   allowed. The tunnel's `originRequest.access` makes `cloudflared` check the Access token (team
+   name and AUD tag) too. Login is by Google or a one-time code, with a stated session length.
+3. The tunnel answers 404 for `/hooks` and `/mcp` and for everything but the one hostname. The
+   only service is `127.0.0.1:4800`; the development ports are not served.
+4. Edge: Always Use HTTPS and HSTS on; nothing cached; Rocket Loader, Email Obfuscation, the
+   automatic Web Analytics beacon and every other script injection off; a response-header rule
+   sets `Content-Security-Policy: frame-ancestors 'none'` and `X-Frame-Options: DENY` on every
+   response (the server sets them too, PM-211).
+5. Set `PROJECTMAN_CLIENT_IP_HEADER=cf-connecting-ip` (PM-211) so the attempt limiters count
+   per real client.
+6. The tunnel's credentials file, its token and the account certificate stay at mode 600 outside
+   every repository and are never put into text, notes or messages. The Cloudflare account has a
+   passkey or hardware key.
+
+**Residual risks** (known when the owner chose this entrance, PM-200; they do not go away):
+
+- **Cloudflare sees all traffic in clear.** TLS ends at its edge, so it can read the terminal
+  (code, secrets typed or printed there, passwords), the pages and the API calls. For client
+  projects the owner decides, project by project, whether the contract allows that, before
+  work on it goes through this entrance.
+- **The Cloudflare account is equivalent to access to the Mac.** Whoever controls it can edit
+  the Access policy, add themselves, and reach projectman and from there a terminal running as the
+  Mac's user (see the threat model). The passkey or hardware key, a short Access session and a
+  review of the account's members and API tokens are the defence; there is no second one.
+- **The login limiter sees everyone as `127.0.0.1` until the client-address header is set.**
+  Without `PROJECTMAN_CLIENT_IP_HEADER` (or on a build from before PM-211) all remote clients
+  share one per-client budget (the shared cap of 50 still holds) and one failing client can lock
+  out the others. With it set, the address is Cloudflare's `cf-connecting-ip` for requests that
+  come from the loopback proxy.
+- A mistake in the Access policy (a wildcard rule, an extra policy) opens the second lock; the
+  login and the origin and attempt limits are then the only barrier. Re-read the policy after
+  every change and rerun `check.sh`.

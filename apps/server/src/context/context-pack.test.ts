@@ -429,9 +429,10 @@ describe('token economy (PM-181)', () => {
   });
 
   // The prompt and the kick-off brief together may not grow from the size they had before PM-181
-  // (measured on the snapshots of that time, in characters).
+  // (measured on the snapshots of that time, in characters). The developer's allowance grew once,
+  // to make room for the structural decision rule of PM-223.
   it.each([
-    { name: 'developer', handle: 'fe-1', system: 12901, brief: 862 },
+    { name: 'developer', handle: 'fe-1', system: 13002, brief: 862 },
     { name: 'code reviewer', handle: 'code-review', system: 11832, brief: 1900 },
   ])('does not grow the system prompt and brief of the $name', ({ handle, system, brief }) => {
     const pack =
@@ -2221,5 +2222,63 @@ describe('the managed VM profile (PM-141)', () => {
     ).appendSystemPrompt;
     expect(section(prompt, '# Session policy')).toContain('research-only (plan)');
     expect(section(prompt, '# Session policy')).not.toContain('run without asking, in any form');
+  });
+});
+
+describe('structural decisions (PM-223)', () => {
+  const RULE = 'Structural decisions are not yours to make.';
+  const roleText = (prompt: string) => section(prompt, '# Your role instructions');
+
+  it('names the architect to a developer when the team has one', async () => {
+    const project = buildProject();
+    addMember(project, 'architect', 'architect');
+    const pack = builder.build(input({ project, handle: 'fe-1', task: makeTask({ stageId: 'dev' }) }));
+    await expect(`${roleText(pack.appendSystemPrompt)}\n`).toMatchFileSnapshot(
+      '__snapshots__/developer-dev-architect.role-instructions.txt',
+    );
+  });
+
+  it('names every holder of the technical direction duty', () => {
+    const project = buildProject();
+    addMember(project, 'architect', 'architect');
+    addMember(project, 'architect-2', 'architect');
+    const pack = builder.build(input({ project, handle: 'fe-1', task: makeTask({ stageId: 'dev' }) }));
+    expect(roleText(pack.appendSystemPrompt)).toContain('ask `architect` or `architect-2` with send_message');
+  });
+
+  it('sends the question to a human with ask_human when nobody holds the duty', () => {
+    const pack = builder.build(input({ handle: 'fe-1', task: makeTask({ stageId: 'dev' }) }));
+    const role = roleText(pack.appendSystemPrompt);
+    expect(role).toContain(RULE);
+    expect(role).toContain('ask the human responsible with ask_human');
+    expect(role).not.toContain('ask `');
+  });
+
+  it('skips a retired architect', () => {
+    const project = buildProject();
+    addMember(project, 'architect', 'architect');
+    const team = teamOf(project).map((m) => (m.handle === 'architect' ? { ...m, status: 'retired' } : m));
+    const pack = builder.build(
+      input({ project, team: team as MemberView[], handle: 'fe-1', task: makeTask({ stageId: 'dev' }) }),
+    );
+    expect(roleText(pack.appendSystemPrompt)).toContain('ask the human responsible with ask_human');
+  });
+
+  it('leaves the rule out for a member who does not implement', () => {
+    const project = buildProject();
+    addMember(project, 'architect', 'architect');
+    for (const handle of ['code-review', 'qa', 'architect']) {
+      const pack = builder.build(input({ project, handle, task: makeTask({ stageId: 'dev' }) }));
+      expect(pack.appendSystemPrompt).not.toContain(RULE);
+    }
+  });
+
+  it('tells the architect to answer a structural question briefly and record the decision', async () => {
+    const project = buildProject();
+    addMember(project, 'architect', 'architect');
+    const pack = builder.build(input({ project, handle: 'architect', task: makeTask({ stageId: 'dev' }) }));
+    await expect(`${roleText(pack.appendSystemPrompt)}\n`).toMatchFileSnapshot(
+      '__snapshots__/architect.role-instructions.txt',
+    );
   });
 });

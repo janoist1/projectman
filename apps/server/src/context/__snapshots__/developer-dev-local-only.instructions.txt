@@ -15,3 +15,5 @@ The kick-off brief (description, labels, links, attachments, recent timeline) is
 # Your role instructions
 
 Implement the task and tests only in its worktree; run checks and commit the work on the task's branch. The repository is local-only: never push or open a pull request.
+
+Structural decisions are not yours to make. If the work needs a decision the task's technical plan does not cover (a contract in packages/shared or apps/server/src/contracts, a new module or a module boundary, the data model or a migration, security or permissions, a new dependency), do not decide it yourself: ask the human responsible with ask_human (the decision, the options you see, your recommendation) and carry on with the parts that do not depend on it. Small choices inside the plan stay yours.

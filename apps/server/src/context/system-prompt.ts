@@ -1,5 +1,6 @@
 import {
   approverOf,
+  dutyMembers,
   effectiveRepo,
   isBuiltInRole,
   repoOf,
@@ -494,6 +495,24 @@ function guardrailsSection({ project, member }: ContextPackInput): string {
   return lines.join('\n');
 }
 
+/**
+ * The rule that keeps structural decisions away from the implementer (PM-223): a member who
+ * implements asks whoever holds the `technical_direction` duty, by handle, or a human when nobody
+ * else does. The listed cases are the only ones, because every question starts a fresh session.
+ */
+function structuralDecisionRule(input: ContextPackInput): string {
+  const { project, member } = input;
+  const current = new Set(roster(input).map((m) => m.handle));
+  const architects = dutyMembers(project, 'technical_direction')
+    .filter((m) => m.handle !== member.handle && current.has(m.handle))
+    .map((m) => code(m.handle));
+  const whom =
+    architects.length > 0
+      ? `ask ${architects.join(' or ')} with send_message`
+      : 'ask the human responsible with ask_human';
+  return `Structural decisions are not yours to make. If the work needs a decision the task's technical plan does not cover (a contract in packages/shared or apps/server/src/contracts, a new module or a module boundary, the data model or a migration, security or permissions, a new dependency), do not decide it yourself: ${whom} (the decision, the options you see, your recommendation) and carry on with the parts that do not depend on it. Small choices inside the plan stay yours.`;
+}
+
 /** Duty fragments are followed by prompt-only role extras, then personal instructions. */
 function roleSection(input: ContextPackInput): string {
   const { project, member } = input;
@@ -501,6 +520,7 @@ function roleSection(input: ContextPackInput): string {
   return [
     '# Your role instructions',
     ...bundle.duties.map((id) => dutyPrompt(input, id)).filter(Boolean),
+    ...(bundle.duties.includes('implementation') ? [structuralDecisionRule(input)] : []),
     bundle.instructions.trim(),
     member.instructions.trim(),
   ]

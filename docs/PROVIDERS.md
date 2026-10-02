@@ -449,6 +449,23 @@ the last 24 hours and 7 days (by the hour).
   Codex keeps its subagents' conversations is not known yet: the UI says their usage has no data.
 - The counts compare sessions and models; the plan limits are not given in tokens.
 
+### Measuring a card (PM-222)
+
+`countCardRounds` (`packages/shared/src/domain/card-measure.ts`) counts from a card's timeline the
+review rounds (entries into a code review stage: a `step` stage whose own duty, or its owners'
+duty, is `code_review`), the reviews that asked for changes (`code-review-changes` added) and the
+send-backs (a move into a `work` stage from a later stage; a manual move and a failed merge count
+too). Stage kinds come from the configuration, not from names; old events count the same way. The
+card's detail carries the counts (`TaskDetail.rounds`, not for clients) and the drawer shows them
+with the weighted tokens per model (`limitTokens`: cache reads at a tenth).
+
+`GET /api/projects/:key/measure/closed-cards?days=14` lists the cards done in the period (not the
+cancelled ones) for every non-client member: the implementer (the assignee when it closed, else the
+member that used the most), the models of the implementer's own conversations, the weighted tokens
+in total and per model, the rounds, and how many sessions were not measured (from before PM-178).
+The model comes from the sessions' usage rows, not from the member's setting today. The Team page
+shows it, sortable by weighted tokens and review rounds.
+
 The runner strips `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`,
 `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CODEX_API_KEY`, `OPENAI_API_KEY` and
 common OpenAI/Azure endpoint overrides from every session's environment.

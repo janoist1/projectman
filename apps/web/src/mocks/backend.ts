@@ -91,6 +91,11 @@ import {
   messageBurstAlertFor,
   messageBurstOf,
   usageTotal,
+  closedCardsSince,
+  countCardRounds,
+  DEFAULT_CLOSED_CARDS_DAYS,
+  isClosedSince,
+  measureClosedCard,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -846,6 +851,10 @@ export class MockBackend {
     const scheduleMatch = /^\/members\/([\w-]+)\/schedule\/run$/.exec(rest);
     if (scheduleMatch && method === 'POST') return this.runSchedule(scheduleMatch[1]!);
     if (rest === '/board') return ok(this.board());
+    if (rest === '/measure/closed-cards' && method === 'GET') {
+      if (viewer.role === 'client') return error(403, 'insufficient_access', 'Internal access required');
+      return ok(this.closedCardsMeasure(Number(query.get('days') ?? DEFAULT_CLOSED_CARDS_DAYS)));
+    }
 
     if (rest === '/tasks') {
       if (method === 'POST') return this.createTask(body);
@@ -1662,7 +1671,26 @@ export class MockBackend {
       pullRequests: this.taskPullRequests(task),
       timeline: clone(this.timeline.filter((event) => event.taskKey === task.key)),
       sessions: clone(this.taskSessions(task.key)),
+      ...(this.findMember(this.viewerHandle)?.role === 'client' ? {} : { rounds: this.cardRounds(task.key) }),
     };
+  }
+
+  /** The card's review rounds and send-backs, by the shared rule (PM-222). */
+  private cardRounds(taskKey: string) {
+    return countCardRounds(
+      this.timeline.filter((event) => event.taskKey === taskKey),
+      this.config,
+    );
+  }
+
+  /** The cards closed lately, measured by the shared rules from the fake's sessions and timeline (PM-222). */
+  private closedCardsMeasure(days: number) {
+    const since = closedCardsSince(new Date(), days);
+    const cards = this.tasks
+      .filter((task) => isClosedSince(task, since))
+      .sort((a, b) => (a.closedAt! < b.closedAt! ? 1 : -1))
+      .map((task) => measureClosedCard(task, this.taskSessions(task.key), this.cardRounds(task.key)));
+    return { since, days, cards: clone(cards) };
   }
 
   /**

@@ -270,6 +270,36 @@ export const hu = {
     alertChip: 'Határ fölött',
     alert:
       'Átlépte a figyelmeztetési határt ({time}): {counted} token, a határ {limit} token. A munkamenet fut tovább.',
+    /** What a card took (PM-222): the rounds, and the weighted tokens per model. */
+    roundsTitle: 'Körök és súlyozott token',
+    reviewRounds: 'Átnézési körök',
+    changeRequests: 'Javítást kérő átnézések',
+    sendBacks: 'Visszaküldések',
+    weighted: 'Súlyozott token modellenként',
+    weightedTotal: 'Súlyozva összesen: {total} token',
+  },
+
+  /** The comparison of the closed cards (PM-222). */
+  cardMeasure: {
+    title: 'Lezárt kártyák összevetése',
+    hint: 'A modell a munkamenetek mért fogyasztásából jön, nem a tag mai beállításából. A súlyozott token a gyorsítótárból olvasott tokeneket egytizedükkel számolja.',
+    periodLabel: 'Időszak',
+    periodDays: '{days} nap',
+    empty: 'Az időszakban nem zárult le kártya.',
+    unmeasured:
+      '{cards} kártya {sessions} munkamenetéről nincs mérés (a mérés bevezetése előtt futottak); ezek nincsenek beleszámolva.',
+    noImplementer: 'nincs megvalósító',
+    sessionsWithoutData: '{count} munkamenet mérés nélkül',
+    columns: {
+      card: 'Kártya',
+      implementer: 'Megvalósító és modellje',
+      tokens: 'Súlyozott token',
+      reviewRounds: 'Átnézési körök',
+      sendBacks: 'Visszaküldések',
+      closedAt: 'Lezárva',
+    },
+    changeRequestsOf: 'ebből javítást kért: {count}',
+    sortBy: 'Rendezés: {column}',
   },
 
   connection: {

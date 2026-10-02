@@ -258,7 +258,17 @@ function labelChangeError(refusal: LabelChangeRefusal): MockResponse {
 /** What a refused move's error carries, as the group move reads it back (PM-121). */
 type GateBlockedDetails = Pick<Extract<BoardGroupItem, { outcome: 'blocked' }>, 'unmet' | 'approvals'> & {
   inboxItemIds?: string[];
+  /** The approval nobody may give (`noApproverError`). */
+  stageId?: string;
+  label?: string;
 };
+
+/** The refusals of an approval request nobody may give: that card stays, the others move on. */
+const NO_APPROVER_CODES: ReadonlySet<string> = new Set([
+  'self_review_forbidden',
+  'release_four_eyes',
+  'missing_duty_holder',
+]);
 
 function gateBlockedError(evaluation: GateEvaluation): MockResponse {
   return error(409, 'gate_blocked', 'Gate conditions are not met', {
@@ -2216,6 +2226,18 @@ export class MockBackend {
         });
       else if (failure.code === 'task_closed')
         items.push({ taskKey: card.key, outcome: 'skipped', reason: 'closed' });
+      else if (NO_APPROVER_CODES.has(failure.code))
+        items.push({
+          taskKey: card.key,
+          outcome: 'blocked',
+          code: 'no_approver',
+          message: 'Nobody may approve this card',
+          unmet: [],
+          approvals:
+            failure.details?.stageId && failure.details.label
+              ? [{ stageId: failure.details.stageId, label: failure.details.label, approvers: [] }]
+              : [],
+        });
       else return response;
     }
     const reranked = this.tasks

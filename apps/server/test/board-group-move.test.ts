@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sortBoardOrder, stagesOfColumn } from '@projectman/shared';
 import type { BoardGroupItem, BoardPlacement, ProjectConfig, ServerEvent } from '@projectman/shared';
 import { aiActor } from '../src/domain';
-import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
 
@@ -233,6 +233,32 @@ describe('board group move', () => {
         'AR-2': 'approval_pending',
         'AR-3': 'blocked',
       });
+    });
+
+    it('keeps the card whose approval nobody may give out of the others, which still ask', async () => {
+      await setup();
+      await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
+        draft.pipeline.labels.find((label) => label.id === 'merge-ok')!.notByAuthor = true;
+        return 'The merge approver may not merge their own work';
+      });
+      // The only holder of the label is the assignee of AR-2: nobody may approve that card.
+      tasks().assign('AR', 'AR-2', 'owner', OWNER_ACTOR);
+      const result = await dropGroup('AR-1', 'merging', { at: 'top' });
+      expect(outcomes(result.group)).toEqual({
+        'AR-1': 'approval_pending',
+        'AR-2': 'blocked',
+        'AR-3': 'approval_pending',
+      });
+      expect(result.group!.find((item) => item.taskKey === 'AR-2')).toMatchObject({
+        outcome: 'blocked',
+        code: 'no_approver',
+        unmet: [],
+        approvals: [{ stageId: 'merge', label: 'merge-ok', approvers: [] }],
+      });
+      expect(items('AR-2')).toEqual([]);
+      expect(stageOf('AR-2')).toBe('code_review');
+      expect(items('AR-1')).toHaveLength(1);
+      expect(items('AR-3')).toHaveLength(1);
     });
   });
 

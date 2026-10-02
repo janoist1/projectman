@@ -621,6 +621,8 @@ export const hu = {
         holding: 'Visszatartja: {label}',
         approval: 'Jóváhagyásra vár, utána átkerül',
         uncommitted: 'Mentetlen változás van a munkafájában',
+        noApprover: 'Senki sem adhatja meg a jóváhagyást: {label}',
+        noApproverUnnamed: 'Senki sem adhatja meg a szükséges jóváhagyást',
         skipped: 'Közben megváltozott, nem mozdult',
         unknown: 'Nem teljesül a belépés feltétele',
       },

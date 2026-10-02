@@ -34,6 +34,12 @@ export function heldReason(item: BoardGroupItem, labels: readonly LabelView[]): 
       return t('board.groupMove.reason.skipped');
     case 'blocked': {
       if (item.code === 'handover_uncommitted') return t('board.groupMove.reason.uncommitted');
+      if (item.code === 'no_approver') {
+        const label = item.approvals[0]?.label;
+        return label
+          ? t('board.groupMove.reason.noApprover', { label: labelName(label, labels) })
+          : t('board.groupMove.reason.noApproverUnnamed');
+      }
       const named = (type: 'has_label' | 'lacks_label') =>
         item.unmet
           .filter((entry) => entry.condition.type === type)

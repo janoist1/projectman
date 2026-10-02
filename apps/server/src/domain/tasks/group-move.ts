@@ -164,14 +164,38 @@ export class BoardGroupMove {
       if (!(error instanceof DomainError)) throw error;
       if (error.code === 'gate_blocked') return blockedItem(card.key, error);
       if (error.code === 'task_closed') return { taskKey: card.key, outcome: 'skipped', reason: 'closed' };
+      if (NO_APPROVER.has(error.code)) return noApproverItem(card.key, error);
       throw error;
     }
   }
 }
 
+/** The refusals of an approval request nobody may give: the holders authored the card, or nobody holds the label. */
+const NO_APPROVER: ReadonlySet<string> = new Set([
+  'self_review_forbidden',
+  'release_four_eyes',
+  'missing_duty_holder',
+]);
+
 function rankOf(order: readonly string[], key: string): number {
   const index = order.indexOf(key);
   return index < 0 ? order.length : index;
+}
+
+/** An approval nobody may give is that card's refusal: its label comes with no approvers. */
+function noApproverItem(taskKey: string, error: DomainError): BlockedItem {
+  const details = (error.details ?? {}) as { stageId?: string; label?: string };
+  return {
+    taskKey,
+    outcome: 'blocked',
+    code: 'no_approver',
+    message: error.message,
+    unmet: [],
+    approvals:
+      details.stageId && details.label
+        ? [{ stageId: details.stageId, label: details.label, approvers: [] }]
+        : [],
+  };
 }
 
 /** The refusal of one card as its item: the gate's details are those `gateBlockedError` carries. */

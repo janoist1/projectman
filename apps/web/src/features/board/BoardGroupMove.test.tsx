@@ -309,4 +309,20 @@ describe('the toast of a group move', () => {
     expect(items[1]!.text).toBe(t('board.groupMove.reason.skipped'));
     expect(items[5]).toMatchObject({ bare: true, text: t('board.groupMove.more', { count: 2 }) });
   });
+
+  it('says that nobody may give the approval a card needs, naming the label', () => {
+    const noApprover = (taskKey: string, label?: string): BoardGroupItem => ({
+      taskKey,
+      outcome: 'blocked',
+      code: 'no_approver',
+      message: 'x',
+      unmet: [],
+      approvals: label ? [{ stageId: 'merge', label, approvers: [] }] : [],
+    });
+    const { items } = groupMoveToast(
+      input([{ taskKey: 'AC-1', outcome: 'moved' }, noApprover('AC-2', 'merge-ok'), noApprover('AC-3')]),
+    );
+    expect(items[0]!.text).toBe(t('board.groupMove.reason.noApprover', { label: 'merge-ok' }));
+    expect(items[1]!.text).toBe(t('board.groupMove.reason.noApproverUnnamed'));
+  });
 });

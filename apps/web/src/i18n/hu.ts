@@ -1249,10 +1249,16 @@ export const hu = {
       timeline: 'Idővonal',
       details: 'Részletek',
     },
+    back: 'Vissza',
+    /** The "Részletek" panel: where and how the session runs. */
+    details: {
+      title: 'A munkamenet',
+      branch: 'Ág',
+      cwd: 'Munkakönyvtár',
+      provider: 'Szolgáltató',
+      model: 'Modell',
+    },
     chips: {
-      branch: 'Ág: {branch}',
-      cwd: 'Mappa: {cwd}',
-      model: 'Modell: {model}',
       permissions: 'Engedélyek: {mode}',
       approver: 'Ha kérdez: {approver}',
       sessionOwn: 'csak ebben a munkamenetben',
@@ -1279,7 +1285,8 @@ export const hu = {
       placeholder: 'Írj a munkamenetnek…',
       hint: 'Enter: küldés · Shift+Enter: új sor',
       pending: 'Elküldve, sorban áll',
-      failed: 'Nem ment el. Próbáld újra.',
+      failed: 'Nem ment el.',
+      retry: 'Újra',
     },
     chat: {
       brief: 'Feladatleírás',

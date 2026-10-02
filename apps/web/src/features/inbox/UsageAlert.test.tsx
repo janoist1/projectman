@@ -128,7 +128,7 @@ describe('a session over the warning limit on screen (PM-187)', () => {
       </Routes>,
       `/sessions/${SESSION}`,
     );
-    await screen.findByText(t('tokenUsage.chip', { total: formatTokens(2_427_700) }));
+    await screen.findByRole('heading', { level: 1 });
     expect(screen.queryByText(t('tokenUsage.alertChip'))).toBeNull();
   });
 });

@@ -30,7 +30,7 @@ import { Composer } from './Composer';
 import { participantsFor } from './participants';
 import { SessionHeader } from './SessionHeader';
 import { liveState, sessionTitle } from './sessionModel';
-import { ParticipantsPanel, PrPanel, UsagePanel } from './SessionPanels';
+import { ParticipantsPanel, PrPanel, SessionDetailsPanel, UsagePanel } from './SessionPanels';
 import styles from './SessionPage.module.css';
 import { usePendingEchoes } from './usePendingEchoes';
 
@@ -133,10 +133,16 @@ function SessionView({ detail }: { detail: SessionDetail }) {
       : ['chat', 'terminal', 'details'];
   const activeTab = tabs.includes(tab) ? tab : 'chat';
 
-  const onSend = (text: string) => {
-    const id = echoes.add(text);
+  const sendEcho = (id: string, text: string) => {
     stickToBottom.current = true;
     send.mutate(text, { onError: () => echoes.fail(id) });
+  };
+  const onSend = (text: string) => sendEcho(echoes.add(text), text);
+  const onRetry = (id: string) => {
+    const message = echoes.pending.find((entry) => entry.id === id);
+    if (!message) return;
+    echoes.retry(id);
+    sendEcho(id, message.text);
   };
 
   const onTabKey = (event: KeyboardEvent<HTMLButtonElement>, current: Tab) => {
@@ -157,8 +163,10 @@ function SessionView({ detail }: { detail: SessionDetail }) {
     <p className={styles.muted}>{t('task.timelineEmpty')}</p>
   );
 
+  const member = members.get(session.member);
   const sidePanels = (
     <>
+      <SessionDetailsPanel session={session} member={member} />
       <PrPanel
         task={task}
         session={session}
@@ -166,7 +174,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
         labels={labels}
       />
       <ParticipantsPanel participants={participants} members={members} myHandle={myHandle} />
-      <UsagePanel session={session} provider={session.provider ?? members.get(session.member)?.provider} />
+      <UsagePanel session={session} provider={session.provider ?? member?.provider} />
     </>
   );
 
@@ -189,6 +197,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
           openItems={openItems}
           resolvedItems={resolvedPermissions}
           pending={echoes.pending}
+          onRetry={onRetry}
           awaitingPermission={session.state === 'waiting_permission'}
           resolvingId={resolve.isPending ? (resolve.variables?.item.id ?? null) : null}
           onResolve={(item, body) =>
@@ -207,7 +216,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
         task={task}
         title={title}
         memberName={memberName}
-        member={members.get(session.member)}
+        member={member}
         pipeline={pipeline}
         taskPhase={taskState?.phase ?? null}
         live={live}

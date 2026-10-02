@@ -50,6 +50,8 @@ export interface ChatViewProps {
   awaitingPermission?: boolean;
   /** Messages sent from the composer that the transcript has not shown yet. */
   pending?: readonly PendingMessage[];
+  /** Sends a failed pending message again; without it a failed message has no retry button. */
+  onRetry?: (id: string) => void;
 }
 
 const variantFor: Record<InboxOption['style'], ButtonVariant> = {
@@ -313,6 +315,11 @@ export function ChatView(props: ChatViewProps) {
           <div className={styles.userBubble}>
             <Markdown text={message.text} />
           </div>
+          {message.failed && props.onRetry ? (
+            <button type="button" className={styles.retry} onClick={() => props.onRetry?.(message.id)}>
+              {t('session.composer.retry')}
+            </button>
+          ) : null}
         </div>
       ))}
       {permissions.map((item) => (

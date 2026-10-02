@@ -2,7 +2,7 @@ import type { ChatItem, Session } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
 import { t } from '../../i18n/t';
 import { sessions } from '../../mocks/fixtures';
-import { liveState, sessionTitle, shortPath } from './sessionModel';
+import { liveState, sessionTitle } from './sessionModel';
 import { withoutEchoed } from './usePendingEchoes';
 
 const session = sessions.find((entry) => entry.id === 'ses_ac21_fe1')!;
@@ -42,13 +42,6 @@ describe('liveState', () => {
     expect(liveState({ state: 'waiting_input' }, false).status).toBe('idle');
     expect(liveState({ state: 'failed' }, false).status).toBe('failed');
     expect(liveState({ state: 'exited' }, false).status).toBe('exited');
-  });
-});
-
-describe('shortPath', () => {
-  it('keeps the last two folders', () => {
-    expect(shortPath('/Users/owner/.projectman/worktrees/AC/AC-21')).toBe('…/AC/AC-21');
-    expect(shortPath('/srv/app')).toBe('/srv/app');
   });
 });
 

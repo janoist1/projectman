@@ -1,6 +1,6 @@
 import { LabelChip } from '../../components/LabelChip';
 import { limitTokens, usageTotal } from '@projectman/shared';
-import type { LabelView, Session, Task, TaskPullRequest } from '@projectman/shared';
+import type { LabelView, MemberView, Session, Task, TaskPullRequest } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
 import { Chip } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
@@ -10,6 +10,7 @@ import { t } from '../../i18n/t';
 import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { Participant } from './participants';
+import { SessionPermissions } from './SessionPermissions';
 import styles from './SessionPanels.module.css';
 
 const prStates = ['open', 'merged', 'closed', 'draft'] as const;
@@ -19,6 +20,45 @@ function prStateLabel(state: string | undefined): string | null {
   return (prStates as readonly string[]).includes(state)
     ? t(`links.prStates.${state as (typeof prStates)[number]}`)
     : state;
+}
+
+/**
+ * Where and how the session runs: its branch and working directory, the agent CLI it runs (the
+ * member's for sessions from before it was recorded), the model, and the permission settings that
+ * apply to it (an owner changes them here, PM-170).
+ */
+export function SessionDetailsPanel({
+  session,
+  member,
+}: {
+  session: Session;
+  member: MemberView | undefined;
+}) {
+  const provider = session.provider ?? member?.provider ?? 'claude';
+  const rows: Array<{ label: string; value: string; mono?: boolean }> = [
+    ...(session.branch ? [{ label: t('session.details.branch'), value: session.branch, mono: true }] : []),
+    { label: t('session.details.cwd'), value: session.cwd, mono: true },
+    { label: t('session.details.provider'), value: t(`providers.${provider}`) },
+    ...(member?.model ? [{ label: t('session.details.model'), value: member.model }] : []),
+  ];
+  return (
+    <section className={styles.panel} aria-labelledby="session-details">
+      <h2 id="session-details" className={styles.sectionTitle}>
+        {t('session.details.title')}
+      </h2>
+      <dl className={styles.checks}>
+        {rows.map(({ label, value, mono }) => (
+          <div key={label} className={styles.checkRow}>
+            <dt>{label}</dt>
+            <dd className={mono ? styles.monoValue : undefined}>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className={styles.settings}>
+        <SessionPermissions session={session} member={member} />
+      </div>
+    </section>
+  );
 }
 
 /** All linked pull requests, including the latest GitHub checks and review decision. */

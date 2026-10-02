@@ -330,7 +330,7 @@ export const CreateTaskRequest = z.object({
   visibility: Visibility.optional(),
   /** Relations the new card starts with (PM-192); a refused one refuses the creation. */
   relations: z.array(AddRelationRef).optional(),
-  /** `theme` creates a theme (PM-192); absent: a task. A theme takes no stage, repository, parent, theme or label of its own. */
+  /** `theme` creates a theme (PM-192); absent: a task. A theme takes no stage, repository, parent or theme of its own (plain labels are allowed). */
   kind: TaskKind.optional(),
   /** The theme the new card belongs to (not for a theme or a subtask). */
   themeKey: TaskKey.optional(),

@@ -200,9 +200,14 @@ export class TaskRelations {
             updatedAt: isoNow(this.store.ctx),
           });
           this.deps.recordParentChange(written, previous, actor, sessionId);
-          if (ownTheme) {
-            this.deps.recordThemeChange(written, ownTheme, null, actor, sessionId);
-            touched.add(ownTheme);
+          // What the card shows changes with its parent: the theme of the card it joins, or none (its own,
+          // which it had before it became a subtask, is gone) when it leaves. The timelines say so.
+          const shown = child.themeKey ?? null;
+          const shownNow = repo.get(step.child)?.themeKey ?? null;
+          if (shown !== shownNow) {
+            this.deps.recordThemeChange(written, shown, shownNow, actor, sessionId);
+            if (shown) touched.add(shown);
+            if (shownNow) touched.add(shownNow);
           }
           touched.add(step.child);
           if (previous) touched.add(previous);

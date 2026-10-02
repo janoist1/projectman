@@ -398,8 +398,9 @@ export class TaskService {
         });
       themeAfter = change.themeKey;
     }
-    // A card that becomes a subtask loses the theme it had: from then on it reads its parent's.
-    if (parentAfter) themeAfter = null;
+    // A card that becomes a subtask loses the theme it had: from then on it reads its parent's. (A part_of
+    // relation does the same where it is written, see `TaskRelations.execute`.)
+    if (change.parentKey) themeAfter = null;
     if (themeAfter !== ownTheme) patch.themeKey = themeAfter;
     if (change.repo !== undefined && change.repo !== task.repo) {
       if (change.repo !== null && !repoOf(config, change.repo)) throw unknownRepo(config, change.repo);
@@ -487,13 +488,18 @@ export class TaskService {
         });
       if (patch.parentKey !== undefined)
         this.recordParentChange(next, task.parentKey ?? null, actor, sessionId);
-      if (patch.themeKey !== undefined) this.themes.record(next, ownTheme, themeAfter, actor, sessionId);
-      // A card that became a subtask shows its parent's theme now, which only a read tells.
+      // A card that became a subtask, or left its collecting card, shows another theme now, which only a
+      // read tells.
       if (patch.parentKey !== undefined || patch.themeKey !== undefined)
         next = this.get(task.projectKey, task.key);
+      // What the card shows changed (its own theme, or the one of the parent it joined or left): the
+      // timelines of the card and of both themes say so.
+      const shownBefore = task.themeKey ?? null;
+      const shownAfter = next.themeKey ?? null;
+      if (shownBefore !== shownAfter) this.themes.record(next, shownBefore, shownAfter, actor, sessionId);
       this.publish(next);
       // A subtask of the card shows the card's theme, so a change of theme is news to them and to both themes.
-      if (patch.themeKey !== undefined) this.themes.publishAround(next, [ownTheme, themeAfter]);
+      if (shownBefore !== shownAfter) this.themes.publishAround(next, [shownBefore, shownAfter]);
     }
     if (relationPlan && relationPlan.steps.length > 0)
       next = this.cardRelations.execute(relationPlan, next, actor, sessionId, effects);

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { aiActor, humanActor } from '../src/domain';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
-import { flush } from './helpers/fakes';
+import { flush, pullRequest } from './helpers/fakes';
 
 /**
  * PM-205: the theme card kind. A theme has a key, a title, a description and a timeline, but no stage
@@ -419,16 +419,38 @@ describe('subtasks and themes', () => {
     expect(h.repos.db.prepare('SELECT theme_key FROM tasks WHERE key = ?').get('AR-5')).toEqual({
       theme_key: null,
     });
-    expect(themeEvents('AR-5')).toEqual(['null -> AR-1', 'AR-1 -> null']);
-    expect(themeEvents('AR-1')).toEqual(['null -> AR-1', 'AR-1 -> null']);
+    // What it shows went from its own theme to its parent's, on the card and on both themes.
+    expect(themeEvents('AR-5')).toEqual(['null -> AR-1', 'AR-1 -> AR-2']);
+    expect(themeEvents('AR-1')).toEqual(['null -> AR-1', 'AR-1 -> AR-2']);
+    expect(themeEvents('AR-2')).toContain('AR-1 -> AR-2');
   });
 
-  it('takes a card out of its theme with it when it leaves its collecting card: it has none then', async () => {
+  it.each([
+    ['parentKey', { parentKey: null }],
+    ['a part_of relation', { relations: { remove: [{ kind: 'part_of' as const, key: 'AR-3' }] } }],
+  ])('a subtask has no theme once it leaves its collecting card, through %s', async (_how, change) => {
     await setTheme('AR-3', 'AR-1');
-    await update('AR-4', { relations: { remove: [{ kind: 'part_of', key: 'AR-3' }] } });
+    const events: ServerEvent[] = [];
+    h.domain.bus.subscribe((event) => events.push(event));
+
+    await update('AR-4', change);
+
     expect(get('AR-4').parentKey).toBeNull();
     expect(get('AR-4').themeKey).toBeUndefined();
     expect(get('AR-3').themeKey).toBe('AR-1');
+    // The timelines of the card and of the theme it left say so, and both are announced.
+    expect(themeEvents('AR-4')).toEqual(['AR-1 -> null']);
+    expect(themeEvents('AR-1')).toEqual(['null -> AR-1', 'AR-1 -> null']);
+    const upserted = events.flatMap((event) => (event.type === 'task_upserted' ? [event.task.key] : []));
+    expect(upserted).toEqual(expect.arrayContaining(['AR-4', 'AR-1']));
+  });
+
+  it('a card without a theme that joins a themed collecting card is in the theme, on its timeline', async () => {
+    await setTheme('AR-3', 'AR-1');
+    await update('AR-6', { parentKey: 'AR-3' });
+    expect(get('AR-6').themeKey).toBe('AR-1');
+    expect(themeEvents('AR-6')).toEqual(['null -> AR-1']);
+    expect(themeEvents('AR-1')).toEqual(['null -> AR-1', 'null -> AR-1']);
   });
 
   it('can be given a theme once it leaves its collecting card, in the same call', async () => {
@@ -438,6 +460,7 @@ describe('subtasks and themes', () => {
       themeKey: 'AR-2',
     });
     expect(get('AR-4')).toMatchObject({ parentKey: null, themeKey: 'AR-2' });
+    expect(themeEvents('AR-4')).toEqual(['AR-1 -> AR-2']);
   });
 });
 
@@ -498,6 +521,20 @@ describe('closing and reopening a theme', () => {
     await h.domain.tasks.reopen('AR', 'AR-1', OWNER_ACTOR);
     await setTheme('AR-6', 'AR-1');
     expect(get('AR-6').themeKey).toBe('AR-1');
+  });
+});
+
+describe('a pull request linked to a theme', () => {
+  it('merging it moves nothing and raises no error', async () => {
+    h.github.prs.set('acme/web#7', pullRequest());
+    await h.domain.teamTools.linkPullRequest(
+      { sessionId: 'ses_x', projectKey: 'AR', member: 'dev-1', taskKey: 'AR-5' },
+      { taskKey: 'AR-1', repo: 'acme/web', number: 7 },
+    );
+    h.github.emit(pullRequest({ state: 'merged' }));
+    await flush();
+    expect(get('AR-1')).toMatchObject({ stageId: 'backlog', status: 'active' });
+    expect(get('AR-1').links[0]).toMatchObject({ kind: 'pull_request', state: 'merged' });
   });
 });
 

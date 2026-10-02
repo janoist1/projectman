@@ -2,6 +2,7 @@ import {
   commentMentions,
   coverAttachmentId,
   isOpenTask,
+  isTheme,
   memberOf,
   repoRequired,
   stageOf,
@@ -98,7 +99,7 @@ export class TaskStore {
    * owner of the stage is such an AI member: nobody could start on it.
    */
   private repoWaiting(task: Task): TaskStartWaiting | undefined {
-    if (!isOpenTask(task)) return undefined;
+    if (!isOpenTask(task) || isTheme(task)) return undefined;
     const config = this.projects.cachedConfig(task.projectKey);
     const stage = config ? stageOf(config, task.stageId) : undefined;
     if (!config || stage?.kind !== 'work') return undefined;

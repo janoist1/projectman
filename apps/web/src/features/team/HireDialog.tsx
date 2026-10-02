@@ -72,6 +72,7 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
     event.preventDefault();
     if (handle && !MemberHandle.safeParse(handle).success) {
       setHandleError(t('hire.handleInvalid'));
+      setScheduleError(false);
       // The identifier lives in the closed fold: open it so the error is in sight.
       setDetailsOpen(true);
       setRefused((count) => count + 1);
@@ -204,7 +205,7 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
 
           <ScheduleFields value={schedule} onChange={setSchedule} showErrors={scheduleError} />
 
-          <Fold title={t('hire.details')} open={detailsOpen} onToggle={setDetailsOpen}>
+          <Fold summary={t('hire.details')} plain open={detailsOpen} onToggle={setDetailsOpen}>
             <div className={styles.details}>
               <p>
                 {t('roleCatalogue.notTheirJob')}: {selectedRole.notTheirJob}

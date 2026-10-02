@@ -74,11 +74,24 @@ export function TaskHeader({
       </div>
       <TaskTitle key={task.key} task={task} headingRef={headingRef} />
       <StageProgress pipeline={pipeline} stageId={task.stageId} phase={state.phase} variant="stepper" />
-      <div className={styles.now} data-phase={state.phase}>
-        <StatusDot phase={state.phase} pulse={state.phase === 'working'} size={9} />
-        <span className={styles.nowText}>{state.label}</span>
-        <span className={styles.nowAge}>{formatAgo(state.since)}</span>
-      </div>
+      {state.workers.length > 1 ? (
+        // Several work on it: one row each, with their own verb and time.
+        <ul className={styles.nowList} data-phase={state.phase} aria-label={state.label}>
+          {state.workers.map((worker) => (
+            <li key={worker.sessionId} className={styles.nowRow}>
+              <StatusDot phase={state.phase} pulse size={9} />
+              <span className={styles.nowText}>{worker.sentence}</span>
+              <span className={styles.nowAge}>{formatAgo(worker.since)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className={styles.now} data-phase={state.phase}>
+          <StatusDot phase={state.phase} pulse={state.phase === 'working'} size={9} />
+          <span className={styles.nowText}>{state.label}</span>
+          <span className={styles.nowAge}>{formatAgo(state.since)}</span>
+        </div>
+      )}
     </div>
   );
 }

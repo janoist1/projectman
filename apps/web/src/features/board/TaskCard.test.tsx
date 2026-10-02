@@ -22,7 +22,8 @@ const ctx: TaskStateContext = {
 
 const needsYou = (what: string) => t('taskStatus.needsYou', { what });
 const waitingOn = (...names: string[]) => t('taskStatus.waitingOn', { who: joinNames(names) });
-const working = (activity: string) => t('taskStatus.working', { activity });
+const working = (name: string) => t('taskStatus.worker.working', { name });
+const COMMAND = 'Bash: ./scripts/restore-drill.sh';
 const permissionFor = (detail: string) =>
   needsYou(t('taskStatus.needsYouDetail', { kind: t('inbox.kindsLower.permission'), detail }));
 
@@ -79,8 +80,38 @@ describe('TaskCard', () => {
   it('marks the task that is open in the drawer', () => {
     const card = renderCard('AC-20', true);
     expect(card.getAttribute('aria-current')).toBe('true');
-    expect(within(card).getByText(working('Bash: ./scripts/restore-drill.sh'))).toBeTruthy();
+    expect(within(card).getByText(working('Backend fejlesztő'))).toBeTruthy();
     expect(within(card).queryByRole('list', { name: t('taskCard.stageRows') })).toBeNull();
+  });
+
+  it('says who works on the card, and never the command they run (PM-237)', () => {
+    const card = renderCard('AC-20');
+    const line = within(card).getByText(working('Backend fejlesztő'));
+    expect(line.getAttribute('title')).toBe(working('Backend fejlesztő'));
+    expect(card.textContent).not.toContain('Bash');
+    expect(card.textContent).not.toContain('restore-drill');
+  });
+
+  it('names a second worker with their own capacity in the tooltip, and the names share one line', () => {
+    const task = taskByKey('AC-20');
+    const fe = members.get('fe-1')!;
+    const withDesigner = new Map(members).set('fe-1', {
+      ...fe,
+      role: 'designer',
+      roles: ['designer'],
+      taskWork: [
+        { sessionId: 'ses_fe', taskKey: 'AC-20', activity: COMMAND, since: '2026-10-01T10:00:00.000Z' },
+      ],
+    });
+    const state = deriveTaskState(task, { ...ctx, members: withDesigner });
+    renderUi(<TaskCard task={task} state={state} pipeline={pipeline} to="/p/AC/tasks/AC-20" labels={[]} />);
+    const line = screen.getByText(
+      t('taskStatus.workersTwo', { names: joinNames(['Backend fejlesztő', fe.displayName]) }),
+    );
+    expect(line.getAttribute('title')).toBe(
+      [working('Backend fejlesztő'), t('taskStatus.worker.designing', { name: fe.displayName })].join('\n'),
+    );
+    expect(screen.getByRole('link').textContent).not.toContain('Bash');
   });
 
   it('shows done tasks with the merged PR', () => {
@@ -110,11 +141,8 @@ describe('deriveTaskState', () => {
   });
 
   it('tells working, waiting and ready tasks apart', () => {
-    // The card shows what the session on it does, not the member's own activity line.
-    expect(phase('AC-20')).toMatchObject({
-      phase: 'working',
-      label: working('Bash: ./scripts/restore-drill.sh'),
-    });
+    // The card names who works on it, not what their session runs.
+    expect(phase('AC-20')).toMatchObject({ phase: 'working', label: working('Backend fejlesztő') });
     expect(phase('AC-19')).toMatchObject({ phase: 'waiting', label: waitingOn('Kata', 'Bence') });
     expect(phase('AC-26')).toMatchObject({
       phase: 'waiting',
@@ -155,11 +183,11 @@ describe('deriveTaskState', () => {
       };
     };
 
-    it('shows the activity and the age of the session on the card, not of the member', () => {
+    it('shows who works and the age of the session on the card, not of the member', () => {
       const since = '2026-10-01T10:00:00.000Z';
       expect(deriveTaskState(taskByKey('AC-20'), busy('AC-22', since))).toMatchObject({
         phase: 'working',
-        label: working('Bash: ls'),
+        label: working('Backend fejlesztő'),
         since,
         worker: { handle: 'be-1' },
       });

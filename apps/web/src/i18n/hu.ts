@@ -657,8 +657,20 @@ export const hu = {
     },
     needsYou: 'Rád vár: {what}',
     needsYouDetail: '{kind} ({detail})',
-    working: 'Dolgozik: {activity}',
-    workingPlain: 'Dolgozik',
+    /**
+     * Who works on a card and in what capacity (PM-237). No article before the name: whether it is "a" or
+     * "az" depends on the name, and names can be renamed.
+     */
+    worker: {
+      working: '{name} dolgozik rajta',
+      reviewing: '{name} átnézi',
+      testing: '{name} teszteli',
+      designing: '{name} tervezi',
+      analysing: '{name} elemzi',
+    },
+    /** The card's line while several work on it: the names share one verb, as their capacities may differ. */
+    workersTwo: '{names} dolgozik rajta',
+    workersMany: '{names} és még {more} tag dolgozik rajta',
     waitingOn: 'Másra vár: {who}',
     queuedFor: 'Sorra kerül: {stage}',
     ready: 'Indítható',
@@ -1506,6 +1518,9 @@ export const hu = {
     sponsorOther: '{name} előfizetése',
     ownAccount: 'saját fiók',
     noTask: 'nincs feladata',
+    /** The cards a member is on in one line: one card with its title, two by key, more by key and a count. */
+    cardsOne: '{key} {title}',
+    cardsMore: '{keys} +{more}',
     temp: 'beugró',
     retire: 'Elbocsátás',
     retireMember: 'Elbocsátás: {name} ({handle})',

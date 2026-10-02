@@ -137,7 +137,7 @@ function NewTaskForm({
         onChange={setDescription}
         disabled={create.isPending}
       />
-      <Fold title={t('newTask.more')} peek={peek}>
+      <Fold summary={t('newTask.more')} plain peek={peek}>
         {isTheme ? null : (
           <>
             <SelectField

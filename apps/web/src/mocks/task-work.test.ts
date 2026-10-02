@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BoardView, Session } from '@projectman/shared';
 import { indexPipeline } from '../lib/pipeline';
+import { t } from '../i18n/t';
 import { indexMembers } from '../lib/members';
 import { deriveTaskState, groupOpenInboxByTask } from '../lib/taskState';
 import { MockBackend } from './backend';
@@ -54,7 +55,8 @@ describe('a card is "working" only where its own session works (PM-207)', () => 
 
     const working = stateOf(backend, 'AC-20');
     expect(working.phase).toBe('working');
-    expect(working.label).toContain('Bash: restore drill');
+    expect(working.label).toBe(t('taskStatus.worker.working', { name: be.displayName }));
+    expect(working.label).not.toContain('Bash');
     expect(working.since).toBe(backend.sessions[0]!.stateSince);
 
     const resting = stateOf(backend, 'AC-26');

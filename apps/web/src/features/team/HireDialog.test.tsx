@@ -183,6 +183,21 @@ describe('HireDialog', () => {
     expect(project.requests.some((request) => request.method === 'POST')).toBe(false);
   });
 
+  it('drops the schedule banner when the identifier is the next thing refused', async () => {
+    const project = mockProject();
+    project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
+    fireEvent.click(await screen.findByRole('checkbox', { name: t('schedules.form.enabled') }));
+    fireEvent.click(screen.getByRole('button', { name: t('hire.submit') }));
+    expect(await screen.findByText(t('schedules.form.invalid'))).toBeTruthy();
+    fireEvent.click((await screen.findByText(t('hire.details'))).closest('summary')!);
+    fireEvent.change(screen.getByLabelText(new RegExp(`^${t('hire.handle')}`)), {
+      target: { value: 'Not Valid!' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: t('hire.submit') }));
+    expect(await screen.findByText(t('hire.handleInvalid'))).toBeTruthy();
+    expect(screen.queryByText(t('schedules.form.invalid'))).toBeNull();
+  });
+
   it('switches providers, warns about login and cost, and hires with Codex defaults', async () => {
     const project = mockProject();
     project.backend.providerLoggedIn.codex = false;

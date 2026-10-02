@@ -55,15 +55,23 @@ describe('member profiles', () => {
     const status = await screen.findByRole('status');
     expect(status.textContent).toBe(t('leave.status'));
     expect(screen.queryAllByText(t('leave.onLeave'))).toHaveLength(0);
-    expect(header.getByRole('button', { name: t('profile.conversation') }).hasAttribute('disabled')).toBe(
-      true,
-    );
-    fireEvent.click(
-      within(status.parentElement!).getByRole('button', {
-        name: t('leave.callBackMember', { name: member.displayName }),
-      }),
-    );
+    // The call back is the one main action; there is no disabled conversation button beside it.
+    expect(header.queryByRole('button', { name: t('profile.conversation') })).toBeNull();
+    const callBack = header.getByRole('button', {
+      name: t('leave.callBackMember', { name: member.displayName }),
+    });
+    expect(within(status).queryByRole('button')).toBeNull();
+    fireEvent.click(callBack);
     await waitFor(() => expect(member.onLeave).toBeFalsy());
+  });
+
+  it('shows no running command in the subtitle', async () => {
+    const p = mockProject();
+    const member = p.backend.findMember('fe-1')!;
+    member.activity = 'Bash: sed -n 1,60p apps/server/src/index.ts';
+    p.render(page(), '/team/fe-1');
+    await screen.findByRole('heading', { name: member.displayName });
+    expect(screen.queryByText(/Bash: sed/)).toBeNull();
   });
 
   it('lists the duties as chips and puts the empty things in one quiet line, not in boxes', async () => {
@@ -191,7 +199,11 @@ describe('member profiles', () => {
     if (member.kind !== 'ai') throw new Error('Expected fictional AI member');
     member.instructions = 'Work in your own worktree.';
     p.render(page(), '/team/fe-1');
-    const panel = within(await screen.findByLabelText(t('profile.instructions')));
+    const summary = await screen.findByText(t('profile.instructions'), { selector: 'summary' });
+    const fold = summary.closest('details')!;
+    expect(fold.open).toBe(false);
+    expect(fold.closest('section')?.hasAttribute('aria-label')).toBe(false);
+    const panel = within(fold);
     expect(panel.getByText('Work in your own worktree.')).toBeTruthy();
     expect(panel.getByRole('link', { name: t('profile.roleInstructionsEdit') })).toBeTruthy();
     await chooseFromMenu(

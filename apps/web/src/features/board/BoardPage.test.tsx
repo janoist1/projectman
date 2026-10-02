@@ -183,10 +183,11 @@ describe('desktop board moving', () => {
     const project = mockProject();
     project.backend.updateTask('AC-20', { status: 'cancelled' });
     project.render(<BoardPage />);
-    await screen.findByRole('link', { name: new RegExp(project.backend.findTask('AC-17')!.title) });
+    await screen.findAllByRole('link', { name: new RegExp(project.backend.findTask('AC-17')!.title) });
+    // The team strip may still name the card a member carries, so look for the card's own link.
     expect(
-      screen.queryByRole('link', { name: new RegExp(project.backend.findTask('AC-20')!.title) }),
-    ).toBeNull();
+      screen.queryAllByRole('link').some((link) => link.getAttribute('href')?.endsWith('/tasks/AC-20')),
+    ).toBe(false);
   });
   it('says an empty column is empty only when a filter or search narrowed the board', async () => {
     const project = mockProject();

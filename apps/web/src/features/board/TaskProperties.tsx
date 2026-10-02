@@ -9,6 +9,7 @@ import { TaskAssigneeSelect } from './TaskLifecycle';
 import { TaskLabels } from './TaskLabels';
 import { TaskRepo } from './TaskRepo';
 import { TaskSubtasks } from './TaskSubtasks';
+import { TaskTheme } from './TaskTheme';
 import styles from './drawer.module.css';
 
 /**
@@ -18,11 +19,14 @@ import styles from './drawer.module.css';
 export function TaskProperties({
   task,
   subtasks,
+  tasks,
   members,
   pipeline,
 }: {
   task: Task;
   subtasks: Task[];
+  /** Every card of the board: the themes and a collecting card's subtasks are looked up in them. */
+  tasks: readonly Task[];
   members: MemberIndex;
   pipeline: PipelineIndex;
 }) {
@@ -54,6 +58,7 @@ export function TaskProperties({
           </span>
         </div>
       ) : null}
+      <TaskTheme task={task} tasks={tasks} />
       <TaskLabels task={task} />
       {!task.parentKey ? (
         <TaskSubtasks

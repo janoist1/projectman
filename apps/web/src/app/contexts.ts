@@ -25,7 +25,11 @@ export interface ProjectContextValue {
   can: { createTasks: boolean; manageTeam: boolean; workInSessions: boolean };
   search: string;
   setSearch: (value: string) => void;
-  openNewTask: () => void;
+  /** Opens the new-card dialog; `kind: 'theme'` opens it for a theme (PM-192). */
+  openNewTask: (options?: { kind?: 'theme' }) => void;
+  /** The theme the board is filtered to (PM-192), kept here so the board, a theme's card and the new-card dialog agree. */
+  themeFilter: string | null;
+  setThemeFilter: (themeKey: string | null) => void;
 }
 
 export const ProjectContext = createContext<ProjectContextValue | null>(null);

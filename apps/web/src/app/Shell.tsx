@@ -283,7 +283,7 @@ export function TopBar({
       </span>
       <InboxPill count={inboxCount} />
       {can.createTasks ? (
-        <Button variant="primary" icon="plus" onClick={openNewTask}>
+        <Button variant="primary" icon="plus" onClick={() => openNewTask()}>
           {t('topbar.newTask')}
         </Button>
       ) : null}
@@ -346,7 +346,7 @@ export function MobileHeader({
           size="md"
           iconOnly
           icon="plus"
-          onClick={openNewTask}
+          onClick={() => openNewTask()}
           aria-label={t('topbar.newTask')}
         />
       ) : null}

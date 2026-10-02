@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
+import { isTheme } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import { useInbox, useLabels, useResolveInbox, useStartTask, useTaskDetail } from '../../api/queries';
 import { useProject } from '../../app/contexts';
@@ -38,6 +39,7 @@ import { canMoveTask } from './moveTask';
 import drawer from './drawer.module.css';
 import styles from './TaskDrawer.module.css';
 import { TaskHeader } from './TaskHeader';
+import { ThemeCards, ThemeHeader, ThemeSummary } from './ThemeDrawer';
 
 function StartPanel({ task, members, tasks }: { task: Task; members: MemberIndex; tasks: readonly Task[] }) {
   const { key } = useProject();
@@ -166,7 +168,10 @@ export function TaskDrawer() {
       if (detail.isError) return <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />;
       return <p className={styles.missing}>{t('task.notFound', { key: taskKey })}</p>;
     }
-    if (!pipeline || !entry) return <LoadingState />;
+    if (!pipeline) return <LoadingState />;
+    // A theme is no card of the pipeline: it has its own head, progress and cards, and nothing to start or move.
+    const theme = isTheme(task);
+    if (!theme && !entry) return <LoadingState />;
     const stage = pipeline.stageById.get(task.stageId);
     const parent =
       board.data?.tasks.find((candidate) => candidate.key === task.parentKey) ?? detail.data?.parent;
@@ -177,6 +182,7 @@ export function TaskDrawer() {
     const session = primarySession(task, sessions);
     // A card in the work stage that waits for its prerequisites can be started by a person too (PM-204).
     const isQueued =
+      !theme &&
       !isTaskClosed(task) &&
       !task.assignee &&
       (stage?.kind === 'queue' || task.startWaiting?.reason === 'prerequisite_open');
@@ -186,14 +192,18 @@ export function TaskDrawer() {
       canMoveTask(task, can.createTasks);
     return (
       <>
-        <TaskHeader
-          task={task}
-          parent={parent}
-          state={entry.state}
-          pipeline={pipeline}
-          headingRef={headingRef}
-          onClose={close}
-        />
+        {theme || !entry ? (
+          <ThemeHeader task={task} headingRef={headingRef} onClose={close} />
+        ) : (
+          <TaskHeader
+            task={task}
+            parent={parent}
+            state={entry.state}
+            pipeline={pipeline}
+            headingRef={headingRef}
+            onClose={close}
+          />
+        )}
 
         <div className={styles.scroll}>
           {myItems.length > 0 ? (
@@ -250,9 +260,31 @@ export function TaskDrawer() {
             ) : null}
           </div>
 
-          <TaskProperties task={task} subtasks={subtasks} members={members} pipeline={pipeline} />
+          {theme ? (
+            <>
+              <ThemeSummary task={task} tasks={board.data?.tasks ?? []} />
+              <section className={drawer.props}>
+                <div className={drawer.prop}>
+                  <span className={drawer.propLabel}>{t('newTask.fields.visibility')}</span>
+                  <span>{t(`visibility.${task.visibility}`)}</span>
+                </div>
+              </section>
+            </>
+          ) : (
+            <TaskProperties
+              task={task}
+              subtasks={subtasks}
+              tasks={board.data?.tasks ?? []}
+              members={members}
+              pipeline={pipeline}
+            />
+          )}
 
           <TaskDescription key={`description:${task.key}`} task={task} className={styles.description} />
+
+          {theme && model ? (
+            <ThemeCards task={task} tasks={board.data?.tasks ?? []} pipeline={pipeline} byKey={model.byKey} />
+          ) : null}
 
           <TaskAttachments key={`attachments:${task.key}`} task={task} members={members} />
 
@@ -266,7 +298,7 @@ export function TaskDrawer() {
               <Timeline
                 events={detail.data.timeline}
                 ctx={{ pipeline, members, labels, myHandle, openInboxIds: openIds }}
-                next={nextStepText(task, pipeline, members, myHandle)}
+                next={theme ? null : nextStepText(task, pipeline, members, myHandle)}
               />
             )}
           </section>
@@ -314,7 +346,11 @@ export function TaskDrawer() {
   })();
 
   return (
-    <aside className={styles.drawer} aria-label={t('task.drawerLabel')} {...fileDrop.props}>
+    <aside
+      className={styles.drawer}
+      aria-label={t(task && isTheme(task) ? 'theme.drawerLabel' : 'task.drawerLabel')}
+      {...fileDrop.props}
+    >
       {body}
       {fileDrop.state && task ? (
         <div className={styles.dropOverlay} data-state={fileDrop.state} role="status">

@@ -193,11 +193,16 @@ export function RosterCards({ members, inbox, roles, titles, actions }: RosterPr
               <MemberIdentity member={member} status={view.status} roles={roles} stretched />
               {menu}
             </div>
-            <span className={styles.statusLine} data-status={view.status}>
-              <StatusDot status={view.status} pulse={view.status === 'working'} />
-              <span className={styles.statusText}>{view.label}</span>
-            </span>
-            <MemberTasks member={member} titles={titles} />
+            <div className={styles.cardState}>
+              <span className={styles.statusLine} data-status={view.status}>
+                <StatusDot status={view.status} pulse={view.status === 'working'} />
+                <span className={styles.statusText}>{view.label}</span>
+              </span>
+              <span aria-hidden="true" className={styles.muted}>
+                ·
+              </span>
+              <MemberTasks member={member} titles={titles} />
+            </div>
             <MemberScheduleControl handle={member.handle} />
             {note ? <span className={styles.muted}>{note}</span> : null}
           </li>

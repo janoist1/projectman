@@ -164,6 +164,28 @@ describe('member profiles', () => {
     expect(screen.getByRole('button', { name: t('profile.conversation') })).toBeTruthy();
     expect(screen.getByText(t('dutyNames.implementation'))).toBeTruthy();
   });
+  it('starts with the role and duties, then the tasks, and ends with the settings in a fold (PM-240)', async () => {
+    const p = mockProject();
+    p.render(page(), '/team/fe-1');
+    const duties = await screen.findByRole('heading', { name: t('profile.duties') });
+    const tasks = await screen.findByRole('heading', { name: t('profile.tasks') });
+    const settings = screen.getByText(t('profile.settings')).closest('details')!;
+    const before = (a: Node, b: Node) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    // The role's name and the duties lead the page, equal headings of the one panel.
+    const role = screen.getAllByRole('heading', { level: 2 })[0]!;
+    expect(role.className).toBe(duties.className);
+    expect(role.closest('section')).toBe(duties.closest('section'));
+    expect(before(duties, tasks)).toBe(true);
+    expect(before(tasks, settings)).toBe(true);
+    // The technical settings are closed, and open on a click.
+    expect(settings.open).toBe(false);
+    expect(within(settings).getByText(/\d+ \/ \d+/)).toBeTruthy();
+    fireEvent.click(screen.getByText(t('profile.settings')));
+    expect(settings.open).toBe(true);
+    // Nothing of them sits in the first panel.
+    expect(duties.closest('section')!.contains(settings)).toBe(false);
+  });
   it('shows the tokens of the last day and the last week (PM-178)', async () => {
     const p = mockProject();
     p.render(page(), '/team/fe-1');

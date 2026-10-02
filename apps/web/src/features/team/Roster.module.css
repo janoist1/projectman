@@ -177,6 +177,18 @@
   z-index: 1;
 }
 
+/* The state and the task share one line: "● Pihen · nincs feladata". */
+.cardState {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cardState .tasks {
+  flex: 1;
+}
+
 /* The name and the "⋯" menu share a row. */
 .cardHead {
   display: flex;

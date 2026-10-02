@@ -4,6 +4,7 @@ import { DEFAULT_CLOSED_CARDS_DAYS, sortClosedCards } from '@projectman/shared';
 import type { ClosedCardsSort } from '@projectman/shared';
 import { useClosedCardsMeasure } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
+import { Fold } from '../../components/Fold';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { ErrorState, LoadingState } from '../../components/States';
 import { WeightedTokensList } from '../../components/TokenUsage';
@@ -49,6 +50,9 @@ export function ClosedCardsComparison() {
         />
       </div>
       <p className={styles.hint}>{t('cardMeasure.hint')}</p>
+      <Fold summary={t('cardMeasure.weightedHintSummary')}>
+        <p className={styles.hint}>{t('cardMeasure.weightedHint')}</p>
+      </Fold>
       {query.isError ? (
         <ErrorState compact error={query.error} onRetry={() => void query.refetch()} />
       ) : !query.data ? (

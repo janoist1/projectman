@@ -24,20 +24,26 @@
   color: var(--c-needs-text);
   font-size: var(--text-sm);
 }
+/* Everything inside a panel is spaced by the one gap; the parts carry no margins of their own. */
 .panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
   padding: 20px;
   background: var(--c-surface);
   border: 1px solid var(--c-line);
   border-radius: var(--radius-lg);
   min-width: 0;
 }
+/* The one heading style of the panels: a role's name and "Feladatkörök" read as equals. */
 .panelTitle {
-  margin: 16px 0 8px;
+  margin: 0;
   font-size: var(--text-xl);
   font-weight: 800;
 }
-.panel > .panelTitle:first-child {
-  margin-top: 0;
+.settings {
+  display: grid;
+  gap: 12px;
 }
 .list,
 .chips {
@@ -54,7 +60,7 @@
   flex-wrap: wrap;
 }
 .when {
-  margin: 0 0 4px;
+  margin: 0;
   font-weight: 700;
 }
 .quiet {
@@ -62,12 +68,9 @@
   color: var(--c-ink-3);
   font-size: var(--text-sm);
 }
-.role h3 {
-  margin: 12px 0 4px;
-  font-size: var(--text-sm);
-}
-.role p {
-  margin: 0 0 4px;
+.role {
+  display: grid;
+  gap: 4px;
 }
 .instructions h3 {
   margin: 12px 0 4px;
@@ -88,7 +91,7 @@
   display: none;
 }
 .usageWindow {
-  margin: 12px 0 6px;
+  margin: 0;
   font-size: var(--text-sm);
 }
 .memory {

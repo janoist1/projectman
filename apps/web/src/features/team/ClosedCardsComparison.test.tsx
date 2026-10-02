@@ -113,6 +113,18 @@ describe('closed cards comparison (PM-222)', () => {
     );
   });
 
+  it('says the model source in one sentence and keeps the weighted-token note behind a fold (PM-240)', async () => {
+    const project = measuredProject();
+    project.render(<ClosedCardsComparison />);
+    await screen.findByRole('table');
+    expect(screen.getByText(t('cardMeasure.hint')).closest('details')).toBeNull();
+    const details = screen.getByText(t('cardMeasure.weightedHintSummary')).closest('details')!;
+    expect(details.open).toBe(false);
+    expect(within(details).getByText(t('cardMeasure.weightedHint'))).toBeTruthy();
+    fireEvent.click(screen.getByText(t('cardMeasure.weightedHintSummary')));
+    expect(details.open).toBe(true);
+  });
+
   it('sorts by weighted tokens and by review rounds, and takes another period', async () => {
     const project = measuredProject();
     project.render(<ClosedCardsComparison />);

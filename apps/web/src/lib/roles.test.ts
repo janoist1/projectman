@@ -35,6 +35,11 @@ describe('role data mapping', () => {
     expect(roleView(custom)).toMatchObject({ ...custom, tone: 'system', icon: 'sparkle' });
     expect(humanRoleName('owner')).toBe('Tulajdonos');
   });
+  it('gives the operator a quiet tone, not the filled owner one that reads as a button (PM-240)', () => {
+    const operator = builtInRoles.find((role) => role.id === 'operator')!;
+    expect(roleView(operator).tone).not.toBe('owner');
+    expect(roleView(operator).tone).toBe('human');
+  });
   it('offers AI and both holders in catalogue order, including custom roles', () => {
     expect(
       hireableRoles([...builtInRoles, custom, { ...custom, id: 'human_lead', holders: 'human' }]).map(

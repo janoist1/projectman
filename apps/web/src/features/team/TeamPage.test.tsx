@@ -230,6 +230,18 @@ describe('TeamPage role catalogue', () => {
     expect(screen.getByText(new RegExp(t('team.subscriptionMajority', { name: 'Kata' })))).toBeTruthy();
   });
 
+  it('puts the state and the task of a card on one line (phone, PM-240)', async () => {
+    phone(true);
+    const project = mockProject();
+    project.render(<TeamPage />);
+    const roster = within(await screen.findByRole('region', { name: t('team.roster') }));
+    const none = (await roster.findAllByText(t('team.noTask')))[0]!;
+    // The status (with its dot) and the "no task" text sit in the same element, joined by a "·".
+    const line = none.parentElement!;
+    expect(line.querySelector('[data-status]')).not.toBeNull();
+    expect(line.textContent).toContain('·');
+  });
+
   it('says in the subtitle whose subscription runs the AI members when it is not the viewer', async () => {
     const project = mockProject();
     for (const member of project.backend.members) if (member.kind === 'ai') member.sponsor = 'kata';

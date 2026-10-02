@@ -291,7 +291,9 @@ export const hu = {
   /** The comparison of the closed cards (PM-222). */
   cardMeasure: {
     title: 'Lezárt kártyák összevetése',
-    hint: 'A modell a munkamenetek mért fogyasztásából jön, nem a tag mai beállításából. A súlyozott token a gyorsítótárból olvasott tokeneket egytizedükkel számolja.',
+    hint: 'A modell a munkamenetek mért fogyasztásából jön, nem a tag mai beállításából.',
+    weightedHintSummary: 'Mi az a súlyozott token?',
+    weightedHint: 'A súlyozott token a gyorsítótárból olvasott tokeneket egytizedükkel számolja.',
     periodLabel: 'Időszak',
     periodDays: '{days} nap',
     empty: 'Az időszakban nem zárult le kártya.',
@@ -1654,6 +1656,7 @@ export const hu = {
     activity: 'Legutóbbi tevékenység',
     thread: 'Üzenetváltás',
     duties: 'Feladatkörök',
+    settings: 'Beállítások',
     sessions: 'Munkamenetek',
     live: 'Élő munkamenet',
     openSession: 'Munkamenet megnyitása',

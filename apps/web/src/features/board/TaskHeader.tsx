@@ -9,11 +9,33 @@ import { formatAgo } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { stagePosition } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
-import type { TaskState } from '../../lib/taskState';
+import type { TaskState, TaskWorker } from '../../lib/taskState';
 import { prChip } from './cardModel';
 import { TaskTitle } from './TaskEdit';
 import { TaskLifecycleMenu } from './TaskLifecycle';
 import styles from './TaskHeader.module.css';
+
+/**
+ * What one worker does, in full (PM-239): "{name}: {summary}" and the longer text under it. A worker
+ * who gave no sentence reads as before ("{name} átnézi"). The sentences are the member's own text.
+ */
+function WorkerText({ worker }: { worker: TaskWorker }) {
+  const { doing } = worker;
+  if (!doing) return <span className={styles.nowText}>{worker.sentence}</span>;
+  return (
+    <span className={styles.nowText}>
+      <span className="visually-hidden">{worker.line}</span>
+      {/* The key replays the fade-in when the member changes its sentence. */}
+      <span key={`${doing.summary}\n${doing.detail ?? ''}`} className={styles.nowDoing} aria-hidden="true">
+        <span>
+          {t('taskStatus.workerName', { name: worker.member.displayName })}{' '}
+          <span className={styles.nowSummary}>{doing.summary}</span>
+        </span>
+        {doing.detail ? <span className={styles.nowDetail}>{doing.detail}</span> : null}
+      </span>
+    </span>
+  );
+}
 
 /**
  * The drawer's head: the parent task, the stage and PR chips with the "⋯" menu and close, the title
@@ -75,12 +97,12 @@ export function TaskHeader({
       <TaskTitle key={task.key} task={task} headingRef={headingRef} />
       <StageProgress pipeline={pipeline} stageId={task.stageId} phase={state.phase} variant="stepper" />
       {state.workers.length > 1 ? (
-        // Several work on it: one row each, with their own verb and time.
+        // Several work on it: one row each, with their own verb, sentence and time.
         <ul className={styles.nowList} data-phase={state.phase} aria-label={state.label}>
           {state.workers.map((worker) => (
             <li key={worker.sessionId} className={styles.nowRow}>
               <StatusDot phase={state.phase} pulse size={9} />
-              <span className={styles.nowText}>{worker.sentence}</span>
+              <WorkerText worker={worker} />
               <span className={styles.nowAge}>{formatAgo(worker.since)}</span>
             </li>
           ))}
@@ -88,7 +110,11 @@ export function TaskHeader({
       ) : (
         <div className={styles.now} data-phase={state.phase}>
           <StatusDot phase={state.phase} pulse={state.phase === 'working'} size={9} />
-          <span className={styles.nowText}>{state.label}</span>
+          {state.workers[0]?.doing ? (
+            <WorkerText worker={state.workers[0]} />
+          ) : (
+            <span className={styles.nowText}>{state.label}</span>
+          )}
           <span className={styles.nowAge}>{formatAgo(state.since)}</span>
         </div>
       )}

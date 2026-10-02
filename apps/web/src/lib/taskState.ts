@@ -1,5 +1,5 @@
 import { DEFAULT_AGENT_PROVIDER, openPrerequisites } from '@projectman/shared';
-import type { InboxItem, LabelView, MemberView, Task } from '@projectman/shared';
+import type { InboxItem, LabelView, MemberView, Task, WorkDoing } from '@projectman/shared';
 import { formatAge } from '../i18n/format';
 import { joinNames, t } from '../i18n/t';
 import { isAssignedTo, newestFirst, openItems, permissionCommand, shortCommand } from './inbox';
@@ -93,6 +93,10 @@ export interface TaskWorker {
   verb: WorkerVerb;
   /** "Vezető Fejlesztő átnézi": the member's own line, with no command in it. */
   sentence: string;
+  /** What the member says it does on the card (PM-238); null when it gave no sentence. */
+  doing: WorkDoing | null;
+  /** The whole line for a tooltip or a screen reader: "{name}: {summary}", or `sentence` without one. */
+  line: string;
   since: string;
   sessionId: string;
 }
@@ -131,10 +135,15 @@ function findWorkers(task: Task, ctx: Pick<TaskStateContext, 'members' | 'pipeli
   working.sort((a, b) => rank(a.member) - rank(b.member) || a.work.since.localeCompare(b.work.since));
   return working.map(({ member, work }) => {
     const verb = workerVerb(member, task, ctx.pipeline);
+    const sentence = t(`taskStatus.worker.${verb}`, { name: member.displayName });
     return {
       member,
       verb,
-      sentence: t(`taskStatus.worker.${verb}`, { name: member.displayName }),
+      sentence,
+      doing: work.doing ?? null,
+      line: work.doing
+        ? t('taskStatus.workerDoing', { name: member.displayName, summary: work.doing.summary })
+        : sentence,
       since: work.since,
       sessionId: work.sessionId,
     };
@@ -150,6 +159,25 @@ export function workersLabel(workers: readonly TaskWorker[]): string {
     names: names.slice(0, 2).join(t('common.listSeparator')),
     more: names.length - 2,
   });
+}
+
+/** The most workers the card names in rows of their own. */
+const CARD_WORKER_ROWS = 2;
+
+/**
+ * The rows the card's status line shows when a worker has said what they do (PM-239): at most two
+ * workers, each with their own sentence, and how many more work on it. Null when nobody has a
+ * sentence: the card then shows `state.label` as before. A worker without a sentence keeps their
+ * own `sentence` row.
+ */
+export function cardWorkerRows(
+  state: Pick<TaskState, 'workers'>,
+): { rows: TaskWorker[]; more: number } | null {
+  if (!state.workers.some((worker) => worker.doing)) return null;
+  return {
+    rows: state.workers.slice(0, CARD_WORKER_ROWS),
+    more: Math.max(0, state.workers.length - CARD_WORKER_ROWS),
+  };
 }
 
 /**

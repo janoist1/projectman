@@ -114,6 +114,74 @@ describe('TaskCard', () => {
     expect(screen.getByRole('link').textContent).not.toContain('Bash');
   });
 
+  describe('the sentence of the worker (PM-239)', () => {
+    const gateway = {
+      summary: 'A mentések visszaállítási próbája fut a tesztadatbázison, utána a riasztás jön',
+      detail: 'A visszaállítás a tegnap esti mentésből indul.',
+    };
+    const since = '2026-10-01T10:00:00.000Z';
+    const sessionOf = (handle: string, doing?: { summary: string; detail?: string }) => ({
+      sessionId: `ses_${handle}`,
+      taskKey: 'AC-20',
+      activity: COMMAND,
+      since,
+      ...(doing ? { doing } : {}),
+    });
+
+    /** AC-20 with these members working on it (the fixture's own worker steps aside). */
+    function renderWith(workers: Record<string, { summary: string; detail?: string } | null>) {
+      const task = taskByKey('AC-20');
+      const team = new Map(
+        [...members].map(([handle, member]) => [
+          handle,
+          { ...member, taskWork: handle in workers ? [sessionOf(handle, workers[handle] ?? undefined)] : [] },
+        ]),
+      );
+      const state = deriveTaskState(task, { ...ctx, members: team });
+      renderUi(<TaskCard task={task} state={state} pipeline={pipeline} to="/p/AC/tasks/AC-20" labels={[]} />);
+      return screen.getByRole('link');
+    }
+
+    it('names the worker with their own sentence, and keeps the longer text off the card', () => {
+      const card = renderWith({ 'be-1': gateway });
+      const line = `Backend fejlesztő: ${gateway.summary}`;
+      expect(within(card).getByText(line)).toBeTruthy();
+      expect(within(card).getByText(gateway.summary)).toBeTruthy();
+      expect(card.querySelector('[title]')!.getAttribute('title')).toBe(line);
+      expect(card.textContent).not.toContain(gateway.detail);
+      expect(within(card).queryByText(working('Backend fejlesztő'))).toBeNull();
+      expect(card.textContent).not.toContain('Bash');
+    });
+
+    it('keeps the line of the capacity for a worker who said nothing', () => {
+      const card = renderWith({ 'be-1': null });
+      expect(within(card).getByText(working('Backend fejlesztő'))).toBeTruthy();
+    });
+
+    it('gives each of two workers a row: the sentence of one, the capacity of the other', () => {
+      const card = renderWith({ 'be-1': null, 'fe-1': { summary: 'A diff átnézése folyik' } });
+      const fe = members.get('fe-1')!.displayName;
+      expect(within(card).getByText(working('Backend fejlesztő'))).toBeTruthy();
+      expect(within(card).getByText(`${fe}: A diff átnézése folyik`)).toBeTruthy();
+      expect(card.querySelector('[title]')!.getAttribute('title')).toBe(
+        [working('Backend fejlesztő'), `${fe}: A diff átnézése folyik`].join('\n'),
+      );
+      expect(within(card).queryByText(/^\+\d/)).toBeNull();
+    });
+
+    it('counts the workers beyond the second, and says so to a screen reader', () => {
+      const card = renderWith({
+        'be-1': gateway,
+        'fe-1': null,
+        'dev-1': { summary: 'A diff átnézése folyik' },
+      });
+      expect(within(card).getByText(t('taskStatus.workersMore', { more: 1 }))).toBeTruthy();
+      expect(within(card).getByText(t('taskStatus.workersMoreLabel', { more: 1 }))).toBeTruthy();
+      // Only two rows are named; the third worker is in the tooltip.
+      expect(card.querySelector('[title]')!.getAttribute('title')!.split('\n')).toHaveLength(3);
+    });
+  });
+
   it('shows done tasks with the merged PR', () => {
     const card = renderCard('AC-16');
     expect(within(card).getByText('PR #18 · admin')).toBeTruthy();

@@ -170,9 +170,66 @@
   text-overflow: ellipsis;
 }
 
+/* A worker's own sentence (PM-239): the dot and the age sit on the first line, the sentence wraps in two. */
+.statusRows {
+  align-items: flex-start;
+}
+
+.statusRows > :first-child {
+  margin-top: 0.4em;
+}
+
+.workerRows {
+  flex-grow: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.35;
+}
+
+.workerRow {
+  display: flex;
+  min-width: 0;
+}
+
+.workerText {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The only worker: the sentence takes up to two lines, then "…". */
+.workerTextWrap {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.workerName {
+  font-weight: 800;
+  color: var(--phase-text);
+}
+
+.workerSummary {
+  font-weight: 500;
+  color: var(--c-ink-2);
+  animation: pm-fade-in 160ms ease-out;
+}
+
+.workerMore {
+  flex-shrink: 0;
+  margin-left: 4px;
+  font-weight: 800;
+  color: var(--c-ink-3);
+}
+
 .age {
   color: var(--c-ink-4);
   flex-shrink: 0;
+  line-height: 1.35;
 }
 
 /* The cover: a low strip over the whole card, 84 px high from the start, so nothing jumps. */

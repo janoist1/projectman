@@ -9,7 +9,7 @@ import { StageProgress } from '../../components/StageProgress';
 import { formatAge } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import type { PipelineIndex } from '../../lib/pipeline';
-import { prerequisiteLabel } from '../../lib/taskState';
+import { cardWorkerRows, prerequisiteLabel } from '../../lib/taskState';
 import type { TaskState } from '../../lib/taskState';
 import { prChip, stageRows } from './cardModel';
 import { LabelChip } from '../../components/LabelChip';
@@ -76,6 +76,7 @@ export function TaskCard({
   const showMeta = !compact && (pr !== null || task.labels.length > 0);
   // Said by the status line already when the card stands on it: never twice on one card.
   const prerequisite = state.prerequisite?.key && !state.prerequisite.inLabel ? state.prerequisite : null;
+  const workerRows = cardWorkerRows(state);
   return (
     <Link
       to={to}
@@ -167,20 +168,57 @@ export function TaskCard({
           ))}
         </ul>
       ) : null}
-      <span className={styles.status}>
+      <span className={clsx(styles.status, workerRows && styles.statusRows)}>
         <StatusDot phase={state.phase} pulse={state.phase === 'working'} />
-        <span
-          className={styles.statusText}
-          title={
-            state.workers.length > 0
-              ? state.workers.map((worker) => worker.sentence).join('\n')
-              : state.prerequisite?.inLabel
-                ? state.prerequisite.cards.map((card) => `${card.key} – ${card.title}`).join('\n')
-                : undefined
-          }
-        >
-          {state.label}
-        </span>
+        {workerRows ? (
+          <span className={styles.workerRows} title={state.workers.map((worker) => worker.line).join('\n')}>
+            {workerRows.rows.map((worker, index) => (
+              <span key={worker.sessionId} className={styles.workerRow}>
+                <span
+                  className={clsx(styles.workerText, workerRows.rows.length === 1 && styles.workerTextWrap)}
+                >
+                  {worker.doing ? (
+                    <>
+                      <span className="visually-hidden">{worker.line}</span>
+                      <span className={styles.workerName} aria-hidden="true">
+                        {t('taskStatus.workerName', { name: worker.member.displayName })}
+                      </span>{' '}
+                      {/* The key replays the fade-in when the member changes its sentence. */}
+                      <span key={worker.doing.summary} className={styles.workerSummary} aria-hidden="true">
+                        {worker.doing.summary}
+                      </span>
+                    </>
+                  ) : (
+                    <span className={styles.workerName}>{worker.sentence}</span>
+                  )}
+                </span>
+                {index === 1 && workerRows.more > 0 ? (
+                  <>
+                    <span className={styles.workerMore} aria-hidden="true">
+                      {t('taskStatus.workersMore', { more: workerRows.more })}
+                    </span>
+                    <span className="visually-hidden">
+                      {t('taskStatus.workersMoreLabel', { more: workerRows.more })}
+                    </span>
+                  </>
+                ) : null}
+              </span>
+            ))}
+          </span>
+        ) : (
+          <span
+            className={styles.statusText}
+            title={
+              state.workers.length > 0
+                ? state.workers.map((worker) => worker.sentence).join('\n')
+                : state.prerequisite?.inLabel
+                  ? state.prerequisite.cards.map((card) => `${card.key} – ${card.title}`).join('\n')
+                  : undefined
+            }
+          >
+            {state.label}
+          </span>
+        )}
         {compact ? (
           <span className={styles.age}>
             {stage?.name}

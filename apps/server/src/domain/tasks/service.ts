@@ -2,6 +2,7 @@ import type {
   Actor,
   BoardMoveRequest,
   BoardMoveResult,
+  Stage,
   CreateTaskCommentRequest,
   TimelineEvent,
   CancelTaskRequest,
@@ -46,6 +47,7 @@ import { LIVE_SESSION_STATES } from '../sessions';
 import type { TimelineService } from '../timeline';
 import { actorHandle, newId, unique } from '../util';
 import { BoardOrder } from './board-order';
+import { BoardGroupMove } from './group-move';
 import { labelsChange, planLabelsOrThrow, TaskLabels } from './labels';
 import { approvalRequestedError, gateBlockedError, TaskMoves } from './moves';
 import type { Handover, MoveOptions, MoveResult, SourceHeadReader } from './moves';
@@ -108,6 +110,7 @@ export class TaskService {
   private readonly labels: TaskLabels;
   private readonly moves: TaskMoves;
   private readonly order: BoardOrder;
+  private readonly group: BoardGroupMove;
   private readonly cardRelations: TaskRelations;
   private readonly themes: TaskThemes;
   private readonly pullRequests: PullRequestRecords;
@@ -135,6 +138,7 @@ export class TaskService {
       sourceHead: deps.sourceHead,
       order: this.order,
     });
+    this.group = new BoardGroupMove({ store: this.store, moves: this.moves, order: this.order });
     this.themes = new TaskThemes(this.store);
     this.cardRelations = new TaskRelations(this.store, {
       liveSession: (task) => this.liveSession(task) !== undefined,
@@ -369,17 +373,14 @@ export class TaskService {
     const seen = this.get(projectKey, taskKey);
     if (isTheme(seen)) throw themeRefused(taskKey, 'be moved on the board');
     const entering = !this.inColumn(config, seen, req.columnId);
+    // A collecting card entering another column takes its subtasks of the column along (PM-121).
+    if (entering && req.withSubtasks && this.group.along(config, seen).length > 0)
+      return this.moveGroupOnBoard(config, seen, target, req, actor);
     // A move into a review or test stage hands the branch over (PM-183): read before the write.
     const handover = entering ? await this.moves.prepareHandover(config, seen, target.id) : null;
     const effects: Effect[] = [];
     const result = this.ctx.unitOfWork((): { board: BoardMoveResult; pending?: InboxItem[] } => {
-      const task = this.get(projectKey, taskKey);
-      if (task.status === 'cancelled') throw conflict('task_closed', `task ${taskKey} is cancelled`);
-      if (task.stageId !== req.fromStageId)
-        throw conflict('board_stale', `${taskKey} is not in the stage ${req.fromStageId} any more`, {
-          reason: 'source',
-          stageId: task.stageId,
-        });
+      const task = this.requireDroppable(projectKey, taskKey, req);
       const chronological = this.order.chronological(config, req.columnId);
       if (!entering) {
         if (chronological || task.status === 'done')
@@ -405,6 +406,43 @@ export class TaskService {
     await runEffects(effects);
     if (result.pending?.length) throw approvalRequestedError(result.pending);
     return result.board;
+  }
+
+  /**
+   * A collecting card and its subtasks of its column dropped on another column (PM-121): one request, one
+   * unit of work, each card through its own gates (see `BoardGroupMove`). The request's own conditions
+   * (the card cancelled, not in the stage seen, the anchor gone) refuse the whole drop before any card moves;
+   * after that no card's refusal stops the others. Work starts after the commit, from each card's own event.
+   */
+  private async moveGroupOnBoard(
+    config: ProjectConfig,
+    seen: Task,
+    target: Stage,
+    req: BoardMoveRequest,
+    actor: Actor,
+  ): Promise<BoardMoveResult> {
+    const prepared = await this.group.prepare(config, [seen, ...this.group.along(config, seen)], target);
+    const effects: Effect[] = [];
+    const board = this.ctx.unitOfWork((): BoardMoveResult => {
+      const task = this.requireDroppable(seen.projectKey, seen.key, req);
+      if (!this.order.chronological(config, req.columnId))
+        this.order.requireCurrent(config, task, req.columnId, req.placement);
+      return this.group.run(config, task, target, req, actor, prepared, effects);
+    });
+    await runEffects(effects);
+    return board;
+  }
+
+  /** The card read in the running unit of work, refused when it is cancelled or not in the stage the person saw it in. */
+  private requireDroppable(projectKey: string, taskKey: string, req: BoardMoveRequest): Task {
+    const task = this.get(projectKey, taskKey);
+    if (task.status === 'cancelled') throw conflict('task_closed', `task ${taskKey} is cancelled`);
+    if (task.stageId !== req.fromStageId)
+      throw conflict('board_stale', `${taskKey} is not in the stage ${req.fromStageId} any more`, {
+        reason: 'source',
+        stageId: task.stageId,
+      });
+    return task;
   }
 
   private inColumn(config: ProjectConfig, task: Task, columnId: string): boolean {

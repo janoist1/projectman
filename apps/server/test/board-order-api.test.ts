@@ -129,4 +129,53 @@ describe('board order API', () => {
     });
     expect(await todo()).toEqual(['AR-2']);
   });
+
+  describe('a collecting card dropped with its subtasks (PM-121)', () => {
+    const family = async () => {
+      await inject(h.app, 'POST', routes.tasks('AR'), cookie, { title: 'Collecting' });
+      for (const title of ['One', 'Two'])
+        await inject(h.app, 'POST', routes.tasks('AR'), cookie, { title, parentKey: 'AR-1' });
+    };
+    const drop = { columnId: 'doing', fromStageId: 'backlog', placement: { at: 'top' } };
+
+    it('answers one result for every card and tells both clients about each moved card', async () => {
+      await family();
+      const first = await client();
+      const second = await client();
+      const before = first.length;
+      const res = await post('AR-1', { ...drop, withSubtasks: true });
+      expect(res.statusCode).toBe(200);
+      const result = res.json<BoardMoveResult>();
+      expect(result.group).toEqual([
+        { taskKey: 'AR-1', outcome: 'moved' },
+        { taskKey: 'AR-3', outcome: 'moved' },
+        { taskKey: 'AR-2', outcome: 'moved' },
+      ]);
+      await flush();
+      for (const events of [first, second])
+        expect(new Set(upserted(events.slice(before)).map((task) => task.key))).toEqual(
+          new Set(['AR-1', 'AR-2', 'AR-3']),
+        );
+      expect((await list()).map((task) => task.stageId)).toEqual([
+        'development',
+        'development',
+        'development',
+      ]);
+    });
+
+    it('moves only the card without the flag, and refuses a flag that is not a boolean', async () => {
+      await family();
+      const res = await post('AR-1', drop);
+      expect(res.json<BoardMoveResult>().group).toBeUndefined();
+      expect((await list()).map((task) => task.stageId)).toEqual(['development', 'backlog', 'backlog']);
+      expect((await post('AR-2', { ...drop, withSubtasks: 'yes' })).statusCode).toBe(400);
+    });
+
+    it('is for a developer: a viewer moves nothing', async () => {
+      await family();
+      const viewer = await addHumanAndLogin(h.app, { handle: 'viewer', access: 'viewer' });
+      expect((await post('AR-1', { ...drop, withSubtasks: true }, viewer)).statusCode).toBe(403);
+      expect((await list()).map((task) => task.stageId)).toEqual(['backlog', 'backlog', 'backlog']);
+    });
+  });
 });

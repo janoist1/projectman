@@ -20,7 +20,7 @@ import {
 } from '../domain/member';
 import { TeamMessage } from '../domain/message';
 import { LabelDefinition, LabelId } from '../domain/label';
-import { BoardColumn, Stage, StageId } from '../domain/pipeline';
+import { BoardColumn, GateCondition, Stage, StageId } from '../domain/pipeline';
 import { CustomRoleDefinition, RoleHolders, RoleId } from '../domain/role';
 import { ScheduleRun } from '../domain/schedule';
 import { Session, TaskWork } from '../domain/session';
@@ -386,10 +386,41 @@ export const BoardMoveRequest = z
     placement: BoardPlacement,
     /** As `UpdateTaskRequest.despitePrerequisites`, for a drop that starts work (PM-204). */
     despitePrerequisites: z.boolean().optional(),
+    /**
+     * A collecting card dragged to another column takes the direct subtasks that stand in its column
+     * with it (PM-121), each through the gates of its own move; the server picks them from its own
+     * state (`subtasksMovingAlong`) and answers with `group`. Without it only the card moves, as before.
+     */
+    withSubtasks: z.boolean().optional(),
     // Strict: the client never sends a rank or a list of cards; the server computes the place.
   })
   .strict();
 export type BoardMoveRequest = z.infer<typeof BoardMoveRequest>;
+
+/**
+ * What a group move did to one card (PM-121): `moved`; `blocked` by a business rule (`gate_blocked`
+ * with the unmet conditions and the approvals the gate asks for, or `handover_uncommitted`, the
+ * developer's uncommitted work that a review hand-over refuses) with the server's message; waiting
+ * for a human approval (`approval_pending`, the inbox items it waits on: the card moves on its own
+ * once they are approved); or `skipped` because the card changed meanwhile (no longer in the column,
+ * closed) and was not touched.
+ */
+export const BoardGroupItem = z.discriminatedUnion('outcome', [
+  z.object({ taskKey: TaskKey, outcome: z.literal('moved') }),
+  z.object({
+    taskKey: TaskKey,
+    outcome: z.literal('blocked'),
+    code: z.enum(['gate_blocked', 'handover_uncommitted']),
+    message: z.string(),
+    unmet: z.array(
+      z.object({ stageId: StageId, condition: GateCondition, setters: z.array(z.string()).optional() }),
+    ),
+    approvals: z.array(z.object({ stageId: StageId, label: LabelId, approvers: z.array(z.string()) })),
+  }),
+  z.object({ taskKey: TaskKey, outcome: z.literal('approval_pending'), inboxItemIds: z.array(z.string()) }),
+  z.object({ taskKey: TaskKey, outcome: z.literal('skipped'), reason: z.enum(['changed', 'closed']) }),
+]);
+export type BoardGroupItem = z.infer<typeof BoardGroupItem>;
 
 /**
  * What a board move did to the card: `reordered` (its place in its column changed), `moved` (it entered
@@ -401,6 +432,13 @@ export const BoardMoveResult = z.object({
   task: Task,
   outcome: z.enum(['reordered', 'moved', 'unchanged']),
   reranked: z.array(TaskKey),
+  /**
+   * The result of every card of a group move (PM-121), the collecting card first, then its subtasks in
+   * their order; absent unless the request asked `withSubtasks` and subtasks of the column were found.
+   * A refusal of one card (a gate, a pending approval, a card that changed meanwhile) is its own item and
+   * does not stop the others; `task` is then the collecting card as it is now, `outcome` its own.
+   */
+  group: z.array(BoardGroupItem).optional(),
 });
 export type BoardMoveResult = z.infer<typeof BoardMoveResult>;
 

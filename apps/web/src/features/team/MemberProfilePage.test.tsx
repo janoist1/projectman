@@ -20,7 +20,70 @@ function page() {
     </Routes>
   );
 }
+/** Opens the "⋯" menu of the profile and picks an entry. */
+async function chooseFromMenu(p: ReturnType<typeof mockProject>, handle: string, name: string) {
+  const member = p.backend.findMember(handle)!;
+  fireEvent.click(
+    await screen.findByRole('button', { name: t('team.moreFor', { name: member.displayName }) }),
+  );
+  fireEvent.click(screen.getByRole('button', { name }));
+}
+
 describe('member profiles', () => {
+  it('has one main button, the rest sits in the menu', async () => {
+    const p = mockProject();
+    p.render(page(), '/team/fe-1');
+    const header = within(await screen.findByRole('banner'));
+    const name = p.backend.findMember('fe-1')!.displayName;
+    expect(
+      header.getAllByRole('button').map((button) => button.getAttribute('aria-label') ?? button.textContent),
+    ).toEqual([t('profile.conversation'), t('team.moreFor', { name })]);
+    fireEvent.click(header.getByRole('button', { name: t('team.moreFor', { name }) }));
+    expect(header.getByRole('button', { name: t('memberEdit.editMember', { name }) })).toBeTruthy();
+    expect(header.getByRole('button', { name: t('leave.sendMember', { name }) })).toBeTruthy();
+    expect(
+      header.getByRole('button', { name: t('team.retireMember', { name, handle: 'fe-1' }) }),
+    ).toBeTruthy();
+  });
+
+  it('marks a member on leave next to the name', async () => {
+    const p = mockProject();
+    p.backend.findMember('fe-1')!.onLeave = true;
+    p.render(page(), '/team/fe-1');
+    const header = within(await screen.findByRole('banner'));
+    expect(await header.findByText(t('leave.onLeave'))).toBeTruthy();
+    expect(screen.getByRole('status').textContent).toBe(t('leave.status'));
+    expect(header.getByRole('button', { name: t('profile.conversation') }).hasAttribute('disabled')).toBe(
+      true,
+    );
+  });
+
+  it('lists the duties as chips and puts the empty things in one quiet line, not in boxes', async () => {
+    const p = mockProject();
+    p.backend.sessions = [];
+    p.backend.tasks = [];
+    p.backend.memories['fe-1'] = '';
+    p.render(page(), '/team/fe-1');
+    await screen.findByRole('heading', { name: t('profile.duties') });
+    const duty = screen.getByText(t('dutyNames.implementation'));
+    expect(duty.closest('li')?.parentElement?.tagName).toBe('UL');
+    await waitFor(() => expect(screen.getByText(new RegExp(t('profile.memoryEmpty')))).toBeTruthy());
+    const quiet = screen.getByText(new RegExp(t('profile.noTasks')));
+    expect(quiet.textContent).toContain(t('profile.noSessions'));
+    expect(quiet.textContent).toContain(t('profile.memoryEmpty'));
+    expect(quiet.closest('section')).toBeNull();
+    for (const title of ['profile.tasks', 'profile.live', 'profile.sessions', 'profile.memory'] as const)
+      expect(screen.queryByRole('heading', { name: t(title) })).toBeNull();
+  });
+
+  it('says a human has no decision waiting without a panel', async () => {
+    const p = mockProject();
+    p.render(page(), '/team/bence');
+    await screen.findByRole('heading', { name: 'Bence' });
+    expect(screen.getByText(new RegExp(t('profile.noWaiting'))).closest('section')).toBeNull();
+    expect(screen.queryByRole('heading', { name: t('profile.waiting') })).toBeNull();
+  });
+
   it('creates a seat invitation from an unclaimed human profile and displays the link', async () => {
     const p = mockProject();
     p.backend.handle('POST', '/api/projects/AC/members/human', {
@@ -31,7 +94,7 @@ describe('member profiles', () => {
     });
     p.render(page(), '/team/colleague');
     expect(await screen.findByText(t('memberStatus.no_account'))).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: t('invites.create') }));
+    await chooseFromMenu(p, 'colleague', t('invites.create'));
     const dialog = within(screen.getByRole('dialog'));
     fireEvent.change(dialog.getByLabelText(t('invites.email')), { target: { value: 'colleague@acme.test' } });
     fireEvent.click(await dialog.findByRole('button', { name: t('invites.create') }));
@@ -107,7 +170,11 @@ describe('member profiles', () => {
     const panel = within(await screen.findByLabelText(t('profile.instructions')));
     expect(panel.getByText('Work in your own worktree.')).toBeTruthy();
     expect(panel.getByRole('link', { name: t('profile.roleInstructionsEdit') })).toBeTruthy();
-    fireEvent.click(await screen.findByRole('button', { name: t('memberEdit.edit') }));
+    await chooseFromMenu(
+      p,
+      'fe-1',
+      t('memberEdit.editMember', { name: p.backend.findMember('fe-1')!.displayName }),
+    );
     const dialog = within(screen.getByRole('dialog'));
     const field = dialog.getByLabelText(t('memberEdit.instructions')) as HTMLTextAreaElement;
     expect(field.value).toBe('Work in your own worktree.');
@@ -134,9 +201,8 @@ describe('member profiles', () => {
     p.render(page(), '/team/bence');
     expect(await screen.findByRole('heading', { name: 'Bence' })).toBeTruthy();
     expect(screen.getByText('bence@acme.test')).toBeTruthy();
-    expect(screen.getByRole('heading', { name: t('profile.waiting') })).toBeTruthy();
     expect(screen.queryByRole('button', { name: t('profile.conversation') })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: t('memberEdit.edit') }));
+    await chooseFromMenu(p, 'bence', t('memberEdit.editMember', { name: 'Bence' }));
     const dialog = screen.getByRole('dialog');
     fireEvent.change(within(dialog).getByLabelText(t('invites.access')), { target: { value: 'client' } });
     fireEvent.click(within(dialog).getByRole('button', { name: t('memberEdit.save') }));
@@ -152,7 +218,7 @@ describe('member profiles', () => {
     if (member.kind !== 'ai') throw new Error('Expected fictional AI member');
     member.schedule = { cron: '0 9 * * *', prompt: 'Inspect fictional Acme fixtures.' };
     p.render(page(), '/team/fe-1');
-    expect(await screen.findByText('0 9 * * *')).toBeTruthy();
+    expect(await screen.findByText('minden nap reggel 9')).toBeTruthy();
     fireEvent.click(await screen.findByRole('button', { name: t('schedules.runNow') }));
     await waitFor(() => expect(p.backend.scheduleRuns[0]?.status).toBe('started'));
     expect(p.requests.some((r) => r.method === 'POST' && r.path.endsWith('/schedule/run'))).toBe(true);
@@ -160,8 +226,7 @@ describe('member profiles', () => {
   it('offers human removal with an explicit confirmation and keeps it restricted to admins', async () => {
     const p = mockProject();
     p.render(page(), '/team/bence');
-    fireEvent.click(await screen.findByRole('button', { name: t('common.moreActions') }));
-    fireEvent.click(screen.getByRole('button', { name: t('profile.remove') }));
+    await chooseFromMenu(p, 'bence', t('profile.remove'));
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText(t('profile.removeConfirm', { name: 'Bence' }))).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('button', { name: t('profile.remove') }));

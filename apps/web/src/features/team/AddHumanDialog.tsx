@@ -6,16 +6,33 @@ import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
 import { SelectField, TextField } from '../../components/Field';
+import { SegmentedControl } from '../../components/SegmentedControl';
 import { ErrorState, LoadingState } from '../../components/States';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { humanRoleName } from '../../lib/roles';
+import { InviteForm } from './InviteDialog';
 import styles from './memberForm.module.css';
 
+type AddMode = 'direct' | 'invite';
+
+/** "Kolléga hozzáadása": a member without an account, or an invitation link for one. */
 export function AddHumanDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [mode, setMode] = useState<AddMode>('direct');
   return (
     <Dialog open={open} onClose={onClose} title={t('addHuman.title')}>
-      <AddHumanForm onDone={onClose} />
+      <div className={styles.form}>
+        <SegmentedControl<AddMode>
+          label={t('addHuman.modeLabel')}
+          value={mode}
+          onChange={setMode}
+          options={[
+            { value: 'direct', label: t('addHuman.modeDirect') },
+            { value: 'invite', label: t('addHuman.modeInvite') },
+          ]}
+        />
+        {mode === 'direct' ? <AddHumanForm onDone={onClose} /> : <InviteForm />}
+      </div>
     </Dialog>
   );
 }

@@ -1,12 +1,13 @@
 import { Link } from 'react-router';
 import { useRunSchedule, useSchedules } from '../../api/queries';
 import { isApiError } from '../../api/client';
-import { useProject } from '../../app/contexts';
+import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Button } from '../../components/Button';
-import { ErrorState, LoadingState } from '../../components/States';
+import { ErrorState } from '../../components/States';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
+import { nameOf } from '../../lib/members';
 import { formatScheduleTime, scheduleReason } from '../../lib/schedules';
 import styles from './ScheduledRuns.module.css';
 
@@ -42,34 +43,36 @@ export function MemberScheduleControl({ handle }: { handle: string }) {
   );
 }
 
+/** The recent scheduled runs; with none (or while they load) the page has no box for them. */
 export function RecentScheduleRuns() {
-  const { key } = useProject();
+  const { key, myHandle } = useProject();
+  const { members } = useProjectIndexes(key);
   const schedules = useSchedules(key);
+  if (!schedules.isError && (!schedules.data || schedules.data.runs.length === 0)) return null;
   return (
     <section className={styles.section} aria-labelledby="schedule-runs">
       <h2 id="schedule-runs">{t('schedules.title')}</h2>
       {schedules.isError ? (
         <ErrorState error={schedules.error} onRetry={() => void schedules.refetch()} />
-      ) : !schedules.data ? (
-        <LoadingState compact />
-      ) : schedules.data.runs.length === 0 ? (
-        <p>{t('schedules.empty')}</p>
       ) : (
         <ul className={styles.runs}>
-          {schedules.data.runs.map((run) => (
-            <li key={run.id}>
-              {run.sessionId ? (
-                <Link to={`/p/${key}/sessions/${run.sessionId}`}>{run.member}</Link>
-              ) : (
-                <span>{run.member}</span>
-              )}
-              {' · '}
-              {formatScheduleTime(run.scheduledFor, schedules.data.timezone)}
-              {' · '}
-              <span>{t(`schedules.statuses.${run.status}`)}</span>
-              {run.reason ? <> · {scheduleReason(run.reason)}</> : null}
-            </li>
-          ))}
+          {schedules.data?.runs.map((run) => {
+            const name = nameOf(run.member, members, myHandle);
+            return (
+              <li key={run.id}>
+                {run.sessionId ? (
+                  <Link to={`/p/${key}/sessions/${run.sessionId}`}>{name}</Link>
+                ) : (
+                  <span>{name}</span>
+                )}
+                {' · '}
+                {formatScheduleTime(run.scheduledFor, schedules.data!.timezone)}
+                {' · '}
+                <span>{t(`schedules.statuses.${run.status}`)}</span>
+                {run.reason ? <> · {scheduleReason(run.reason)}</> : null}
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

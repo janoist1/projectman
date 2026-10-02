@@ -42,10 +42,13 @@ function MemberIdentity({
   member,
   status,
   roles,
+  stretched = false,
 }: {
   member: MemberView;
   status: ReturnType<typeof memberStatusView>['status'];
   roles: RosterProps['roles'];
+  /** The profile link covers its whole card (the card's other controls stay on top of it). */
+  stretched?: boolean;
 }) {
   const { key, myHandle } = useProject();
   const { members } = useProjectIndexes(key);
@@ -55,7 +58,9 @@ function MemberIdentity({
       <Avatar member={member} isMe={member.handle === myHandle} size="lg" status={status} />
       <span className={styles.memberText}>
         <span className={styles.memberName}>
-          <Link to={`/p/${key}/team/${member.handle}`}>{nameOf(member.handle, members, myHandle)}</Link>
+          <Link to={`/p/${key}/team/${member.handle}`} className={stretched ? styles.profileLink : undefined}>
+            {nameOf(member.handle, members, myHandle)}
+          </Link>
           {member.kind === 'ai' ? (
             <>
               <Chip tone="dark">{t('common.ai')}</Chip>
@@ -95,24 +100,45 @@ function MemberTasks({ member, titles }: { member: MemberView; titles: RosterPro
   );
 }
 
-/** Whose subscription runs an AI member; for humans, whether they have an account. */
-function useSponsorText() {
+/**
+ * Whose subscription runs an AI member, shown only where it tells something: nothing while every AI
+ * member runs on the same one (the page subtitle says so), else the members that differ from the
+ * most common one (all of them when no one subscription leads).
+ */
+function useSponsorNote(members: readonly MemberView[]) {
   const { key, myHandle } = useProject();
-  const { members } = useProjectIndexes(key);
-  return (member: MemberView) => {
+  const { members: all } = useProjectIndexes(key);
+  const counts = new Map<string, number>();
+  for (const member of members)
+    if (member.kind === 'ai') counts.set(member.sponsor ?? '', (counts.get(member.sponsor ?? '') ?? 0) + 1);
+  const top = Math.max(0, ...counts.values());
+  const leaders = [...counts].filter(([, count]) => count === top);
+  const mixed = counts.size > 1;
+  const usual = leaders.length === 1 ? leaders[0]![0] : null;
+  const text = (member: MemberView) => {
     if (member.kind === 'human')
       return t(member.status === 'no_account' ? 'memberStatus.no_account' : 'team.ownAccount');
     if (!member.sponsor) return t('common.dash');
     return member.sponsor === myHandle
       ? t('team.sponsorYou')
-      : t('team.sponsorOther', { name: nameOf(member.sponsor, members, myHandle) });
+      : t('team.sponsorOther', { name: nameOf(member.sponsor, all, myHandle) });
+  };
+  return {
+    /** Whether the subscription column of the table is worth its room. */
+    mixed,
+    text,
+    /** The line on a card: only an AI member with an unusual subscription has one. */
+    note: (member: MemberView) =>
+      member.kind === 'ai' && mixed && (usual === null || (member.sponsor ?? '') !== usual)
+        ? text(member)
+        : null,
   };
 }
 
 /** The roster as a table (desktop and tablet). */
 export function RosterTable({ members, inbox, roles, titles, actions }: RosterProps) {
   const { myHandle } = useProject();
-  const sponsorText = useSponsorText();
+  const sponsor = useSponsorNote(members);
   return (
     <div className={styles.tableWrap}>
       <table className={styles.table}>
@@ -121,9 +147,11 @@ export function RosterTable({ members, inbox, roles, titles, actions }: RosterPr
             <th scope="col">{t('team.columns.member')}</th>
             <th scope="col">{t('team.columns.status')}</th>
             <th scope="col">{t('team.columns.now')}</th>
-            <th scope="col" className={styles.subscriptionCol}>
-              {t('team.columns.subscription')}
-            </th>
+            {sponsor.mixed ? (
+              <th scope="col" className={styles.subscriptionCol}>
+                {t('team.columns.subscription')}
+              </th>
+            ) : null}
             <th scope="col">
               <span className="visually-hidden">{t('team.columns.actions')}</span>
             </th>
@@ -152,7 +180,9 @@ export function RosterTable({ members, inbox, roles, titles, actions }: RosterPr
                   <MemberTasks member={member} titles={titles} />
                   <MemberScheduleControl handle={member.handle} />
                 </td>
-                <td className={`${styles.muted} ${styles.subscriptionCol}`}>{sponsorText(member)}</td>
+                {sponsor.mixed ? (
+                  <td className={`${styles.muted} ${styles.subscriptionCol}`}>{sponsor.text(member)}</td>
+                ) : null}
                 <td className={styles.actionsCell}>{actions(member)}</td>
               </tr>
             );
@@ -166,24 +196,28 @@ export function RosterTable({ members, inbox, roles, titles, actions }: RosterPr
 /** The roster as cards (phones). */
 export function RosterCards({ members, inbox, roles, titles, actions }: RosterProps) {
   const { myHandle } = useProject();
-  const sponsorText = useSponsorText();
+  const sponsor = useSponsorNote(members);
   return (
     <ul className={styles.cards}>
       {members.map((member) => {
         const view = memberStatusView(member, inbox, myHandle);
+        const note = sponsor.note(member);
+        const menu = actions(member);
         return (
           <li key={member.handle} className={styles.card}>
-            <MemberIdentity member={member} status={view.status} roles={roles} />
+            <MemberIdentity member={member} status={view.status} roles={roles} stretched />
             <span className={styles.statusLine} data-status={view.status}>
               <StatusDot status={view.status} pulse={view.status === 'working'} />
               <span className={styles.statusText}>{view.label}</span>
             </span>
             <MemberTasks member={member} titles={titles} />
             <MemberScheduleControl handle={member.handle} />
-            <span className={styles.cardFoot}>
-              <span className={styles.muted}>{sponsorText(member)}</span>
-              {actions(member)}
-            </span>
+            {note || menu ? (
+              <span className={styles.cardFoot}>
+                <span className={styles.muted}>{note}</span>
+                {menu}
+              </span>
+            ) : null}
           </li>
         );
       })}

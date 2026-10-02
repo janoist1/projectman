@@ -177,6 +177,22 @@
   border-top: 0;
 }
 
+/* The whole card opens the profile: the name's link stretches over it, the other controls stay above. */
+.card {
+  position: relative;
+}
+
+.profileLink::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+.card :is(a, button):not(.profileLink) {
+  position: relative;
+  z-index: 1;
+}
+
 .cardFoot {
   flex-wrap: wrap;
   display: flex;

@@ -128,7 +128,8 @@
     padding: 4px 14px 16px;
     gap: 14px;
   }
-  .header > button {
+  /* The one main button takes the row; the colleague button below it keeps its size. */
+  .hire {
     width: 100%;
   }
   .limit {

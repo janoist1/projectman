@@ -5,15 +5,24 @@
   max-width: 1200px;
   margin: auto;
 }
-.header,
+.header {
+  align-items: center;
+  gap: 16px;
+}
 .actions {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 16px;
-}
-.actions {
+  gap: 12px;
   margin-left: auto;
+}
+.leaveNote {
+  margin: 0;
+  padding: 8px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--c-needs-bg);
+  color: var(--c-needs-text);
+  font-size: var(--text-sm);
 }
 .panel {
   padding: 20px;
@@ -21,6 +30,37 @@
   border: 1px solid var(--c-line);
   border-radius: var(--radius-lg);
   min-width: 0;
+}
+.panelTitle {
+  margin: 16px 0 8px;
+  font-size: var(--text-lg);
+  font-weight: 800;
+}
+.panel > .panelTitle:first-child {
+  margin-top: 0;
+}
+.list,
+.chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 6px;
+}
+.list {
+  flex-direction: column;
+}
+.chips {
+  flex-wrap: wrap;
+}
+.when {
+  margin: 0 0 4px;
+  font-weight: 700;
+}
+.quiet {
+  margin: 0;
+  color: var(--c-ink-3);
+  font-size: var(--text-sm);
 }
 .role h3 {
   margin: 12px 0 4px;
@@ -34,6 +74,9 @@
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 24px;
 }
+.grid:empty {
+  display: none;
+}
 .usageWindow {
   margin: 12px 0 6px;
   font-size: var(--text-sm);
@@ -45,5 +88,8 @@
 @media (max-width: 640px) {
   .page {
     padding: 16px;
+  }
+  .actions {
+    margin-left: 0;
   }
 }

@@ -102,6 +102,12 @@ export const hu = {
       hint: 'A projekt időzónájában fut. Például hétköznap reggel 8: 0 8 * * 1-5.',
       invalid: 'Adj meg időpontot és feladatot is.',
     },
+    /** A cron time in words, for the profile: "hétköznap reggel 8". */
+    when: {
+      weekdays: 'hétköznap {time}',
+      daily: 'minden nap {time}',
+      morning: 'reggel {hour}',
+    },
     title: 'Ütemezett futások',
     next: 'Következő futás: {time}',
     runNow: 'Futtasd most',
@@ -109,7 +115,6 @@ export const hu = {
     session: 'Ütemezett futás · {time}',
     startedEvent: 'Ütemezett futás elindult',
     skippedEvent: 'Ütemezett futás kihagyva: {reason}',
-    empty: 'Még nincs ütemezett futás.',
     noNext: 'Nincs következő futás',
     statuses: { started: 'Elindult', skipped: 'Kihagyva', failed: 'Sikertelen', done: 'Kész' },
     reasons: {
@@ -140,7 +145,6 @@ export const hu = {
     lifetime:
       'A hivatkozás egyszer használható, és 7 nap múlva lejár. Másold ki, és oszd meg a kollégával; az alkalmazás nem küld e-mailt.',
     pending: 'Függő meghívók',
-    empty: 'Nincs függő meghívó.',
     revoke: 'Visszavonás',
     revokeFor: 'Meghívó visszavonása: {email}',
     revoked: 'A meghívó visszavonva.',
@@ -932,9 +936,12 @@ export const hu = {
   },
 
   addHuman: {
-    title: 'Kolléga hozzáadása meghívó nélkül',
-    submit: 'Kolléga hozzáadása',
+    title: 'Kolléga hozzáadása',
+    submit: 'Hozzáadás',
     added: 'Hozzáadva: {name}.',
+    modeLabel: 'Hogyan adod hozzá?',
+    modeDirect: 'Meghívó nélkül',
+    modeInvite: 'Meghívó-linkkel',
   },
 
   memberStatus: {
@@ -973,6 +980,7 @@ export const hu = {
   memberEdit: {
     title: 'Tag szerkesztése: {name}',
     edit: 'Szerkesztés',
+    editMember: 'Szerkesztés: {name}',
     roles: 'Betöltött szerepek',
     instructions: 'Saját utasítások',
     autoCompactWindow: 'A beszélgetés tömörítése e méret fölött (token)',

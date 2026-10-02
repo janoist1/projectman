@@ -1,7 +1,7 @@
 import { useInvitations, useRevokeInvite } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
-import { ErrorState, LoadingState } from '../../components/States';
+import { ErrorState } from '../../components/States';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { humanRoleName } from '../../lib/roles';
@@ -17,15 +17,13 @@ export function PendingInvites() {
     invites.data?.invitations.filter(
       (invite) => !invite.acceptedAt && !invite.revokedAt && Date.parse(invite.expiresAt) > Date.now(),
     ) ?? [];
+  // Nothing pending (or still loading): the page has no box for it.
+  if (invites.isPending || (!invites.isError && pending.length === 0)) return null;
   return (
     <section className={styles.pending} aria-labelledby="pending-invites">
       <h2 id="pending-invites">{t('invites.pending')}</h2>
-      {invites.isPending ? (
-        <LoadingState compact />
-      ) : invites.isError ? (
+      {invites.isError ? (
         <ErrorState error={invites.error} onRetry={() => void invites.refetch()} />
-      ) : pending.length === 0 ? (
-        <p>{t('invites.empty')}</p>
       ) : (
         <ul className={styles.list}>
           {pending.map((invite) => (

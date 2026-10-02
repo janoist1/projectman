@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { isTheme } from '@projectman/shared';
+import { isOnLeave, isTheme } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import { useInbox, useLabels, useResolveInbox, useStartTask, useTaskDetail } from '../../api/queries';
 import { useProject } from '../../app/contexts';
@@ -8,6 +8,7 @@ import { Avatar } from '../../components/Avatar';
 import { Button, ButtonLink } from '../../components/Button';
 import { SelectField } from '../../components/Field';
 import { Icon } from '../../components/Icon';
+import { leaveSuffix } from '../../components/LeaveChip';
 import { ErrorState, LoadingState } from '../../components/States';
 import { Timeline } from '../../components/Timeline';
 import { useToast } from '../../components/toastContext';
@@ -25,7 +26,8 @@ import { isDeveloperRole } from '../../lib/roles';
 import type { MemberIndex } from '../../lib/members';
 import { InboxCard } from '../inbox/InboxCard';
 import { openPrerequisiteKeys, PrerequisiteWarning, refusedPrerequisites } from './PrerequisiteWarning';
-import { nextStepText, primarySession } from './taskModel';
+import { nextStepLine } from './NextStep';
+import { primarySession } from './taskModel';
 import { useBoardModel } from './useBoardModel';
 import { useCanAttach, useUploadQueue } from './attachmentUploads';
 import { useFileDrop } from './useFileDrop';
@@ -84,8 +86,10 @@ function StartPanel({ task, members, tasks }: { task: Task; members: MemberIndex
       >
         <option value="">{t('task.assigneeAuto')}</option>
         {developers.map((member) => (
-          <option key={member.handle} value={member.handle}>
-            {`${member.displayName} · ${member.handle} · ${t(`memberStatus.${member.status}`)}`}
+          // The server refuses a start for a member on leave (member_on_leave): not offered as a pick.
+          <option key={member.handle} value={member.handle} disabled={isOnLeave(member)}>
+            {`${member.displayName} · ${member.handle}`}
+            {isOnLeave(member) ? leaveSuffix(member) : ` · ${t(`memberStatus.${member.status}`)}`}
           </option>
         ))}
       </SelectField>
@@ -298,7 +302,7 @@ export function TaskDrawer() {
               <Timeline
                 events={detail.data.timeline}
                 ctx={{ pipeline, members, labels, myHandle, openInboxIds: openIds }}
-                next={theme ? null : nextStepText(task, pipeline, members, myHandle)}
+                next={theme ? null : nextStepLine(task, pipeline, members, myHandle)}
               />
             )}
           </section>

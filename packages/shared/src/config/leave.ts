@@ -6,7 +6,9 @@ import type { MemberConfig, ProjectConfig } from './schema';
  * for a member on leave (task start, stage hand-over, message wake-up, schedule run, a person
  * writing into a stopped session), and it is not picked or named as an assignee.
  */
-export function isOnLeave(member: MemberConfig | null | undefined): boolean {
+export function isOnLeave(
+  member: { kind: MemberConfig['kind']; onLeave?: boolean | undefined } | null | undefined,
+): boolean {
   return member?.kind === 'ai' && member.onLeave === true;
 }
 

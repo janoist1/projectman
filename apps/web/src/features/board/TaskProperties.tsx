@@ -1,7 +1,7 @@
 import type { Task } from '@projectman/shared';
 import { useProject } from '../../app/contexts';
+import { MemberNames } from '../../components/LeaveChip';
 import { t } from '../../i18n/t';
-import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import { shortCommit } from '../../lib/timeline';
 import type { PipelineIndex } from '../../lib/pipeline';
@@ -40,7 +40,11 @@ export function TaskProperties({
           <TaskAssigneeSelect key={task.key} task={task} members={members} />
         ) : (
           <span className={task.assignee ? undefined : styles.propMuted}>
-            {task.assignee ? nameOf(task.assignee, members, myHandle) : t('task.unassigned')}
+            {task.assignee ? (
+              <MemberNames handles={[task.assignee]} members={members} myHandle={myHandle} />
+            ) : (
+              t('task.unassigned')
+            )}
           </span>
         )}
       </div>

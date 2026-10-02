@@ -6,6 +6,7 @@ import { Button } from '../../components/Button';
 import { DialogActions } from '../../components/Dialog';
 import { ErrorBanner } from '../../components/ErrorBanner';
 import { SelectField, TextAreaField } from '../../components/Field';
+import { LeaveChip } from '../../components/LeaveChip';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
@@ -73,7 +74,7 @@ export function MessageComposer({
               />
               <Avatar member={member} size="sm" />
               <span>
-                {member.displayName} <small>{member.handle}</small>
+                {member.displayName} <LeaveChip member={member} /> <small>{member.handle}</small>
                 {ask ? (
                   <small className={styles.whenToAsk}>
                     {t('roleCatalogue.whenToAsk')}: {ask}

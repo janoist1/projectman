@@ -54,7 +54,12 @@ describe('member profiles', () => {
     const header = within(await screen.findByRole('banner'));
     const status = await screen.findByRole('status');
     expect(status.textContent).toBe(t('leave.status'));
-    expect(screen.queryAllByText(t('leave.onLeave'))).toHaveLength(0);
+    // The profile says it once, in its own note; the mark is only on the recipient list of the
+    // message box below (PM-227), where a member is chosen.
+    expect(header.queryByText(t('leave.onLeave'))).toBeNull();
+    const recipients = screen.getAllByText(t('leave.onLeave'));
+    expect(recipients).toHaveLength(1);
+    expect(recipients[0]!.closest('fieldset')).toBeTruthy();
     // The call back is the one main action; there is no disabled conversation button beside it.
     expect(header.queryByRole('button', { name: t('profile.conversation') })).toBeNull();
     const callBack = header.getByRole('button', {

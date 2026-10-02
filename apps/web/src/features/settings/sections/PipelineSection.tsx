@@ -4,6 +4,7 @@ import { useLabels } from '../../../api/queries';
 import { useProject, useProjectIndexes } from '../../../app/contexts';
 import { Avatar } from '../../../components/Avatar';
 import { Chip } from '../../../components/Chip';
+import { LeaveChip } from '../../../components/LeaveChip';
 import { t } from '../../../i18n/t';
 import { gateConditionText } from '../../../lib/gates';
 import { nameOf } from '../../../lib/members';
@@ -71,6 +72,7 @@ export function PipelineSection({ config }: { config: ProjectConfig }) {
                           size="xs"
                         />
                         {nameOf(handle, members, myHandle)}
+                        <LeaveChip member={member ?? members.get(handle)} />
                       </span>
                     );
                   })

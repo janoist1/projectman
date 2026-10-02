@@ -1,4 +1,5 @@
 import clsx from 'clsx';
+import type { ReactNode } from 'react';
 import { mentionTokens } from '@projectman/shared';
 import { Chip } from './Chip';
 import type { TimelineEvent } from '@projectman/shared';
@@ -15,7 +16,7 @@ interface TimelineProps {
   events: readonly TimelineEvent[];
   ctx: TimelineContext;
   /** Next-step row: what happens next and who carries it. */
-  next?: string | null;
+  next?: ReactNode;
   emptyText?: string;
   className?: string;
 }

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   DUTIES,
   DUTY_GROUPS,
@@ -18,6 +19,7 @@ import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { TextAreaField } from '../../components/Field';
 import { Icon } from '../../components/Icon';
+import { LeaveChip } from '../../components/LeaveChip';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
@@ -152,6 +154,9 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
               ? draft.team.members.map((m) => (
                   <th key={m.handle}>
                     {m.displayName}
+                    <span className={styles.leaveMark}>
+                      <LeaveChip member={m} />
+                    </span>
                     <small>{m.handle}</small>
                   </th>
                 ))
@@ -248,11 +253,14 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
   );
 
   /** A card's always-visible line: a chevron that turns when it opens, the name, a quieter line below. */
-  const summary = (title: string, below: string) => (
+  const summary = (title: string, below: string, mark?: ReactNode) => (
     <summary>
       <Icon name="chevronRight" size={14} strokeWidth={2.4} className={styles.chevron} />
       <span className={styles.summaryText}>
-        <span className={styles.roleName}>{title}</span>
+        <span className={styles.roleName}>
+          {title}
+          {mark ? <span className={styles.leaveInline}>{mark}</span> : null}
+        </span>
         <small>{below}</small>
       </span>
     </summary>
@@ -266,7 +274,7 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
             const held = DUTY_IDS.filter((id) => memberDuties(draft, m).includes(id));
             return (
               <details key={m.handle} className={styles.roleCard}>
-                {summary(m.displayName, m.handle)}
+                {summary(m.displayName, m.handle, <LeaveChip member={m} />)}
                 {held.length > 0 ? (
                   <ul className={styles.heldDuties}>
                     {held.map((id) => (

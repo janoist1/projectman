@@ -31,7 +31,8 @@ export function ProjectLayout() {
   const myOpen = useMyOpenInbox(projectKey, myHandle);
   const inboxCount = inbox.data ? myOpen.length : (board.data?.openInboxCount ?? 0);
   const [search, setSearch] = useState('');
-  const [newTaskOpen, setNewTaskOpen] = useState(false);
+  const [newTask, setNewTask] = useState<{ kind: 'task' | 'theme' } | null>(null);
+  const [themeFilter, setThemeFilter] = useState<string | null>(null);
   const access = me.projects.find((project) => project.key === projectKey)?.access;
   const config = useConfig(projectKey, access === 'owner' || access === 'admin' || access === 'developer');
   const isOwner = access === 'owner';
@@ -48,6 +49,7 @@ export function ProjectLayout() {
   useEffect(() => {
     writeStorage('lastProject', projectKey);
     setSearch('');
+    setThemeFilter(null);
   }, [projectKey]);
 
   const value = useMemo<ProjectContextValue>(
@@ -59,9 +61,11 @@ export function ProjectLayout() {
       can,
       search,
       setSearch,
-      openNewTask: () => setNewTaskOpen(true),
+      openNewTask: (options) => setNewTask({ kind: options?.kind ?? 'task' }),
+      themeFilter,
+      setThemeFilter,
     }),
-    [projectKey, me, myHandle, isOwner, can, search],
+    [projectKey, me, myHandle, isOwner, can, search, themeFilter],
   );
 
   if (board.isError && isApiError(board.error) && board.error.status === 404) {
@@ -104,7 +108,11 @@ export function ProjectLayout() {
           </div>
           {isMobile ? <TabBar inboxCount={inboxCount} /> : null}
         </div>
-        <NewTaskDialog open={newTaskOpen} onClose={() => setNewTaskOpen(false)} />
+        <NewTaskDialog
+          open={newTask !== null}
+          initialKind={newTask?.kind ?? 'task'}
+          onClose={() => setNewTask(null)}
+        />
       </AttachmentUploadsProvider>
     </ProjectContext.Provider>
   );

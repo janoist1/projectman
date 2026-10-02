@@ -10,6 +10,7 @@ import { TaskAssigneeSelect } from './TaskLifecycle';
 import { TaskLabels } from './TaskLabels';
 import { TaskRepo } from './TaskRepo';
 import { TaskRelations } from './TaskRelations';
+import { TaskTheme } from './TaskTheme';
 import styles from './drawer.module.css';
 
 /**
@@ -59,6 +60,7 @@ export function TaskProperties({
         </div>
       ) : null}
       <TaskLabels task={task} />
+      <TaskTheme task={task} tasks={tasks} />
       <TaskRelations
         key={`relations:${task.key}`}
         task={task}

@@ -172,9 +172,11 @@ export function TaskCard({
         <span
           className={styles.statusText}
           title={
-            state.prerequisite?.inLabel
-              ? state.prerequisite.cards.map((card) => `${card.key} – ${card.title}`).join('\n')
-              : undefined
+            state.workers.length > 0
+              ? state.workers.map((worker) => worker.sentence).join('\n')
+              : state.prerequisite?.inLabel
+                ? state.prerequisite.cards.map((card) => `${card.key} – ${card.title}`).join('\n')
+                : undefined
           }
         >
           {state.label}

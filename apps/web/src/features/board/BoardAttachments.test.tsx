@@ -75,8 +75,13 @@ const makeFile = (name: string, type = 'image/png', size?: number): File => {
   return file;
 };
 
-const cardLink = (project: Project, key: string) =>
-  screen.findByRole('link', { name: new RegExp(project.backend.findTask(key)!.title) });
+/** The card on the board: the team strip may name the same card as the one a member works on. */
+const cardLink = async (project: Project, key: string) => {
+  const links = await screen.findAllByRole('link', {
+    name: new RegExp(project.backend.findTask(key)!.title),
+  });
+  return links.find((link) => link.getAttribute('href')?.endsWith(`/tasks/${key}`)) ?? links[0]!;
+};
 
 const uploads = (project: Project, taskKey?: string) =>
   project.requests.filter(

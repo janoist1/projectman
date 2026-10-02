@@ -127,6 +127,23 @@ export function aiSponsors(members: readonly MemberView[]): {
   };
 }
 
+/** The cards a member is on: those they work on right now first, then the others they carry. */
+export function memberCardKeys(member: Pick<MemberView, 'taskWork' | 'currentTaskKeys'>): string[] {
+  return [...new Set([...(member.taskWork ?? []).map((work) => work.taskKey), ...member.currentTaskKeys])];
+}
+
+/**
+ * The cards in one line, by how many there are: one with its title, two by key, more by the first
+ * two keys and the rest counted. Null without a card (the caller says "no task").
+ */
+export function cardsLine(keys: readonly string[], titles: ReadonlyMap<string, string>): string | null {
+  if (keys.length === 0) return null;
+  if (keys.length === 1)
+    return t('team.cardsOne', { key: keys[0]!, title: titles.get(keys[0]!) ?? '' }).trim();
+  const shown = keys.slice(0, 2).join(t('common.listSeparator'));
+  return keys.length === 2 ? shown : t('team.cardsMore', { keys: shown, more: keys.length - 2 });
+}
+
 /** Standing roles: AI members that are not developers (code review, QA, devops, ...). */
 export function isStandingRole(member: MemberView): boolean {
   return member.kind === 'ai' && !isDeveloperRole(member.role) && !member.temp && member.status !== 'retired';

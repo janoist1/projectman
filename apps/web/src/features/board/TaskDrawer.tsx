@@ -179,7 +179,10 @@ export function TaskDrawer() {
     const cards = board.data?.tasks ?? [...(detail.data?.subtasks ?? []), ...(parent ? [parent] : [])];
     const phases = new Map([...(model?.byKey ?? [])].map(([cardKey, { state }]) => [cardKey, state.phase]));
     const sessions = detail.data?.sessions ?? [];
-    const session = primarySession(task, sessions);
+    // The first named worker's session, which is where the command they run can be seen.
+    const firstWorker = entry?.state.workers[0];
+    const session =
+      sessions.find((candidate) => candidate.id === firstWorker?.sessionId) ?? primarySession(task, sessions);
     // A card in the work stage that waits for its prerequisites can be started by a person too (PM-204).
     const isQueued =
       !theme &&
@@ -323,7 +326,6 @@ export function TaskDrawer() {
                             </span>
                             <span className={styles.sessionState} data-status={status}>
                               {t(`sessionState.${entrySession.state}`)}
-                              {entrySession.activity ? ` · ${entrySession.activity}` : ''}
                             </span>
                           </span>
                           <Icon name="chevronRight" size={16} />

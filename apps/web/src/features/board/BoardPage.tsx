@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { useMemo, useRef, useState } from 'react';
-import { Outlet, useMatch } from 'react-router';
+import { Outlet, useMatch, useNavigate } from 'react-router';
 import type { DragEvent } from 'react';
 import type { BoardColumnView, LabelView, Task } from '@projectman/shared';
 import { useProject } from '../../app/contexts';
@@ -20,6 +20,8 @@ import { useFileDrop } from './useFileDrop';
 import { MobileBoardList } from './MobileBoardList';
 import { TaskCard } from './TaskCard';
 import { TeamStrip } from './TeamStrip';
+import { ThemeStrip } from './ThemeStrip';
+import { sortedThemes } from './themeModel';
 import { sortEntries, useBoardModel } from './useBoardModel';
 import type { BoardEntry } from './useBoardModel';
 import { useLabels, useMoveTask } from '../../api/queries';
@@ -181,7 +183,8 @@ function BoardCard({
 
 /** "Folyamat": the pipeline board; the task drawer renders through the nested route. */
 export function BoardPage() {
-  const { key, search, can } = useProject();
+  const { key, search, can, themeFilter, setThemeFilter, openNewTask } = useProject();
+  const navigate = useNavigate();
   const isMobile = useIsMobile();
   const { board, inbox, pipeline, model } = useBoardModel();
   const move = useMoveTask(key);
@@ -212,9 +215,19 @@ export function BoardPage() {
     () => optimisticEntries.filter((entry) => matchesSearch(entry.task, search, model?.ctx.labels)),
     [optimisticEntries, search, model],
   );
+  // The theme filter narrows with the search and the phase filter: a card matches by its computed theme,
+  // so the subtasks of a collecting card in the theme are in the list too (PM-192).
+  const activeTheme = useMemo(
+    () => sortedThemes(board.data?.tasks ?? []).find((theme) => theme.key === themeFilter) ?? null,
+    [board.data, themeFilter],
+  );
+  const themed = useMemo(
+    () => (activeTheme ? searched.filter((entry) => entry.task.themeKey === activeTheme.key) : searched),
+    [searched, activeTheme],
+  );
   const visible = useMemo(
-    () => searched.filter((entry) => matchesFilter(entry.state.phase, filter)),
-    [searched, filter],
+    () => themed.filter((entry) => matchesFilter(entry.state.phase, filter)),
+    [themed, filter],
   );
 
   const runMove = (variables: { taskKey: string; stageId: string; despitePrerequisites?: boolean }) => {
@@ -276,9 +289,9 @@ export function BoardPage() {
   };
 
   const counts = {
-    all: searched.filter((entry) => matchesFilter(entry.state.phase, 'all')).length,
-    needsYou: searched.filter((entry) => matchesFilter(entry.state.phase, 'needsYou')).length,
-    waiting: searched.filter((entry) => matchesFilter(entry.state.phase, 'waiting')).length,
+    all: themed.filter((entry) => matchesFilter(entry.state.phase, 'all')).length,
+    needsYou: themed.filter((entry) => matchesFilter(entry.state.phase, 'needsYou')).length,
+    waiting: themed.filter((entry) => matchesFilter(entry.state.phase, 'waiting')).length,
   };
   const activeCount = model.entries.filter((entry) => inProgress.has(entry.state.phase)).length;
   const total = model.entries.filter((entry) => entry.state.phase !== 'cancelled').length;
@@ -342,10 +355,23 @@ export function BoardPage() {
         className={styles.header}
         hideTitleOnPhone
         title={t('board.title')}
-        subtitle={isMobile ? null : t('board.subtitle', { count: total, active: activeCount })}
+        subtitle={
+          isMobile
+            ? null
+            : activeTheme
+              ? t('board.subtitleFiltered', { title: activeTheme.title, count: counts.all })
+              : t('board.subtitle', { count: total, active: activeCount })
+        }
       >
         {filters}
       </PageHeader>
+      <ThemeStrip
+        tasks={board.data.tasks}
+        active={activeTheme?.key ?? null}
+        onFilter={setThemeFilter}
+        onOpen={(themeKey) => navigate(`/p/${key}/tasks/${themeKey}`)}
+        {...(can.createTasks ? { onNew: () => openNewTask({ kind: 'theme' }) } : {})}
+      />
       {total === 0 ? (
         <div className={styles.emptyWrap}>
           <EmptyState icon="board" title={t('board.noTasks')} />
@@ -384,7 +410,7 @@ export function BoardPage() {
                 selectedKey={selected}
                 drag={drag}
                 uploadingCounts={uploadingCounts}
-                filtered={filter !== 'all' || search !== ''}
+                filtered={filter !== 'all' || search !== '' || activeTheme !== null}
               />
             );
           })}

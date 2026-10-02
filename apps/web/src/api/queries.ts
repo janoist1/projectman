@@ -463,6 +463,10 @@ export function useCancelTask(key: string) {
     api.cancelTask(key, taskKey, body),
   );
 }
+/** Closes a theme; the cards that belong to it are not touched (PM-192). */
+export function useCloseTheme(key: string) {
+  return useProjectMutation(key, (taskKey: string) => api.closeTheme(key, taskKey));
+}
 export function useReopenTask(key: string) {
   return useProjectMutation(key, (taskKey: string) => api.reopenTask(key, taskKey));
 }

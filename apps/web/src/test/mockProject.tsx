@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ReactElement } from 'react';
 import { setFetchImplementation } from '../api/client';
 import { ProjectContext } from '../app/contexts';
@@ -57,6 +58,8 @@ export function mockProject(backend = new MockBackend()) {
     search: '',
     setSearch: () => {},
     openNewTask: () => {},
+    themeFilter: null,
+    setThemeFilter: () => {},
   };
   return {
     backend,
@@ -64,10 +67,20 @@ export function mockProject(backend = new MockBackend()) {
     context,
     render: (ui: ReactElement, route = '/', overrides: Partial<ProjectContextValue> = {}) =>
       renderUi(
-        <ProjectContext.Provider value={{ ...context, ...overrides }}>
+        <StatefulProject value={{ ...context, ...overrides }}>
           <AttachmentUploadsProvider>{ui}</AttachmentUploadsProvider>
-        </ProjectContext.Provider>,
+        </StatefulProject>,
         { route },
       ),
   };
+}
+
+/** The project context with a theme filter that keeps its state, as the project layout does. */
+function StatefulProject({ value, children }: { value: ProjectContextValue; children: ReactElement }) {
+  const [themeFilter, setThemeFilter] = useState(value.themeFilter);
+  return (
+    <ProjectContext.Provider value={{ ...value, themeFilter, setThemeFilter }}>
+      {children}
+    </ProjectContext.Provider>
+  );
 }

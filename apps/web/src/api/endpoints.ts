@@ -137,6 +137,8 @@ export const api = {
     apiRequest<unknown>(routes.task(key, taskKey), { method: 'PATCH', body }),
   cancelTask: (key: string, taskKey: string, body: CancelTaskRequest) =>
     apiRequest<unknown>(routes.cancelTask(key, taskKey), { method: 'POST', body }),
+  closeTheme: (key: string, taskKey: string) =>
+    apiRequest<unknown>(routes.closeTheme(key, taskKey), { method: 'POST', body: {} }),
   reopenTask: (key: string, taskKey: string) =>
     apiRequest<unknown>(routes.reopenTask(key, taskKey), { method: 'POST', body: {} }),
 

@@ -27,6 +27,7 @@ import { nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
 import styles from './InboxCard.module.css';
+import { FoldedCommand, PermissionActions } from './PermissionParts';
 import { QuestionChoices, QuestionDetails } from './Question';
 
 const variantFor: Record<InboxOption['style'], ButtonVariant> = {
@@ -80,6 +81,8 @@ export function InboxCard({
   const heading = gateMove ?? inboxHeading(item);
   // The tool line is redundant when the heading already names the tool.
   const tool = item.kind === 'permission' && heading === item.title ? permissionTool(item) : null;
+  // The task the request is about: the most useful background of the decision, under the header row.
+  const contextTitle = taskTitle || (gateMove && item.title ? item.title : null);
   const Heading = headingLevel === 2 ? 'h2' : 'h3';
   const assignedToOthers = myHandle !== null && !item.assignees.includes(myHandle);
   const buttonSize = mobile ? 'xl' : 'lg';
@@ -112,16 +115,12 @@ export function InboxCard({
         <Chip tone="kind">{t(`inbox.kinds.${item.kind}`)}</Chip>
         <Avatar member={source} handle={item.source} size="sm" isMe={item.source === myHandle} />
         <span className={styles.source}>{nameOf(item.source, members, myHandle)}</span>
-        {taskTitle ? (
-          <span className={styles.task}>· {taskTitle}</span>
-        ) : gateMove && item.title ? (
-          <span className={styles.task}>· {item.title}</span>
-        ) : null}
         <span className={styles.spacer} />
         <time className={styles.time} dateTime={item.createdAt}>
           {formatAgo(item.createdAt)}
         </time>
       </div>
+      {contextTitle ? <p className={styles.task}>{contextTitle}</p> : null}
       <Heading className={styles.title}>{heading}</Heading>
       {boundary ? (
         <div>
@@ -173,7 +172,7 @@ export function InboxCard({
               {t('inbox.tool', { tool: toolPresentationFor(tool, code ?? '').label })}
             </span>
           ) : null}
-          <code className={styles.code}>{code}</code>
+          <FoldedCommand text={code} className={styles.code} />
         </div>
       ) : null}
       {delegation ? <p className={styles.others}>{delegation}</p> : null}
@@ -221,27 +220,34 @@ export function InboxCard({
         </div>
       ) : null}
       {assignedToOthers ? null : (
-        <div className={styles.actions}>
+        <div className={clsx(styles.actions, item.kind === 'permission' && styles.actionsTop)}>
           {answering ? (
             <Button variant="primary" size={buttonSize} onClick={submitAnswer} disabled={pending}>
               {t('inbox.answerSubmit')}
             </Button>
           ) : null}
-          {describesChoices
-            ? null
-            : choices.map((option) => (
-                <Button
-                  key={option.id}
-                  variant={answering ? 'secondary' : variantFor[option.style]}
-                  size={buttonSize}
-                  disabled={pending}
-                  onClick={() =>
-                    onResolve(item, { optionId: option.id, ...(boundary ? { note: boundaryReason } : {}) })
-                  }
-                >
-                  {optionLabel(option)}
-                </Button>
-              ))}
+          {item.kind === 'permission' ? (
+            <PermissionActions
+              options={choices}
+              size={buttonSize}
+              disabled={pending}
+              onPick={(option) => onResolve(item, { optionId: option.id })}
+            />
+          ) : describesChoices ? null : (
+            choices.map((option) => (
+              <Button
+                key={option.id}
+                variant={answering ? 'secondary' : variantFor[option.style]}
+                size={buttonSize}
+                disabled={pending}
+                onClick={() =>
+                  onResolve(item, { optionId: option.id, ...(boundary ? { note: boundaryReason } : {}) })
+                }
+              >
+                {optionLabel(option)}
+              </Button>
+            ))
+          )}
           {allowsFreeAnswer && !answering ? (
             <Button variant="ghost" size={buttonSize} onClick={() => setAnswering(true)} disabled={pending}>
               {answerOption ? optionLabel(answerOption) : t('inbox.answerOwn')}

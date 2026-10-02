@@ -1,0 +1,61 @@
+.actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+}
+
+.secondary {
+  align-self: flex-start;
+}
+
+.command {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.command > code {
+  align-self: stretch;
+}
+
+/* More specific than the caller's own `display: block`, whichever stylesheet loads last. */
+.command > .clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
+}
+
+.more {
+  border: 0;
+  padding: 2px 0;
+  background: transparent;
+  color: var(--c-accent);
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+@media (max-width: 767px) {
+  /* Full width wherever it sits, also in the card's row of actions. */
+  .actions {
+    width: 100%;
+  }
+  .main {
+    flex: 1 1 0;
+    min-height: 44px;
+  }
+  .secondary,
+  .more {
+    min-height: 40px;
+  }
+}

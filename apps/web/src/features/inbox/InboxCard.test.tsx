@@ -77,6 +77,51 @@ describe('InboxCard', () => {
     ).toBe('/p/AC/sessions/ses_ac21_fe1');
   });
 
+  it('puts the refusal and the permission in one row and the rarer option below, as a small button', () => {
+    const { card } = renderCard(item('inb_perm_push'));
+    const deny = within(card).getByRole('button', { name: t('inbox.options.deny') });
+    const allow = within(card).getByRole('button', { name: t('inbox.options.allow') });
+    const always = within(card).getByRole('button', { name: t('inbox.options.allow_session') });
+    expect(deny.parentElement).toBe(allow.parentElement);
+    expect(always.parentElement).not.toBe(allow.parentElement);
+    expect(deny.compareDocumentPosition(allow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('puts the task title under the header row and folds a command that does not fit four lines', () => {
+    const entry = item('inb_perm_push');
+    const onResolve = vi.fn();
+    vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(200);
+    vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(80);
+    try {
+      renderUi(
+        <InboxCard
+          item={entry}
+          members={members}
+          myHandle="owner"
+          pipeline={pipeline}
+          taskTitle="Rendelés-visszaigazoló oldal"
+          onResolve={onResolve}
+        />,
+      );
+      const card = screen.getByRole('article');
+      expect(within(card).getByText('Rendelés-visszaigazoló oldal').tagName).toBe('P');
+      const code = within(card).getByText('git push origin 21-order-confirmation');
+      const toggle = within(card).getByRole('button', { name: t('inbox.commandFull') });
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      expect(code.className).toMatch(/clamped/);
+      fireEvent.click(toggle);
+      expect(code.className).not.toMatch(/clamped/);
+      expect(within(card).getByRole('button', { name: t('inbox.commandLess') })).toBeTruthy();
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('shows no "full command" button for a command that fits', () => {
+    const { card } = renderCard(item('inb_perm_push'));
+    expect(within(card).queryByRole('button', { name: t('inbox.commandFull') })).toBeNull();
+  });
+
   it('answers a question with an agent option or a free-text answer', () => {
     const entry = item('inb_q_ga4');
     const { onResolve, card } = renderCard(entry);
@@ -102,7 +147,7 @@ describe('InboxCard', () => {
     const entry = item('inb_dec_release');
     const { onResolve, card } = renderCard(entry);
     expect(within(card).getByRole('heading', { name: 'Továbblépés: Merge → Élesítés' })).toBeTruthy();
-    expect(within(card).getByText('· Kártyás fizetés átvételkor')).toBeTruthy();
+    expect(within(card).getByText('Kártyás fizetés átvételkor')).toBeTruthy();
     fireEvent.click(within(card).getByRole('button', { name: t('inbox.options.approve') }));
     expect(onResolve).toHaveBeenCalledWith(entry, { optionId: 'approve' });
     fireEvent.click(within(card).getByRole('button', { name: t('inbox.options.reject') }));

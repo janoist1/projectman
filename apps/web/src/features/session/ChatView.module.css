@@ -365,12 +365,6 @@
   word-break: break-all;
 }
 
-.permissionActions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
 @media (max-width: 767px) {
   .toolBlock,
   .decision {
@@ -379,10 +373,6 @@
   .toolKind {
     width: auto;
     max-width: 90px;
-  }
-  .permissionActions > button {
-    flex: 1 1 100%;
-    min-height: 44px;
   }
 }
 

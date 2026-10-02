@@ -1,10 +1,8 @@
 import clsx from 'clsx';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import type { ChatItem, InboxItem, InboxOption, ResolveInboxRequest } from '@projectman/shared';
+import type { ChatItem, InboxItem, ResolveInboxRequest } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
-import { Button } from '../../components/Button';
-import type { ButtonVariant } from '../../components/Button';
 import { Icon } from '../../components/Icon';
 import { Markdown } from '../../components/Markdown';
 import { formatStamp, formatTime } from '../../i18n/format';
@@ -14,7 +12,6 @@ import type { ChatBlock, ToolRow } from '../../lib/chat';
 import {
   inboxHeading,
   isPositiveResolution,
-  optionLabel,
   payloadCode,
   permissionCommand,
   resolutionLabel,
@@ -25,6 +22,7 @@ import { nameOf, namesOf, toneFor } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { InboxCard } from '../inbox/InboxCard';
+import { FoldedCommand, PermissionActions } from '../inbox/PermissionParts';
 import styles from './ChatView.module.css';
 
 export interface PendingMessage {
@@ -53,12 +51,6 @@ export interface ChatViewProps {
   /** Sends a failed pending message again; without it a failed message has no retry button. */
   onRetry?: (id: string) => void;
 }
-
-const variantFor: Record<InboxOption['style'], ButtonVariant> = {
-  primary: 'primary',
-  secondary: 'secondary',
-  danger: 'danger',
-};
 
 const LONG_TEXT = 700;
 
@@ -146,19 +138,12 @@ function PermissionPrompt({
       </div>
       <p className={styles.permissionText}>{inboxHeading(item)}</p>
       {item.body ? <p className={styles.permissionBody}>{item.body}</p> : null}
-      {code ? <code className={styles.permissionCode}>{code}</code> : null}
-      <div className={styles.permissionActions}>
-        {item.options.map((option) => (
-          <Button
-            key={option.id}
-            variant={variantFor[option.style]}
-            disabled={busy || !onResolve}
-            onClick={() => onResolve?.(item, { optionId: option.id })}
-          >
-            {optionLabel(option)}
-          </Button>
-        ))}
-      </div>
+      {code ? <FoldedCommand text={code} className={styles.permissionCode} /> : null}
+      <PermissionActions
+        options={item.options}
+        disabled={busy || !onResolve}
+        onPick={(option) => onResolve?.(item, { optionId: option.id })}
+      />
     </section>
   );
 }

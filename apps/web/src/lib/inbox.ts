@@ -245,6 +245,15 @@ export function resolutionLabel(item: InboxItem): string {
   return option ? t('inbox.resolutions.option', { label: option.label }) : t('inbox.resolutions.answer');
 }
 
+/** The short notice after the viewer's own decision went through: "Engedélyezve", "Válasz: B". */
+export function decisionToast(item: InboxItem, optionId: string, myHandle: string | null): string {
+  return resolutionLabel({
+    ...item,
+    state: 'resolved',
+    resolution: { optionId, by: myHandle ?? item.source, at: item.createdAt, note: null },
+  });
+}
+
 /** Who decided: the rule the system decided by, "Rendszer" for older automatic decisions, or the member. */
 export function resolverName(item: InboxItem, members: MemberIndex, myHandle: string | null): string {
   const resolution = item.resolution;

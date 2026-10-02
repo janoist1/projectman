@@ -906,6 +906,7 @@ export const hu = {
     description:
       'Ez a kártya erre vár: {keys}. Ha most elindítod, a munka az előfeltétel lezárása nélkül kezdődik.',
     confirm: 'Indítás mégis',
+    moveAndWait: 'Áthelyezés, várjon',
   },
   taskLifecycle: {
     title: 'További műveletek',

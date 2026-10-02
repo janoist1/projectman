@@ -473,8 +473,12 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_cancelled', (task) => admission.discardStale(task));
   // A card that closes (done or withdrawn) frees the cards that need it first (PM-204).
   const prerequisites = new PrerequisiteClosures({ ctx, timeline });
-  events.on('task_cancelled', (task) => void prerequisites.closed(task));
-  events.on('task_stage_changed', (change) => void prerequisites.closed(change.task));
+  events.on('task_cancelled', (task) => {
+    prerequisites.closed(task);
+  });
+  events.on('task_stage_changed', (change) => {
+    prerequisites.closed(change.task);
+  });
   events.on('task_stage_changed', (change) => admission.discardStale(change.task));
   // A task entering a stage hands its work over anew: reviewers and testers get a new round.
   events.on('task_stage_changed', (change) => {

@@ -111,6 +111,10 @@ export function TaskMove({
               setWarning(null);
               void submit(close, true);
             }}
+            onWait={() => {
+              setWarning(null);
+              void submit(close);
+            }}
             onClose={() => setWarning(null)}
           />
         </>

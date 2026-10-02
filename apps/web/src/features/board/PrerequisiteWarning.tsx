@@ -27,6 +27,7 @@ export function PrerequisiteWarning({
   tasks,
   loading,
   onConfirm,
+  onWait,
   onClose,
 }: {
   /** The open prerequisites; null: no warning shown. */
@@ -34,6 +35,8 @@ export function PrerequisiteWarning({
   tasks: readonly Task[];
   loading?: boolean;
   onConfirm: () => void;
+  /** A move only: the card moves and waits for its prerequisites instead of starting. */
+  onWait?: () => void;
   onClose: () => void;
 }) {
   const byKey = new Map(tasks.map((task) => [task.key, task]));
@@ -54,6 +57,11 @@ export function PrerequisiteWarning({
           <Button variant="primary" loading={loading} onClick={onConfirm}>
             {t('prerequisiteWarning.confirm')}
           </Button>
+          {onWait ? (
+            <Button variant="secondary" loading={loading} onClick={onWait}>
+              {t('prerequisiteWarning.moveAndWait')}
+            </Button>
+          ) : null}
           <Button variant="secondary" onClick={onClose}>
             {t('common.cancel')}
           </Button>

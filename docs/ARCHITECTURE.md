@@ -226,7 +226,8 @@ Documentation map:
   change. A person starts despite them with `despitePrerequisites` (`StartTaskRequest`, or
   `UpdateTaskRequest` on the move, carried as `StageChange.despitePrerequisites` into the
   `work_start` spec): honored for human actors only, so a card an AI member moves waits. Cards in a
-  queue stage have no start, so a closing prerequisite starts nothing there. Each closing writes
+  queue stage have no start, so a closing prerequisite starts nothing there. (A move that needs an
+  approval first does not carry the flag past the approval: the card then waits.) Each closing writes
   `task_prerequisite_closed` on the timeline of every open dependent (`PrerequisiteClosures`). The
   stage hand-over (review, QA) and message wake-ups do not wait for prerequisites.
 - **Stage hand-over** — when a task enters a later stage owned by AI members, by anyone's

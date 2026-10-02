@@ -165,7 +165,11 @@ export function TaskDrawer() {
     );
     const sessions = detail.data?.sessions ?? [];
     const session = primarySession(task, sessions);
-    const isQueued = stage?.kind === 'queue' && !isTaskClosed(task) && !task.assignee;
+    // A card in the work stage that waits for its prerequisites can be started by a person too (PM-204).
+    const isQueued =
+      !isTaskClosed(task) &&
+      !task.assignee &&
+      (stage?.kind === 'queue' || task.startWaiting?.reason === 'prerequisite_open');
     const hasActions =
       (isQueued && can.createTasks) ||
       Boolean(session && can.workInSessions) ||

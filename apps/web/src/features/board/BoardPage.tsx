@@ -297,6 +297,10 @@ export function BoardPage() {
             runMove({ taskKey: warning.taskKey, stageId: warning.stageId, despitePrerequisites: true });
           setWarning(null);
         }}
+        onWait={() => {
+          if (warning) runMove({ taskKey: warning.taskKey, stageId: warning.stageId });
+          setWarning(null);
+        }}
         onClose={() => setWarning(null)}
       />
       <Outlet />

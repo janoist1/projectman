@@ -141,6 +141,16 @@ describe('desktop board moving', () => {
       ]);
     });
 
+    it('moves without the flag when the person lets the card wait', async () => {
+      const project = mockProject();
+      await dropOnWork(project, 'AC-23');
+
+      fireEvent.click(await screen.findByRole('button', { name: t('prerequisiteWarning.moveAndWait') }));
+
+      await waitFor(() => expect(project.backend.findTask('AC-23')?.stageId).toBe('dev'));
+      expect(patches(project).map((request) => request.body)).toEqual([{ stageId: 'dev' }]);
+    });
+
     it('moves a card without an open prerequisite at once', async () => {
       const project = mockProject();
       await dropOnWork(project, 'AC-24');

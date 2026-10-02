@@ -644,6 +644,38 @@ describe('starting a card whose prerequisite is open (PM-204)', () => {
     ]);
   });
 
+  it('offers the Start button on a card that waits for its prerequisites in the work stage', async () => {
+    const project = mockProject();
+    const task = project.backend.findTask('AC-20')!;
+    task.assignee = null;
+    task.links = [{ kind: 'prerequisite', ref: 'AC-17' }];
+    task.startWaiting = { reason: 'prerequisite_open', prerequisites: ['AC-17'], since: task.updatedAt };
+    project.render(drawer, '/p/AC/tasks/AC-20');
+
+    fireEvent.click(await startButton());
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toContain('AC-17');
+    expect(startRequests(project)).toEqual([]);
+    fireEvent.click(within(dialog).getByRole('button', { name: t('prerequisiteWarning.confirm') }));
+    await waitFor(() => expect(project.backend.findTask('AC-20')!.assignee).not.toBeNull());
+    expect(startRequests(project).map((request) => request.body)).toEqual([{ despitePrerequisites: true }]);
+  });
+
+  it('moves a card without starting it when the person picks "move, let it wait"', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-23');
+    fireEvent.change(await openMove(), { target: { value: 'dev' } });
+
+    fireEvent.click(screen.getByRole('button', { name: t('task.move.submit') }));
+    fireEvent.click(await screen.findByRole('button', { name: t('prerequisiteWarning.moveAndWait') }));
+
+    await waitFor(() => expect(project.backend.findTask('AC-23')?.stageId).toBe('dev'));
+    expect(project.requests.filter((request) => request.method === 'PATCH').map((r) => r.body)).toEqual([
+      { stageId: 'dev' },
+    ]);
+  });
+
   it('shows the card waiting for its prerequisites, by key', async () => {
     const project = mockProject();
     const task = project.backend.findTask('AC-20')!;

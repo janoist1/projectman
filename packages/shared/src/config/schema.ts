@@ -129,6 +129,10 @@ export function autoCompactWindowOf(
   );
 }
 
+/** The free disk space (GB) below which no new AI session starts and the owners are warned (PM-243); 0 is off. */
+export const MinFreeDiskGb = z.number().int().min(0).max(10_000);
+export const DEFAULT_MIN_FREE_DISK_GB = 10;
+
 /** A session's warning limit in tokens, as `limitTokens` counts them (PM-187). */
 export const WarnAboveSessionTokens = z.number().int().min(10_000).max(1_000_000_000);
 
@@ -164,6 +168,12 @@ export const TeamLimits = z.object({
    * (PM-187); the session keeps running. Absent: no warning.
    */
   warnAboveSessionTokens: WarnAboveSessionTokens.optional(),
+  /**
+   * Below this much free disk space (GB, where the installation keeps its data) the owners get one
+   * warning and no new AI session starts until there is room again; running ones finish their step
+   * (PM-243). 0 turns it off.
+   */
+  minFreeDiskGb: MinFreeDiskGb.default(DEFAULT_MIN_FREE_DISK_GB),
   /**
    * The size in tokens at which Claude Code compacts a member's conversation (PM-212); a member's
    * own value overrides it. Absent: `DEFAULT_AUTO_COMPACT_WINDOW_TOKENS`. It bounds what every step

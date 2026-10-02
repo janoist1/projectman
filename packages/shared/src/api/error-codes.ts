@@ -117,6 +117,8 @@ export const ERROR_CODES = [
   'ai_disabled',
   'ai_limit_reached',
   'plan_usage_paused',
+  // Too little free disk space (PM-243): no new session starts until there is room again.
+  'disk_low',
   'member_at_capacity',
   'member_on_leave',
   'previous_run_live',

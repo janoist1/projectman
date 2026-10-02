@@ -33,6 +33,7 @@ export const PatchConfigRequest = z
       /** null removes the project's compaction window (the default applies). */
       autoCompactWindowTokens: AutoCompactWindowTokens.nullable(),
       pauseAbovePlanUsagePercent: TeamLimits.shape.pauseAbovePlanUsagePercent.removeDefault(),
+      minFreeDiskGb: TeamLimits.shape.minFreeDiskGb.removeDefault(),
       tempWorkers: tempWorkersSchema
         .extend({
           enabled: tempWorkersSchema.shape.enabled.removeDefault(),

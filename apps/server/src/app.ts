@@ -31,7 +31,7 @@ import type {
 } from './contracts';
 import { createRepositories, openDatabase } from './db';
 import type { Repositories } from './db';
-import { createAttachmentStorage, createDomain } from './domain';
+import { createAttachmentStorage, createDomain, freeBytesOf } from './domain';
 import type { Domain, ScheduleTimer, TemplateRegistry } from './domain';
 import { createGithubPublisher, createGithubService, createTokenFileReader } from './github';
 import { assertHomeMayStart } from './instance';
@@ -151,6 +151,8 @@ export interface BuildAppOptions {
   scheduleTimer?: ScheduleTimer;
   doneCleanupDelayMs?: number;
   doneTurnLimitMs?: number;
+  /** The free bytes where the data is kept (default: `statfs` of `home`); null: not measurable (PM-243). */
+  freeDiskBytes?: () => Promise<number | null>;
   wsHeartbeatMs?: number;
   /**
    * Durable member workspaces (PM-138, `${home}/workspaces/<PROJECT>/<handle>/<repo>`) in place of a
@@ -414,6 +416,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       planUsageTtlMs: options.planUsageTtlMs,
       doneCleanupDelayMs: options.doneCleanupDelayMs,
       doneTurnLimitMs: options.doneTurnLimitMs,
+      freeDiskBytes: options.freeDiskBytes ?? (() => freeBytesOf(home)),
     });
     if (boundaryConfig) {
       const proxy = createManagedEgressProxy({

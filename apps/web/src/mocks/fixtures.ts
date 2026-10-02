@@ -219,6 +219,7 @@ export function buildConfig(): ProjectConfig {
         aiEnabled: true,
         maxConcurrentAi: 3,
         pauseAbovePlanUsagePercent: 80,
+        minFreeDiskGb: 10,
         tempWorkers: { enabled: false, max: 1, role: 'developer' },
       },
     },

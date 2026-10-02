@@ -269,6 +269,23 @@ describe('settings section editors', () => {
     expect(lastConfigPatch(project.requests).limits).toMatchObject({ autoCompactWindowTokens: null });
   });
 
+  it('sets the free disk space limit, and 0 turns it off (PM-243)', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    const section = await limitsSection();
+    const field = section.getByLabelText(t('settings.limits.minFreeDisk')) as HTMLInputElement;
+    expect(field.value).toBe('10');
+    fireEvent.change(field, { target: { value: '25' } });
+    fireEvent.blur(field);
+    await saved(section);
+    expect(project.backend.config.team.limits.minFreeDiskGb).toBe(25);
+    expect(lastConfigPatch(project.requests).limits).toMatchObject({ minFreeDiskGb: 25 });
+
+    fireEvent.change(field, { target: { value: '0' } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(project.backend.config.team.limits.minFreeDiskGb).toBe(0));
+  });
+
   it("sets and removes the warning limit of a session's tokens (PM-187)", async () => {
     const project = mockProject();
     project.render(<SettingsPage />);

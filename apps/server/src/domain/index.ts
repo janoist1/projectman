@@ -55,6 +55,8 @@ import { TimelineService } from './timeline';
 import { AgentQuestions } from './agent-question';
 import { InputStallAlerts } from './input-stall-alert';
 import { UsageAlerts } from './usage-alerts';
+import { DiskGuard } from './disk-guard';
+import { WorktreeSweep } from './worktree-sweep';
 import { CardMeasure } from './card-measure';
 import { SYSTEM_ACTOR } from './util';
 
@@ -99,6 +101,9 @@ export { PlanUsageCache, PlanUsageMonitor, highestUsagePercent } from './plan-us
 export { PresenceService } from './presence';
 export { ProjectService, OWNER_HANDLE } from './projects';
 export type { Author, LoadedProject, ConfigChange } from './projects';
+export { DiskGuard, freeBytesOf } from './disk-guard';
+export { CLOSED_WORKTREE_KEEP_MS, WorktreeSweep } from './worktree-sweep';
+export type { WorktreeSweepReport } from './worktree-sweep';
 export { ScheduleService } from './schedules';
 export type { ScheduleTimer } from './schedules';
 export * from './session-policy';
@@ -195,6 +200,17 @@ export interface DomainOptions {
   handOffRetryMs?: number;
   /** How often the branch of a task in review is compared with its pinned commit (default 30 s). */
   reviewWatchMs?: number;
+  /**
+   * The free bytes of the disk the installation's data is on (PM-243); null: not measurable. Without
+   * it nothing is measured, so no start is refused for disk space.
+   */
+  freeDiskBytes?: () => Promise<number | null>;
+  /** How often the free disk space is checked (default 1 min). */
+  diskCheckMs?: number;
+  /** How often the worktrees of closed cards are swept, starting at startup (default 6 hours). */
+  worktreeSweepMs?: number;
+  /** How long a closed card's worktree stays (default `CLOSED_WORKTREE_KEEP_MS`, 3 days). */
+  closedWorktreeKeepMs?: number;
 }
 
 export type Domain = ReturnType<typeof createDomain>;
@@ -292,7 +308,25 @@ export function createDomain(opts: DomainOptions) {
     ttlMs: opts.planUsageTtlMs,
   });
   const planUsage = usage.cache;
-  const admission = new Admission({ ctx, sessions, planUsage, tasks, projects, deferred: deferredStarts });
+  const disk = new DiskGuard({ ctx, projects, inbox, freeBytes: opts.freeDiskBytes });
+  const worktreeSweep = new WorktreeSweep({
+    ctx,
+    projects,
+    inbox,
+    sessions,
+    worktrees: opts.worktrees,
+    disk,
+    keepMs: opts.closedWorktreeKeepMs,
+  });
+  const admission = new Admission({
+    ctx,
+    sessions,
+    planUsage,
+    tasks,
+    projects,
+    deferred: deferredStarts,
+    disk,
+  });
   const delivery = new MessageDelivery({ ctx, sessions, messages });
   const messaging = new Messaging({ ctx, projects, tasks, sessions, messages, delivery });
   // The network gate's egress operations are one registry of the protected adapter; another
@@ -562,6 +596,8 @@ export function createDomain(opts: DomainOptions) {
   let retryTimer: ReturnType<typeof setInterval> | undefined;
   let boundaryTimer: ReturnType<typeof setInterval> | undefined;
   let reviewWatchTimer: ReturnType<typeof setInterval> | undefined;
+  let diskTimer: ReturnType<typeof setInterval> | undefined;
+  let sweepTimer: ReturnType<typeof setInterval> | undefined;
 
   return {
     ctx,
@@ -591,6 +627,8 @@ export function createDomain(opts: DomainOptions) {
     schedules,
     githubSync,
     reviewWatch,
+    disk,
+    worktreeSweep,
     teamTools,
     board,
     profiles,
@@ -645,6 +683,26 @@ export function createDomain(opts: DomainOptions) {
         opts.reviewWatchMs ?? 30_000,
       );
       reviewWatchTimer.unref();
+      // Free disk space (PM-243): warn the owners early, so that admission need not be the first to find out.
+      const checkDisk = () =>
+        background.run(
+          () => disk.check(),
+          (err) => opts.logger.warn({ err }, 'free disk space check failed'),
+        );
+      checkDisk();
+      diskTimer = setInterval(checkDisk, opts.diskCheckMs ?? 60_000);
+      diskTimer.unref();
+      // The worktrees of closed cards (PM-243): at startup and then every few hours.
+      const sweepWorktrees = () =>
+        background.run(
+          async () => {
+            await worktreeSweep.run();
+          },
+          (err) => opts.logger.warn({ err }, 'worktree sweep failed'),
+        );
+      sweepWorktrees();
+      sweepTimer = setInterval(sweepWorktrees, opts.worktreeSweepMs ?? 6 * 60 * 60_000);
+      sweepTimer.unref();
     },
 
     async stop(): Promise<void> {
@@ -652,6 +710,8 @@ export function createDomain(opts: DomainOptions) {
       if (retryTimer) clearInterval(retryTimer);
       if (boundaryTimer) clearInterval(boundaryTimer);
       if (reviewWatchTimer) clearInterval(reviewWatchTimer);
+      if (diskTimer) clearInterval(diskTimer);
+      if (sweepTimer) clearInterval(sweepTimer);
       const drained = schedules.stop();
       githubSync.stop();
       await background.stop();

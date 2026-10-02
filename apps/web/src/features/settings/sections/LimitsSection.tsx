@@ -1,4 +1,8 @@
-import { DEFAULT_AUTO_COMPACT_WINDOW_TOKENS, messageBurstOf } from '@projectman/shared';
+import {
+  DEFAULT_AUTO_COMPACT_WINDOW_TOKENS,
+  DEFAULT_MIN_FREE_DISK_GB,
+  messageBurstOf,
+} from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import { isApiError } from '../../../api/client';
 import { useRoles } from '../../../api/queries';
@@ -77,6 +81,19 @@ function LimitsControls({ config }: { config: ProjectConfig }) {
         onCommit={(percent) =>
           commit((draft) => {
             draft.team.limits.pauseAbovePlanUsagePercent = percent;
+          })
+        }
+      />
+      <InstantNumber
+        label={t('settings.limits.minFreeDisk')}
+        hint={t('settings.limits.minFreeDiskHelp')}
+        min={0}
+        max={10_000}
+        step={1}
+        value={limits.minFreeDiskGb}
+        onCommit={(gb) =>
+          commit((draft) => {
+            draft.team.limits.minFreeDiskGb = gb ?? DEFAULT_MIN_FREE_DISK_GB;
           })
         }
       />
@@ -274,6 +291,14 @@ export function LimitsSection({ config }: { config: ProjectConfig }) {
           <div>
             <dt>{t('settings.limits.pauseAbove')}</dt>
             <dd>{t('settings.limits.pauseAboveValue', { percent: limits.pauseAbovePlanUsagePercent })}</dd>
+          </div>
+          <div>
+            <dt>{t('settings.limits.minFreeDisk')}</dt>
+            <dd>
+              {limits.minFreeDiskGb === 0
+                ? t('settings.limits.minFreeDiskOff')
+                : t('settings.limits.minFreeDiskValue', { count: limits.minFreeDiskGb })}
+            </dd>
           </div>
           <div>
             <dt>{t('settings.limits.warnAboveSessionTokens')}</dt>

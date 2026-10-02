@@ -145,10 +145,36 @@ export const SessionInputAlert = z.object({
 });
 export type SessionInputAlert = z.infer<typeof SessionInputAlert>;
 
+/**
+ * `disk_low` (PM-243): the free disk space (`freeBytes`) fell below the project's limit
+ * (`thresholdBytes`); no new AI session starts until there is room again. One open alert per project.
+ */
+export const DiskLowAlert = z.object({
+  alert: z.literal('disk_low'),
+  freeBytes: z.number().int().nonnegative(),
+  thresholdBytes: z.number().int().positive(),
+});
+export type DiskLowAlert = z.infer<typeof DiskLowAlert>;
+
+/**
+ * `worktree_kept` (PM-243): the cleanup of the worktrees of closed cards left the worktree of card
+ * `taskKey` (`changes` uncommitted files) in place, because removing it would lose that work. Raised
+ * once per closing of the card.
+ */
+export const WorktreeKeptAlert = z.object({
+  alert: z.literal('worktree_kept'),
+  taskKey: TaskKey,
+  path: z.string(),
+  changes: z.number().int().nonnegative(),
+});
+export type WorktreeKeptAlert = z.infer<typeof WorktreeKeptAlert>;
+
 export const AlertPayload = z.discriminatedUnion('alert', [
   SessionTokensAlert,
   MessageBurstAlert,
   SessionInputAlert,
+  DiskLowAlert,
+  WorktreeKeptAlert,
 ]);
 export type AlertPayload = z.infer<typeof AlertPayload>;
 

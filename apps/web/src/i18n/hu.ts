@@ -130,6 +130,7 @@ export const hu = {
       member_on_leave: 'A tag szabadságon van.',
       ai_limit_reached: 'Elértük az egyidejű AI-munkák korlátját.',
       plan_usage_paused: 'A szolgáltató előfizetésének használata túl magas.',
+      disk_low: 'Kevés a szabad lemezhely, ezért új munkamenet most nem indul.',
       ai_disabled: 'Az AI-munka ki van kapcsolva ebben a projektben.',
       provider_not_logged_in: 'A szolgáltatónál nincs aktív bejelentkezés.',
       managed_vm_unavailable: 'A kérdésmentes VM-profil határa nincs igazolva.',
@@ -427,6 +428,7 @@ export const hu = {
       member_on_leave: 'Ez a tag szabadságon van; amíg vissza nem hívod, nem kap munkát.',
       ai_limit_reached: 'Most dolgozik a megengedett számú AI-tag; az új munka később indul.',
       plan_usage_paused: 'A szolgáltatói keret magas, ezért új AI-munka most nem indul.',
+      disk_low: 'Kevés a szabad lemezhely, ezért új AI-munka most nem indul.',
       ai_disabled: 'Ebben a projektben ki van kapcsolva az AI-munka (Beállítások → Keretek).',
       instance_standby:
         'Ez a példány készenléti másolat: az AI-munka csak az éles (aktív) példányban indul, itt csak az adatok láthatók.',
@@ -628,6 +630,7 @@ export const hu = {
     startWaiting: {
       ai_limit_reached: 'Indulásra vár: túl sok AI dolgozik',
       plan_usage_paused: 'Indulásra vár: a {provider}-keret {percent}% fölött szünetel',
+      disk_low: 'Indulásra vár: kevés a szabad lemezhely',
       ai_disabled: 'Indulásra vár: az AI-munka ki van kapcsolva',
       member_at_capacity: 'Indulásra vár: {name} tele van',
       member_on_leave: 'Indulásra vár: {name} szabadságon van',
@@ -644,6 +647,8 @@ export const hu = {
       ai_limit_reached: 'Várj, amíg felszabadul egy AI, vagy emeld a korlátot a Beállítások → Keretek alatt.',
       plan_usage_paused:
         'Várj a keret megújulására, vagy emeld a szüneteltetési küszöböt a Beállítások → Keretek alatt.',
+      disk_low:
+        'Szabadíts fel lemezhelyet (például töröld a régi munkafákat és buildeket), vagy csökkentsd a határt a Beállítások → Keretek alatt.',
       ai_disabled: 'Kapcsold be a Beállítások → Keretek alatt.',
       member_at_capacity: 'Szabadíts fel egy tagot: fejezd be vagy add át a többi feladatát.',
       member_on_leave: 'Hívd vissza a tagot a szabadságról a Csapat oldalon, vagy add át a feladatot másnak.',
@@ -1220,6 +1225,14 @@ export const hu = {
         heading: 'Egy munkamenet bevitelre vár, és nincs hozzá kérdés',
         body: '{member} munkamenete ({work}) {since} óta, {minutes} perce vár bevitelre a terminálján ({activity}), de nincs hozzá látható kérdés. Amíg így áll, a neki szóló üzenetek nem érnek oda. Érdemes megnyitni a munkamenetet, vagy leállítani és újraindítani.',
         noActivity: 'nem tudni, mire',
+      },
+      disk_low: {
+        heading: 'Fogy a lemezhely',
+        body: 'Már csak {free} szabad hely van a lemezen; a határ {threshold}. Amíg nincs elég hely, új AI-munkamenet nem indul, a futók befejezhetik a lépésüket. Szabadíts fel helyet (régi munkafák, buildek), vagy állítsd a határt a Beállítások → Keretek alatt. Ha újra van elég hely, a figyelmeztetés magától megszűnik.',
+      },
+      worktree_kept: {
+        heading: 'Egy lezárt kártya munkafája megmaradt',
+        body: 'A(z) {key} kártya munkafáján ({path}) {changes} el nem mentett változás van, ezért a takarítás nem törölte. Mentsd el (commit) vagy dobd el a változásokat; a következő takarítás utána eltávolítja. Az ág megmarad.',
       },
       work: {
         task: '{key} kártya',
@@ -1878,6 +1891,11 @@ export const hu = {
       maxConcurrentAiValue: '{count} munkamenet',
       pauseAbove: 'Új AI-munka szünetel e fölött',
       pauseAboveValue: '{percent}% keret',
+      minFreeDisk: 'Legalább ennyi szabad lemezhely kell (GB)',
+      minFreeDiskHelp:
+        'Ha a szabad hely ez alá esik, figyelmeztetést kapsz a Rád vár listában, és új AI-munkamenet nem indul, amíg nincs elég hely. A futók befejezhetik a lépésüket. 0: kikapcsolva.',
+      minFreeDiskValue: '{count} GB',
+      minFreeDiskOff: 'Kikapcsolva',
       noTokenWarning: 'Nincs tokenfigyelmeztetés',
       noTokenWarningHelp:
         'Ha megadsz egy határt, és egy munkamenet fogyasztása eléri, egyszer jelzést kapsz a Rád vár listában. A munkamenet nem áll meg. A gyorsítótárból olvasott tokenek egytizedükkel számítanak.',

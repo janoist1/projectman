@@ -146,6 +146,7 @@ describe('every template', () => {
         aiEnabled: true,
         pauseAbovePlanUsagePercent: 80,
         tempWorkers: { enabled: false, max: 1, role: 'developer' },
+        minFreeDiskGb: 10,
       });
     });
 

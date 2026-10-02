@@ -39,6 +39,43 @@ function denyFileRules(target: string): string[] {
   return ['Read', 'Edit'].flatMap((tool) => [`${tool}(${path})`, `${tool}(${path}/**)`]);
 }
 
+/**
+ * The built-in Claude Code tools every member session gets (PM-221), and why each stays:
+ * - Read, Bash: the work itself;
+ * - TaskStop: ends a background command the session started;
+ * - WebFetch, WebSearch: reading documentation (the network rules and the denied hosts limit them);
+ * - Agent: the cheap subagent (PM-179);
+ * - ToolSearch: the team tools are deferred, so without it they cannot be reached;
+ * - AskUserQuestion: PM-199 forwards its call to the inbox's waiting list.
+ * Everything else (artifacts, workflows, scheduling, messaging other Claude sessions, cron and remote
+ * triggers, worktree and plan mode tools, notebooks...) is left out: a tool's description is paid
+ * for in every step, and several of them act with the owner's account or reach their other sessions.
+ */
+const CORE_BUILTIN_TOOLS = [
+  'Read',
+  'Bash',
+  'TaskStop',
+  'WebFetch',
+  'WebSearch',
+  'Agent',
+  'ToolSearch',
+  'AskUserQuestion',
+] as const;
+
+/** The file-changing built-in tools, only for a role that works in a repository of its own. */
+const WRITE_BUILTIN_TOOLS = ['Edit', 'Write'] as const;
+
+/**
+ * The `--tools` list of a session: the built-in set it may use, by the role's tool rule. A role that
+ * only reads (a read-only placement, a review copy) gets no Edit and no Write; a writer
+ * (`task_worktree`, `member_workspace`) does. A start without a policy is a legacy one and gets the
+ * writer's list. MCP tools (the team server) are not part of `--tools`.
+ */
+export function claudeBuiltinTools(policy: Pick<SessionPolicy, 'access'> | undefined): string[] {
+  const readsOnly = policy?.access === 'read_only' || policy?.access === 'review_copy';
+  return readsOnly ? [...CORE_BUILTIN_TOOLS] : [...CORE_BUILTIN_TOOLS, ...WRITE_BUILTIN_TOOLS];
+}
+
 export function claudeToolRules(
   policy: Pick<SessionPolicy, 'tools' | 'deniedOperations'> & {
     filesystem?: Pick<SessionPolicy['filesystem'], 'readOnlyPaths' | 'deniedPaths'>;

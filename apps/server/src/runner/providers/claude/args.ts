@@ -1,6 +1,6 @@
 import type { AgentSandbox, StartSessionSpec } from '../../../contracts';
 import { FAST_HOOK_TIMEOUT_S, forwarderCommand, permissionHookTimeoutS } from '../../hook-forwarder';
-import { claudeToolRules, directoryRulePaths } from './policy';
+import { claudeBuiltinTools, claudeToolRules, directoryRulePaths } from './policy';
 
 /**
  * Command line and inline settings for an interactive Claude Code session.
@@ -110,6 +110,13 @@ export interface ClaudeSettings {
   env?: Record<string, string>;
   /** Claude Code's own auto memory is off: the team keeps its memory in projectman (PM-208). */
   autoMemoryEnabled: false;
+  /**
+   * No skills that ship with Claude Code (dataviz, loop, schedule, claude-api, the artifact skills...):
+   * their list with the descriptions is read in every step and a member uses none (PM-221).
+   */
+  disableBundledSkills: true;
+  /** The owner's claude.ai account skills (synced, named `anthropic-skills:<name>`), each hidden from the model and the user. */
+  skillOverrides: Record<string, 'off'>;
   /** Managed VM profile: no first-use confirmation of the bypass mode (it would wait in the terminal). */
   skipDangerousModePermissionPrompt?: true;
 }
@@ -184,6 +191,29 @@ export function excludedCommandPattern(command: string): string {
   return `${command}:*`;
 }
 
+/**
+ * The skills synced from the owner's claude.ai account that Claude Code 2.1.284 lists (PM-221). They
+ * come from the account, not from a plugin, so `enabledPlugins` does not reach them; a skill is
+ * hidden by its name in `skillOverrides`. The list is of the skills seen on the owner's account: the
+ * Skill tool is also left out of `--tools`, and the manual probe (`/context` of a fresh session)
+ * shows whether a new account skill needs adding here.
+ */
+const ACCOUNT_SKILLS = [
+  'docs',
+  'docx',
+  'google-workspace',
+  'import-memory',
+  'morning',
+  'pdf',
+  'pptx',
+  'skill-creator',
+  'xlsx',
+] as const;
+
+function accountSkillOverrides(): Record<string, 'off'> {
+  return Object.fromEntries(ACCOUNT_SKILLS.map((name) => [`anthropic-skills:${name}`, 'off' as const]));
+}
+
 /** The `--settings` object: hooks for every event we need and pre-allowed tools. */
 export function buildSettings(input: HookSettingsInput): ClaudeSettings {
   if (input.policy?.enforcement === 'strict')
@@ -256,6 +286,8 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
     ...(managed ? {} : { autoMode: AUTO_MODE_SETTINGS }),
     hooks,
     autoMemoryEnabled: false,
+    disableBundledSkills: true,
+    skillOverrides: accountSkillOverrides(),
     ...(sandbox ? { sandbox: buildSandboxSettings(sandbox) } : {}),
     ...(sandbox?.env && Object.keys(sandbox.env).length > 0 ? { env: { ...sandbox.env } } : {}),
     ...(managed && input.policy!.permissions.claude === 'bypassPermissions'
@@ -302,6 +334,9 @@ export function buildClaudeArgs(spec: StartSessionSpec, settings: ClaudeSettings
   // `.mcp.json` of user and project, and `--no-chrome` keeps Claude in Chrome (the owner's logged-in
   // browser) out. Both are the same on a new and on a resumed session.
   args.push('--strict-mcp-config', '--no-chrome');
+  // Only the built-in tools the role needs (PM-221), the same on a new and on a resumed session. One
+  // comma-separated value: the flag is variadic, so it must be followed by another flag, never a value.
+  args.push('--tools', claudeBuiltinTools(spec.policy).join(','));
   // The managed VM's start is also protected from the project's own settings (PM-49); the user's
   // file is inspected before the start.
   if (isManagedVm(spec.policy)) args.push('--setting-sources', 'user');

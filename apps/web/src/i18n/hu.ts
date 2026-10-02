@@ -270,6 +270,36 @@ export const hu = {
     alertChip: 'Határ fölött',
     alert:
       'Átlépte a figyelmeztetési határt ({time}): {counted} token, a határ {limit} token. A munkamenet fut tovább.',
+    /** What a card took (PM-222): the rounds, and the weighted tokens per model. */
+    roundsTitle: 'Körök és súlyozott token',
+    reviewRounds: 'Átnézési körök',
+    changeRequests: 'Javítást kérő átnézések',
+    sendBacks: 'Visszaküldések',
+    weighted: 'Súlyozott token modellenként',
+    weightedTotal: 'Súlyozva összesen: {total} token',
+  },
+
+  /** The comparison of the closed cards (PM-222). */
+  cardMeasure: {
+    title: 'Lezárt kártyák összevetése',
+    hint: 'A modell a munkamenetek mért fogyasztásából jön, nem a tag mai beállításából. A súlyozott token a gyorsítótárból olvasott tokeneket egytizedükkel számolja.',
+    periodLabel: 'Időszak',
+    periodDays: '{days} nap',
+    empty: 'Az időszakban nem zárult le kártya.',
+    unmeasured:
+      '{cards} kártya {sessions} munkamenetéről nincs mérés (a mérés bevezetése előtt futottak); ezek nincsenek beleszámolva.',
+    noImplementer: 'nincs megvalósító',
+    sessionsWithoutData: '{count} munkamenet mérés nélkül',
+    columns: {
+      card: 'Kártya',
+      implementer: 'Megvalósító és modellje',
+      tokens: 'Súlyozott token',
+      reviewRounds: 'Átnézési körök',
+      sendBacks: 'Visszaküldések',
+      closedAt: 'Lezárva',
+    },
+    changeRequestsOf: 'ebből javítást kért: {count}',
+    sortBy: 'Rendezés: {column}',
   },
 
   connection: {
@@ -546,6 +576,7 @@ export const hu = {
       workspace_dirty: 'Indulásra vár: {name} munkaállomásán befejezetlen munka van',
       workspace_fetch_failed: 'Indulásra vár: a friss alapágat nem sikerült letölteni',
       prerequisite_open: 'Előfeltételre vár: {prerequisites}',
+      no_free_member: 'Szabad fejlesztőre vár',
     },
     stageOwners: 'a lépés összes felelőse',
     startHints: {
@@ -565,6 +596,8 @@ export const hu = {
         'Az új feladatág csak friss alapról indulhat. Ellenőrizd a hálózatot és a repó elérését; az indítás magától újrapróbálkozik.',
       prerequisite_open:
         'A munka magától elindul, amikor az utolsó előfeltétel is lezárul (kész vagy visszavont). Ember az Indítás gombbal előbb is elindíthatja.',
+      no_free_member:
+        'Most nincs szabad fejlesztő. A feladat magától elindul, amint felszabadul egy, vagy ha a Beállítások → Keretek alatt engedélyezed a beugrókat; addig kézzel is hozzárendelhetsz valakit.',
     },
     needsYou: 'Rád vár: {what}',
     needsYouDetail: '{kind} ({detail})',
@@ -799,6 +832,11 @@ export const hu = {
     edit: 'Szerkesztés',
     roles: 'Betöltött szerepek',
     instructions: 'Saját utasítások',
+    autoCompactWindow: 'A beszélgetés tömörítése e méret fölött (token)',
+    autoCompactWindowHint:
+      'Üresen hagyva a projekt értéke érvényes (a projekt korlátainál, alapból 200 000). 100 000 és 1 000 000 között adható meg.',
+    autoCompactWindowCodex: 'Csak a Claude-tagoknál hat; a Codex-tagok beszélgetését ez nem tömöríti.',
+    autoCompactWindowPlaceholder: 'a projekt értéke',
     save: 'Mentés',
     saved: 'A tag adatai mentve.',
   },
@@ -1599,6 +1637,10 @@ export const hu = {
         'Ha megadsz egy határt, és egy munkamenet fogyasztása eléri, egyszer jelzést kapsz a Rád vár listában. A munkamenet nem áll meg. A gyorsítótárból olvasott tokenek egytizedükkel számítanak.',
       warnAboveSessionTokens: 'Figyelmeztetés munkamenetenként e fölött (token)',
       warnAboveSessionTokensValue: '{count} token',
+      autoCompactWindow: 'A beszélgetés tömörítése e méret fölött (token)',
+      autoCompactWindowHelp:
+        'A Claude Code ekkora beszélgetésnél tömöríti a tag beszélgetését, így az nem nő a végtelenségig, és a lépések kevesebbet olvasnak újra. Üresen hagyva 200 000 token érvényes. 100 000 és 1 000 000 között adható meg. Csak a Claude-tagokra hat, a Codex-tagokra nem. A tag beállításai között tagonként felülírható.',
+      autoCompactWindowValue: '{count} token',
       messageBurst: 'Üzenetvihar-jelzés',
       messageBurstHelp:
         'Ha egy kártyán ennyi csapatüzenet és jegyzet születik ennyi perc alatt (az emberek közti beszélgetést is beleértve), egyszer jelzést kapsz a Rád vár listában. Semmi nem áll meg.',

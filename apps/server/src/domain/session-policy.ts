@@ -81,6 +81,27 @@ export const SANDBOX_PTY_ENV = { [PTY_SKIP_VARIABLE]: '1' } as const;
 export const SANDBOX_HOME_READS = ['.gitconfig', '.config/git', '.claude/shell-snapshots'];
 
 /**
+ * Git settings of a developer's sandboxed commands (PM-216): a system-level git configuration
+ * file in the member's sandbox directory (`GIT_CONFIG_SYSTEM`; written by the host at every start,
+ * readable but not writable for the commands). Not `GIT_CONFIG_COUNT`/`KEY_n`: a session's
+ * environment may already carry such entries (`safe.directory`), and ours would replace them. The
+ * user's own configuration still comes after it; the machine's system file (`credential.helper`
+ * and the like) is not loaded, which a sandbox without credentials does not miss.
+ * - no automatic gc or maintenance: `gc --auto` / `pack-refs` would rewrite the shared
+ *   `packed-refs`, which `sharedGitDenials` keeps out;
+ * - `core.packedRefsTimeout=0`: git waits 1 s for a `packed-refs.lock` it cannot take. A
+ *   `git commit` ends by deleting the `CHERRY_PICK_HEAD`/`REVERT_HEAD` pseudo-refs, and any
+ *   ref-deleting transaction locks the shared `packed-refs`: the denied lock makes it print
+ *   "Unable to create '.../packed-refs.lock'" after the commit, which already exists. No git
+ *   setting avoids that message; allowing the lock would let a sandbox change the host's lock
+ *   window, so the message is known and harmless, and only its delay is removed.
+ */
+export const SANDBOX_GIT_CONFIG_FILE = 'gitconfig';
+export const GIT_SETTINGS_VARIABLE = 'GIT_CONFIG_SYSTEM';
+export const SANDBOX_GIT_CONFIG =
+  '[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n[core]\n\tpackedRefsTimeout = 0\n';
+
+/**
  * A member's own directory for what its sandboxed commands keep between sessions (PM-193): its npm
  * cache and its development instance's data. Nothing outside a sandbox runs or loads them; the
  * user's `~/.npm` (whose `_npx` the host's `npx` runs code from) and `~/.projectman-dev` (the host's
@@ -134,6 +155,11 @@ export interface SandboxPaths {
    * `MEMBER_SANDBOX_DIRS`; absent (no app home), the commands keep no npm cache or development data.
    */
   memberDir?: string;
+  /**
+   * The user's `core.excludesfile` (`userExcludesFile`, PM-216): read-only for the commands, so git
+   * does not warn about it. Left out when it lies in a denied path or in the app home.
+   */
+  excludesFile?: string;
 }
 
 /**
@@ -155,18 +181,24 @@ export interface SandboxPaths {
  *   local port (decision 24).
  */
 function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandbox {
-  const { userHome, appHome, defaultBranch, memberDir } = paths;
+  const { userHome, appHome, defaultBranch, memberDir, excludesFile } = paths;
   const denied = policy.filesystem.deniedPaths ?? [];
   const gitDir = policy.placement.kind === 'task_worktree' ? policy.placement.gitDir : undefined;
   const own = memberDir
     ? MEMBER_SANDBOX_DIRS.map((dir) => ({ ...dir, path: path.join(memberDir, dir.name) }))
     : [];
+  const gitConfig = memberDir ? path.join(memberDir, SANDBOX_GIT_CONFIG_FILE) : undefined;
   const allowRead = [
     ...policy.filesystem.readableRoots,
     ...(policy.filesystem.readOnlyPaths ?? []),
     ...own.map((dir) => dir.path),
+    ...(gitConfig ? [gitConfig] : []),
     ...(gitDir ? [gitDir] : []),
     ...SANDBOX_HOME_READS.map((name) => path.join(userHome, name)),
+    // Never the home or a directory above it, whatever the config says.
+    ...(excludesFile && !isWithin(excludesFile, userHome) && !(appHome && isWithin(appHome, excludesFile))
+      ? [excludesFile]
+      : []),
   ].filter((dir) => !isWithinAny(denied, dir));
   return {
     allowWrite: own.map((dir) => dir.path).filter((dir) => !isWithinAny(denied, dir)),
@@ -175,7 +207,11 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
       ...new Set([userHome, ...(appHome && !isWithin(userHome, appHome) ? [appHome] : []), ...denied]),
     ],
     allowRead: [...new Set(allowRead)],
-    env: { ...Object.fromEntries(own.map((dir) => [dir.variable, dir.path])), ...SANDBOX_PTY_ENV },
+    env: {
+      ...Object.fromEntries(own.map((dir) => [dir.variable, dir.path])),
+      ...SANDBOX_PTY_ENV,
+      ...(gitConfig ? { [GIT_SETTINGS_VARIABLE]: gitConfig } : {}),
+    },
     deniedEnvVars: [...SANDBOX_DENIED_ENV_VARS],
     allowedDomains: [...SANDBOX_ALLOWED_DOMAINS],
     allowLocalBinding: true,

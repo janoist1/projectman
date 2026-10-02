@@ -205,7 +205,30 @@ Documentation map:
   is done. `repo_required` is the one refusal that is not retried, because only a person's
   choice clears it: the start fails and nothing is kept; the board shows the task of an AI
   developer that cannot start for that reason ("Válassz repót a feladathoz", derived from the
-  task, see `TaskStore`).
+  task, see `TaskStore`; also a card without an assignee in a work stage whose every owner is
+  such a developer).
+- **Work start** (`admission/work-starts.ts`, PM-119) — an active card moved into a work stage
+  without an assignee starts like the Start button starts it: `TaskStarts.startLocked` is the
+  same developer choice, temp worker, admission checks and session start, run under the
+  admission lock the attempt already holds (the lock is not reentrant). Nobody free waits
+  (`no_free_member`, a refusal only this start defers) in `deferred_starts` as a `work_start`
+  spec, and is retried by the 30 s timer and by the events that free capacity (a card leaving
+  a work stage, a session ending or going idle, a card cancelled, a member called back). It
+  applies only while the card is still in that stage and has no assignee other than the one
+  this very start assigned (a half-done attempt carries on, someone else's assignment ends the
+  wait). While AI work is off a move creates no start. A card with an assignee only gets the
+  stage hand-over's notice. **Prerequisites** (PM-204): `startLocked` first refuses a card with an
+  open prerequisite (`prerequisite_open`, the open keys in the details), before any developer is
+  chosen; the work start defers that refusal too, so the card waits (`startWaiting.reason`
+  `prerequisite_open` with `prerequisites`) and starts once, when the last prerequisite is done or
+  withdrawn (`task_stage_changed`/`task_cancelled` retry the deferred starts) or its relation is
+  removed (`task_prerequisite_removed`); the retry skips a start whose open prerequisites did not
+  change. A person starts despite them with `despitePrerequisites` (`StartTaskRequest`, or
+  `UpdateTaskRequest` on the move, carried as `StageChange.despitePrerequisites` into the
+  `work_start` spec): honored for human actors only, so a card an AI member moves waits. Cards in a
+  queue stage have no start, so a closing prerequisite starts nothing there. Each closing writes
+  `task_prerequisite_closed` on the timeline of every open dependent (`PrerequisiteClosures`). The
+  stage hand-over (review, QA) and message wake-ups do not wait for prerequisites.
 - **Stage hand-over** — when a task enters a later stage owned by AI members, by anyone's
   move, the least loaded free owner (never the task's assignee) gets a session for the task.
   An owner that already has a session for the task gets a notice instead.
@@ -269,7 +292,9 @@ claude | codex ── transcript JSONL ────────────▶ r
 
 - One HTTP port, bound to loopback. `/hooks` and `/mcp` accept only local connections with a
   per-session random token. Everything under `/api` and `/ws` requires a login cookie.
-  Remote access goes through `tailscale serve` ([SECURITY.md](SECURITY.md)).
+  Remote access goes through `tailscale serve` ([SECURITY.md](SECURITY.md)); the owner's live
+  instance is also public at chopper.istvan.io through a Cloudflare Tunnel behind Cloudflare
+  Access ([DEPLOY.md](DEPLOY.md), PM-200), which still ends at this one loopback port.
 - Session states come from hooks: SessionStart → idle, UserPromptSubmit → working,
   PermissionRequest → waiting_permission (a blocking call answered by the inbox decision,
   with a timeout), Stop → idle, SessionEnd or exit → exited; a lost login → failed.
@@ -283,6 +308,31 @@ claude | codex ── transcript JSONL ────────────▶ r
   the first turn, and the member would work from the timeline's excerpts (up to 24 000
   characters; the rest is typed in once it runs). Codex has it on the command line
   of `codex resume`, Claude Code has it typed once SessionStart arrives ([PROVIDERS.md](PROVIDERS.md)).
+- **End-of-round compaction (PM-213, part of PM-209).** A member's round on a card ends when the
+  card leaves the stage the member worked it in (`isWorkingOnTask` false after a
+  `task_stage_changed`; a card that is done or cancelled needs nothing). The conversation then owes
+  a compaction (`sessions.compact_pending`): `SessionOrchestrator.roundEnded` marks every session of
+  the card and, at the session's idle moment, types `/compact <instruction>` through the runner
+  (`SessionRunner.compact`; the text is `COMPACT_INSTRUCTION` of the context module, which names what
+  to keep). Nothing is typed while a message is on its way in (`hasPendingInput`): it goes first, and
+  the next idle moment tries again; if the card is back in a stage the member works it in by then, the
+  conversation just goes on. The runner follows the CLI's PreCompact and PostCompact hooks: the
+  session is `working` ("Compacting the conversation") until PostCompact, so no message is typed
+  over it. A typed command that has not started holds the queue back as well (a message typed behind
+  a swallowed command would start a turn the give-up must not end). The runner gives the compaction up
+  (a `compaction` event, `abandoned`) if the command does not start within `compactStartTimeoutMs` or
+  end within `compactTimeoutMs`; only a compaction that had started is then ended (idle). Only
+  a conversation whose last measured context (input + cache read + cache write of its last step,
+  `sessions.context_tokens`, from the transcript) is above `COMPACT_MIN_CONTEXT_TOKENS` (100 000; a
+  fresh session already starts at 52-56k, so a small or just compacted conversation is not worth a
+  summary, and an unmeasured one counts as small) is compacted, at the end of its round and on resume.
+  A session that did not run at the end of its round (stopped, server restarted) is compacted when
+  it resumes, before the wake-up messages or the continue message (`StartSessionSpec.compactFirst`).
+  The compaction is the same conversation, in the same
+  transcript. Only Claude Code is compacted (`COMPACTING_PROVIDERS`): Codex's compaction command was
+  not checked, so its members work as before. A returning reviewer's continue message names the commit
+  it reviewed last (`sessions.reviewed_commit`, set when a session starts on a pinned commit) and asks
+  for only the change since and the fixes of its earlier findings.
 - The server's composition root is `apps/server/src/app.ts` (`buildApp`); the domain's is
   `apps/server/src/domain/index.ts` (`createDomain`), which builds the services (the board,
   member profiles and invitations included) and wires their reactions to the domain events.

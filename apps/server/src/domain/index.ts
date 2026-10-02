@@ -1,4 +1,4 @@
-import { isOnLeave, memberOf, permissionDelegationOf } from '@projectman/shared';
+import { isOnLeave, memberOf, permissionDelegationOf, stageOf } from '@projectman/shared';
 import type { ExecutionProfile, Me } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AuthService } from '../auth';
@@ -24,7 +24,7 @@ import type { EgressSettings } from './egress';
 import type { ProcessProbe } from './workspaces';
 import { projectAccessFor } from './access';
 import type { ProjectAccess } from './access';
-import { Admission, DeferredStarts, MessageStarts, StageHandOver, TaskStarts } from './admission';
+import { Admission, DeferredStarts, MessageStarts, StageHandOver, TaskStarts, WorkStarts } from './admission';
 import type { StartSpec } from './admission';
 import { AttachmentService } from './attachments';
 import { BackgroundTasks } from './background';
@@ -55,6 +55,7 @@ import { TimelineService } from './timeline';
 import { AgentQuestions } from './agent-question';
 import { InputStallAlerts } from './input-stall-alert';
 import { UsageAlerts } from './usage-alerts';
+import { CardMeasure } from './card-measure';
 import { SYSTEM_ACTOR } from './util';
 
 export * from './access';
@@ -63,7 +64,7 @@ export * from './errors';
 export { createEventBus } from './event-bus';
 export { createDomainEvents } from './events';
 export type { DomainEventMap, DomainEvents } from './events';
-export { Admission, DeferredStarts, MessageStarts, StageHandOver, TaskStarts } from './admission';
+export { Admission, DeferredStarts, MessageStarts, StageHandOver, TaskStarts, WorkStarts } from './admission';
 export type {
   AdmissionRequest,
   AutomaticStart,
@@ -88,6 +89,7 @@ export { EgressService } from './egress';
 export type { EgressDecision, EgressIdentity, EgressSession, EgressSettings } from './egress';
 export { GithubSync } from './github-sync';
 export { InboxService, PERMISSION_OPTIONS, DECISION_OPTIONS, ANSWER_OPTION } from './inbox';
+export { CardMeasure } from './card-measure';
 export { InvitationService } from './invitations';
 export { MemberProfiles, MemberService } from './members';
 export { MessageDelivery, MessageService, Messaging } from './messaging';
@@ -350,6 +352,7 @@ export function createDomain(opts: DomainOptions) {
     );
   });
   const taskStarts = new TaskStarts({ projects, tasks, members, sessions, admission });
+  const workStarts = new WorkStarts({ projects, tasks, sessions, admission, starts: taskStarts });
   const handOver = new StageHandOver({ projects, tasks, sessions, admission, delivery });
   const messageStarts = new MessageStarts({ projects, tasks, admission, messages, delivery });
   const schedules = new ScheduleService({
@@ -405,6 +408,7 @@ export function createDomain(opts: DomainOptions) {
   const board = new BoardService({ projects, tasks, members, inbox, planUsage });
   const profiles = new MemberProfiles({ ctx, projects, members, tasks, inbox, sessions, admission });
   const invitations = new InvitationService({ ctx, projects, members, accounts: opts.accounts });
+  const cardMeasure = new CardMeasure({ ctx, projects });
 
   const retryDeferredStarts = () =>
     background.run(
@@ -412,8 +416,16 @@ export function createDomain(opts: DomainOptions) {
       (err) => opts.logger.warn({ err }, 'deferred start retry failed'),
     );
   /** A deferred start as it was stored, made again by the module that made it. */
-  const rebuildDeferredStart = (spec: StartSpec) =>
-    spec.kind === 'hand_over' ? handOver.rebuild(spec) : messageStarts.rebuild(spec);
+  const rebuildDeferredStart = (spec: StartSpec) => {
+    switch (spec.kind) {
+      case 'hand_over':
+        return handOver.rebuild(spec);
+      case 'work_start':
+        return workStarts.rebuild(spec);
+      case 'message_wake':
+        return messageStarts.rebuild(spec);
+    }
+  };
 
   // Configuration changes: runtime state follows the roster.
   events.on('config_changed', (change) => members.reconcile(change));
@@ -468,6 +480,14 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_stage_changed', (change) => {
     if (change.task.status !== 'done') sessions.requestReviewRound(change.task.projectKey, change.task.key);
   });
+  // A card leaving a stage ends the round of the members who worked it there: their conversations are
+  // compacted (PM-213), in the background so a move does not wait for a session.
+  events.on('task_stage_changed', (change) => {
+    background.run(
+      () => sessions.roundEnded(change.task),
+      (err) => opts.logger.warn({ err }, 'end-of-round compaction failed'),
+    );
+  });
   // Done tasks: temp workers leave; sessions stop and clean worktrees go away.
   events.on('task_stage_changed', (change) => taskStarts.retireFinishedTempWorker(change));
   // Later stages owned by AI members (review, QA, release, …) get their owner started, in the
@@ -477,6 +497,34 @@ export function createDomain(opts: DomainOptions) {
       () => handOver.handOff(change),
       (err) => opts.logger.warn({ err }, 'stage hand-over failed'),
     );
+  });
+  // A card moved into a work stage without an assignee starts like the Start button starts it (PM-119).
+  events.on('task_stage_changed', (change) => {
+    background.run(
+      () => workStarts.begin(change),
+      (err) => opts.logger.warn({ err }, 'work start failed'),
+    );
+  });
+  // Capacity frees up when a card leaves a work stage (handed on, closed) or a session ends: the
+  // starts that wait for a developer try again at once, not only on the timer.
+  events.on('task_stage_changed', (change) => {
+    const config = projects.cachedConfig(change.task.projectKey);
+    if (change.task.status === 'done' || (config && stageOf(config, change.from)?.kind === 'work'))
+      retryDeferredStarts();
+  });
+  events.on('task_cancelled', () => {
+    retryDeferredStarts();
+  });
+  // A card waiting for a prerequisite starts when the last one closes (above: done or withdrawn)
+  // or its relation is removed (PM-204).
+  events.on('task_prerequisite_removed', () => {
+    retryDeferredStarts();
+  });
+  events.on('session_ended', () => {
+    retryDeferredStarts();
+  });
+  events.on('session_idle', () => {
+    retryDeferredStarts();
   });
   events.on('task_stage_changed', (change) => {
     if (change.task.status !== 'done') return;
@@ -527,6 +575,7 @@ export function createDomain(opts: DomainOptions) {
     admission,
     taskStarts,
     handOver,
+    workStarts,
     messageStarts,
     schedules,
     githubSync,
@@ -535,6 +584,7 @@ export function createDomain(opts: DomainOptions) {
     board,
     profiles,
     invitations,
+    cardMeasure,
 
     /** Startup: import projects from the repository, clean up state that did not survive a restart, watch PRs. */
     async start(): Promise<void> {

@@ -538,6 +538,18 @@ describe('deferred starts', () => {
     expect(deferred.list()).toEqual([]);
   });
 
+  it('waits for no_free_member only when the start asks for it (PM-119: it picks its developer itself)', async () => {
+    expect(isDeferrable(conflict('no_free_member', 'fictional refusal'))).toBe(false);
+    expect(isDeferrable(conflict('no_free_member', 'fictional refusal'), ['no_free_member'])).toBe(true);
+    const { admission, deferred } = admissionFor({ tasks: [task('AR-1', { stageId: 'code_review' })] });
+    const { automatic } = start('hand-over:AR-1', { taskKey: 'AR-1', refuse: () => 'no_free_member' });
+    automatic.defers = ['no_free_member'];
+    await admission.attempt(automatic);
+    expect(deferred.waitingFor(task('AR-1', { stageId: 'code_review' }))).toMatchObject({
+      reason: 'no_free_member',
+    });
+  });
+
   it.each(['no_free_member', 'session_start_failed', 'previous_run_live', 'repo_required'])(
     'lets the refusal %s through without keeping the start',
     async (code) => {

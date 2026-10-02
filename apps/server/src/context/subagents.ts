@@ -13,7 +13,7 @@ import { code } from './format';
  * through the session's rules, sandbox and hooks; it has no edit tools, no team tools and cannot
  * start subagents.
  */
-export const CHEAP_SUBAGENT_TOOLS = ['Read', 'Grep', 'Glob', 'Bash'] as const;
+export const CHEAP_SUBAGENT_TOOLS = ['Read', 'Bash'] as const;
 
 const MODEL_NAMES: Record<CheapSubagentModel, string> = { sonnet: 'Sonnet', haiku: 'Haiku' };
 
@@ -31,6 +31,7 @@ export function cheapSubagent(member: AiMemberConfig): SubagentDefinition | null
     prompt: [
       'You are a reader working for a member of an AI team. You do text-heavy, logic-light work for it: you read long logs and test output, search across many files, summarize and carry text over, so that it reads your short result instead of the raw text.',
       '- Return only a short, precise result: the facts asked for, with file paths and line numbers where they help. Never return raw output, whole files or long excerpts; quote only the few lines that matter.',
+      '- You have Read and Bash only; there is no separate search tool, so search with grep and find in Bash.',
       '- Do not change the work: no file edits, commits or installs. Running a check or a test to read its output is fine.',
       '- Do not decide or judge: when the task asks for a decision, a review or a security verdict, report the facts and leave the judgement to the member.',
       '- If you cannot find something, say so plainly instead of guessing.',

@@ -404,6 +404,165 @@ describe('AgentSession', () => {
   });
 });
 
+describe('compaction (PM-213)', () => {
+  const INSTRUCTION = 'Keep the card,\nthe decisions and the open bugs.';
+  const compactions = (events: RunnerEvent[]) =>
+    events
+      .filter((e): e is Extract<RunnerEvent, { type: 'compaction' }> => e.type === 'compaction')
+      .map((e) => `${e.phase}${e.requested ? ' (asked for)' : ''}`);
+
+  it('types the command with the instruction into an idle session, and holds messages back while it runs', async () => {
+    const { session, pty, hook, events } = await ready();
+    const typed = session.compact(INSTRUCTION);
+    const later = session.enqueue('a message that must wait');
+    await vi.advanceTimersByTimeAsync(TYPE_MS);
+    await expect(typed).resolves.toBe(true);
+    expect(pty.typed().pastes).toEqual(['/compact Keep the card, the decisions and the open bugs.']);
+
+    await hook({ hook_event_name: 'PreCompact', trigger: 'manual' });
+    expect(session.state).toEqual({ state: 'working', activity: 'Compacting the conversation' });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(pty.typed().pastes).toHaveLength(1);
+
+    await hook({ hook_event_name: 'PostCompact', trigger: 'manual' });
+    expect(session.state).toEqual({ state: 'idle', activity: null });
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.stopSettleMs + TYPE_MS);
+    await expect(later).resolves.toBeUndefined();
+    expect(pty.typed().pastes[1]).toBe('a message that must wait');
+    expect(compactions(events)).toEqual(['started (asked for)', 'finished (asked for)']);
+  });
+
+  it('types the messages that were queued before it first', async () => {
+    const { session, pty, hook } = await ready();
+    void session.enqueue('first');
+    void session.compact(INSTRUCTION);
+    await vi.advanceTimersByTimeAsync(TYPE_MS);
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'first' });
+    await hook({ hook_event_name: 'Stop' });
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.stopSettleMs + TYPE_MS);
+    expect(pty.typed().pastes.map((p) => p.split(' ')[0])).toEqual(['first', '/compact']);
+  });
+
+  it('gives it up when the command never starts, and takes messages again', async () => {
+    const { session, pty, events } = await ready();
+    void session.compact(INSTRUCTION);
+    await vi.advanceTimersByTimeAsync(TYPE_MS);
+    const later = session.enqueue('after the swallowed command');
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.compactStartTimeoutMs + CLAUDE_TIMING.enterRetryMs);
+    expect(compactions(events)).toEqual(['abandoned (asked for)']);
+    expect(session.state.state).toBe('idle');
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.stopSettleMs + TYPE_MS);
+    await expect(later).resolves.toBeUndefined();
+    expect(pty.typed().pastes[1]).toBe('after the swallowed command');
+  });
+
+  it('holds the queue back behind a swallowed command, so a message cannot start a turn the give-up ends', async () => {
+    const { session, pty, hook, events } = await ready();
+    void session.compact(INSTRUCTION);
+    await vi.advanceTimersByTimeAsync(TYPE_MS);
+    const later = session.enqueue('queued behind the swallowed command');
+    // Past the submit timeout (8 s) the queue would move on by itself: the compaction still holds it.
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.submitTimeoutMs + CLAUDE_TIMING.enterRetryMs);
+    expect(pty.typed().pastes).toHaveLength(1);
+    // A prompt that got through by other means (a person typed it) makes the session work: the
+    // give-up must leave it so.
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'typed by a person' });
+    expect(session.state.state).toBe('working');
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.compactStartTimeoutMs);
+    expect(compactions(events)).toEqual(['abandoned (asked for)']);
+    expect(session.state.state).toBe('working');
+    // The queued message waits for the end of that turn, as any message does.
+    expect(pty.typed().pastes).toHaveLength(1);
+    await hook({ hook_event_name: 'Stop' });
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.stopSettleMs + TYPE_MS);
+    await expect(later).resolves.toBeUndefined();
+    expect(pty.typed().pastes[1]).toBe('queued behind the swallowed command');
+  });
+
+  it("does not take the agent's own compaction for the one that is still queued", async () => {
+    const { session, pty, hook, events } = await ready();
+    void session.enqueue('first');
+    void session.compact(INSTRUCTION);
+    await vi.advanceTimersByTimeAsync(TYPE_MS);
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'first' });
+    await hook({ hook_event_name: 'PreCompact', trigger: 'auto' });
+    await hook({ hook_event_name: 'PostCompact', trigger: 'auto' });
+    expect(compactions(events)).toEqual(['started', 'finished']);
+    // The command is still to be typed, and is then followed like any other.
+    await hook({ hook_event_name: 'Stop' });
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.stopSettleMs + TYPE_MS);
+    expect(pty.typed().pastes.map((p) => p.split(' ')[0])).toEqual(['first', '/compact']);
+    await hook({ hook_event_name: 'PreCompact', trigger: 'manual' });
+    await hook({ hook_event_name: 'PostCompact', trigger: 'manual' });
+    expect(compactions(events)).toEqual([
+      'started',
+      'finished',
+      'started (asked for)',
+      'finished (asked for)',
+    ]);
+    expect(session.state.state).toBe('idle');
+  });
+
+  it('gives it up when it never ends, and the session is idle again', async () => {
+    const { session, pty, hook, events } = await ready();
+    void session.compact(INSTRUCTION);
+    await vi.advanceTimersByTimeAsync(TYPE_MS);
+    await hook({ hook_event_name: 'PreCompact', trigger: 'manual' });
+    const later = session.enqueue('after the hung compaction');
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.compactTimeoutMs - 1);
+    expect(session.state.state).toBe('working');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(session.state.state).toBe('idle');
+    expect(compactions(events)).toEqual(['started (asked for)', 'abandoned (asked for)']);
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.stopSettleMs + TYPE_MS);
+    await expect(later).resolves.toBeUndefined();
+    expect(pty.typed().pastes[1]).toBe('after the hung compaction');
+  });
+
+  it('asks for one compaction at a time', async () => {
+    const { session } = await ready();
+    const first = session.compact(INSTRUCTION);
+    await expect(session.compact(INSTRUCTION)).resolves.toBe(false);
+    await vi.advanceTimersByTimeAsync(TYPE_MS);
+    await expect(first).resolves.toBe(true);
+  });
+
+  it('compacts a resumed conversation before the message that woke it', async () => {
+    const { pty, hook, session } = start({
+      spec: { resume: true, compactFirst: INSTRUCTION, initialMessage: 'You have a new message' },
+    });
+    await hook({ hook_event_name: 'SessionStart', source: 'resume' });
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.readySettleMs + TYPE_MS);
+    expect(pty.typed().pastes).toEqual(['/compact Keep the card, the decisions and the open bugs.']);
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.submitTimeoutMs - 1_000);
+    await hook({ hook_event_name: 'PreCompact', trigger: 'manual' });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(pty.typed().pastes).toHaveLength(1);
+    await hook({ hook_event_name: 'PostCompact', trigger: 'manual' });
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.stopSettleMs + TYPE_MS);
+    expect(pty.typed().pastes[1]).toBe('You have a new message');
+    expect(session.state.state).toBe('idle');
+  });
+
+  it("does not end the turn the agent's own (auto) compaction runs into", async () => {
+    const { session, hook, events } = await ready();
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'long work' });
+    await hook({ hook_event_name: 'PreCompact', trigger: 'auto' });
+    expect(session.state.state).toBe('working');
+    await hook({ hook_event_name: 'PostCompact', trigger: 'auto' });
+    expect(session.state).toEqual({ state: 'working', activity: null });
+    expect(compactions(events)).toEqual(['started', 'finished']);
+  });
+
+  it('is not asked of Codex, whose command was not checked', async () => {
+    const adapter = createCodexAdapter({ bin: 'codex', codexHome: '/nonexistent', logger: silentLogger() });
+    const { session, pty } = start({ adapter });
+    await expect(session.compact(INSTRUCTION)).resolves.toBe(false);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(pty.typed().pastes).toEqual([]);
+  });
+});
+
 describe('AgentSession of Codex', () => {
   const codex = () => createCodexAdapter({ bin: 'codex', codexHome: '/nonexistent', logger: silentLogger() });
   /** Time to type a one-piece message and press Enter in Codex. */

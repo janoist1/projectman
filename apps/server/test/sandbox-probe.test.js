@@ -1,15 +1,25 @@
 import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getTemplate } from '@projectman/templates';
 import { createWorktreeManager } from '../src/worktree/index';
 import { fixtureEnv, networkChecks, observe, plant, serve, setup } from '../../../scripts/sandbox-probe.mjs';
 
+async function tempDir() {
+  try {
+    return await mkdtemp(path.join(await realpath('/tmp'), 'pm126-'));
+  } catch {
+    return mkdtemp(path.join(await realpath(tmpdir()), 'pm126-'));
+  }
+}
+
 let base;
 let p;
 beforeEach(async () => {
-  // macOS sockaddr_un has a short path limit; its normal per-user tmpdir is too long.
-  base = await realpath(await mkdtemp(path.join(await realpath('/tmp'), 'pm126-')));
+  // macOS sockaddr_un has a short path limit; its normal per-user tmpdir is too long. Inside an
+  // agent sandbox /tmp is not writable but TMPDIR (a short /tmp/claude-... path) is (PM-216).
+  base = await realpath(await tempDir());
   p = await setup(path.join(base, 'fixture'));
   for (const key of Object.keys(process.env)) if (key.startsWith('GIT_')) vi.stubEnv(key, undefined);
   for (const [key, value] of Object.entries(fixtureEnv(p)))
@@ -21,8 +31,21 @@ afterEach(async () => {
 });
 
 describe('PM-126 fictional probe fixtures (no agent CLI)', () => {
-  it('requires live positive controls for IPv4, localhost, IPv6 and Unix sockets', async () => {
-    const servers = await serve(p, { ipv4: 0, ipv6: 0 });
+  it('requires live positive controls for IPv4, localhost, IPv6 and Unix sockets', async (ctx) => {
+    let servers;
+    try {
+      servers = await serve(p, { ipv4: 0, ipv6: 0 });
+    } catch (error) {
+      // An agent's own sandbox does not let its commands bind a Unix socket (PM-216): this control
+      // needs one. Like the PTY tests (PM-194) it is left out only on that sandbox's explicit signal;
+      // anywhere else the failure stands.
+      if (
+        (error.code === 'EPERM' || error.code === 'EACCES') &&
+        process.env.PROJECTMAN_SKIP_PTY_TESTS === '1'
+      )
+        ctx.skip(`this sandbox does not allow binding a Unix socket (${error.code})`);
+      throw error;
+    }
     const ports = { ipv4: servers[0].address().port, ipv6: servers[1].address().port };
     try {
       const baseline = await networkChecks(p, true, ports);

@@ -4,6 +4,7 @@ import {
   isHandleOnLeave,
   isOpenTask,
   isWorkingOnTask,
+  openPrerequisites,
 } from '@projectman/shared';
 import type { AiMemberConfig, ProjectConfig, Task, WorkItemRef } from '@projectman/shared';
 import { isoNow } from '../context';
@@ -177,7 +178,7 @@ export class Admission {
         try {
           await start.run();
         } catch (err) {
-          if (!isDeferrable(err)) {
+          if (!isDeferrable(err, start.defers)) {
             this.deferred.drop(start.key);
             throw err;
           }
@@ -185,7 +186,9 @@ export class Admission {
             start,
             waiting: waitingOf(err, { member: start.waitsFor(), previous: since, at: isoNow(this.ctx) }),
           });
-          this.ctx.logger.info({ ...start.log.fields(), reason: err.code }, start.log.deferred);
+          // Capacity-freeing events retry often: it is said when the reason is new, not at every refusal that stays.
+          if (previous?.waiting.reason !== err.code)
+            this.ctx.logger.info({ ...start.log.fields(), reason: err.code }, start.log.deferred);
           return;
         }
         // The start happened, or it no longer applies.
@@ -233,12 +236,25 @@ export class Admission {
         )
           continue;
       }
+      // A start that waits for prerequisites is retried when the open ones change (one closed, a
+      // relation removed): with the same ones open, a retry could only be refused again.
+      if (reason === 'prerequisite_open' && task) {
+        const open = openPrerequisites(task, this.tasks.list(task.projectKey)).map((card) => card.key);
+        const waiting = entry.waiting.prerequisites ?? [];
+        if (open.length > 0 && open.length === waiting.length && open.every((key) => waiting.includes(key)))
+          continue;
+      }
       try {
         await start.retry();
       } catch (err) {
         this.ctx.logger.warn({ err, ...start.log.fields() }, start.log.retryFailed);
       }
     }
+  }
+
+  /** Whether this start waits in the deferred-start store now. */
+  isWaiting(start: AutomaticStart): boolean {
+    return this.deferred.list().some((entry) => entry.start === start);
   }
 
   /** A task move or closure drops the starts it made obsolete, even if the task later returns. */

@@ -55,6 +55,12 @@ export interface ContextPackInput {
    * brief. Omitted (or empty) when it has none.
    */
   relations?: TaskRelation[];
+  /**
+   * The commit the member's session reviewed in its last round on this task (PM-213). Set only for a
+   * resumed reviewer whose round before pinned one; the continue message names it, so the reviewer
+   * reads only what changed since.
+   */
+  lastReviewedCommit?: string;
 }
 
 /** How a card relates to the task a session starts on. */
@@ -96,6 +102,11 @@ export interface ContextPack {
 
 export interface ContextPackBuilder {
   build(input: ContextPackInput): ContextPack;
+  /**
+   * What the compaction of a conversation is told to keep (PM-213, English prompt text). Absent:
+   * the builder has no compaction text, and sessions are never compacted.
+   */
+  readonly compactInstruction?: string;
 }
 
 /**

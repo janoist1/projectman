@@ -470,7 +470,8 @@ export function useMoveTask(key: string) {
       stageId: string;
       /** A person moves the card after the warning that a prerequisite is open (PM-204). */
       despitePrerequisites?: boolean;
-    }) => api.updateTask(key, taskKey, { stageId, ...(despitePrerequisites ? { despitePrerequisites } : {}) }),
+    }) =>
+      api.updateTask(key, taskKey, { stageId, ...(despitePrerequisites ? { despitePrerequisites } : {}) }),
     onSettled: async (_data, _error, { taskKey }) => {
       await Promise.all([
         client.invalidateQueries({ queryKey: queryKeys.board(key) }),
@@ -545,6 +546,15 @@ export function useAcceptInvite(token: string) {
       client.clear();
       client.setQueryData(queryKeys.me, me);
     },
+  });
+}
+
+/** The cards closed in the last `days` days with their rounds and tokens (PM-222). */
+export function useClosedCardsMeasure(key: string, days: number, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.closedCards(key, days),
+    queryFn: () => api.closedCardsMeasure(key, days),
+    enabled,
   });
 }
 

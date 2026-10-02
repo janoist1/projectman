@@ -35,9 +35,20 @@ export interface StartTaskOptions {
   author: Author;
   /** Human who sponsors a temp worker hired for this task (defaults to the first owner). */
   sponsor?: string;
+  /** Told the member the start chose (null: nobody free, a temp worker is hired) before admission checks it. */
+  onChosen?: (member: MemberConfig | null) => void;
   /**
-   * A person starts the task although a prerequisite is open, after the warning (PM-204). Honored
-   * for a human actor only; without it an open prerequisite refuses the start.
+   * Whether the start still applies to the task as it is now, asked where the task is read and
+   * again right before it is assigned (admission and a hire wait in between): when it does not
+   * (somebody assigned the card meanwhile), nothing is changed and no session starts.
+   */
+  stillWanted?: (task: Task) => boolean;
+  /** Told the member this start assigned the task to (not one that was already assigned). */
+  onAssigned?: (handle: string) => void;
+  /**
+   * The start goes ahead although a prerequisite is open (PM-204): a person's start after the
+   * warning. Without it an open prerequisite refuses the start (`prerequisite_open`); an automatic
+   * start waits for the last one to close.
    */
   despitePrerequisites?: boolean;
 }
@@ -84,57 +95,86 @@ export class TaskStarts {
   }
 
   async start(projectKey: string, taskKey: string, opts: StartTaskOptions): Promise<StartTaskResult> {
-    return this.admission.exclusive(async () => {
-      const config = await this.projects.config(projectKey);
-      let task = this.tasks.get(projectKey, taskKey);
-      if (!isOpenTask(task)) throw conflict('task_closed', `task ${taskKey} is ${task.status}`);
-      const workStage = workStageOf(config, task);
-      if (!workStage) throw invalid('no_work_stage', 'the pipeline has no work stage');
-      if (!(opts.despitePrerequisites && opts.actor.kind === 'human'))
-        assertPrerequisitesClosed(task, this.tasks.list(projectKey));
-      const needsMove = stageIndex(config.pipeline, task.stageId) < stageIndex(config.pipeline, workStage.id);
+    const result = await this.admission.exclusive(() => this.startLocked(projectKey, taskKey, opts));
+    // The card is started: an automatic start of it that waited has nothing left to do.
+    this.admission.discardStale(result.task);
+    return result;
+  }
 
-      let member: MemberConfig | null = this.chooseMember(config, task, workStage, opts.assignee);
-      const workItem = { type: 'task', taskKey } as const;
-      const alreadyRunning =
-        member?.kind === 'ai' && this.sessions.findRunning(projectKey, member.handle, workItem);
-      // A temp worker (no member yet) is hired with the default provider.
-      if ((member === null || member.kind === 'ai') && !alreadyRunning)
-        await this.admission.check({
-          config,
-          member: member ?? undefined,
-          workItem,
-          // The current assignee keeps its task whatever else it carries.
-          capacity: opts.assignee !== undefined || member?.handle !== task.assignee,
-        });
+  /**
+   * `start` for a caller that already holds the admission lock (`Admission.exclusive`, which an
+   * automatic start's `run` is under): the lock is not reentrant, so `start` cannot be called
+   * there. The member choice, admission checks and the start itself are the same.
+   */
+  async startLocked(projectKey: string, taskKey: string, opts: StartTaskOptions): Promise<StartTaskResult> {
+    const config = await this.projects.config(projectKey);
+    let task = this.tasks.get(projectKey, taskKey);
+    if (!isOpenTask(task)) throw conflict('task_closed', `task ${taskKey} is ${task.status}`);
+    const skipped = { task, session: null, hired: null };
+    if (opts.stillWanted && !opts.stillWanted(task)) return skipped;
+    const workStage = workStageOf(config, task);
+    if (!workStage) throw invalid('no_work_stage', 'the pipeline has no work stage');
+    // Before the developer is chosen: nobody is picked, hired or assigned for a card that waits.
+    if (!(opts.despitePrerequisites && opts.actor.kind === 'human'))
+      assertPrerequisitesClosed(task, this.tasks.list(projectKey));
+    const needsMove = stageIndex(config.pipeline, task.stageId) < stageIndex(config.pipeline, workStage.id);
 
-      if (needsMove) {
-        const evaluation = evaluateMove(task, config, task.stageId, workStage.id);
-        if (evaluation.unmet.length > 0) throw gateBlockedError(evaluation);
-        if (evaluation.approvals.length > 0) {
-          const result = await this.tasks.moveToStage(projectKey, taskKey, workStage.id, opts.actor);
-          throw approvalRequestedError(result.pendingApproval);
-        }
-      }
+    let member: MemberConfig | null = this.chooseMember(config, task, workStage, opts.assignee);
+    opts.onChosen?.(member);
+    const workItem = { type: 'task', taskKey } as const;
+    const alreadyRunning =
+      member?.kind === 'ai' && this.sessions.findRunning(projectKey, member.handle, workItem);
+    // A temp worker (no member yet) is hired with the default provider.
+    if ((member === null || member.kind === 'ai') && !alreadyRunning)
+      await this.admission.check({
+        config,
+        member: member ?? undefined,
+        workItem,
+        // The current assignee keeps its task whatever else it carries.
+        capacity: opts.assignee !== undefined || member?.handle !== task.assignee,
+      });
 
-      let hired: AiMemberConfig | null = null;
-      if (!member) {
-        hired = await this.hireTempWorker(config, workStage, opts);
-        member = hired;
-      }
-
-      if (task.assignee !== member.handle)
-        task = this.tasks.assign(projectKey, taskKey, member.handle, opts.actor);
-      if (needsMove) {
+    if (needsMove) {
+      const evaluation = evaluateMove(task, config, task.stageId, workStage.id);
+      if (evaluation.unmet.length > 0) throw gateBlockedError(evaluation);
+      if (evaluation.approvals.length > 0) {
         const result = await this.tasks.moveToStage(projectKey, taskKey, workStage.id, opts.actor);
-        if (!result.moved) throw approvalRequestedError(result.pendingApproval);
+        throw approvalRequestedError(result.pendingApproval);
       }
-      let session: Session | null = null;
-      if (member.kind === 'ai') {
-        session = (await this.sessions.ensureSession(projectKey, member.handle, workItem)).session;
-      }
-      return { task: this.tasks.get(projectKey, taskKey), session, hired };
-    });
+    }
+
+    const wanted = () => !opts.stillWanted || opts.stillWanted(this.tasks.get(projectKey, taskKey));
+    let hired: AiMemberConfig | null = null;
+    if (!member) {
+      if (!wanted()) return skipped;
+      hired = await this.hireTempWorker(config, workStage, opts);
+      member = hired;
+    }
+
+    if (!wanted()) {
+      // The card was taken while the temp worker was hired: it has no task to carry.
+      if (hired)
+        await this.members.retire(
+          projectKey,
+          hired.handle,
+          {},
+          { actor: SYSTEM_ACTOR, author: SYSTEM_AUTHOR },
+        );
+      return skipped;
+    }
+    if (task.assignee !== member.handle) {
+      task = this.tasks.assign(projectKey, taskKey, member.handle, opts.actor);
+      opts.onAssigned?.(member.handle);
+    }
+    if (needsMove) {
+      const result = await this.tasks.moveToStage(projectKey, taskKey, workStage.id, opts.actor);
+      if (!result.moved) throw approvalRequestedError(result.pendingApproval);
+    }
+    let session: Session | null = null;
+    if (member.kind === 'ai') {
+      session = (await this.sessions.ensureSession(projectKey, member.handle, workItem)).session;
+    }
+    return { task: this.tasks.get(projectKey, taskKey), session, hired };
   }
 
   /** Stage change listener: a temp worker is retired once its task is done. */

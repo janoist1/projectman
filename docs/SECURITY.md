@@ -10,6 +10,15 @@ users attempting actions outside their project membership and access level.
 Tailscale connectivity is not authentication. First-run setup is a local operation:
 complete it before granting other people access to the machine.
 
+The owner's live instance is also reachable from the internet at `https://chopper.istvan.io`
+(PM-200). The public entrance adds two attackers to the list: anybody on the internet who finds
+the address, and whoever gets into the Cloudflare account or the Access login. It is defended in
+layers: Cloudflare Access (an allow list of exact email addresses) in front, `cloudflared`
+re-checking the Access token before it passes a request on, only the application's own paths
+let through (not `/hooks` or `/mcp`), and projectman's own login, origin check and attempt
+limits behind them. See "Public entrance through Cloudflare" below for what it requires and what
+risk it leaves.
+
 The host owner, project owners, executable paths, repositories and agent CLI
 configuration are trusted. Developers can send terminal input and run code as the
 server's Unix user. Processes already running as that user can inspect credentials,
@@ -23,14 +32,25 @@ tenants into separate OS accounts or machines.
   the presented session. Tokens have 256 random bits, are stored as SHA-256 hashes,
   and expire after 30 days without sliding renewal. Logout revokes the session.
 - Argon2id passwords: 19 MiB memory, two iterations, one lane. Unknown accounts also
-  perform password verification. Login reserves one of ten attempts per peer per
-  15 minutes before hashing and gives it back when the login succeeds, so only failures
-  count; invitation inspection/acceptance is limited the same way.
+  perform password verification. Login reserves one of ten attempts per client per
+  15 minutes, and one of 50 for all clients together, before hashing and gives both back
+  when the login succeeds, so only failures count; invitation inspection/acceptance is
+  limited the same way (own budgets). The client is the connection's address, which behind
+  a loopback proxy is the proxy's. With `PROJECTMAN_CLIENT_IP_HEADER` set (PM-211, e.g.
+  `cf-connecting-ip` behind Cloudflare) it is the address in that header, but only for a
+  loopback peer and a header holding exactly one valid IP; any other request counts under
+  the connection's address. `X-Forwarded-For` is never read. The shared cap bounds guessing
+  when a client can change its address; its price is that a flood of failures can refuse
+  every login and invitation attempt until the window ends. Both limits are in memory (a
+  restart resets them).
 - Mutating API requests compare Origin against the exact scheme, Host and port;
   cross-site Fetch Metadata is rejected. Missing Origin supports non-browser
   clients; opaque `null` origins are rejected. WebSockets use the same origin
   comparison, revalidate sessions and check current membership for deliveries and
   terminal operations. API responses are not cached; pages suppress referrers.
+  Every response (pages, API, errors, attachments) carries `Content-Security-Policy:
+frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site can frame
+  the interface to trick a signed-in user (clickjacking). The interface uses no iframe.
 - REST and team tools check membership, access, project/resource ownership and
   current gate eligibility. Initial host owner alone creates projects. Account
   rebinding, filesystem locations, admin grants and release approvers are owner-only.
@@ -57,14 +77,19 @@ tenants into separate OS accounts or machines.
   links, and only regular files of the recorded size are served. Only a PNG, JPEG, GIF,
   WebP or PDF proven by its content is shown inline; everything else (HTML, SVG, renamed or
   unknown files) is an `application/octet-stream` download. All responses carry
-  `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`,
-  `Cross-Origin-Resource-Policy: same-origin` and an encoded `Content-Disposition`.
-  Checked in Chrome against a local development server (2026-10-01): the PDF viewer opens a
-  PDF served with that sandbox CSP, both as a page of its own and inside an iframe, a PNG
-  loads in an `<img>`, HTML and SVG uploads are not rendered (they are downloads), and
-  every content and download response carried exactly the headers listed here. Repeat the
-  check after a Chrome major update or a change of these headers: the sandbox directive
-  is what a browser may one day refuse to show a PDF under.
+  `X-Content-Type-Options: nosniff`,
+  `Content-Security-Policy: default-src 'none'; sandbox; frame-ancestors 'none'`,
+  `X-Frame-Options: DENY`, `Cross-Origin-Resource-Policy: same-origin`,
+  `Referrer-Policy: no-referrer`, `Cache-Control: private, no-store` and an encoded
+  `Content-Disposition` (a test asserts the CSP and the frame header on every route).
+  Checked in Chrome against a local development server (2026-10-01, before `frame-ancestors`
+  and `X-Frame-Options` were added, PM-211): the PDF viewer opens a PDF served with that
+  sandbox CSP, as a page of its own and inside an iframe (which these two headers now
+  forbid; the interface opens an attachment in a page of its own), a PNG loads in an
+  `<img>`, HTML and SVG uploads are not rendered (they are downloads), and every content
+  and download response carried exactly the headers listed here. Repeat the check (the PDF
+  as a page of its own) after a Chrome major update or a change of these headers: the
+  sandbox directive is what a browser may one day refuse to show a PDF under.
 - AI members reach attachments through the team tools (PM-113), in their own name and under the
   same rules. `attach_file` never takes a directory from the caller: the server uses the working
   directory it recorded for the session the MCP token names. It opens only a regular file inside
@@ -189,7 +214,18 @@ version must be checked again (SANDBOX-PROBE.md). A local-only repository gets n
 user's home and the app home but its worktree, its task's attachments, its own npm cache and
 development data (below), the shared git directory, `~/.gitconfig`, `~/.config/git` and Claude
 Code's shell snapshots (`~/.claude/shell-snapshots`, sourced before every command; they hold the
-shell's functions, aliases and options). Other worktrees, the app's data, the integrating checkout and the
+shell's functions, aliases and options) and the one file the user's git configuration names as
+`core.excludesfile` (PM-216; git warns about it in every command otherwise; only an existing
+regular file, never the home or a directory above it, nor one in a denied path or the app home).
+Its git settings are a system-level file in its sandbox directory (`GIT_CONFIG_SYSTEM`, readable
+but not writable, rewritten at every start; not `GIT_CONFIG_COUNT` entries, which would replace a
+session's own): `gc.auto=0` and `maintenance.auto=false` (no automatic `pack-refs` at the
+denied `packed-refs`) and `core.packedRefsTimeout=0`. A `git commit` still prints "Unable to create
+'…/packed-refs.lock'" after it: its last step deletes the `CHERRY_PICK_HEAD` pseudo-ref, and every
+ref-deleting transaction locks the shared `packed-refs`. The commit exists; the message is known
+and harmless, and no git setting avoids it. The lock is not writable on purpose: a sandbox could
+change the lock file while the host holds it, or leave one behind and stall the integrator; the
+timeout only removes git's one-second wait. Other worktrees, the app's data, the integrating checkout and the
 credentials stay closed; a credential path stays in `denyRead` as well, and the narrower path
 wins, so nothing re-opens it. Its commands never write the default branch and the integrating
 checkout's `HEAD`, `index` and `packed-refs` (with their lock files) in the shared git directory,
@@ -246,22 +282,23 @@ file tools. Only the login and settings files are denied (`.credentials.json`, `
 
 ## Findings
 
-| Severity | Finding                                                                                                                  | Status                                                                                                                         |
-| -------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| High     | Missing API CSRF checks; WebSocket origin comparison ignored scheme/port                                                 | Fixed: exact origin checks, including login/logout                                                                             |
-| High     | Logged-out, expired or removed members retained WebSocket streams                                                        | Fixed: live session/membership checks and serialized commands                                                                  |
-| High     | Invited users could select arbitrary host workspaces by creating projects                                                | Fixed: initial host owner creates projects                                                                                     |
-| High     | Admin configuration edits could rebind privileged accounts or grant admin access                                         | Fixed: owner-only bindings, grants and filesystem changes; invite acceptance rechecks inviter                                  |
-| High     | Hook bearer tokens appeared in request logs                                                                              | Fixed: capability-path redaction and generic request errors                                                                    |
-| High     | Hook guards lacked rebinding checks; MCP accepted a token revoked during body reception                                  | Fixed: early local guards and late capability check                                                                            |
-| High     | Repository paths and existing worktrees could escape project boundaries; customization parent symlinks redirected writes | Fixed: canonical containment and symlink rejection                                                                             |
-| Medium   | Missing Secure cookies behind HTTPS and old sessions surviving login rotation                                            | Fixed: proxy-aware flag and presented-session revocation                                                                       |
-| Medium   | Concurrent login attempts bypassed the failure counter                                                                   | Fixed: reserve attempts before hashing; explicit Argon2id parameters                                                           |
-| Medium   | YAML parsing lacked explicit resource limits; local curl/git configuration influenced internal operations                | Fixed: bounded YAML, disabled customization hooks/signing and curl config/proxy bypass                                         |
-| Medium   | Additional provider endpoint/billing overrides survived environment filtering                                            | Fixed: common OpenAI/Azure overrides stripped for all providers                                                                |
-| High     | Shared Unix identity permits agent/terminal users to access host files and credentials                                   | Accepted for a trusted team only; requires OS isolation for hostile tenants                                                    |
-| Medium   | Arbitrary transcripts, tool input and terminal output can contain user/repository secrets                                | Accepted: these are intentionally visible to internal project members; no general secret detector is claimed                   |
-| Medium   | Proxy users share an in-memory login throttle, and a restart resets it                                                   | Accepted locally: conservative shared limit avoids trusting spoofable client IP headers; add proxy-level limits before hosting |
+| Severity | Finding                                                                                                                  | Status                                                                                                                                                                                                                                                                                         |
+| -------- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| High     | Missing API CSRF checks; WebSocket origin comparison ignored scheme/port                                                 | Fixed: exact origin checks, including login/logout                                                                                                                                                                                                                                             |
+| High     | Logged-out, expired or removed members retained WebSocket streams                                                        | Fixed: live session/membership checks and serialized commands                                                                                                                                                                                                                                  |
+| High     | Invited users could select arbitrary host workspaces by creating projects                                                | Fixed: initial host owner creates projects                                                                                                                                                                                                                                                     |
+| High     | Admin configuration edits could rebind privileged accounts or grant admin access                                         | Fixed: owner-only bindings, grants and filesystem changes; invite acceptance rechecks inviter                                                                                                                                                                                                  |
+| High     | Hook bearer tokens appeared in request logs                                                                              | Fixed: capability-path redaction and generic request errors                                                                                                                                                                                                                                    |
+| High     | Hook guards lacked rebinding checks; MCP accepted a token revoked during body reception                                  | Fixed: early local guards and late capability check                                                                                                                                                                                                                                            |
+| High     | Repository paths and existing worktrees could escape project boundaries; customization parent symlinks redirected writes | Fixed: canonical containment and symlink rejection                                                                                                                                                                                                                                             |
+| Medium   | Missing Secure cookies behind HTTPS and old sessions surviving login rotation                                            | Fixed: proxy-aware flag and presented-session revocation                                                                                                                                                                                                                                       |
+| Medium   | Concurrent login attempts bypassed the failure counter                                                                   | Fixed: reserve attempts before hashing; explicit Argon2id parameters                                                                                                                                                                                                                           |
+| Medium   | YAML parsing lacked explicit resource limits; local curl/git configuration influenced internal operations                | Fixed: bounded YAML, disabled customization hooks/signing and curl config/proxy bypass                                                                                                                                                                                                         |
+| Medium   | Additional provider endpoint/billing overrides survived environment filtering                                            | Fixed: common OpenAI/Azure overrides stripped for all providers                                                                                                                                                                                                                                |
+| High     | Shared Unix identity permits agent/terminal users to access host files and credentials                                   | Accepted for a trusted team only; requires OS isolation for hostile tenants                                                                                                                                                                                                                    |
+| Medium   | Arbitrary transcripts, tool input and terminal output can contain user/repository secrets                                | Accepted: these are intentionally visible to internal project members; no general secret detector is claimed                                                                                                                                                                                   |
+| Medium   | Proxy users share an in-memory login throttle, and a restart resets it                                                   | Fixed (PM-211) for a trusted entrance: `PROJECTMAN_CLIENT_IP_HEADER` counts per client address (loopback peer, one valid IP only, never `X-Forwarded-For`), plus a shared cap of 50 per 15 minutes; unset (`tailscale serve`) all users still share one address, and a restart still resets it |
+| Medium   | No clickjacking protection: another site could frame the interface                                                       | Fixed (PM-211): `frame-ancestors 'none'` and `X-Frame-Options: DENY` on every response                                                                                                                                                                                                         |
 
 Regression coverage includes cookie rotation/expiry, concurrent login attempts,
 origin checks, revoked terminal access, project privileges, isolated permission
@@ -486,3 +523,58 @@ profile cannot be activated (its report check stays `unverified`).
    history. Rotate exposed capabilities, review log retention and redact secrets
    before sharing transcripts. Audit dependencies and installed CLI versions during
    deployment; dependency vulnerability scanning was outside this source review.
+
+### Public entrance through Cloudflare (PM-200, PM-210)
+
+The Cloudflare variant of points 2 and 3, for the live instance on the owner's Mac (set-up and
+verification: [DEPLOY.md](DEPLOY.md), [deploy/cloudflare](../deploy/cloudflare)):
+
+1. HTTPS ends at Cloudflare; `cloudflared` reaches the app over loopback and the edge sends
+   `X-Forwarded-Proto: https`, so cookies are Secure. The Host is preserved (no `httpHostHeader`
+   or other rewrite in the tunnel): the origin check and "is this request local" both depend on
+   it. The first-setup endpoint refuses the request because its Host is `chopper.istvan.io`,
+   not a loopback name (`isLocalRequest`): with a Host rewritten to `127.0.0.1` the peer
+   (`cloudflared`, loopback) and the Host would both look local, and only Cloudflare's
+   `X-Forwarded-For` with the visitor's public address would still tell the difference, a second,
+   weaker reason. `check.sh` verifies the Secure cookie, both origin cases and
+   the refusal of `POST /api/setup` against the real entrance.
+2. The Access application covers the whole hostname with one Allow policy of **exact email
+   addresses**. "Emails ending in", "Everyone" and service-token or bypass policies are not
+   allowed. The tunnel's `originRequest.access` makes `cloudflared` check the Access token (team
+   name and AUD tag) too. Login is by Google or a one-time code, with a stated session length.
+3. The tunnel answers 404 for `/hooks` and `/mcp` and for everything but the one hostname. The
+   only service is `127.0.0.1:4800`; the development ports are not served.
+4. Edge: Always Use HTTPS and HSTS on; nothing cached; Rocket Loader, Email Obfuscation, the
+   automatic Web Analytics beacon and every other script injection off; a response-header rule
+   sets `X-Frame-Options: DENY` (Set) and **adds** `Content-Security-Policy: frame-ancestors
+'none'` (Add, never Set) on every response. The server sends both too (PM-211), and its
+   attachment routes send a stricter CSP of their own (`default-src 'none'; sandbox;
+frame-ancestors 'none'`) for uploads shown inline: a Set rule would replace it and drop the
+   sandbox on the public address.
+5. Set `PROJECTMAN_CLIENT_IP_HEADER=cf-connecting-ip` (PM-211) so the attempt limiters count
+   per real client.
+6. The tunnel's credentials file, its token and the account certificate stay at mode 600 outside
+   every repository and are never put into text, notes or messages. The Cloudflare account has a
+   passkey or hardware key.
+
+**Residual risks** (known when the owner chose this entrance, PM-200; they do not go away):
+
+- **Cloudflare sees all traffic in clear.** TLS ends at its edge, so it can read the terminal
+  (code, secrets typed or printed there, passwords), the pages and the API calls. For client
+  projects the owner decides, project by project, whether the contract allows that, before
+  work on it goes through this entrance.
+- **The Cloudflare account is equivalent to access to the Mac.** Whoever controls it can edit
+  the Access policy, add themselves, and reach projectman and from there a terminal running as the
+  Mac's user (see the threat model). The passkey or hardware key, a short Access session and a
+  review of the account's members and API tokens are the defence; there is no second one.
+- **The login limiter sees everyone as `127.0.0.1` until the client-address header is set.**
+  Without `PROJECTMAN_CLIENT_IP_HEADER` (or on a build from before PM-211) all remote clients
+  share one per-client budget (the shared cap of 50 still holds) and one failing client can lock
+  out the others. With it set, the address is Cloudflare's `cf-connecting-ip` for requests that
+  come from the loopback proxy. If `tailscale serve` stays on next to the tunnel, a tailnet client
+  reaches the same port through a loopback proxy and can send its own `cf-connecting-ip`, so it
+  can pick its own address and get a fresh per-client budget each time (the shared cap of 50
+  still holds); turn `tailscale serve` off, or accept that.
+- A mistake in the Access policy (a wildcard rule, an extra policy) opens the second lock; the
+  login and the origin and attempt limits are then the only barrier. Re-read the policy after
+  every change and rerun `check.sh`.

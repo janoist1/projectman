@@ -17,6 +17,23 @@ export const StartSpec = z.discriminatedUnion('kind', [
     to: z.string(),
     actor: Actor,
   }),
+  /**
+   * A card moved without an assignee into the work stage `to` (PM-119), by `actor` from `from`:
+   * it starts like the Start button does. `assignee` is the member an earlier, partly done
+   * attempt of this very start already assigned (so that it is told apart from an assignment
+   * someone else made).
+   */
+  z.object({
+    kind: z.literal('work_start'),
+    projectKey: z.string(),
+    taskKey: TaskKey,
+    from: z.string(),
+    to: z.string(),
+    actor: Actor,
+    assignee: MemberHandle.optional(),
+    /** A person moved the card after the warning that a prerequisite is open (PM-204): it does not wait for it. */
+    despitePrerequisites: z.boolean().optional(),
+  }),
   /** The wake-up of an AI recipient of waiting messages; `stageId` is the task's stage when it was tried. */
   z.object({
     kind: z.literal('message_wake'),
@@ -46,6 +63,8 @@ export interface AutomaticStart {
   run(): Promise<void>;
   /** The member a refused start waits for, once `run` chose one. */
   waitsFor(): string | undefined;
+  /** Further refusals this start waits for, besides the ones every automatic start waits for. */
+  defers?: readonly TaskStartWaiting['reason'][];
   /** Tries the start again (the retry loop). */
   retry(): Promise<void>;
   /** What is logged when the start is deferred, and when a retry fails. */

@@ -1,7 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { CreateInviteRequest, routes } from '@projectman/shared';
 import type { Me } from '@projectman/shared';
-import { createAttemptLimiter, meOf, startSession } from '../auth';
+import {
+  clientAddress,
+  createAttemptLimiter,
+  MAX_FAILED_ATTEMPTS_ALL_CLIENTS,
+  meOf,
+  startSession,
+} from '../auth';
 import type { AuthService } from '../auth';
 import type { Domain } from '../domain';
 import { currentUser, requireAccess } from './context';
@@ -13,13 +19,14 @@ type TokenParams = { Params: { token: string } };
 /** Admins manage a project's invitations; the invite link itself is public (and rate-limited). */
 export function registerInvitationRoutes(
   app: FastifyInstance,
-  deps: { domain: Domain; auth: AuthService },
+  deps: { domain: Domain; auth: AuthService; clientIpHeader?: string },
 ): void {
-  const { domain, auth } = deps;
+  const { domain, auth, clientIpHeader } = deps;
   const { invitations } = domain;
   // Invitation tokens can only be guessed by trying: failed inspections and acceptances count.
   const attempts = createAttemptLimiter({
     max: 10,
+    sharedMax: MAX_FAILED_ATTEMPTS_ALL_CLIENTS,
     windowMs: 15 * 60_000,
     message: 'too many invitation attempts; try again later',
   });
@@ -43,13 +50,13 @@ export function registerInvitationRoutes(
     },
   );
   app.get<TokenParams>(routes.invite(':token'), async (request) => {
-    const release = attempts.reserve(request.ip);
+    const release = attempts.reserve(clientAddress(request, clientIpHeader));
     const invite = await invitations.inspect(request.params.token);
     release();
     return invite;
   });
   app.post<TokenParams>(routes.acceptInvite(':token'), async (request, reply): Promise<Me> => {
-    const release = attempts.reserve(request.ip);
+    const release = attempts.reserve(clientAddress(request, clientIpHeader));
     const user = await invitations.accept(request.params.token, request.body, request.user);
     release();
     startSession(auth, request, reply, user.id);

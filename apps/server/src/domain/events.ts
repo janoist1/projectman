@@ -28,6 +28,8 @@ export interface DomainEventMap {
   task_stage_changed: StageChange;
   /** A task was cancelled. */
   task_cancelled: Task;
+  /** A prerequisite relation of this task was removed (PM-204): its start may no longer have to wait. */
+  task_prerequisite_removed: Task;
   /** Someone other than the assignee put labels on a task that notify its assignee. */
   task_labels_notice: { task: Task; labels: string[]; actor: Actor; comment?: string };
   /** A task's description was changed (PM-184): the sessions working the card are told. */
@@ -40,6 +42,8 @@ export interface DomainEventMap {
   session_started: Session;
   /** A session ended: it exited, was stopped, or failed (also to start). */
   session_ended: Session;
+  /** A running session's turn ended: it idles, and its member may have capacity again (PM-119). */
+  session_idle: Session;
   /**
    * A running session no longer waits for its restart into a new permission mode (PM-170) without
    * having restarted: the mode went back, or it cannot restart now (AI work off, the member on

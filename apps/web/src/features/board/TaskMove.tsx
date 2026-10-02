@@ -11,18 +11,37 @@ import { isApprovalRequested } from '../../lib/errors';
 import { gateConditionText } from '../../lib/gates';
 import { nextStage } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
-import { enteredStages, moveErrorText } from './moveTask';
+import { PrerequisiteWarning } from './PrerequisiteWarning';
+import { enteredStages, moveErrorText, prerequisitesToWarnAbout } from './moveTask';
 import styles from './drawer.module.css';
 
 /**
  * Moving the task: one small button that opens a panel with the target stage. The gate conditions
  * show only when the move enters a stage that has some.
  */
-export function TaskMove({ task, pipeline }: { task: Task; pipeline: PipelineIndex }) {
+export function TaskMove({
+  task,
+  pipeline,
+  tasks,
+}: {
+  task: Task;
+  pipeline: PipelineIndex;
+  tasks: readonly Task[];
+}) {
   const { key } = useProject();
   const labels = useLabels(key);
   const move = useMoveTask(key);
   const toast = useToast();
+  const [warning, setWarning] = useState<string[] | null>(null);
+  const submit = async (close: () => void, despitePrerequisites?: boolean) => {
+    try {
+      await move.mutateAsync({ taskKey: task.key, stageId: target, despitePrerequisites });
+      toast.show(t('task.move.success'));
+      close();
+    } catch {
+      // Gate and approval feedback stays inline through the mutation state.
+    }
+  };
   const options = pipeline.stages.filter((stage) => stage.id !== task.stageId);
   const [target, setTarget] = useState(nextStage(pipeline, task.stageId)?.id ?? options[0]?.id ?? '');
   if (!options.length) return null;
@@ -75,18 +94,25 @@ export function TaskMove({ task, pipeline }: { task: Task; pipeline: PipelineInd
             size="md"
             loading={move.isPending}
             disabled={!target}
-            onClick={async () => {
-              try {
-                await move.mutateAsync({ taskKey: task.key, stageId: target });
-                toast.show(t('task.move.success'));
-                close();
-              } catch {
-                // Gate and approval feedback stays inline through the mutation state.
-              }
+            onClick={() => {
+              // A card that would start with an open prerequisite asks first (PM-204).
+              const open = prerequisitesToWarnAbout(task, target, pipeline, tasks);
+              if (open.length > 0) setWarning(open);
+              else void submit(close);
             }}
           >
             {t('task.move.submit')}
           </Button>
+          <PrerequisiteWarning
+            keys={warning}
+            tasks={tasks}
+            loading={move.isPending}
+            onConfirm={() => {
+              setWarning(null);
+              void submit(close, true);
+            }}
+            onClose={() => setWarning(null)}
+          />
         </>
       )}
     </Popover>

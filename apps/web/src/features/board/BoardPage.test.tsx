@@ -93,6 +93,63 @@ describe('desktop board moving', () => {
     await waitFor(() => expect(project.backend.findTask('AC-20')?.stageId).toBe('code_review'));
     await waitFor(() => expect(screen.queryByText(t('task.move.pending'))).toBeNull());
   });
+  describe('dropping a card with an open prerequisite into the work stage (PM-204)', () => {
+    const patches = (project: ReturnType<typeof mockProject>) =>
+      project.requests.filter((request) => request.method === 'PATCH');
+    const dropOnWork = async (project: ReturnType<typeof mockProject>, taskKey: string) => {
+      project.render(
+        <ToastProvider>
+          <BoardPage />
+        </ToastProvider>,
+      );
+      const card = (
+        await screen.findByRole('link', { name: new RegExp(project.backend.findTask(taskKey)!.title) })
+      ).parentElement!;
+      const workStage = project.backend.config.pipeline.stages.find((stage) => stage.id === 'dev')!;
+      const workColumn = project.backend.config.pipeline.columns.find(
+        (column) => column.id === workStage.columnId,
+      )!;
+      const column = screen.getByRole('region', { name: workColumn.name });
+      const dataTransfer = transfer();
+      fireEvent.dragStart(card, { dataTransfer });
+      fireEvent.drop(column, { dataTransfer });
+    };
+
+    it('warns first and moves nothing until the person accepts', async () => {
+      const project = mockProject();
+      await dropOnWork(project, 'AC-23');
+
+      const dialog = await screen.findByRole('dialog');
+      expect(dialog.textContent).toContain('AC-17');
+      expect(patches(project)).toEqual([]);
+
+      fireEvent.click(within(dialog).getByRole('button', { name: t('common.cancel') }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(patches(project)).toEqual([]);
+      expect(project.backend.findTask('AC-23')?.stageId).toBe('ready');
+    });
+
+    it('moves with the warning accepted, and says so in the request', async () => {
+      const project = mockProject();
+      await dropOnWork(project, 'AC-23');
+
+      fireEvent.click(await screen.findByRole('button', { name: t('prerequisiteWarning.confirm') }));
+
+      await waitFor(() => expect(project.backend.findTask('AC-23')?.stageId).toBe('dev'));
+      expect(patches(project).map((request) => request.body)).toEqual([
+        { stageId: 'dev', despitePrerequisites: true },
+      ]);
+    });
+
+    it('moves a card without an open prerequisite at once', async () => {
+      const project = mockProject();
+      await dropOnWork(project, 'AC-24');
+
+      await waitFor(() => expect(project.backend.findTask('AC-24')?.stageId).toBe('dev'));
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(patches(project).map((request) => request.body)).toEqual([{ stageId: 'dev' }]);
+    });
+  });
   it('disables dragging for clients', async () => {
     const project = mockProject();
     project.render(<BoardPage />, '/', {

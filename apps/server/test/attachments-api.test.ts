@@ -247,8 +247,10 @@ describe('task attachments API', () => {
           const response = await inject(h.app, 'GET', urlOf(route, attachment.id), owner);
           expect(response.headers['x-content-type-options']).toBe('nosniff');
           expect(response.headers['cache-control']).toBe('private, no-store');
-          expect(response.headers['content-security-policy']).toContain("default-src 'none'");
-          expect(response.headers['content-security-policy']).toContain('sandbox');
+          expect(response.headers['content-security-policy']).toBe(
+            "default-src 'none'; sandbox; frame-ancestors 'none'",
+          );
+          expect(response.headers['x-frame-options']).toBe('DENY');
           expect(response.headers['cross-origin-resource-policy']).toBe('same-origin');
           expect(response.headers['referrer-policy']).toBe('no-referrer');
         }

@@ -429,9 +429,10 @@ describe('token economy (PM-181)', () => {
   });
 
   // The prompt and the kick-off brief together may not grow from the size they had before PM-181
-  // (measured on the snapshots of that time, in characters).
+  // (measured on the snapshots of that time, in characters). The developer's allowance grew once,
+  // to make room for the structural decision rule of PM-223.
   it.each([
-    { name: 'developer', handle: 'fe-1', system: 12901, brief: 862 },
+    { name: 'developer', handle: 'fe-1', system: 13002, brief: 862 },
     { name: 'code reviewer', handle: 'code-review', system: 11832, brief: 1900 },
   ])('does not grow the system prompt and brief of the $name', ({ handle, system, brief }) => {
     const pack =
@@ -459,6 +460,43 @@ describe('token economy (PM-181)', () => {
   });
 });
 
+describe('built-in tools the prompts name (PM-221)', () => {
+  // Left out of the session's `--tools` list: a prompt that sends the member to one would strand it.
+  const leftOut = [
+    'Artifact',
+    'ArtifactComments',
+    'ArtifactData',
+    'Workflow',
+    'ScheduleWakeup',
+    'ReportFindings',
+    'SendFeedback',
+    'SendMessage',
+    'ListAgents',
+    'CronCreate',
+    'CronDelete',
+    'CronList',
+    'RemoteTrigger',
+    'PushNotification',
+    'EnterWorktree',
+    'ExitWorktree',
+    'EnterPlanMode',
+    'ExitPlanMode',
+    'DesignSync',
+    'NotebookEdit',
+    'Skill',
+    'Grep',
+    'Glob',
+  ];
+
+  it.each(AI_BUILT_IN_ROLE_IDS)('names no tool the %s does not have', (role) => {
+    const project = buildProject();
+    addMember(project, `member-${role}`, role);
+    const pack = builder.build(input({ project, handle: `member-${role}` }));
+    const text = `${pack.appendSystemPrompt}\n${pack.initialMessage ?? ''}`;
+    for (const tool of leftOut) expect(text).not.toMatch(new RegExp(`\\b${tool}\\b`));
+  });
+});
+
 describe('cheap subagent (PM-179)', () => {
   const withCheapSubagent = (cheapSubagent: AiMemberConfig['cheapSubagent'], provider?: 'codex') => {
     const project = buildProject();
@@ -480,7 +518,7 @@ describe('cheap subagent (PM-179)', () => {
         name: 'reader-haiku',
         description: expect.stringContaining('Haiku'),
         prompt: expect.stringContaining('short, precise result'),
-        tools: ['Read', 'Grep', 'Glob', 'Bash'],
+        tools: ['Read', 'Bash'],
         model: 'haiku',
       },
     ]);
@@ -591,6 +629,30 @@ describe('continue message', () => {
     );
     expect(message).not.toContain('\n');
     expect(builder.build(input()).continueMessage).not.toContain('Your other running sessions');
+  });
+
+  it('names the commit a returning reviewer reviewed last, and asks for only what changed since (PM-213)', () => {
+    const pin = { commit: 'b'.repeat(40), branch: 'AR-21-fix-email', pinnedAt: '2026-10-01T10:00:00.000Z' };
+    const message = builder.build(
+      input({ task: makeTask({ reviewPin: pin }), lastReviewedCommit: 'a'.repeat(40) }),
+    ).continueMessage;
+    expect(message).toContain(
+      `You last reviewed commit \`${'a'.repeat(40)}\`; the commit handed over now is \`${'b'.repeat(40)}\` on \`AR-21-fix-email\`. ` +
+        `Review only the change since your last review (git diff ${'a'.repeat(40)} ${'b'.repeat(40)}) and whether your earlier findings were fixed; do not read the whole change again.`,
+    );
+    expect(message).not.toContain('\n');
+    // The branch did not move: only the earlier findings are left to check.
+    expect(
+      builder.build(input({ task: makeTask({ reviewPin: pin }), lastReviewedCommit: pin.commit }))
+        .continueMessage,
+    ).toContain('the branch has not moved since, so check only that your earlier findings were fixed');
+    // Nothing is said without a pin on the card or without a last review.
+    expect(builder.build(input({ lastReviewedCommit: 'a'.repeat(40) })).continueMessage).not.toContain(
+      'last reviewed',
+    );
+    expect(builder.build(input({ task: makeTask({ reviewPin: pin }) })).continueMessage).not.toContain(
+      'last reviewed',
+    );
   });
 
   it('names the current stage and the project language', () => {
@@ -1900,8 +1962,12 @@ describe("the CLI's own sandbox (PM-167)", () => {
       'Never these paths of the shared git directory (the default branch, the integrating checkout, replacements and grafts): `/src/app/.git/refs/heads/main`, `/src/app/.git/HEAD`, `/src/app/.git/index`, `/src/app/.git/packed-refs`, `/src/app/.git/refs/replace`, `/src/app/.git/info/grafts` (and their lock files)',
     );
     expect(text).toContain(
-      'Reading: nothing below `/home/anna` and `/pm` except `/pm/worktrees/AR/AR-21-app`, `/pm/member-caches/AR/fe-1/npm-cache`, `/pm/member-caches/AR/fe-1/projectman-dev`, `/src/app/.git`, `/home/anna/.gitconfig`',
+      'Reading: nothing below `/home/anna` and `/pm` except `/pm/worktrees/AR/AR-21-app`, `/pm/member-caches/AR/fe-1/npm-cache`, `/pm/member-caches/AR/fe-1/projectman-dev`, `/pm/member-caches/AR/fe-1/gitconfig`, `/src/app/.git`, `/home/anna/.gitconfig`',
     );
+    // PM-216: git's settings file is told apart from the npm cache and the development data.
+    expect(text).not.toContain('`GIT_CONFIG_SYSTEM` is');
+    expect(text).toContain('its system settings come from `/pm/member-caches/AR/fe-1/gitconfig`');
+    expect(text).toContain("`Unable to create '…/packed-refs.lock'`: the commit exists");
     expect(text).toContain(
       '`GH_TOKEN`, `GITHUB_TOKEN`, `NPM_TOKEN`, `NODE_AUTH_TOKEN`, `SSH_AUTH_SOCK` are unset',
     );
@@ -2193,5 +2259,63 @@ describe('the managed VM profile (PM-141)', () => {
     ).appendSystemPrompt;
     expect(section(prompt, '# Session policy')).toContain('research-only (plan)');
     expect(section(prompt, '# Session policy')).not.toContain('run without asking, in any form');
+  });
+});
+
+describe('structural decisions (PM-223)', () => {
+  const RULE = 'Structural decisions are not yours to make.';
+  const roleText = (prompt: string) => section(prompt, '# Your role instructions');
+
+  it('names the architect to a developer when the team has one', async () => {
+    const project = buildProject();
+    addMember(project, 'architect', 'architect');
+    const pack = builder.build(input({ project, handle: 'fe-1', task: makeTask({ stageId: 'dev' }) }));
+    await expect(`${roleText(pack.appendSystemPrompt)}\n`).toMatchFileSnapshot(
+      '__snapshots__/developer-dev-architect.role-instructions.txt',
+    );
+  });
+
+  it('names every holder of the technical direction duty', () => {
+    const project = buildProject();
+    addMember(project, 'architect', 'architect');
+    addMember(project, 'architect-2', 'architect');
+    const pack = builder.build(input({ project, handle: 'fe-1', task: makeTask({ stageId: 'dev' }) }));
+    expect(roleText(pack.appendSystemPrompt)).toContain('ask `architect` or `architect-2` with send_message');
+  });
+
+  it('sends the question to a human with ask_human when nobody holds the duty', () => {
+    const pack = builder.build(input({ handle: 'fe-1', task: makeTask({ stageId: 'dev' }) }));
+    const role = roleText(pack.appendSystemPrompt);
+    expect(role).toContain(RULE);
+    expect(role).toContain('ask the human responsible with ask_human');
+    expect(role).not.toContain('ask `');
+  });
+
+  it('skips a retired architect', () => {
+    const project = buildProject();
+    addMember(project, 'architect', 'architect');
+    const team = teamOf(project).map((m) => (m.handle === 'architect' ? { ...m, status: 'retired' } : m));
+    const pack = builder.build(
+      input({ project, team: team as MemberView[], handle: 'fe-1', task: makeTask({ stageId: 'dev' }) }),
+    );
+    expect(roleText(pack.appendSystemPrompt)).toContain('ask the human responsible with ask_human');
+  });
+
+  it('leaves the rule out for a member who does not implement', () => {
+    const project = buildProject();
+    addMember(project, 'architect', 'architect');
+    for (const handle of ['code-review', 'qa', 'architect']) {
+      const pack = builder.build(input({ project, handle, task: makeTask({ stageId: 'dev' }) }));
+      expect(pack.appendSystemPrompt).not.toContain(RULE);
+    }
+  });
+
+  it('tells the architect to answer a structural question briefly and record the decision', async () => {
+    const project = buildProject();
+    addMember(project, 'architect', 'architect');
+    const pack = builder.build(input({ project, handle: 'architect', task: makeTask({ stageId: 'dev' }) }));
+    await expect(`${roleText(pack.appendSystemPrompt)}\n`).toMatchFileSnapshot(
+      '__snapshots__/architect.role-instructions.txt',
+    );
   });
 });

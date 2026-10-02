@@ -10,21 +10,58 @@ adapter declares its capabilities.
 
 ## Differences
 
-|                   | Claude Code                                     | Codex (codex-cli 0.159.1)                                                          |
-| ----------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Conversation id   | ours (`--session-id`), resume with `--resume`   | Codex's own, learned from the first hook (`provider_session_id`); `codex resume`   |
-| Hooks             | HTTP hooks (SessionStart through the forwarder) | command hooks running the forwarder; the PermissionRequest one prints the decision |
-| Ready for input   | first SessionStart hook                         | composer on screen, or the first SessionStart hook (it fires with the first turn)  |
-| Kick-off brief    | typed with bracketed paste                      | the prompt argument; later messages typed, Enter more than 120 ms after the paste  |
-| Resume: 1st input | typed once SessionStart arrives                 | the prompt argument of `codex resume <id> -- <prompt>`                             |
-| System prompt     | `--append-system-prompt`                        | `-c developer_instructions=…`                                                      |
-| Project rules     | `CLAUDE.md`                                     | `AGENTS.md`, else `CLAUDE.md` (`project_doc_fallback_filenames`)                   |
-| Allow for session | session rules in the hook answer                | remembered by the runner (Codex rejects `updatedPermissions`)                      |
-| Transcript        | `~/.claude/projects/…/<id>.jsonl`               | `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-…-<id>.jsonl`                             |
-| Plan usage        | `get_usage` probe of `claude -p`                | rate limits of the newest `token_count` records in the transcripts                 |
-| Token usage       | `message.usage` of assistant entries; subagents | `token_count` records (`total_token_usage`, `last_token_usage`); subagents not     |
-|                   | from their own file at `SubagentStop`           | measured                                                                           |
-| Login check       | `claude auth status`                            | `codex login status`                                                               |
+|                     | Claude Code                                                      | Codex (codex-cli 0.159.1)                                                          |
+| ------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Conversation id     | ours (`--session-id`), resume with `--resume`                    | Codex's own, learned from the first hook (`provider_session_id`); `codex resume`   |
+| Hooks               | HTTP hooks (SessionStart through the forwarder)                  | command hooks running the forwarder; the PermissionRequest one prints the decision |
+| Ready for input     | first SessionStart hook                                          | composer on screen, or the first SessionStart hook (it fires with the first turn)  |
+| Kick-off brief      | typed with bracketed paste                                       | the prompt argument; later messages typed, Enter more than 120 ms after the paste  |
+| Resume: 1st input   | typed once SessionStart arrives                                  | the prompt argument of `codex resume <id> -- <prompt>`                             |
+| System prompt       | `--append-system-prompt`                                         | `-c developer_instructions=…`                                                      |
+| Project rules       | `CLAUDE.md`                                                      | `AGENTS.md`, else `CLAUDE.md` (`project_doc_fallback_filenames`)                   |
+| Allow for session   | session rules in the hook answer                                 | remembered by the runner (Codex rejects `updatedPermissions`)                      |
+| Transcript          | `~/.claude/projects/…/<id>.jsonl`                                | `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-…-<id>.jsonl`                             |
+| Plan usage          | `get_usage` probe of `claude -p`                                 | rate limits of the newest `token_count` records in the transcripts                 |
+| Token usage         | `message.usage` of assistant entries; subagents                  | `token_count` records (`total_token_usage`, `last_token_usage`); subagents not     |
+|                     | from their own file at `SubagentStop`                            | measured                                                                           |
+| Login check         | `claude auth status`                                             | `codex login status`                                                               |
+| Compaction (PM-213) | `/compact <instruction>` typed; PreCompact and PostCompact hooks | not done: its compaction command was not checked                                   |
+
+## Compaction at the end of a round (PM-213)
+
+When a member's round on a card ends (the card leaves the stage the member worked it in), the
+server has Claude Code compact the member's conversation into a summary: it types
+`/compact <instruction>` once the session is idle (`COMPACT_INSTRUCTION`, `apps/server/src/context`,
+names what to keep: the card, decisions, changed files and commits, open questions and unfixed
+findings; not file contents or command output). The rule and its timing are in
+[ARCHITECTURE.md](ARCHITECTURE.md); this is what the runner relies on in the CLI.
+
+- **Hooks.** PreCompact and PostCompact (both in Claude Code 2.1.284) are HTTP hooks like the others.
+  The payload's `trigger` is `manual` (the typed command) or `auto` (the agent's own, in the middle of
+  a turn). The session is `working` (activity "Compacting the conversation") from PreCompact; after a
+  manual compaction PostCompact makes it idle, since no Stop hook follows a slash command, while an
+  auto one goes on with its turn. `/compact` sends no UserPromptSubmit, so PreCompact is what tells the
+  input queue the command got through.
+- **Time limits** (`SessionTiming`): the command must start (PreCompact) within
+  `compactStartTimeoutMs` (10 s) and end (PostCompact) within `compactTimeoutMs` (300 s). Past either
+  the runner logs, emits `compaction` `abandoned`, and the session takes messages again (a command
+  that started is ended as idle; one that never started changed no state, and held the queue back
+  until now, so no message ran into it); a dialog over the prompt or an error cannot hold it. Text left in the prompt box by a swallowed
+  command is not cleaned up.
+- **Same conversation.** A compaction writes a `compact_boundary` entry and a summary into the same
+  transcript file, and the session id stays: `--resume` of that id continues from the summary.
+- **Last measured context** (the threshold of a compaction at resume): the latest main-conversation
+  step's `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`
+  (`ClaudeUsageCounter.takeContext`). A subagent's steps do not count.
+- **Not verified here (needs the real CLI, the integrating session's manual trial).** Whether the
+  compaction's own summarising call is written to the transcript as an assistant entry with
+  `usage`. The usage counter counts every assistant entry with a model and `usage`, so if it is
+  there it is in the session's consumption (PM-178); if Claude Code does not write it, that
+  consumption is not measured and there is nothing to read it from. It also decides whether the
+  measured context right after a compaction can briefly show the pre-compaction size (until the
+  next step measures it again).
+- **Codex.** Unchanged: its compaction command was not checked, so Codex members are never
+  compacted (`COMPACTING_PROVIDERS` in `contracts/runner.ts` lists the providers that are).
 
 ## A resumed session's first input
 
@@ -53,6 +90,40 @@ owner's logged-in browser). Every session, new or resumed, therefore also gets
 `--no-chrome`. No per-member MCP server exists yet; one would be added to `buildMcpConfig`.
 For Codex members the owner's `~/.codex` configuration is not read or checked here (see the
 PM-208 note on what a Codex session reaches).
+
+**Built-in tools and skills (PM-221).** A tool's description and the skill list are read in every
+step (a fresh member session started at 44.4k tokens after PM-208), and several built-in tools act
+with the owner's account or reach their other sessions. Every session, new or resumed, therefore
+gets `--tools "<list>"` (`claudeBuiltinTools` in `providers/claude/policy.ts`, one comma-separated
+value because the flag is variadic) and, in `--settings`, `disableBundledSkills: true` plus
+`skillOverrides` (`"off"`) for the owner's claude.ai account skills (`anthropic-skills:<name>`;
+`--disable-slash-commands` is not used: PM-213 types `/compact`). The MCP tools (team) are not
+part of `--tools`. What stays and why:
+
+| Tool            | Why it stays                                                        | Roles |
+| --------------- | ------------------------------------------------------------------- | ----- |
+| Read, Bash      | the work itself                                                     | all   |
+| Edit, Write     | changing files; a reading role has them too (below)                 | all   |
+| TaskStop        | ends a background command the session started                       | all   |
+| WebFetch/Search | documentation (the network rules and denied hosts still limit them) | all   |
+| Agent           | the cheap subagent (PM-179)                                         | all   |
+| ToolSearch      | the team tools are deferred; without it they cannot be reached      | all   |
+| AskUserQuestion | PM-199 forwards its call to the inbox's waiting list                | all   |
+
+One list for every role and for the managed VM profile, the same settings too. A reading role
+(`read_only`, `review_copy`) keeps Edit and Write on purpose (the architect's decision on PM-221):
+it had them before, its prompts name them (a file in `$TMPDIR`; without them it would need a
+here-document, which waits for a human), and what it must not change is kept by the deny rules and
+the sandbox (PM-167, PM-188), not by this list. Left out (among others): Artifact,
+ArtifactComments, ArtifactData (publish with the owner's account), Workflow, ScheduleWakeup,
+ReportFindings, SendFeedback, SendMessage and ListAgents (reach the machine's other Claude
+sessions, around the team channel), Cron*, RemoteTrigger, PushNotification, EnterWorktree,
+ExitWorktree, EnterPlanMode, ExitPlanMode, DesignSync, NotebookEdit, Skill, Grep and Glob. Claude
+Code 2.1.284 has no separate Grep and Glob tool: the search goes through Bash, so the cheap
+subagent has Read and Bash only and its prompt says so. A new Claude Code version's new tool stays
+out until it is added to the list. Role tool rules (`tools.files`, `tools.shell`) still decide
+what is allowed without asking; `--tools` only decides what exists. A test keeps the generated
+prompts from naming a tool that is left out.
 
 A session in a task's own worktree (a developer's) runs its shell commands in Claude Code's
 sandbox, the first step of PM-87: the session spec carries `sandbox` (`sessionSandbox` in
@@ -449,6 +520,23 @@ the last 24 hours and 7 days (by the hour).
   Codex keeps its subagents' conversations is not known yet: the UI says their usage has no data.
 - The counts compare sessions and models; the plan limits are not given in tokens.
 
+### Measuring a card (PM-222)
+
+`countCardRounds` (`packages/shared/src/domain/card-measure.ts`) counts from a card's timeline the
+review rounds (entries into a code review stage: a `step` stage whose own duty, or its owners'
+duty, is `code_review`), the reviews that asked for changes (`code-review-changes` added) and the
+send-backs (a move into a `work` stage from a later stage; a manual move and a failed merge count
+too). Stage kinds come from the configuration, not from names; old events count the same way. The
+card's detail carries the counts (`TaskDetail.rounds`, not for clients) and the drawer shows them
+with the weighted tokens per model (`limitTokens`: cache reads at a tenth).
+
+`GET /api/projects/:key/measure/closed-cards?days=14` lists the cards done in the period (not the
+cancelled ones) for every non-client member: the implementer (the assignee when it closed, else the
+member that used the most), the models of the implementer's own conversations, the weighted tokens
+in total and per model, the rounds, and how many sessions were not measured (from before PM-178).
+The model comes from the sessions' usage rows, not from the member's setting today. The Team page
+shows it, sortable by weighted tokens and review rounds.
+
 The runner strips `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`,
 `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CODEX_API_KEY`, `OPENAI_API_KEY` and
 common OpenAI/Azure endpoint overrides from every session's environment.
@@ -506,12 +594,12 @@ not strict isolation. PM-134's transitional Claude setup is not the final PM-128
 paths; `buildSandboxSettings` renders them, and `test/cli-sandbox.integration.test.ts` checks the
 exact `--settings` the fake CLI receives:
 
-| Session                                               | `filesystem`                                                                                                                                                                                                                                                                                                                                                                                                          | `network`                                   | `excludedCommands`                                             | `credentials.envVars` (`mode: "deny"`) and `env`                                                                                                                                                    | Extra deny rules                                      |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| Developer (`task_worktree`, PM-153, PM-193)           | `allowWrite`: the member's npm cache and development data (`<app home>/member-caches/<KEY>/<handle>/npm-cache`, `…/projectman-dev`); `denyRead`: the user's home, the app home (when not below it), `sensitivePaths`; `allowRead`: the worktree, the task's attachments, the member's two directories, the shared git directory, `~/.gitconfig`, `~/.config/git`, `~/.claude/shell-snapshots`; `denyWrite`: see below | `registry.npmjs.org`, local binding allowed | none                                                           | `GH_TOKEN`, `GITHUB_TOKEN`, `NPM_TOKEN`, `NODE_AUTH_TOKEN`, `SSH_AUTH_SOCK` unset; `env`: `npm_config_cache`, `PROJECTMAN_HOME` to the member's directories, `PROJECTMAN_SKIP_PTY_TESTS=1` (PM-194) | `Edit(//<path>)`, `Edit(//<path>/**)` per `denyWrite` |
-| Reader (`read_only`, review copy without test opt-in) | `allowWrite: []` (temp only); `denyWrite`: working directory, every `--add-dir` directory, the project's workspace, the app home, the server's own checkout; `denyRead`: `sensitivePaths`                                                                                                                                                                                                                             | `registry.npmjs.org`, local binding allowed | `gh pr view:*`, `gh pr diff:*`, only on a repository on GitHub | `env`: `PROJECTMAN_SKIP_PTY_TESTS=1` (PM-194)                                                                                                                                                       | `Edit(//<path>)`, `Edit(//<path>/**)` per `denyWrite` |
-| Managed VM profile, sessions behind the VM boundary   | none (the boundary is outside the CLI)                                                                                                                                                                                                                                                                                                                                                                                |                                             |                                                                |                                                                                                                                                                                                     |                                                       |
-| Codex                                                 | not rendered: Codex's own `--sandbox` (`read-only` for a reader, unchanged)                                                                                                                                                                                                                                                                                                                                           |                                             |                                                                |                                                                                                                                                                                                     |                                                       |
+| Session                                               | `filesystem`                                                                                                                                                                                                                                                                                                                                                                                                                                                   | `network`                                   | `excludedCommands`                                             | `credentials.envVars` (`mode: "deny"`) and `env`                                                                                                                                                                                                                                                                                                                                                                                                                   | Extra deny rules                                      |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
+| Developer (`task_worktree`, PM-153, PM-193)           | `allowWrite`: the member's npm cache and development data (`<app home>/member-caches/<KEY>/<handle>/npm-cache`, `…/projectman-dev`); `denyRead`: the user's home, the app home (when not below it), `sensitivePaths`; `allowRead`: the worktree, the task's attachments, the member's two directories, the shared git directory, `~/.gitconfig`, `~/.config/git`, `~/.claude/shell-snapshots`, the user's `core.excludesfile` (PM-216); `denyWrite`: see below | `registry.npmjs.org`, local binding allowed | none                                                           | `GH_TOKEN`, `GITHUB_TOKEN`, `NPM_TOKEN`, `NODE_AUTH_TOKEN`, `SSH_AUTH_SOCK` unset; `env`: `npm_config_cache`, `PROJECTMAN_HOME` to the member's directories, `PROJECTMAN_SKIP_PTY_TESTS=1` (PM-194), `GIT_CONFIG_SYSTEM` to a read-only file in the member's directory with `gc.auto=0`, `maintenance.auto=false` and `core.packedRefsTimeout=0`; the "Unable to create packed-refs.lock" message after a commit stays (known, harmless, see SECURITY.md) (PM-216) | `Edit(//<path>)`, `Edit(//<path>/**)` per `denyWrite` |
+| Reader (`read_only`, review copy without test opt-in) | `allowWrite: []` (temp only); `denyWrite`: working directory, every `--add-dir` directory, the project's workspace, the app home, the server's own checkout; `denyRead`: `sensitivePaths`                                                                                                                                                                                                                                                                      | `registry.npmjs.org`, local binding allowed | `gh pr view:*`, `gh pr diff:*`, only on a repository on GitHub | `env`: `PROJECTMAN_SKIP_PTY_TESTS=1` (PM-194)                                                                                                                                                                                                                                                                                                                                                                                                                      | `Edit(//<path>)`, `Edit(//<path>/**)` per `denyWrite` |
+| Managed VM profile, sessions behind the VM boundary   | none (the boundary is outside the CLI)                                                                                                                                                                                                                                                                                                                                                                                                                         |                                             |                                                                |                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |                                                       |
+| Codex                                                 | not rendered: Codex's own `--sandbox` (`read-only` for a reader, unchanged)                                                                                                                                                                                                                                                                                                                                                                                    |                                             |                                                                |                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |                                                       |
 
 All paths are absolute, from the actual user home and app home. A developer in a task worktree
 gets `denyWrite` in the shared git directory (`sharedGitDenials`): `refs/heads/<default branch>`,

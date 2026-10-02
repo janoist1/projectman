@@ -4,6 +4,7 @@ import type { SessionState } from '@projectman/shared';
  * Session state machine, driven by the agent CLI's hooks (and a few terminal/transcript signals):
  *
  *   starting --SessionStart (or the prompt on screen)--> idle --UserPromptSubmit--> working --Stop--> idle
+ *   idle|working --PreCompact--> working (compacting) --PostCompact--> idle (a compaction asked for) | working
  *   working --PermissionRequest--> waiting_permission --(answered)--> working
  *   working --PreToolUse(AskUserQuestion)--> waiting_input --PostToolUse--> working
  *   starting --(setup screen: trust/login)--> waiting_input --SessionStart--> idle
@@ -29,6 +30,13 @@ export type SessionSignal =
   | { kind: 'notification'; type: string | null; message: string | null }
   /** The turn was interrupted from the terminal (Esc): Claude Code sends no Stop hook then. */
   | { kind: 'interrupted' }
+  /** PreCompact: the conversation is being compacted (PM-213); the session works until it ends. */
+  | { kind: 'compact_start' }
+  /**
+   * PostCompact, or giving the compaction up. A compaction the agent's own turn ran into (auto)
+   * goes on with the turn; one that was asked for ends in idle, as no Stop hook follows it.
+   */
+  | { kind: 'compact_end'; idle: boolean }
   /** A dialog in the terminal (workspace trust, login, MCP approval, ...) blocks the session. */
   | { kind: 'setup_prompt'; description: string }
   /** The dialog is gone; `ready` tells whether the prompt was already up before. */
@@ -41,6 +49,9 @@ export interface StateSnapshot {
   state: SessionState;
   activity: string | null;
 }
+
+/** The activity of a session whose conversation is being compacted. */
+export const COMPACTING_ACTIVITY = 'Compacting the conversation';
 
 const TERMINAL_STATES: ReadonlySet<SessionState> = new Set(['exited', 'failed']);
 
@@ -108,6 +119,16 @@ export function nextState(current: StateSnapshot, signal: SessionSignal): StateS
       if (state === 'working' || state === 'waiting_permission' || state === 'waiting_input') {
         return { state: 'idle', activity: null };
       }
+      return current;
+
+    case 'compact_start':
+      if (state === 'idle' || state === 'working') {
+        return { state: 'working', activity: COMPACTING_ACTIVITY };
+      }
+      return current;
+
+    case 'compact_end':
+      if (state === 'working') return { state: signal.idle ? 'idle' : 'working', activity: null };
       return current;
 
     case 'setup_prompt':

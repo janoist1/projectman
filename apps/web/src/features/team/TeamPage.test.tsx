@@ -170,7 +170,8 @@ describe('TeamPage role catalogue', () => {
     expect(within(owner).getByText(t('roles.human.owner'))).toBeTruthy();
     await waitFor(() => expect(within(owner).getByText(roleNames.operator.name)).toBeTruthy());
     expect(within(owner).getByText(roleNames.product_owner.name)).toBeTruthy();
-    const frontend = screen.getByText(project.backend.findMember('fe-1')!.displayName).closest('tr')!;
+    const roster = within(screen.getByRole('region', { name: t('team.roster') }));
+    const frontend = roster.getByText(project.backend.findMember('fe-1')!.displayName).closest('tr')!;
     expect(within(frontend).getByText(roleNames.developer.name)).toBeTruthy();
     expect(
       within(owner).getByRole('button', {
@@ -204,10 +205,12 @@ describe('TeamPage role catalogue', () => {
     }));
     const project = mockProject();
     project.render(<TeamPage />);
-    const claude = (await screen.findByText(project.backend.findMember('fe-1')!.displayName)).closest(
+    // The closed cards comparison below names the implementers too: look in the roster.
+    const roster = within(await screen.findByRole('region', { name: t('team.roster') }));
+    const claude = (await roster.findByText(project.backend.findMember('fe-1')!.displayName)).closest(
       mobile ? 'li' : 'tr',
     )!;
-    const codex = screen
+    const codex = roster
       .getByText(project.backend.findMember('be-1')!.displayName)
       .closest(mobile ? 'li' : 'tr')!;
     expect(within(claude).getByText(t('providers.claude'))).toBeTruthy();

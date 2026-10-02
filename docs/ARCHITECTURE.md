@@ -265,6 +265,17 @@ Documentation map:
   approval first does not carry the flag past the approval: the card then waits.) Each closing writes
   `task_prerequisite_closed` on the timeline of every open dependent (`PrerequisiteClosures`). The
   stage hand-over (review, QA) and message wake-ups do not wait for prerequisites.
+  **Labels an AI member sets** (PM-236): the Start button of a card whose gate before the work
+  stage lacks only labels that AI members may set (`aiLabelSetters` in `packages/shared`, from
+  `UnmetCondition.setters`; any other unmet condition, a blocking label, or a human-only setter
+  keeps today's `gate_blocked`) starts those members' sessions (the designer round, PM-235) and
+  keeps the developer's start as a `work_start` spec with `afterLabels` and the chosen `developer`.
+  The card stays where it is, unassigned, with `startWaiting.reason` `label_missing` and `labels`.
+  The `task_labels_changed` event retries the deferred starts; the retry skips this start while
+  the gate still blocks (`AutomaticStart.blocked`), and starts the developer once it lets the card
+  through (the label set, or `ui` removed). A move, a cancel or an assignment ends the wait like
+  for the other work starts. Only a person's start (`StartTaskOptions.startSetters`, set by the
+  route) starts setters.
 - **Stage hand-over** — when a task enters a later stage owned by AI members, by anyone's
   move, the least loaded free owner (never the task's assignee) gets a session for the task.
   An owner that already has a session for the task gets a notice instead.

@@ -63,9 +63,13 @@ export type WaitingReason = TaskStartWaiting['reason'];
  * board shows but `repo_required`: only a person's choice clears that one, so the start fails
  * instead of waiting (the task shows why, see `TaskStore`). `no_free_member` and
  * `prerequisite_open` are ones only for the start that picks its developer itself and moves a
- * card into work (`AutomaticStart.defers`).
+ * card into work (`AutomaticStart.defers`). `label_missing` is no refusal at all: the start of a
+ * person's Start button that waits for a label (PM-236) is kept with it directly.
  */
-type DeferrableReason = Exclude<WaitingReason, 'repo_required' | 'no_free_member' | 'prerequisite_open'>;
+type DeferrableReason = Exclude<
+  WaitingReason,
+  'repo_required' | 'no_free_member' | 'prerequisite_open' | 'label_missing'
+>;
 
 /** Admission refusals that a later retry can overcome; an automatic start waits for them. */
 const DEFERRABLE = new Set<ErrorCode>([

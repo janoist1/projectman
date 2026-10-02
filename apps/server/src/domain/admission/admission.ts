@@ -7,7 +7,7 @@ import {
   isWorkingOnTask,
   openPrerequisites,
 } from '@projectman/shared';
-import type { AiMemberConfig, ProjectConfig, Task, WorkItemRef } from '@projectman/shared';
+import type { AiMemberConfig, ProjectConfig, Task, TaskStartWaiting, WorkItemRef } from '@projectman/shared';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
 import { conflict } from '../errors';
@@ -199,6 +199,22 @@ export class Admission {
   }
 
   /**
+   * Keeps a start that waits for something no refusal names (PM-236: the labels an AI member
+   * sets), under the admission lock (`exclusive`), and publishes its task so that the card shows
+   * why. Retried like the other deferrals, when `blocked` lets it.
+   */
+  defer(start: AutomaticStart, waiting: Omit<TaskStartWaiting, 'since'>): void {
+    const previous = this.deferred.take(start.key);
+    this.deferred.keep({
+      start,
+      waiting: { ...waiting, since: previous?.waiting.since ?? isoNow(this.ctx) },
+    });
+    this.ctx.logger.info({ ...start.log.fields(), reason: waiting.reason }, start.log.deferred);
+    const task = this.taskOf(start);
+    if (task) this.tasks.publish(task);
+  }
+
+  /**
    * Startup: the starts deferred before the server stopped wait again, as they were (`rebuild`
    * makes each from what was stored). Nothing is tried here; `retryDeferred` applies admission
    * to them. Returns how many wait. Nothing is inferred from the state of tasks: only what was
@@ -244,6 +260,12 @@ export class Admission {
         const waiting = entry.waiting.prerequisites ?? [];
         if (open.length > 0 && open.length === waiting.length && open.every((key) => waiting.includes(key)))
           continue;
+      }
+      // A start that waits for labels is retried once the gate lets the card through (the labels are
+      // on, or the gate no longer asks for them).
+      if (reason === 'label_missing' && task && start.blocked) {
+        const config = await this.configOf(start.projectKey, configs);
+        if (config && start.blocked(task, config)) continue;
       }
       try {
         await start.retry();

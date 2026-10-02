@@ -2,8 +2,10 @@ import { isHumanOnlyLabel, releaseGateAccepts } from '../domain/label';
 import type { LabelDefinition } from '../domain/label';
 import type { GateCondition, Pipeline, Stage } from '../domain/pipeline';
 import type { Task } from '../domain/task';
+import { isOnLeave } from './leave';
 import { labelDefinition, labelHolders, labelSetters } from './labels';
-import type { ProjectConfig } from './schema';
+import { memberOf } from './lookup';
+import type { AiMemberConfig, ProjectConfig } from './schema';
 
 /**
  * Gate evaluation. A gate on a stage must hold before a task may ENTER that stage.
@@ -97,6 +99,43 @@ export function pullRequestsMerged(task: Pick<Task, 'links'>): boolean {
   return (
     prs.some((l) => l.state === 'merged') && prs.every((l) => l.state === 'merged' || l.state === 'closed')
   );
+}
+
+/** The labels a gate lacks that AI members set, and the members who set them (PM-236). */
+export interface AiLabelSetters {
+  labels: string[];
+  /** One AI member per label, the same member once. */
+  members: AiMemberConfig[];
+}
+
+/**
+ * When a gate refuses a move only for labels that AI members can put on the card, who sets them:
+ * a person's Start then starts that member first instead of being refused. Null when anything else
+ * is unmet (a blocking label, a label nobody or only a person sets): the refusal stays. `known`
+ * ranks the setters: one that already has a session on the card goes first, one on leave last (its
+ * start would only be refused).
+ */
+export function aiLabelSetters(
+  config: Pick<ProjectConfig, 'team'>,
+  unmet: readonly UnmetCondition[],
+  known: (handle: string) => boolean,
+): AiLabelSetters | null {
+  if (unmet.length === 0) return null;
+  const rank = (m: AiMemberConfig) => (isOnLeave(m) ? 2 : 0) + (known(m.handle) ? 0 : 1);
+  const labels: string[] = [];
+  const members: AiMemberConfig[] = [];
+  for (const u of unmet) {
+    if (u.condition.type !== 'has_label') return null;
+    const candidates = (u.setters ?? [])
+      .map((handle) => memberOf(config, handle))
+      .filter((m): m is AiMemberConfig => m?.kind === 'ai')
+      .sort((a, b) => rank(a) - rank(b));
+    const setter = members.find((m) => candidates.includes(m)) ?? candidates[0];
+    if (!setter) return null;
+    if (!labels.includes(u.condition.label)) labels.push(u.condition.label);
+    if (!members.includes(setter)) members.push(setter);
+  }
+  return { labels, members };
 }
 
 /** Evaluates the gates of the entered stages; `forward` moves also respect blocking labels. */

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { Actor, MemberHandle, TaskKey, TaskStartWaiting, WorkItemRef } from '@projectman/shared';
-import type { Task } from '@projectman/shared';
+import type { ProjectConfig, Task } from '@projectman/shared';
 import type { DeferredStartRecord } from '../../db';
 
 /**
@@ -33,6 +33,13 @@ export const StartSpec = z.discriminatedUnion('kind', [
     assignee: MemberHandle.optional(),
     /** A person moved the card after the warning that a prerequisite is open (PM-204): it does not wait for it. */
     despitePrerequisites: z.boolean().optional(),
+    /**
+     * The Start button on a card whose gate waits for labels an AI member sets (PM-236): the setter's
+     * session started, and this start goes ahead once the labels are on. The card is still in
+     * `from` (it moves when the start runs), and `developer` is the assignee the person chose.
+     */
+    afterLabels: z.boolean().optional(),
+    developer: MemberHandle.optional(),
   }),
   /** The wake-up of an AI recipient of waiting messages; `stageId` is the task's stage when it was tried. */
   z.object({
@@ -65,6 +72,11 @@ export interface AutomaticStart {
   waitsFor(): string | undefined;
   /** Further refusals this start waits for, besides the ones every automatic start waits for. */
   defers?: readonly TaskStartWaiting['reason'][];
+  /**
+   * Whether the card still lacks what a start that waits for labels (`label_missing`) waits for:
+   * it is not retried then, as a retry could only be refused again.
+   */
+  blocked?(task: Task, config: ProjectConfig): boolean;
   /** Tries the start again (the retry loop). */
   retry(): Promise<void>;
   /** What is logged when the start is deferred, and when a retry fails. */

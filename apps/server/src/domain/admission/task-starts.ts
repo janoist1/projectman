@@ -1,4 +1,5 @@
 import {
+  aiLabelSetters,
   evaluateMove,
   isOnLeave,
   isOpenTask,
@@ -52,6 +53,13 @@ export interface StartTaskOptions {
    * start waits for the last one to close.
    */
   despitePrerequisites?: boolean;
+  /**
+   * A person's start of a card whose gate before the work stage asks only for labels that AI members
+   * set (PM-236): their sessions start on the card, and the developer's start waits for the labels
+   * (`StartTaskResult.awaiting`) instead of being refused. Without it, or when a label is set only
+   * by a person, the gate refuses the start.
+   */
+  startSetters?: boolean;
 }
 
 export interface StartTaskResult {
@@ -59,6 +67,30 @@ export interface StartTaskResult {
   session: Session | null;
   /** Temp worker hired for this task, if any. */
   hired: AiMemberConfig | null;
+  /** The developer's start waits for these labels, which these members were started to set (PM-236). */
+  awaiting?: { labels: string[]; members: string[] };
+}
+
+export interface LabelWaitRequest {
+  projectKey: string;
+  taskKey: string;
+  /** The stage the card is in, and the work stage it moves to when the start goes ahead. */
+  from: string;
+  to: string;
+  actor: Actor;
+  /** The card's assignee, kept (not chosen again). */
+  assignee: string | null;
+  /** The developer the person chose. */
+  developer?: string;
+  despitePrerequisites?: boolean;
+  labels: string[];
+  /** The member who sets them (the first of the started ones). */
+  member: string;
+}
+
+/** Keeps the developer's start that waits for labels (PM-236); called under the admission lock. */
+export interface LabelWait {
+  awaitLabels(wait: LabelWaitRequest): void;
 }
 
 /** The task's work stage: the one it is in, else the pipeline's first. */
@@ -80,6 +112,7 @@ export class TaskStarts {
   private readonly members: MemberService;
   private readonly sessions: SessionOrchestrator;
   private readonly admission: Admission;
+  private labelWait: LabelWait | undefined;
 
   constructor(deps: {
     projects: ProjectService;
@@ -120,6 +153,10 @@ export class TaskStarts {
     if (!(opts.despitePrerequisites && opts.actor.kind === 'human'))
       assertPrerequisitesClosed(task, this.tasks.list(projectKey));
     const needsMove = stageIndex(config.pipeline, task.stageId) < stageIndex(config.pipeline, workStage.id);
+    if (needsMove && opts.startSetters && opts.actor.kind === 'human' && this.labelWait) {
+      const waiting = await this.startLabelSetters(config, task, workStage, opts);
+      if (waiting) return { ...skipped, task: this.tasks.get(projectKey, taskKey), awaiting: waiting };
+    }
 
     let member: MemberConfig | null = this.chooseMember(config, task, workStage, opts.assignee);
     opts.onChosen?.(member);
@@ -177,6 +214,49 @@ export class TaskStarts {
       session = (await this.sessions.ensureSession(projectKey, member.handle, workItem)).session;
     }
     return { task: this.tasks.get(projectKey, taskKey), session, hired };
+  }
+
+  /** Binds what keeps the start that waits for labels (it needs this class to run, so it is bound after). */
+  useLabelWait(labelWait: LabelWait): void {
+    this.labelWait = labelWait;
+  }
+
+  /**
+   * PM-236: when the gate before the work stage refuses the card only for labels AI members set,
+   * starts those members' sessions on the card (the usual admission checks apply; a refusal
+   * propagates and nothing is kept) and keeps the developer's start waiting for the labels. Null
+   * when the gate refuses for anything else: the start goes on to be refused as before.
+   */
+  private async startLabelSetters(
+    config: ProjectConfig,
+    task: Task,
+    workStage: Stage,
+    opts: StartTaskOptions,
+  ): Promise<{ labels: string[]; members: string[] } | null> {
+    const projectKey = config.project.key;
+    const evaluation = evaluateMove(task, config, task.stageId, workStage.id);
+    const setters = aiLabelSetters(config, evaluation.unmet, (handle) =>
+      this.sessions
+        .list(projectKey, { member: handle })
+        .some((s) => s.workItem.type === 'task' && s.workItem.taskKey === task.key),
+    );
+    if (!setters || !this.labelWait) return null;
+    const workItem = { type: 'task', taskKey: task.key } as const;
+    for (const member of setters.members) await this.admission.start({ config, member, workItem });
+    const members = setters.members.map((m) => m.handle);
+    this.labelWait.awaitLabels({
+      projectKey,
+      taskKey: task.key,
+      from: task.stageId,
+      to: workStage.id,
+      actor: opts.actor,
+      assignee: task.assignee,
+      developer: opts.assignee,
+      despitePrerequisites: opts.despitePrerequisites,
+      labels: setters.labels,
+      member: members[0]!,
+    });
+    return { labels: setters.labels, members };
   }
 
   /** Stage change listener: a temp worker is retired once its task is done. */

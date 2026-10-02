@@ -37,6 +37,7 @@ import {
   UpdateSessionRequest,
   UpdateTaskRequest,
   aiLimitReached,
+  aiLabelSetters,
   applyConfigPatch,
   approvalRefusal,
   attachmentPreviewOf,
@@ -268,6 +269,8 @@ export class MockBackend {
   providerPlanUsage: Partial<Record<AgentProvider, PlanUsage>> = {};
   sessions: Session[] = clone(fixtures.sessions);
   chats: Record<string, ChatItem[]> = clone(fixtures.chats);
+  /** The developer's starts that wait for labels an AI member sets (PM-236), by task key. */
+  private readonly labelWaits = new Map<string, { input: StartTaskRequest; workStageId: string }>();
   inbox: InboxItem[] = clone(fixtures.inbox);
   boundaryGrants = new Map<string, BoundaryGrant>();
   messages: TeamMessage[] = clone(fixtures.teamMessages);
@@ -1983,6 +1986,7 @@ export class MockBackend {
     if (!plan.added.length && !plan.removed.length) return null;
     this.updateTask(task.key, { labels: plan.labels });
     this.recordLabels(task, plan, actor, opts);
+    this.continueLabelWait(task);
     return null;
   }
 
@@ -2405,6 +2409,37 @@ export class MockBackend {
         prerequisites: open,
       });
     const workStage = this.config.pipeline.stages.find((stage) => stage.kind === 'work');
+    // Like the server: a gate that lacks only labels AI members set starts them, and the developer waits (PM-236).
+    if (
+      workStage &&
+      stageIndex(this.config.pipeline, task.stageId) < stageIndex(this.config.pipeline, workStage.id)
+    ) {
+      const unmet = evaluateMove(task, this.config, task.stageId, workStage.id).unmet;
+      const setters = aiLabelSetters(this.config, unmet, (handle) =>
+        this.sessions.some(
+          (s) => s.member === handle && s.workItem.type === 'task' && s.workItem.taskKey === task.key,
+        ),
+      );
+      if (setters) {
+        for (const member of setters.members) this.openTaskSession(task, member.handle);
+        this.labelWaits.set(task.key, { input, workStageId: workStage.id });
+        this.updateTask(task.key, {
+          startWaiting: {
+            reason: 'label_missing',
+            labels: setters.labels,
+            member: setters.members[0]!.handle,
+            since: nowIso(),
+          },
+        });
+        return ok(this.taskDetail(task));
+      }
+    }
+    return this.startDeveloper(task, input);
+  }
+
+  /** The developer's start of a card (the part of the Start button after the gate). */
+  private startDeveloper(task: Task, input: StartTaskRequest): MockResponse {
+    const workStage = this.config.pipeline.stages.find((stage) => stage.kind === 'work');
     const eligible = workStage ? stageOwners(this.config, workStage) : [];
     const developers = this.members.filter(
       (member) => eligible.includes(member.handle) && member.status !== 'retired' && !member.onLeave,
@@ -2437,13 +2472,27 @@ export class MockBackend {
     this.addTimeline(task.key, null, 'task_assigned', { assignee });
     if (workStage) this.addTimeline(task.key, null, 'task_stage_changed', { from, to: workStage.id });
     if (this.findMember(assignee)?.kind === 'human' || running) return ok(this.taskDetail(task));
+    this.openTaskSession(task, assignee);
+    return ok(this.taskDetail(task));
+  }
+
+  /** Starts the member's session on the card, unless one is live. */
+  private openTaskSession(task: Task, handle: string): void {
+    const live = this.sessions.some(
+      (s) =>
+        s.member === handle &&
+        s.workItem.type === 'task' &&
+        s.workItem.taskKey === task.key &&
+        this.isLive(s),
+    );
+    if (live) return;
     const session: Session = {
       id: mockId('ses'),
       projectKey: fixtures.PROJECT_KEY,
-      member: assignee,
+      member: handle,
       workItem: { type: 'task', taskKey: task.key },
       claudeSessionId: mockUuid(Math.floor(Math.random() * 1e9)),
-      provider: this.providerOf(assignee),
+      provider: this.providerOf(handle),
       cwd: `/Users/owner/.projectman/worktrees/${fixtures.PROJECT_KEY}/${task.key}`,
       branch: `${taskSeq(task.key)}-work`,
       transcriptPath: null,
@@ -2458,11 +2507,20 @@ export class MockBackend {
     this.chats[session.id] = [];
     this.flushTeamMessages(session);
     this.emit({ type: 'session_upserted', projectKey: session.projectKey, session: clone(session) });
-    this.addTimeline(task.key, assignee, 'session_started', { member: assignee, resumed: false }, session.id);
-    const member = this.findMember(assignee);
+    this.addTimeline(task.key, handle, 'session_started', { member: handle, resumed: false }, session.id);
+    const member = this.findMember(handle);
     if (member) member.currentTaskKeys = [...member.currentTaskKeys, task.key];
-    this.setMemberState(assignee, 'working', `Indul: ${task.key}`);
-    return ok(this.taskDetail(task));
+    this.setMemberState(handle, 'working', `Indul: ${task.key}`);
+  }
+
+  /** A card waiting for labels starts its developer once the gate lets it through (the server's retry). */
+  private continueLabelWait(task: Task): void {
+    const wait = this.labelWaits.get(task.key);
+    if (!wait || task.startWaiting?.reason !== 'label_missing') return;
+    if (evaluateMove(task, this.config, task.stageId, wait.workStageId).unmet.length > 0) return;
+    this.labelWaits.delete(task.key);
+    this.updateTask(task.key, { startWaiting: undefined });
+    this.startDeveloper(task, wait.input);
   }
 
   /** Hires an AI member with the role's defaults, named and handled like the server does. */

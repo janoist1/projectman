@@ -109,6 +109,7 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
     await domain.taskStarts.start(key, taskKey, {
       assignee: body.assignee,
       despitePrerequisites: body.despitePrerequisites,
+      startSetters: true,
       actor: actorOf(access),
       author: authorOf(request),
       sponsor: await domain.members.sponsorFor(access),

@@ -817,6 +817,9 @@ export const hu = {
     off: {
       part_of: 'Gyűjtőkártya nem lehet más része.',
       subtask: 'Alkártyának nem lehet alkártyája.',
+      themePartOf: 'A téma nem lehet más része.',
+      themePrerequisite: 'A témának nincs „Előtte kell” kapcsolata.',
+      themeSubtask: 'A témának nincs alkártyája: a kártyák a témához tartoznak.',
     },
     card: 'Kártya',
     search: 'Keresés kulcsra vagy címre',

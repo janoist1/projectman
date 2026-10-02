@@ -705,7 +705,10 @@ describe('attachments: cover choice', () => {
     project.render(drawerFor(project), '/p/AC/tasks/AC-20');
     await screen.findByText('one.png');
     fireEvent.click(hideButton('one.png')!);
-    await screen.findByText(t('attachments.coverHidden'));
+    const note = await screen.findByText(t('attachments.coverHidden'));
+    // Not the upload hint's class: its flex basis would be a 200 px height in the section's column.
+    const hint = screen.getByText((text) => text.startsWith(t('attachments.hint', { max: '' }).slice(0, 20)));
+    expect(note.className).not.toBe(hint.className);
     expect(covers(project)[0]!.body).toEqual({ mode: 'hidden' });
     expect(project.backend.findTask('AC-20')!.coverAttachmentId).toBeUndefined();
     expect(screen.queryByText(t('attachments.cover'))).toBeNull();

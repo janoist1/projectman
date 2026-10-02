@@ -388,6 +388,34 @@ describe('attachment team tools', () => {
       expect(h.contextBuilder.inputs.at(-1)!.attachments?.map((a) => a.fileName)).toEqual(['before.png']);
     });
 
+    it('gives a subtask session the parent card’s attachments for its brief, when it has any (PM-228)', async () => {
+      const parent = await h.domain.tasks.create('AR', { title: 'Parent' }, OWNER_ACTOR);
+      const child = await h.domain.tasks.create('AR', { title: 'Child', parentKey: parent.key }, OWNER_ACTOR);
+      const emptyParent = await h.domain.tasks.create('AR', { title: 'Empty parent' }, OWNER_ACTOR);
+      const orphanChild = await h.domain.tasks.create(
+        'AR',
+        { title: 'Child of empty', parentKey: emptyParent.key },
+        OWNER_ACTOR,
+      );
+      await ownerUpload(parent.key, 'parent-shot.png');
+      const lastInput = () => h.contextBuilder.inputs.at(-1)!;
+
+      await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: child.key });
+      expect(lastInput().task?.key).toBe(child.key);
+      expect(lastInput().parentAttachments).toMatchObject({ taskKey: parent.key });
+      expect(lastInput().parentAttachments?.attachments.map((a) => a.fileName)).toEqual(['parent-shot.png']);
+      expect(lastInput().attachments).toBeUndefined();
+
+      // A parent without files is not named.
+      await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: orphanChild.key });
+      expect(lastInput().task?.key).toBe(orphanChild.key);
+      expect(lastInput().parentAttachments).toBeUndefined();
+
+      // A card without a parent has no such line.
+      expect(h.contextBuilder.inputs[0]!.task?.key).toBe('AR-1');
+      expect(h.contextBuilder.inputs[0]!.parentAttachments).toBeUndefined();
+    });
+
     it('allows read-only commands in the task’s attachment directory, not in another task’s', async () => {
       const before = await ownerUpload();
       const elsewhere = await ownerUpload('AR-2');

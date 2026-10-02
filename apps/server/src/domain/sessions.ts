@@ -1114,6 +1114,11 @@ export class SessionOrchestrator {
       member.handle,
       task,
     );
+    // The direct parent's files (PM-228): the team tools read them, so the brief names them.
+    const parentAttachments =
+      task?.parentKey && this.deps.tasks.find(projectKey, task.parentKey)
+        ? await this.readableAttachments(projectKey, task.parentKey, member.handle)
+        : [];
     const relatedSessions = task ? this.relatedSessions(projectKey, member.handle, task) : [];
     const relations = task ? this.deps.tasks.relationsOf(projectKey, task.key) : [];
     const themeCard = task?.themeKey ? this.deps.tasks.find(projectKey, task.themeKey) : null;
@@ -1169,6 +1174,9 @@ export class SessionOrchestrator {
       sessionPolicy: policy,
       ...(sandbox ? { sandbox } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
+      ...(task?.parentKey && parentAttachments.length > 0
+        ? { parentAttachments: { taskKey: task.parentKey, attachments: parentAttachments } }
+        : {}),
       ...(relatedSessions.length > 0 ? { relatedSessions } : {}),
       ...(relations.length > 0 ? { relations } : {}),
       ...(themeCard
@@ -1425,6 +1433,20 @@ export class SessionOrchestrator {
     settle?.(typed);
   }
 
+  /** The attachments of a card the member may read (empty when it may not, or on a failure). */
+  private async readableAttachments(
+    projectKey: string,
+    taskKey: string,
+    handle: string,
+  ): Promise<Attachment[]> {
+    return (
+      (await this.deps.attachments?.list(projectKey, taskKey, aiActor(handle)).catch((err: unknown) => {
+        this.ctx.logger.warn({ err, taskKey }, 'could not list the task attachments');
+        return undefined;
+      })) ?? []
+    );
+  }
+
   /**
    * A task session's attachments: the list for its brief, and the task's attachment directory,
    * which it reads (never edits) without asking: in the session policy as a read-only path, and as
@@ -1442,11 +1464,7 @@ export class SessionOrchestrator {
     attachmentDir: string | null;
   }> {
     if (!task) return { attachments: [], attachmentRules: attachmentToolRules(null), attachmentDir: null };
-    const attachments =
-      (await this.deps.attachments?.list(projectKey, task.key, aiActor(handle)).catch((err: unknown) => {
-        this.ctx.logger.warn({ err, taskKey: task.key }, 'could not list the task attachments');
-        return undefined;
-      })) ?? [];
+    const attachments = await this.readableAttachments(projectKey, task.key, handle);
     const dir =
       (await this.deps.attachmentDirectory?.(projectKey, task.key).catch((err: unknown) => {
         this.ctx.logger.warn({ err, taskKey: task.key }, 'could not find the task attachment directory');

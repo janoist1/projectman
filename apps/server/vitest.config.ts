@@ -40,5 +40,11 @@ if (skip) {
 }
 
 export default defineConfig({
-  test: { exclude: [...configDefaults.exclude, ...(skip ? PTY_TESTS : [])] },
+  test: {
+    exclude: [...configDefaults.exclude, ...(skip ? PTY_TESTS : [])],
+    // Many tests start git or other child processes and write files; a test that takes under a
+    // second alone (config-store "never reads a project while a save rewrites its files": 0.7 s)
+    // took over 5 s when the whole repository's tests ran in parallel (PM-215).
+    testTimeout: 20_000,
+  },
 });

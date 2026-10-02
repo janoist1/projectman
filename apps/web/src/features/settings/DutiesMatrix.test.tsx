@@ -30,14 +30,12 @@ describe('duty matrix', () => {
     await waitFor(() => expect(project.backend.config.team.roleOverrides?.developer).toBeUndefined());
     region = await matrix();
     fireEvent.click(region.getByRole('button', { name: t('duties.people') }));
-    expect(
-      region
-        .getAllByRole('checkbox')
-        .every(
-          (input) =>
-            (input as HTMLInputElement).disabled || input === region.getByLabelText(t('duties.fourEyes')),
-        ),
-    ).toBe(true);
+    // A plain DOM query: getAllByRole('checkbox') computes the accessible tree of all ~270
+    // checkboxes, which took about half a second and several times that under load.
+    const enabled = Array.from(
+      screen.getByRole('region', { name: t('duties.title') }).querySelectorAll('input[type="checkbox"]'),
+    ).filter((input) => !(input as HTMLInputElement).disabled);
+    expect(enabled).toEqual([region.getByLabelText(t('duties.fourEyes'))]);
   });
   it('disables human-only duties for AI roles and release changes for admins', async () => {
     const project = mockProject();

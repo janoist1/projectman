@@ -11,5 +11,9 @@ export default defineConfig({
     include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['src/test/setup.ts'],
     restoreMocks: true,
+    // Role queries (getByRole, findByRole) compute the accessible tree of a jsdom page, and a
+    // settings page holds hundreds of controls: those tests take 1-1.5 s alone and several times
+    // that when the whole repository's tests (or other sessions) run in parallel. 5 s was not enough.
+    testTimeout: 20_000,
   },
 });

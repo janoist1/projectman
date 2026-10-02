@@ -95,6 +95,11 @@ Documentation map:
   `CreateTaskRequest.relations` change them all or nothing with the rest of the call; both cards'
   timelines get `task_relation_added/removed`. A card marked a duplicate is cancelled (cards that have
   not started: anyone who can edit; started ones: admin or owner only).
+  The web (PM-203): the drawer's "Kapcsolatok" section (`TaskRelations`, replacing the subtasks row)
+  lists them by kind from the board's cards, closed ones included (no request of its own), and the
+  "+" dialog (`RelationDialog`) pre-checks a choice with `relationRefusal`; a card with an open
+  prerequisite (`openPrerequisites`) says "Előfeltételre vár: PM-xxx" in its status line when it stands
+  on it, and as a small chip when something else is happening to it (`lib/taskState.ts`).
   **Themes** (PM-192/PM-205): a card of `kind: 'theme'` (`tasks.kind`, default `task`) groups other
   cards. It has a key, title, description and timeline, and is open or closed (closed = `cancelled`,
   through the close route, by a human of developer access; reopened with `reopen`, which asks admin

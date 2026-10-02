@@ -1,4 +1,4 @@
-import { DEFAULT_AGENT_PROVIDER } from '@projectman/shared';
+import { DEFAULT_AGENT_PROVIDER, openPrerequisites } from '@projectman/shared';
 import type { InboxItem, LabelView, MemberView, Task, TaskWork } from '@projectman/shared';
 import { formatAge } from '../i18n/format';
 import { joinNames, t } from '../i18n/t';
@@ -14,6 +14,19 @@ import type { PipelineIndex } from './pipeline';
  */
 export type TaskPhase = 'needs_you' | 'working' | 'waiting' | 'blocked' | 'ready' | 'done' | 'cancelled';
 
+/**
+ * The prerequisites a card still waits for (PM-192): the first by key, how many more, and all of them
+ * for the tooltip. `key` is null when none is visible to the viewer (a client does not see an
+ * internal card's key).
+ */
+export interface PrerequisiteWait {
+  key: string | null;
+  more: number;
+  cards: { key: string; title: string }[];
+  /** The state's label already says it (the card stands on it): no second mention on the card. */
+  inLabel: boolean;
+}
+
 export interface TaskState {
   phase: TaskPhase;
   label: string;
@@ -21,6 +34,8 @@ export interface TaskState {
   since: string;
   /** The AI member working on it right now, if any. */
   worker: MemberView | null;
+  /** Set on an open card with an open prerequisite, whatever else is happening to it. */
+  prerequisite?: PrerequisiteWait;
 }
 
 export interface TaskStateContext {
@@ -69,12 +84,50 @@ function findWorker(task: Task, members: MemberIndex): { member: MemberView; wor
   return working.find(({ member }) => member.handle === task.assignee) ?? working[0] ?? null;
 }
 
-function unmetPrerequisites(task: Task, tasksByKey: ReadonlyMap<string, Task>): boolean {
-  return task.links.some((link) => {
-    if (link.kind !== 'prerequisite') return false;
-    const other = tasksByKey.get(link.ref);
-    return !other || !isTaskClosed(other);
+/**
+ * The open prerequisites of an open card, from the cards the viewer sees (the shared rule: a closed
+ * or withdrawn one no longer holds the card). A start that waits for prerequisites (PM-204) names
+ * them too; those the viewer cannot see are left out.
+ */
+function prerequisiteWait(task: Task, tasksByKey: ReadonlyMap<string, Task>): PrerequisiteWait | null {
+  if (isTaskClosed(task)) return null;
+  const linked = task.links.flatMap((link) => {
+    const other = link.kind === 'prerequisite' ? tasksByKey.get(link.ref) : undefined;
+    return other ? [other] : [];
   });
+  const open = openPrerequisites(task, linked);
+  const keys =
+    open.length > 0
+      ? open.map((card) => card.key)
+      : task.startWaiting?.reason === 'prerequisite_open'
+        ? (task.startWaiting.prerequisites ?? []).filter((key) => tasksByKey.has(key))
+        : [];
+  if (keys.length === 0) return null;
+  return {
+    key: keys[0]!,
+    more: keys.length - 1,
+    cards: keys.map((key) => ({ key, title: tasksByKey.get(key)?.title ?? '' })),
+    inLabel: false,
+  };
+}
+
+/** "Előfeltételre vár: PM-202 +1": the label of a card that stands on its prerequisites. */
+export function prerequisiteLabel(wait: Pick<PrerequisiteWait, 'key' | 'more'> | null): string {
+  if (!wait?.key) return t('taskStatus.prerequisite');
+  return wait.more > 0
+    ? t('taskStatus.prerequisiteOnMore', { key: wait.key, more: wait.more })
+    : t('taskStatus.prerequisiteOn', { key: wait.key });
+}
+
+/** The state of a card that stands on its prerequisites: waiting, under the label that names them. */
+function standingOnPrerequisite(wait: PrerequisiteWait | null, since: string): TaskState {
+  return {
+    phase: 'waiting',
+    label: prerequisiteLabel(wait),
+    since,
+    worker: null,
+    ...(wait ? { prerequisite: { ...wait, inLabel: true } } : {}),
+  };
 }
 
 export function startWaitingHint(task: Task): string | null {
@@ -91,15 +144,27 @@ function startWaitingLabel(task: Task, ctx: TaskStateContext): string {
   });
 }
 
+/**
+ * The state of a card. An open prerequisite shows in the label when the card stands on it (it waits
+ * in a queue, or its start waits), and as `prerequisite` on the state when something else is
+ * happening to the card, so the card and the drawer never say it twice.
+ */
 export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
+  const wait = prerequisiteWait(task, ctx.tasksByKey);
+  const state = deriveOpenState(task, ctx, wait);
+  return wait && !state.prerequisite ? { ...state, prerequisite: wait } : state;
+}
+
+function deriveOpenState(task: Task, ctx: TaskStateContext, wait: PrerequisiteWait | null): TaskState {
   const { pipeline, members, myHandle } = ctx;
   const stage = pipeline.stageById.get(task.stageId);
   const open = ctx.openInboxByTask.get(task.key) ?? [];
 
   if (task.status === 'cancelled') {
+    const original = task.links.find((link) => link.kind === 'duplicate_of')?.ref;
     return {
       phase: 'cancelled',
-      label: t('taskStatus.statuses.cancelled'),
+      label: original ? t('taskStatus.duplicateOf', { key: original }) : t('taskStatus.statuses.cancelled'),
       since: task.updatedAt,
       worker: null,
     };
@@ -114,6 +179,9 @@ export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
     };
   }
 
+  if (task.startWaiting?.reason === 'prerequisite_open') {
+    return standingOnPrerequisite(wait, task.startWaiting.since);
+  }
   if (task.startWaiting) {
     return {
       phase: 'waiting',
@@ -168,9 +236,7 @@ export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
   }
 
   if (stage?.kind === 'queue') {
-    if (task.status === 'waiting' || unmetPrerequisites(task, ctx.tasksByKey)) {
-      return { phase: 'waiting', label: t('taskStatus.prerequisite'), since: task.updatedAt, worker: null };
-    }
+    if (task.status === 'waiting' || wait) return standingOnPrerequisite(wait, task.updatedAt);
     // An earlier queue (e.g. incoming requests before "ready") is not ready to start yet.
     const label = nextStage(pipeline, stage.id)?.kind === 'queue' ? stage.name : t('taskStatus.ready');
     return { phase: 'ready', label, since: task.createdAt, worker: null };

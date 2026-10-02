@@ -170,9 +170,9 @@ export function TaskDrawer() {
     const stage = pipeline.stageById.get(task.stageId);
     const parent =
       board.data?.tasks.find((candidate) => candidate.key === task.parentKey) ?? detail.data?.parent;
-    const subtasks = (board.data?.tasks ?? detail.data?.subtasks ?? []).filter(
-      (child) => child.parentKey === task.key,
-    );
+    // The relations are counted from the board's cards (the closed ones too): no request of their own.
+    const cards = board.data?.tasks ?? [...(detail.data?.subtasks ?? []), ...(parent ? [parent] : [])];
+    const phases = new Map([...(model?.byKey ?? [])].map(([cardKey, { state }]) => [cardKey, state.phase]));
     const sessions = detail.data?.sessions ?? [];
     const session = primarySession(task, sessions);
     // A card in the work stage that waits for its prerequisites can be started by a person too (PM-204).
@@ -250,7 +250,7 @@ export function TaskDrawer() {
             ) : null}
           </div>
 
-          <TaskProperties task={task} subtasks={subtasks} members={members} pipeline={pipeline} />
+          <TaskProperties task={task} tasks={cards} phases={phases} members={members} pipeline={pipeline} />
 
           <TaskDescription key={`description:${task.key}`} task={task} className={styles.description} />
 

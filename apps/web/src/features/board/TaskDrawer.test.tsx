@@ -484,24 +484,26 @@ describe('task editing and subtasks', () => {
     await waitFor(() => expect(project.backend.findTask('AC-20')?.title).toBe('Preserved draft'));
   });
 
-  it('shows child progress and quick-add inherits repo, visibility and first stage', async () => {
+  it('shows the parts with their progress; a new subtask inherits repo, visibility and first stage', async () => {
     const project = mockProject();
     project.backend.updateTask('AC-21', { parentKey: 'AC-20', status: 'done' });
     project.backend.updateTask('AC-22', { parentKey: 'AC-20' });
     project.render(drawer, '/p/AC/tasks/AC-20');
-    const section = await screen.findByRole('region', { name: t('task.subtasks') });
-    expect(within(section).getByText(t('task.subtaskProgress', { done: 1, total: 2 }))).toBeTruthy();
-    expect(within(section).getByRole('link', { name: /AC-21/ }).getAttribute('href')).toBe(
-      '/p/AC/tasks/AC-21',
-    );
-    // The quick-add form stays folded until the small "+" asks for it.
-    expect(within(section).queryByLabelText(t('task.subtaskTitle'))).toBeNull();
-    fireEvent.click(within(section).getByRole('button', { name: t('task.subtaskNew') }));
-    fireEvent.change(within(section).getByLabelText(t('task.subtaskTitle')), {
+    const section = await screen.findByRole('region', { name: t('task.relations.title') });
+    const parts = within(section).getByRole('group', { name: t('relations.kinds.has_part') });
+    expect(within(parts).getByText(t('task.relations.progress', { done: 1, total: 2 }))).toBeTruthy();
+    expect(within(parts).getByRole('link', { name: /AC-21/ }).getAttribute('href')).toBe('/p/AC/tasks/AC-21');
+    // The dialog stays closed until the small "+" asks for it.
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(within(section).getByRole('button', { name: t('task.relations.add') }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('radio', { name: t('relationDialog.newSubtask') }));
+    fireEvent.change(within(dialog).getByLabelText(t('relationDialog.subtaskTitle')), {
       target: { value: 'Example child' },
     });
-    fireEvent.click(within(section).getByRole('button', { name: t('task.addSubtask') }));
+    fireEvent.click(within(dialog).getByRole('button', { name: t('relationDialog.submitSubtask') }));
     expect(await within(section).findByRole('link', { name: /Example child/ })).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     const parent = project.backend.findTask('AC-20')!;
     expect(project.backend.tasks.find((task) => task.title === 'Example child')).toMatchObject({
       parentKey: parent.key,
@@ -509,10 +511,9 @@ describe('task editing and subtasks', () => {
       visibility: parent.visibility,
       stageId: project.backend.config.pipeline.stages[0]!.id,
     });
-    expect((within(section).getByLabelText(t('task.subtaskTitle')) as HTMLInputElement).value).toBe('');
   });
 
-  it('shows a parent link on a subtask and prevents a nested quick-add', async () => {
+  it('shows a parent link on a subtask and prevents a nested subtask', async () => {
     const project = mockProject();
     project.backend.updateTask('AC-20', { parentKey: 'AC-21' });
     project.render(drawer, '/p/AC/tasks/AC-20');
@@ -521,7 +522,12 @@ describe('task editing and subtasks', () => {
       name: t('task.parent', { key: parent.key, title: parent.title }),
     });
     expect(link.getAttribute('href')).toBe('/p/AC/tasks/AC-21');
-    expect(screen.queryByLabelText(t('task.subtaskTitle'))).toBeNull();
+    fireEvent.click(await screen.findByRole('button', { name: t('task.relations.add') }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('radio', { name: t('relationDialog.newSubtask') }));
+    // The kind cannot be chosen, and says why.
+    expect(within(dialog).queryByLabelText(t('relationDialog.subtaskTitle'))).toBeNull();
+    expect(within(dialog).getByText(t('relationDialog.off.subtask'))).toBeTruthy();
   });
 
   it('hides editing and quick-add from viewers', async () => {
@@ -532,7 +538,7 @@ describe('task editing and subtasks', () => {
     await screen.findByText(project.backend.findTask('AC-20')!.title);
     expect(screen.queryByRole('button', { name: t('task.editTitle') })).toBeNull();
     expect(screen.queryByRole('button', { name: t('task.editDescription') })).toBeNull();
-    expect(screen.queryByRole('button', { name: t('task.subtaskNew') })).toBeNull();
+    expect(screen.queryByRole('button', { name: t('task.relations.add') })).toBeNull();
     expect(screen.queryByRole('button', { name: t('task.labels.add') })).toBeNull();
   });
 });
@@ -686,9 +692,7 @@ describe('starting a card whose prerequisite is open (PM-204)', () => {
     };
     project.render(drawer, '/p/AC/tasks/AC-20');
 
-    await screen.findByText(
-      t('taskStatus.startWaiting.prerequisite_open', { prerequisites: 'AC-17, AC-19' }),
-    );
+    await screen.findByText(t('taskStatus.prerequisiteOnMore', { key: 'AC-17', more: 1 }));
     expect(screen.getByText(t('taskStatus.startHints.prerequisite_open'))).toBeTruthy();
   });
 });

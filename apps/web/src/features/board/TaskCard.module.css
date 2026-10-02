@@ -93,6 +93,19 @@
   align-items: center;
 }
 
+/* "Előfeltételre vár: PM-xxx" next to the parent label, on a card that is busy with something else. */
+.prerequisite {
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.prerequisite span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .stageRows {
   list-style: none;
   margin: 0;

@@ -1,0 +1,38 @@
+.fold {
+  min-width: 0;
+}
+
+.summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--text-sm);
+  font-weight: 800;
+  color: var(--c-ink-3);
+}
+
+.summary::-webkit-details-marker {
+  display: none;
+}
+
+.chevron {
+  transition: transform 120ms ease;
+}
+
+.fold[open] .chevron {
+  transform: rotate(90deg);
+}
+
+.body {
+  margin-top: 6px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--c-subtle);
+  border: 1px solid var(--c-line-soft);
+  color: var(--c-ink-2);
+  font-size: var(--text-sm);
+}

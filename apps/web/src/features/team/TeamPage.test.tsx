@@ -45,34 +45,21 @@ describe('TeamPage role catalogue', () => {
     },
   );
 
-  it.each([false, true])('says on every member when to turn to them (mobile: %s)', async (mobile) => {
-    vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
-      matches: mobile,
-      media: query,
-      onchange: null,
-      addListener() {},
-      removeListener() {},
-      addEventListener() {},
-      removeEventListener() {},
-      dispatchEvent: () => false,
-    }));
-    const project = mockProject();
-    project.backend.config.team.roleOverrides = {
-      devops: { duties: ['deployment', 'monitoring'], instructions: '', whenToAsk: 'Ha élesíteni kell.' },
-    };
-    project.render(<TeamPage />);
-    const line = (text: string) => `${t('roleCatalogue.whenToAsk')}: ${text}`;
-    const roster = within(await screen.findByRole('region', { name: t('team.roster') }));
-    expect(await roster.findByText(line('Ha élesíteni kell.'))).toBeTruthy();
-    expect(roster.getByText(line(roleNames.qa.whenToAsk))).toBeTruthy();
-    expect(
-      roster.getByText(line(`${roleNames.operator.whenToAsk} ${roleNames.product_owner.whenToAsk}`)),
-    ).toBeTruthy();
-    const holders = project.backend.config.team.members.filter((m) => m.kind === 'ai' || m.roles.length > 0);
-    expect(roster.getAllByText(new RegExp(`^${t('roleCatalogue.whenToAsk')}: `))).toHaveLength(
-      holders.length,
-    );
-  });
+  it.each([false, true])(
+    'keeps the long when-to-ask text and the running command out of the rows (mobile: %s)',
+    async (mobile) => {
+      phone(mobile);
+      const project = mockProject();
+      project.render(<TeamPage />);
+      const roster = within(await screen.findByRole('region', { name: t('team.roster') }));
+      await roster.findAllByText(t('team.noTask'));
+      expect(roster.queryAllByText(new RegExp(t('roleCatalogue.whenToAsk')))).toHaveLength(0);
+      expect(roster.queryByText(roleNames.qa.whenToAsk)).toBeNull();
+      const busy = project.backend.members.filter((m) => m.activity);
+      expect(busy.length).toBeGreaterThan(0);
+      for (const member of busy) expect(roster.queryByText(member.activity!)).toBeNull();
+    },
+  );
 
   it('sends an AI member on leave and calls it back from the roster (decision 23)', async () => {
     const project = mockProject();

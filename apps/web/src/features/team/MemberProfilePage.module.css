@@ -17,11 +17,6 @@
   margin-left: auto;
 }
 .leaveNote {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px 12px;
   margin: 0;
   padding: 8px 14px;
   border-radius: var(--radius-lg);
@@ -73,6 +68,16 @@
 }
 .role p {
   margin: 0 0 4px;
+}
+.instructions h3 {
+  margin: 12px 0 4px;
+  font-size: var(--text-sm);
+}
+.instructions h3:first-child {
+  margin-top: 0;
+}
+.instructions pre {
+  margin: 0 0 8px;
 }
 .grid {
   display: grid;

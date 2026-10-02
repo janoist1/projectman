@@ -189,6 +189,7 @@ export class TaskStarts {
     if (needsMove) {
       const evaluation = evaluateStart(task, config, workStage.id);
       if (evaluation.unmet.length > 0) throw gateBlockedError(evaluation);
+      // Again: admission and a hire waited since the first check, and labels may have changed.
       refuseOwnStageApproval(task, evaluation);
       if (evaluation.approvals.length > 0) {
         const result = await this.tasks.moveToStage(projectKey, taskKey, workStage.id, opts.actor);

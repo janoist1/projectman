@@ -280,7 +280,8 @@ function designing(): StepRule {
 function designPlan(c: StepContext): string[] {
   const { input, s, current } = c;
   const upTo = s.stages.findIndex((stage) => stage.kind === 'work');
-  const gated = s.stages.slice(s.stages.indexOf(current) + 1, upTo >= 0 ? upTo + 1 : undefined);
+  // The stages the card's Start enters, the one it sits in included (PM-248, `evaluateStart`).
+  const gated = s.stages.slice(s.stages.indexOf(current), upTo >= 0 ? upTo + 1 : undefined);
   const mine = gated.flatMap((stage) =>
     gateLabelsFor(c, stage, (_label, setters) => setters.includes(input.member.handle)),
   );

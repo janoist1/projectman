@@ -50,6 +50,7 @@ import {
   coverAttachmentId,
   TaskCoverRequest,
   evaluateMove,
+  evaluateStart,
   expiredLabels,
   gateRequestOf,
   holdersAllow,
@@ -2414,7 +2415,7 @@ export class MockBackend {
       workStage &&
       stageIndex(this.config.pipeline, task.stageId) < stageIndex(this.config.pipeline, workStage.id)
     ) {
-      const unmet = evaluateMove(task, this.config, task.stageId, workStage.id).unmet;
+      const unmet = evaluateStart(task, this.config, workStage.id).unmet;
       const setters = aiLabelSetters(this.config, unmet, (handle) =>
         this.sessions.some(
           (s) => s.member === handle && s.workItem.type === 'task' && s.workItem.taskKey === task.key,
@@ -2517,7 +2518,7 @@ export class MockBackend {
   private continueLabelWait(task: Task): void {
     const wait = this.labelWaits.get(task.key);
     if (!wait || task.startWaiting?.reason !== 'label_missing') return;
-    if (evaluateMove(task, this.config, task.stageId, wait.workStageId).unmet.length > 0) return;
+    if (evaluateStart(task, this.config, wait.workStageId).unmet.length > 0) return;
     this.labelWaits.delete(task.key);
     this.updateTask(task.key, { startWaiting: undefined });
     this.startDeveloper(task, wait.input);

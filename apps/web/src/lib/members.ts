@@ -103,6 +103,18 @@ export function memberStatusView(
   return { status: member.status, label: t(`memberStatus.${member.status}`) };
 }
 
+/**
+ * Whose subscriptions run the AI members: `mixed` when more than one does (or some has none set),
+ * else `only` is the one sponsor handle (null when no AI member has one). One rule for the page
+ * subtitle and the roster.
+ */
+export function aiSponsors(members: readonly MemberView[]): { mixed: boolean; only: string | null } {
+  const sponsors = new Set(
+    members.filter((member) => member.kind === 'ai').map((member) => member.sponsor || ''),
+  );
+  return { mixed: sponsors.size > 1, only: sponsors.size === 1 ? [...sponsors][0] || null : null };
+}
+
 /** Standing roles: AI members that are not developers (code review, QA, devops, ...). */
 export function isStandingRole(member: MemberView): boolean {
   return member.kind === 'ai' && !isDeveloperRole(member.role) && !member.temp && member.status !== 'retired';

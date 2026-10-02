@@ -10,7 +10,7 @@ import { SegmentedControl } from '../../components/SegmentedControl';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
-import { memberStatusView, nameOf } from '../../lib/members';
+import { aiSponsors, memberStatusView, nameOf } from '../../lib/members';
 import { MessageList } from '../messages/MessageList';
 import { ClosedCardsComparison } from './ClosedCardsComparison';
 import { MemberMenu } from './MemberMenu';
@@ -92,18 +92,14 @@ export function TeamPage() {
   const working = ai.filter((member) => member.status === 'working').length;
   // Members whose approver is the AI while no AI member can decide for them any more.
   const lostDecider = ai.filter((member) => member.approver === 'ai' && member.aiApproverBlocker);
-  const sponsors = new Set(ai.map((member) => member.sponsor));
-  const onlySponsor = sponsors.size === 1 ? ([...sponsors][0] ?? null) : null;
-  const subscriptionNote =
-    ai.length === 0
+  const sponsors = aiSponsors(members);
+  const subscriptionNote = sponsors.mixed
+    ? t('team.subscriptionMixed')
+    : sponsors.only === null
       ? null
-      : sponsors.size > 1
-        ? t('team.subscriptionMixed')
-        : onlySponsor === null
-          ? null
-          : onlySponsor === myHandle
-            ? t('team.subscriptionYours')
-            : t('team.subscriptionOther', { name: nameOf(onlySponsor, indexes.members, myHandle) });
+      : sponsors.only === myHandle
+        ? t('team.subscriptionYours')
+        : t('team.subscriptionOther', { name: nameOf(sponsors.only, indexes.members, myHandle) });
 
   const memberActions = (member: MemberView) =>
     can.manageTeam ? (

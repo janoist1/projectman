@@ -6,7 +6,7 @@ import { Avatar } from '../../components/Avatar';
 import { Chip, StatusDot } from '../../components/Chip';
 import { ProviderBadge } from '../../components/ProviderBadge';
 import { t } from '../../i18n/t';
-import { memberStatusView, nameOf } from '../../lib/members';
+import { aiSponsors, memberStatusView, nameOf } from '../../lib/members';
 import { aiRoleView, humanRoleName, whenToAsk } from '../../lib/roles';
 import { MemberScheduleControl } from './ScheduledRuns';
 import styles from './Roster.module.css';
@@ -107,8 +107,7 @@ function MemberTasks({ member, titles }: { member: MemberView; titles: RosterPro
 function useSponsorNote(members: readonly MemberView[]) {
   const { key, myHandle } = useProject();
   const { members: all } = useProjectIndexes(key);
-  const mixed =
-    new Set(members.filter((member) => member.kind === 'ai').map((member) => member.sponsor ?? '')).size > 1;
+  const { mixed } = aiSponsors(members);
   const text = (member: MemberView) => {
     if (member.kind === 'human')
       return t(member.status === 'no_account' ? 'memberStatus.no_account' : 'team.ownAccount');

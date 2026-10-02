@@ -186,7 +186,7 @@ export function BoardPage() {
   const { key, search, can, themeFilter, setThemeFilter, openNewTask } = useProject();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
-  const { board, inbox, pipeline, model } = useBoardModel();
+  const { board, pipeline, model } = useBoardModel();
   const move = useMoveTask(key);
   const toast = useToast();
   const [dragged, setDragged] = useState<Task | null>(null);
@@ -351,8 +351,6 @@ export function BoardPage() {
       {isMobile ? null : (
         <TeamStrip
           members={board.data.members}
-          inbox={inbox.data?.items}
-          activeTaskCount={activeCount}
           titles={new Map(board.data.tasks.map((task) => [task.key, task.title]))}
         />
       )}

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { t } from '../i18n/t';
 import { buildConfig, tasks } from '../mocks/fixtures';
 import { mockIndexes } from '../test/render';
-import { cardsLine, memberCardKeys } from './members';
+import { cardsLine, workingCardKeys } from './members';
 import { deriveTaskState, groupOpenInboxByTask } from './taskState';
 import type { TaskStateContext } from './taskState';
 
@@ -205,14 +205,17 @@ describe('the cards of a member, for the team strip (PM-237)', () => {
     ['AC-22', 'Analitika'],
   ]);
 
-  it('puts the cards worked on first, then the others carried', () => {
+  it('takes only the cards worked on, without repeats', () => {
     expect(
-      memberCardKeys({
-        currentTaskKeys: ['AC-20', 'AC-21', 'AC-22'],
-        taskWork: [work('be-1', 'AC-22', '2026-10-01T10:00:00.000Z')],
+      workingCardKeys({
+        taskWork: [
+          work('be-1', 'AC-22', '2026-10-01T10:00:00.000Z'),
+          { ...work('be-1', 'AC-20', '2026-10-01T10:05:00.000Z'), sessionId: 'ses_other' },
+          { ...work('be-1', 'AC-22', '2026-10-01T10:06:00.000Z'), sessionId: 'ses_again' },
+        ],
       }),
-    ).toEqual(['AC-22', 'AC-20', 'AC-21']);
-    expect(memberCardKeys({ currentTaskKeys: ['AC-20'] })).toEqual(['AC-20']);
+    ).toEqual(['AC-22', 'AC-20']);
+    expect(workingCardKeys({})).toEqual([]);
   });
 
   it('gives the key and title for one card, the keys for two, and a count from three', () => {

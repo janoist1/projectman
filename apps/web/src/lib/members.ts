@@ -1,7 +1,7 @@
 import type { InboxItem, MemberStatus, MemberView, RoleView } from '@projectman/shared';
 import type { IconName } from '../components/Icon';
 import { t } from '../i18n/t';
-import { aiRoleView, humanRoleName, isDeveloperRole } from './roles';
+import { aiRoleView, humanRoleName } from './roles';
 import type { RoleTone } from './roles';
 
 export type { RoleTone } from './roles';
@@ -127,9 +127,17 @@ export function aiSponsors(members: readonly MemberView[]): {
   };
 }
 
-/** The cards a member is on: those they work on right now first, then the others they carry. */
-export function memberCardKeys(member: Pick<MemberView, 'taskWork' | 'currentTaskKeys'>): string[] {
-  return [...new Set([...(member.taskWork ?? []).map((work) => work.taskKey), ...member.currentTaskKeys])];
+/** The cards a member works on right now (a running task session each), without repeats. */
+export function workingCardKeys(member: Pick<MemberView, 'taskWork'>): string[] {
+  return [...new Set((member.taskWork ?? []).map((work) => work.taskKey))];
+}
+
+/**
+ * Who works on a card right now: the AI members with a running task session, in the team's order.
+ * The same data the cards use for "X is working on it", so the board and its team strip agree.
+ */
+export function workingNow(members: readonly MemberView[]): MemberView[] {
+  return members.filter((member) => member.kind === 'ai' && workingCardKeys(member).length > 0);
 }
 
 /**
@@ -142,9 +150,4 @@ export function cardsLine(keys: readonly string[], titles: ReadonlyMap<string, s
     return t('team.cardsOne', { key: keys[0]!, title: titles.get(keys[0]!) ?? '' }).trim();
   const shown = keys.slice(0, 2).join(t('common.listSeparator'));
   return keys.length === 2 ? shown : t('team.cardsMore', { keys: shown, more: keys.length - 2 });
-}
-
-/** Standing roles: AI members that are not developers (code review, QA, devops, ...). */
-export function isStandingRole(member: MemberView): boolean {
-  return member.kind === 'ai' && !isDeveloperRole(member.role) && !member.temp && member.status !== 'retired';
 }

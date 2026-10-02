@@ -5,6 +5,7 @@ import { Task } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import type { MockBackend } from '../../mocks/backend';
+import { findBoardCardLinks, withoutTeamStrip } from '../../test/boardCards';
 import { mockProject } from '../../test/mockProject';
 import { BoardPage } from './BoardPage';
 import { NewTaskDialog } from './NewTaskDialog';
@@ -60,7 +61,8 @@ const filterTile = (title: string) =>
     .getAllByRole('button', { name: new RegExp(title) })
     .find((button) => button.hasAttribute('aria-pressed'))!;
 const titleOf = (backend: MockBackend, key: string) => backend.findTask(key)!.title;
-const hasCard = (title: string) => screen.queryByRole('link', { name: new RegExp(title) }) !== null;
+const hasCard = (title: string) =>
+  withoutTeamStrip(screen.queryAllByRole('link', { name: new RegExp(title) })).length > 0;
 
 describe('themes on the board', () => {
   it('lists the themes in a strip and keeps them out of the columns', async () => {
@@ -70,7 +72,7 @@ describe('themes on the board', () => {
     // Five cards count: the done one, the open ones and the collecting card; the cancelled subtask does not.
     expect(await tile(theme.title, 1, 4)).toBeTruthy();
     expect(within(strip).getAllByRole('button', { name: new RegExp(other.title) })).toHaveLength(2);
-    await screen.findByText(titleOf(project.backend, 'AC-20'));
+    await findBoardCardLinks(titleOf(project.backend, 'AC-20'));
     // A theme is no card: it has no link among the columns' cards.
     expect(hasCard(theme.title)).toBe(false);
     expect(hasCard(other.title)).toBe(false);
@@ -85,7 +87,7 @@ describe('themes on the board', () => {
   it('shows no strip while the project has no theme', async () => {
     const project = mockProject();
     project.render(<BoardPage />);
-    await screen.findByText(titleOf(project.backend, 'AC-20'));
+    await findBoardCardLinks(titleOf(project.backend, 'AC-20'));
     expect(screen.queryByRole('region', { name: t('board.themes.title') })).toBeNull();
   });
 

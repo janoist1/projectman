@@ -5,6 +5,7 @@ import {
   ChangeTaskLabelsRequest,
   DeleteAttachmentResponse,
   UploadAttachmentResponse,
+  ClosedCardsMeasure,
   MemberProfile,
   MemberMemories,
   Session,
@@ -150,6 +151,8 @@ export const api = {
   updateSession: (key: string, sessionId: string, body: UpdateSessionRequest) =>
     apiRequest(routes.session(key, sessionId), { method: 'PATCH', body, schema: Session }),
 
+  closedCardsMeasure: (key: string, days: number) =>
+    apiRequest(`${routes.closedCardsMeasure(key)}?days=${days}`, { schema: ClosedCardsMeasure }),
   memberProfile: (key: string, handle: string) =>
     apiRequest(routes.memberProfile(key, handle), { schema: MemberProfile }),
   memberMemories: (key: string, handle: string) =>

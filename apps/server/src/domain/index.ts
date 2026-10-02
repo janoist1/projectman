@@ -55,6 +55,7 @@ import { TimelineService } from './timeline';
 import { AgentQuestions } from './agent-question';
 import { InputStallAlerts } from './input-stall-alert';
 import { UsageAlerts } from './usage-alerts';
+import { CardMeasure } from './card-measure';
 import { SYSTEM_ACTOR } from './util';
 
 export * from './access';
@@ -88,6 +89,7 @@ export { EgressService } from './egress';
 export type { EgressDecision, EgressIdentity, EgressSession, EgressSettings } from './egress';
 export { GithubSync } from './github-sync';
 export { InboxService, PERMISSION_OPTIONS, DECISION_OPTIONS, ANSWER_OPTION } from './inbox';
+export { CardMeasure } from './card-measure';
 export { InvitationService } from './invitations';
 export { MemberProfiles, MemberService } from './members';
 export { MessageDelivery, MessageService, Messaging } from './messaging';
@@ -405,6 +407,7 @@ export function createDomain(opts: DomainOptions) {
   const board = new BoardService({ projects, tasks, members, inbox, planUsage });
   const profiles = new MemberProfiles({ ctx, projects, members, tasks, inbox, sessions, admission });
   const invitations = new InvitationService({ ctx, projects, members, accounts: opts.accounts });
+  const cardMeasure = new CardMeasure({ ctx, projects });
 
   const retryDeferredStarts = () =>
     background.run(
@@ -539,6 +542,7 @@ export function createDomain(opts: DomainOptions) {
     board,
     profiles,
     invitations,
+    cardMeasure,
 
     /** Startup: import projects from the repository, clean up state that did not survive a restart, watch PRs. */
     async start(): Promise<void> {

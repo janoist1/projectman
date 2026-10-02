@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import {
   ChangeTaskLabelsRequest,
+  MAX_CLOSED_CARDS_DAYS,
   CreateTaskCommentRequest,
   CancelTaskRequest,
   CreateTaskRequest,
@@ -9,7 +11,7 @@ import {
   StartTaskRequest,
   UpdateTaskRequest,
 } from '@projectman/shared';
-import type { Task, TaskDetail } from '@projectman/shared';
+import type { ClosedCardsMeasure, Task, TaskDetail } from '@projectman/shared';
 import type { Domain } from '../domain';
 import { notFound } from '../domain';
 import { canSeeTask, visibleTaskDetail, visibleTasks } from '../domain/visibility';
@@ -18,6 +20,10 @@ import { parseBody } from './validation';
 
 type ProjectParams = { Params: { key: string } };
 type TaskParams = { Params: { key: string; taskKey: string } };
+
+const ClosedCardsQuery = z.object({
+  days: z.coerce.number().int().min(1).max(MAX_CLOSED_CARDS_DAYS).optional(),
+});
 
 export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
   app.get<ProjectParams>(routes.tasks(':key'), async (request): Promise<Task[]> => {
@@ -35,7 +41,7 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
   app.get<TaskParams>(routes.task(':key', ':taskKey'), async (request): Promise<TaskDetail> => {
     const { key, taskKey } = request.params;
     const access = await requireAccess(domain, request, key);
-    const detail = domain.tasks.detail(key, taskKey);
+    const detail = domain.cardMeasure.withRounds(domain.tasks.detail(key, taskKey));
     if (!canSeeTask(access, detail.task)) throw notFound('task', taskKey);
     return visibleTaskDetail(access, detail, (linked) => {
       const other = domain.tasks.find(key, linked);
@@ -58,7 +64,7 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
     // Imported comments (author and time from elsewhere) are owner-only; the domain enforces it.
     const { text, ...imported } = parseBody(CreateTaskCommentRequest, request.body);
     await domain.tasks.addNote(key, taskKey, text, actorOf(access), null, imported);
-    return reply.code(201).send(domain.tasks.detail(key, taskKey));
+    return reply.code(201).send(domain.cardMeasure.withRounds(domain.tasks.detail(key, taskKey)));
   });
 
   app.post<TaskParams>(routes.taskLabels(':key', ':taskKey'), async (request): Promise<TaskDetail> => {
@@ -68,7 +74,7 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
     await domain.tasks.changeLabels(key, taskKey, { add: body.add, remove: body.remove }, actorOf(access), {
       comment: body.comment,
     });
-    return domain.tasks.detail(key, taskKey);
+    return domain.cardMeasure.withRounds(domain.tasks.detail(key, taskKey));
   });
 
   app.post<TaskParams>(routes.cancelTask(':key', ':taskKey'), async (request): Promise<Task> => {
@@ -96,6 +102,16 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
       author: authorOf(request),
       sponsor: await domain.members.sponsorFor(access),
     });
-    return domain.tasks.detail(key, taskKey);
+    return domain.cardMeasure.withRounds(domain.tasks.detail(key, taskKey));
+  });
+
+  /**
+   * The cards closed in the last `days` days (14 by default) with their review rounds, send-backs
+   * and weighted tokens per model (PM-222). Whoever sees the sessions' usage sees this: not clients.
+   */
+  app.get<ProjectParams>(routes.closedCardsMeasure(':key'), async (request): Promise<ClosedCardsMeasure> => {
+    await requireAccess(domain, request, request.params.key, { internal: true });
+    const { days } = parseBody(ClosedCardsQuery, request.query);
+    return domain.cardMeasure.closedCards(request.params.key, days);
   });
 }

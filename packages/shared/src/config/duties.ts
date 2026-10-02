@@ -29,6 +29,18 @@ export function dutyMembers(config: Pick<ProjectConfig, 'team'>, duty: DutyId): 
 export function stageOwners(config: Pick<ProjectConfig, 'team'>, stage: Stage): string[] {
   return stage.owners ?? (stage.duty ? dutyMembers(config, stage.duty).map((m) => m.handle) : []);
 }
+/**
+ * Whether the stage is a code review step (PM-222): a step stage that carries the code review duty,
+ * by the stage's own duty or, when it names none, by one of its owners.
+ */
+export function isCodeReviewStage(config: Pick<ProjectConfig, 'team'>, stage: Stage): boolean {
+  if (stage.kind !== 'step') return false;
+  if (stage.duty) return stage.duty === 'code_review';
+  const owners = new Set(stageOwners(config, stage));
+  return config.team.members.some(
+    (m) => owners.has(m.handle) && memberDuties(config, m).includes('code_review'),
+  );
+}
 /** The duties whose sessions review or test a handed-over commit (they get a review copy, PM-138). */
 export const REVIEW_DUTIES: readonly DutyId[] = ['code_review', 'security_review', 'testing_acceptance'];
 /**

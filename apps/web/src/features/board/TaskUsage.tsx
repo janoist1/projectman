@@ -1,12 +1,56 @@
-import { tokenTotal, usageTotal } from '@projectman/shared';
-import type { Session } from '@projectman/shared';
-import { TokenUsageList } from '../../components/TokenUsage';
+import { tokenTotal, usageTotal, weightedTokensByModel } from '@projectman/shared';
+import type { CardRounds, Session } from '@projectman/shared';
+import { TokenUsageList, WeightedTokensList } from '../../components/TokenUsage';
 import { formatTokens } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import drawer from './drawer.module.css';
 import styles from './TaskUsage.module.css';
+
+/**
+ * What the card took (PM-222): its review rounds, the reviews that asked for changes and the
+ * send-backs, then the weighted tokens per model (as the session warning limit counts them), the
+ * unit the closed cards are compared in. Without the server's counts (a client) nothing shows.
+ */
+export function TaskRounds({
+  rounds,
+  sessions,
+}: {
+  rounds: CardRounds | undefined;
+  sessions: readonly Session[];
+}) {
+  if (!rounds) return null;
+  const models = weightedTokensByModel(sessions.flatMap((session) => session.usage?.rows ?? []));
+  const counts: Array<[string, number]> = [
+    [t('tokenUsage.reviewRounds'), rounds.reviewRounds],
+    [t('tokenUsage.changeRequests'), rounds.changeRequests],
+    [t('tokenUsage.sendBacks'), rounds.sendBacks],
+  ];
+  return (
+    <section className={drawer.section} aria-labelledby="task-rounds">
+      <h3 id="task-rounds" className={drawer.sectionTitle}>
+        {t('tokenUsage.roundsTitle')}
+      </h3>
+      <dl className={styles.rounds}>
+        {counts.map(([label, count]) => (
+          <div key={label} className={styles.round}>
+            <dt>{label}</dt>
+            <dd className={styles.count}>{count}</dd>
+          </div>
+        ))}
+      </dl>
+      {models.length > 0 ? (
+        <div className={styles.members}>
+          <span className={styles.label} title={t('tokenUsage.countedHelp')}>
+            {t('tokenUsage.weighted')}
+          </span>
+          <WeightedTokensList models={models} />
+        </div>
+      ) : null}
+    </section>
+  );
+}
 
 /**
  * The tokens the card's sessions used together (PM-178): per model, the subagents' on their own

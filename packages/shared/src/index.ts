@@ -5,6 +5,7 @@ export * from './domain/task';
 export * from './domain/relations';
 export * from './domain/session';
 export * from './domain/token-usage';
+export * from './domain/card-measure';
 export * from './domain/event';
 export * from './domain/attachment';
 export * from './domain/message';

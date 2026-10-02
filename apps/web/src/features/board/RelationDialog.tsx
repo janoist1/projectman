@@ -49,11 +49,14 @@ function previewText(kind: DialogKind | null, target: string | null, task: Task)
 
 /** The reason a kind cannot be chosen for this card, or null. */
 function kindOff(kind: DialogKind, task: Task, tasks: readonly Task[]): string | null {
-  // What a theme cannot have is the shared rule's (`THEME_REFUSED_KINDS`); a new subtask is a theme collecting.
+  // What a theme cannot have is the shared rule's (`THEME_REFUSED_KINDS`). A new subtask is the
+  // other direction of `part_of` (both are `subtask_theme`), so it follows the same rule.
   if (isTheme(task)) {
-    if (kind === 'subtask') return t('relationDialog.off.themeSubtask');
-    if (THEME_REFUSED_KINDS.includes(kind))
-      return t('relationDialog.off.theme', { kind: t(`relations.kinds.${kind}`) });
+    const relation = kind === 'subtask' ? 'part_of' : kind;
+    if (THEME_REFUSED_KINDS.includes(relation))
+      return kind === 'subtask'
+        ? t('relationDialog.off.themeSubtask')
+        : t('relationDialog.off.theme', { kind: t(`relations.kinds.${relation}`) });
   }
   if (kind === 'part_of' && tasks.some((card) => card.parentKey === task.key))
     return t('relationDialog.off.part_of');

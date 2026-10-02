@@ -150,6 +150,13 @@ describe('relationRefusal', () => {
     expect(relationRefusal('related', from, 'PM-2', tasks)).toBeNull();
   });
 
+  it('refuses a card that is part of a theme, the other direction of part_of (a theme collects no subtasks)', () => {
+    const tasks = [{ ...card('PM-1'), kind: 'theme' as const }, card('PM-2')];
+    expect(relationRefusal('part_of', { key: 'PM-2', projectKey: 'PM' }, 'PM-1', tasks)?.code).toBe(
+      'subtask_theme',
+    );
+  });
+
   it('refuses a prerequisite that closes a loop of two cards, and names it', () => {
     const tasks = [card('PM-1'), card('PM-2', {}, [needs('PM-1')])];
     expect(relationRefusal('prerequisite', from, 'PM-2', tasks)).toEqual({

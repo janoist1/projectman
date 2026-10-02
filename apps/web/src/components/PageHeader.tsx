@@ -13,20 +13,34 @@ export function PageHeader({
   subtitle,
   className,
   hideTitleOnPhone = false,
+  leading,
   children,
 }: {
   title: string;
   subtitle?: ReactNode;
   className?: string;
   hideTitleOnPhone?: boolean;
+  /** Something before the title, such as an avatar. */
+  leading?: ReactNode;
   children?: ReactNode;
 }) {
+  const titles = (
+    <div className={styles.titles}>
+      <h1 className={styles.title}>{title}</h1>
+      {subtitle ? <p className={styles.subtitle}>{subtitle}</p> : null}
+    </div>
+  );
   return (
     <header className={clsx(styles.header, hideTitleOnPhone && styles.titleHiddenOnPhone, className)}>
-      <div className={styles.titles}>
-        <h1 className={styles.title}>{title}</h1>
-        {subtitle ? <p className={styles.subtitle}>{subtitle}</p> : null}
-      </div>
+      {/* The leading element and the titles wrap together, so the avatar never ends up above the name. */}
+      {leading ? (
+        <div className={styles.lead}>
+          {leading}
+          {titles}
+        </div>
+      ) : (
+        titles
+      )}
       {children}
     </header>
   );

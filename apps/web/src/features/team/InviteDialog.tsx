@@ -28,7 +28,8 @@ export function InviteDialog({
   );
 }
 
-function InviteForm({ member }: { member?: MemberView }) {
+/** The invitation form and, once created, its link. "Add colleague" shows it as one of its two ways. */
+export function InviteForm({ member }: { member?: MemberView }) {
   const { key, isOwner } = useProject();
   const roles = useRoles(key);
   const create = useCreateInvite(key);

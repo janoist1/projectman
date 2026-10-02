@@ -6,6 +6,13 @@
   gap: 16px;
 }
 
+/* A quiet line under a control that says what it does. */
+.hint {
+  margin: -8px 0 0;
+  color: var(--c-ink-3);
+  font-size: var(--text-sm);
+}
+
 .actions {
   display: flex;
   align-items: center;

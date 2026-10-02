@@ -2,20 +2,42 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 20px;
+  padding: 14px 16px;
   background: var(--c-surface);
   border: 1px solid var(--c-line);
   border-radius: var(--radius-2xl);
+}
+/* The catalogue is long (21 roles): only its title shows until it is opened. */
+.summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+.summary::-webkit-details-marker {
+  display: none;
+}
+.chevron {
+  color: var(--c-ink-3);
+  transition: transform 120ms ease;
+}
+.section[open] > .summary .chevron {
+  transform: rotate(90deg);
+}
+.summary h2 {
+  font-size: var(--text-xl);
+}
+.count {
+  color: var(--c-ink-3);
+  font-size: var(--text-sm);
+  font-weight: 700;
 }
 .header {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
-}
-.header h2 {
-  flex: 1;
-  font-size: var(--text-2xl);
 }
 .list {
   display: grid;

@@ -7,6 +7,7 @@ import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Chip } from '../../components/Chip';
 import { Dialog } from '../../components/Dialog';
+import { Icon } from '../../components/Icon';
 import { TextAreaField, TextField } from '../../components/Field';
 import { ErrorState, LoadingState } from '../../components/States';
 import { ErrorBanner } from '../../components/ErrorBanner';
@@ -123,62 +124,68 @@ export function RoleSection({ config }: { config?: ProjectConfig }) {
   const [editing, setEditing] = useState<RoleView | 'new' | null>(null);
   const [deleting, setDeleting] = useState<RoleView | null>(null);
   return (
-    <section className={styles.section}>
-      <div className={styles.header}>
-        <h2>{t('roleCatalogue.title')}</h2>
+    <>
+      <details className={styles.section}>
+        <summary className={styles.summary}>
+          <Icon name="chevronRight" size={14} strokeWidth={2.4} className={styles.chevron} />
+          <h2>{t('roleCatalogue.title')}</h2>
+          {roles.data ? <span className={styles.count}>{roles.data.roles.length}</span> : null}
+        </summary>
         {can.manageTeam ? (
-          <Button variant="secondary" onClick={() => setEditing('new')}>
-            {t('roleCatalogue.create')}
-          </Button>
+          <div className={styles.header}>
+            <Button variant="secondary" onClick={() => setEditing('new')}>
+              {t('roleCatalogue.create')}
+            </Button>
+          </div>
         ) : null}
-      </div>
-      {roles.isPending ? (
-        <LoadingState compact />
-      ) : roles.isError ? (
-        <ErrorState error={roles.error} onRetry={() => void roles.refetch()} />
-      ) : (
-        <ul className={styles.list}>
-          {roles.data.roles.map((role) => {
-            const view = roleView(role);
-            return (
-              <li key={role.id} className={styles.role}>
-                <div className={styles.header}>
-                  <Chip icon={view.icon}>{view.name}</Chip>
-                  <code>{role.id}</code>
-                  {role.builtIn ? <Chip>{t('roleCatalogue.builtin')}</Chip> : null}
-                  <Chip>{t(`roleCatalogue.${role.holders}`)}</Chip>
-                </div>
-                <p>{view.summary}</p>
-                <p className={styles.muted}>
-                  {t('roleCatalogue.notTheirJob')}: {view.notTheirJob}
-                </p>
-                {view.whenToAsk ? (
-                  <p className={styles.muted}>
-                    {t('roleCatalogue.whenToAsk')}: {view.whenToAsk}
-                  </p>
-                ) : null}
-                {!role.builtIn && can.manageTeam ? (
-                  <div className={formStyles.actions}>
-                    <Button size="sm" variant="ghost" disabled={!config} onClick={() => setEditing(role)}>
-                      {t('memberEdit.edit')}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="danger"
-                      onClick={() => {
-                        remove.reset();
-                        setDeleting(role);
-                      }}
-                    >
-                      {t('roleCatalogue.delete')}
-                    </Button>
+        {roles.isPending ? (
+          <LoadingState compact />
+        ) : roles.isError ? (
+          <ErrorState error={roles.error} onRetry={() => void roles.refetch()} />
+        ) : (
+          <ul className={styles.list}>
+            {roles.data.roles.map((role) => {
+              const view = roleView(role);
+              return (
+                <li key={role.id} className={styles.role}>
+                  <div className={styles.header}>
+                    <Chip icon={view.icon}>{view.name}</Chip>
+                    <code>{role.id}</code>
+                    {role.builtIn ? <Chip>{t('roleCatalogue.builtin')}</Chip> : null}
+                    <Chip>{t(`roleCatalogue.${role.holders}`)}</Chip>
                   </div>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
-      )}
+                  <p>{view.summary}</p>
+                  <p className={styles.muted}>
+                    {t('roleCatalogue.notTheirJob')}: {view.notTheirJob}
+                  </p>
+                  {view.whenToAsk ? (
+                    <p className={styles.muted}>
+                      {t('roleCatalogue.whenToAsk')}: {view.whenToAsk}
+                    </p>
+                  ) : null}
+                  {!role.builtIn && can.manageTeam ? (
+                    <div className={formStyles.actions}>
+                      <Button size="sm" variant="ghost" disabled={!config} onClick={() => setEditing(role)}>
+                        {t('memberEdit.edit')}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        onClick={() => {
+                          remove.reset();
+                          setDeleting(role);
+                        }}
+                      >
+                        {t('roleCatalogue.delete')}
+                      </Button>
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </details>
       <Dialog
         open={editing !== null}
         onClose={() => setEditing(null)}
@@ -219,6 +226,6 @@ export function RoleSection({ config }: { config?: ProjectConfig }) {
           </Button>
         </div>
       </Dialog>
-    </section>
+    </>
   );
 }

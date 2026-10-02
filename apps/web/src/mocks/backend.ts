@@ -30,6 +30,7 @@ import {
   RetireMemberRequest,
   RevertConfigRequest,
   SendMessageRequest,
+  ReadTeamMessagesRequest,
   SendTeamMessageRequest,
   SetupRequest,
   StartTaskRequest,
@@ -44,6 +45,9 @@ import {
   canDeleteAttachment,
   canReadAttachments,
   canSeeTask,
+  canSeeTeamMessage,
+  isUnreadBy,
+  threadPeersOf,
   canUploadAttachment,
   commentMentions,
   configSchemaIssues,
@@ -336,13 +340,7 @@ export class MockBackend {
 
   /** Publishes a project event to every subscribed connection. */
   emit(event: ServerEvent): void {
-    if (
-      event.type === 'team_message' &&
-      this.findMember(this.viewerHandle)?.role === 'client' &&
-      event.message.from !== this.viewerHandle &&
-      !event.message.to.includes(this.viewerHandle)
-    )
-      return;
+    if (event.type === 'team_message' && !canSeeTeamMessage(this.taskViewer(), event.message)) return;
     const projectKey = 'projectKey' in event ? event.projectKey : null;
     for (const [connection, projects] of this.connections) {
       if (projectKey === null || projects.has(projectKey)) connection.deliver(event);
@@ -385,6 +383,26 @@ export class MockBackend {
       access: viewer?.kind === 'human' ? (viewer.role as HumanAccess) : 'ai',
       handle: this.viewerHandle,
     };
+  }
+
+  /** The viewer reads a message sent to them: their receipt, and the event the server pushes. */
+  private markMessageRead(message: TeamMessage): void {
+    message.receipts ??= message.to.map((handle) => ({
+      handle,
+      kind: this.findMember(handle)?.kind ?? 'human',
+      deliveredAt: message.deliveredAt,
+      readAt: null,
+    }));
+    const receipt = message.receipts.find((r) => r.handle === this.viewerHandle)!;
+    receipt.readAt ??= nowIso();
+    receipt.deliveredAt ??= nowIso();
+    this.emit({ type: 'team_message', projectKey: fixtures.PROJECT_KEY, message: clone(message) });
+  }
+
+  /** The team messages the viewer may see, oldest first: the rule the server uses (`packages/shared`). */
+  private visibleMessages(): TeamMessage[] {
+    const viewer = this.taskViewer();
+    return this.messages.filter((message) => canSeeTeamMessage(viewer, message));
   }
 
   /** Whether the viewer may see the task: the rule the server uses (`packages/shared`). */
@@ -988,35 +1006,20 @@ export class MockBackend {
 
     if (rest === '/messages') {
       if (method === 'POST') return this.humanTeamMessage(body);
+      const peer = query.get('threadWith');
+      const member = query.get('member');
+      const taskKey = query.get('taskKey');
+      const involves = (message: TeamMessage, handle: string) =>
+        message.from === handle || message.to.includes(handle);
+      const limit = Number(query.get('limit') ?? 200);
+      const listed = this.visibleMessages()
+        .filter((message) => !peer || threadPeersOf(message, this.viewerHandle).includes(peer))
+        .filter((message) => !member || involves(message, member))
+        .filter((message) => !taskKey || message.taskKey === taskKey)
+        .filter((message) => query.get('unreadOnly') !== 'true' || isUnreadBy(message, this.viewerHandle));
       return ok({
-        messages: clone(
-          this.messages
-            .filter((message) => {
-              const peer = query.get('threadWith');
-              return (
-                !peer ||
-                (message.from === this.viewerHandle && message.to.includes(peer)) ||
-                (message.from === peer && message.to.includes(this.viewerHandle))
-              );
-            })
-            .filter(
-              (message) =>
-                query.get('unreadOnly') !== 'true' ||
-                (message.to.includes(this.viewerHandle) &&
-                  !message.receipts?.find((r) => r.handle === this.viewerHandle)?.readAt),
-            )
-            .filter(
-              (message) =>
-                viewer.role !== 'client' ||
-                message.from === this.viewerHandle ||
-                message.to.includes(this.viewerHandle),
-            ),
-        ),
-        unreadCount: this.messages.filter(
-          (message) =>
-            message.to.includes(this.viewerHandle) &&
-            !message.receipts?.find((r) => r.handle === this.viewerHandle)?.readAt,
-        ).length,
+        messages: clone(listed.slice(-limit)),
+        unreadCount: this.messages.filter((message) => isUnreadBy(message, this.viewerHandle)).length,
       });
     }
     if ((m = /^\/messages\/([\w-]+)\/read$/.exec(rest)) && method === 'POST') {
@@ -1024,17 +1027,36 @@ export class MockBackend {
       if (!message) return error(404, 'not_found', 'Unknown message');
       if (!message.to.includes(this.viewerHandle))
         return error(403, 'not_a_recipient', 'Only recipients may mark read');
-      message.receipts ??= message.to.map((handle) => ({
-        handle,
-        kind: this.findMember(handle)?.kind ?? 'human',
-        deliveredAt: message.deliveredAt,
-        readAt: null,
-      }));
-      const receipt = message.receipts.find((r) => r.handle === this.viewerHandle)!;
-      receipt.readAt ??= nowIso();
-      receipt.deliveredAt ??= nowIso();
-      this.emit({ type: 'team_message', projectKey: fixtures.PROJECT_KEY, message: clone(message) });
+      this.markMessageRead(message);
       return ok(clone(message));
+    }
+    if (rest === '/messages/read' && method === 'POST') {
+      const input = parseBody(ReadTeamMessagesRequest, body);
+      if (!input) return error(400, 'invalid_request', 'Invalid read request');
+      const changed = [...new Set(input.ids)]
+        .map((id) => this.messages.find((entry) => entry.id === id))
+        .filter((message): message is TeamMessage => !!message && isUnreadBy(message, this.viewerHandle));
+      for (const message of changed) this.markMessageRead(message);
+      return ok({
+        messages: clone(changed),
+        unreadCount: this.messages.filter((message) => isUnreadBy(message, this.viewerHandle)).length,
+      });
+    }
+    if (rest === '/messages/threads' && method === 'GET') {
+      // Like the server: over every message of the viewer, the latest conversation last, then reversed.
+      const threads = new Map<string, { lastMessage: TeamMessage; unreadCount: number }>();
+      for (const message of this.visibleMessages()) {
+        for (const peer of threadPeersOf(message, this.viewerHandle)) {
+          const unread = isUnreadBy(message, this.viewerHandle) ? 1 : 0;
+          const before = threads.get(peer);
+          threads.delete(peer);
+          threads.set(peer, { lastMessage: message, unreadCount: (before?.unreadCount ?? 0) + unread });
+        }
+      }
+      return ok({
+        threads: clone([...threads].reverse().map(([peer, thread]) => ({ peer, ...thread }))),
+        unreadCount: this.messages.filter((message) => isUnreadBy(message, this.viewerHandle)).length,
+      });
     }
     if ((m = /^\/members\/([a-z0-9-]+)\/(profile|memories|conversation|remove)$/.exec(rest))) {
       const handle = m[1]!;

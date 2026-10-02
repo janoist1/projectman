@@ -1,19 +1,14 @@
-import { canSeeTask, isCardLink } from '@projectman/shared';
-import type {
-  InboxItem,
-  MemberView,
-  ServerEvent,
-  Task,
-  TaskDetail,
-  TeamMessage,
-  TimelineEvent,
-} from '@projectman/shared';
+import { canSeeAllTeamMessages, canSeeTask, canSeeTeamMessage, isCardLink } from '@projectman/shared';
+import type { InboxItem, MemberView, ServerEvent, Task, TaskDetail, TimelineEvent } from '@projectman/shared';
 import type { ProjectAccess } from './access';
 
 /**
  * What a member sees of their project. Client members (access "client") see only what is
  * shared with them; every other access level sees the whole project. The REST routes and the
  * websocket both decide here.
+ *
+ * Team messages are the exception to the second half (PM-78): an owner and an admin see every
+ * message, every other member (a developer and a read-only member too) only what they sent or got.
  *
  * The two paths do not agree everywhere yet (an open question for the owner, kept as it was):
  * - timeline: the task detail shows a client the milestones below, while live timeline
@@ -43,14 +38,15 @@ export function canSeeInboxItem(viewer: Viewer, item: InboxItem): boolean {
   return !isClient(viewer) || item.assignees.includes(viewer.handle);
 }
 
-/** A client sees only the team messages they sent or received. */
-export function canSeeTeamMessage(viewer: Viewer, message: TeamMessage): boolean {
-  return !isClient(viewer) || message.from === viewer.handle || message.to.includes(viewer.handle);
-}
+/** Team messages: an owner and an admin see all of them, everyone else only their own (the rule lives in `packages/shared`). */
+export { canSeeTeamMessage };
 
-/** The member whose messages a listing may show (sent or received): a client only their own. */
-export function teamMessageMember(viewer: Viewer, requested: string | undefined): string | undefined {
-  return isClient(viewer) ? viewer.handle : requested;
+/**
+ * The member a message listing is narrowed to (sent or received) whatever else it filters by:
+ * the viewer for everyone but an owner and an admin, who may see every message.
+ */
+export function teamMessageParticipant(viewer: Viewer): string | undefined {
+  return canSeeAllTeamMessages(viewer) ? undefined : viewer.handle;
 }
 
 /**
@@ -159,6 +155,8 @@ export function canSeeProjectEvent(
   event: ProjectEvent,
   taskOf?: (taskKey: string) => Task | null | undefined,
 ): boolean {
+  // A team message reaches only those it concerns (and an owner and an admin), whatever their access.
+  if (event.type === 'team_message') return canSeeTeamMessage(viewer, event.message);
   if (!isClient(viewer)) return true;
   switch (event.type) {
     case 'task_upserted':
@@ -169,8 +167,6 @@ export function canSeeProjectEvent(
     }
     case 'inbox_upserted':
       return canSeeInboxItem(viewer, event.item);
-    case 'team_message':
-      return canSeeTeamMessage(viewer, event.message);
     case 'config_changed':
     case 'member_changed':
       return true;

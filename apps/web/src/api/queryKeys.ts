@@ -1,3 +1,10 @@
+/** The filters of the "All messages" list (PM-78); an empty string is no filter. */
+export interface AllMessagesFilter {
+  member: string;
+  task: string;
+  unread: boolean;
+}
+
 /**
  * TanStack Query keys. Everything that belongs to a project starts with
  * ['project', key] so a reconnect can refetch a whole project at once.
@@ -31,6 +38,14 @@ export const queryKeys = {
   messages: (key: string) => ['project', key, 'messages'] as const,
   messageThread: (key: string, handle: string) => ['project', key, 'messages', 'thread', handle] as const,
   unreadMessages: (key: string) => ['project', key, 'messages', 'unread'] as const,
+  /** The viewer's conversation list (PM-78). */
+  teamThreads: (key: string) => ['project', key, 'messages', 'threads'] as const,
+  /** One conversation of the viewer with `handle`, up to the server's page limit (PM-78). */
+  conversation: (key: string, handle: string) =>
+    ['project', key, 'messages', 'conversation', handle] as const,
+  /** "All messages" under a filter (PM-78). */
+  allMessages: (key: string, filter: AllMessagesFilter) =>
+    ['project', key, 'messages', 'all', filter] as const,
   schedules: (key: string) => ['project', key, 'schedules'] as const,
   members: (key: string) => ['project', key, 'members'] as const,
   roles: (key: string) => ['project', key, 'roles'] as const,

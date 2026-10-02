@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
+import { canSeeAllTeamMessages } from '@projectman/shared';
 import type { MemberView } from '@projectman/shared';
 import { useBoard, useConfig, useInbox, useMembers, useRoles, useTeamMessages } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
@@ -49,7 +50,9 @@ const statusRank: Record<string, number> = {
 
 /** "Csapat": one roster of humans and AI members, hiring and retiring. */
 export function TeamPage() {
-  const { key, myHandle, can } = useProject();
+  const { key, myHandle, can, me } = useProject();
+  const access = me.projects.find((project) => project.key === key)?.access;
+  const seesAllMessages = access ? canSeeAllTeamMessages({ access }) : false;
   const isMobile = useIsMobile();
   const membersQuery = useMembers(key);
   const board = useBoard(key);
@@ -233,7 +236,7 @@ export function TeamPage() {
             ) : (
               <LoadingState compact />
             )}
-            <Link to={`/p/${key}/messages`} className={styles.flowAll}>
+            <Link to={`/p/${key}/messages${seesAllMessages ? '/all' : ''}`} className={styles.flowAll}>
               <span>{t('team.messagesAll')}</span>
               <Icon name="arrowRight" size={14} strokeWidth={2.2} />
             </Link>

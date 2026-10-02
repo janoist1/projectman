@@ -24,8 +24,10 @@ export function ProjectLayout() {
   const fixedBoard = !isMobile && !!(boardIndex || boardTask);
   // A session fills the phone: its own header replaces the app's (project, search, new task, account)
   // and its back arrow the tab bar.
+  // An open conversation (PM-78) does the same: its header has the back arrow to the list.
   const sessionRoute = useMatch('/p/:projectKey/sessions/:sessionId');
-  const phoneSession = isMobile && !!sessionRoute;
+  const conversationRoute = useMatch('/p/:projectKey/messages/with/:handle');
+  const phoneSession = isMobile && (!!sessionRoute || !!conversationRoute);
   useProjectSubscription(projectKey);
   const board = useBoard(projectKey);
   const inbox = useInbox(projectKey);

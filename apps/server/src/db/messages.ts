@@ -16,6 +16,11 @@ interface MessageRow {
   delivered_at: string | null;
 }
 
+/** A message without its body: who it is between and who read it. */
+export type MessageSummary = Pick<TeamMessage, 'id' | 'from' | 'to' | 'receipts'>;
+
+type SummaryRow = Pick<MessageRow, 'id' | 'from_handle' | 'to_handles' | 'receipts'>;
+
 const toMessage = (r: MessageRow): TeamMessage => ({
   id: r.id,
   projectKey: r.project_key,
@@ -45,6 +50,10 @@ export function createMessageRepository(db: Db) {
       `SELECT * FROM team_messages WHERE project_key = ? AND
        EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?) ORDER BY seq`,
     ),
+    involving: db.prepare(
+      `SELECT id, from_handle, to_handles, receipts FROM team_messages WHERE project_key = ?
+       AND (from_handle = ? OR EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)) ORDER BY seq`,
+    ),
     updateReceipts: db.prepare('UPDATE team_messages SET receipts = ?, delivered_at = ? WHERE id = ?'),
     markDelivered: db.prepare(
       'UPDATE team_messages SET delivered_at = ? WHERE id = ? AND delivered_at IS NULL',
@@ -73,12 +82,16 @@ export function createMessageRepository(db: Db) {
         m.receipts ? toJson(m.receipts) : null,
       );
     },
-    /** Most recent messages, oldest first. `member` matches sender or recipient. */
+    /**
+     * Most recent messages, oldest first. `member` and `participant` both match sender or recipient and
+     * both apply when given: `participant` is the viewer's own narrowing, which no other filter widens.
+     */
     list(
       projectKey: string,
       filter: {
         taskKey?: string;
         member?: string;
+        participant?: string;
         between?: [string, string];
         unreadFor?: string;
         limit?: number;
@@ -90,9 +103,10 @@ export function createMessageRepository(db: Db) {
         sql += ' AND task_key = ?';
         params.push(filter.taskKey);
       }
-      if (filter.member) {
+      for (const handle of [filter.member, filter.participant]) {
+        if (!handle) continue;
         sql += ' AND (from_handle = ? OR EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?))';
-        params.push(filter.member, filter.member);
+        params.push(handle, handle);
       }
       if (filter.between) {
         const [a, b] = filter.between;
@@ -113,6 +127,15 @@ export function createMessageRepository(db: Db) {
         lists.set(sql, statement);
       }
       return (statement.all(...params) as MessageRow[]).reverse().map(toMessage);
+    },
+    /** Every message the member sent or got, oldest first, without its body: all a conversation list needs. */
+    involving(projectKey: string, handle: string): MessageSummary[] {
+      return (statements.involving.all(projectKey, handle, handle) as SummaryRow[]).map((r) => ({
+        id: r.id,
+        from: r.from_handle,
+        to: parseJson<string[]>(r.to_handles, []),
+        ...(r.receipts ? { receipts: parseJson(r.receipts, []) } : {}),
+      }));
     },
     countUnread(projectKey: string, handle: string): number {
       return (statements.countUnread.get(projectKey, handle, handle) as { n: number }).n;

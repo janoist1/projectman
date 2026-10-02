@@ -457,6 +457,25 @@ export const TeamMessagesView = z.object({
 });
 export type TeamMessagesView = z.infer<typeof TeamMessagesView>;
 
+/** One conversation of the viewer with another member: its latest message and their unread messages in it (PM-78). */
+export const TeamThread = z.object({
+  peer: MemberHandle,
+  lastMessage: TeamMessage,
+  unreadCount: z.number().int().nonnegative(),
+});
+export type TeamThread = z.infer<typeof TeamThread>;
+
+/** The viewer's own conversations, the most recently active first, and all their unread messages. */
+export const TeamThreadsView = z.object({
+  threads: z.array(TeamThread),
+  unreadCount: z.number().int().nonnegative(),
+});
+export type TeamThreadsView = z.infer<typeof TeamThreadsView>;
+
+/** Marks the messages read that were sent to the viewer; the others of the list are left as they are. */
+export const ReadTeamMessagesRequest = z.object({ ids: z.array(z.string().min(1)).min(1).max(500) });
+export type ReadTeamMessagesRequest = z.infer<typeof ReadTeamMessagesRequest>;
+
 /* ---------- inbox ---------- */
 
 export const InboxView = z.object({ items: z.array(InboxItem) });

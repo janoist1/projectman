@@ -1,97 +1,171 @@
-import { useMemo, useState } from 'react';
-import { useBoard, useReadTeamMessage, useTeamMessages, useUnreadTeamMessages } from '../../api/queries';
+import clsx from 'clsx';
+import { useEffect, useMemo, useState } from 'react';
+import { Navigate, useMatch, useNavigate, useParams } from 'react-router';
+import { canSeeAllTeamMessages } from '@projectman/shared';
+import { useBoard, useInbox, useRoles, useTeamThreads } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
+import { Button } from '../../components/Button';
+import { Dialog } from '../../components/Dialog';
 import { PageHeader } from '../../components/PageHeader';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
-import { useDocumentTitle } from '../../lib/hooks';
-import type { TeamMessage } from '@projectman/shared';
-import { Button } from '../../components/Button';
-import { Dialog } from '../../components/Dialog';
-import { errorMessage } from '../../lib/errors';
+import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
+import { AllMessages } from './AllMessages';
+import { ConversationList } from './ConversationList';
+import { ConversationThread } from './ConversationThread';
+import type { ThreadComposeRequest } from './ConversationThread';
+import { conversationRows, openQuestionsFrom } from './conversations';
 import { MessageComposer } from './MessageComposer';
-import { unreadMessages } from './receipts';
-import { MessageList } from './MessageList';
 import styles from './MessagesPage.module.css';
 
-type MessageFilter = 'all' | 'mine' | 'unread';
+type View = 'conversations' | 'all';
 
-/** Who told whom what, across the whole team. */
+/**
+ * The team's messages: the viewer's conversations, member by member (the base view), and for an
+ * owner and an admin the whole project's messages under filters. Routes: /messages (the list, and on
+ * a wide screen the latest conversation), /messages/with/:handle, /messages/all.
+ */
 export function MessagesPage() {
   const { key, myHandle, me } = useProject();
-  const messages = useTeamMessages(key);
-  const read = useReadTeamMessage(key);
-  const access = me.projects.find((p) => p.key === key)?.access;
-  const canSend = Boolean(access && ['owner', 'admin', 'developer', 'client'].includes(access));
-  const [compose, setCompose] = useState<{ to: string[]; task: string } | null>(null);
-  const reply = (message: TeamMessage) =>
-    setCompose({
-      to: [...new Set([message.from, ...message.to])].filter((h) => h !== myHandle),
-      task: message.taskKey ?? '',
-    });
+  const { handle: peerParam } = useParams();
+  const isAll = useMatch('/p/:projectKey/messages/all') !== null;
+  const isMobile = useIsMobile();
+  const navigate = useNavigate();
   const board = useBoard(key);
+  const roles = useRoles(key);
+  const threads = useTeamThreads(key);
+  const inbox = useInbox(key);
   const { members } = useProjectIndexes(key);
-  const [filter, setFilter] = useState<MessageFilter>('all');
-  const unreadQuery = useUnreadTeamMessages(key, filter === 'unread');
+  const access = me.projects.find((p) => p.key === key)?.access;
+  const canAll = access ? canSeeAllTeamMessages({ access }) : false;
+  const canSend = Boolean(access && ['owner', 'admin', 'developer', 'client'].includes(access));
+  const [compose, setCompose] = useState<ThreadComposeRequest | null>(null);
   useDocumentTitle(t('messages.title'), board.data?.project.name);
-  const titles = useMemo(
-    () => new Map((board.data?.tasks ?? []).map((task) => [task.key, task.title])),
-    [board.data],
+
+  const openQuestions = useMemo(
+    () => (inbox.data?.items ?? []).filter((item) => item.kind === 'question' && item.state === 'open'),
+    [inbox.data],
   );
+  const { rows, rest } = useMemo(
+    () =>
+      conversationRows(
+        threads.data?.threads ?? [],
+        openQuestions.filter((item) => myHandle !== null && item.assignees.includes(myHandle)),
+        members,
+        myHandle,
+      ),
+    [threads.data, openQuestions, members, myHandle],
+  );
+  const questionTitles = useMemo(() => {
+    const titles = new Map<string, string>();
+    for (const row of rows) {
+      const first = openQuestionsFrom(inbox.data?.items, row.peer, myHandle)[0];
+      if (first) titles.set(row.peer, first.title);
+    }
+    return titles;
+  }, [rows, inbox.data, myHandle]);
 
-  if (messages.isPending) return <LoadingState />;
-  if (messages.isError) return <ErrorState error={messages.error} onRetry={() => void messages.refetch()} />;
+  // A wide screen opens the latest conversation once the list is known; after that the address decides,
+  // so a message from someone else does not switch the open thread under the reader.
+  const settled = threads.isSuccess && !inbox.isPending;
+  const firstPeer = rows[0]?.peer;
+  const opensFirst = !isAll && !isMobile && peerParam === undefined && settled && firstPeer !== undefined;
+  useEffect(() => {
+    if (opensFirst) navigate(`/p/${key}/messages/with/${firstPeer}`, { replace: true });
+  }, [opensFirst, navigate, key, firstPeer]);
+  // On a phone the row of the conversation just left takes the focus back.
+  const [lastPeer, setLastPeer] = useState<string | null>(null);
+  useEffect(() => {
+    if (peerParam !== undefined) setLastPeer(peerParam);
+  }, [peerParam]);
 
-  const all = messages.data.messages;
-  const mine = all.filter((message) => myHandle !== null && message.to.includes(myHandle));
-  const unread = unreadQuery.data?.messages ?? unreadMessages(all, myHandle);
-  const shown = filter === 'mine' ? mine : filter === 'unread' ? unread : all;
+  // Someone who may not see everything gets the conversations, whatever the address says.
+  if (isAll && !canAll) return <Navigate to={`/p/${key}/messages`} replace />;
 
-  return (
-    <div className={styles.page}>
-      <PageHeader hideTitleOnPhone title={t('messages.title')} subtitle={t('messages.subtitle')}>
-        {canSend ? (
-          <Button variant="primary" onClick={() => setCompose({ to: [], task: '' })}>
+  const view: View = isAll ? 'all' : 'conversations';
+  const selected = peerParam ?? null;
+  const inThread = isMobile && peerParam !== undefined && view === 'conversations';
+
+  const header = (
+    <PageHeader hideTitleOnPhone title={t('messages.title')} className={styles.header}>
+      {canAll ? (
+        <SegmentedControl<View>
+          label={t('messages.views.label')}
+          value={view}
+          onChange={(next) => navigate(`/p/${key}/messages${next === 'all' ? '/all' : ''}`)}
+          options={[
+            { value: 'conversations', label: t('messages.views.conversations') },
+            { value: 'all', label: t('messages.views.all') },
+          ]}
+          className={styles.views}
+        />
+      ) : null}
+      {canSend ? (
+        isMobile ? (
+          <Button
+            variant="secondary"
+            size="lg"
+            iconOnly
+            icon="pencil"
+            aria-label={t('messages.new')}
+            onClick={() => setCompose({ to: [], task: '' })}
+          />
+        ) : (
+          <Button variant="secondary" onClick={() => setCompose({ to: [], task: '' })}>
             {t('messages.new')}
           </Button>
-        ) : null}
-        <SegmentedControl<MessageFilter>
-          label={t('messages.filtersLabel')}
-          value={filter}
-          onChange={setFilter}
-          options={[
-            { value: 'all', label: t('messages.filters.all'), count: all.length },
-            { value: 'mine', label: t('messages.filters.mine'), count: mine.length },
-            {
-              value: 'unread',
-              label: t('messages.unread'),
-              count: messages.data.unreadCount ?? unread.length,
-            },
-          ]}
-        />
-      </PageHeader>
-      <section className={styles.panel}>
-        {filter === 'unread' && unreadQuery.isError ? (
-          <ErrorState error={unreadQuery.error} onRetry={() => void unreadQuery.refetch()} />
-        ) : shown.length === 0 ? (
-          <EmptyState icon="messages" title={t('messages.empty')} />
-        ) : (
-          <MessageList
-            messages={shown}
-            members={members}
-            myHandle={myHandle}
-            projectKey={key}
-            taskTitles={titles}
-            onReply={canSend ? reply : undefined}
-            onRead={(id) => read.mutate(id)}
-            readPending={read.isPending}
-            groupByDay
-          />
-        )}
-      </section>
-      {read.error ? <p role="alert">{errorMessage(read.error)}</p> : null}
-      <Dialog open={Boolean(compose)} title={t('messages.new')} onClose={() => setCompose(null)}>
+        )
+      ) : null}
+    </PageHeader>
+  );
+
+  const list = threads.isPending ? (
+    <div className={styles.listState}>
+      <LoadingState />
+    </div>
+  ) : threads.isError ? (
+    <div className={styles.listState}>
+      <ErrorState error={threads.error} onRetry={() => void threads.refetch()} />
+    </div>
+  ) : (
+    <ConversationList
+      projectKey={key}
+      rows={rows}
+      rest={rest}
+      members={members}
+      roles={roles.data?.roles}
+      myHandle={myHandle}
+      selected={isMobile ? null : selected}
+      questionTitles={questionTitles}
+      intro={rows.length === 0}
+      focusPeer={isMobile ? lastPeer : null}
+    />
+  );
+
+  return (
+    <div className={clsx(styles.page, inThread && styles.threadPage)}>
+      {inThread ? null : header}
+      {view === 'all' ? (
+        <AllMessages onCompose={setCompose} />
+      ) : (
+        <div className={styles.chat}>
+          {isMobile && inThread ? null : list}
+          {isMobile && !inThread ? null : selected ? (
+            <ConversationThread
+              key={selected}
+              peer={selected}
+              roles={roles.data?.roles}
+              onCompose={setCompose}
+            />
+          ) : (
+            <div className={styles.pick}>
+              <EmptyState icon="messages" title={t('messages.thread.pick')} />
+            </div>
+          )}
+        </div>
+      )}
+      <Dialog open={compose !== null} title={t('messages.new')} onClose={() => setCompose(null)}>
         {compose ? (
           <MessageComposer
             initialTo={compose.to}

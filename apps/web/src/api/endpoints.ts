@@ -28,6 +28,7 @@ import {
   SetupStatus,
   TaskDetail,
   TeamMessagesView,
+  TeamThreadsView,
   TemplateSummary,
   routes,
 } from '@projectman/shared';
@@ -171,6 +172,21 @@ export const api = {
     apiRequest(routes.sendTeamMessage(key), { method: 'POST', body, schema: TeamMessage }),
   readTeamMessage: (key: string, id: string) =>
     apiRequest(routes.readTeamMessage(key, id), { method: 'POST', schema: TeamMessage }),
+  readTeamMessages: (key: string, ids: string[]) =>
+    apiRequest(routes.readTeamMessages(key), { method: 'POST', body: { ids }, schema: TeamMessagesView }),
+  teamThreads: (key: string) => apiRequest(routes.teamThreads(key), { schema: TeamThreadsView }),
+  /** One conversation with `peer` (the server's page limit) or the project's messages under the filters. */
+  teamMessageList: (
+    key: string,
+    params: { threadWith?: string; member?: string; taskKey?: string; unreadOnly?: boolean },
+  ) => {
+    const query = new URLSearchParams({ limit: '500' });
+    if (params.threadWith) query.set('threadWith', params.threadWith);
+    if (params.member) query.set('member', params.member);
+    if (params.taskKey) query.set('taskKey', params.taskKey);
+    if (params.unreadOnly) query.set('unreadOnly', 'true');
+    return apiRequest(`${routes.teamMessages(key)}?${query}`, { schema: TeamMessagesView });
+  },
   teamMessages: (key: string, threadWith?: string, unreadOnly = false) =>
     apiRequest(
       `${routes.teamMessages(key)}${threadWith ? `?threadWith=${encodeURIComponent(threadWith)}` : unreadOnly ? '?unreadOnly=true' : ''}`,

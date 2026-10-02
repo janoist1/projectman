@@ -205,6 +205,8 @@ describe('end-of-round compaction', () => {
       await h.domain.sessions.stop('AR', dev.id);
       await handOver();
       await vi.waitFor(() => expect(owed(dev.id)).toBe(true));
+      // The reviewer's session starts in the background: let it finish before the test starts its own.
+      await vi.waitFor(() => expect(h.runner.started.length).toBeGreaterThan(1));
       return dev;
     }
     const resume = (messages: string[] = []) =>

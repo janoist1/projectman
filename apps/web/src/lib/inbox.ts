@@ -83,6 +83,10 @@ function workText(workItem: WorkItemRef): string {
     : t(`inbox.alerts.work.${workItem.type}`);
 }
 
+function gigabytes(bytes: number): string {
+  return t('settings.limits.minFreeDiskValue', { count: (bytes / 1024 ** 3).toFixed(1).replace('.', ',') });
+}
+
 /**
  * What an alert says, from its payload: for a session over the token warning limit (PM-187) the
  * member, the card or chat, when the session started, what it used and the limit; for a message
@@ -98,6 +102,17 @@ export function alertText(item: InboxItem, members: MemberIndex, myHandle: strin
       count: alert.count,
       minutes: alert.minutes,
       members: joinNames(namesOf(alert.members, members, myHandle)),
+    });
+  if (alert.alert === 'disk_low')
+    return t('inbox.alerts.disk_low.body', {
+      free: gigabytes(alert.freeBytes),
+      threshold: gigabytes(alert.thresholdBytes),
+    });
+  if (alert.alert === 'worktree_kept')
+    return t('inbox.alerts.worktree_kept.body', {
+      key: alert.taskKey,
+      path: alert.path,
+      changes: alert.changes,
     });
   if (alert.alert === 'session_input')
     return t('inbox.alerts.session_input.body', {

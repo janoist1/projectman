@@ -35,7 +35,7 @@ export interface AppHarnessOptions {
   /** Modules that stay real instead of being replaced by the fakes the harness returns. */
   real?: { context?: boolean; memory?: boolean; worktrees?: boolean; mcp?: boolean; templates?: boolean };
   /** Further buildApp options. */
-  app?: Pick<BuildAppOptions, 'doneCleanupDelayMs' | 'doneTurnLimitMs' | 'clientIpHeader'>;
+  app?: Pick<BuildAppOptions, 'doneCleanupDelayMs' | 'doneTurnLimitMs' | 'clientIpHeader' | 'freeDiskBytes'>;
 }
 
 /**
@@ -145,6 +145,8 @@ export async function createAppHarness(
       webDistDir: opts.webDistDir ?? null,
       planUsageTtlMs: 0,
       doneCleanupDelayMs: 0,
+      // The tests must not depend on how full the disk they run on is.
+      freeDiskBytes: async () => null,
       ...opts.app,
       ...(cli
         ? {

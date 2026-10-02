@@ -75,6 +75,7 @@ type DeferrableReason = Exclude<
 const DEFERRABLE = new Set<ErrorCode>([
   'ai_limit_reached',
   'plan_usage_paused',
+  'disk_low',
   'ai_disabled',
   'member_at_capacity',
   'member_on_leave',

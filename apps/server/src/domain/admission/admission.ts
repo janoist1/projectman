@@ -10,6 +10,7 @@ import {
 import type { AiMemberConfig, ProjectConfig, Task, TaskStartWaiting, WorkItemRef } from '@projectman/shared';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
+import type { DiskGuard } from '../disk-guard';
 import { conflict } from '../errors';
 import { highestUsagePercent } from '../plan-usage';
 import type { PlanUsageCache } from '../plan-usage';
@@ -44,7 +45,7 @@ export interface AdmissionRequest {
  * run, the member's previous run has ended; the member's capacity (open tasks it has a running session for plus its
  * other running chats); the concurrent AI sessions (`maxConcurrentAi`, when the project sets
  * one: there is no cap otherwise); the plan usage of the
- * member's provider. Decisions and the starts they allow are serialized. An automatic start
+ * member's provider; the free disk space (`disk_low`, PM-243). Decisions and the starts they allow are serialized. An automatic start
  * refused for a reason that can clear waits in the deferred-start store, which SQLite backs, and
  * is retried.
  */
@@ -55,6 +56,7 @@ export class Admission {
   private readonly tasks: TaskService;
   private readonly projects: Pick<ProjectService, 'config'>;
   private readonly deferred: DeferredStarts;
+  private readonly disk?: Pick<DiskGuard, 'assertRoom'>;
   private readonly locks = new KeyedMutex();
 
   constructor(deps: {
@@ -64,7 +66,9 @@ export class Admission {
     tasks: TaskService;
     projects: Pick<ProjectService, 'config'>;
     deferred: DeferredStarts;
+    disk?: Pick<DiskGuard, 'assertRoom'>;
   }) {
+    this.disk = deps.disk;
     this.ctx = deps.ctx;
     this.sessions = deps.sessions;
     this.planUsage = deps.planUsage;
@@ -148,6 +152,8 @@ export class Admission {
         { percent, threshold, provider },
       );
     }
+    // Last, because it measures the disk (PM-243).
+    await this.disk?.assertRoom(config);
   }
 
   /** The member's session for the work item: the running one, else one admission allows. */

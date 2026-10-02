@@ -92,6 +92,10 @@ export async function createDomainHarness(
     appHome?: string;
     /** How long a session may wait for input before the owners are told (PM-199). */
     inputStallMs?: number;
+    /** The free disk bytes (PM-243); absent: not measured, so no start is refused for disk space. */
+    freeDiskBytes?: () => Promise<number | null>;
+    /** How long a closed card's worktree stays (default 3 days). */
+    closedWorktreeKeepMs?: number;
   } = {},
 ) {
   const restarted = opts.directory !== undefined;
@@ -157,6 +161,11 @@ export async function createDomainHarness(
     handOffRetryMs: opts.handOffRetryMs,
     // Tests call `domain.reviewWatch.check()` themselves: the timer must not fire on its own.
     reviewWatchMs: 3_600_000,
+    // Likewise the disk check and the worktree sweep: tests call `domain.disk` and `domain.worktreeSweep`.
+    diskCheckMs: 3_600_000,
+    worktreeSweepMs: 3_600_000,
+    freeDiskBytes: opts.freeDiskBytes,
+    closedWorktreeKeepMs: opts.closedWorktreeKeepMs,
   });
   await domain.start();
   if (!restarted) {

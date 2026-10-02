@@ -726,6 +726,19 @@ commits, and the developer's message to the stage's reviewers is a new round (PM
 `TaskService.repinReview` answers by pinning the new head. An approved or not yet judged branch that moves is
 sent back.
 
+## Housekeeping: worktrees of closed cards and free disk space (PM-243)
+
+`WorktreeSweep` (at start and every 6 h, `DomainOptions.worktreeSweepMs`) goes over the done and cancelled cards
+that have been closed for 3 days (`CLOSED_WORKTREE_KEEP_MS`) and have no running session, and removes the worktree
+of each that is clean (`WorktreeManager.remove`, which keeps the branch; `ensureForTask` makes the worktree again if
+the card restarts). A worktree with uncommitted changes is never removed: the owners get one `worktree_kept` alert
+per closing of the card. What was removed and about how much space it freed goes to the server log only.
+
+`DiskGuard` (every minute, `DomainOptions.diskCheckMs`) measures the free space of `PROJECTMAN_HOME` with `statfs`.
+Below `team.limits.minFreeDiskGb` (default 10, 0 turns it off) the owners get one `disk_low` alert, withdrawn when
+there is room again, and `Admission.check` refuses a new AI session with `disk_low` (deferrable: the start waits).
+Running sessions finish their step. A measurement that fails never blocks anything.
+
 ## GitHub
 
 Tasks live in our database (decision 9); GitHub is used for pull requests, reviews, checks

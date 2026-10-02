@@ -53,6 +53,8 @@ export const TaskStartWaiting = z.object({
   reason: z.enum([
     'ai_limit_reached',
     'plan_usage_paused',
+    // Too little free disk space (PM-243): the start continues once there is room again.
+    'disk_low',
     'ai_disabled',
     'member_at_capacity',
     'member_on_leave',

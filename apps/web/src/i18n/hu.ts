@@ -1747,7 +1747,6 @@ export const hu = {
       asksYou: 'kérdés vár rád',
       introTitle: 'Itt beszélgethetsz a csapattal.',
       introBody: 'Válassz egy tagot, és írj neki. Az AI-tag a feladat munkamenetében kapja meg az üzenetet.',
-      loadFailed: 'Nem sikerült betölteni a beszélgetéseket.',
     },
     thread: {
       label: 'Beszélgetés: {name}',
@@ -1756,15 +1755,15 @@ export const hu = {
       pick: 'Válassz egy beszélgetést.',
       emptyTitle: 'Még nem írtatok egymásnak.',
       emptyBody: 'Írd meg lent; ha feladathoz tartozik, válaszd ki, így a feladat munkamenetébe kerül.',
-      emptyHuman: 'Az üzenet a Rád vár listáján is megjelenik neki.',
+      emptyHuman: 'Az Üzenetek oldalon kapja meg, olvasatlanként jelölve.',
       also: 'Címzett még: {names}',
       newMessages: 'Új üzenetek',
       newPill: 'Új üzenet',
       limit: 'A legutóbbi {count} üzenet látszik.',
       replyAll: 'Mindenkinek',
-      replyAllTitle: 'Válasz mindenkinek',
       unread: 'Olvasatlan',
-      unknownMember: 'Ismeretlen tag',
+      unknownMember: 'Nincs ilyen tag.',
+      retiredMember: 'Már nem tagja a csapatnak, nem írhatsz neki.',
     },
     status: {
       queued: 'Kézbesítésre vár',
@@ -1779,7 +1778,7 @@ export const hu = {
     },
     question: {
       heading: 'Kérdés vár rád',
-      answered: 'Megválaszoltad: {answer}',
+      answered: 'Megválaszoltad: {title} – {answer}',
     },
     composer: {
       label: 'Üzenet neki: {name}',
@@ -1805,8 +1804,6 @@ export const hu = {
       emptyBody: 'Ha a csapat tagjai írnak egymásnak, itt látod.',
       limit: 'A legutóbbi {count} üzenet látszik. A régebbiekhez szűkíts tagra vagy feladatra.',
       openConversation: 'Beszélgetés megnyitása',
-      toMe: 'Neked',
-      loadFailed: 'Nem sikerült betölteni az üzeneteket.',
     },
   },
 

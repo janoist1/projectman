@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Navigate, useMatch, useNavigate, useParams } from 'react-router';
 import { canSeeAllTeamMessages } from '@projectman/shared';
 import { useBoard, useInbox, useRoles, useTeamThreads } from '../../api/queries';
@@ -66,12 +66,25 @@ export function MessagesPage() {
     return titles;
   }, [rows, inbox.data, myHandle]);
 
+  // A wide screen opens the latest conversation once the list is known; after that the address decides,
+  // so a message from someone else does not switch the open thread under the reader.
+  const settled = threads.isSuccess && !inbox.isPending;
+  const firstPeer = rows[0]?.peer;
+  const opensFirst = !isAll && !isMobile && peerParam === undefined && settled && firstPeer !== undefined;
+  useEffect(() => {
+    if (opensFirst) navigate(`/p/${key}/messages/with/${firstPeer}`, { replace: true });
+  }, [opensFirst, navigate, key, firstPeer]);
+  // On a phone the row of the conversation just left takes the focus back.
+  const [lastPeer, setLastPeer] = useState<string | null>(null);
+  useEffect(() => {
+    if (peerParam !== undefined) setLastPeer(peerParam);
+  }, [peerParam]);
+
   // Someone who may not see everything gets the conversations, whatever the address says.
   if (isAll && !canAll) return <Navigate to={`/p/${key}/messages`} replace />;
 
   const view: View = isAll ? 'all' : 'conversations';
-  // A wide screen shows a conversation beside the list; a phone shows one or the other.
-  const selected = peerParam ?? (isMobile ? null : (rows[0]?.peer ?? null));
+  const selected = peerParam ?? null;
   const inThread = isMobile && peerParam !== undefined && view === 'conversations';
 
   const header = (
@@ -89,9 +102,20 @@ export function MessagesPage() {
         />
       ) : null}
       {canSend ? (
-        <Button variant="primary" onClick={() => setCompose({ to: [], task: '' })}>
-          {t('messages.new')}
-        </Button>
+        isMobile ? (
+          <Button
+            variant="secondary"
+            size="lg"
+            iconOnly
+            icon="pencil"
+            aria-label={t('messages.new')}
+            onClick={() => setCompose({ to: [], task: '' })}
+          />
+        ) : (
+          <Button variant="secondary" onClick={() => setCompose({ to: [], task: '' })}>
+            {t('messages.new')}
+          </Button>
+        )
       ) : null}
     </PageHeader>
   );
@@ -115,6 +139,7 @@ export function MessagesPage() {
       selected={isMobile ? null : selected}
       questionTitles={questionTitles}
       intro={rows.length === 0}
+      focusPeer={isMobile ? lastPeer : null}
     />
   );
 

@@ -1,4 +1,5 @@
 import clsx from 'clsx';
+import { useEffect, useRef } from 'react';
 import { Link } from 'react-router';
 import type { RoleView } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
@@ -8,6 +9,7 @@ import { formatAge, formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { nameOf, roleLabel } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
+import { plainPreview } from './conversations';
 import type { ConversationRow } from './conversations';
 import styles from './ConversationList.module.css';
 
@@ -15,16 +17,6 @@ import styles from './ConversationList.module.css';
 function rowTime(iso: string): string {
   const age = formatAge(iso);
   return age === t('time.today') ? formatTime(iso) : age;
-}
-
-/** First line of a message without the bold markers: what the list shows of it. */
-function preview(body: string): string {
-  return (
-    body
-      .replace(/\*\*/g, '')
-      .split('\n')
-      .find((line) => line.trim() !== '') ?? ''
-  );
 }
 
 export interface ConversationListProps {
@@ -40,6 +32,8 @@ export interface ConversationListProps {
   questionTitles: ReadonlyMap<string, string>;
   /** First use: no conversation anywhere yet. */
   intro: boolean;
+  /** The member whose row takes the focus when the list opens. */
+  focusPeer?: string | null;
 }
 
 /** The viewer's conversations, the most recently active first, then the members they have not written with. */
@@ -53,10 +47,17 @@ export function ConversationList({
   selected,
   questionTitles,
   intro,
+  focusPeer = null,
 }: ConversationListProps) {
   const href = (peer: string) => `/p/${projectKey}/messages/with/${peer}`;
+  const nav = useRef<HTMLElement>(null);
+  // Coming back from a conversation the focus returns to its row.
+  useEffect(() => {
+    if (!focusPeer) return;
+    nav.current?.querySelector<HTMLElement>(`[data-peer="${focusPeer}"]`)?.focus();
+  }, [focusPeer]);
   return (
-    <nav className={styles.list} aria-label={t('messages.list.label')}>
+    <nav ref={nav} className={styles.list} aria-label={t('messages.list.label')}>
       {intro ? (
         <div className={styles.intro}>
           <h2 className={styles.introTitle}>{t('messages.list.introTitle')}</h2>
@@ -69,8 +70,8 @@ export function ConversationList({
         const message = row.lastMessage;
         const text = message
           ? message.from === myHandle
-            ? t('messages.list.you', { text: preview(message.body) })
-            : preview(message.body)
+            ? t('messages.list.you', { text: plainPreview(message.body) })
+            : plainPreview(message.body)
           : (questionTitles.get(row.peer) ?? '');
         const label = [
           name,
@@ -83,6 +84,7 @@ export function ConversationList({
           <Link
             key={row.peer}
             to={href(row.peer)}
+            data-peer={row.peer}
             className={clsx(styles.row, row.unreadCount > 0 && styles.unread)}
             aria-current={selected === row.peer ? 'true' : undefined}
             aria-label={label}
@@ -116,6 +118,7 @@ export function ConversationList({
               <Link
                 key={peer}
                 to={href(peer)}
+                data-peer={peer}
                 className={clsx(styles.row, styles.quiet)}
                 aria-current={selected === peer ? 'true' : undefined}
               >

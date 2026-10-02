@@ -13,6 +13,7 @@ import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { formatDayHeading, formatStamp } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
 import { nameOf, namesOf } from '../../lib/members';
+import { plainPreview } from './conversations';
 import { deliveryState, receiptsOf } from './receipts';
 import { TaskChip } from './TaskChip';
 import type { ThreadComposeRequest } from './ConversationThread';
@@ -206,7 +207,7 @@ export function AllMessages({ onCompose }: { onCompose: (request: ThreadComposeR
                       <time className={styles.time} dateTime={message.createdAt}>
                         {formatStamp(message.createdAt)}
                       </time>
-                      {expanded ? null : <span className={styles.preview}>{message.body}</span>}
+                      {expanded ? null : <span className={styles.preview}>{plainPreview(message.body)}</span>}
                     </button>
                     <div className={styles.detail}>
                       {message.taskKey ? (

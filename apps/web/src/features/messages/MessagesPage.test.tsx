@@ -194,7 +194,14 @@ describe('a conversation', () => {
         true,
       ),
     );
-    expect(await screen.findByText(t('messages.question.answered', { answer: 'Kell GA4 is' }))).toBeTruthy();
+    expect(
+      await screen.findByText(
+        t('messages.question.answered', {
+          title: 'Elég a süti nélküli látogatómérés, vagy kell GA4 is?',
+          answer: 'Kell GA4 is',
+        }),
+      ),
+    ).toBeTruthy();
   });
 
   it('opens the reply dialog for everyone of a group message', async () => {
@@ -384,6 +391,60 @@ describe('all messages', () => {
   });
 });
 
+describe('the open thread', () => {
+  it('opens the latest conversation once on a wide screen and then stays where the address says', async () => {
+    const p = mockProject();
+    p.backend.messages = [];
+    p.backend.sendTeamMessage('fe-1', ['owner'], null, 'Acme from the frontend');
+    p.render(<Pages />, '/p/AC/messages');
+    await waitFor(() => expect(where()).toBe('/p/AC/messages/with/fe-1'));
+    const log = await screen.findByRole('log');
+    await within(log).findByText('Acme from the frontend');
+    // Someone else writes: the list reorders, the open thread stays.
+    p.backend.sendTeamMessage('qa', ['owner'], null, 'Acme from QA');
+    const nav = screen.getByRole('navigation', { name: t('messages.list.label') });
+    await waitFor(() => expect(within(nav).getAllByRole('link')[0]!.getAttribute('href')).toContain('/qa'));
+    expect(where()).toBe('/p/AC/messages/with/fe-1');
+    expect(within(screen.getByRole('log')).queryByText('Acme from QA')).toBeNull();
+  });
+
+  it('says there is no such member for an address nobody answers to, without a composer', async () => {
+    const p = mockProject();
+    p.render(<Pages />, '/p/AC/messages/with/nobody');
+    expect(await screen.findByRole('heading', { name: t('messages.thread.unknownMember') })).toBeTruthy();
+    expect(screen.getByRole('link', { name: t('messages.thread.back') }).getAttribute('href')).toBe(
+      '/p/AC/messages',
+    );
+    expect(screen.queryByRole('button', { name: t('common.send') })).toBeNull();
+  });
+
+  it('keeps the thread of a former member but leaves no box to write in', async () => {
+    const p = mockProject();
+    p.backend.messages = [];
+    p.backend.sendTeamMessage('fe-1', ['owner'], null, 'Acme from a former member');
+    expect(p.backend.handle('DELETE', '/api/projects/AC/members/fe-1', { handoverTo: 'dev-1' }).status).toBe(
+      204,
+    );
+    p.render(<Pages />, '/p/AC/messages/with/fe-1');
+    const log = await screen.findByRole('log');
+    await within(log).findByText('Acme from a former member');
+    expect(screen.getByText(t('messages.thread.retiredMember'))).toBeTruthy();
+    expect(screen.queryByRole('button', { name: t('common.send') })).toBeNull();
+  });
+
+  it('shows a message as plain text in the rows of the list and of all messages', async () => {
+    const p = mockProject();
+    p.backend.messages = [];
+    p.backend.sendTeamMessage('fe-1', ['owner'], null, '- [the docs](https://example.com) `ok`');
+    const list = p.render(<Pages />, '/p/AC/messages');
+    const nav = await screen.findByRole('navigation', { name: t('messages.list.label') });
+    expect(await within(nav).findByText('the docs ok')).toBeTruthy();
+    list.unmount();
+    p.render(<Pages />, '/p/AC/messages/all');
+    expect(await screen.findByText('the docs ok')).toBeTruthy();
+  });
+});
+
 describe('on a phone', () => {
   it('shows the list first, then the conversation with a way back', async () => {
     phone(true);
@@ -397,8 +458,13 @@ describe('on a phone', () => {
     await waitFor(() => expect(where()).toBe('/p/AC/messages/with/fe-1'));
     expect(await screen.findByText('Acme on the phone')).toBeTruthy();
     expect(screen.queryByRole('navigation', { name: t('messages.list.label') })).toBeNull();
+    // The thread's title takes the focus; back, the row of the conversation does.
+    expect(document.activeElement?.textContent).toContain('Frontend fejlesztő');
     fireEvent.click(screen.getByRole('link', { name: t('messages.thread.back') }));
     await waitFor(() => expect(where()).toBe('/p/AC/messages'));
     expect(await screen.findByRole('navigation', { name: t('messages.list.label') })).toBeTruthy();
+    await waitFor(() =>
+      expect(document.activeElement?.getAttribute('href')).toBe('/p/AC/messages/with/fe-1'),
+    );
   });
 });

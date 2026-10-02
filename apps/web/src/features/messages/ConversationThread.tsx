@@ -159,6 +159,11 @@ export function ConversationThread({
   const task = taskChoice ?? recentTasks[0] ?? '';
   const otherTasks = (board.data?.tasks ?? []).filter((candidate) => !recentTasks.includes(candidate.key));
   const composerBox = useRef<HTMLDivElement>(null);
+  const otherTaskOptions = otherTasks.map((candidate) => (
+    <option key={candidate.key} value={candidate.key}>
+      {candidate.key} · {candidate.title}
+    </option>
+  ));
 
   const reply = (message: TeamMessage) => {
     setTaskChoice(message.taskKey ?? '');
@@ -175,6 +180,16 @@ export function ConversationThread({
 
   const name = nameOf(peer, members, myHandle);
   const back = `/p/${key}/messages`;
+  // The team list has only current members: a handle not in it with a past conversation is a former
+  // member (read-only thread); one with nothing at all is a mistyped address.
+  const gone = Boolean(board.data) && !member;
+  const unknown = gone && conversation.isSuccess && entries.length === 0;
+  const retired = member?.status === 'retired' || gone;
+  const headName = useRef<HTMLDivElement>(null);
+  // On a phone the thread is a page of its own: the focus goes to its title.
+  useEffect(() => {
+    if (isMobile) headName.current?.focus();
+  }, [isMobile]);
 
   const renderEntry = (entry: ThreadEntry) => {
     const { item } = entry;
@@ -224,12 +239,28 @@ export function ConversationThread({
           </section>
         ) : (
           <p className={styles.answered}>
-            {t('messages.question.answered', { answer: answeredText(item.item) })}
+            {t('messages.question.answered', {
+              title: item.item.title,
+              answer: answeredText(item.item),
+            })}
           </p>
         )}
       </div>
     );
   };
+
+  if (unknown) {
+    return (
+      <section className={styles.thread} aria-label={t('messages.thread.unknownMember')}>
+        <div className={styles.empty}>
+          <h2 className={styles.emptyTitle}>{t('messages.thread.unknownMember')}</h2>
+          <ButtonLink to={back} variant="secondary" size="md">
+            {t('messages.thread.back')}
+          </ButtonLink>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className={styles.thread} aria-label={t('messages.thread.label', { name })}>
@@ -246,7 +277,7 @@ export function ConversationThread({
         ) : null}
         <Avatar member={member} handle={peer} size="lg" />
         <div className={styles.who}>
-          <div className={styles.name}>
+          <div className={styles.name} ref={headName} tabIndex={-1}>
             <span className={styles.nameText}>{name}</span>
             <LeaveChip member={member} />
           </div>
@@ -306,7 +337,9 @@ export function ConversationThread({
         </div>
       )}
 
-      {canSend ? (
+      {retired ? (
+        <p className={styles.readOnly}>{t('messages.thread.retiredMember')}</p>
+      ) : canSend ? (
         <div className={styles.composer} ref={composerBox}>
           {send.error ? (
             <ErrorBanner className={styles.sendError}>
@@ -331,21 +364,18 @@ export function ConversationThread({
                   ))}
                 </optgroup>
               ) : null}
-              <optgroup
-                label={recentTasks.length ? t('messages.composer.otherTasks') : t('messages.composer.task')}
-              >
-                {otherTasks.map((candidate) => (
-                  <option key={candidate.key} value={candidate.key}>
-                    {candidate.key} · {candidate.title}
-                  </option>
-                ))}
-              </optgroup>
+              {recentTasks.length ? (
+                <optgroup label={t('messages.composer.otherTasks')}>{otherTaskOptions}</optgroup>
+              ) : (
+                otherTaskOptions
+              )}
             </select>
             {!task && member?.kind === 'ai' ? (
               <span className={styles.hint}>{t('messages.composer.generalHint')}</span>
             ) : null}
           </div>
           <Composer
+            autoFocus={!isMobile && ready && entries.length === 0}
             label={t('messages.composer.label', { name })}
             placeholder={t('messages.composer.placeholder')}
             disabled={send.isPending}

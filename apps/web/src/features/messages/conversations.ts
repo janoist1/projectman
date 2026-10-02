@@ -170,9 +170,31 @@ export function layoutThread(items: readonly ThreadItem[], newFromId: string | n
       new Date(message.createdAt).getTime() - new Date(previous.createdAt).getTime() > RUN_GAP_MS;
     const showTask = message.taskKey !== null && message.taskKey !== lastTask;
     previous = message;
-    if (message.taskKey !== null) lastTask = message.taskKey;
+    // A message without a task counts as a change too: the task shows again after it.
+    lastTask = message.taskKey;
     return { item, day, newLine: newFromId === message.id, firstOfRun, showTask };
   });
+}
+
+/**
+ * A message body as plain one-line text, for a list row: the first line with content, without the
+ * markdown marks (headings, list markers, quotes, emphasis, code, links and images).
+ */
+export function plainPreview(markdown: string): string {
+  const line =
+    markdown
+      .replace(/```[^\n]*/g, '')
+      .split('\n')
+      .map((text) => text.trim())
+      .find((text) => text !== '') ?? '';
+  return line
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/^(?:#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)+/, '')
+    .replace(/`+([^`]*)`+/g, '$1')
+    .replace(/(\*\*|__)(.*?)\1/g, '$2')
+    .replace(/(^|\s)[*_]([^*_]+)[*_](?=\s|$|[.,;:!?])/g, '$1$2')
+    .trim();
 }
 
 /** The tasks of a thread, the latest first: what the composer offers first. */

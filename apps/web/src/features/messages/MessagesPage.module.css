@@ -36,6 +36,12 @@
   min-height: 0;
 }
 
+@media (min-width: 768px) and (max-width: 1023px) {
+  .chat {
+    grid-template-columns: 280px minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 767px) {
   .page {
     padding: 10px 12px 12px;

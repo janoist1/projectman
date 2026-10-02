@@ -6,6 +6,7 @@ import {
   conversationRows,
   layoutThread,
   openQuestionsFrom,
+  plainPreview,
   recentTasksOf,
   threadItems,
 } from './conversations';
@@ -78,7 +79,7 @@ describe('layoutThread', () => {
     ]);
   });
 
-  it('does not count a message without a task as a change of task', () => {
+  it('shows the task again after a message without one', () => {
     const items = threadItems(
       [
         message('m1', 'owner', ['fe-1'], 'AC-1', 0),
@@ -88,7 +89,7 @@ describe('layoutThread', () => {
       [],
       [],
     );
-    expect(layoutThread(items, null).map((entry) => entry.showTask)).toEqual([true, false, false]);
+    expect(layoutThread(items, null).map((entry) => entry.showTask)).toEqual([true, false, true]);
   });
 
   it('puts the day heading and the new-messages line where they belong and groups runs of a sender', () => {
@@ -178,6 +179,24 @@ describe('questions of a member', () => {
   it('takes only the questions I answered', () => {
     expect(answeredQuestionsFrom(items, 'fe-1', 'owner').map((item) => item.id)).toEqual(['done']);
     expect(answeredQuestionsFrom(items, 'fe-1', 'kata')).toEqual([]);
+  });
+});
+
+describe('plainPreview', () => {
+  it.each([
+    ['**Bold** start', 'Bold start'],
+    ['## Heading', 'Heading'],
+    ['- first item\n- second', 'first item'],
+    ['1. numbered', 'numbered'],
+    ['> quoted', 'quoted'],
+    ['see [the docs](https://example.com/x) now', 'see the docs now'],
+    ['run `npm test` first', 'run npm test first'],
+    ['```ts\nconst a = 1;\n```', 'const a = 1;'],
+    ['\n\n  *emphasis* here', 'emphasis here'],
+    ['snake_case_name stays', 'snake_case_name stays'],
+    ['', ''],
+  ])('turns %j into %j', (markdown, plain) => {
+    expect(plainPreview(markdown)).toBe(plain);
   });
 });
 

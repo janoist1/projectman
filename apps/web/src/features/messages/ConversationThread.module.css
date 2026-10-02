@@ -30,6 +30,11 @@
   font-weight: 800;
 }
 
+/* Focused by script when a phone opens the thread: the title is not a control. */
+.name:focus {
+  outline: none;
+}
+
 .nameText {
   overflow: hidden;
   white-space: nowrap;
@@ -350,7 +355,8 @@
   .head {
     position: sticky;
     top: 0;
-    padding: 8px 8px 8px 4px;
+    /* The app's own header is hidden on this page, so the status bar's inset is the thread's to keep. */
+    padding: calc(8px + env(safe-area-inset-top)) 8px 8px 4px;
   }
   .messages {
     padding: 12px 12px 8px;
@@ -368,7 +374,7 @@
   .taskSelect {
     flex: 1;
     max-width: none;
-    height: 36px;
+    height: 40px;
     /* 16px keeps iOS from zooming the page in when the field gets the focus. */
     font-size: 16px;
   }

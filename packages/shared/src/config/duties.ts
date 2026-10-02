@@ -29,6 +29,26 @@ export function dutyMembers(config: Pick<ProjectConfig, 'team'>, duty: DutyId): 
 export function stageOwners(config: Pick<ProjectConfig, 'team'>, stage: Stage): string[] {
   return stage.owners ?? (stage.duty ? dutyMembers(config, stage.duty).map((m) => m.handle) : []);
 }
+/** The duty a stage stands for: its own, or `implementation` for a work stage that names none. */
+export function stageDuty(stage: Stage): DutyId | undefined {
+  return stage.duty ?? (stage.kind === 'work' ? 'implementation' : undefined);
+}
+/**
+ * The stages with a fixed owner list (`owners`) that the member's roles carry the duty of and that
+ * do not list the member yet (PM-133): a newly hired developer joins the work stage's owners, so a
+ * hand-over or a Start without an assignee can choose them. Queue and done stages are never joined.
+ */
+export function stagesToJoin(
+  config: Pick<ProjectConfig, 'team' | 'pipeline'>,
+  member: MemberConfig,
+): Stage[] {
+  const duties = memberDuties(config, member);
+  return config.pipeline.stages.filter((stage) => {
+    if (!stage.owners || stage.kind === 'queue' || stage.kind === 'done') return false;
+    const duty = stageDuty(stage);
+    return !!duty && duties.includes(duty) && !stage.owners.includes(member.handle);
+  });
+}
 /**
  * Whether the stage is a code review step (PM-222): a step stage that carries the code review duty,
  * by the stage's own duty or, when it names none, by one of its owners.

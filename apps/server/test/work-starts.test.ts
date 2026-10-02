@@ -80,6 +80,27 @@ describe('automatic start of unassigned cards moved into a work stage', () => {
     expect(h.runner.started).toHaveLength(2);
   });
 
+  it('chooses a newly hired developer for a card without an assignee, and not a retired one (PM-133)', async () => {
+    h = await createDomainHarness({ adjust: roomy });
+    await setLeave('dev-1', true);
+    await setLeave('dev-2', true);
+    const hired = await h.domain.members.hire('AR', { role: 'developer' }, { ...by(), sponsor: 'owner' });
+    const owners = async () =>
+      (await h.domain.projects.config('AR')).pipeline.stages.find((s) => s.id === 'development')?.owners;
+    expect(await owners()).toEqual(['dev-1', 'dev-2', hired.handle]);
+    // Another role does not join the developers' stage.
+    const qa = await h.domain.members.hire('AR', { role: 'qa' }, { ...by(), sponsor: 'owner' });
+    expect(await owners()).not.toContain(qa.handle);
+
+    const key = await create();
+    await move(key);
+    await vi.waitFor(() => expect(task(key).assignee).toBe(hired.handle));
+    await vi.waitFor(() => expect(h.runner.started).toHaveLength(1));
+
+    await h.domain.members.retire('AR', hired.handle, {}, by());
+    expect(await owners()).toEqual(['dev-1', 'dev-2']);
+  });
+
   it('publishes the wait on the card (REST view and task_upserted), and its end', async () => {
     h = await createDomainHarness({ adjust: roomy });
     await setLeave('dev-1', true);

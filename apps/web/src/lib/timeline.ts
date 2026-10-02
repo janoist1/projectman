@@ -244,6 +244,18 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         previous ? t('timeline.themeMoved', { previous, themeKey }) : t('timeline.themeSet', { themeKey }),
       );
     }
+    case 'task_prerequisite_closed': {
+      const remaining = strings(d.remaining);
+      return normal(
+        t(str(d.status) === 'cancelled' ? 'timeline.prerequisiteWithdrawn' : 'timeline.prerequisiteDone', {
+          ref: str(d.ref),
+        }) +
+          ' ' +
+          (remaining.length > 0
+            ? t('timeline.prerequisiteRemaining', { remaining: remaining.join(', ') })
+            : t('timeline.prerequisiteFree')),
+      );
+    }
     case 'task_note':
       return normal(str(d.text));
     case 'attachment_added':

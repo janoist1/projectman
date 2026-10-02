@@ -27,6 +27,7 @@ import { approvalRequestedError, gateBlockedError } from '../tasks';
 import type { StageChange, TaskService } from '../tasks';
 import { SYSTEM_ACTOR, SYSTEM_AUTHOR } from '../util';
 import type { Admission } from './admission';
+import { assertPrerequisitesClosed } from './rules';
 
 export interface StartTaskOptions {
   /** Explicit assignee; omitted = the current assignee, else a free developer, else a temp worker. */
@@ -45,6 +46,12 @@ export interface StartTaskOptions {
   stillWanted?: (task: Task) => boolean;
   /** Told the member this start assigned the task to (not one that was already assigned). */
   onAssigned?: (handle: string) => void;
+  /**
+   * The start goes ahead although a prerequisite is open (PM-204): a person's start after the
+   * warning. Without it an open prerequisite refuses the start (`prerequisite_open`); an automatic
+   * start waits for the last one to close.
+   */
+  despitePrerequisites?: boolean;
 }
 
 export interface StartTaskResult {
@@ -109,6 +116,9 @@ export class TaskStarts {
     if (opts.stillWanted && !opts.stillWanted(task)) return skipped;
     const workStage = workStageOf(config, task);
     if (!workStage) throw invalid('no_work_stage', 'the pipeline has no work stage');
+    // Before the developer is chosen: nobody is picked, hired or assigned for a card that waits.
+    if (!(opts.despitePrerequisites && opts.actor.kind === 'human'))
+      assertPrerequisitesClosed(task, this.tasks.list(projectKey));
     const needsMove = stageIndex(config.pipeline, task.stageId) < stageIndex(config.pipeline, workStage.id);
 
     let member: MemberConfig | null = this.chooseMember(config, task, workStage, opts.assignee);

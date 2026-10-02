@@ -5,6 +5,7 @@ import {
   isOpenTask,
   isTheme,
   isWorkingOnTask,
+  openPrerequisites,
 } from '@projectman/shared';
 import type { AiMemberConfig, ProjectConfig, Task, WorkItemRef } from '@projectman/shared';
 import { isoNow } from '../context';
@@ -234,6 +235,14 @@ export class Admission {
           config &&
           (reason === 'ai_disabled' ? !config.team.limits.aiEnabled : isHandleOnLeave(config, member))
         )
+          continue;
+      }
+      // A start that waits for prerequisites is retried when the open ones change (one closed, a
+      // relation removed): with the same ones open, a retry could only be refused again.
+      if (reason === 'prerequisite_open' && task) {
+        const open = openPrerequisites(task, this.tasks.list(task.projectKey)).map((card) => card.key);
+        const waiting = entry.waiting.prerequisites ?? [];
+        if (open.length > 0 && open.length === waiting.length && open.every((key) => waiting.includes(key)))
           continue;
       }
       try {

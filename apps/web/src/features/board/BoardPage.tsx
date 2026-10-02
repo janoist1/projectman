@@ -1,9 +1,10 @@
 import clsx from 'clsx';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Outlet, useMatch } from 'react-router';
 import type { DragEvent } from 'react';
-import type { BoardColumnView, Task } from '@projectman/shared';
+import type { BoardColumnView, LabelView, Task } from '@projectman/shared';
 import { useProject } from '../../app/contexts';
+import { Icon } from '../../components/Icon';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { PageHeader } from '../../components/PageHeader';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
@@ -12,7 +13,10 @@ import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { matchesFilter } from '../../lib/taskState';
 import type { BoardFilter, TaskPhase } from '../../lib/taskState';
-import { matchesSearch } from './cardModel';
+import { dragHasFiles } from '../../lib/attachmentInput';
+import { useCanAttach, useUploadQueue, useUploadingCounts } from './attachmentUploads';
+import { coverSrcOf, matchesSearch } from './cardModel';
+import { useFileDrop } from './useFileDrop';
 import { MobileBoardList } from './MobileBoardList';
 import { TaskCard } from './TaskCard';
 import { TeamStrip } from './TeamStrip';
@@ -21,10 +25,23 @@ import type { BoardEntry } from './useBoardModel';
 import { useLabels, useMoveTask } from '../../api/queries';
 import { useToast } from '../../components/toastContext';
 import { isApprovalRequested } from '../../lib/errors';
-import { canMoveTask, dropStage, moveErrorText } from './moveTask';
+import { PrerequisiteWarning } from './PrerequisiteWarning';
+import { canMoveTask, dropStage, moveErrorText, prerequisitesToWarnAbout } from './moveTask';
 import styles from './BoardPage.module.css';
 
 const inProgress: ReadonlySet<TaskPhase> = new Set(['needs_you', 'working', 'waiting', 'blocked']);
+
+/** Moving a card between columns by dragging it. */
+interface ColumnDrag {
+  allowed: boolean;
+  pendingKey: string | null;
+  targetColumn: string | null;
+  start: (event: DragEvent, task: Task) => void;
+  end: () => void;
+  over: (event: DragEvent, column: BoardColumnView) => void;
+  leave: (event: DragEvent) => void;
+  drop: (event: DragEvent, column: BoardColumnView) => void;
+}
 
 function Column({
   column,
@@ -34,6 +51,7 @@ function Column({
   projectKey,
   selectedKey,
   drag,
+  uploadingCounts,
   filtered,
 }: {
   /** A filter or a search narrows the board: only then does an empty column say so. */
@@ -44,16 +62,9 @@ function Column({
   pipeline: PipelineIndex;
   projectKey: string;
   selectedKey: string | null;
-  drag: {
-    allowed: boolean;
-    pendingKey: string | null;
-    targetColumn: string | null;
-    start: (event: DragEvent, task: Task) => void;
-    end: () => void;
-    over: (event: DragEvent, column: BoardColumnView) => void;
-    leave: (event: DragEvent) => void;
-    drop: (event: DragEvent, column: BoardColumnView) => void;
-  };
+  drag: ColumnDrag;
+  /** Files on their way, by task key. */
+  uploadingCounts: ReadonlyMap<string, number>;
 }) {
   const labels = useLabels(projectKey);
   const headingId = `col-${column.id}`;
@@ -92,28 +103,79 @@ function Column({
           <p className={styles.columnEmpty}>{t('board.columnEmpty')}</p>
         ) : null}
         {entries.map(({ task, state }) => (
-          <div
+          <BoardCard
             key={task.id}
-            draggable={canMoveTask(task, drag.allowed) && !drag.pendingKey}
-            onDragStart={(event) => drag.start(event, task)}
-            onDragEnd={drag.end}
-            aria-busy={drag.pendingKey === task.key}
-            className={drag.pendingKey === task.key ? styles.pending : undefined}
-          >
-            {drag.pendingKey === task.key ? <p role="status">{t('task.move.pending')}</p> : null}
-            <TaskCard
-              task={task}
-              subtasks={subtasksByParent.get(task.key)}
-              state={state}
-              pipeline={pipeline}
-              to={`/p/${projectKey}/tasks/${task.key}`}
-              selected={task.key === selectedKey}
-              labels={labels}
-            />
-          </div>
+            task={task}
+            subtasks={subtasksByParent.get(task.key)}
+            state={state}
+            pipeline={pipeline}
+            projectKey={projectKey}
+            selected={task.key === selectedKey}
+            labels={labels}
+            uploading={uploadingCounts.get(task.key) ?? 0}
+            drag={drag}
+          />
         ))}
       </div>
     </section>
+  );
+}
+
+/**
+ * A card on the board. It is dragged to move it between columns, and it takes files dragged from
+ * outside the page (attached to this card, by the same queue and rules as in the open card). The
+ * two never meet: a dragged card carries no files, and a file is never a dragged card.
+ */
+function BoardCard({
+  task,
+  subtasks,
+  state,
+  pipeline,
+  projectKey,
+  selected,
+  labels,
+  uploading,
+  drag,
+}: {
+  task: Task;
+  subtasks: Task[] | undefined;
+  state: BoardEntry['state'];
+  pipeline: PipelineIndex;
+  projectKey: string;
+  selected: boolean;
+  labels: readonly LabelView[];
+  uploading: number;
+  drag: ColumnDrag;
+}) {
+  const canAttach = useCanAttach();
+  const queue = useUploadQueue();
+  const fileDrop = useFileDrop({
+    allowed: canAttach(task),
+    onFiles: (files) => queue.add(task.key, files, { announce: true }),
+  });
+  return (
+    <div
+      draggable={canMoveTask(task, drag.allowed) && !drag.pendingKey}
+      onDragStart={(event) => drag.start(event, task)}
+      onDragEnd={drag.end}
+      aria-busy={drag.pendingKey === task.key}
+      className={drag.pendingKey === task.key ? styles.pending : undefined}
+      {...fileDrop.props}
+    >
+      {drag.pendingKey === task.key ? <p role="status">{t('task.move.pending')}</p> : null}
+      <TaskCard
+        task={task}
+        subtasks={subtasks}
+        state={state}
+        pipeline={pipeline}
+        to={`/p/${projectKey}/tasks/${task.key}`}
+        selected={selected}
+        labels={labels}
+        coverSrc={coverSrcOf(projectKey, task)}
+        uploading={uploading}
+        fileState={fileDrop.state}
+      />
+    </div>
   );
 }
 
@@ -127,8 +189,14 @@ export function BoardPage() {
   const [dragged, setDragged] = useState<Task | null>(null);
   const [targetColumn, setTargetColumn] = useState<string | null>(null);
   const [pending, setPending] = useState<{ taskKey: string; stageId: string } | null>(null);
+  // A drop that waits for the person to accept the open prerequisites (PM-204).
+  const [warning, setWarning] = useState<{ taskKey: string; stageId: string; keys: string[] } | null>(null);
   const [filter, setFilter] = useState<BoardFilter>('all');
   const selected = useMatch('/p/:projectKey/tasks/:taskKey')?.params.taskKey ?? null;
+  const uploadingCounts = useUploadingCounts();
+  // A file from outside is dragged over the board: over a card, or not (then it says where to drop it).
+  const [fileDrag, setFileDrag] = useState<'card' | 'board' | null>(null);
+  const fileDepth = useRef(0);
   useDocumentTitle(t('board.title'), board.data?.project.name);
 
   const optimisticEntries = useMemo(
@@ -148,6 +216,19 @@ export function BoardPage() {
     () => searched.filter((entry) => matchesFilter(entry.state.phase, filter)),
     [searched, filter],
   );
+
+  const runMove = (variables: { taskKey: string; stageId: string; despitePrerequisites?: boolean }) => {
+    setPending(variables);
+    move.mutate(variables, {
+      onSuccess: () => toast.show(t('task.move.success')),
+      onError: (error) =>
+        toast.show(
+          moveErrorText(error, board.data?.labels ?? []),
+          isApprovalRequested(error) ? 'info' : 'error',
+        ),
+      onSettled: () => setPending(null),
+    });
+  };
 
   if (board.isPending) return <LoadingState />;
   if (board.isError) return <ErrorState error={board.error} onRetry={() => void board.refetch()} />;
@@ -187,17 +268,10 @@ export function BoardPage() {
       if (!dragged || !canMoveTask(dragged, can.createTasks) || isMobile || pending) return;
       const stageId = dropStage(dragged, column, pipeline);
       if (!stageId) return;
-      const variables = { taskKey: dragged.key, stageId };
-      setPending(variables);
-      move.mutate(variables, {
-        onSuccess: () => toast.show(t('task.move.success')),
-        onError: (error) =>
-          toast.show(
-            moveErrorText(error, board.data?.labels ?? []),
-            isApprovalRequested(error) ? 'info' : 'error',
-          ),
-        onSettled: () => setPending(null),
-      });
+      // A card that would start with an open prerequisite asks first (PM-204).
+      const open = prerequisitesToWarnAbout(dragged, stageId, pipeline, board.data?.tasks ?? []);
+      if (open.length > 0) setWarning({ taskKey: dragged.key, stageId, keys: open });
+      else runMove({ taskKey: dragged.key, stageId });
     },
   };
 
@@ -224,8 +298,43 @@ export function BoardPage() {
     />
   );
 
+  // A file dropped anywhere but on a card must not open in the browser in place of the board. The
+  // cards (and the open card) take a file's drag first; what they did not take is refused here.
+  const fileProps = {
+    onDragEnter: (event: DragEvent) => {
+      if (!dragHasFiles(event.dataTransfer)) return;
+      const overCard = event.defaultPrevented;
+      event.preventDefault();
+      fileDepth.current += 1;
+      setFileDrag(overCard ? 'card' : 'board');
+    },
+    onDragOver: (event: DragEvent) => {
+      if (!dragHasFiles(event.dataTransfer)) return;
+      const taken = event.defaultPrevented;
+      event.preventDefault();
+      if (!taken) event.dataTransfer.dropEffect = 'none';
+    },
+    onDragLeave: (event: DragEvent) => {
+      if (!dragHasFiles(event.dataTransfer)) return;
+      fileDepth.current = Math.max(0, fileDepth.current - 1);
+      if (fileDepth.current === 0) setFileDrag(null);
+    },
+    onDrop: (event: DragEvent) => {
+      if (!dragHasFiles(event.dataTransfer)) return;
+      event.preventDefault();
+      fileDepth.current = 0;
+      setFileDrag(null);
+    },
+  };
+
   return (
-    <div className={styles.page}>
+    <div className={styles.page} {...fileProps}>
+      {fileDrag === 'board' ? (
+        <p className={styles.fileHint} role="status">
+          <Icon name="paperclip" size={15} strokeWidth={2.2} />
+          {t('attachments.boardHint')}
+        </p>
+      ) : null}
       {isMobile ? null : (
         <TeamStrip members={board.data.members} inbox={inbox.data?.items} activeTaskCount={activeCount} />
       )}
@@ -274,12 +383,27 @@ export function BoardPage() {
                 projectKey={key}
                 selectedKey={selected}
                 drag={drag}
+                uploadingCounts={uploadingCounts}
                 filtered={filter !== 'all' || search !== ''}
               />
             );
           })}
         </div>
       )}
+      <PrerequisiteWarning
+        keys={warning?.keys ?? null}
+        tasks={board.data.tasks}
+        onConfirm={() => {
+          if (warning)
+            runMove({ taskKey: warning.taskKey, stageId: warning.stageId, despitePrerequisites: true });
+          setWarning(null);
+        }}
+        onWait={() => {
+          if (warning) runMove({ taskKey: warning.taskKey, stageId: warning.stageId });
+          setWarning(null);
+        }}
+        onClose={() => setWarning(null)}
+      />
       <Outlet />
     </div>
   );

@@ -1,5 +1,6 @@
 import type { LabelView } from '@projectman/shared';
 import clsx from 'clsx';
+import { useState } from 'react';
 import { Link } from 'react-router';
 import type { Task } from '@projectman/shared';
 import { StatusDot } from '../../components/Chip';
@@ -24,6 +25,35 @@ interface TaskCardProps {
   compact?: boolean;
   /** The project's label definitions (names, colours, meanings). */
   labels?: readonly LabelView[];
+  /** Where the small preview of the card's first image is (its cover); none: the card has no image. */
+  coverSrc?: string | null;
+  /** Files of this card on their way (waiting or sending). */
+  uploading?: number;
+  /** A file is dragged over the card: it will be attached here (`over`) or may not be (`denied`). */
+  fileState?: 'over' | 'denied' | null;
+}
+
+/**
+ * The card's first image: a low strip over the whole card (a small thumbnail on the phone). The place
+ * is fixed from the start, so the card does not jump when the image arrives; an image that does not
+ * load leaves no trace.
+ */
+function CardCover({ src, thumbnail }: { src: string; thumbnail: boolean }) {
+  const [state, setState] = useState<'loading' | 'loaded' | 'failed'>('loading');
+  if (state === 'failed') return null;
+  return (
+    <span className={clsx(styles.cover, thumbnail && styles.thumbnail)} data-state={state} aria-hidden="true">
+      <img
+        src={src}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        draggable={false}
+        onLoad={() => setState('loaded')}
+        onError={() => setState('failed')}
+      />
+    </span>
+  );
 }
 
 export function TaskCard({
@@ -35,6 +65,9 @@ export function TaskCard({
   compact = false,
   subtasks = [],
   labels = [],
+  coverSrc = null,
+  uploading = 0,
+  fileState = null,
 }: TaskCardProps) {
   const pr = prChip(task);
   const rows = compact ? [] : stageRows(task, pipeline);
@@ -44,10 +77,18 @@ export function TaskCard({
     <Link
       to={to}
       draggable={false}
-      className={clsx(styles.card, selected && styles.selected, compact && styles.compact)}
+      className={clsx(
+        styles.card,
+        selected && styles.selected,
+        compact && styles.compact,
+        compact && coverSrc && styles.hasThumbnail,
+        fileState && styles.fileTarget,
+      )}
       aria-current={selected ? 'true' : undefined}
       data-phase={state.phase}
+      data-file={fileState ?? undefined}
     >
+      {coverSrc ? <CardCover key={coverSrc} src={coverSrc} thumbnail={compact} /> : null}
       <StageProgress pipeline={pipeline} stageId={task.stageId} phase={state.phase} />
       <span className={styles.titleRow}>
         <span className={styles.title}>{task.title}</span>
@@ -73,8 +114,16 @@ export function TaskCard({
           ) : null}
         </span>
       ) : null}
-      {showMeta ? (
+      {showMeta || uploading > 0 ? (
         <span className={styles.meta}>
+          {uploading > 0 ? (
+            <span className={styles.uploading} role="status">
+              <span className={styles.spinner} aria-hidden="true" />
+              {uploading > 1
+                ? t('attachments.uploadingCount', { count: uploading })
+                : t('attachments.uploading')}
+            </span>
+          ) : null}
           {pr ? (
             <span className={clsx(styles.pr, pr.merged && styles.prMerged)}>
               <Icon name={pr.merged ? 'prMerged' : 'prOpen'} size={13} strokeWidth={2.1} />
@@ -112,6 +161,12 @@ export function TaskCard({
         ) : null}
       </span>
       {compact ? null : <span className="visually-hidden">{task.key}</span>}
+      {fileState ? (
+        <span className={styles.dropBar}>
+          <Icon name={fileState === 'over' ? 'paperclip' : 'close'} size={14} strokeWidth={2.4} />
+          {t(fileState === 'over' ? 'attachments.dropActive' : 'attachments.dropDenied')}
+        </span>
+      ) : null}
     </Link>
   );
 }

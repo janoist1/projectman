@@ -81,6 +81,14 @@ export function describeEvent(
       if (!next) return `took it out of the theme ${previous ?? '?'}`;
       return previous ? `moved it from the theme ${previous} to ${next}` : `put it into the theme ${next}`;
     }
+    case 'task_prerequisite_closed': {
+      const how = text('status') === 'cancelled' ? 'was withdrawn' : 'is done';
+      const remaining = list('remaining');
+      return (
+        `the prerequisite ${text('ref') ?? '?'} ${how}; ` +
+        (remaining.length > 0 ? `still waiting for ${remaining.join(', ')}` : 'no prerequisite is open now')
+      );
+    }
     case 'task_note':
       return `note: ${text('text') ?? ''}`.trimEnd();
     case 'attachment_added':

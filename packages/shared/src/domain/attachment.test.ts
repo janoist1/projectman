@@ -4,6 +4,7 @@ import {
   canDeleteAttachment,
   canReadAttachments,
   canUploadAttachment,
+  coverAttachmentId,
   INLINE_MEDIA_TYPES,
   MAX_ATTACHMENT_BYTES,
   OCTET_STREAM,
@@ -27,6 +28,25 @@ describe('attachment limits', () => {
     for (const type of Object.keys(INLINE_MEDIA_TYPES)) expect(attachmentPreviewOf(type)).not.toBe('none');
     for (const type of ['image/svg+xml', 'text/html', OCTET_STREAM, 'image/bmp', ''])
       expect(attachmentPreviewOf(type)).toBe('none');
+  });
+});
+
+describe('the cover of a card', () => {
+  const file = (id: string, preview: 'image' | 'pdf' | 'none') => ({ id, preview });
+
+  it('is the first image in upload order', () => {
+    expect(
+      coverAttachmentId([file('a', 'pdf'), file('b', 'image'), file('c', 'image'), file('d', 'none')]),
+    ).toBe('b');
+  });
+
+  it('is the next image once the first is gone', () => {
+    expect(coverAttachmentId([file('a', 'pdf'), file('c', 'image')])).toBe('c');
+  });
+
+  it('is null without an image', () => {
+    expect(coverAttachmentId([])).toBeNull();
+    expect(coverAttachmentId([file('a', 'pdf'), file('b', 'none')])).toBeNull();
   });
 });
 

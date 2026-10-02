@@ -46,6 +46,9 @@ export const routes = {
   /** Always as a download. */
   attachmentDownload: (key: string, taskKey: string, id: string) =>
     `/api/projects/${key}/tasks/${taskKey}/attachments/${id}/download`,
+  /** A small WebP preview (at most 640 px) of an image attachment; 404 for anything else. */
+  attachmentThumbnail: (key: string, taskKey: string, id: string) =>
+    `/api/projects/${key}/tasks/${taskKey}/attachments/${id}/thumbnail`,
 
   invitations: (key: string) => `/api/projects/${key}/invites`,
   invitation: (key: string, id: string) => `/api/projects/${key}/invites/${id}`,

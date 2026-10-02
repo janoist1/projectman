@@ -113,6 +113,27 @@ export function registerAttachmentRoutes(
       sendContent(request, reply, true),
     );
 
+    scope.get<AttachmentParams>(
+      routes.attachmentThumbnail(':key', ':taskKey', ':id'),
+      async (request, reply) => {
+        const { key, taskKey, id } = request.params;
+        const access = await requireAccess(domain, request, key);
+        const { stream, size } = await domain.attachments.thumbnail(key, taskKey, id, actorOf(access));
+        reply
+          .header('content-type', 'image/webp')
+          .header('content-length', size)
+          .header('x-content-type-options', 'nosniff')
+          .header('content-security-policy', CONTENT_SECURITY_POLICY)
+          .header('cross-origin-resource-policy', 'same-origin')
+          .header('cache-control', 'private, no-store');
+        if (request.method === 'HEAD') {
+          stream.destroy();
+          return reply.send(Readable.from([]));
+        }
+        return reply.send(stream);
+      },
+    );
+
     scope.delete<AttachmentParams>(
       routes.taskAttachment(':key', ':taskKey', ':id'),
       async (request): Promise<DeleteAttachmentResponse> => {

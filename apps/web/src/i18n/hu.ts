@@ -405,6 +405,7 @@ export const hu = {
       task_not_cancelled: 'Csak megszakított feladat nyitható újra.',
       task_session_live: 'Még fut egy munkamenet. A módosítás előtt állítsd le.',
       repo_required: 'Válassz repót a feladathoz: nélküle az AI-fejlesztő nem indulhat el.',
+      prerequisite_open: 'A feladat előfeltétele még nincs lezárva.',
       unknown_member: 'Ismeretlen csapattag.',
       task_closed: 'Ez a feladat már lezárult.',
       no_free_member: 'Most nincs szabad fejlesztő.',
@@ -585,6 +586,7 @@ export const hu = {
       workspace_busy: 'Indulásra vár: {name} munkaállomásán más feladat fut',
       workspace_dirty: 'Indulásra vár: {name} munkaállomásán befejezetlen munka van',
       workspace_fetch_failed: 'Indulásra vár: a friss alapágat nem sikerült letölteni',
+      prerequisite_open: 'Előfeltételre vár: {prerequisites}',
       no_free_member: 'Szabad fejlesztőre vár',
     },
     stageOwners: 'a lépés összes felelőse',
@@ -603,6 +605,8 @@ export const hu = {
         'A tag munkaállomásán el nem mentett változás vagy félbehagyott git-művelet van. Kérd meg a tagot (vagy nézd meg magad), hogy mentse el vagy fejezze be; automatikusan semmit nem törlünk.',
       workspace_fetch_failed:
         'Az új feladatág csak friss alapról indulhat. Ellenőrizd a hálózatot és a repó elérését; az indítás magától újrapróbálkozik.',
+      prerequisite_open:
+        'A munka magától elindul, amikor az utolsó előfeltétel is lezárul (kész vagy visszavont). Ember az Indítás gombbal előbb is elindíthatja.',
       no_free_member:
         'Most nincs szabad fejlesztő. A feladat magától elindul, amint felszabadul egy, vagy ha a Beállítások → Keretek alatt engedélyezed a beugrókat; addig kézzel is hozzárendelhetsz valakit.',
     },
@@ -876,8 +880,15 @@ export const hu = {
     title: 'Csatolmányok',
     chooseFiles: 'Fájlok csatolása',
     inputLabel: 'Csatolandó fájlok kiválasztása',
-    hint: 'Húzd ide a fájlokat, vagy illessz be egy képet a vágólapról. Egy fájl legfeljebb {max} lehet.',
-    dropActive: 'Engedd el a fájlok csatolásához',
+    hint: 'Húzd ide vagy a táblán a kártyára a fájlokat, vagy illessz be egy képet. Fájlonként legfeljebb {max}. Az első kép lesz a borítókép.',
+    dropActive: 'Engedd el a csatoláshoz',
+    dropDenied: 'Ehhez a kártyához nem csatolhatsz',
+    boardHint: 'Húzd a fájlt egy kártyára',
+    cover: 'Borítókép',
+    uploadingCount: 'Feltöltés… {count} fájl',
+    attached: 'Csatolva: {fileName}',
+    attachedMany: '{count} fájl csatolva.',
+    attachFailed: 'Nem sikerült csatolni: {fileName}. {reason}',
     none: 'Még nincs csatolmány.',
     listLabel: 'Csatolt fájlok',
     meta: '{size} · {who} · {when}',
@@ -906,6 +917,14 @@ export const hu = {
       kilobytes: '{value} kB',
       megabytes: '{value} MB',
     },
+  },
+  /** The warning before a person starts a card whose prerequisite is open (PM-204). */
+  prerequisiteWarning: {
+    title: 'Az előfeltétel még nincs lezárva',
+    description:
+      'Ez a kártya erre vár: {keys}. Ha most elindítod, a munka az előfeltétel lezárása nélkül kezdődik.',
+    confirm: 'Indítás mégis',
+    moveAndWait: 'Áthelyezés, várjon',
   },
   taskLifecycle: {
     title: 'További műveletek',
@@ -1204,6 +1223,10 @@ export const hu = {
     themeSet: 'Téma beállítva: {themeKey}',
     themeMoved: 'Téma módosítva: {previous} → {themeKey}',
     themeRemoved: 'Téma eltávolítva: {previous}',
+    prerequisiteDone: 'Az előfeltétel, {ref}, elkészült.',
+    prerequisiteWithdrawn: 'Az előfeltételt, {ref}, visszavonták, így már nem kell rá várni.',
+    prerequisiteRemaining: 'Még vár erre: {remaining}.',
+    prerequisiteFree: 'Már egy előfeltétel sem nyitott.',
     subtaskAdded: 'Alfeladat hozzáadva: {subtaskKey} → {parentKey}',
     subtaskRemoved: 'Alfeladat eltávolítva: {subtaskKey} → {parentKey}',
     attachmentAdded: 'Csatolmány hozzáadva: {fileName}',

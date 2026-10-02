@@ -86,6 +86,8 @@ export interface TaskUpdate {
   relations?: RelationsChange;
   /** The theme the card belongs to (PM-192); null removes it. Not for a theme or a subtask. */
   themeKey?: string | null;
+  /** A person moves the card into the work stage despite open prerequisites (PM-204). */
+  despitePrerequisites?: boolean;
 }
 
 /**
@@ -497,7 +499,10 @@ export class TaskService {
       next = this.cardRelations.execute(relationPlan, next, actor, sessionId, effects);
     if (note && !labelsChanged) this.store.recordNote(config, next, note, actor, sessionId, effects);
     if (!moving) return { task: next };
-    const moved = this.moves.move(config, next, change.stageId!, actor, effects, { handover });
+    const moved = this.moves.move(config, next, change.stageId!, actor, effects, {
+      handover,
+      despitePrerequisites: change.despitePrerequisites,
+    });
     return moved.moved ? { task: moved.task } : { task: moved.task, pendingApproval: moved.pendingApproval };
   }
 

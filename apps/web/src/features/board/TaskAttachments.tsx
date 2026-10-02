@@ -1,6 +1,5 @@
-import clsx from 'clsx';
 import { useEffect, useRef, useState } from 'react';
-import type { ChangeEvent, DragEvent } from 'react';
+import type { ChangeEvent } from 'react';
 import { MAX_ATTACHMENT_BYTES, canDeleteAttachment, canUploadAttachment, routes } from '@projectman/shared';
 import type { Attachment, AttachmentViewer, Task } from '@projectman/shared';
 import { isApiError } from '../../api/client';
@@ -12,20 +11,14 @@ import { Icon } from '../../components/Icon';
 import { ErrorState, LoadingState } from '../../components/States';
 import { formatBytes, formatStamp } from '../../i18n/format';
 import { t } from '../../i18n/t';
-import {
-  dragHasFiles,
-  droppedFiles,
-  isEditableTarget,
-  pasteHasText,
-  pastedImages,
-} from '../../lib/attachmentInput';
+import { isEditableTarget, pasteHasText, pastedImages } from '../../lib/attachmentInput';
 import { errorMessage } from '../../lib/errors';
 import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import drawer from './drawer.module.css';
 import styles from './TaskAttachments.module.css';
-import { useAttachmentUploads } from './useAttachmentUploads';
-import type { UploadItem } from './useAttachmentUploads';
+import { useAttachmentUploads } from './attachmentUploads';
+import type { UploadItem } from './attachmentUploads';
 
 /** A refusal (the task is gone, the access is lost) is not a fault to retry: nothing is shown. */
 const isRefusal = (error: unknown) => isApiError(error) && (error.status === 403 || error.status === 404);
@@ -103,6 +96,7 @@ function AttachmentRow({
   task,
   members,
   canDelete,
+  isCover,
   onPreview,
   onDelete,
   deleting,
@@ -112,6 +106,8 @@ function AttachmentRow({
   task: Task;
   members: MemberIndex;
   canDelete: boolean;
+  /** The card shows this image as its cover. */
+  isCover: boolean;
   onPreview: (id: string) => void;
   onDelete: (id: string) => void;
   deleting: boolean;
@@ -147,7 +143,10 @@ function AttachmentRow({
         )}
       </div>
       <div className={styles.info}>
-        <span className={styles.name}>{fileName}</span>
+        <span className={styles.name}>
+          {fileName}
+          {isCover ? <span className={styles.coverChip}>{t('attachments.cover')}</span> : null}
+        </span>
         <span className={styles.meta}>
           {t('attachments.meta', {
             size: formatBytes(attachment.size),
@@ -227,7 +226,8 @@ function AttachmentRow({
 }
 
 /**
- * The files of a task: pick, drop or paste an image to add them; download, open an image large or a
+ * The files of a task: pick or paste an image to add them (a drop on the open card is taken by the
+ * drawer around this section, into the same queue); download, open an image large or a
  * PDF in a new tab, and delete (the uploader, or an owner or admin). What a person may do comes from
  * the shared rules, the same the server judges by. The section remounts for each task, so nothing of
  * another task, or of a task that is no longer visible, stays on screen.
@@ -238,7 +238,7 @@ export function TaskAttachments({ task, members }: { task: Task; members: Member
   const viewer: AttachmentViewer | null = access && myHandle ? { access, handle: myHandle } : null;
   const list = useAttachments(key, task.key, viewer !== null);
   const remove = useDeleteAttachment(key, task.key);
-  const uploads = useAttachmentUploads(key, task.key);
+  const uploads = useAttachmentUploads(task.key);
   const refused = list.isError && isRefusal(list.error);
   const attachments = refused ? [] : (list.data?.attachments ?? []);
   const canUpload = viewer !== null && !refused && canUploadAttachment(viewer, task);
@@ -250,8 +250,6 @@ export function TaskAttachments({ task, members }: { task: Task; members: Member
   );
 
   const inputRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
-  const dragDepth = useRef(0);
   const addRef = useRef(uploads.add);
   addRef.current = uploads.add;
 
@@ -277,41 +275,10 @@ export function TaskAttachments({ task, members }: { task: Task; members: Member
     event.target.value = '';
   };
 
-  const dragProps = canUpload
-    ? {
-        onDragEnter: (event: DragEvent) => {
-          if (!dragHasFiles(event.dataTransfer)) return;
-          event.preventDefault();
-          dragDepth.current += 1;
-          setDragging(true);
-        },
-        onDragOver: (event: DragEvent) => {
-          if (!dragHasFiles(event.dataTransfer)) return;
-          event.preventDefault();
-          event.dataTransfer.dropEffect = 'copy';
-        },
-        onDragLeave: (event: DragEvent) => {
-          if (!dragHasFiles(event.dataTransfer)) return;
-          dragDepth.current = Math.max(0, dragDepth.current - 1);
-          if (dragDepth.current === 0) setDragging(false);
-        },
-        onDrop: (event: DragEvent) => {
-          if (!dragHasFiles(event.dataTransfer)) return;
-          event.preventDefault();
-          dragDepth.current = 0;
-          setDragging(false);
-          uploads.add(droppedFiles(event.dataTransfer));
-        },
-      }
-    : {};
-
   const urls = useUrls(task);
   return (
-    <section
-      className={clsx(drawer.section, styles.section, dragging && styles.dragging)}
-      aria-labelledby="task-attachments-title"
-      {...dragProps}
-    >
+    // Files dropped anywhere on the open card are taken by the drawer around this section.
+    <section className={drawer.section} aria-labelledby="task-attachments-title">
       <h3 id="task-attachments-title" className={drawer.sectionTitle}>
         {t('attachments.title')}
       </h3>
@@ -329,11 +296,7 @@ export function TaskAttachments({ task, members }: { task: Task; members: Member
             aria-label={t('attachments.inputLabel')}
             onChange={onChoose}
           />
-          <p className={styles.hint}>
-            {dragging
-              ? t('attachments.dropActive')
-              : t('attachments.hint', { max: formatBytes(MAX_ATTACHMENT_BYTES) })}
-          </p>
+          <p className={styles.hint}>{t('attachments.hint', { max: formatBytes(MAX_ATTACHMENT_BYTES) })}</p>
         </div>
       ) : null}
 
@@ -367,6 +330,7 @@ export function TaskAttachments({ task, members }: { task: Task; members: Member
               task={task}
               members={members}
               canDelete={canDeleteAttachment(viewer, task, attachment)}
+              isCover={attachment.id === task.coverAttachmentId}
               onPreview={setPreviewId}
               onDelete={(id) => remove.mutate(id)}
               deleting={remove.isPending && remove.variables === attachment.id}

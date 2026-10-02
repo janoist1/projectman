@@ -4,6 +4,7 @@ import {
   readdirSync,
   readFileSync,
   symlinkSync,
+  truncateSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -110,20 +111,34 @@ describe('attachment team tools', () => {
       expect(events('attachment_added')).toEqual([]);
     });
 
-    it('takes exactly the limit and refuses one byte more with a clear error, leaving nothing behind', async () => {
-      writeFileSync(join(cwd, 'exact.bin'), Buffer.alloc(MAX_ATTACHMENT_BYTES, 1));
-      writeFileSync(join(cwd, 'over.bin'), Buffer.alloc(MAX_ATTACHMENT_BYTES + 1, 1));
-      const { attachment } = await h.domain.teamTools.attachFile(dev, { taskKey: 'AR-1', path: 'exact.bin' });
-      expect(attachment.size).toBe(MAX_ATTACHMENT_BYTES);
+    // The limit is 25 MB, so this test copies and checksums a file of that size: with the suite
+    // running in parallel that is I/O bound and needs more than the default 5 s.
+    it(
+      'takes exactly the limit and refuses one byte more with a clear error, leaving nothing behind',
+      { timeout: 30_000 },
+      async () => {
+        // Sparse files: only their size matters here, and nothing is written for the zeros.
+        writeFileSync(join(cwd, 'exact.bin'), '');
+        truncateSync(join(cwd, 'exact.bin'), MAX_ATTACHMENT_BYTES);
+        writeFileSync(join(cwd, 'over.bin'), '');
+        truncateSync(join(cwd, 'over.bin'), MAX_ATTACHMENT_BYTES + 1);
+        const { attachment } = await h.domain.teamTools.attachFile(dev, {
+          taskKey: 'AR-1',
+          path: 'exact.bin',
+        });
+        expect(attachment.size).toBe(MAX_ATTACHMENT_BYTES);
 
-      const err = await toolError(h.domain.teamTools.attachFile(dev, { taskKey: 'AR-1', path: 'over.bin' }));
-      expect(err.code).toBe('invalid');
-      expect(err.message).toBe(
-        `over.bin is ${MAX_ATTACHMENT_BYTES + 1} bytes; an attachment is at most ${MAX_ATTACHMENT_BYTES} bytes. Nothing was attached.`,
-      );
-      expect(stored().map((a) => a.id)).toEqual([attachment.id]);
-      expect(h.repos.attachments.inState('pending')).toEqual([]);
-    });
+        const err = await toolError(
+          h.domain.teamTools.attachFile(dev, { taskKey: 'AR-1', path: 'over.bin' }),
+        );
+        expect(err.code).toBe('invalid');
+        expect(err.message).toBe(
+          `over.bin is ${MAX_ATTACHMENT_BYTES + 1} bytes; an attachment is at most ${MAX_ATTACHMENT_BYTES} bytes. Nothing was attached.`,
+        );
+        expect(stored().map((a) => a.id)).toEqual([attachment.id]);
+        expect(h.repos.attachments.inState('pending')).toEqual([]);
+      },
+    );
 
     it('refuses a file that changes while it is attached, and keeps no half attachment', async () => {
       await h.cleanup();
@@ -131,6 +146,8 @@ describe('attachment team tools', () => {
       h = await createDomainHarness({
         attachmentStorage: (inner) => ({
           openRead: (ref, size) => inner.openRead(ref, size),
+          createThumbnail: (ref) => inner.createThumbnail(ref),
+          openThumbnail: (ref) => inner.openThumbnail(ref),
           locate: (ref, size, mediaType) => inner.locate(ref, size, mediaType),
           taskDirectory: (projectKey, taskKey) => inner.taskDirectory(projectKey, taskKey),
           remove: (ref) => inner.remove(ref),

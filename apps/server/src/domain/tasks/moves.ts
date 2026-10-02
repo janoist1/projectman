@@ -42,6 +42,11 @@ export interface StageChange {
   from: string;
   to: string;
   actor: Actor;
+  /**
+   * A person moved the card after the warning that a prerequisite is open (PM-204): the work start
+   * the move makes does not wait for the prerequisites.
+   */
+  despitePrerequisites?: boolean;
 }
 
 /** The head of the developer's branch, read before a move that hands the task over for review or testing. */
@@ -55,6 +60,8 @@ export interface MoveOptions {
   handover?: Handover | null;
   /** The system sends the task back because its branch moved after the hand-over. */
   branchMoved?: NonNullable<TimelineEventData['task_stage_changed']['branchMoved']>;
+  /** A person's move despite open prerequisites (PM-204); carried to the `task_stage_changed` event. */
+  despitePrerequisites?: boolean;
 }
 
 /** Reads the head of the branch a task's developer hands over, null when there is none to read. */
@@ -215,7 +222,17 @@ export class TaskMoves {
       ...(opts.branchMoved ? { branchMoved: opts.branchMoved } : {}),
     };
     return {
-      task: this.applyMove(config, task, target, actor, extra, effects, head),
+      // Only a person can accept the warning: an AI actor's flag is ignored.
+      task: this.applyMove(
+        config,
+        task,
+        target,
+        actor,
+        extra,
+        effects,
+        head,
+        opts.despitePrerequisites === true && actor.kind === 'human',
+      ),
       moved: true,
       pendingApproval: [],
     };
@@ -402,6 +419,7 @@ export class TaskMoves {
     >,
     effects: Effect[],
     pin?: SourceHead,
+    despitePrerequisites = false,
   ): Task {
     const at = isoNow(this.store.ctx);
     // The commit handed over with the stage the task leaves is no longer its pin.
@@ -444,7 +462,13 @@ export class TaskMoves {
     })) {
       this.inbox.cancel(item.id);
     }
-    const change: StageChange = { task: next, from: task.stageId, to: target.id, actor };
+    const change: StageChange = {
+      task: next,
+      from: task.stageId,
+      to: target.id,
+      actor,
+      ...(despitePrerequisites ? { despitePrerequisites } : {}),
+    };
     effects.push(() => this.store.ctx.events.emit('task_stage_changed', change));
     return next;
   }

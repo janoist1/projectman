@@ -361,6 +361,12 @@ export const UpdateTaskRequest = z.object({
    * which reads its parent's theme, and for a theme that is closed.
    */
   themeKey: TaskKey.nullable().optional(),
+  /**
+   * A person moves the card into the work stage after the warning that a prerequisite is open
+   * (PM-204): the automatic start that follows does not wait for it. Only a person may send it;
+   * the team tool does not offer it, so a card an AI member moves waits.
+   */
+  despitePrerequisites: z.boolean().optional(),
 });
 export type UpdateTaskRequest = z.infer<typeof UpdateTaskRequest>;
 
@@ -398,6 +404,11 @@ export type ReopenTaskRequest = z.infer<typeof ReopenTaskRequest>;
 export const StartTaskRequest = z.object({
   /** Developer to assign; omitted = the scheduler picks a free developer (or a temp worker). */
   assignee: MemberHandle.optional(),
+  /**
+   * A person starts the card after the warning that a prerequisite is open (PM-204); without it
+   * the start is refused (409 `prerequisite_open`). Only a person may send it.
+   */
+  despitePrerequisites: z.boolean().optional(),
 });
 export type StartTaskRequest = z.infer<typeof StartTaskRequest>;
 

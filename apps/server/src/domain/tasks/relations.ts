@@ -184,6 +184,9 @@ export class TaskRelations {
               data: { kind, ref },
             });
           touched.add(step.owner).add(step.ref);
+          // The card may be free of what held its start back (PM-204).
+          if (step.type === 'link_remove' && step.kind === 'prerequisite')
+            effects.push(() => this.store.ctx.events.emit('task_prerequisite_removed', owner));
           break;
         }
         case 'parent': {

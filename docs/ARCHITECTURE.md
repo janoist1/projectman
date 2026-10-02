@@ -137,6 +137,14 @@ Documentation map:
   name; the websocket event `task_attachments_changed` carries only the task key and reaches a
   client only while the task is shared with them. Cancelling a task keeps its attachments, and
   no task is ever hard-deleted (deleting one for good would have to remove its files too).
+  **Cover and thumbnail** (PM-195): a card's cover is its first image (`coverAttachmentId` in
+  `packages/shared`, the oldest ready attachment whose content proved to be a PNG, JPEG, GIF or
+  WebP); `Task.coverAttachmentId` is filled by `TaskStore.view`, and the attachments service
+  pushes `task_upserted` when an upload or a deletion changes it. The board loads only
+  `routes.attachmentThumbnail`: a WebP of at most 640 px that `sharp` makes on the first request
+  (first frame, EXIF orientation applied, no metadata; a pixel and a time limit, one run per
+  attachment and two at a time; an image it cannot decode answers 404 until the server restarts)
+  and keeps as `<id>.thumb` next to the file. The same access check as the content.
 - **Work item and session** — every AI member works in a **fresh session per work item**:
   member × task, member × meeting or member × general chat (decision 5). A task session lives
   through the whole pipeline; later messages about the task resume it. Persistent identity
@@ -232,7 +240,19 @@ Documentation map:
   applies only while the card is still in that stage and has no assignee other than the one
   this very start assigned (a half-done attempt carries on, someone else's assignment ends the
   wait). While AI work is off a move creates no start. A card with an assignee only gets the
-  stage hand-over's notice.
+  stage hand-over's notice. **Prerequisites** (PM-204): `startLocked` first refuses a card with an
+  open prerequisite (`prerequisite_open`, the open keys in the details), before any developer is
+  chosen; the work start defers that refusal too, so the card waits (`startWaiting.reason`
+  `prerequisite_open` with `prerequisites`) and starts once, when the last prerequisite is done or
+  withdrawn (`task_stage_changed`/`task_cancelled` retry the deferred starts) or its relation is
+  removed (`task_prerequisite_removed`); the retry skips a start whose open prerequisites did not
+  change. A person starts despite them with `despitePrerequisites` (`StartTaskRequest`, or
+  `UpdateTaskRequest` on the move, carried as `StageChange.despitePrerequisites` into the
+  `work_start` spec): honored for human actors only, so a card an AI member moves waits. Cards in a
+  queue stage have no start, so a closing prerequisite starts nothing there. (A move that needs an
+  approval first does not carry the flag past the approval: the card then waits.) Each closing writes
+  `task_prerequisite_closed` on the timeline of every open dependent (`PrerequisiteClosures`). The
+  stage hand-over (review, QA) and message wake-ups do not wait for prerequisites.
 - **Stage hand-over** — when a task enters a later stage owned by AI members, by anyone's
   move, the least loaded free owner (never the task's assignee) gets a session for the task.
   An owner that already has a session for the task gets a notice instead.
@@ -426,7 +446,8 @@ migrated/                 what a move left (PM-143): the apply report, the old m
 attachments/<KEY>/<TASK>/<id>   task attachments: private (0700 directories, 0600 files),
                           named by the generated id (the uploaded name lives only in SQLite);
                           a file still being written is <id>.part; an image or PDF
-                          an agent asked for also has <id>.<ext> (a hard link)
+                          an agent asked for also has <id>.<ext> (a hard link);
+                          an image's thumbnail is <id>.thumb (<id>.thumb.part while written)
 ```
 
 SQLite tables: `users`, `auth_sessions`, `invitations`, `projects`, `counters`, `tasks`,

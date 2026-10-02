@@ -169,12 +169,12 @@ export function useAttachments(key: string, taskKey: string, enabled = true) {
 }
 
 /** One file per call; calls may run side by side. The new file joins the cached list at once. */
-export function useUploadAttachment(key: string, taskKey: string) {
+export function useUploadAttachment(key: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ file, signal }: { file: File; signal?: AbortSignal }) =>
+    mutationFn: ({ taskKey, file, signal }: { taskKey: string; file: File; signal?: AbortSignal }) =>
       api.uploadAttachment(key, taskKey, file, signal),
-    onSuccess: ({ attachment }) => {
+    onSuccess: ({ attachment }, { taskKey }) => {
       client.setQueryData<AttachmentListResponse>(queryKeys.attachments(key, taskKey), (list) =>
         list ? { attachments: upsertBy(list.attachments, attachment, (entry) => entry.id) } : list,
       );
@@ -461,8 +461,17 @@ export function useReopenTask(key: string) {
 export function useMoveTask(key: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ taskKey, stageId }: { taskKey: string; stageId: string }) =>
-      api.updateTask(key, taskKey, { stageId }),
+    mutationFn: ({
+      taskKey,
+      stageId,
+      despitePrerequisites,
+    }: {
+      taskKey: string;
+      stageId: string;
+      /** A person moves the card after the warning that a prerequisite is open (PM-204). */
+      despitePrerequisites?: boolean;
+    }) =>
+      api.updateTask(key, taskKey, { stageId, ...(despitePrerequisites ? { despitePrerequisites } : {}) }),
     onSettled: async (_data, _error, { taskKey }) => {
       await Promise.all([
         client.invalidateQueries({ queryKey: queryKeys.board(key) }),

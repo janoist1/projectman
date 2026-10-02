@@ -260,7 +260,7 @@ export function LimitsSection({ config }: { config: ProjectConfig }) {
             </dd>
           </div>
           <div>
-            <dt>{t('settings.limits.aiEnabled')}</dt>
+            <dt>{t('settings.limits.aiWork')}</dt>
             <dd>{t(limits.aiEnabled ? 'settings.limits.aiEnabledOn' : 'settings.limits.aiEnabledOff')}</dd>
           </div>
           <div>

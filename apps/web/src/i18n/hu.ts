@@ -1800,6 +1800,7 @@ export const hu = {
       boundaryHelp:
         'A vezető fejlesztő az egyszeri, delegálható műveletekről dönt. A határidő után a tulajdonos dönt; automatikus engedély nincs. Csak tulajdonos módosíthatja.',
       aiEnabled: 'AI-munka engedélyezve',
+      aiWork: 'AI-munka',
       aiEnabledHelp:
         'Kikapcsolva az AI-tagok nem kezdenek és nem folytatnak munkát ebben a projektben; a futó munkamenetek tovább működnek, a várakozó munka visszakapcsolás után indul.',
       aiEnabledOn: 'Bekapcsolva',

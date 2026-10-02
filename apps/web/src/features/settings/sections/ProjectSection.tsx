@@ -97,7 +97,11 @@ export function ProjectSection({ config }: { config: ProjectConfig }) {
           </div>
           <div>
             <dt>{t('settings.project.language')}</dt>
-            <dd>{project.language}</dd>
+            <dd>
+              {isKnownLanguage(project.language)
+                ? t(`settings.project.languages.${project.language}`)
+                : project.language}
+            </dd>
           </div>
           <div>
             <dt>{t('settings.project.timezone')}</dt>

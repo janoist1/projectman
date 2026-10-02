@@ -7,7 +7,7 @@ import { Chip, StatusDot } from '../../components/Chip';
 import { ProviderBadge } from '../../components/ProviderBadge';
 import { t } from '../../i18n/t';
 import { aiSponsors, memberStatusView, nameOf } from '../../lib/members';
-import { aiRoleView, humanRoleName, whenToAsk } from '../../lib/roles';
+import { aiRoleView, humanRoleName } from '../../lib/roles';
 import { MemberScheduleControl } from './ScheduledRuns';
 import styles from './Roster.module.css';
 
@@ -52,7 +52,6 @@ function MemberIdentity({
 }) {
   const { key, myHandle } = useProject();
   const { members } = useProjectIndexes(key);
-  const ask = whenToAsk(member.roles, roles);
   return (
     <div className={styles.memberCell}>
       <Avatar member={member} isMe={member.handle === myHandle} size="lg" status={status} />
@@ -73,21 +72,15 @@ function MemberIdentity({
         <span className={styles.handle}>
           <span className={styles.mono}>{member.handle}</span> · <RoleChips member={member} roles={roles} />
         </span>
-        {ask ? (
-          <span className={styles.whenToAsk}>
-            {t('roleCatalogue.whenToAsk')}: {ask}
-          </span>
-        ) : null}
       </span>
     </div>
   );
 }
 
-/** The tasks a member carries (at most two), or what they do now. */
+/** The tasks a member carries (at most two). The command a session runs is not shown here. */
 function MemberTasks({ member, titles }: { member: MemberView; titles: RosterProps['titles'] }) {
   const { key } = useProject();
-  if (member.currentTaskKeys.length === 0)
-    return <span className={styles.muted}>{member.activity ?? t('team.noTask')}</span>;
+  if (member.currentTaskKeys.length === 0) return <span className={styles.muted}>{t('team.noTask')}</span>;
   return (
     <span className={styles.tasks}>
       {member.currentTaskKeys.slice(0, 2).map((taskKey) => (
@@ -165,9 +158,6 @@ export function RosterTable({ members, inbox, roles, titles, actions }: RosterPr
                       <StatusDot status={view.status} pulse={view.status === 'working'} />
                       <span className={styles.statusText}>{view.label}</span>
                     </span>
-                    {member.activity && member.currentTaskKeys.length > 0 ? (
-                      <span className={styles.activity}>{member.activity}</span>
-                    ) : null}
                   </span>
                 </td>
                 <td className={styles.nowCell}>

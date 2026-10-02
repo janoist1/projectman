@@ -23,6 +23,7 @@ import { PlanUsageMeter } from '../../app/PlanUsageMeter';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
+import { Fold } from '../../components/Fold';
 import { ErrorBanner } from '../../components/ErrorBanner';
 import { Chip } from '../../components/Chip';
 import { PageHeader } from '../../components/PageHeader';
@@ -154,15 +155,14 @@ export function MemberProfilePage() {
         subtitle={
           <>
             <code>{member.handle}</code> · <span>{status.label}</span>
-            {member.activity ? ` · ${member.activity}` : ''}
           </>
         }
       >
         <div className={styles.actions}>
-          {ai && can.workInSessions ? (
+          {ai && member.onLeave && can.manageTeam ? <LeaveButton member={member} variant="primary" /> : null}
+          {ai && !member.onLeave && can.workInSessions ? (
             <Button
               variant="primary"
-              disabled={member.onLeave === true}
               loading={start.isPending}
               onClick={() =>
                 start.mutate(handle, {
@@ -195,10 +195,9 @@ export function MemberProfilePage() {
         </div>
       </PageHeader>
       {member.onLeave ? (
-        <div className={styles.leaveNote}>
-          <p role="status">{t('leave.status')}</p>
-          {can.manageTeam ? <LeaveButton member={member} /> : null}
-        </div>
+        <p role="status" className={styles.leaveNote}>
+          {t('leave.status')}
+        </p>
       ) : null}
       {start.error ? <ErrorBanner>{errorMessage(start.error)}</ErrorBanner> : null}
       <section className={styles.panel}>
@@ -275,20 +274,23 @@ export function MemberProfilePage() {
       </section>
       {ai && ownConfig?.kind === 'ai' && config.data ? (
         <section className={styles.panel} aria-label={t('profile.instructions')}>
-          <h2 className={styles.panelTitle}>{t('profile.instructions')}</h2>
-          <h3>
-            {t('profile.roleInstructions', {
-              role: aiRoleView(member.role, member.specialty, roles.data?.roles).name,
-            })}
-          </h3>
-          <pre className={styles.memory}>
-            {roleBundle(config.data.config, member.role).instructions.trim() || t('profile.noInstructions')}
-          </pre>
-          <p>
-            <Link to={`/p/${key}/settings`}>{t('profile.roleInstructionsEdit')}</Link>
-          </p>
-          <h3>{t('profile.ownInstructions')}</h3>
-          <pre className={styles.memory}>{ownConfig.instructions.trim() || t('profile.noInstructions')}</pre>
+          <Fold summary={t('profile.instructions')}>
+            <h3>
+              {t('profile.roleInstructions', {
+                role: aiRoleView(member.role, member.specialty, roles.data?.roles).name,
+              })}
+            </h3>
+            <pre className={styles.memory}>
+              {roleBundle(config.data.config, member.role).instructions.trim() || t('profile.noInstructions')}
+            </pre>
+            <p>
+              <Link to={`/p/${key}/settings`}>{t('profile.roleInstructionsEdit')}</Link>
+            </p>
+            <h3>{t('profile.ownInstructions')}</h3>
+            <pre className={styles.memory}>
+              {ownConfig.instructions.trim() || t('profile.noInstructions')}
+            </pre>
+          </Fold>
         </section>
       ) : null}
       <div className={styles.grid}>

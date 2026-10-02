@@ -83,6 +83,15 @@
   overflow-wrap: anywhere;
 }
 
+/* A narrow list is a glance: the full text is on the Messages page. */
+.compact .body {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
 .foot {
   display: flex;
   align-items: center;

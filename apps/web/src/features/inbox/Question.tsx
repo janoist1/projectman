@@ -4,7 +4,7 @@ import type { InboxOption } from '@projectman/shared';
 import { Button } from '../../components/Button';
 import type { ButtonSize, ButtonVariant } from '../../components/Button';
 import { Chip } from '../../components/Chip';
-import { Icon } from '../../components/Icon';
+import { Fold } from '../../components/Fold';
 import { Markdown } from '../../components/Markdown';
 import { t } from '../../i18n/t';
 import { optionLabel } from '../../lib/inbox';
@@ -91,12 +91,8 @@ export function QuestionChoices({
 /** The technical background of a question, closed until the reader wants it. */
 export function QuestionDetails({ text }: { text: string }) {
   return (
-    <details className={styles.fold}>
-      <summary className={styles.foldSummary}>
-        <Icon name="chevronRight" size={14} strokeWidth={2.4} className={styles.foldChevron} />
-        {t('inbox.question.details')}
-      </summary>
-      <Markdown text={text} className={styles.foldBody} />
-    </details>
+    <Fold summary={t('inbox.question.details')}>
+      <Markdown text={text} />
+    </Fold>
   );
 }

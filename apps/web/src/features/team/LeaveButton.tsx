@@ -2,7 +2,7 @@ import type { MemberView } from '@projectman/shared';
 import { useUpdateMember } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
-import type { ButtonSize } from '../../components/Button';
+import type { ButtonSize, ButtonVariant } from '../../components/Button';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
@@ -14,10 +14,12 @@ import { errorMessage } from '../../lib/errors';
 export function LeaveButton({
   member,
   size,
+  variant = 'ghost',
   onDone,
 }: {
   member: MemberView;
   size?: ButtonSize;
+  variant?: ButtonVariant;
   onDone?: () => void;
 }) {
   const { key } = useProject();
@@ -26,7 +28,7 @@ export function LeaveButton({
   const onLeave = member.onLeave === true;
   return (
     <Button
-      variant="ghost"
+      variant={variant}
       size={size}
       loading={update.isPending}
       aria-label={t(onLeave ? 'leave.callBackMember' : 'leave.sendMember', { name: member.displayName })}

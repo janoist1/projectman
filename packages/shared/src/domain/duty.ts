@@ -124,7 +124,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'direction',
     holders: 'both',
     prompt:
-      "Design the user flow before the screens, then the screens, the interactions and a clickable mockup in the task worktree. Put the essence first and keep details one click away; keep one visual language (design tokens, shared components). For every screen, design the empty, loading, error and first-use states, subtle motion and short, friendly copy in the project's language. Check usability and accessibility (contrast, keyboard, labels) on phones and desktops. Describe all states and handoff requirements, and review the finished screen against the design.",
+      "Design the user flow before the screens, then the screens, the interactions and a clickable mockup under `.demo/` in your working directory (git-ignored). On a card you are not the assignee of, do not edit a tracked file and do not commit: the plan goes into the card, the mockup is attached to it. Put the essence first and keep details one click away; keep one visual language (design tokens, shared components). For every screen, design the empty, loading, error and first-use states, subtle motion and short, friendly copy in the project's language. Check usability and accessibility (contrast, keyboard, labels) on phones and desktops. Describe all states and handoff requirements, and review the finished screen against the design in one complete round: the images, attachments and the plan first, then the finished screen and the code, and everything to fix in one message to the author.",
     toolPolicy: 'task_worktree',
     meetings: [],
     events: [],

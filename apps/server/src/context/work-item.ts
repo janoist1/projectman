@@ -7,12 +7,13 @@ import {
   isHumanOnlyLabel,
   labelDefinition,
   labelHolders,
+  labelSetters,
   repoOf,
   resolvedStages,
   roleBundle,
   stageOwners,
 } from '@projectman/shared';
-import type { DutyId, RepoConfig, Stage, Task } from '@projectman/shared';
+import type { DutyId, LabelDefinition, RepoConfig, Stage, Task } from '@projectman/shared';
 import type { ContextPackInput } from '../contracts';
 import { code, codeList, labelRef, lowerFirst, stageLabel } from './format';
 
@@ -166,6 +167,50 @@ interface StepContext {
 type StepRule = (c: StepContext) => string[];
 
 /**
+ * The labels a stage's gate asks of this task that `settable` accepts: has_label conditions that
+ * bind this task (no `when`, or the task carries it), that it does not have yet, and that are no
+ * human approval or system label (those have their own wording).
+ */
+function gateLabelsFor(
+  c: StepContext,
+  stage: Stage | null,
+  settable: (label: LabelDefinition, setters: string[]) => boolean,
+): string[] {
+  const { input, task } = c;
+  return (stage?.gate?.conditions ?? []).flatMap((condition) => {
+    if (condition.type !== 'has_label' || task.labels.includes(condition.label)) return [];
+    if (condition.when !== undefined && !task.labels.includes(condition.when)) return [];
+    const label = labelDefinition(input.project, condition.label);
+    if (!label || label.setBy === 'system' || isHumanOnlyLabel(label)) return [];
+    return settable(label, labelSetters(input.project, label, task)) ? [label.id] : [];
+  });
+}
+
+/**
+ * What a builder does before handing over when the next stage's gate asks for a label that a
+ * teammate sets (the designer's review of a UI card): get the review while the work is still the
+ * builder's, and do the fixes before the hand-over, so nothing is committed after it.
+ */
+function reviewBeforeHandover(c: StepContext, target: Stage | null): string[] {
+  const { input } = c;
+  const labels = gateLabelsFor(
+    c,
+    target,
+    (_label, setters) => setters.length > 0 && !setters.includes(input.member.handle),
+  );
+  if (labels.length === 0 || !target) return [];
+  const setters = [
+    ...new Set(
+      labels.flatMap((id) => labelSetters(input.project, labelDefinition(input.project, id)!, c.task)),
+    ),
+  ];
+  const refs = labels.map((id) => labelRef(id, input.project.pipeline.labels)).join(' and ');
+  return [
+    `The gate of ${stageLabel(target)} asks for ${refs}, which ${codeList(setters)} set instead of you: ask for that review with send_message now, once everything is committed (${c.localOnly ? 'the branch and its last commit' : 'the pull request'}), and do the fixes they report before you hand over. Commit nothing after the label is set, unless they ask for it.`,
+  ];
+}
+
+/**
  * Duties that change files: in the queue or the work stage the member builds the change and opens
  * a pull request (`work` says what building means for the duty); later the assignee fixes what
  * teammates report. In a local-only repository there is no pull request: the member commits on the
@@ -177,6 +222,7 @@ function building(work: (where: string) => string[], ownerReview?: StepRule): St
     const { input, s, current, inQueue, localOnly } = c;
     if ((inQueue || current.kind === 'work') && (s.ownsStage || s.isAssignee || inQueue)) {
       const working = inQueue ? s.next : current;
+      const target = working ? stageAfter(s.stages, working) : null;
       const where = effectiveRepo(input.project, c.task)
         ? "in your working directory (the task's own worktree and branch)"
         : 'in your working directory';
@@ -190,11 +236,8 @@ function building(work: (where: string) => string[], ownerReview?: StepRule): St
           : input.sessionPolicy?.execution?.profile === 'managed_vm'
             ? 'Commit on the task branch, then publish it with publish_task_branch (the full commit id of HEAD): it pushes the branch and opens the pull request, recorded on the task under your name. Do not push or open a pull request yourself, and do not link it again.'
             : 'Commit, push, open a pull request and attach it with link_pull_request.',
-        handover(
-          input,
-          working ? stageAfter(s.stages, working) : null,
-          localOnly ? LOCAL_ONLY_FACTS : undefined,
-        ),
+        ...reviewBeforeHandover(c, target),
+        handover(input, target, localOnly ? LOCAL_ONLY_FACTS : undefined),
       ];
     }
     if (ownerReview && s.ownsStage) return ownerReview(c);
@@ -208,6 +251,74 @@ function building(work: (where: string) => string[], ownerReview?: StepRule): St
     }
     return [c.notOwner];
   };
+}
+
+/**
+ * The designer. On a card they are assigned to they build the designs like any builder. On a card
+ * that someone else builds (PM-101: they share one working directory) they never edit or commit: in
+ * the queue they write the plan into the card, in the work stage they review the result in one
+ * round, and later stages they own get the designer's check.
+ */
+function designing(): StepRule {
+  const asAuthor = building(
+    (where) => [`Create the designs or mockups the task asks for ${where}.`],
+    ({ input, s, author }) => [
+      'Compare the finished interface with the design: screen sizes, states and texts.',
+      `Send everything to fix to ${author} in one message with send_message (where it is, what you expect) and record the result as a note with update_task.`,
+      `When it follows the design, ${lowerFirst(handover(input, s.next))}`,
+    ],
+  );
+  return (c) => {
+    if (c.s.isAssignee) return asAuthor(c);
+    if (c.inQueue) return designPlan(c);
+    if (c.current.kind === 'work') return designReview(c);
+    return asAuthor(c);
+  };
+}
+
+/** A queued card: the plan goes into the card before anyone builds; nothing is moved or committed. */
+function designPlan(c: StepContext): string[] {
+  const { input, s, current } = c;
+  const upTo = s.stages.findIndex((stage) => stage.kind === 'work');
+  const gated = s.stages.slice(s.stages.indexOf(current) + 1, upTo >= 0 ? upTo + 1 : undefined);
+  const mine = gated.flatMap((stage) =>
+    gateLabelsFor(c, stage, (_label, setters) => setters.includes(input.member.handle)),
+  );
+  const labels = input.project.pipeline.labels;
+  return [
+    "Read the task with get_task, then the images and attachments its description names and the project's design guidelines, if it has any.",
+    'Write a short plan into the description with update_task, under its own heading and keeping the rest as it is: what changes and how, the states (empty, loading, error, first use) and the texts.',
+    `For a larger screen make a clickable plan under ${code('.demo/')} in your working directory (it is git-ignored) and attach it to the task with attach_file.`,
+    `Ask ${codeList(humansWithDuty(input, 'prioritization'))} with ask_human whatever is still open.`,
+    ...(mine.length > 0
+      ? [
+          `When the plan is done and the answers are in, add ${mine.map((id) => labelRef(id, labels)).join(' and ')} with update_task: the gate in front of the task asks for it, and only you may set it.`,
+        ]
+      : []),
+    'Do not move the task, do not commit and do not edit a tracked file: the card is not yours to build, and the developer starts after the plan.',
+    readyForPriority(input, current),
+  ];
+}
+
+/**
+ * A card in the work stage that someone else builds: one complete review round, while the builder
+ * waits. The working directory is the builder's, so nothing is written there.
+ */
+function designReview(c: StepContext): string[] {
+  const { input, s, task, author, localOnly } = c;
+  const mine = gateLabelsFor(c, s.next, (_label, setters) => setters.includes(input.member.handle));
+  const labels = input.project.pipeline.labels;
+  return [
+    'Do one complete review round when asked, in this order: first the images, the attachments and the plan on the card, then the finished interface and the code.',
+    localOnly
+      ? reviewBranch(localOnly, task.key)
+      : 'Read the pull requests linked to the task; do not edit, commit or push.',
+    "Write no code, edit no tracked file and do not commit: the working directory is the builder's.",
+    `Send everything to fix to ${author} in one message with send_message (where it is, what you expect), not piece by piece.`,
+    mine.length > 0
+      ? `When it follows the design, add ${mine.map((id) => labelRef(id, labels)).join(' and ')} with update_task and a note saying what you checked, and tell ${author} with send_message that the review is done.`
+      : `When it follows the design, record that as a note with update_task and tell ${author} with send_message.`,
+  ];
 }
 
 /** A code or security review; in a local-only repository of the task's branch, not of a pull request. */
@@ -282,14 +393,7 @@ const DUTY_STEPS: Partial<Record<DutyId, StepRule>> = {
   translation: building((where) => [
     `Update the translations the task asks for ${where}; keep keys, placeholders and markup intact.`,
   ]),
-  ux_design: building(
-    (where) => [`Create the designs or mockups the task asks for ${where}.`],
-    ({ input, s, author }) => [
-      'Compare the finished interface with the design: screen sizes, states and texts.',
-      `Send each difference to ${author} with send_message (where it is, what you expect) and record the result as a note with update_task.`,
-      `When it follows the design, ${lowerFirst(handover(input, s.next))}`,
-    ],
-  ),
+  ux_design: designing(),
 
   code_review: reviewing,
   security_review: reviewing,

@@ -321,6 +321,47 @@ describe('validateProjectConfig team and pipeline', () => {
       ],
     ],
     [
+      'a condition bound to a label that is not defined',
+      (input) => {
+        labels(input, { id: 'ok', name: 'Ok' });
+        stages(input)[1]!.gate = {
+          conditions: [{ type: 'has_label', label: 'ok', when: 'ui' }],
+        };
+      },
+      [{ code: 'unknown_label', path: 'pipeline.stages[1].gate.conditions[0].when', detail: 'ui' }],
+    ],
+    [
+      'a condition bound to a defined label on an ordinary gate',
+      (input) => {
+        labels(input, { id: 'ok', name: 'Ok' }, { id: 'ui', name: 'UI' });
+        stages(input)[1]!.gate = {
+          conditions: [{ type: 'has_label', label: 'ok', when: 'ui' }],
+        };
+      },
+      [],
+    ],
+    [
+      'a condition bound to a label on a release gate, however it weakens the approval',
+      (input) => {
+        labels(
+          input,
+          { id: 'go', name: 'Go', setBy: { duties: ['release_approval'], humansOnly: true } },
+          { id: 'ui', name: 'UI' },
+        );
+        insertStage(input, {
+          id: 'release',
+          kind: 'release',
+          gate: {
+            conditions: [
+              { type: 'has_label', label: 'go' },
+              { type: 'lacks_label', label: 'ui', when: 'ui' },
+            ],
+          },
+        });
+      },
+      [{ code: 'conditional_release_gate', path: 'pipeline.stages[1].gate.conditions[1]', detail: 'ui' }],
+    ],
+    [
       'a stage duty nobody holds',
       (input) => insertStage(input, { id: 'security', kind: 'step', duty: 'security_review' }),
       [{ code: 'missing_duty_holder', path: 'pipeline.stages[1].duty', detail: 'security_review' }],

@@ -1470,6 +1470,114 @@ describe('steps by duty', () => {
   });
 });
 
+describe('the designer round on a UI card (PM-235)', () => {
+  /** A project where a UI card needs the designer's plan to start and the designer's review to leave dev. */
+  function uiProject() {
+    const project = buildProject();
+    project.pipeline.labels.push(
+      { id: 'ui', name: 'UI', setBy: 'anyone' },
+      { id: 'design-ok', name: 'Design plan ready', setBy: { duties: ['ux_design'] } },
+      {
+        id: 'design-review-ok',
+        name: 'Design review ok',
+        setBy: { duties: ['ux_design'] },
+        notByAuthor: true,
+        clearedWhen: ['moved_back'],
+      },
+    );
+    const gate = (stageId: string, label: string) => {
+      const stage = project.pipeline.stages.find((s) => s.id === stageId)!;
+      stage.gate = {
+        conditions: [...(stage.gate?.conditions ?? []), { type: 'has_label', label, when: 'ui' }],
+      };
+    };
+    gate('dev', 'design-ok');
+    gate('code_review', 'design-review-ok');
+    addMember(project, 'ux', 'designer');
+    return project;
+  }
+  const stepsOf = (overrides: Parameters<typeof input>[0]) =>
+    doneSteps(builder.build(input(overrides)).appendSystemPrompt);
+
+  it('has the designer write a plan on a queued card and neither move nor commit', async () => {
+    const steps = stepsOf({
+      project: uiProject(),
+      handle: 'ux',
+      task: makeTask({ stageId: 'ready', assignee: null, labels: ['ui'] }),
+    });
+    await expect(`${steps}\n`).toMatchFileSnapshot('__snapshots__/designer-ready-ui.steps.txt');
+    expect(steps).not.toContain('Move the task to');
+    expect(steps).not.toContain('Commit');
+  });
+
+  it('has the designer review once in development and write nothing there', async () => {
+    const steps = stepsOf({
+      project: uiProject(),
+      handle: 'ux',
+      task: makeTask({ stageId: 'dev', assignee: 'fe-1', labels: ['ui', 'design-ok'] }),
+    });
+    await expect(`${steps}\n`).toMatchFileSnapshot('__snapshots__/designer-dev-ui.steps.txt');
+    expect(steps).not.toContain('Move the task to');
+  });
+
+  it('keeps the building steps for a card the designer is assigned to', () => {
+    const steps = stepsOf({
+      project: uiProject(),
+      handle: 'ux',
+      task: makeTask({ stageId: 'ready', assignee: 'ux', labels: ['ui'] }),
+    });
+    expect(steps).toContain('Move the task to Development (`dev`) with update_task as you start.');
+    expect(steps).toContain('Create the designs or mockups the task asks for');
+  });
+
+  it('has the developer get the designer review before handing over a UI card', async () => {
+    const steps = stepsOf({
+      project: uiProject(),
+      handle: 'fe-1',
+      task: makeTask({ stageId: 'dev', assignee: 'fe-1', labels: ['ui', 'design-ok'] }),
+    });
+    await expect(`${steps}\n`).toMatchFileSnapshot('__snapshots__/developer-dev-ui.steps.txt');
+    expect(steps).toContain('which `ux` set instead of you');
+  });
+
+  it('leaves the designer review out for a card that is not a UI card or already has it', () => {
+    const base = { project: uiProject(), handle: 'fe-1' } as const;
+    for (const labels of [['bug'], ['ui', 'design-ok', 'design-review-ok']]) {
+      const steps = stepsOf({ ...base, task: makeTask({ stageId: 'dev', assignee: 'fe-1', labels }) });
+      expect(steps, labels.join()).not.toContain('instead of you');
+    }
+  });
+
+  it('does not count a conditional approval as an approval every card needs at the hand-over', () => {
+    const project = uiProject();
+    project.pipeline.labels.push({
+      id: 'ui-approved',
+      name: 'UI approved',
+      setBy: { members: ['owner'], humansOnly: true },
+    });
+    const stage = project.pipeline.stages.find((s) => s.id === 'code_review')!;
+    stage.gate!.conditions.push({ type: 'has_label', label: 'ui-approved', when: 'ui' });
+    const steps = stepsOf({
+      project,
+      handle: 'fe-1',
+      task: makeTask({ stageId: 'dev', assignee: 'fe-1', labels: ['bug'] }),
+    });
+    expect(steps).not.toContain('human approval');
+    expect(steps).toContain('Move the task to Code review (`code_review`) with update_task and hand over');
+  });
+
+  it('names the condition in the gate text of the prompt', () => {
+    const prompt = builder.build(
+      input({
+        project: uiProject(),
+        handle: 'fe-1',
+        task: makeTask({ stageId: 'ready', assignee: 'fe-1', labels: ['ui'] }),
+      }),
+    ).appendSystemPrompt;
+    expect(prompt).toContain('label `design-ok` (Design plan ready), only on cards with label `ui` (UI)');
+  });
+});
+
 describe('duty prompt composition', () => {
   it('orders duty fragments, role extra responsibilities and member instructions for overridden and custom bundles', () => {
     const project = buildProject();

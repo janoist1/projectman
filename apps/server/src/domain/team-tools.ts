@@ -68,11 +68,12 @@ const MAX_ATTACHMENT_PAGE = 200;
 /** Explains a blocked stage move to the agent in plain English. */
 function describeGateBlock(err: DomainError): string {
   const details = (err.details ?? {}) as { unmet?: UnmetCondition[]; approvals?: ApprovalRequirement[] };
-  const reasons = (details.unmet ?? []).map((u) =>
-    u.condition.type === 'has_label'
-      ? `the label "${u.condition.label}" is missing (required to enter stage "${u.stageId}")`
-      : `the label "${u.condition.label}" is on the task and holds it back (stage "${u.stageId}")`,
-  );
+  const reasons = (details.unmet ?? []).map((u) => {
+    if (u.condition.type !== 'has_label')
+      return `the label "${u.condition.label}" is on the task and holds it back (stage "${u.stageId}")`;
+    const setters = u.setters?.length ? `; only ${u.setters.join(' or ')} may set it` : '';
+    return `the label "${u.condition.label}" is missing (required to enter stage "${u.stageId}"${setters})`;
+  });
   if (reasons.length === 0 && details.approvals?.length) {
     reasons.push(
       ...details.approvals.map(

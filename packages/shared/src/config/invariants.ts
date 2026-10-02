@@ -1,6 +1,6 @@
 import { DUTIES, DUTY_IDS } from '../domain/duty';
 import { dutyMembers } from './duties';
-import { gateAcceptsCondition } from './gates';
+import { gateAcceptsCondition, gateAcceptsWhen } from './gates';
 import { labelDefinition, labelHolders } from './labels';
 import { isHumanOnlyLabel } from '../domain/label';
 import { DEFAULT_AGENT_PROVIDER } from '../domain/member';
@@ -21,6 +21,7 @@ export interface ConfigIssue {
     | 'missing_label_setter'
     | 'release_without_human_approval'
     | 'release_approval_needs_duty'
+    | 'conditional_release_gate'
     | 'unknown_column'
     | 'duplicate_column'
     | 'first_stage_not_queue'
@@ -54,7 +55,9 @@ export interface ConfigIssue {
  * - every release stage requires an approval: a label only humans may set (so an AI can never
  *   approve), with at least one human who may set it; and the approval of a release is the release
  *   approval duty's alone (decision 19), so a label any human, named members or another duty's
- *   holders may set is refused on a release gate;
+ *   holders may set is refused on a release gate, and so is a condition that binds only the tasks
+ *   with another label (`when`): a release approval holds for every task;
+ * - the label a condition's `when` names is defined;
  * - every role a member holds (and the temp workers' role) is a built-in or custom role that
  *   the member's kind may hold; custom role ids are unique and never reuse a built-in id.
  * Unfilled recommended duties are warnings, never errors.
@@ -142,6 +145,12 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
     let humanApproval = false;
     (stage.gate?.conditions ?? []).forEach((condition, j) => {
       const gatePath = `${path}.gate.conditions[${j}]`;
+      if (condition.when !== undefined) {
+        if (!labelDefinition(config, condition.when))
+          issues.push({ code: 'unknown_label', path: `${gatePath}.when`, detail: condition.when });
+        if (!gateAcceptsWhen(stage, condition))
+          issues.push({ code: 'conditional_release_gate', path: gatePath, detail: condition.when });
+      }
       const label = labelDefinition(config, condition.label);
       if (!label) {
         issues.push({ code: 'unknown_label', path: gatePath, detail: condition.label });
@@ -157,7 +166,7 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
               issues.push({ code: 'missing_duty_holder', path: gatePath, detail: duty });
         issues.push({ code: 'missing_label_setter', path: gatePath, detail: label.id });
       }
-      if (!gateAcceptsCondition(stage, condition, label))
+      if (gateAcceptsWhen(stage, condition) && !gateAcceptsCondition(stage, condition, label))
         issues.push({ code: 'release_approval_needs_duty', path: gatePath, detail: label.id });
       if (isHumanOnlyLabel(label) && holders.length > 0) humanApproval = true;
     });

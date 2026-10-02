@@ -5,6 +5,7 @@ import type { Task } from '../domain/task';
 import {
   approvalRefusal,
   expiredLabels,
+  gateLabels,
   labelDefinition,
   labelRefusal,
   labelSetters,
@@ -334,5 +335,30 @@ describe('noApproverReason', () => {
     ['an unknown label needs no approver', config(), 'gone', task, null],
   ])('%s', (_name, c, label, target, expected) => {
     expect(noApproverReason(c, label, target)).toBe(expected);
+  });
+});
+
+describe('gateLabels', () => {
+  it('lists the conditions bound to a label apart from the ones that hold for every card', () => {
+    const base = config();
+    const stage = {
+      ...base.pipeline.stages[1]!,
+      gate: {
+        conditions: [
+          { type: 'has_label' as const, label: 'review-ok' },
+          { type: 'has_label' as const, label: 'release-ok', when: 'review-ok' },
+          { type: 'lacks_label' as const, label: 'review-ok', when: 'release-ok' },
+        ],
+      },
+    };
+    expect(gateLabels(base, stage)).toEqual({
+      conditional: [
+        { type: 'has_label', label: 'release-ok', when: 'review-ok' },
+        { type: 'lacks_label', label: 'review-ok', when: 'release-ok' },
+      ],
+      approvals: [],
+      facts: ['review-ok'],
+      forbidden: [],
+    });
   });
 });

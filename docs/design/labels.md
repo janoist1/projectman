@@ -69,6 +69,8 @@ Gate conditions shrink to two types:
 - `has_label: <id>`
 - `lacks_label: <id>`
 
+Either type takes an optional `when: <id>`: the condition then binds only the cards that carry that label, and holds on every other card. "Has `design-ok`, when `ui`" asks for the designer's plan on interface cards and leaves the rest alone. `when` must name a defined label, and a `release` gate takes no `when` (its approval holds for every card, decision 19). It is part of the approval signature, so only the owner may add or change it next to a human-only label. A refused move names who may set a missing label.
+
 A blocking label adds an implicit `lacks_label` to every forward move. The other condition types become labels:
 
 | Today              | With labels                                                                                                                                                                                  |

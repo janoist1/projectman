@@ -37,11 +37,13 @@ function currentStageKind(value: unknown): unknown {
 /**
  * Gate conditions: a gate on a stage must hold before a task may ENTER that stage. Every
  * condition is about labels (see ./label.ts): facts like "code review ok", "PR merged" (a system
- * label) or "release approved" (a label only humans may set, requested in the inbox).
+ * label) or "release approved" (a label only humans may set, requested in the inbox). A condition
+ * with `when` binds only the tasks that carry that label ("design ok, when UI"); on the others it
+ * holds.
  */
 export const GateCondition = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('has_label'), label: LabelId }),
-  z.object({ type: z.literal('lacks_label'), label: LabelId }),
+  z.object({ type: z.literal('has_label'), label: LabelId, when: LabelId.optional() }),
+  z.object({ type: z.literal('lacks_label'), label: LabelId, when: LabelId.optional() }),
 ]);
 export type GateCondition = z.infer<typeof GateCondition>;
 

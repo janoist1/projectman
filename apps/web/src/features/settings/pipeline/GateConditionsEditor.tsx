@@ -1,4 +1,4 @@
-import { gateAcceptsCondition, isHumanOnlyLabel } from '@projectman/shared';
+import { gateAcceptsCondition, gateAcceptsWhen, isHumanOnlyLabel } from '@projectman/shared';
 import type { GateCondition, LabelDefinition, Stage } from '@projectman/shared';
 import { Button } from '../../../components/Button';
 import { t } from '../../../i18n/t';
@@ -27,7 +27,7 @@ export function GateConditionsEditor({
   isOwner: boolean;
   onChange: (next: GateCondition[]) => void;
 }) {
-  const accepts = (condition: Pick<GateCondition, 'type'>, label: LabelDefinition) =>
+  const accepts = (condition: Pick<GateCondition, 'type' | 'when'>, label: LabelDefinition) =>
     gateAcceptsCondition(stage, condition, label);
   // An unknown label (e.g. from an older file) stays selectable so it can be replaced.
   const labelOptions = (current: string) =>
@@ -76,6 +76,30 @@ export function GateConditionsEditor({
                     {label.name}
                   </option>
                 ))}
+              </select>
+            </label>
+            <label className={shared.field}>
+              {t('settings.edit.when')}
+              <select
+                value={condition.when ?? ''}
+                disabled={locked}
+                onChange={(event) => {
+                  const { when: _previous, ...rest } = condition;
+                  replace(event.target.value ? { ...rest, when: event.target.value } : rest);
+                }}
+              >
+                <option value="">{t('settings.edit.whenAny')}</option>
+                {labelOptions(condition.when ?? '')
+                  .filter((label) => label.id !== '')
+                  .map((label) => (
+                    <option
+                      key={label.id}
+                      value={label.id}
+                      disabled={label.id !== condition.when && !gateAcceptsWhen(stage, { when: label.id })}
+                    >
+                      {label.name}
+                    </option>
+                  ))}
               </select>
             </label>
             {locked ? <p className={shared.muted}>{t('settings.edit.approvalOwnerOnly')}</p> : null}

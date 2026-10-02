@@ -105,10 +105,19 @@ export function labelRefusal(
   return null;
 }
 
-/** Labels a stage's gate requires, split into approvals (human-only) and other facts. */
+/**
+ * Labels a stage's gate requires, split into approvals (human-only) and other facts. Conditions
+ * that bind only the tasks carrying a `when` label are listed apart in `conditional`: they do not
+ * hold for every task, so a hand-over cannot count on them.
+ */
 export function gateLabels(config: Pick<ProjectConfig, 'pipeline'>, stage: Stage) {
-  const required = (stage.gate?.conditions ?? []).filter((c) => c.type === 'has_label').map((c) => c.label);
+  const conditions = stage.gate?.conditions ?? [];
+  const always = conditions.filter((c) => c.when === undefined);
+  const required = always.filter((c) => c.type === 'has_label').map((c) => c.label);
   return {
+    conditional: conditions.flatMap((c) =>
+      c.when === undefined ? [] : [{ type: c.type, label: c.label, when: c.when }],
+    ),
     approvals: required.filter((id) => {
       const label = labelDefinition(config, id);
       return label !== undefined && isHumanOnlyLabel(label);
@@ -117,7 +126,7 @@ export function gateLabels(config: Pick<ProjectConfig, 'pipeline'>, stage: Stage
       const label = labelDefinition(config, id);
       return label === undefined || !isHumanOnlyLabel(label);
     }),
-    forbidden: (stage.gate?.conditions ?? []).filter((c) => c.type === 'lacks_label').map((c) => c.label),
+    forbidden: always.filter((c) => c.type === 'lacks_label').map((c) => c.label),
   };
 }
 

@@ -1,28 +1,73 @@
 import type { ProjectConfig } from '@projectman/shared';
+import { SelectField, TextField } from '../../../components/Field';
 import { t } from '../../../i18n/t';
 import { EditableSection } from '../SettingsEditor';
 import type { SectionEditorProps } from '../SettingsEditor';
 import shared from '../settings.module.css';
 import { SettingsSection } from './SettingsSection';
 
-const EDITABLE_FIELDS = ['name', 'language', 'timezone'] as const;
+/** The languages the project's texts (templates, role texts) exist in. */
+const LANGUAGES = ['hu', 'en'] as const;
+
+/** The IANA time zones of this browser; a zone the project already has stays choosable. */
+function timezoneChoices(current: string): string[] {
+  const zones = new Set<string>(['UTC', ...Intl.supportedValuesOf('timeZone')]);
+  zones.add(current);
+  return [...zones].sort();
+}
+
+type KnownLanguage = (typeof LANGUAGES)[number];
+const isKnownLanguage = (language: string): language is KnownLanguage =>
+  (LANGUAGES as readonly string[]).includes(language);
+
+/** The languages to choose from; a language the project already has stays choosable. */
+function languageChoices(current: string): string[] {
+  return isKnownLanguage(current) ? [...LANGUAGES] : [...LANGUAGES, current];
+}
 
 function ProjectEditor({ draft, change }: SectionEditorProps) {
+  const { project } = draft;
   return (
     <>
-      {EDITABLE_FIELDS.map((field) => (
-        <label key={field} className={shared.field}>
-          {t(`settings.project.${field}`)}
-          <input
-            value={draft.project[field]}
-            onChange={(event) =>
-              change((config) => {
-                config.project[field] = event.target.value;
-              })
-            }
-          />
-        </label>
-      ))}
+      <TextField
+        label={t('settings.project.name')}
+        value={project.name}
+        onChange={(event) =>
+          change((config) => {
+            config.project.name = event.target.value;
+          })
+        }
+      />
+      <SelectField
+        label={t('settings.project.language')}
+        value={project.language}
+        onChange={(event) =>
+          change((config) => {
+            config.project.language = event.target.value;
+          })
+        }
+      >
+        {languageChoices(project.language).map((language) => (
+          <option key={language} value={language}>
+            {isKnownLanguage(language) ? t(`settings.project.languages.${language}`) : language}
+          </option>
+        ))}
+      </SelectField>
+      <SelectField
+        label={t('settings.project.timezone')}
+        value={project.timezone}
+        onChange={(event) =>
+          change((config) => {
+            config.project.timezone = event.target.value;
+          })
+        }
+      >
+        {timezoneChoices(project.timezone).map((zone) => (
+          <option key={zone} value={zone}>
+            {zone}
+          </option>
+        ))}
+      </SelectField>
     </>
   );
 }
@@ -52,7 +97,11 @@ export function ProjectSection({ config }: { config: ProjectConfig }) {
           </div>
           <div>
             <dt>{t('settings.project.language')}</dt>
-            <dd>{project.language}</dd>
+            <dd>
+              {isKnownLanguage(project.language)
+                ? t(`settings.project.languages.${project.language}`)
+                : project.language}
+            </dd>
           </div>
           <div>
             <dt>{t('settings.project.timezone')}</dt>

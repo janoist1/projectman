@@ -6,7 +6,6 @@ import type { ProjectContextValue } from '../../app/contexts';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
-import { TeamSection } from '../settings/sections/TeamSection';
 import { MemberProfilePage } from './MemberProfilePage';
 import { TeamPage } from './TeamPage';
 
@@ -34,28 +33,37 @@ function enableAiApprover(project: Project) {
 const patches = (project: Project, handle: string) =>
   project.requests.filter((r) => r.method === 'PATCH' && r.path.endsWith(`/members/${handle}`));
 
-/** The settings row of a member, found by its handle, once the roster has loaded. */
-async function settingsRow(project: Project, handle: string) {
-  project.render(<TeamSection config={project.backend.config} />);
-  const row = (await screen.findByText(handle, { selector: 'code' })).closest('tr')!;
-  await within(row).findByLabelText(modeLabel());
-  return within(row);
+/** The profile of a member, once its permission control has loaded. */
+async function settingsRow(project: Project, handle: string, context?: Partial<ProjectContextValue>) {
+  const view = project.render(
+    <Routes>
+      <Route path="/team/:handle" element={<MemberProfilePage />} />
+    </Routes>,
+    `/team/${handle}`,
+    context,
+  );
+  await screen.findByLabelText(modeLabel());
+  return Object.assign(within(view.container), { unmount: view.unmount });
 }
 const select = (row: ReturnType<typeof within>, label: string) =>
   row.getByLabelText(label) as HTMLSelectElement;
 
-describe('the permission settings in Settings → Team', () => {
+describe('the permission settings in the member profile of a member', () => {
   it('shows the mode of today’s members unchanged, and asks like a person', async () => {
     const project = mockProject();
     aiConfig(project, 'devops').permissionMode = 'auto';
     project.backend.syncPermissionViews();
-    await settingsRow(project, 'qa');
-    const row = async (handle: string) =>
-      within((await screen.findByText(handle, { selector: 'code' })).closest('tr')!);
-    expect(select(await row('devops'), modeLabel()).value).toBe('auto');
-    expect(select(await row('code-review'), modeLabel()).value).toBe('plan');
-    expect(select(await row('qa'), modeLabel()).value).toBe('default');
-    expect(select(await row('qa'), approverLabel()).value).toBe('human');
+    const expected = [
+      ['devops', 'auto'],
+      ['code-review', 'plan'],
+      ['qa', 'default'],
+    ] as const;
+    for (const [handle, value] of expected) {
+      const row = await settingsRow(project, handle);
+      expect(select(row, modeLabel()).value).toBe(value);
+      if (handle === 'qa') expect(select(row, approverLabel()).value).toBe('human');
+      row.unmount();
+    }
   });
 
   it('lets an owner set the mode, saved at once through the member route', async () => {
@@ -90,8 +98,14 @@ describe('the permission settings in Settings → Team', () => {
 
   it('shows everyone else the values without a control', async () => {
     const project = mockProject();
-    project.render(<TeamSection config={project.backend.config} />, '/', asAdmin);
-    const row = within((await screen.findByText('code-review', { selector: 'code' })).closest('tr')!);
+    project.render(
+      <Routes>
+        <Route path="/team/:handle" element={<MemberProfilePage />} />
+      </Routes>,
+      '/team/code-review',
+      asAdmin,
+    );
+    const row = within(document.body);
     expect(await row.findByText(approver('human'))).toBeTruthy();
     expect(row.getByText(mode('plan'))).toBeTruthy();
     expect(screen.queryAllByLabelText(modeLabel())).toHaveLength(0);

@@ -1,13 +1,15 @@
 import { DEFAULT_AUTO_COMPACT_WINDOW_TOKENS, messageBurstOf } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
+import { isApiError } from '../../../api/client';
 import { useRoles } from '../../../api/queries';
 import { useProject } from '../../../app/contexts';
+import { SelectField } from '../../../components/Field';
 import { formatTokens } from '../../../i18n/format';
 import { t } from '../../../i18n/t';
 import { errorMessage } from '../../../lib/errors';
 import { aiRoleView } from '../../../lib/roles';
-import { EditableSection } from '../SettingsEditor';
-import type { SectionEditorProps } from '../SettingsEditor';
+import { InstantNumber, InstantRange, ToggleField } from '../InstantFields';
+import { useInstantLimits } from '../SettingsEditor';
 import shared from '../settings.module.css';
 import { SettingsSection } from './SettingsSection';
 
@@ -17,264 +19,235 @@ const DEFAULT_MAX_CONCURRENT_AI_CHOICE = 3;
 /** The number the token warning field starts at when the owner turns "no warning" off (PM-187). */
 const DEFAULT_TOKEN_WARNING_CHOICE = 5_000_000;
 
-function LimitsEditor({ draft, change, isOwner }: SectionEditorProps) {
-  const { key } = useProject();
+/**
+ * The limits as controls that save as soon as they change; no edit mode, no save button. The most
+ * used ones come first (the AI switch is most of the saves), and a setting that depends on a switch
+ * is shown only while the switch is on.
+ */
+function LimitsControls({ config }: { config: ProjectConfig }) {
+  const { key, isOwner } = useProject();
   const roles = useRoles(key);
-  const { limits } = draft.team;
+  const { shown, saving, commit, error, locked } = useInstantLimits(config);
+  const { limits } = shown.team;
   const messageBurst = messageBurstOf(limits);
+  const boundaryEnabled = shown.team.boundary?.enabled ?? false;
   return (
-    <>
-      <label className={shared.field}>
-        {t('settings.limits.boundaryEnabled')}
-        <input
-          type="checkbox"
-          disabled={!isOwner}
-          checked={draft.team.boundary?.enabled ?? false}
-          onChange={(event) =>
-            change((config) => {
-              config.team.boundary = {
-                enabled: event.target.checked,
-                leadTimeoutSeconds: config.team.boundary?.leadTimeoutSeconds ?? 120,
+    <fieldset className={shared.controls} disabled={locked} aria-busy={saving}>
+      {locked ? <p className={shared.help}>{t('settings.limits.locked')}</p> : null}
+      <ToggleField
+        label={t('settings.limits.aiEnabled')}
+        help={t('settings.limits.aiEnabledHelp')}
+        checked={limits.aiEnabled}
+        onChange={(enabled) =>
+          commit((draft) => {
+            draft.team.limits.aiEnabled = enabled;
+          })
+        }
+      />
+      <ToggleField
+        label={t('settings.limits.noAiLimit')}
+        help={t('settings.limits.noAiLimitHelp')}
+        checked={limits.maxConcurrentAi === undefined}
+        onChange={(noLimit) =>
+          commit((draft) => {
+            if (noLimit) delete draft.team.limits.maxConcurrentAi;
+            else draft.team.limits.maxConcurrentAi = DEFAULT_MAX_CONCURRENT_AI_CHOICE;
+          })
+        }
+      />
+      {limits.maxConcurrentAi !== undefined ? (
+        <InstantNumber
+          label={t('settings.limits.maxConcurrentAi')}
+          min={1}
+          max={20}
+          value={limits.maxConcurrentAi}
+          onCommit={(count) =>
+            commit((draft) => {
+              draft.team.limits.maxConcurrentAi = count;
+            })
+          }
+        />
+      ) : null}
+      <InstantRange
+        label={t('settings.limits.pauseAbove')}
+        min={10}
+        max={100}
+        value={limits.pauseAbovePlanUsagePercent}
+        format={(percent) => t('settings.limits.pauseAboveValue', { percent })}
+        onCommit={(percent) =>
+          commit((draft) => {
+            draft.team.limits.pauseAbovePlanUsagePercent = percent;
+          })
+        }
+      />
+      <ToggleField
+        label={t('settings.limits.tempWorkers')}
+        checked={limits.tempWorkers.enabled}
+        onChange={(enabled) =>
+          commit((draft) => {
+            draft.team.limits.tempWorkers.enabled = enabled;
+          })
+        }
+      />
+      {limits.tempWorkers.enabled ? (
+        <div className={shared.fieldRow}>
+          <InstantNumber
+            label={t('settings.edit.tempMax')}
+            min={0}
+            max={5}
+            value={limits.tempWorkers.max}
+            onCommit={(max) =>
+              commit((draft) => {
+                draft.team.limits.tempWorkers.max = max ?? 0;
+              })
+            }
+          />
+          <SelectField
+            label={t('settings.team.role')}
+            value={limits.tempWorkers.role}
+            disabled={!roles.data}
+            onChange={(event) =>
+              commit((draft) => {
+                draft.team.limits.tempWorkers.role = event.target.value;
+              })
+            }
+          >
+            {(roles.data?.roles ?? [])
+              .filter((role) => role.holders !== 'human')
+              .map((role) => (
+                <option key={role.id} value={role.id}>
+                  {role.name}
+                </option>
+              ))}
+          </SelectField>
+        </div>
+      ) : null}
+      <ToggleField
+        label={t('settings.limits.noTokenWarning')}
+        help={t('settings.limits.noTokenWarningHelp')}
+        checked={limits.warnAboveSessionTokens === undefined}
+        onChange={(noWarning) =>
+          commit((draft) => {
+            if (noWarning) delete draft.team.limits.warnAboveSessionTokens;
+            else draft.team.limits.warnAboveSessionTokens = DEFAULT_TOKEN_WARNING_CHOICE;
+          })
+        }
+      />
+      {limits.warnAboveSessionTokens !== undefined ? (
+        <InstantNumber
+          label={t('settings.limits.warnAboveSessionTokens')}
+          min={10_000}
+          max={1_000_000_000}
+          step={10_000}
+          value={limits.warnAboveSessionTokens}
+          onCommit={(tokens) =>
+            commit((draft) => {
+              draft.team.limits.warnAboveSessionTokens = tokens;
+            })
+          }
+        />
+      ) : null}
+      <InstantNumber
+        label={t('settings.limits.autoCompactWindow')}
+        hint={t('settings.limits.autoCompactWindowHelp')}
+        min={100_000}
+        max={1_000_000}
+        step={10_000}
+        optional
+        placeholder={String(DEFAULT_AUTO_COMPACT_WINDOW_TOKENS)}
+        value={limits.autoCompactWindowTokens}
+        onCommit={(tokens) =>
+          commit((draft) => {
+            if (tokens === undefined) delete draft.team.limits.autoCompactWindowTokens;
+            else draft.team.limits.autoCompactWindowTokens = tokens;
+          })
+        }
+      />
+      <p className={shared.help}>{t('settings.limits.messageBurstHelp')}</p>
+      <div className={shared.fieldRow}>
+        <InstantNumber
+          label={t('settings.limits.messageBurstCount')}
+          min={3}
+          max={100}
+          value={messageBurst.count}
+          onCommit={(count) =>
+            commit((draft) => {
+              draft.team.limits.messageBurst = { ...messageBurstOf(draft.team.limits), count: count ?? 10 };
+            })
+          }
+        />
+        <InstantNumber
+          label={t('settings.limits.messageBurstMinutes')}
+          min={1}
+          max={240}
+          value={messageBurst.minutes}
+          onCommit={(minutes) =>
+            commit((draft) => {
+              draft.team.limits.messageBurst = {
+                ...messageBurstOf(draft.team.limits),
+                minutes: minutes ?? 15,
               };
             })
           }
         />
-      </label>
-      <p>{t('settings.limits.boundaryHelp')}</p>
-      <label className={shared.field}>
-        {t('settings.limits.boundaryTimeout')}
-        <input
-          type="number"
+      </div>
+      <ToggleField
+        label={t('settings.limits.boundaryEnabled')}
+        help={t('settings.limits.boundaryHelp')}
+        disabled={!isOwner}
+        checked={boundaryEnabled}
+        onChange={(enabled) =>
+          commit((draft) => {
+            draft.team.boundary = {
+              enabled,
+              leadTimeoutSeconds: draft.team.boundary?.leadTimeoutSeconds ?? 120,
+            };
+          })
+        }
+      />
+      {boundaryEnabled ? (
+        <InstantNumber
+          label={t('settings.limits.boundaryTimeout')}
           min={1}
           max={600}
           disabled={!isOwner}
-          value={draft.team.boundary?.leadTimeoutSeconds ?? 120}
-          onChange={(event) =>
-            change((config) => {
-              config.team.boundary = {
-                enabled: config.team.boundary?.enabled ?? false,
-                leadTimeoutSeconds: Number(event.target.value),
+          value={shown.team.boundary?.leadTimeoutSeconds ?? 120}
+          onCommit={(seconds) =>
+            commit((draft) => {
+              draft.team.boundary = {
+                enabled: draft.team.boundary?.enabled ?? false,
+                leadTimeoutSeconds: seconds ?? 120,
               };
             })
           }
         />
-      </label>
-      <label className={shared.field}>
-        {t('settings.limits.aiEnabled')}
-        <input
-          type="checkbox"
-          checked={limits.aiEnabled}
-          aria-describedby="ai-enabled-help"
-          onChange={(event) =>
-            change((config) => {
-              config.team.limits.aiEnabled = event.target.checked;
-            })
-          }
-        />
-      </label>
-      <p id="ai-enabled-help">{t('settings.limits.aiEnabledHelp')}</p>
-      <label className={shared.field}>
-        {t('settings.limits.noAiLimit')}
-        <input
-          type="checkbox"
-          checked={limits.maxConcurrentAi === undefined}
-          aria-describedby="ai-limit-help"
-          onChange={(event) =>
-            change((config) => {
-              if (event.target.checked) delete config.team.limits.maxConcurrentAi;
-              else config.team.limits.maxConcurrentAi = DEFAULT_MAX_CONCURRENT_AI_CHOICE;
-            })
-          }
-        />
-      </label>
-      <p id="ai-limit-help">{t('settings.limits.noAiLimitHelp')}</p>
-      {limits.maxConcurrentAi !== undefined ? (
-        <label className={shared.field}>
-          {t('settings.limits.maxConcurrentAi')}
-          <input
-            type="number"
-            min={1}
-            max={20}
-            value={limits.maxConcurrentAi}
-            onChange={(event) =>
-              change((config) => {
-                config.team.limits.maxConcurrentAi = Number(event.target.value);
-              })
-            }
-          />
-        </label>
       ) : null}
-      <label className={shared.field}>
-        {t('settings.limits.pauseAbove')}
-        <input
-          type="range"
-          min={10}
-          max={100}
-          value={limits.pauseAbovePlanUsagePercent}
-          onChange={(event) =>
-            change((config) => {
-              config.team.limits.pauseAbovePlanUsagePercent = Number(event.target.value);
-            })
-          }
-        />
-        <output>
-          {t('settings.limits.pauseAboveValue', {
-            percent: limits.pauseAbovePlanUsagePercent,
-          })}
-        </output>
-      </label>
-      <label className={shared.field}>
-        {t('settings.limits.noTokenWarning')}
-        <input
-          type="checkbox"
-          checked={limits.warnAboveSessionTokens === undefined}
-          aria-describedby="token-warning-help"
-          onChange={(event) =>
-            change((config) => {
-              if (event.target.checked) delete config.team.limits.warnAboveSessionTokens;
-              else config.team.limits.warnAboveSessionTokens = DEFAULT_TOKEN_WARNING_CHOICE;
-            })
-          }
-        />
-      </label>
-      <p id="token-warning-help">{t('settings.limits.noTokenWarningHelp')}</p>
-      {limits.warnAboveSessionTokens !== undefined ? (
-        <label className={shared.field}>
-          {t('settings.limits.warnAboveSessionTokens')}
-          <input
-            type="number"
-            min={10_000}
-            max={1_000_000_000}
-            step={10_000}
-            value={limits.warnAboveSessionTokens}
-            onChange={(event) =>
-              change((config) => {
-                config.team.limits.warnAboveSessionTokens = Number(event.target.value);
-              })
-            }
-          />
-        </label>
-      ) : null}
-      <p id="auto-compact-help">{t('settings.limits.autoCompactWindowHelp')}</p>
-      <label className={shared.field}>
-        {t('settings.limits.autoCompactWindow')}
-        <input
-          type="number"
-          min={100_000}
-          max={1_000_000}
-          step={10_000}
-          placeholder={String(DEFAULT_AUTO_COMPACT_WINDOW_TOKENS)}
-          aria-describedby="auto-compact-help"
-          value={limits.autoCompactWindowTokens ?? ''}
-          onChange={(event) =>
-            change((config) => {
-              if (event.target.value === '') delete config.team.limits.autoCompactWindowTokens;
-              else config.team.limits.autoCompactWindowTokens = Number(event.target.value);
-            })
-          }
-        />
-      </label>
-      <p id="message-burst-help">{t('settings.limits.messageBurstHelp')}</p>
-      <label className={shared.field}>
-        {t('settings.limits.messageBurstCount')}
-        <input
-          type="number"
-          min={3}
-          max={100}
-          step={1}
-          aria-describedby="message-burst-help"
-          value={messageBurst.count}
-          onChange={(event) =>
-            change((config) => {
-              config.team.limits.messageBurst = {
-                ...messageBurstOf(config.team.limits),
-                count: Number(event.target.value),
-              };
-            })
-          }
-        />
-      </label>
-      <label className={shared.field}>
-        {t('settings.limits.messageBurstMinutes')}
-        <input
-          type="number"
-          min={1}
-          max={240}
-          step={1}
-          aria-describedby="message-burst-help"
-          value={messageBurst.minutes}
-          onChange={(event) =>
-            change((config) => {
-              config.team.limits.messageBurst = {
-                ...messageBurstOf(config.team.limits),
-                minutes: Number(event.target.value),
-              };
-            })
-          }
-        />
-      </label>
-      <label className={shared.field}>
-        {t('settings.limits.tempWorkers')}
-        <input
-          type="checkbox"
-          checked={limits.tempWorkers.enabled}
-          onChange={(event) =>
-            change((config) => {
-              config.team.limits.tempWorkers.enabled = event.target.checked;
-            })
-          }
-        />
-      </label>
-      <label className={shared.field}>
-        {t('settings.edit.tempMax')}
-        <input
-          type="number"
-          min={0}
-          max={5}
-          value={limits.tempWorkers.max}
-          onChange={(event) =>
-            change((config) => {
-              config.team.limits.tempWorkers.max = Number(event.target.value);
-            })
-          }
-        />
-      </label>
-      <label className={shared.field}>
-        {t('settings.team.role')}
-        <select
-          value={limits.tempWorkers.role}
-          disabled={!roles.data}
-          onChange={(event) =>
-            change((config) => {
-              config.team.limits.tempWorkers.role = event.target.value;
-            })
-          }
-        >
-          {(roles.data?.roles ?? [])
-            .filter((role) => role.holders !== 'human')
-            .map((role) => (
-              <option key={role.id} value={role.id}>
-                {role.name}
-              </option>
-            ))}
-        </select>
-      </label>
       {roles.isError ? <p role="alert">{errorMessage(roles.error)}</p> : null}
-    </>
+      {error ? (
+        <p role="alert" className={shared.validation}>
+          {isApiError(error) && error.code === 'config_conflict'
+            ? t('settings.limits.conflict')
+            : errorMessage(error)}
+        </p>
+      ) : null}
+    </fieldset>
   );
 }
 
 /**
  * The team's limits: the AI switch, concurrency, the plan-usage pause, the warning limit of a
- * session's tokens and temp workers.
+ * session's tokens and temp workers. Admins change them in place and each change is saved at
+ * once; others see the values.
  */
 export function LimitsSection({ config }: { config: ProjectConfig }) {
-  const { key } = useProject();
+  const { key, can } = useProject();
   const roles = useRoles(key);
   const { limits } = config.team;
   return (
     <SettingsSection id="settings-limits" title={t('settings.sections.limits')}>
-      <EditableSection section="limits" editor={(props) => <LimitsEditor {...props} />}>
+      {can.manageTeam ? (
+        <LimitsControls config={config} />
+      ) : (
         <dl className={shared.facts}>
           <div>
             <dt>{t('settings.limits.boundaryEnabled')}</dt>
@@ -287,7 +260,7 @@ export function LimitsSection({ config }: { config: ProjectConfig }) {
             </dd>
           </div>
           <div>
-            <dt>{t('settings.limits.aiEnabled')}</dt>
+            <dt>{t('settings.limits.aiWork')}</dt>
             <dd>{t(limits.aiEnabled ? 'settings.limits.aiEnabledOn' : 'settings.limits.aiEnabledOff')}</dd>
           </div>
           <div>
@@ -336,7 +309,7 @@ export function LimitsSection({ config }: { config: ProjectConfig }) {
             </dd>
           </div>
         </dl>
-      </EditableSection>
+      )}
     </SettingsSection>
   );
 }

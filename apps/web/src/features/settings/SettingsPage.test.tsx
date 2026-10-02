@@ -1,8 +1,8 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { PatchConfigRequest } from '@projectman/shared';
+import { getLocale } from '@projectman/templates';
 import { setFetchImplementation } from '../../api/client';
-import { formatTokens } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
 import type { MockRequest } from '../../test/mockProject';
@@ -10,10 +10,20 @@ import { SettingsPage } from './SettingsPage';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
-async function editSection(section: 'project' | 'limits' | 'pipeline' | 'labels') {
+async function editSection(section: 'project' | 'pipeline' | 'labels') {
   const region = await screen.findByRole('region', { name: t(`settings.sections.${section}`) });
   fireEvent.click(within(region).getByRole('button', { name: t('memberEdit.edit') }));
   return within(region);
+}
+/** The limits are controls that save at once: there is nothing to open. */
+async function limitsSection() {
+  return within(await screen.findByRole('region', { name: t('settings.sections.limits') }));
+}
+/** Every change made so far has been sent and answered. */
+async function saved(section: ReturnType<typeof within>) {
+  await waitFor(() => expect(section.getByRole('group').getAttribute('aria-busy')).not.toBe('true'), {
+    timeout: 4000,
+  });
 }
 /** The body of the last configuration PATCH the page sent. */
 function lastConfigPatch(requests: readonly MockRequest[]): PatchConfigRequest {
@@ -72,31 +82,118 @@ describe('settings section editors', () => {
     expect(await within(history).findByText('Update project')).toBeTruthy();
   });
 
-  it('patches the AI switch and displays its disabled state', async () => {
+  it('offers the language and the time zone as choices, keeping a value the project already has', async () => {
+    const project = mockProject();
+    project.backend.config.project.timezone = 'Mars/Olympus';
+    project.render(<SettingsPage />);
+    const section = await editSection('project');
+    const language = section.getByLabelText(t('settings.project.language')) as HTMLSelectElement;
+    const timezone = section.getByLabelText(t('settings.project.timezone')) as HTMLSelectElement;
+    expect([language.tagName, timezone.tagName]).toEqual(['SELECT', 'SELECT']);
+    expect(Array.from(language.options, (option) => option.value)).toEqual(
+      expect.arrayContaining(['hu', 'en']),
+    );
+    const zones = Array.from(timezone.options, (option) => option.value);
+    expect(zones).toEqual(expect.arrayContaining(['UTC', 'Europe/Budapest', 'Mars/Olympus']));
+    expect(timezone.value).toBe('Mars/Olympus');
+  });
+
+  it('lists the team in short with a link to the Team page', async () => {
     const project = mockProject();
     project.render(<SettingsPage />);
-    const section = await editSection('limits');
+    const section = within(await screen.findByRole('region', { name: t('settings.sections.team') }));
+    expect(section.queryByRole('table')).toBeNull();
+    const owner = project.backend.config.team.members.find((m) => m.handle === 'owner')!;
+    expect(section.getByText(owner.displayName)).toBeTruthy();
+    expect(section.getByRole('link', { name: t('settings.team.manage') }).getAttribute('href')).toBe(
+      '/p/AC/team',
+    );
+  });
+
+  it('lists each repository as a row with its path below the name', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    const section = within(await screen.findByRole('region', { name: t('settings.sections.repos') }));
+    expect(section.queryByRole('table')).toBeNull();
+    const repo = project.backend.config.project.repos[0]!;
+    const row = section.getAllByRole('listitem')[0]!;
+    expect(row.firstElementChild?.textContent).toBe(repo.name);
+    expect(row.children[1]?.textContent).toBe(repo.path);
+    expect(section.getAllByRole('listitem')).toHaveLength(project.backend.config.project.repos.length);
+  });
+
+  it('saves the AI switch the moment it is flipped, with no edit mode', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    const section = await limitsSection();
     const toggle = section.getByRole('checkbox', {
       name: t('settings.limits.aiEnabled'),
     }) as HTMLInputElement;
     expect(toggle.checked).toBe(true);
     expect(section.getByText(t('settings.limits.aiEnabledHelp'))).toBeTruthy();
+    expect(section.queryByRole('button', { name: t('memberEdit.edit') })).toBeNull();
+    expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull();
     fireEvent.click(toggle);
-    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
-    await section.findByText(t('settings.limits.aiEnabledOff'));
+    // Shown at once, saved right after.
+    expect(toggle.checked).toBe(false);
+    await waitFor(() => expect(project.backend.config.team.limits.aiEnabled).toBe(false));
     expect(project.requests.find((request) => request.method === 'PATCH')?.body).toMatchObject({
       limits: { aiEnabled: false },
     });
-    const reopened = await editSection('limits');
-    expect(
-      (reopened.getByRole('checkbox', { name: t('settings.limits.aiEnabled') }) as HTMLInputElement).checked,
-    ).toBe(false);
+    await saved(section);
+    expect(toggle.checked).toBe(false);
+  });
+
+  it('puts the AI switch first and shows a dependent field only while its switch is on', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    const section = await limitsSection();
+    expect(section.getAllByRole('checkbox')[0]).toBe(
+      section.getByRole('checkbox', { name: t('settings.limits.aiEnabled') }),
+    );
+    expect(section.queryByLabelText(t('settings.limits.boundaryTimeout'))).toBeNull();
+    expect(section.queryByLabelText(t('settings.edit.tempMax'))).toBeNull();
+    fireEvent.click(section.getByRole('checkbox', { name: t('settings.limits.boundaryEnabled') }));
+    await section.findByLabelText(t('settings.limits.boundaryTimeout'));
+    await saved(section);
+  });
+
+  it('locks the limits while another section is being edited, so the open editor keeps its version', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    const limits = await limitsSection();
+    const toggle = limits.getByRole('checkbox', { name: t('settings.limits.aiEnabled') }) as HTMLInputElement;
+    // Disabled by the fieldset around the controls, which only the :disabled selector sees.
+    expect(toggle.matches(':disabled')).toBe(false);
+    expect(limits.queryByText(t('settings.limits.locked'))).toBeNull();
+    const editor = await editSection('project');
+    expect(toggle.matches(':disabled')).toBe(true);
+    expect(limits.getByText(t('settings.limits.locked'))).toBeTruthy();
+    fireEvent.click(editor.getByRole('button', { name: t('common.cancel') }));
+    await waitFor(() => expect(toggle.matches(':disabled')).toBe(false));
+    expect(limits.queryByText(t('settings.limits.locked'))).toBeNull();
+  });
+
+  it('locks the limits while the duty matrix holds unsaved changes, so its draft is not lost', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    const limits = await limitsSection();
+    const toggle = limits.getByRole('checkbox', { name: t('settings.limits.aiEnabled') }) as HTMLInputElement;
+    const matrix = within(await screen.findByRole('region', { name: t('duties.title') }));
+    const locale = getLocale(project.backend.config.project.language);
+    fireEvent.click(matrix.getByLabelText(`${locale.duties.research.name}: ${locale.roles.developer.name}`));
+    await waitFor(() => expect(toggle.matches(':disabled')).toBe(true));
+    fireEvent.click(matrix.getByRole('button', { name: t('memberEdit.save') }));
+    await waitFor(() =>
+      expect(project.backend.config.team.roleOverrides?.developer?.duties).toContain('research'),
+    );
+    await waitFor(() => expect(toggle.matches(':disabled')).toBe(false));
   });
 
   it('turns the cap on concurrent AI sessions off and on (decision 23)', async () => {
     const project = mockProject();
     project.render(<SettingsPage />);
-    let section = await editSection('limits');
+    const section = await limitsSection();
     const noLimit = section.getByRole('checkbox', {
       name: t('settings.limits.noAiLimit'),
     }) as HTMLInputElement;
@@ -105,55 +202,77 @@ describe('settings section editors', () => {
     expect(section.getByLabelText(t('settings.limits.maxConcurrentAi'))).toBeTruthy();
     fireEvent.click(noLimit);
     expect(section.queryByLabelText(t('settings.limits.maxConcurrentAi'))).toBeNull();
-    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
-    await section.findByText(t('settings.limits.noAiLimit'));
-    expect(project.requests.find((request) => request.method === 'PATCH')?.body).toMatchObject({
-      limits: { maxConcurrentAi: null },
-    });
+    await saved(section);
     expect(project.backend.config.team.limits).not.toHaveProperty('maxConcurrentAi');
+    expect(lastConfigPatch(project.requests).limits).toMatchObject({ maxConcurrentAi: null });
 
-    // A number can be given again.
-    section = await editSection('limits');
+    // A number can be given again; it is saved when the field is left.
     fireEvent.click(section.getByRole('checkbox', { name: t('settings.limits.noAiLimit') }));
-    fireEvent.change(section.getByLabelText(t('settings.limits.maxConcurrentAi')), {
-      target: { value: '4' },
-    });
-    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
-    await section.findByText(t('settings.limits.maxConcurrentAiValue', { count: 4 }));
+    const field = section.getByLabelText(t('settings.limits.maxConcurrentAi'));
+    await saved(section);
+    expect(project.backend.config.team.limits.maxConcurrentAi).toBe(3);
+    fireEvent.change(field, { target: { value: '4' } });
+    expect(lastConfigPatch(project.requests).limits).toMatchObject({ maxConcurrentAi: 3 });
+    fireEvent.blur(field);
+    await saved(section);
     expect(project.backend.config.team.limits.maxConcurrentAi).toBe(4);
+  });
+
+  it('does not save a number outside its range and says so', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    const section = await limitsSection();
+    const field = section.getByLabelText(t('settings.limits.maxConcurrentAi'));
+    fireEvent.change(field, { target: { value: '99' } });
+    fireEvent.blur(field);
+    expect(section.getByText(t('settings.limits.range', { min: 1, max: 20 }))).toBeTruthy();
+    expect(project.requests.some((request) => request.method === 'PATCH')).toBe(false);
+    fireEvent.change(field, { target: { value: '5' } });
+    expect(section.queryByText(t('settings.limits.range', { min: 1, max: 20 }))).toBeNull();
+    fireEvent.keyDown(field, { key: 'Enter' });
+    await waitFor(() => expect(project.backend.config.team.limits.maxConcurrentAi).toBe(5));
+  });
+
+  it('shows the refusal and the latest values when the settings changed meanwhile', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    const section = await limitsSection();
+    project.backend.configVersion = 'changed-elsewhere';
+    const toggle = section.getByRole('checkbox', {
+      name: t('settings.limits.aiEnabled'),
+    }) as HTMLInputElement;
+    fireEvent.click(toggle);
+    expect((await section.findByRole('alert')).textContent).toBe(t('settings.limits.conflict'));
+    await waitFor(() => expect(toggle.checked).toBe(true));
+    expect(project.backend.config.team.limits.aiEnabled).toBe(true);
   });
 
   it('sets the compaction window of conversations and removes it again (PM-212)', async () => {
     const project = mockProject();
     project.render(<SettingsPage />);
-    let section = await editSection('limits');
+    const section = await limitsSection();
     const field = () => section.getByLabelText(t('settings.limits.autoCompactWindow')) as HTMLInputElement;
     // Not set in the mock project: the field is empty and names the default.
     expect(field().value).toBe('');
     expect(field().placeholder).toBe('200000');
     expect(section.getByText(t('settings.limits.autoCompactWindowHelp'))).toBeTruthy();
     fireEvent.change(field(), { target: { value: '300000' } });
-    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
-    await section.findByText(
-      t('settings.limits.autoCompactWindowValue', { count: formatTokens(300_000) }).replace(/\s/g, ' '),
-    );
+    fireEvent.blur(field());
+    await waitFor(() => expect(project.backend.config.team.limits.autoCompactWindowTokens).toBe(300_000));
     expect(lastConfigPatch(project.requests).limits).toMatchObject({ autoCompactWindowTokens: 300_000 });
-    expect(project.backend.config.team.limits.autoCompactWindowTokens).toBe(300_000);
 
-    section = await editSection('limits');
     fireEvent.change(field(), { target: { value: '' } });
-    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
-    await section.findByText(
-      t('settings.limits.autoCompactWindowValue', { count: formatTokens(200_000) }).replace(/\s/g, ' '),
+    fireEvent.blur(field());
+    await waitFor(() =>
+      expect(project.backend.config.team.limits).not.toHaveProperty('autoCompactWindowTokens'),
     );
     expect(lastConfigPatch(project.requests).limits).toMatchObject({ autoCompactWindowTokens: null });
-    expect(project.backend.config.team.limits).not.toHaveProperty('autoCompactWindowTokens');
   });
 
   it("sets and removes the warning limit of a session's tokens (PM-187)", async () => {
     const project = mockProject();
     project.render(<SettingsPage />);
-    let section = await editSection('limits');
+    const section = await limitsSection();
     const noWarning = section.getByRole('checkbox', {
       name: t('settings.limits.noTokenWarning'),
     }) as HTMLInputElement;
@@ -161,23 +280,17 @@ describe('settings section editors', () => {
     expect(noWarning.checked).toBe(true);
     expect(section.queryByLabelText(t('settings.limits.warnAboveSessionTokens'))).toBeNull();
     fireEvent.click(noWarning);
-    fireEvent.change(section.getByLabelText(t('settings.limits.warnAboveSessionTokens')), {
-      target: { value: '2000000' },
-    });
-    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
-    await section.findByText(
-      t('settings.limits.warnAboveSessionTokensValue', { count: formatTokens(2_000_000) }).replace(
-        /\s/g,
-        ' ',
-      ),
-    );
-    expect(lastConfigPatch(project.requests).limits).toMatchObject({ warnAboveSessionTokens: 2_000_000 });
+    const field = section.getByLabelText(t('settings.limits.warnAboveSessionTokens'));
+    await saved(section);
+    expect(project.backend.config.team.limits.warnAboveSessionTokens).toBe(5_000_000);
+    fireEvent.change(field, { target: { value: '2000000' } });
+    fireEvent.blur(field);
+    await saved(section);
     expect(project.backend.config.team.limits.warnAboveSessionTokens).toBe(2_000_000);
+    expect(lastConfigPatch(project.requests).limits).toMatchObject({ warnAboveSessionTokens: 2_000_000 });
 
     // Removed again: sent as null.
-    section = await editSection('limits');
     fireEvent.click(section.getByRole('checkbox', { name: t('settings.limits.noTokenWarning') }));
-    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
     await waitFor(() =>
       expect(lastConfigPatch(project.requests).limits).toMatchObject({ warnAboveSessionTokens: null }),
     );
@@ -189,25 +302,27 @@ describe('settings section editors', () => {
   it('sets the message storm threshold, 10 in 15 minutes until then (PM-186)', async () => {
     const project = mockProject();
     project.render(<SettingsPage />);
-    let section = await editSection('limits');
+    const section = await limitsSection();
     const count = section.getByLabelText(t('settings.limits.messageBurstCount')) as HTMLInputElement;
     const minutes = section.getByLabelText(t('settings.limits.messageBurstMinutes')) as HTMLInputElement;
     expect([count.value, minutes.value]).toEqual(['10', '15']);
+    // Two quick changes in a row are saved one after the other and keep each other's value.
     fireEvent.change(count, { target: { value: '6' } });
+    fireEvent.blur(count);
     fireEvent.change(minutes, { target: { value: '30' } });
-    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
-    await section.findByText(t('settings.limits.messageBurstValue', { count: 6, minutes: 30 }));
+    fireEvent.blur(minutes);
+    await waitFor(() =>
+      expect(project.backend.config.team.limits.messageBurst).toEqual({ count: 6, minutes: 30 }),
+    );
     expect(lastConfigPatch(project.requests).limits).toMatchObject({
       messageBurst: { count: 6, minutes: 30 },
     });
-    expect(project.backend.config.team.limits.messageBurst).toEqual({ count: 6, minutes: 30 });
 
     // One field changed keeps the other.
-    section = await editSection('limits');
     fireEvent.change(section.getByLabelText(t('settings.limits.messageBurstCount')), {
       target: { value: '4' },
     });
-    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
+    fireEvent.blur(section.getByLabelText(t('settings.limits.messageBurstCount')));
     await waitFor(() =>
       expect(project.backend.config.team.limits.messageBurst).toEqual({ count: 4, minutes: 30 }),
     );
@@ -216,7 +331,10 @@ describe('settings section editors', () => {
   it('edits limits with a 10–100 slider and AI-capable role choices', async () => {
     const project = mockProject();
     project.render(<SettingsPage />);
-    const section = await editSection('limits');
+    const section = await limitsSection();
+    // The temp worker fields appear once the temp workers are on.
+    expect(section.queryByLabelText(t('settings.edit.tempMax'))).toBeNull();
+    fireEvent.click(section.getByRole('checkbox', { name: t('settings.limits.tempWorkers') }));
     await waitFor(() =>
       expect(
         section.getByLabelText(t('settings.team.role')).querySelectorAll('option').length,
@@ -227,20 +345,42 @@ describe('settings section editors', () => {
     expect(Array.from(role.options, (option) => option.value)).not.toContain('product_owner');
     const slider = section.getByRole('slider') as HTMLInputElement;
     expect([slider.min, slider.max]).toEqual(['10', '100']);
+    // Dragging the slider saves nothing until it is released.
+    const patches = () => project.requests.filter((request) => request.method === 'PATCH').length;
+    await saved(section);
+    const before = patches();
+    fireEvent.change(slider, { target: { value: '60' } });
+    expect(patches()).toBe(before);
+    fireEvent.pointerUp(slider);
     fireEvent.change(section.getByLabelText(t('settings.limits.maxConcurrentAi')), {
       target: { value: '2' },
     });
-    fireEvent.change(slider, { target: { value: '60' } });
-    fireEvent.click(section.getByRole('checkbox', { name: t('settings.limits.tempWorkers') }));
+    fireEvent.keyDown(section.getByLabelText(t('settings.limits.maxConcurrentAi')), { key: 'Enter' });
     fireEvent.change(section.getByLabelText(t('settings.edit.tempMax')), { target: { value: '3' } });
+    fireEvent.blur(section.getByLabelText(t('settings.edit.tempMax')));
     fireEvent.change(role, { target: { value: 'qa' } });
-    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
-    await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
+    await waitFor(() =>
+      expect(project.backend.config.team.limits).toMatchObject({
+        maxConcurrentAi: 2,
+        pauseAbovePlanUsagePercent: 60,
+        tempWorkers: { enabled: true, max: 3, role: 'qa' },
+      }),
+    );
     expect(lastConfigPatch(project.requests).limits).toMatchObject({
       maxConcurrentAi: 2,
       pauseAbovePlanUsagePercent: 60,
       tempWorkers: { enabled: true, max: 3, role: 'qa' },
     });
+  });
+
+  it('shows the limits as plain values to those who cannot change them', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />, '/', {
+      can: { manageTeam: false, createTasks: false, workInSessions: false },
+    });
+    const section = await limitsSection();
+    expect(section.getByText(t('settings.limits.aiEnabledOn'))).toBeTruthy();
+    expect(section.queryByRole('checkbox')).toBeNull();
   });
 
   it('renames, describes, reorders stages and edits owners and all gate condition types', async () => {

@@ -70,36 +70,32 @@
   font-weight: 700;
 }
 
-.tableWrap {
-  overflow-x: auto;
-}
-
-.table {
-  width: 100%;
-  border-collapse: collapse;
+/* Members and repositories: one row each, the main line with a quieter one below. */
+.members,
+.repos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
   font-size: var(--text-sm);
 }
 
-.table th {
-  text-align: left;
-  font-size: 11.5px;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--c-ink-4);
-  padding: 6px 10px;
-  white-space: nowrap;
-}
-
-.table td {
-  padding: 9px 10px;
+.members li,
+.repos li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 9px 0;
   border-top: 1px solid var(--c-line-soft);
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
-.table th:first-child,
-.table td:first-child {
-  padding-left: 0;
+.members li:first-child,
+.repos li:first-child {
+  border-top: 0;
+  padding-top: 0;
 }
 
 .facts {
@@ -154,11 +150,28 @@
   min-width: 0;
   width: 100%;
   max-width: 100%;
-  padding: 8px;
-  border: 1px solid var(--c-line);
-  border-radius: var(--radius-xs);
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius-md);
   background: var(--c-surface);
-  color: var(--c-ink-2);
+  color: var(--c-ink);
+  font-size: var(--text-md);
+}
+
+.field textarea {
+  height: auto;
+  min-height: 90px;
+  padding: 10px 12px;
+  line-height: 1.5;
+}
+
+.field input:not([type='checkbox']):not([type='range']):focus-visible,
+.field select:focus-visible,
+.field textarea:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 0;
+  border-color: var(--c-accent);
 }
 
 .actions {
@@ -208,4 +221,59 @@
   align-items: center;
   gap: 8px;
   font-size: var(--text-sm);
+}
+
+/* Controls that save at once (the limits): a checkbox or slider with its explanation below. */
+.controls {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.help {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--c-ink-4);
+}
+
+.fieldLabel {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--c-ink-2);
+}
+
+.range {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.range input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.range output {
+  flex-shrink: 0;
+  font-size: var(--text-sm);
+  font-weight: 800;
+}
+
+/* Several short fields side by side where there is room. */
+.fieldRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
 }

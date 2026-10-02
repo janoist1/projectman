@@ -1750,6 +1750,7 @@ export const hu = {
       workspace: 'Munkaterület',
       language: 'Nyelv',
       timezone: 'Időzóna',
+      languages: { hu: 'Magyar', en: 'English' },
     },
     pipeline: {
       color: 'Oszlop színe',
@@ -1790,20 +1791,16 @@ export const hu = {
       explicitOwners: 'A lépést az alább kiválasztott tagok viszik.',
     },
     team: {
-      name: 'Név',
-      handle: 'Azonosító',
       role: 'Szerep',
-      model: 'Modell',
-      permissions: 'Engedélyek',
-      capacity: 'Egyszerre',
-      sponsor: 'Előfizetés',
+      manage: 'Tagok kezelése a Csapat oldalon',
     },
     limits: {
       boundaryEnabled: 'Külső műveletek delegálása',
       boundaryTimeout: 'Vezetői döntés határideje (másodperc)',
       boundaryHelp:
         'A vezető fejlesztő az egyszeri, delegálható műveletekről dönt. A határidő után a tulajdonos dönt; automatikus engedély nincs. Csak tulajdonos módosíthatja.',
-      aiEnabled: 'AI-munka',
+      aiEnabled: 'AI-munka engedélyezve',
+      aiWork: 'AI-munka',
       aiEnabledHelp:
         'Kikapcsolva az AI-tagok nem kezdenek és nem folytatnak munkát ebben a projektben; a futó munkamenetek tovább működnek, a várakozó munka visszakapcsolás után indul.',
       aiEnabledOn: 'Bekapcsolva',
@@ -1833,6 +1830,11 @@ export const hu = {
       tempWorkers: 'Beugrók',
       tempWorkersOn: 'be · legfeljebb {max} · {role}',
       tempWorkersOff: 'ki',
+      range: 'Adj meg egy egész számot {min} és {max} között.',
+      locked:
+        'Egy másik részben mentetlen módosítás van; mentsd vagy vesd el, utána a keretek újra módosíthatók.',
+      conflict:
+        'A beállítások közben megváltoztak, ezért ez a módosítás nem mentődött. A legfrissebb értékek látszanak; add meg újra.',
     },
     repos: {
       name: 'Név',

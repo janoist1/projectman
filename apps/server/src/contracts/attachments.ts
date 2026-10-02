@@ -36,6 +36,12 @@ export interface AttachmentOperations {
   /** Opens a ready attachment of this task; the caller must close the stream. */
   open(projectKey: string, taskKey: string, id: string, actor: Actor): Promise<AttachmentContent>;
   /**
+   * The small WebP preview of a ready image attachment (PM-195), made on the first request and
+   * kept; the same access check as `open`. Not found for any other file and for an image that
+   * cannot be decoded. The caller must close the stream.
+   */
+  thumbnail(projectKey: string, taskKey: string, id: string, actor: Actor): Promise<AttachmentThumbnail>;
+  /**
    * Deletes the file and the metadata and writes the audit event; resolves only when all of it is
    * done. After a failure the attachment stays in its `deleting` state: it is not readable, and
    * the same call (or the next start of the server) finishes it, once.
@@ -47,6 +53,12 @@ export interface AttachmentOperations {
    * the regular file of the recorded size.
    */
   locate(projectKey: string, taskKey: string, id: string, actor: Actor): Promise<LocatedAttachment>;
+}
+
+export interface AttachmentThumbnail {
+  /** The stored WebP bytes; `size` long. */
+  stream: Readable;
+  size: number;
 }
 
 export interface LocatedAttachment {
@@ -88,6 +100,10 @@ export interface AttachmentStorage {
   create(ref: AttachmentRef): Promise<AttachmentWriter>;
   /** Opens the published file for reading; throws unless it is a regular file of `size` bytes. */
   openRead(ref: AttachmentRef, size: number): Promise<Readable>;
+  /** A file being written as the attachment's thumbnail (`<id>.thumb`, under `<id>.thumb.part` meanwhile). */
+  createThumbnail(ref: AttachmentRef): Promise<AttachmentWriter>;
+  /** Opens the attachment's thumbnail; null when there is none (yet). A file that is not a regular one is an error. */
+  openThumbnail(ref: AttachmentRef): Promise<AttachmentThumbnail | null>;
   /**
    * The published file's absolute path for an agent's own reader; throws unless it is a regular
    * file of `size` bytes. An image or PDF (`mediaType` as proven from the content) gets a path
@@ -99,9 +115,9 @@ export interface AttachmentStorage {
    * storage root; nothing is created. What an AI session on the task may read.
    */
   taskDirectory(projectKey: string, taskKey: string): Promise<string>;
-  /** Removes the published file and any temporary one; a missing file is fine. */
+  /** Removes the published file, its thumbnail and any temporary one; a missing file is fine. */
   remove(ref: AttachmentRef): Promise<void>;
-  /** Removes only the temporary file; a missing file is fine. */
+  /** Removes only the temporary files (of the attachment and of its thumbnail); a missing file is fine. */
   removeTemporary(ref: AttachmentRef): Promise<void>;
   /** Every regular file under the storage root (what recovery compares with the database). */
   scan(): Promise<StoredFile[]>;

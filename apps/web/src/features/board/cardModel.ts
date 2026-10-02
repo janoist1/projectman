@@ -1,9 +1,17 @@
+import { routes } from '@projectman/shared';
 import type { LabelView, Task, TaskLink } from '@projectman/shared';
 import { t } from '../../i18n/t';
 import { stripAccents } from '../../lib/ids';
 import { labelName } from '../../lib/labels';
 import { stagesInColumn } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
+
+/** The small preview of the card's cover image (its first image), or null when it has none. */
+export function coverSrcOf(projectKey: string, task: Pick<Task, 'key' | 'coverAttachmentId'>): string | null {
+  return task.coverAttachmentId
+    ? routes.attachmentThumbnail(projectKey, task.key, task.coverAttachmentId)
+    : null;
+}
 
 export interface StageRow {
   label: string;

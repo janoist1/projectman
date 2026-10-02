@@ -7,6 +7,7 @@ import { t } from '../../i18n/t';
 import type { PlainMessageKey } from '../../i18n/t';
 import type { PipelineIndex } from '../../lib/pipeline';
 import type { TaskPhase } from '../../lib/taskState';
+import { coverSrcOf } from './cardModel';
 import { TaskCard } from './TaskCard';
 import { sortEntries } from './useBoardModel';
 import type { BoardEntry } from './useBoardModel';
@@ -68,6 +69,7 @@ export function MobileBoardList({
                 pipeline={pipeline}
                 to={`/p/${projectKey}/tasks/${task.key}`}
                 labels={labels}
+                coverSrc={coverSrcOf(projectKey, task)}
                 compact
               />
             ))}

@@ -6,6 +6,7 @@ import {
   canDeleteAttachment,
   canReadAttachments,
   canUploadAttachment,
+  coverAttachmentId,
   MAX_ATTACHMENT_BYTES,
   memberOf,
 } from '@projectman/shared';
@@ -15,6 +16,7 @@ import type {
   AttachmentOperations,
   AttachmentRef,
   AttachmentStorage,
+  AttachmentThumbnail,
   AttachmentUploadInput,
   AttachmentWriter,
   LocatedAttachment,
@@ -29,7 +31,8 @@ import type { TimelineService } from '../timeline';
 import { KeyedMutex, SYSTEM_ACTOR, newId } from '../util';
 import { sanitizeFileName } from './file-name';
 import { SNIFF_BYTES, sniffMediaType } from './media-type';
-import { TEMPORARY_SUFFIX, viewOwner } from './storage';
+import { TEMPORARY_SUFFIX, thumbnailOwner, viewOwner } from './storage';
+import { ThumbnailMaker } from './thumbnail';
 
 const storageFailed = (message: string) =>
   new DomainError('attachment_storage_failed', message, { status: 500 });
@@ -94,6 +97,7 @@ export class AttachmentService implements AttachmentOperations {
   private readonly timeline: TimelineService;
   private readonly storage: AttachmentStorage;
   private readonly deletions = new KeyedMutex();
+  private readonly thumbnails: ThumbnailMaker;
 
   constructor(deps: {
     ctx: DomainContext;
@@ -107,6 +111,9 @@ export class AttachmentService implements AttachmentOperations {
     this.tasks = deps.tasks;
     this.timeline = deps.timeline;
     this.storage = deps.storage;
+    this.thumbnails = new ThumbnailMaker(deps.storage, (err, attachment) =>
+      this.ctx.logger.warn({ err, attachment }, 'attachment thumbnail could not be made'),
+    );
   }
 
   async list(projectKey: string, taskKey: string, actor: Actor): Promise<Attachment[]> {
@@ -147,6 +154,7 @@ export class AttachmentService implements AttachmentOperations {
       published = true;
       const mediaType = sniffMediaType(head);
       return this.ctx.unitOfWork(() => {
+        const coverBefore = this.coverOf(projectKey, taskKey);
         const stored = { size, mediaType, preview: attachmentPreviewOf(mediaType) };
         if (!repos.attachments.markReady(ref.id, stored)) throw new Error('attachment row vanished');
         const record = repos.attachments.get(ref.id)!;
@@ -158,6 +166,7 @@ export class AttachmentService implements AttachmentOperations {
           data: { attachmentId: ref.id, fileName: record.fileName, size, mediaType },
         });
         this.ctx.bus.publish({ type: 'task_attachments_changed', projectKey, taskKey });
+        this.publishCoverChange(projectKey, taskKey, coverBefore);
         return toDto(record);
       });
     } catch (err) {
@@ -177,6 +186,40 @@ export class AttachmentService implements AttachmentOperations {
       throw storageFailed('the file could not be read');
     }
     return { attachment: toDto(record), stream };
+  }
+
+  async thumbnail(
+    projectKey: string,
+    taskKey: string,
+    id: string,
+    actor: Actor,
+  ): Promise<AttachmentThumbnail> {
+    await this.authorize(projectKey, taskKey, actor);
+    const record = this.find(projectKey, taskKey, id, ['ready']);
+    // Only an image proven from its content; never a PDF, never SVG.
+    if (record.preview !== 'image') throw notFound('attachment thumbnail', id);
+    const ref: AttachmentRef = { projectKey, taskKey, id };
+    try {
+      const existing = await this.storage.openThumbnail(ref);
+      if (existing) return existing;
+    } catch (err) {
+      this.ctx.logger.error({ err, attachment: id }, 'attachment thumbnail could not be opened');
+      throw storageFailed('the thumbnail could not be read');
+    }
+    if (!(await this.thumbnails.make(ref, record.size))) throw notFound('attachment thumbnail', id);
+    // A deletion that came meanwhile removed the files before the thumbnail was stored.
+    if (this.ctx.repos.attachments.get(id)?.state !== 'ready') {
+      await this.storage.remove(ref).catch(() => undefined);
+      throw notFound('attachment', id);
+    }
+    try {
+      const made = await this.storage.openThumbnail(ref);
+      if (made) return made;
+    } catch (err) {
+      this.ctx.logger.error({ err, attachment: id }, 'attachment thumbnail could not be opened');
+      throw storageFailed('the thumbnail could not be read');
+    }
+    throw notFound('attachment thumbnail', id);
   }
 
   async locate(projectKey: string, taskKey: string, id: string, actor: Actor): Promise<LocatedAttachment> {
@@ -237,7 +280,19 @@ export class AttachmentService implements AttachmentOperations {
     try {
       const known = repos.attachments.ids();
       for (const file of await this.storage.scan()) {
-        if (file.name.endsWith(TEMPORARY_SUFFIX)) {
+        const thumbnailOf = thumbnailOwner(file.name);
+        if (thumbnailOf !== null) {
+          // A thumbnail goes with its attachment; one half written (`.thumb.part`) is dropped at any rate.
+          const ref = { projectKey: file.projectKey, taskKey: file.taskKey, id: thumbnailOf };
+          const gone = file.name.endsWith(TEMPORARY_SUFFIX)
+            ? this.storage.removeTemporary(ref)
+            : known.has(thumbnailOf)
+              ? Promise.resolve()
+              : this.storage.remove(ref);
+          await gone.catch((err: unknown) =>
+            logger.warn({ err, file }, 'could not remove an attachment thumbnail'),
+          );
+        } else if (file.name.endsWith(TEMPORARY_SUFFIX)) {
           const id = file.name.slice(0, -TEMPORARY_SUFFIX.length);
           await this.storage
             .removeTemporary({ projectKey: file.projectKey, taskKey: file.taskKey, id })
@@ -369,6 +424,7 @@ export class AttachmentService implements AttachmentOperations {
       this.ctx.logger.error({ err, attachment: record.id }, 'attachment file could not be removed');
       throw storageFailed('the file could not be removed; try again');
     }
+    this.thumbnails.forget(record.id);
     this.ctx.unitOfWork(() => {
       // Gone already: another call or a recovery finished it, with its own event.
       if (!this.ctx.repos.attachments.remove(record.id)) return;
@@ -389,6 +445,23 @@ export class AttachmentService implements AttachmentOperations {
         projectKey: record.projectKey,
         taskKey: record.taskKey,
       });
+      // A `deleting` attachment was no longer readable, so the cover changed when the intent was
+      // recorded; boards hear of it now, whether or not it was the cover (a repeat is harmless).
+      if (record.preview === 'image') this.publishCover(record.projectKey, record.taskKey);
     });
+  }
+
+  private coverOf(projectKey: string, taskKey: string): string | null {
+    return coverAttachmentId(this.ctx.repos.attachments.listReady(projectKey, taskKey));
+  }
+
+  /** The card's cover is part of the task as boards show it: a changed cover is a changed task (`updatedAt` stays). */
+  private publishCoverChange(projectKey: string, taskKey: string, before: string | null): void {
+    if (this.coverOf(projectKey, taskKey) !== before) this.publishCover(projectKey, taskKey);
+  }
+
+  private publishCover(projectKey: string, taskKey: string): void {
+    const task = this.tasks.find(projectKey, taskKey);
+    if (task) this.tasks.publish(task);
   }
 }

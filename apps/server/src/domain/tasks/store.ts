@@ -1,4 +1,11 @@
-import { commentMentions, isOpenTask, memberOf, repoRequired, stageOf } from '@projectman/shared';
+import {
+  commentMentions,
+  coverAttachmentId,
+  isOpenTask,
+  memberOf,
+  repoRequired,
+  stageOf,
+} from '@projectman/shared';
 import type {
   Actor,
   CreateTaskCommentRequest,
@@ -54,10 +61,21 @@ export class TaskStore {
   }
 
   view(task: Task): Task {
-    const { startWaiting: _, reviewPin: __, ...rest } = task;
+    const { startWaiting: _, reviewPin: __, coverAttachmentId: ___, ...rest } = task;
     const startWaiting = this.startWaiting.waitingFor(task) ?? this.repoWaiting(task);
     const reviewPin = this.reviewPin(task);
-    return { ...rest, ...(startWaiting ? { startWaiting } : {}), ...(reviewPin ? { reviewPin } : {}) };
+    const cover = this.cover(task);
+    return {
+      ...rest,
+      ...(startWaiting ? { startWaiting } : {}),
+      ...(reviewPin ? { reviewPin } : {}),
+      ...(cover ? { coverAttachmentId: cover } : {}),
+    };
+  }
+
+  /** The task's first image attachment (PM-195), which is the card's cover; none without an image. */
+  private cover(task: Task): string | null {
+    return coverAttachmentId(this.ctx.repos.attachments.listReady(task.projectKey, task.key));
   }
 
   /** The commit handed over with the task's current stage (PM-183); none once it left that stage. */

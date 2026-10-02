@@ -67,6 +67,17 @@ export type UploadAttachmentResponse = z.infer<typeof UploadAttachmentResponse>;
 export const DeleteAttachmentResponse = z.object({ id: AttachmentId, deleted: z.literal(true) });
 export type DeleteAttachmentResponse = z.infer<typeof DeleteAttachmentResponse>;
 
+/**
+ * The cover of a card: the oldest (in upload order) attachment that is a verified image, or null.
+ * `attachments` are the task's ready attachments, oldest first. The server and the web's test
+ * backend both use this rule.
+ */
+export function coverAttachmentId(
+  attachments: ReadonlyArray<Pick<Attachment, 'id' | 'preview'>>,
+): string | null {
+  return attachments.find((attachment) => attachment.preview === 'image')?.id ?? null;
+}
+
 /** Whoever acts on attachments: a project member (never a client or viewer who may not see the task). */
 export type AttachmentViewer = TaskViewer;
 

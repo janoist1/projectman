@@ -1,16 +1,3 @@
-.section {
-  border-radius: var(--radius-md);
-  outline: 2px dashed transparent;
-  outline-offset: 6px;
-  transition: outline-color 120ms ease-out;
-}
-
-/* A drag with files is over the section: it will take them. */
-.dragging {
-  outline-color: var(--c-accent);
-  background: var(--c-accent-soft);
-}
-
 .picker {
   display: flex;
   flex-wrap: wrap;
@@ -111,6 +98,21 @@
   font-weight: 800;
   color: var(--c-ink);
   overflow-wrap: anywhere;
+}
+
+/* The image the card shows as its cover. */
+.coverChip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  margin-left: 8px;
+  padding: 0 7px;
+  border-radius: var(--radius-xs);
+  background: var(--c-ok-bg);
+  color: var(--c-ok-text);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  vertical-align: middle;
 }
 
 .meta {

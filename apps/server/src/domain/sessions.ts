@@ -1109,7 +1109,7 @@ export class SessionOrchestrator {
       this.ctx.logger.warn({ err, member: member.handle }, 'could not read member memory');
       return '';
     });
-    const { attachments, attachmentRules, attachmentDir } = await this.attachmentsFor(
+    const { attachments, parentAttachments, attachmentRules, attachmentDirs } = await this.attachmentsFor(
       projectKey,
       member.handle,
       task,
@@ -1134,7 +1134,7 @@ export class SessionOrchestrator {
             ? { kind: 'task_worktree', path: cwd, ...(placed.gitDir ? { gitDir: placed.gitDir } : {}) }
             : ({ kind: 'read_only', path: cwd } satisfies SessionPolicy['placement']),
       readableRoots: additionalDirectories,
-      ...(attachmentDir ? { readOnlyPaths: [attachmentDir] } : {}),
+      ...(attachmentDirs.length > 0 ? { readOnlyPaths: attachmentDirs } : {}),
       ...(vm ? { managedVm: { boundary: vm.profile } } : {}),
     });
     // A developer's npm cache and development data live in its own directory (PM-193).
@@ -1169,6 +1169,7 @@ export class SessionOrchestrator {
       sessionPolicy: policy,
       ...(sandbox ? { sandbox } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
+      ...(parentAttachments ? { parentAttachments } : {}),
       ...(relatedSessions.length > 0 ? { relatedSessions } : {}),
       ...(relations.length > 0 ? { relations } : {}),
       ...(themeCard
@@ -1425,12 +1426,27 @@ export class SessionOrchestrator {
     settle?.(typed);
   }
 
+  /** The attachments of a card the member may read (empty when it may not, or on a failure). */
+  private async readableAttachments(
+    projectKey: string,
+    taskKey: string,
+    handle: string,
+  ): Promise<Attachment[]> {
+    return (
+      (await this.deps.attachments?.list(projectKey, taskKey, aiActor(handle)).catch((err: unknown) => {
+        this.ctx.logger.warn({ err, taskKey }, 'could not list the task attachments');
+        return undefined;
+      })) ?? []
+    );
+  }
+
   /**
    * A task session's attachments: the list for its brief, and the task's attachment directory,
    * which it reads (never edits) without asking: in the session policy as a read-only path, and as
    * rules for sessions without a policy. Only that one directory: not the other tasks' ones, nor
    * the rest of the server's home, and only when it can be written as a plain rule path. A failure
-   * leaves the session without them.
+   * leaves the session without them. A subtask also gets its direct parent's files and directory
+   * (PM-228): the brief names them, so they open without asking too.
    */
   private async attachmentsFor(
     projectKey: string,
@@ -1438,23 +1454,44 @@ export class SessionOrchestrator {
     task: Task | null,
   ): Promise<{
     attachments: Attachment[];
+    parentAttachments: { taskKey: string; attachments: Attachment[] } | null;
     attachmentRules: { allow: string[]; deny: string[] };
-    attachmentDir: string | null;
+    attachmentDirs: string[];
   }> {
-    if (!task) return { attachments: [], attachmentRules: attachmentToolRules(null), attachmentDir: null };
-    const attachments =
-      (await this.deps.attachments?.list(projectKey, task.key, aiActor(handle)).catch((err: unknown) => {
-        this.ctx.logger.warn({ err, taskKey: task.key }, 'could not list the task attachments');
-        return undefined;
-      })) ?? [];
-    const dir =
-      (await this.deps.attachmentDirectory?.(projectKey, task.key).catch((err: unknown) => {
-        this.ctx.logger.warn({ err, taskKey: task.key }, 'could not find the task attachment directory');
-        return undefined;
-      })) ?? null;
-    const attachmentRules = attachmentToolRules(dir);
-    // The rules are empty when the directory cannot be a plain rule path; then it is not granted.
-    return { attachments, attachmentRules, attachmentDir: attachmentRules.allow.length > 0 ? dir : null };
+    if (!task)
+      return {
+        attachments: [],
+        parentAttachments: null,
+        attachmentRules: attachmentToolRules(null),
+        attachmentDirs: [],
+      };
+    const attachments = await this.readableAttachments(projectKey, task.key, handle);
+    const parentKey =
+      task.parentKey && this.deps.tasks.find(projectKey, task.parentKey) ? task.parentKey : null;
+    const parentFiles = parentKey ? await this.readableAttachments(projectKey, parentKey, handle) : [];
+    const rules = { allow: [] as string[], deny: [] as string[] };
+    const dirs: string[] = [];
+    for (const key of parentKey ? [task.key, parentKey] : [task.key]) {
+      const dir =
+        (await this.deps.attachmentDirectory?.(projectKey, key).catch((err: unknown) => {
+          this.ctx.logger.warn({ err, taskKey: key }, 'could not find the task attachment directory');
+          return undefined;
+        })) ?? null;
+      const dirRules = attachmentToolRules(dir);
+      // The rules are empty when the directory cannot be a plain rule path; then it is not granted.
+      if (dir && dirRules.allow.length > 0) {
+        dirs.push(dir);
+        rules.allow.push(...dirRules.allow);
+        rules.deny.push(...dirRules.deny);
+      }
+    }
+    return {
+      attachments,
+      parentAttachments:
+        parentKey && parentFiles.length > 0 ? { taskKey: parentKey, attachments: parentFiles } : null,
+      attachmentRules: rules,
+      attachmentDirs: dirs,
+    };
   }
 
   /**

@@ -960,6 +960,36 @@ describe('kick-off brief', () => {
     expect(long).toContain('(3 more; list them with list_attachments, task_key AR-21, offset 10.)');
   });
 
+  it("names the parent card's attachments and the task_key that reads them (PM-228)", () => {
+    const attachmentsOf = (overrides: Partial<ContextPackInput>) =>
+      (builder.build(input(overrides)).initialMessage ?? '')
+        .split('\n\n')
+        .find((part) => part.startsWith('## Attachments\n')) ?? '';
+    const parentFiles = (count: number) => ({
+      taskKey: 'AR-7',
+      attachments: Array.from({ length: count }, (_, i) =>
+        screenshot({ id: `att_parent${String(i).padStart(2, '0')}`, fileName: `parent-${i}.png` }),
+      ),
+    });
+
+    // No parent files given (no parent, a parent without files, or one the member may not read): no line.
+    expect(attachmentsOf({})).toBe('## Attachments\nNone.');
+
+    const own = attachmentsOf({ parentAttachments: parentFiles(2) });
+    expect(own).toContain('None.\nParent `AR-7` has 2 attachments:');
+    expect(own).toContain('"parent-0.png"');
+    expect(own).toContain('"parent-1.png"');
+    expect(own).toContain('task_key AR-7');
+
+    // Next to the task's own files, with the same limit for the long list.
+    const both = attachmentsOf({ attachments: [screenshot()], parentAttachments: parentFiles(12) });
+    expect(both).toContain('"reset-mail.png"');
+    expect(both).toContain('Parent `AR-7` has 12 attachments:');
+    expect(both).toContain('parent-9.png');
+    expect(both).not.toContain('parent-10.png');
+    expect(both).toContain('(2 more.)');
+  });
+
   it("names the member's other running sessions on related cards, and where the standing is (PM-184)", async () => {
     const brief =
       builder.build(

@@ -351,8 +351,10 @@ export function readableRootsFor(input: {
   worktreesRootDir?: string;
   /** The task's own attachment directory (`AttachmentStorage.taskDirectory`), read-only. */
   attachmentsDir?: string | null;
+  /** The attachment directory of the task's direct parent (PM-228), read-only as well. */
+  parentAttachmentsDir?: string | null;
 }): string[] {
-  const { config, cwd, projectKey, task, worktreesRootDir, attachmentsDir } = input;
+  const { config, cwd, projectKey, task, worktreesRootDir, attachmentsDir, parentAttachmentsDir } = input;
   const roots = [cwd];
   const repo = effectiveRepo(config, task);
   if (task && repo && worktreesRootDir) {
@@ -361,6 +363,7 @@ export function readableRootsFor(input: {
     if (worktree !== projectDir && isWithin(projectDir, worktree)) roots.push(worktree);
   }
   if (task && attachmentsDir) roots.push(attachmentsDir);
+  if (task && parentAttachmentsDir) roots.push(parentAttachmentsDir);
   return roots;
 }
 

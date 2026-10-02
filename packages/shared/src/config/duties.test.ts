@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DUTIES, DUTY_GROUPS, DUTY_IDS } from '../domain/duty';
 import { dutyHolders, roleHolders, RoleOverrides } from '../domain/role';
 import { ProjectConfig } from './schema';
-import { dutyMembers, isWorkingOnTask, memberDuties, roleBundle, stageOwners } from './duties';
+import { dutyMembers, isWorkingOnTask, memberDuties, roleBundle, stageOwners, stagesToJoin } from './duties';
 import { labelHolders } from './labels';
 import { applyConfigPatch, PatchConfigRequest } from './edit';
 import { approvalPolicyChanged } from './owner-only';
@@ -81,6 +81,24 @@ describe('duty bundles', () => {
     ).toEqual(['owner']);
     c.pipeline.stages[1]!.owners = [];
     expect(stageOwners(c, c.pipeline.stages[1]!)).toEqual([]);
+  });
+  it('finds the fixed-owner stages a new member joins by duty (PM-133)', () => {
+    const c = config();
+    const newDev = (handle: string, role = 'developer') =>
+      ({ kind: 'ai', handle, displayName: handle, role, sponsor: 'owner' }) as never;
+    const join = (m: ReturnType<typeof newDev>) => stagesToJoin(c, m).map((s) => s.id);
+    // Stages without an owner list resolve by duty already: nothing to join.
+    expect(join(newDev('d2'))).toEqual([]);
+    // A work stage with a fixed list and no duty of its own stands for implementation.
+    c.pipeline.stages[1] = { id: 'work', name: 'Work', kind: 'work', owners: ['builder'], columnId: 'all' };
+    expect(join(newDev('d2'))).toEqual(['work']);
+    expect(join(newDev('builder'))).toEqual([]);
+    expect(join(newDev('q', 'qa'))).toEqual([]);
+    // An explicit duty decides for any other stage kind; queue and done are never joined.
+    c.pipeline.stages[2] = { ...c.pipeline.stages[2]!, owners: ['owner'], duty: 'testing_acceptance' };
+    expect(join(newDev('q', 'qa'))).toEqual(['release']);
+    c.pipeline.stages[0] = { ...c.pipeline.stages[0]!, owners: ['owner'], duty: 'implementation' };
+    expect(join(newDev('d2'))).toEqual(['work']);
   });
   it('counts a live session as work now while a turn runs or the task is in the member’s stage', () => {
     const c = config();

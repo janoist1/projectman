@@ -601,11 +601,16 @@ export function createDomain(opts: DomainOptions) {
     refine(() => refinement.moved(change));
   });
   // The messages that waited for their turn on a card reach their members once it is out of refinement.
-  events.on('task_labels_changed', ({ task }) => {
-    refine(() => messaging.releaseHeld(task.projectKey, task.key));
+  events.on('task_labels_changed', ({ task, previousLabels }) => {
+    refine(() => messaging.releaseHeld(task.projectKey, task.key, { ...task, labels: previousLabels }));
   });
   events.on('task_stage_changed', (change) => {
-    refine(() => messaging.releaseHeld(change.task.projectKey, change.task.key));
+    refine(() =>
+      messaging.releaseHeld(change.task.projectKey, change.task.key, {
+        ...change.task,
+        stageId: change.from,
+      }),
+    );
   });
   events.on('session_idle', (session) => {
     refine(() => refinement.turnEnded(session));

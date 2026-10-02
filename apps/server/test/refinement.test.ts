@@ -531,5 +531,34 @@ describe('Refinement line', () => {
       await vi.waitFor(() => expect(members()).toEqual(['des']));
       expect(firstInputs()[0]).toContain('Please look at the header.');
     });
+
+    it('leaves a deferred wake-up alone when a card that was never refined moves on', async () => {
+      h = await createDomainHarness({
+        persistent: true,
+        adjust: (config) => {
+          setup()(config);
+          config.team.limits.maxConcurrentAi = 1;
+        },
+      });
+      await h.domain.tasks.create('AR', { title: 'Screen', labels: ['ui'] }, OWNER_ACTOR);
+
+      await send('ana', 'Ana, first.');
+      await vi.waitFor(() => expect(members()).toEqual(['ana']));
+      // No capacity left: the wake-up of the designer waits, and a move makes it obsolete.
+      await send('des', 'Please look at the header.');
+      await flush();
+      expect(members()).toEqual(['ana']);
+
+      await label({ add: ['scope-ok'] });
+      await label({ add: ['design-ok'] }, aiActor('des'));
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'ready', OWNER_ACTOR);
+      await flush();
+      expect(members()).toEqual(['ana']);
+
+      // Capacity frees up: the obsolete wake-up is not made again.
+      await h.domain.sessions.stop('AR', sessionsOf()[0]!.id);
+      await flush();
+      expect(members()).toEqual(['ana']);
+    });
   });
 });

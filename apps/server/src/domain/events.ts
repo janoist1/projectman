@@ -31,7 +31,7 @@ export interface DomainEventMap {
   /** A prerequisite relation of this task was removed (PM-204): its start may no longer have to wait. */
   task_prerequisite_removed: Task;
   /** A task's labels changed (after the change committed): a start that waits for a label may go ahead (PM-236). */
-  task_labels_changed: { task: Task; actor: Actor };
+  task_labels_changed: { task: Task; actor: Actor; previousLabels: string[] };
   /** Someone other than the assignee put labels on a task that notify its assignee. */
   task_labels_notice: { task: Task; labels: string[]; actor: Actor; comment?: string };
   /** A task's description was changed (PM-184): the sessions working the card are told. */

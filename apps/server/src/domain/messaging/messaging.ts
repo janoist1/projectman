@@ -341,13 +341,14 @@ export class Messaging {
   /**
    * A card that is no longer being refined (`refine` taken off, or moved out of the refinement
    * stages): every AI member with messages waiting for it is woken the usual way, or gets them typed
-   * into its running session (PM-255).
+   * into its running session (PM-255). `before` is the card as it was before the change: only a card
+   * that was being refined held messages, so any other change leaves the waiting ones alone.
    */
-  async releaseHeld(projectKey: string, taskKey: string): Promise<void> {
+  async releaseHeld(projectKey: string, taskKey: string, before: Task): Promise<void> {
     const task = this.tasks.find(projectKey, taskKey);
     if (!task || !isOpenTask(task) || isTheme(task)) return;
     const config = await this.projects.config(projectKey);
-    if (!projectRefines(config) || isRefining(task, config)) return;
+    if (!projectRefines(config) || !isRefining(before, config) || isRefining(task, config)) return;
     const workItem = routeFor(taskKey);
     for (const member of config.team.members) {
       if (member.kind !== 'ai') continue;

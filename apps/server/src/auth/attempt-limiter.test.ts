@@ -56,6 +56,54 @@ describe('attempt limiter', () => {
     expect(() => attempts.reserve('a')).not.toThrow();
   });
 
+  describe('shared cap', () => {
+    function shared() {
+      let now = 0;
+      const attempts = createAttemptLimiter({
+        max: 3,
+        sharedMax: 5,
+        windowMs: 1_000,
+        message: 'slow down',
+        now: () => now,
+      });
+      return { attempts, advance: (ms: number) => void (now += ms) };
+    }
+
+    it('refuses every key once all keys together use it up, even a key with budget left', () => {
+      const { attempts } = shared();
+      for (let i = 0; i < 3; i++) attempts.reserve('a');
+      for (let i = 0; i < 2; i++) attempts.reserve('b');
+      expect(refused(() => attempts.reserve('c'))).toMatchObject({ code: 'too_many_attempts', status: 429 });
+      expect(refused(() => attempts.reserve('a')).code).toBe('too_many_attempts');
+    });
+
+    it('does not charge either budget for an attempt it refuses', () => {
+      const { attempts } = shared();
+      const first = attempts.reserve('a');
+      for (const key of ['b', 'b', 'c', 'c']) attempts.reserve(key);
+      // 'a' has 1 of 3 and all keys 5 of 5: refused attempts must not push 'a' to its own limit.
+      for (let i = 0; i < 5; i++) expect(refused(() => attempts.reserve('a')).code).toBe('too_many_attempts');
+      first();
+      expect(() => attempts.reserve('a')).not.toThrow();
+      expect(refused(() => attempts.reserve('a')).code).toBe('too_many_attempts');
+    });
+
+    it('gives a successful attempt its slot back in both budgets', () => {
+      const { attempts } = shared();
+      for (let i = 0; i < 4; i++) attempts.reserve(`k${i}`);
+      for (let i = 0; i < 6; i++) attempts.reserve('ok')();
+      attempts.reserve('k4');
+      expect(refused(() => attempts.reserve('ok')).code).toBe('too_many_attempts');
+    });
+
+    it('starts a new shared window after the old one expires', () => {
+      const { attempts, advance } = shared();
+      for (let i = 0; i < 5; i++) attempts.reserve(`k${i}`);
+      advance(1_000);
+      expect(() => attempts.reserve('k0')).not.toThrow();
+    });
+  });
+
   it('starts a new window after the old one expires', () => {
     const { attempts, advance } = limiter();
     for (let i = 0; i < 3; i++) attempts.reserve('a');

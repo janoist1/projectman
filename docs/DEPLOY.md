@@ -122,6 +122,30 @@ An additional loopback proxy must preserve Host, overwrite `X-Forwarded-Proto: h
 retain forwarding/identity headers, and support websocket upgrades. Do not weaken the
 origin check. Deny `/hooks` and `/mcp` at that proxy where possible.
 
+## Client address behind a public entrance (PM-211)
+
+The login and invitation limits count failed attempts per client address (10 per 15 minutes)
+and for all clients together (50 per 15 minutes). The service listens on loopback only, so
+behind a proxy every request arrives from `127.0.0.1` and, by default, everybody is one
+client. If the entrance sets a header with the real client's address, name it in the
+service's environment:
+
+```sh
+PROJECTMAN_CLIENT_IP_HEADER=cf-connecting-ip   # behind Cloudflare (Tunnel/Access)
+```
+
+Projectman then counts a request under that header's address, but only when the request
+comes from loopback (the proxy) and the header holds exactly one valid IP address; anything
+else (missing, empty, repeated or malformed header) counts under the connection's address as
+before. `X-Forwarded-For` is never read: a client can start that chain with any value. The
+name must be a single header (not `x-forwarded-for`), or the service does not start.
+
+Set it only when **every** way to the service goes through an entrance that overwrites that
+header with the real client's address (Cloudflare does for `cf-connecting-ip`). If a
+client can reach the proxy directly with its own value for the header, it can pick its own
+address and gets a fresh per-client budget each time (the shared cap of 50 still holds).
+Behind `tailscale serve` there is no such header: leave the variable unset.
+
 ## GitHub attribution
 
 Optionally set `githubLogin: acme-developer` on a human or AI member in

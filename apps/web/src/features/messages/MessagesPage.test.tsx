@@ -467,4 +467,16 @@ describe('on a phone', () => {
       expect(document.activeElement?.getAttribute('href')).toBe('/p/AC/messages/with/fe-1'),
     );
   });
+
+  it('shows the list again when the address names a peer with a quote in it', async () => {
+    phone(true);
+    const p = mockProject();
+    p.backend.messages = [];
+    p.backend.sendTeamMessage('fe-1', ['owner'], null, 'Acme on the phone');
+    p.render(<Pages />, '/p/AC/messages/with/a%22b');
+    fireEvent.click(await screen.findByRole('link', { name: t('messages.thread.back') }));
+    await waitFor(() => expect(where()).toBe('/p/AC/messages'));
+    const nav = await screen.findByRole('navigation', { name: t('messages.list.label') });
+    expect(within(nav).getAllByRole('link').length).toBeGreaterThan(0);
+  });
 });

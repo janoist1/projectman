@@ -85,7 +85,7 @@ describe('where a member on leave is marked (PM-227)', () => {
     </Routes>
   );
 
-  it('lists a member on leave on the board strip, with or without anyone working', () => {
+  it('keeps a member on leave off the board strip, with or without anyone working (PM-259)', () => {
     const project = mockProject();
     sendOnLeave(project, 'fe-1');
     const team = (working: string[]) =>
@@ -97,17 +97,15 @@ describe('where a member on leave is marked (PM-227)', () => {
       }));
     const titles = new Map([['AC-20', 'Napi mentés']]);
     const view = project.render(<TeamStrip members={team([])} titles={titles} />);
-    const away = screen.getByRole('link', { name: new RegExp(nameOfMember(project, 'fe-1')) });
-    expect(away.getAttribute('href')).toBe('/p/AC/team/fe-1');
-    expect(within(away).getByText(onLeave)).toBeTruthy();
     expect(screen.getByText(t('board.nobodyWorking'))).toBeTruthy();
+    expect(screen.queryByText(nameOfMember(project, 'fe-1'))).toBeNull();
+    expect(screen.queryByText(onLeave)).toBeNull();
     view.unmount();
 
     project.render(<TeamStrip members={team(['be-1'])} titles={titles} />);
     const links = screen.getAllByRole('link').map((link) => link.getAttribute('href'));
-    // The one at work first, the one on leave after.
-    expect(links).toEqual(['/p/AC/tasks/AC-20', '/p/AC/team/fe-1']);
-    expect(screen.getAllByText(onLeave)).toHaveLength(1);
+    expect(links).toEqual(['/p/AC/tasks/AC-20']);
+    expect(screen.queryByText(onLeave)).toBeNull();
   });
 
   it('shows nothing on the strip when nobody is on leave', () => {

@@ -56,6 +56,20 @@ describe('who the board team strip shows (PM-241)', () => {
     expect(chips()[0]!.textContent).toContain('QA');
   });
 
+  it('leaves out a member on leave, with or without other members working', () => {
+    strip({ qa: ['AC-21'] }, { devops: { onLeave: true } });
+    expect(chips()).toHaveLength(1);
+    expect(chips()[0]!.textContent).toContain('QA');
+    expect(document.body.textContent).not.toContain(t('leave.onLeave'));
+  });
+
+  it('shows no member on leave under "nobody works"', () => {
+    strip({}, { devops: { onLeave: true } });
+    expect(screen.getByText(new RegExp(t('board.nobodyWorking')))).toBeTruthy();
+    expect(chips()).toHaveLength(0);
+    expect(document.body.textContent).not.toContain(t('leave.onLeave'));
+  });
+
   it('shows a member with a working and a waiting session by the working card', () => {
     // The server says "waiting for a human" while any of the member's sessions waits.
     strip({ qa: ['AC-21'] }, { qa: { status: 'waiting_for_human', currentTaskKeys: ['AC-21', 'AC-22'] } });

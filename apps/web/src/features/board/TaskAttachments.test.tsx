@@ -652,6 +652,36 @@ describe('attachments: cover choice', () => {
     expect(screen.queryByText(t('attachments.coverHidden'))).toBeNull();
   });
 
+  it('tells that the first image becomes the cover only while the card has no image', async () => {
+    const project = mockProject();
+    project.backend.addAttachment('AC-20', { name: 'plan.pdf', size: 10, type: 'application/pdf' });
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    await screen.findByText('plan.pdf');
+    const firstCover = t('attachments.hintFirstCover');
+    expect(screen.getByText((text) => text.includes(firstCover))).toBeTruthy();
+    choose(makeFile('one.png', 'image/png'));
+    await screen.findByText('one.png');
+    expect(screen.queryByText((text) => text.includes(firstCover))).toBeNull();
+  });
+
+  it('puts the cover button between the download link and the delete button', async () => {
+    const project = mockProject();
+    project.backend.addAttachment('AC-20', png);
+    project.backend.addAttachment('AC-20', jpg);
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    const row = (await screen.findByText('two.jpg')).closest('li')!;
+    const controls = Array.from(row.querySelectorAll('a, button')).map((element) =>
+      element.getAttribute('aria-label'),
+    );
+    const at = (label: string) => controls.indexOf(label);
+    expect(at(t('attachments.downloadLabel', { fileName: 'two.jpg' }))).toBeLessThan(
+      at(t('attachments.makeCoverLabel', { fileName: 'two.jpg' })),
+    );
+    expect(at(t('attachments.makeCoverLabel', { fileName: 'two.jpg' }))).toBeLessThan(
+      at(t('attachments.deleteLabel', { fileName: 'two.jpg' })),
+    );
+  });
+
   it('sends the choice, takes the answered card into the cache and moves the chip', async () => {
     const project = mockProject();
     project.backend.addAttachment('AC-20', png);

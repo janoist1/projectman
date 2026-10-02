@@ -193,6 +193,28 @@ function AttachmentRow({
         ) : null}
       </div>
       <div className={styles.actions}>
+        {preview === 'pdf' ? (
+          // A PDF opens in a tab of its own, from the protected route: never inside this page.
+          <a
+            className={styles.linkButton}
+            href={urls.content(id)}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={t('attachments.openPdfLabel', { fileName })}
+          >
+            <Icon name="external" size={15} strokeWidth={2.1} />
+            {t('attachments.openPdf')}
+          </a>
+        ) : null}
+        <a
+          className={styles.linkButton}
+          href={urls.download(id)}
+          download
+          aria-label={t('attachments.downloadLabel', { fileName })}
+        >
+          <Icon name="download" size={15} strokeWidth={2.1} />
+          {t('attachments.download')}
+        </a>
         {canSetCover && preview === 'image' ? (
           isCover ? (
             <Button
@@ -216,28 +238,6 @@ function AttachmentRow({
             </Button>
           )
         ) : null}
-        {preview === 'pdf' ? (
-          // A PDF opens in a tab of its own, from the protected route: never inside this page.
-          <a
-            className={styles.linkButton}
-            href={urls.content(id)}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={t('attachments.openPdfLabel', { fileName })}
-          >
-            <Icon name="external" size={15} strokeWidth={2.1} />
-            {t('attachments.openPdf')}
-          </a>
-        ) : null}
-        <a
-          className={styles.linkButton}
-          href={urls.download(id)}
-          download
-          aria-label={t('attachments.downloadLabel', { fileName })}
-        >
-          <Icon name="download" size={15} strokeWidth={2.1} />
-          {t('attachments.download')}
-        </a>
         {canDelete && !confirming ? (
           <Button
             size="sm"
@@ -274,8 +274,8 @@ export function TaskAttachments({ task, members }: { task: Task; members: Member
   const canUpload = viewer !== null && !refused && canUploadAttachment(viewer, task);
   const setCover = useSetTaskCover(key, task.key);
   // An automatic cover is the first image, so images without a cover can only mean it was hidden.
-  const coverHidden =
-    !task.coverAttachmentId && attachments.some((attachment) => attachment.preview === 'image');
+  const hasImage = attachments.some((attachment) => attachment.preview === 'image');
+  const coverHidden = !task.coverAttachmentId && hasImage;
 
   const [previewId, setPreviewId] = useState<string | null>(null);
   // Looked up in the current list: a deleted file closes its own large view.
@@ -330,7 +330,10 @@ export function TaskAttachments({ task, members }: { task: Task; members: Member
             aria-label={t('attachments.inputLabel')}
             onChange={onChoose}
           />
-          <p className={styles.hint}>{t('attachments.hint', { max: formatBytes(MAX_ATTACHMENT_BYTES) })}</p>
+          <p className={styles.hint}>
+            {t('attachments.hint', { max: formatBytes(MAX_ATTACHMENT_BYTES) })}
+            {hasImage ? '' : ` ${t('attachments.hintFirstCover')}`}
+          </p>
         </div>
       ) : null}
 
@@ -357,7 +360,9 @@ export function TaskAttachments({ task, members }: { task: Task; members: Member
         ) : null
       ) : (
         <>
-          {coverHidden && canUpload ? <p className={styles.hint}>{t('attachments.coverHidden')}</p> : null}
+          {coverHidden && canUpload ? (
+            <p className={styles.coverNote}>{t('attachments.coverHidden')}</p>
+          ) : null}
           {setCover.isError ? (
             <span className={styles.failure} role="alert">
               {t('attachments.coverFailed', { reason: errorMessage(setCover.error) })}
@@ -373,7 +378,12 @@ export function TaskAttachments({ task, members }: { task: Task; members: Member
                 canDelete={canDeleteAttachment(viewer, task, attachment)}
                 isCover={attachment.id === task.coverAttachmentId}
                 canSetCover={canUpload}
-                settingCover={setCover.isPending}
+                settingCover={
+                  setCover.isPending &&
+                  (setCover.variables.mode === 'hidden'
+                    ? attachment.id === task.coverAttachmentId
+                    : setCover.variables.attachmentId === attachment.id)
+                }
                 onSetCover={(choice) => setCover.mutate(choice)}
                 onPreview={setPreviewId}
                 onDelete={(id) => remove.mutate(id)}

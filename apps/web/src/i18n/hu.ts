@@ -1892,7 +1892,7 @@ export const hu = {
       maxConcurrentAiValue: '{count} munkamenet',
       pauseAbove: 'Új AI-munka szünetel e fölött',
       pauseAboveValue: '{percent}% keret',
-      minFreeDisk: 'Kevés a lemezhely e fölött (GB szabad)',
+      minFreeDisk: 'Legalább ennyi szabad lemezhely kell (GB)',
       minFreeDiskHelp:
         'Ha a szabad hely ez alá esik, figyelmeztetést kapsz a Rád vár listában, és új AI-munkamenet nem indul, amíg nincs elég hely. A futók befejezhetik a lépésüket. 0: kikapcsolva.',
       minFreeDiskValue: '{count} GB',

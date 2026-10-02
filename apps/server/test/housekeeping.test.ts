@@ -73,6 +73,21 @@ describe('worktrees of closed cards', () => {
     expect(h.worktrees.removed).toEqual([]);
   });
 
+  it('leaves the worktree of a closed card whose session is still running', async () => {
+    await setup();
+    const card = await closedCard('Fictional login', 'cancelled', 5 * DAY_MS);
+    h.runner.isRunning = () => true;
+
+    const report = await h.domain.worktreeSweep.run();
+
+    expect(report).toMatchObject({ removed: [], kept: [] });
+    expect(h.worktrees.removed).toEqual([]);
+
+    h.runner.isRunning = () => false;
+    await h.domain.worktreeSweep.run();
+    expect(h.worktrees.removed).toEqual([card.path]);
+  });
+
   it('removes it once the card has been closed long enough', async () => {
     await setup();
     const card = await closedCard('Fictional login', 'cancelled', 2 * DAY_MS);

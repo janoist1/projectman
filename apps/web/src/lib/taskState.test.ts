@@ -85,13 +85,13 @@ describe('who works on a card (PM-237)', () => {
   });
 
   describe('the verb', () => {
-    it('comes from the role first: QA tests, a designer designs, an analyst analyses', () => {
+    it('comes from the role first: QA tests, a designer designs, an architect plans, an analyst analyses', () => {
       for (const [role, verb] of [
         ['qa', 'testing'],
         ['code_review', 'reviewing'],
         ['security_review', 'reviewing'],
         ['designer', 'designing'],
-        ['architect', 'designing'],
+        ['architect', 'planning'],
         ['business_analyst', 'analysing'],
       ] as const) {
         const ctx = contextWith([

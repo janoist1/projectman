@@ -57,7 +57,7 @@ export const hu: TemplateLocale = {
       description: 'Megtervezi az architektúrát és a műszaki döntéseket. Bemutatja a kockázatokat.',
     },
     ux_design: {
-      name: 'UX-tervezés',
+      name: 'UI/UX tervezés',
       description:
         'Megtervezi a felhasználói folyamatot, a képernyőket és az interakciókat. Ellenőrzi a megvalósult élményt.',
     },
@@ -177,7 +177,7 @@ export const hu: TemplateLocale = {
         'Ha műszaki kérdésed van (felépítés, átalakítás, gyorsaság), vagy egy nagyobb ötletet kell műszakilag felbontani.',
     },
     designer: {
-      name: 'UI/UX tervező',
+      name: 'UI/UX szakember',
       summary:
         'Megtervezi a felhasználói élményt és a felületet: a folyamatot, a képernyőket és a kattintható mockupot. Utána ellenőrzi, hogy a kész felület a terv szerint, csiszoltan készült-e.',
       notTheirJob: 'Nem programozza le a felületet.',

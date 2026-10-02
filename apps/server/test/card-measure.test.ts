@@ -53,6 +53,8 @@ async function closedCard(title: string, closedAt: string, assignee: string | nu
   await tasks.changeLabels('AR', key, { add: ['merge-ok', 'release-ok'] }, owner);
   await tasks.changeLabels('AR', key, { add: ['pr-merged'] }, SYSTEM_ACTOR);
   now = new Date(closedAt);
+  // A card moved into development without an assignee is started and assigned (PM-119).
+  if (!assignee) tasks.assign('AR', key, null, owner);
   await tasks.moveToStage('AR', key, 'done', owner);
   return key;
 }

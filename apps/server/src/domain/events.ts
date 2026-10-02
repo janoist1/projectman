@@ -40,6 +40,8 @@ export interface DomainEventMap {
   session_started: Session;
   /** A session ended: it exited, was stopped, or failed (also to start). */
   session_ended: Session;
+  /** A running session's turn ended: it idles, and its member may have capacity again (PM-119). */
+  session_idle: Session;
   /**
    * A running session no longer waits for its restart into a new permission mode (PM-170) without
    * having restarted: the mode went back, or it cannot restart now (AI work off, the member on

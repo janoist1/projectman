@@ -61,6 +61,9 @@ export const TaskStartWaiting = z.object({
     'workspace_busy',
     'workspace_dirty',
     'workspace_fetch_failed',
+    // A card moved into a work stage without an assignee (PM-119): no developer is free (or on
+    // duty) and no temp worker may be hired; it starts once one is.
+    'no_free_member',
   ]),
   member: MemberHandle.optional(),
   provider: AgentProvider.optional(),

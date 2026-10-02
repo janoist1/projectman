@@ -205,7 +205,19 @@ Documentation map:
   is done. `repo_required` is the one refusal that is not retried, because only a person's
   choice clears it: the start fails and nothing is kept; the board shows the task of an AI
   developer that cannot start for that reason ("Válassz repót a feladathoz", derived from the
-  task, see `TaskStore`).
+  task, see `TaskStore`; also a card without an assignee in a work stage whose every owner is
+  such a developer).
+- **Work start** (`admission/work-starts.ts`, PM-119) — an active card moved into a work stage
+  without an assignee starts like the Start button starts it: `TaskStarts.startLocked` is the
+  same developer choice, temp worker, admission checks and session start, run under the
+  admission lock the attempt already holds (the lock is not reentrant). Nobody free waits
+  (`no_free_member`, a refusal only this start defers) in `deferred_starts` as a `work_start`
+  spec, and is retried by the 30 s timer and by the events that free capacity (a card leaving
+  a work stage, a session ending or going idle, a card cancelled, a member called back). It
+  applies only while the card is still in that stage and has no assignee other than the one
+  this very start assigned (a half-done attempt carries on, someone else's assignment ends the
+  wait). While AI work is off a move creates no start. A card with an assignee only gets the
+  stage hand-over's notice.
 - **Stage hand-over** — when a task enters a later stage owned by AI members, by anyone's
   move, the least loaded free owner (never the task's assignee) gets a session for the task.
   An owner that already has a session for the task gets a notice instead.

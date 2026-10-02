@@ -1,4 +1,11 @@
-import { commentMentions, isOpenTask, memberOf, repoRequired, stageOf } from '@projectman/shared';
+import {
+  commentMentions,
+  isOpenTask,
+  memberOf,
+  repoRequired,
+  stageOf,
+  stageOwners,
+} from '@projectman/shared';
 import type {
   Actor,
   CreateTaskCommentRequest,
@@ -74,12 +81,21 @@ export class TaskStore {
    * the project has several repositories and the task names none). Unlike a deferred start this does
    * not wait for a retry, so it follows from the task itself: a task in a work stage whose assignee is
    * an AI member of a role that changes files and has no session running (a session that is running,
-   * for example one from before the repository was cleared, is not waiting).
+   * for example one from before the repository was cleared, is not waiting). Without an assignee
+   * (PM-119: the card was moved there and its automatic start was refused), the same holds when every
+   * owner of the stage is such an AI member: nobody could start on it.
    */
   private repoWaiting(task: Task): TaskStartWaiting | undefined {
-    if (!task.assignee || !isOpenTask(task)) return undefined;
+    if (!isOpenTask(task)) return undefined;
     const config = this.projects.cachedConfig(task.projectKey);
-    if (!config || stageOf(config, task.stageId)?.kind !== 'work') return undefined;
+    const stage = config ? stageOf(config, task.stageId) : undefined;
+    if (!config || stage?.kind !== 'work') return undefined;
+    if (!task.assignee) {
+      const owners = stageOwners(config, stage).map((handle) => memberOf(config, handle));
+      const blocked =
+        owners.length > 0 && owners.every((m) => m?.kind === 'ai' && repoRequired(config, m.role, task));
+      return blocked ? { reason: 'repo_required', since: task.updatedAt } : undefined;
+    }
     const assignee = memberOf(config, task.assignee);
     if (assignee?.kind !== 'ai' || !repoRequired(config, assignee.role, task)) return undefined;
     const running = this.ctx.repos.sessions

@@ -42,12 +42,16 @@ export function assertRepoChosen(config: ProjectConfig, role: string, task: Task
   );
 }
 
+/** Why a start waits, as a task shows it. */
+export type WaitingReason = TaskStartWaiting['reason'];
+
 /**
- * The reasons a start waits for that a later retry can overcome. Every reason the board shows but
- * `repo_required`: only a person's choice clears that one, so the start fails instead of waiting
- * (the task shows why, see `TaskStore`).
+ * The reasons every automatic start waits for that a later retry can overcome. Every reason the
+ * board shows but `repo_required`: only a person's choice clears that one, so the start fails
+ * instead of waiting (the task shows why, see `TaskStore`). `no_free_member` is one only for the
+ * start that picks its developer itself (`AutomaticStart.defers`).
  */
-type DeferrableReason = Exclude<TaskStartWaiting['reason'], 'repo_required'>;
+type DeferrableReason = Exclude<WaitingReason, 'repo_required' | 'no_free_member'>;
 
 /** Admission refusals that a later retry can overcome; an automatic start waits for them. */
 const DEFERRABLE = new Set<ErrorCode>([
@@ -63,8 +67,12 @@ const DEFERRABLE = new Set<ErrorCode>([
   'workspace_fetch_failed',
 ] satisfies DeferrableReason[]);
 
-export function isDeferrable(err: unknown): err is DomainError & { code: DeferrableReason } {
-  return err instanceof DomainError && DEFERRABLE.has(err.code);
+/** `also`: the further refusals the start in question waits for. */
+export function isDeferrable(
+  err: unknown,
+  also: readonly WaitingReason[] = [],
+): err is DomainError & { code: WaitingReason } {
+  return err instanceof DomainError && (DEFERRABLE.has(err.code) || (also as ErrorCode[]).includes(err.code));
 }
 
 /**
@@ -72,7 +80,7 @@ export function isDeferrable(err: unknown): err is DomainError & { code: Deferra
  * for, and since when (kept from the previous refusal of the same start).
  */
 export function waitingOf(
-  err: DomainError & { code: DeferrableReason },
+  err: DomainError & { code: WaitingReason },
   opts: { member?: string; previous?: TaskStartWaiting; at: string },
 ): TaskStartWaiting {
   const details = err.details as { provider?: AgentProvider; threshold?: number } | undefined;

@@ -1,10 +1,10 @@
+import { Link } from 'react-router';
 import type { MemberConfig, ProjectConfig, RoleView } from '@projectman/shared';
 import { useRoles } from '../../../api/queries';
-import { useProject, useProjectIndexes } from '../../../app/contexts';
+import { useProject } from '../../../app/contexts';
 import { Chip } from '../../../components/Chip';
 import { t } from '../../../i18n/t';
-import { nameOf, roleLabel } from '../../../lib/members';
-import { PermissionLevelControl } from '../../team/PermissionLevelControl';
+import { roleLabel } from '../../../lib/members';
 import shared from '../settings.module.css';
 import { SettingsSection } from './SettingsSection';
 
@@ -31,61 +31,37 @@ function memberRole(member: MemberConfig, roles: readonly RoleView[]): string {
       );
 }
 
-/** The configured members: role, model, permissions, capacity and whose subscription runs them. */
+/**
+ * The configured members in short: name and role. Model, permissions, capacity and subscription
+ * are the Team page's business, which this links to instead of repeating them.
+ */
 export function TeamSection({ config }: { config: ProjectConfig }) {
-  const { key, myHandle } = useProject();
+  const { key } = useProject();
   const roles = useRoles(key);
-  const { members } = useProjectIndexes(key);
   return (
     <SettingsSection id="settings-team" title={t('settings.sections.team')}>
-      <div className={shared.tableWrap}>
-        <table className={shared.table}>
-          <thead>
-            <tr>
-              <th scope="col">{t('settings.team.name')}</th>
-              <th scope="col">{t('settings.team.handle')}</th>
-              <th scope="col">{t('settings.team.role')}</th>
-              <th scope="col">{t('settings.team.model')}</th>
-              <th scope="col">{t('settings.team.permissions')}</th>
-              <th scope="col">{t('settings.team.capacity')}</th>
-              <th scope="col">{t('settings.team.sponsor')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {config.team.members.map((member) => (
-              <tr key={member.handle}>
-                <td className={shared.strong}>
-                  {member.displayName}
-                  {member.kind === 'ai' ? (
-                    <>
-                      {' '}
-                      <Chip tone="dark">{t('common.ai')}</Chip>
-                    </>
-                  ) : null}
-                </td>
-                <td>
-                  <code className={shared.id}>{member.handle}</code>
-                </td>
-                <td>{memberRole(member, roles.data?.roles ?? [])}</td>
-                <td>{member.kind === 'ai' ? member.model : t('common.dash')}</td>
-                <td>
-                  {member.kind === 'ai' && members.get(member.handle) ? (
-                    <PermissionLevelControl member={members.get(member.handle)!} />
-                  ) : (
-                    t('common.dash')
-                  )}
-                </td>
-                <td>
-                  {member.kind === 'ai'
-                    ? t('hire.capacityValue', { count: member.capacity })
-                    : t('common.dash')}
-                </td>
-                <td>{member.kind === 'ai' ? nameOf(member.sponsor, members, myHandle) : t('common.dash')}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <ul className={shared.members}>
+        {config.team.members.map((member) => (
+          <li key={member.handle}>
+            <span className={shared.strong}>
+              {member.displayName}
+              {member.kind === 'ai' ? (
+                <>
+                  {' '}
+                  <Chip tone="dark">{t('common.ai')}</Chip>
+                </>
+              ) : null}
+            </span>
+            <span className={shared.muted}>
+              {memberRole(member, roles.data?.roles ?? [])} ·{' '}
+              <code className={shared.id}>{member.handle}</code>
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className={shared.muted}>
+        <Link to={`/p/${key}/team`}>{t('settings.team.manage')}</Link>
+      </p>
     </SettingsSection>
   );
 }

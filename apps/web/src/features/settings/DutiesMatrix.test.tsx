@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getLocale } from '@projectman/templates';
 import { setFetchImplementation } from '../../api/client';
 import { mockProject } from '../../test/mockProject';
@@ -117,5 +117,57 @@ describe('duty matrix', () => {
       expect(project.backend.config.team.roles.some((r) => r.id === 'example_role')).toBe(true),
     );
     await screen.findByRole('columnheader', { name: /Example role/ });
+  });
+});
+
+describe('duty matrix on a phone', () => {
+  afterEach(() => vi.restoreAllMocks());
+  function onAPhone() {
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+      dispatchEvent: () => false,
+    }));
+  }
+
+  it('shows one folding card per role and saves the checked duties like the table', async () => {
+    onAPhone();
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    const region = await matrix();
+    expect(region.queryByRole('table')).toBeNull();
+    const locale = getLocale(project.backend.config.project.language);
+    const card = region
+      .getByText(locale.roles.developer.name, { selector: 'summary span' })
+      .closest('details') as HTMLDetailsElement;
+    // Folded until opened.
+    expect(card.open).toBe(false);
+    card.open = true;
+    const box = within(card).getByLabelText(`${locale.duties.research.name}: ${locale.roles.developer.name}`);
+    expect((box as HTMLInputElement).checked).toBe(false);
+    expect(region.queryByRole('button', { name: t('memberEdit.save') })).toBeNull();
+    fireEvent.click(box);
+    fireEvent.click(region.getByRole('button', { name: t('memberEdit.save') }));
+    await waitFor(() =>
+      expect(project.backend.config.team.roleOverrides?.developer?.duties).toContain('research'),
+    );
+    // The role's texts are fields of the card.
+    expect(card.querySelectorAll('textarea')).toHaveLength(4);
+  });
+
+  it('lists the duties of each person in the people view', async () => {
+    onAPhone();
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    const region = await matrix();
+    fireEvent.click(region.getByRole('button', { name: t('duties.people') }));
+    const owner = project.backend.config.team.members.find((m) => m.handle === 'owner')!;
+    const card = region.getByText(owner.displayName, { selector: 'summary span' }).closest('details')!;
+    expect(within(card).getAllByRole('listitem').length).toBeGreaterThan(0);
   });
 });

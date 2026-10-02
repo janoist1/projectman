@@ -1731,6 +1731,7 @@ export const hu = {
       workspace: 'Munkaterület',
       language: 'Nyelv',
       timezone: 'Időzóna',
+      languages: { hu: 'Magyar', en: 'English' },
     },
     pipeline: {
       color: 'Oszlop színe',
@@ -1771,13 +1772,8 @@ export const hu = {
       explicitOwners: 'A lépést az alább kiválasztott tagok viszik.',
     },
     team: {
-      name: 'Név',
-      handle: 'Azonosító',
       role: 'Szerep',
-      model: 'Modell',
-      permissions: 'Engedélyek',
-      capacity: 'Egyszerre',
-      sponsor: 'Előfizetés',
+      manage: 'Modell, engedélyek, kapacitás és előfizetés a Csapat oldalon',
     },
     limits: {
       boundaryEnabled: 'Külső műveletek delegálása',
@@ -1814,6 +1810,9 @@ export const hu = {
       tempWorkers: 'Beugrók',
       tempWorkersOn: 'be · legfeljebb {max} · {role}',
       tempWorkersOff: 'ki',
+      range: 'Adj meg egy egész számot {min} és {max} között.',
+      conflict:
+        'A beállítások közben megváltoztak, ezért ez a módosítás nem mentődött. A legfrissebb értékek látszanak; add meg újra.',
     },
     repos: {
       name: 'Név',
@@ -1857,6 +1856,7 @@ export const hu = {
         'A beállítások közben megváltoztak. Töltsd újra a legfrissebb verziót; a szerkesztésed elvész.',
       reload: 'Legfrissebb beállítások betöltése',
       saved: 'A beállítások mentve.',
+      saving: 'Mentés…',
     },
     issues: {
       invalid_value: 'Érvénytelen érték.',

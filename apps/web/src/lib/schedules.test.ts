@@ -1,5 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { describeCron } from './schedules';
+import { cronTime, describeCron, parsePlainCron, plainCron } from './schedules';
+
+describe('plain cron', () => {
+  it.each([
+    ['0 8 * * 1-5', { frequency: 'weekdays', hour: 8, minute: 0 }],
+    ['30 14 * * *', { frequency: 'daily', hour: 14, minute: 30 }],
+  ])('reads %s', (cron, plain) => {
+    expect(parsePlainCron(cron)).toEqual(plain);
+  });
+
+  it.each(['*/5 * * * *', '0 8 * * 1', '0 25 * * *', '60 8 * * *', 'not a cron'])(
+    'does not read %s',
+    (cron) => {
+      expect(parsePlainCron(cron)).toBeNull();
+    },
+  );
+
+  it('builds a cron from a frequency and a time, and the time back from a cron', () => {
+    expect(plainCron('weekdays', '08:00')).toBe('0 8 * * 1-5');
+    expect(plainCron('daily', '14:05')).toBe('5 14 * * *');
+    expect(plainCron('daily', '')).toBeNull();
+    expect(plainCron('daily', '24:00')).toBeNull();
+    expect(cronTime(parsePlainCron('5 9 * * *')!)).toBe('09:05');
+  });
+});
 
 describe('describeCron', () => {
   it.each([

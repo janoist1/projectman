@@ -424,23 +424,36 @@ export function MemberProfilePage() {
         candidates={(board.data?.members ?? []).filter((m) => m.kind === 'ai' && m.handle !== handle)}
         onClose={() => setRetiring(false)}
       />
-      <Dialog open={removing} title={t('profile.remove')} onClose={() => setRemoving(false)}>
+      <Dialog
+        open={removing}
+        title={t('profile.remove')}
+        onClose={() => setRemoving(false)}
+        size="sm"
+        error={remove.error ? <ErrorBanner>{errorMessage(remove.error)}</ErrorBanner> : null}
+        footer={
+          <>
+            <Button variant="secondary" size="md" onClick={() => setRemoving(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="dangerSolid"
+              size="md"
+              loading={remove.isPending}
+              onClick={() =>
+                remove.mutate(handle, {
+                  onSuccess: () => {
+                    toast.show(t('profile.removed', { name: member.displayName }));
+                    void navigate(`/p/${key}/team`);
+                  },
+                })
+              }
+            >
+              {t('profile.remove')}
+            </Button>
+          </>
+        }
+      >
         <p>{t('profile.removeConfirm', { name: member.displayName })}</p>
-        {remove.error ? <ErrorBanner>{errorMessage(remove.error)}</ErrorBanner> : null}
-        <Button
-          variant="danger"
-          loading={remove.isPending}
-          onClick={() =>
-            remove.mutate(handle, {
-              onSuccess: () => {
-                toast.show(t('profile.removed', { name: member.displayName }));
-                void navigate(`/p/${key}/team`);
-              },
-            })
-          }
-        >
-          {t('profile.remove')}
-        </Button>
       </Dialog>
     </div>
   );

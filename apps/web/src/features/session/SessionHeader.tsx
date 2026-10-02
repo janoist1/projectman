@@ -185,8 +185,12 @@ export function SessionHeader({
         size="sm"
         footer={
           <>
+            <Button variant="secondary" size="md" onClick={() => setConfirmStop(false)}>
+              {t('common.cancel')}
+            </Button>
             <Button
               variant="dangerSolid"
+              size="md"
               icon="stop"
               loading={stop.isPending}
               onClick={() =>
@@ -200,9 +204,6 @@ export function SessionHeader({
               }
             >
               {t('session.stop')}
-            </Button>
-            <Button variant="secondary" onClick={() => setConfirmStop(false)}>
-              {t('common.cancel')}
             </Button>
           </>
         }

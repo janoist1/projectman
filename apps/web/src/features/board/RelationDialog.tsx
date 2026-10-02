@@ -6,7 +6,8 @@ import { useCreateTask, useUpdateTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Chip } from '../../components/Chip';
-import { Dialog } from '../../components/Dialog';
+import { Dialog, DialogActions } from '../../components/Dialog';
+import { ErrorBanner } from '../../components/ErrorBanner';
 import { TextField } from '../../components/Field';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
@@ -20,7 +21,6 @@ import {
   whyText,
 } from './relationModel';
 import type { Candidate, DialogKind } from './relationModel';
-import drawer from './drawer.module.css';
 import styles from './RelationDialog.module.css';
 
 /** What the dialog says that will happen, with the direction spoken out. */
@@ -137,6 +137,7 @@ function RelationForm({
   const [active, setActive] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const listId = useId();
+  const formId = useId();
   const pending = update.isPending || create.isPending;
   const error = update.error ?? create.error;
   const kinds: DialogKind[] = [...DIALOG_KINDS, 'subtask'];
@@ -237,6 +238,7 @@ function RelationForm({
     kind === 'part_of' && task.parentKey ? ` ${t('relationDialog.hintMove', { key: task.parentKey })}` : '';
   return (
     <form
+      id={formId}
       className={styles.form}
       onSubmit={(event) => {
         event.preventDefault();
@@ -348,35 +350,36 @@ function RelationForm({
         </div>
       ) : null}
 
-      <div className={styles.foot}>
-        {error ? (
-          <p className={drawer.error} role="alert">
-            {t('relationDialog.failed', { reason: relationErrorText(error) })}
-          </p>
-        ) : null}
-        <p className={clsx(styles.preview, duplicate && styles.warn)}>
-          {previewText(kind, chosenRow?.card.key ?? null, task)}
-        </p>
-        <div className={styles.actions}>
-          <Button type="button" variant="secondary" onClick={onClose}>
-            {t('common.cancel')}
-          </Button>
-          <Button
-            type="submit"
-            variant={duplicate ? 'dangerSolid' : 'primary'}
-            loading={pending}
-            disabled={!ready}
-          >
-            {pending
-              ? t('relationDialog.saving')
-              : kind === 'subtask'
-                ? t('relationDialog.submitSubtask')
-                : duplicate
-                  ? t('relationDialog.submitDuplicate')
-                  : t('relationDialog.submit')}
-          </Button>
-        </div>
-      </div>
+      <p className={clsx(styles.preview, duplicate && styles.warn)}>
+        {previewText(kind, chosenRow?.card.key ?? null, task)}
+      </p>
+      <DialogActions
+        error={
+          error ? (
+            <ErrorBanner>{t('relationDialog.failed', { reason: relationErrorText(error) })}</ErrorBanner>
+          ) : null
+        }
+      >
+        <Button type="button" variant="secondary" size="md" onClick={onClose}>
+          {t('common.cancel')}
+        </Button>
+        <Button
+          type="submit"
+          form={formId}
+          size="md"
+          variant={duplicate ? 'dangerSolid' : 'primary'}
+          loading={pending}
+          disabled={!ready}
+        >
+          {pending
+            ? t('relationDialog.saving')
+            : kind === 'subtask'
+              ? t('relationDialog.submitSubtask')
+              : duplicate
+                ? t('relationDialog.submitDuplicate')
+                : t('relationDialog.submit')}
+        </Button>
+      </DialogActions>
     </form>
   );
 }

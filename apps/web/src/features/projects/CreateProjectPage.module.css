@@ -56,6 +56,34 @@
   gap: 10px;
 }
 
+/* The create button stays in reach however long the form grows: a bar pinned to the bottom edge. */
+.bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 -28px;
+  padding: 12px 28px calc(12px + env(safe-area-inset-bottom));
+  background: var(--c-surface);
+  border-top: 1px solid var(--c-line-soft);
+}
+
+.bar > button {
+  align-self: flex-end;
+}
+
+@media (max-width: 767px) {
+  .bar {
+    margin: 0 -18px;
+    padding-inline: 18px;
+  }
+  .bar > button {
+    align-self: stretch;
+    height: 44px;
+  }
+}
+
 @media (max-width: 520px) {
   .repoGrid {
     grid-template-columns: minmax(0, 1fr);

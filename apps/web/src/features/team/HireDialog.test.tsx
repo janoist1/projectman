@@ -75,21 +75,53 @@ describe('HireDialog', () => {
       instructions: '',
     });
     project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
-    const radios = await screen.findAllByRole('radio');
-    expect(radios.map((radio) => (radio as HTMLInputElement).value)).toEqual([
+    const select = (await screen.findByLabelText(t('hire.roles'))) as HTMLSelectElement;
+    expect(Array.from(select.options).map((option) => option.value)).toEqual([
       ...builtInRoles.filter((role) => role.holders !== 'human').map((role) => role.id),
       'data_steward',
     ]);
-    fireEvent.click(radios.at(-1)!);
+    fireEvent.change(select, { target: { value: 'data_steward' } });
     expect(screen.getAllByText('Keeps reference data clean.').length).toBeGreaterThan(0);
-    expect(screen.getByText(/Does not change schemas/)).toBeTruthy();
+    const notTheirJob = screen.getByText(/Does not change schemas/);
+    // The rest of the template sits in the closed "Részletek" fold.
+    expect(notTheirJob.closest('details')!.open).toBe(false);
   });
 
-  it('fills the weekday preset and submits an optional schedule', async () => {
+  it('puts the dialog buttons in the pinned footer, cancel before the main button', async () => {
     const project = mockProject();
     project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'hétköznap reggel 8' }));
-    expect((screen.getByLabelText(t('schedules.form.cron')) as HTMLInputElement).value).toBe('0 8 * * 1-5');
+    const submit = await screen.findByRole('button', { name: t('hire.submit') });
+    expect(submit.getAttribute('type')).toBe('submit');
+    expect(submit.previousElementSibling?.textContent).toBe(t('common.cancel'));
+    expect(submit.closest('form')).toBeNull();
+  });
+
+  it('opens the fold and focuses the identifier when it is not valid', async () => {
+    const project = mockProject();
+    project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
+    const summary = (await screen.findByText(t('hire.details'))).closest('summary')!;
+    expect(summary.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(summary);
+    fireEvent.change(screen.getByLabelText(new RegExp(`^${t('hire.handle')}`)), {
+      target: { value: 'Not Valid!' },
+    });
+    fireEvent.click(summary);
+    expect(summary.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(screen.getByRole('button', { name: t('hire.submit') }));
+    const handle = await screen.findByLabelText(new RegExp(`^${t('hire.handle')}`));
+    await waitFor(() => expect(summary.getAttribute('aria-expanded')).toBe('true'));
+    await waitFor(() => expect(document.activeElement).toBe(handle));
+    expect(screen.getByText(t('hire.handleInvalid'))).toBeTruthy();
+  });
+
+  it('submits a weekday schedule from a frequency and a time, 08:00 to start with', async () => {
+    const project = mockProject();
+    project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
+    fireEvent.click(await screen.findByRole('checkbox', { name: t('schedules.form.enabled') }));
+    expect(screen.queryByLabelText(t('schedules.form.cron'))).toBeNull();
+    expect(
+      (screen.getByLabelText(new RegExp(`^${t('schedules.form.time')}`)) as HTMLInputElement).value,
+    ).toBe('08:00');
     fireEvent.change(screen.getByLabelText('Feladat az ütemezett munkához'), {
       target: { value: 'Check the Acme dependencies.' },
     });
@@ -107,6 +139,65 @@ describe('HireDialog', () => {
       schedule: { cron: '0 8 * * 1-5', prompt: 'Check the Acme dependencies.' },
     });
   });
+  it('builds a daily cron from the time, and shows the cron field only for a custom schedule', async () => {
+    const project = mockProject();
+    project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
+    fireEvent.click(await screen.findByRole('checkbox', { name: t('schedules.form.enabled') }));
+    fireEvent.click(screen.getByRole('button', { name: t('schedules.form.daily') }));
+    fireEvent.change(screen.getByLabelText(new RegExp(`^${t('schedules.form.time')}`)), {
+      target: { value: '14:30' },
+    });
+    fireEvent.change(screen.getByLabelText('Feladat az ütemezett munkához'), { target: { value: 'Check.' } });
+    fireEvent.click(screen.getByRole('button', { name: t('hire.submit') }));
+    await waitFor(() =>
+      expect(project.requests.find((request) => request.method === 'POST')?.body).toMatchObject({
+        schedule: { cron: '30 14 * * *', prompt: 'Check.' },
+      }),
+    );
+  });
+
+  it('keeps a custom cron as typed', async () => {
+    const project = mockProject();
+    project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
+    fireEvent.click(await screen.findByRole('checkbox', { name: t('schedules.form.enabled') }));
+    fireEvent.click(screen.getByRole('button', { name: t('schedules.form.custom') }));
+    fireEvent.change(screen.getByLabelText(t('schedules.form.cron')), { target: { value: '*/15 * * * *' } });
+    fireEvent.change(screen.getByLabelText('Feladat az ütemezett munkához'), { target: { value: 'Check.' } });
+    fireEvent.click(screen.getByRole('button', { name: t('hire.submit') }));
+    await waitFor(() =>
+      expect(project.requests.find((request) => request.method === 'POST')?.body).toMatchObject({
+        schedule: { cron: '*/15 * * * *', prompt: 'Check.' },
+      }),
+    );
+  });
+
+  it('refuses a schedule with no task, with the banner above the buttons and the field focused', async () => {
+    const project = mockProject();
+    project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
+    fireEvent.click(await screen.findByRole('checkbox', { name: t('schedules.form.enabled') }));
+    fireEvent.click(screen.getByRole('button', { name: t('hire.submit') }));
+    expect(await screen.findByText(t('schedules.form.invalid'))).toBeTruthy();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText('Feladat az ütemezett munkához')),
+    );
+    expect(project.requests.some((request) => request.method === 'POST')).toBe(false);
+  });
+
+  it('drops the schedule banner when the identifier is the next thing refused', async () => {
+    const project = mockProject();
+    project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
+    fireEvent.click(await screen.findByRole('checkbox', { name: t('schedules.form.enabled') }));
+    fireEvent.click(screen.getByRole('button', { name: t('hire.submit') }));
+    expect(await screen.findByText(t('schedules.form.invalid'))).toBeTruthy();
+    fireEvent.click((await screen.findByText(t('hire.details'))).closest('summary')!);
+    fireEvent.change(screen.getByLabelText(new RegExp(`^${t('hire.handle')}`)), {
+      target: { value: 'Not Valid!' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: t('hire.submit') }));
+    expect(await screen.findByText(t('hire.handleInvalid'))).toBeTruthy();
+    expect(screen.queryByText(t('schedules.form.invalid'))).toBeNull();
+  });
+
   it('switches providers, warns about login and cost, and hires with Codex defaults', async () => {
     const project = mockProject();
     project.backend.providerLoggedIn.codex = false;
@@ -148,9 +239,9 @@ describe('HireDialog', () => {
       fireEvent.change(await screen.findByLabelText(t('providerSettings.provider')), {
         target: { value: provider },
       });
-      for (const radio of screen.getAllByRole('radio')) {
-        fireEvent.click(radio);
-        const role = (radio as HTMLInputElement).value;
+      const select = screen.getByLabelText(t('hire.roles')) as HTMLSelectElement;
+      for (const role of Array.from(select.options).map((option) => option.value)) {
+        fireEvent.change(select, { target: { value: role } });
         expect(await fact(t('hire.permissionMode')), `${provider}: ${role}`).toBe(
           `${t('hire.permissionMode')}${t('permissionModes.auto')}`,
         );
@@ -200,9 +291,7 @@ describe('HireDialog', () => {
     fireEvent.change(await screen.findByLabelText(t('providerSettings.provider')), {
       target: { value: 'codex' },
     });
-    fireEvent.click(
-      screen.getAllByRole('radio').find((entry) => (entry as HTMLInputElement).value === 'qa')!,
-    );
+    fireEvent.change(screen.getByLabelText(t('hire.roles')), { target: { value: 'qa' } });
     expect((screen.getByLabelText(t('hire.model')) as HTMLSelectElement).value).toBe('gpt-6.1-sol');
     expect(screen.queryByText(t('providerSettings.astraWarning'))).toBeNull();
   });

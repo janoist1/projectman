@@ -6,6 +6,7 @@ import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { ChoiceCard } from '../../components/Field';
 import { Dialog } from '../../components/Dialog';
+import { ErrorBanner } from '../../components/ErrorBanner';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
@@ -21,11 +22,11 @@ interface RetireDialogProps {
 function RetireForm({
   member,
   candidates,
-  onDone,
+  onClose,
 }: {
   member: MemberView;
   candidates: readonly MemberView[];
-  onDone: () => void;
+  onClose: () => void;
 }) {
   const { key } = useProject();
   const roles = useRoles(key);
@@ -37,72 +38,68 @@ function RetireForm({
   const [target, setTarget] = useState<string>(sameRole[0]?.handle ?? '');
 
   return (
-    <div className={styles.body}>
-      <p className={styles.text}>{t('retire.body')}</p>
-      <fieldset className={styles.fieldset}>
-        <legend className="visually-hidden">{t('retire.handoverLabel')}</legend>
-        {ordered.map((candidate) => (
-          <ChoiceCard
-            key={candidate.handle}
-            name="handover"
-            value={candidate.handle}
-            checked={target === candidate.handle}
-            onChange={setTarget}
-            title={`${candidate.displayName} · ${candidate.handle}`}
-            description={roleLabel(candidate, roles.data?.roles)}
-            leading={<Avatar member={candidate} size="md" />}
-          />
-        ))}
-        <ChoiceCard
-          name="handover"
-          value=""
-          checked={target === ''}
-          onChange={setTarget}
-          title={t('retire.nobody')}
-        />
-      </fieldset>
-      {retire.isError ? (
-        <p className={styles.error} role="alert">
-          {errorMessage(retire.error)}
-        </p>
-      ) : null}
-      <div className={styles.actions}>
-        <Button
-          variant="dangerSolid"
-          size="lg"
-          loading={retire.isPending}
-          onClick={() =>
-            retire.mutate(
-              { handle: member.handle, body: target ? { handoverTo: target } : {} },
-              {
-                onSuccess: () => {
-                  toast.show(t('retire.done', { name: member.displayName }));
-                  onDone();
+    <Dialog
+      open
+      onClose={onClose}
+      title={t('retire.title', { name: member.displayName })}
+      size="sm"
+      error={retire.isError ? <ErrorBanner>{errorMessage(retire.error)}</ErrorBanner> : null}
+      footer={
+        <>
+          <Button variant="secondary" size="md" onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
+          <Button
+            variant="dangerSolid"
+            size="md"
+            loading={retire.isPending}
+            onClick={() =>
+              retire.mutate(
+                { handle: member.handle, body: target ? { handoverTo: target } : {} },
+                {
+                  onSuccess: () => {
+                    toast.show(t('retire.done', { name: member.displayName }));
+                    onClose();
+                  },
                 },
-              },
-            )
-          }
-        >
-          {retire.isPending ? t('retire.submitting') : t('retire.submit')}
-        </Button>
-        <Button variant="secondary" size="lg" onClick={onDone}>
-          {t('common.cancel')}
-        </Button>
+              )
+            }
+          >
+            {retire.isPending ? t('retire.submitting') : t('retire.submit')}
+          </Button>
+        </>
+      }
+    >
+      <div className={styles.body}>
+        <p className={styles.text}>{t('retire.body')}</p>
+        <fieldset className={styles.fieldset}>
+          <legend className="visually-hidden">{t('retire.handoverLabel')}</legend>
+          {ordered.map((candidate) => (
+            <ChoiceCard
+              key={candidate.handle}
+              name="handover"
+              value={candidate.handle}
+              checked={target === candidate.handle}
+              onChange={setTarget}
+              title={`${candidate.displayName} · ${candidate.handle}`}
+              description={roleLabel(candidate, roles.data?.roles)}
+              leading={<Avatar member={candidate} size="md" />}
+            />
+          ))}
+          <ChoiceCard
+            name="handover"
+            value=""
+            checked={target === ''}
+            onChange={setTarget}
+            title={t('retire.nobody')}
+          />
+        </fieldset>
       </div>
-    </div>
+    </Dialog>
   );
 }
 
 /** Retire an AI member; their stages and running work move to the chosen member. */
 export function RetireDialog({ member, candidates, onClose }: RetireDialogProps) {
-  return (
-    <Dialog
-      open={member !== null}
-      onClose={onClose}
-      title={member ? t('retire.title', { name: member.displayName }) : ''}
-      size="sm"
-    >
-      {member ? <RetireForm member={member} candidates={candidates} onDone={onClose} /> : null}
-    </Dialog>
-  );
+  return member ? <RetireForm member={member} candidates={candidates} onClose={onClose} /> : null;
 }

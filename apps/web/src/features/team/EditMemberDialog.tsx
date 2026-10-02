@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
   DEFAULT_AGENT_PROVIDER,
@@ -24,6 +24,7 @@ import { humanRoleName } from '../../lib/roles';
 import { ErrorBanner } from '../../components/ErrorBanner';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
+import { focusFirstInvalid } from '../../lib/focus';
 import { PermissionLevelControl } from './PermissionLevelControl';
 import { ProviderFields } from './ProviderFields';
 import { ScheduleFields } from './ScheduleFields';
@@ -71,9 +72,23 @@ function EditMemberForm({
     cron: ai?.schedule?.cron ?? '',
     prompt: ai?.schedule?.prompt ?? '',
   });
+  const formId = useId();
+  const formRef = useRef<HTMLFormElement>(null);
+  const [scheduleError, setScheduleError] = useState(false);
+  // Counts refused saves: each one moves focus to the first field marked invalid.
+  const [refused, setRefused] = useState(0);
+  useEffect(() => {
+    if (refused) focusFirstInvalid(formRef.current);
+  }, [refused]);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (member.kind === 'ai' && !model.trim()) return;
+    if (member.kind === 'ai' && schedule.enabled && (!schedule.cron.trim() || !schedule.prompt.trim())) {
+      setScheduleError(true);
+      setRefused((count) => count + 1);
+      return;
+    }
+    setScheduleError(false);
     update.mutate(
       {
         handle: member.handle,
@@ -103,103 +118,119 @@ function EditMemberForm({
     );
   };
   return (
-    <form className={styles.form} onSubmit={submit}>
-      <TextField
-        label={t('hire.displayName')}
-        required
-        value={displayName}
-        onChange={(event) => setDisplayName(event.target.value)}
-      />
-      {member.kind === 'human' ? (
-        <fieldset className={styles.schedule}>
-          <legend>{t('memberEdit.roles')}</legend>
-          <SelectField
-            label={t('invites.access')}
-            value={access}
-            onChange={(event) => setAccess(event.target.value)}
-          >
-            {HumanAccess.options.map((level) => (
-              <option key={level} value={level}>
-                {humanRoleName(level)}
-              </option>
-            ))}
-          </SelectField>
-          {roles
-            .filter((role) => holdersAllow(role.holders, 'human'))
-            .map((role) => (
-              <label key={role.id} className={styles.toggle}>
-                <input
-                  type="checkbox"
-                  checked={selected.includes(role.id)}
-                  onChange={(event) =>
-                    setSelected(
-                      event.target.checked ? [...selected, role.id] : selected.filter((id) => id !== role.id),
-                    )
-                  }
-                />
-                {role.name}
-              </label>
-            ))}
-        </fieldset>
-      ) : (
+    <Dialog
+      open
+      onClose={onDone}
+      title={t('memberEdit.title', { name: member.displayName })}
+      error={
+        scheduleError ? (
+          <ErrorBanner>{t('schedules.form.invalid')}</ErrorBanner>
+        ) : update.isError ? (
+          <ErrorBanner>{errorMessage(update.error)}</ErrorBanner>
+        ) : null
+      }
+      footer={
         <>
-          <TextField
-            label={t('hire.specialty')}
-            value={specialty}
-            onChange={(event) => setSpecialty(event.target.value)}
-          />
-          <ProviderFields
-            provider={provider}
-            model={model}
-            effort={effort}
-            onProviderChange={(next, nextModel) => {
-              setProvider(next);
-              setModel(nextModel);
-            }}
-            onModelChange={setModel}
-            onEffortChange={setEffort}
-            cheapSubagent={cheapSubagent}
-            onCheapSubagentChange={setCheapSubagent}
-          />
-          <TextField
-            label={t('memberEdit.autoCompactWindow')}
-            hint={t(
-              provider === 'claude'
-                ? 'memberEdit.autoCompactWindowHint'
-                : 'memberEdit.autoCompactWindowCodex',
-            )}
-            type="number"
-            min={100_000}
-            max={1_000_000}
-            step={10_000}
-            placeholder={t('memberEdit.autoCompactWindowPlaceholder')}
-            // Kept as it is for a Codex member: it has no effect there.
-            disabled={provider !== 'claude'}
-            value={compactWindow}
-            onChange={(event) => setCompactWindow(event.target.value)}
-          />
-          <TextAreaField
-            label={t('memberEdit.instructions')}
-            hint={t('hire.instructionsNote')}
-            rows={6}
-            value={instructions}
-            onChange={(event) => setInstructions(event.target.value)}
-          />
-          <ScheduleFields value={schedule} onChange={setSchedule} />
-          {/* These save at once, apart from the form's own button: show the current roster entry. */}
-          <PermissionLevelControl member={members.get(member.handle) ?? member} />
+          <Button variant="secondary" size="md" onClick={onDone}>
+            {t('common.cancel')}
+          </Button>
+          <Button type="submit" form={formId} variant="primary" size="md" loading={update.isPending}>
+            {t('memberEdit.save')}
+          </Button>
         </>
-      )}
-      {update.isError ? <ErrorBanner>{errorMessage(update.error)}</ErrorBanner> : null}
-      <div className={styles.actions}>
-        <Button type="submit" variant="primary" loading={update.isPending}>
-          {t('memberEdit.save')}
-        </Button>
-        <Button type="button" variant="secondary" onClick={onDone}>
-          {t('common.cancel')}
-        </Button>
-      </div>
-    </form>
+      }
+    >
+      <form id={formId} ref={formRef} className={styles.form} onSubmit={submit}>
+        <TextField
+          label={t('hire.displayName')}
+          required
+          value={displayName}
+          onChange={(event) => setDisplayName(event.target.value)}
+        />
+        {member.kind === 'human' ? (
+          <fieldset className={styles.schedule}>
+            <legend>{t('memberEdit.roles')}</legend>
+            <SelectField
+              label={t('invites.access')}
+              value={access}
+              onChange={(event) => setAccess(event.target.value)}
+            >
+              {HumanAccess.options.map((level) => (
+                <option key={level} value={level}>
+                  {humanRoleName(level)}
+                </option>
+              ))}
+            </SelectField>
+            {roles
+              .filter((role) => holdersAllow(role.holders, 'human'))
+              .map((role) => (
+                <label key={role.id} className={styles.toggle}>
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(role.id)}
+                    onChange={(event) =>
+                      setSelected(
+                        event.target.checked
+                          ? [...selected, role.id]
+                          : selected.filter((id) => id !== role.id),
+                      )
+                    }
+                  />
+                  {role.name}
+                </label>
+              ))}
+          </fieldset>
+        ) : (
+          <>
+            <TextField
+              label={t('hire.specialty')}
+              value={specialty}
+              onChange={(event) => setSpecialty(event.target.value)}
+            />
+            <ProviderFields
+              provider={provider}
+              model={model}
+              effort={effort}
+              onProviderChange={(next, nextModel) => {
+                setProvider(next);
+                setModel(nextModel);
+              }}
+              onModelChange={setModel}
+              onEffortChange={setEffort}
+              cheapSubagent={cheapSubagent}
+              onCheapSubagentChange={setCheapSubagent}
+            />
+            <TextField
+              label={t('memberEdit.autoCompactWindow')}
+              hint={t(
+                provider === 'claude'
+                  ? 'memberEdit.autoCompactWindowHint'
+                  : 'memberEdit.autoCompactWindowCodex',
+              )}
+              type="number"
+              min={100_000}
+              max={1_000_000}
+              step={10_000}
+              placeholder={t('memberEdit.autoCompactWindowPlaceholder')}
+              // Kept as it is for a Codex member: it has no effect there.
+              disabled={provider !== 'claude'}
+              value={compactWindow}
+              onChange={(event) => setCompactWindow(event.target.value)}
+            />
+            <TextAreaField
+              label={t('memberEdit.instructions')}
+              hint={t('hire.instructionsNote')}
+              rows={6}
+              value={instructions}
+              onChange={(event) => setInstructions(event.target.value)}
+            />
+            <ScheduleFields value={schedule} onChange={setSchedule} showErrors={scheduleError} />
+            {/* These save at once, apart from the form's own button: show the current roster entry. */}
+            <PermissionLevelControl member={members.get(member.handle) ?? member} />
+          </>
+        )}
+      </form>
+    </Dialog>
   );
 }
 
@@ -214,15 +245,7 @@ export function EditMemberDialog({
   roles: readonly RoleView[];
   onClose: () => void;
 }) {
-  return (
-    <Dialog
-      open={Boolean(member)}
-      onClose={onClose}
-      title={t('memberEdit.title', { name: member?.displayName ?? '' })}
-    >
-      {member ? (
-        <EditMemberForm key={member.handle} member={member} config={config} roles={roles} onDone={onClose} />
-      ) : null}
-    </Dialog>
-  );
+  return member ? (
+    <EditMemberForm key={member.handle} member={member} config={config} roles={roles} onDone={onClose} />
+  ) : null;
 }

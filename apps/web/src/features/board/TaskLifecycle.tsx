@@ -5,6 +5,7 @@ import { useCancelTask, useReopenTask, useStopSession, useUpdateTask } from '../
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
+import { ErrorBanner } from '../../components/ErrorBanner';
 import { TextAreaField } from '../../components/Field';
 import { MoreMenu } from '../../components/MoreMenu';
 import { useToast } from '../../components/toastContext';
@@ -89,22 +90,16 @@ export function TaskLifecycleMenu({ task }: { task: Task }) {
         onClose={() => setConfirm(false)}
         title={t('taskLifecycle.confirm')}
         description={t('taskLifecycle.warning')}
-      >
-        <div className={styles.form}>
-          <TextAreaField
-            label={t('taskLifecycle.reason')}
-            optional
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-          />
-          {cancel.isError ? (
-            <p role="alert" className={drawer.error}>
-              {errorMessage(cancel.error)}
-            </p>
-          ) : null}
-          <div className={styles.actions}>
+        size="sm"
+        error={cancel.isError ? <ErrorBanner>{errorMessage(cancel.error)}</ErrorBanner> : null}
+        footer={
+          <>
+            <Button variant="secondary" size="md" onClick={() => setConfirm(false)}>
+              {t('common.cancel')}
+            </Button>
             <Button
               variant="dangerSolid"
+              size="md"
               loading={cancel.isPending}
               onClick={() =>
                 cancel.mutate(
@@ -120,11 +115,15 @@ export function TaskLifecycleMenu({ task }: { task: Task }) {
             >
               {t('taskLifecycle.cancel')}
             </Button>
-            <Button variant="secondary" onClick={() => setConfirm(false)}>
-              {t('common.cancel')}
-            </Button>
-          </div>
-        </div>
+          </>
+        }
+      >
+        <TextAreaField
+          label={t('taskLifecycle.reason')}
+          optional
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+        />
       </Dialog>
     </>
   );

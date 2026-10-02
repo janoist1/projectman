@@ -1,9 +1,40 @@
 import clsx from 'clsx';
-import { useEffect, useId, useRef } from 'react';
+import { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { t } from '../i18n/t';
 import { Icon } from './Icon';
 import styles from './Dialog.module.css';
+
+interface DialogSlots {
+  error: HTMLElement | null;
+  footer: HTMLElement | null;
+}
+
+const SlotsContext = createContext<DialogSlots | null>(null);
+
+/**
+ * A form's buttons and the server's refusal. Inside a Dialog they land in its pinned footer, so
+ * the form keeps its own state and the buttons stay in view while the body scrolls; a submit
+ * button names its form with `form={id}`. Outside a Dialog they stay where the form puts them.
+ */
+export function DialogActions({ error, children }: { error?: ReactNode; children: ReactNode }) {
+  const slots = useContext(SlotsContext);
+  if (!slots) {
+    return (
+      <>
+        {error}
+        <div className={styles.inlineActions}>{children}</div>
+      </>
+    );
+  }
+  return (
+    <>
+      {slots.error && error ? createPortal(error, slots.error) : null}
+      {slots.footer ? createPortal(children, slots.footer) : null}
+    </>
+  );
+}
 
 interface DialogProps {
   open: boolean;
@@ -11,7 +42,11 @@ interface DialogProps {
   title: string;
   description?: string;
   children?: ReactNode;
+  /** The buttons, pinned under the scrolling body: [Cancel] [Primary], the primary one last. */
   footer?: ReactNode;
+  /** The server's refusal, pinned above the footer so it shows without scrolling. */
+  error?: ReactNode;
+  /** `sm` is a confirmation: a bottom sheet on a phone. `md` and `lg` are forms: full screen there. */
   size?: 'sm' | 'md' | 'lg';
   className?: string;
 }
@@ -27,6 +62,7 @@ export function Dialog({
   description,
   children,
   footer,
+  error,
   size = 'md',
   className,
 }: DialogProps) {
@@ -37,6 +73,7 @@ export function Dialog({
       title={title}
       description={description}
       footer={footer}
+      error={error}
       size={size}
       className={className}
     >
@@ -51,6 +88,7 @@ function DialogInner({
   description,
   children,
   footer,
+  error,
   size = 'md',
   className,
 }: Omit<DialogProps, 'open'>) {
@@ -59,6 +97,9 @@ function DialogInner({
   const descriptionId = useId();
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const [errorSlot, setErrorSlot] = useState<HTMLElement | null>(null);
+  const [footerSlot, setFooterSlot] = useState<HTMLElement | null>(null);
+  const slots = useMemo(() => ({ error: errorSlot, footer: footerSlot }), [errorSlot, footerSlot]);
 
   useEffect(() => {
     const dialog = ref.current;
@@ -113,8 +154,12 @@ function DialogInner({
             <Icon name="close" size={18} strokeWidth={2} />
           </button>
         </header>
-        {children ? <div className={styles.body}>{children}</div> : null}
-        {footer ? <footer className={styles.footer}>{footer}</footer> : null}
+        <SlotsContext.Provider value={slots}>
+          {children ? <div className={styles.body}>{children}</div> : null}
+          <div ref={setErrorSlot} className={styles.error} />
+          <footer ref={setFooterSlot} className={styles.footer} />
+          {footer || error ? <DialogActions error={error}>{footer}</DialogActions> : null}
+        </SlotsContext.Provider>
       </div>
     </dialog>
   );

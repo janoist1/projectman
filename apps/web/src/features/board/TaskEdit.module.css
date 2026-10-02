@@ -53,6 +53,13 @@
   border-color: var(--c-accent);
 }
 
+/* Larger than the 16px a phone's fields get, so it keeps its size (the global rule has no specificity). */
+@media (max-width: 767px) {
+  .titleInput {
+    font-size: 18px !important;
+  }
+}
+
 .descriptionHead {
   display: flex;
   align-items: center;

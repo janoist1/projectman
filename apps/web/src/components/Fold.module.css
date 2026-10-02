@@ -7,6 +7,7 @@
   align-items: center;
   gap: 5px;
   min-height: 32px;
+  max-width: 100%;
   cursor: pointer;
   list-style: none;
   font-size: var(--text-sm);
@@ -18,7 +19,23 @@
   display: none;
 }
 
+.summary:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.peek {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+  color: var(--c-ink-3);
+}
+
 .chevron {
+  flex-shrink: 0;
   transition: transform 120ms ease;
 }
 
@@ -35,4 +52,24 @@
   border: 1px solid var(--c-line-soft);
   color: var(--c-ink-2);
   font-size: var(--text-sm);
+}
+
+/* A form's fields: a full-width, easy-to-hit summary and the fields without a box. */
+.plain .summary {
+  display: flex;
+  gap: 6px;
+  min-height: 40px;
+}
+
+.plain .body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 0;
+  padding: 10px 0 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font-size: inherit;
 }

@@ -1,5 +1,5 @@
-import { isCardLink } from '@projectman/shared';
-import type { Attachment } from '@projectman/shared';
+import { isCardLink, refinementTurn } from '@projectman/shared';
+import type { Attachment, Task } from '@projectman/shared';
 import {
   describeAttachment,
   describeLink,
@@ -9,7 +9,7 @@ import {
 } from '../agent-text';
 import type { TextStyle } from '../agent-text';
 import type { ContextPackInput, RelatedSession } from '../contracts';
-import { code, promptStyle, relationText, repoText, stageLabel } from './format';
+import { code, codeList, labelRef, promptStyle, relationText, repoText, stageLabel } from './format';
 import type { Situation } from './work-item';
 
 /** Timeline entries shown in the brief (the most recent ones). */
@@ -69,6 +69,9 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
 
   sections.push(['## Description', description(task.description)].join('\n'));
 
+  const refinement = refinementSection(input, task, situation);
+  if (refinement) sections.push(refinement);
+
   const links = task.links.filter((l) => !isCardLink(l)).map((l) => `- ${describeLink(l, style)}`);
   sections.push(['## Links', ...(links.length > 0 ? links : ['None.'])].join('\n'));
 
@@ -102,6 +105,44 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
   );
 
   return sections.join('\n\n');
+}
+
+/**
+ * Where the working out of a card stands (PM-256): the steps it needs (the labels the gates before
+ * the work stage ask for, the optional ones when the card carries the label that calls for them), which
+ * are done and whose turn it is. Only for a card that is being worked out; else null.
+ */
+function refinementSection(input: ContextPackInput, task: Task, situation: Situation): string | null {
+  const turn = refinementTurn(task, input.project);
+  if (!turn) return null;
+  const labels = input.project.pipeline.labels;
+  const upTo = situation.stages.findIndex((stage) => stage.kind === 'work');
+  const from = situation.stages.findIndex((stage) => stage.id === task.stageId);
+  const needed = [
+    ...new Set(
+      situation.stages
+        .slice(Math.max(from, 0), upTo >= 0 ? upTo + 1 : undefined)
+        .flatMap((stage) => stage.gate?.conditions ?? [])
+        .flatMap((condition) =>
+          condition.type === 'has_label' &&
+          (condition.when === undefined || task.labels.includes(condition.when))
+            ? [condition.label]
+            : [],
+        ),
+    ),
+  ];
+  const onTurn =
+    turn.kind === 'step'
+      ? `${codeList(turn.aiSetters.length > 0 ? turn.aiSetters : turn.humanSetters)}, for ${labelRef(turn.label, labels)}`
+      : turn.kind === 'blocked'
+        ? `nobody: the card is held back by ${labelRef(turn.label, labels)}`
+        : 'nobody: every step is done, the system moves the card on';
+  return [
+    '## Refinement',
+    'This card is being worked out before development, one step at a time.',
+    `- Steps needed: ${needed.length > 0 ? needed.map((id) => `${labelRef(id, labels)} (${task.labels.includes(id) ? 'done' : 'to do'})`).join(', ') : 'none'}`,
+    `- On turn: ${onTurn}`,
+  ].join('\n');
 }
 
 /**

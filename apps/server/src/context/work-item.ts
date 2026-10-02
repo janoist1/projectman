@@ -8,6 +8,7 @@ import {
   labelDefinition,
   labelHolders,
   labelSetters,
+  refinementTurn,
   repoOf,
   resolvedStages,
   roleBundle,
@@ -276,6 +277,16 @@ function designing(): StepRule {
   };
 }
 
+/** The plan of a card that is not built yet: written into the card, with whatever is open asked. */
+function designPlanWork(input: ContextPackInput): string[] {
+  return [
+    "Read the task with get_task, then the images and attachments its description names and the project's design guidelines, if it has any.",
+    'Write a short plan into the description with update_task, under its own heading and keeping the rest as it is: what changes and how, the states (empty, loading, error, first use) and the texts.',
+    `For a larger screen make a clickable plan under ${code('.demo/')} in your working directory (it is git-ignored) and attach it to the task with attach_file.`,
+    `Ask ${codeList(humansWithDuty(input, 'prioritization'))} with ask_human whatever is still open.`,
+  ];
+}
+
 /** A queued card: the plan goes into the card before anyone builds; nothing is moved or committed. */
 function designPlan(c: StepContext): string[] {
   const { input, s, current } = c;
@@ -287,10 +298,7 @@ function designPlan(c: StepContext): string[] {
   );
   const labels = input.project.pipeline.labels;
   return [
-    "Read the task with get_task, then the images and attachments its description names and the project's design guidelines, if it has any.",
-    'Write a short plan into the description with update_task, under its own heading and keeping the rest as it is: what changes and how, the states (empty, loading, error, first use) and the texts.',
-    `For a larger screen make a clickable plan under ${code('.demo/')} in your working directory (it is git-ignored) and attach it to the task with attach_file.`,
-    `Ask ${codeList(humansWithDuty(input, 'prioritization'))} with ask_human whatever is still open.`,
+    ...designPlanWork(input),
     ...(mine.length > 0
       ? [
           `When the plan is done and the answers are in, add ${mine.map((id) => labelRef(id, labels)).join(' and ')} with update_task: the gate in front of the task asks for it, and only you may set it.`,
@@ -371,6 +379,24 @@ function preparing(askedStep: string, steps: string[] | ((c: StepContext) => str
       inQueue ? readyForPriority(input, current) : handover(input, s.next),
     ];
   };
+}
+
+/** The work of the requirements analysis: the same in the queue and in refinement. */
+function requirementsWork(): string[] {
+  return [
+    'Read the request with get_task; ask with ask_human about anything unclear before work starts.',
+    'Rewrite the description with update_task: the goal, the expected behaviour and numbered acceptance criteria; keep the original request quoted at the end.',
+    'If the request holds several independent pieces of work, create one task per piece with create_task and note the split on this task.',
+  ];
+}
+
+/** The work of the technical direction: the same in the queue and in refinement. */
+function technicalWork({ localOnly }: StepContext): string[] {
+  return [
+    'Read the task with get_task and the code it touches; read only, never edit, commit or push.',
+    'Add the technical plan to the description with update_task, under its own heading: approach, affected parts, data or API changes, risks, how to test.',
+    `If the work is bigger than one ${localOnly ? 'branch' : 'pull request'}, create the parts with create_task and note the order and dependencies on this task.`,
+  ];
 }
 
 /**
@@ -455,20 +481,12 @@ const DUTY_STEPS: Partial<Record<DutyId, StepRule>> = {
 
   requirements_analysis: preparing(
     'Clarify what you were asked about, update the description with update_task if it changes, and report to the sender with send_message.',
-    [
-      'Read the request with get_task; ask with ask_human about anything unclear before work starts.',
-      'Rewrite the description with update_task: the goal, the expected behaviour and numbered acceptance criteria; keep the original request quoted at the end.',
-      'If the request holds several independent pieces of work, create one task per piece with create_task and note the split on this task.',
-    ],
+    requirementsWork,
   ),
 
   technical_direction: preparing(
     'Answer the design question you were asked with send_message; leave the line-by-line review to the code reviewer.',
-    ({ localOnly }) => [
-      'Read the task with get_task and the code it touches; read only, never edit, commit or push.',
-      'Add the technical plan to the description with update_task, under its own heading: approach, affected parts, data or API changes, risks, how to test.',
-      `If the work is bigger than one ${localOnly ? 'branch' : 'pull request'}, create the parts with create_task and note the order and dependencies on this task.`,
-    ],
+    technicalWork,
   ),
 
   support: preparing(
@@ -535,13 +553,8 @@ export function expectedSteps(input: ContextPackInput, s: Situation): string[] {
   const notOwner = `You do not own the current stage (${stageLabel(current)}${
     (current.owners ?? []).length > 0 ? `, owners ${codeList(current.owners ?? [])}` : ''
   }): do what you were asked and report back to the sender with send_message.`;
-  const duty = stepDuty(roleBundle(input.project, input.member.role).duties, current);
-  const rule = duty ? DUTY_STEPS[duty] : undefined;
-  if (!duty || !rule) {
-    // Duties without steps of their own: the stage's owners do their part and hand over.
-    return s.ownsStage ? ownerSteps(input, s) : [notOwner];
-  }
-  return rule({
+  const duties = roleBundle(input.project, input.member.role).duties;
+  const context = (duty: DutyId): StepContext => ({
     input,
     s,
     task,
@@ -552,6 +565,126 @@ export function expectedSteps(input: ContextPackInput, s: Situation): string[] {
     localOnly: localOnlyRepo(input),
     notOwner,
   });
+  // A card that is being worked out: the step is the one of the label whose turn it is, whatever the
+  // stage's duty says (PM-256).
+  const turn = refinementTurn(task, input.project);
+  if (turn) return refinementSteps(input, turn, context);
+  const duty = stepDuty(duties, current);
+  const rule = duty ? DUTY_STEPS[duty] : undefined;
+  if (!duty || !rule) {
+    // Duties without steps of their own: the stage's owners do their part and hand over.
+    return s.ownsStage ? ownerSteps(input, s) : [notOwner];
+  }
+  return rule(context(duty));
+}
+
+/**
+ * Duties whose work a refinement step can be, the members' own steps before the responsible's: a
+ * label several of them may set is that step's, so an analyst who also holds task breakdown gets the
+ * requirements work for the analysis label.
+ */
+const REFINEMENT_DUTIES: readonly DutyId[] = [
+  'requirements_analysis',
+  'ux_design',
+  'technical_direction',
+  'task_breakdown',
+];
+
+/** The duty the member works the label's step with: one of the label's setters' duties it holds. */
+function refinementDuty(input: ContextPackInput, label: LabelDefinition): DutyId | null {
+  const setBy = label.setBy;
+  const labelDuties = typeof setBy === 'object' ? (setBy.duties ?? []) : [];
+  const held = roleBundle(input.project, input.member.role).duties;
+  return REFINEMENT_DUTIES.find((duty) => labelDuties.includes(duty) && held.includes(duty)) ?? null;
+}
+
+/**
+ * The labels the decision of the responsible is about: the conditions of the gates in front of the
+ * work stage that bind only cards with another label (`when`), which the card does not carry yet.
+ */
+function optionalStepLabels(c: StepContext): string[] {
+  const { s, task, current } = c;
+  const upTo = s.stages.findIndex((stage) => stage.kind === 'work');
+  const gated = s.stages.slice(s.stages.indexOf(current), upTo >= 0 ? upTo + 1 : undefined);
+  const labels = gated
+    .flatMap((stage) => stage.gate?.conditions ?? [])
+    .flatMap((condition) =>
+      condition.type === 'has_label' && condition.when !== undefined ? [condition.when] : [],
+    );
+  return [...new Set(labels)].filter((id) => !task.labels.includes(id));
+}
+
+/** "`ui` (UI): needs a design": a label with its name and what it means. */
+function labelMeaning(project: ContextPackInput['project'], id: string): string {
+  const label = labelDefinition(project, id);
+  const ref = labelRef(id, project.pipeline.labels);
+  return label?.meaning ? `${ref}: ${label.meaning}` : ref;
+}
+
+/** The responsible's step: decide which steps the card needs, and put their labels on it. */
+function breakdownWork(c: StepContext, step: string): string[] {
+  const { input } = c;
+  const optional = optionalStepLabels(c);
+  return [
+    'Read the card with get_task.',
+    ...(optional.length > 0
+      ? [
+          `Decide which of the steps the card needs, and why, by the labels that call for them: ${optional.map((id) => labelMeaning(input.project, id)).join('; ')}.`,
+        ]
+      : []),
+    `When the answers to your questions have come in, add the labels you chose and ${step} in one update_task call (add_labels), with your reasons as the note. A small card needs only ${step}.`,
+    'Do not start the other steps: each is done by the member whose turn it is.',
+  ];
+}
+
+/**
+ * The steps of a member on a card that is being worked out (PM-256). Whose turn it is comes from the
+ * card (`refinementTurn`): a member who may set the label of the turn does that step with the duty it
+ * sets the label by; anyone else (a person started them directly) does what was asked and writes to
+ * nobody about the card. No step tells anybody that the card can be prioritised: the system does.
+ */
+function refinementSteps(
+  input: ContextPackInput,
+  turn: NonNullable<ReturnType<typeof refinementTurn>>,
+  context: (duty: DutyId) => StepContext,
+): string[] {
+  const asked = 'Do what you were asked, and write to no other member about the card.';
+  if (turn.kind !== 'step') {
+    return [
+      `The card is being worked out before development and ${
+        turn.kind === 'blocked'
+          ? `is held back now (${labelRef(turn.label, input.project.pipeline.labels)})`
+          : 'every step is done now'
+      }. ${asked}`,
+    ];
+  }
+  const label = labelDefinition(input.project, turn.label);
+  const step = labelRef(turn.label, input.project.pipeline.labels);
+  const duty = label ? refinementDuty(input, label) : null;
+  if (!turn.aiSetters.includes(input.member.handle) || !duty) {
+    const members = turn.aiSetters.length > 0 ? turn.aiSetters : turn.humanSetters;
+    return [
+      `The card is being worked out before development, now comes the step of ${codeList(members)}. ${asked}`,
+    ];
+  }
+  const c = context(duty);
+  const work =
+    duty === 'task_breakdown'
+      ? breakdownWork(c, step)
+      : [
+          ...(duty === 'requirements_analysis'
+            ? requirementsWork()
+            : duty === 'ux_design'
+              ? designPlanWork(input)
+              : technicalWork(c)),
+          `When the step is done and the answers to your questions have come in, add label ${step} with update_task.`,
+        ];
+  return [
+    ...work,
+    'While a question is open, end your turn without the label.',
+    'Write about the card to no other member: what is still open goes into the description for the next step, and a person is asked with ask_human.',
+    'Do only this step, then end your turn: the system hands the next step out and moves the card on.',
+  ];
 }
 
 function ownerSteps(input: ContextPackInput, s: Situation): string[] {

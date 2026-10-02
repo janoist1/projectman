@@ -1470,6 +1470,140 @@ describe('steps by duty', () => {
   });
 });
 
+describe('refinement steps (PM-256)', () => {
+  /**
+   * A project whose gate in front of Development asks for `scope-ok` (the responsible's decision) and,
+   * on the cards that carry the label that calls for it, one step more each: analysis, design, plan.
+   */
+  function refiningProject() {
+    const project = buildProject();
+    project.pipeline.labels.push(
+      { id: 'refine', name: 'Refine', setBy: { duties: ['prioritization', 'task_breakdown'] } },
+      {
+        id: 'needs-analysis',
+        name: 'Needs analysis',
+        meaning: 'The request is unclear',
+        setBy: { duties: ['task_breakdown'] },
+      },
+      { id: 'ui', name: 'UI', meaning: 'A screen changes', setBy: 'anyone' },
+      {
+        id: 'needs-plan',
+        name: 'Needs plan',
+        meaning: 'The change touches several parts',
+        setBy: { duties: ['task_breakdown'] },
+      },
+      { id: 'scope-ok', name: 'Scope decided', setBy: { duties: ['task_breakdown'] } },
+      { id: 'analysis-ok', name: 'Analysis ready', setBy: { duties: ['requirements_analysis'] } },
+      { id: 'design-ok', name: 'Design ready', setBy: { duties: ['ux_design'] } },
+      { id: 'plan-ok', name: 'Plan ready', setBy: { duties: ['technical_direction'] } },
+    );
+    const ready = project.pipeline.stages.find((s) => s.id === 'ready')!;
+    ready.gate = {
+      conditions: [
+        { type: 'has_label', label: 'scope-ok' },
+        { type: 'has_label', label: 'analysis-ok', when: 'needs-analysis' },
+        { type: 'has_label', label: 'design-ok', when: 'ui' },
+        { type: 'has_label', label: 'plan-ok', when: 'needs-plan' },
+      ],
+    };
+    addMember(project, 'analyst', 'business_analyst');
+    addMember(project, 'arch', 'architect');
+    addMember(project, 'ux', 'designer');
+    return project;
+  }
+  const cardWith = (...labels: string[]) =>
+    makeTask({ stageId: 'ready', assignee: null, labels: ['refine', ...labels] });
+  const stepsOf = (handle: string, task: Task, project = refiningProject()) =>
+    doneSteps(builder.build(input({ project, handle, task })).appendSystemPrompt);
+  const PRIORITISE = 'ready to be prioritised';
+
+  it('gives the responsible the decision of the steps, with the labels and their meaning', () => {
+    const steps = stepsOf('arch', cardWith());
+    expect(steps).toContain('1. Read the card with get_task.');
+    expect(steps).toContain(
+      '`needs-analysis` (Needs analysis): The request is unclear; `ui` (UI): A screen changes; `needs-plan` (Needs plan): The change touches several parts',
+    );
+    expect(steps).toContain(
+      'add the labels you chose and `scope-ok` (Scope decided) in one update_task call (add_labels), with your reasons as the note. A small card needs only `scope-ok` (Scope decided).',
+    );
+    expect(steps).toContain('Do not start the other steps');
+    expect(steps).not.toContain('Rewrite the description');
+  });
+
+  it('leaves out of the decision the steps already called for', () => {
+    const steps = stepsOf('arch', cardWith('ui'));
+    expect(steps).toContain('`needs-analysis` (Needs analysis): The request is unclear; `needs-plan`');
+    expect(steps).not.toContain('`ui` (UI): A screen changes');
+  });
+
+  it('gives the analyst the requirements steps, even though the analyst also holds task breakdown', () => {
+    const steps = stepsOf('analyst', cardWith('needs-analysis', 'scope-ok'));
+    expect(steps).toContain('Rewrite the description with update_task');
+    expect(steps).toContain('add label `analysis-ok` (Analysis ready) with update_task');
+    expect(steps).not.toContain('Do not start the other steps');
+  });
+
+  it('gives the designer the plan steps and the architect the technical plan', () => {
+    const design = stepsOf('ux', cardWith('ui', 'scope-ok'));
+    expect(design).toContain('Write a short plan into the description with update_task');
+    expect(design).toContain('add label `design-ok` (Design ready) with update_task');
+    const plan = stepsOf('arch', cardWith('needs-plan', 'scope-ok'));
+    expect(plan).toContain('Add the technical plan to the description with update_task');
+    expect(plan).toContain('add label `plan-ok` (Plan ready) with update_task');
+  });
+
+  it('sets the label only when the questions are answered, writes to nobody and never asks for priority', () => {
+    for (const [handle, labels] of [
+      ['arch', []],
+      ['analyst', ['needs-analysis', 'scope-ok']],
+      ['ux', ['ui', 'scope-ok']],
+      ['arch', ['needs-plan', 'scope-ok']],
+    ] as const) {
+      const steps = stepsOf(handle, cardWith(...labels));
+      expect(steps, handle).toContain('answers to your questions have come in');
+      expect(steps, handle).toContain('While a question is open, end your turn without the label.');
+      expect(steps, handle).toContain('Write about the card to no other member');
+      expect(steps, handle).toContain('ask_human');
+      expect(steps, handle).not.toContain(PRIORITISE);
+      expect(steps, handle).not.toContain('send_message');
+    }
+  });
+
+  it('tells a member who is not on turn whose step comes, and to write to nobody', () => {
+    const steps = stepsOf('ux', cardWith());
+    expect(steps).toContain(
+      'The card is being worked out before development, now comes the step of `analyst`, `arch`. Do what you were asked, and write to no other member about the card.',
+    );
+    expect(steps).not.toContain('Write a short plan');
+  });
+
+  it('says so when the card is held back or every step is done', () => {
+    expect(stepsOf('arch', cardWith('waiting-answer'))).toContain('is held back now (`waiting-answer`');
+    expect(stepsOf('arch', cardWith('scope-ok'))).toContain('every step is done now');
+  });
+
+  it('keeps the steps unchanged outside refinement', () => {
+    const project = refiningProject();
+    const plain = makeTask({ stageId: 'ready', assignee: null, labels: [] });
+    expect(stepsOf('analyst', plain, project)).toContain(PRIORITISE);
+    expect(stepsOf('analyst', plain, project)).toContain('Rewrite the description with update_task');
+    expect(stepsOf('arch', plain, project)).toContain('Add the technical plan to the description');
+    expect(stepsOf('arch', plain, project)).not.toContain('Do not start the other steps');
+  });
+
+  it('shows the state of the working out in the opening message, and nothing outside it', () => {
+    const project = refiningProject();
+    const brief = (task: Task) => builder.build(input({ project, handle: 'ux', task })).initialMessage ?? '';
+    const refining = brief(cardWith('ui', 'needs-analysis', 'scope-ok'));
+    expect(refining).toContain('## Refinement');
+    expect(refining).toContain(
+      '- Steps needed: `scope-ok` (Scope decided) (done), `analysis-ok` (Analysis ready) (to do), `design-ok` (Design ready) (to do)',
+    );
+    expect(refining).toContain('- On turn: `analyst`, for `analysis-ok` (Analysis ready)');
+    expect(brief(makeTask({ stageId: 'ready', labels: [] }))).not.toContain('## Refinement');
+  });
+});
+
 describe('the designer round on a UI card (PM-235)', () => {
   /** A project where a UI card needs the designer's plan to start and the designer's review to leave dev. */
   function uiProject() {

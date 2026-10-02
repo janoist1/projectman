@@ -464,6 +464,14 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_stage_changed', (change) => {
     if (change.task.status !== 'done') sessions.requestReviewRound(change.task.projectKey, change.task.key);
   });
+  // A card leaving a stage ends the round of the members who worked it there: their conversations are
+  // compacted (PM-213), in the background so a move does not wait for a session.
+  events.on('task_stage_changed', (change) => {
+    background.run(
+      () => sessions.roundEnded(change.task),
+      (err) => opts.logger.warn({ err }, 'end-of-round compaction failed'),
+    );
+  });
   // Done tasks: temp workers leave; sessions stop and clean worktrees go away.
   events.on('task_stage_changed', (change) => taskStarts.retireFinishedTempWorker(change));
   // Later stages owned by AI members (review, QA, release, …) get their owner started, in the

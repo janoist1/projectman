@@ -110,6 +110,22 @@ describe('session state machine', () => {
     expect(nextState(exited, { kind: 'session_start', source: 'startup', first: true })).toBe(exited);
   });
 
+  it('works while the conversation is compacted, and is idle after a compaction that was asked for (PM-213)', () => {
+    const idle: StateSnapshot = { state: 'idle', activity: null };
+    const compacting = nextState(idle, { kind: 'compact_start' });
+    expect(compacting).toEqual({ state: 'working', activity: 'Compacting the conversation' });
+    expect(nextState(compacting, { kind: 'compact_end', idle: true })).toEqual(idle);
+    // The agent's own compaction in the middle of a turn: the turn goes on.
+    expect(nextState(compacting, { kind: 'compact_end', idle: false })).toEqual({
+      state: 'working',
+      activity: null,
+    });
+    // A session that is not idle or working is left as it is, and an idle one is not woken by an end.
+    const waiting: StateSnapshot = { state: 'waiting_input', activity: 'Question' };
+    expect(nextState(waiting, { kind: 'compact_start' })).toBe(waiting);
+    expect(nextState(idle, { kind: 'compact_end', idle: true })).toBe(idle);
+  });
+
   it('fails with the message when the login is lost, and the exit keeps it', () => {
     const failed = nextState(
       { state: 'working', activity: 'Bash: npm test' },

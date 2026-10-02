@@ -13,6 +13,15 @@ import { num, rec, str } from '../../transcript/json';
 export class ClaudeUsageCounter {
   /** Message id -> output tokens counted for it. */
   private readonly counted = new Map<string, number>();
+  /** The context of the latest step of the main conversation seen since `takeContext`. */
+  private context: number | null = null;
+
+  /** The context of the latest main-conversation step added since the last call; null if none. */
+  takeContext(): number | null {
+    const context = this.context;
+    this.context = null;
+    return context;
+  }
 
   /** What `entry` adds to the usage, or null when nothing (not a response, or counted already). */
   add(value: unknown, scope: TokenUsageScope): TokenUsage | null {
@@ -23,6 +32,13 @@ export class ClaudeUsageCounter {
     const model = str(message?.model);
     if (!usage || !model || model === '<synthetic>') return null;
     const output = count(usage.output_tokens);
+    // The context of a step is what it read in: its input, with the cache's part of it (PM-213).
+    if (scope === 'main') {
+      this.context =
+        count(usage.input_tokens) +
+        count(usage.cache_read_input_tokens) +
+        count(usage.cache_creation_input_tokens);
+    }
     const id = str(message?.id) ?? str(entry.uuid);
     const before = id === null ? undefined : this.counted.get(id);
     if (id !== null) this.counted.set(id, Math.max(output, before ?? 0));

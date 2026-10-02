@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import { Pipeline } from '../domain/pipeline';
-import { MaxConcurrentAi, ProjectConfig, TeamLimits, WarnAboveSessionTokens } from './schema';
+import {
+  AutoCompactWindowTokens,
+  MaxConcurrentAi,
+  ProjectConfig,
+  TeamLimits,
+  WarnAboveSessionTokens,
+} from './schema';
 
 const tempWorkersSchema = TeamLimits.shape.tempWorkers.removeDefault();
 
@@ -24,6 +30,8 @@ export const PatchConfigRequest = z
       maxConcurrentAi: MaxConcurrentAi.nullable(),
       /** null removes the warning limit (no warning). */
       warnAboveSessionTokens: WarnAboveSessionTokens.nullable(),
+      /** null removes the project's compaction window (the default applies). */
+      autoCompactWindowTokens: AutoCompactWindowTokens.nullable(),
       pauseAbovePlanUsagePercent: TeamLimits.shape.pauseAbovePlanUsagePercent.removeDefault(),
       tempWorkers: tempWorkersSchema
         .extend({
@@ -53,7 +61,8 @@ export function configSchemaIssues(issues: readonly { code: string; path: readon
 }
 
 export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigRequest): ProjectConfig {
-  const { maxConcurrentAi, warnAboveSessionTokens, ...limitChanges } = patch.limits ?? {};
+  const { maxConcurrentAi, warnAboveSessionTokens, autoCompactWindowTokens, ...limitChanges } =
+    patch.limits ?? {};
   const limits: TeamLimits = {
     ...config.team.limits,
     ...limitChanges,
@@ -63,6 +72,8 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
   else if (maxConcurrentAi !== undefined) limits.maxConcurrentAi = maxConcurrentAi;
   if (warnAboveSessionTokens === null) delete limits.warnAboveSessionTokens;
   else if (warnAboveSessionTokens !== undefined) limits.warnAboveSessionTokens = warnAboveSessionTokens;
+  if (autoCompactWindowTokens === null) delete limits.autoCompactWindowTokens;
+  else if (autoCompactWindowTokens !== undefined) limits.autoCompactWindowTokens = autoCompactWindowTokens;
   return {
     ...config,
     project: { ...config.project, ...patch.project },

@@ -33,6 +33,10 @@ export const CLAUDE_TIMING: SessionTiming = {
   startupTimeoutMs: 20_000,
   stopTimeoutMs: 5_000,
   finalReadMs: 1_000,
+  /** The command is a typed slash command: a dialog or an autocomplete may swallow it. */
+  compactStartTimeoutMs: 10_000,
+  /** Summarising a conversation of several hundred thousand tokens takes minutes. */
+  compactTimeoutMs: 300_000,
 };
 
 /** Claude Code's question tool: it waits for an answer typed in the terminal. */
@@ -163,6 +167,7 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
         deniedTools: spec.deniedTools,
         permissionTimeoutMs,
         sandbox: spec.sandbox,
+        autoCompactWindowTokens: spec.autoCompactWindowTokens,
       });
       const cliArgs = buildClaudeArgs(spec, settings);
       const command = resolveCommand(opts.bin, cliArgs);

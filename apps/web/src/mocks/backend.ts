@@ -281,6 +281,9 @@ export class MockBackend {
           provider: config.provider ?? DEFAULT_AGENT_PROVIDER,
           model: config.model,
           effort: config.effort,
+          ...(config.autoCompactWindowTokens
+            ? { autoCompactWindowTokens: config.autoCompactWindowTokens }
+            : {}),
           ...(config.cheapSubagent ? { cheapSubagent: config.cheapSubagent } : {}),
         });
     }
@@ -1477,6 +1480,7 @@ export class MockBackend {
         input.schedule !== undefined ||
         input.provider !== undefined ||
         input.effort !== undefined ||
+        input.autoCompactWindowTokens !== undefined ||
         input.cheapSubagent !== undefined ||
         input.onLeave !== undefined ||
         input.instructions !== undefined ||
@@ -1520,6 +1524,13 @@ export class MockBackend {
           delete member.effort;
           delete config.effort;
         } else member.effort = config.effort = input.effort;
+      }
+      if (input.autoCompactWindowTokens !== undefined) {
+        if (input.autoCompactWindowTokens === null) {
+          delete member.autoCompactWindowTokens;
+          delete config.autoCompactWindowTokens;
+        } else
+          member.autoCompactWindowTokens = config.autoCompactWindowTokens = input.autoCompactWindowTokens;
       }
       if (input.cheapSubagent !== undefined) {
         if (input.cheapSubagent === null) {

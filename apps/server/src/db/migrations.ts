@@ -485,5 +485,19 @@ export const migrations: Migration[] = [
     // NULL: a session from before it was kept; its last activity stands in.
     sql: `ALTER TABLE sessions ADD COLUMN state_since TEXT;`,
   },
+  {
+    // 23 is left to another card on purpose: a database already at 24 would never run a lower number.
+    version: 24,
+    name: 'end-of-round compaction of sessions',
+    // PM-213: a task session whose round ended (the card left its stage) owes a compaction of its
+    // conversation until one ran or was given up; and the context the conversation last measured
+    // (input + cache read + cache write of its last step), so a stopped session is compacted when
+    // it resumes only if the conversation is big. Existing sessions owe nothing and have no measure.
+    // And the commit a reviewer's session last reviewed (PM-183's pin, which is gone once the card
+    // leaves the stage), for the message that wakes it for the next round.
+    sql: `ALTER TABLE sessions ADD COLUMN compact_pending INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE sessions ADD COLUMN context_tokens INTEGER;
+      ALTER TABLE sessions ADD COLUMN reviewed_commit TEXT;`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

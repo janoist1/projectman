@@ -446,6 +446,22 @@ describe('the managed VM profile (PM-141)', () => {
   });
 
   it.each([false, true])(
+    'hands the compaction window to Claude Code in --settings as a number, resume=%s (PM-212)',
+    (resume) => {
+      const withWindow = buildSettings({ ...input, policy: policy(), autoCompactWindowTokens: 200_000 });
+      expect(withWindow.autoCompactWindow).toBe(200_000);
+      const args = buildClaudeArgs({ ...spec, resume }, withWindow);
+      expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toMatchObject({ autoCompactWindow: 200_000 });
+      // Never the environment variable: the setting is the one place.
+      expect(args.join(' ')).not.toContain('CLAUDE_CODE_AUTO_COMPACT_WINDOW');
+    },
+  );
+
+  it('leaves the compaction window out when none is given', () => {
+    expect(buildSettings({ ...input, policy: policy() })).not.toHaveProperty('autoCompactWindow');
+  });
+
+  it.each([false, true])(
     'reaches only the team server and no browser, with and without a policy, resume=%s (PM-208)',
     (resume) => {
       for (const withPolicy of [false, true]) {

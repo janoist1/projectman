@@ -73,7 +73,8 @@ Documentation map:
   with a label), `release` (always behind a human approval) or `done` (decision 18). A stage's
   owners are the holders of its duty unless it lists members explicitly. A **gate** is a list
   of label conditions (`has_label`, `lacks_label`) that must hold before a task may enter the
-  stage.
+  stage; a condition with `when: <label>` binds only the cards carrying that label (never on a
+  release gate).
 - **Labels** (decision 17, [design/labels.md](design/labels.md)) — the one way to state facts
   about a task. The pipeline defines each label once: name, colour, meaning (given to AI
   members), group (mutually exclusive states), who may set it, no self-review, comment

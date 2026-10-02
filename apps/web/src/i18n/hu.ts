@@ -1781,6 +1781,8 @@ export const hu = {
       gate: 'Kapu',
       gateHasLabel: 'Kell: {label}',
       gateLacksLabel: 'Nem lehet rajta: {label}',
+      gateHasLabelWhen: 'Kell: {label}, ha {when}',
+      gateLacksLabelWhen: 'Nem lehet rajta: {label}, ha {when}',
       stageCount: '{count} lépés',
       kindLabel: 'Lépés típusa',
       kindHelp: {
@@ -1889,6 +1891,8 @@ export const hu = {
       hasLabel: 'Legyen rajta',
       lacksLabel: 'Ne legyen rajta',
       label: 'Címke',
+      when: 'Csak ha rajta van',
+      whenAny: 'Minden kártyán',
       approvalOwnerOnly: 'Jóváhagyási feltétel: csak a tulajdonos módosíthatja.',
       releaseApprovalOnly:
         'Kiadási lépésnél jóváhagyásként csak olyan címke választható, amelyet kizárólag a „Kiadás jóváhagyása” feladatkör felelősei tehetnek rá.',
@@ -1913,6 +1917,7 @@ export const hu = {
       release_without_human_approval: 'A kiadási lépéshez emberi jóváhagyás szükséges.',
       release_approval_needs_duty:
         'A kiadás jóváhagyását csak a „Kiadás jóváhagyása” feladatkör felelősei adhatják.',
+      conditional_release_gate: 'A kiadási lépés kapuja nem köthető címkéhez („csak ha rajta van”).',
       unknown_column: 'A megadott oszlop nem létezik.',
       duplicate_column: 'Az oszlopok azonosítói nem ismétlődhetnek.',
       first_stage_not_queue: 'Az első lépés várólista kell legyen.',

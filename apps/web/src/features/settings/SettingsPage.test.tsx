@@ -429,6 +429,47 @@ describe('settings section editors', () => {
     expect(section.getByText('Implement Acme checkout.')).toBeTruthy();
   });
 
+  it('saves and reloads a condition that binds only the cards with a label (when)', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    const section = await editSection('pipeline');
+    const stage = within(section.getAllByRole('listitem')[1]!);
+    fireEvent.click(stage.getByRole('button', { name: t('settings.edit.addCondition') }));
+    fireEvent.change(stage.getByLabelText(t('settings.edit.label')), { target: { value: 'qa-ok' } });
+    fireEvent.change(stage.getByLabelText(t('settings.edit.when')), { target: { value: 'code-review-ok' } });
+    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
+    await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
+    const gate = lastConfigPatch(project.requests).pipeline!.stages[1]!.gate;
+    expect(gate?.conditions).toEqual([{ type: 'has_label', label: 'qa-ok', when: 'code-review-ok' }]);
+    expect(
+      section.getByText(
+        t('settings.pipeline.gateHasLabelWhen', { label: 'QA rendben', when: 'Code review rendben' }),
+      ),
+    ).toBeTruthy();
+
+    // Reopened, the editor shows the label; "every card" takes it away again.
+    fireEvent.click(section.getByRole('button', { name: t('memberEdit.edit') }));
+    const reopened = within(section.getAllByRole('listitem')[1]!);
+    const when = reopened.getByLabelText(t('settings.edit.when')) as HTMLSelectElement;
+    expect(when.value).toBe('code-review-ok');
+    fireEvent.change(when, { target: { value: '' } });
+    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
+    await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
+    expect(lastConfigPatch(project.requests).pipeline!.stages[1]!.gate?.conditions).toEqual([
+      { type: 'has_label', label: 'qa-ok' },
+    ]);
+  });
+
+  it('offers no label to bind a release gate condition to (a release approval holds for every card)', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    const section = await editSection('pipeline');
+    const release = within(section.getByRole('listitem', { name: 'Élesítés' }));
+    const when = release.getAllByLabelText(t('settings.edit.when'))[0]!;
+    for (const option of within(when).getAllByRole('option') as HTMLOptionElement[])
+      expect(option.disabled, option.textContent ?? '').toBe(option.value !== '');
+  });
+
   it('gives a tag in use a meaning and rules, and keeps approvals for the owner', async () => {
     const project = mockProject();
     project.backend.findTask('AC-20')!.labels.push('Sürgős');

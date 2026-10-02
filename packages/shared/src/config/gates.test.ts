@@ -201,10 +201,13 @@ describe('evaluateMove with a condition bound to a label (when)', () => {
   }
   const designOk = {
     stageId: 'merge',
-    condition: { type: 'has_label', label: 'design-ok', when: 'ui' },
+    condition: { type: 'has_label' as const, label: 'design-ok', when: 'ui' },
     setters: ['des'],
   };
-  const noWip = { stageId: 'merge', condition: { type: 'lacks_label', label: 'wip', when: 'ui' } };
+  const noWip = {
+    stageId: 'merge',
+    condition: { type: 'lacks_label' as const, label: 'wip', when: 'ui' },
+  };
 
   it.each<[string, string[], string, string, GateEvaluation['unmet']]>([
     ['a card without the when label is not bound', ['review-ok'], 'review', 'merge', []],

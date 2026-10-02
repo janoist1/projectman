@@ -3,9 +3,18 @@ import type { LabelView } from '@projectman/shared';
 import { t } from '../i18n/t';
 import { labelName } from './labels';
 
-/** "Kell: Code review rendben", "Nem lehet rajta: Válaszra vár". */
+/**
+ * "Kell: Code review rendben", "Nem lehet rajta: Válaszra vár"; a condition that binds only some
+ * cards says which: "Kell: Tervezői terv kész, ha Felületi".
+ */
 export function gateConditionText(condition: GateCondition, labels: readonly LabelView[]): string {
   const label = labelName(condition.label, labels);
+  if (condition.when !== undefined) {
+    const when = labelName(condition.when, labels);
+    return condition.type === 'has_label'
+      ? t('settings.pipeline.gateHasLabelWhen', { label, when })
+      : t('settings.pipeline.gateLacksLabelWhen', { label, when });
+  }
   return condition.type === 'has_label'
     ? t('settings.pipeline.gateHasLabel', { label })
     : t('settings.pipeline.gateLacksLabel', { label });

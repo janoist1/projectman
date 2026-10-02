@@ -19,7 +19,7 @@ import { Markdown } from '../../components/Markdown';
 import { Popover } from '../../components/Popover';
 import { ErrorState, LoadingState } from '../../components/States';
 import { useToast } from '../../components/toastContext';
-import { formatAgo, formatTime } from '../../i18n/format';
+import { formatTime } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { optionLabel } from '../../lib/inbox';
@@ -223,7 +223,6 @@ export function ConversationThread({
             <div className={styles.questionHead}>
               <span aria-hidden="true">●</span>
               <span>{t('messages.question.heading')}</span>
-              <span className={styles.questionTime}>{formatAgo(item.at)}</span>
             </div>
             <InboxCard
               item={item.item}

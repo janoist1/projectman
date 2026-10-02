@@ -7,6 +7,7 @@ import {
   layoutThread,
   openQuestionsFrom,
   plainPreview,
+  plainText,
   recentTasksOf,
   threadItems,
 } from './conversations';
@@ -197,6 +198,14 @@ describe('plainPreview', () => {
     ['', ''],
   ])('turns %j into %j', (markdown, plain) => {
     expect(plainPreview(markdown)).toBe(plain);
+  });
+});
+
+describe('plainText', () => {
+  it('joins all the lines of a body into one plain line', () => {
+    expect(plainText('## Cart\n\n- **first** [link](https://example.com)\n- second `code`')).toBe(
+      'Cart first link second code',
+    );
   });
 });
 

@@ -196,11 +196,35 @@
   color: var(--c-ink-3);
 }
 
+/* The delivery state reads as part of the meta line: its trigger is text, not a button. */
 .status {
   color: var(--c-ink-4);
 }
 
+.status > button,
+.status > button:hover {
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  gap: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 400;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.status > button:hover {
+  color: var(--c-ink-3);
+}
+
 .statusWait {
+  color: var(--c-needs-text);
+}
+
+.statusWait > button:hover {
   color: var(--c-needs-text);
 }
 
@@ -247,13 +271,6 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--c-needs-text);
-}
-
-.questionTime {
-  margin-left: auto;
-  font-weight: 700;
-  letter-spacing: 0;
-  text-transform: none;
 }
 
 .answered {

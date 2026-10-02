@@ -176,17 +176,29 @@ export function layoutThread(items: readonly ThreadItem[], newFromId: string | n
   });
 }
 
+/** The lines of a markdown body that have content, the code fence marks left out. */
+function contentLines(markdown: string): string[] {
+  return markdown
+    .replace(/```[^\n]*/g, '')
+    .split('\n')
+    .map((text) => text.trim())
+    .filter((text) => text !== '');
+}
+
 /**
  * A message body as plain one-line text, for a list row: the first line with content, without the
  * markdown marks (headings, list markers, quotes, emphasis, code, links and images).
  */
 export function plainPreview(markdown: string): string {
-  const line =
-    markdown
-      .replace(/```[^\n]*/g, '')
-      .split('\n')
-      .map((text) => text.trim())
-      .find((text) => text !== '') ?? '';
+  return plainLine(contentLines(markdown)[0] ?? '');
+}
+
+/** The whole body as plain text on one line, its lines joined by a space (the row clamps it). */
+export function plainText(markdown: string): string {
+  return contentLines(markdown).map(plainLine).join(' ');
+}
+
+function plainLine(line: string): string {
   return line
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')

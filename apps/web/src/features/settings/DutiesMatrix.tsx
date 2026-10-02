@@ -18,10 +18,13 @@ import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
 import { TextAreaField } from '../../components/Field';
+import { Icon } from '../../components/Icon';
+import { SegmentedControl } from '../../components/SegmentedControl';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { useIsMobile } from '../../lib/hooks';
 import { RoleForm } from '../team/RoleSection';
+import { useReportUnsaved } from './SettingsEditor';
 import { SettingsSection } from './sections/SettingsSection';
 import styles from './DutiesMatrix.module.css';
 
@@ -88,8 +91,9 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
         ? bundle.duties.filter((id) => id !== duty)
         : [...bundle.duties, duty];
     });
+  /** Why one box is locked for an admin; a viewer gets one note above the matrix instead. */
   const reason = (role: string, duty: DutyId) => {
-    if (!can.manageTeam) return t('duties.readOnly');
+    if (!can.manageTeam) return '';
     if (isReleaseDuty(duty) && !isOwner) return t('duties.ownerOnly');
     if (
       DUTIES[duty].holders === 'human' &&
@@ -100,6 +104,7 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
   };
   const issues = validateProjectConfig(draft);
   const dirty = JSON.stringify(draft.team) !== JSON.stringify(config.team);
+  useReportUnsaved(dirty);
 
   const hasOverride = (role: string) => isBuiltInRole(role) && !!draft.team.roleOverrides?.[role];
   const resetDisabled = (role: string) =>
@@ -127,7 +132,7 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
       type="checkbox"
       aria-label={`${locale.duties[id].name}: ${name(role)}`}
       checked={roleBundle(draft, role).duties.includes(id)}
-      disabled={!!why || save.isPending}
+      disabled={!can.manageTeam || !!why || save.isPending}
       onChange={() => toggle(role, id)}
     />
   );
@@ -164,7 +169,7 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
           <tbody key={group}>
             <tr>
               <th colSpan={1 + columnCount} className={styles.group}>
-                {t(`duties.${group}`)}
+                <span className={styles.groupLabel}>{t(`duties.${group}`)}</span>
               </th>
             </tr>
             {DUTY_IDS.filter((id) => DUTIES[id].group === group).map((id) => {
@@ -225,7 +230,7 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
               </tr>
             ))}
             <tr>
-              <th>{t('duties.extra')}</th>
+              <th scope="row">{t('duties.extra')}</th>
               {roles.map((role) => (
                 <td key={role}>
                   <textarea
@@ -243,6 +248,17 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
     </div>
   );
 
+  /** A card's always-visible line: a chevron that turns when it opens, the name, a quieter line below. */
+  const summary = (title: string, below: string) => (
+    <summary>
+      <Icon name="chevronRight" size={14} strokeWidth={2.4} className={styles.chevron} />
+      <span className={styles.summaryText}>
+        <span className={styles.roleName}>{title}</span>
+        <small>{below}</small>
+      </span>
+    </summary>
+  );
+
   /** On a phone: one folding card per role (or per person), the duties as a list of checkboxes. */
   const cards = (
     <div className={styles.cards}>
@@ -251,24 +267,22 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
             const held = DUTY_IDS.filter((id) => memberDuties(draft, m).includes(id));
             return (
               <details key={m.handle} className={styles.roleCard}>
-                <summary>
-                  <span className={styles.roleName}>{m.displayName}</span>
-                  <small>{m.handle}</small>
-                </summary>
-                <ul className={styles.heldDuties}>
-                  {held.map((id) => (
-                    <li key={id}>{locale.duties[id].name}</li>
-                  ))}
-                </ul>
+                {summary(m.displayName, m.handle)}
+                {held.length > 0 ? (
+                  <ul className={styles.heldDuties}>
+                    {held.map((id) => (
+                      <li key={id}>{locale.duties[id].name}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className={styles.heldNone}>{t('common.dash')}</p>
+                )}
               </details>
             );
           })
         : roles.map((role) => (
             <details key={role} className={styles.roleCard}>
-              <summary>
-                <span className={styles.roleName}>{name(role)}</span>
-                <small>{holderNames(role)}</small>
-              </summary>
+              {summary(name(role), holderNames(role))}
               <div className={styles.roleBody}>
                 {hasOverride(role) && <div>{resetButton(role)}</div>}
                 {DUTY_GROUPS.map((group) => (
@@ -276,15 +290,16 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
                     <legend>{t(`duties.${group}`)}</legend>
                     {DUTY_IDS.filter((id) => DUTIES[id].group === group).map((id) => {
                       const why = reason(role, id);
+                      // The whole row is the checkbox's label, so the name is a finger-sized target.
                       return (
-                        <div key={id} className={why ? styles.dutyRowDisabled : styles.dutyRow}>
+                        <label key={id} className={why ? styles.dutyRowDisabled : styles.dutyRow}>
                           {dutyBox(role, id, why)}
                           <span>
                             {locale.duties[id].name}
                             <small>{locale.duties[id].description}</small>
                             {why && <small>{why}</small>}
                           </span>
-                        </div>
+                        </label>
                       );
                     })}
                   </fieldset>
@@ -315,15 +330,23 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
   return (
     <SettingsSection id="settings-duties" title={t('duties.title')}>
       <div className={styles.actions}>
-        <Button variant="secondary" onClick={() => setPeople(!people)}>
-          {people ? t('duties.roles') : t('duties.people')}
-        </Button>
+        <SegmentedControl<'roles' | 'people'>
+          label={t('duties.title')}
+          size="sm"
+          options={[
+            { value: 'roles', label: t('duties.roles') },
+            { value: 'people', label: t('duties.people') },
+          ]}
+          value={people ? 'people' : 'roles'}
+          onChange={(view) => setPeople(view === 'people')}
+        />
         {can.manageTeam && (
           <Button variant="secondary" onClick={() => setAdding(true)}>
             {t('duties.add')}
           </Button>
         )}
       </div>
+      {can.manageTeam ? null : <p className={styles.note}>{t('duties.readOnly')}</p>}
       {isMobile ? cards : table}
       <label className={styles.check}>
         <input

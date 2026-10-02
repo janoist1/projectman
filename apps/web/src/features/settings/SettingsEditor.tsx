@@ -25,7 +25,19 @@ const EditingContext = createContext<{
   setEdit: (edit: Edit | null) => void;
   view: View;
   reload: () => Promise<View | undefined>;
+  /** A draft outside the section editors (the duty matrix) holds changes that are not saved. */
+  unsaved: boolean;
+  setUnsaved: (unsaved: boolean) => void;
 } | null>(null);
+
+/** Tells the limits that this part of the page holds unsaved changes, while `dirty` is true. */
+export function useReportUnsaved(dirty: boolean) {
+  const setUnsaved = useContext(EditingContext)?.setUnsaved;
+  useEffect(() => {
+    setUnsaved?.(dirty);
+    return () => setUnsaved?.(false);
+  }, [dirty, setUnsaved]);
+}
 
 /** What a section's editor gets: the draft, a way to change it, and the server's issues. */
 export interface SectionEditorProps {
@@ -49,8 +61,11 @@ export function SettingsEditingProvider({
   children: ReactNode;
 }) {
   const [edit, setEdit] = useState<Edit | null>(null);
+  const [unsaved, setUnsaved] = useState(false);
   return (
-    <EditingContext.Provider value={{ edit, setEdit, view, reload }}>{children}</EditingContext.Provider>
+    <EditingContext.Provider value={{ edit, setEdit, view, reload, unsaved, setUnsaved }}>
+      {children}
+    </EditingContext.Provider>
   );
 }
 
@@ -152,8 +167,9 @@ export function useInstantLimits(config: ProjectConfig) {
       }
     });
   };
-  // A saved change moves the version on, which would make the open editor's save a conflict.
-  const locked = context?.edit != null;
+  // A saved change moves the version on: the open editor's save would be a conflict, and the duty
+  // matrix would be rebuilt without its draft.
+  const locked = context?.edit != null || context?.unsaved === true;
   return { shown: optimistic ?? config, saving: optimistic !== null, commit, error, locked };
 }
 

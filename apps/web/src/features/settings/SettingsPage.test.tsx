@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { PatchConfigRequest } from '@projectman/shared';
+import { getLocale } from '@projectman/templates';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
@@ -155,6 +156,22 @@ describe('settings section editors', () => {
     fireEvent.click(editor.getByRole('button', { name: t('common.cancel') }));
     await waitFor(() => expect(toggle.matches(':disabled')).toBe(false));
     expect(limits.queryByText(t('settings.limits.locked'))).toBeNull();
+  });
+
+  it('locks the limits while the duty matrix holds unsaved changes, so its draft is not lost', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    const limits = await limitsSection();
+    const toggle = limits.getByRole('checkbox', { name: t('settings.limits.aiEnabled') }) as HTMLInputElement;
+    const matrix = within(await screen.findByRole('region', { name: t('duties.title') }));
+    const locale = getLocale(project.backend.config.project.language);
+    fireEvent.click(matrix.getByLabelText(`${locale.duties.research.name}: ${locale.roles.developer.name}`));
+    await waitFor(() => expect(toggle.matches(':disabled')).toBe(true));
+    fireEvent.click(matrix.getByRole('button', { name: t('memberEdit.save') }));
+    await waitFor(() =>
+      expect(project.backend.config.team.roleOverrides?.developer?.duties).toContain('research'),
+    );
+    await waitFor(() => expect(toggle.matches(':disabled')).toBe(false));
   });
 
   it('turns the cap on concurrent AI sessions off and on (decision 23)', async () => {

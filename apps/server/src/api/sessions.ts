@@ -2,13 +2,14 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   MemberHandle,
+  ReadTeamMessagesRequest,
   routes,
   SendMessageRequest,
   SendTeamMessageRequest,
   TaskKey,
   UpdateSessionRequest,
 } from '@projectman/shared';
-import type { Session, SessionDetail, TeamMessagesView } from '@projectman/shared';
+import type { Session, SessionDetail, TeamMessagesView, TeamThreadsView } from '@projectman/shared';
 import { notFound } from '../domain';
 import type { Domain } from '../domain';
 import { canSeeTask, teamMessageParticipant } from '../domain/visibility';
@@ -77,6 +78,30 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
       return domain.messages.markRead(key, id, access.handle, await domain.members.humanHandles(key));
     },
   );
+
+  /** Opening a conversation marks its unread incoming messages read in one request (PM-78). */
+  app.post<ProjectParams>(routes.readTeamMessages(':key'), async (request): Promise<TeamMessagesView> => {
+    const key = request.params.key;
+    const access = await requireAccess(domain, request, key);
+    const body = parseBody(ReadTeamMessagesRequest, request.body);
+    const messages = domain.messages.markReadMany(
+      key,
+      body.ids,
+      access.handle,
+      await domain.members.humanHandles(key),
+    );
+    return { messages, unreadCount: domain.messages.countUnread(key, access.handle) };
+  });
+
+  /** The viewer's conversations with the other members: each one's latest message and unread count (PM-78). */
+  app.get<ProjectParams>(routes.teamThreads(':key'), async (request): Promise<TeamThreadsView> => {
+    const key = request.params.key;
+    const access = await requireAccess(domain, request, key);
+    return {
+      threads: domain.messages.threads(key, access.handle),
+      unreadCount: domain.messages.countUnread(key, access.handle),
+    };
+  });
 
   app.get<ProjectParams>(routes.teamMessages(':key'), async (request): Promise<TeamMessagesView> => {
     const key = request.params.key;

@@ -1,5 +1,5 @@
-import { messageRoute, sameWorkItem } from '@projectman/shared';
-import type { Actor, TeamMessage, WorkItemRef } from '@projectman/shared';
+import { isUnreadBy, messageRoute, sameWorkItem, threadPeersOf } from '@projectman/shared';
+import type { Actor, TeamMessage, TeamThread, WorkItemRef } from '@projectman/shared';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
 import type { TimelineService } from '../timeline';
@@ -112,6 +112,57 @@ export class MessageService {
     if (!before || before.projectKey !== projectKey) throw notFound('message', id);
     if (!before.to.includes(handle))
       throw forbidden('not_a_recipient', 'Only a recipient may mark a message read');
+    return this.applyRead(before, handle, humanRecipients);
+  }
+
+  /**
+   * Marks the messages among `ids` read that were sent to `handle` and that they have not read yet
+   * (an unknown, foreign, not-addressed or already read one is left out), as one unit with one
+   * `team_message` event each. Returns the messages that changed, oldest first.
+   */
+  markReadMany(
+    projectKey: string,
+    ids: readonly string[],
+    handle: string,
+    humanRecipients: string[] = [handle],
+  ): TeamMessage[] {
+    return this.ctx.unitOfWork(() => {
+      const changed: TeamMessage[] = [];
+      for (const id of new Set(ids)) {
+        const before = this.ctx.repos.messages.get(id);
+        if (!before || before.projectKey !== projectKey || !isUnreadBy(before, handle)) continue;
+        changed.push(this.applyRead(before, handle, humanRecipients));
+      }
+      return changed;
+    });
+  }
+
+  /**
+   * The member's conversations with the other members, the most recently active first: the peers
+   * each message falls to by `threadPeersOf`, each with its latest message and unread count. It
+   * counts over every message of the member, not over a page of them.
+   */
+  threads(projectKey: string, handle: string): TeamThread[] {
+    const threads = new Map<string, { lastId: string; unreadCount: number }>();
+    for (const summary of this.ctx.repos.messages.involving(projectKey, handle)) {
+      const unread = isUnreadBy(summary, handle) ? 1 : 0;
+      for (const peer of threadPeersOf(summary, handle)) {
+        const thread = threads.get(peer);
+        // Most recent last: re-inserting moves a conversation to the end of the iteration order.
+        threads.delete(peer);
+        threads.set(peer, { lastId: summary.id, unreadCount: (thread?.unreadCount ?? 0) + unread });
+      }
+    }
+    return [...threads].reverse().map(([peer, { lastId, unreadCount }]) => ({
+      peer,
+      lastMessage: this.ctx.repos.messages.get(lastId)!,
+      unreadCount,
+    }));
+  }
+
+  private applyRead(before: TeamMessage, handle: string, humanRecipients: string[]): TeamMessage {
+    const projectKey = before.projectKey;
+    const id = before.id;
     const at = isoNow(this.ctx);
     const receipts = (
       before.receipts ??

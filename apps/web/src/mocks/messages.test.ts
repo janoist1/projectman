@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { MemberProfile, Session, TeamMessage, TeamMessagesView } from '@projectman/shared';
+import { MemberProfile, Session, TeamMessage, TeamMessagesView, TeamThreadsView } from '@projectman/shared';
+import type { ServerEvent } from '@projectman/shared';
 import { MockBackend } from './backend';
 
 const base = '/api/projects/AC';
@@ -88,6 +89,32 @@ describe('mock team messaging and profiles', () => {
     expect(bodies()).toEqual(['qa writes', 'kata writes']);
     b.findMember('kata')!.role = 'admin';
     expect(bodies()).toEqual(['fe-1 writes', 'qa writes', 'kata writes']);
+  });
+  it('lists the viewer conversations and reads several messages in one request (PM-78)', () => {
+    const b = backend();
+    b.sendTeamMessage('qa', ['owner'], null, 'qa 1');
+    const group = b.sendTeamMessage('owner', ['fe-1', 'kata'], null, 'group');
+    const qa2 = b.sendTeamMessage('qa', ['owner'], null, 'qa 2');
+    b.sendTeamMessage('fe-1', ['kata'], null, 'not the owner');
+    const threads = () => TeamThreadsView.parse(b.handle('GET', `${base}/messages/threads`, {}).body);
+    expect(threads().threads.map((t) => [t.peer, t.lastMessage.body, t.unreadCount])).toEqual([
+      ['qa', 'qa 2', 2],
+      ['kata', 'group', 0],
+      ['fe-1', 'group', 0],
+    ]);
+    expect(threads().unreadCount).toBe(2);
+    const events: ServerEvent[] = [];
+    const connection = { deliver: (event: ServerEvent) => events.push(event) };
+    b.connect(connection);
+    b.handleCommand(connection, { type: 'subscribe_project', projectKey: 'AC' });
+    const read = TeamMessagesView.parse(
+      b.handle('POST', `${base}/messages/read`, { ids: [qa2.id, group.id, 'msg_unknown'] }).body,
+    );
+    expect(read.messages.map((m) => m.body)).toEqual(['qa 2']);
+    expect(read.unreadCount).toBe(1);
+    expect(events.filter((e) => e.type === 'team_message')).toHaveLength(1);
+    expect(threads().threads[0]).toMatchObject({ peer: 'qa', unreadCount: 1 });
+    expect(b.handle('POST', `${base}/messages/read`, { ids: [] }).status).toBe(400);
   });
   it('allows clients to write, denies viewers and rejects invalid data atomically', () => {
     const b = backend();

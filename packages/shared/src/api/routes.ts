@@ -79,6 +79,10 @@ export const routes = {
   startConversation: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/conversation`,
   removeHuman: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/remove`,
   teamMessages: (key: string) => `/api/projects/${key}/messages`,
+  /** GET: the viewer's conversations with the other members, with the unread count of each (PM-78). */
+  teamThreads: (key: string) => `/api/projects/${key}/messages/threads`,
+  /** POST `{ ids }`: marks the viewer's unread messages among them read in one request (PM-78). */
+  readTeamMessages: (key: string) => `/api/projects/${key}/messages/read`,
 
   /** GET (internal members; query `days`): the cards closed lately with their rounds and tokens (PM-222). */
   closedCardsMeasure: (key: string) => `/api/projects/${key}/measure/closed-cards`,

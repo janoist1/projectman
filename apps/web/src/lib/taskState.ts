@@ -40,6 +40,8 @@ export interface TaskState {
   workers: TaskWorker[];
   /** Set on an open card with an open prerequisite, whatever else is happening to it. */
   prerequisite?: PrerequisiteWait;
+  /** The blocking labels the state's label names: the card shows them once, not again as chips. */
+  holdingLabels?: string[];
 }
 
 export interface TaskStateContext {
@@ -320,6 +322,7 @@ function deriveOpenState(task: Task, ctx: TaskStateContext, wait: PrerequisiteWa
       label: joinNames(holding.map((label) => label.name)),
       since: task.updatedAt,
       worker: null,
+      holdingLabels: holding.map((label) => label.id),
     };
   }
 

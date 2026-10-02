@@ -3,11 +3,14 @@ import clsx from 'clsx';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import type { Task } from '@projectman/shared';
+import { Avatar } from '../../components/Avatar';
 import { StatusDot } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
 import { StageProgress } from '../../components/StageProgress';
 import { formatAge } from '../../i18n/format';
 import { t } from '../../i18n/t';
+import { nameOf } from '../../lib/members';
+import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { cardWorkerRows, prerequisiteLabel } from '../../lib/taskState';
 import type { TaskState } from '../../lib/taskState';
@@ -32,7 +35,13 @@ interface TaskCardProps {
   uploading?: number;
   /** A file is dragged over the card: it will be attached here (`over`) or may not be (`denied`). */
   fileState?: 'over' | 'denied' | null;
+  /** The team, to draw the responsible member; without it the member is named by the handle. */
+  members?: MemberIndex;
+  /** The viewer's handle: their own card shows "Te". */
+  myHandle?: string | null;
 }
+
+const noMembers: MemberIndex = new Map();
 
 /**
  * The card's first image: a low strip over the whole card (a small thumbnail on the phone). The place
@@ -69,11 +78,15 @@ export function TaskCard({
   coverSrc = null,
   uploading = 0,
   fileState = null,
+  members = noMembers,
+  myHandle = null,
 }: TaskCardProps) {
   const pr = prChip(task);
   const rows = compact ? [] : stageRows(task, pipeline);
   const stage = pipeline.stageById.get(task.stageId);
-  const showMeta = !compact && (pr !== null || task.labels.length > 0);
+  // A label the status line already names ("● Válaszra vár") is not a chip as well; the drawer lists them all.
+  const chipLabels = task.labels.filter((label) => !state.holdingLabels?.includes(label));
+  const showMeta = !compact && (pr !== null || chipLabels.length > 0);
   // Said by the status line already when the card stands on it: never twice on one card.
   const prerequisite = state.prerequisite?.key && !state.prerequisite.inLabel ? state.prerequisite : null;
   const workerRows = cardWorkerRows(state);
@@ -93,7 +106,24 @@ export function TaskCard({
       data-file={fileState ?? undefined}
     >
       {coverSrc ? <CardCover key={coverSrc} src={coverSrc} thumbnail={compact} /> : null}
-      <StageProgress pipeline={pipeline} stageId={task.stageId} phase={state.phase} />
+      <span className={styles.head}>
+        <span className={styles.key}>{task.key}</span>
+        <StageProgress
+          pipeline={pipeline}
+          stageId={task.stageId}
+          phase={state.phase}
+          className={styles.progress}
+        />
+        {task.assignee ? (
+          <Avatar
+            member={members.get(task.assignee)}
+            handle={task.assignee}
+            isMe={task.assignee === myHandle}
+            size="xs"
+            label={t('board.assigneeLabel', { name: nameOf(task.assignee, members, myHandle) })}
+          />
+        ) : null}
+      </span>
       <span className={styles.titleRow}>
         <span className={styles.title}>{task.title}</span>
       </span>
@@ -151,7 +181,7 @@ export function TaskCard({
               <span>{pr.label}</span>
             </span>
           ) : null}
-          {task.labels.map((label) => (
+          {chipLabels.map((label) => (
             <LabelChip key={label} id={label} labels={labels} />
           ))}
         </span>
@@ -220,16 +250,11 @@ export function TaskCard({
           </span>
         )}
         {compact ? (
-          <span className={styles.age}>
-            {stage?.name}
-            {' · '}
-            <span className={styles.key}>{task.key}</span>
-          </span>
+          <span className={styles.age}>{stage?.name}</span>
         ) : state.phase !== 'done' ? (
           <span className={styles.age}>{formatAge(state.since)}</span>
         ) : null}
       </span>
-      {compact ? null : <span className="visually-hidden">{task.key}</span>}
       {fileState ? (
         <span className={styles.dropBar}>
           <Icon name={fileState === 'over' ? 'paperclip' : 'close'} size={14} strokeWidth={2.4} />

@@ -25,6 +25,7 @@ import { ThemeStrip } from './ThemeStrip';
 import { sortedThemes } from './themeModel';
 import { sortColumnEntries, useBoardModel } from './useBoardModel';
 import type { BoardEntry } from './useBoardModel';
+import { ApiError } from '../../api/client';
 import { useBoardMove, useLabels } from '../../api/queries';
 import { useToast } from '../../components/toastContext';
 import { isApprovalRequested } from '../../lib/errors';
@@ -61,6 +62,8 @@ interface DragHover {
 interface ColumnDrag {
   allowed: boolean;
   pendingKey: string | null;
+  /** The pending drop changes the card's column (a reorder within one is told by the dimming alone). */
+  pendingMoves: boolean;
   draggedKey: string | null;
   /** The column the dragged card stands in. */
   draggedColumn: string | null;
@@ -245,7 +248,9 @@ function BoardCard({
       )}
       {...fileDrop.props}
     >
-      {drag.pendingKey === task.key ? <p role="status">{t('task.move.pending')}</p> : null}
+      {drag.pendingKey === task.key && drag.pendingMoves ? (
+        <p role="status">{t('task.move.pending')}</p>
+      ) : null}
       <TaskCard
         reorderHelpId={drag.allowed ? HELP_ID : undefined}
         task={task}
@@ -360,7 +365,14 @@ export function BoardPage() {
     if (!pending) refocus.current = null;
   });
 
-  const runMove = (drop: BoardDrop) => {
+  /** Sets the live region; it is emptied first, or a text said twice in a row would not be read twice. */
+  const announce = (text: string) => {
+    setAnnouncement('');
+    setTimeout(() => setAnnouncement(text), 0);
+  };
+
+  /** `told` is said to a screen reader once the move went through. */
+  const runMove = (drop: BoardDrop, told?: string) => {
     setPending(drop);
     move.mutate(
       {
@@ -374,13 +386,17 @@ export function BoardPage() {
         onSuccess: (result) => {
           if (result.outcome === 'unchanged') return;
           setLandedKey(drop.taskKey);
+          if (told) announce(told);
           // Within a column the card landing says it; changing the column is said too (and may start work).
           if (result.outcome === 'moved') toast.show(t('task.move.success'));
         },
+        // A stale board is no failure: the refetch after it already shows the new order.
         onError: (error) =>
           toast.show(
             moveErrorText(error, board.data?.labels ?? []),
-            isApprovalRequested(error) ? 'info' : 'error',
+            isApprovalRequested(error) || (error instanceof ApiError && error.code === 'board_stale')
+              ? 'info'
+              : 'error',
           ),
         onSettled: () => setPending(null),
       },
@@ -422,6 +438,7 @@ export function BoardPage() {
   const drag: ColumnDrag = {
     allowed: can.createTasks && !isMobile,
     pendingKey: pending?.taskKey ?? null,
+    pendingMoves: !!pending && pending.stageId !== pending.fromStageId,
     draggedKey: dragged?.key ?? null,
     draggedColumn: dragged ? columnOf(dragged) : null,
     hover,
@@ -479,22 +496,22 @@ export function BoardPage() {
       const column = pipeline.columnOfStage.get(task.stageId);
       if (!column || pending) return;
       if (isChronologicalColumn(pipeline.stages, column.id)) {
-        setAnnouncement(t('board.reorder.doneFixed'));
+        announce(t('board.reorder.doneFixed'));
         return;
       }
       if (!canMoveTask(task, true)) return;
       const keys = orderedKeys(column.id);
       const at = keys.indexOf(task.key) + (event.key === 'ArrowUp' ? -1 : 1);
       if (at < 0 || at >= keys.length) {
-        setAnnouncement(t(at < 0 ? 'board.reorder.atTop' : 'board.reorder.atBottom'));
+        announce(t(at < 0 ? 'board.reorder.atTop' : 'board.reorder.atBottom'));
         return;
       }
       const placement = placementAt(keys, task.key, at);
       const drop = placement ? dropOf(task, column, placement) : null;
       if (!drop) return;
       refocus.current = task.key;
-      setAnnouncement(t('board.reorder.moved', { column: column.name, position: at + 1, key: task.key }));
-      runMove(drop);
+      setAnnouncement('');
+      runMove(drop, t('board.reorder.moved', { column: column.name, position: at + 1, key: task.key }));
     },
   };
 

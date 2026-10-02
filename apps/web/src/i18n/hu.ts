@@ -421,8 +421,7 @@ export const hu = {
       prerequisite_open: 'A feladat előfeltétele még nincs lezárva.',
       unknown_member: 'Ismeretlen csapattag.',
       task_closed: 'Ez a feladat már lezárult.',
-      board_stale:
-        'A tábla közben megváltozott, ezért a kártya nem került át. Nézd meg az új sorrendet, és próbáld újra.',
+      board_stale: 'A tábla közben változott, frissítettük. Próbáld újra.',
       board_column_chronological: 'A Kész oszlop időrendben marad, abban nem lehet sorrendet változtatni.',
       unknown_column: 'Ilyen oszlop nincs a táblán.',
       no_free_member: 'Most nincs szabad fejlesztő.',

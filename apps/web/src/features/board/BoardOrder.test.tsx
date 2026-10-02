@@ -134,9 +134,11 @@ describe('manual card order on the board (PM-118)', () => {
     dragTo(review, 'AC-25', 150).drop();
 
     expect(keysIn(review)).toEqual(['AC-26', 'AC-25', 'AC-21']);
-    expect(within(review).getByText(t('task.move.pending'))).toBeTruthy();
+    // Within a column the dimming and aria-busy tell it: a status line would make the card jump.
+    expect(cardOf('AC-25').getAttribute('aria-busy')).toBe('true');
+    expect(screen.queryByText(t('task.move.pending'))).toBeNull();
     release();
-    await waitFor(() => expect(screen.queryByText(t('task.move.pending'))).toBeNull());
+    await waitFor(() => expect(cardOf('AC-25').getAttribute('aria-busy')).toBe('false'));
     expect(keysIn(review)).toEqual(['AC-26', 'AC-25', 'AC-21']);
   });
 
@@ -271,7 +273,7 @@ describe('manual card order on the board (PM-118)', () => {
     ]);
     const column = project.backend.config.pipeline.columns.find((c) => c.id === 'review')!;
     expect(
-      screen.getByText(t('board.reorder.moved', { column: column.name, position: 2, key: 'AC-25' })),
+      await screen.findByText(t('board.reorder.moved', { column: column.name, position: 2, key: 'AC-25' })),
     ).toBeTruthy();
     await waitFor(() => expect(document.activeElement).toBe(cardOf('AC-25').querySelector('a')));
   });
@@ -280,12 +282,31 @@ describe('manual card order on the board (PM-118)', () => {
     const project = mockProject();
     await renderBoard(project);
     fireEvent.keyDown(cardOf('AC-25').querySelector('a')!, { key: 'ArrowUp', altKey: true });
-    expect(screen.getByText(t('board.reorder.atTop'))).toBeTruthy();
+    expect(await screen.findByText(t('board.reorder.atTop'))).toBeTruthy();
     fireEvent.keyDown(cardOf('AC-21').querySelector('a')!, { key: 'ArrowDown', altKey: true });
-    expect(screen.getByText(t('board.reorder.atBottom'))).toBeTruthy();
+    expect(await screen.findByText(t('board.reorder.atBottom'))).toBeTruthy();
     fireEvent.keyDown(cardOf('AC-16').querySelector('a')!, { key: 'ArrowDown', altKey: true });
-    expect(screen.getByText(t('board.reorder.doneFixed'))).toBeTruthy();
+    expect(await screen.findByText(t('board.reorder.doneFixed'))).toBeTruthy();
     expect(moves(project)).toEqual([]);
+  });
+
+  it('empties the live region before a text it says twice in a row, and says a move only once it went through', async () => {
+    const project = mockProject();
+    await renderBoard(project);
+    const link = cardOf('AC-25').querySelector('a')!;
+    // The region follows the help text; toasts are status elements too.
+    const region = () => document.getElementById('board-reorder-help')!.nextElementSibling!;
+    fireEvent.keyDown(link, { key: 'ArrowUp', altKey: true });
+    await waitFor(() => expect(region().textContent).toBe(t('board.reorder.atTop')));
+    fireEvent.keyDown(link, { key: 'ArrowUp', altKey: true });
+    expect(region().textContent).toBe('');
+    await waitFor(() => expect(region().textContent).toBe(t('board.reorder.atTop')));
+
+    // A refused move says nothing of arriving.
+    project.backend.tasks.find((task) => task.key === 'AC-21')!.stageId = 'client_test';
+    fireEvent.keyDown(link, { key: 'ArrowDown', altKey: true });
+    await screen.findByText(t('errors.codes.board_stale'));
+    expect(region().textContent).toBe('');
   });
 
   it('offers no keyboard reordering to a viewer who may not move cards', async () => {

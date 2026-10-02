@@ -142,6 +142,12 @@ export const Task = z.object({
    */
   repo: z.string().nullable(),
   priority: z.number().int().nullable(),
+  /**
+   * The card's place in the manual order of its board column (PM-118): ascending, shared by everyone.
+   * Independent of `priority`. Only the order of two cards means something, not the value (see
+   * `domain/board-order`). Absent on a card read from a server or fixture from before it existed.
+   */
+  boardRank: z.number().int().optional(),
   /** Label ids: defined in the pipeline's label vocabulary, or plain tags. */
   labels: z.array(z.string()),
   links: z.array(TaskLink),

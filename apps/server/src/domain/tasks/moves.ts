@@ -1,4 +1,5 @@
 import {
+  boardColumnOf,
   evaluateMove,
   gateRequestOf,
   isOpenTask,
@@ -11,6 +12,7 @@ import {
 import type {
   Actor,
   ApprovalRequirement,
+  BoardPlacement,
   GateEvaluation,
   GateRequestPayload,
   InboxItem,
@@ -26,6 +28,7 @@ import { conflict, DomainError, themeRefused } from '../errors';
 import { DECISION_OPTIONS } from '../inbox';
 import type { InboxService } from '../inbox';
 import { actorHandle, humanActor, newId, SYSTEM_ACTOR, unique } from '../util';
+import type { BoardOrder } from './board-order';
 import type { TaskLabels } from './labels';
 import { requireStage, runEffects } from './store';
 import type { Effect, TaskStore } from './store';
@@ -35,6 +38,14 @@ export interface MoveResult {
   moved: boolean;
   /** Decision items waiting for approvers when the target stage needs a human approval. */
   pendingApproval: InboxItem[];
+  /** The other cards of the target column whose rank was written (PM-118); the moved card's is on `task`. */
+  reranked?: string[];
+}
+
+/** Where a moved card goes in its new column, and (filled in) which other cards had to be renumbered. */
+interface BoardPlace {
+  placement?: BoardPlacement | undefined;
+  reranked: string[];
 }
 
 export interface StageChange {
@@ -62,6 +73,11 @@ export interface MoveOptions {
   branchMoved?: NonNullable<TimelineEventData['task_stage_changed']['branchMoved']>;
   /** A person's move despite open prerequisites (PM-204); carried to the `task_stage_changed` event. */
   despitePrerequisites?: boolean;
+  /**
+   * Where the card goes in the target column when it is dropped on the board (PM-118). Without it a card
+   * that enters another column takes the top of that column; one that stays in its column keeps its place.
+   */
+  placement?: BoardPlacement;
 }
 
 /** Reads the head of the branch a task's developer hands over, null when there is none to read. */
@@ -95,13 +111,16 @@ export class TaskMoves {
   private readonly labels: TaskLabels;
   private readonly inbox: InboxService;
   private readonly sourceHead: SourceHeadReader;
+  private readonly order: BoardOrder;
 
   constructor(deps: {
     store: TaskStore;
     labels: TaskLabels;
     inbox: InboxService;
     sourceHead: SourceHeadReader;
+    order: BoardOrder;
   }) {
+    this.order = deps.order;
     this.store = deps.store;
     this.labels = deps.labels;
     this.inbox = deps.inbox;
@@ -213,7 +232,14 @@ export class TaskMoves {
     const evaluation = evaluateMove(task, config, task.stageId, target.id);
     if (evaluation.unmet.length > 0) throw gateBlockedError(evaluation);
     if (evaluation.approvals.length > 0) {
-      const requested = this.requestApproval(config, task, target, evaluation.approvals, actor);
+      const requested = this.requestApproval(
+        config,
+        task,
+        target,
+        evaluation.approvals,
+        actor,
+        opts.placement,
+      );
       return { task: requested.task, moved: false, pendingApproval: requested.items };
     }
     const head = opts.handover?.head;
@@ -221,6 +247,7 @@ export class TaskMoves {
       ...(head ? { reviewPin: { commit: head.commit, branch: head.branch } } : {}),
       ...(opts.branchMoved ? { branchMoved: opts.branchMoved } : {}),
     };
+    const board: BoardPlace = { placement: opts.placement, reranked: [] };
     return {
       // Only a person can accept the warning: an AI actor's flag is ignored.
       task: this.applyMove(
@@ -232,9 +259,11 @@ export class TaskMoves {
         effects,
         head,
         opts.despitePrerequisites === true && actor.kind === 'human',
+        board,
       ),
       moved: true,
       pendingApproval: [],
+      reranked: board.reranked,
     };
   }
 
@@ -345,6 +374,9 @@ export class TaskMoves {
       },
       effects,
       handed.handover?.head,
+      false,
+      // The place the person chose when asking; the top when that card is not in the column any more.
+      { placement: gate.placement, reranked: [] },
     );
   }
 
@@ -355,6 +387,7 @@ export class TaskMoves {
     target: Stage,
     approvals: ApprovalRequirement[],
     actor: Actor,
+    placement?: BoardPlacement,
   ): { task: Task; items: InboxItem[] } {
     const open = this.inbox.openGateRequests(task.projectKey, task.key, task.stageId, target.id);
     if (open.length > 0) return { task, items: open };
@@ -378,6 +411,7 @@ export class TaskMoves {
         stageId: req.stageId,
         label: req.label,
         requestedBy: actor,
+        ...(placement ? { placement } : {}),
       };
       return this.inbox.create({
         projectKey: task.projectKey,
@@ -420,6 +454,7 @@ export class TaskMoves {
     effects: Effect[],
     pin?: SourceHead,
     despitePrerequisites = false,
+    board: BoardPlace = { reranked: [] },
   ): Task {
     const at = isoNow(this.store.ctx);
     // The commit handed over with the stage the task leaves is no longer its pin.
@@ -442,6 +477,15 @@ export class TaskMoves {
       patch.status = 'active';
       patch.closedAt = null;
     }
+    // A card entering another column takes its place there (the top unless it was dropped at a
+    // place); a status or stage change inside its own column never moves it (PM-118).
+    const toColumn = boardColumnOf(target);
+    let placed: string[] = [];
+    if (toColumn !== undefined && toColumn !== boardColumnOf(stageOf(config, task.stageId))) {
+      const entered = this.order.enter(config, { ...task, updatedAt: at }, toColumn, board.placement);
+      if (entered.rank !== undefined) patch.boardRank = entered.rank;
+      placed = entered.reranked;
+    }
     let next = this.store.write(task, patch);
     this.store.timeline.append({
       projectKey: task.projectKey,
@@ -451,6 +495,8 @@ export class TaskMoves {
       data: { from: task.stageId, to: target.id, ...extra },
     });
     this.store.publish(next);
+    this.order.publish(task.projectKey, placed);
+    board.reranked.push(...placed);
     // Facts that expire when work goes back (e.g. "code review ok") come off the task.
     if (stageIndex(config.pipeline, target.id) < stageIndex(config.pipeline, task.stageId))
       next = this.labels.expire(config, next, 'moved_back', effects);

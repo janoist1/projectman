@@ -1,5 +1,7 @@
 import type {
   Actor,
+  BoardMoveRequest,
+  BoardMoveResult,
   CreateTaskCommentRequest,
   TimelineEvent,
   CancelTaskRequest,
@@ -14,6 +16,8 @@ import type {
   Visibility,
 } from '@projectman/shared';
 import {
+  boardColumnOf,
+  dropStageOfColumn,
   evaluateMove,
   isHandleOnLeave,
   isOpenTask,
@@ -41,6 +45,7 @@ import { PullRequestRecords } from '../pull-requests';
 import { LIVE_SESSION_STATES } from '../sessions';
 import type { TimelineService } from '../timeline';
 import { actorHandle, newId, unique } from '../util';
+import { BoardOrder } from './board-order';
 import { labelsChange, planLabelsOrThrow, TaskLabels } from './labels';
 import { approvalRequestedError, gateBlockedError, TaskMoves } from './moves';
 import type { Handover, MoveOptions, MoveResult, SourceHeadReader } from './moves';
@@ -102,6 +107,7 @@ export class TaskService {
   private readonly store: TaskStore;
   private readonly labels: TaskLabels;
   private readonly moves: TaskMoves;
+  private readonly order: BoardOrder;
   private readonly cardRelations: TaskRelations;
   private readonly themes: TaskThemes;
   private readonly pullRequests: PullRequestRecords;
@@ -121,11 +127,13 @@ export class TaskService {
     this.projects = deps.projects;
     this.store = new TaskStore(deps);
     this.labels = new TaskLabels(this.store);
+    this.order = new BoardOrder(this.store);
     this.moves = new TaskMoves({
       store: this.store,
       labels: this.labels,
       inbox: deps.inbox,
       sourceHead: deps.sourceHead,
+      order: this.order,
     });
     this.themes = new TaskThemes(this.store);
     this.cardRelations = new TaskRelations(this.store, {
@@ -263,7 +271,15 @@ export class TaskService {
     const effects: Effect[] = [];
     const created = this.ctx.unitOfWork(() => {
       task.key = `${projectKey}-${this.ctx.repos.counters.next(projectKey, 'task')}`;
+      // A new card goes to the top of its column (PM-118); a theme stands on no board.
+      let reranked: string[] = [];
+      if (kind !== 'theme') {
+        const entered = this.order.enter(config, task, boardColumnOf(target) ?? target.id);
+        if (entered.rank !== undefined) task.boardRank = entered.rank;
+        reranked = entered.reranked;
+      }
       this.ctx.repos.tasks.insert(task);
+      this.order.publish(projectKey, reranked);
       this.timeline.append({
         projectKey,
         taskKey: task.key,
@@ -332,6 +348,67 @@ export class TaskService {
     await runEffects(effects);
     if (result.pendingApproval) throw approvalRequestedError(result.pendingApproval);
     return result.task;
+  }
+
+  /**
+   * A card dropped on the board (PM-118): in its own column it only changes place; on another column
+   * it enters that column's first stage at the placed position, through the same gates and approvals as
+   * any stage change. The client names the card it saw in a stage and the card it dropped next to; the
+   * server refuses (409 `board_stale`) when either is not as seen, and computes the ranks itself. A move
+   * that waits for approval keeps the card where it is and remembers the placement.
+   */
+  async moveOnBoard(
+    projectKey: string,
+    taskKey: string,
+    req: BoardMoveRequest,
+    actor: Actor,
+  ): Promise<BoardMoveResult> {
+    const config = await this.projects.config(projectKey);
+    const target = dropStageOfColumn(config.pipeline.stages, req.columnId);
+    if (!target) throw invalid('unknown_column', `the board has no column ${req.columnId}`);
+    const seen = this.get(projectKey, taskKey);
+    if (isTheme(seen)) throw themeRefused(taskKey, 'be moved on the board');
+    const entering = !this.inColumn(config, seen, req.columnId);
+    // A move into a review or test stage hands the branch over (PM-183): read before the write.
+    const handover = entering ? await this.moves.prepareHandover(config, seen, target.id) : null;
+    const effects: Effect[] = [];
+    const result = this.ctx.unitOfWork((): { board: BoardMoveResult; pending?: InboxItem[] } => {
+      const task = this.get(projectKey, taskKey);
+      if (task.status === 'cancelled') throw conflict('task_closed', `task ${taskKey} is cancelled`);
+      if (task.stageId !== req.fromStageId)
+        throw conflict('board_stale', `${taskKey} is not in the stage ${req.fromStageId} any more`, {
+          reason: 'source',
+          stageId: task.stageId,
+        });
+      const chronological = this.order.chronological(config, req.columnId);
+      if (!entering) {
+        if (chronological || task.status === 'done')
+          throw conflict(
+            'board_column_chronological',
+            'a column of finished work is ordered by closing time',
+          );
+        return { board: this.order.reorder(config, task, req.columnId, req.placement) };
+      }
+      if (!chronological) this.order.requireCurrent(config, task, req.columnId, req.placement);
+      const moved = this.moves.move(config, task, target.id, actor, effects, {
+        handover,
+        despitePrerequisites: req.despitePrerequisites,
+        placement: req.placement,
+      });
+      if (!moved.moved)
+        return {
+          board: { task: moved.task, outcome: 'unchanged', reranked: [] },
+          pending: moved.pendingApproval,
+        };
+      return { board: { task: moved.task, outcome: 'moved', reranked: moved.reranked ?? [] } };
+    });
+    await runEffects(effects);
+    if (result.pending?.length) throw approvalRequestedError(result.pending);
+    return result.board;
+  }
+
+  private inColumn(config: ProjectConfig, task: Task, columnId: string): boolean {
+    return boardColumnOf(config.pipeline.stages.find((stage) => stage.id === task.stageId)) === columnId;
   }
 
   private applyUpdate(

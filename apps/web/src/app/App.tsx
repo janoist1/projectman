@@ -74,6 +74,8 @@ export function AppRoutes() {
           <Route path="team" element={teamPage} />
           <Route path="team/:handle" element={memberProfilePage} />
           <Route path="messages" element={messagesPage} />
+          <Route path="messages/with/:handle" element={messagesPage} />
+          <Route path="messages/all" element={messagesPage} />
           <Route path="settings" element={settingsPage} />
           <Route path="*" element={notFound} />
         </Route>

@@ -3,8 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { DEFAULT_AGENT_PROVIDER } from '@projectman/shared';
 import type { BoardView } from '@projectman/shared';
-import { useTeamMessages } from '../api/queries';
-import { unreadMessages } from '../features/messages/receipts';
+import { useTeamThreads } from '../api/queries';
 import { useConnectionStatus } from '../api/socketHooks';
 import { AvatarStack } from '../components/Avatar';
 import { Button } from '../components/Button';
@@ -27,9 +26,9 @@ interface NavItem {
 }
 
 function useNavItems(inboxCount: number): { main: NavItem[]; settings: NavItem } {
-  const { key, myHandle } = useProject();
-  const messages = useTeamMessages(key);
-  const unread = messages.data?.unreadCount ?? unreadMessages(messages.data?.messages ?? [], myHandle).length;
+  const { key } = useProject();
+  // The server counts the viewer's unread messages across their conversations (PM-78).
+  const unread = useTeamThreads(key).data?.unreadCount ?? 0;
   const { pathname } = useLocation();
   const base = `/p/${key}`;
   const under = (path: string) => pathname === path || pathname.startsWith(`${path}/`);

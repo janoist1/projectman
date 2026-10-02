@@ -32,6 +32,7 @@ import { BoundaryReason } from '@projectman/shared';
 import { invalidateAttachments, patchOpenInboxCount, upsertBy, writeTask, writeTaskDetail } from './cache';
 import { api } from './endpoints';
 import { queryKeys } from './queryKeys';
+import type { AllMessagesFilter } from './queryKeys';
 
 /* ---------- auth ---------- */
 
@@ -602,6 +603,43 @@ export function useReadTeamMessage(key: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.readTeamMessage(key, id),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.messages(key) }),
+  });
+}
+
+/** The viewer's conversations with the other members and the unread count the menu shows (PM-78). */
+export function useTeamThreads(key: string) {
+  return useQuery({ queryKey: queryKeys.teamThreads(key), queryFn: () => api.teamThreads(key) });
+}
+
+/** One conversation of the viewer with `peer` (every message of the two, up to the page limit). */
+export function useConversation(key: string, peer: string | null) {
+  return useQuery({
+    queryKey: queryKeys.conversation(key, peer ?? ''),
+    queryFn: () => api.teamMessageList(key, { threadWith: peer! }),
+    enabled: peer !== null,
+  });
+}
+
+/** The project's messages under the filters; only an owner and an admin get anything beyond their own. */
+export function useAllMessages(key: string, filter: AllMessagesFilter, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.allMessages(key, filter),
+    queryFn: () =>
+      api.teamMessageList(key, {
+        member: filter.member || undefined,
+        taskKey: filter.task || undefined,
+        unreadOnly: filter.unread,
+      }),
+    enabled,
+  });
+}
+
+/** Marks the unread messages of an opened conversation read in one request. */
+export function useReadTeamMessages(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) => api.readTeamMessages(key, ids),
     onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.messages(key) }),
   });
 }

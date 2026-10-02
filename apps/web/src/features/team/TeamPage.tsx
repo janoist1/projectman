@@ -233,7 +233,7 @@ export function TeamPage() {
             ) : (
               <LoadingState compact />
             )}
-            <Link to={`/p/${key}/messages`} className={styles.flowAll}>
+            <Link to={`/p/${key}/messages${can.manageTeam ? '/all' : ''}`} className={styles.flowAll}>
               <span>{t('team.messagesAll')}</span>
               <Icon name="arrowRight" size={14} strokeWidth={2.2} />
             </Link>

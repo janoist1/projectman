@@ -6,9 +6,13 @@ import { useIsMobile, useMediaQuery } from '../../lib/hooks';
 import styles from './Composer.module.css';
 
 interface ComposerProps {
-  onSend: (text: string) => void;
+  /** A promise keeps the text in the box until it resolves, so a failed send does not lose it. */
+  onSend: (text: string) => void | Promise<unknown>;
   autoFocus?: boolean;
   disabled?: boolean;
+  /** The box's accessible name and its placeholder; a session's by default. */
+  label?: string;
+  placeholder?: string;
 }
 
 /** The field stops growing here (about five lines on a phone, so the chat keeps room beside the keyboard). */
@@ -20,7 +24,13 @@ const PHONE_MAX_HEIGHT = 132;
  * With a keyboard Enter sends and Shift+Enter adds a new line; on a touch screen Enter adds a new
  * line and only the button sends.
  */
-export function Composer({ onSend, autoFocus = false, disabled = false }: ComposerProps) {
+export function Composer({
+  onSend,
+  autoFocus = false,
+  disabled = false,
+  label = t('session.composer.label'),
+  placeholder = t('session.composer.placeholder'),
+}: ComposerProps) {
   const [text, setText] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
   const id = useId();
@@ -44,8 +54,16 @@ export function Composer({ onSend, autoFocus = false, disabled = false }: Compos
   const submit = () => {
     const value = text.trim();
     if (!value || disabled) return;
-    onSend(value);
-    setText('');
+    const sent = onSend(value);
+    if (sent instanceof Promise) {
+      // The caller shows the failure; the text stays so it can be sent again.
+      void sent.then(
+        () => setText(''),
+        () => undefined,
+      );
+    } else {
+      setText('');
+    }
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -65,7 +83,7 @@ export function Composer({ onSend, autoFocus = false, disabled = false }: Compos
       }}
     >
       <label htmlFor={id} className="visually-hidden">
-        {t('session.composer.label')}
+        {label}
       </label>
       <div className={styles.row}>
         <textarea
@@ -73,7 +91,7 @@ export function Composer({ onSend, autoFocus = false, disabled = false }: Compos
           id={id}
           rows={1}
           className={styles.input}
-          placeholder={t('session.composer.placeholder')}
+          placeholder={placeholder}
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={onKeyDown}

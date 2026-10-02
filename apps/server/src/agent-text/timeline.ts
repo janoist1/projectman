@@ -75,6 +75,12 @@ export function describeEvent(
       const verb = event.type === 'task_relation_added' ? 'added' : 'removed';
       return `${verb} the relation: this card ${relationPhrase(text('kind') ?? '')} ${text('ref') ?? '?'}`;
     }
+    case 'task_theme_changed': {
+      const next = text('themeKey');
+      const previous = text('previous');
+      if (!next) return `took it out of the theme ${previous ?? '?'}`;
+      return previous ? `moved it from the theme ${previous} to ${next}` : `put it into the theme ${next}`;
+    }
     case 'task_prerequisite_closed': {
       const how = text('status') === 'cancelled' ? 'was withdrawn' : 'is done';
       const remaining = list('remaining');
@@ -138,6 +144,7 @@ function describeTaskUpdate(
   const action = text('action');
   if (action === 'cancelled') return `cancelled the task${text('reason') ? `: ${text('reason')}` : ''}`;
   if (action === 'reopened') return 'reopened the task';
+  if (action === 'closed') return 'closed the theme';
   const request = record('gateRequest');
   if (request) {
     const to = field(request, 'to');

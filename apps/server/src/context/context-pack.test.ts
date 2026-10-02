@@ -1117,6 +1117,18 @@ describe('kick-off brief', () => {
     expect(none).not.toContain('## Prerequisites');
   });
 
+  it('names the theme of the card after its relations, and has no section without one (PM-192)', () => {
+    const theme = { key: 'AR-30', title: 'The epic', stageId: 'backlog', status: 'active' as const };
+    const brief = builder.build(input({ relations: [], theme })).initialMessage ?? '';
+    expect(brief).toContain('## Relations\nNone.\n\n## Theme\n`AR-30` "The epic" · Status: open');
+    // A closed theme says so.
+    expect(builder.build(input({ theme: { ...theme, status: 'cancelled' } })).initialMessage ?? '').toContain(
+      '## Theme\n`AR-30` "The epic" · Status: closed',
+    );
+    // A card with no theme gets no section, so its brief does not grow (PM-181).
+    expect(builder.build(input({})).initialMessage ?? '').not.toContain('## Theme');
+  });
+
   it('cuts very long descriptions', () => {
     const brief =
       builder.build(input({ task: makeTask({ description: 'z'.repeat(20_000) }) })).initialMessage ?? '';

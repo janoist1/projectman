@@ -89,7 +89,23 @@ export const TaskReviewPin = z.object({
 });
 export type TaskReviewPin = z.infer<typeof TaskReviewPin>;
 
+/**
+ * What a card is (PM-192): a `task` goes through the pipeline; a `theme` groups cards (an epic): it has a
+ * key, a title, a description and a timeline, but no stage to move through, no assignee, no work and no
+ * session, and it is only open or closed.
+ */
+export const TaskKind = z.enum(['task', 'theme']);
+export type TaskKind = z.infer<typeof TaskKind>;
+
 export const Task = z.object({
+  /** Absent: `task`. */
+  kind: TaskKind.optional(),
+  /**
+   * The theme the card belongs to, as it is read: a subtask has its parent's theme (never its own, so
+   * the parent changing theme writes nothing to its subtasks); other cards have the theme they were
+   * given. Absent or null: none. A theme has none.
+   */
+  themeKey: TaskKey.nullable().optional(),
   /** One level of subtasks; omitted by older clients. */
   parentKey: TaskKey.nullable().optional(),
   startWaiting: TaskStartWaiting.optional(),
@@ -145,6 +161,14 @@ export function isOpenTask(task: Pick<Task, 'status'>): boolean {
   return task.status !== 'done' && task.status !== 'cancelled';
 }
 
+/**
+ * Whether the card is a theme. Every pipeline path (moving, starting, assigning, the repository,
+ * subtasks, prerequisites, review watching, load, hand-over) leaves a theme out by this one predicate.
+ */
+export function isTheme(task: Pick<Task, 'kind'>): boolean {
+  return task.kind === 'theme';
+}
+
 /** Sequence number of a task key ("AR-21" -> 21). */
 export function taskSeq(key: string): number {
   return Number(key.slice(key.lastIndexOf('-') + 1));
@@ -156,22 +180,25 @@ export type SubtaskParentRefusal =
   | 'subtask_parent_not_found'
   | 'subtask_parent_project'
   | 'subtask_parent_is_subtask'
-  | 'subtask_has_children';
+  | 'subtask_has_children'
+  | 'subtask_theme';
 
 /**
  * Why a task may not become a subtask of `parentKey`, or null when it may. Subtasks go one
  * level deep: the parent is another task of the same project and not a subtask itself, and a
- * task with subtasks of its own cannot become one. `parent` is the task stored under
- * `parentKey` (none when it does not exist); the child's `key` is null while it is created.
+ * task with subtasks of its own cannot become one. A theme is neither a parent nor a subtask.
+ * `parent` is the task stored under `parentKey` (none when it does not exist); the child's `key`
+ * is null while it is created.
  */
 export function subtaskParentRefusal(
   parentKey: string,
-  parent: Pick<Task, 'projectKey' | 'parentKey'> | null | undefined,
-  child: { key: string | null; projectKey: string; hasSubtasks: boolean },
+  parent: Pick<Task, 'projectKey' | 'parentKey' | 'kind'> | null | undefined,
+  child: { key: string | null; projectKey: string; hasSubtasks: boolean; kind?: TaskKind | undefined },
 ): SubtaskParentRefusal | null {
   if (parentKey === child.key) return 'subtask_self_parent';
   if (!parent) return 'subtask_parent_not_found';
   if (parent.projectKey !== child.projectKey) return 'subtask_parent_project';
+  if (isTheme(parent) || child.kind === 'theme') return 'subtask_theme';
   if (parent.parentKey) return 'subtask_parent_is_subtask';
   if (child.hasSubtasks) return 'subtask_has_children';
   return null;

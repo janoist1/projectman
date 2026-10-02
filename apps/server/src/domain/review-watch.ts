@@ -1,4 +1,11 @@
-import { isOpenTask, reviewReturnedWork, stageIndex, stageOf, stageOwners } from '@projectman/shared';
+import {
+  isOpenTask,
+  isTheme,
+  reviewReturnedWork,
+  stageIndex,
+  stageOf,
+  stageOwners,
+} from '@projectman/shared';
 import type { Messaging } from './messaging';
 import type { DomainContext } from './context';
 import type { ProjectService } from './projects';
@@ -62,7 +69,7 @@ export class ReviewWatch {
     const task = this.tasks.find(projectKey, taskKey);
     const pin = this.ctx.repos.reviewPins.get(taskKey);
     // A pin of a stage the task left is stale, whatever the branch does.
-    if (!task || !pin || !isOpenTask(task) || task.stageId !== pin.stageId) return false;
+    if (!task || !pin || !isOpenTask(task) || isTheme(task) || task.stageId !== pin.stageId) return false;
     const config = await this.projects.config(projectKey);
     const head = await this.sessions.sourceHead(config, task);
     if (!head || head.commit === pin.commit) return false;

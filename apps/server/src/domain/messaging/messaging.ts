@@ -1,6 +1,7 @@
 import {
   formatInjectedTeamMessage,
   isOpenTask,
+  isTheme,
   labelDefinition,
   memberOf,
   routeFor,
@@ -269,8 +270,8 @@ export class Messaging {
    * 2. on an open card, the running session on an open family card (the parent of a subtask, the
    *    subtasks of a parent), the most recently active one, so a member has no second session on
    *    the same subject; not for an owner of the card's current stage, who has work there;
-   * 3. on a closed card, the recipient's general chat, running or to be woken: no session starts
-   *    on a closed card;
+   * 3. on a closed card or a theme, the recipient's general chat, running or to be woken: no session
+   *    starts on a closed card, and a theme has none;
    * 4. else the card itself, to be woken there.
    */
   private place(
@@ -283,7 +284,8 @@ export class Messaging {
     if (own || workItem.type !== 'task') return { workItem, running: own };
     const task = this.tasks.find(projectKey, workItem.taskKey);
     if (!task) return { workItem, running: null };
-    if (!isOpenTask(task)) {
+    // A theme has no session (PM-192), open or closed, so its messages go to the general chat too.
+    if (isTheme(task) || !isOpenTask(task)) {
       const general: WorkItemRef = { type: 'general' };
       return { workItem: general, running: this.sessions.findRunning(projectKey, handle, general) };
     }

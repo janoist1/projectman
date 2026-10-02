@@ -17,17 +17,24 @@ import {
   evaluateMove,
   isHandleOnLeave,
   isOpenTask,
+  isTheme,
   memberOf,
   repoOf,
   subtaskParentRefusal,
 } from '@projectman/shared';
-import type { LabelChangeReason, LabelClearTrigger, RelationsChange, TaskRelation } from '@projectman/shared';
+import type {
+  LabelChangeReason,
+  LabelClearTrigger,
+  RelationsChange,
+  TaskKind,
+  TaskRelation,
+} from '@projectman/shared';
 import type { PullRequestInfo } from '../../contracts';
 import type { TaskPatch } from '../../db';
 import { requireHuman } from '../access';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
-import { conflict, invalid } from '../errors';
+import { conflict, invalid, themeRefused } from '../errors';
 import type { InboxService } from '../inbox';
 import type { ProjectService } from '../projects';
 import { PullRequestRecords } from '../pull-requests';
@@ -40,6 +47,8 @@ import type { Handover, MoveOptions, MoveResult, SourceHeadReader } from './move
 import { SUBTASK_PARENT_REFUSALS, TaskRelations } from './relations';
 import { requireStage, runEffects, TaskStore } from './store';
 import type { Effect, StartWaitingReader } from './store';
+import { TaskThemes } from './themes';
+import type { ThemeView } from './themes';
 
 /** A repository the project's configuration does not have, with the names it does have. */
 function unknownRepo(config: ProjectConfig, repo: string) {
@@ -75,6 +84,8 @@ export interface TaskUpdate {
   stageId?: string;
   /** Relations to other cards (PM-192): removals first, then additions; all or nothing with the rest. */
   relations?: RelationsChange;
+  /** The theme the card belongs to (PM-192); null removes it. Not for a theme or a subtask. */
+  themeKey?: string | null;
   /** A person moves the card into the work stage despite open prerequisites (PM-204). */
   despitePrerequisites?: boolean;
 }
@@ -92,6 +103,7 @@ export class TaskService {
   private readonly labels: TaskLabels;
   private readonly moves: TaskMoves;
   private readonly cardRelations: TaskRelations;
+  private readonly themes: TaskThemes;
   private readonly pullRequests: PullRequestRecords;
 
   constructor(deps: {
@@ -115,10 +127,13 @@ export class TaskService {
       inbox: deps.inbox,
       sourceHead: deps.sourceHead,
     });
+    this.themes = new TaskThemes(this.store);
     this.cardRelations = new TaskRelations(this.store, {
       liveSession: (task) => this.liveSession(task) !== undefined,
       recordParentChange: (task, previous, actor, sessionId) =>
         this.recordParentChange(task, previous, actor, sessionId),
+      recordThemeChange: (task, previous, themeKey, actor, sessionId) =>
+        this.themes.record(task, previous, themeKey, actor, sessionId),
       cancel: (task, actor, duplicate, sessionId, effects) =>
         this.closeAsCancelled(task, actor, duplicate, sessionId, effects),
     });
@@ -160,6 +175,13 @@ export class TaskService {
     return this.cardRelations.of(this.get(projectKey, taskKey));
   }
 
+  /** The cards of a theme (collecting cards with their subtasks) and how far it is (PM-192). */
+  themeOf(projectKey: string, themeKey: string): ThemeView {
+    const theme = this.get(projectKey, themeKey);
+    if (!isTheme(theme)) throw conflict('task_not_theme', `${themeKey} is not a theme`);
+    return this.themes.of(theme);
+  }
+
   detail(projectKey: string, taskKey: string, timelineLimit = 100): TaskDetail {
     const task = this.get(projectKey, taskKey);
     return {
@@ -183,14 +205,26 @@ export class TaskService {
     if (req.importedAt !== undefined)
       requireHuman(config, actor, 'owner', { code: 'owner_only', message: 'only an owner may import tasks' });
     const first = config.pipeline.stages[0]!;
+    const kind: TaskKind = req.kind ?? 'task';
+    if (kind === 'theme' && (req.stageId !== undefined || req.repo))
+      throw invalid('task_is_theme', 'a theme has no stage and no repository: leave stageId and repo out');
     const target = req.stageId ? requireStage(config, req.stageId) : first;
     const title = req.title.trim();
     if (!title) throw invalid('invalid_request', 'title must not be empty');
     const repo = req.repo ?? null;
     if (repo && !repoOf(config, repo)) throw unknownRepo(config, repo);
-    if (req.parentKey) this.validateParent(projectKey, null, req.parentKey);
+    if (req.parentKey) this.validateParent(projectKey, null, req.parentKey, kind);
+    if (req.themeKey)
+      this.themes.require(req.themeKey, {
+        projectKey,
+        kind,
+        // A card created as a part of another gets that card's theme, so it has none of its own.
+        parentKey: req.parentKey ?? (req.relations?.some((r) => r.kind === 'part_of') ? '-' : null),
+      });
     const at = req.importedAt ?? isoNow(this.ctx);
     const task: Task = {
+      ...(kind === 'theme' ? { kind } : {}),
+      ...(req.themeKey ? { themeKey: req.themeKey } : {}),
       parentKey: req.parentKey ?? null,
       id: newId('tsk'),
       projectKey,
@@ -240,6 +274,10 @@ export class TaskService {
         createdAt: at,
       });
       if (task.parentKey) this.recordParentChange(task, null, actor, opts.sessionId);
+      if (task.themeKey) {
+        this.themes.record(task, null, task.themeKey, actor, opts.sessionId ?? null);
+        this.themes.publishAround(task, [task.themeKey]);
+      }
       // Relations are planned against the project with the new card in it; one refused refuses the creation.
       if (req.relations?.length) {
         const plan = this.cardRelations.plan(config, task, { add: req.relations }, actor);
@@ -247,8 +285,10 @@ export class TaskService {
         this.publish(related);
         return related;
       }
-      this.publish(task);
-      return task;
+      // A subtask shows its parent's theme, which only a read tells.
+      const stored = task.parentKey ? this.store.get(projectKey, task.key) : task;
+      this.publish(stored);
+      return stored;
     });
     await runEffects(effects);
     return created;
@@ -303,6 +343,15 @@ export class TaskService {
     effects: Effect[],
     handover: Handover | null,
   ): { task: Task; pendingApproval?: InboxItem[] } {
+    // A theme does not move, have an assignee or a repository (PM-192).
+    if (isTheme(task)) {
+      if (change.stageId !== undefined && change.stageId !== task.stageId)
+        throw themeRefused(task.key, 'move between stages');
+      if (change.assignee !== undefined && change.assignee !== null)
+        throw themeRefused(task.key, 'have an assignee');
+      if (change.repo !== undefined && change.repo !== null)
+        throw themeRefused(task.key, 'have a repository');
+    }
     // Validate the whole change against the task as it will be.
     const patch: TaskPatch = {};
     const fields: string[] = [];
@@ -329,11 +378,30 @@ export class TaskService {
         'invalid_request',
         'a card marked as a duplicate is closed: it cannot move in the same call',
       );
-    if (change.parentKey) this.validateParent(task.projectKey, task.key, change.parentKey);
+    if (change.parentKey) this.validateParent(task.projectKey, task.key, change.parentKey, task.kind);
     if (change.parentKey !== undefined && change.parentKey !== (task.parentKey ?? null)) {
       patch.parentKey = change.parentKey;
       fields.push('parentKey');
     }
+    // The theme the card stores (a subtask stores none: it reads its parent's), and what it will store.
+    const ownTheme = task.parentKey ? null : (task.themeKey ?? null);
+    let themeAfter = ownTheme;
+    let parentAfter = change.parentKey !== undefined ? change.parentKey : (task.parentKey ?? null);
+    for (const step of relationPlan?.steps ?? [])
+      if (step.type === 'parent' && step.child === task.key) parentAfter = step.parent;
+    if (change.themeKey !== undefined && change.themeKey !== ownTheme) {
+      if (change.themeKey !== null)
+        this.themes.require(change.themeKey, {
+          projectKey: task.projectKey,
+          kind: task.kind,
+          parentKey: parentAfter,
+        });
+      themeAfter = change.themeKey;
+    }
+    // A card that becomes a subtask loses the theme it had: from then on it reads its parent's. (A part_of
+    // relation does the same where it is written, see `TaskRelations.execute`.)
+    if (change.parentKey) themeAfter = null;
+    if (themeAfter !== ownTheme) patch.themeKey = themeAfter;
     if (change.repo !== undefined && change.repo !== task.repo) {
       if (change.repo !== null && !repoOf(config, change.repo)) throw unknownRepo(config, change.repo);
       // The task's worktree and its sessions are in the old repository: they would stay there.
@@ -388,7 +456,7 @@ export class TaskService {
     // Apply it.
     let next = task;
     const labelsChanged = labelsChange(labels);
-    if (fields.length > 0 || patch.assignee !== undefined || labelsChanged) {
+    if (fields.length > 0 || patch.assignee !== undefined || patch.themeKey !== undefined || labelsChanged) {
       next = this.store.write(task, {
         ...patch,
         ...(labelsChanged ? { labels: labels.labels } : {}),
@@ -420,7 +488,18 @@ export class TaskService {
         });
       if (patch.parentKey !== undefined)
         this.recordParentChange(next, task.parentKey ?? null, actor, sessionId);
+      // A card that became a subtask, or left its collecting card, shows another theme now, which only a
+      // read tells.
+      if (patch.parentKey !== undefined || patch.themeKey !== undefined)
+        next = this.get(task.projectKey, task.key);
+      // What the card shows changed (its own theme, or the one of the parent it joined or left): the
+      // timelines of the card and of both themes say so.
+      const shownBefore = task.themeKey ?? null;
+      const shownAfter = next.themeKey ?? null;
+      if (shownBefore !== shownAfter) this.themes.record(next, shownBefore, shownAfter, actor, sessionId);
       this.publish(next);
+      // A subtask of the card shows the card's theme, so a change of theme is news to them and to both themes.
+      if (shownBefore !== shownAfter) this.themes.publishAround(next, [shownBefore, shownAfter]);
     }
     if (relationPlan && relationPlan.steps.length > 0)
       next = this.cardRelations.execute(relationPlan, next, actor, sessionId, effects);
@@ -440,11 +519,17 @@ export class TaskService {
       .find((s) => LIVE_SESSION_STATES.includes(s.state));
   }
 
-  private validateParent(projectKey: string, taskKey: string | null, parentKey: string): void {
+  private validateParent(
+    projectKey: string,
+    taskKey: string | null,
+    parentKey: string,
+    kind?: TaskKind,
+  ): void {
     const refusal = subtaskParentRefusal(parentKey, this.ctx.repos.tasks.get(parentKey), {
       key: taskKey,
       projectKey,
       hasSubtasks: taskKey !== null && this.ctx.repos.tasks.children(projectKey, taskKey).length > 0,
+      kind,
     });
     if (refusal) throw invalid(refusal, SUBTASK_PARENT_REFUSALS[refusal]);
   }
@@ -479,6 +564,7 @@ export class TaskService {
     const effects: Effect[] = [];
     const next = this.ctx.unitOfWork(() => {
       const task = this.get(projectKey, taskKey);
+      if (isTheme(task)) throw themeRefused(taskKey, 'be cancelled: close it instead');
       if (!isOpenTask(task)) throw conflict('task_closed', `task ${taskKey} is ${task.status}`);
       return this.closeAsCancelled(task, actor, { reason: req.reason }, null, effects);
     });
@@ -518,9 +604,38 @@ export class TaskService {
     return cancelled;
   }
 
-  /** Reopens in the same stage, with no assignee; starting work remains explicit. */
+  /**
+   * Closes a theme (PM-192): it is closed, like a cancelled card, and the cards that belong to it are not
+   * touched. A person of developer access may; only a theme closes this way (a card is cancelled).
+   */
+  async closeTheme(projectKey: string, taskKey: string, actor: Actor): Promise<Task> {
+    const config = await this.projects.config(projectKey);
+    requireHuman(config, actor, 'developer');
+    return this.ctx.unitOfWork(() => {
+      const task = this.get(projectKey, taskKey);
+      if (!isTheme(task)) throw conflict('task_not_theme', `${taskKey} is not a theme: cancel it instead`);
+      if (!isOpenTask(task)) throw conflict('task_closed', `theme ${taskKey} is closed already`);
+      const at = isoNow(this.ctx);
+      const closed = this.store.write(task, { status: 'cancelled', closedAt: at, updatedAt: at });
+      this.timeline.append({
+        projectKey,
+        taskKey,
+        actor,
+        type: 'task_updated',
+        data: { fields: ['status', 'closedAt'], action: 'closed', previousStatus: task.status },
+      });
+      this.publish(closed);
+      return closed;
+    });
+  }
+
+  /**
+   * Reopens in the same stage, with no assignee; starting work remains explicit. A theme is reopened by
+   * a person of developer access, any other card by an admin.
+   */
   async reopen(projectKey: string, taskKey: string, actor: Actor): Promise<Task> {
-    await this.requireLifecycleAccess(projectKey, actor);
+    const config = await this.projects.config(projectKey);
+    requireHuman(config, actor, isTheme(this.get(projectKey, taskKey)) ? 'developer' : 'admin');
     return this.ctx.unitOfWork(() => {
       const task = this.get(projectKey, taskKey);
       if (task.status !== 'cancelled') {
@@ -616,6 +731,7 @@ export class TaskService {
     return this.ctx.unitOfWork(() => {
       const task = this.get(projectKey, taskKey);
       if (task.assignee === assignee) return task;
+      if (isTheme(task)) throw themeRefused(taskKey, 'have an assignee');
       const next = this.store.write(task, { assignee, updatedAt: isoNow(this.ctx) });
       this.timeline.append({
         projectKey,

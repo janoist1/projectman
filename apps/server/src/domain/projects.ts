@@ -5,6 +5,7 @@ import {
   ProjectConfig,
   applyConfigPatch,
   configSchemaIssues,
+  isTheme,
   memberOf,
   ownerOnlyChanges,
   validateProjectConfig,
@@ -412,7 +413,8 @@ export class ProjectService {
     const stageIds = new Set(next.pipeline.stages.map((stage) => stage.id));
     const removed = previous.pipeline.stages.filter((stage) => !stageIds.has(stage.id));
     if (!removed.length) return;
-    const tasks = this.ctx.repos.tasks.list(key);
+    // A theme has the first stage's id because the field is required, but it is in no stage (PM-192).
+    const tasks = this.ctx.repos.tasks.list(key).filter((task) => !isTheme(task));
     for (const stage of removed) {
       const count = tasks.filter((task) => task.stageId === stage.id).length;
       if (count) {

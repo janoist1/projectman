@@ -2,6 +2,7 @@ import {
   evaluateMove,
   gateRequestOf,
   isOpenTask,
+  isTheme,
   noApproverReason,
   stageHandsOverForReview,
   stageIndex,
@@ -21,7 +22,7 @@ import type {
 import type { SourceHead } from '../../contracts';
 import type { TaskPatch } from '../../db';
 import { isoNow } from '../context';
-import { conflict, DomainError } from '../errors';
+import { conflict, DomainError, themeRefused } from '../errors';
 import { DECISION_OPTIONS } from '../inbox';
 import type { InboxService } from '../inbox';
 import { actorHandle, humanActor, newId, SYSTEM_ACTOR, unique } from '../util';
@@ -138,7 +139,7 @@ export class TaskMoves {
    */
   async prepareHandover(config: ProjectConfig, task: Task, stageId: string): Promise<Handover | null> {
     const target = stageOf(config, stageId);
-    if (!target || task.stageId === target.id || task.status === 'cancelled') return null;
+    if (!target || task.stageId === target.id || task.status === 'cancelled' || isTheme(task)) return null;
     if (!stageHandsOverForReview(config, target)) return null;
     const head = await this.sourceHead(config, task);
     if (!head) return null;
@@ -205,6 +206,7 @@ export class TaskMoves {
     effects: Effect[],
     opts: MoveOptions = {},
   ): MoveResult {
+    if (isTheme(task)) throw themeRefused(task.key, 'move between stages');
     if (task.status === 'cancelled') throw conflict('task_closed', `task ${task.key} is cancelled`);
     const target = requireStage(config, stageId);
     if (task.stageId === target.id) return { task, moved: false, pendingApproval: [] };

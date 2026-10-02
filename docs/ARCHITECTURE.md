@@ -95,6 +95,21 @@ Documentation map:
   `CreateTaskRequest.relations` change them all or nothing with the rest of the call; both cards'
   timelines get `task_relation_added/removed`. A card marked a duplicate is cancelled (cards that have
   not started: anyone who can edit; started ones: admin or owner only).
+  **Themes** (PM-192/PM-205): a card of `kind: 'theme'` (`tasks.kind`, default `task`) groups other
+  cards. It has a key, title, description and timeline, and is open or closed (closed = `cancelled`,
+  through the close route, by a human of developer access; reopened with `reopen`, which asks admin
+  access for any other card). It is in no stage (it carries the first stage's id because the field is
+  required), has no assignee or repository, is never moved or started, has no session (messages about it
+  go to the recipient's general chat) and is no part, whole, prerequisite or prerequisite-of of a card;
+  it duplicates only a theme and is related to anything. The one `isTheme` predicate in
+  `packages/shared` is how every pipeline path leaves it out (moves, starts, assignment, `stage_in_use`,
+  load, review watching). A card that is not a theme belongs to at most one theme (`tasks.theme_key`,
+  `themeRefusal`: the theme exists, same project, open; a subtask gets none of its own); a subtask
+  _reads_ its parent's theme (`Task.themeKey` is computed in `db/tasks.ts` by a join), so a collecting
+  card changing theme writes nothing to its subtasks, which are only announced again. A card that becomes
+  a subtask loses its own theme. `task_theme_changed {themeKey, previous}` is recorded on the card and on
+  both themes. A theme's cards (collecting cards with their subtasks) and its progress (done of not
+  cancelled cards) are `themeCards` / `themeProgress` in `domain/theme.ts`.
   A task works in one repository: its own `repo`, else the project's only one when it has
   exactly one (`effectiveRepo`, the one rule in `packages/shared` that placement, the command
   policy, the context pack and the web read). The repo can be set later (task drawer, REST

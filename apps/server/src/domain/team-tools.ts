@@ -2,6 +2,7 @@ import {
   AttachmentId,
   effectiveRepo,
   isOpenTask,
+  isTheme,
   MAX_ATTACHMENT_BYTES,
   memberOf,
   needsRepoChoice,
@@ -16,6 +17,7 @@ import type {
   ProjectConfig,
   QuestionOptionInput,
   Task,
+  TaskKind,
   Visibility,
   WorkItemRef,
   AddRelationRef,
@@ -324,12 +326,13 @@ export class TeamToolsService implements TeamToolsHandler {
         .filter(
           (task) =>
             (status === 'open' ? isOpenTask(task) : task.status === status) &&
-            (args.stage === undefined || task.stageId === args.stage) &&
+            // A theme is in no stage (it carries the first one's id because the field is required).
+            (args.stage === undefined || (!isTheme(task) && task.stageId === args.stage)) &&
             (assignee === undefined || task.assignee === assignee),
         )
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.key.localeCompare(b.key))
         .slice(0, limit)
-        .map(({ key, title, stageId, status, assignee, labels, updatedAt }) => ({
+        .map(({ key, title, stageId, status, assignee, labels, updatedAt, kind }) => ({
           key,
           title,
           stageId,
@@ -337,6 +340,7 @@ export class TeamToolsService implements TeamToolsHandler {
           assignee,
           labels,
           updatedAt,
+          ...(kind === 'theme' ? { kind } : {}),
         }));
     });
   }
@@ -353,11 +357,25 @@ export class TeamToolsService implements TeamToolsHandler {
         return { ...detail, event };
       }
       const attachments = await this.attachments.list(ctx.projectKey, taskKey, aiActor(ctx.member));
+      // A card shows its theme (its own, or its parent's); a theme shows its cards and how far it is (PM-192).
+      const themeCard = detail.task.themeKey ? this.tasks.find(ctx.projectKey, detail.task.themeKey) : null;
+      const theme = isTheme(detail.task) ? this.tasks.themeOf(ctx.projectKey, taskKey) : null;
       return {
         ...detail,
         effectiveRepo: effectiveRepo(config, detail.task),
         repoChoiceNeeded: needsRepoChoice(config, detail.task),
         relations: this.tasks.relationsOf(ctx.projectKey, taskKey),
+        ...(themeCard
+          ? {
+              theme: {
+                key: themeCard.key,
+                title: themeCard.title,
+                stageId: themeCard.stageId,
+                status: themeCard.status,
+              },
+            }
+          : {}),
+        ...(theme ? { themeCards: theme.cards, themeProgress: theme.progress } : {}),
         attachments: {
           attachments: attachments.slice(0, ATTACHMENTS_IN_TASK),
           total: attachments.length,
@@ -481,6 +499,7 @@ export class TeamToolsService implements TeamToolsHandler {
       description?: string;
       repo?: string | null;
       relations?: RelationsChange;
+      themeKey?: string | null;
     },
   ): Promise<{ task: Task }> {
     return this.guard(async () => {
@@ -510,6 +529,7 @@ export class TeamToolsService implements TeamToolsHandler {
             description,
             repo: args.repo,
             ...(args.relations ? { relations: args.relations } : {}),
+            ...(args.themeKey !== undefined ? { themeKey: args.themeKey } : {}),
             addLabels: args.addLabels,
             removeLabels: args.removeLabels,
             note: args.note,
@@ -543,6 +563,8 @@ export class TeamToolsService implements TeamToolsHandler {
       visibility?: Visibility;
       parentKey?: string;
       relations?: AddRelationRef[];
+      kind?: TaskKind;
+      themeKey?: string;
     },
   ): Promise<{ task: Task }> {
     return this.guard(async () => {
@@ -560,6 +582,8 @@ export class TeamToolsService implements TeamToolsHandler {
           labels,
           visibility: args.visibility ?? 'internal',
           ...(args.relations?.length ? { relations: args.relations } : {}),
+          ...(args.kind ? { kind: args.kind } : {}),
+          ...(args.themeKey ? { themeKey: args.themeKey } : {}),
         },
         aiActor(ctx.member),
         { sessionId: ctx.sessionId },

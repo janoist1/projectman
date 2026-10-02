@@ -418,9 +418,11 @@ export class TeamToolsService implements TeamToolsHandler {
         .catch((err: unknown) => {
           throw toAttachmentToolError(err, taskKey, id);
         });
-      // The session reads without asking only its own task's attachment directory (see `attachmentToolRules`).
+      // The session reads without asking only its own task's attachment directory and its direct
+      // parent's (PM-228; see `attachmentToolRules`).
+      const sessionTask = ctx.taskKey ? this.tasks.find(ctx.projectKey, ctx.taskKey) : null;
       const own =
-        ctx.taskKey === taskKey &&
+        (ctx.taskKey === taskKey || (sessionTask?.parentKey ?? null) === taskKey) &&
         attachmentToolRules(await this.attachmentDirectory(ctx.projectKey, taskKey).catch(() => null)).allow
           .length > 0;
       return { ...located, readableWithoutAsking: own };

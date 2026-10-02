@@ -397,11 +397,51 @@ describe('attachment team tools', () => {
         { title: 'Child of empty', parentKey: emptyParent.key },
         OWNER_ACTOR,
       );
-      await ownerUpload(parent.key, 'parent-shot.png');
+      const shot = await ownerUpload(parent.key, 'parent-shot.png');
       const lastInput = () => h.contextBuilder.inputs.at(-1)!;
 
       await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: child.key });
       expect(lastInput().task?.key).toBe(child.key);
+      // The session reads the parent's directory (and its own) without asking, and never edits it.
+      const parentDir = await h.attachmentStorage.taskDirectory('AR', parent.key);
+      const childDir = await h.attachmentStorage.taskDirectory('AR', child.key);
+      const started = h.runner.lastStarted();
+      expect(started.allowedTools).toEqual(
+        expect.arrayContaining([`Read(/${parentDir}/**)`, `Read(/${childDir}/**)`]),
+      );
+      expect(started.deniedTools).toEqual(
+        expect.arrayContaining([`Edit(/${parentDir}/**)`, `Edit(/${childDir}/**)`]),
+      );
+      const childSession = {
+        sessionId: started.sessionId,
+        projectKey: 'AR',
+        member: 'dev-1',
+        taskKey: child.key,
+      };
+      const parentFile = await h.domain.teamTools.readAttachment(childSession, {
+        taskKey: parent.key,
+        attachmentId: shot.id,
+      });
+      expect(parentFile.readableWithoutAsking).toBe(true);
+      // A read-only command on the parent's file needs no human either.
+      expect(
+        await h.runnerModule.broker().decide(
+          {
+            sessionId: childSession.sessionId,
+            toolName: 'Bash',
+            toolInput: { command: `file ${parentFile.path}` },
+            raw: {},
+          },
+          new AbortController().signal,
+        ),
+      ).toEqual({ behavior: 'allow' });
+      // Not another card's: AR-1 is neither the child nor its parent.
+      const elsewhere = await ownerUpload('AR-1', 'elsewhere.png');
+      const other = await h.domain.teamTools.readAttachment(childSession, {
+        taskKey: 'AR-1',
+        attachmentId: elsewhere.id,
+      });
+      expect(other.readableWithoutAsking).toBe(false);
       expect(lastInput().parentAttachments).toMatchObject({ taskKey: parent.key });
       expect(lastInput().parentAttachments?.attachments.map((a) => a.fileName)).toEqual(['parent-shot.png']);
       expect(lastInput().attachments).toBeUndefined();

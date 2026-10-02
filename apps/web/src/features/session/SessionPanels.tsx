@@ -74,68 +74,70 @@ export function PrPanel({
   /** The project's label definitions, for label names and colours. */
   labels?: readonly LabelView[];
 }) {
+  const hasLabels = task !== null && task.labels.length > 0;
+  // Without a pull request there is nothing to say about one: no empty box, only the labels if any.
+  if (pullRequests.length === 0 && !hasLabels) return null;
   return (
     <section className={styles.panel} aria-labelledby="session-pr">
       <h2 id="session-pr" className={styles.sectionTitle}>
-        {t('session.pr.title')}
+        {pullRequests.length === 0 ? t('task.labels.title') : t('session.pr.title')}
       </h2>
-      {pullRequests.length === 0 ? (
-        <p className={styles.muted}>{t('session.pr.none')}</p>
-      ) : (
-        pullRequests.map((pr) => (
-          <article key={`${pr.repo}#${pr.number}`}>
-            <div className={styles.prHead}>
-              <span
-                className={styles.prIcon}
-                data-merged={pr.state === 'merged' || undefined}
-                aria-hidden="true"
+      {pullRequests.map((pr) => (
+        <article key={`${pr.repo}#${pr.number}`}>
+          <div className={styles.prHead}>
+            <span
+              className={styles.prIcon}
+              data-merged={pr.state === 'merged' || undefined}
+              aria-hidden="true"
+            >
+              <Icon name={pr.state === 'merged' ? 'prMerged' : 'prOpen'} size={18} strokeWidth={2} />
+            </span>
+            <h3 className={styles.prTitle}>{t('session.pr.heading', { number: pr.number })}</h3>
+            <Chip tone={pr.state === 'merged' ? 'accent' : pr.state === 'closed' ? 'neutral' : 'ok'}>
+              {prStateLabel(pr.state ?? undefined) ?? t('session.pr.unknown')}
+            </Chip>
+            <span className={styles.spacer} />
+            {pr.url ? (
+              <a
+                href={pr.url}
+                target="_blank"
+                rel="noreferrer noopener"
+                className={styles.external}
+                aria-label={t('session.pr.openOnGithub')}
               >
-                <Icon name={pr.state === 'merged' ? 'prMerged' : 'prOpen'} size={18} strokeWidth={2} />
-              </span>
-              <h3 className={styles.prTitle}>{t('session.pr.heading', { number: pr.number })}</h3>
-              <Chip tone={pr.state === 'merged' ? 'accent' : pr.state === 'closed' ? 'neutral' : 'ok'}>
-                {prStateLabel(pr.state ?? undefined) ?? t('session.pr.unknown')}
-              </Chip>
-              <span className={styles.spacer} />
-              {pr.url ? (
-                <a
-                  href={pr.url}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className={styles.external}
-                  aria-label={t('session.pr.openOnGithub')}
-                >
-                  <Icon name="external" size={16} strokeWidth={2} />
-                </a>
-              ) : null}
+                <Icon name="external" size={16} strokeWidth={2} />
+              </a>
+            ) : null}
+          </div>
+          <p className={styles.prName}>{pr.title ?? t('session.pr.unknown')}</p>
+          <span className={styles.mono}>{[pr.repo, session.branch].filter(Boolean).join(' · ')}</span>
+          <dl className={styles.checks}>
+            <div className={styles.checkRow}>
+              <dt>{t('session.pr.checks')}</dt>
+              <dd>{pr.checks ? t(`session.pr.checkStates.${pr.checks}`) : t('session.pr.unknown')}</dd>
             </div>
-            <p className={styles.prName}>{pr.title ?? t('session.pr.unknown')}</p>
-            <span className={styles.mono}>{[pr.repo, session.branch].filter(Boolean).join(' · ')}</span>
-            <dl className={styles.checks}>
-              <div className={styles.checkRow}>
-                <dt>{t('session.pr.checks')}</dt>
-                <dd>{pr.checks ? t(`session.pr.checkStates.${pr.checks}`) : t('session.pr.unknown')}</dd>
-              </div>
-              <div className={styles.checkRow}>
-                <dt>{t('session.pr.reviewDecision')}</dt>
-                <dd>
-                  {pr.reviewDecision
-                    ? t(`session.pr.reviewStates.${pr.reviewDecision}`)
-                    : t('session.pr.unknown')}
-                </dd>
-              </div>
-              <div className={styles.checkRow}>
-                <dt>{t('session.pr.changes')}</dt>
-                <dd>
-                  +{pr.additions ?? t('session.pr.unknown')} / −{pr.deletions ?? t('session.pr.unknown')}
-                </dd>
-              </div>
-            </dl>
-          </article>
-        ))
-      )}
+            <div className={styles.checkRow}>
+              <dt>{t('session.pr.reviewDecision')}</dt>
+              <dd>
+                {pr.reviewDecision
+                  ? t(`session.pr.reviewStates.${pr.reviewDecision}`)
+                  : t('session.pr.unknown')}
+              </dd>
+            </div>
+            <div className={styles.checkRow}>
+              <dt>{t('session.pr.changes')}</dt>
+              <dd>
+                +{pr.additions ?? t('session.pr.unknown')} / −{pr.deletions ?? t('session.pr.unknown')}
+              </dd>
+            </div>
+          </dl>
+        </article>
+      ))}
       {task && task.labels.length > 0 ? (
-        <ul className={styles.labels} aria-label={t('task.labels.title')}>
+        <ul
+          className={styles.labels}
+          aria-label={pullRequests.length === 0 ? undefined : t('task.labels.title')}
+        >
           {task.labels.map((id) => (
             <li key={id}>
               <LabelChip id={id} labels={labels} />

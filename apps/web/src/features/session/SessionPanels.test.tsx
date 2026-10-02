@@ -50,4 +50,17 @@ describe('PrPanel', () => {
       pr.url,
     );
   });
+
+  it('draws no box without a pull request', () => {
+    const { container } = render(
+      <PrPanel task={{ ...tasks[0]!, labels: [] }} session={sessions[0]!} pullRequests={[]} />,
+    );
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('shows only the labels, not a pull request heading, when the task has labels but no pull request', () => {
+    render(<PrPanel task={{ ...tasks[0]!, labels: ['qa-ok'] }} session={sessions[0]!} pullRequests={[]} />);
+    expect(screen.queryByText(t('session.pr.title'))).toBeNull();
+    expect(screen.getByRole('heading', { name: t('task.labels.title') })).toBeTruthy();
+  });
 });

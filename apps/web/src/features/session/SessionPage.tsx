@@ -199,6 +199,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
           pending={echoes.pending}
           onRetry={onRetry}
           awaitingPermission={session.state === 'waiting_permission'}
+          live={running}
           resolvingId={resolve.isPending ? (resolve.variables?.item.id ?? null) : null}
           onResolve={(item, body) =>
             resolve.mutate({ item, body }, { onError: () => toast.show(t('inbox.resolveFailed'), 'error') })

@@ -4,11 +4,12 @@ import type { ReactNode } from 'react';
 import type { ChatItem, InboxItem, ResolveInboxRequest } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
+import { Fold } from '../../components/Fold';
 import { Icon } from '../../components/Icon';
 import { Markdown } from '../../components/Markdown';
 import { formatStamp, formatTime } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
-import { groupChatItems, toolPresentation } from '../../lib/chat';
+import { groupChatItems, summarizeToolRows, toolPresentation, toolResultText } from '../../lib/chat';
 import type { ChatBlock, ToolRow } from '../../lib/chat';
 import {
   inboxHeading,
@@ -47,6 +48,8 @@ export interface ChatViewProps {
   resolvingId?: string | null;
   /** The session waits for a permission: its unanswered tool call shows that instead of "running". */
   awaitingPermission?: boolean;
+  /** The session is running; a stopped one shows its unanswered tool calls as interrupted, not "running". Default: true. */
+  live?: boolean;
   /** Messages sent from the composer that the transcript has not shown yet. */
   pending?: readonly PendingMessage[];
   /** Sends a failed pending message again; without it a failed message has no retry button. */
@@ -73,12 +76,79 @@ function CollapsibleText({ text }: { text: string }) {
   );
 }
 
-function ToolRows({ rows, awaitingId }: { rows: ToolRow[]; awaitingId: string | null }) {
+interface ToolState {
+  awaitingId: string | null;
+  /** The session still runs; a call without a result in a stopped session never gets one. */
+  live: boolean;
+}
+
+/** What a tool row says about its outcome, and which colour it takes. */
+function toolOutcome(row: ToolRow, { awaitingId, live }: ToolState): { text: string; className: string } {
+  const result = row.result;
+  if (result) {
+    const text = toolResultText(row.call, result);
+    if (result.ok) return { text, className: '' };
+    return {
+      text: text ? `${t('session.chat.toolFailed')} · ${text}` : t('session.chat.toolFailed'),
+      className: styles.toolFailed ?? '',
+    };
+  }
+  if (!live) return { text: t('session.chat.toolStopped'), className: '' };
+  return row.id === awaitingId
+    ? { text: t('session.chat.toolAwaiting'), className: styles.toolAwaiting ?? '' }
+    : { text: t('session.chat.toolRunning'), className: styles.toolRunning ?? '' };
+}
+
+/** One step on one line: "Parancs: sed -n 1,80p … · fut…". */
+function StepLine({ row, state }: { row: ToolRow; state: ToolState }) {
+  const { label } = toolPresentation(row.call);
+  const outcome = toolOutcome(row, state);
+  return (
+    <span className={styles.stepLine}>
+      <span className={styles.stepKind}>{label}:</span>
+      <span className={styles.stepArg} title={row.call?.summary}>
+        {row.call?.summary ?? ''}
+      </span>
+      <span className={clsx(styles.stepResult, outcome.className)}>· {outcome.text}</span>
+    </span>
+  );
+}
+
+/**
+ * A run of tool calls as one summary line ("8 lépés · 3 fájl olvasva, 5 parancs"); the rows are
+ * behind it. A single step is its own summary. While a call has no result the closed line shows
+ * the latest step and its state below the summary.
+ */
+function ToolGroup({
+  rows,
+  awaitingId,
+  live,
+}: {
+  rows: ToolRow[];
+  awaitingId: string | null;
+  live: boolean;
+}) {
+  const state: ToolState = { awaitingId, live };
+  const only = rows.length === 1 ? rows[0] : undefined;
+  const latest = live && !only ? [...rows].reverse().find((row) => !row.result) : undefined;
+  return (
+    <Fold
+      summary={only ? <StepLine row={only} state={state} /> : summarizeToolRows(rows)}
+      peek={latest ? <StepLine row={latest} state={state} /> : null}
+      peekBelow
+      className={styles.toolFold}
+    >
+      <ToolRows rows={rows} state={state} />
+    </Fold>
+  );
+}
+
+function ToolRows({ rows, state }: { rows: ToolRow[]; state: ToolState }) {
   return (
     <ul className={styles.tools} aria-label={t('session.chat.toolGroup')}>
       {rows.map((row) => {
         const { icon, label } = toolPresentation(row.call);
-        const result = row.result;
+        const outcome = toolOutcome(row, state);
         return (
           <li key={row.id} className={styles.toolRow}>
             <span className={styles.toolIcon} aria-hidden="true">
@@ -88,24 +158,9 @@ function ToolRows({ rows, awaitingId }: { rows: ToolRow[]; awaitingId: string | 
             <span className={styles.toolArg} title={row.call?.summary}>
               {row.call?.summary ?? ''}
             </span>
-            {result ? (
-              <span className={clsx(styles.toolResult, !result.ok && styles.toolFailed)}>
-                {result.ok
-                  ? result.summary
-                  : result.summary
-                    ? `${t('session.chat.toolFailed')} · ${result.summary}`
-                    : t('session.chat.toolFailed')}
-              </span>
-            ) : (
-              <span
-                className={clsx(
-                  styles.toolResult,
-                  row.id === awaitingId ? styles.toolAwaiting : styles.toolRunning,
-                )}
-              >
-                {row.id === awaitingId ? t('session.chat.toolAwaiting') : t('session.chat.toolRunning')}
-              </span>
-            )}
+            <span className={clsx(styles.toolResult, outcome.className)} title={outcome.text}>
+              {outcome.text}
+            </span>
           </li>
         );
       })}
@@ -187,7 +242,7 @@ function renderBlock(block: ChatBlock, props: ChatViewProps, awaitingId: string 
     case 'tools':
       return (
         <div key={block.id} className={styles.toolBlock}>
-          <ToolRows rows={block.rows} awaitingId={awaitingId} />
+          <ToolGroup rows={block.rows} awaitingId={awaitingId} live={props.live ?? true} />
         </div>
       );
     case 'team': {

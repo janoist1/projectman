@@ -96,28 +96,44 @@ export function groupChatItems(items: readonly ChatItem[], sessionMember: string
   return blocks;
 }
 
-const toolLabelKeys = [
-  'Read',
-  'Edit',
-  'MultiEdit',
-  'Write',
-  'NotebookEdit',
-  'Bash',
-  'BashOutput',
-  'KillShell',
-  'Grep',
-  'Glob',
-  'LS',
-  'WebFetch',
-  'WebSearch',
-  'TodoWrite',
-  'Task',
-] as const;
+const toolCategories = ['read', 'search', 'edit', 'command', 'web', 'team', 'other'] as const;
 
-type KnownTool = (typeof toolLabelKeys)[number];
+type ToolCategory = (typeof toolCategories)[number];
+
+/**
+ * The tools the runners name (Claude Code's and Codex's), each with its category and icon; the
+ * label is `session.tools.<name>`. The summary line, the icon and the result words all read this.
+ */
+const knownTools = {
+  Read: { category: 'read', icon: 'doc' },
+  Edit: { category: 'edit', icon: 'pencil' },
+  MultiEdit: { category: 'edit', icon: 'pencil' },
+  Write: { category: 'edit', icon: 'pencil' },
+  NotebookEdit: { category: 'edit', icon: 'pencil' },
+  apply_patch: { category: 'edit', icon: 'pencil' },
+  Bash: { category: 'command', icon: 'terminal' },
+  BashOutput: { category: 'command', icon: 'terminal' },
+  KillShell: { category: 'command', icon: 'terminal' },
+  PowerShell: { category: 'command', icon: 'terminal' },
+  Grep: { category: 'search', icon: 'search' },
+  Glob: { category: 'search', icon: 'search' },
+  LS: { category: 'search', icon: 'search' },
+  WebFetch: { category: 'web', icon: 'globe' },
+  WebSearch: { category: 'web', icon: 'globe' },
+  TodoWrite: { category: 'other', icon: 'list' },
+  Task: { category: 'other', icon: 'sparkle' },
+} as const satisfies Record<string, { category: ToolCategory; icon: IconName }>;
+
+type KnownTool = keyof typeof knownTools;
 
 function isKnownTool(name: string): name is KnownTool {
-  return (toolLabelKeys as readonly string[]).includes(name);
+  return Object.hasOwn(knownTools, name);
+}
+
+function toolCategory(name: string | null): ToolCategory {
+  if (!name) return 'other';
+  if (name.startsWith('mcp__team__')) return 'team';
+  return isKnownTool(name) ? knownTools[name].category : 'other';
 }
 
 /** Icon and label of a tool by name: "Olvasás", "Parancs", "Git", "Csapat". */
@@ -126,33 +142,61 @@ export function toolPresentationFor(name: string, summary = ''): { icon: IconNam
   if (name === 'Bash' && /^gh\s/.test(summary)) return { icon: 'prOpen', label: t('session.tools.git') };
   if (name.startsWith('mcp__team__')) return { icon: 'team', label: t('session.tools.team') };
   if (name.startsWith('mcp__')) return { icon: 'tool', label: t('session.tools.mcp') };
-  const label = isKnownTool(name) ? t(`session.tools.${name}`) : name;
-  switch (name) {
-    case 'Read':
-      return { icon: 'doc', label };
-    case 'Edit':
-    case 'MultiEdit':
-    case 'Write':
-    case 'NotebookEdit':
-      return { icon: 'pencil', label };
-    case 'Bash':
-    case 'BashOutput':
-    case 'KillShell':
-      return { icon: 'terminal', label };
-    case 'Grep':
-    case 'Glob':
-    case 'LS':
-      return { icon: 'search', label };
-    case 'WebFetch':
-    case 'WebSearch':
-      return { icon: 'globe', label };
-    case 'TodoWrite':
-      return { icon: 'list', label };
-    case 'Task':
-      return { icon: 'sparkle', label };
-    default:
-      return { icon: 'tool', label };
+  if (!isKnownTool(name)) return { icon: 'tool', label: name };
+  return { icon: knownTools[name].icon, label: t(`session.tools.${name}`) };
+}
+
+/**
+ * One line for a run of tool calls: "8 lépés · 3 fájl olvasva, 5 parancs". Files are counted by
+ * path, so reading one file three times is one file; failures come last so a closed group shows them.
+ */
+export function summarizeToolRows(rows: readonly ToolRow[]): string {
+  const counts = new Map<ToolCategory, number>();
+  const files = new Map<ToolCategory, Set<string>>();
+  let failed = 0;
+  for (const row of rows) {
+    const category = toolCategory(row.call?.name ?? null);
+    const path = row.call?.summary;
+    if ((category === 'read' || category === 'edit') && path) {
+      const seen = files.get(category) ?? new Set<string>();
+      seen.add(path);
+      files.set(category, seen);
+    } else {
+      counts.set(category, (counts.get(category) ?? 0) + 1);
+    }
+    if (row.result && !row.result.ok) failed += 1;
   }
+  const parts: string[] = [];
+  for (const category of toolCategories) {
+    const count = (counts.get(category) ?? 0) + (files.get(category)?.size ?? 0);
+    if (count > 0) parts.push(t(`session.chat.toolKinds.${category}`, { count }));
+  }
+  if (failed > 0) parts.push(t('session.chat.toolFailedCount', { count: failed }));
+  return [t('session.chat.toolSteps', { count: rows.length }), parts.join(', ')].filter(Boolean).join(' · ');
+}
+
+/**
+ * The outcome of a tool call in Hungarian. The runner sends short English words ("Edited",
+ * "397 lines"); they are written from the tool's kind here. Anything else (a command's first
+ * output line, an error text) is the tool's own text and stays as it is.
+ */
+export function toolResultText(call: ToolCall | null, result: ToolResult): string {
+  const text = result.summary;
+  const category = toolCategory(call?.name ?? null);
+  const exit = /^Exit code (-?\d+)$/.exec(text);
+  if (exit) return t('session.chat.result.exitCode', { code: exit[1] ?? '' });
+  if (!result.ok) return text === 'Failed' ? '' : text;
+  const lines = /^(\d+) lines$/.exec(text);
+  const files = /^(\d+) files$/.exec(text);
+  if (category === 'read' && lines) return t('session.chat.result.lines', { count: lines[1] ?? '' });
+  if (category === 'read' && text === 'Read') return t('session.chat.result.read');
+  if (category === 'edit' && text === 'Edited') return t('session.chat.result.edited');
+  if (category === 'edit' && text === 'Created') return t('session.chat.result.created');
+  if (category === 'edit' && text === 'Updated') return t('session.chat.result.updated');
+  if (category === 'search' && files) return t('session.chat.result.files', { count: files[1] ?? '' });
+  if (category === 'command' && text === 'Interrupted') return t('session.chat.result.interrupted');
+  if (text === 'Done') return t('session.chat.result.done');
+  return text;
 }
 
 /** Icon and label of a tool call row. */

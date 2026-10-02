@@ -34,6 +34,21 @@
   color: var(--c-ink-3);
 }
 
+/* The peek on its own line, under the summary text (the chevron and its gap are 19px). */
+.below .summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  column-gap: 5px;
+  row-gap: 0;
+}
+
+.below .peek {
+  flex: 1 0 100%;
+  box-sizing: border-box;
+  padding: 0 0 6px 19px;
+}
+
 .chevron {
   flex-shrink: 0;
   transition: transform 120ms ease;

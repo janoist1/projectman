@@ -159,6 +159,13 @@ describe('refinementTurn', () => {
     });
   });
 
+  it("is blocked by a label only the system sets, which is nobody's step", () => {
+    const system = config([{ id: 'merged', name: 'Merged', setBy: 'system' }], {
+      conditions: [{ type: 'has_label', label: 'merged' }],
+    });
+    expect(refinementTurn(task('backlog', ['refine']), system)).toEqual({ kind: 'blocked', label: 'merged' });
+  });
+
   it('gives a label only people may set no AI setter', () => {
     const approved = config([{ id: 'approved', name: 'Approved', setBy: 'humans' }], {
       conditions: [{ type: 'has_label', label: 'approved' }],

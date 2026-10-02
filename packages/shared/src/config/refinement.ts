@@ -56,7 +56,8 @@ export function isRefining(task: RefinementTask, config: RefinementConfig): bool
  * - `step`: the gate lacks `label` (a condition of the gate of `stageId`); `aiSetters` and
  *   `humanSetters` are the members who may put it on this card;
  * - `blocked`: the card cannot go on by itself, because a blocking label is on it (such as "waiting
- *   for an answer") or a gate asks for a label to be absent (`label`);
+ *   for an answer"), a gate asks for a label to be absent, or a gate asks for a label only the system
+ *   sets (`label`);
  * - `done`: every label is on: the card moves to `targetStageId` (the last stage before the work
  *   stage, null when the card is there already) and the system takes `refine` off.
  * Null when the card is not being refined.
@@ -84,6 +85,8 @@ export function refinementTurn(task: RefinementTask, config: RefinementConfig): 
         continue;
       }
       const definition = labelDefinition(config, condition.label);
+      // A label only the system sets (an integration) is nobody's step: the card waits for it.
+      if (definition?.setBy === 'system') return { kind: 'blocked', label: condition.label };
       const setters = definition ? labelSetters(config, definition, task) : [];
       // A label only humans set stands for an approval: its setters are people by definition.
       const aiSetters =

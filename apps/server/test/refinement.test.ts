@@ -330,9 +330,60 @@ describe('Refinement line', () => {
     await flush();
     expect(members()).toEqual([]);
     expect(alerts()).toEqual([]);
-    expect(turn()?.data).toMatchObject({ label: 'waiting', member: null });
+    expect(turn()).toBeNull();
     // The blocker goes: the line goes on.
     await label({ remove: ['waiting'] });
     await vi.waitFor(() => expect(members()).toEqual(['ana']));
+  });
+
+  it('keeps the turn with its member while the card is held back, and does not hand the step out again', async () => {
+    await prepare();
+    await label({ add: ['refine'] });
+    await vi.waitFor(() => expect(members()).toEqual(['ana']));
+    const before = turn();
+
+    // The member asks a question: the card is held back and its turn ends.
+    await label({ add: ['waiting'] });
+    endTurn('ana');
+    await flush();
+    expect(turn()).toEqual(before);
+    expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBe('ana');
+    expect(alerts()).toEqual([]);
+
+    await label({ remove: ['waiting'] });
+    await flush();
+    expect(turn()).toEqual(before);
+    expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBe('ana');
+    expect(h.runner.started).toHaveLength(1);
+    expect(alerts()).toEqual([]);
+  });
+
+  it('tells once that the card is worked out when it stands in a refinement stage right before development', async () => {
+    h = await createDomainHarness({
+      persistent: true,
+      adjust: (config) => {
+        setup({ plan: true })(config);
+        // The gate of `ready` moves to the development stage: `plan` is the last stage before it.
+        const stages = config.pipeline.stages;
+        const ready = stages.find((stage) => stage.id === 'ready')!;
+        stages.splice(stages.indexOf(ready), 1);
+        stages.find((stage) => stage.kind === 'work')!.gate = ready.gate;
+      },
+    });
+    await h.domain.tasks.create('AR', { title: 'Screen' }, OWNER_ACTOR);
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'plan', OWNER_ACTOR);
+    await vi.waitFor(() => expect(members()).toEqual(['ana']));
+
+    await label({ add: ['scope-ok'] }, aiActor('ana'));
+    endTurn('ana');
+
+    await vi.waitFor(() => expect(alerts('done')).toHaveLength(1));
+    expect(task().stageId).toBe('plan');
+    expect(turn()?.data).toMatchObject({ label: null, member: null, reason: 'done' });
+    expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBeNull();
+
+    await h.domain.refinement.changed(task());
+    await flush();
+    expect(alerts('done')).toHaveLength(1);
   });
 });

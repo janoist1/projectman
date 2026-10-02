@@ -129,10 +129,8 @@ export class RefinementSteps {
     const turn = refinementTurn(task, config);
     this.closeAlerts(task, turn?.kind === 'step' ? turn.label : null);
     if (!turn || this.midTurn(task)) return;
-    if (turn.kind === 'blocked') {
-      this.record(task, turn.label, null);
-      return;
-    }
+    // Held back: the turn stays with its member, and goes on from there once the card is free.
+    if (turn.kind === 'blocked') return;
     if (turn.kind === 'done') return this.finish(config, task, turn.targetStageId);
     if (turn.aiSetters.length === 0) {
       if (this.record(task, turn.label, null))
@@ -231,13 +229,16 @@ export class RefinementSteps {
       await this.tasks.changeLabels(projectKey, taskKey, { remove: [REFINE_LABEL] }, SYSTEM_ACTOR);
       changed = true;
     }
-    if (!changed) return;
+    // Nothing to change (the card stands in a refinement stage right before development, without
+    // the label): the end of an earlier turn is still told, once.
+    const latest = this.recorded(projectKey, taskKey);
+    if (!changed && (!latest || latest.reason === 'done')) return;
     this.append(task, null, null, 'done');
     this.alert(config, task, null, 'done', []);
   }
 
   /**
-   * Writes a change of turn: `label` (the step's, or the blocking one) and its member. Not written
+   * Writes a change of turn: `label` (the step's) and its member. Not written
    * again for the same turn; false then. The reason is derived from the card: the earlier step's
    * label is on it now (`label_set`), or is not (`label_removed`: it went back).
    */

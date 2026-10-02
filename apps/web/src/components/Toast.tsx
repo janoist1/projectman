@@ -40,7 +40,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div className={styles.region} role="status" aria-live="polite" aria-label={t('toast.region')}>
         {toasts.map((toast) => (
-          <div key={toast.id} className={clsx(styles.toast, styles[toast.tone])}>
+          <div
+            key={toast.id}
+            className={clsx(styles.toast, styles[toast.tone], toast.items.length > 0 && styles.listed)}
+          >
             <span className={styles.icon}>
               <Icon
                 name={toast.tone === 'error' ? 'exclamation' : toast.tone === 'info' ? 'bell' : 'check'}

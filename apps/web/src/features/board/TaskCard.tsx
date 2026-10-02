@@ -9,6 +9,7 @@ import { StageProgress } from '../../components/StageProgress';
 import { formatAge } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import type { PipelineIndex } from '../../lib/pipeline';
+import { prerequisiteLabel } from '../../lib/taskState';
 import type { TaskState } from '../../lib/taskState';
 import { prChip, stageRows } from './cardModel';
 import { LabelChip } from '../../components/LabelChip';
@@ -73,6 +74,8 @@ export function TaskCard({
   const rows = compact ? [] : stageRows(task, pipeline);
   const stage = pipeline.stageById.get(task.stageId);
   const showMeta = !compact && (pr !== null || task.labels.length > 0);
+  // Said by the status line already when the card stands on it: never twice on one card.
+  const prerequisite = state.prerequisite?.key && !state.prerequisite.inLabel ? state.prerequisite : null;
   return (
     <Link
       to={to}
@@ -93,10 +96,27 @@ export function TaskCard({
       <span className={styles.titleRow}>
         <span className={styles.title}>{task.title}</span>
       </span>
-      {task.parentKey || subtasks.length ? (
+      {task.parentKey || subtasks.length || prerequisite ? (
         <span className={styles.meta}>
           {task.parentKey ? (
             <span className={styles.label}>{t('task.parentChip', { key: task.parentKey })}</span>
+          ) : null}
+          {prerequisite ? (
+            <span
+              className={clsx(styles.label, styles.prerequisite)}
+              title={prerequisite.cards.map((card) => `${card.key} – ${card.title}`).join('\n')}
+              aria-label={
+                prerequisite.more > 0
+                  ? t('taskStatus.prerequisiteOnMoreLabel', {
+                      key: prerequisite.key!,
+                      more: prerequisite.more,
+                    })
+                  : prerequisiteLabel(prerequisite)
+              }
+            >
+              <Icon name="wait" size={12} strokeWidth={2.4} />
+              <span>{prerequisiteLabel(prerequisite)}</span>
+            </span>
           ) : null}
           {subtasks.length ? (
             <span
@@ -149,7 +169,16 @@ export function TaskCard({
       ) : null}
       <span className={styles.status}>
         <StatusDot phase={state.phase} pulse={state.phase === 'working'} />
-        <span className={styles.statusText}>{state.label}</span>
+        <span
+          className={styles.statusText}
+          title={
+            state.prerequisite?.inLabel
+              ? state.prerequisite.cards.map((card) => `${card.key} – ${card.title}`).join('\n')
+              : undefined
+          }
+        >
+          {state.label}
+        </span>
         {compact ? (
           <span className={styles.age}>
             {stage?.name}

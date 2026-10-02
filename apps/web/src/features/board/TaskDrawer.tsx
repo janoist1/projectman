@@ -175,9 +175,9 @@ export function TaskDrawer() {
     const stage = pipeline.stageById.get(task.stageId);
     const parent =
       board.data?.tasks.find((candidate) => candidate.key === task.parentKey) ?? detail.data?.parent;
-    const subtasks = (board.data?.tasks ?? detail.data?.subtasks ?? []).filter(
-      (child) => child.parentKey === task.key,
-    );
+    // The relations are counted from the board's cards (the closed ones too): no request of their own.
+    const cards = board.data?.tasks ?? [...(detail.data?.subtasks ?? []), ...(parent ? [parent] : [])];
+    const phases = new Map([...(model?.byKey ?? [])].map(([cardKey, { state }]) => [cardKey, state.phase]));
     const sessions = detail.data?.sessions ?? [];
     const session = primarySession(task, sessions);
     // A card in the work stage that waits for its prerequisites can be started by a person too (PM-204).
@@ -262,7 +262,7 @@ export function TaskDrawer() {
 
           {theme ? (
             <>
-              <ThemeSummary task={task} tasks={board.data?.tasks ?? []} />
+              <ThemeSummary task={task} tasks={cards} />
               <section className={drawer.props}>
                 <div className={drawer.prop}>
                   <span className={drawer.propLabel}>{t('newTask.fields.visibility')}</span>
@@ -271,19 +271,13 @@ export function TaskDrawer() {
               </section>
             </>
           ) : (
-            <TaskProperties
-              task={task}
-              subtasks={subtasks}
-              tasks={board.data?.tasks ?? []}
-              members={members}
-              pipeline={pipeline}
-            />
+            <TaskProperties task={task} tasks={cards} phases={phases} members={members} pipeline={pipeline} />
           )}
 
           <TaskDescription key={`description:${task.key}`} task={task} className={styles.description} />
 
           {theme && model ? (
-            <ThemeCards task={task} tasks={board.data?.tasks ?? []} pipeline={pipeline} byKey={model.byKey} />
+            <ThemeCards task={task} tasks={cards} pipeline={pipeline} byKey={model.byKey} />
           ) : null}
 
           <TaskAttachments key={`attachments:${task.key}`} task={task} members={members} />

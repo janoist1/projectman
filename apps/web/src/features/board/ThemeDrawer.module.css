@@ -1,0 +1,160 @@
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.closedState {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-lg);
+  background: var(--c-ok-bg);
+  color: var(--c-ok-text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.progressHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.progressText {
+  font-size: var(--text-md);
+}
+
+.percent {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--c-ink-3);
+}
+
+.bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--c-seg-todo);
+  overflow: hidden;
+}
+
+.barDone {
+  display: block;
+  height: 100%;
+  background: var(--c-ok);
+  transition: width 300ms ease;
+}
+
+.note {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--c-ink-3);
+}
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.cardsHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.cardsCount {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--c-ink-4);
+}
+
+.tree,
+.subtasks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.subtasks {
+  margin: 6px 0 0 22px;
+  padding-left: 10px;
+  border-left: 2px solid var(--c-line-soft);
+}
+
+.item {
+  min-width: 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.toggle {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--c-ink-3);
+  cursor: pointer;
+}
+
+button.toggle:hover {
+  background: var(--c-muted);
+}
+
+.cardLink {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cardKey {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--c-ink-3);
+}
+
+.kids {
+  flex: none;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--c-ink-3);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border: 1px dashed var(--c-line-strong);
+  border-radius: var(--radius-lg);
+}
+
+.emptyTitle {
+  margin: 0;
+  font-weight: 800;
+  color: var(--c-ink-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .barDone {
+    transition: none;
+  }
+}

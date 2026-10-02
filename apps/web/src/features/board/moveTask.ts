@@ -1,3 +1,4 @@
+import { isTheme } from '@projectman/shared';
 import type { LabelView } from '@projectman/shared';
 import type { BoardColumnView, Task } from '@projectman/shared';
 import { isApiError } from '../../api/client';
@@ -9,7 +10,7 @@ import { isTaskClosed } from '../../lib/taskState';
 import { openPrerequisiteKeys } from './PrerequisiteWarning';
 
 export function canMoveTask(task: Task, allowed: boolean): boolean {
-  return allowed && !isTaskClosed(task);
+  return allowed && !isTaskClosed(task) && !isTheme(task);
 }
 
 export function enteredStages(pipeline: PipelineIndex, from: string, to: string) {

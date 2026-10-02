@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { isTheme } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import { useBoard, useInbox } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
@@ -46,7 +47,10 @@ export function useBoardModel() {
       children.push(task);
       subtasksByParent.set(task.parentKey, children);
     }
-    const entries: BoardEntry[] = tasks.map((task) => ({ task, state: deriveTaskState(task, ctx) }));
+    // A theme is no card of the pipeline: it has no state and stays out of the columns and the lists.
+    const entries: BoardEntry[] = tasks
+      .filter((task) => !isTheme(task))
+      .map((task) => ({ task, state: deriveTaskState(task, ctx) }));
     return {
       ctx,
       entries,

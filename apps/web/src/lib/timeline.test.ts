@@ -316,3 +316,27 @@ describe('review pins on the timeline (PM-183)', () => {
     );
   });
 });
+
+describe('the refinement line', () => {
+  const labels = [{ id: 'scope-ok', name: 'Követelmény kész', setBy: 'anyone' as const, holders: [] }];
+  const turn = (data: { label: string | null; member: string | null; reason: string }): TimelineEvent =>
+    ({ ...creation, type: 'refinement_turn', data }) as TimelineEvent;
+  const text = (event: TimelineEvent) => describeEvent(event, { ...context, labels }).text;
+
+  it.each([
+    ['started', 'started.member'],
+    ['label_set', 'label_set.member'],
+    ['label_removed', 'label_removed.member'],
+  ] as const)('names the member on turn and the label, by the reason %s', (reason, key) => {
+    expect(text(turn({ label: 'scope-ok', member: 'arch', reason }))).toBe(
+      t(`timeline.refinement.${key}`, { member: 'arch', label: 'Követelmény kész' }),
+    );
+  });
+
+  it('says a person is up when no member was started, and when the refinement is done', () => {
+    expect(text(turn({ label: 'scope-ok', member: null, reason: 'label_set' }))).toBe(
+      t('timeline.refinement.label_set.person', { label: 'Követelmény kész' }),
+    );
+    expect(text(turn({ label: null, member: null, reason: 'done' }))).toBe(t('timeline.refinement.done'));
+  });
+});

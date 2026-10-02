@@ -228,6 +228,7 @@ export function ConversationThread({
               item={item.item}
               members={members}
               myHandle={myHandle}
+              labels={board.data?.labels}
               compact
               mobile={isMobile}
               headingLevel={3}

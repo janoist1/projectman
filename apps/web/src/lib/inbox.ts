@@ -4,10 +4,11 @@ import {
   permissionDelegationOf,
   questionPayloadOf,
 } from '@projectman/shared';
-import type { InboxItem, InboxOption, WorkItemRef } from '@projectman/shared';
+import type { InboxItem, InboxOption, LabelView, WorkItemRef } from '@projectman/shared';
 import { formatStamp, formatTokens } from '../i18n/format';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { toolPresentationFor } from './chat';
+import { labelName } from './labels';
 import { nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
 import type { PipelineIndex } from './pipeline';
@@ -93,7 +94,12 @@ function gigabytes(bytes: number): string {
  * storm on a card (PM-186) the card, the count, the window and who took part. Null for an item that
  * is no alert, or an alert of a kind this web app does not know.
  */
-export function alertText(item: InboxItem, members: MemberIndex, myHandle: string | null): string | null {
+export function alertText(
+  item: InboxItem,
+  members: MemberIndex,
+  myHandle: string | null,
+  labels: readonly LabelView[] = [],
+): string | null {
   const alert = alertPayloadOf(item);
   if (!alert) return null;
   if (alert.alert === 'message_burst')
@@ -104,7 +110,10 @@ export function alertText(item: InboxItem, members: MemberIndex, myHandle: strin
       members: joinNames(namesOf(alert.members, members, myHandle)),
     });
   if (alert.alert === 'refinement')
-    return t(`inbox.alerts.refinement.${alert.reason}`, { key: alert.taskKey, label: alert.label ?? '' });
+    return t(`inbox.alerts.refinement.${alert.reason}`, {
+      key: alert.taskKey,
+      label: alert.label ? labelName(alert.label, labels) : '',
+    });
   if (alert.alert === 'disk_low')
     return t('inbox.alerts.disk_low.body', {
       free: gigabytes(alert.freeBytes),

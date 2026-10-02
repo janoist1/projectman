@@ -219,6 +219,7 @@ export function InboxPage() {
               members={members}
               myHandle={myHandle}
               pipeline={pipeline}
+              labels={board.data?.labels}
               mobile={isMobile}
               taskTitle={item.taskKey ? (titles.get(item.taskKey) ?? item.taskKey) : null}
               detailsHref={detailsHrefFor(item, key)}

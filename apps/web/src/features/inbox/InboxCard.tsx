@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { useId, useState } from 'react';
 import { Link } from 'react-router';
-import type { InboxItem, InboxOption, ResolveInboxRequest } from '@projectman/shared';
+import type { InboxItem, InboxOption, LabelView, ResolveInboxRequest } from '@projectman/shared';
 import { BoundaryReason } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
@@ -42,6 +42,8 @@ export interface InboxCardProps {
   myHandle: string | null;
   /** For stage names of gate decisions. */
   pipeline?: PipelineIndex | null;
+  /** For the names of labels an alert speaks of. */
+  labels?: readonly LabelView[];
   taskTitle?: string | null;
   onResolve: (item: InboxItem, body: ResolveInboxRequest) => void;
   pending?: boolean;
@@ -59,6 +61,7 @@ export function InboxCard({
   members,
   myHandle,
   pipeline,
+  labels = [],
   taskTitle,
   onResolve,
   pending = false,
@@ -89,7 +92,7 @@ export function InboxCard({
   const extras = questionExtras(item);
   const boundary = boundaryOf(item);
   const delegation = delegationNote(item, members, myHandle);
-  const alert = alertText(item, members, myHandle);
+  const alert = alertText(item, members, myHandle, labels);
   const [boundaryReason, setBoundaryReason] = useState<BoundaryReason>('scope_verified');
   // A question that recommends an option or describes what each one does lists its options with
   // that text; every other item keeps its row of buttons.

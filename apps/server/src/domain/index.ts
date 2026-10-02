@@ -388,6 +388,7 @@ export function createDomain(opts: DomainOptions) {
     egress,
     publishing,
     ctx,
+    sessions,
     projects,
     tasks,
     members,

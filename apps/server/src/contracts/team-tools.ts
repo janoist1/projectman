@@ -15,6 +15,7 @@ import type {
   ThemeProgress,
   TimelineEvent,
   Visibility,
+  WorkDoing,
   WorkItemRef,
   BoundaryRequest,
   BoundaryGrant,
@@ -248,6 +249,13 @@ export interface TeamToolsHandler {
       details?: string;
     },
   ): Promise<{ inboxItemId: string }>;
+  /**
+   * set_current_work (PM-238): what the calling session's member does on its own card now. It has no
+   * task argument: it always concerns the caller's session, which must be a task session in a round.
+   * Only the latest is kept; it is cleared when the round ends. `recorded` is false when the session
+   * was not in a round, so nothing was written.
+   */
+  setCurrentWork(ctx: ToolContext, args: WorkDoing): Promise<{ recorded: boolean }>;
   /** save_memory: append a durable learning to this member's memory. */
   saveMemory(ctx: ToolContext, args: { note: string }): Promise<{ ok: true }>;
   /** list_attachments: a page of the task's attachments, oldest first. */

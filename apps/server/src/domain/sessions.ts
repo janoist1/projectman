@@ -32,6 +32,7 @@ import type {
   SessionState,
   Task,
   UpdateSessionRequest,
+  WorkDoing,
   WorkItemRef,
 } from '@projectman/shared';
 import {
@@ -926,8 +927,22 @@ export class SessionOrchestrator {
         stateSince: at,
         endedAt: at,
         permissionRestartPending: false,
+        doing: null,
       });
     }
+  }
+
+  /**
+   * Records what the session's member says it does on its card (PM-238): only the latest is kept,
+   * and it is published with the session. Nothing is written (false) unless the session has a live
+   * process and is in a round: an idle or ended session has no work to describe.
+   */
+  setDoing(sessionId: string, doing: WorkDoing): boolean {
+    const session = this.ctx.repos.sessions.get(sessionId);
+    if (!session || session.state === 'idle' || ENDED.has(session.state) || !this.isRunning(sessionId))
+      return false;
+    this.publishSession(this.ctx.repos.sessions.update(sessionId, { doing })!);
+    return true;
   }
 
   /** Starts the session's process; a member workspace it reserved is freed again when that fails. */
@@ -1655,6 +1670,7 @@ export class SessionOrchestrator {
       lastActivityAt: at,
       // No process waits for a restart now: the next start takes the session's mode anyway.
       permissionRestartPending: false,
+      doing: null,
     })!;
     this.workspaces?.ended(sessionId);
     this.deps.timeline.append({
@@ -1704,6 +1720,8 @@ export class SessionOrchestrator {
             // The age of a state counts from the change, not from every tool the session runs.
             ...(event.state !== session.state ? { stateSince: at } : {}),
             lastActivityAt: at,
+            // The round is over: its sentence does not belong to the next one (PM-238).
+            ...(event.state === 'idle' ? { doing: null } : {}),
           })!;
           this.publishSession(updated);
           this.watchInputWait(updated);

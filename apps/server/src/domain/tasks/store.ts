@@ -75,9 +75,12 @@ export class TaskStore {
     };
   }
 
-  /** The task's first image attachment (PM-195), which is the card's cover; none without an image. */
+  /** The card's cover (PM-195, PM-224): the chosen image, else its first image; none when hidden or without an image. */
   private cover(task: Task): string | null {
-    return coverAttachmentId(this.ctx.repos.attachments.listReady(task.projectKey, task.key));
+    return coverAttachmentId(
+      this.ctx.repos.attachments.listReady(task.projectKey, task.key),
+      this.ctx.repos.taskCovers.get(task.key)?.choice,
+    );
   }
 
   /** The commit handed over with the task's current stage (PM-183); none once it left that stage. */

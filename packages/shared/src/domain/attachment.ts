@@ -68,14 +68,37 @@ export const DeleteAttachmentResponse = z.object({ id: AttachmentId, deleted: z.
 export type DeleteAttachmentResponse = z.infer<typeof DeleteAttachmentResponse>;
 
 /**
- * The cover of a card: the oldest (in upload order) attachment that is a verified image, or null.
- * `attachments` are the task's ready attachments, oldest first. The server and the web's test
- * backend both use this rule.
+ * A person's choice of a card's cover (PM-224): a given image, or no cover at all. Without a
+ * choice the cover is automatic (the first image).
+ */
+export const TaskCoverChoice = z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('pinned'), attachmentId: AttachmentId }),
+  z.object({ mode: z.literal('hidden') }),
+]);
+export type TaskCoverChoice = z.infer<typeof TaskCoverChoice>;
+
+/** The body of `PUT routes.taskCover`. */
+export const TaskCoverRequest = TaskCoverChoice;
+export type TaskCoverRequest = TaskCoverChoice;
+
+/**
+ * The cover of a card. `attachments` are the task's ready attachments, oldest first. The server
+ * and the web's test backend both use this rule:
+ * - `hidden` choice: no cover, whatever is uploaded later;
+ * - `pinned` choice: the chosen image while it is still among the ready images;
+ * - otherwise (no choice, or the chosen file is gone or not an image): the oldest verified image, or null.
  */
 export function coverAttachmentId(
   attachments: ReadonlyArray<Pick<Attachment, 'id' | 'preview'>>,
+  choice?: TaskCoverChoice | null,
 ): string | null {
-  return attachments.find((attachment) => attachment.preview === 'image')?.id ?? null;
+  if (choice?.mode === 'hidden') return null;
+  const images = attachments.filter((attachment) => attachment.preview === 'image');
+  if (choice?.mode === 'pinned') {
+    const pinned = images.find((attachment) => attachment.id === choice.attachmentId);
+    if (pinned) return pinned.id;
+  }
+  return images[0]?.id ?? null;
 }
 
 /** Whoever acts on attachments: a project member (never a client or viewer who may not see the task). */

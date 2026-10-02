@@ -10,7 +10,7 @@ import {
   MAX_ATTACHMENT_BYTES,
   memberOf,
 } from '@projectman/shared';
-import type { Actor, Attachment, AttachmentViewer, Task } from '@projectman/shared';
+import type { Actor, Attachment, AttachmentViewer, Task, TaskCoverChoice } from '@projectman/shared';
 import type {
   AttachmentContent,
   AttachmentOperations,
@@ -234,6 +234,32 @@ export class AttachmentService implements AttachmentOperations {
     }
   }
 
+  /**
+   * A person's choice of the card's cover (PM-224): one of its ready images, or none. Boards hear of
+   * it as a changed task. The same access as an upload; no timeline event (a cosmetic setting).
+   */
+  async setCover(projectKey: string, taskKey: string, choice: TaskCoverChoice, actor: Actor): Promise<Task> {
+    await this.authorize(projectKey, taskKey, actor, 'upload');
+    if (choice.mode === 'pinned') {
+      const record = this.ctx.repos.attachments.get(choice.attachmentId);
+      if (
+        !record ||
+        record.projectKey !== projectKey ||
+        record.taskKey !== taskKey ||
+        record.state !== 'ready' ||
+        record.preview !== 'image'
+      ) {
+        throw new DomainError('cover_not_an_image', 'the cover must be a ready image attached to this card', {
+          status: 422,
+          details: { attachmentId: choice.attachmentId },
+        });
+      }
+    }
+    this.ctx.repos.taskCovers.save({ projectKey, taskKey, choice, setAt: isoNow(this.ctx), setBy: actor });
+    this.publishCover(projectKey, taskKey);
+    return this.tasks.get(projectKey, taskKey);
+  }
+
   async delete(projectKey: string, taskKey: string, id: string, actor: Actor): Promise<void> {
     const { viewer, task } = await this.authorize(projectKey, taskKey, actor);
     await this.deletions.run(id, async () => {
@@ -428,6 +454,7 @@ export class AttachmentService implements AttachmentOperations {
     this.ctx.unitOfWork(() => {
       // Gone already: another call or a recovery finished it, with its own event.
       if (!this.ctx.repos.attachments.remove(record.id)) return;
+      this.ctx.repos.taskCovers.clearPinned(record.taskKey, record.id);
       this.timeline.append({
         projectKey: record.projectKey,
         taskKey: record.taskKey,
@@ -452,7 +479,10 @@ export class AttachmentService implements AttachmentOperations {
   }
 
   private coverOf(projectKey: string, taskKey: string): string | null {
-    return coverAttachmentId(this.ctx.repos.attachments.listReady(projectKey, taskKey));
+    return coverAttachmentId(
+      this.ctx.repos.attachments.listReady(projectKey, taskKey),
+      this.ctx.repos.taskCovers.get(taskKey)?.choice,
+    );
   }
 
   /** The card's cover is part of the task as boards show it: a changed cover is a changed task (`updatedAt` stays). */

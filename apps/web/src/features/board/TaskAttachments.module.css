@@ -17,6 +17,13 @@
   color: var(--c-ink-3);
 }
 
+/* The note above the list: unlike .hint it has no flex basis, which in the section's column would be a height. */
+.coverNote {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--c-ink-3);
+}
+
 .empty {
   margin: 0;
   font-size: var(--text-sm);

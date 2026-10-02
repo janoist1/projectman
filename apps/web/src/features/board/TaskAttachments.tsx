@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { MAX_ATTACHMENT_BYTES, canDeleteAttachment, canUploadAttachment, routes } from '@projectman/shared';
-import type { Attachment, AttachmentViewer, Task } from '@projectman/shared';
+import type { Attachment, AttachmentViewer, Task, TaskCoverChoice } from '@projectman/shared';
 import { isApiError } from '../../api/client';
-import { useAttachments, useDeleteAttachment } from '../../api/queries';
+import { useAttachments, useDeleteAttachment, useSetTaskCover } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
@@ -97,6 +97,9 @@ function AttachmentRow({
   members,
   canDelete,
   isCover,
+  canSetCover,
+  settingCover,
+  onSetCover,
   onPreview,
   onDelete,
   deleting,
@@ -108,6 +111,10 @@ function AttachmentRow({
   canDelete: boolean;
   /** The card shows this image as its cover. */
   isCover: boolean;
+  /** Whoever may attach files may also choose or hide the cover (the shared upload rule). */
+  canSetCover: boolean;
+  settingCover: boolean;
+  onSetCover: (choice: TaskCoverChoice) => void;
   onPreview: (id: string) => void;
   onDelete: (id: string) => void;
   deleting: boolean;
@@ -208,6 +215,29 @@ function AttachmentRow({
           <Icon name="download" size={15} strokeWidth={2.1} />
           {t('attachments.download')}
         </a>
+        {canSetCover && preview === 'image' ? (
+          isCover ? (
+            <Button
+              size="sm"
+              variant="muted"
+              loading={settingCover}
+              onClick={() => onSetCover({ mode: 'hidden' })}
+              aria-label={t('attachments.hideCoverLabel', { fileName })}
+            >
+              {t('attachments.hideCover')}
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={settingCover}
+              onClick={() => onSetCover({ mode: 'pinned', attachmentId: id })}
+              aria-label={t('attachments.makeCoverLabel', { fileName })}
+            >
+              {t('attachments.makeCover')}
+            </Button>
+          )
+        ) : null}
         {canDelete && !confirming ? (
           <Button
             size="sm"
@@ -242,6 +272,10 @@ export function TaskAttachments({ task, members }: { task: Task; members: Member
   const refused = list.isError && isRefusal(list.error);
   const attachments = refused ? [] : (list.data?.attachments ?? []);
   const canUpload = viewer !== null && !refused && canUploadAttachment(viewer, task);
+  const setCover = useSetTaskCover(key, task.key);
+  // An automatic cover is the first image, so images without a cover can only mean it was hidden.
+  const hasImage = attachments.some((attachment) => attachment.preview === 'image');
+  const coverHidden = !task.coverAttachmentId && hasImage;
 
   const [previewId, setPreviewId] = useState<string | null>(null);
   // Looked up in the current list: a deleted file closes its own large view.
@@ -296,7 +330,10 @@ export function TaskAttachments({ task, members }: { task: Task; members: Member
             aria-label={t('attachments.inputLabel')}
             onChange={onChoose}
           />
-          <p className={styles.hint}>{t('attachments.hint', { max: formatBytes(MAX_ATTACHMENT_BYTES) })}</p>
+          <p className={styles.hint}>
+            {t('attachments.hint', { max: formatBytes(MAX_ATTACHMENT_BYTES) })}
+            {hasImage ? '' : ` ${t('attachments.hintFirstCover')}`}
+          </p>
         </div>
       ) : null}
 
@@ -322,22 +359,40 @@ export function TaskAttachments({ task, members }: { task: Task; members: Member
           <p className={styles.empty}>{t('attachments.none')}</p>
         ) : null
       ) : (
-        <ul className={styles.list} aria-label={t('attachments.listLabel')}>
-          {attachments.map((attachment) => (
-            <AttachmentRow
-              key={attachment.id}
-              attachment={attachment}
-              task={task}
-              members={members}
-              canDelete={canDeleteAttachment(viewer, task, attachment)}
-              isCover={attachment.id === task.coverAttachmentId}
-              onPreview={setPreviewId}
-              onDelete={(id) => remove.mutate(id)}
-              deleting={remove.isPending && remove.variables === attachment.id}
-              deleteError={remove.isError && remove.variables === attachment.id ? remove.error : null}
-            />
-          ))}
-        </ul>
+        <>
+          {coverHidden && canUpload ? (
+            <p className={styles.coverNote}>{t('attachments.coverHidden')}</p>
+          ) : null}
+          {setCover.isError ? (
+            <span className={styles.failure} role="alert">
+              {t('attachments.coverFailed', { reason: errorMessage(setCover.error) })}
+            </span>
+          ) : null}
+          <ul className={styles.list} aria-label={t('attachments.listLabel')}>
+            {attachments.map((attachment) => (
+              <AttachmentRow
+                key={attachment.id}
+                attachment={attachment}
+                task={task}
+                members={members}
+                canDelete={canDeleteAttachment(viewer, task, attachment)}
+                isCover={attachment.id === task.coverAttachmentId}
+                canSetCover={canUpload}
+                settingCover={
+                  setCover.isPending &&
+                  (setCover.variables.mode === 'hidden'
+                    ? attachment.id === task.coverAttachmentId
+                    : setCover.variables.attachmentId === attachment.id)
+                }
+                onSetCover={(choice) => setCover.mutate(choice)}
+                onPreview={setPreviewId}
+                onDelete={(id) => remove.mutate(id)}
+                deleting={remove.isPending && remove.variables === attachment.id}
+                deleteError={remove.isError && remove.variables === attachment.id ? remove.error : null}
+              />
+            ))}
+          </ul>
+        </>
       )}
 
       <Dialog

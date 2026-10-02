@@ -9,6 +9,7 @@ import type {
   UpdateMemberRequest,
   UpdateSessionRequest,
   UpdateTaskRequest,
+  TaskCoverRequest,
   CancelTaskRequest,
   CreateProjectRequest,
   CreateTaskRequest,
@@ -28,7 +29,7 @@ import type {
 } from '@projectman/shared';
 import { isApiError } from './client';
 import { BoundaryReason } from '@projectman/shared';
-import { invalidateAttachments, patchOpenInboxCount, upsertBy, writeTaskDetail } from './cache';
+import { invalidateAttachments, patchOpenInboxCount, upsertBy, writeTask, writeTaskDetail } from './cache';
 import { api } from './endpoints';
 import { queryKeys } from './queryKeys';
 
@@ -180,6 +181,15 @@ export function useUploadAttachment(key: string) {
       );
       invalidateAttachments(client, key, taskKey);
     },
+  });
+}
+
+/** Chooses or hides the card's cover; the card the server answers with goes into the cache (board and detail). */
+export function useSetTaskCover(key: string, taskKey: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (choice: TaskCoverRequest) => api.setTaskCover(key, taskKey, choice),
+    onSuccess: ({ task }) => writeTask(client, key, task),
   });
 }
 

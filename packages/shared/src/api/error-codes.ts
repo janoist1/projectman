@@ -103,6 +103,8 @@ export const ERROR_CODES = [
   // Attachments
   'attachment_too_large',
   'attachment_storage_failed',
+  // A cover must be a ready image of the card (PM-224)
+  'cover_not_an_image',
   // Inbox and messages
   'inbox_item_closed',
   'not_an_assignee',

@@ -4,6 +4,7 @@ import {
   BoundaryRequestView,
   ChangeTaskLabelsRequest,
   DeleteAttachmentResponse,
+  TaskCoverResponse,
   UploadAttachmentResponse,
   ClosedCardsMeasure,
   MemberProfile,
@@ -40,6 +41,7 @@ import type {
   UpdateMemberRequest,
   UpdateSessionRequest,
   UpdateTaskRequest,
+  TaskCoverRequest,
   CancelTaskRequest,
   CreateProjectRequest,
   CreateTaskRequest,
@@ -115,6 +117,8 @@ export const api = {
       signal,
     });
   },
+  setTaskCover: (key: string, taskKey: string, body: TaskCoverRequest) =>
+    apiRequest(routes.taskCover(key, taskKey), { method: 'PUT', body, schema: TaskCoverResponse }),
   deleteAttachment: (key: string, taskKey: string, id: string) =>
     apiRequest(routes.taskAttachment(key, taskKey, id), {
       method: 'DELETE',

@@ -66,7 +66,7 @@ function patchMemberWork(members: readonly MemberView[], session: Session): Memb
 }
 
 /** A changed task: on the board, in its detail and in the sessions that work on it. */
-function writeTask(client: QueryClient, key: string, task: Task): void {
+export function writeTask(client: QueryClient, key: string, task: Task): void {
   client.setQueryData<BoardView>(queryKeys.board(key), (board) =>
     board ? { ...board, tasks: upsertBy(board.tasks, task, (entry) => entry.key) } : board,
   );

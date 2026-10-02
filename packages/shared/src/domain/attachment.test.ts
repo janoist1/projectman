@@ -8,6 +8,7 @@ import {
   INLINE_MEDIA_TYPES,
   MAX_ATTACHMENT_BYTES,
   OCTET_STREAM,
+  TaskCoverRequest,
 } from './attachment';
 import type { AttachmentViewer } from './attachment';
 import type { Visibility } from './task';
@@ -47,6 +48,46 @@ describe('the cover of a card', () => {
   it('is null without an image', () => {
     expect(coverAttachmentId([])).toBeNull();
     expect(coverAttachmentId([file('a', 'pdf'), file('b', 'none')])).toBeNull();
+  });
+
+  describe('with a choice (PM-224)', () => {
+    const files = [file('a', 'pdf'), file('b', 'image'), file('c', 'image')];
+
+    it('is the pinned image', () => {
+      expect(coverAttachmentId(files, { mode: 'pinned', attachmentId: 'c' })).toBe('c');
+    });
+
+    it('is the first image when the pinned one was deleted', () => {
+      expect(coverAttachmentId(files, { mode: 'pinned', attachmentId: 'gone' })).toBe('b');
+    });
+
+    it('is the first image when the pinned file is not an image', () => {
+      expect(coverAttachmentId(files, { mode: 'pinned', attachmentId: 'a' })).toBe('b');
+    });
+
+    it('is nothing when hidden, also after new uploads', () => {
+      expect(coverAttachmentId(files, { mode: 'hidden' })).toBeNull();
+      expect(coverAttachmentId([...files, file('d', 'image')], { mode: 'hidden' })).toBeNull();
+    });
+
+    it('is automatic without a choice', () => {
+      expect(coverAttachmentId(files, null)).toBe('b');
+      expect(coverAttachmentId(files, undefined)).toBe('b');
+    });
+  });
+});
+
+describe('the cover choice', () => {
+  it('parses a pinned or a hidden choice and nothing else', () => {
+    expect(TaskCoverRequest.parse({ mode: 'hidden' })).toEqual({ mode: 'hidden' });
+    expect(TaskCoverRequest.parse({ mode: 'pinned', attachmentId: 'att_abcdefghij' })).toEqual({
+      mode: 'pinned',
+      attachmentId: 'att_abcdefghij',
+    });
+    expect(TaskCoverRequest.safeParse({ mode: 'pinned' }).success).toBe(false);
+    expect(TaskCoverRequest.safeParse({ mode: 'pinned', attachmentId: '../x' }).success).toBe(false);
+    expect(TaskCoverRequest.safeParse({ mode: 'auto' }).success).toBe(false);
+    expect(TaskCoverRequest.safeParse({}).success).toBe(false);
   });
 });
 

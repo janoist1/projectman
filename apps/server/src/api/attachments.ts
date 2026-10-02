@@ -2,16 +2,18 @@ import { Readable } from 'node:stream';
 import fastifyMultipart from '@fastify/multipart';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { FastifyInstance } from 'fastify';
-import { MAX_ATTACHMENT_BYTES, routes } from '@projectman/shared';
+import { MAX_ATTACHMENT_BYTES, routes, TaskCoverRequest } from '@projectman/shared';
 import type {
   AttachmentListResponse,
   DeleteAttachmentResponse,
+  Task,
   UploadAttachmentResponse,
 } from '@projectman/shared';
 import type { AuthService } from '../auth';
 import type { Domain } from '../domain';
 import { contentDisposition, DomainError, invalid } from '../domain';
 import { actorOf, requireAccess } from './context';
+import { parseBody } from './validation';
 
 /** What a multipart request may carry on top of the file: boundaries and part headers. */
 const MULTIPART_OVERHEAD_BYTES = 64 * 1024;
@@ -133,6 +135,13 @@ export function registerAttachmentRoutes(
         return reply.send(stream);
       },
     );
+
+    scope.put<TaskParams>(routes.taskCover(':key', ':taskKey'), async (request): Promise<{ task: Task }> => {
+      const { key, taskKey } = request.params;
+      const access = await requireAccess(domain, request, key);
+      const choice = parseBody(TaskCoverRequest, request.body);
+      return { task: await domain.attachments.setCover(key, taskKey, choice, actorOf(access)) };
+    });
 
     scope.delete<AttachmentParams>(
       routes.taskAttachment(':key', ':taskKey', ':id'),

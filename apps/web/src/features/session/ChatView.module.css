@@ -93,9 +93,10 @@
 /* tools */
 .toolBlock {
   margin-left: 38px;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--c-line-soft);
-  background: var(--c-subtle);
+  min-width: 0;
+}
+
+.toolFold {
   min-width: 0;
 }
 
@@ -108,7 +109,6 @@
 .toolRow {
   min-height: 38px;
   box-sizing: border-box;
-  padding: 0 12px;
   display: flex;
   align-items: center;
   gap: 10px;

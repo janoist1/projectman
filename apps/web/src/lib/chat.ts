@@ -155,6 +155,88 @@ export function toolPresentationFor(name: string, summary = ''): { icon: IconNam
   }
 }
 
+const toolCategories = ['read', 'search', 'edit', 'command', 'web', 'team', 'other'] as const;
+
+type ToolCategory = (typeof toolCategories)[number];
+
+function toolCategory(name: string | null): ToolCategory {
+  if (!name) return 'other';
+  if (name.startsWith('mcp__team__')) return 'team';
+  switch (name) {
+    case 'Read':
+      return 'read';
+    case 'Grep':
+    case 'Glob':
+    case 'LS':
+      return 'search';
+    case 'Edit':
+    case 'MultiEdit':
+    case 'Write':
+    case 'NotebookEdit':
+      return 'edit';
+    case 'Bash':
+    case 'BashOutput':
+    case 'KillShell':
+      return 'command';
+    case 'WebFetch':
+    case 'WebSearch':
+      return 'web';
+    default:
+      return 'other';
+  }
+}
+
+/**
+ * One line for a run of tool calls: "8 lépés · 3 fájl olvasva, 5 parancs". Files are counted by
+ * path, so reading one file three times is one file; failures come last so a closed group shows them.
+ */
+export function summarizeToolRows(rows: readonly ToolRow[]): string {
+  const counts = new Map<ToolCategory, number>();
+  const files = new Map<ToolCategory, Set<string>>();
+  let failed = 0;
+  for (const row of rows) {
+    const category = toolCategory(row.call?.name ?? null);
+    const path = row.call?.summary;
+    if ((category === 'read' || category === 'edit') && path) {
+      const seen = files.get(category) ?? new Set<string>();
+      seen.add(path);
+      files.set(category, seen);
+    } else {
+      counts.set(category, (counts.get(category) ?? 0) + 1);
+    }
+    if (row.result && !row.result.ok) failed += 1;
+  }
+  const parts: string[] = [];
+  for (const category of toolCategories) {
+    const count = (counts.get(category) ?? 0) + (files.get(category)?.size ?? 0);
+    if (count > 0) parts.push(t(`session.chat.toolKinds.${category}`, { count }));
+  }
+  if (failed > 0) parts.push(t('session.chat.toolFailedCount', { count: failed }));
+  return [t('session.chat.toolSteps', { count: rows.length }), parts.join(', ')].filter(Boolean).join(' · ');
+}
+
+/**
+ * The outcome of a tool call in Hungarian. The runner sends short English words ("Edited",
+ * "397 lines"); they are written from the tool's kind here. Anything else (a command's first
+ * output line, an error text) is the tool's own text and stays as it is.
+ */
+export function toolResultText(call: ToolCall | null, result: ToolResult): string {
+  const text = result.summary;
+  const category = toolCategory(call?.name ?? null);
+  if (!result.ok) return text === 'Failed' ? '' : text;
+  const lines = /^(\d+) lines$/.exec(text);
+  const files = /^(\d+) files$/.exec(text);
+  if (category === 'read' && lines) return t('session.chat.result.lines', { count: lines[1] ?? '' });
+  if (category === 'read' && text === 'Read') return t('session.chat.result.read');
+  if (category === 'edit' && text === 'Edited') return t('session.chat.result.edited');
+  if (category === 'edit' && text === 'Created') return t('session.chat.result.created');
+  if (category === 'edit' && text === 'Updated') return t('session.chat.result.updated');
+  if (category === 'search' && files) return t('session.chat.result.files', { count: files[1] ?? '' });
+  if (category === 'command' && text === 'Interrupted') return t('session.chat.result.interrupted');
+  if (text === 'Done') return t('session.chat.result.done');
+  return text;
+}
+
 /** Icon and label of a tool call row. */
 export function toolPresentation(call: ToolCall | null): { icon: IconName; label: string } {
   if (!call) return { icon: 'tool', label: t('session.tools.other') };

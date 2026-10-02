@@ -126,6 +126,10 @@ describe('ChatView', () => {
     expect(screen.getByText('Kérlek, javítsd a gombsort.')).toBeTruthy();
     expect(screen.getByText('javítom').tagName).toBe('STRONG');
     expect(screen.getAllByText('Frontend fejlesztő').length).toBeGreaterThan(0);
+    // The three calls are one closed line; the rows are behind it.
+    const fold = screen.getByText(/3 lépés/).closest('details')!;
+    expect(fold.open).toBe(false);
+    fireEvent.click(within(fold).getByText(/3 lépés/));
     const tools = screen.getByRole('list', { name: t('session.chat.toolGroup') });
     const rows = within(tools).getAllByRole('listitem');
     expect(rows).toHaveLength(3);
@@ -139,6 +143,94 @@ describe('ChatView', () => {
     expect(screen.getByText(t('session.chat.teamMessageOut'))).toBeTruthy();
     expect(screen.getByText('Code review')).toBeTruthy();
     expect(screen.getByText('A session folytatódott.')).toBeTruthy();
+  });
+
+  it('folds a run of tool calls into one summary line and writes the results in Hungarian', () => {
+    const call = (n: number, name: string, summary: string): ChatItem => ({
+      id: `c${n}`,
+      ts: at(10),
+      kind: 'tool_call',
+      toolUseId: `t${n}`,
+      name,
+      summary,
+      input: {},
+    });
+    const result = (n: number, text: string, ok = true): ChatItem => ({
+      id: `r${n}`,
+      ts: at(10),
+      kind: 'tool_result',
+      toolUseId: `t${n}`,
+      ok,
+      summary: text,
+    });
+    const run: ChatItem[] = [
+      call(1, 'Read', 'a.ts'),
+      result(1, '397 lines'),
+      call(2, 'Read', 'a.ts'),
+      result(2, 'Read'),
+      call(3, 'Read', 'b.ts'),
+      result(3, '12 lines'),
+      call(4, 'Edit', 'b.ts'),
+      result(4, 'Edited'),
+      call(5, 'Write', 'c.ts'),
+      result(5, 'Created'),
+      call(6, 'Bash', 'npm test'),
+      result(6, 'Done'),
+      call(7, 'Bash', 'npm run build'),
+      result(7, 'Failed', false),
+      call(8, 'Grep', 'foo'),
+      result(8, '3 files'),
+    ];
+    render(<ChatView items={run} sessionMember="fe-1" members={members} myHandle="owner" />);
+    const summary = screen.getByText(/8 lépés/).closest('summary')!;
+    // Files are counted once however often they were read; failures are named on the closed line.
+    expect(summary.textContent).toBe(
+      '8 lépés · 2 fájl olvasva, 1 keresés, 2 fájl szerkesztve, 2 parancs, 1 hiba',
+    );
+    expect(summary.closest('details')!.open).toBe(false);
+
+    fireEvent.click(summary);
+    const rows = within(screen.getByRole('list', { name: t('session.chat.toolGroup') })).getAllByRole(
+      'listitem',
+    );
+    const texts = rows.map((row) => row.textContent ?? '');
+    expect(texts[0]).toContain('397 sor');
+    expect(texts[1]).toContain('beolvasva');
+    expect(texts[3]).toContain('módosítva');
+    expect(texts[4]).toContain('létrehozva');
+    expect(texts[5]).toContain('kész');
+    expect(texts[6]).toMatch(/hiba$/);
+    expect(texts[7]).toContain('3 fájl');
+    for (const text of texts) expect(text).not.toMatch(/Edited|Created|lines|files|Failed|Done/);
+  });
+
+  it('keeps the tool result text of an unknown tool as it came', () => {
+    const run: ChatItem[] = [
+      { id: 'c1', ts: at(1), kind: 'tool_call', toolUseId: 't1', name: 'Bash', summary: 'ls', input: {} },
+      { id: 'r1', ts: at(1), kind: 'tool_result', toolUseId: 't1', ok: true, summary: 'package.json' },
+    ];
+    render(<ChatView items={run} sessionMember="fe-1" members={members} myHandle="owner" />);
+    expect(screen.getByText('package.json')).toBeTruthy();
+  });
+
+  it('shows the latest running step on the closed line', () => {
+    const run: ChatItem[] = [
+      { id: 'c1', ts: at(1), kind: 'tool_call', toolUseId: 't1', name: 'Read', summary: 'a.ts', input: {} },
+      { id: 'r1', ts: at(1), kind: 'tool_result', toolUseId: 't1', ok: true, summary: '3 lines' },
+      {
+        id: 'c2',
+        ts: at(2),
+        kind: 'tool_call',
+        toolUseId: 't2',
+        name: 'Bash',
+        summary: 'npm test',
+        input: {},
+      },
+    ];
+    render(<ChatView items={run} sessionMember="fe-1" members={members} myHandle="owner" />);
+    const summary = screen.getByText(/2 lépés/).closest('summary')!;
+    expect(summary.textContent).toContain(t('session.chat.toolRunning'));
+    expect(summary.textContent).toContain('npm test');
   });
 
   it('shows the open permission request inline and resolves it', () => {
@@ -157,7 +249,10 @@ describe('ChatView', () => {
     );
     const prompt = screen.getByRole('region', { name: t('session.chat.permissionTitle') });
     expect(within(prompt).getByText('git push origin 21-order-confirmation')).toBeTruthy();
-    expect(screen.getByText(t('session.chat.toolAwaiting'))).toBeTruthy();
+    // The closed tool line says what the session waits for, without opening it.
+    const closed = screen.getByText(/3 lépés/).closest('summary')!;
+    expect(within(closed).getByText(t('session.chat.toolAwaiting'))).toBeTruthy();
+    expect(closed.textContent).toContain('git push origin main');
     fireEvent.click(within(prompt).getByRole('button', { name: t('inbox.options.allow_session') }));
     expect(onResolve).toHaveBeenCalledWith(request, { optionId: 'allow_session' });
     fireEvent.click(within(prompt).getByRole('button', { name: t('inbox.options.deny') }));

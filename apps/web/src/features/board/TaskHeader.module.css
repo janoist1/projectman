@@ -34,8 +34,14 @@
   border-radius: var(--radius-lg);
   background: var(--phase-bg);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
+}
+
+/* The dot and the age stay on the first line when the text under it runs on. */
+.now > :first-child,
+.nowRow > :first-child {
+  margin-top: 5.5px;
 }
 
 /* Several workers: the same box, one row each. */
@@ -53,11 +59,12 @@
 
 .nowRow {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
 }
 
 .nowText {
+  line-height: 20px;
   font-size: 13.5px;
   font-weight: 800;
   color: var(--phase-text);
@@ -65,7 +72,31 @@
   min-width: 0;
 }
 
+/* A worker's own sentence (PM-239): the name and the summary in full, the longer text under them. */
+.nowDoing {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-wrap: anywhere;
+  animation: pm-fade-in 160ms ease-out;
+}
+
+.nowSummary {
+  font-weight: 600;
+  color: var(--c-ink);
+}
+
+/* Line breaks of the text fold into spaces. */
+.nowDetail {
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--c-ink-2);
+  white-space: normal;
+}
+
 .nowAge {
+  line-height: 20px;
   font-size: var(--text-xs);
   color: var(--phase-text);
   opacity: 0.85;

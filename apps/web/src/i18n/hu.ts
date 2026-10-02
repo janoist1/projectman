@@ -671,6 +671,12 @@ export const hu = {
     /** The card's line while several work on it: the names share one verb, as their capacities may differ. */
     workersTwo: '{names} dolgozik rajta',
     workersMany: '{names} és még {more} tag dolgozik rajta',
+    /** A member's own sentence next to the name (PM-239); the sentence is theirs and is not translated. */
+    workerDoing: '{name}: {summary}',
+    /** The name in front of the sentence, drawn apart from it (it has its own weight and colour). */
+    workerName: '{name}:',
+    workersMore: '+{more}',
+    workersMoreLabel: 'és még {more} tag dolgozik rajta',
     waitingOn: 'Másra vár: {who}',
     queuedFor: 'Sorra kerül: {stage}',
     ready: 'Indítható',

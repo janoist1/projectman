@@ -81,8 +81,9 @@ export class Admission {
   /**
    * What a member is working on now (decision 19): the open tasks it has a running session for
    * that it works on (see `isWorkingOnTask`: a session idling after the member handed the task
-   * on does not count), plus its other running chats. A finished session, or an assignment
-   * without a running session, does not count.
+   * on does not count; one still to begin its first turn does, though its CLI reports idle meanwhile:
+   * PM-242), plus its other running chats. A finished session, or an assignment without a running
+   * session, does not count.
    */
   memberLoad(config: ProjectConfig, handle: string, excludeTaskKey?: string): number {
     const taskKeys = new Set<string>();
@@ -92,7 +93,12 @@ export class Admission {
       if (s.workItem.type !== 'task') chats++;
       else if (s.workItem.taskKey !== excludeTaskKey) {
         const task = this.ctx.repos.tasks.get(s.workItem.taskKey);
-        if (task && isOpenTask(task) && !isTheme(task) && isWorkingOnTask(config, task, handle, s.state))
+        if (
+          task &&
+          isOpenTask(task) &&
+          !isTheme(task) &&
+          (isWorkingOnTask(config, task, handle, s.state) || this.sessions.awaitsFirstTurn(s.id))
+        )
           taskKeys.add(task.key);
       }
     }

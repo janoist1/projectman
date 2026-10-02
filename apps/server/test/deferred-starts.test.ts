@@ -351,3 +351,75 @@ describe('the retry timer', () => {
     await waitFor(() => h.runner.started.length === 1);
   });
 });
+
+describe('message wake-ups at startup and the member capacity (PM-242)', () => {
+  let h: DomainHarness;
+  afterEach(() => h?.cleanup());
+
+  /** `dev-1` takes one session at a time and AI work is off, so that what is sent waits. */
+  const oneAtATimeAiOff = (config: ProjectConfig) => {
+    aiOff(config);
+    for (const member of config.team.members)
+      if (member.kind === 'ai' && member.handle === 'dev-1') member.capacity = 1;
+  };
+
+  it('starts one session for two waiting messages to a member of capacity 1, the second after the first ends', async () => {
+    h = await createDomainHarness({ persistent: true, adjust: oneAtATimeAiOff });
+    const first = await h.domain.tasks.create('AR', { title: 'First question' }, OWNER_ACTOR);
+    const second = await h.domain.tasks.create('AR', { title: 'Second question' }, OWNER_ACTOR);
+    for (const task of [first, second])
+      await h.domain.messaging.send('AR', 'owner', {
+        to: ['dev-1'],
+        text: 'Please look.',
+        taskKey: task.key,
+      });
+    await waitFor(() => stored(h).length === 2);
+
+    h = await restartDomainHarness(h);
+    // The CLI of a started session can take input (it is idle) before its first input is typed.
+    h.runner.idleOnStart = true;
+    await setEnabled(h, true);
+    await waitFor(() => h.runner.started.length >= 1);
+    await settle();
+    expect(h.runner.started).toHaveLength(1);
+    const running = h.domain.sessions.findRunning('AR', 'dev-1', { type: 'task', taskKey: first.key });
+    expect(running).not.toBeNull();
+    expect(h.domain.tasks.get('AR', second.key).startWaiting).toMatchObject({
+      reason: 'member_at_capacity',
+      member: 'dev-1',
+    });
+
+    // The first session ends: the second message wakes its recipient now.
+    await h.domain.sessions.stop('AR', running!.id);
+    await waitFor(() => h.runner.started.length === 2);
+    expect(h.runner.lastStarted().initialMessage).toContain('Second question');
+    expect(h.domain.tasks.get('AR', second.key).startWaiting).toBeUndefined();
+  });
+
+  it('stops counting a session that answered and idles on a card the member does not work on', async () => {
+    h = await createDomainHarness({ persistent: true, adjust: oneAtATimeAiOff });
+    const first = await h.domain.tasks.create('AR', { title: 'First question' }, OWNER_ACTOR);
+    const second = await h.domain.tasks.create('AR', { title: 'Second question' }, OWNER_ACTOR);
+    for (const task of [first, second])
+      await h.domain.messaging.send('AR', 'owner', {
+        to: ['dev-1'],
+        text: 'Please look.',
+        taskKey: task.key,
+      });
+    await waitFor(() => stored(h).length === 2);
+
+    h = await restartDomainHarness(h);
+    h.runner.idleOnStart = true;
+    await setEnabled(h, true);
+    await waitFor(() => h.runner.started.length >= 1);
+    await settle();
+    expect(h.runner.started).toHaveLength(1);
+
+    // Its turn runs and ends: it idles on a card the member has no work on, which frees the place.
+    const sessionId = h.runner.started[0]!.sessionId;
+    h.runner.setState(sessionId, 'working');
+    h.runner.setState(sessionId, 'idle');
+    await h.domain.admission.retryDeferred();
+    await waitFor(() => h.runner.started.length === 2);
+  });
+});

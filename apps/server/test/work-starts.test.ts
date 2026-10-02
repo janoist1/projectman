@@ -435,6 +435,8 @@ describe('automatic start of unassigned cards moved into a work stage', () => {
     // Capacity freed without an event the domain listens to (the card left its stage in the
     // store, its session idles): only the timer notices.
     h.repos.tasks.update(task(first).id, { stageId: 'code_review' });
+    // Its first turn began (the runner reported it, like the CLI does), and ended.
+    h.runner.setState(sessionsOf(first)[0]!.id, 'working');
     h.repos.sessions.update(sessionsOf(first)[0]!.id, { state: 'idle' });
     await vi.waitFor(() => expect(task(third).assignee).toBe('dev-1'));
   });

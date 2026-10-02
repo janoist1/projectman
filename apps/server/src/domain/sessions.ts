@@ -365,6 +365,11 @@ export class SessionOrchestrator {
   private readonly processProviders = new Map<string, AgentProvider>();
   /** Sessions whose first input (with messages in it) is not known to have reached them: settles it. */
   private readonly firstInputWaiters = new Map<string, (typed: boolean) => void>();
+  /**
+   * Sessions started with an opening input whose first turn has not begun: their CLI reports `idle`
+   * once it can take input, before the input is typed (PM-242).
+   */
+  private readonly awaitingFirstTurn = new Set<string>();
   /** The permission mode each session's current process runs in (PM-170): another one restarts it. */
   private readonly processModes = new Map<string, string | undefined>();
   /** The session's grants "for this session" when its current process started (`sessionGrants`). */
@@ -466,6 +471,14 @@ export class SessionOrchestrator {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Whether the session was started with an opening input and its first turn has not begun: it is
+   * about to work although its CLI may report `idle` meanwhile (counts against the member's capacity).
+   */
+  awaitsFirstTurn(sessionId: string): boolean {
+    return this.awaitingFirstTurn.has(sessionId);
   }
 
   /** Running AI sessions with a turn in progress, across all projects. */
@@ -1281,6 +1294,14 @@ export class SessionOrchestrator {
     this.processProviders.set(session.id, provider);
     // Before the process starts: Codex reports its first input as it starts.
     const firstInput = messages.length > 0 ? this.awaitFirstInput(session.id) : Promise.resolve(true);
+    const initialMessage = resume
+      ? messages.length > 0
+        ? messages.join(MESSAGE_SEPARATOR)
+        : restart
+          ? null
+          : pack.continueMessage
+      : newConversationInput(pack.initialMessage, messages);
+    if (initialMessage?.trim()) this.awaitingFirstTurn.add(session.id);
 
     try {
       const info = await this.deps.runner.start({
@@ -1304,13 +1325,7 @@ export class SessionOrchestrator {
         // (PM-170) was idle: it waits at its prompt, as it did, and its waiting messages are typed in
         // once it runs. A new conversation gets the messages after its brief, in full (PM-180):
         // typed in later they would wait for the end of its first turn.
-        initialMessage: resume
-          ? messages.length > 0
-            ? messages.join(MESSAGE_SEPARATOR)
-            : restart
-              ? null
-              : pack.continueMessage
-          : newConversationInput(pack.initialMessage, messages),
+        initialMessage,
         ...(compactFirst ? { compactFirst } : {}),
         firstUserOrigin: openingTurnOrigin(workItem),
         mcpUrl: `${this.deps.publicBaseUrl}${routes.mcp(token)}`,
@@ -1350,6 +1365,7 @@ export class SessionOrchestrator {
       }
     } catch (err) {
       this.settleFirstInput(session.id, false);
+      this.awaitingFirstTurn.delete(session.id);
       this.revokeToken(session.id);
       this.processProviders.delete(session.id);
       this.processModes.delete(session.id);
@@ -1651,6 +1667,7 @@ export class SessionOrchestrator {
   ): Session | null {
     const session = this.ctx.repos.sessions.get(sessionId);
     this.settleFirstInput(sessionId, false);
+    this.awaitingFirstTurn.delete(sessionId);
     this.revokeToken(sessionId);
     this.processProviders.delete(sessionId);
     this.processModes.delete(sessionId);
@@ -1714,6 +1731,7 @@ export class SessionOrchestrator {
           }
           // A late event from a process that already ended must not revive the session.
           if (ENDED.has(session.state) && !this.isRunning(session.id)) return;
+          if (event.state !== 'starting' && event.state !== 'idle') this.awaitingFirstTurn.delete(session.id);
           const updated = this.ctx.repos.sessions.update(session.id, {
             state: event.state,
             activity: event.activity,

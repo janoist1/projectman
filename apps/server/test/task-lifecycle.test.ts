@@ -169,7 +169,8 @@ describe('task lifecycle', () => {
   it('does not count an idle session on a task that moved on to the next stage', async () => {
     const { session } = await start(h, 'AR-1');
     // Finished its turn, the process still runs, but the task is still in the member's own stage.
-    h.repos.sessions.update(session!.id, { state: 'idle' });
+    h.runner.setState(session!.id, 'working');
+    h.runner.setState(session!.id, 'idle');
     expect(h.runner.isRunning(session!.id)).toBe(true);
     expect(await loadOf('dev-1')).toBe(1);
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);

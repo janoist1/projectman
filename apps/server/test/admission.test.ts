@@ -64,6 +64,8 @@ interface World {
   tasks?: Task[];
   sessions?: Session[];
   running?: string[];
+  /** Running sessions whose first turn has not begun (their CLI may report idle meanwhile). */
+  awaitingFirstTurn?: string[];
   busy?: number;
   usage?: Partial<Record<AgentProvider, PlanUsage | null>>;
   adjust?: (config: ProjectConfig) => void;
@@ -96,6 +98,7 @@ function admissionFor(world: World = {}) {
     list: (_projectKey: string, filter: { member?: string } = {}) =>
       sessions.filter((s) => !filter.member || s.member === filter.member),
     isRunning: (id: string) => running.has(id),
+    awaitsFirstTurn: (id: string) => (world.awaitingFirstTurn ?? []).includes(id),
     busyCount: () => world.busy ?? 0,
     // No member workspaces in this world: nothing holds one.
     assertWorkspaceFree: () => undefined,
@@ -252,6 +255,17 @@ describe('admission checks', () => {
       },
       { handle: 'dev-1', workItem: general },
       null,
+    ],
+    [
+      'counts an idle session on a task that moved on while its first turn has not begun (PM-242)',
+      {
+        tasks: [task('AR-1', { assignee: 'dev-1', stageId: 'code_review' })],
+        sessions: [session('dev-1', onTask('AR-1'))],
+        running: ['ses_dev-1_task'],
+        awaitingFirstTurn: ['ses_dev-1_task'],
+      },
+      { handle: 'dev-1', workItem: general },
+      'member_at_capacity',
     ],
     [
       'counts a session with a turn in progress wherever the task is',

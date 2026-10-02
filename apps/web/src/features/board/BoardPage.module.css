@@ -88,6 +88,11 @@
   scrollbar-width: thin;
 }
 
+/* A scrolling column keeps each child at full height instead of squeezing it. */
+.cards > * {
+  flex-shrink: 0;
+}
+
 .columnEmpty {
   font-size: 12.5px;
   color: var(--c-ink-4);

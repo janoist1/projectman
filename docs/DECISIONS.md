@@ -222,3 +222,18 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     start waits); when something else is happening to it (working, waiting for you, blocked, waiting
     on someone) the status line says that, and a small chip names the prerequisite. The text never
     stands twice on a card.
+31. **Every step can be done by a person, and any part of the process can be left to AI; a card
+    is worked out before development, one step at a time.** Decided by the owner on 2026-10-02.
+    The principle, in the owner's words, meant for the whole system and not only this part: „a
+    lényeg, h minden emberileg is mozgatható legyen, címkézhető, stb, de mindig lehetőség van
+    AI-ra bízni a folyamat egy vagy teljes részét”. So no step requires an AI member: a person can
+    move every card, set every label and do every step by hand, and a team may leave one step,
+    several, or the whole process to AI members. Steps follow duties (decision 16), which a person
+    or an AI holds; a step whose duty no AI member holds falls to a person.
+    On working a card out („addig ne kezdődjön el a fejlesztés, amíg a kártya nem áll készen, nincs
+    kidolgozva. ennek kell egy felelős”), answering how: „Egymás után, egy felelőssel”. A
+    responsible duty decides, with a reason, what a card needs (requirements, a UI plan, a
+    technical plan); the steps run in that order, one member at a time, and the system starts the
+    next; development starts only on a card that is worked out. Whether a card needs the designer
+    is decided by the architect when they plan it, otherwise by whoever opens it, with a reason
+    (answer: „Architekt vagy a nyitó, indokkal”). PM-252 designs the flow.

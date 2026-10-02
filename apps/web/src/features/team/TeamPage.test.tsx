@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { getLocale } from '@projectman/templates';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { t } from '../../i18n/t';
+import { humanRoleName } from '../../lib/roles';
 import { setFetchImplementation } from '../../api/client';
 import { mockProject } from '../../test/mockProject';
 import { TeamPage } from './TeamPage';
@@ -240,6 +241,31 @@ describe('TeamPage role catalogue', () => {
     const line = none.parentElement!;
     expect(line.querySelector('[data-status]')).not.toBeNull();
     expect(line.textContent).toContain('·');
+  });
+
+  it('keeps a phone card to one role chip and one task, with a "+1" for the other (PM-240)', async () => {
+    phone(true);
+    const project = mockProject();
+    const human = project.backend.findMember('bence')!;
+    human.roles = ['operator', 'product_owner'];
+    const worker = project.backend.findMember('fe-1')!;
+    const [first, second] = project.backend.tasks.map((task) => task.key);
+    worker.currentTaskKeys = [first!, second!];
+    project.render(<TeamPage />);
+    const roster = within(await screen.findByRole('region', { name: t('team.roster') }));
+    const card = async (handle: string) =>
+      (await roster.findByRole('link', { name: project.backend.findMember(handle)!.displayName })).closest(
+        'li',
+      )!;
+    const person = await card('bence');
+    // The first role only, no access level beside it, and a "+1" named for a screen reader.
+    expect(within(person).getByText(roleNames.operator.name)).toBeTruthy();
+    expect(within(person).queryByText(roleNames.product_owner.name)).toBeNull();
+    expect(within(person).queryByText(humanRoleName(human.role))).toBeNull();
+    expect(within(person).getByLabelText(t('team.moreRoles', { count: 1 })).textContent).toBe('+1');
+    const busy = await card('fe-1');
+    expect(within(busy).getAllByRole('link', { name: new RegExp(`^(${first}|${second})`) })).toHaveLength(1);
+    expect(within(busy).getByLabelText(t('team.moreTasks', { count: 1 })).textContent).toBe('+1');
   });
 
   it('says in the subtitle whose subscription runs the AI members when it is not the viewer', async () => {

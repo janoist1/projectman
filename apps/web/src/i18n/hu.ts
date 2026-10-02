@@ -1527,6 +1527,10 @@ export const hu = {
     sponsorOther: '{name} előfizetése',
     ownAccount: 'saját fiók',
     noTask: 'nincs feladata',
+    /** The "+N" after the first role or task on a phone card, and its name for a screen reader. */
+    more: '+{count}',
+    moreRoles: 'még {count} szerep',
+    moreTasks: 'még {count} feladat',
     /** The cards a member is on in one line: one card with its title, two by key, more by key and a count. */
     cardsOne: '{key} {title}',
     cardsMore: '{keys} +{more}',

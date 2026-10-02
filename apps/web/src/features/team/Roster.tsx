@@ -21,11 +21,25 @@ export interface RosterProps {
   actions: (member: MemberView) => ReactNode;
 }
 
-function RoleChips({ member, roles }: { member: MemberView; roles: RosterProps['roles'] }) {
+/**
+ * A member's roles as chips. On a phone card (`compact`) the line must not wrap: the first role and a
+ * "+N" for the rest, and no access level for a human (the profile says it).
+ */
+function RoleChips({
+  member,
+  roles,
+  compact = false,
+}: {
+  member: MemberView;
+  roles: RosterProps['roles'];
+  compact?: boolean;
+}) {
+  const shown = compact ? member.roles.slice(0, 1) : member.roles;
+  const hidden = member.roles.length - shown.length;
   return (
     <>
-      {member.kind === 'human' ? <span>{humanRoleName(member.role)}</span> : null}
-      {member.roles.map((id) => {
+      {member.kind === 'human' && !compact ? <span>{humanRoleName(member.role)}</span> : null}
+      {shown.map((id) => {
         const view = aiRoleView(id, member.specialty, roles);
         return (
           <Chip key={id} icon={view.icon} data-tone={view.tone} className={styles.roleChip}>
@@ -33,6 +47,11 @@ function RoleChips({ member, roles }: { member: MemberView; roles: RosterProps['
           </Chip>
         );
       })}
+      {hidden > 0 ? (
+        <Chip role="img" aria-label={t('team.moreRoles', { count: hidden })}>
+          {t('team.more', { count: hidden })}
+        </Chip>
+      ) : null}
     </>
   );
 }
@@ -43,12 +62,15 @@ function MemberIdentity({
   status,
   roles,
   stretched = false,
+  compact = false,
 }: {
   member: MemberView;
   status: ReturnType<typeof memberStatusView>['status'];
   roles: RosterProps['roles'];
   /** The profile link covers its whole card (the card's other controls stay on top of it). */
   stretched?: boolean;
+  /** The phone card: one role chip and a "+N" (see RoleChips). */
+  compact?: boolean;
 }) {
   const { key, myHandle } = useProject();
   const { members } = useProjectIndexes(key);
@@ -70,25 +92,48 @@ function MemberIdentity({
           {member.onLeave ? <Chip tone="needs">{t('leave.onLeave')}</Chip> : null}
         </span>
         <span className={styles.handle}>
-          <span className={styles.mono}>{member.handle}</span> · <RoleChips member={member} roles={roles} />
+          <span className={styles.mono}>{member.handle}</span> ·{' '}
+          <RoleChips member={member} roles={roles} compact={compact} />
         </span>
       </span>
     </div>
   );
 }
 
-/** The tasks a member carries (at most two). The command a session runs is not shown here. */
-function MemberTasks({ member, titles }: { member: MemberView; titles: RosterProps['titles'] }) {
+/**
+ * The tasks a member carries (at most two; the phone card shows the first and a "+N" for the rest).
+ * The command a session runs is not shown here.
+ */
+function MemberTasks({
+  member,
+  titles,
+  compact = false,
+}: {
+  member: MemberView;
+  titles: RosterProps['titles'];
+  compact?: boolean;
+}) {
   const { key } = useProject();
   if (member.currentTaskKeys.length === 0) return <span className={styles.muted}>{t('team.noTask')}</span>;
+  const limit = compact ? 1 : 2;
+  const hidden = compact ? member.currentTaskKeys.length - limit : 0;
   return (
     <span className={styles.tasks}>
-      {member.currentTaskKeys.slice(0, 2).map((taskKey) => (
+      {member.currentTaskKeys.slice(0, limit).map((taskKey) => (
         <Link key={taskKey} to={`/p/${key}/tasks/${taskKey}`} className={styles.taskLink}>
           <span className={styles.taskKey}>{taskKey}</span>
           <span className={styles.taskTitle}>{titles.get(taskKey) ?? ''}</span>
         </Link>
       ))}
+      {hidden > 0 ? (
+        <span
+          role="img"
+          aria-label={t('team.moreTasks', { count: hidden })}
+          className={`${styles.muted} ${styles.moreTasks}`}
+        >
+          {t('team.more', { count: hidden })}
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -190,7 +235,7 @@ export function RosterCards({ members, inbox, roles, titles, actions }: RosterPr
         return (
           <li key={member.handle} className={styles.card}>
             <div className={styles.cardHead}>
-              <MemberIdentity member={member} status={view.status} roles={roles} stretched />
+              <MemberIdentity member={member} status={view.status} roles={roles} stretched compact />
               {menu}
             </div>
             <div className={styles.cardState}>
@@ -201,7 +246,7 @@ export function RosterCards({ members, inbox, roles, titles, actions }: RosterPr
               <span aria-hidden="true" className={styles.muted}>
                 ·
               </span>
-              <MemberTasks member={member} titles={titles} />
+              <MemberTasks member={member} titles={titles} compact />
             </div>
             <MemberScheduleControl handle={member.handle} />
             {note ? <span className={styles.muted}>{note}</span> : null}

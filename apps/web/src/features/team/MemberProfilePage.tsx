@@ -24,6 +24,7 @@ import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
 import { Fold } from '../../components/Fold';
+import { Icon } from '../../components/Icon';
 import { ErrorBanner } from '../../components/ErrorBanner';
 import { Chip } from '../../components/Chip';
 import { PageHeader } from '../../components/PageHeader';
@@ -106,6 +107,7 @@ export function MemberProfilePage() {
   const [editing, setEditing] = useState(false);
   const [retiring, setRetiring] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [reply, setReply] = useState<TeamMessage | null>(null);
   const access = me.projects.find((p) => p.key === key)?.access;
   const internal = access !== 'client';
@@ -297,20 +299,33 @@ export function MemberProfilePage() {
       </div>
       {nothingYet.length ? <p className={styles.quiet}>{nothingYet.join(' ')}</p> : null}
       {ai ? (
-        <Fold summary={t('profile.settings')}>
+        <details className={styles.fold} open={settingsOpen}>
+          <summary
+            className={styles.foldSummary}
+            aria-expanded={settingsOpen}
+            onClick={(event) => {
+              event.preventDefault();
+              setSettingsOpen(!settingsOpen);
+            }}
+          >
+            <Icon name="chevronRight" size={14} strokeWidth={2.4} className={styles.chevron} />
+            <h2 className={styles.panelTitle}>{t('profile.settings')}</h2>
+          </summary>
           <div className={styles.settings}>
-            <ProviderBadge provider={member.provider} />
-            <p>
-              {member.model
-                ? providerModelLabel(member.provider ?? DEFAULT_AGENT_PROVIDER, member.model)
-                : t('common.dash')}{' '}
-              ·{' '}
-              {member.effort
-                ? t(`providerSettings.efforts.${member.effort}`)
-                : member.provider === 'codex'
-                  ? t('providerSettings.efforts.medium')
-                  : t('providerSettings.defaultEffort')}
-            </p>
+            <div className={styles.modelLine}>
+              <ProviderBadge provider={member.provider} />
+              <span>
+                {member.model
+                  ? providerModelLabel(member.provider ?? DEFAULT_AGENT_PROVIDER, member.model)
+                  : t('common.dash')}{' '}
+                ·{' '}
+                {member.effort
+                  ? t(`providerSettings.efforts.${member.effort}`)
+                  : member.provider === 'codex'
+                    ? t('providerSettings.efforts.medium')
+                    : t('providerSettings.defaultEffort')}
+              </span>
+            </div>
             {cheapSubagent ? (
               <p>
                 {t('providerSettings.cheapSubagentProfile', {
@@ -326,7 +341,7 @@ export function MemberProfilePage() {
               pauseAbove={config.data?.config.team.limits.pauseAbovePlanUsagePercent}
             />
           </div>
-        </Fold>
+        </details>
       ) : null}
       {ai && internal ? (
         <>

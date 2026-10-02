@@ -164,6 +164,10 @@
 }
 
 .choiceTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 7px;
   font-size: 13.5px;
   font-weight: 800;
   color: var(--c-ink);

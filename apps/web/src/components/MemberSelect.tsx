@@ -1,4 +1,5 @@
 import type { MemberConfig } from '@projectman/shared';
+import { leaveSuffix } from './LeaveChip';
 import styles from './MemberSelect.module.css';
 
 /** A labelled multi-select of configured members (stage owners, label setters). */
@@ -27,6 +28,7 @@ export function MemberSelect({
         {members.map((member) => (
           <option key={member.handle} value={member.handle}>
             {member.displayName}
+            {leaveSuffix(member)}
           </option>
         ))}
       </select>

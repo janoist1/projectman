@@ -1,9 +1,11 @@
 import { useId } from 'react';
 import { Link } from 'react-router';
+import { isOnLeave } from '@projectman/shared';
 import type { MemberView } from '@projectman/shared';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Icon } from '../../components/Icon';
+import { LeaveChip } from '../../components/LeaveChip';
 import { t } from '../../i18n/t';
 import { cardsLine, workingNow } from '../../lib/members';
 import styles from './TeamStrip.module.css';
@@ -20,6 +22,17 @@ export function TeamStrip({ members, titles }: TeamStripProps) {
   const labelId = useId();
   if (!members.some((member) => member.kind === 'ai' && member.status !== 'retired')) return null;
   const working = workingNow(members, new Set(titles.keys()));
+  // A member on leave works on nothing, so it would not show here at all: listed after the workers.
+  const away = members.filter((member) => isOnLeave(member) && member.status !== 'retired');
+  const awayChips = away.map((member) => (
+    <li key={member.handle}>
+      <Link to={`/p/${key}/team/${member.handle}`} className={styles.chip}>
+        <Avatar member={member} size="sm" />
+        <span className={styles.name}>{member.displayName}</span>
+        <LeaveChip member={member} />
+      </Link>
+    </li>
+  ));
 
   if (working.length === 0) {
     return (
@@ -31,6 +44,7 @@ export function TeamStrip({ members, titles }: TeamStripProps) {
             <Icon name="chevronRight" size={14} strokeWidth={2.4} />
           </Link>
         </p>
+        {away.length > 0 ? <ul className={styles.list}>{awayChips}</ul> : null}
       </section>
     );
   }
@@ -61,6 +75,7 @@ export function TeamStrip({ members, titles }: TeamStripProps) {
             </li>
           );
         })}
+        {awayChips}
       </ul>
     </section>
   );

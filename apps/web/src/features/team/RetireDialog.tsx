@@ -7,6 +7,7 @@ import { Button } from '../../components/Button';
 import { ChoiceCard } from '../../components/Field';
 import { Dialog } from '../../components/Dialog';
 import { ErrorBanner } from '../../components/ErrorBanner';
+import { LeaveChip } from '../../components/LeaveChip';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
@@ -81,7 +82,12 @@ function RetireForm({
               value={candidate.handle}
               checked={target === candidate.handle}
               onChange={setTarget}
-              title={`${candidate.displayName} · ${candidate.handle}`}
+              title={
+                <>
+                  {`${candidate.displayName} · ${candidate.handle}`}
+                  <LeaveChip member={candidate} />
+                </>
+              }
               description={roleLabel(candidate, roles.data?.roles)}
               leading={<Avatar member={candidate} size="md" />}
             />

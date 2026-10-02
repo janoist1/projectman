@@ -7,6 +7,7 @@ import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
 import { ErrorBanner } from '../../components/ErrorBanner';
 import { TextAreaField } from '../../components/Field';
+import { leaveSuffix } from '../../components/LeaveChip';
 import { MoreMenu } from '../../components/MoreMenu';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
@@ -166,7 +167,7 @@ export function TaskAssigneeSelect({ task, members }: { task: Task; members: Mem
               disabled={member.onLeave === true && member.handle !== task.assignee}
             >
               {nameOf(member.handle, members, myHandle)}
-              {member.onLeave ? ` · ${t('leave.onLeave')}` : ''}
+              {leaveSuffix(member)}
             </option>
           ))}
       </select>

@@ -4,6 +4,7 @@ import type { LabelView, MemberView, Session, Task, TaskPullRequest } from '@pro
 import { Avatar } from '../../components/Avatar';
 import { Chip } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
+import { LeaveChip } from '../../components/LeaveChip';
 import { TokenUsageList } from '../../components/TokenUsage';
 import { formatStamp, formatTokens } from '../../i18n/format';
 import { t } from '../../i18n/t';
@@ -210,7 +211,10 @@ export function ParticipantsPanel({
           <li key={handle} className={styles.person}>
             <Avatar member={members.get(handle)} handle={handle} isMe={handle === myHandle} size="md" />
             <span className={styles.personText}>
-              <span className={styles.personName}>{nameOf(handle, members, myHandle)}</span>
+              <span className={styles.personName}>
+                {nameOf(handle, members, myHandle)}
+                <LeaveChip member={members.get(handle)} />
+              </span>
               <span className={styles.personWhat}>{what}</span>
             </span>
           </li>

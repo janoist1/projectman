@@ -1,11 +1,5 @@
 import type { Session, Task } from '@projectman/shared';
-import { joinNames, t } from '../../i18n/t';
-import { namesOf } from '../../lib/members';
 import { isLiveSession } from '../../lib/sessions';
-import { isTaskClosed } from '../../lib/taskState';
-import type { MemberIndex } from '../../lib/members';
-import { nextStage } from '../../lib/pipeline';
-import type { PipelineIndex } from '../../lib/pipeline';
 
 /**
  * The session to open for a task: the newest live one (e.g. the reviewer's while the task is in
@@ -19,20 +13,4 @@ export function primarySession(task: Task, sessions: readonly Session[]): Sessio
     sorted[0] ??
     null
   );
-}
-
-export function nextStepText(
-  task: Task,
-  pipeline: PipelineIndex,
-  members: MemberIndex,
-  myHandle: string | null,
-): string | null {
-  if (isTaskClosed(task)) return null;
-  const next = nextStage(pipeline, task.stageId);
-  if (!next) return t('task.lastStage');
-  if ((next.owners ?? []).length === 0) return t('task.nextStageNoOwner', { stage: next.name });
-  return t('task.nextStage', {
-    stage: next.name,
-    owners: joinNames(namesOf(next.owners ?? [], members, myHandle)),
-  });
 }

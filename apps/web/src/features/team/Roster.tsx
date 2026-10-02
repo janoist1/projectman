@@ -4,6 +4,7 @@ import type { InboxItem, MemberView, RoleView } from '@projectman/shared';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Chip, StatusDot } from '../../components/Chip';
+import { LeaveChip } from '../../components/LeaveChip';
 import { ProviderBadge } from '../../components/ProviderBadge';
 import { t } from '../../i18n/t';
 import { aiSponsors, memberStatusView, nameOf } from '../../lib/members';
@@ -89,7 +90,7 @@ function MemberIdentity({
             </>
           ) : null}
           {member.temp ? <Chip tone="needs">{t('team.temp')}</Chip> : null}
-          {member.onLeave ? <Chip tone="needs">{t('leave.onLeave')}</Chip> : null}
+          <LeaveChip member={member} />
         </span>
         <span className={styles.handle}>
           <span className={styles.mono}>{member.handle}</span> ·{' '}

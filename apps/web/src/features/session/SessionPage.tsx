@@ -24,7 +24,7 @@ import { openItemIds, openItemsFor } from '../../lib/inbox';
 import { nameOf } from '../../lib/members';
 import { isLiveSession } from '../../lib/sessions';
 import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
-import { nextStepText } from '../board/taskModel';
+import { nextStepLine } from '../board/NextStep';
 import { ChatView } from './ChatView';
 import { Composer } from './Composer';
 import { participantsFor } from './participants';
@@ -157,7 +157,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
     <Timeline
       events={timeline}
       ctx={{ pipeline, members, labels, myHandle, openInboxIds: openIds }}
-      next={pipeline ? nextStepText(task, pipeline, members, myHandle) : null}
+      next={pipeline ? nextStepLine(task, pipeline, members, myHandle) : null}
     />
   ) : (
     <p className={styles.muted}>{t('task.timelineEmpty')}</p>

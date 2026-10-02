@@ -1830,6 +1830,7 @@ export const hu = {
       tempWorkersOn: 'be · legfeljebb {max} · {role}',
       tempWorkersOff: 'ki',
       range: 'Adj meg egy egész számot {min} és {max} között.',
+      locked: 'Egy másik rész szerkesztés alatt áll; mentsd vagy vesd el, utána a keretek újra módosíthatók.',
       conflict:
         'A beállítások közben megváltoztak, ezért ez a módosítás nem mentődött. A legfrissebb értékek látszanak; add meg újra.',
     },

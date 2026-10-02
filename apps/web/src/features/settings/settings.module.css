@@ -208,6 +208,10 @@
 
 /* Controls that save at once (the limits): a checkbox or slider with its explanation below. */
 .controls {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 14px;

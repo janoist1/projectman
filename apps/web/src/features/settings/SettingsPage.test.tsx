@@ -141,6 +141,22 @@ describe('settings section editors', () => {
     expect(toggle.checked).toBe(false);
   });
 
+  it('locks the limits while another section is being edited, so the open editor keeps its version', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    const limits = await limitsSection();
+    const toggle = limits.getByRole('checkbox', { name: t('settings.limits.aiEnabled') }) as HTMLInputElement;
+    // Disabled by the fieldset around the controls, which only the :disabled selector sees.
+    expect(toggle.matches(':disabled')).toBe(false);
+    expect(limits.queryByText(t('settings.limits.locked'))).toBeNull();
+    const editor = await editSection('project');
+    expect(toggle.matches(':disabled')).toBe(true);
+    expect(limits.getByText(t('settings.limits.locked'))).toBeTruthy();
+    fireEvent.click(editor.getByRole('button', { name: t('common.cancel') }));
+    await waitFor(() => expect(toggle.matches(':disabled')).toBe(false));
+    expect(limits.queryByText(t('settings.limits.locked'))).toBeNull();
+  });
+
   it('turns the cap on concurrent AI sessions off and on (decision 23)', async () => {
     const project = mockProject();
     project.render(<SettingsPage />);

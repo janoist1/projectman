@@ -23,11 +23,12 @@ const DEFAULT_TOKEN_WARNING_CHOICE = 5_000_000;
 function LimitsControls({ config }: { config: ProjectConfig }) {
   const { key, isOwner } = useProject();
   const roles = useRoles(key);
-  const { shown, saving, commit, error } = useInstantLimits(config);
+  const { shown, saving, commit, error, locked } = useInstantLimits(config);
   const { limits } = shown.team;
   const messageBurst = messageBurstOf(limits);
   return (
-    <div className={shared.controls}>
+    <fieldset className={shared.controls} disabled={locked}>
+      {locked ? <p className={shared.help}>{t('settings.limits.locked')}</p> : null}
       <ToggleField
         label={t('settings.limits.boundaryEnabled')}
         help={t('settings.limits.boundaryHelp')}
@@ -225,7 +226,7 @@ function LimitsControls({ config }: { config: ProjectConfig }) {
             : errorMessage(error)}
         </p>
       ) : null}
-    </div>
+    </fieldset>
   );
 }
 

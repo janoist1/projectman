@@ -152,7 +152,9 @@ export function useInstantLimits(config: ProjectConfig) {
       }
     });
   };
-  return { shown: optimistic ?? config, saving: optimistic !== null, commit, error };
+  // A saved change moves the version on, which would make the open editor's save a conflict.
+  const locked = context?.edit != null;
+  return { shown: optimistic ?? config, saving: optimistic !== null, commit, error, locked };
 }
 
 /**

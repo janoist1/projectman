@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InboxItem } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
+import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { plainLanguageQuestion } from '../../mocks/fixtures';
 import { mockProject } from '../../test/mockProject';
@@ -50,6 +51,35 @@ describe('inbox history', () => {
     expect(byRule!.textContent).not.toContain(t('common.system'));
     expect(within(byNote!).getByText('Fictional note from before rules')).toBeTruthy();
     expect(byNote!.textContent).toContain(t('common.system'));
+  });
+});
+
+describe('feedback and the history box (PM-97)', () => {
+  it('says a decision went through, since the card disappears', async () => {
+    const project = mockProject();
+    project.render(
+      <ToastProvider>
+        <InboxPage />
+      </ToastProvider>,
+      '/p/AC/inbox',
+    );
+    const card = (
+      await screen.findByRole('heading', {
+        name: t('inbox.permissionHeading', { tool: t('session.tools.git') }),
+      })
+    ).closest('article')!;
+    fireEvent.click(within(card).getByRole('button', { name: t('inbox.options.allow') }));
+    expect(await screen.findByText(t('inbox.resolutions.allow'))).toBeTruthy();
+  });
+
+  it('does not show the history box before anything was decided', async () => {
+    const project = mockProject();
+    project.backend.inbox = project.backend.inbox.filter((item) => item.state === 'open');
+    project.render(<InboxPage />, '/p/AC/inbox');
+    await screen.findByRole('heading', {
+      name: t('inbox.permissionHeading', { tool: t('session.tools.git') }),
+    });
+    expect(screen.queryByText(t('inbox.recent'))).toBeNull();
   });
 });
 

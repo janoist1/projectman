@@ -28,15 +28,23 @@
   font-size: var(--text-sm);
   font-weight: 800;
   color: var(--c-ink-2);
-  flex-shrink: 0;
-}
-
-.task {
-  font-size: 12.5px;
-  color: var(--c-ink-4);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* The task the request is about, under the header row: two lines at most. */
+.task {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--c-ink-3);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
   min-width: 0;
 }
 
@@ -157,6 +165,10 @@
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.actionsTop {
+  align-items: flex-start;
 }
 
 .details {

@@ -96,28 +96,44 @@ export function groupChatItems(items: readonly ChatItem[], sessionMember: string
   return blocks;
 }
 
-const toolLabelKeys = [
-  'Read',
-  'Edit',
-  'MultiEdit',
-  'Write',
-  'NotebookEdit',
-  'Bash',
-  'BashOutput',
-  'KillShell',
-  'Grep',
-  'Glob',
-  'LS',
-  'WebFetch',
-  'WebSearch',
-  'TodoWrite',
-  'Task',
-] as const;
+const toolCategories = ['read', 'search', 'edit', 'command', 'web', 'team', 'other'] as const;
 
-type KnownTool = (typeof toolLabelKeys)[number];
+type ToolCategory = (typeof toolCategories)[number];
+
+/**
+ * The tools the runners name (Claude Code's and Codex's), each with its category and icon; the
+ * label is `session.tools.<name>`. The summary line, the icon and the result words all read this.
+ */
+const knownTools = {
+  Read: { category: 'read', icon: 'doc' },
+  Edit: { category: 'edit', icon: 'pencil' },
+  MultiEdit: { category: 'edit', icon: 'pencil' },
+  Write: { category: 'edit', icon: 'pencil' },
+  NotebookEdit: { category: 'edit', icon: 'pencil' },
+  apply_patch: { category: 'edit', icon: 'pencil' },
+  Bash: { category: 'command', icon: 'terminal' },
+  BashOutput: { category: 'command', icon: 'terminal' },
+  KillShell: { category: 'command', icon: 'terminal' },
+  PowerShell: { category: 'command', icon: 'terminal' },
+  Grep: { category: 'search', icon: 'search' },
+  Glob: { category: 'search', icon: 'search' },
+  LS: { category: 'search', icon: 'search' },
+  WebFetch: { category: 'web', icon: 'globe' },
+  WebSearch: { category: 'web', icon: 'globe' },
+  TodoWrite: { category: 'other', icon: 'list' },
+  Task: { category: 'other', icon: 'sparkle' },
+} as const satisfies Record<string, { category: ToolCategory; icon: IconName }>;
+
+type KnownTool = keyof typeof knownTools;
 
 function isKnownTool(name: string): name is KnownTool {
-  return (toolLabelKeys as readonly string[]).includes(name);
+  return Object.hasOwn(knownTools, name);
+}
+
+function toolCategory(name: string | null): ToolCategory {
+  if (!name) return 'other';
+  if (name.startsWith('mcp__team__')) return 'team';
+  return isKnownTool(name) ? knownTools[name].category : 'other';
 }
 
 /** Icon and label of a tool by name: "Olvasás", "Parancs", "Git", "Csapat". */
@@ -126,64 +142,8 @@ export function toolPresentationFor(name: string, summary = ''): { icon: IconNam
   if (name === 'Bash' && /^gh\s/.test(summary)) return { icon: 'prOpen', label: t('session.tools.git') };
   if (name.startsWith('mcp__team__')) return { icon: 'team', label: t('session.tools.team') };
   if (name.startsWith('mcp__')) return { icon: 'tool', label: t('session.tools.mcp') };
-  const label = isKnownTool(name) ? t(`session.tools.${name}`) : name;
-  switch (name) {
-    case 'Read':
-      return { icon: 'doc', label };
-    case 'Edit':
-    case 'MultiEdit':
-    case 'Write':
-    case 'NotebookEdit':
-      return { icon: 'pencil', label };
-    case 'Bash':
-    case 'BashOutput':
-    case 'KillShell':
-      return { icon: 'terminal', label };
-    case 'Grep':
-    case 'Glob':
-    case 'LS':
-      return { icon: 'search', label };
-    case 'WebFetch':
-    case 'WebSearch':
-      return { icon: 'globe', label };
-    case 'TodoWrite':
-      return { icon: 'list', label };
-    case 'Task':
-      return { icon: 'sparkle', label };
-    default:
-      return { icon: 'tool', label };
-  }
-}
-
-const toolCategories = ['read', 'search', 'edit', 'command', 'web', 'team', 'other'] as const;
-
-type ToolCategory = (typeof toolCategories)[number];
-
-function toolCategory(name: string | null): ToolCategory {
-  if (!name) return 'other';
-  if (name.startsWith('mcp__team__')) return 'team';
-  switch (name) {
-    case 'Read':
-      return 'read';
-    case 'Grep':
-    case 'Glob':
-    case 'LS':
-      return 'search';
-    case 'Edit':
-    case 'MultiEdit':
-    case 'Write':
-    case 'NotebookEdit':
-      return 'edit';
-    case 'Bash':
-    case 'BashOutput':
-    case 'KillShell':
-      return 'command';
-    case 'WebFetch':
-    case 'WebSearch':
-      return 'web';
-    default:
-      return 'other';
-  }
+  if (!isKnownTool(name)) return { icon: 'tool', label: name };
+  return { icon: knownTools[name].icon, label: t(`session.tools.${name}`) };
 }
 
 /**
@@ -223,6 +183,8 @@ export function summarizeToolRows(rows: readonly ToolRow[]): string {
 export function toolResultText(call: ToolCall | null, result: ToolResult): string {
   const text = result.summary;
   const category = toolCategory(call?.name ?? null);
+  const exit = /^Exit code (-?\d+)$/.exec(text);
+  if (exit) return t('session.chat.result.exitCode', { code: exit[1] ?? '' });
   if (!result.ok) return text === 'Failed' ? '' : text;
   const lines = /^(\d+) lines$/.exec(text);
   const files = /^(\d+) files$/.exec(text);

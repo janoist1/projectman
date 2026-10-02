@@ -8,6 +8,8 @@ interface FoldProps {
   summary: ReactNode;
   /** Shown beside the summary while the fold is closed: the values inside, so no one has to open it to see them. */
   peek?: ReactNode;
+  /** The peek takes its own line under the summary, in line with the summary text, instead of sharing its line. */
+  peekBelow?: boolean;
   /** Controlled state: a form opens the fold that holds its first invalid field. */
   open?: boolean;
   onToggle?: (open: boolean) => void;
@@ -22,11 +24,14 @@ interface FoldProps {
  * instructions), or a form's less common fields. Built on <details>: Enter and Space on the summary
  * open it.
  */
-export function Fold({ summary, peek, open, onToggle, plain, children, className }: FoldProps) {
+export function Fold({ summary, peek, peekBelow, open, onToggle, plain, children, className }: FoldProps) {
   const [inner, setInner] = useState(false);
   const isOpen = open ?? inner;
   return (
-    <details className={clsx(styles.fold, plain && styles.plain, className)} open={isOpen}>
+    <details
+      className={clsx(styles.fold, plain && styles.plain, peekBelow && styles.below, className)}
+      open={isOpen}
+    >
       <summary
         className={styles.summary}
         aria-expanded={isOpen}

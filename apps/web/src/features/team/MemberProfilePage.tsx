@@ -63,6 +63,7 @@ function SessionPeek({ sessionId }: { sessionId: string }) {
       members={members}
       myHandle={myHandle}
       sessionMember={detail.data.session.member}
+      live={isLiveSession(detail.data.session)}
     />
   );
 }

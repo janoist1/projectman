@@ -233,6 +233,98 @@ describe('ChatView', () => {
     expect(summary.textContent).toContain('npm test');
   });
 
+  it('counts a Codex patch as an edit and writes its exit code in Hungarian', () => {
+    const run: ChatItem[] = [
+      {
+        id: 'c1',
+        ts: at(1),
+        kind: 'tool_call',
+        toolUseId: 't1',
+        name: 'apply_patch',
+        summary: 'src/a.ts',
+        input: {},
+      },
+      { id: 'r1', ts: at(1), kind: 'tool_result', toolUseId: 't1', ok: true, summary: 'Done' },
+      { id: 'c2', ts: at(2), kind: 'tool_call', toolUseId: 't2', name: 'Bash', summary: 'make', input: {} },
+      { id: 'r2', ts: at(2), kind: 'tool_result', toolUseId: 't2', ok: false, summary: 'Exit code 2' },
+    ];
+    render(<ChatView items={run} sessionMember="fe-1" members={members} myHandle="owner" />);
+    const summary = screen.getByText(/2 lépés/).closest('summary')!;
+    expect(summary.textContent).toBe('2 lépés · 1 fájl szerkesztve, 1 parancs, 1 hiba');
+    fireEvent.click(summary);
+    const rows = within(screen.getByRole('list', { name: t('session.chat.toolGroup') })).getAllByRole(
+      'listitem',
+    );
+    expect(rows[0]!.textContent).toContain(t('session.tools.apply_patch'));
+    expect(rows[0]!.textContent).not.toContain('apply_patch');
+    expect(rows[0]!.textContent).toContain('kész');
+    expect(rows[1]!.textContent).toContain('hiba · kilépési kód: 2');
+    expect(rows[1]!.textContent).not.toContain('Exit code');
+  });
+
+  it('is its own summary for a single step: kind, argument and outcome', () => {
+    const run: ChatItem[] = [
+      {
+        id: 'c1',
+        ts: at(1),
+        kind: 'tool_call',
+        toolUseId: 't1',
+        name: 'Bash',
+        summary: 'git push origin main',
+        input: {},
+      },
+      { id: 'r1', ts: at(1), kind: 'tool_result', toolUseId: 't1', ok: false, summary: 'Failed' },
+    ];
+    render(<ChatView items={run} sessionMember="fe-1" members={members} myHandle="owner" />);
+    const summary = screen.getAllByText('git push origin main')[0]!.closest('summary')!;
+    expect(summary.textContent).toBe('Git:git push origin main· hiba');
+    expect(summary.textContent).not.toContain('1 lépés');
+  });
+
+  it('shows the latest running step on its own line under a long summary', () => {
+    const run: ChatItem[] = [
+      { id: 'c1', ts: at(1), kind: 'tool_call', toolUseId: 't1', name: 'Read', summary: 'a.ts', input: {} },
+      { id: 'r1', ts: at(1), kind: 'tool_result', toolUseId: 't1', ok: true, summary: '3 lines' },
+      {
+        id: 'c2',
+        ts: at(2),
+        kind: 'tool_call',
+        toolUseId: 't2',
+        name: 'Bash',
+        summary: 'npm test',
+        input: {},
+      },
+    ];
+    render(<ChatView items={run} sessionMember="fe-1" members={members} myHandle="owner" />);
+    const summary = screen.getByText(/2 lépés/).closest('summary')!;
+    const peek = within(summary).getByText('npm test').closest('span[class*="peek"]')!;
+    expect(peek.textContent).toBe(`${t('session.tools.Bash')}:npm test· ${t('session.chat.toolRunning')}`);
+    // The summary text itself is not in the peek.
+    expect(peek.textContent).not.toContain('lépés');
+  });
+
+  it('does not call an unanswered tool of a stopped session running', () => {
+    const run: ChatItem[] = [
+      { id: 'c1', ts: at(1), kind: 'tool_call', toolUseId: 't1', name: 'Read', summary: 'a.ts', input: {} },
+      { id: 'r1', ts: at(1), kind: 'tool_result', toolUseId: 't1', ok: true, summary: '3 lines' },
+      {
+        id: 'c2',
+        ts: at(2),
+        kind: 'tool_call',
+        toolUseId: 't2',
+        name: 'Bash',
+        summary: 'npm test',
+        input: {},
+      },
+    ];
+    render(<ChatView items={run} sessionMember="fe-1" members={members} myHandle="owner" live={false} />);
+    const summary = screen.getByText(/2 lépés/).closest('summary')!;
+    expect(summary.textContent).not.toContain(t('session.chat.toolRunning'));
+    fireEvent.click(summary);
+    expect(screen.queryByText(t('session.chat.toolRunning'))).toBeNull();
+    expect(screen.getByText(t('session.chat.toolStopped'))).toBeTruthy();
+  });
+
   it('shows the open permission request inline and resolves it', () => {
     const request = inbox.find((item) => item.id === 'inb_perm_push') as InboxItem;
     const onResolve = vi.fn();
@@ -251,7 +343,7 @@ describe('ChatView', () => {
     expect(within(prompt).getByText('git push origin 21-order-confirmation')).toBeTruthy();
     // The closed tool line says what the session waits for, without opening it.
     const closed = screen.getByText(/3 lépés/).closest('summary')!;
-    expect(within(closed).getByText(t('session.chat.toolAwaiting'))).toBeTruthy();
+    expect(within(closed).getByText(new RegExp(t('session.chat.toolAwaiting')))).toBeTruthy();
     expect(closed.textContent).toContain('git push origin main');
     fireEvent.click(within(prompt).getByRole('button', { name: t('inbox.options.allow_session') }));
     expect(onResolve).toHaveBeenCalledWith(request, { optionId: 'allow_session' });

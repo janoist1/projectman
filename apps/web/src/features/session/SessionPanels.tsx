@@ -134,7 +134,10 @@ export function PrPanel({
         </article>
       ))}
       {task && task.labels.length > 0 ? (
-        <ul className={styles.labels} aria-label={t('task.labels.title')}>
+        <ul
+          className={styles.labels}
+          aria-label={pullRequests.length === 0 ? undefined : t('task.labels.title')}
+        >
           {task.labels.map((id) => (
             <li key={id}>
               <LabelChip id={id} labels={labels} />

@@ -1,4 +1,4 @@
-import { isOnLeave, memberOf, permissionDelegationOf } from '@projectman/shared';
+import { isOnLeave, memberOf, permissionDelegationOf, stageOf } from '@projectman/shared';
 import type { ExecutionProfile, Me } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AuthService } from '../auth';
@@ -24,7 +24,7 @@ import type { EgressSettings } from './egress';
 import type { ProcessProbe } from './workspaces';
 import { projectAccessFor } from './access';
 import type { ProjectAccess } from './access';
-import { Admission, DeferredStarts, MessageStarts, StageHandOver, TaskStarts } from './admission';
+import { Admission, DeferredStarts, MessageStarts, StageHandOver, TaskStarts, WorkStarts } from './admission';
 import type { StartSpec } from './admission';
 import { AttachmentService } from './attachments';
 import { BackgroundTasks } from './background';
@@ -64,7 +64,7 @@ export * from './errors';
 export { createEventBus } from './event-bus';
 export { createDomainEvents } from './events';
 export type { DomainEventMap, DomainEvents } from './events';
-export { Admission, DeferredStarts, MessageStarts, StageHandOver, TaskStarts } from './admission';
+export { Admission, DeferredStarts, MessageStarts, StageHandOver, TaskStarts, WorkStarts } from './admission';
 export type {
   AdmissionRequest,
   AutomaticStart,
@@ -352,6 +352,7 @@ export function createDomain(opts: DomainOptions) {
     );
   });
   const taskStarts = new TaskStarts({ projects, tasks, members, sessions, admission });
+  const workStarts = new WorkStarts({ projects, tasks, sessions, admission, starts: taskStarts });
   const handOver = new StageHandOver({ projects, tasks, sessions, admission, delivery });
   const messageStarts = new MessageStarts({ projects, tasks, admission, messages, delivery });
   const schedules = new ScheduleService({
@@ -415,8 +416,16 @@ export function createDomain(opts: DomainOptions) {
       (err) => opts.logger.warn({ err }, 'deferred start retry failed'),
     );
   /** A deferred start as it was stored, made again by the module that made it. */
-  const rebuildDeferredStart = (spec: StartSpec) =>
-    spec.kind === 'hand_over' ? handOver.rebuild(spec) : messageStarts.rebuild(spec);
+  const rebuildDeferredStart = (spec: StartSpec) => {
+    switch (spec.kind) {
+      case 'hand_over':
+        return handOver.rebuild(spec);
+      case 'work_start':
+        return workStarts.rebuild(spec);
+      case 'message_wake':
+        return messageStarts.rebuild(spec);
+    }
+  };
 
   // Configuration changes: runtime state follows the roster.
   events.on('config_changed', (change) => members.reconcile(change));
@@ -485,6 +494,29 @@ export function createDomain(opts: DomainOptions) {
       (err) => opts.logger.warn({ err }, 'stage hand-over failed'),
     );
   });
+  // A card moved into a work stage without an assignee starts like the Start button starts it (PM-119).
+  events.on('task_stage_changed', (change) => {
+    background.run(
+      () => workStarts.begin(change),
+      (err) => opts.logger.warn({ err }, 'work start failed'),
+    );
+  });
+  // Capacity frees up when a card leaves a work stage (handed on, closed) or a session ends: the
+  // starts that wait for a developer try again at once, not only on the timer.
+  events.on('task_stage_changed', (change) => {
+    const config = projects.cachedConfig(change.task.projectKey);
+    if (change.task.status === 'done' || (config && stageOf(config, change.from)?.kind === 'work'))
+      retryDeferredStarts();
+  });
+  events.on('task_cancelled', () => {
+    retryDeferredStarts();
+  });
+  events.on('session_ended', () => {
+    retryDeferredStarts();
+  });
+  events.on('session_idle', () => {
+    retryDeferredStarts();
+  });
   events.on('task_stage_changed', (change) => {
     if (change.task.status !== 'done') return;
     // An AI member that moved the task finishes its turn first (its messages and notes, PM-190).
@@ -534,6 +566,7 @@ export function createDomain(opts: DomainOptions) {
     admission,
     taskStarts,
     handOver,
+    workStarts,
     messageStarts,
     schedules,
     githubSync,

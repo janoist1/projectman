@@ -177,7 +177,7 @@ export class Admission {
         try {
           await start.run();
         } catch (err) {
-          if (!isDeferrable(err)) {
+          if (!isDeferrable(err, start.defers)) {
             this.deferred.drop(start.key);
             throw err;
           }
@@ -239,6 +239,11 @@ export class Admission {
         this.ctx.logger.warn({ err, ...start.log.fields() }, start.log.retryFailed);
       }
     }
+  }
+
+  /** Whether this start waits in the deferred-start store now. */
+  isWaiting(start: AutomaticStart): boolean {
+    return this.deferred.list().some((entry) => entry.start === start);
   }
 
   /** A task move or closure drops the starts it made obsolete, even if the task later returns. */

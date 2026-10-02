@@ -193,8 +193,10 @@ describe('automatic session admission and retries', () => {
     await flush();
     expect(h.runner.started).toHaveLength(1);
     await h.domain.tasks.cancel('AR', 'AR-1', { reason: 'Fictional scope changed.' }, OWNER_ACTOR);
-    await h.domain.admission.retryDeferred();
-    expect(h.runner.lastStarted()).toMatchObject({ initialMessage: 'Brief for AR-2: Next review' });
+    // Freeing the capacity retries the hand-over by itself, in the background.
+    await vi.waitFor(() =>
+      expect(h.runner.lastStarted()).toMatchObject({ initialMessage: 'Brief for AR-2: Next review' }),
+    );
   });
 
   it.each(['done', 'cancelled', 'retired'] as const)('drops a deferred hand-over when %s', async (reason) => {

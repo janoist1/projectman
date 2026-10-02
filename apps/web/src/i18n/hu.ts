@@ -574,6 +574,7 @@ export const hu = {
       workspace_busy: 'Indulásra vár: {name} munkaállomásán más feladat fut',
       workspace_dirty: 'Indulásra vár: {name} munkaállomásán befejezetlen munka van',
       workspace_fetch_failed: 'Indulásra vár: a friss alapágat nem sikerült letölteni',
+      no_free_member: 'Szabad fejlesztőre vár',
     },
     stageOwners: 'a lépés összes felelőse',
     startHints: {
@@ -591,6 +592,8 @@ export const hu = {
         'A tag munkaállomásán el nem mentett változás vagy félbehagyott git-művelet van. Kérd meg a tagot (vagy nézd meg magad), hogy mentse el vagy fejezze be; automatikusan semmit nem törlünk.',
       workspace_fetch_failed:
         'Az új feladatág csak friss alapról indulhat. Ellenőrizd a hálózatot és a repó elérését; az indítás magától újrapróbálkozik.',
+      no_free_member:
+        'Most nincs szabad fejlesztő. A feladat magától elindul, amint felszabadul egy, vagy ha a Beállítások → Keretek alatt engedélyezed a beugrókat; az Indítás gombbal kézzel is elindíthatod.',
     },
     needsYou: 'Rád vár: {what}',
     needsYouDetail: '{kind} ({detail})',

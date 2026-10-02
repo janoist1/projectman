@@ -5,5 +5,6 @@ export type { AutomaticStart, DeferredStart, DeferredStartStore } from './deferr
 export { StageHandOver } from './hand-over';
 export { MessageStarts } from './message-starts';
 export { assertAiEnabled, assertRepoChosen, isDeferrable, waitingOf } from './rules';
+export { WorkStarts } from './work-starts';
 export { TaskStarts } from './task-starts';
 export type { StartTaskOptions, StartTaskResult } from './task-starts';

@@ -28,6 +28,7 @@ describe('task drawer lifecycle', () => {
     'ai_disabled',
     'member_at_capacity',
     'repo_required',
+    'no_free_member',
   ] as const)('shows the waiting label and owner hint for %s', async (reason) => {
     const project = mockProject();
     const task = project.backend.findTask('AC-20')!;

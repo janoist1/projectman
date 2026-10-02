@@ -1658,6 +1658,8 @@ export class SessionOrchestrator {
           this.watchInputWait(updated);
           this.recomputeMemberState(session.projectKey, session.member);
           this.wakeForNewRound(updated);
+          if (updated.state === 'idle' && session.state !== 'idle')
+            void this.ctx.events.emit('session_idle', updated);
           if (updated.state === 'idle') this.turnEnded(updated.id);
           if (updated.state === 'idle' && updated.permissionRestartPending) this.restartWhenIdle(updated);
           if (updated.state === 'idle' && this.ctx.repos.sessions.compaction(updated.id).pending)

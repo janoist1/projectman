@@ -113,7 +113,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'direction',
     holders: 'both',
     prompt:
-      'Read the code and propose technical plans with risks and tradeoffs; escalate major decisions to a human. When a developer asks a structural question the plan does not cover, answer briefly and quickly with send_message, and record the decision as a note on the task.',
+      'Read the code and propose technical plans with risks and tradeoffs; escalate major decisions to a human. When a developer asks a structural question the plan does not cover, answer briefly and quickly with send_message, and record the decision as a note on the task. When a card changes a contract (a schema or type in packages/shared, an API endpoint, a timeline event, an error code, a configuration field), the plan gives its exact shape: fields with their types, function signatures, the endpoint and its response, error codes, default values. The developer must not guess or decide a structure; anything the plan leaves out, the developer asks about. A small card that touches no contract needs no such detail.',
     toolPolicy: 'read_only',
     meetings: [],
     events: [],

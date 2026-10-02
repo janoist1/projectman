@@ -27,7 +27,7 @@ export function cheapSubagent(member: AiMemberConfig): SubagentDefinition | null
   if (!model) return null;
   return {
     name: cheapSubagentName(model),
-    description: `A reader on the cheaper ${MODEL_NAMES[model]} model for text-heavy, logic-light work: reading long logs and test output, searching across many files, summarizing, carrying text over. It returns a short result, not raw output. Not for decisions, writing code, or review and security judgements.`,
+    description: `A reader on the cheaper ${MODEL_NAMES[model]} model: use it instead of reading raw text yourself for long test, check and log output (more than a few dozen lines), searches across many files that only need to say where something is, and summaries of long documents or card histories. It returns a short result, not raw output. Not for the code you are changing, decisions, writing code, or review and security judgements.`,
     prompt: [
       'You are a reader working for a member of an AI team. You do text-heavy, logic-light work for it: you read long logs and test output, search across many files, summarize and carry text over, so that it reads your short result instead of the raw text.',
       '- Return only a short, precise result: the facts asked for, with file paths and line numbers where they help. Never return raw output, whole files or long excerpts; quote only the few lines that matter.',
@@ -49,10 +49,11 @@ export function cheapSubagentSection(member: AiMemberConfig): string {
   return [
     '# Cheap subagent',
     `You have a subagent on the cheaper ${MODEL_NAMES[model]} model: start it with the Agent tool, subagent_type ${code(name)}. Hand it text-heavy, logic-light work, so that you read its short result instead of the raw text:`,
-    '- going through long logs and test output;',
-    '- searching across many files;',
-    '- summarizing, and carrying text over from one place to another.',
-    'Do not hand it decisions, writing code, or review and security judgements: those stay with you.',
+    'Use it instead of reading the raw text yourself for:',
+    '- test, check and log output that is likely to run longer than a few dozen lines (for example a full vitest run, typecheck or a long git log);',
+    '- a search across many folders or files when the answer is only where something is;',
+    '- summarizing a long document or a card history.',
+    'You still read yourself the code you are going to change. Decisions, writing code, and review and security judgements never go to the subagent: those stay with you.',
     'Tell it exactly what to find and ask for a short result, not raw output. It works within your permissions, with fewer tools: it reads and runs commands, but does not edit files or use the team tools.',
   ].join('\n');
 }

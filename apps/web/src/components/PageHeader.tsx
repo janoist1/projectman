@@ -24,13 +24,23 @@ export function PageHeader({
   leading?: ReactNode;
   children?: ReactNode;
 }) {
+  const titles = (
+    <div className={styles.titles}>
+      <h1 className={styles.title}>{title}</h1>
+      {subtitle ? <p className={styles.subtitle}>{subtitle}</p> : null}
+    </div>
+  );
   return (
     <header className={clsx(styles.header, hideTitleOnPhone && styles.titleHiddenOnPhone, className)}>
-      {leading}
-      <div className={styles.titles}>
-        <h1 className={styles.title}>{title}</h1>
-        {subtitle ? <p className={styles.subtitle}>{subtitle}</p> : null}
-      </div>
+      {/* The leading element and the titles wrap together, so the avatar never ends up above the name. */}
+      {leading ? (
+        <div className={styles.lead}>
+          {leading}
+          {titles}
+        </div>
+      ) : (
+        titles
+      )}
       {children}
     </header>
   );

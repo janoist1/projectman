@@ -7,6 +7,7 @@ import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Chip } from '../../components/Chip';
 import { Dialog } from '../../components/Dialog';
+import { Icon } from '../../components/Icon';
 import { TextAreaField, TextField } from '../../components/Field';
 import { ErrorState, LoadingState } from '../../components/States';
 import { ErrorBanner } from '../../components/ErrorBanner';
@@ -126,6 +127,7 @@ export function RoleSection({ config }: { config?: ProjectConfig }) {
     <>
       <details className={styles.section}>
         <summary className={styles.summary}>
+          <Icon name="chevronRight" size={14} strokeWidth={2.4} className={styles.chevron} />
           <h2>{t('roleCatalogue.title')}</h2>
           {roles.data ? <span className={styles.count}>{roles.data.roles.length}</span> : null}
         </summary>

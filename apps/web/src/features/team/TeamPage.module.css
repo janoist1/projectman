@@ -72,7 +72,7 @@
 }
 
 .sectionTitle {
-  font-size: var(--text-lg);
+  font-size: var(--text-xl);
   font-weight: 800;
 }
 
@@ -128,9 +128,9 @@
     padding: 4px 14px 16px;
     gap: 14px;
   }
-  /* The one main button takes the row; the colleague button below it keeps its size. */
+  /* The one main button takes what is left of the row; the colleague button keeps its size beside it. */
   .hire {
-    width: 100%;
+    flex: 1 1 auto;
   }
   .limit {
     width: 100%;

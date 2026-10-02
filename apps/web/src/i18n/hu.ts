@@ -104,8 +104,8 @@ export const hu = {
     },
     /** A cron time in words, for the profile: "hétköznap reggel 8". */
     when: {
-      weekdays: 'hétköznap {time}',
-      daily: 'minden nap {time}',
+      weekdays: 'Hétköznap {time}',
+      daily: 'Minden nap {time}',
       morning: 'reggel {hour}',
     },
     title: 'Ütemezett futások',
@@ -942,6 +942,8 @@ export const hu = {
     modeLabel: 'Hogyan adod hozzá?',
     modeDirect: 'Meghívó nélkül',
     modeInvite: 'Meghívó-linkkel',
+    modeDirectHint: 'Felveszed a csapatba; belépni később, meghívóval tud.',
+    modeInviteHint: 'Kap egy linket, amivel saját fiókkal lép be.',
   },
 
   memberStatus: {
@@ -1461,6 +1463,8 @@ export const hu = {
     subtitle: '{humans} ember és {ai} AI-tag, {tasks} feladaton',
     subscriptionYours: 'az AI-tagok a te előfizetéseiden futnak (Claude, ChatGPT)',
     subscriptionOther: 'az AI-tagok {name} előfizetésén futnak',
+    subscriptionMajority: 'az AI-tagok többsége {name} előfizetésén fut; ahol más, a tagnál áll',
+    subscriptionMajorityYours: 'az AI-tagok többsége a te előfizetéseden fut; ahol más, a tagnál áll',
     subscriptionMixed: 'minden AI-tag mellett ott van, kinek az előfizetésén fut',
     hire: 'AI-tag felvétele',
     aiDisabled: 'Az AI-munka ki van kapcsolva ebben a projektben.',
@@ -1628,6 +1632,7 @@ export const hu = {
     removed: 'Eltávolítva: {name}.',
     noTasks: 'Nincs feladata.',
     noSessions: 'Még nincs munkamenete.',
+    noSchedule: 'Nincs ütemezett munkája.',
     noWaiting: 'Nincs rá váró döntés.',
     instructions: 'Kapott utasítások',
     roleInstructions: 'A szerepéé ({role})',

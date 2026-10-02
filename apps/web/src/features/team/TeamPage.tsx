@@ -93,13 +93,18 @@ export function TeamPage() {
   // Members whose approver is the AI while no AI member can decide for them any more.
   const lostDecider = ai.filter((member) => member.approver === 'ai' && member.aiApproverBlocker);
   const sponsors = aiSponsors(members);
+  const sponsorName = (handle: string) => nameOf(handle, indexes.members, myHandle);
   const subscriptionNote = sponsors.mixed
-    ? t('team.subscriptionMixed')
+    ? sponsors.usual === null
+      ? t('team.subscriptionMixed')
+      : sponsors.usual === myHandle
+        ? t('team.subscriptionMajorityYours')
+        : t('team.subscriptionMajority', { name: sponsorName(sponsors.usual) })
     : sponsors.only === null
       ? null
       : sponsors.only === myHandle
         ? t('team.subscriptionYours')
-        : t('team.subscriptionOther', { name: nameOf(sponsors.only, indexes.members, myHandle) });
+        : t('team.subscriptionOther', { name: sponsorName(sponsors.only) });
 
   const memberActions = (member: MemberView) =>
     can.manageTeam ? (

@@ -39,6 +39,9 @@ function AddHumanBody({ onClose }: { onClose: () => void }) {
           { value: 'invite', label: t('addHuman.modeInvite') },
         ]}
       />
+      <p className={styles.hint}>
+        {t(mode === 'direct' ? 'addHuman.modeDirectHint' : 'addHuman.modeInviteHint')}
+      </p>
       {mode === 'direct' ? <AddHumanForm onDone={onClose} /> : <InviteForm />}
     </div>
   );

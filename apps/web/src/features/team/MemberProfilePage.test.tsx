@@ -46,16 +46,24 @@ describe('member profiles', () => {
     ).toBeTruthy();
   });
 
-  it('marks a member on leave next to the name', async () => {
+  it('says once that a member is on leave and offers the call back right there', async () => {
     const p = mockProject();
-    p.backend.findMember('fe-1')!.onLeave = true;
+    const member = p.backend.findMember('fe-1')!;
+    member.onLeave = true;
     p.render(page(), '/team/fe-1');
     const header = within(await screen.findByRole('banner'));
-    expect(await header.findByText(t('leave.onLeave'))).toBeTruthy();
-    expect(screen.getByRole('status').textContent).toBe(t('leave.status'));
+    const status = await screen.findByRole('status');
+    expect(status.textContent).toBe(t('leave.status'));
+    expect(screen.queryAllByText(t('leave.onLeave'))).toHaveLength(0);
     expect(header.getByRole('button', { name: t('profile.conversation') }).hasAttribute('disabled')).toBe(
       true,
     );
+    fireEvent.click(
+      within(status.parentElement!).getByRole('button', {
+        name: t('leave.callBackMember', { name: member.displayName }),
+      }),
+    );
+    await waitFor(() => expect(member.onLeave).toBeFalsy());
   });
 
   it('lists the duties as chips and puts the empty things in one quiet line, not in boxes', async () => {
@@ -63,6 +71,8 @@ describe('member profiles', () => {
     p.backend.sessions = [];
     p.backend.tasks = [];
     p.backend.memories['fe-1'] = '';
+    const entry = p.backend.config.team.members.find((member) => member.handle === 'fe-1')!;
+    if (entry.kind === 'ai') delete entry.schedule;
     p.render(page(), '/team/fe-1');
     await screen.findByRole('heading', { name: t('profile.duties') });
     const duty = screen.getByText(t('dutyNames.implementation'));
@@ -71,8 +81,17 @@ describe('member profiles', () => {
     const quiet = screen.getByText(new RegExp(t('profile.noTasks')));
     expect(quiet.textContent).toContain(t('profile.noSessions'));
     expect(quiet.textContent).toContain(t('profile.memoryEmpty'));
+    expect(quiet.textContent).toContain(t('profile.noSchedule'));
+    expect(quiet.textContent).toContain(t('tokenUsage.none'));
     expect(quiet.closest('section')).toBeNull();
-    for (const title of ['profile.tasks', 'profile.live', 'profile.sessions', 'profile.memory'] as const)
+    for (const title of [
+      'profile.tasks',
+      'profile.live',
+      'profile.sessions',
+      'profile.memory',
+      'schedules.form.title',
+      'tokenUsage.title',
+    ] as const)
       expect(screen.queryByRole('heading', { name: t(title) })).toBeNull();
   });
 
@@ -119,11 +138,15 @@ describe('member profiles', () => {
   it('shows AI settings, current work, live chat, sessions, memory, schedule and thread composer', async () => {
     const p = mockProject();
     p.backend.memories['fe-1'] = 'Acme uses fictional checkout fixtures.';
+    const entry = p.backend.config.team.members.find((m) => m.handle === 'fe-1')!;
+    if (entry.kind === 'ai')
+      entry.schedule = { cron: '0 8 * * 1-5', prompt: 'Inspect fictional Acme fixtures.' };
     p.render(page(), '/team/fe-1');
     expect(
       await screen.findByRole('heading', { name: p.backend.findMember('fe-1')!.displayName }),
     ).toBeTruthy();
     expect(await screen.findByText('Acme uses fictional checkout fixtures.')).toBeTruthy();
+    expect(await screen.findByText('Hétköznap reggel 8')).toBeTruthy();
     expect(screen.getByRole('heading', { name: t('profile.live') })).toBeTruthy();
     expect(screen.getByRole('heading', { name: t('profile.tasks') })).toBeTruthy();
     expect(screen.getByRole('heading', { name: t('schedules.form.title') })).toBeTruthy();
@@ -145,11 +168,12 @@ describe('member profiles', () => {
     ).toHaveLength(2);
   });
 
-  it('shows no tokens for a member whose sessions used none in the windows', async () => {
+  it('has no token panel for a member whose sessions used none in the windows, only a quiet line', async () => {
     const p = mockProject();
     p.render(page(), '/team/qa');
-    const heading = await screen.findByRole('heading', { name: t('tokenUsage.title') });
-    expect(within(heading.parentElement!).getAllByText(t('tokenUsage.none'))).toHaveLength(2);
+    const quiet = await screen.findByText(new RegExp(t('tokenUsage.none')));
+    expect(quiet.closest('section')).toBeNull();
+    expect(screen.queryByRole('heading', { name: t('tokenUsage.title') })).toBeNull();
   });
 
   it('shows what each role of the member does, does not do, and when to turn to them', async () => {
@@ -218,7 +242,7 @@ describe('member profiles', () => {
     if (member.kind !== 'ai') throw new Error('Expected fictional AI member');
     member.schedule = { cron: '0 9 * * *', prompt: 'Inspect fictional Acme fixtures.' };
     p.render(page(), '/team/fe-1');
-    expect(await screen.findByText('minden nap reggel 9')).toBeTruthy();
+    expect(await screen.findByText('Minden nap reggel 9')).toBeTruthy();
     fireEvent.click(await screen.findByRole('button', { name: t('schedules.runNow') }));
     await waitFor(() => expect(p.backend.scheduleRuns[0]?.status).toBe('started'));
     expect(p.requests.some((r) => r.method === 'POST' && r.path.endsWith('/schedule/run'))).toBe(true);

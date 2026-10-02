@@ -102,12 +102,13 @@ function MemberTasks({ member, titles }: { member: MemberView; titles: RosterPro
 
 /**
  * Whose subscription runs an AI member, shown only where it tells something: nothing while every AI
- * member runs on the same one (the page subtitle says whose), else next to every AI member.
+ * member runs on the same one (the page subtitle says whose), else the members that differ from the
+ * usual one (the subtitle names it), or every AI member when none leads.
  */
 function useSponsorNote(members: readonly MemberView[]) {
   const { key, myHandle } = useProject();
   const { members: all } = useProjectIndexes(key);
-  const { mixed } = aiSponsors(members);
+  const { mixed, usual } = aiSponsors(members);
   const text = (member: MemberView) => {
     if (member.kind === 'human')
       return t(member.status === 'no_account' ? 'memberStatus.no_account' : 'team.ownAccount');
@@ -120,8 +121,11 @@ function useSponsorNote(members: readonly MemberView[]) {
     /** Whether the subscription column of the table is worth its room. */
     mixed,
     text,
-    /** The line on a card: every AI member has one while the subscriptions are mixed. */
-    note: (member: MemberView) => (member.kind === 'ai' && mixed ? text(member) : null),
+    /** The line on a card: the AI members that differ from the usual subscription (all, with no usual). */
+    note: (member: MemberView) =>
+      member.kind === 'ai' && mixed && (usual === null || (member.sponsor || '') !== usual)
+        ? text(member)
+        : null,
   };
 }
 
@@ -195,19 +199,17 @@ export function RosterCards({ members, inbox, roles, titles, actions }: RosterPr
         const menu = actions(member);
         return (
           <li key={member.handle} className={styles.card}>
-            <MemberIdentity member={member} status={view.status} roles={roles} stretched />
+            <div className={styles.cardHead}>
+              <MemberIdentity member={member} status={view.status} roles={roles} stretched />
+              {menu}
+            </div>
             <span className={styles.statusLine} data-status={view.status}>
               <StatusDot status={view.status} pulse={view.status === 'working'} />
               <span className={styles.statusText}>{view.label}</span>
             </span>
             <MemberTasks member={member} titles={titles} />
             <MemberScheduleControl handle={member.handle} />
-            {note || menu ? (
-              <span className={styles.cardFoot}>
-                <span className={styles.muted}>{note}</span>
-                {menu}
-              </span>
-            ) : null}
+            {note ? <span className={styles.muted}>{note}</span> : null}
           </li>
         );
       })}

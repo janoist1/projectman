@@ -2,8 +2,8 @@ import { InviteDialog } from './InviteDialog';
 import { useState } from 'react';
 import { providerModelLabel } from './providerModels';
 import { Link, useNavigate, useParams } from 'react-router';
-import { cheapSubagentOf, DEFAULT_AGENT_PROVIDER, roleBundle } from '@projectman/shared';
-import type { TeamMessage } from '@projectman/shared';
+import { cheapSubagentOf, DEFAULT_AGENT_PROVIDER, mergeTokenUsage, roleBundle } from '@projectman/shared';
+import type { SchedulesView, TeamMessage } from '@projectman/shared';
 import {
   useBoard,
   useConfig,
@@ -43,6 +43,7 @@ import { MessageComposer } from '../messages/MessageComposer';
 import { MessageList } from '../messages/MessageList';
 import { ChatView } from '../session/ChatView';
 import { EditMemberDialog } from './EditMemberDialog';
+import { LeaveButton } from './LeaveButton';
 import { MemberMenu } from './MemberMenu';
 import { RetireDialog } from './RetireDialog';
 import { PermissionLevelControl } from './PermissionLevelControl';
@@ -65,24 +66,21 @@ function SessionPeek({ sessionId }: { sessionId: string }) {
   );
 }
 
-function MemberSchedule({ handle }: { handle: string }) {
-  const { key } = useProject();
-  const schedules = useSchedules(key);
-  const schedule = schedules.data?.members.find((m) => m.member === handle);
-  if (schedules.error) return <ErrorState compact error={schedules.error} />;
+/** The member's schedule; a member without one has no panel (the page says so in its quiet line). */
+function MemberSchedule({
+  handle,
+  schedule,
+}: {
+  handle: string;
+  schedule: SchedulesView['members'][number];
+}) {
   return (
     <section className={styles.panel}>
       <h2 className={styles.panelTitle}>{t('schedules.form.title')}</h2>
-      {schedule ? (
-        <>
-          <p className={styles.when} title={schedule.cron}>
-            {describeCron(schedule.cron)}
-          </p>
-          <p>{schedule.promptSummary}</p>
-        </>
-      ) : (
-        <p>{t('schedules.noNext')}</p>
-      )}
+      <p className={styles.when} title={schedule.cron}>
+        {describeCron(schedule.cron)}
+      </p>
+      <p>{schedule.promptSummary}</p>
       <MemberScheduleControl handle={handle} />
     </section>
   );
@@ -112,6 +110,7 @@ export function MemberProfilePage() {
   const internal = access !== 'client';
   const canSend = access !== undefined && ['owner', 'admin', 'developer', 'client'].includes(access);
   const memory = useMemberMemories(key, handle, internal && profile.data?.member.kind === 'ai');
+  const schedules = useSchedules(key, internal && profile.data?.member.kind === 'ai');
   useDocumentTitle(profile.data?.member.displayName ?? t('profile.title'), board.data?.project.name);
   if (profile.error) return <ErrorState error={profile.error} onRetry={() => void profile.refetch()} />;
   if (!profile.data) return <LoadingState />;
@@ -123,11 +122,19 @@ export function MemberProfilePage() {
   const status = memberStatusView(member, data.inbox, myHandle);
   const live = data.sessions.filter(isLiveSession);
   const pastSessions = data.sessions.filter((s) => !live.includes(s)).slice(0, 10);
+  const schedule = schedules.data?.members.find((entry) => entry.member === handle);
+  const usageEmpty =
+    data.usage?.lastDay != null &&
+    data.usage.lastWeek != null &&
+    mergeTokenUsage(data.usage.lastDay).length === 0 &&
+    mergeTokenUsage(data.usage.lastWeek).length === 0;
   // What there is nothing of is one quiet line, not a box each.
   const nothingYet = [
     data.tasks.length === 0 ? t('profile.noTasks') : null,
     !ai && data.inbox.length === 0 ? t('profile.noWaiting') : null,
+    ai && internal && schedules.data && !schedule ? t('profile.noSchedule') : null,
     ai && internal && live.length === 0 && pastSessions.length === 0 ? t('profile.noSessions') : null,
+    ai && internal && usageEmpty ? t('tokenUsage.none') : null,
     ai && internal && memory.data?.memory === '' ? t('profile.memoryEmpty') : null,
   ].filter((text): text is string => text !== null);
   const titles = new Map((board.data?.tasks ?? []).map((task) => [task.key, task.title]));
@@ -148,12 +155,6 @@ export function MemberProfilePage() {
           <>
             <code>{member.handle}</code> · <span>{status.label}</span>
             {member.activity ? ` · ${member.activity}` : ''}
-            {member.onLeave ? (
-              <>
-                {' '}
-                <Chip tone="needs">{t('leave.onLeave')}</Chip>
-              </>
-            ) : null}
           </>
         }
       >
@@ -194,9 +195,10 @@ export function MemberProfilePage() {
         </div>
       </PageHeader>
       {member.onLeave ? (
-        <p role="status" className={styles.leaveNote}>
-          {t('leave.status')}
-        </p>
+        <div className={styles.leaveNote}>
+          <p role="status">{t('leave.status')}</p>
+          {can.manageTeam ? <LeaveButton member={member} /> : null}
+        </div>
       ) : null}
       {start.error ? <ErrorBanner>{errorMessage(start.error)}</ErrorBanner> : null}
       <section className={styles.panel}>
@@ -316,7 +318,8 @@ export function MemberProfilePage() {
             </ul>
           </section>
         ) : null}
-        {ai && internal ? <MemberSchedule handle={handle} /> : null}
+        {ai && internal && schedule ? <MemberSchedule handle={handle} schedule={schedule} /> : null}
+        {ai && internal && schedules.error ? <ErrorState compact error={schedules.error} /> : null}
       </div>
       {nothingYet.length ? <p className={styles.quiet}>{nothingYet.join(' ')}</p> : null}
       {ai && internal ? (
@@ -350,13 +353,15 @@ export function MemberProfilePage() {
               ) : null}
             </section>
           ) : null}
-          <section className={styles.panel}>
-            <h2 className={styles.panelTitle}>{t('tokenUsage.title')}</h2>
-            <h3 className={styles.usageWindow}>{t('tokenUsage.lastDay')}</h3>
-            <TokenUsageList rows={data.usage?.lastDay ?? null} />
-            <h3 className={styles.usageWindow}>{t('tokenUsage.lastWeek')}</h3>
-            <TokenUsageList rows={data.usage?.lastWeek ?? null} />
-          </section>
+          {usageEmpty ? null : (
+            <section className={styles.panel}>
+              <h2 className={styles.panelTitle}>{t('tokenUsage.title')}</h2>
+              <h3 className={styles.usageWindow}>{t('tokenUsage.lastDay')}</h3>
+              <TokenUsageList rows={data.usage?.lastDay ?? null} />
+              <h3 className={styles.usageWindow}>{t('tokenUsage.lastWeek')}</h3>
+              <TokenUsageList rows={data.usage?.lastWeek ?? null} />
+            </section>
+          )}
           {memory.error || memory.isPending || memory.data.memory ? (
             <section className={styles.panel}>
               <h2 className={styles.panelTitle}>{t('profile.memory')}</h2>

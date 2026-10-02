@@ -228,19 +228,19 @@ describe('TeamPage role catalogue', () => {
     },
   );
 
-  it('names the subscription next to every AI member on a card while they are mixed', async () => {
+  it('names the usual subscription in the subtitle and only the others on a card (phone)', async () => {
     phone(true);
     const project = mockProject();
-    project.backend.findMember('qa')!.sponsor = 'kata';
+    for (const member of project.backend.members) if (member.kind === 'ai') member.sponsor = 'kata';
+    project.backend.findMember('qa')!.sponsor = 'bence';
     project.render(<TeamPage />);
     const roster = within(await screen.findByRole('region', { name: t('team.roster') }));
     const qa = (
       await roster.findByRole('link', { name: project.backend.findMember('qa')!.displayName })
     ).closest('li')!;
-    expect(within(qa).getByText(t('team.sponsorOther', { name: 'Kata' }))).toBeTruthy();
-    const aiCount = project.backend.members.filter((member) => member.kind === 'ai').length;
-    expect(roster.getAllByText(/előfizetés/)).toHaveLength(aiCount);
-    expect(screen.getByText(new RegExp(t('team.subscriptionMixed')))).toBeTruthy();
+    expect(within(qa).getByText(t('team.sponsorOther', { name: 'Bence' }))).toBeTruthy();
+    expect(roster.getAllByText(/előfizetése$/)).toHaveLength(1);
+    expect(screen.getByText(new RegExp(t('team.subscriptionMajority', { name: 'Kata' })))).toBeTruthy();
   });
 
   it('says in the subtitle whose subscription runs the AI members when it is not the viewer', async () => {
@@ -258,9 +258,11 @@ describe('TeamPage role catalogue', () => {
     project.render(<TeamPage />);
     const page = within(await screen.findByRole('banner'));
     fireEvent.click(page.getByRole('button', { name: t('addHuman.title') }));
+    expect(within(screen.getByRole('dialog')).getByText(t('addHuman.modeDirectHint'))).toBeTruthy();
     fireEvent.click(
       within(screen.getByRole('dialog')).getByRole('button', { name: t('addHuman.modeInvite') }),
     );
+    expect(within(screen.getByRole('dialog')).getByText(t('addHuman.modeInviteHint'))).toBeTruthy();
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: t('common.close') }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     fireEvent.click(page.getByRole('button', { name: t('addHuman.title') }));

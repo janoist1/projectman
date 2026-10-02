@@ -17,6 +17,11 @@
   margin-left: auto;
 }
 .leaveNote {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   margin: 0;
   padding: 8px 14px;
   border-radius: var(--radius-lg);
@@ -33,7 +38,7 @@
 }
 .panelTitle {
   margin: 16px 0 8px;
-  font-size: var(--text-lg);
+  font-size: var(--text-xl);
   font-weight: 800;
 }
 .panel > .panelTitle:first-child {

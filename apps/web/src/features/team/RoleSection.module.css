@@ -18,12 +18,12 @@
 .summary::-webkit-details-marker {
   display: none;
 }
-.summary::before {
-  content: '▸';
+.chevron {
   color: var(--c-ink-3);
+  transition: transform 120ms ease;
 }
-.section[open] > .summary::before {
-  content: '▾';
+.section[open] > .summary .chevron {
+  transform: rotate(90deg);
 }
 .summary h2 {
   font-size: var(--text-xl);

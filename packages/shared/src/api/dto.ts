@@ -23,6 +23,7 @@ import { BoardColumn, Stage, StageId } from '../domain/pipeline';
 import { CustomRoleDefinition, RoleHolders, RoleId } from '../domain/role';
 import { ScheduleRun } from '../domain/schedule';
 import { Session, TaskWork } from '../domain/session';
+import { CardRounds } from '../domain/card-measure';
 import { MemberUsage } from '../domain/token-usage';
 import { AddRelationRef, RelationsChange } from '../domain/relations';
 import { Task, TaskKey, Visibility } from '../domain/task';
@@ -313,6 +314,8 @@ export const TaskDetail = z.object({
   timeline: z.array(TimelineEvent),
   pullRequests: z.array(TaskPullRequest).default([]),
   sessions: z.array(Session),
+  /** Review rounds and send-backs counted from the whole timeline (PM-222); not shared with clients. */
+  rounds: CardRounds.optional(),
 });
 export type TaskDetail = z.infer<typeof TaskDetail>;
 

@@ -344,7 +344,8 @@ export function createDomain(opts: DomainOptions) {
     disk,
   });
   const delivery = new MessageDelivery({ ctx, sessions, messages });
-  const messaging = new Messaging({ ctx, projects, tasks, sessions, messages, delivery });
+  const refinement = new RefinementSteps({ projects, tasks, sessions, admission, delivery, inbox, timeline });
+  const messaging = new Messaging({ ctx, projects, tasks, sessions, messages, delivery, refinement });
   // The network gate's egress operations are one registry of the protected adapter; another
   // adapter (PM-142's publishing) answers the operation ids that are not egress ones.
   const egress = new EgressService({ ctx, projects, timeline, settings: opts.egress });
@@ -407,7 +408,6 @@ export function createDomain(opts: DomainOptions) {
   taskStarts.useLabelWait(workStarts);
   const handOver = new StageHandOver({ projects, tasks, sessions, admission, delivery });
   const messageStarts = new MessageStarts({ projects, tasks, admission, messages, delivery });
-  const refinement = new RefinementSteps({ projects, tasks, sessions, admission, delivery, inbox, timeline });
   const schedules = new ScheduleService({
     ctx,
     projects,
@@ -599,6 +599,13 @@ export function createDomain(opts: DomainOptions) {
   });
   events.on('task_stage_changed', (change) => {
     refine(() => refinement.moved(change));
+  });
+  // The messages that waited for their turn on a card reach their members once it is out of refinement.
+  events.on('task_labels_changed', ({ task }) => {
+    refine(() => messaging.releaseHeld(task.projectKey, task.key));
+  });
+  events.on('task_stage_changed', (change) => {
+    refine(() => messaging.releaseHeld(change.task.projectKey, change.task.key));
   });
   events.on('session_idle', (session) => {
     refine(() => refinement.turnEnded(session));

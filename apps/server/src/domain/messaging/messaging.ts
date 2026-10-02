@@ -1,16 +1,27 @@
 import {
   formatInjectedTeamMessage,
   isOpenTask,
+  isRefining,
   isTheme,
   labelDefinition,
   memberOf,
+  projectRefines,
   routeFor,
   sameWorkItem,
   stageHandsOverForReview,
   stageOf,
   stageOwners,
 } from '@projectman/shared';
-import type { Actor, InboxItem, ProjectConfig, Session, TeamMessage, WorkItemRef } from '@projectman/shared';
+import type {
+  Actor,
+  InboxItem,
+  ProjectConfig,
+  Session,
+  Task,
+  TeamMessage,
+  WorkItemRef,
+} from '@projectman/shared';
+import type { RefinementSteps } from '../admission';
 import type { DomainContext } from '../context';
 import { DomainError, invalid } from '../errors';
 import type { DomainEventMap } from '../events';
@@ -29,14 +40,20 @@ export interface SendOptions {
   sessionId?: string | null;
   /** Where AI recipients get it (default: `routeFor(taskKey)`). */
   workItem?: WorkItemRef;
+  /**
+   * Reaches an AI recipient even when its card is being refined and it is not its turn (PM-255):
+   * the answer to the recipient's own question is not held back. Internal, not a contract.
+   */
+  duringRefinement?: boolean;
 }
 
 /**
  * The one way team messages are sent (REST, the send_message team tool, label and @mention
  * notices, answers to AI questions): validated the same way, recorded with a receipt per
  * recipient, then typed into each AI recipient's running session for the work item, or left
- * waiting for its wake-up through admission (the `message_waiting` domain event). Humans read
- * theirs in the app. A message never goes to its own sender.
+ * waiting for its wake-up through admission (the `message_waiting` domain event). A message about a
+ * card that is being refined waits until its AI recipient's turn, or the end of the refinement.
+ * Humans read theirs in the app. A message never goes to its own sender.
  */
 export class Messaging {
   private readonly ctx: DomainContext;
@@ -45,6 +62,7 @@ export class Messaging {
   private readonly sessions: SessionOrchestrator;
   private readonly messages: MessageService;
   private readonly delivery: MessageDelivery;
+  private readonly refinement: Pick<RefinementSteps, 'turnMember'>;
 
   constructor(deps: {
     ctx: DomainContext;
@@ -53,6 +71,7 @@ export class Messaging {
     sessions: SessionOrchestrator;
     messages: MessageService;
     delivery: MessageDelivery;
+    refinement: Pick<RefinementSteps, 'turnMember'>;
   }) {
     this.ctx = deps.ctx;
     this.projects = deps.projects;
@@ -60,6 +79,7 @@ export class Messaging {
     this.sessions = deps.sessions;
     this.messages = deps.messages;
     this.delivery = deps.delivery;
+    this.refinement = deps.refinement;
   }
 
   /**
@@ -108,9 +128,15 @@ export class Messaging {
     // Where each AI recipient gets it is decided before it is recorded: the receipt keeps the
     // route when it is not the default place, so the message is found there while it waits.
     const workItem = opts.workItem ?? routeFor(taskKey);
+    // A card that is being refined is worked by one member at a time: a message for another member
+    // waits for its turn (PM-255) at the card itself, whatever sessions the family has.
     const placed = recipients
       .filter((handle) => !humans.includes(handle))
-      .map((handle) => ({ handle, ...this.place(projectKey, config, handle, workItem) }));
+      .map((handle) => {
+        if (this.heldForTurn(config, task, handle, opts))
+          return { handle, held: true, workItem: routeFor(taskKey), running: null };
+        return { handle, held: false, ...this.place(projectKey, config, handle, workItem) };
+      });
     const routes: Record<string, WorkItemRef> = {};
     for (const { handle, workItem: where } of placed)
       if (!sameWorkItem(where, routeFor(taskKey))) routes[handle] = where;
@@ -126,8 +152,8 @@ export class Messaging {
       delivered: recipients.every((handle) => humans.includes(handle)),
       routes,
     });
-    for (const { handle, workItem: where, running } of placed)
-      this.deliverOrWake(projectKey, handle, where, running, message);
+    for (const { handle, workItem: where, running, held } of placed)
+      if (!held) this.deliverOrWake(projectKey, handle, where, running, message);
     return message;
   }
 
@@ -259,6 +285,8 @@ export class Messaging {
       {
         sessionId: item.sessionId,
         workItem: session?.member === asker.handle ? session.workItem : routeFor(item.taskKey),
+        // The answer to the member's own question is never held back by the refinement line.
+        duringRefinement: true,
       },
     );
   }
@@ -298,6 +326,37 @@ export class Messaging {
       if (session && (!latest || session.lastActivityAt > latest.lastActivityAt)) latest = session;
     }
     return latest ? { workItem: latest.workItem, running: latest } : { workItem, running: null };
+  }
+
+  /**
+   * Whether a message about `task` waits for its AI recipient's turn (PM-255): the card is being
+   * refined and the recipient is not the member whose turn it is (nobody's turn counts too). Looks at
+   * the message's own card only.
+   */
+  private heldForTurn(config: ProjectConfig, task: Task | null, handle: string, opts: SendOptions): boolean {
+    if (opts.duringRefinement || !task || !isRefining(task, config)) return false;
+    return this.refinement.turnMember(task.projectKey, task.key) !== handle;
+  }
+
+  /**
+   * A card that is no longer being refined (`refine` taken off, or moved out of the refinement
+   * stages): every AI member with messages waiting for it is woken the usual way, or gets them typed
+   * into its running session (PM-255).
+   */
+  async releaseHeld(projectKey: string, taskKey: string): Promise<void> {
+    const task = this.tasks.find(projectKey, taskKey);
+    if (!task || !isOpenTask(task) || isTheme(task)) return;
+    const config = await this.projects.config(projectKey);
+    if (!projectRefines(config) || isRefining(task, config)) return;
+    const workItem = routeFor(taskKey);
+    for (const member of config.team.members) {
+      if (member.kind !== 'ai') continue;
+      const waiting = this.messages.waiting(projectKey, member.handle, workItem);
+      const running = this.sessions.findRunning(projectKey, member.handle, workItem);
+      // One wake-up covers all of a member's messages, which the session it starts takes together.
+      for (const message of running ? waiting : waiting.slice(0, 1))
+        this.deliverOrWake(projectKey, member.handle, workItem, running, message);
+    }
   }
 
   /** A running recipient gets the message typed in; otherwise it waits for a wake-up. */

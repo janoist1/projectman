@@ -212,7 +212,11 @@ Documentation map:
   count; the most recently active wins; not for an owner of the card's current stage); a closed
   card's message goes to its general chat. The receipt keeps that `route` when it is not the
   default (`messageRoute` in `packages/shared`), so the message is found there while it waits;
-  the prefix always names the message's own card.
+  the prefix always names the message's own card. While a card is being refined (`isRefining`), a
+  message about it for an AI member that is not the `turnMember` is held at the card, whatever
+  sessions the family has (PM-255): it is typed in or taken in the first input when that member's
+  turn starts, and wakes its recipient as usual when the card leaves refinement; only the answer to
+  the recipient's own `ask_human` question goes through at once.
 - **Admission** — every automatic session start (task start, stage hand-over, message
   wake-up, schedule run) passes the same checks, in this order: the project's AI master
   switch (`team.limits.aiEnabled`), that the member is not on leave (`member_on_leave`), for a

@@ -8,7 +8,7 @@ import {
   roleUsesWorktree,
   roleSessionTools,
 } from '@projectman/shared';
-import type { BuiltInRoleId, CustomRoleDefinition } from '@projectman/shared';
+import type { BuiltInRoleId, CustomRoleDefinition, DutyId } from '@projectman/shared';
 import type { ContextPackInput } from '../contracts';
 import { describeSandbox, describeUnattendedCommands } from '../domain';
 import { isHumanOnlyLabel, labelHolders } from '@projectman/shared';
@@ -513,6 +513,22 @@ function structuralDecisionRule(input: ContextPackInput): string {
   return `Structural decisions are not yours to make. If the work needs a decision the task's technical plan does not cover (a contract in packages/shared or apps/server/src/contracts, a new module or a module boundary, the data model or a migration, security or permissions, a new dependency), do not decide it yourself: ${whom} (the decision, the options you see, your recommendation) and carry on with the parts that do not depend on it. Small choices inside the plan stay yours.`;
 }
 
+/** The duties whose holders create sub-cards: they get `SUB_CARD_RULE` (PM-230). */
+const SUB_CARD_DUTIES: readonly DutyId[] = [
+  'technical_direction',
+  'requirements_analysis',
+  'task_breakdown',
+  'ux_design',
+];
+
+/**
+ * The rule for whoever splits work into sub-cards (PM-230), written once: a sub-card is read in a fresh
+ * session, and every attachment opened there (an image costs about 1.5k tokens) stays in the context for
+ * all the following steps, so the card must stand on its own and point at the files it needs.
+ */
+const SUB_CARD_RULE =
+  'A sub-card you create must stand on its own: its description holds only what that card needs (what, why, the affected parts, done when) and does not copy the parent\'s long description. Refer by name to each attachment it needs, in the form "PM-92: 06-rad-var-asztali.jpg" (the parent\'s key, a colon, the file name); the brief of the sub-card shows the referenced parent attachments first and only counts the others, so the assignee opens just those.';
+
 /** Duty fragments are followed by prompt-only role extras, then personal instructions. */
 function roleSection(input: ContextPackInput): string {
   const { project, member } = input;
@@ -521,6 +537,7 @@ function roleSection(input: ContextPackInput): string {
     '# Your role instructions',
     ...bundle.duties.map((id) => dutyPrompt(input, id)).filter(Boolean),
     ...(bundle.duties.includes('implementation') ? [structuralDecisionRule(input)] : []),
+    ...(bundle.duties.some((id) => SUB_CARD_DUTIES.includes(id)) ? [SUB_CARD_RULE] : []),
     bundle.instructions.trim(),
     member.instructions.trim(),
   ]

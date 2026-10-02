@@ -75,12 +75,16 @@ export function approvalPolicyChanged(previous: ProjectConfig, next: ProjectConf
       config.pipeline.stages
         .map((stage) => ({
           id: stage.id,
+          // `when` is part of the policy: narrowing an approval to some tasks is the owner's decision.
           approvals: (stage.gate?.conditions ?? [])
             .filter((condition) => condition.type === 'has_label')
-            .map((condition) => labelDefinition(config, condition.label))
-            .filter((label) => label !== undefined && isHumanOnlyLabel(label))
-            .map((label) => ({ label: label!.id, holders: labelHolders(config, label!).sort() }))
-            .sort((a, b) => a.label.localeCompare(b.label)),
+            .flatMap((condition) => {
+              const label = labelDefinition(config, condition.label);
+              return label && isHumanOnlyLabel(label)
+                ? [{ label: label.id, when: condition.when, holders: labelHolders(config, label).sort() }]
+                : [];
+            })
+            .sort((a, b) => a.label.localeCompare(b.label) || (a.when ?? '').localeCompare(b.when ?? '')),
         }))
         .filter((stage) => stage.approvals.length)
         .sort((a, b) => a.id.localeCompare(b.id)),

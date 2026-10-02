@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest';
 import type { LabelDefinition } from '../domain/label';
 import type { GateCondition, Stage } from '../domain/pipeline';
 import type { Task, TaskLink } from '../domain/task';
-import { evaluateMove, gateAcceptsCondition, pullRequestsMerged, stageApprovers, stageIndex } from './gates';
+import {
+  evaluateMove,
+  gateAcceptsCondition,
+  gateAcceptsWhen,
+  pullRequestsMerged,
+  stageApprovers,
+  stageIndex,
+} from './gates';
 import type { GateEvaluation } from './gates';
 import { ProjectConfig } from './schema';
 
@@ -72,9 +79,10 @@ const lacks = (stageId: string, label: string) => ({
   stageId,
   condition: { type: 'lacks_label' as const, label },
 });
-const has = (stageId: string, label: string) => ({
+const has = (stageId: string, label: string, setters: string[] = []) => ({
   stageId,
   condition: { type: 'has_label' as const, label },
+  setters,
 });
 
 describe('evaluateMove', () => {
@@ -93,7 +101,7 @@ describe('evaluateMove', () => {
       [],
       'review',
       'merge',
-      { unmet: [has('merge', 'review-ok')], approvals: [] },
+      { unmet: [has('merge', 'review-ok', ['rev'])], approvals: [] },
     ],
     ['a present label opens the gate', ['review-ok'], 'review', 'merge', { unmet: [], approvals: [] }],
     [
@@ -101,7 +109,7 @@ describe('evaluateMove', () => {
       ['wip'],
       'backlog',
       'merge',
-      { unmet: [lacks('review', 'wip'), has('merge', 'review-ok')], approvals: [] },
+      { unmet: [lacks('review', 'wip'), has('merge', 'review-ok', ['rev'])], approvals: [] },
     ],
     [
       'a missing label only humans set is an approval to request',
@@ -136,7 +144,7 @@ describe('evaluateMove', () => {
       ['wip'],
       'release',
       'merge',
-      { unmet: [has('merge', 'review-ok')], approvals: [] },
+      { unmet: [has('merge', 'review-ok', ['rev'])], approvals: [] },
     ],
     ['an unknown target enters nothing', ['waiting'], 'dev', 'nowhere', { unmet: [], approvals: [] }],
   ])('%s', (_name, labels, from, to, expected) => {
@@ -151,6 +159,83 @@ describe('evaluateMove', () => {
     expect(evaluateMove(authored, config(false), 'merge', 'release').approvals).toEqual([
       { stageId: 'release', label: 'release-ok', approvers: ['owner', 'ann'] },
     ]);
+  });
+});
+
+describe('evaluateMove with a condition bound to a label (when)', () => {
+  /** The "merge" stage needs design-ok on UI cards; the "review" stage forbids the "wip" tag on them. */
+  function conditional() {
+    const base = config();
+    return ProjectConfig.parse({
+      ...base,
+      team: {
+        ...base.team,
+        members: [
+          ...base.team.members,
+          { kind: 'ai', handle: 'des', displayName: 'Designer', role: 'designer', sponsor: 'owner' },
+        ],
+      },
+      pipeline: {
+        ...base.pipeline,
+        stages: base.pipeline.stages.map((stage) =>
+          stage.id === 'merge'
+            ? {
+                ...stage,
+                gate: {
+                  conditions: [
+                    ...(stage.gate?.conditions ?? []),
+                    { type: 'has_label', label: 'design-ok', when: 'ui' },
+                    { type: 'lacks_label', label: 'wip', when: 'ui' },
+                  ],
+                },
+              }
+            : stage,
+        ),
+        labels: [
+          ...base.pipeline.labels,
+          { id: 'ui', name: 'UI' },
+          { id: 'design-ok', name: 'Design ok', setBy: { duties: ['ux_design'] } },
+        ],
+      },
+    });
+  }
+  const designOk = {
+    stageId: 'merge',
+    condition: { type: 'has_label', label: 'design-ok', when: 'ui' },
+    setters: ['des'],
+  };
+  const noWip = { stageId: 'merge', condition: { type: 'lacks_label', label: 'wip', when: 'ui' } };
+
+  it.each<[string, string[], string, string, GateEvaluation['unmet']]>([
+    ['a card without the when label is not bound', ['review-ok'], 'review', 'merge', []],
+    [
+      'a UI card without the label is held, naming who may set it',
+      ['review-ok', 'ui'],
+      'review',
+      'merge',
+      [designOk],
+    ],
+    ['a UI card with the label passes', ['review-ok', 'ui', 'design-ok'], 'review', 'merge', []],
+    [
+      'a lacks_label condition binds the UI card',
+      ['review-ok', 'ui', 'design-ok', 'wip'],
+      'review',
+      'merge',
+      [noWip],
+    ],
+    ['a lacks_label condition spares the other cards', ['review-ok', 'wip'], 'review', 'merge', []],
+    ['moving back into the stage checks it too', ['review-ok', 'ui'], 'release', 'merge', [designOk]],
+    ['moving forward through the stage checks it', ['review-ok', 'ui'], 'dev', 'merge', [designOk]],
+    ['moving away from the stage does not', ['ui'], 'merge', 'dev', []],
+  ])('%s', (_name, labels, from, to, unmet) => {
+    expect(evaluateMove(task(labels), conditional(), from, to).unmet).toEqual(unmet);
+  });
+
+  it('leaves out the setters the task authors under self-review rules', () => {
+    const c = conditional();
+    c.pipeline.labels.find((l) => l.id === 'design-ok')!.notByAuthor = true;
+    const authored = task(['review-ok', 'ui'], { assignee: 'des' });
+    expect(evaluateMove(authored, c, 'review', 'merge').unmet).toEqual([{ ...designOk, setters: [] }]);
   });
 });
 
@@ -223,5 +308,13 @@ describe('gateAcceptsCondition (decision 19)', () => {
     ['a merge gate requires what every human may set', merge, has, everyHuman, true],
   ])('%s: %s', (_name, stage, condition, label, expected) => {
     expect(gateAcceptsCondition(stage, condition, label)).toBe(expected);
+  });
+
+  it('refuses a condition bound to a label on a release gate only', () => {
+    const bound = { type: 'has_label', when: 'ui' } as const;
+    expect(gateAcceptsCondition(release, bound, approval)).toBe(false);
+    expect(gateAcceptsCondition(release, { type: 'lacks_label', when: 'ui' }, fact)).toBe(false);
+    expect(gateAcceptsCondition(merge, bound, fact)).toBe(true);
+    expect(gateAcceptsWhen(release, {})).toBe(true);
   });
 });

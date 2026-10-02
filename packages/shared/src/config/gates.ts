@@ -80,8 +80,15 @@ export function gateAcceptsCondition(
   condition: Pick<GateCondition, 'type' | 'when'>,
   label: Pick<LabelDefinition, 'setBy'>,
 ): boolean {
-  if (stage.kind !== 'release') return true;
-  return condition.when === undefined && (condition.type !== 'has_label' || releaseGateAccepts(label));
+  return (
+    gateAcceptsWhen(stage, condition) &&
+    (stage.kind !== 'release' || condition.type !== 'has_label' || releaseGateAccepts(label))
+  );
+}
+
+/** Whether the gate of a stage may bind this condition to a `when` label (never on a release gate). */
+export function gateAcceptsWhen(stage: Pick<Stage, 'kind'>, condition: Pick<GateCondition, 'when'>): boolean {
+  return stage.kind !== 'release' || condition.when === undefined;
 }
 
 /** At least one linked PR is merged and none is still open (closed ones are ignored). */

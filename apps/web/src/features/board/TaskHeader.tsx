@@ -26,8 +26,9 @@ function WorkerText({ worker }: { worker: TaskWorker }) {
     <span className={styles.nowText}>
       <span className="visually-hidden">{worker.line}</span>
       {/* The key replays the fade-in when the member changes its sentence. */}
-      <span key={`${doing.summary}\n${doing.detail ?? ''}`} className={styles.nowDoing} aria-hidden="true">
-        <span>
+      <span key={`${doing.summary}\n${doing.detail ?? ''}`} className={styles.nowDoing}>
+        {/* The hidden line above says name and summary; the longer text is read as it stands. */}
+        <span aria-hidden="true">
           {t('taskStatus.workerName', { name: worker.member.displayName })}{' '}
           <span className={styles.nowSummary}>{doing.summary}</span>
         </span>

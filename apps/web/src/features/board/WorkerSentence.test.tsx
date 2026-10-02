@@ -95,6 +95,8 @@ describe('the sentence of a worker on the card and in the drawer (PM-239)', () =
     // In the drawer: the same line, in full, and the longer text under it.
     const detail = await screen.findByText(gateway.detail!);
     expect(detail.closest('[data-phase]')!.textContent).toContain(gateway.summary);
+    // A screen reader reads the longer text: nothing around it is hidden from it.
+    expect(detail.closest('[aria-hidden="true"]')).toBeNull();
     expect(screen.getAllByText(`${developer}: ${gateway.summary}`)).toHaveLength(2);
     expect(document.body.textContent).not.toContain('restore-drill');
   });

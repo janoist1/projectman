@@ -32,6 +32,15 @@ export function SegmentedControl<T extends string>({
       role="group"
       aria-label={label}
       className={clsx(styles.group, styles[appearance], styles[size], className)}
+      onKeyDown={(event) => {
+        const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+        if (!step) return;
+        const buttons = [...event.currentTarget.querySelectorAll('button')];
+        const next = buttons[buttons.indexOf(document.activeElement as HTMLButtonElement) + step];
+        if (!next) return;
+        event.preventDefault();
+        next.focus();
+      }}
     >
       {options.map((option) => {
         const active = option.value === value;

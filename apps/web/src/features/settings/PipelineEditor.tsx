@@ -44,8 +44,12 @@ export function PipelineEditor({ draft, change, isOwner, original, submitted, is
         description={t('settings.pipeline.removeBody')}
         footer={
           <>
+            <Button size="md" onClick={() => setRemoving(null)}>
+              {t('common.cancel')}
+            </Button>
             <Button
               variant="dangerSolid"
+              size="md"
               onClick={() => {
                 change((config) => {
                   config.pipeline.stages = config.pipeline.stages.filter(
@@ -57,7 +61,6 @@ export function PipelineEditor({ draft, change, isOwner, original, submitted, is
             >
               {t('settings.pipeline.removeStage')}
             </Button>
-            <Button onClick={() => setRemoving(null)}>{t('common.cancel')}</Button>
           </>
         }
       />

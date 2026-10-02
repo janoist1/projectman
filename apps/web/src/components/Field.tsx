@@ -12,17 +12,30 @@ interface FieldFrameProps {
   error?: string | null;
   optional?: boolean;
   hideLabel?: boolean;
+  /** Between the label and the control: the editor's formatting buttons. */
+  toolbar?: ReactNode;
   className?: string;
   children: ReactNode;
 }
 
-function FieldFrame({ id, label, hint, error, optional, hideLabel, className, children }: FieldFrameProps) {
+function FieldFrame({
+  id,
+  label,
+  hint,
+  error,
+  optional,
+  hideLabel,
+  toolbar,
+  className,
+  children,
+}: FieldFrameProps) {
   return (
     <div className={clsx(styles.field, className)}>
       <label htmlFor={id} className={clsx(styles.label, hideLabel && 'visually-hidden')}>
         {label}
         {optional ? <span className={styles.optional}> · {t('common.optional')}</span> : null}
       </label>
+      {toolbar}
       {children}
       {error ? (
         <span id={`${id}-error`} className={styles.error} role="alert">
@@ -50,6 +63,10 @@ interface CommonProps {
   optional?: boolean;
   hideLabel?: boolean;
   fieldClassName?: string;
+}
+
+interface TextAreaProps extends CommonProps {
+  toolbar?: ReactNode;
 }
 
 export const TextField = forwardRef<HTMLInputElement, CommonProps & InputHTMLAttributes<HTMLInputElement>>(
@@ -84,9 +101,9 @@ export const TextField = forwardRef<HTMLInputElement, CommonProps & InputHTMLAtt
 
 export const TextAreaField = forwardRef<
   HTMLTextAreaElement,
-  CommonProps & TextareaHTMLAttributes<HTMLTextAreaElement>
+  TextAreaProps & TextareaHTMLAttributes<HTMLTextAreaElement>
 >(function TextAreaField(
-  { label, hint, error, optional, hideLabel, fieldClassName, className, id: idProp, ...rest },
+  { label, hint, error, optional, hideLabel, toolbar, fieldClassName, className, id: idProp, ...rest },
   ref,
 ) {
   const generated = useId();
@@ -99,6 +116,7 @@ export const TextAreaField = forwardRef<
       error={error}
       optional={optional}
       hideLabel={hideLabel}
+      toolbar={toolbar}
       className={fieldClassName}
     >
       <textarea

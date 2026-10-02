@@ -16,7 +16,6 @@ import { getLocale } from '@projectman/templates';
 import { usePatchConfig } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
-import { Dialog } from '../../components/Dialog';
 import { TextAreaField } from '../../components/Field';
 import { Icon } from '../../components/Icon';
 import { SegmentedControl } from '../../components/SegmentedControl';
@@ -387,9 +386,7 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
           </Button>
         </div>
       )}
-      <Dialog open={adding} onClose={() => setAdding(false)} title={t('duties.add')}>
-        <RoleForm onDone={() => setAdding(false)} />
-      </Dialog>
+      {adding ? <RoleForm onDone={() => setAdding(false)} /> : null}
     </SettingsSection>
   );
 }

@@ -45,6 +45,28 @@ select {
   color: inherit;
 }
 
+/*
+ * iOS Safari zooms into a field with text under 16px when it gets focus. One rule for every
+ * text field, select and textarea, so no stylesheet has to repeat it. :where keeps the rule at no
+ * specificity: a field that is larger than 16px says so with its own `!important` on a phone.
+ */
+@media (max-width: 767px) {
+  :where(
+    input:not(
+      [type='checkbox'],
+      [type='radio'],
+      [type='range'],
+      [type='file'],
+      [type='color'],
+      [type='hidden']
+    ),
+    select,
+    textarea
+  ) {
+    font-size: 16px !important;
+  }
+}
+
 button {
   cursor: pointer;
 }

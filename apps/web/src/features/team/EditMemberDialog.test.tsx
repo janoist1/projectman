@@ -202,6 +202,51 @@ describe('EditMemberDialog', () => {
     );
     expect(config.schedule).toBeUndefined();
   });
+  it.each([
+    ['30 9 * * *', 'daily', '09:30'],
+    ['0 8 * * 1-5', 'weekdays', '08:00'],
+  ])('shows the plain cron %s as a frequency and a time', async (cron, frequency, time) => {
+    const project = mockProject();
+    const config = project.backend.config.team.members.find((member) => member.handle === 'qa')!;
+    if (config.kind !== 'ai') throw new Error('Expected AI fixture');
+    config.schedule = { cron, prompt: 'Check the Acme shop.' };
+    project.render(
+      <EditMemberDialog
+        member={project.backend.findMember('qa')!}
+        config={project.backend.config}
+        roles={builtInRoles}
+        onClose={() => {}}
+      />,
+    );
+    expect(
+      screen
+        .getByRole('button', { name: t(`schedules.form.${frequency}` as 'schedules.form.daily') })
+        .getAttribute('aria-pressed'),
+    ).toBe('true');
+    expect(
+      (screen.getByLabelText(new RegExp(`^${t('schedules.form.time')}`)) as HTMLInputElement).value,
+    ).toBe(time);
+    expect(screen.queryByLabelText(t('schedules.form.cron'))).toBeNull();
+  });
+
+  it('shows any other cron under Egyéni, as it is stored', async () => {
+    const project = mockProject();
+    const config = project.backend.config.team.members.find((member) => member.handle === 'qa')!;
+    if (config.kind !== 'ai') throw new Error('Expected AI fixture');
+    config.schedule = { cron: '*/10 * * * *', prompt: 'Check the Acme shop.' };
+    project.render(
+      <EditMemberDialog
+        member={project.backend.findMember('qa')!}
+        config={project.backend.config}
+        roles={builtInRoles}
+        onClose={() => {}}
+      />,
+    );
+    expect(
+      screen.getByRole('button', { name: t('schedules.form.custom') }).getAttribute('aria-pressed'),
+    ).toBe('true');
+    expect((screen.getByLabelText(t('schedules.form.cron')) as HTMLInputElement).value).toBe('*/10 * * * *');
+  });
   it('switches an AI member to Codex and saves provider, model and effort', async () => {
     const project = mockProject();
     project.backend.providerLoggedIn.codex = false;

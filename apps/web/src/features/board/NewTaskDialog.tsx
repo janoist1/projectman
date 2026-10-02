@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router';
 import type { TaskKind, Visibility } from '@projectman/shared';
@@ -6,8 +6,10 @@ import { useBoard, useConfig, useCreateTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { DescriptionEditor } from '../../components/DescriptionEditor';
-import { Dialog } from '../../components/Dialog';
-import { ChoiceCard, SelectField, TextField } from '../../components/Field';
+import { Dialog, DialogActions } from '../../components/Dialog';
+import { SelectField, TextField } from '../../components/Field';
+import { Fold } from '../../components/Fold';
+import { SegmentedControl } from '../../components/SegmentedControl';
 import { useToast } from '../../components/toastContext';
 import { ErrorBanner } from '../../components/ErrorBanner';
 import { t } from '../../i18n/t';
@@ -44,6 +46,7 @@ function NewTaskForm({
   const create = useCreateTask(key);
   const toast = useToast();
   const navigate = useNavigate();
+  const titleInput = useRef<HTMLInputElement>(null);
   const isTheme = kind === 'theme';
   // null until the person picks one; a board filtered to an open theme starts with that theme.
   const [pickedTheme, setPickedTheme] = useState<string | null>(null);
@@ -55,19 +58,20 @@ function NewTaskForm({
   // null until the user picks one; a project with a single repo defaults to it.
   const [pickedRepo, setRepo] = useState<string | null>(null);
   const [visibility, setVisibility] = useState<Visibility>('internal');
-  const [labels, setLabels] = useState('');
   const [titleError, setTitleError] = useState<string | null>(null);
   const repos = config.data?.config.project.repos ?? [];
   const repo = pickedRepo ?? (repos.length === 1 ? repos[0]!.name : '');
+  const themeTitle = themes.find((entry) => entry.key === theme)?.title;
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
     if (!title.trim()) {
       setTitleError(t('newTask.titleRequired'));
+      titleInput.current?.focus();
       return;
     }
     setTitleError(null);
-    // A theme takes no repository, label or theme of its own.
+    // A theme takes no repository or theme of its own. Labels go on the card that opens next.
     create.mutate(
       isTheme
         ? {
@@ -81,10 +85,6 @@ function NewTaskForm({
             description: description.trim() || undefined,
             repo: repo || null,
             visibility,
-            labels: labels
-              .split(',')
-              .map((label) => label.trim())
-              .filter(Boolean),
             ...(theme ? { themeKey: theme } : {}),
           },
       {
@@ -100,30 +100,29 @@ function NewTaskForm({
     );
   };
 
+  // What the closed "More settings" row shows: the values a person would otherwise have to open it to see.
+  const peek = [
+    ...(isTheme ? [] : [repo || t('newTask.peekNoRepo')]),
+    ...(isTheme || !themeTitle ? [] : [themeTitle]),
+    t(`visibility.${visibility}`),
+  ].join(' · ');
+
   return (
     <form id={formId} className={styles.form} onSubmit={onSubmit} noValidate>
-      <fieldset className={styles.fieldset}>
-        <legend className={styles.legend}>{t('newTask.kind')}</legend>
-        <div className={styles.choices}>
-          <ChoiceCard
-            name="kind"
-            value="task"
-            checked={!isTheme}
-            onChange={() => onKind('task')}
-            title={t('newTask.kinds.task')}
-            description={t('newTask.kinds.taskHint')}
-          />
-          <ChoiceCard
-            name="kind"
-            value="theme"
-            checked={isTheme}
-            onChange={() => onKind('theme')}
-            title={t('newTask.kinds.theme')}
-            description={t('newTask.kinds.themeHint')}
-          />
-        </div>
-      </fieldset>
+      <div className={styles.kind}>
+        <SegmentedControl<TaskKind>
+          label={t('newTask.kind')}
+          value={kind}
+          onChange={onKind}
+          options={[
+            { value: 'task', label: t('newTask.kinds.task') },
+            { value: 'theme', label: t('newTask.kinds.theme') },
+          ]}
+        />
+        <p className={styles.hint}>{t(isTheme ? 'newTask.kinds.themeHint' : 'newTask.kinds.taskHint')}</p>
+      </div>
       <TextField
+        ref={titleInput}
         label={t('newTask.fields.title')}
         placeholder={t(isTheme ? 'newTask.fields.themeTitlePlaceholder' : 'newTask.fields.titlePlaceholder')}
         value={title}
@@ -138,9 +137,9 @@ function NewTaskForm({
         onChange={setDescription}
         disabled={create.isPending}
       />
-      {isTheme ? null : (
-        <>
-          <div className={styles.row}>
+      <Fold title={t('newTask.more')} peek={peek}>
+        {isTheme ? null : (
+          <>
             <SelectField
               label={t('newTask.fields.repo')}
               value={repo}
@@ -153,66 +152,46 @@ function NewTaskForm({
                 </option>
               ))}
             </SelectField>
-            <TextField
-              label={t('newTask.fields.labels')}
-              hint={t('newTask.fields.labelsHint')}
-              value={labels}
-              onChange={(event) => setLabels(event.target.value)}
-              optional
-            />
-          </div>
-          {themes.length > 0 ? (
-            <SelectField
-              label={t('newTask.fields.theme')}
-              hint={pickedTheme === null && filterTheme ? t('newTask.fields.themeFromFilter') : undefined}
-              value={theme}
-              onChange={(event) => setPickedTheme(event.target.value)}
-            >
-              <option value="">{t('newTask.fields.themeNone')}</option>
-              {themes.map((entry) => (
-                <option key={entry.key} value={entry.key}>
-                  {entry.title}
-                </option>
-              ))}
-            </SelectField>
-          ) : null}
-        </>
-      )}
-      <fieldset className={styles.fieldset}>
-        <legend className={styles.legend}>{t('newTask.fields.visibility')}</legend>
-        <div className={styles.choices}>
-          <ChoiceCard
-            name="visibility"
-            value="internal"
-            checked={visibility === 'internal'}
-            onChange={() => setVisibility('internal')}
-            title={t('visibility.internal')}
-            description={t('visibility.internalHint')}
+            {themes.length > 0 ? (
+              <SelectField
+                label={t('newTask.fields.theme')}
+                hint={pickedTheme === null && filterTheme ? t('newTask.fields.themeFromFilter') : undefined}
+                value={theme}
+                onChange={(event) => setPickedTheme(event.target.value)}
+              >
+                <option value="">{t('newTask.fields.themeNone')}</option>
+                {themes.map((entry) => (
+                  <option key={entry.key} value={entry.key}>
+                    {entry.title}
+                  </option>
+                ))}
+              </SelectField>
+            ) : null}
+          </>
+        )}
+        <div className={styles.visibility}>
+          <span className={styles.legend}>{t('newTask.fields.visibility')}</span>
+          <SegmentedControl<Visibility>
+            label={t('newTask.fields.visibility')}
+            value={visibility}
+            onChange={setVisibility}
+            options={[
+              { value: 'internal', label: t('visibility.internal') },
+              { value: 'shared', label: t('visibility.shared') },
+            ]}
           />
-          <ChoiceCard
-            name="visibility"
-            value="shared"
-            checked={visibility === 'shared'}
-            onChange={() => setVisibility('shared')}
-            title={t('visibility.shared')}
-            description={t('visibility.sharedHint')}
-          />
+          <p className={styles.hint}>{t(`visibility.${visibility}Hint`)}</p>
         </div>
-      </fieldset>
-      {create.isError ? <ErrorBanner>{errorMessage(create.error)}</ErrorBanner> : null}
-      <SubmitState pending={create.isPending} formId={formId} />
+      </Fold>
+      <DialogActions error={create.isError ? <ErrorBanner>{errorMessage(create.error)}</ErrorBanner> : null}>
+        <Button variant="secondary" size="md" onClick={onDone}>
+          {t('common.cancel')}
+        </Button>
+        <Button type="submit" form={formId} variant="primary" size="md" loading={create.isPending}>
+          {create.isPending ? t('newTask.submitting') : t('newTask.submit')}
+        </Button>
+      </DialogActions>
     </form>
-  );
-}
-
-/** Keeps the footer button in sync with the form's pending state. */
-function SubmitState({ pending, formId }: { pending: boolean; formId: string }) {
-  return (
-    <div className={styles.actions}>
-      <Button type="submit" form={formId} variant="primary" loading={pending}>
-        {pending ? t('newTask.submitting') : t('newTask.submit')}
-      </Button>
-    </div>
   );
 }
 

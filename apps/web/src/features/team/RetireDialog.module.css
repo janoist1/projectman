@@ -18,15 +18,3 @@
   flex-direction: column;
   gap: 6px;
 }
-
-.error {
-  font-size: var(--text-sm);
-  font-weight: 700;
-  color: var(--c-blocked-text);
-}
-
-.actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}

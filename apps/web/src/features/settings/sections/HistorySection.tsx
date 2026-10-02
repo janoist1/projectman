@@ -63,8 +63,12 @@ export function HistorySection({
         size="sm"
         footer={
           <>
+            <Button variant="secondary" size="md" onClick={() => setTarget(null)}>
+              {t('common.cancel')}
+            </Button>
             <Button
               variant="primary"
+              size="md"
               icon="undo"
               loading={revert.isPending}
               onClick={() => {
@@ -79,9 +83,6 @@ export function HistorySection({
               }}
             >
               {t('settings.history.revert')}
-            </Button>
-            <Button variant="secondary" onClick={() => setTarget(null)}>
-              {t('common.cancel')}
             </Button>
           </>
         }

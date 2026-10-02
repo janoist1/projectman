@@ -3,48 +3,16 @@
   color: var(--c-ink-3);
 }
 
-.roles {
-  border: 0;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.role {
-  position: relative;
+/* The chosen role, one card: what the select's option name does not say. */
+.roleCard {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 8px 10px;
+  gap: 10px;
+  padding: 10px 12px;
   border-radius: var(--radius-lg);
-  border: 1.5px solid var(--c-line);
-  background: var(--c-surface);
-  cursor: pointer;
+  border: 1px solid var(--c-line-soft);
+  background: var(--c-subtle);
   min-width: 0;
-}
-
-.role:hover {
-  border-color: var(--c-mark-idle);
-}
-
-.role[data-checked] {
-  border-color: var(--c-accent);
-  background: var(--c-accent-soft);
-}
-
-.role:has(.radio:focus-visible) {
-  outline: 2px solid var(--c-accent);
-  outline-offset: 2px;
-}
-
-.radio {
-  position: absolute;
-  opacity: 0;
-  width: 1px;
-  height: 1px;
-  pointer-events: none;
 }
 
 .roleText {
@@ -57,36 +25,11 @@
 .roleName {
   font-size: var(--text-sm);
   font-weight: 800;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.roleTag {
-  font-size: 11.5px;
-  color: var(--c-ink-4);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.preview {
-  box-sizing: border-box;
-  padding: 14px;
-  border-radius: var(--radius-xl);
-  background: var(--c-subtle);
-  border: 1px solid var(--c-line-soft);
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.previewTitle {
-  font-size: var(--text-xs);
-  font-weight: 800;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--c-ink-4);
+.roleSummary {
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
 }
 
 .grid {
@@ -95,10 +38,19 @@
   gap: 12px;
 }
 
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 0 2px;
+  font-size: var(--text-sm);
+  color: var(--c-ink-2);
+}
+
 .facts {
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -149,9 +101,6 @@
 }
 
 @media (max-width: 767px) {
-  .roles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
   .grid,
   .facts {
     grid-template-columns: minmax(0, 1fr);

@@ -96,11 +96,18 @@ export const hu = {
     form: {
       title: 'Ütemezés',
       enabled: 'Ütemezett munka',
+      frequency: 'Gyakoriság',
+      weekdays: 'Hétköznap',
+      daily: 'Minden nap',
+      custom: 'Egyéni',
+      time: 'Időpont',
+      timeHint: 'A projekt időzónájában fut.',
       cron: 'Időpont (cron-kifejezés)',
       prompt: 'Feladat az ütemezett munkához',
-      preset: 'hétköznap reggel 8',
       hint: 'A projekt időzónájában fut. Például hétköznap reggel 8: 0 8 * * 1-5.',
       invalid: 'Adj meg időpontot és feladatot is.',
+      timeMissing: 'Adj meg időpontot.',
+      promptMissing: 'Adj meg feladatot.',
     },
     /** A cron time in words, for the profile: "hétköznap reggel 8". */
     when: {
@@ -678,9 +685,10 @@ export const hu = {
   },
 
   editor: {
-    write: 'Írás',
     preview: 'Előnézet',
     toolbar: 'Leírás formázása',
+    more: 'Több',
+    withShortcut: '{name} ({shortcut})',
     bold: 'Félkövér',
     italic: 'Dőlt',
     heading: 'Címsor',
@@ -811,12 +819,12 @@ export const hu = {
       repo: 'Repó',
       repoNone: 'Nincs kiválasztva',
       visibility: 'Láthatóság',
-      labels: 'Címkék',
-      labelsHint: 'Vesszővel elválasztva.',
       theme: 'Téma',
       themeNone: 'Nincs',
       themeFromFilter: 'A tábla erre a témára szűr, ezért alapból ide kerül.',
     },
+    more: 'További beállítások',
+    peekNoRepo: 'Nincs repó',
     submit: 'Létrehozás',
     submitting: 'Létrehozás…',
     created: 'Létrehozva: {key}',
@@ -1554,9 +1562,9 @@ export const hu = {
 
   hire: {
     title: 'Új AI-tag',
-    intro: 'Sablonból indulsz, és testre szabod.',
+    intro: 'Sablonból indulsz, és testre szabod. A beállítás azonnal él, visszavonható.',
     roles: 'Szerep',
-    preview: 'Előnézet',
+    details: 'Részletek',
     displayName: 'Név',
     handle: 'Azonosító',
     handleHint: 'Kisbetű, szám, kötőjel. Üresen hagyva a rendszer adja.',
@@ -1576,7 +1584,6 @@ export const hu = {
     submit: 'Felveszem',
     submitting: 'Felvétel…',
     hired: 'Felvéve: {name}',
-    note: 'Beállítás: azonnal él, visszavonható.',
   },
 
   retire: {

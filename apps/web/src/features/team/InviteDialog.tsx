@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { FormEvent } from 'react';
 import { holdersAllow } from '@projectman/shared';
 import type { InviteAccess, MemberView } from '@projectman/shared';
 import { useCreateInvite, useRoles } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
-import { Dialog } from '../../components/Dialog';
+import { Dialog, DialogActions } from '../../components/Dialog';
+import { ErrorBanner } from '../../components/ErrorBanner';
 import { ChoiceCard, TextField } from '../../components/Field';
 import { ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
@@ -23,13 +24,14 @@ export function InviteDialog({
 }) {
   return (
     <Dialog open={open} onClose={onClose} title={t('invites.title')}>
-      <InviteForm key={member?.handle ?? 'new'} member={member} />
+      <InviteForm key={member?.handle ?? 'new'} member={member} onClose={onClose} />
     </Dialog>
   );
 }
 
 /** The invitation form and, once created, its link. "Add colleague" shows it as one of its two ways. */
-export function InviteForm({ member }: { member?: MemberView }) {
+export function InviteForm({ member, onClose }: { member?: MemberView; onClose: () => void }) {
+  const formId = useId();
   const { key, isOwner } = useProject();
   const roles = useRoles(key);
   const create = useCreateInvite(key);
@@ -64,25 +66,31 @@ export function InviteForm({ member }: { member?: MemberView }) {
           onFocus={(event) => event.target.select()}
         />
         <p>{t('invites.lifetime')}</p>
-        <Button
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(link);
-              setCopied(true);
-              setCopyFailed(false);
-            } catch {
-              setCopyFailed(true);
-            }
-          }}
-        >
-          {copied ? t('invites.copied') : t('invites.copy')}
-        </Button>
-        {copyFailed ? <p role="alert">{t('invites.copyFailed')}</p> : null}
+        <DialogActions error={copyFailed ? <ErrorBanner>{t('invites.copyFailed')}</ErrorBanner> : null}>
+          <Button size="md" onClick={onClose}>
+            {t('common.close')}
+          </Button>
+          <Button
+            variant="primary"
+            size="md"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(link);
+                setCopied(true);
+                setCopyFailed(false);
+              } catch {
+                setCopyFailed(true);
+              }
+            }}
+          >
+            {copied ? t('invites.copied') : t('invites.copy')}
+          </Button>
+        </DialogActions>
       </div>
     );
 
   return (
-    <form className={styles.form} onSubmit={submit}>
+    <form id={formId} className={styles.form} onSubmit={submit}>
       <TextField
         label={t('invites.email')}
         type="email"
@@ -140,10 +148,21 @@ export function InviteForm({ member }: { member?: MemberView }) {
           )}
         </fieldset>
       )}
-      {create.isError ? <ErrorState compact error={create.error} /> : null}
-      <Button variant="primary" type="submit" loading={create.isPending} disabled={!roles.data}>
-        {t('invites.create')}
-      </Button>
+      <DialogActions error={create.isError ? <ErrorState compact error={create.error} /> : null}>
+        <Button size="md" onClick={onClose}>
+          {t('common.cancel')}
+        </Button>
+        <Button
+          variant="primary"
+          size="md"
+          type="submit"
+          form={formId}
+          loading={create.isPending}
+          disabled={!roles.data}
+        >
+          {t('invites.create')}
+        </Button>
+      </DialogActions>
     </form>
   );
 }

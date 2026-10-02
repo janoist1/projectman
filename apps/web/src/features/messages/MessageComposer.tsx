@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useBoard, useRoles, useSendTeamMessage } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
+import { DialogActions } from '../../components/Dialog';
+import { ErrorBanner } from '../../components/ErrorBanner';
 import { SelectField, TextAreaField } from '../../components/Field';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
@@ -14,11 +16,15 @@ export function MessageComposer({
   initialTo = [],
   initialTask = '',
   onSent,
+  onCancel,
 }: {
   initialTo?: string[];
   initialTask?: string;
   onSent?: () => void;
+  /** In a dialog: the Cancel button next to Send. */
+  onCancel?: () => void;
 }) {
+  const formId = useId();
   const { key, myHandle, me } = useProject();
   const board = useBoard(key);
   const roles = useRoles(key);
@@ -35,6 +41,7 @@ export function MessageComposer({
   if (!access || !['owner', 'admin', 'developer', 'client'].includes(access)) return null;
   return (
     <form
+      id={formId}
       className={styles.form}
       onSubmit={(event) => {
         event.preventDefault();
@@ -99,15 +106,23 @@ export function MessageComposer({
         disabled={send.isPending}
         onChange={(event) => setText(event.target.value)}
       />
-      {send.error ? <p role="alert">{errorMessage(send.error)}</p> : null}
-      <Button
-        type="submit"
-        variant="primary"
-        loading={send.isPending}
-        disabled={!selected.length || !text.trim()}
-      >
-        {t('messages.send')}
-      </Button>
+      <DialogActions error={send.error ? <ErrorBanner>{errorMessage(send.error)}</ErrorBanner> : null}>
+        {onCancel ? (
+          <Button variant="secondary" size="md" onClick={onCancel}>
+            {t('common.cancel')}
+          </Button>
+        ) : null}
+        <Button
+          type="submit"
+          form={formId}
+          variant="primary"
+          size="md"
+          loading={send.isPending}
+          disabled={!selected.length || !text.trim()}
+        >
+          {t('messages.send')}
+        </Button>
+      </DialogActions>
     </form>
   );
 }

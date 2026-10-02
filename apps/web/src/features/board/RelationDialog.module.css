@@ -125,11 +125,6 @@
   white-space: nowrap;
 }
 
-.foot {
-  display: grid;
-  gap: 10px;
-}
-
 .preview {
   margin: 0;
   font-size: var(--text-sm);
@@ -144,23 +139,8 @@
   color: var(--c-needs-strong);
 }
 
-.actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
 @media (max-width: 767px) {
   .kind {
     min-height: 40px;
-  }
-
-  .actions {
-    flex-direction: column-reverse;
-  }
-
-  .actions > * {
-    width: 100%;
-    min-height: 46px;
   }
 }

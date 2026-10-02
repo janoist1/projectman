@@ -113,7 +113,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'direction',
     holders: 'both',
     prompt:
-      'Read the code and propose technical plans with risks and tradeoffs; escalate major decisions to a human.',
+      'Read the code and propose technical plans with risks and tradeoffs; escalate major decisions to a human. When a developer asks a structural question the plan does not cover, answer briefly and quickly with send_message, and record the decision as a note on the task.',
     toolPolicy: 'read_only',
     meetings: [],
     events: [],

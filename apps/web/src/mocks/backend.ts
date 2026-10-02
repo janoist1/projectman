@@ -5,9 +5,11 @@ import {
   boardColumnOf,
   compareBoardOrder,
   dropStageOfColumn,
+  groupPlacement,
   isChronologicalColumn,
   planRanks,
   stagesOfColumn,
+  subtasksMovingAlong,
   BoundaryRequest,
   DecideBoundaryRequest,
   boundaryOwners,
@@ -127,6 +129,7 @@ import type {
   AttachmentViewer,
   TaskCoverChoice,
   BoardMoveResult,
+  BoardGroupItem,
   BoardPlacement,
   BoardView,
   RankedCard,
@@ -251,6 +254,11 @@ function labelChangeError(refusal: LabelChangeRefusal): MockResponse {
       return error(400, refusal.code, 'These labels need a comment', { labels: refusal.labels });
   }
 }
+
+/** What a refused move's error carries, as the group move reads it back (PM-121). */
+type GateBlockedDetails = Pick<Extract<BoardGroupItem, { outcome: 'blocked' }>, 'unmet' | 'approvals'> & {
+  inboxItemIds?: string[];
+};
 
 function gateBlockedError(evaluation: GateEvaluation): MockResponse {
   return error(409, 'gate_blocked', 'Gate conditions are not met', {
@@ -2151,6 +2159,14 @@ export class MockBackend {
       !column.some((card) => card.key === placement.anchor)
     )
       return stale();
+    const along = input.withSubtasks
+      ? subtasksMovingAlong(
+          this.config.pipeline.stages,
+          task,
+          this.tasks.filter((other) => other.parentKey === task.key),
+        )
+      : [];
+    if (along.length > 0) return this.boardGroupMove(task, along, target, placement);
     const before = new Map(this.tasks.map((other) => [other.key, other.boardRank]));
     const response = this.move(task, target.id, this.viewerActor(), placement);
     if (response.status >= 400) return response;
@@ -2159,6 +2175,54 @@ export class MockBackend {
       .filter((other) => other.key !== task.key && other.boardRank !== before.get(other.key))
       .map((other) => other.key);
     return ok(boardResult(task, moved ? 'moved' : 'unchanged', moved ? reranked : []));
+  }
+
+  /**
+   * A collecting card with the subtasks of its column (PM-121), like the server's group move: each card
+   * goes through its own gates and approval request, a refusal of one leaves the others moving, and the
+   * ones that moved stand together at the dropped place, the collecting card first.
+   */
+  private boardGroupMove(
+    parent: Task,
+    along: readonly Task[],
+    target: Stage,
+    placement: BoardPlacement,
+  ): MockResponse {
+    const before = new Map(this.tasks.map((other) => [other.key, other.boardRank]));
+    const items: BoardGroupItem[] = [];
+    let previous: string | null = null;
+    for (const card of [parent, ...along]) {
+      const response = this.move(card, target.id, this.viewerActor(), groupPlacement(placement, previous));
+      if (response.status < 400) {
+        items.push({ taskKey: card.key, outcome: 'moved' });
+        previous = card.key;
+        continue;
+      }
+      const failure = (response.body as { error: { code: string; details?: GateBlockedDetails } }).error;
+      if (failure.code === 'gate_blocked')
+        items.push({
+          taskKey: card.key,
+          outcome: 'blocked',
+          code: 'gate_blocked',
+          message: 'Gate conditions are not met',
+          unmet: failure.details?.unmet ?? [],
+          approvals: failure.details?.approvals ?? [],
+        });
+      else if (failure.code === 'approval_requested')
+        items.push({
+          taskKey: card.key,
+          outcome: 'approval_pending',
+          inboxItemIds: failure.details?.inboxItemIds ?? [],
+        });
+      else if (failure.code === 'task_closed')
+        items.push({ taskKey: card.key, outcome: 'skipped', reason: 'closed' });
+      else return response;
+    }
+    const reranked = this.tasks
+      .filter((other) => other.key !== parent.key && other.boardRank !== before.get(other.key))
+      .map((other) => other.key);
+    const result = boardResult(parent, parent.stageId === target.id ? 'moved' : 'unchanged', reranked);
+    return ok({ ...result, group: items });
   }
 
   private openDecisions(task: Task): InboxItem[] {

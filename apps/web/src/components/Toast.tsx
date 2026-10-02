@@ -1,16 +1,18 @@
 import clsx from 'clsx';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { Link } from 'react-router';
 import { t } from '../i18n/t';
 import { Icon } from './Icon';
 import { ToastContext } from './toastContext';
-import type { ToastTone } from './toastContext';
+import type { ToastItem, ToastOptions, ToastTone } from './toastContext';
 import styles from './Toast.module.css';
 
 interface ToastEntry {
   id: number;
   message: string;
   tone: ToastTone;
+  items: readonly ToastItem[];
 }
 
 /** Short confirmations and errors, announced politely to screen readers. */
@@ -23,10 +25,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const show = useCallback(
-    (message: string, tone: ToastTone = 'ok') => {
+    (message: string, tone: ToastTone = 'ok', options: ToastOptions = {}) => {
       const id = nextId.current++;
-      setToasts((list) => [...list.slice(-2), { id, message, tone }]);
-      setTimeout(() => dismiss(id), tone === 'error' ? 7000 : 4500);
+      setToasts((list) => [...list.slice(-2), { id, message, tone, items: options.items ?? [] }]);
+      if (!options.sticky) setTimeout(() => dismiss(id), tone === 'error' ? 7000 : 4500);
     },
     [dismiss],
   );
@@ -46,7 +48,26 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 strokeWidth={2.6}
               />
             </span>
-            <span className={styles.message}>{toast.message}</span>
+            <span className={styles.message}>
+              {toast.message}
+              {toast.items.length > 0 && (
+                <ul className={styles.items}>
+                  {toast.items.map((item) => (
+                    <li key={item.key}>
+                      {item.bare ? null : item.to ? (
+                        <Link to={item.to} className={styles.itemKey}>
+                          {item.key}
+                        </Link>
+                      ) : (
+                        <span className={styles.itemKey}>{item.key}</span>
+                      )}
+                      {item.bare ? null : ' '}
+                      {item.text}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </span>
             <button
               type="button"
               className={styles.dismiss}

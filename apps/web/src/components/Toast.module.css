@@ -42,6 +42,23 @@
   min-width: 0;
 }
 
+.items {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.itemKey {
+  font-weight: 800;
+  color: inherit;
+  text-decoration: underline;
+}
+
 .dismiss {
   width: 28px;
   height: 28px;

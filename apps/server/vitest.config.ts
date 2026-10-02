@@ -44,7 +44,10 @@ export default defineConfig({
     exclude: [...configDefaults.exclude, ...(skip ? PTY_TESTS : [])],
     // Many tests start git or other child processes and write files; a test that takes under a
     // second alone (config-store "never reads a project while a save rewrites its files": 0.7 s)
-    // took over 5 s when the whole repository's tests ran in parallel (PM-215).
+    // took over 5 s when the whole repository's tests ran in parallel (PM-215). The GitHub
+    // publisher tests are the same: each runs about 15 git commands in its setup and as many in
+    // the test, 1-2.5 s alone.
     testTimeout: 20_000,
+    hookTimeout: 20_000,
   },
 });

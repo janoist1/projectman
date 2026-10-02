@@ -2304,6 +2304,80 @@ describe('the managed VM profile (PM-141)', () => {
   });
 });
 
+describe('sub-cards that stand on their own (PM-230)', () => {
+  const RULE = 'A sub-card you create must stand on its own';
+  const roleText = (prompt: string) => section(prompt, '# Your role instructions');
+
+  it('gives the rule to every role that splits work, once', async () => {
+    const project = buildProject();
+    addMember(project, 'architect', 'architect');
+    addMember(project, 'analyst', 'business_analyst');
+    addMember(project, 'designer', 'designer');
+    for (const handle of ['architect', 'analyst', 'designer']) {
+      const pack = builder.build(input({ project, handle, task: makeTask({ stageId: 'dev' }) }));
+      const role = roleText(pack.appendSystemPrompt);
+      expect(role).toContain(RULE);
+      expect(role.split(RULE)).toHaveLength(2);
+    }
+    const analyst = builder.build(input({ project, handle: 'analyst', task: makeTask({ stageId: 'dev' }) }));
+    await expect(`${roleText(analyst.appendSystemPrompt)}\n`).toMatchFileSnapshot(
+      '__snapshots__/analyst.role-instructions.txt',
+    );
+  });
+
+  it('leaves the rule out for the roles that do not split work', () => {
+    const project = buildProject();
+    addMember(project, 'architect', 'architect');
+    for (const handle of ['fe-1', 'code-review', 'qa']) {
+      const pack = builder.build(input({ project, handle, task: makeTask({ stageId: 'dev' }) }));
+      expect(pack.appendSystemPrompt).not.toContain(RULE);
+    }
+  });
+
+  it('shows the parent files the description names first and marked, and only counts the rest', async () => {
+    const files = [
+      screenshot({ id: 'att_parent00', fileName: '01-first.jpg' }),
+      screenshot({ id: 'att_parent01', fileName: '06-rad-var-asztali.jpg' }),
+      screenshot({ id: 'att_parent02', fileName: '07-other.jpg' }),
+      screenshot({ id: 'att_parent03', fileName: '08-other.jpg' }),
+    ];
+    const brief =
+      builder.build(
+        input({
+          task: makeTask({
+            stageId: 'dev',
+            parentKey: 'AR-7',
+            description: 'Restyle the table. See AR-7: 06-rad-var-asztali.jpg and AR-7: 01-first.jpg.',
+          }),
+          parentAttachments: { taskKey: 'AR-7', attachments: files },
+        }),
+      ).initialMessage ?? '';
+    const start = brief.indexOf('## Attachments');
+    const end = brief.indexOf('\n\n## ', start + 1);
+    const section = brief.slice(start, end === -1 ? undefined : end);
+    await expect(section).toMatchFileSnapshot('__snapshots__/developer-dev-parent-references.section.txt');
+    expect(section.indexOf('01-first.jpg')).toBeLessThan(section.indexOf('06-rad-var-asztali.jpg'));
+    expect(section).not.toContain('07-other.jpg');
+    expect(section).not.toContain('08-other.jpg');
+  });
+
+  it('keeps the plain parent list when the description names none of the files', () => {
+    const brief =
+      builder.build(
+        input({
+          task: makeTask({ stageId: 'dev', parentKey: 'AR-7', description: 'Restyle the table.' }),
+          parentAttachments: {
+            taskKey: 'AR-7',
+            attachments: [screenshot({ id: 'att_parent00', fileName: 'parent-0.png' })],
+          },
+        }),
+      ).initialMessage ?? '';
+    expect(brief).toContain('Parent `AR-7` has 1 attachment:');
+    expect(brief).toContain('"parent-0.png"');
+    expect(brief).not.toContain('referenced by this card');
+  });
+});
+
 describe('structural decisions (PM-223)', () => {
   const RULE = 'Structural decisions are not yours to make.';
   const roleText = (prompt: string) => section(prompt, '# Your role instructions');

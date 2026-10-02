@@ -437,6 +437,13 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       return { ok: true };
     },
 
+    async setCurrentWork(ctx, args) {
+      await enter('setCurrentWork', ctx, args);
+      if (ctx.taskKey === null)
+        throw new TeamToolError('invalid', 'set_current_work is only for a session working on a task.');
+      return { recorded: true };
+    },
+
     async listAttachments(ctx, args) {
       await enter('listAttachments', ctx, args);
       findTask(args.taskKey);

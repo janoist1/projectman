@@ -170,7 +170,6 @@ describe('creating a theme', () => {
     project.render(<NewTaskDialog open initialKind="theme" onClose={() => {}} />);
     await screen.findByRole('heading', { name: t('newTask.titleTheme') });
     expect(screen.queryByLabelText(t('newTask.fields.repo'))).toBeNull();
-    expect(screen.queryByLabelText(t('newTask.fields.labels'))).toBeNull();
     fireEvent.change(screen.getByLabelText(t('newTask.fields.title')), { target: { value: 'Hosting move' } });
     fireEvent.click(screen.getByRole('button', { name: t('newTask.submit') }));
     await waitFor(() =>
@@ -181,6 +180,7 @@ describe('creating a theme', () => {
     const request = project.requests.find((entry) => entry.method === 'POST' && entry.path === base);
     expect(request?.body).toMatchObject({ title: 'Hosting move', kind: 'theme' });
     expect(request?.body).not.toHaveProperty('repo');
+    expect(request?.body).not.toHaveProperty('labels');
     expect(request?.body).not.toHaveProperty('themeKey');
   });
 
@@ -191,10 +191,10 @@ describe('creating a theme', () => {
     const select = (await screen.findByLabelText(t('newTask.fields.theme'))) as HTMLSelectElement;
     await waitFor(() => expect(select.options.length).toBe(2));
     expect([...select.options].map((option) => option.value)).toEqual(['', theme.key]);
-    fireEvent.click(screen.getByRole('radio', { name: new RegExp(t('newTask.kinds.theme')) }));
+    fireEvent.click(screen.getByRole('button', { name: t('newTask.kinds.theme') }));
     expect(screen.queryByLabelText(t('newTask.fields.theme'))).toBeNull();
     expect(screen.getByRole('heading', { name: t('newTask.titleTheme') })).toBeTruthy();
-    fireEvent.click(screen.getByRole('radio', { name: new RegExp(t('newTask.kinds.task')) }));
+    fireEvent.click(screen.getByRole('button', { name: t('newTask.kinds.task') }));
     expect(screen.getByLabelText(t('newTask.fields.repo'))).toBeTruthy();
   });
 

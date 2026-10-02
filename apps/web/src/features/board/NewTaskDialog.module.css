@@ -4,48 +4,24 @@
   gap: 16px;
 }
 
-.row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 12px;
-}
-
-.fieldset {
-  border: 0;
-  margin: 0;
-  padding: 0;
+/* The kind switch with the one line that says what the chosen kind is. */
+.kind,
+.visibility {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 6px;
 }
 
 .legend {
-  padding: 0;
-  margin-bottom: 6px;
   font-size: 12.5px;
   font-weight: 800;
   color: var(--c-ink-2);
 }
 
-.choices {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 8px;
-}
-
-.actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding-top: 4px;
-}
-
-@media (max-width: 767px) {
-  .row,
-  .choices {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .actions > * {
-    flex: 1 1 auto;
-  }
+.hint {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+  line-height: 1.4;
 }

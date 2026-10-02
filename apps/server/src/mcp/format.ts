@@ -362,6 +362,11 @@ export function formatRemoteState(state: PublishedTaskState): string {
 
 /* ---------- messages and questions ---------- */
 
+/** set_current_work: one line; not recorded when the session was not in a round. */
+export function formatCurrentWork(recorded: boolean): string {
+  return recorded ? 'Noted.' : 'Not noted: your session is not in a round now.';
+}
+
 export function formatSentMessage(result: {
   messageId: string;
   requested: string[];

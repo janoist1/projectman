@@ -1,11 +1,41 @@
+import clsx from 'clsx';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { t } from '../i18n/t';
+import { useIsMobile } from '../lib/hooks';
+import { Button } from './Button';
 import { TextAreaField } from './Field';
+import { Icon } from './Icon';
+import type { IconName } from './Icon';
 import { Markdown } from './Markdown';
+import { MoreMenu } from './MoreMenu';
 import styles from './DescriptionEditor.module.css';
 
 type Action = 'bold' | 'italic' | 'heading' | 'bullet' | 'numbered' | 'taskList' | 'link' | 'code';
 const actions: Action[] = ['bold', 'italic', 'heading', 'bullet', 'numbered', 'taskList', 'link', 'code'];
+/** A phone's one-row toolbar keeps the common five; the rest are under "More". */
+const mobileActions: Action[] = ['bold', 'italic', 'bullet', 'taskList', 'link'];
+const moreActions: Action[] = actions.filter((action) => !mobileActions.includes(action));
+
+const actionIcons: Record<Action, IconName> = {
+  bold: 'bold',
+  italic: 'italic',
+  heading: 'heading',
+  bullet: 'list',
+  numbered: 'listOrdered',
+  taskList: 'taskList',
+  link: 'link',
+  code: 'code',
+};
+
+const shortcuts: Partial<Record<Action, string>> = { bold: 'B', italic: 'I', link: 'K' };
+
+/** The full name of a formatting button, with its shortcut: "Félkövér (⌘B)". */
+function actionName(action: Action): string {
+  const key = shortcuts[action];
+  if (!key) return t(`editor.${action}`);
+  const mac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+  return t('editor.withShortcut', { name: t(`editor.${action}`), shortcut: `${mac ? '⌘' : 'Ctrl+'}${key}` });
+}
 
 /** Selection replacement shared by toolbar and keyboard commands. */
 export function formatSelection(value: string, start: number, end: number, action: Action) {
@@ -55,6 +85,7 @@ export function DescriptionEditor({
   disabled?: boolean;
 }) {
   const input = useRef<HTMLTextAreaElement>(null);
+  const mobile = useIsMobile();
   const [preview, setPreview] = useState(false);
   const history = useRef<{ past: string[]; future: string[] }>({ past: [], future: [] });
   const nativeEdits = useRef(false);
@@ -96,36 +127,75 @@ export function DescriptionEditor({
     node.setSelectionRange(edit.selectionStart, edit.selectionEnd);
   };
 
+  const formatDisabled = disabled || preview;
+  const formatButton = (action: Action) => {
+    const name = actionName(action);
+    return (
+      <button
+        key={action}
+        type="button"
+        className={styles.tool}
+        disabled={formatDisabled}
+        aria-label={name}
+        title={name}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => apply(action)}
+      >
+        <Icon name={actionIcons[action]} size={17} strokeWidth={2.1} />
+      </button>
+    );
+  };
+  const toolbar = (
+    <div className={styles.toolbar} role="toolbar" aria-label={t('editor.toolbar')}>
+      <div className={styles.tools}>
+        {(mobile ? mobileActions : actions).map(formatButton)}
+        {mobile ? (
+          <MoreMenu label={t('editor.more')}>
+            {(close) =>
+              moreActions.map((action) => (
+                <Button
+                  key={action}
+                  variant="ghost"
+                  size="md"
+                  icon={actionIcons[action]}
+                  disabled={formatDisabled}
+                  onClick={() => {
+                    apply(action);
+                    close();
+                  }}
+                >
+                  {t(`editor.${action}`)}
+                </Button>
+              ))
+            }
+          </MoreMenu>
+        ) : null}
+      </div>
+      <button
+        type="button"
+        className={clsx(styles.tool, styles.previewToggle)}
+        aria-pressed={preview}
+        aria-label={t('editor.preview')}
+        title={t('editor.preview')}
+        onClick={() => setPreview(!preview)}
+      >
+        <Icon name="eye" size={17} strokeWidth={2.1} />
+        <span className={styles.previewText}>{t('editor.preview')}</span>
+      </button>
+    </div>
+  );
+
   return (
     <div className={styles.editor}>
-      <div className={styles.switch}>
-        <button type="button" aria-pressed={!preview} onClick={() => setPreview(false)}>
-          {t('editor.write')}
-        </button>
-        <button type="button" aria-pressed={preview} onClick={() => setPreview(true)}>
-          {t('editor.preview')}
-        </button>
-      </div>
-      <div hidden={preview}>
-        <div className={styles.toolbar} role="toolbar" aria-label={t('editor.toolbar')}>
-          {actions.map((action) => (
-            <button
-              key={action}
-              type="button"
-              disabled={disabled}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => apply(action)}
-            >
-              {t(`editor.${action}`)}
-            </button>
-          ))}
-        </div>
+      <div>
         <TextAreaField
           ref={input}
           label={label}
+          toolbar={toolbar}
           value={value}
           disabled={disabled}
-          rows={8}
+          hidden={preview}
+          rows={6}
           className={styles.input}
           onChange={(event) => change(event.target.value)}
           onKeyDown={(event) => {

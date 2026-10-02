@@ -87,16 +87,56 @@
   flex: 1 1 auto;
 }
 
+/* The server's refusal and the buttons stay in view while the body scrolls. */
+.error {
+  flex-shrink: 0;
+  padding: 0 20px 10px;
+}
+
 .footer {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+  flex-shrink: 0;
   padding: 14px 20px 18px;
   border-top: 1px solid var(--c-line-soft);
 }
 
+.error:empty,
+.footer:empty {
+  display: none;
+}
+
+/* DialogActions used outside a dialog. */
+.inlineActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@keyframes pm-sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes pm-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 @media (max-width: 767px) {
+  /* A form is a full screen on a phone. */
   .dialog,
   .sm,
   .lg {
@@ -109,7 +149,59 @@
     margin: 0;
   }
 
-  .footer > * {
-    flex: 1 1 auto;
+  /* A confirmation is a bottom sheet that is as tall as its content, with the dimmed page above. */
+  .sm {
+    height: auto;
+    max-height: calc(100dvh - 48px);
+    margin: auto 0 0;
+    border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
+    animation: pm-sheet-up 200ms ease-out;
+  }
+
+  .sm::backdrop {
+    animation: pm-backdrop-in 200ms ease-out;
+  }
+
+  /* A full screen reaches under the status bar and the notch: the header starts below them. */
+  .header {
+    padding: calc(14px + env(safe-area-inset-top)) 16px 12px;
+  }
+
+  .sm .header {
+    padding-top: 14px;
+  }
+
+  /* No body: the header's line would sit against the footer's. */
+  .panel:not(:has(.body)) .header {
+    border-bottom: 0;
+  }
+
+  .body {
+    padding: 14px 16px;
+  }
+
+  /* A full screen with no footer (the attachment preview) keeps clear of the home indicator. */
+  .panel:has(.footer:empty) .body {
+    padding-bottom: calc(14px + env(safe-area-inset-bottom));
+  }
+
+  .error {
+    padding: 0 16px 10px;
+  }
+
+  /* The two buttons share one row, equally wide, and are a 44px target. */
+  .footer {
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  }
+
+  /* :where keeps this easy to override: a third button may take a row of its own. */
+  :where(.footer) > :where(button, a) {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .footer > button,
+  .footer > a {
+    height: 44px;
   }
 }

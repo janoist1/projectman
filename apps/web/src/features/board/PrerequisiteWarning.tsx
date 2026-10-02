@@ -46,27 +46,28 @@ export function PrerequisiteWarning({
       onClose={onClose}
       title={t('prerequisiteWarning.title')}
       description={t('prerequisiteWarning.description', { keys: joinNames(keys ?? []) })}
-    >
-      <div className={styles.body}>
-        <ul className={styles.list}>
-          {(keys ?? []).map((key) => (
-            <li key={key}>{byKey.get(key) ? `${key} – ${byKey.get(key)!.title}` : key}</li>
-          ))}
-        </ul>
-        <div className={styles.actions}>
-          <Button variant="primary" loading={loading} onClick={onConfirm}>
-            {t('prerequisiteWarning.confirm')}
+      size="sm"
+      footer={
+        <>
+          <Button variant="secondary" size="md" onClick={onClose}>
+            {t('common.cancel')}
           </Button>
           {onWait ? (
-            <Button variant="secondary" loading={loading} onClick={onWait}>
+            <Button variant="secondary" size="md" loading={loading} onClick={onWait}>
               {t('prerequisiteWarning.moveAndWait')}
             </Button>
           ) : null}
-          <Button variant="secondary" onClick={onClose}>
-            {t('common.cancel')}
+          <Button variant="primary" size="md" className={styles.start} loading={loading} onClick={onConfirm}>
+            {t('prerequisiteWarning.confirm')}
           </Button>
-        </div>
-      </div>
+        </>
+      }
+    >
+      <ul className={styles.list}>
+        {(keys ?? []).map((key) => (
+          <li key={key}>{byKey.get(key) ? `${key} – ${byKey.get(key)!.title}` : key}</li>
+        ))}
+      </ul>
     </Dialog>
   );
 }

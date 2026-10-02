@@ -289,6 +289,45 @@ const icons = {
       <path d="M12 8v4.5l3 1.8" />
     </>
   ),
+  bold: <path d="M7 4.5h5.5a3.5 3.5 0 0 1 0 7H7zM7 11.5h6.5a3.5 3.5 0 0 1 0 7H7z" />,
+  italic: (
+    <>
+      <path d="M10 5h7" />
+      <path d="M7 19h7" />
+      <path d="M14.5 5l-5 14" />
+    </>
+  ),
+  heading: (
+    <>
+      <path d="M6 5v14" />
+      <path d="M18 5v14" />
+      <path d="M6 12h12" />
+    </>
+  ),
+  listOrdered: (
+    <>
+      <path d="M10 6.5h10.5" />
+      <path d="M10 12h10.5" />
+      <path d="M10 17.5h10.5" />
+      <path d="M4.5 5.5l1.5-1v5" />
+      <path d="M4 14.5c0-1 2.5-1 2.5.3 0 1-2.5 2.2-2.5 2.2h2.7" />
+    </>
+  ),
+  taskList: (
+    <>
+      <rect x="3.5" y="4.5" width="5" height="5" rx="1.2" />
+      <path d="M4.8 7l1.2 1.2 1.8-2.2" />
+      <path d="M12 7h8.5" />
+      <rect x="3.5" y="14.5" width="5" height="5" rx="1.2" />
+      <path d="M12 17h8.5" />
+    </>
+  ),
+  link: (
+    <>
+      <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" />
+      <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
+    </>
+  ),
   more: (
     <>
       <circle cx="5.5" cy="12" r="1.3" />

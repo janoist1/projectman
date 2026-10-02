@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { DEFAULT_PROVIDER_MODELS, modelForProvider, MemberHandle } from '@projectman/shared';
 import type { AgentProvider, AgentEffort, CheapSubagentModel, RoleId } from '@projectman/shared';
@@ -7,12 +7,14 @@ import { useHireMember, useRoles } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
-import { TextField } from '../../components/Field';
+import { SelectField, TextField } from '../../components/Field';
 import { Dialog } from '../../components/Dialog';
+import { Fold } from '../../components/Fold';
 import { useToast } from '../../components/toastContext';
 import { ErrorBanner } from '../../components/ErrorBanner';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
+import { focusFirstInvalid } from '../../lib/focus';
 import { aiRoleView, hireableRoles, isDeveloperRole } from '../../lib/roles';
 import { ErrorState, LoadingState } from '../../components/States';
 import { ScheduleFields } from './ScheduleFields';
@@ -45,6 +47,11 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
   const [cheapSubagent, setCheapSubagent] = useState<CheapSubagentModel | undefined>();
   const [model, setModel] = useState<string | null>(null);
   const [handleError, setHandleError] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const formId = useId();
+  const formRef = useRef<HTMLFormElement>(null);
+  // Counts refused saves: each one moves focus to the first field marked invalid.
+  const [refused, setRefused] = useState(0);
   const instructionsId = useId();
   const preview = useMemo(() => previewFor(role, specialty, config), [role, specialty, config]);
   const chosenModel =
@@ -57,15 +64,25 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
     if (options.length && !options.some((option) => option.id === role)) setRole(options[0]!.id);
   }, [roles.data, role]);
 
+  useEffect(() => {
+    if (refused) focusFirstInvalid(formRef.current);
+  }, [refused]);
+
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
     if (handle && !MemberHandle.safeParse(handle).success) {
       setHandleError(t('hire.handleInvalid'));
+      setScheduleError(false);
+      // The identifier lives in the closed fold: open it so the error is in sight.
+      setDetailsOpen(true);
+      setRefused((count) => count + 1);
       return;
     }
     if (!options.some((option) => option.id === role) || !chosenModel.trim()) return;
     if (schedule.enabled && (!schedule.cron.trim() || !schedule.prompt.trim())) {
+      setHandleError(null);
       setScheduleError(true);
+      setRefused((count) => count + 1);
       return;
     }
     setScheduleError(false);
@@ -95,156 +112,161 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
     );
   };
 
-  if (roles.isPending) return <LoadingState />;
-  if (roles.isError) return <ErrorState error={roles.error} onRetry={() => void roles.refetch()} />;
-
   return (
-    <form className={form.form} onSubmit={onSubmit} noValidate>
-      <p className={styles.intro}>{t('hire.intro')}</p>
-      <fieldset className={styles.roles}>
-        <legend className="visually-hidden">{t('hire.roles')}</legend>
-        {options.map((option) => {
-          const checked = option.id === role;
-          return (
-            <label key={option.id} className={styles.role} data-checked={checked || undefined}>
-              <input
-                type="radio"
-                name="role"
-                value={option.id}
-                checked={checked}
-                onChange={() => {
-                  setRole(option.id);
-                  setModel(null);
-                }}
-                className={styles.radio}
-              />
-              <Avatar
-                member={{ handle: option.id, displayName: option.name, kind: 'ai', role: option.id }}
-                size="md"
-              />
-              <span className={styles.roleText}>
-                <span className={styles.roleName}>{option.name}</span>
-                <span className={styles.roleTag}>{option.summary}</span>
-              </span>
-            </label>
-          );
-        })}
-      </fieldset>
-
-      <section className={styles.preview} aria-labelledby="hire-preview">
-        <h3 id="hire-preview" className={styles.previewTitle}>
-          {t('hire.preview')}
-        </h3>
-        <p>{selectedRole.name}</p>
-        <p>{selectedRole.summary}</p>
-        <p>
-          {t('roleCatalogue.notTheirJob')}: {selectedRole.notTheirJob}
-        </p>
-        {selectedRole.whenToAsk ? (
-          <p>
-            {t('roleCatalogue.whenToAsk')}: {selectedRole.whenToAsk}
-          </p>
-        ) : null}
-        <div className={styles.grid}>
-          <TextField
-            label={t('hire.displayName')}
-            placeholder={defaultName}
-            value={displayName}
-            onChange={(event) => setDisplayName(event.target.value)}
-          />
-          <TextField
-            label={t('hire.handle')}
-            hint={t('hire.handleHint')}
-            value={handle}
-            onChange={(event) => setHandle(event.target.value.toLowerCase())}
-            error={handleError}
-            optional
-            spellCheck={false}
-            autoCapitalize="off"
-          />
-          {isDeveloperRole(role) ? (
-            <TextField
-              label={t('hire.specialty')}
-              placeholder={t('hire.specialtyPlaceholder')}
-              value={specialty}
-              onChange={(event) => setSpecialty(event.target.value)}
-              optional
-            />
-          ) : null}
-          <ProviderFields
-            key={role}
-            provider={provider}
-            model={chosenModel}
-            effort={effort}
-            onProviderChange={(next, nextModel) => {
-              setProvider(next);
-              setModel(nextModel);
+    <Dialog
+      open
+      onClose={onDone}
+      title={t('hire.title')}
+      size="lg"
+      error={
+        scheduleError ? (
+          <ErrorBanner>{t('schedules.form.invalid')}</ErrorBanner>
+        ) : hire.isError ? (
+          <ErrorBanner>{errorMessage(hire.error)}</ErrorBanner>
+        ) : null
+      }
+      footer={
+        <>
+          <Button variant="secondary" size="md" onClick={onDone}>
+            {t('common.cancel')}
+          </Button>
+          <Button
+            type="submit"
+            form={formId}
+            variant="primary"
+            size="md"
+            loading={hire.isPending}
+            disabled={roles.isPending || roles.isError || options.length === 0}
+          >
+            {hire.isPending ? t('hire.submitting') : t('hire.submit')}
+          </Button>
+        </>
+      }
+    >
+      {roles.isPending ? (
+        <LoadingState />
+      ) : roles.isError ? (
+        <ErrorState error={roles.error} onRetry={() => void roles.refetch()} />
+      ) : (
+        <form id={formId} ref={formRef} className={form.form} onSubmit={onSubmit} noValidate>
+          <p className={styles.intro}>{t('hire.intro')}</p>
+          <SelectField
+            label={t('hire.roles')}
+            value={role}
+            onChange={(event) => {
+              setRole(event.target.value);
+              setModel(null);
             }}
-            onModelChange={setModel}
-            onEffortChange={setEffort}
-            cheapSubagent={cheapSubagent}
-            onCheapSubagentChange={setCheapSubagent}
-          />
-        </div>
-        <dl className={styles.facts}>
-          <div>
-            <dt>{t('hire.permissionMode')}</dt>
-            <dd>{t(`permissionModes.${preview.permissionMode}`)}</dd>
+          >
+            {options.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.name}
+              </option>
+            ))}
+          </SelectField>
+          <div className={styles.roleCard}>
+            <Avatar member={{ handle: role, displayName: selectedRole.name, kind: 'ai', role }} size="md" />
+            <span className={styles.roleText}>
+              <span className={styles.roleName}>{selectedRole.name}</span>
+              <span className={styles.roleSummary}>{selectedRole.summary}</span>
+            </span>
           </div>
-          <div>
-            <dt>{t('hire.approver')}</dt>
-            <dd>{t(`permissionControls.approvers.${preview.approver}`)}</dd>
+          <div className={styles.grid}>
+            <TextField
+              label={t('hire.displayName')}
+              placeholder={defaultName}
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+            />
+            {isDeveloperRole(role) ? (
+              <TextField
+                label={t('hire.specialty')}
+                placeholder={t('hire.specialtyPlaceholder')}
+                value={specialty}
+                onChange={(event) => setSpecialty(event.target.value)}
+                optional
+              />
+            ) : null}
+            <ProviderFields
+              key={role}
+              provider={provider}
+              model={chosenModel}
+              effort={effort}
+              onProviderChange={(next, nextModel) => {
+                setProvider(next);
+                setModel(nextModel);
+              }}
+              onModelChange={setModel}
+              onEffortChange={setEffort}
+              cheapSubagent={cheapSubagent}
+              onCheapSubagentChange={setCheapSubagent}
+            />
           </div>
-          <div>
-            <dt>{t('hire.capacity')}</dt>
-            <dd>{t('hire.capacityValue', { count: preview.capacity })}</dd>
-          </div>
-          <div>
-            <dt>{t('hire.subscription')}</dt>
-            <dd>{t('hire.subscriptionYours')}</dd>
-          </div>
-        </dl>
-        <div className={styles.instructions}>
-          <label htmlFor={instructionsId} className={styles.instructionsLabel}>
-            {t('hire.instructions')}
-          </label>
-          <textarea
-            id={instructionsId}
-            className={styles.instructionsText}
-            readOnly
-            rows={4}
-            value={preview.instructions || t('hire.instructionsDefault')}
-            aria-describedby={`${instructionsId}-note`}
-          />
-          <span id={`${instructionsId}-note`} className={styles.note}>
-            {t('hire.instructionsNote')}
-          </span>
-        </div>
-      </section>
 
-      <ScheduleFields value={schedule} onChange={setSchedule} />
-      {scheduleError ? <p role="alert">{t('schedules.form.invalid')}</p> : null}
-      {hire.isError ? <ErrorBanner>{errorMessage(hire.error)}</ErrorBanner> : null}
-      <div className={form.actions}>
-        <Button
-          type="submit"
-          variant="primary"
-          size="xl"
-          loading={hire.isPending}
-          disabled={options.length === 0}
-        >
-          {hire.isPending ? t('hire.submitting') : t('hire.submit')}
-        </Button>
-        <span className={styles.note}>{t('hire.note')}</span>
-      </div>
-    </form>
+          <ScheduleFields value={schedule} onChange={setSchedule} showErrors={scheduleError} />
+
+          <Fold summary={t('hire.details')} plain open={detailsOpen} onToggle={setDetailsOpen}>
+            <div className={styles.details}>
+              <p>
+                {t('roleCatalogue.notTheirJob')}: {selectedRole.notTheirJob}
+              </p>
+              {selectedRole.whenToAsk ? (
+                <p>
+                  {t('roleCatalogue.whenToAsk')}: {selectedRole.whenToAsk}
+                </p>
+              ) : null}
+              <dl className={styles.facts}>
+                <div>
+                  <dt>{t('hire.permissionMode')}</dt>
+                  <dd>{t(`permissionModes.${preview.permissionMode}`)}</dd>
+                </div>
+                <div>
+                  <dt>{t('hire.approver')}</dt>
+                  <dd>{t(`permissionControls.approvers.${preview.approver}`)}</dd>
+                </div>
+                <div>
+                  <dt>{t('hire.capacity')}</dt>
+                  <dd>{t('hire.capacityValue', { count: preview.capacity })}</dd>
+                </div>
+                <div>
+                  <dt>{t('hire.subscription')}</dt>
+                  <dd>{t('hire.subscriptionYours')}</dd>
+                </div>
+              </dl>
+              <TextField
+                label={t('hire.handle')}
+                hint={t('hire.handleHint')}
+                value={handle}
+                onChange={(event) => setHandle(event.target.value.toLowerCase())}
+                error={handleError}
+                optional
+                spellCheck={false}
+                autoCapitalize="off"
+              />
+              <div className={styles.instructions}>
+                <label htmlFor={instructionsId} className={styles.instructionsLabel}>
+                  {t('hire.instructions')}
+                </label>
+                <textarea
+                  id={instructionsId}
+                  className={styles.instructionsText}
+                  readOnly
+                  rows={4}
+                  value={preview.instructions || t('hire.instructionsDefault')}
+                  aria-describedby={`${instructionsId}-note`}
+                />
+                <span id={`${instructionsId}-note`} className={styles.note}>
+                  {t('hire.instructionsNote')}
+                </span>
+              </div>
+            </div>
+          </Fold>
+        </form>
+      )}
+    </Dialog>
   );
 }
 
 export function HireDialog({ open, onClose, config }: HireDialogProps) {
-  return (
-    <Dialog open={open} onClose={onClose} title={t('hire.title')} size="lg">
-      <HireForm config={config} onDone={onClose} />
-    </Dialog>
-  );
+  return open ? <HireForm config={config} onDone={onClose} /> : null;
 }

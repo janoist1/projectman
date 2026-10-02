@@ -6,45 +6,91 @@
 .editor > div {
   min-width: 0;
 }
-.switch,
+
+/* Formatting buttons on the left, the preview switch on the right; always one row. */
 .toolbar {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 6px;
 }
-.switch button,
-.toolbar button {
+.tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   border: 1px solid var(--c-line-strong);
   border-radius: var(--radius-md);
   background: var(--c-surface);
-  color: var(--c-ink);
-  padding: 8px 10px;
-  flex-shrink: 0;
+  color: var(--c-ink-2);
+  font-size: var(--text-sm);
+  font-weight: 700;
 }
-.switch button[aria-pressed='true'] {
+.tool:hover:not(:disabled) {
   background: var(--c-muted);
 }
-.toolbar {
-  overflow-x: auto;
-  max-width: 100%;
+.tool:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
+.tool[aria-pressed='true'] {
+  background: var(--c-muted);
+  color: var(--c-ink);
+}
+.previewToggle {
+  width: auto;
+  padding: 0 10px;
+}
+
 .input {
-  min-height: calc(12 * 1.5em + 24px);
+  min-height: calc(6 * 1.5em + 24px);
   line-height: 1.5;
   resize: vertical;
   overflow: hidden;
 }
 .preview {
-  min-height: 18em;
+  min-height: 9em;
   padding: 12px;
   border: 1px solid var(--c-line-strong);
   border-radius: var(--radius-md);
   overflow-wrap: anywhere;
 }
 @media (max-width: 767px) {
+  .tool {
+    width: 40px;
+    height: 40px;
+  }
+  /* The "More" button (the popover's trigger) looks like its neighbours: 40px, framed, on the surface. */
+  .tools > div > button[aria-expanded] {
+    width: 40px;
+    height: 40px;
+    min-width: 0;
+    padding: 0;
+    border: 1px solid var(--c-line-strong);
+    background: var(--c-surface);
+    color: var(--c-ink-2);
+  }
+  .previewToggle {
+    width: 40px;
+    padding: 0;
+  }
+  .previewText {
+    display: none;
+  }
   .input {
-    min-height: calc(8 * 1.5em + 24px);
+    min-height: calc(4 * 1.5em + 24px);
   }
   .preview {
-    min-height: 12em;
+    min-height: 7em;
   }
 }

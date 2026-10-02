@@ -97,6 +97,7 @@ export function MessagesPage() {
             initialTo={compose.to}
             initialTask={compose.task}
             onSent={() => setCompose(null)}
+            onCancel={() => setCompose(null)}
           />
         ) : null}
       </Dialog>

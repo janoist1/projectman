@@ -209,10 +209,12 @@ export function CreateProjectPage() {
             </span>
           ) : null}
         </fieldset>
-        {create.isError ? <ErrorBanner>{errorMessage(create.error)}</ErrorBanner> : null}
-        <Button type="submit" variant="primary" size="xl" fullWidth loading={create.isPending}>
-          {create.isPending ? t('projects.create.submitting') : t('projects.create.submit')}
-        </Button>
+        <div className={styles.bar}>
+          {create.isError ? <ErrorBanner>{errorMessage(create.error)}</ErrorBanner> : null}
+          <Button type="submit" variant="primary" size="md" loading={create.isPending}>
+            {create.isPending ? t('projects.create.submitting') : t('projects.create.submit')}
+          </Button>
+        </div>
       </form>
     </AuthLayout>
   );

@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { FormEvent } from 'react';
 import { holdersAllow, InviteAccess } from '@projectman/shared';
 import { useAddHumanMember, useRoles } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
-import { Dialog } from '../../components/Dialog';
+import { Dialog, DialogActions } from '../../components/Dialog';
 import { SelectField, TextField } from '../../components/Field';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { ErrorState, LoadingState } from '../../components/States';
@@ -42,12 +42,13 @@ function AddHumanBody({ onClose }: { onClose: () => void }) {
       <p className={styles.hint}>
         {t(mode === 'direct' ? 'addHuman.modeDirectHint' : 'addHuman.modeInviteHint')}
       </p>
-      {mode === 'direct' ? <AddHumanForm onDone={onClose} /> : <InviteForm />}
+      {mode === 'direct' ? <AddHumanForm onDone={onClose} /> : <InviteForm onClose={onClose} />}
     </div>
   );
 }
 
 function AddHumanForm({ onDone }: { onDone: () => void }) {
+  const formId = useId();
   const { key, isOwner } = useProject();
   const roles = useRoles(key);
   const add = useAddHumanMember(key);
@@ -74,7 +75,7 @@ function AddHumanForm({ onDone }: { onDone: () => void }) {
     );
   };
   return (
-    <form className={styles.form} onSubmit={submit}>
+    <form id={formId} className={styles.form} onSubmit={submit}>
       <TextField
         label={t('hire.displayName')}
         required
@@ -127,10 +128,21 @@ function AddHumanForm({ onDone }: { onDone: () => void }) {
             ))
         )}
       </fieldset>
-      {add.isError ? <ErrorState compact error={add.error} /> : null}
-      <Button variant="primary" type="submit" loading={add.isPending} disabled={!roles.data}>
-        {t('addHuman.submit')}
-      </Button>
+      <DialogActions error={add.isError ? <ErrorState compact error={add.error} /> : null}>
+        <Button variant="secondary" size="md" onClick={onDone}>
+          {t('common.cancel')}
+        </Button>
+        <Button
+          variant="primary"
+          size="md"
+          type="submit"
+          form={formId}
+          loading={add.isPending}
+          disabled={!roles.data}
+        >
+          {t('addHuman.submit')}
+        </Button>
+      </DialogActions>
     </form>
   );
 }

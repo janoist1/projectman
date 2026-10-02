@@ -35,6 +35,26 @@ export const SessionUsageAlert = z.object({
 });
 export type SessionUsageAlert = z.infer<typeof SessionUsageAlert>;
 
+/** Longest `WorkDoing.summary` (the card shows it on one line) and `WorkDoing.detail`. */
+export const WORK_DOING_SUMMARY_MAX = 80;
+export const WORK_DOING_DETAIL_MAX = 300;
+
+/**
+ * What a member says it is doing on its card now (PM-238), in a declarative sentence of the
+ * project's language, e.g. "The gateway's tests are being written". `summary` is one line for the
+ * card; `detail` is the longer text for the task page. Free text of the member: shown as text only.
+ */
+export const WorkDoing = z.object({
+  summary: z
+    .string()
+    .trim()
+    .min(1)
+    .max(WORK_DOING_SUMMARY_MAX)
+    .refine((s) => !/[\r\n]/.test(s), 'must be one line'),
+  detail: z.string().trim().min(1).max(WORK_DOING_DETAIL_MAX).optional(),
+});
+export type WorkDoing = z.infer<typeof WorkDoing>;
+
 export const Session = z.object({
   /** Our id ("ses_..."). */
   id: z.string(),
@@ -90,6 +110,11 @@ export const Session = z.object({
    * (`limitTokens`) and the limit then. Absent: it has not. Set once; the session keeps running.
    */
   usageAlert: SessionUsageAlert.optional(),
+  /**
+   * What the member says it does on the card now (PM-238). Only the latest is kept; it is cleared
+   * when the session's round ends (it goes idle) or the session ends. Absent: none given.
+   */
+  doing: WorkDoing.optional(),
 });
 export type Session = z.infer<typeof Session>;
 
@@ -104,6 +129,8 @@ export const TaskWork = z.object({
   activity: z.string().nullable(),
   /** When the session entered the state it is in. */
   since: z.string(),
+  /** What the member says it does on the card (`Session.doing`); absent when it gave no sentence. */
+  doing: WorkDoing.optional(),
 });
 export type TaskWork = z.infer<typeof TaskWork>;
 
@@ -118,6 +145,7 @@ export function taskWorkOf(session: Session): TaskWork | null {
     taskKey: session.workItem.taskKey,
     activity: session.activity,
     since: session.stateSince ?? session.lastActivityAt,
+    ...(session.doing ? { doing: session.doing } : {}),
   };
 }
 

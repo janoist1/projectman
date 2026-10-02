@@ -16,6 +16,8 @@ import type { ProjectConfig } from './schema';
 export interface UnmetCondition {
   stageId: string;
   condition: GateCondition;
+  /** Who may put the missing label on the task (a `has_label` condition on a label that is not a human approval). */
+  setters?: string[];
 }
 
 export interface ApprovalRequirement {
@@ -50,6 +52,7 @@ function stagesEntered(pipeline: Pick<Pipeline, 'stages'>, fromStageId: string, 
 }
 
 function conditionHolds(task: Pick<Task, 'labels'>, condition: GateCondition): boolean {
+  if (condition.when !== undefined && !task.labels.includes(condition.when)) return true;
   const has = task.labels.includes(condition.label);
   return condition.type === 'has_label' ? has : !has;
 }
@@ -69,14 +72,16 @@ export function stageApprovers(config: Pick<ProjectConfig, 'team' | 'pipeline'>,
  * Whether the gate of a stage may hold this condition on this label. The approval of a release is
  * the release approval duty's alone (decision 19), so a release gate may not require a label that
  * other humans may set (`releaseGateAccepts`). Forbidding a label is no approval, and the gates of
- * other stages take any label.
+ * other stages take any label. A release gate holds for every task, so it takes no `when` either:
+ * a condition that binds only some tasks would weaken the approval.
  */
 export function gateAcceptsCondition(
   stage: Pick<Stage, 'kind'>,
-  condition: Pick<GateCondition, 'type'>,
+  condition: Pick<GateCondition, 'type' | 'when'>,
   label: Pick<LabelDefinition, 'setBy'>,
 ): boolean {
-  return stage.kind !== 'release' || condition.type !== 'has_label' || releaseGateAccepts(label);
+  if (stage.kind !== 'release') return true;
+  return condition.when === undefined && (condition.type !== 'has_label' || releaseGateAccepts(label));
 }
 
 /** At least one linked PR is merged and none is still open (closed ones are ignored). */
@@ -106,7 +111,11 @@ function evaluateGates(
           approvers: labelSetters(config, label, task),
         });
       } else {
-        evaluation.unmet.push({ stageId: stage.id, condition });
+        evaluation.unmet.push({
+          stageId: stage.id,
+          condition,
+          ...(label ? { setters: labelSetters(config, label, task) } : {}),
+        });
       }
     }
   }

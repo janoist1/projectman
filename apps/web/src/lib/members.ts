@@ -103,6 +103,30 @@ export function memberStatusView(
   return { status: member.status, label: t(`memberStatus.${member.status}`) };
 }
 
+/**
+ * Whose subscriptions run the AI members: `mixed` when more than one does (or some has none set),
+ * else `only` is the one sponsor handle (null when no AI member has one). While mixed, `usual` is
+ * the sponsor most of them share (null on a tie or when it is "none set"); the roster names the
+ * others. One rule for the page subtitle and the roster.
+ */
+export function aiSponsors(members: readonly MemberView[]): {
+  mixed: boolean;
+  only: string | null;
+  usual: string | null;
+} {
+  const counts = new Map<string, number>();
+  for (const member of members)
+    if (member.kind === 'ai') counts.set(member.sponsor || '', (counts.get(member.sponsor || '') ?? 0) + 1);
+  const top = Math.max(0, ...counts.values());
+  const leaders = [...counts].filter(([, count]) => count === top).map(([sponsor]) => sponsor);
+  const mixed = counts.size > 1;
+  return {
+    mixed,
+    only: counts.size === 1 ? [...counts.keys()][0] || null : null,
+    usual: mixed && leaders.length === 1 ? leaders[0] || null : null,
+  };
+}
+
 /** Standing roles: AI members that are not developers (code review, QA, devops, ...). */
 export function isStandingRole(member: MemberView): boolean {
   return member.kind === 'ai' && !isDeveloperRole(member.role) && !member.temp && member.status !== 'retired';

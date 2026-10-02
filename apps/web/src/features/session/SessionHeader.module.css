@@ -81,13 +81,82 @@
   color: var(--c-ok-text);
 }
 
+.member {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--text-sm);
+  font-weight: 800;
+  color: var(--c-ink-3);
+}
+
+.memberName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Phone: back arrow, title with the member under it, live status, "⋯" in one row. */
+.phoneRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+}
+
+.back {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  margin-left: -8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-lg);
+  color: var(--c-ink-2);
+}
+
+.back:hover {
+  background: var(--c-muted);
+}
+
+.phoneTitle {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* The member gives way first (it shortens), the live status never does. */
+.phoneSub {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.phoneSub .live {
+  flex-shrink: 0;
+}
+
+.phoneHeading {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
 @media (max-width: 767px) {
   .header {
-    padding: 4px 14px 10px;
-    gap: 8px;
-  }
-  .title {
-    font-size: 21px;
+    /* The app's own header is hidden on this page, so the status bar's inset is the page's to keep. */
+    padding: calc(6px + env(safe-area-inset-top)) 14px 8px;
+    gap: 6px;
   }
   .chips {
     flex-wrap: nowrap;

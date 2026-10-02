@@ -13,6 +13,22 @@
   min-width: 0;
 }
 
+.lead {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.lead > :first-child {
+  flex-shrink: 0;
+}
+
+.lead .titles {
+  flex: 1 1 0;
+}
+
 .title {
   font-family: var(--font-display);
   font-size: var(--page-title-size, var(--text-display));

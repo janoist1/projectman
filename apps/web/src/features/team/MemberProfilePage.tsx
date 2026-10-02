@@ -2,8 +2,8 @@ import { InviteDialog } from './InviteDialog';
 import { useState } from 'react';
 import { providerModelLabel } from './providerModels';
 import { Link, useNavigate, useParams } from 'react-router';
-import { cheapSubagentOf, DEFAULT_AGENT_PROVIDER, roleBundle } from '@projectman/shared';
-import type { TeamMessage } from '@projectman/shared';
+import { cheapSubagentOf, DEFAULT_AGENT_PROVIDER, mergeTokenUsage, roleBundle } from '@projectman/shared';
+import type { SchedulesView, TeamMessage } from '@projectman/shared';
 import {
   useBoard,
   useConfig,
@@ -24,7 +24,8 @@ import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
 import { ErrorBanner } from '../../components/ErrorBanner';
-import { MoreMenu } from '../../components/MoreMenu';
+import { Chip } from '../../components/Chip';
+import { PageHeader } from '../../components/PageHeader';
 import { ProviderBadge } from '../../components/ProviderBadge';
 import { Timeline } from '../../components/Timeline';
 import { TokenUsageList } from '../../components/TokenUsage';
@@ -37,11 +38,13 @@ import { memberStatusView } from '../../lib/members';
 import { isLiveSession } from '../../lib/sessions';
 import { aiRoleView, humanRoleName } from '../../lib/roles';
 import { useDocumentTitle } from '../../lib/hooks';
+import { describeCron } from '../../lib/schedules';
 import { MessageComposer } from '../messages/MessageComposer';
 import { MessageList } from '../messages/MessageList';
 import { ChatView } from '../session/ChatView';
 import { EditMemberDialog } from './EditMemberDialog';
 import { LeaveButton } from './LeaveButton';
+import { MemberMenu } from './MemberMenu';
 import { RetireDialog } from './RetireDialog';
 import { PermissionLevelControl } from './PermissionLevelControl';
 import { MemberScheduleControl } from './ScheduledRuns';
@@ -63,22 +66,21 @@ function SessionPeek({ sessionId }: { sessionId: string }) {
   );
 }
 
-function MemberSchedule({ handle }: { handle: string }) {
-  const { key } = useProject();
-  const schedules = useSchedules(key);
-  const schedule = schedules.data?.members.find((m) => m.member === handle);
-  if (schedules.error) return <ErrorState compact error={schedules.error} />;
+/** The member's schedule; a member without one has no panel (the page says so in its quiet line). */
+function MemberSchedule({
+  handle,
+  schedule,
+}: {
+  handle: string;
+  schedule: SchedulesView['members'][number];
+}) {
   return (
     <section className={styles.panel}>
-      <h2>{t('schedules.form.title')}</h2>
-      {schedule ? (
-        <>
-          <code>{schedule.cron}</code>
-          <p>{schedule.promptSummary}</p>
-        </>
-      ) : (
-        <p>{t('schedules.noNext')}</p>
-      )}
+      <h2 className={styles.panelTitle}>{t('schedules.form.title')}</h2>
+      <p className={styles.when} title={schedule.cron}>
+        {describeCron(schedule.cron)}
+      </p>
+      <p>{schedule.promptSummary}</p>
       <MemberScheduleControl handle={handle} />
     </section>
   );
@@ -108,6 +110,7 @@ export function MemberProfilePage() {
   const internal = access !== 'client';
   const canSend = access !== undefined && ['owner', 'admin', 'developer', 'client'].includes(access);
   const memory = useMemberMemories(key, handle, internal && profile.data?.member.kind === 'ai');
+  const schedules = useSchedules(key, internal && profile.data?.member.kind === 'ai');
   useDocumentTitle(profile.data?.member.displayName ?? t('profile.title'), board.data?.project.name);
   if (profile.error) return <ErrorState error={profile.error} onRetry={() => void profile.refetch()} />;
   if (!profile.data) return <LoadingState />;
@@ -118,6 +121,22 @@ export function MemberProfilePage() {
   const ownConfig = config.data?.config.team.members.find((entry) => entry.handle === handle);
   const status = memberStatusView(member, data.inbox, myHandle);
   const live = data.sessions.filter(isLiveSession);
+  const pastSessions = data.sessions.filter((s) => !live.includes(s)).slice(0, 10);
+  const schedule = schedules.data?.members.find((entry) => entry.member === handle);
+  const usageEmpty =
+    data.usage?.lastDay != null &&
+    data.usage.lastWeek != null &&
+    mergeTokenUsage(data.usage.lastDay).length === 0 &&
+    mergeTokenUsage(data.usage.lastWeek).length === 0;
+  // What there is nothing of is one quiet line, not a box each.
+  const nothingYet = [
+    data.tasks.length === 0 ? t('profile.noTasks') : null,
+    !ai && data.inbox.length === 0 ? t('profile.noWaiting') : null,
+    ai && internal && schedules.data && !schedule ? t('profile.noSchedule') : null,
+    ai && internal && live.length === 0 && pastSessions.length === 0 ? t('profile.noSessions') : null,
+    ai && internal && usageEmpty ? t('tokenUsage.none') : null,
+    ai && internal && memory.data?.memory === '' ? t('profile.memoryEmpty') : null,
+  ].filter((text): text is string => text !== null);
   const titles = new Map((board.data?.tasks ?? []).map((task) => [task.key, task.title]));
   const thread = (messages.data?.messages ?? []).filter((m) =>
     handle === myHandle
@@ -128,27 +147,18 @@ export function MemberProfilePage() {
   return (
     <div className={styles.page}>
       <Link to={`/p/${key}/team`}>{t('team.title')}</Link>
-      <header className={styles.header}>
-        <Avatar member={member} size="lg" status={status.status} />
-        <div>
-          <h1>{member.displayName}</h1>
-          <code>{member.handle}</code>
-          <p>
-            {status.label}
+      <PageHeader
+        className={styles.header}
+        leading={<Avatar member={member} size="lg" status={status.status} />}
+        title={member.displayName}
+        subtitle={
+          <>
+            <code>{member.handle}</code> · <span>{status.label}</span>
             {member.activity ? ` · ${member.activity}` : ''}
-          </p>
-          {member.onLeave ? <p role="status">{t('leave.status')}</p> : null}
-        </div>
+          </>
+        }
+      >
         <div className={styles.actions}>
-          {can.manageTeam ? (
-            <Button disabled={!roles.data || (ai && !config.data)} onClick={() => setEditing(true)}>
-              {t('memberEdit.edit')}
-            </Button>
-          ) : null}
-          {ai && can.manageTeam ? <LeaveButton member={member} /> : null}
-          {!ai && can.manageTeam && member.status === 'no_account' ? (
-            <Button onClick={() => setInviting(true)}>{t('invites.create')}</Button>
-          ) : null}
           {ai && can.workInSessions ? (
             <Button
               variant="primary"
@@ -165,38 +175,31 @@ export function MemberProfilePage() {
               {t('profile.conversation')}
             </Button>
           ) : null}
-          {can.manageTeam && (ai || member.handle !== myHandle) ? (
-            <MoreMenu>
-              {(close) => (
-                <>
-                  {ai ? (
-                    <Button
-                      variant="danger"
-                      onClick={() => {
-                        setRetiring(true);
-                        close();
-                      }}
-                    >
-                      {t('team.retire')}
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="danger"
-                      onClick={() => {
-                        remove.reset();
-                        setRemoving(true);
-                        close();
-                      }}
-                    >
-                      {t('profile.remove')}
-                    </Button>
-                  )}
-                </>
-              )}
-            </MoreMenu>
+          {can.manageTeam ? (
+            <MemberMenu
+              member={member}
+              editDisabled={!roles.data || (ai && !config.data)}
+              onEdit={() => setEditing(true)}
+              onInvite={() => setInviting(true)}
+              onRetire={() => setRetiring(true)}
+              onRemove={
+                member.handle === myHandle
+                  ? undefined
+                  : () => {
+                      remove.reset();
+                      setRemoving(true);
+                    }
+              }
+            />
           ) : null}
         </div>
-      </header>
+      </PageHeader>
+      {member.onLeave ? (
+        <div className={styles.leaveNote}>
+          <p role="status">{t('leave.status')}</p>
+          {can.manageTeam ? <LeaveButton member={member} /> : null}
+        </div>
+      ) : null}
       {start.error ? <ErrorBanner>{errorMessage(start.error)}</ErrorBanner> : null}
       <section className={styles.panel}>
         {!ai ? (
@@ -252,12 +255,18 @@ export function MemberProfilePage() {
             </div>
           );
         })}
-        <h2>{t('profile.duties')}</h2>
-        <ul>
-          {data.duties.map((duty) => (
-            <li key={duty}>{t(`dutyNames.${duty}`)}</li>
-          ))}
-        </ul>
+        {data.duties.length ? (
+          <>
+            <h2 className={styles.panelTitle}>{t('profile.duties')}</h2>
+            <ul className={styles.chips}>
+              {data.duties.map((duty) => (
+                <li key={duty}>
+                  <Chip>{t(`dutyNames.${duty}`)}</Chip>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : null}
         {data.email ? (
           <p>
             {t('profile.email')}: <a href={`mailto:${data.email}`}>{data.email}</a>
@@ -266,7 +275,7 @@ export function MemberProfilePage() {
       </section>
       {ai && ownConfig?.kind === 'ai' && config.data ? (
         <section className={styles.panel} aria-label={t('profile.instructions')}>
-          <h2>{t('profile.instructions')}</h2>
+          <h2 className={styles.panelTitle}>{t('profile.instructions')}</h2>
           <h3>
             {t('profile.roleInstructions', {
               role: aiRoleView(member.role, member.specialty, roles.data?.roles).name,
@@ -283,10 +292,10 @@ export function MemberProfilePage() {
         </section>
       ) : null}
       <div className={styles.grid}>
-        <section className={styles.panel}>
-          <h2>{t('profile.tasks')}</h2>
-          {data.tasks.length ? (
-            <ul>
+        {data.tasks.length ? (
+          <section className={styles.panel}>
+            <h2 className={styles.panelTitle}>{t('profile.tasks')}</h2>
+            <ul className={styles.list}>
               {data.tasks.map((task) => (
                 <li key={task.key}>
                   <Link to={`/p/${key}/tasks/${task.key}`}>
@@ -295,85 +304,87 @@ export function MemberProfilePage() {
                 </li>
               ))}
             </ul>
-          ) : (
-            <p>{t('profile.noTasks')}</p>
-          )}
-        </section>
-        {!ai ? (
-          <section className={styles.panel}>
-            <h2>{t('profile.waiting')}</h2>
-            {data.inbox.length ? (
-              <ul>
-                {data.inbox.map((item) => (
-                  <li key={item.id}>
-                    <Link to={`/p/${key}/inbox`}>{item.title}</Link>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p>{t('profile.noWaiting')}</p>
-            )}
           </section>
         ) : null}
-        {ai && internal ? <MemberSchedule handle={handle} /> : null}
-      </div>
-      {ai && internal ? (
-        <>
+        {!ai && data.inbox.length ? (
           <section className={styles.panel}>
-            <h2>{t('profile.live')}</h2>
-            {live.map((session) => (
-              <div key={session.id}>
-                <Link to={`/p/${key}/sessions/${session.id}`}>
-                  {t('profile.openSession')} ·{' '}
-                  {session.workItem.type === 'task' ? session.workItem.taskKey : t('profile.general')}
-                </Link>
-                <SessionPeek sessionId={session.id} />
-              </div>
-            ))}
-            {!live.length ? <p>{t('profile.noSessions')}</p> : null}
-            <h2>{t('profile.sessions')}</h2>
-            <ul>
-              {data.sessions
-                .filter((s) => !live.includes(s))
-                .slice(0, 10)
-                .map((session) => (
-                  <li key={session.id}>
-                    <Link to={`/p/${key}/sessions/${session.id}`}>
-                      {session.workItem.type === 'task' ? session.workItem.taskKey : t('profile.general')} ·{' '}
-                      {formatStamp(session.startedAt)}
-                    </Link>
-                  </li>
-                ))}
+            <h2 className={styles.panelTitle}>{t('profile.waiting')}</h2>
+            <ul className={styles.list}>
+              {data.inbox.map((item) => (
+                <li key={item.id}>
+                  <Link to={`/p/${key}/inbox`}>{item.title}</Link>
+                </li>
+              ))}
             </ul>
           </section>
-          <section className={styles.panel}>
-            <h2>{t('tokenUsage.title')}</h2>
-            <h3 className={styles.usageWindow}>{t('tokenUsage.lastDay')}</h3>
-            <TokenUsageList rows={data.usage?.lastDay ?? null} />
-            <h3 className={styles.usageWindow}>{t('tokenUsage.lastWeek')}</h3>
-            <TokenUsageList rows={data.usage?.lastWeek ?? null} />
-          </section>
-          <section className={styles.panel}>
-            <h2>{t('profile.memory')}</h2>
-            {memory.error ? (
-              <ErrorState compact error={memory.error} />
-            ) : memory.isPending ? (
-              <LoadingState compact />
-            ) : (
-              <pre className={styles.memory}>{memory.data.memory || t('profile.memoryEmpty')}</pre>
-            )}
-          </section>
+        ) : null}
+        {ai && internal && schedule ? <MemberSchedule handle={handle} schedule={schedule} /> : null}
+        {ai && internal && schedules.error ? <ErrorState compact error={schedules.error} /> : null}
+      </div>
+      {nothingYet.length ? <p className={styles.quiet}>{nothingYet.join(' ')}</p> : null}
+      {ai && internal ? (
+        <>
+          {live.length || pastSessions.length ? (
+            <section className={styles.panel}>
+              {live.length ? <h2 className={styles.panelTitle}>{t('profile.live')}</h2> : null}
+              {live.map((session) => (
+                <div key={session.id}>
+                  <Link to={`/p/${key}/sessions/${session.id}`}>
+                    {t('profile.openSession')} ·{' '}
+                    {session.workItem.type === 'task' ? session.workItem.taskKey : t('profile.general')}
+                  </Link>
+                  <SessionPeek sessionId={session.id} />
+                </div>
+              ))}
+              {pastSessions.length ? (
+                <>
+                  <h2 className={styles.panelTitle}>{t('profile.sessions')}</h2>
+                  <ul className={styles.list}>
+                    {pastSessions.map((session) => (
+                      <li key={session.id}>
+                        <Link to={`/p/${key}/sessions/${session.id}`}>
+                          {session.workItem.type === 'task' ? session.workItem.taskKey : t('profile.general')}{' '}
+                          · {formatStamp(session.startedAt)}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+            </section>
+          ) : null}
+          {usageEmpty ? null : (
+            <section className={styles.panel}>
+              <h2 className={styles.panelTitle}>{t('tokenUsage.title')}</h2>
+              <h3 className={styles.usageWindow}>{t('tokenUsage.lastDay')}</h3>
+              <TokenUsageList rows={data.usage?.lastDay ?? null} />
+              <h3 className={styles.usageWindow}>{t('tokenUsage.lastWeek')}</h3>
+              <TokenUsageList rows={data.usage?.lastWeek ?? null} />
+            </section>
+          )}
+          {memory.error || memory.isPending || memory.data.memory ? (
+            <section className={styles.panel}>
+              <h2 className={styles.panelTitle}>{t('profile.memory')}</h2>
+              {memory.error ? (
+                <ErrorState compact error={memory.error} />
+              ) : memory.isPending ? (
+                <LoadingState compact />
+              ) : (
+                <pre className={styles.memory}>{memory.data.memory}</pre>
+              )}
+            </section>
+          ) : null}
         </>
       ) : null}
       <section className={styles.panel}>
-        <h2>{t('profile.activity')}</h2>
+        <h2 className={styles.panelTitle}>{t('profile.activity')}</h2>
         <Timeline
           events={data.timeline}
           ctx={{ ...indexes, labels, myHandle, openInboxIds: new Set(data.inbox.map((i) => i.id)) }}
         />
       </section>
       <section className={styles.panel}>
-        <h2>{t('profile.thread')}</h2>
+        <h2 className={styles.panelTitle}>{t('profile.thread')}</h2>
         {messages.error ? (
           <ErrorState compact error={messages.error} />
         ) : messages.isPending ? (

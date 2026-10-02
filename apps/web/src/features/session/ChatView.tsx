@@ -3,6 +3,7 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import type { ChatItem, InboxItem, ResolveInboxRequest } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
+import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
 import { Markdown } from '../../components/Markdown';
 import { formatStamp, formatTime } from '../../i18n/format';
@@ -48,6 +49,8 @@ export interface ChatViewProps {
   awaitingPermission?: boolean;
   /** Messages sent from the composer that the transcript has not shown yet. */
   pending?: readonly PendingMessage[];
+  /** Sends a failed pending message again; without it a failed message has no retry button. */
+  onRetry?: (id: string) => void;
 }
 
 const LONG_TEXT = 700;
@@ -292,12 +295,20 @@ export function ChatView(props: ChatViewProps) {
       {entries.map((entry) => entry.node)}
       {pending.map((message) => (
         <div key={message.id} className={clsx(styles.user, styles.pending)}>
-          <span className={clsx(styles.meta, message.failed && styles.failed)}>
+          <span
+            className={clsx(styles.meta, message.failed && styles.failed)}
+            role={message.failed ? 'status' : undefined}
+          >
             {message.failed ? t('session.composer.failed') : t('session.composer.pending')}
           </span>
           <div className={styles.userBubble}>
             <Markdown text={message.text} />
           </div>
+          {message.failed && props.onRetry ? (
+            <Button variant="secondary" size="sm" onClick={() => props.onRetry?.(message.id)}>
+              {t('session.composer.retry')}
+            </Button>
+          ) : null}
         </div>
       ))}
       {permissions.map((item) => (

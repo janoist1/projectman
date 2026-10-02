@@ -5,16 +5,15 @@ import { useBoard, useConfig, useInbox, useMembers, useRoles, useTeamMessages } 
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
-import { MoreMenu } from '../../components/MoreMenu';
 import { PageHeader } from '../../components/PageHeader';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
-import { memberStatusView } from '../../lib/members';
+import { aiSponsors, memberStatusView, nameOf } from '../../lib/members';
 import { MessageList } from '../messages/MessageList';
 import { ClosedCardsComparison } from './ClosedCardsComparison';
-import { LeaveButton } from './LeaveButton';
+import { MemberMenu } from './MemberMenu';
 import { RecentScheduleRuns } from './ScheduledRuns';
 import { EditMemberDialog } from './EditMemberDialog';
 import { RosterCards, RosterTable } from './Roster';
@@ -31,7 +30,7 @@ type MemberFilter = 'all' | 'humans' | 'ai';
 /** The one team dialog open at a time. */
 type TeamDialog =
   | { kind: 'addHuman' }
-  | { kind: 'invite'; member?: MemberView }
+  | { kind: 'invite'; member: MemberView }
   | { kind: 'hire' }
   | { kind: 'edit'; member: MemberView }
   | { kind: 'retire'; member: MemberView };
@@ -93,44 +92,29 @@ export function TeamPage() {
   const working = ai.filter((member) => member.status === 'working').length;
   // Members whose approver is the AI while no AI member can decide for them any more.
   const lostDecider = ai.filter((member) => member.approver === 'ai' && member.aiApproverBlocker);
-  const sponsors = new Set(ai.map((member) => member.sponsor));
-  const allMine = sponsors.size === 1 && myHandle !== null && sponsors.has(myHandle);
+  const sponsors = aiSponsors(members);
+  const sponsorName = (handle: string) => nameOf(handle, indexes.members, myHandle);
+  const subscriptionNote = sponsors.mixed
+    ? sponsors.usual === null
+      ? t('team.subscriptionMixed')
+      : sponsors.usual === myHandle
+        ? t('team.subscriptionMajorityYours')
+        : t('team.subscriptionMajority', { name: sponsorName(sponsors.usual) })
+    : sponsors.only === null
+      ? null
+      : sponsors.only === myHandle
+        ? t('team.subscriptionYours')
+        : t('team.subscriptionOther', { name: sponsorName(sponsors.only) });
 
   const memberActions = (member: MemberView) =>
     can.manageTeam ? (
-      <>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={!roles.data || (member.kind === 'ai' && !config.data)}
-          onClick={() => setDialog({ kind: 'edit', member })}
-          aria-label={t('memberEdit.title', { name: member.displayName })}
-        >
-          {t('memberEdit.edit')}
-        </Button>
-        {member.kind === 'human' && member.status === 'no_account' ? (
-          <Button variant="ghost" size="sm" onClick={() => setDialog({ kind: 'invite', member })}>
-            {t('invites.create')}
-          </Button>
-        ) : null}
-        {member.kind === 'ai' ? <LeaveButton member={member} size="sm" /> : null}
-        {member.kind === 'ai' ? (
-          <MoreMenu label={t('team.moreFor', { name: member.displayName })}>
-            {(close) => (
-              <Button
-                variant="danger"
-                onClick={() => {
-                  setDialog({ kind: 'retire', member });
-                  close();
-                }}
-                aria-label={t('team.retireMember', { name: member.displayName, handle: member.handle })}
-              >
-                {t('team.retire')}
-              </Button>
-            )}
-          </MoreMenu>
-        ) : null}
-      </>
+      <MemberMenu
+        member={member}
+        editDisabled={!roles.data || (member.kind === 'ai' && !config.data)}
+        onEdit={() => setDialog({ kind: 'edit', member })}
+        onInvite={() => setDialog({ kind: 'invite', member })}
+        onRetire={() => setDialog({ kind: 'retire', member })}
+      />
     ) : null;
   const editing = dialog?.kind === 'edit' ? dialog.member : null;
   const retiring = dialog?.kind === 'retire' ? dialog.member : null;
@@ -145,9 +129,7 @@ export function TeamPage() {
         subtitle={
           <>
             {t('team.subtitle', { humans: humans.length, ai: ai.length, tasks: activeTaskKeys.size })}
-            {ai.length > 0
-              ? ` · ${allMine ? t('team.subscriptionYours') : t('team.subscriptionMixed')}`
-              : null}
+            {subscriptionNote ? ` · ${subscriptionNote}` : null}
           </>
         }
       >
@@ -173,14 +155,18 @@ export function TeamPage() {
           </div>
         ) : null}
         {can.manageTeam ? (
-          <Button onClick={() => setDialog({ kind: 'addHuman' })}>{t('addHuman.title')}</Button>
-        ) : null}
-        {can.manageTeam ? (
-          <Button onClick={() => setDialog({ kind: 'invite' })}>{t('invites.title')}</Button>
-        ) : null}
-        {can.manageTeam ? (
-          <Button variant="primary" icon="plus" onClick={() => setDialog({ kind: 'hire' })}>
+          <Button
+            className={styles.hire}
+            variant="primary"
+            icon="plus"
+            onClick={() => setDialog({ kind: 'hire' })}
+          >
             {t('team.hire')}
+          </Button>
+        ) : null}
+        {can.manageTeam ? (
+          <Button variant="secondary" onClick={() => setDialog({ kind: 'addHuman' })}>
+            {t('addHuman.title')}
           </Button>
         ) : null}
       </PageHeader>

@@ -36,9 +36,3 @@ export function liveState(
     label: needsYou ? t('sessionState.needsYou') : t(`sessionState.${session.state}`),
   };
 }
-
-/** The last two folders of a path: "…/worktrees/AC-21". */
-export function shortPath(path: string): string {
-  const parts = path.split('/').filter(Boolean);
-  return parts.length > 2 ? `…/${parts.slice(-2).join('/')}` : path;
-}

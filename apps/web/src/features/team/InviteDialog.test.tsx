@@ -102,8 +102,18 @@ describe('InviteDialog', () => {
     fireEvent.click(
       await screen.findByRole('button', { name: t('invites.revokeFor', { email: 'colleague@acme.test' }) }),
     );
-    await waitFor(() => expect(screen.getByText(t('invites.empty'))).toBeTruthy());
+    // With none left the page has no box for them.
+    await waitFor(() => expect(screen.queryByRole('heading', { name: t('invites.pending') })).toBeNull());
     expect(project.backend.invitations[0]?.revokedAt).not.toBeNull();
+  });
+
+  it('shows no pending invitations box while there are none', async () => {
+    const project = mockProject();
+    project.render(<PendingInvites />);
+    await waitFor(() =>
+      expect(project.requests.some((request) => request.path.endsWith('/invites'))).toBe(true),
+    );
+    expect(screen.queryByRole('heading', { name: t('invites.pending') })).toBeNull();
   });
 
   it('hides invite management from non-admins', async () => {
@@ -113,7 +123,7 @@ describe('InviteDialog', () => {
       can: { createTasks: true, manageTeam: false, workInSessions: true },
     });
     await screen.findByRole('heading', { name: t('team.title') });
-    expect(screen.queryByRole('button', { name: t('invites.title') })).toBeNull();
+    expect(screen.queryByRole('button', { name: t('addHuman.title') })).toBeNull();
     expect(screen.queryByRole('heading', { name: t('invites.pending') })).toBeNull();
     expect(project.requests.some((request) => request.path.endsWith('/invites'))).toBe(false);
   });

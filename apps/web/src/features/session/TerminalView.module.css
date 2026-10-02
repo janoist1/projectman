@@ -54,4 +54,8 @@
     margin: 8px;
     padding: 10px;
   }
+  /* The explanation does not take room from the terminal on a phone. */
+  .hint {
+    display: none;
+  }
 }

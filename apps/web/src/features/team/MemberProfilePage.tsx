@@ -271,28 +271,29 @@ export function MemberProfilePage() {
             {t('profile.email')}: <a href={`mailto:${data.email}`}>{data.email}</a>
           </p>
         ) : null}
-      </section>
-      {ai && ownConfig?.kind === 'ai' && config.data ? (
-        <section className={styles.panel} aria-label={t('profile.instructions')}>
+        {ai && ownConfig?.kind === 'ai' && config.data ? (
           <Fold summary={t('profile.instructions')}>
-            <h3>
-              {t('profile.roleInstructions', {
-                role: aiRoleView(member.role, member.specialty, roles.data?.roles).name,
-              })}
-            </h3>
-            <pre className={styles.memory}>
-              {roleBundle(config.data.config, member.role).instructions.trim() || t('profile.noInstructions')}
-            </pre>
-            <p>
-              <Link to={`/p/${key}/settings`}>{t('profile.roleInstructionsEdit')}</Link>
-            </p>
-            <h3>{t('profile.ownInstructions')}</h3>
-            <pre className={styles.memory}>
-              {ownConfig.instructions.trim() || t('profile.noInstructions')}
-            </pre>
+            <div className={styles.instructions}>
+              <h3>
+                {t('profile.roleInstructions', {
+                  role: aiRoleView(member.role, member.specialty, roles.data?.roles).name,
+                })}
+              </h3>
+              <pre className={styles.memory}>
+                {roleBundle(config.data.config, member.role).instructions.trim() ||
+                  t('profile.noInstructions')}
+              </pre>
+              <p>
+                <Link to={`/p/${key}/settings`}>{t('profile.roleInstructionsEdit')}</Link>
+              </p>
+              <h3>{t('profile.ownInstructions')}</h3>
+              <pre className={styles.memory}>
+                {ownConfig.instructions.trim() || t('profile.noInstructions')}
+              </pre>
+            </div>
           </Fold>
-        </section>
-      ) : null}
+        ) : null}
+      </section>
       <div className={styles.grid}>
         {data.tasks.length ? (
           <section className={styles.panel}>

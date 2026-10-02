@@ -199,11 +199,11 @@ describe('member profiles', () => {
     if (member.kind !== 'ai') throw new Error('Expected fictional AI member');
     member.instructions = 'Work in your own worktree.';
     p.render(page(), '/team/fe-1');
-    const section = await screen.findByLabelText(t('profile.instructions'));
-    const fold = section.querySelector('details')!;
+    const summary = await screen.findByText(t('profile.instructions'), { selector: 'summary' });
+    const fold = summary.closest('details')!;
     expect(fold.open).toBe(false);
-    expect(within(fold).getByText(t('profile.instructions'), { selector: 'summary' })).toBeTruthy();
-    const panel = within(section);
+    expect(fold.closest('section')?.hasAttribute('aria-label')).toBe(false);
+    const panel = within(fold);
     expect(panel.getByText('Work in your own worktree.')).toBeTruthy();
     expect(panel.getByRole('link', { name: t('profile.roleInstructionsEdit') })).toBeTruthy();
     await chooseFromMenu(

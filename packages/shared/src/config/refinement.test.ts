@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Task } from '../domain/task';
 import { validateProjectConfig } from './invariants';
-import { isRefining, projectRefines, refinementTurn } from './refinement';
+import { isRefining, projectRefines, refinementTurn, turnStalled } from './refinement';
 import { ProjectConfig } from './schema';
 
 type Labels = Array<Record<string, unknown>>;
@@ -177,6 +177,30 @@ describe('refinementTurn', () => {
       aiSetters: [],
       humanSetters: ['owner'],
     });
+  });
+});
+
+describe('turnStalled', () => {
+  const question = (
+    source: string,
+    state: 'open' | 'resolved' = 'open',
+    kind: 'question' | 'alert' = 'question',
+  ) => ({
+    kind,
+    state,
+    source,
+  });
+
+  it('is a stall when no question of an AI member is open', () => {
+    expect(turnStalled([], config())).toBe(true);
+    expect(
+      turnStalled([question('analyst', 'resolved'), question('analyst', 'open', 'alert')], config()),
+    ).toBe(true);
+    expect(turnStalled([question('owner')], config())).toBe(true);
+  });
+
+  it('is no stall while an AI member has an open question', () => {
+    expect(turnStalled([question('analyst')], config())).toBe(false);
   });
 });
 

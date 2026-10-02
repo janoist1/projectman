@@ -17,8 +17,15 @@ describe('Refinement line', () => {
   afterEach(() => h?.cleanup());
 
   const setup =
-    (opts: { refine?: boolean; plan?: boolean } = {}) =>
+    (opts: { refine?: boolean; plan?: boolean; waiting?: boolean } = {}) =>
     (config: ProjectConfig) => {
+      if (opts.waiting)
+        config.pipeline.labels.push({
+          id: 'waiting-answer',
+          name: 'Waiting for an answer',
+          setBy: 'anyone',
+          blocks: true,
+        });
       config.team.limits.maxConcurrentAi = 10;
       for (const stage of config.pipeline.stages) if (stage.kind !== 'release') delete stage.gate;
       config.pipeline.stages = config.pipeline.stages.filter((stage) => stage.kind !== 'release');
@@ -231,6 +238,71 @@ describe('Refinement line', () => {
     expect(alerts('stalled')).toHaveLength(1);
     expect(h.runner.started).toHaveLength(1);
     expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBe('ana');
+  });
+
+  describe('an open question of the member (PM-264)', () => {
+    const ask = (member = 'ana') =>
+      h.domain.teamTools.askHuman(
+        {
+          sessionId: sessionsOf().find((s) => s.member === member)!.id,
+          projectKey: 'AR',
+          member,
+          taskKey: 'AR-1',
+        },
+        { question: 'Which font?', options: ['Yes', 'No'] },
+      );
+    const answer = async (inboxItemId: string) => {
+      await h.domain.inbox.resolve(
+        'AR',
+        inboxItemId,
+        { optionId: 'option_1' },
+        { handle: 'owner', access: 'owner' },
+      );
+      await flush();
+    };
+
+    it('puts the waiting label on the card in a queue stage, tells no stall, and goes on with the same step after the answer', async () => {
+      await prepare({ waiting: true });
+      await label({ add: ['refine'] });
+      await vi.waitFor(() => expect(members()).toEqual(['ana']));
+      expect(task().stageId).toBe('backlog');
+
+      const { inboxItemId } = await ask();
+      expect(task().labels).toContain('waiting-answer');
+
+      endTurn('ana');
+      await flush();
+      await h.domain.refinement.changed(task());
+      expect(alerts('stalled')).toEqual([]);
+
+      await answer(inboxItemId);
+      expect(task().labels).not.toContain('waiting-answer');
+      // The same step goes on with the same member: no new turn, no start, no stall.
+      expect(turn()?.data).toEqual({ label: 'scope-ok', member: 'ana', reason: 'started' });
+      expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBe('ana');
+      expect(h.runner.started).toHaveLength(1);
+      expect(alerts('stalled')).toEqual([]);
+
+      // A turn that ends without the label after the answer is a stall again.
+      endTurn('ana');
+      await vi.waitFor(() => expect(alerts('stalled')).toHaveLength(1));
+    });
+
+    it('tells no stall for an open question even when the project has no waiting label', async () => {
+      await prepare();
+      await label({ add: ['refine'] });
+      await vi.waitFor(() => expect(members()).toEqual(['ana']));
+
+      const { inboxItemId } = await ask();
+      expect(task().labels).not.toContain('waiting-answer');
+      endTurn('ana');
+      await flush();
+      expect(alerts('stalled')).toEqual([]);
+
+      await answer(inboxItemId);
+      endTurn('ana');
+      await vi.waitFor(() => expect(alerts('stalled')).toHaveLength(1));
+    });
   });
 
   it('starts the line when a card is dragged into a refinement stage, without starting the stage owners', async () => {

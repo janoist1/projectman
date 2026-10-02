@@ -27,7 +27,8 @@
   align-self: stretch;
 }
 
-.clamped {
+/* More specific than the caller's own `display: block`, whichever stylesheet loads last. */
+.command > .clamped {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 4;

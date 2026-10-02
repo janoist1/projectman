@@ -2,8 +2,16 @@ import { existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { BoardView, routes, ServerEvent, TaskDetail, UploadAttachmentResponse } from '@projectman/shared';
+import {
+  BoardView,
+  routes,
+  ServerEvent,
+  TaskCoverResponse,
+  TaskDetail,
+  UploadAttachmentResponse,
+} from '@projectman/shared';
 import type { Task } from '@projectman/shared';
+import type { LightMyRequestResponse } from 'fastify';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { InjectOptions } from 'fastify';
 import type { AppHarness } from './helpers/app-harness';
@@ -268,6 +276,154 @@ describe('attachment thumbnails and the card cover', () => {
         (await call({ method: 'GET', url: routes.task('AR', 'AR-1'), cookie: owner })).json(),
       ).task.updatedAt;
       expect(after).toBe(before);
+    });
+  });
+
+  describe('choosing the cover (PM-224)', () => {
+    const attach = (content: Buffer | string, fileName: string, taskKey = 'AR-1') =>
+      upload(content, { fileName, taskKey });
+    const choose = (
+      body: unknown,
+      opts: { cookie?: string; taskKey?: string } = {},
+    ): Promise<LightMyRequestResponse> =>
+      inject(h.app, 'PUT', routes.taskCover('AR', opts.taskKey ?? 'AR-1'), opts.cookie ?? owner, body);
+    const pushedTasks = () => {
+      const pushed: Task[] = [];
+      h.app.projectman.domain.bus.subscribe((event) => {
+        if (event.type === 'task_upserted') pushed.push(event.task);
+      });
+      return pushed;
+    };
+    const covers = () => h.app.projectman.repos.taskCovers;
+
+    it('pins an image and hides the cover, on the board and in the pushed task', async () => {
+      const first = await attach(await picture('png'), 'one.png');
+      const second = await attach(await picture('jpeg'), 'two.jpg');
+      const pushed = pushedTasks();
+
+      const pinned = await choose({ mode: 'pinned', attachmentId: second.id });
+      expect(pinned.statusCode, pinned.body).toBe(200);
+      expect(TaskCoverResponse.parse(pinned.json()).task).toMatchObject({
+        key: 'AR-1',
+        coverAttachmentId: second.id,
+      });
+      expect(await coverOf()).toBe(second.id);
+      expect(pushed.at(-1)).toMatchObject({ key: 'AR-1', coverAttachmentId: second.id });
+      const board = BoardView.parse(
+        (await call({ method: 'GET', url: routes.board('AR'), cookie: owner })).json(),
+      );
+      expect(board.tasks.find((task) => task.key === 'AR-1')?.coverAttachmentId).toBe(second.id);
+
+      const hidden = await choose({ mode: 'hidden' });
+      expect(hidden.statusCode, hidden.body).toBe(200);
+      expect(TaskCoverResponse.parse(hidden.json()).task.coverAttachmentId).toBeUndefined();
+      expect(await coverOf()).toBeUndefined();
+      expect(pushed.at(-1)?.key).toBe('AR-1');
+      expect(pushed.at(-1)?.coverAttachmentId).toBeUndefined();
+
+      // A person choosing an image brings the cover back.
+      expect((await choose({ mode: 'pinned', attachmentId: first.id })).statusCode).toBe(200);
+      expect(await coverOf()).toBe(first.id);
+    });
+
+    it('leaves the task’s update time and its timeline alone', async () => {
+      const image = await attach(await picture('png'), 'one.png');
+      const read = async () =>
+        TaskDetail.parse(
+          (await call({ method: 'GET', url: routes.task('AR', 'AR-1'), cookie: owner })).json(),
+        );
+      const before = await read();
+      expect((await choose({ mode: 'hidden' })).statusCode).toBe(200);
+      expect((await choose({ mode: 'pinned', attachmentId: image.id })).statusCode).toBe(200);
+      const after = await read();
+      expect(after.task.updatedAt).toBe(before.task.updatedAt);
+      expect(after.timeline).toEqual(before.timeline);
+    });
+
+    it('stays hidden after a new upload, until an image is chosen', async () => {
+      await attach(await picture('png'), 'one.png');
+      expect((await choose({ mode: 'hidden' })).statusCode).toBe(200);
+      const pushed = pushedTasks();
+      const later = await attach(await picture('jpeg'), 'two.jpg');
+      expect(await coverOf()).toBeUndefined();
+      expect(pushed).toEqual([]);
+      expect((await choose({ mode: 'pinned', attachmentId: later.id })).statusCode).toBe(200);
+      expect(await coverOf()).toBe(later.id);
+    });
+
+    it('stays hidden when the only image is deleted and a new one comes', async () => {
+      const only = await attach(await picture('png'), 'one.png');
+      expect((await choose({ mode: 'hidden' })).statusCode).toBe(200);
+      expect((await remove(only.id)).statusCode).toBe(200);
+      await attach(await picture('jpeg'), 'two.jpg');
+      expect(await coverOf()).toBeUndefined();
+    });
+
+    it('falls back to the first image, and drops the row, when the pinned image is deleted', async () => {
+      const first = await attach(await picture('png'), 'one.png');
+      const second = await attach(await picture('jpeg'), 'two.jpg');
+      expect((await choose({ mode: 'pinned', attachmentId: second.id })).statusCode).toBe(200);
+      expect(covers().get('AR-1')?.choice).toEqual({ mode: 'pinned', attachmentId: second.id });
+      const pushed = pushedTasks();
+      expect((await remove(second.id)).statusCode).toBe(200);
+      expect(await coverOf()).toBe(first.id);
+      expect(pushed.at(-1)).toMatchObject({ key: 'AR-1', coverAttachmentId: first.id });
+      expect(covers().get('AR-1')).toBeNull();
+    });
+
+    it('keeps a hidden cover when another file is deleted', async () => {
+      const first = await attach(await picture('png'), 'one.png');
+      await attach(await picture('jpeg'), 'two.jpg');
+      expect((await choose({ mode: 'hidden' })).statusCode).toBe(200);
+      expect((await remove(first.id)).statusCode).toBe(200);
+      expect(covers().get('AR-1')?.choice).toEqual({ mode: 'hidden' });
+      expect(await coverOf()).toBeUndefined();
+    });
+
+    it('refuses a viewer, and a client on an internal card, and lets a client choose on a shared one', async () => {
+      const internal = await attach(await picture('png'), 'one.png');
+      const shared = await attach(await picture('png'), 'two.png', 'AR-2');
+      const body = (id: string) => ({ mode: 'pinned', attachmentId: id });
+      expect((await choose(body(internal.id), { cookie: cookies.viewer })).statusCode).toBe(403);
+      expect((await choose({ mode: 'hidden' }, { cookie: cookies.viewer })).statusCode).toBe(403);
+      expect((await choose(body(internal.id), { cookie: cookies.client })).statusCode).toBe(404);
+      expect(
+        (await choose(body(internal.id), { cookie: cookies.stranger })).statusCode,
+      ).toBeGreaterThanOrEqual(403);
+      expect((await choose({ mode: 'hidden' }, { taskKey: 'AR-2', cookie: cookies.client })).statusCode).toBe(
+        200,
+      );
+      expect(await coverOf('AR-2')).toBeUndefined();
+      expect((await choose(body(shared.id), { taskKey: 'AR-2', cookie: cookies.client })).statusCode).toBe(
+        200,
+      );
+      expect(await coverOf('AR-2', cookies.client)).toBe(shared.id);
+      expect(covers().get('AR-1')).toBeNull();
+    });
+
+    it('needs a login, and answers 404 for an unknown card', async () => {
+      expect(
+        (await inject(h.app, 'PUT', routes.taskCover('AR', 'AR-1'), null, { mode: 'hidden' })).statusCode,
+      ).toBe(401);
+      expect((await choose({ mode: 'hidden' }, { taskKey: 'AR-99' })).statusCode).toBe(404);
+    });
+
+    it('answers 422 for a file that is not an image, another card’s image or an unknown file', async () => {
+      const pdf = await attach(pdfBytes(), 'plan.pdf');
+      const text = await attach('plain text', 'notes.txt');
+      const other = await attach(await picture('png'), 'other.png', 'AR-2');
+      for (const id of [pdf.id, text.id, other.id, 'att_0000000000']) {
+        const response = await choose({ mode: 'pinned', attachmentId: id });
+        expect(response.statusCode, id).toBe(422);
+        expect(response.json()).toMatchObject({ error: { code: 'cover_not_an_image' } });
+      }
+      expect(covers().get('AR-1')).toBeNull();
+    });
+
+    it('answers 400 for a body that is no choice', async () => {
+      for (const body of [{}, { mode: 'pinned' }, { mode: 'pinned', attachmentId: 'x' }, { mode: 'auto' }]) {
+        expect((await choose(body)).statusCode).toBe(400);
+      }
     });
   });
 

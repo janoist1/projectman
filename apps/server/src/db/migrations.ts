@@ -511,5 +511,23 @@ export const migrations: Migration[] = [
       ALTER TABLE tasks ADD COLUMN theme_key TEXT REFERENCES tasks(key);
       CREATE INDEX tasks_theme ON tasks(project_key, theme_key);`,
   },
+  {
+    // 23 is another card's, 24 and 25 are taken, so this is 26.
+    version: 26,
+    name: 'task covers',
+    // PM-224: a person's choice of a card's cover, one row per task: `pinned` (that image) or `hidden`
+    // (no cover). A card without a row keeps the automatic cover (its first image), so existing cards
+    // are untouched. The row of a deleted pinned file is removed with the file.
+    sql: `CREATE TABLE task_covers (
+        project_key   TEXT NOT NULL REFERENCES projects(key),
+        task_key      TEXT NOT NULL PRIMARY KEY REFERENCES tasks(key),
+        mode          TEXT NOT NULL CHECK (mode IN ('pinned', 'hidden')),
+        attachment_id TEXT,
+        set_at        TEXT NOT NULL,
+        set_by_kind   TEXT NOT NULL,
+        set_by_handle TEXT,
+        CHECK ((mode = 'pinned') = (attachment_id IS NOT NULL))
+      );`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

@@ -50,6 +50,9 @@ export const routes = {
   attachmentThumbnail: (key: string, taskKey: string, id: string) =>
     `/api/projects/${key}/tasks/${taskKey}/attachments/${id}/thumbnail`,
 
+  /** PUT chooses the card's cover (`TaskCoverRequest`): a given image, or none; the answer is `{ task }`. */
+  taskCover: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/cover`,
+
   invitations: (key: string) => `/api/projects/${key}/invites`,
   invitation: (key: string, id: string) => `/api/projects/${key}/invites/${id}`,
   invite: (token: string) => `/api/invites/${token}`,

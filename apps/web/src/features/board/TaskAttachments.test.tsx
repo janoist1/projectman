@@ -625,6 +625,136 @@ describe('attachments: who may do what', () => {
   });
 });
 
+describe('attachments: cover choice', () => {
+  const png = { name: 'one.png', size: 100, type: 'image/png' };
+  const jpg = { name: 'two.jpg', size: 100, type: 'image/jpeg' };
+  const covers = (project: Project) =>
+    project.requests.filter((request) => request.method === 'PUT' && request.path.endsWith('/cover'));
+  const makeButton = (fileName: string) =>
+    screen.queryByRole('button', { name: t('attachments.makeCoverLabel', { fileName }) });
+  const hideButton = (fileName: string) =>
+    screen.queryByRole('button', { name: t('attachments.hideCoverLabel', { fileName }) });
+
+  it('marks the current cover with a chip and a hide button, and the other images with a choose button', async () => {
+    const project = mockProject();
+    project.backend.addAttachment('AC-20', png);
+    project.backend.addAttachment('AC-20', jpg);
+    project.backend.addAttachment('AC-20', { name: 'plan.pdf', size: 10, type: 'application/pdf' });
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    const first = (await screen.findByText('one.png')).closest('li')!;
+    expect(within(first).getByText(t('attachments.cover'))).toBeTruthy();
+    expect(hideButton('one.png')).toBeTruthy();
+    expect(makeButton('one.png')).toBeNull();
+    expect(makeButton('two.jpg')).toBeTruthy();
+    expect(hideButton('two.jpg')).toBeNull();
+    // A PDF can never be a cover.
+    expect(makeButton('plan.pdf')).toBeNull();
+    expect(screen.queryByText(t('attachments.coverHidden'))).toBeNull();
+  });
+
+  it('sends the choice, takes the answered card into the cache and moves the chip', async () => {
+    const project = mockProject();
+    project.backend.addAttachment('AC-20', png);
+    const second = project.backend.addAttachment('AC-20', jpg);
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    await screen.findByText('two.jpg');
+    fireEvent.click(makeButton('two.jpg')!);
+    await waitFor(() => expect(hideButton('two.jpg')).toBeTruthy());
+    expect(covers(project)).toHaveLength(1);
+    expect(covers(project)[0]!.path).toBe(routes.taskCover('AC', 'AC-20'));
+    expect(covers(project)[0]!.body).toEqual({ mode: 'pinned', attachmentId: second.id });
+    expect(project.backend.findTask('AC-20')!.coverAttachmentId).toBe(second.id);
+    const first = screen.getByText('one.png').closest('li')!;
+    expect(within(first).queryByText(t('attachments.cover'))).toBeNull();
+    expect(makeButton('one.png')).toBeTruthy();
+  });
+
+  it('hides the cover and says so, and keeps it hidden after another upload', async () => {
+    const project = mockProject();
+    project.backend.addAttachment('AC-20', png);
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    await screen.findByText('one.png');
+    fireEvent.click(hideButton('one.png')!);
+    await screen.findByText(t('attachments.coverHidden'));
+    expect(covers(project)[0]!.body).toEqual({ mode: 'hidden' });
+    expect(project.backend.findTask('AC-20')!.coverAttachmentId).toBeUndefined();
+    expect(screen.queryByText(t('attachments.cover'))).toBeNull();
+    expect(makeButton('one.png')).toBeTruthy();
+
+    choose(makeFile('later.png', 'image/png'));
+    await screen.findByText('later.png');
+    expect(project.backend.findTask('AC-20')!.coverAttachmentId).toBeUndefined();
+    expect(screen.getByText(t('attachments.coverHidden'))).toBeTruthy();
+    expect(screen.queryByText(t('attachments.cover'))).toBeNull();
+
+    fireEvent.click(makeButton('later.png')!);
+    await waitFor(() => expect(screen.queryByText(t('attachments.coverHidden'))).toBeNull());
+    expect(hideButton('later.png')).toBeTruthy();
+  });
+
+  it('falls back to the first image when the chosen cover is deleted', async () => {
+    const project = mockProject();
+    const first = project.backend.addAttachment('AC-20', png);
+    const second = project.backend.addAttachment('AC-20', jpg);
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    await screen.findByText('two.jpg');
+    fireEvent.click(makeButton('two.jpg')!);
+    await waitFor(() => expect(project.backend.findTask('AC-20')!.coverAttachmentId).toBe(second.id));
+    fireEvent.click(
+      screen.getByRole('button', { name: t('attachments.deleteLabel', { fileName: 'two.jpg' }) }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: t('attachments.deleteYes') }));
+    await waitFor(() => expect(screen.queryByText('two.jpg')).toBeNull());
+    await waitFor(() => expect(hideButton('one.png')).toBeTruthy());
+    expect(project.backend.findTask('AC-20')!.coverAttachmentId).toBe(first.id);
+  });
+
+  it('shows the answer of a refused choice in plain language', async () => {
+    const project = mockProject();
+    project.backend.addAttachment('AC-20', png);
+    project.backend.addAttachment('AC-20', jpg);
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    await screen.findByText('two.jpg');
+    project.backend.attachments = project.backend.attachments.filter((entry) => entry.fileName !== 'two.jpg');
+    fireEvent.click(makeButton('two.jpg')!);
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain(t('errors.codes.cover_not_an_image'));
+  });
+
+  it('offers a viewer no cover buttons and no hint, and the server refuses too', async () => {
+    const project = mockProject();
+    project.backend.addAttachment('AC-20', png);
+    const second = project.backend.addAttachment('AC-20', jpg);
+    project.backend.covers.set('AC-20', { mode: 'hidden' });
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20', actAs(project, 'bence', 'viewer'));
+    await screen.findByText('one.png');
+    expect(makeButton('one.png')).toBeNull();
+    expect(makeButton('two.jpg')).toBeNull();
+    expect(hideButton('one.png')).toBeNull();
+    expect(screen.queryByText(t('attachments.coverHidden'))).toBeNull();
+    expect(
+      project.backend.handle('PUT', routes.taskCover('AC', 'AC-20'), {
+        mode: 'pinned',
+        attachmentId: second.id,
+      }).status,
+    ).toBe(403);
+  });
+
+  it('lets a client choose only on a shared card', async () => {
+    const project = mockProject();
+    project.backend.addAttachment('AC-19', png);
+    project.backend.addAttachment('AC-19', jpg);
+    project.render(drawerFor(project), '/p/AC/tasks/AC-19', actAs(project, 'bence', 'client'));
+    await screen.findByText('two.jpg');
+    expect(makeButton('two.jpg')).toBeTruthy();
+    expect(hideButton('one.png')).toBeTruthy();
+    // An internal card is not even visible to a client.
+    expect(project.backend.handle('PUT', routes.taskCover('AC', 'AC-20'), { mode: 'hidden' }).status).toBe(
+      404,
+    );
+  });
+});
+
 describe('attachments: live and lost access', () => {
   it('reads the list and the timeline again when the files change elsewhere', async () => {
     const project = mockProject();

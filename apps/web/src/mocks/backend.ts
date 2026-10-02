@@ -47,6 +47,7 @@ import {
   commentMentions,
   configSchemaIssues,
   coverAttachmentId,
+  TaskCoverRequest,
   evaluateMove,
   expiredLabels,
   gateRequestOf,
@@ -109,6 +110,7 @@ import type {
   ApprovalRequirement,
   Attachment,
   AttachmentViewer,
+  TaskCoverChoice,
   BoardView,
   ChatItem,
   ClientCommand,
@@ -260,6 +262,8 @@ export class MockBackend {
   timeline: TimelineEvent[] = clone(fixtures.timeline);
   scheduleRuns: ScheduleRun[] = [];
   attachments: Attachment[] = [];
+  /** A person's cover choice per task (PM-224); a task without one has the automatic cover. */
+  covers = new Map<string, TaskCoverChoice>();
   providerLoggedIn = { claude: true, codex: true };
   providerPlanUsage: Partial<Record<AgentProvider, PlanUsage>> = {};
   sessions: Session[] = clone(fixtures.sessions);
@@ -424,7 +428,10 @@ export class MockBackend {
   private syncCover(taskKey: string): void {
     const task = this.findTask(taskKey);
     if (!task) return;
-    const cover = coverAttachmentId(this.attachments.filter((entry) => entry.taskKey === taskKey));
+    const cover = coverAttachmentId(
+      this.attachments.filter((entry) => entry.taskKey === taskKey),
+      this.covers.get(taskKey),
+    );
     if ((task.coverAttachmentId ?? null) === cover) return;
     if (cover) task.coverAttachmentId = cover;
     else delete task.coverAttachmentId;
@@ -436,6 +443,8 @@ export class MockBackend {
     const attachment = this.attachments.find((entry) => entry.id === id);
     if (!attachment) return;
     this.attachments = this.attachments.filter((entry) => entry.id !== id);
+    const choice = this.covers.get(attachment.taskKey);
+    if (choice?.mode === 'pinned' && choice.attachmentId === id) this.covers.delete(attachment.taskKey);
     this.addTimeline(attachment.taskKey, who, 'attachment_deleted', {
       attachmentId: id,
       fileName: attachment.fileName,
@@ -925,6 +934,9 @@ export class MockBackend {
     }
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/attachments(?:\/(att_[a-z0-9]+))?$/.exec(rest))) {
       return this.handleAttachments(method, m[1]!, m[2], body);
+    }
+    if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/cover$/.exec(rest)) && method === 'PUT') {
+      return this.handleCover(m[1]!, body);
     }
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/start$/.exec(rest)) && method === 'POST') {
       return this.startTask(m[1]!, body);
@@ -1726,6 +1738,28 @@ export class MockBackend {
       return ok({ id, deleted: true });
     }
     return error(404, 'not_found', `No route for ${method}`);
+  }
+
+  /** The cover choice, with the server's answers: the upload access, and a cover must be a ready image of the card. */
+  private handleCover(taskKey: string, body: unknown): MockResponse {
+    const viewer = this.taskViewer();
+    const task = this.findTask(taskKey);
+    if (!task || !canReadAttachments(viewer, task)) return error(404, 'not_found', 'Unknown task');
+    if (!canUploadAttachment(viewer, task))
+      return error(403, 'insufficient_access', 'Viewers cannot attach files');
+    const choice = parseBody(TaskCoverRequest, body);
+    if (!choice) return error(400, 'invalid_request', 'Invalid cover choice');
+    if (choice.mode === 'pinned') {
+      const image = this.attachments.find(
+        (entry) => entry.id === choice.attachmentId && entry.taskKey === taskKey,
+      );
+      if (image?.preview !== 'image') {
+        return error(422, 'cover_not_an_image', 'The cover must be an image of this card');
+      }
+    }
+    this.covers.set(taskKey, choice);
+    this.syncCover(taskKey);
+    return ok({ task: clone(task) });
   }
 
   private taskDetail(task: Task) {

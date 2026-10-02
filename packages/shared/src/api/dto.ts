@@ -398,6 +398,10 @@ export type CancelTaskRequest = z.infer<typeof CancelTaskRequest>;
 export const CloseThemeRequest = z.object({});
 export type CloseThemeRequest = z.infer<typeof CloseThemeRequest>;
 
+/** The answer of `PUT routes.taskCover`: the card as boards show it (PM-224). */
+export const TaskCoverResponse = z.object({ task: Task });
+export type TaskCoverResponse = z.infer<typeof TaskCoverResponse>;
+
 export const ReopenTaskRequest = z.object({});
 export type ReopenTaskRequest = z.infer<typeof ReopenTaskRequest>;
 

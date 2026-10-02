@@ -150,6 +150,12 @@ Documentation map:
   (first frame, EXIF orientation applied, no metadata; a pixel and a time limit, one run per
   attachment and two at a time; an image it cannot decode answers 404 until the server restarts)
   and keeps as `<id>.thumb` next to the file. The same access check as the content.
+  **Chosen cover** (PM-224): whoever may upload (`canUploadAttachment`) can pin one of the card's
+  images or hide the cover with `PUT routes.taskCover` (`TaskCoverChoice`, answer `{ task }`; 422
+  `cover_not_an_image` for a file that is not a ready image of the card). The choice is one row in
+  `task_covers`; `coverAttachmentId(attachments, choice)` applies it: hidden → none, even after a
+  new upload, until an image is pinned; a pinned image that is gone falls back to the first image,
+  and deleting the pinned file removes the row with it. No timeline event, no team tool.
 - **Work item and session** — every AI member works in a **fresh session per work item**:
   member × task, member × meeting or member × general chat (decision 5). A task session lives
   through the whole pipeline; later messages about the task resume it. Persistent identity

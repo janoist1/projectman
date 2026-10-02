@@ -44,7 +44,7 @@ describe('cheap subagent', () => {
       expect.objectContaining({
         name: 'reader-haiku',
         model: 'haiku',
-        tools: ['Read', 'Grep', 'Glob', 'Bash'],
+        tools: ['Read', 'Bash'],
       }),
     ]);
 

@@ -91,6 +91,40 @@ owner's logged-in browser). Every session, new or resumed, therefore also gets
 For Codex members the owner's `~/.codex` configuration is not read or checked here (see the
 PM-208 note on what a Codex session reaches).
 
+**Built-in tools and skills (PM-221).** A tool's description and the skill list are read in every
+step (a fresh member session started at 44.4k tokens after PM-208), and several built-in tools act
+with the owner's account or reach their other sessions. Every session, new or resumed, therefore
+gets `--tools "<list>"` (`claudeBuiltinTools` in `providers/claude/policy.ts`, one comma-separated
+value because the flag is variadic) and, in `--settings`, `disableBundledSkills: true` plus
+`skillOverrides` (`"off"`) for the owner's claude.ai account skills (`anthropic-skills:<name>`;
+`--disable-slash-commands` is not used: PM-213 types `/compact`). The MCP tools (team) are not
+part of `--tools`. What stays and why:
+
+| Tool            | Why it stays                                                        | Roles |
+| --------------- | ------------------------------------------------------------------- | ----- |
+| Read, Bash      | the work itself                                                     | all   |
+| Edit, Write     | changing files; a reading role has them too (below)                 | all   |
+| TaskStop        | ends a background command the session started                       | all   |
+| WebFetch/Search | documentation (the network rules and denied hosts still limit them) | all   |
+| Agent           | the cheap subagent (PM-179)                                         | all   |
+| ToolSearch      | the team tools are deferred; without it they cannot be reached      | all   |
+| AskUserQuestion | PM-199 forwards its call to the inbox's waiting list                | all   |
+
+One list for every role and for the managed VM profile, the same settings too. A reading role
+(`read_only`, `review_copy`) keeps Edit and Write on purpose (the architect's decision on PM-221):
+it had them before, its prompts name them (a file in `$TMPDIR`; without them it would need a
+here-document, which waits for a human), and what it must not change is kept by the deny rules and
+the sandbox (PM-167, PM-188), not by this list. Left out (among others): Artifact,
+ArtifactComments, ArtifactData (publish with the owner's account), Workflow, ScheduleWakeup,
+ReportFindings, SendFeedback, SendMessage and ListAgents (reach the machine's other Claude
+sessions, around the team channel), Cron*, RemoteTrigger, PushNotification, EnterWorktree,
+ExitWorktree, EnterPlanMode, ExitPlanMode, DesignSync, NotebookEdit, Skill, Grep and Glob. Claude
+Code 2.1.284 has no separate Grep and Glob tool: the search goes through Bash, so the cheap
+subagent has Read and Bash only and its prompt says so. A new Claude Code version's new tool stays
+out until it is added to the list. Role tool rules (`tools.files`, `tools.shell`) still decide
+what is allowed without asking; `--tools` only decides what exists. A test keeps the generated
+prompts from naming a tool that is left out.
+
 A session in a task's own worktree (a developer's) runs its shell commands in Claude Code's
 sandbox, the first step of PM-87: the session spec carries `sandbox` (`sessionSandbox` in
 `domain/session-policy.ts`, computed per session) and the runner turns it into the `sandbox`

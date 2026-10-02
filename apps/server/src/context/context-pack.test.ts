@@ -460,6 +460,43 @@ describe('token economy (PM-181)', () => {
   });
 });
 
+describe('built-in tools the prompts name (PM-221)', () => {
+  // Left out of the session's `--tools` list: a prompt that sends the member to one would strand it.
+  const leftOut = [
+    'Artifact',
+    'ArtifactComments',
+    'ArtifactData',
+    'Workflow',
+    'ScheduleWakeup',
+    'ReportFindings',
+    'SendFeedback',
+    'SendMessage',
+    'ListAgents',
+    'CronCreate',
+    'CronDelete',
+    'CronList',
+    'RemoteTrigger',
+    'PushNotification',
+    'EnterWorktree',
+    'ExitWorktree',
+    'EnterPlanMode',
+    'ExitPlanMode',
+    'DesignSync',
+    'NotebookEdit',
+    'Skill',
+    'Grep',
+    'Glob',
+  ];
+
+  it.each(AI_BUILT_IN_ROLE_IDS)('names no tool the %s does not have', (role) => {
+    const project = buildProject();
+    addMember(project, `member-${role}`, role);
+    const pack = builder.build(input({ project, handle: `member-${role}` }));
+    const text = `${pack.appendSystemPrompt}\n${pack.initialMessage ?? ''}`;
+    for (const tool of leftOut) expect(text).not.toMatch(new RegExp(`\\b${tool}\\b`));
+  });
+});
+
 describe('cheap subagent (PM-179)', () => {
   const withCheapSubagent = (cheapSubagent: AiMemberConfig['cheapSubagent'], provider?: 'codex') => {
     const project = buildProject();
@@ -481,7 +518,7 @@ describe('cheap subagent (PM-179)', () => {
         name: 'reader-haiku',
         description: expect.stringContaining('Haiku'),
         prompt: expect.stringContaining('short, precise result'),
-        tools: ['Read', 'Grep', 'Glob', 'Bash'],
+        tools: ['Read', 'Bash'],
         model: 'haiku',
       },
     ]);

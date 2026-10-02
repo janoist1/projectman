@@ -11,6 +11,15 @@
   flex-shrink: 0;
 }
 
+/* Its own row inside the header, so the gap between the state filter and the button holds whatever the header does. */
+.phoneBar {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
 /* The state filter takes the title's place: one row of equal buttons, the filter sheet's button after it. */
 @media (max-width: 767px) {
   .phase {

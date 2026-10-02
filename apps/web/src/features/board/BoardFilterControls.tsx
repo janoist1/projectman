@@ -66,22 +66,24 @@ export function PhoneFilters({ view }: { view: FilterView }) {
   const set = view.chips.length;
   return (
     <>
-      <PhaseFilter view={view} size="sm" />
-      <button
-        type="button"
-        className={styles.sheetButton}
-        data-active={set > 0 ? 'true' : undefined}
-        aria-label={set > 0 ? t('board.filterButtonActive', { count: set }) : t('board.filterButton')}
-        aria-haspopup="dialog"
-        onClick={() => setOpen(true)}
-      >
-        <Icon name="filter" size={18} strokeWidth={2.2} />
-        {set > 0 ? (
-          <span className={styles.badge} aria-hidden="true">
-            {set}
-          </span>
-        ) : null}
-      </button>
+      <div className={styles.phoneBar}>
+        <PhaseFilter view={view} size="sm" />
+        <button
+          type="button"
+          className={styles.sheetButton}
+          data-active={set > 0 ? 'true' : undefined}
+          aria-label={set > 0 ? t('board.filterButtonActive', { count: set }) : t('board.filterButton')}
+          aria-haspopup="dialog"
+          onClick={() => setOpen(true)}
+        >
+          <Icon name="filter" size={18} strokeWidth={2.2} />
+          {set > 0 ? (
+            <span className={styles.badge} aria-hidden="true">
+              {set}
+            </span>
+          ) : null}
+        </button>
+      </div>
       <Dialog
         open={open}
         onClose={() => setOpen(false)}

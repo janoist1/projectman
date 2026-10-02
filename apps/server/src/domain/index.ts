@@ -353,6 +353,8 @@ export function createDomain(opts: DomainOptions) {
   });
   const taskStarts = new TaskStarts({ projects, tasks, members, sessions, admission });
   const workStarts = new WorkStarts({ projects, tasks, sessions, admission, starts: taskStarts });
+  // The start that waits for the labels an AI member sets runs as a work start, which needs the starts.
+  taskStarts.useLabelWait(workStarts);
   const handOver = new StageHandOver({ projects, tasks, sessions, admission, delivery });
   const messageStarts = new MessageStarts({ projects, tasks, admission, messages, delivery });
   const schedules = new ScheduleService({
@@ -523,6 +525,10 @@ export function createDomain(opts: DomainOptions) {
   // A card waiting for a prerequisite starts when the last one closes (above: done or withdrawn)
   // or its relation is removed (PM-204).
   events.on('task_prerequisite_removed', () => {
+    retryDeferredStarts();
+  });
+  // A card waiting for a label an AI member sets (PM-236) starts once its gate lets it through.
+  events.on('task_labels_changed', () => {
     retryDeferredStarts();
   });
   events.on('session_ended', () => {

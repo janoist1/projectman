@@ -140,6 +140,7 @@ export class TaskLabels {
     });
     const comment = opts.comment?.trim();
     if (comment) this.store.recordNote(config, task, comment, actor, opts.sessionId ?? null, effects);
+    effects.push(() => this.store.ctx.events.emit('task_labels_changed', { task, actor }));
     if (plan.notify.length > 0 && task.assignee && actor.handle && task.assignee !== actor.handle)
       effects.push(() =>
         this.store.ctx.events.emit('task_labels_notice', { task, labels: plan.notify, actor, comment }),

@@ -3,6 +3,7 @@ import type { InboxItem, LabelView, MemberView, Task, WorkDoing } from '@project
 import { formatAge } from '../i18n/format';
 import { joinNames, t } from '../i18n/t';
 import { isAssignedTo, newestFirst, openItems, permissionCommand, shortCommand } from './inbox';
+import { labelName } from './labels';
 import { nameOf } from './members';
 import type { MemberIndex } from './members';
 import { nextStage } from './pipeline';
@@ -236,6 +237,7 @@ function startWaitingLabel(task: Task, ctx: TaskStateContext): string {
     provider: t(`providers.${waiting.provider ?? DEFAULT_AGENT_PROVIDER}`),
     percent: waiting.threshold ?? '',
     prerequisites: (waiting.prerequisites ?? []).join(', '),
+    labels: (waiting.labels ?? []).map((id) => labelName(id, ctx.labels ?? [])).join(', '),
     name: waiting.member ? nameOf(waiting.member, ctx.members, ctx.myHandle) : t('taskStatus.stageOwners'),
   });
 }

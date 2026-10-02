@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { LabelId } from './label';
 import { AgentProvider, MemberHandle } from './member';
 import type { HumanAccess } from './member';
 import { StageId } from './pipeline';
@@ -66,9 +67,14 @@ export const TaskStartWaiting = z.object({
     // A card moved into a work stage without an assignee (PM-119): no developer is free (or on
     // duty) and no temp worker may be hired; it starts once one is.
     'no_free_member',
+    // The gate before the work stage asks for labels an AI member sets (PM-236): that member's session
+    // started on the card, and the developer's start continues once the labels are on it.
+    'label_missing',
   ]),
   /** `prerequisite_open`: the keys of the prerequisites still open. */
   prerequisites: z.array(TaskKey).optional(),
+  /** `label_missing`: the labels the start waits for; `member` is the one who sets them. */
+  labels: z.array(LabelId).optional(),
   member: MemberHandle.optional(),
   provider: AgentProvider.optional(),
   /** Admission threshold, rather than current usage. */

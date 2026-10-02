@@ -635,6 +635,7 @@ export const hu = {
       workspace_fetch_failed: 'Indulásra vár: a friss alapágat nem sikerült letölteni',
       prerequisite_open: 'Előfeltételre vár: {prerequisites}',
       no_free_member: 'Szabad fejlesztőre vár',
+      label_missing: '{name} munkájára vár: {labels}',
     },
     stageOwners: 'a lépés összes felelőse',
     startHints: {
@@ -656,6 +657,8 @@ export const hu = {
         'A munka magától elindul, amikor az utolsó előfeltétel is lezárul (kész vagy visszavont). Ember az Indítás gombbal előbb is elindíthatja.',
       no_free_member:
         'Most nincs szabad fejlesztő. A feladat magától elindul, amint felszabadul egy, vagy ha a Beállítások → Keretek alatt engedélyezed a beugrókat; addig kézzel is hozzárendelhetsz valakit.',
+      label_missing:
+        'A kapu olyan címkét kér, amelyet AI-tag tesz fel; az ő munkamenete elindult a kártyán. A fejlesztő magától indul, amint a címke rákerül.',
     },
     needsYou: 'Rád vár: {what}',
     needsYouDetail: '{kind} ({detail})',

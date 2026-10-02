@@ -752,6 +752,91 @@ describe('starting a card whose prerequisite is open (PM-204)', () => {
   });
 });
 
+describe('starting a card that waits for a label an AI member sets (PM-236)', () => {
+  /** AC-23 is a `ui` card in the queue; the work stage's gate asks for `design-ok` on `ui` cards. */
+  const uiProject = () => {
+    const project = mockProject();
+    project.backend.config.team.members.push({
+      kind: 'ai',
+      handle: 'des',
+      displayName: 'Tervező',
+      role: 'designer',
+      model: 'sonnet',
+      permissionMode: 'acceptEdits',
+      capacity: 1,
+      instructions: 'Plans the screens.',
+      sponsor: 'owner',
+      temp: false,
+    });
+    project.backend.members.push({
+      handle: 'des',
+      displayName: 'Tervező',
+      kind: 'ai',
+      role: 'designer',
+      roles: ['designer'],
+      specialty: null,
+      status: 'idle',
+      activity: null,
+      currentTaskKeys: [],
+      sponsor: 'owner',
+      temp: false,
+      provider: 'claude',
+      model: 'sonnet',
+      permissionMode: 'acceptEdits',
+    });
+    project.backend.config.pipeline.labels.push(
+      { id: 'ui', name: 'Felület', setBy: 'anyone' },
+      { id: 'design-ok', name: 'Terv kész', setBy: { duties: ['ux_design'] } },
+    );
+    project.backend.config.pipeline.stages.find((stage) => stage.id === 'dev')!.gate = {
+      conditions: [{ type: 'has_label', label: 'design-ok', when: 'ui' }],
+    };
+    const task = project.backend.findTask('AC-23')!;
+    task.links = [];
+    task.labels = ['ui'];
+    return { project, task };
+  };
+  const startButton = async () => screen.findByRole('button', { name: t('task.start') });
+
+  it('shows the designer working and the developer waiting for the label after the Start', async () => {
+    const { project } = uiProject();
+    project.render(drawer, '/p/AC/tasks/AC-23');
+
+    fireEvent.click(await startButton());
+
+    await screen.findByText(
+      t('taskStatus.startWaiting.label_missing', { name: 'Tervező', labels: 'Terv kész' }),
+    );
+    expect(screen.getByText(t('taskStatus.startHints.label_missing'))).toBeTruthy();
+    const task = project.backend.findTask('AC-23')!;
+    expect(task).toMatchObject({ stageId: 'ready', assignee: null });
+    expect(task.startWaiting).toMatchObject({
+      reason: 'label_missing',
+      labels: ['design-ok'],
+      member: 'des',
+    });
+    expect(project.backend.sessions.map((session) => session.member)).toContain('des');
+  });
+
+  it('starts the developer by itself once the gate lets the card through', async () => {
+    const { project } = uiProject();
+    project.render(drawer, '/p/AC/tasks/AC-23');
+    fireEvent.click(await startButton());
+    await screen.findByText(t('taskStatus.startHints.label_missing'));
+
+    // A person takes the card out of the label's scope; the designer's own label change works the same way.
+    const changed = project.backend.handle('POST', '/api/projects/AC/tasks/AC-23/labels', {
+      remove: ['ui'],
+    });
+    expect(changed.status).toBe(200);
+
+    await waitFor(() => expect(project.backend.findTask('AC-23')!.stageId).toBe('dev'));
+    const task = project.backend.findTask('AC-23')!;
+    expect(task.assignee).not.toBeNull();
+    expect(task.startWaiting).toBeUndefined();
+  });
+});
+
 describe('task drawer questions', () => {
   it('shows a plain-language question of the task with its recommendation and folded details', async () => {
     const project = mockProject();

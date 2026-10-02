@@ -3,6 +3,7 @@ import type { LabelDefinition } from '../domain/label';
 import type { GateCondition, Stage } from '../domain/pipeline';
 import type { Task, TaskLink } from '../domain/task';
 import {
+  aiLabelSetters,
   evaluateMove,
   gateAcceptsCondition,
   gateAcceptsWhen,
@@ -232,6 +233,47 @@ describe('evaluateMove with a condition bound to a label (when)', () => {
     ['moving away from the stage does not', ['ui'], 'merge', 'dev', []],
   ])('%s', (_name, labels, from, to, unmet) => {
     expect(evaluateMove(task(labels), conditional(), from, to).unmet).toEqual(unmet);
+  });
+
+  describe('aiLabelSetters', () => {
+    const missing = (labels: string[], from = 'review', to = 'merge') =>
+      evaluateMove(task(labels), conditional(), from, to).unmet;
+    const none = () => false;
+
+    it('names the AI member who sets the only missing label', () => {
+      const setters = aiLabelSetters(conditional(), missing(['review-ok', 'ui']), none);
+      expect(setters?.labels).toEqual(['design-ok']);
+      expect(setters?.members.map((m) => m.handle)).toEqual(['des']);
+    });
+
+    it('refuses a gate that also holds back for a condition no AI member can meet', () => {
+      expect(aiLabelSetters(conditional(), missing(['review-ok', 'ui', 'wip']), none)).toBeNull();
+      expect(aiLabelSetters(conditional(), [], none)).toBeNull();
+    });
+
+    it('refuses a label that only people set', () => {
+      const c = conditional();
+      c.pipeline.labels.find((l) => l.id === 'design-ok')!.setBy = { members: ['owner'] };
+      const unmet = evaluateMove(task(['review-ok', 'ui']), c, 'review', 'merge').unmet;
+      expect(unmet).toHaveLength(1);
+      expect(aiLabelSetters(c, unmet, none)).toBeNull();
+    });
+
+    it('refuses a label whose only AI setter authors the card', () => {
+      const c = conditional();
+      c.pipeline.labels.find((l) => l.id === 'design-ok')!.notByAuthor = true;
+      const unmet = evaluateMove(task(['review-ok', 'ui'], { assignee: 'des' }), c, 'review', 'merge').unmet;
+      expect(aiLabelSetters(c, unmet, none)).toBeNull();
+    });
+
+    it('prefers a setter that already has a session on the card, and one not on leave', () => {
+      const c = conditional();
+      c.pipeline.labels.find((l) => l.id === 'design-ok')!.setBy = { members: ['des', 'des2'] };
+      c.team.members.push({ ...c.team.members.find((m) => m.handle === 'des')!, handle: 'des2' });
+      const unmet = evaluateMove(task(['review-ok', 'ui']), c, 'review', 'merge').unmet;
+      expect(aiLabelSetters(c, unmet, none)?.members.map((m) => m.handle)).toEqual(['des']);
+      expect(aiLabelSetters(c, unmet, (h) => h === 'des2')?.members.map((m) => m.handle)).toEqual(['des2']);
+    });
   });
 
   it('leaves out the setters the task authors under self-review rules', () => {

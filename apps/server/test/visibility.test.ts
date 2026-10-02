@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { InboxItem, Task, TaskDetail, TeamMessage, TimelineEvent } from '@projectman/shared';
+import type { InboxItem, MemberView, Task, TaskDetail, TeamMessage, TimelineEvent } from '@projectman/shared';
 import {
   canSeeProjectEvent,
   canSeeTask,
+  memberForViewer,
   teamMessageMember,
   visibleProjectEvent,
   visibleTaskDetail,
@@ -140,6 +141,42 @@ describe('client visibility', () => {
       timeline('attachment_added'),
       timeline('attachment_deleted'),
     ]);
+  });
+
+  it('gives a client no key of a card they cannot see in a member, snapshots included (PM-244)', () => {
+    const work = (taskKey: string) => ({
+      sessionId: `ses_${taskKey}`,
+      taskKey,
+      activity: null,
+      since: 'now',
+    });
+    const member = {
+      handle: 'ai',
+      currentTaskKeys: ['AR-1', 'AR-2'],
+      taskWork: [work('AR-1'), work('AR-2')],
+    } as unknown as MemberView;
+    const tasks: Record<string, Task> = { 'AR-1': task('AR-1', 'shared'), 'AR-2': task('AR-2', 'internal') };
+    const taskOf = (key: string) => tasks[key];
+    const canSeeKey = (key: string) => canSeeTask(client, tasks[key]!);
+
+    expect(memberForViewer(developer, member, canSeeKey)).toBe(member);
+    expect(memberForViewer(client, member, canSeeKey)).toMatchObject({
+      currentTaskKeys: ['AR-1'],
+      taskWork: [work('AR-1')],
+    });
+    // A member without work entries (a human) stays without them.
+    const human = { handle: 'h', currentTaskKeys: ['AR-2'] } as unknown as MemberView;
+    expect(memberForViewer(client, human, canSeeKey)).toEqual({ handle: 'h', currentTaskKeys: [] });
+
+    const changed = { type: 'member_changed', projectKey: 'AR', handle: 'ai', member } as ProjectEvent;
+    expect(visibleProjectEvent(client, changed, taskOf)).toMatchObject({
+      member: { currentTaskKeys: ['AR-1'], taskWork: [work('AR-1')] },
+    });
+    expect(visibleProjectEvent(developer, changed, taskOf)).toBe(changed);
+    // A task that cannot be found is not shown either.
+    expect(visibleProjectEvent(client, changed, () => undefined)).toMatchObject({
+      member: { currentTaskKeys: [], taskWork: [] },
+    });
   });
 
   it('tells a client of a changed attachment list only while the task is shared with them', () => {

@@ -45,7 +45,7 @@ import { isOpenTask, isTheme } from './tasks';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
 import { unique } from './util';
-import { isClient, visibleTasks as visibleTasksOf } from './visibility';
+import { canSeeTask, isClient, memberForViewer, visibleTasks as visibleTasksOf } from './visibility';
 import type { Viewer } from './visibility';
 
 const ENDED_SESSION_STATES = new Set<SessionState>(['exited', 'failed']);
@@ -90,6 +90,21 @@ export class MemberService {
     return this.rosterFor(await this.projects.config(projectKey));
   }
 
+  /** The roster as the viewer sees it: a client gets no key of a card they cannot see. */
+  async rosterOf(projectKey: string, viewer: Viewer): Promise<MemberView[]> {
+    return this.rosterForViewer(await this.projects.config(projectKey), viewer);
+  }
+
+  rosterForViewer(config: ProjectConfig, viewer: Viewer): MemberView[] {
+    const tasks = new Map(this.ctx.repos.tasks.list(config.project.key).map((t) => [t.key, t]));
+    const canSeeKey = (key: string) => {
+      const task = tasks.get(key);
+      return !!task && canSeeTask(viewer, task);
+    };
+    return this.rosterFor(config).map((member) => memberForViewer(viewer, member, canSeeKey));
+  }
+
+  /** Every member's whole state, for the team's own use (AI members, hand-overs); never send it to a viewer. */
   rosterFor(config: ProjectConfig): MemberView[] {
     const projectKey = config.project.key;
     const openTasks = new Map(
@@ -597,7 +612,7 @@ export class MemberProfiles {
   async profile(projectKey: string, handle: string, viewer: Viewer): Promise<MemberProfile> {
     const config = await this.projects.config(projectKey);
     const original = memberOf(config, handle);
-    const member = this.members.rosterFor(config).find((m) => m.handle === handle);
+    const member = this.members.rosterForViewer(config, viewer).find((m) => m.handle === handle);
     if (!original || !member) throw notFound('member', handle);
     const internal = !isClient(viewer);
     const approverStages = new Set(
@@ -608,13 +623,8 @@ export class MemberProfiles {
       .filter((i) => i.state === 'open' && i.assignees.includes(handle));
     const awaitingKeys = new Set(openInbox.map((i) => i.taskKey));
     const visibleTasks = visibleTasksOf(viewer, this.tasks.list(projectKey));
-    const visibleKeys = new Set(visibleTasks.map((t) => t.key));
     return {
-      member: {
-        ...member,
-        currentTaskKeys: member.currentTaskKeys.filter((k) => visibleKeys.has(k)),
-        ...(member.taskWork ? { taskWork: member.taskWork.filter((w) => visibleKeys.has(w.taskKey)) } : {}),
-      },
+      member,
       duties: memberDuties(config, original),
       tasks: visibleTasks.filter(
         (t) =>

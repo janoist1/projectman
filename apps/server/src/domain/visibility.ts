@@ -1,6 +1,7 @@
 import { canSeeTask, isCardLink } from '@projectman/shared';
 import type {
   InboxItem,
+  MemberView,
   ServerEvent,
   Task,
   TaskDetail,
@@ -18,7 +19,9 @@ import type { ProjectAccess } from './access';
  * - timeline: the task detail shows a client the milestones below, while live timeline
  *   events never reach them (and label changes, e.g. "client accepted", are no milestone);
  * - member state: the board shows a client every member's status and activity, while live
- *   member_state events never reach them (member_changed snapshots do).
+ *   member_state events never reach them (member_changed snapshots do). Whatever the path, a
+ *   client gets the keys of the cards they see only (`memberForViewer`); a member's activity text
+ *   is not filtered (open question for the owner).
  */
 export type Viewer = Pick<ProjectAccess, 'access' | 'handle'>;
 
@@ -73,6 +76,24 @@ export function visibleTasks(viewer: Viewer, tasks: readonly Task[]): Task[] {
   return visible.map((task) => withVisibleCardLinks(viewer, task, (key) => keys.has(key)));
 }
 
+/**
+ * A member as the viewer sees them: the cards they work on or carry are only those the viewer
+ * sees (a client gets no key of an internal card). The one rule for the board, the member list,
+ * the profile and the live `member_changed` event; `canSeeKey` says whether the viewer sees a card.
+ */
+export function memberForViewer(
+  viewer: Viewer,
+  member: MemberView,
+  canSeeKey: (key: string) => boolean,
+): MemberView {
+  if (!isClient(viewer)) return member;
+  return {
+    ...member,
+    currentTaskKeys: member.currentTaskKeys.filter(canSeeKey),
+    ...(member.taskWork ? { taskWork: member.taskWork.filter((work) => canSeeKey(work.taskKey)) } : {}),
+  };
+}
+
 const CLIENT_TASK_TIMELINE = new Set<TimelineEvent['type']>([
   'task_created',
   'task_stage_changed',
@@ -117,14 +138,15 @@ export function visibleProjectEvent(
   event: ProjectEvent,
   taskOf: (taskKey: string) => Task | null | undefined,
 ): ProjectEvent {
-  if (!isClient(viewer) || event.type !== 'task_upserted') return event;
-  return {
-    ...event,
-    task: withVisibleCardLinks(viewer, event.task, (key) => {
-      const other = taskOf(key);
-      return !!other && canSeeTask(viewer, other);
-    }),
+  if (!isClient(viewer)) return event;
+  const canSeeKey = (key: string) => {
+    const other = taskOf(key);
+    return !!other && canSeeTask(viewer, other);
   };
+  if (event.type === 'member_changed' && event.member)
+    return { ...event, member: memberForViewer(viewer, event.member, canSeeKey) };
+  if (event.type !== 'task_upserted') return event;
+  return { ...event, task: withVisibleCardLinks(viewer, event.task, canSeeKey) };
 }
 
 /**

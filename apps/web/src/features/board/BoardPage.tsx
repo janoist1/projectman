@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Outlet, useMatch, useNavigate } from 'react-router';
 import type { DragEvent, KeyboardEvent } from 'react';
-import { isChronologicalColumn, placeInOrder, placementAt } from '@projectman/shared';
+import { isChronologicalColumn, placeInOrder, placementAt, subtasksMovingAlong } from '@projectman/shared';
 import type { BoardColumnView, BoardPlacement, LabelView, Task } from '@projectman/shared';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
@@ -32,6 +32,7 @@ import { useBoardMove, useLabels } from '../../api/queries';
 import { useToast } from '../../components/toastContext';
 import { isApprovalRequested } from '../../lib/errors';
 import { PrerequisiteWarning } from './PrerequisiteWarning';
+import { groupMoveToast, groupOutcome } from './groupMove';
 import { canMoveTask, dropStage, moveErrorText, prerequisitesToWarnAbout } from './moveTask';
 import styles from './BoardPage.module.css';
 
@@ -39,6 +40,8 @@ const inProgress: ReadonlySet<TaskPhase> = new Set(['needs_you', 'working', 'wai
 
 /** How long a card that has just landed is marked. */
 const LANDED_MS = 900;
+/** How long a card of a group move that stayed behind is marked. */
+const HELD_MS = 2400;
 /** A dragged card within this many pixels of a column's top or bottom scrolls the column. */
 const SCROLL_EDGE = 40;
 const HELP_ID = 'board-reorder-help';
@@ -50,6 +53,10 @@ interface BoardDrop {
   fromStageId: string;
   stageId: string;
   placement: BoardPlacement;
+  /** The name of the column, for what is told once the move is done. */
+  columnName: string;
+  /** The subtasks of the card's column that go along with it (PM-121); empty: the card moves alone. */
+  groupKeys: readonly string[];
   despitePrerequisites?: boolean;
 }
 
@@ -64,14 +71,20 @@ interface DragHover {
 interface ColumnDrag {
   allowed: boolean;
   pendingKey: string | null;
+  /** The cards of the pending drop: the card and the subtasks that go along with it. */
+  pendingKeys: ReadonlySet<string>;
   /** The pending drop changes the card's column (a reorder within one is told by the dimming alone). */
   pendingMoves: boolean;
   draggedKey: string | null;
   /** The column the dragged card stands in. */
   draggedColumn: string | null;
   hover: DragHover | null;
-  /** The card that has just landed on its place. */
-  landedKey: string | null;
+  /** The subtasks that would go along with the held card over the column it is held over (PM-121). */
+  goingAlong: ReadonlySet<string>;
+  /** The cards that have just landed on their place. */
+  landedKeys: ReadonlySet<string>;
+  /** The cards of a group move that stayed where they were. */
+  heldKeys: ReadonlySet<string>;
   start: (event: DragEvent, task: Task) => void;
   end: () => void;
   over: (event: DragEvent, column: BoardColumnView) => void;
@@ -148,6 +161,9 @@ function Column({
   // Another column's card is held over this one: the column takes it by its first stage.
   const entering = hovered && drag.draggedColumn !== column.id;
   const lineIndex = hovered && !chronological ? (drag.hover?.index ?? null) : null;
+  const targetName =
+    pipeline.stages.find((stage) => pipeline.columnOfStage.get(stage.id)?.id === column.id)?.name ??
+    column.name;
   // The line stands before the card that would follow the dragged one, so the dragged card is not counted.
   let place = 0;
   const line = (edge?: 'start' | 'end') => (
@@ -177,11 +193,9 @@ function Column({
       </div>
       {entering ? (
         <p role="status" className={styles.dropTargetRow}>
-          {t('task.move.dropTarget', {
-            stage:
-              pipeline.stages.find((stage) => pipeline.columnOfStage.get(stage.id)?.id === column.id)?.name ??
-              column.name,
-          })}
+          {drag.goingAlong.size > 0
+            ? t('board.dropHereWithSubtasks', { stage: targetName, count: drag.goingAlong.size })
+            : t('task.move.dropTarget', { stage: targetName })}
         </p>
       ) : null}
       <div className={styles.cards} data-cards>
@@ -267,14 +281,21 @@ function BoardCard({
       onDragStart={(event) => drag.start(event, task)}
       onDragEnd={drag.end}
       onKeyDown={(event) => drag.keyDown(event, task)}
-      aria-busy={drag.pendingKey === task.key}
+      aria-busy={drag.pendingKeys.has(task.key)}
       className={clsx(
-        drag.pendingKey === task.key && styles.pending,
+        drag.pendingKeys.has(task.key) && styles.pending,
         drag.draggedKey === task.key && styles.dragging,
-        drag.landedKey === task.key && styles.landed,
+        drag.goingAlong.has(task.key) && styles.alongMark,
+        drag.landedKeys.has(task.key) && styles.landed,
+        drag.heldKeys.has(task.key) && styles.held,
       )}
       {...fileDrop.props}
     >
+      {drag.goingAlong.has(task.key) ? (
+        <span className={styles.alongBadge} aria-hidden="true">
+          {t('board.goesAlong')}
+        </span>
+      ) : null}
       {drag.pendingKey === task.key && drag.pendingMoves ? (
         <p role="status">{t('task.move.pending')}</p>
       ) : null}
@@ -308,13 +329,19 @@ export function BoardPage() {
   const [dragged, setDragged] = useState<Task | null>(null);
   const [hover, setHover] = useState<DragHover | null>(null);
   const [pending, setPending] = useState<BoardDrop | null>(null);
-  const [landedKey, setLandedKey] = useState<string | null>(null);
+  const [landed, setLanded] = useState<readonly string[]>([]);
+  const [held, setHeld] = useState<readonly string[]>([]);
   // What a screen reader hears after a keyboard move.
   const [announcement, setAnnouncement] = useState('');
   // The card whose link had the focus when it was moved by keyboard: it keeps the focus in its new place.
   const refocus = useRef<string | null>(null);
   // A drop that waits for the person to accept the open prerequisites (PM-204).
-  const [warning, setWarning] = useState<{ drop: BoardDrop; keys: string[] } | null>(null);
+  const [warning, setWarning] = useState<{
+    drop: BoardDrop;
+    keys: string[];
+    /** A group move: the cards that would wait, each with its open prerequisites. */
+    rows?: { key: string; prerequisites: string[] }[];
+  } | null>(null);
   const selected = useMatch('/p/:projectKey/tasks/:taskKey')?.params.taskKey ?? null;
   const uploadingCounts = useUploadingCounts();
   // A file from outside is dragged over the board: over a card, or not (then it says where to drop it).
@@ -325,7 +352,8 @@ export function BoardPage() {
   const optimisticEntries = useMemo(
     () =>
       model?.entries.map((entry) =>
-        pending?.taskKey === entry.task.key
+        // A group stays where it is until the server says which of its cards moved.
+        pending?.taskKey === entry.task.key && pending.groupKeys.length === 0
           ? { ...entry, task: { ...entry.task, stageId: pending.stageId } }
           : entry,
       ) ?? [],
@@ -345,7 +373,10 @@ export function BoardPage() {
         visible.filter((entry) => pipeline.columnOfStage.get(entry.task.stageId)?.id === column.id),
         chronological,
       );
-      const moving = pending ? entries.find((entry) => entry.task.key === pending.taskKey) : undefined;
+      const moving =
+        pending && pending.groupKeys.length === 0
+          ? entries.find((entry) => entry.task.key === pending.taskKey)
+          : undefined;
       if (pending && moving) {
         if (chronological) entries = [moving, ...entries.filter((entry) => entry !== moving)];
         else {
@@ -365,10 +396,15 @@ export function BoardPage() {
   const orderedKeys = (columnId: string) => (columnOrder.get(columnId) ?? []).map((entry) => entry.task.key);
 
   useEffect(() => {
-    if (!landedKey) return;
-    const timer = setTimeout(() => setLandedKey(null), LANDED_MS);
+    if (landed.length === 0) return;
+    const timer = setTimeout(() => setLanded([]), LANDED_MS);
     return () => clearTimeout(timer);
-  }, [landedKey]);
+  }, [landed]);
+  useEffect(() => {
+    if (held.length === 0) return;
+    const timer = setTimeout(() => setHeld([]), HELD_MS);
+    return () => clearTimeout(timer);
+  }, [held]);
 
   // A card moved by keyboard keeps the focus: the browser drops it when the element changes its place.
   useLayoutEffect(() => {
@@ -394,11 +430,27 @@ export function BoardPage() {
         fromStageId: drop.fromStageId,
         placement: drop.placement,
         ...(drop.despitePrerequisites ? { despitePrerequisites: true } : {}),
+        ...(drop.groupKeys.length > 0 ? { withSubtasks: true } : {}),
       },
       {
         onSuccess: (result) => {
+          // A group move tells each card's own result in one toast, and takes none of them back.
+          if (result.group) {
+            const { moved, held: stayed } = groupOutcome(result);
+            setLanded(moved);
+            setHeld(stayed.map((item) => item.taskKey));
+            const summary = groupMoveToast({
+              result,
+              parentKey: drop.taskKey,
+              columnName: drop.columnName,
+              projectKey: key,
+              labels: board.data?.labels ?? [],
+            });
+            toast.show(summary.message, summary.tone, { items: summary.items, sticky: summary.sticky });
+            return;
+          }
           if (result.outcome === 'unchanged') return;
-          setLandedKey(drop.taskKey);
+          setLanded([drop.taskKey]);
           if (told) announce(told);
           // Within a column the card landing says it; changing the column is said too (and may start work).
           if (result.outcome === 'moved') toast.show(t('task.move.success'));
@@ -421,21 +473,47 @@ export function BoardPage() {
   if (!model || !pipeline) return <LoadingState />;
 
   const columnOf = (task: Task) => pipeline.columnOfStage.get(task.stageId)?.id ?? null;
+  // The subtasks of a collecting card that stand in its column: they go along when it changes column
+  // (all of them, the ones a filter hides too).
+  const alongOf = (task: Task): Task[] =>
+    subtasksMovingAlong(pipeline.stages, task, model.subtasksByParent.get(task.key) ?? []);
   const dropOf = (task: Task, column: BoardColumnView, placement: BoardPlacement): BoardDrop | null => {
     // A card of another column enters the column's first stage; within the column it keeps its own.
-    const stageId = columnOf(task) === column.id ? task.stageId : dropStage(task, column, pipeline);
+    const own = columnOf(task) === column.id;
+    const stageId = own ? task.stageId : dropStage(task, column, pipeline);
     return stageId
-      ? { taskKey: task.key, columnId: column.id, fromStageId: task.stageId, stageId, placement }
+      ? {
+          taskKey: task.key,
+          columnId: column.id,
+          fromStageId: task.stageId,
+          stageId,
+          placement,
+          columnName: column.name,
+          groupKeys: own ? [] : alongOf(task).map((subtask) => subtask.key),
+        }
       : null;
   };
-  // A card that would start with an open prerequisite asks first (PM-204).
+  // A card that would start with an open prerequisite asks first (PM-204); a group asks once for all of its cards.
   const startDrop = (drop: BoardDrop, task: Task) => {
-    const open =
-      drop.stageId === drop.fromStageId
-        ? []
-        : prerequisitesToWarnAbout(task, drop.stageId, pipeline, board.data?.tasks ?? []);
-    if (open.length > 0) setWarning({ drop, keys: open });
-    else runMove(drop);
+    if (drop.stageId === drop.fromStageId) {
+      runMove(drop);
+      return;
+    }
+    const tasks = board.data?.tasks ?? [];
+    const rows = [task, ...alongOf(task)]
+      .map((card) => ({
+        key: card.key,
+        prerequisites: prerequisitesToWarnAbout(card, drop.stageId, pipeline, tasks),
+      }))
+      .filter((row) => row.prerequisites.length > 0);
+    if (rows.length === 0) runMove(drop);
+    else if (drop.groupKeys.length === 0) setWarning({ drop, keys: rows[0]!.prerequisites });
+    else
+      setWarning({
+        drop,
+        keys: [...new Set(rows.flatMap((row) => row.prerequisites))],
+        rows,
+      });
   };
   /** Where the held card would land over `column` (null: it is not taken there). */
   const hoverOver = (event: DragEvent, task: Task, column: BoardColumnView): DragHover | null => {
@@ -448,14 +526,21 @@ export function BoardPage() {
     return { columnId: column.id, index: stays ? null : index };
   };
 
+  const draggedColumn = dragged ? columnOf(dragged) : null;
   const drag: ColumnDrag = {
     allowed: can.createTasks && !isMobile,
     pendingKey: pending?.taskKey ?? null,
+    pendingKeys: new Set(pending ? [pending.taskKey, ...pending.groupKeys] : []),
     pendingMoves: !!pending && pending.stageId !== pending.fromStageId,
     draggedKey: dragged?.key ?? null,
-    draggedColumn: dragged ? columnOf(dragged) : null,
+    draggedColumn,
     hover,
-    landedKey,
+    // Only over another column the card is taken to: within its own column nothing goes along.
+    goingAlong: new Set(
+      dragged && hover && hover.columnId !== draggedColumn ? alongOf(dragged).map((card) => card.key) : [],
+    ),
+    landedKeys: new Set(landed),
+    heldKeys: new Set(held),
     start: (event, task) => {
       if (!canMoveTask(task, can.createTasks) || isMobile || pending) {
         event.preventDefault();
@@ -662,6 +747,7 @@ export function BoardPage() {
       ) : null}
       <PrerequisiteWarning
         keys={warning?.keys ?? null}
+        rows={warning?.rows}
         tasks={board.data.tasks}
         onConfirm={() => {
           if (warning) runMove({ ...warning.drop, despitePrerequisites: true });

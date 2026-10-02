@@ -606,6 +606,27 @@ export const hu = {
       atBottom: 'Már az oszlop alján van.',
       doneFixed: 'A Kész oszlop időrendben marad.',
     },
+    /** A collecting card held over another column takes the subtasks of its column along (PM-121). */
+    dropHereWithSubtasks: 'Ide helyezhető: {stage} · vele megy {count} alfeladat',
+    goesAlong: 'Vele megy',
+    groupMove: {
+      parentAndChildren: '{key} és {count} alfeladata átkerült ide: {column}.',
+      parentOnly: '{key} átkerült ide: {column}.',
+      childrenOnly: '{count} alfeladat átkerült ide: {column}.',
+      none: 'Egyik kártya sem került át.',
+      stayed: 'A helyén maradt:',
+      more: 'és még {count}',
+      reason: {
+        missing: 'Még hiányzik: {labels}',
+        holding: 'Visszatartja: {label}',
+        approval: 'Jóváhagyásra vár, utána átkerül',
+        uncommitted: 'Mentetlen változás van a munkafájában',
+        noApprover: 'Senki sem adhatja meg a jóváhagyást: {label}',
+        noApproverUnnamed: 'Senki sem adhatja meg a szükséges jóváhagyást',
+        skipped: 'Közben megváltozott, nem mozdult',
+        unknown: 'Nem teljesül a belépés feltétele',
+      },
+    },
     groups: {
       needsYou: 'Rád vár',
       working: 'Dolgozik',
@@ -1140,6 +1161,10 @@ export const hu = {
     title: 'Az előfeltétel még nincs lezárva',
     description:
       'Ez a kártya erre vár: {keys}. Ha most elindítod, a munka az előfeltétel lezárása nélkül kezdődik.',
+    /** A collecting card moved with its subtasks: one warning for the whole group (PM-121). */
+    groupDescription:
+      'Ezek a kártyák előfeltételre várnak. Ha most elindítod őket, a munka az előfeltételek lezárása nélkül kezdődik.',
+    groupRow: '{key}: {keys}',
     confirm: 'Indítás mégis',
     moveAndWait: 'Áthelyezés, várjon',
   },

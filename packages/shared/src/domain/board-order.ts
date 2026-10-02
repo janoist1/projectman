@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Stage } from './pipeline';
 import { TaskKey } from './task';
+import type { Task } from './task';
 
 /**
  * The manual order of the cards of a board column (PM-118): shared, stored and the same in every
@@ -146,6 +147,45 @@ function spacedRank(
   if (noNext) return typeof prev === 'number' ? prev + BOARD_RANK_STEP : null;
   if (typeof prev !== 'number' || typeof next !== 'number' || next - prev < 2) return null;
   return prev + Math.floor((next - prev) / 2);
+}
+
+/**
+ * The subtasks that go along when their collecting card is moved to another column (PM-121): the
+ * direct subtasks of `parent` that stand in the same board column as it does now, whatever stage of
+ * that column (a cancelled subtask stays), in the order they have in their column. Subtasks in
+ * another column stay where they are. Pure: the server picks them from its fresh state, the board
+ * from its own data to show what goes along, and both use this one rule.
+ */
+export function subtasksMovingAlong<
+  T extends Pick<Task, 'key' | 'stageId' | 'status' | 'updatedAt' | 'boardRank'>,
+>(
+  stages: readonly Pick<Stage, 'id' | 'columnId'>[],
+  parent: Pick<Task, 'stageId'>,
+  subtasks: readonly T[],
+): T[] {
+  const column = boardColumnOf(stages.find((stage) => stage.id === parent.stageId));
+  if (column === undefined) return [];
+  return subtasks
+    .filter(
+      (subtask) =>
+        subtask.status !== 'cancelled' &&
+        boardColumnOf(stages.find((stage) => stage.id === subtask.stageId)) === column,
+    )
+    .sort((a, b) =>
+      compareBoardOrder(
+        { key: a.key, rank: a.boardRank, updatedAt: a.updatedAt },
+        { key: b.key, rank: b.boardRank, updatedAt: b.updatedAt },
+      ),
+    );
+}
+
+/**
+ * Where the next card of a group move takes its place: the first that moves goes where the group was
+ * dropped, every later one right after the card that moved before it, so the cards that moved stand
+ * in one block in the order they were handled (the collecting card first).
+ */
+export function groupPlacement(dropped: BoardPlacement, previousKey: string | null): BoardPlacement {
+  return previousKey === null ? dropped : { at: 'after', anchor: previousKey };
 }
 
 /**

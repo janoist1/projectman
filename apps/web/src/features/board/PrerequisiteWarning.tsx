@@ -24,6 +24,7 @@ export function refusedPrerequisites(error: unknown): string[] | null {
  */
 export function PrerequisiteWarning({
   keys,
+  rows,
   tasks,
   loading,
   onConfirm,
@@ -32,6 +33,8 @@ export function PrerequisiteWarning({
 }: {
   /** The open prerequisites; null: no warning shown. */
   keys: string[] | null;
+  /** A group move (PM-121): one warning for the whole group, a row per card that would wait. */
+  rows?: readonly { key: string; prerequisites: readonly string[] }[];
   tasks: readonly Task[];
   loading?: boolean;
   onConfirm: () => void;
@@ -45,7 +48,11 @@ export function PrerequisiteWarning({
       open={keys !== null}
       onClose={onClose}
       title={t('prerequisiteWarning.title')}
-      description={t('prerequisiteWarning.description', { keys: joinNames(keys ?? []) })}
+      description={
+        rows
+          ? t('prerequisiteWarning.groupDescription')
+          : t('prerequisiteWarning.description', { keys: joinNames(keys ?? []) })
+      }
       size="sm"
       footer={
         <>
@@ -64,9 +71,15 @@ export function PrerequisiteWarning({
       }
     >
       <ul className={styles.list}>
-        {(keys ?? []).map((key) => (
-          <li key={key}>{byKey.get(key) ? `${key} – ${byKey.get(key)!.title}` : key}</li>
-        ))}
+        {rows
+          ? rows.map((row) => (
+              <li key={row.key}>
+                {t('prerequisiteWarning.groupRow', { key: row.key, keys: joinNames([...row.prerequisites]) })}
+              </li>
+            ))
+          : (keys ?? []).map((key) => (
+              <li key={key}>{byKey.get(key) ? `${key} – ${byKey.get(key)!.title}` : key}</li>
+            ))}
       </ul>
     </Dialog>
   );

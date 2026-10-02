@@ -28,6 +28,15 @@
   max-width: 100%;
 }
 
+/* A toast with lines under its message keeps the icon and the close button at the top. */
+.listed {
+  align-items: flex-start;
+}
+
+.listed .icon {
+  padding-top: 2px;
+}
+
 .icon {
   display: inline-flex;
   color: var(--c-toast-ok);
@@ -40,6 +49,23 @@
 .message {
   flex-grow: 1;
   min-width: 0;
+}
+
+.items {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.itemKey {
+  font-weight: 800;
+  color: inherit;
+  text-decoration: underline;
 }
 
 .dismiss {

@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { useId, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { isOpenTask, isTheme, Task } from '@projectman/shared';
+import { isOpenTask, isTheme, Task, THEME_REFUSED_KINDS } from '@projectman/shared';
 import { useCreateTask, useUpdateTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
@@ -49,11 +49,11 @@ function previewText(kind: DialogKind | null, target: string | null, task: Task)
 
 /** The reason a kind cannot be chosen for this card, or null. */
 function kindOff(kind: DialogKind, task: Task, tasks: readonly Task[]): string | null {
-  // A theme is no collection, no part and has no prerequisites (the shared rules refuse them too).
+  // What a theme cannot have is the shared rule's (`THEME_REFUSED_KINDS`); a new subtask is a theme collecting.
   if (isTheme(task)) {
-    if (kind === 'part_of') return t('relationDialog.off.themePartOf');
-    if (kind === 'prerequisite') return t('relationDialog.off.themePrerequisite');
     if (kind === 'subtask') return t('relationDialog.off.themeSubtask');
+    if (THEME_REFUSED_KINDS.includes(kind))
+      return t('relationDialog.off.theme', { kind: t(`relations.kinds.${kind}`) });
   }
   if (kind === 'part_of' && tasks.some((card) => card.parentKey === task.key))
     return t('relationDialog.off.part_of');

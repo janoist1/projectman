@@ -276,8 +276,10 @@ describe('relations in the drawer (PM-203)', () => {
           .getByRole('radio', { name: t('relationDialog.newSubtask') })
           .getAttribute('aria-disabled'),
       ).toBe('true');
-      expect(within(dialog).getByText(t('relationDialog.off.themePartOf'))).toBeTruthy();
-      expect(within(dialog).getByText(t('relationDialog.off.themePrerequisite'))).toBeTruthy();
+      for (const kind of ['part_of', 'prerequisite'] as const)
+        expect(
+          within(dialog).getByText(t('relationDialog.off.theme', { kind: kindName(kind) })),
+        ).toBeTruthy();
       expect(within(dialog).getByText(t('relationDialog.off.themeSubtask'))).toBeTruthy();
       chooseKind(dialog, 'related');
       expect(within(dialog).getByRole('combobox')).toBeTruthy();

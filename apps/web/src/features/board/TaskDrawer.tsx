@@ -39,6 +39,7 @@ import { canMoveTask } from './moveTask';
 import drawer from './drawer.module.css';
 import styles from './TaskDrawer.module.css';
 import { TaskHeader } from './TaskHeader';
+import { TaskRelations } from './TaskRelations';
 import { ThemeCards, ThemeHeader, ThemeSummary } from './ThemeDrawer';
 
 function StartPanel({ task, members, tasks }: { task: Task; members: MemberIndex; tasks: readonly Task[] }) {
@@ -268,6 +269,13 @@ export function TaskDrawer() {
                   <span className={drawer.propLabel}>{t('newTask.fields.visibility')}</span>
                   <span>{t(`visibility.${task.visibility}`)}</span>
                 </div>
+                <TaskRelations
+                  key={`relations:${task.key}`}
+                  task={task}
+                  tasks={cards}
+                  phases={phases}
+                  pipeline={pipeline}
+                />
               </section>
             </>
           ) : (

@@ -7,6 +7,7 @@ import {
   relationRefusal,
   storedRelation,
   taskRelations,
+  THEME_REFUSED_KINDS,
 } from './relations';
 import type { RelationCard } from './relations';
 import type { TaskLink } from './task';
@@ -136,6 +137,17 @@ describe('relationRefusal', () => {
     const tasks = [card('PM-1'), card('PM-2')];
     for (const kind of ['prerequisite', 'related', 'duplicate_of'] as const)
       expect(relationRefusal(kind, from, 'PM-2', tasks)).toBeNull();
+  });
+
+  it('refuses on a theme exactly the kinds of THEME_REFUSED_KINDS, and the others to a card', () => {
+    const theme = { ...card('PM-1'), kind: 'theme' as const };
+    const tasks = [theme, card('PM-2')];
+    for (const kind of ['part_of', 'prerequisite', 'related', 'duplicate_of'] as const) {
+      const refused = relationRefusal(kind, from, 'PM-2', tasks) !== null;
+      // A theme duplicates only a theme, so the card target refuses `duplicate_of` too.
+      expect(refused).toBe(THEME_REFUSED_KINDS.includes(kind) || kind === 'duplicate_of');
+    }
+    expect(relationRefusal('related', from, 'PM-2', tasks)).toBeNull();
   });
 
   it('refuses a prerequisite that closes a loop of two cards, and names it', () => {

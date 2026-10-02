@@ -38,6 +38,11 @@ export class FakeRunner implements SessionRunner {
    * sends it, or ends the session, itself (PM-189).
    */
   holdFirstInput = false;
+  /**
+   * A started session reports `idle` at once, as a real one does when its CLI can take input and the
+   * first input has not been typed yet (the runner's first `session_start` signal).
+   */
+  idleOnStart = false;
   /** Sessions with a message still on its way in (`hasPendingInput`). */
   readonly pendingInput = new Set<string>();
   private readonly running = new Map<string, RunningSessionInfo>();
@@ -62,6 +67,7 @@ export class FakeRunner implements SessionRunner {
     if (spec.initialMessage?.trim() && !this.holdFirstInput) {
       this.emit({ type: 'first_input_sent', sessionId: spec.sessionId });
     }
+    if (this.idleOnStart) queueMicrotask(() => this.setState(spec.sessionId, 'idle'));
     return info;
   }
 

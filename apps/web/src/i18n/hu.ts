@@ -570,9 +570,11 @@ export const hu = {
     columnEmpty: 'Ebben a szűrésben nincs itt semmi.',
     columnCount: '{count} feladat',
     noResults: 'Nincs találat erre: „{query}”',
-    teamStrip: 'A csapat most',
-    teamSummary: '{members} tag · {tasks} feladat',
-    teamSummaryDetail: '{humans} ember és {ai} AI-tag',
+    workingNow: 'Most dolgozik',
+    nobodyWorking: 'Most senki nem dolgozik.',
+    teamLink: 'Csapat',
+    /** The accessible name of a chip: the member and the card or cards they work on. */
+    workingChip: '{name}: {cards}',
     doneAll: 'Mind ({count})',
     doneFewer: 'Kevesebb',
     groups: {

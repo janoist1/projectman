@@ -11,6 +11,7 @@ import { formatBytes } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { ProjectContext } from '../../app/contexts';
 import type { ProjectContextValue } from '../../app/contexts';
+import { findBoardCardLinks } from '../../test/boardCards';
 import { createMockFetch, mockProject } from '../../test/mockProject';
 import { renderUi } from '../../test/render';
 import { AttachmentUploadsProvider } from './attachmentUploads';
@@ -77,9 +78,7 @@ const makeFile = (name: string, type = 'image/png', size?: number): File => {
 
 /** The card on the board: the team strip may name the same card as the one a member works on. */
 const cardLink = async (project: Project, key: string) => {
-  const links = await screen.findAllByRole('link', {
-    name: new RegExp(project.backend.findTask(key)!.title),
-  });
+  const links = await findBoardCardLinks(project.backend.findTask(key)!.title);
   return links.find((link) => link.getAttribute('href')?.endsWith(`/tasks/${key}`)) ?? links[0]!;
 };
 

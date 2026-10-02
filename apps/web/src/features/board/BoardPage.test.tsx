@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
 import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
+import { findBoardCardLinks, withoutTeamStrip } from '../../test/boardCards';
 import { createMockFetch, mockProject } from '../../test/mockProject';
 import { BoardPage } from './BoardPage';
 
@@ -54,7 +55,7 @@ describe('desktop board moving', () => {
       </ToastProvider>,
     );
     const title = project.backend.findTask('AC-20')!.title;
-    const card = (await screen.findByRole('link', { name: new RegExp(title) })).parentElement!;
+    const card = (await findBoardCardLinks(title))[0]!.parentElement!;
     expect(card.draggable).toBe(true);
     const column = screen.getByRole('region', {
       name: project.backend.config.pipeline.columns.find((entry) => entry.id === 'client')!.name,
@@ -81,9 +82,7 @@ describe('desktop board moving', () => {
   it('moves into the first stage of a grouped destination column', async () => {
     const project = mockProject();
     project.render(<BoardPage />);
-    const card = (
-      await screen.findByRole('link', { name: new RegExp(project.backend.findTask('AC-20')!.title) })
-    ).parentElement!;
+    const card = (await findBoardCardLinks(project.backend.findTask('AC-20')!.title))[0]!.parentElement!;
     const column = screen.getByRole('region', {
       name: project.backend.config.pipeline.columns.find((entry) => entry.id === 'review')!.name,
     });
@@ -102,9 +101,7 @@ describe('desktop board moving', () => {
           <BoardPage />
         </ToastProvider>,
       );
-      const card = (
-        await screen.findByRole('link', { name: new RegExp(project.backend.findTask(taskKey)!.title) })
-      ).parentElement!;
+      const card = (await findBoardCardLinks(project.backend.findTask(taskKey)!.title))[0]!.parentElement!;
       const workStage = project.backend.config.pipeline.stages.find((stage) => stage.id === 'dev')!;
       const workColumn = project.backend.config.pipeline.columns.find(
         (column) => column.id === workStage.columnId,
@@ -165,28 +162,26 @@ describe('desktop board moving', () => {
     project.render(<BoardPage />, '/', {
       can: { createTasks: false, manageTeam: false, workInSessions: false },
     });
-    const card = (
-      await screen.findByRole('link', { name: new RegExp(project.backend.findTask('AC-20')!.title) })
-    ).parentElement!;
+    const card = (await findBoardCardLinks(project.backend.findTask('AC-20')!.title))[0]!.parentElement!;
     expect(card.draggable).toBe(false);
   });
   it('disables dragging for done tasks', async () => {
     const project = mockProject();
     project.backend.updateTask('AC-20', { status: 'done' });
     project.render(<BoardPage />);
-    const card = (
-      await screen.findByRole('link', { name: new RegExp(project.backend.findTask('AC-20')!.title) })
-    ).parentElement!;
+    const card = (await findBoardCardLinks(project.backend.findTask('AC-20')!.title))[0]!.parentElement!;
     expect(card.draggable).toBe(false);
   });
   it('excludes cancelled tasks from the board', async () => {
     const project = mockProject();
     project.backend.updateTask('AC-20', { status: 'cancelled' });
     project.render(<BoardPage />);
-    await screen.findAllByRole('link', { name: new RegExp(project.backend.findTask('AC-17')!.title) });
-    // The team strip may still name the card a member carries, so look for the card's own link.
+    await findBoardCardLinks(project.backend.findTask('AC-17')!.title);
+    // The team strip may still name the card a member works on, so look for the card's own link.
     expect(
-      screen.queryAllByRole('link').some((link) => link.getAttribute('href')?.endsWith('/tasks/AC-20')),
+      withoutTeamStrip(screen.queryAllByRole('link')).some((link) =>
+        link.getAttribute('href')?.endsWith('/tasks/AC-20'),
+      ),
     ).toBe(false);
   });
   it('says an empty column is empty only when a filter or search narrowed the board', async () => {
@@ -221,7 +216,7 @@ describe('phone board', () => {
     phone();
     const project = mockProject();
     const view = project.render(<BoardPage />);
-    await screen.findByRole('link', { name: new RegExp(project.backend.findTask('AC-20')!.title) });
+    await findBoardCardLinks(project.backend.findTask('AC-20')!.title);
     expect(view.container.querySelector('[draggable="true"]')).toBeNull();
   });
 
@@ -240,10 +235,8 @@ describe('phone board', () => {
     phone();
     const project = mockProject();
     project.render(<BoardPage />);
-    const link = await screen.findByRole('link', {
-      name: new RegExp(project.backend.findTask('AC-20')!.title),
-    });
-    expect(within(link).getByText('AC-20')).toBeTruthy();
+    const [link] = await findBoardCardLinks(project.backend.findTask('AC-20')!.title);
+    expect(within(link!).getByText('AC-20')).toBeTruthy();
   });
 
   it('collapses the finished group to the newest few and expands it on request', async () => {

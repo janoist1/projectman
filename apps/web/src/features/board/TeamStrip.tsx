@@ -1,72 +1,67 @@
+import { useId } from 'react';
 import { Link } from 'react-router';
-import type { InboxItem, MemberView } from '@projectman/shared';
+import type { MemberView } from '@projectman/shared';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
-import { ProviderBadge } from '../../components/ProviderBadge';
+import { Icon } from '../../components/Icon';
 import { t } from '../../i18n/t';
-import { cardsLine, isStandingRole, memberCardKeys, memberStatusView } from '../../lib/members';
+import { cardsLine, workingNow } from '../../lib/members';
 import styles from './TeamStrip.module.css';
 
 interface TeamStripProps {
   members: readonly MemberView[];
-  inbox: readonly InboxItem[] | undefined;
-  activeTaskCount: number;
-  /** Task titles by key, for the card a member is on. */
+  /** Task titles by key of the cards on the board; a chip names only these. */
   titles: ReadonlyMap<string, string>;
 }
 
-/** Standing roles with their status and the card they are on, plus the whole mixed team at a glance. */
-export function TeamStrip({ members, inbox, activeTaskCount, titles }: TeamStripProps) {
-  const { key, myHandle } = useProject();
-  const standing = members.filter(isStandingRole);
-  const active = members.filter((member) => member.status !== 'retired');
-  const humans = active.filter((member) => member.kind === 'human');
-  const ai = active.filter((member) => member.kind === 'ai');
-  const ordered = [
-    ...humans.filter((member) => member.handle === myHandle),
-    ...humans.filter((member) => member.handle !== myHandle),
-    ...ai,
-  ];
+/** Who works on a card right now, and on which; the whole team is on the Team page. */
+export function TeamStrip({ members, titles }: TeamStripProps) {
+  const { key } = useProject();
+  const labelId = useId();
+  if (!members.some((member) => member.kind === 'ai' && member.status !== 'retired')) return null;
+  const working = workingNow(members, new Set(titles.keys()));
+
+  if (working.length === 0) {
+    return (
+      <section aria-label={t('board.workingNow')} className={styles.strip}>
+        <p className={styles.empty}>
+          {t('board.nobodyWorking')}
+          <Link to={`/p/${key}/team`} className={styles.teamLink}>
+            {t('board.teamLink')}
+            <Icon name="chevronRight" size={14} strokeWidth={2.4} />
+          </Link>
+        </p>
+      </section>
+    );
+  }
 
   return (
-    <section aria-label={t('board.teamStrip')} className={styles.strip}>
-      {standing.map((member) => {
-        const view = memberStatusView(member, inbox, myHandle);
-        return (
-          <Link key={member.handle} to={`/p/${key}/team/${member.handle}`} className={styles.role}>
-            <Avatar member={member} size="lg" status={view.status} />
-            <span className={styles.text}>
-              <span className={styles.top}>
+    <section aria-labelledby={labelId} className={styles.strip}>
+      <span id={labelId} className={styles.title}>
+        {t('board.workingNow')}
+      </span>
+      <ul className={styles.list}>
+        {working.map(({ member, keys }) => {
+          const onlyKey = keys.length === 1 ? keys[0]! : null;
+          const cardTitle = onlyKey ? titles.get(onlyKey) : undefined;
+          const cards = cardsLine(keys, titles) ?? '';
+          return (
+            <li key={member.handle}>
+              <Link
+                to={onlyKey ? `/p/${key}/tasks/${onlyKey}` : `/p/${key}/team/${member.handle}`}
+                className={styles.chip}
+                title={keys.map((cardKey) => `${cardKey} ${titles.get(cardKey) ?? ''}`.trim()).join('\n')}
+                aria-label={t('board.workingChip', { name: member.displayName, cards })}
+              >
+                <Avatar member={member} size="sm" />
                 <span className={styles.name}>{member.displayName}</span>
-                {member.kind === 'ai' ? <ProviderBadge provider={member.provider} /> : null}
-                <span className={styles.status} data-status={view.status}>
-                  {view.label}
-                </span>
-              </span>
-              <span className={styles.activity}>
-                {cardsLine(memberCardKeys(member), titles) ?? t('team.noTask')}
-              </span>
-            </span>
-          </Link>
-        );
-      })}
-      <div className={styles.summary}>
-        {ordered
-          .filter((member) => !standing.some((s) => s.handle === member.handle))
-          .map((member) => (
-            <Link key={member.handle} to={`/p/${key}/team/${member.handle}`} aria-label={member.displayName}>
-              <Avatar member={member} isMe={member.handle === myHandle} size="md" />
-            </Link>
-          ))}
-        <span className={styles.text}>
-          <span className={styles.name}>
-            {t('board.teamSummary', { members: active.length, tasks: activeTaskCount })}
-          </span>
-          <span className={styles.activity}>
-            {t('board.teamSummaryDetail', { humans: humans.length, ai: ai.length })}
-          </span>
-        </span>
-      </div>
+                <span className={styles.key}>{onlyKey ?? cardsLine(keys, new Map())}</span>
+                {cardTitle ? <span className={styles.cardTitle}>{cardTitle}</span> : null}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }

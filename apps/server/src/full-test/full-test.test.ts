@@ -9,7 +9,7 @@ import {
   OUTPUT_TAIL_CHARS,
   stripAnsi,
 } from './output';
-import { fullTestEnv, niceCommand, runDirOf, runPaths, shellQuote, srtSettings } from './sandbox';
+import { fullTestEnv, niceSrtCommand, runDirOf, runPaths, srtSettings } from './sandbox';
 
 describe('the output of a full test', () => {
   it('removes ANSI sequences', () => {
@@ -124,11 +124,22 @@ describe('the sandbox of a full test run', () => {
     });
   });
 
-  it('runs the command at low priority as one shell word', () => {
-    expect(shellQuote("it's")).toBe(`'it'\\''s'`);
-    expect(niceCommand("echo 'a b' && npm test")).toBe(
-      `/usr/bin/nice -n 10 /bin/sh -c 'echo '\\''a b'\\'' && npm test'`,
-    );
+  it('starts the sandbox at low priority, outside it, with the command as one argument', () => {
+    expect(
+      niceSrtCommand('/usr/bin/node', '/x/cli.js', '/run/settings.json', "echo 'a b' && npm test"),
+    ).toEqual({
+      file: '/usr/bin/nice',
+      args: [
+        '-n',
+        '10',
+        '/usr/bin/node',
+        '/x/cli.js',
+        '--settings',
+        '/run/settings.json',
+        '-c',
+        "echo 'a b' && npm test",
+      ],
+    });
   });
 });
 

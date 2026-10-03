@@ -755,7 +755,8 @@ commit pinned at the hand-over, run by the server.
   review pin is saved (the stage change) or a new round re-pins (`repinReview`, on the developer's message to a
   reviewer), and drops the queued or running run of an older pin or of a stage the card left (`cancelled`:
   `repinned`, `stage_left`; `branch_moved`, `interrupted` at a restart, `shutdown` at a stop). One run runs at a
-  time in the whole installation, first in first out, under `nice -n 10`.
+  time in the whole installation, first in first out, under `nice -n 10` (set on the process that starts
+  srt, outside the sandbox: Seatbelt refuses `setpriority` inside it; the sandbox and the command inherit it).
 - **Executor.** `src/full-test` (`FullTestExecutor` in `contracts/full-test.ts`) writes the srt settings
   (`fullTestSandbox`: reads the checkout and the configured repository's git directory only, writes its run
   directory `<tmp>/pmft-<end of the run id>/`, no network except listening on local ports, `allowPty`; the

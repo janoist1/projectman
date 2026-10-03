@@ -8,11 +8,18 @@ import { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import type { FullTestErrorReason } from '@projectman/shared';
 import type { FullTestExecutor, FullTestResult, FullTestSpec } from '../contracts';
 import { failedFiles, outputTail, OutputTail } from './output';
-import { FULL_TEST_GIT_CONFIG, fullTestEnv, niceCommand, runDirOf, runPaths, srtSettings } from './sandbox';
+import {
+  FULL_TEST_GIT_CONFIG,
+  fullTestEnv,
+  niceSrtCommand,
+  runDirOf,
+  runPaths,
+  srtSettings,
+} from './sandbox';
 import type { RunPaths } from './sandbox';
 
 export { failedFiles, outputTail, stripAnsi } from './output';
-export { fullTestEnv, niceCommand, runDirOf, runPaths, srtSettings } from './sandbox';
+export { fullTestEnv, niceSrtCommand, runDirOf, runPaths, srtSettings } from './sandbox';
 
 /** A short temporary root for when `tmpDir` is too deep for the sandbox's socket (macOS: `/tmp` is a link to this). */
 const SHORT_ROOT = process.platform === 'darwin' ? '/private/tmp' : '/tmp';
@@ -68,7 +75,8 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
       let aborted = false;
       let killTimer: NodeJS.Timeout | undefined;
       let settled = false;
-      const child = spawn(process.execPath, [srtCli(), '--settings', paths.settings, '-c', command], {
+      const start = niceSrtCommand(process.execPath, srtCli(), paths.settings, command);
+      const child = spawn(start.file, start.args, {
         cwd: spec.cwd,
         env: fullTestEnv(paths, spec.maxWorkers, baseEnv),
         detached: true,
@@ -183,7 +191,7 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
         if (pty.exitCode !== 0 || pty.timedOut)
           return failure('pty_unavailable', started, pty.output, pty.exitCode);
 
-        const ended = await execute(paths, spec, niceCommand(spec.command), spec.timeoutMs, signal);
+        const ended = await execute(paths, spec, spec.command, spec.timeoutMs, signal);
         const durationMs = Date.now() - started;
         if (ended.aborted) return failure('killed', started, ended.output);
         if (ended.spawnError) return failure('spawn_failed', started, ended.output);

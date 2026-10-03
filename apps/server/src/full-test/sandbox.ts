@@ -89,12 +89,10 @@ export function fullTestEnv(
   return env;
 }
 
-/** A command for `sh -c`: one word, however it is written. */
-export function shellQuote(text: string): string {
-  return `'${text.replace(/'/g, `'\\''`)}'`;
-}
-
-/** The command the sandbox runs: the repository's command at low priority. */
-export function niceCommand(command: string): string {
-  return `/usr/bin/nice -n 10 /bin/sh -c ${shellQuote(command)}`;
+/**
+ * The process that starts the sandbox, at low priority: the priority is set outside the sandbox
+ * (Seatbelt refuses `setpriority` inside it), and the sandbox and the command below inherit it.
+ */
+export function niceSrtCommand(node: string, srtCli: string, settings: string, command: string) {
+  return { file: '/usr/bin/nice', args: ['-n', '10', node, srtCli, '--settings', settings, '-c', command] };
 }

@@ -1303,7 +1303,7 @@ export const hu = {
       footer: 'Ha közben másképp folytatódik a kártya (más fejlesztő, lezárás), ez a tétel magától lezárul.',
       toast: {
         replan: 'Pontosabb tervet kértünk a(z) {key} kártyához.',
-        reassign: 'A(z) {key} kártyát másik fejlesztő kapja.',
+        reassign: 'A(z) {key} kártyát más fejlesztő kapja.',
         another_round: 'A(z) {key} kártya kap még egy kört.',
       },
     },
@@ -1322,7 +1322,7 @@ export const hu = {
       },
       footer: 'Ha közben elcsitul, ez a tétel magától lezárul.',
       toast: {
-        stop_work: 'Leállítottuk a {key} AI-munkameneteit.',
+        stop_work: 'Leállítottuk a(z) {key} AI-munkameneteit.',
         let_run: 'Rendben, erről többet nem szólunk.',
       },
     },

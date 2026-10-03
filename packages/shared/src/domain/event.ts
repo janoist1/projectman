@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { FullTestErrorReason } from './full-test';
 import type { LabelChangeReason } from './label';
 import { MemberHandle } from './member';
 import type { GateCondition } from './pipeline';
@@ -44,6 +45,7 @@ export const TimelineEventType = z.enum([
   'refinement_turn',
   'task_loop',
   'task_fix_limit',
+  'task_full_test',
   'member_hired',
   'member_retired',
   'config_changed',
@@ -118,6 +120,8 @@ export interface TimelineEventData {
    * `reviewPin`: the commit of the developer's branch handed over with the move (PM-183).
    * `branchMoved`: the system sent the task back because the branch moved after that hand-over
    * (`pinned` is the commit handed over, `head` the branch's commit now).
+   * `testsFailed`: the system sent the task back because the server's full test of the pinned commit
+   * failed (PM-217); `runId` is the run (its `task_full_test` event holds the output).
    */
   task_stage_changed: {
     from: string;
@@ -126,6 +130,7 @@ export interface TimelineEventData {
     inboxItemIds?: string[];
     reviewPin?: { commit: string; branch: string };
     branchMoved?: { branch: string; pinned: string; head: string };
+    testsFailed?: { runId: string; branch: string; commit: string };
   };
   /** `reason`: the assignee left the team, or handed the task over (`from` is the one who left). */
   task_assigned: {
@@ -270,6 +275,26 @@ export interface TimelineEventData {
     by?: string;
     note?: string;
     endReason?: 'decided' | 'assignee_changed' | 'closed';
+  };
+  /**
+   * The server's full test of a task's pinned commit ended (PM-217, actor system): `passed`, `failed`
+   * (the command's verdict) or `error` (it could not run: `reason`). `outputTail` is ANSI-free, at most
+   * 6000 characters (`failed`/`error`).
+   */
+  task_full_test: {
+    outcome: 'passed' | 'failed' | 'error';
+    runId: string;
+    repo: string;
+    branch: string;
+    commit: string;
+    durationMs: number;
+    exitCode: number | null;
+    /** `failed`: files from vitest's " FAIL " lines, unique, at most 20; empty when none (e.g. typecheck). */
+    failedFiles?: string[];
+    /** `error` only. */
+    reason?: FullTestErrorReason;
+    /** `failed`/`error`: vitest's "Failed Tests" section from its start if present, else the end of the output. */
+    outputTail?: string;
   };
   member_hired: { handle: string; role: string; temp: boolean; sponsor: string };
   member_retired: { handle: string; handoverTo: string | null };

@@ -12,7 +12,7 @@ import {
   placementReadsOnly,
 } from '@projectman/shared';
 import type { RoleId, ProjectConfig, Task } from '@projectman/shared';
-import type { SessionPolicy } from '../contracts';
+import type { FullTestSandbox, SessionPolicy } from '../contracts';
 import { claudeShellRule, claudeToolRules, directoryRulePaths } from '../runner';
 import type { AgentSandbox } from '../contracts';
 import { isWithin, isWithinAny } from './command-paths';
@@ -305,6 +305,31 @@ export function sensitivePaths(input: { userHome: string; appHome?: string }): s
     ...user.map((name) => path.join(input.userHome, name)),
     ...(input.appHome ? app.map((name) => path.join(input.appHome!, name)) : []),
   ];
+}
+
+/**
+ * The read rules of the server's full test run (PM-217), stricter than a member's sandbox: nothing
+ * below the user's home and the app home (`denyRead`, the credentials and the live instance's data
+ * in it too), except the developer's checkout and the shared git directory it points to
+ * (`allowRead`; the checkout is read-only, the executor makes the run's own directory writable).
+ * Other cards' worktrees, the database and the secrets stay closed.
+ */
+export function fullTestSandbox(input: {
+  checkout: string;
+  gitDir?: string;
+  userHome: string;
+  appHome?: string;
+}): FullTestSandbox {
+  const { checkout, gitDir, userHome, appHome } = input;
+  const denied = sensitivePaths({ userHome, appHome });
+  return {
+    denyRead: [
+      ...new Set([userHome, ...(appHome && !isWithin(userHome, appHome) ? [appHome] : []), ...denied]),
+    ],
+    allowRead: [...new Set([checkout, ...(gitDir ? [gitDir] : [])])].filter(
+      (dir) => !isWithinAny(denied, dir),
+    ),
+  };
 }
 
 /** Hosts the web fetch tool never reaches: the live instance and anything else on this machine. */

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { FullTestErrorReason, FullTestStatus } from './full-test';
 import { LabelId } from './label';
 import { AgentProvider, MemberHandle } from './member';
 import type { HumanAccess } from './member';
@@ -72,6 +73,9 @@ export const TaskStartWaiting = z.object({
     // The gate before the work stage asks for labels an AI member sets (PM-236): that member's session
     // started on the card, and the developer's start continues once the labels are on it.
     'label_missing',
+    // The server's full test of the pinned commit (PM-217) has not ended: the reviewer's start
+    // continues once it has.
+    'full_test_pending',
   ]),
   /** `prerequisite_open`: the keys of the prerequisites still open. */
   prerequisites: z.array(TaskKey).optional(),
@@ -94,6 +98,15 @@ export const TaskReviewPin = z.object({
   commit: z.string(),
   branch: z.string(),
   pinnedAt: z.string(),
+  /** The server's full test of this commit (PM-217); absent when there is none or it was cancelled. */
+  fullTest: z
+    .object({
+      status: FullTestStatus.exclude(['cancelled']),
+      /** `finishedAt`, else `startedAt`, else `createdAt`. */
+      at: z.string(),
+      reason: FullTestErrorReason.optional(),
+    })
+    .optional(),
 });
 export type TaskReviewPin = z.infer<typeof TaskReviewPin>;
 

@@ -282,6 +282,25 @@ describe('fix round limit', () => {
       expect(events().at(-1)?.data).toMatchObject({ phase: 'ended', endReason: 'closed' });
     });
 
+    it('closes the item by itself when a person changes the assignee in the card (PATCH), too', async () => {
+      await owned();
+      const id = items()[0]!.id;
+      // The card's drawer changes the assignee only of a card nobody works on: the session is stopped first.
+      for (const session of h.repos.sessions.list('AR', { taskKey: 'AR-1' }))
+        h.repos.sessions.update(session.id, { state: 'ended' });
+      await h.domain.tasks.update('AR', 'AR-1', { assignee: 'dev-2' }, OWNER_ACTOR);
+      await settle();
+      expect(h.repos.inbox.get(id)).toMatchObject({
+        state: 'resolved',
+        resolution: { by: 'system', rule: 'fix_limit_ended' },
+      });
+      expect(record()).toMatchObject({ holdPhase: null, extraRounds: 0 });
+      expect(task().fixLimit).toBeUndefined();
+      expect(events().at(-1)?.data).toMatchObject({ phase: 'ended', endReason: 'assignee_changed' });
+      const config = await h.domain.projects.config('AR');
+      expect(h.domain.fixLimit.fixRounds(task(), config)).toEqual({ rounds: 0, limit: 2 });
+    });
+
     it("a person's Start of the held card is one more round", async () => {
       await prepare();
       await round('First fix');

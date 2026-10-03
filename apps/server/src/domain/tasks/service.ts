@@ -596,7 +596,7 @@ export class TaskService {
         effects.push(() => this.ctx.events.emit('task_description_changed', { task: next, actor }));
       if (labelsChanged)
         this.labels.record(config, next, labels, actor, { comment: note, sessionId }, effects);
-      if (patch.assignee !== undefined)
+      if (patch.assignee !== undefined) {
         this.timeline.append({
           projectKey: task.projectKey,
           taskKey: task.key,
@@ -604,6 +604,12 @@ export class TaskService {
           type: 'task_assigned',
           data: { assignee: next.assignee, previous: task.assignee },
         });
+        // Whoever listens to a change of assignee (a held fix round limit ends with it) hears this one too.
+        const assigned = next;
+        effects.push(() =>
+          this.ctx.events.emit('task_assigned', { task: assigned, previous: task.assignee, actor }),
+        );
+      }
       if (patch.parentKey !== undefined)
         this.recordParentChange(next, task.parentKey ?? null, actor, sessionId);
       // A card that became a subtask, or left its collecting card, shows another theme now, which only a

@@ -1,4 +1,4 @@
-import { DEFAULT_AGENT_PROVIDER, openPrerequisites } from '@projectman/shared';
+import { DEFAULT_AGENT_PROVIDER, fixLimitDecisionOf, openPrerequisites } from '@projectman/shared';
 import type { InboxItem, LabelView, MemberView, Task, WorkDoing } from '@projectman/shared';
 import { formatAge } from '../i18n/format';
 import { joinNames, t } from '../i18n/t';
@@ -297,7 +297,12 @@ function deriveOpenState(task: Task, ctx: TaskStateContext, wait: PrerequisiteWa
 
   const mine = newestFirst(open.filter((item) => isAssignedTo(item, myHandle)));
   if (mine[0]) {
-    return { phase: 'needs_you', label: needsYouLabel(mine[0]), since: mine[0].createdAt, worker: null };
+    // The decision of a held card says how many rounds it took, like the line of everybody else.
+    const label =
+      task.fixLimit && fixLimitDecisionOf(mine[0])
+        ? fixLimitStatus(task.fixLimit, members, myHandle)
+        : needsYouLabel(mine[0]);
+    return { phase: 'needs_you', label, since: mine[0].createdAt, worker: null };
   }
 
   if (task.status === 'blocked') {

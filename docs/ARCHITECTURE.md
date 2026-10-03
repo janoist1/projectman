@@ -797,7 +797,10 @@ on (`passed_on`), or when the card reaches the limit again after one more round 
 `task_fix_limits` (migration 30); the card carries it as `Task.fixLimit` (clients do not see it) and
 `TaskDetail.fixRounds`. The hold ends with a decision, a change of the assignee (the count then starts anew) or
 the card's closing; its inbox decision closes itself with the `fix_limit_ended` rule. The timeline event is
-`task_fix_limit` (`reached`, `passed_on`, `decided`, `ended`).
+`task_fix_limit` (`reached`, `passed_on`, `decided`, `ended`). The notices to the lead, the planner and a
+running assignee are not stored team messages (the timeline would show their English text): a `delivery.notice`
+into the member's running session of the card, or the first input of a new one, like the loop watch's; only
+when admission cannot start the session now is the notice stored as a message from `system`.
 
 ## GitHub
 

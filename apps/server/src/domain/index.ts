@@ -423,6 +423,8 @@ export function createDomain(opts: DomainOptions) {
     inbox,
     timeline,
     messaging,
+    admission,
+    delivery,
     starts: taskStarts,
   });
   messaging.useFixLimit(fixLimit);

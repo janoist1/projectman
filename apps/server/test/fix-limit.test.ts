@@ -70,10 +70,26 @@ describe('fix round limit', () => {
   const items = (): InboxItem[] => h.domain.inbox.list('AR', { kind: 'decision', taskKey: 'AR-1' });
   const events = () =>
     h.repos.timeline.list('AR', { taskKey: 'AR-1' }).filter((event) => event.type === 'task_fix_limit');
-  const told = (member: string) =>
+  /** What a member's sessions of the card got as a notice: in their first input, or typed into them. */
+  const told = (member: string): string[] => {
+    const sessions = h.runner.started.filter((spec) => spec.member === member);
+    return [
+      ...sessions.map((spec) => spec.initialMessage ?? ''),
+      ...h.runner.messages
+        .filter((message) => sessions.some((spec) => spec.sessionId === message.sessionId))
+        .map((message) => message.text),
+    ];
+  };
+  /** The notices are not stored as team messages, which the timeline would show in English. */
+  const stored = (member: string) =>
     h.repos.timeline
       .list('AR', { taskKey: 'AR-1' })
-      .filter((event) => event.type === 'team_message' && (event.data.to as string[]).includes(member));
+      .filter(
+        (event) =>
+          event.type === 'team_message' &&
+          event.actor.kind === 'system' &&
+          (event.data.to as string[]).includes(member),
+      );
   const tool = (member: string, decision: 'continue' | 'replan' | 'to_owner', reason = 'Because.') =>
     h.domain.fixLimit.decide(member, 'AR', 'AR-1', decision, reason);
 
@@ -98,9 +114,12 @@ describe('fix round limit', () => {
       expect(events().map((event) => event.data)).toMatchObject([
         { phase: 'reached', rounds: 2, limit: 2, decider: 'lead' },
       ]);
-      expect(told('lead').map((event) => event.data.excerpt)).toEqual([
-        expect.stringContaining('AR-1 has had 2 fix rounds (the limit is 2)'),
-      ]);
+      await vi.waitFor(() =>
+        expect(
+          told('lead').filter((text) => text.includes('AR-1 has had 2 fix rounds (the limit is 2)')),
+        ).toHaveLength(1),
+      );
+      expect(stored('lead')).toEqual([]);
       expect(items()).toEqual([]);
     });
 
@@ -175,9 +194,10 @@ describe('fix round limit', () => {
       await held();
       await expect(tool('lead', 'replan', 'The plan is too loose.')).resolves.toEqual({ phase: 'replan' });
       expect(record()).toMatchObject({ holdPhase: 'replan', decider: 'arch' });
-      expect(told('arch').map((event) => event.data.excerpt)).toEqual([
-        expect.stringContaining('more exact plan'),
-      ]);
+      await vi.waitFor(() =>
+        expect(told('arch').filter((text) => text.includes('more exact plan'))).toHaveLength(1),
+      );
+      expect(stored('arch')).toEqual([]);
       expect(waiting()).toHaveLength(1);
       // Only the planner decides now.
       await expect(tool('lead', 'continue')).rejects.toMatchObject({ code: 'fix_limit_not_decider' });
@@ -287,7 +307,7 @@ describe('fix round limit', () => {
       const id = items()[0]!.id;
       // The card's drawer changes the assignee only of a card nobody works on: the session is stopped first.
       for (const session of h.repos.sessions.list('AR', { taskKey: 'AR-1' }))
-        h.repos.sessions.update(session.id, { state: 'ended' });
+        h.repos.sessions.update(session.id, { state: 'exited' });
       await h.domain.tasks.update('AR', 'AR-1', { assignee: 'dev-2' }, OWNER_ACTOR);
       await settle();
       expect(h.repos.inbox.get(id)).toMatchObject({

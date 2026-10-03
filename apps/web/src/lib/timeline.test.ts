@@ -410,7 +410,7 @@ describe('fix round limit timeline rows (PM-262)', () => {
         who: t('fixLimit.events.who', { name: 'lead' }),
       }),
     );
-    expect(text({ phase: 'reached', decider: null, deciders: ['owner'] })).toContain('Te döntesz.');
+    expect(text({ phase: 'reached', decider: null, deciders: ['owner'] })).toContain('); te döntesz.');
   });
 
   it('words the hand-over to the people, the decision with its note and the end', () => {

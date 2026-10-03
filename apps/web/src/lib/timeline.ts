@@ -157,8 +157,6 @@ function loopEventText(d: Record<string, unknown>, ctx: TimelineContext): string
 const FIX_LIMIT_DECISIONS = ['continue', 'another_round', 'replan', 'reassign'] as const;
 const FIX_LIMIT_END_REASONS = ['decided', 'assignee_changed', 'closed'] as const;
 
-const upperFirst = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
-
 /** A card held at its fix round limit (PM-262): reached, passed on to the people, decided, or over. */
 function fixLimitEventText(d: Record<string, unknown>, ctx: TimelineContext): string {
   const note = str(d.note).trim();
@@ -189,10 +187,7 @@ function fixLimitEventText(d: Record<string, unknown>, ctx: TimelineContext): st
       const deciders = strings(d.deciders);
       const who = d.decider
         ? t('fixLimit.events.who', { name: nameOf(str(d.decider), ctx.members, ctx.myHandle) })
-        : t('fixLimit.events.people', {
-            // It opens a sentence: "Te döntesz." and not "te döntesz."
-            decides: upperFirst(decidesText(deciders, ctx.members, ctx.myHandle)),
-          });
+        : t('fixLimit.events.people', { decides: decidesText(deciders, ctx.members, ctx.myHandle) });
       const rounds = Number(d.rounds) || 0;
       const limit = Number(d.limit) || 0;
       const parts = fixRoundParts({

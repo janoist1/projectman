@@ -4,6 +4,7 @@ import {
   FIX_REPLAN_OPTION,
   countFixRounds,
   fixLimitDeciders,
+  formatInjectedTeamMessage,
   fixLimitDecisionOf,
   fixLimitLead,
   fixLimitPlanner,
@@ -27,12 +28,12 @@ import type {
 } from '@projectman/shared';
 import type { TaskFixLimitRecord } from '../db';
 import { ownerHandles } from './access';
-import type { TaskStarts } from './admission';
+import type { Admission, TaskStarts } from './admission';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
 import { conflict, forbidden } from './errors';
 import type { InboxService } from './inbox';
-import type { Messaging } from './messaging';
+import type { MessageDelivery, Messaging } from './messaging';
 import type { ProjectService } from './projects';
 import type { SessionOrchestrator } from './sessions';
 import type { TaskService } from './tasks';
@@ -68,6 +69,8 @@ export class FixLimitWatch {
   private readonly inbox: InboxService;
   private readonly timeline: TimelineService;
   private readonly messaging: Pick<Messaging, 'send' | 'releaseWaiting'>;
+  private readonly admission: Admission;
+  private readonly delivery: MessageDelivery;
   private readonly starts: Pick<TaskStarts, 'start'>;
   /** One decision about a card at a time. */
   private readonly cards = new KeyedMutex();
@@ -80,6 +83,8 @@ export class FixLimitWatch {
     inbox: InboxService;
     timeline: TimelineService;
     messaging: Pick<Messaging, 'send' | 'releaseWaiting'>;
+    admission: Admission;
+    delivery: MessageDelivery;
     starts: Pick<TaskStarts, 'start'>;
   }) {
     this.ctx = deps.ctx;
@@ -89,6 +94,8 @@ export class FixLimitWatch {
     this.inbox = deps.inbox;
     this.timeline = deps.timeline;
     this.messaging = deps.messaging;
+    this.admission = deps.admission;
+    this.delivery = deps.delivery;
     this.starts = deps.starts;
   }
 
@@ -544,37 +551,69 @@ export class FixLimitWatch {
     }
   }
 
-  /** The assignee is told the card goes on, by whom and why. */
+  /**
+   * The assignee's running session is told the card goes on, by whom and why. One that does not run
+   * needs no notice: the messages that waited reach it with its next start, and the timeline tells people.
+   */
   private async tellAssignee(task: Task, by: string, reason: string | null): Promise<void> {
     if (!task.assignee) return;
+    const running = this.sessions.findRunning(task.projectKey, task.assignee, {
+      type: 'task',
+      taskKey: task.key,
+    });
+    if (!running) return;
     const text = [
       `The fix round limit on ${task.key} was lifted by ${by}: you can go on with the open change requests.`,
       reason ? `Reason: ${reason}` : null,
     ]
       .filter(Boolean)
       .join(' ');
-    await this.messaging
-      .send(
-        task.projectKey,
-        'system',
-        { to: [task.assignee], text, taskKey: task.key },
-        { actor: SYSTEM_ACTOR },
-      )
-      .catch((err: unknown) => {
-        this.ctx.logger.warn({ err, taskKey: task.key }, 'could not tell the assignee about the decision');
-      });
+    this.delivery.notice(running, 'projectman', text, task.key);
   }
 
-  /** A system message to a decider, in the background: the hold does not wait for a session. */
+  /** A decider is told in the background: the hold does not wait for a session. */
   private tell(task: Task, handle: string, text: string): void {
-    this.messaging
-      .send(task.projectKey, 'system', { to: [handle], text, taskKey: task.key }, { actor: SYSTEM_ACTOR })
-      .catch((err: unknown) => {
-        this.ctx.logger.warn(
-          { err, taskKey: task.key, member: handle },
-          'could not tell the fix limit decider',
-        );
-      });
+    this.notify(task, handle, text).catch((err: unknown) => {
+      this.ctx.logger.warn(
+        { err, taskKey: task.key, member: handle },
+        'could not tell the fix limit decider',
+      );
+    });
+  }
+
+  /**
+   * A notice that is not stored as a team message (PM-261's pattern): typed into the member's running
+   * session of the card, or the first input of a new one. Only when admission cannot start it now (the
+   * member or the team is at its limit) is it stored, so it still reaches the member with its next session.
+   */
+  private async notify(task: Task, handle: string, text: string): Promise<void> {
+    const workItem = { type: 'task', taskKey: task.key } as const;
+    const running = this.sessions.findRunning(task.projectKey, handle, workItem);
+    if (running) {
+      this.delivery.notice(running, 'projectman', text, task.key);
+      return;
+    }
+    const config = await this.projects.config(task.projectKey);
+    const member = memberOf(config, handle);
+    if (member?.kind !== 'ai') return;
+    try {
+      await this.delivery.startAndDeliver(task.projectKey, handle, workItem, (messages) =>
+        this.admission.start({
+          config,
+          member,
+          workItem,
+          messages: [...messages, formatInjectedTeamMessage('projectman', text, task.key)],
+        }),
+      );
+    } catch (err) {
+      this.ctx.logger.info({ err, taskKey: task.key, member: handle }, 'fix limit notice stored for later');
+      await this.messaging.send(
+        task.projectKey,
+        'system',
+        { to: [handle], text, taskKey: task.key },
+        { actor: SYSTEM_ACTOR },
+      );
+    }
   }
 
   private event(

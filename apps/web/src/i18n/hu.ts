@@ -1300,8 +1300,7 @@ export const hu = {
           'A kártyát egy másik fejlesztő kapja, friss munkamenettel; a számlálás újrakezdődik. Az eddigi fejlesztő munkamenete leáll.',
         another_round: 'A fejlesztő megkapja a várakozó üzeneteket, és eggyel több kört kap.',
       },
-      footer:
-        'Ha közben másképp folytatódik a kártya (másik megvalósító, lezárás), ez a tétel magától lezárul.',
+      footer: 'Ha közben másképp folytatódik a kártya (más fejlesztő, lezárás), ez a tétel magától lezárul.',
       toast: {
         replan: 'Pontosabb tervet kértünk a(z) {key} kártyához.',
         reassign: 'A(z) {key} kártyát másik fejlesztő kapja.',
@@ -1640,11 +1639,11 @@ export const hu = {
       closed: 'a kártya lezárult',
     },
     events: {
-      reached: 'A kártya elérte a javítási körök határát: {rounds} kör ({parts}). {who}',
+      reached: 'A kártya elérte a javítási körök határát: {rounds} kör ({parts}); {who}.',
       reachedLimit:
-        'A kártya elérte a javítási körök határát: {rounds} kör, a határ {limit} ({parts}). {who}',
-      who: '{name} dönt.',
-      people: '{decides}.',
+        'A kártya elérte a javítási körök határát: {rounds} kör, a határ {limit} ({parts}); {who}.',
+      who: '{name} dönt',
+      people: '{decides}',
       passed_on: 'Továbbadta a döntést: {decides}.{note}',
       decided: 'Döntött: {decision}.{note}',
       ended: 'A javítási körök határa nem tartja vissza többé: {reason}.',

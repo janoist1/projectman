@@ -256,5 +256,9 @@ describe('the decision of a held card in the inbox', () => {
     expect(screen.queryByRole('heading', { name: t('inbox.fixLimit.heading') })).toBeNull();
     expect(screen.getByText(new RegExp(t('inbox.resolutions.fix_limit_ended')))).toBeTruthy();
     expect(screen.getByText(t('inbox.fixLimit.subject', { key: 'AC-21' }))).toBeTruthy();
+    // The system raised it: the line names "Rendszer", not the raw source.
+    expect(
+      screen.getByText(`${t('inbox.resolutions.fix_limit_ended')} · ${t('common.system')} · AC-21`),
+    ).toBeTruthy();
   });
 });

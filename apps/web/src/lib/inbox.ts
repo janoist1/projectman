@@ -253,7 +253,9 @@ export function decisionSubject(item: InboxItem): string {
 
 /** One line of a history list: what was decided · who asked · for which task ("Engedélyezve · Senior Fejlesztő · PM-141"). */
 export function decisionLine(item: InboxItem, members: MemberIndex, myHandle: string | null): string {
-  return [resolutionLabel(item), nameOf(item.source, members, myHandle), item.taskKey]
+  // The system raised some items itself (a loop, a fix round limit): its source is no member's handle.
+  const source = item.source === 'system' ? null : item.source;
+  return [resolutionLabel(item), nameOf(source, members, myHandle), item.taskKey]
     .filter((part): part is string => Boolean(part))
     .join(' · ');
 }

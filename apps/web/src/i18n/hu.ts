@@ -1303,9 +1303,9 @@ export const hu = {
       footer:
         'Ha közben másképp folytatódik a kártya (másik megvalósító, lezárás), ez a tétel magától lezárul.',
       toast: {
-        replan: 'Pontosabb tervet kértünk a {key} kártyához.',
-        reassign: 'A {key} kártyát másik fejlesztő kapja.',
-        another_round: 'A {key} kártya kap még egy kört.',
+        replan: 'Pontosabb tervet kértünk a(z) {key} kártyához.',
+        reassign: 'A(z) {key} kártyát másik fejlesztő kapja.',
+        another_round: 'A(z) {key} kártya kap még egy kört.',
       },
     },
     /** A card whose AI members write to each other without progress (PM-261): a decision only when needed. */
@@ -1644,7 +1644,7 @@ export const hu = {
       reachedLimit:
         'A kártya elérte a javítási körök határát: {rounds} kör, a határ {limit} ({parts}). {who}',
       who: '{name} dönt.',
-      people: '{names} dönt.',
+      people: '{decides}.',
       passed_on: 'Továbbadta a döntést: {decides}.{note}',
       decided: 'Döntött: {decision}.{note}',
       ended: 'A javítási körök határa nem tartja vissza többé: {reason}.',

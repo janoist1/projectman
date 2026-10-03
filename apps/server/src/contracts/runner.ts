@@ -343,7 +343,9 @@ export interface SessionRunner {
   /**
    * Ends the pause: a stopped session's input is let through, with a non-empty `nudge` typed first;
    * a session still stopping has its pause taken back (pending `pause` promises resolve to null).
-   * False, and nothing done, when there is no pause. No event: the caller knows.
+   * A session still stopping whose turn is already ending (a halting answer or an Esc went out)
+   * keeps the nudge too, typed once the turn has ended; otherwise the turn goes on and the nudge is
+   * dropped. False, and nothing done, when there is no pause. No event: the caller knows.
    */
   release(sessionId: string, opts?: { nudge?: string }): boolean;
   /**

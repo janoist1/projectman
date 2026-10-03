@@ -933,6 +933,48 @@ describe('pausing (PM-218)', () => {
     await expect(paused).resolves.toEqual({ point: 'idle', tool: null });
   });
 
+  it('does not give up a forced compaction to a timeout: one Esc cancels it and the session stops', async () => {
+    const s = await ready();
+    void s.session.compact('Keep the card.');
+    await vi.advanceTimersByTimeAsync(TYPE_MS);
+    await s.hook({ hook_event_name: 'PreCompact', trigger: 'manual' });
+    const paused = s.session.forcePause();
+    expect(escapes(s.pty)).toBe(1);
+    await expect(paused).resolves.toEqual({ point: 'interrupted', tool: null });
+    expect(s.session.state.state).toBe('idle');
+    expect(escapes(s.pty)).toBe(1);
+  });
+
+  it('keeps the halted turn open while parallel tools run and the prompt is up (it is up while they work)', async () => {
+    const s = await ready();
+    await submit(s);
+    await pre(s, 't1');
+    await pre(s, 't2');
+    const paused = s.session.pause();
+    await expect(post(s, 't1')).resolves.toEqual({ continue: false, stopReason: PAUSED_AFTER_TOOL });
+    s.pty.print(CLAUDE_PROMPT);
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.haltStopMs * 3);
+    expect(await settled(paused)).toBe(false);
+    expect(s.session.state.state).toBe('working');
+
+    await post(s, 't2');
+    await s.hook({ hook_event_name: 'Stop' });
+    await expect(paused).resolves.toEqual({ point: 'after_tool', tool: 'Bash' });
+  });
+
+  it('does not take the prompt for a stop while the screen shows the agent working', async () => {
+    const s = await ready();
+    await submit(s);
+    await pre(s, 't1');
+    const paused = s.session.forcePause();
+    s.pty.print(`${CLAUDE_PROMPT}\r\n  esc to interrupt`);
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.interruptConfirmMs * 3);
+    expect(escapes(s.pty)).toBe(1);
+    expect(await settled(paused)).toBe(false);
+    await s.hook({ hook_event_name: 'Stop' });
+    await expect(paused).resolves.toEqual({ point: 'interrupted', tool: 'Bash' });
+  });
+
   it('holds the brief of a starting session back, and stops idle once it is ready', async () => {
     const s = start({ spec: { initialMessage: 'The brief' } });
     const paused = s.session.pause();
@@ -1044,6 +1086,27 @@ describe('pausing (PM-218)', () => {
       await pre(s, 't1');
       await s.hook({ hook_event_name: 'Interrupt' });
       await expect(paused).resolves.toEqual({ point: 'interrupted', tool: 'Bash' });
+    });
+
+    it('does not wait for a tool whose approval was denied: no PostToolUse comes for it', async () => {
+      const s = start({
+        adapter: codex(),
+        spec: { provider: 'codex' },
+        broker: { decide: () => Promise.resolve({ behavior: 'deny', message: 'No.' }) },
+      });
+      await s.hook({ hook_event_name: 'SessionStart', source: 'startup' });
+      await vi.advanceTimersByTimeAsync(CODEX_TIMING.readySettleMs);
+      await submit(s);
+      await pre(s, 't1');
+      const first = s.session.pause();
+      await s.hook({ hook_event_name: 'PermissionRequest', ...BASH, tool_use_id: 't1' });
+      await expect(first).resolves.toEqual({ point: 'waiting_permission', tool: 'Bash' });
+
+      // The denial lets the agent carry on, and there is no tool left to wait for: the Esc goes out.
+      await vi.advanceTimersByTimeAsync(0);
+      expect(escapes(s.pty)).toBe(1);
+      await s.hook({ hook_event_name: 'Interrupt' });
+      expect(log(s.events).at(-1)).toBe('paused(before_tool,null)');
     });
 
     it('stops a forced pause on the Interrupt hook, with the one Esc of the forced way', async () => {

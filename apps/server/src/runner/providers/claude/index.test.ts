@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { silentLogger } from '../../test-helpers';
-import { CLAUDE_AUTH_ERROR, claudePromptVisible, createClaudeAdapter, detectBlockingScreen } from './index';
+import {
+  CLAUDE_AUTH_ERROR,
+  claudePromptVisible,
+  claudeWorkingVisible,
+  createClaudeAdapter,
+  detectBlockingScreen,
+} from './index';
 
 const promptBox = [
   '────────────── Anna · AR-1 ──',
@@ -21,6 +27,13 @@ describe('Claude Code screen checks', () => {
     ].join('\n');
     expect(claudePromptVisible(screen)).toBe(true);
     expect(detectBlockingScreen(screen)).toBeNull();
+  });
+
+  it('tells a working screen from an idle one: the prompt box is up in both (PM-218)', () => {
+    const working = ['✻ Running… (12s · esc to interrupt)', ...promptBox];
+    expect(claudePromptVisible(working.join('\n'))).toBe(true);
+    expect(claudeWorkingVisible(working.join('\n'))).toBe(true);
+    expect(claudeWorkingVisible(promptBox.join('\n'))).toBe(false);
   });
 
   it('still sees a dialog that replaced the prompt box', () => {

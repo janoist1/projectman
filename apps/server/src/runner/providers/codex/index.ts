@@ -109,6 +109,11 @@ export function codexPromptVisible(text: string): boolean {
   return false;
 }
 
+/** Whether Codex's screen shows a turn in progress ("Working (3s • esc to interrupt)"). */
+export function codexWorkingVisible(text: string): boolean {
+  return /esc to interrupt/i.test(text);
+}
+
 /** A dialog blocking Codex in `text`, or null. History above a visible composer is not a dialog. */
 export function detectCodexBlockingScreen(text: string): string | null {
   if (codexPromptVisible(text)) return null;
@@ -174,6 +179,7 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
     hookAuthError: () => null,
     detectBlockingScreen: detectCodexBlockingScreen,
     promptVisible: codexPromptVisible,
+    workingVisible: codexWorkingVisible,
     createTranscriptParser(parserOpts): TranscriptLineParser {
       return new CodexTranscriptParser(parserOpts);
     },

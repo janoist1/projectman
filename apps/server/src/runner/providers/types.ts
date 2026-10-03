@@ -151,6 +151,11 @@ export interface ProviderAdapter {
   detectBlockingScreen(text: string): string | null;
   /** Whether the screen shows the input prompt, i.e. no dialog covers it. */
   promptVisible(text: string): boolean;
+  /**
+   * Whether the screen shows that the agent is working (its "esc to interrupt" hint). The prompt is
+   * on screen while it works too, so a pause takes "the prompt is up" as a stop only without this.
+   */
+  workingVisible(text: string): boolean;
   createTranscriptParser(opts: {
     self: string | null;
     cwd: string | null;

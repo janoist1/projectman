@@ -99,12 +99,19 @@ deadline, the timeline) is PM-219; this is what the runner does and relies on in
   is `working`, after the hook response of the tool's Post hook, so it does not race it.
 - **Confirmation and fallback.** One Esc is sent, never a second one. The confirmation is the hook
   (Codex) or the transcript's `interruptedAt` newer than the last prompt (Claude Code); after
-  `interruptConfirmMs` (5 s) the runner looks at the screen and, when the prompt box is up, treats the
-  turn as interrupted; if even that fails the pause stays stopping until its deadline or `release`.
-  A Claude turn halted without its Stop hook (`haltStopMs`, 5 s) is settled the same way from the screen.
+  `interruptConfirmMs` (5 s) the runner looks at the screen and, when the prompt box is up and no
+  "esc to interrupt" hint shows (`ProviderAdapter.workingVisible`: both CLIs keep the prompt on screen
+  while they work, so the prompt alone says nothing), treats the turn as interrupted; if even that fails
+  the pause stays stopping until a stop or `release`.
+  A Claude turn halted without its Stop hook (`haltStopMs`, 5 s) is settled the same way from the screen,
+  and only when no main-agent tool is left running (parallel tools: the turn goes on until the last one).
 - **Forced.** `pause` with `forceAfterMs` (when it passes) and `forcePause` send the one Esc as soon as
-  the session is `working`; a tool that is running is cut (`interrupted`, `tool` the one cut). A human's
-  own Esc during the stopping also reports `interrupted`. A pause that is already stopped is not forced.
+  the session is `working`; a tool that is running is cut (`interrupted`, `tool` the one cut). A
+  compaction asked for and running is not waited for: the Esc cancels it and it is given up at once.
+  A human's own Esc during the stopping also reports `interrupted`. A pause that is already stopped
+  is not forced.
+- **Refused tools.** A tool whose approval is denied (a decision, the timeout, a failure) sends no
+  PostToolUse, so it stops counting as running at the denial; the pause does not wait for it.
 - **Release.** `release` lets the input through again. A stopped session types the `nudge` first, then
   what waited. A session still stopping has its pause taken back: pending `pause` promises resolve to
   `null`; if a halting answer or Esc already went out (the turn is ending) the nudge is typed after the

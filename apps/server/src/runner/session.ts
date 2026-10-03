@@ -194,6 +194,10 @@ export class AgentSession {
       remembersSessionAllows: !this.adapter.capabilities.sessionPermissionRules,
       answer: (decision, payload) => this.adapter.permissionOutput(decision, payload),
       deny: (message) => this.adapter.denyOutput(message),
+      // A refused call sends no PostToolUse: it is not a running tool (a pause must not wait for it).
+      onDenied: (payload) => {
+        if (!payload.agent_id) this.noteToolEnd(payload);
+      },
       onWaiting: (activity) => this.apply({ kind: 'permission_request', activity }),
       onSettled: (pending) => this.apply({ kind: 'permission_resolved', pending }),
     });
@@ -468,10 +472,10 @@ export class AgentSession {
     });
     if (confirmed) return 'confirmed';
     if (this.hasExited) return 'unconfirmed';
-    if (this.adapter.promptVisible(this.screen.screenText(DIALOG_ROWS))) {
+    if (this.screenIdle()) {
       this.log.warn(
         { sessionId: this.id },
-        'the Esc was not confirmed, but the prompt is up: taken as interrupted',
+        'the Esc was not confirmed, but the prompt is up and nothing works: taken as interrupted',
       );
       this.input.schedule(this.timing.stopSettleMs);
       this.apply({ kind: 'interrupted' });
@@ -479,6 +483,15 @@ export class AgentSession {
     }
     this.log.warn({ sessionId: this.id }, 'the Esc was not confirmed and the prompt is not up');
     return 'unconfirmed';
+  }
+
+  /**
+   * The screen shows the prompt and no turn in progress. The prompt is up while the agent works too
+   * (a tool still running, parallel tools), so the prompt alone does not say the turn ended.
+   */
+  private screenIdle(): boolean {
+    const text = this.screen.screenText(DIALOG_ROWS);
+    return this.adapter.promptVisible(text) && !this.adapter.workingVisible(text);
   }
 
   private startPause({ forceAfterMs }: PauseOptions): PauseState {
@@ -538,10 +551,15 @@ export class AgentSession {
     p.stopCheck = null;
     if (this.pauseState !== p || p.phase !== 'stopping' || this.hasExited) return;
     if (this.current.state === 'idle') return;
-    if (this.adapter.promptVisible(this.screen.screenText(DIALOG_ROWS))) {
+    if (this.runningTools.size > 0) {
+      // Parallel tools: the turn goes on until the last of them is through.
+      p.stopCheck = this.timer(() => this.checkHaltedTurnEnded(p), this.timing.haltStopMs);
+      return;
+    }
+    if (this.screenIdle()) {
       this.log.warn(
         { sessionId: this.id },
-        'no Stop hook followed the halting answer: the prompt is up, closing the turn',
+        'no Stop hook followed the halting answer: the prompt is up and nothing works, closing the turn',
       );
       this.input.schedule(this.timing.stopSettleMs);
       this.apply({ kind: 'stop' });
@@ -602,7 +620,17 @@ export class AgentSession {
   /** A working session is being stopped: sends the Esc where the way needs one. */
   private driveStop(p: PauseState): void {
     if (this.current.state !== 'working' || this.input.isTyping) return;
-    if (this.compaction && this.compaction.phase !== 'queued') return;
+    const { compaction } = this;
+    if (p.forceRequested && !p.forced && compaction?.phase === 'started') {
+      // A forced pause does not wait out a compaction (up to compactTimeoutMs): one Esc cancels it, and
+      // it is given up at once, which idles the session.
+      p.forced = true;
+      p.halt = { point: 'interrupted', tool: null };
+      this.write(ESC);
+      this.abandonCompaction(compaction);
+      return;
+    }
+    if (compaction && compaction.phase !== 'queued') return;
     if (p.forceRequested && !p.forced) {
       p.forced = true;
       p.turnEnding = true;
@@ -851,6 +879,7 @@ export class AgentSession {
     // command rules; it is refused with the way forward, and the session carries on.
     if (this.spec.policy?.execution?.profile === 'managed_vm') {
       this.log.warn({ sessionId: this.id, toolName }, 'managed VM session asked for a local approval');
+      if (!payload.agent_id) this.noteToolEnd(payload);
       return this.adapter.denyOutput(MANAGED_VM_NO_LOCAL_APPROVAL);
     }
     if (!payload.agent_id) this.waitingTool = toolName;

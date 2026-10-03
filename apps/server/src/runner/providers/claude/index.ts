@@ -88,6 +88,11 @@ export function claudePromptVisible(text: string): boolean {
   return false;
 }
 
+/** Whether Claude Code's screen shows a turn in progress (its spinner line ends in "esc to interrupt"). */
+export function claudeWorkingVisible(text: string): boolean {
+  return /esc to interrupt/i.test(text);
+}
+
 /** A dialog blocking Claude Code in `text` (the end of the screen content), or null. */
 export function detectBlockingScreen(text: string): string | null {
   if (claudePromptVisible(text)) return null;
@@ -198,6 +203,7 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
     },
     detectBlockingScreen,
     promptVisible: claudePromptVisible,
+    workingVisible: claudeWorkingVisible,
     createTranscriptParser: claudeTranscriptParser,
 
     async checkLogin(env): Promise<ProviderStatus> {

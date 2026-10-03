@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import type { ProjectConfig } from '@projectman/shared';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
+import { flush } from './helpers/fakes';
 import { waitFor } from '../src/runner/test-helpers';
+import type { ScheduleTimer } from '../src/domain/schedules';
 
 const paused = { code: 'team_paused', status: 409 };
 const BY = { userId: null, source: 'system' } as const;
@@ -96,6 +99,56 @@ describe('pause of the team', () => {
     expect(h.domain.sessions.get('AR', session.id).pause).toBeUndefined();
     expect(h.domain.pauses.isPaused('AR')).toBe(false);
     expect(h.domain.pauses.projectView('AR')).toEqual({ project: null, instance: null });
+  });
+
+  it('lets a session cut at a tool go on with a nudge, and one stopped between turns without', async () => {
+    h = await createDomainHarness();
+    const { session: cut } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);
+    const { session: between } = await h.domain.sessions.ensureSession('AR', 'dev-2', general);
+    h.runner.pauseOutcomes.set(cut.id, { point: 'after_tool', tool: 'Bash' });
+    h.runner.pauseOutcomes.set(between.id, { point: 'idle', tool: null });
+    await h.domain.pauses.pause(PROJECT, BY);
+    await waitFor(() => h.domain.sessions.get('AR', cut.id).pause?.point);
+    await waitFor(() => h.domain.sessions.get('AR', between.id).pause?.point);
+    await h.domain.pauses.resume(PROJECT, BY);
+    expect(h.runner.releases).toEqual(
+      expect.arrayContaining([
+        { sessionId: cut.id, nudge: 'Nudge after_tool' },
+        { sessionId: between.id, nudge: undefined },
+      ]),
+    );
+  });
+
+  it('starts a session whose process is gone again on resume, with the nudge as its first input', async () => {
+    h = await createDomainHarness();
+    const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);
+    // A conversation that exists (the runner reported its transcript) is resumed.
+    h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: '/fictional/transcript.jsonl' });
+    h.runner.pauseOutcomes.set(session.id, { point: 'before_tool', tool: 'Edit' });
+    await h.domain.pauses.pause(PROJECT, BY);
+    await waitFor(() => h.domain.sessions.get('AR', session.id).pause?.point);
+    h.runner.emit({ type: 'exit', sessionId: session.id, exitCode: 0, signal: null });
+    expect(h.runner.started).toHaveLength(1);
+    await h.domain.pauses.resume(PROJECT, BY);
+    expect(h.runner.started).toHaveLength(2);
+    expect(h.runner.started[1]).toMatchObject({
+      sessionId: session.id,
+      resume: true,
+      initialMessage: 'Nudge before_tool restarted',
+    });
+    expect(h.repos.pauses.openSession(session.id)).toBeNull();
+  });
+
+  it('does not start a session again that was stopped between turns', async () => {
+    h = await createDomainHarness();
+    const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);
+    h.runner.pauseOutcomes.set(session.id, { point: 'turn_end', tool: null });
+    await h.domain.pauses.pause(PROJECT, BY);
+    await waitFor(() => h.domain.sessions.get('AR', session.id).pause?.point);
+    h.runner.emit({ type: 'exit', sessionId: session.id, exitCode: 0, signal: null });
+    await h.domain.pauses.resume(PROJECT, BY);
+    expect(h.runner.started).toHaveLength(1);
+    expect(h.repos.pauses.openSession(session.id)).toBeNull();
   });
 
   it('takes a second pause and a second resume as no change', async () => {
@@ -210,5 +263,47 @@ describe('pause of the team', () => {
     await h.domain.pauses.resume(PROJECT, BY);
     await waitFor(() => h.domain.sessions.findRunning('AR', 'cr', { type: 'task', taskKey: task.key }));
     expect(h.domain.tasks.get('AR', task.key).startWaiting).toBeUndefined();
+  });
+
+  it('makes up the scheduled run a pause swallowed, once', async () => {
+    const prompt = 'Inspect the fictional project and report maintenance opportunities.';
+    let at = new Date('2026-09-30T08:00:00Z');
+    let tick: (() => void) | undefined;
+    const timer: ScheduleTimer = {
+      set(callback) {
+        tick = callback;
+        return callback;
+      },
+      clear() {
+        tick = undefined;
+      },
+    };
+    h = await createDomainHarness({
+      now: () => at,
+      scheduleTimer: timer,
+      adjust(config: ProjectConfig) {
+        config.project.timezone = 'Europe/Budapest';
+        const member = config.team.members.find((m) => m.handle === 'dev-1')!;
+        if (member.kind === 'ai') member.schedule = { cron: '30 10 * * *', prompt };
+      },
+    });
+    await h.domain.pauses.pause(PROJECT, BY);
+    // 10:30 in Budapest: due while the team is paused, so skipped.
+    at = new Date('2026-09-30T08:30:00Z');
+    tick?.();
+    await flush();
+    expect(h.runner.started).toHaveLength(0);
+    expect(h.repos.schedules.list('AR').map((run) => run.status)).toEqual(['skipped']);
+    at = new Date('2026-09-30T09:00:10Z');
+    await h.domain.pauses.resume(PROJECT, BY);
+    await waitFor(() => h.runner.started.length > 0);
+    expect(h.runner.started).toHaveLength(1);
+    expect(h.runner.started[0]).toMatchObject({ initialMessage: prompt });
+    expect(
+      h.repos.schedules
+        .list('AR')
+        .map((run) => run.status)
+        .sort(),
+    ).toEqual(['skipped', 'started']);
   });
 });

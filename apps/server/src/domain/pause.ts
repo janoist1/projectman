@@ -1,4 +1,10 @@
-import { DEFAULT_PAUSE_FORCE_AFTER_MS, isWorkPaused, pauseStateOf, RESTART_POINTS } from '@projectman/shared';
+import {
+  DEFAULT_PAUSE_FORCE_AFTER_MS,
+  isWorkPaused,
+  NUDGE_POINTS,
+  pauseStateOf,
+  RESTART_POINTS,
+} from '@projectman/shared';
 import type {
   Actor,
   InstancePauseView,
@@ -12,10 +18,12 @@ import type {
 } from '@projectman/shared';
 import type { PauseOutcome, RunnerEvent, SessionRunner } from '../contracts';
 import type { PauseRecord, SessionPauseRecord } from '../db';
-import type { Admission } from './admission';
+import type { Admission, RefinementSteps } from './admission';
 import { findHumanByEmail } from './access';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
+import type { FixLimitWatch } from './fix-limit';
+import type { ScheduleService } from './schedules';
 import type { MessageDelivery } from './messaging';
 import type { ProjectService } from './projects';
 import type { SessionOrchestrator } from './sessions';
@@ -59,6 +67,9 @@ export class PauseService {
   private readonly runner: SessionRunner;
   private readonly delivery: MessageDelivery;
   private readonly timeline: TimelineService;
+  private readonly fixLimit: Pick<FixLimitWatch, 'afterResume'>;
+  private readonly schedules: Pick<ScheduleService, 'catchUp'>;
+  private readonly refinement: Pick<RefinementSteps, 'turnEnded'>;
   private readonly unsubscribe: () => void;
 
   constructor(deps: {
@@ -69,6 +80,9 @@ export class PauseService {
     runner: SessionRunner;
     delivery: MessageDelivery;
     timeline: TimelineService;
+    fixLimit: Pick<FixLimitWatch, 'afterResume'>;
+    schedules: Pick<ScheduleService, 'catchUp'>;
+    refinement: Pick<RefinementSteps, 'turnEnded'>;
   }) {
     this.ctx = deps.ctx;
     this.projects = deps.projects;
@@ -77,6 +91,9 @@ export class PauseService {
     this.runner = deps.runner;
     this.delivery = deps.delivery;
     this.timeline = deps.timeline;
+    this.fixLimit = deps.fixLimit;
+    this.schedules = deps.schedules;
+    this.refinement = deps.refinement;
     this.unsubscribe = deps.runner.onEvent((event) => this.handleRunnerEvent(event));
     // A stop somebody meant closed a session's row: its progress changed.
     deps.sessions.onPauseDropped((projectKey) => this.publishChanged([projectKey]));
@@ -385,7 +402,7 @@ export class PauseService {
     );
     this.publishChanged(projectKeys);
     await this.release(closed);
-    this.afterResume(closed);
+    await this.afterResume(closed, projectKeys);
   }
 
   /** The sessions of the resumed pause whose project no pause covers any more go on. */
@@ -399,6 +416,7 @@ export class PauseService {
       if (!session) continue;
       try {
         if (this.sessions.isRunning(session.id)) this.letGo(session, row);
+        else if (row.needsRestart) await this.restart(session, row, pause.kind);
         else this.delivery.dropPauseHeld(session.id);
       } catch (err) {
         this.ctx.logger.warn({ err, sessionId: session.id }, 'could not resume the session');
@@ -408,16 +426,63 @@ export class PauseService {
     this.publishChanged(this.coveredProjects(targetOf(pause)));
   }
 
-  /** A session whose process runs goes on: released (with a nudge where it was cut mid-turn), its held messages typed in. */
+  /**
+   * A session whose process runs goes on: released (with a nudge where it was cut mid-turn), its held
+   * messages typed in. One that stopped between turns (`idle`, `turn_end`) gets no nudge, and its turn
+   * ends for the refinement as it would have without the pause.
+   */
   private letGo(session: Session, row: SessionPauseRecord): void {
-    this.runner.release(session.id);
+    const nudge =
+      row.point && NUDGE_POINTS.includes(row.point)
+        ? this.sessions.pauseNudge(row.point, row.tool, false)
+        : undefined;
+    this.runner.release(session.id, nudge ? { nudge } : undefined);
     this.delivery.deliverPauseHeld(session);
     const current = this.ctx.repos.sessions.get(session.id);
-    if (current) this.sessions.afterPause(current);
+    if (!current) return;
+    this.sessions.afterPause(current);
+    if (row.point === 'idle' || row.point === 'turn_end') {
+      void this.refinement.turnEnded(current).catch((err: unknown) => {
+        this.ctx.logger.warn({ err, sessionId: session.id }, 'refinement step after the pause failed');
+      });
+    }
   }
 
-  /** What waited for the pause to end is tried again. */
-  private afterResume(_pause: PauseRecord): void {
+  /**
+   * A session whose process is gone (a shutdown, a crash, a stop of the runner) and that was cut in a turn is
+   * started again, with the nudge as its first input. The messages that wait for it are typed in after it
+   * started, as for any started session (`deliverWaiting`), so the ones a card holds back stay held by it.
+   * A start that fails leaves it stopped: the next message or wake-up resumes it with the continue message.
+   */
+  private async restart(session: Session, row: SessionPauseRecord, kind: PauseKind): Promise<void> {
+    this.delivery.dropPauseHeld(session.id);
+    // A pause of the shutdown cut the process, whatever the point: that is a new process as well.
+    const nudge = row.point ? this.sessions.pauseNudge(row.point, row.tool, true) : undefined;
+    this.ctx.logger.info(
+      { sessionId: session.id, point: row.point, kind },
+      'starting a paused session again',
+    );
+    await this.sessions.ensureSession(session.projectKey, session.member, session.workItem, { nudge });
+  }
+
+  /**
+   * What waited for the pause to end is tried again, in the projects no pause covers any more: the fix
+   * round decisions that were put off, the scheduled runs the pause swallowed (once each) and the starts
+   * that were deferred for it.
+   */
+  private async afterResume(pause: PauseRecord, projectKeys: readonly string[]): Promise<void> {
+    const stillPaused = this.ctx.repos.pauses.open();
+    const since = new Date(pause.requestedAt);
+    const until = new Date(isoNow(this.ctx));
+    for (const projectKey of projectKeys) {
+      if (isWorkPaused(stillPaused, projectKey)) continue;
+      try {
+        await this.fixLimit.afterResume(projectKey);
+        await this.schedules.catchUp(projectKey, since, until);
+      } catch (err) {
+        this.ctx.logger.warn({ err, projectKey }, 'could not pick up what waited for the pause');
+      }
+    }
     void this.admission.retryDeferred().catch((err: unknown) => {
       this.ctx.logger.warn({ err }, 'deferred start retry after the resume failed');
     });

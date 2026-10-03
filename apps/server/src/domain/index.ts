@@ -353,15 +353,6 @@ export function createDomain(opts: DomainOptions) {
     disk,
   });
   const delivery = new MessageDelivery({ ctx, sessions, messages });
-  const pauses = new PauseService({
-    ctx,
-    projects,
-    sessions,
-    admission,
-    runner: runnerModule.runner,
-    delivery,
-    timeline,
-  });
   const refinement = new RefinementSteps({ projects, tasks, sessions, admission, delivery, inbox, timeline });
   const messaging = new Messaging({ ctx, projects, tasks, sessions, messages, delivery, refinement });
   // The network gate's egress operations are one registry of the protected adapter; another
@@ -449,6 +440,19 @@ export function createDomain(opts: DomainOptions) {
     admission,
     timeline,
     timer: opts.scheduleTimer,
+  });
+  // The pause lets what it held go on: it needs the services that hold work back for it.
+  const pauses = new PauseService({
+    ctx,
+    projects,
+    sessions,
+    admission,
+    runner: runnerModule.runner,
+    delivery,
+    timeline,
+    fixLimit,
+    schedules,
+    refinement,
   });
   const reviewWatch = new ReviewWatch({ ctx, projects, tasks, sessions, messaging });
   const githubSync = new GithubSync({

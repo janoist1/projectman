@@ -311,6 +311,23 @@ describe('fix round limit', () => {
       expect(h.domain.fixLimit.fixRounds(task(), config)).toEqual({ rounds: 0, limit: 2 });
     });
 
+    it('puts a reassign decision made while paused off until the team is resumed (PM-219)', async () => {
+      await owned();
+      const by = { userId: null, source: 'system' } as const;
+      await h.domain.pauses.pause({ scope: 'project', projectKey: 'AR' }, by);
+      await resolve('reassign');
+      await settle();
+      // Nobody is stopped or started while the team is paused: the card stays with its holder.
+      expect(task().assignee).toBe('dev-1');
+      expect(h.runner.started.some((spec) => spec.member === 'dev-2')).toBe(false);
+      expect(record()).toMatchObject({ holdPhase: 'owner' });
+      await h.domain.pauses.resume({ scope: 'project', projectKey: 'AR' }, by);
+      await settle();
+      expect(task().assignee).toBe('dev-2');
+      expect(record()).toMatchObject({ holdPhase: null, extraRounds: 0 });
+      expect(h.runner.started.some((spec) => spec.member === 'dev-2')).toBe(true);
+    });
+
     it('closes the item by itself when the assignee changes, and when the card is cancelled', async () => {
       await owned();
       const id = items()[0]!.id;

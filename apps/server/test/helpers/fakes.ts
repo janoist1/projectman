@@ -231,6 +231,10 @@ export class FakeContextBuilder implements ContextPackBuilder {
   readonly inputs: ContextPackInput[] = [];
   /** Off by default (sessions are never compacted); a test of the compaction sets it (PM-213). */
   compactInstruction: string | undefined = undefined;
+  /** A short, recognisable text: `Nudge <point>[ restarted]`. */
+  pauseNudge(input: { point: string; tool: string | null; restarted: boolean }): string {
+    return `Nudge ${input.point}${input.restarted ? ' restarted' : ''}`;
+  }
   build(input: ContextPackInput): ContextPack {
     this.inputs.push(input);
     return {

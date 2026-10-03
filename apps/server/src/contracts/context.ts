@@ -5,6 +5,7 @@ import type {
   AiMemberConfig,
   Attachment,
   MemberView,
+  PausePoint,
   ProjectConfig,
   SessionState,
   Stage,
@@ -118,6 +119,11 @@ export interface ContextPackBuilder {
    * the builder has no compaction text, and sessions are never compacted.
    */
   readonly compactInstruction?: string;
+  /**
+   * What a session is told when a pause ended (PM-219, English prompt text): where it was cut, and
+   * whether its process was started again (`restarted`). Absent: no nudge, the session just goes on.
+   */
+  pauseNudge?(input: { point: PausePoint; tool: string | null; restarted: boolean }): string;
 }
 
 /**

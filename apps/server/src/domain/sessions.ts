@@ -28,6 +28,7 @@ import type {
   ExecutionProfile,
   MemberConfig,
   MemberStatus,
+  PausePoint,
   ProjectConfig,
   Session,
   SessionDetail,
@@ -146,6 +147,12 @@ export interface EnsureSessionOptions {
    * the caller, which types it after the session started.
    */
   messages?: string[];
+  /**
+   * What a pause that ended tells a resumed conversation (PM-219, `ContextPackBuilder.pauseNudge`): the
+   * first thing in its first input, before the messages, or in place of the continue message when there
+   * are none. A new conversation ignores it.
+   */
+  nudge?: string;
 }
 
 /**
@@ -577,7 +584,16 @@ export class SessionOrchestrator {
         await this.deps.runner.stop(existing.id);
         this.markEnded(existing.id, null);
       }
-      return this.start(config, member, workItem, task, existing, messagesForFirstInput(opts.messages));
+      return this.start(
+        config,
+        member,
+        workItem,
+        task,
+        existing,
+        messagesForFirstInput(opts.messages),
+        null,
+        opts.nudge ?? null,
+      );
     });
   }
 
@@ -844,6 +860,11 @@ export class SessionOrchestrator {
     if (this.ctx.repos.sessions.compaction(current.id).pending) this.compactWhenIdle(current);
   }
 
+  /** What a session that was cut at `point` is told when the pause ends (undefined: the builder has no text). */
+  pauseNudge(point: PausePoint, tool: string | null, restarted: boolean): string | undefined {
+    return this.deps.contextBuilder.pauseNudge?.({ point, tool, restarted });
+  }
+
   /** Stops all live sessions for a cancelled task without cleaning up its worktrees. */
   async stopTask(projectKey: string, taskKey: string): Promise<void> {
     for (const session of this.list(projectKey, { taskKey })) {
@@ -1037,12 +1058,13 @@ export class SessionOrchestrator {
     existing: Session | null,
     messages: string[],
     restart: PermissionRestart | null = null,
+    nudge: string | null = null,
   ): Promise<EnsureSessionResult> {
     // A theme is not worked on: its description is written from the member's general chat.
     if (task && isTheme(task)) throw themeRefused(task.key, 'have a session');
     const sessionId = existing?.id ?? newId('ses');
     try {
-      return await this.launch(config, member, workItem, task, existing, messages, sessionId, restart);
+      return await this.launch(config, member, workItem, task, existing, messages, sessionId, restart, nudge);
     } catch (err) {
       this.workspaces?.ended(sessionId);
       throw err;
@@ -1058,6 +1080,7 @@ export class SessionOrchestrator {
     messages: string[],
     sessionId: string,
     restart: PermissionRestart | null,
+    nudge: string | null,
   ): Promise<EnsureSessionResult> {
     // A standby copy (PM-143) never works: only one copy of an installation may start AI sessions.
     if (this.deps.standby)
@@ -1366,12 +1389,12 @@ export class SessionOrchestrator {
     this.processProviders.set(session.id, provider);
     // Before the process starts: Codex reports its first input as it starts.
     const firstInput = messages.length > 0 ? this.awaitFirstInput(session.id) : Promise.resolve(true);
+    // A pause's nudge (PM-219) goes first on a resumed conversation: before the messages, or in place of
+    // the continue message. A new conversation has nothing to be nudged about.
     const initialMessage = resume
       ? messages.length > 0
-        ? messages.join(MESSAGE_SEPARATOR)
-        : restart
-          ? null
-          : pack.continueMessage
+        ? [...(nudge ? [nudge] : []), ...messages].join(MESSAGE_SEPARATOR)
+        : (nudge ?? (restart ? null : pack.continueMessage))
       : newConversationInput(pack.initialMessage, messages);
     if (initialMessage?.trim()) this.awaitingFirstTurn.add(session.id);
 

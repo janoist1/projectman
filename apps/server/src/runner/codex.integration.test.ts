@@ -407,7 +407,13 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
   });
 
   describe('pausing (PM-218)', () => {
-    const toolCalls = (id: string) => chatOf(id).filter((i) => i.kind === 'tool_call');
+    // The tool the runner knows is running: its PreToolUse hook came. The transcript's tool_call item is
+    // written before that hook, so a pause that waits for the item alone may beat the hook.
+    const toolCalls = (id: string) =>
+      events.filter(
+        (e) =>
+          e.type === 'state' && e.sessionId === id && e.state === 'working' && e.activity?.startsWith('Bash'),
+      );
 
     it('stops an idle session at once, and holds the input until the release, the nudge first', async () => {
       await setup();

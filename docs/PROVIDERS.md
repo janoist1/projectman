@@ -26,6 +26,7 @@ adapter declares its capabilities.
 |                     | from their own file at `SubagentStop`                            | measured                                                                           |
 | Login check         | `claude auth status`                                             | `codex login status`                                                               |
 | Compaction (PM-213) | `/compact <instruction>` typed; PreCompact and PostCompact hooks | not done: its compaction command was not checked                                   |
+| Pause (PM-218)      | halting hook answer `{continue:false}` at the next tool hook     | the running tool ends, then one Esc, confirmed by the `Interrupt` hook             |
 
 ## Compaction at the end of a round (PM-213)
 
@@ -62,6 +63,65 @@ findings; not file contents or command output). The rule and its timing are in
   next step measures it again).
 - **Codex.** Unchanged: its compaction command was not checked, so Codex members are never
   compacted (`COMPACTING_PROVIDERS` in `contracts/runner.ts` lists the providers that are).
+
+## Pausing a session (PM-218)
+
+`SessionRunner.pause(sessionId, { forceAfterMs? })`, `forcePause(sessionId)` and
+`release(sessionId, { nudge? })` (`apps/server/src/runner/pause.ts` and `session.ts`) stop a session at a
+safe point, keep what is typed to it back, and let it through again. The domain side (who asks, the
+deadline, the timeline) is PM-219; this is what the runner does and relies on in the CLIs.
+
+- **While it is stopping** the input queue is held: a message being typed is finished (with its Enter),
+  nothing new is typed, and messages queued meanwhile wait. `session_pausing` is emitted at once
+  (`waitingFor`: the tool that is running, or `null`), `session_paused` when the session has stopped
+  (`point`, `tool`). A second `pause` joins the first (the first call's deadline stays).
+- **Stopped** means: the state is idle, waiting for permission or waiting for input; nothing is being
+  typed or awaiting its submit confirmation; no compaction is typed or running. It is checked after
+  every state signal, when a typed message ends and after an abandoned compaction, never from the
+  submit confirmation alone. A session already stopped settles at once (`idle`, `waiting_permission`,
+  `waiting_input`).
+- **Pause points** (`PausePoint`): `idle`, `turn_end` (the turn ended on its own while stopping),
+  `after_tool` (a tool finished and the turn was halted after it), `before_tool` (the next tool call was
+  turned away, it did not run), `interrupted` (Esc, see below), `waiting_permission`, `waiting_input`,
+  `exited` (the process ended meanwhile). `tool` is the main agent's tool that was running or turned away.
+- **Claude Code.** The halting answer is `{"continue": false, "stopReason": …}` on the PreToolUse and
+  PostToolUse (and PostToolUseFailure) hooks. A PreToolUse one makes the tool not run: the agent gets an
+  error result worded by `PAUSED_BEFORE_TOOL`; after a PostToolUse one the turn ends with
+  `PAUSED_AFTER_TOOL`. The Stop hook still runs afterwards (2.1.284), and that is what makes the
+  session idle. A subagent's hooks (payload `agent_id`) are never halted: only the main agent's tools
+  count, and the pause waits for the main agent. With parallel tools the first halting answer wins and
+  the pause waits until no main-agent tool is left. A question forwarded to the team inbox (PM-199)
+  loses to a halt: the call is turned away by the halt text.
+  A sandboxed session's forwarder prints a response only for events that can answer
+  (`DECIDING_EVENTS` in `claude/args.ts`); PostToolUse and PostToolUseFailure were added for this.
+- **Codex.** Codex has no halting output, so a running tool is waited for, and then one Esc ends the
+  turn; the `Interrupt` hook confirms it and the session is idle. The Esc goes out only while the state
+  is `working`, after the hook response of the tool's Post hook, so it does not race it.
+- **Confirmation and fallback.** One Esc is sent, never a second one. The confirmation is the hook
+  (Codex) or the transcript's `interruptedAt` newer than the last prompt (Claude Code); after
+  `interruptConfirmMs` (5 s) the runner looks at the screen and, when the prompt box is up and no
+  "esc to interrupt" hint shows (`ProviderAdapter.workingVisible`: both CLIs keep the prompt on screen
+  while they work, so the prompt alone says nothing), treats the turn as interrupted; if even that fails
+  the pause stays stopping until a stop or `release`.
+  A Claude turn halted without its Stop hook (`haltStopMs`, 5 s) is settled the same way from the screen,
+  and only when no main-agent tool is left running (parallel tools: the turn goes on until the last one).
+- **Forced.** `pause` with `forceAfterMs` (when it passes) and `forcePause` send the one Esc as soon as
+  the session is `working`; a tool that is running is cut (`interrupted`, `tool` the one cut). A
+  compaction asked for and running is not waited for: the Esc cancels it and it is given up at once.
+  A human's own Esc during the stopping also reports `interrupted`. A pause that is already stopped
+  is not forced.
+- **Refused tools.** A tool whose approval is denied (a decision, the timeout, a failure) sends no
+  PostToolUse, so it stops counting as running at the denial; the pause does not wait for it.
+- **Release.** `release` lets the input through again. A stopped session types the `nudge` first, then
+  what waited. A session still stopping has its pause taken back: pending `pause` promises resolve to
+  `null`; if a halting answer or Esc already went out (the turn is ending) the nudge is typed after the
+  turn, otherwise it is dropped (the session never stopped, so nothing needs a nudge). `release` returns
+  false when there is no pause.
+- **Not verified here (needs the real CLIs, the integrating session's manual trial).** That Claude Code
+  2.1.284 honours `continue:false` from a PreToolUse and a PostToolUse hook exactly as documented while a
+  `sleep 60` runs, and that Codex's Esc during a tool leaves the composer ready. The runner's PTY tests
+  (`runner.integration.test.ts`, `codex.integration.test.ts`, "pausing") use the fake CLIs
+  (`LONGTOOL` keyword) and cannot run in the agent sandbox.
 
 ## A resumed session's first input
 

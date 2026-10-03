@@ -61,6 +61,9 @@
  *     "rejected by user: <message>".
  *   - "EDIT": apply_patch adding notes.txt: automatic in a workspace-write sandbox, else asked
  *     like a command (tool "apply_patch", tool_input {command: <patch>}).
+ *   - "LONGTOOL": exec_command `sleep 60` (tool "Bash"), which takes FAKE_CODEX_TOOL_MS (default 1000)
+ *     before its output and PostToolUse; then the next model request takes FAKE_CODEX_MODEL_MS
+ *     (default 500), where an Esc ends the turn like after any tool (PM-218).
  *   - "TEAM": the MCP tool mcp__team__send_message {to: ["qa"], text: "Ready for review"};
  *     asked unless mcp_servers.team approves it (default_tools_approval_mode or
  *     tools.send_message.approval_mode = "approve").
@@ -687,7 +690,7 @@ async function interactive() {
       : { behavior: 'deny', message: 'rejected by user' };
   }
 
-  async function toolCall({ name, namespace, hookName, args, needsApproval, output, custom }) {
+  async function toolCall({ name, namespace, hookName, args, needsApproval, output, custom, durationMs }) {
     const callId = `call_fake_${turn}_${hookName.replace(/\W+/g, '_')}`;
     if (custom)
       responseItem({
@@ -721,6 +724,10 @@ async function interactive() {
       decision = await approve(hookName, approvalInput);
     }
     if (!busy) return false; // interrupted meanwhile
+    if (durationMs && decision.behavior === 'allow') {
+      await sleep(durationMs);
+      if (!busy) return false; // interrupted while the call ran
+    }
     if (decision.behavior === 'allow') {
       responseItem({
         type: custom ? 'custom_tool_call_output' : 'function_call_output',
@@ -821,6 +828,20 @@ async function interactive() {
         output: 'Success. Updated the following files:\nA notes.txt',
       });
       if (!ok || !busy || turn !== myTurn) return;
+    }
+    if (text.includes('LONGTOOL')) {
+      const ok = await toolCall({
+        name: 'exec_command',
+        hookName: 'Bash',
+        args: { cmd: 'sleep 60' },
+        needsApproval: false,
+        durationMs: Number(process.env.FAKE_CODEX_TOOL_MS ?? 1000),
+        output: 'Chunk ID: fake02\nWall time: 1.0000 seconds\nProcess exited with code 0\nOutput:\nslept',
+      });
+      if (!ok || !busy || turn !== myTurn) return;
+      // The next model request: an Esc after the tool lands here (turn_aborted and the Interrupt hook).
+      await sleep(Number(process.env.FAKE_CODEX_MODEL_MS ?? 500));
+      if (!busy || turn !== myTurn) return;
     }
     if (text.includes('TEAM')) {
       const team = config.mcp_servers?.team ?? {};

@@ -27,6 +27,28 @@ export const SessionState = z.enum([
 ]);
 export type SessionState = z.infer<typeof SessionState>;
 
+/**
+ * Where a paused session stopped (PM-218):
+ * - `idle`: it stood idle (a starting Claude that became ready, and the end of a compaction asked for, too);
+ * - `turn_end`: the turn ended by itself (Stop or StopFailure), without a halting hook answer;
+ * - `after_tool`: a tool ran, and the session stopped after it;
+ * - `before_tool`: it stopped before the next tool, which did not run (Codex: Esc cut only the generation);
+ * - `interrupted`: a forced Esc stopped it (the deadline or `forcePause`);
+ * - `waiting_permission`, `waiting_input`: it waits for an approval, or for input in the terminal;
+ * - `exited`: the process exited, or is not running.
+ */
+export const PausePoint = z.enum([
+  'idle',
+  'turn_end',
+  'after_tool',
+  'before_tool',
+  'interrupted',
+  'waiting_permission',
+  'waiting_input',
+  'exited',
+]);
+export type PausePoint = z.infer<typeof PausePoint>;
+
 /** When a session's usage reached the warning limit (PM-187), with the two numbers at that moment. */
 export const SessionUsageAlert = z.object({
   at: z.string(),

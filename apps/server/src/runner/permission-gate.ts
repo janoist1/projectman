@@ -28,6 +28,8 @@ export interface PermissionGateOptions {
   answer(decision: PermissionDecision, payload: HookPayload): unknown;
   /** The hook answer that denies with `message`. */
   deny(message: string): unknown;
+  /** A request was denied (by a decision, the timeout or a failure): the call will not run. */
+  onDenied?(payload: HookPayload): void;
   /** A request is waiting for a human now. */
   onWaiting(activity: string): void;
   /** A request ended; `pending` requests are still waiting. */
@@ -98,11 +100,16 @@ export class PermissionGate {
       if (allowKey && decision.behavior === 'allow' && decision.rememberForSession) {
         this.sessionAllows.add(allowKey);
       }
+      if (decision.behavior === 'deny') opts.onDenied?.(payload);
       return opts.answer(decision, payload);
     } catch (err) {
-      if (entry.end === 'timeout') return opts.deny(DENY_TIMEOUT);
+      if (entry.end === 'timeout') {
+        opts.onDenied?.(payload);
+        return opts.deny(DENY_TIMEOUT);
+      }
       if (entry.end) return null; // nobody is waiting for the answer any more
       opts.logger.error({ err, sessionId: opts.sessionId, toolName }, 'permission broker failed');
+      opts.onDenied?.(payload);
       return opts.deny(DENY_FAILED);
     } finally {
       clearTimeout(timeout);

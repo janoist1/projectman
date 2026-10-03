@@ -4,6 +4,8 @@ import type { FastifyBaseLogger } from 'fastify';
 import { DEFAULT_AGENT_PROVIDER, type AgentProvider } from '@projectman/shared';
 import {
   PROVIDER_NOT_LOGGED_IN,
+  type PauseOptions,
+  type PauseOutcome,
   type ProviderStatus,
   type RunnerEvent,
   type RunnerModuleOptions,
@@ -25,6 +27,9 @@ import {
 import type { ProviderAdapter } from './providers/types';
 import { createProviderAdapters, type ProviderAdapters } from './providers';
 import { AgentSession, UUID_RE } from './session';
+
+/** What pausing a session that is not running reports (nothing to wait for, no event). */
+const NOT_RUNNING: PauseOutcome = { point: 'exited', tool: null };
 
 /** Exited sessions kept for a last look at their terminal. */
 const MAX_FINISHED = 20;
@@ -340,6 +345,19 @@ export class SessionManager implements SessionRunner {
 
   async compact(sessionId: string, instruction: string): Promise<boolean> {
     return (await this.sessions.get(sessionId)?.compact(instruction)) ?? false;
+  }
+
+  /** A session that is not running has already stopped: it reports `exited`. */
+  async pause(sessionId: string, opts?: PauseOptions): Promise<PauseOutcome | null> {
+    return (await this.sessions.get(sessionId)?.pause(opts)) ?? NOT_RUNNING;
+  }
+
+  async forcePause(sessionId: string): Promise<PauseOutcome | null> {
+    return (await this.sessions.get(sessionId)?.forcePause()) ?? NOT_RUNNING;
+  }
+
+  release(sessionId: string, opts?: { nudge?: string }): boolean {
+    return this.sessions.get(sessionId)?.release(opts) ?? false;
   }
 
   hasPendingInput(sessionId: string): boolean {

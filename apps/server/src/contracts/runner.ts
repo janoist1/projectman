@@ -3,6 +3,7 @@ import type {
   AgentEffort,
   AgentProvider,
   ChatItem,
+  PausePoint,
   PlanUsage,
   SessionState,
   TokenUsage,
@@ -201,7 +202,16 @@ export type RunnerEvent =
       phase: 'started' | 'finished' | 'abandoned';
       trigger: string | null;
       requested: boolean;
-    };
+    }
+  /**
+   * A pause was asked for (`pause`, PM-218) and the session is stopping: its input is held, and it
+   * stops at the next tool boundary. Comes again when a stopped session starts working again
+   * (an approval answered, a human typing in the terminal). `waitingFor`: the main agent's running
+   * tool, or null.
+   */
+  | { type: 'session_pausing'; sessionId: string; waitingFor: string | null }
+  /** The paused session stopped (see `PauseOutcome`); a session that exits meanwhile reports `exited`. */
+  | { type: 'session_paused'; sessionId: string; point: PausePoint; tool: string | null };
 
 /** The providers whose CLI the server compacts with a typed command (PM-213); Codex's was not checked. */
 export const COMPACTING_PROVIDERS: ReadonlySet<AgentProvider> = new Set<AgentProvider>(['claude']);
@@ -274,6 +284,18 @@ export interface RunningSessionInfo {
   rows: number;
 }
 
+/** Where a paused session stopped (PM-218). */
+export interface PauseOutcome {
+  point: PausePoint;
+  /** The main agent's tool the session stopped after, before or in; null when none. */
+  tool: string | null;
+}
+
+export interface PauseOptions {
+  /** After this many ms `forcePause` runs by itself; 0: at once; absent: no deadline. */
+  forceAfterMs?: number;
+}
+
 export interface SessionRunner {
   start(spec: StartSessionSpec): Promise<RunningSessionInfo>;
   /** Types a user message into the session once it is idle (queued otherwise); resolves when typed. */
@@ -303,6 +325,30 @@ export interface SessionRunner {
   onEvent(listener: (event: RunnerEvent) => void): () => void;
   /** Stops every session (server shutdown). */
   shutdown(): Promise<void>;
+  /**
+   * Pauses the session at its next tool boundary (PM-218): the running tool is waited for, no new
+   * one starts, and the session's input is held back (`sendUserMessage` still queues; `writeTerminal`
+   * is not held). Resolves with where it stopped; `{ point: 'exited' }` without an event for a
+   * session that is not running. A second call returns the same promise, or the latest outcome of a
+   * stopped session; the deadline stays the first call's. `null`: `release` took the pause back
+   * before the session stopped. Events: `session_pausing` at once, `session_paused` when stopped.
+   * A stopped session that starts working again stops again at the next boundary, with new events.
+   */
+  pause(sessionId: string, opts?: PauseOptions): Promise<PauseOutcome | null>;
+  /**
+   * Stops the session at once with one Esc (PM-218): starts the pause when there is none, and
+   * forces a pause that is still stopping; a stopped one is left alone and its outcome returned.
+   * A compaction asked for that is running is not waited for: the Esc cancels it and it is given up.
+   */
+  forcePause(sessionId: string): Promise<PauseOutcome | null>;
+  /**
+   * Ends the pause: a stopped session's input is let through, with a non-empty `nudge` typed first;
+   * a session still stopping has its pause taken back (pending `pause` promises resolve to null).
+   * A session still stopping whose turn is already ending (a halting answer or an Esc went out)
+   * keeps the nudge too, typed once the turn has ended; otherwise the turn goes on and the nudge is
+   * dropped. False, and nothing done, when there is no pause. No event: the caller knows.
+   */
+  release(sessionId: string, opts?: { nudge?: string }): boolean;
   /**
    * Login state of a provider's CLI (cached briefly). `start` refuses to spawn a session of a
    * provider that is not logged in, with an error whose `code` is `provider_not_logged_in`.

@@ -10,6 +10,8 @@ import type {
   McpModule,
   McpModuleOptions,
   MemberMemoryStore,
+  PauseOptions,
+  PauseOutcome,
   PermissionBroker,
   PullRequestInfo,
   RunnerEvent,
@@ -82,6 +84,31 @@ export class FakeRunner implements SessionRunner {
     if (!this.compactTaken || !this.running.has(sessionId)) return false;
     this.compactions.push({ sessionId, instruction });
     return true;
+  }
+
+  /**
+   * The pauses asked for (PM-218). `pause` and `forcePause` resolve with `pauseOutcomes` (default: stopped
+   * idle); `release` always succeeds.
+   */
+  readonly pauses: Array<{ sessionId: string; opts: PauseOptions | undefined }> = [];
+  readonly forcePauses: string[] = [];
+  readonly releases: Array<{ sessionId: string; nudge: string | undefined }> = [];
+  readonly pauseOutcomes = new Map<string, PauseOutcome | null>();
+  async pause(sessionId: string, opts?: PauseOptions): Promise<PauseOutcome | null> {
+    this.pauses.push({ sessionId, opts });
+    return this.pauseOutcome(sessionId);
+  }
+  async forcePause(sessionId: string): Promise<PauseOutcome | null> {
+    this.forcePauses.push(sessionId);
+    return this.pauseOutcome(sessionId);
+  }
+  release(sessionId: string, opts?: { nudge?: string }): boolean {
+    this.releases.push({ sessionId, nudge: opts?.nudge });
+    return true;
+  }
+  private pauseOutcome(sessionId: string): PauseOutcome | null {
+    const outcome = this.pauseOutcomes.get(sessionId);
+    return outcome === undefined ? { point: 'idle', tool: null } : outcome;
   }
 
   hasPendingInput(sessionId: string): boolean {

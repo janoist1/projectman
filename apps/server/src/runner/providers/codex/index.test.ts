@@ -3,6 +3,7 @@ import { silentLogger } from '../../test-helpers';
 import {
   codexPermissionOutput,
   codexPromptVisible,
+  codexWorkingVisible,
   createCodexAdapter,
   detectCodexBlockingScreen,
 } from './index';
@@ -25,6 +26,9 @@ describe('Codex screen checks', () => {
     expect(detectCodexBlockingScreen(screen)).toBeNull();
     const working = ['› Ask Codex to do anything', '', '  Working (3s • esc to interrupt)'].join('\n');
     expect(codexPromptVisible(working)).toBe(true);
+    // The composer is up while it works, so only this tells a working screen from an idle one (PM-218).
+    expect(codexWorkingVisible(working)).toBe(true);
+    expect(codexWorkingVisible(screen)).toBe(false);
   });
 
   it('flags the dialogs that replace the composer', () => {

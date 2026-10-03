@@ -37,6 +37,8 @@ export const CLAUDE_TIMING: SessionTiming = {
   compactStartTimeoutMs: 10_000,
   /** Summarising a conversation of several hundred thousand tokens takes minutes. */
   compactTimeoutMs: 300_000,
+  interruptConfirmMs: 5_000,
+  haltStopMs: 5_000,
 };
 
 /** Claude Code's question tool: it waits for an answer typed in the terminal. */
@@ -84,6 +86,11 @@ export function claudePromptVisible(text: string): boolean {
     }
   }
   return false;
+}
+
+/** Whether Claude Code's screen shows a turn in progress (its spinner line ends in "esc to interrupt"). */
+export function claudeWorkingVisible(text: string): boolean {
+  return /esc to interrupt/i.test(text);
 }
 
 /** A dialog blocking Claude Code in `text` (the end of the screen content), or null. */
@@ -187,6 +194,8 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
     permissionOutput,
     denyOutput,
     refuseQuestionOutput,
+    // Claude Code ends the turn at a hook answer with `continue: false`, then runs the Stop hook.
+    haltOutput: (reason) => ({ continue: false, stopReason: reason }),
     hookAuthError(payload) {
       if (payload.hook_event_name !== 'StopFailure') return null;
       const error = typeof payload.error === 'string' ? payload.error : null;
@@ -194,6 +203,7 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
     },
     detectBlockingScreen,
     promptVisible: claudePromptVisible,
+    workingVisible: claudeWorkingVisible,
     createTranscriptParser: claudeTranscriptParser,
 
     async checkLogin(env): Promise<ProviderStatus> {

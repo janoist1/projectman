@@ -1,7 +1,8 @@
 import type { SessionState } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PermissionBroker, RunnerEvent, StartSessionSpec } from '../contracts';
+import type { PermissionBroker, PermissionDecision, RunnerEvent, StartSessionSpec } from '../contracts';
 import type { HookPayload } from './hook-payload';
+import { PAUSED_AFTER_TOOL, PAUSED_BEFORE_TOOL } from './pause';
 import { CLAUDE_TIMING, createClaudeAdapter } from './providers/claude';
 import { CODEX_TIMING, createCodexAdapter } from './providers/codex';
 import type { ProviderAdapter } from './providers/types';
@@ -656,5 +657,476 @@ describe('AgentSession of Codex', () => {
     );
     await expect(queued).resolves.toBeUndefined();
     expect(pty.typed().pastes).toEqual(['Hello after the restart']);
+  });
+});
+
+describe('pausing (PM-218)', () => {
+  const ESC = '\x1b';
+  const BASH = { tool_name: 'Bash', tool_input: { command: 'sleep 60' } };
+  /** Claude Code's prompt box on the screen. */
+  const CLAUDE_PROMPT = ['\x1b[2J\x1b[H', '─'.repeat(40), '❯ ', '─'.repeat(40)].join('\r\n');
+  const codex = () => createCodexAdapter({ bin: 'codex', codexHome: '/nonexistent', logger: silentLogger() });
+
+  type Started = ReturnType<typeof start>;
+  const log = (events: RunnerEvent[]) =>
+    events.flatMap((e) =>
+      e.type === 'session_pausing'
+        ? [`pausing(${e.waitingFor})`]
+        : e.type === 'session_paused'
+          ? [`paused(${e.point},${e.tool})`]
+          : [],
+    );
+  const escapes = (pty: FakePty) => pty.writes.filter((w) => w === ESC).length;
+  const submit = (s: Started) => s.hook({ hook_event_name: 'UserPromptSubmit', prompt: 'go' });
+  const pre = (s: Started, id: string, name = 'Bash') =>
+    s.hook({ hook_event_name: 'PreToolUse', ...BASH, tool_name: name, tool_use_id: id });
+  const post = (s: Started, id: string, name = 'Bash') =>
+    s.hook({ hook_event_name: 'PostToolUse', ...BASH, tool_name: name, tool_use_id: id });
+  /** Whether a pending pause promise has settled (without waiting for it). */
+  const settled = async (promise: Promise<unknown>) => {
+    let done = false;
+    void promise.then(() => (done = true));
+    await vi.advanceTimersByTimeAsync(0);
+    return done;
+  };
+  async function readyCodex() {
+    const started = start({ adapter: codex(), spec: { provider: 'codex' } });
+    await started.hook({ hook_event_name: 'SessionStart', source: 'startup' });
+    await vi.advanceTimersByTimeAsync(CODEX_TIMING.readySettleMs);
+    return started;
+  }
+
+  it('stops an idle session at once, and types nothing until the release, the nudge first', async () => {
+    const s = await ready();
+    await expect(s.session.pause()).resolves.toEqual({ point: 'idle', tool: null });
+    expect(log(s.events)).toEqual(['pausing(null)', 'paused(idle,null)']);
+
+    void s.session.enqueue('first');
+    void s.session.enqueue('second');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(s.pty.typed().pastes).toEqual([]);
+    expect(s.session.hasPendingInput).toBe(true);
+
+    expect(s.session.release({ nudge: 'Carry on.' })).toBe(true);
+    await vi.advanceTimersByTimeAsync(TYPE_MS);
+    expect(s.pty.typed().pastes).toEqual(['Carry on.']);
+    await submit(s);
+    await s.hook({ hook_event_name: 'Stop' });
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.stopSettleMs + TYPE_MS);
+    expect(s.pty.typed().pastes).toEqual(['Carry on.', 'first']);
+    expect(s.session.release()).toBe(false);
+  });
+
+  it('halts the tool call that comes next: it does not run, and the session stops before it', async () => {
+    const s = await ready();
+    await submit(s);
+    await pre(s, 't0', 'Read');
+    await s.hook({ hook_event_name: 'PostToolUse', tool_name: 'Read', tool_use_id: 't0' });
+    const before = s.session.state;
+    const paused = s.session.pause();
+    expect(log(s.events)).toEqual(['pausing(null)']);
+
+    await expect(pre(s, 't1')).resolves.toEqual({ continue: false, stopReason: PAUSED_BEFORE_TOOL });
+    expect(s.session.state).toEqual(before); // the call neither ran nor changed the activity
+    expect(await settled(paused)).toBe(false); // the turn is not over until the Stop hook
+    await s.hook({ hook_event_name: 'Stop' });
+    await expect(paused).resolves.toEqual({ point: 'before_tool', tool: 'Bash' });
+    expect(log(s.events)).toEqual(['pausing(null)', 'paused(before_tool,Bash)']);
+  });
+
+  it('lets the running tool finish, halts after it, and stops where the first answer was', async () => {
+    const s = await ready();
+    await submit(s);
+    await pre(s, 't1');
+    await pre(s, 't2', 'Grep');
+    const paused = s.session.pause();
+    expect(log(s.events)).toEqual(['pausing(Grep)']);
+
+    await expect(post(s, 't1')).resolves.toEqual({ continue: false, stopReason: PAUSED_AFTER_TOOL });
+    await expect(post(s, 't2', 'Grep')).resolves.toEqual({ continue: false, stopReason: PAUSED_AFTER_TOOL });
+    await s.hook({ hook_event_name: 'Stop' });
+    await expect(paused).resolves.toEqual({ point: 'after_tool', tool: 'Bash' });
+  });
+
+  it('halts a failed tool the same way', async () => {
+    const s = await ready();
+    await submit(s);
+    await pre(s, 't1');
+    const paused = s.session.pause();
+    await expect(
+      s.hook({ hook_event_name: 'PostToolUseFailure', ...BASH, tool_use_id: 't1' }),
+    ).resolves.toEqual({
+      continue: false,
+      stopReason: PAUSED_AFTER_TOOL,
+    });
+    await s.hook({ hook_event_name: 'Stop' });
+    await expect(paused).resolves.toEqual({ point: 'after_tool', tool: 'Bash' });
+  });
+
+  it('answers a subagent hook as before: it neither halts nor counts', async () => {
+    const s = await ready();
+    await submit(s);
+    await pre(s, 't1');
+    const paused = s.session.pause();
+    await expect(
+      s.hook({ hook_event_name: 'PostToolUse', ...BASH, tool_use_id: 'sub-1', agent_id: 'agent-1' }),
+    ).resolves.toBeNull();
+    await expect(
+      s.hook({ hook_event_name: 'PreToolUse', ...BASH, tool_use_id: 'sub-2', agent_id: 'agent-1' }),
+    ).resolves.toBeNull();
+    expect(await settled(paused)).toBe(false);
+    await expect(post(s, 't1')).resolves.toEqual({ continue: false, stopReason: PAUSED_AFTER_TOOL });
+  });
+
+  it('reports a turn that ends by itself as turn_end', async () => {
+    const s = await ready();
+    await submit(s);
+    const paused = s.session.pause();
+    await s.hook({ hook_event_name: 'Stop' });
+    await expect(paused).resolves.toEqual({ point: 'turn_end', tool: null });
+  });
+
+  it('turns a question tool away rather than forwarding it while the session is being stopped', async () => {
+    const forwardQuestion = vi.fn(async () => true);
+    const s = await ready({
+      broker: { decide: () => new Promise(() => undefined), forwardQuestion },
+      spec: { member: 'fe-1' },
+    });
+    await submit(s);
+    void s.session.pause();
+    await expect(pre(s, 'q1', 'AskUserQuestion')).resolves.toEqual({
+      continue: false,
+      stopReason: PAUSED_BEFORE_TOOL,
+    });
+    expect(forwardQuestion).not.toHaveBeenCalled();
+  });
+
+  it('gives the same answer to a repeated call, and the last result to a later one', async () => {
+    const s = await ready();
+    await submit(s);
+    await pre(s, 't1');
+    const first = s.session.pause();
+    const second = s.session.pause({ forceAfterMs: 10 });
+    await post(s, 't1');
+    await s.hook({ hook_event_name: 'Stop' });
+    await expect(first).resolves.toEqual({ point: 'after_tool', tool: 'Bash' });
+    await expect(second).resolves.toEqual({ point: 'after_tool', tool: 'Bash' });
+    await expect(s.session.pause()).resolves.toEqual({ point: 'after_tool', tool: 'Bash' });
+    expect(log(s.events)).toEqual(['pausing(Bash)', 'paused(after_tool,Bash)']);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(escapes(s.pty)).toBe(0); // the deadline of the second call is not one
+  });
+
+  it('takes a pause back before the session stopped: null, no halting answers, and no nudge', async () => {
+    const s = await ready();
+    await submit(s);
+    await pre(s, 't1');
+    const paused = s.session.pause();
+    expect(s.session.release({ nudge: 'Carry on.' })).toBe(true);
+    await expect(paused).resolves.toBeNull();
+    await expect(post(s, 't1')).resolves.toBeNull();
+    await s.hook({ hook_event_name: 'Stop' });
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.stopSettleMs + TYPE_MS);
+    expect(s.pty.typed().pastes).toEqual([]);
+  });
+
+  it('keeps the nudge of a pause released after the turn was told to end', async () => {
+    const s = await ready();
+    await submit(s);
+    await pre(s, 't1');
+    const paused = s.session.pause();
+    await post(s, 't1');
+    expect(s.session.release({ nudge: 'Carry on.' })).toBe(true);
+    await expect(paused).resolves.toBeNull();
+    await s.hook({ hook_event_name: 'Stop' });
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.stopSettleMs + TYPE_MS);
+    expect(s.pty.typed().pastes).toEqual(['Carry on.']);
+  });
+
+  it('closes a turn whose Stop hook never came when the prompt is up', async () => {
+    const s = await ready();
+    await submit(s);
+    await pre(s, 't1');
+    const paused = s.session.pause();
+    await post(s, 't1');
+    s.pty.print(CLAUDE_PROMPT);
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.haltStopMs);
+    await expect(paused).resolves.toEqual({ point: 'after_tool', tool: 'Bash' });
+    expect(s.session.state.state).toBe('idle');
+  });
+
+  it('keeps waiting for the Stop hook while the prompt is not up', async () => {
+    const s = await ready();
+    await submit(s);
+    await pre(s, 't1');
+    const paused = s.session.pause();
+    await post(s, 't1');
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.haltStopMs * 3);
+    expect(await settled(paused)).toBe(false);
+    await s.hook({ hook_event_name: 'Stop' });
+    await expect(paused).resolves.toEqual({ point: 'after_tool', tool: 'Bash' });
+  });
+
+  it('forces the stop with one Esc; with the prompt up it counts as interrupted', async () => {
+    const s = await ready();
+    await submit(s);
+    await pre(s, 't1');
+    const paused = s.session.forcePause();
+    expect(escapes(s.pty)).toBe(1);
+    s.pty.print(CLAUDE_PROMPT);
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.interruptConfirmMs);
+    await expect(paused).resolves.toEqual({ point: 'interrupted', tool: 'Bash' });
+    expect(escapes(s.pty)).toBe(1);
+  });
+
+  it('sends no second Esc when the first is not confirmed, and waits for a stop', async () => {
+    const s = await ready();
+    await submit(s);
+    const paused = s.session.forcePause();
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.interruptConfirmMs * 4);
+    expect(escapes(s.pty)).toBe(1);
+    expect(await settled(paused)).toBe(false);
+    await s.hook({ hook_event_name: 'Stop' });
+    await expect(paused).resolves.toEqual({ point: 'interrupted', tool: null });
+  });
+
+  it('forces the stop when the deadline of the first call passes, and not before', async () => {
+    const s = await ready();
+    await submit(s);
+    const paused = s.session.pause({ forceAfterMs: 1_000 });
+    await vi.advanceTimersByTimeAsync(999);
+    expect(escapes(s.pty)).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(escapes(s.pty)).toBe(1);
+    await s.hook({ hook_event_name: 'Stop' });
+    await expect(paused).resolves.toEqual({ point: 'interrupted', tool: null });
+  });
+
+  it('forces at once with a deadline of 0, and forcePause starts a pause of its own', async () => {
+    const a = await ready();
+    await submit(a);
+    void a.session.pause({ forceAfterMs: 0 });
+    expect(escapes(a.pty)).toBe(1);
+
+    const b = await ready();
+    await submit(b);
+    void b.session.forcePause();
+    expect(log(b.events)).toEqual(['pausing(null)']);
+    expect(escapes(b.pty)).toBe(1);
+  });
+
+  it('does not touch a session that has stopped already when it is forced', async () => {
+    const s = await ready();
+    await expect(s.session.forcePause()).resolves.toEqual({ point: 'idle', tool: null });
+    expect(escapes(s.pty)).toBe(0);
+  });
+
+  it('waits for the compaction asked for, then stops idle', async () => {
+    const s = await ready();
+    void s.session.compact('Keep the card.');
+    await vi.advanceTimersByTimeAsync(TYPE_MS);
+    const paused = s.session.pause();
+    expect(await settled(paused)).toBe(false);
+    await s.hook({ hook_event_name: 'PreCompact', trigger: 'manual' });
+    expect(await settled(paused)).toBe(false);
+    await s.hook({ hook_event_name: 'PostCompact', trigger: 'manual' });
+    await expect(paused).resolves.toEqual({ point: 'idle', tool: null });
+  });
+
+  it('does not give up a forced compaction to a timeout: one Esc cancels it and the session stops', async () => {
+    const s = await ready();
+    void s.session.compact('Keep the card.');
+    await vi.advanceTimersByTimeAsync(TYPE_MS);
+    await s.hook({ hook_event_name: 'PreCompact', trigger: 'manual' });
+    const paused = s.session.forcePause();
+    expect(escapes(s.pty)).toBe(1);
+    await expect(paused).resolves.toEqual({ point: 'interrupted', tool: null });
+    expect(s.session.state.state).toBe('idle');
+    expect(escapes(s.pty)).toBe(1);
+  });
+
+  it('keeps the halted turn open while parallel tools run and the prompt is up (it is up while they work)', async () => {
+    const s = await ready();
+    await submit(s);
+    await pre(s, 't1');
+    await pre(s, 't2');
+    const paused = s.session.pause();
+    await expect(post(s, 't1')).resolves.toEqual({ continue: false, stopReason: PAUSED_AFTER_TOOL });
+    s.pty.print(CLAUDE_PROMPT);
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.haltStopMs * 3);
+    expect(await settled(paused)).toBe(false);
+    expect(s.session.state.state).toBe('working');
+
+    await post(s, 't2');
+    await s.hook({ hook_event_name: 'Stop' });
+    await expect(paused).resolves.toEqual({ point: 'after_tool', tool: 'Bash' });
+  });
+
+  it('does not take the prompt for a stop while the screen shows the agent working', async () => {
+    const s = await ready();
+    await submit(s);
+    await pre(s, 't1');
+    const paused = s.session.forcePause();
+    s.pty.print(`${CLAUDE_PROMPT}\r\n  esc to interrupt`);
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.interruptConfirmMs * 3);
+    expect(escapes(s.pty)).toBe(1);
+    expect(await settled(paused)).toBe(false);
+    await s.hook({ hook_event_name: 'Stop' });
+    await expect(paused).resolves.toEqual({ point: 'interrupted', tool: 'Bash' });
+  });
+
+  it('does not count a call the auto mode refused as a running tool', async () => {
+    const s = await ready();
+    await submit(s);
+    await pre(s, 't1');
+    await s.hook({ hook_event_name: 'PermissionDenied', ...BASH, tool_use_id: 't1', denial_reason: 'no' });
+    void s.session.pause();
+    expect(log(s.events)).toEqual(['pausing(null)']);
+  });
+
+  it('holds the brief of a starting session back, and stops idle once it is ready', async () => {
+    const s = start({ spec: { initialMessage: 'The brief' } });
+    const paused = s.session.pause();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(await settled(paused)).toBe(false);
+    await s.hook({ hook_event_name: 'SessionStart', source: 'startup' });
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.readySettleMs + TYPE_MS);
+    await expect(paused).resolves.toEqual({ point: 'idle', tool: null });
+    expect(s.pty.typed().pastes).toEqual([]);
+    expect(s.events.filter((e) => e.type === 'first_input_sent')).toEqual([]);
+
+    s.session.release();
+    await vi.advanceTimersByTimeAsync(TYPE_MS);
+    expect(s.pty.typed().pastes).toEqual(['The brief']);
+    expect(s.events.filter((e) => e.type === 'first_input_sent')).toHaveLength(1);
+  });
+
+  it('stops at once on a dialog that comes up while it is being stopped', async () => {
+    const s = start();
+    const paused = s.session.pause();
+    s.pty.print('Do you trust the files in this folder?\r\n');
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.startupCheckMs);
+    await expect(paused).resolves.toEqual({ point: 'waiting_input', tool: null });
+  });
+
+  it('stops while it waits for an approval, and stops again after the answer, at the next boundary', async () => {
+    let answer!: (decision: PermissionDecision) => void;
+    const s = await ready({
+      broker: { decide: () => new Promise((resolve) => (answer = resolve)) },
+    });
+    await submit(s);
+    await pre(s, 't1');
+    const first = s.session.pause();
+    const request = s.hook({ hook_event_name: 'PermissionRequest', ...BASH });
+    await expect(first).resolves.toEqual({ point: 'waiting_permission', tool: 'Bash' });
+
+    answer({ behavior: 'allow' });
+    await request;
+    expect(s.session.state.state).toBe('working');
+    expect(log(s.events)).toEqual(['pausing(Bash)', 'paused(waiting_permission,Bash)', 'pausing(Bash)']);
+
+    const second = s.session.pause();
+    await expect(post(s, 't1')).resolves.toEqual({ continue: false, stopReason: PAUSED_AFTER_TOOL });
+    await s.hook({ hook_event_name: 'Stop' });
+    await expect(second).resolves.toEqual({ point: 'after_tool', tool: 'Bash' });
+    expect(log(s.events).at(-1)).toBe('paused(after_tool,Bash)');
+  });
+
+  it('stops again when someone types into a stopped session, with no deadline but a working forcePause', async () => {
+    const s = await ready();
+    await s.session.pause();
+    await submit(s);
+    expect(log(s.events)).toEqual(['pausing(null)', 'paused(idle,null)', 'pausing(null)']);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(escapes(s.pty)).toBe(0);
+    const again = s.session.forcePause();
+    expect(escapes(s.pty)).toBe(1);
+    await s.hook({ hook_event_name: 'Stop' });
+    await expect(again).resolves.toEqual({ point: 'interrupted', tool: null });
+  });
+
+  it('reports exited when the process ends under a pause, and for a session that is not running', async () => {
+    const s = await ready();
+    await submit(s);
+    const paused = s.session.pause();
+    s.pty.exit();
+    await expect(paused).resolves.toEqual({ point: 'exited', tool: null });
+    expect(log(s.events)).toEqual(['pausing(null)', 'paused(exited,null)']);
+
+    const count = s.events.length;
+    await expect(s.session.pause()).resolves.toEqual({ point: 'exited', tool: null });
+    await expect(s.session.forcePause()).resolves.toEqual({ point: 'exited', tool: null });
+    expect(s.events).toHaveLength(count);
+  });
+
+  describe('of Codex, which has no halting answer', () => {
+    it('lets the running tool finish, then sends one Esc after the hook was answered; the Interrupt hook confirms', async () => {
+      const s = await readyCodex();
+      await submit(s);
+      await pre(s, 't1');
+      const paused = s.session.pause();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(escapes(s.pty)).toBe(0);
+
+      await expect(post(s, 't1')).resolves.toBeNull();
+      expect(escapes(s.pty)).toBe(0); // only after the response went out
+      await vi.advanceTimersByTimeAsync(0);
+      expect(escapes(s.pty)).toBe(1);
+      await s.hook({ hook_event_name: 'Interrupt' });
+      await expect(paused).resolves.toEqual({ point: 'after_tool', tool: 'Bash' });
+      expect(escapes(s.pty)).toBe(1);
+    });
+
+    it('sends the Esc at once when no tool runs: the stop is before the next one', async () => {
+      const s = await readyCodex();
+      await submit(s);
+      const paused = s.session.pause();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(escapes(s.pty)).toBe(1);
+      await s.hook({ hook_event_name: 'Interrupt' });
+      await expect(paused).resolves.toEqual({ point: 'before_tool', tool: null });
+    });
+
+    it('reports interrupted, with the tool, when one starts between the Esc and its confirmation', async () => {
+      const s = await readyCodex();
+      await submit(s);
+      const paused = s.session.pause();
+      await vi.advanceTimersByTimeAsync(0);
+      await pre(s, 't1');
+      await s.hook({ hook_event_name: 'Interrupt' });
+      await expect(paused).resolves.toEqual({ point: 'interrupted', tool: 'Bash' });
+    });
+
+    it('does not wait for a tool whose approval was denied: no PostToolUse comes for it', async () => {
+      const s = start({
+        adapter: codex(),
+        spec: { provider: 'codex' },
+        broker: { decide: () => Promise.resolve({ behavior: 'deny', message: 'No.' }) },
+      });
+      await s.hook({ hook_event_name: 'SessionStart', source: 'startup' });
+      await vi.advanceTimersByTimeAsync(CODEX_TIMING.readySettleMs);
+      await submit(s);
+      await pre(s, 't1');
+      const first = s.session.pause();
+      await s.hook({ hook_event_name: 'PermissionRequest', ...BASH, tool_use_id: 't1' });
+      await expect(first).resolves.toEqual({ point: 'waiting_permission', tool: 'Bash' });
+
+      // The denial lets the agent carry on, and there is no tool left to wait for: the Esc goes out.
+      await vi.advanceTimersByTimeAsync(0);
+      expect(escapes(s.pty)).toBe(1);
+      await s.hook({ hook_event_name: 'Interrupt' });
+      expect(log(s.events).at(-1)).toBe('paused(before_tool,null)');
+    });
+
+    it('stops a forced pause on the Interrupt hook, with the one Esc of the forced way', async () => {
+      const s = await readyCodex();
+      await submit(s);
+      await pre(s, 't1');
+      const paused = s.session.forcePause();
+      expect(escapes(s.pty)).toBe(1);
+      await s.hook({ hook_event_name: 'Interrupt' });
+      await expect(paused).resolves.toEqual({ point: 'interrupted', tool: 'Bash' });
+      expect(escapes(s.pty)).toBe(1);
+    });
   });
 });

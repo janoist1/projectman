@@ -102,6 +102,7 @@ export const APP_DEFAULTS = {
   logLevel: 'info',
   permissionTimeoutMs: 10 * 60_000,
   githubPollIntervalMs: 60_000,
+  shutdownPauseMs: 60_000,
 } as const;
 
 export interface BuildAppOptions {
@@ -184,11 +185,18 @@ export interface BuildAppOptions {
    * session. Without it (and without `modules.githubPublisher`) nothing is published.
    */
   githubPublishTokenFile?: string;
+  /**
+   * How long stopping the server (a signal) lets the sessions come to a safe point before it closes
+   * (PM-219): the team is paused first. Default `APP_DEFAULTS.shutdownPauseMs`; 0 switches the pause off.
+   */
+  shutdownPauseMs?: number;
 }
 
 /** What `app.projectman` exposes (tests and tooling reach the services through it). */
 export interface AppContext {
   home: string;
+  /** Pauses the team before the server closes (`shutdownPauseMs`); nothing when that is 0 or this is a standby copy. */
+  pauseForShutdown: () => Promise<void>;
   repos: Repositories;
   configStore: GitConfigStore;
   domain: Domain;
@@ -469,8 +477,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     mcpModule.registerRoutes(app);
     if (webDistDir) await app.register(fastifyStatic, { root: webDistDir, index: ['index.html'] });
 
+    const shutdownPauseMs = options.shutdownPauseMs ?? APP_DEFAULTS.shutdownPauseMs;
     app.decorate('projectman', {
       home,
+      pauseForShutdown: async () => {
+        if (shutdownPauseMs > 0 && !standby) await domain.pauses.pauseForShutdown(shutdownPauseMs);
+      },
       repos,
       configStore,
       domain,

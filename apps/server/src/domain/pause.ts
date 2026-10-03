@@ -30,6 +30,10 @@ import type { SessionOrchestrator } from './sessions';
 import type { AppendTimelineInput, TimelineService } from './timeline';
 import { humanActor, newId, SYSTEM_ACTOR } from './util';
 
+/** How long a shutdown waits for the answers of sessions the runner cut at its deadline. */
+export const SHUTDOWN_CUT_GRACE_MS = 10_000;
+const SHUTDOWN_POLL_MS = 50;
+
 /** What a pause covers: the whole instance, or one project. */
 export type PauseTarget = { scope: 'instance' } | { scope: 'project'; projectKey: string };
 
@@ -300,6 +304,45 @@ export class PauseService {
     this.publishSession(session.id);
     this.publishChanged([session.projectKey]);
     this.stopSession(session.id, left);
+  }
+
+  // ---------------------------------------------------------------- shutdown and startup
+
+  /**
+   * Before the server stops: pauses the instance (kind `shutdown`, by the system) so that every session
+   * comes to a safe point and the stop loses no half-done step, then waits until none is still
+   * stopping. The runner cuts what has not stopped after `waitMs`; this waits `graceMs`
+   * (`SHUTDOWN_CUT_GRACE_MS`) more for those answers, and gives up then (the stop goes on). An instance pause that is open
+   * already is not replaced: its sessions are held as they are.
+   */
+  async pauseForShutdown(waitMs: number, graceMs = SHUTDOWN_CUT_GRACE_MS): Promise<void> {
+    await this.pause(
+      { scope: 'instance' },
+      { userId: null, source: 'system' },
+      { kind: 'shutdown', forceAfterMs: waitMs },
+    );
+    const limit = waitMs + graceMs;
+    for (let waited = 0; this.stillStopping() && waited < limit; waited += SHUTDOWN_POLL_MS)
+      await new Promise((resolve) => setTimeout(resolve, SHUTDOWN_POLL_MS));
+    const left = this.ctx.repos.pauses.openSessions().filter((row) => row.point === null).length;
+    if (left > 0) this.ctx.logger.warn({ sessions: left }, 'sessions did not stop before the shutdown');
+  }
+
+  /** Whether a session whose process runs has not come to its stop yet. */
+  private stillStopping(): boolean {
+    return this.ctx.repos.pauses
+      .openSessions()
+      .some((row) => row.point === null && this.sessions.isRunning(row.sessionId));
+  }
+
+  /**
+   * After the server started: the pause made for the shutdown ends (the stop itself is no reason to keep
+   * the team waiting), and its sessions start again with a nudge that says their process is new. A pause
+   * a person made stays: the team waits for them, as before the stop.
+   */
+  async resumeAfterStartup(): Promise<void> {
+    for (const pause of this.ctx.repos.pauses.open().filter((p) => p.kind === 'shutdown'))
+      await this.resume(targetOf(pause), { userId: null, source: 'system' });
   }
 
   // ---------------------------------------------------------------- force

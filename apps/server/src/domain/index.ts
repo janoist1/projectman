@@ -772,6 +772,12 @@ export function createDomain(opts: DomainOptions) {
       // What admission refused before the server stopped waits again and is retried now, as usual
       // (under admission, and not while its master switch is off)...
       if (admission.restoreDeferred(rebuildDeferredStart) > 0) retryDeferredStarts();
+      // ... and the pause that stopping the server made ends: its sessions start again (PM-219).
+      // In the background: starting the sessions again must not hold the server back.
+      background.run(
+        () => pauses.resumeAfterStartup(),
+        (err) => opts.logger.warn({ err }, 'could not resume the team after the start'),
+      );
       // ... and refused hand-overs and message wake-ups retry once admission allows them.
       retryTimer = setInterval(retryDeferredStarts, opts.handOffRetryMs ?? 30_000);
       retryTimer.unref();

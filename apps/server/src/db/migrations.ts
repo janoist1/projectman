@@ -604,5 +604,45 @@ export const migrations: Migration[] = [
         inbox_item_id TEXT
       );`,
   },
+  {
+    version: 31,
+    name: 'pauses',
+    // PM-219: a pause of the instance (project_key NULL) or of one project, durable so that it survives a
+    // restart. At most one is open (resumed_at NULL) per scope. kind 'shutdown' is the pause the server makes
+    // before it stops, which the next start resumes; requested_by is a user id, NULL for the control command
+    // and the system. force_after_ms is the deadline after which a session that has not stopped is cut.
+    // session_pauses: the sessions a pause holds, one open row per session (whichever pause caught it
+    // first); point NULL while the session is still stopping; needs_restart: it stopped at a point from which
+    // a session whose process is gone restarts on resume.
+    sql: `CREATE TABLE pauses (
+        id             TEXT NOT NULL PRIMARY KEY,
+        scope          TEXT NOT NULL CHECK (scope IN ('instance', 'project')),
+        project_key    TEXT REFERENCES projects(key),
+        kind           TEXT NOT NULL CHECK (kind IN ('manual', 'shutdown')),
+        source         TEXT NOT NULL CHECK (source IN ('app', 'control', 'system')),
+        reason         TEXT,
+        requested_by   TEXT REFERENCES users(id),
+        requested_at   TEXT NOT NULL,
+        force_after_ms INTEGER NOT NULL,
+        resumed_at     TEXT,
+        resumed_by     TEXT,
+        CHECK ((scope = 'instance') = (project_key IS NULL))
+      );
+      CREATE UNIQUE INDEX pauses_open ON pauses(scope, COALESCE(project_key, '')) WHERE resumed_at IS NULL;
+      CREATE TABLE session_pauses (
+        session_id    TEXT NOT NULL REFERENCES sessions(id),
+        pause_id      TEXT NOT NULL REFERENCES pauses(id),
+        project_key   TEXT NOT NULL REFERENCES projects(key),
+        since         TEXT NOT NULL,
+        point         TEXT,
+        tool          TEXT,
+        waiting_for   TEXT,
+        paused_at     TEXT,
+        needs_restart INTEGER NOT NULL DEFAULT 0,
+        resumed_at    TEXT
+      );
+      CREATE UNIQUE INDEX session_pauses_open ON session_pauses(session_id) WHERE resumed_at IS NULL;
+      CREATE INDEX session_pauses_project ON session_pauses(project_key, resumed_at);`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

@@ -8,6 +8,7 @@ import type {
   AgentProvider,
   ExecutionProfile,
   Session,
+  SessionPause,
   SessionState,
   SessionUsageAlert,
   TokenUsage,
@@ -228,9 +229,15 @@ export function createSessionRepository(db: Db) {
        SUM(cache_read_tokens) AS cache_read, SUM(cache_write_tokens) AS cache_write
      FROM token_usage WHERE session_id = ? GROUP BY model, scope`,
   );
-  /** The session with what it used, when its usage is measured (PM-178). */
+  /** The open row of the pause that holds the session (PM-219). */
+  const pauseOf = db.prepare(
+    'SELECT since, point, tool FROM session_pauses WHERE session_id = ? AND resumed_at IS NULL',
+  );
+  /** The session with what it used, when its usage is measured (PM-178), and the pause that holds it. */
   const toSession = (r: SessionRow): Session => {
-    const session = baseSession(r);
+    let session = baseSession(r);
+    const pause = pauseOf.get(r.id) as SessionPause | undefined;
+    if (pause) session = { ...session, pause: { since: pause.since, point: pause.point, tool: pause.tool } };
     if (!r.usage_since) return session;
     const rows = (usageOf.all(r.id) as UsageRow[]).map(tokenUsageOf);
     return { ...session, usage: { since: r.usage_since, rows: mergeTokenUsage(rows) } };

@@ -60,6 +60,15 @@ export const routes = {
   invite: (token: string) => `/api/invites/${token}`,
   acceptInvite: (token: string) => `/api/invites/${token}/accept`,
 
+  /** GET the project's pauses (`ProjectPauseView`); POST pauses it (`PauseRequest`), admin at least. */
+  projectPause: (key: string) => `/api/projects/${key}/pause`,
+  projectPauseResume: (key: string) => `/api/projects/${key}/pause/resume`,
+  projectPauseForce: (key: string) => `/api/projects/${key}/pause/force`,
+  /** The instance's pause (PM-219): GET `InstancePauseView`; the POSTs need `canManageInstancePause`. */
+  instancePause: () => '/api/pause',
+  instancePauseResume: () => '/api/pause/resume',
+  instancePauseForce: () => '/api/pause/force',
+
   schedules: (key: string) => `/api/projects/${key}/schedules`,
   runSchedule: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/schedule/run`,
 

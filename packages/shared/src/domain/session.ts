@@ -49,6 +49,16 @@ export const PausePoint = z.enum([
 ]);
 export type PausePoint = z.infer<typeof PausePoint>;
 
+/** A session a pause holds (PM-219): since when, and where it stopped. */
+export const SessionPause = z.object({
+  /** When the pause took hold of the session. */
+  since: z.string(),
+  /** Null: the session is still stopping. */
+  point: PausePoint.nullable(),
+  tool: z.string().nullable(),
+});
+export type SessionPause = z.infer<typeof SessionPause>;
+
 /** When a session's usage reached the warning limit (PM-187), with the two numbers at that moment. */
 export const SessionUsageAlert = z.object({
   at: z.string(),
@@ -137,6 +147,8 @@ export const Session = z.object({
    * when the session's round ends (it goes idle) or the session ends. Absent: none given.
    */
   doing: WorkDoing.optional(),
+  /** A pause holds the session (PM-219); absent: none does. Taken off when the pause is resumed. */
+  pause: SessionPause.optional(),
 });
 export type Session = z.infer<typeof Session>;
 

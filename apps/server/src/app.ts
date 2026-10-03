@@ -485,7 +485,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     app.decorate('projectman', {
       home,
       pauseForShutdown: async () => {
-        if (shutdownPauseMs > 0 && !standby) await domain.pauses.pauseForShutdown(shutdownPauseMs);
+        if (shutdownPauseMs <= 0 || standby) return;
+        app.log.info(
+          { seconds: Math.round(shutdownPauseMs / 1000) },
+          'pausing the team before shutdown (up to this many seconds; press Ctrl-C again to skip)',
+        );
+        await domain.pauses.pauseForShutdown(shutdownPauseMs);
       },
       repos,
       configStore,

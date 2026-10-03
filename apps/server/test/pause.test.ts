@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectConfig } from '@projectman/shared';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -14,7 +14,10 @@ const general = { type: 'general' } as const;
 
 describe('pause of the team', () => {
   let h: DomainHarness;
-  afterEach(() => h?.cleanup());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    h?.cleanup();
+  });
 
   it('holds the running sessions of the project and asks the runner to stop them', async () => {
     h = await createDomainHarness();
@@ -263,6 +266,110 @@ describe('pause of the team', () => {
     await h.domain.pauses.resume(PROJECT, BY);
     await waitFor(() => h.domain.sessions.findRunning('AR', 'cr', { type: 'task', taskKey: task.key }));
     expect(h.domain.tasks.get('AR', task.key).startWaiting).toBeUndefined();
+  });
+
+  it('defers a message wake-up and a work start while paused, and goes on once the team is resumed', async () => {
+    h = await createDomainHarness();
+    const woken = await h.domain.tasks.create('AR', { title: 'Fictional wake-up' }, OWNER_ACTOR);
+    const moved = await h.domain.tasks.create('AR', { title: 'Fictional work' }, OWNER_ACTOR);
+    await h.domain.pauses.pause(PROJECT, BY);
+    await h.domain.messaging.send('AR', 'owner', {
+      to: ['dev-1'],
+      text: 'Fictional question.',
+      taskKey: woken.key,
+    });
+    await h.domain.tasks.moveToStage('AR', moved.key, 'development', OWNER_ACTOR);
+    await waitFor(() => h.domain.tasks.get('AR', woken.key).startWaiting);
+    await waitFor(() => h.domain.tasks.get('AR', moved.key).startWaiting);
+    expect(h.domain.tasks.get('AR', woken.key).startWaiting).toMatchObject({
+      reason: 'team_paused',
+      member: 'dev-1',
+    });
+    expect(h.domain.tasks.get('AR', moved.key).startWaiting).toMatchObject({ reason: 'team_paused' });
+    expect(h.runner.started).toHaveLength(0);
+    await h.domain.pauses.resume(PROJECT, BY);
+    await waitFor(() => h.runner.started.length >= 2);
+    expect(h.runner.started.some((spec) => spec.initialMessage?.includes('Fictional question.'))).toBe(true);
+  });
+
+  describe('a session whose process ended while it was held', () => {
+    /** A conversation that exists, cut at `point` by the pause, its process gone afterwards. */
+    async function cutAndGone(point: 'before_tool' | 'idle') {
+      h = await createDomainHarness();
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);
+      h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: '/fictional/transcript.jsonl' });
+      h.runner.pauseOutcomes.set(session.id, { point, tool: point === 'idle' ? null : 'Edit' });
+      await h.domain.pauses.pause(PROJECT, BY);
+      await waitFor(() => h.domain.sessions.get('AR', session.id).pause?.point);
+      return session;
+    }
+    const exit = (sessionId: string) => h.runner.emit({ type: 'exit', sessionId, exitCode: 0, signal: null });
+
+    it('wakes the member for the message that came meanwhile, when it stopped between turns', async () => {
+      const session = await cutAndGone('idle');
+      const message = await h.domain.messaging.send('AR', 'owner', {
+        to: ['dev-1'],
+        text: 'Fictional note.',
+      });
+      expect(h.runner.messages).toEqual([]);
+      exit(session.id);
+      await h.domain.pauses.resume(PROJECT, BY);
+      await waitFor(() => h.runner.started.length === 2);
+      expect(h.runner.started[1]!.initialMessage).toContain('Fictional note.');
+      await waitFor(() => h.repos.messages.get(message.id)?.deliveredAt);
+    });
+
+    it('starts it with the nudge first and the waiting messages after it, in its first input', async () => {
+      const session = await cutAndGone('before_tool');
+      await h.domain.messaging.send('AR', 'owner', { to: ['dev-1'], text: 'Fictional note.' });
+      exit(session.id);
+      await h.domain.pauses.resume(PROJECT, BY);
+      expect(h.runner.started).toHaveLength(2);
+      const input = h.runner.started[1]!.initialMessage ?? '';
+      expect(input.startsWith('Nudge before_tool restarted')).toBe(true);
+      expect(input.indexOf('Fictional note.')).toBeGreaterThan(input.indexOf('Nudge'));
+    });
+
+    it('stores the nudge as a message when the start fails, and the usual wake-up starts it', async () => {
+      const session = await cutAndGone('before_tool');
+      exit(session.id);
+      h.runner.failNextStart = new Error('fictional start failure');
+      await h.domain.pauses.resume(PROJECT, BY);
+      await waitFor(() => h.runner.started.length === 2);
+      expect(h.runner.started[1]!.initialMessage).toContain('Nudge before_tool restarted');
+      expect(h.repos.messages.list('AR').map((m) => m.from)).toContain('system');
+    });
+
+    it('stores the nudge and starts nothing when the card holds the member’s messages back', async () => {
+      const session = await cutAndGone('before_tool');
+      exit(session.id);
+      vi.spyOn(h.domain.messaging, 'holdsMessagesOf').mockResolvedValue(true);
+      vi.spyOn(h.domain.messaging, 'send');
+      await h.domain.pauses.resume(PROJECT, BY);
+      expect(h.runner.started).toHaveLength(1);
+      expect(h.domain.messaging.send).toHaveBeenCalledWith(
+        'AR',
+        'system',
+        expect.objectContaining({ to: ['dev-1'], text: 'Nudge before_tool restarted' }),
+        expect.anything(),
+      );
+    });
+
+    it('starts a session cut before it answered the pause again, as one cut mid-turn', async () => {
+      h = await createDomainHarness();
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);
+      h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: '/fictional/transcript.jsonl' });
+      h.runner.pauseOutcomes.set(session.id, null);
+      await h.domain.pauses.pause(PROJECT, BY);
+      exit(session.id);
+      expect(h.repos.pauses.openSession(session.id)).toMatchObject({ point: null });
+      await h.domain.pauses.resume(PROJECT, BY);
+      expect(h.runner.started).toHaveLength(2);
+      expect(h.runner.started[1]).toMatchObject({
+        resume: true,
+        initialMessage: 'Nudge interrupted restarted',
+      });
+    });
   });
 
   it('makes up the scheduled run a pause swallowed, once', async () => {

@@ -121,6 +121,29 @@ describe('the permission settings of one session (PM-170)', () => {
     expect(h.runner.lastStarted()).toMatchObject({ resume: true, permissionMode: 'default' });
   });
 
+  it('does not restart a session while the team is paused, and does at once after the resume (PM-219)', async () => {
+    const sessionId = await running();
+    h.runner.setState(sessionId, 'idle');
+    h.runner.pauseOutcomes.set(sessionId, { point: 'idle', tool: null });
+    const by = { userId: null, source: 'system' } as const;
+    await h.domain.pauses.pause({ scope: 'project', projectKey: 'AR' }, by);
+    await flush();
+
+    await set(sessionId, { permissionMode: 'plan' });
+    h.runner.setState(sessionId, 'working');
+    h.runner.setState(sessionId, 'idle');
+    await flush();
+    expect(h.runner.stopped).toEqual([]);
+    expect(h.runner.started).toHaveLength(1);
+    expect(h.domain.sessions.get('AR', sessionId).permissionRestartPending).toBe(true);
+
+    await h.domain.pauses.resume({ scope: 'project', projectKey: 'AR' }, by);
+    await flush();
+    expect(h.runner.stopped).toEqual([sessionId]);
+    expect(h.runner.started).toHaveLength(2);
+    expect(h.runner.lastStarted()).toMatchObject({ sessionId, resume: true, permissionMode: 'plan' });
+  });
+
   it('holds messages for a session that waits for its restart, and types them in after it', async () => {
     const sessionId = await running();
     h.runner.setState(sessionId, 'working');

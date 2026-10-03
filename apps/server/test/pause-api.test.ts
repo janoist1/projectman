@@ -2,15 +2,15 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { InstancePauseView, ProjectPauseView, routes } from '@projectman/shared';
 import type { HumanAccess } from '@projectman/shared';
 import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
-import type { AppHarness } from './helpers/app-harness';
+import type { AppHarness, AppHarnessOptions } from './helpers/app-harness';
 
 describe('pause routes', () => {
   let h: AppHarness;
   let cookie: string;
   afterEach(async () => h?.close());
 
-  async function setup() {
-    h = await createAppHarness();
+  async function setup(app?: AppHarnessOptions['app']) {
+    h = await createAppHarness(app ? { app } : undefined);
     cookie = await setupOwner(h.app);
     await createProject(h, cookie);
   }
@@ -130,6 +130,18 @@ describe('pause routes', () => {
     expect(InstancePauseView.parse(resumed.json()).pause).toBeNull();
     expect(h.app.projectman.domain.pauses.isPaused('AR')).toBe(true);
     expect((await call('POST', routes.instancePauseForce())).statusCode).toBe(200);
+  });
+
+  it('pauses the instance for the stop of the server, and not when the shutdown pause is set to 0', async () => {
+    await setup({ shutdownPauseMs: 1000 });
+    await h.app.projectman.pauseForShutdown();
+    expect(h.app.projectman.repos.pauses.open()).toMatchObject([{ scope: 'instance', kind: 'shutdown' }]);
+    await h.close();
+
+    await setup({ shutdownPauseMs: 0 });
+    await h.app.projectman.pauseForShutdown();
+    expect(h.app.projectman.repos.pauses.open()).toEqual([]);
+    expect(h.app.projectman.domain.pauses.isPaused('AR')).toBe(false);
   });
 
   it('shows the instance pause to an admin who may not change it', async () => {

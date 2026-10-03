@@ -24,7 +24,7 @@ import { isoNow } from './context';
 import type { DomainContext } from './context';
 import type { FixLimitWatch } from './fix-limit';
 import type { ScheduleService } from './schedules';
-import type { MessageDelivery } from './messaging';
+import type { MessageDelivery, Messaging } from './messaging';
 import type { ProjectService } from './projects';
 import type { SessionOrchestrator } from './sessions';
 import type { AppendTimelineInput, TimelineService } from './timeline';
@@ -70,6 +70,7 @@ export class PauseService {
   private readonly admission: Pick<Admission, 'exclusive' | 'retryDeferred'>;
   private readonly runner: SessionRunner;
   private readonly delivery: MessageDelivery;
+  private readonly messaging: Pick<Messaging, 'holdsMessagesOf' | 'wakeWaiting' | 'send'>;
   private readonly timeline: TimelineService;
   private readonly fixLimit: Pick<FixLimitWatch, 'afterResume'>;
   private readonly schedules: Pick<ScheduleService, 'catchUp'>;
@@ -83,6 +84,7 @@ export class PauseService {
     admission: Pick<Admission, 'exclusive' | 'retryDeferred'>;
     runner: SessionRunner;
     delivery: MessageDelivery;
+    messaging: Pick<Messaging, 'holdsMessagesOf' | 'wakeWaiting' | 'send'>;
     timeline: TimelineService;
     fixLimit: Pick<FixLimitWatch, 'afterResume'>;
     schedules: Pick<ScheduleService, 'catchUp'>;
@@ -94,6 +96,7 @@ export class PauseService {
     this.admission = deps.admission;
     this.runner = deps.runner;
     this.delivery = deps.delivery;
+    this.messaging = deps.messaging;
     this.timeline = deps.timeline;
     this.fixLimit = deps.fixLimit;
     this.schedules = deps.schedules;
@@ -312,8 +315,9 @@ export class PauseService {
    * Before the server stops: pauses the instance (kind `shutdown`, by the system) so that every session
    * comes to a safe point and the stop loses no half-done step, then waits until none is still
    * stopping. The runner cuts what has not stopped after `waitMs`; this waits `graceMs`
-   * (`SHUTDOWN_CUT_GRACE_MS`) more for those answers, and gives up then (the stop goes on). An instance pause that is open
-   * already is not replaced: its sessions are held as they are.
+   * (`SHUTDOWN_CUT_GRACE_MS`) more for those answers, and gives up then (the stop goes on). A pause that is open
+   * already is not replaced: its sessions are held as they are, and the ones that have not stopped by `waitMs`
+   * are cut (`force`), whichever pause holds them.
    */
   async pauseForShutdown(waitMs: number, graceMs = SHUTDOWN_CUT_GRACE_MS): Promise<void> {
     await this.pause(
@@ -322,10 +326,26 @@ export class PauseService {
       { kind: 'shutdown', forceAfterMs: waitMs },
     );
     const limit = waitMs + graceMs;
-    for (let waited = 0; this.stillStopping() && waited < limit; waited += SHUTDOWN_POLL_MS)
+    let forced = false;
+    for (let waited = 0; this.stillStopping() && waited < limit; waited += SHUTDOWN_POLL_MS) {
+      // A pause that was open before (a person's, longer) would let the stop cut the sessions mid-turn:
+      // what has not stopped by the deadline is cut with one Esc, as the shutdown's own pause would.
+      if (!forced && waited >= waitMs) {
+        forced = true;
+        await this.forceLater();
+      }
       await new Promise((resolve) => setTimeout(resolve, SHUTDOWN_POLL_MS));
+    }
     const left = this.ctx.repos.pauses.openSessions().filter((row) => row.point === null).length;
     if (left > 0) this.ctx.logger.warn({ sessions: left }, 'sessions did not stop before the shutdown');
+  }
+
+  /** Forces the open pauses whose deadline is still ahead. */
+  private async forceLater(): Promise<void> {
+    const now = this.ctx.now().getTime();
+    for (const pause of this.ctx.repos.pauses.open())
+      if (Date.parse(pause.requestedAt) + pause.forceAfterMs > now)
+        await this.force(targetOf(pause), { userId: null, source: 'system' });
   }
 
   /** Whether a session whose process runs has not come to its stop yet. */
@@ -459,8 +479,13 @@ export class PauseService {
       if (!session) continue;
       try {
         if (this.sessions.isRunning(session.id)) this.letGo(session, row);
-        else if (row.needsRestart) await this.restart(session, row, pause.kind);
-        else this.delivery.dropPauseHeld(session.id);
+        // No point: the process was cut before it answered (the stop of the server), in a turn.
+        else if (row.needsRestart || row.point === null) await this.restart(session, row, pause.kind);
+        else {
+          // It stopped between turns and its process is gone: what came for it meanwhile wakes it as usual.
+          this.delivery.dropPauseHeld(session.id);
+          await this.messaging.wakeWaiting(session);
+        }
       } catch (err) {
         this.ctx.logger.warn({ err, sessionId: session.id }, 'could not resume the session');
       }
@@ -493,19 +518,46 @@ export class PauseService {
 
   /**
    * A session whose process is gone (a shutdown, a crash, a stop of the runner) and that was cut in a turn is
-   * started again, with the nudge as its first input. The messages that wait for it are typed in after it
-   * started, as for any started session (`deliverWaiting`), so the ones a card holds back stay held by it.
-   * A start that fails leaves it stopped: the next message or wake-up resumes it with the continue message.
+   * started again, with the nudge and then the messages that wait for it as its first input. Without
+   * admission, as a person's restart. When its card holds the member's messages back (the fix round limit, a
+   * refinement turn of another member), or the start fails, the nudge is stored as a system message instead
+   * and goes the usual way: with the hold's end, or the member's next wake-up.
    */
   private async restart(session: Session, row: SessionPauseRecord, kind: PauseKind): Promise<void> {
     this.delivery.dropPauseHeld(session.id);
-    // A pause of the shutdown cut the process, whatever the point: that is a new process as well.
-    const nudge = row.point ? this.sessions.pauseNudge(row.point, row.tool, true) : undefined;
+    // A row with no point was cut at an unknown place: like a tool that was interrupted.
+    const nudge = this.sessions.pauseNudge(row.point ?? 'interrupted', row.tool, true);
     this.ctx.logger.info(
       { sessionId: session.id, point: row.point, kind },
       'starting a paused session again',
     );
-    await this.sessions.ensureSession(session.projectKey, session.member, session.workItem, { nudge });
+    if (await this.messaging.holdsMessagesOf(session)) {
+      await this.nudgeAsMessage(session, nudge);
+      return;
+    }
+    try {
+      await this.delivery.startAndDeliver(session.projectKey, session.member, session.workItem, (messages) =>
+        this.sessions.ensureSession(session.projectKey, session.member, session.workItem, {
+          messages,
+          nudge,
+        }),
+      );
+    } catch (err) {
+      this.ctx.logger.warn({ err, sessionId: session.id }, 'could not start a paused session again');
+      await this.nudgeAsMessage(session, nudge);
+    }
+  }
+
+  /** The nudge of a session that could not start with it: a stored message, so that nothing is lost. */
+  private async nudgeAsMessage(session: Session, nudge: string | undefined): Promise<void> {
+    if (!nudge) return;
+    const { workItem } = session;
+    await this.messaging.send(
+      session.projectKey,
+      'system',
+      { to: [session.member], text: nudge, taskKey: workItem.type === 'task' ? workItem.taskKey : null },
+      { actor: SYSTEM_ACTOR, workItem },
+    );
   }
 
   /**

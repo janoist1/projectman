@@ -47,6 +47,34 @@ describe('pause around a restart of the server', () => {
     expect(h.repos.pauses.openSession(session.id)).toMatchObject({ point: null });
   });
 
+  it('cuts the sessions of a longer pause that was open before, at the shutdown deadline', async () => {
+    await harness();
+    const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);
+    h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: '/fictional/working.jsonl' });
+    h.runner.pauseOutcomes.set(session.id, null);
+    await h.domain.pauses.pause({ scope: 'instance' }, BY, { forceAfterMs: 3_000_000 });
+    await h.domain.pauses.pauseForShutdown(50, 100);
+    expect(h.runner.forcePauses).toEqual([session.id]);
+    // The stop took the process, which did not answer: it starts again as one cut mid-turn.
+    await restart();
+    expect(h.repos.pauses.open()).toMatchObject([{ scope: 'instance', kind: 'manual' }]);
+    await h.domain.pauses.resume({ scope: 'instance' }, BY);
+    expect(h.runner.started).toHaveLength(1);
+    expect(h.runner.started[0]).toMatchObject({ sessionId: session.id, resume: true });
+  });
+
+  it('wakes the member for a message that came during the shutdown pause, for a session that stopped between turns', async () => {
+    await harness();
+    const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);
+    h.runner.pauseOutcomes.set(session.id, { point: 'idle', tool: null });
+    await h.domain.pauses.pauseForShutdown(5000);
+    const message = await h.domain.messaging.send('AR', 'owner', { to: ['dev-1'], text: 'Fictional note.' });
+    await restart();
+    await waitFor(() => h.runner.started.length > 0);
+    expect(h.runner.started[0]!.initialMessage).toContain('Fictional note.');
+    await waitFor(() => h.repos.messages.get(message.id)?.deliveredAt);
+  });
+
   it('starts the session cut mid-turn again after the restart, with the nudge, and not the idle one', async () => {
     await harness();
     const { session: working } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);

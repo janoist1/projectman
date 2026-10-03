@@ -449,6 +449,7 @@ export function createDomain(opts: DomainOptions) {
     admission,
     runner: runnerModule.runner,
     delivery,
+    messaging,
     timeline,
     fixLimit,
     schedules,

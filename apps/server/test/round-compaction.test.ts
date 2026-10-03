@@ -75,6 +75,27 @@ describe('end-of-round compaction', () => {
     expect(compactionsOf(dev.id)).toHaveLength(1);
   });
 
+  it('does not type the compaction while the team is paused, and does after the resume (PM-219)', async () => {
+    const dev = await setup();
+    const by = { userId: null, source: 'system' } as const;
+    h.runner.setState(dev.id, 'idle');
+    h.runner.pauseOutcomes.set(dev.id, { point: 'idle', tool: null });
+    await h.domain.pauses.pause({ scope: 'project', projectKey: 'AR' }, by);
+    await handOver();
+    await vi.waitFor(() => expect(owed(dev.id)).toBe(true));
+    // An idle moment of the session during the pause does not type it either.
+    h.runner.setState(dev.id, 'working');
+    h.runner.setState(dev.id, 'idle');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(h.runner.compactions).toEqual([]);
+
+    await h.domain.pauses.resume({ scope: 'project', projectKey: 'AR' }, by);
+    await vi.waitFor(() =>
+      expect(h.runner.compactions).toEqual([{ sessionId: dev.id, instruction: INSTRUCTION }]),
+    );
+    expect(owed(dev.id)).toBe(true);
+  });
+
   it('does not compact a small conversation, nor one that was never measured, and owes nothing for it', async () => {
     const dev = await setup(undefined, COMPACT_MIN_CONTEXT_TOKENS);
     h.runner.setState(dev.id, 'idle');

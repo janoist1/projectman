@@ -37,7 +37,12 @@ export interface AppHarnessOptions {
   /** Further buildApp options. */
   app?: Pick<
     BuildAppOptions,
-    'doneCleanupDelayMs' | 'doneTurnLimitMs' | 'clientIpHeader' | 'freeDiskBytes' | 'controlSocket'
+    | 'doneCleanupDelayMs'
+    | 'doneTurnLimitMs'
+    | 'clientIpHeader'
+    | 'freeDiskBytes'
+    | 'controlSocket'
+    | 'shutdownPauseMs'
   >;
 }
 

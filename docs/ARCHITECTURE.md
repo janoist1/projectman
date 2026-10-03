@@ -836,13 +836,18 @@ deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` 
   of a turn (`NUDGE_POINTS`: the tool ran, the call did not run, or the tool was interrupted; text from
   `ContextPackBuilder.pauseNudge`), then gets its held messages and its idle work back (`sessions.afterPause`). A
   session whose process is gone, stopped at a `RESTART_POINTS` point, is started again with `--resume`
-  (`ensureSession` with `nudge`, which stands before the waiting messages); one that stopped idle is not.
-  Last come `fixLimit.afterResume`, `schedules.catchUp` and `admission.retryDeferred`. A deliberate stop
+  (`ensureSession` with `nudge`, which stands before the waiting messages); one that stopped idle is not, and
+  the member is woken for a message that came meanwhile (`Messaging.wakeWaiting`). A row with no point (the
+  process was cut before it answered) is started again like a mid-turn one, with the `interrupted` nudge. When
+  the card holds the messages (the fix limit, a refinement turn) or the start fails, the nudge is stored as a
+  `system` message instead (`Messaging.holdsMessagesOf`) and the usual path carries on. Last come `fixLimit.afterResume`, `schedules.catchUp` and `admission.retryDeferred`. A deliberate stop
   closes the session's row: it is not restarted.
 - **Stopping the server.** Every stop pauses first (`ShutdownOptions.pause`, before `close`, because the hooks
   and the MCP reach the server over its HTTP and Fastify's `close` answers 503): `pauseForShutdown` opens an
   instance pause of kind `shutdown` (source `system`; it writes no timeline event) and waits for the sessions up
   to `PROJECTMAN_SHUTDOWN_PAUSE_MS` (default 60 s, 0 turns it off) plus 10 s, then the server closes as before.
+  The runner cuts a session at the shutdown pause's own deadline; at the same time the sessions of a longer
+  pause that was open before are cut with one Esc (`forcePause`), so the stop waits for none of them longer.
   After the start `resumeAfterStartup` (in the background, after `restoreDeferred`) ends the `shutdown`
   pauses, so the sessions start again with a nudge that says their process is new; a pause a person made stays.
   A crash and a second Ctrl-C after 3 s do not pause. Under systemd this needs `KillMode=mixed` and

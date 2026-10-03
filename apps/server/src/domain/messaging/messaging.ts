@@ -387,6 +387,37 @@ export class Messaging {
       if (member.kind === 'ai') this.releaseWaiting(projectKey, taskKey, member.handle);
   }
 
+  /**
+   * Whether the session's card holds its member's messages back (PM-219): a refinement turn that is not
+   * theirs, or the fix round limit. A session that starts again for a resumed pause must not take them in.
+   */
+  async holdsMessagesOf(session: Pick<Session, 'projectKey' | 'member' | 'workItem'>): Promise<boolean> {
+    if (session.workItem.type !== 'task') return false;
+    const task = this.tasks.find(session.projectKey, session.workItem.taskKey);
+    if (!task) return false;
+    const config = await this.projects.config(session.projectKey);
+    return (
+      this.heldForTurn(config, task, session.member, {}) ||
+      this.heldForFixLimit(config, task, 'system', session.member)
+    );
+  }
+
+  /**
+   * The messages that came for a session while its pause held it, and that nobody typed in because its
+   * process ended meanwhile (PM-219), wake their recipient the usual way, unless the card holds them back.
+   */
+  async wakeWaiting(session: Pick<Session, 'projectKey' | 'member' | 'workItem'>): Promise<void> {
+    if (await this.holdsMessagesOf(session)) return;
+    const [first] = this.messages.waiting(session.projectKey, session.member, session.workItem);
+    if (!first) return;
+    void this.ctx.events.emit('message_waiting', {
+      projectKey: session.projectKey,
+      handle: session.member,
+      workItem: session.workItem,
+      messageId: first.id,
+    });
+  }
+
   /** A running recipient gets the message typed in; otherwise it waits for a wake-up. */
   private deliverOrWake(
     projectKey: string,

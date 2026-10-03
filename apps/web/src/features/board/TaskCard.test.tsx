@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { cleanup, screen, within } from '@testing-library/react';
 import type { Task } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
 import { indexPipeline } from '../../lib/pipeline';
@@ -85,6 +85,43 @@ describe('TaskCard', () => {
     expect(card.getAttribute('aria-current')).toBe('true');
     expect(within(card).getByText(working('Backend fejlesztő'))).toBeTruthy();
     expect(within(card).queryByRole('list', { name: t('taskCard.stageRows') })).toBeNull();
+  });
+
+  it('carries the loop mark with who was told, and none without a loop (PM-261)', () => {
+    expect(within(renderCard('AC-20')).queryByText(t('loop.mark'))).toBeNull();
+    cleanup();
+
+    const base = taskByKey('AC-20');
+    const task: Task = {
+      ...base,
+      loop: {
+        id: 'loop_1',
+        members: ['be-1', 'fe-1'],
+        count: 6,
+        startedAt: new Date(Date.now() - 12 * 60_000).toISOString(),
+        lastMessageAt: new Date().toISOString(),
+        notified: 'be-1',
+        phase: 'notified',
+        ownerReason: null,
+        deciders: [],
+        letRunBy: null,
+      },
+    };
+    renderUi(
+      <TaskCard
+        task={task}
+        state={deriveTaskState(task, ctx)}
+        pipeline={pipeline}
+        to="/p/AC/tasks/AC-20"
+        selected={false}
+        labels={labelViews}
+      />,
+    );
+    const mark = screen.getByText(t('loop.mark')).closest('[title]')!;
+    expect(mark.getAttribute('title')).toMatch(/6 üzenet/);
+    expect(mark.getAttribute('title')).toContain('12 perce');
+    expect(mark.getAttribute('title')).toContain('Jelezve:');
+    expect(mark.getAttribute('aria-label')).toContain(t('loop.mark'));
   });
 
   it('says who works on the card, and never the command they run (PM-237)', () => {

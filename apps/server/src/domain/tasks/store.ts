@@ -14,6 +14,7 @@ import type {
   ProjectConfig,
   Stage,
   Task,
+  TaskLoop,
   TaskReviewPin,
   TaskStartWaiting,
   TimelineEvent,
@@ -63,15 +64,36 @@ export class TaskStore {
   }
 
   view(task: Task): Task {
-    const { startWaiting: _, reviewPin: __, coverAttachmentId: ___, ...rest } = task;
+    const { startWaiting: _, reviewPin: __, coverAttachmentId: ___, loop: ____, ...rest } = task;
     const startWaiting = this.startWaiting.waitingFor(task) ?? this.repoWaiting(task);
     const reviewPin = this.reviewPin(task);
     const cover = this.cover(task);
+    const loop = this.loop(task);
     return {
       ...rest,
       ...(startWaiting ? { startWaiting } : {}),
       ...(reviewPin ? { reviewPin } : {}),
       ...(cover ? { coverAttachmentId: cover } : {}),
+      ...(loop ? { loop } : {}),
+    };
+  }
+
+  /** The loop open on the card (PM-261), for the board; none once the card closed. */
+  private loop(task: Task): TaskLoop | undefined {
+    if (!isOpenTask(task) || isTheme(task)) return undefined;
+    const loop = this.ctx.repos.taskLoops.open(task.key);
+    if (!loop) return undefined;
+    return {
+      id: loop.id,
+      members: loop.members,
+      count: loop.count,
+      startedAt: loop.startedAt,
+      lastMessageAt: loop.lastMessageAt,
+      notified: loop.notified,
+      phase: loop.phase,
+      ownerReason: loop.ownerReason,
+      deciders: loop.deciders,
+      letRunBy: loop.letRunBy,
     };
   }
 

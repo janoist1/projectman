@@ -55,12 +55,14 @@ export function teamMessageParticipant(viewer: Viewer): string | undefined {
  */
 export function withVisibleCardLinks(viewer: Viewer, task: Task, canSeeKey: (key: string) => boolean): Task {
   if (!isClient(viewer)) return task;
-  const hideTheme = !!task.themeKey && !canSeeKey(task.themeKey);
-  if (!hideTheme && !task.links.some(isCardLink)) return task;
-  const { themeKey: _theme, ...shown } = task;
+  // The loop mark (PM-261) is the team's, as the rounds of a card are: a client never sees it.
+  const { loop: _loop, ...visible } = task;
+  const hideTheme = !!visible.themeKey && !canSeeKey(visible.themeKey);
+  if (!hideTheme && !visible.links.some(isCardLink)) return visible;
+  const { themeKey: _theme, ...shown } = visible;
   return {
-    ...(hideTheme ? shown : task),
-    links: task.links.filter((link) => !isCardLink(link) || canSeeKey(link.ref)),
+    ...(hideTheme ? shown : visible),
+    links: visible.links.filter((link) => !isCardLink(link) || canSeeKey(link.ref)),
   };
 }
 

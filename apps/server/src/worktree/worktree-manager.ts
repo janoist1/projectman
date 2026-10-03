@@ -3,7 +3,7 @@ import path from 'node:path';
 import { TaskKey, type ProjectConfig } from '@projectman/shared';
 import type { SourceHead, WorktreeInfo, WorktreeManager, WorktreeManagerOptions } from '../contracts';
 import { isTaskBranch, taskBranchName } from './branch-name';
-import { git, gitSucceeds, tryGit } from './git';
+import { git, gitSucceeds, isoOrNull, tryGit } from './git';
 import { canonical, createKeyedLock, isInside } from './paths';
 
 /** A fetch that takes longer is abandoned; the worktree starts from the last known state. */
@@ -245,7 +245,8 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
     const branch = (await tryGit(['-C', dir, 'symbolic-ref', '--quiet', '--short', 'HEAD']))?.trim();
     if (!commit || !branch) return null;
     const changes = (await git(['-C', dir, 'status', '--porcelain'])).split('\n').filter(Boolean).length;
-    return { commit, branch, dirty: changes > 0, changes, path: dir };
+    const committedAt = isoOrNull(await tryGit(['-C', dir, 'log', '-1', '--format=%cI', commit]));
+    return { commit, branch, dirty: changes > 0, changes, path: dir, committedAt };
   }
 
   async function remove(args: { path: string; force?: boolean }): Promise<void> {

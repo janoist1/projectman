@@ -161,6 +161,8 @@ export async function createDomainHarness(
     handOffRetryMs: opts.handOffRetryMs,
     // Tests call `domain.reviewWatch.check()` themselves: the timer must not fire on its own.
     reviewWatchMs: 3_600_000,
+    // Likewise the loop watch's sweep: tests call `domain.loopWatch.sweep()`.
+    loopWatchMs: 3_600_000,
     // Likewise the disk check and the worktree sweep: tests call `domain.disk` and `domain.worktreeSweep`.
     diskCheckMs: 3_600_000,
     worktreeSweepMs: 3_600_000,

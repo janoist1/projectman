@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { isOnLeave, isTheme } from '@projectman/shared';
+import { canSeeAllTeamMessages, isOnLeave, isTheme, loopDecisionOf } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import {
   useConfig,
@@ -36,6 +36,7 @@ import { InboxCard } from '../inbox/InboxCard';
 import { openPrerequisiteKeys, PrerequisiteWarning, refusedPrerequisites } from './PrerequisiteWarning';
 import { nextStepLine } from './NextStep';
 import { RefineButton } from './RefineButton';
+import { SignalBox } from './SignalBox';
 import { primarySession } from './taskModel';
 import { useBoardModel } from './useBoardModel';
 import { useCanAttach, useUploadQueue } from './attachmentUploads';
@@ -146,7 +147,9 @@ function StartPanel({
 
 export function TaskDrawer() {
   const { taskKey = '' } = useParams();
-  const { key, myHandle, can } = useProject();
+  const { key, myHandle, can, me } = useProject();
+  const access = me.projects.find((project) => project.key === key)?.access;
+  const seesAllMessages = access ? canSeeAllTeamMessages({ access }) : false;
   const navigate = useNavigate();
   const { board, members, pipeline, model } = useBoardModel();
   const detail = useTaskDetail(key, taskKey);
@@ -239,6 +242,14 @@ export function TaskDrawer() {
         )}
 
         <div className={styles.scroll}>
+          {task.loop && !myItems.some((item) => loopDecisionOf(item)) ? (
+            <SignalBox
+              task={task}
+              members={members}
+              myHandle={myHandle}
+              messagesHref={seesAllMessages ? `/p/${key}/messages/all?task=${task.key}` : null}
+            />
+          ) : null}
           {myItems.length > 0 ? (
             <section className={drawer.section}>
               {myItems.map((item) => (

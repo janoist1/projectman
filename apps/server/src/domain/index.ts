@@ -43,7 +43,7 @@ import type { DomainContext, TemplateRegistry } from './context';
 import { createEventBus } from './event-bus';
 import { GithubSync } from './github-sync';
 import { InboxService, delegatedPermissionPrompt } from './inbox';
-import { MessageBurstWatch } from './message-burst';
+import { LoopWatch } from './loop-watch';
 import { OpenQuestionLabel } from './open-question-label';
 import { InvitationService } from './invitations';
 import { MemberProfiles, MemberService } from './members';
@@ -216,6 +216,8 @@ export interface DomainOptions {
   handOffRetryMs?: number;
   /** How often the branch of a task in review is compared with its pinned commit (default 30 s). */
   reviewWatchMs?: number;
+  /** How often the open loops of cards are looked at for an end (default 60 s, PM-261). */
+  loopWatchMs?: number;
   /**
    * The free bytes of the disk the installation's data is on (PM-243); null: not measurable. Without
    * it nothing is measured, so no start is refused for disk space.
@@ -480,6 +482,8 @@ export function createDomain(opts: DomainOptions) {
         return refinement.rebuild(spec);
       case 'message_wake':
         return messageStarts.rebuild(spec);
+      case 'loop_notice':
+        return loopWatch.rebuild(spec);
     }
   };
 
@@ -519,11 +523,15 @@ export function createDomain(opts: DomainOptions) {
   // An open AI question holds its card back with the waiting label; the last one closing frees it.
   events.on('inbox_resolved', (item) => openQuestionLabel.release(item));
   events.on('inbox_cancelled', (item) => openQuestionLabel.release(item));
-  // A flood of messages and notes on one card is told to the owners once (PM-186).
-  const messageBurst = new MessageBurstWatch({ ctx, projects, inbox });
-  events.on('task_talk_recorded', ({ event }) => {
-    messageBurst.check(event);
-  });
+  // AI members writing round in circles on a card: the scheduling duty's holder is told first, people
+  // only when that did not help (PM-261). A loop ends when the card makes progress or goes quiet.
+  const loopWatch = new LoopWatch({ ctx, projects, tasks, sessions, admission, delivery, inbox, timeline });
+  events.on('task_talk_recorded', ({ event }) => loopWatch.check(event));
+  events.on('task_stage_changed', (change) => loopWatch.progressed(change.task, 'stage'));
+  events.on('task_labels_changed', ({ task }) => loopWatch.progressed(task, 'label'));
+  events.on('task_cancelled', (task) => loopWatch.progressed(task, 'closed'));
+  events.on('config_changed', (change) => loopWatch.configChanged(change));
+  events.on('inbox_resolved', (item) => (item.kind === 'decision' ? loopWatch.decided(item) : undefined));
   // Cancelled tasks stop their sessions; moves and closures drop the starts they made obsolete.
   events.on('task_cancelled', (task) => sessions.stopTask(task.projectKey, task.key));
   events.on('task_cancelled', (task) => admission.discardStale(task));
@@ -643,6 +651,7 @@ export function createDomain(opts: DomainOptions) {
   let retryTimer: ReturnType<typeof setInterval> | undefined;
   let boundaryTimer: ReturnType<typeof setInterval> | undefined;
   let reviewWatchTimer: ReturnType<typeof setInterval> | undefined;
+  let loopWatchTimer: ReturnType<typeof setInterval> | undefined;
   let diskTimer: ReturnType<typeof setInterval> | undefined;
   let sweepTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -675,6 +684,7 @@ export function createDomain(opts: DomainOptions) {
     schedules,
     githubSync,
     reviewWatch,
+    loopWatch,
     disk,
     worktreeSweep,
     teamTools,
@@ -731,6 +741,16 @@ export function createDomain(opts: DomainOptions) {
         opts.reviewWatchMs ?? 30_000,
       );
       reviewWatchTimer.unref();
+      // A loop on a card ends when its branch got a commit or nobody wrote for a whole window (PM-261).
+      loopWatchTimer = setInterval(
+        () =>
+          background.run(
+            () => loopWatch.sweep(),
+            (err) => opts.logger.warn({ err }, 'loop watch sweep failed'),
+          ),
+        opts.loopWatchMs ?? 60_000,
+      );
+      loopWatchTimer.unref();
       // Free disk space (PM-243): warn the owners early, so that admission need not be the first to find out.
       const checkDisk = () =>
         background.run(
@@ -758,6 +778,7 @@ export function createDomain(opts: DomainOptions) {
       if (retryTimer) clearInterval(retryTimer);
       if (boundaryTimer) clearInterval(boundaryTimer);
       if (reviewWatchTimer) clearInterval(reviewWatchTimer);
+      if (loopWatchTimer) clearInterval(loopWatchTimer);
       if (diskTimer) clearInterval(diskTimer);
       if (sweepTimer) clearInterval(sweepTimer);
       const drained = schedules.stop();

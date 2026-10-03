@@ -756,6 +756,25 @@ Below `team.limits.minFreeDiskGb` (default 10, 0 turns it off) the owners get on
 there is room again, and `Admission.check` refuses a new AI session with `disk_low` (deferrable: the start waits).
 Running sessions finish their step. A measurement that fails never blocks anything.
 
+### Loop watch
+
+`LoopWatch` (`apps/server/src/domain/loop-watch.ts`, PM-261; it replaced the message storm alert of PM-186 and
+its `team.limits.messageBurst`, dropped from old configurations by the `dropMessageBurst` migration) catches AI
+members writing to each other on a card without progress. The rules are pure and live in
+`packages/shared/src/domain/loop-watch.ts` (`countsForLoop`, `findLoop`, `loopWatchers`, `loopDeciders`), also
+used by the web's fake backend. Only team messages between AI members count; people's messages do not. Progress
+is a stage change, a label change, or a new commit on the card's branch (`SourceHead.committedAt`); the window
+and the count are `team.limits.loopWatch` (`enabled`, `count` 3..50, `minutes` 5..240; default on, 6 in 30).
+A loop is a row of `task_loops` (migration 29) with the phase `notified` → `owner` → `let_run`, and the card
+carries it as `Task.loop` (a "Körbe fut" mark; clients do not see it). The first notice is a system message to the
+AI holder of the `scheduling` duty (not stored as a team message). People get an inbox decision (`stop_work` or
+`let_run`) only when nobody holds the duty, admission refuses the holder for good, or the loop went on after the
+notice. A refusal that can clear (the AI limit, the holder's capacity, paused plan usage, low disk space) only makes
+the notice wait: it is an automatic start (`StartSpec` kind `loop_notice`) kept and retried like the others, the loop
+stays `notified` with `notified_count` 0, and the "went on" count starts from the delivery. A loop closes itself when the card moves on, its labels change, a commit lands, nobody wrote for a whole window,
+or the watch is switched off; its decision then closes with the `loop_ended` rule. The timeline event is
+`task_loop` (`raised`, `escalated`, `let_run`, `ended`).
+
 ## GitHub
 
 Tasks live in our database (decision 9); GitHub is used for pull requests, reviews, checks

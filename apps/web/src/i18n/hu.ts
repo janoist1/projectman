@@ -1267,6 +1267,27 @@ export const hu = {
       reject: 'Elutasítom',
       answer: 'Saját válasz',
       seen: 'Láttam',
+      stop_work: 'Leállítom a munkát',
+      let_run: 'Hadd fusson',
+    },
+    /** A card whose AI members write to each other without progress (PM-261): a decision only when needed. */
+    loop: {
+      heading: 'Körbe fut egy kártya',
+      subject: 'Körbe fut: {key}',
+      body: 'A(z) {key} kártyán {pair} {minutes} perc alatt {count} üzenetet váltott haladás nélkül. {reason}',
+      reasons: {
+        no_watcher: 'Az Ütemezést senki nem tölti be, ezért hozzád jött.',
+        continued: '{name} jelzése után sem állt le.',
+      },
+      consequence: {
+        stop_work: 'A kártyán futó AI-munkamenetek leállnak; a kártya ott marad, ahol van.',
+        let_run: 'Erről többet nem szólunk; a jelölés addig marad, amíg el nem csitul.',
+      },
+      footer: 'Ha közben elcsitul, ez a tétel magától lezárul.',
+      toast: {
+        stop_work: 'Leállítottuk a {key} AI-munkameneteit.',
+        let_run: 'Rendben, erről többet nem szólunk.',
+      },
     },
     /** Alerts: something to notice, with nothing to decide. */
     alerts: {
@@ -1320,10 +1341,14 @@ export const hu = {
       option: 'Válasz: {label}',
       expired: 'Lejárt',
       cancelled: 'Visszavonva',
+      stop_work: 'Leállítva',
+      let_run: 'Hadd fusson',
+      loop_ended: 'Magától lezárult: elcsitult',
     },
     /** Rules by which the system decided an item itself. */
     resolutionRules: {
       command_policy: 'Automatikus: szabály szerint',
+      loop_ended: 'Automatikus',
     },
     /** The folded row of the history for what the system decided by a rule. */
     automaticDecisions: '{count} automatikus döntés',
@@ -1497,6 +1522,47 @@ export const hu = {
     participantAssignee: 'Viszi a feladatot',
     participantOwner: 'Gazda: {stage}',
     participantActivity: 'Utoljára: {text}',
+  },
+
+  /** A loop on a card (PM-261): AI members writing to each other without progress. */
+  loop: {
+    mark: 'Körbe fut',
+    /** Stands for the member who holds the Ütemezés duty when the payload names none. */
+    schedulingHolder: 'Az Ütemezés felelőse',
+    decides: '{names} dönt',
+    youDecide: 'te döntesz',
+    summary: '{pair} {minutes} perce ír egymásnak haladás nélkül ({count} üzenet). {who}',
+    who: {
+      notified: 'Jelezve: {name}.',
+      no_watcher: 'Az Ütemezést senki nem tölti be, ezért {decides} róla.',
+      continued: '{name} jelzése után is folytatódott, ezért {decides} róla.',
+      let_run: '{name}: hadd fusson.',
+    },
+    box: {
+      title: 'Körbe fut a beszélgetés',
+      text: '{pair} {count} üzenetet váltott, közben nem volt commit, szakasz- vagy címkeváltás.',
+      let_run: '{name} úgy döntött, hadd fusson. A jelölés eltűnik, ha elcsitul.',
+      messages: 'Üzenetek',
+    },
+    events: {
+      raised: 'Körbeírogatás: {pair} {minutes} perc alatt {count} üzenet, haladás nélkül. Jelezve: {name}.',
+      raisedToPeople: 'Körbeírogatás: {pair} {minutes} perc alatt {count} üzenet, haladás nélkül.',
+      escalated: {
+        continued: 'A jelzés után is folytatódott; {decides}.',
+        no_watcher: 'Az Ütemezést senki nem tölti be; {decides}.',
+      },
+      let_run: '{name}: hadd fusson.',
+      ended: 'A körbeírogatás véget ért: {reason}.',
+    },
+    endReasons: {
+      label: 'címkeváltás',
+      stage: 'szakaszváltás',
+      commit: 'commit',
+      quiet: 'elcsitult',
+      stopped: 'leállítva',
+      disabled: 'kikapcsolva',
+      closed: 'a kártya lezárult',
+    },
   },
 
   timeline: {
@@ -2053,12 +2119,16 @@ export const hu = {
       autoCompactWindowHelp:
         'A Claude Code ekkora beszélgetésnél tömöríti a tag beszélgetését, így az nem nő a végtelenségig, és a lépések kevesebbet olvasnak újra. Üresen hagyva 200 000 token érvényes. 100 000 és 1 000 000 között adható meg. Csak a Claude-tagokra hat, a Codex-tagokra nem. A tag beállításai között tagonként felülírható.',
       autoCompactWindowValue: '{count} token',
-      messageBurst: 'Üzenetvihar-jelzés',
-      messageBurstHelp:
-        'Ha egy kártyán ennyi csapatüzenet és jegyzet születik ennyi perc alatt (az emberek közti beszélgetést is beleértve), egyszer jelzést kapsz a Rád vár listában. Semmi nem áll meg.',
-      messageBurstCount: 'Üzenetek és jegyzetek száma',
-      messageBurstMinutes: 'Ennyi perc alatt',
-      messageBurstValue: '{count} üzenet {minutes} perc alatt',
+      loopWatchGroup: 'Körbe futó munka',
+      loopWatch: 'Körbeírogatás-jelzés',
+      loopWatchHelp:
+        'Ha AI-tagok egy kártyán haladás nélkül írnak egymásnak (közben nincs commit, szakasz- vagy címkeváltás), a kártyán jelölés jelenik meg, és az Ütemezés felelőse kap jelzést. Hozzád csak akkor jut, ha ezt senki nem tölti be, vagy a jelzés után is folytatódik.',
+      loopWatchCount: 'Üzenet haladás nélkül',
+      loopWatchMinutes: 'Ennyi perc alatt',
+      loopWatchValue: '{count} üzenet {minutes} perc alatt, haladás nélkül',
+      loopWatchOff: 'Kikapcsolva',
+      loopWatchTo: 'Jelzést kap: {name} (Ütemezés).',
+      loopWatchDuties: 'Feladatkörök',
       tempWorkers: 'Beugrók',
       tempWorkersOn: 'be · legfeljebb {max} · {role}',
       tempWorkersOff: 'ki',

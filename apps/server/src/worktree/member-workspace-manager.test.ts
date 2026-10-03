@@ -208,6 +208,7 @@ describe('member workspaces', { timeout: 30_000 }, () => {
       dirty: false,
       changes: 0,
       path: ws.path,
+      committedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
     });
 
     await writeFile(path.join(ws.path, 'one.txt'), 'changed\n');

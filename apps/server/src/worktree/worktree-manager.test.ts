@@ -278,13 +278,17 @@ describe('worktree manager', { timeout: 30_000 }, () => {
     const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
     const info = await manager.ensureForTask(task('AR-21', 'Fix it'));
     const commit = await commitFile(info.path, 'feature.txt', 'x\n', 'Add feature');
-    expect(await manager.head(info.path)).toEqual({
+    const head = await manager.head(info.path);
+    expect(head).toEqual({
       commit,
       branch: info.branch,
       dirty: false,
       changes: 0,
       path: info.path,
+      committedAt: expect.any(String),
     });
+    // The commit's own time (PM-261).
+    expect(Number.isNaN(Date.parse(head!.committedAt!))).toBe(false);
 
     await writeFile(path.join(info.path, 'feature.txt'), 'changed\n');
     await writeFile(path.join(info.path, 'scratch.txt'), 'untracked\n');

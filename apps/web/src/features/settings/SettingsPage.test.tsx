@@ -316,32 +316,57 @@ describe('settings section editors', () => {
     );
   });
 
-  it('sets the message storm threshold, 10 in 15 minutes until then (PM-186)', async () => {
+  it('sets the loop watch, 6 messages in 30 minutes until then, and says who is told (PM-261)', async () => {
     const project = mockProject();
     project.render(<SettingsPage />);
     const section = await limitsSection();
-    const count = section.getByLabelText(t('settings.limits.messageBurstCount')) as HTMLInputElement;
-    const minutes = section.getByLabelText(t('settings.limits.messageBurstMinutes')) as HTMLInputElement;
-    expect([count.value, minutes.value]).toEqual(['10', '15']);
+    const count = section.getByLabelText(t('settings.limits.loopWatchCount')) as HTMLInputElement;
+    const minutes = section.getByLabelText(t('settings.limits.loopWatchMinutes')) as HTMLInputElement;
+    expect([count.value, minutes.value]).toEqual(['6', '30']);
+    // The fake team has no AI member who holds the scheduling duty: the line says so, as a warning.
+    expect(section.getByText(/Az Ütemezést senki nem tölti be, ezért .* róla\./)).toBeTruthy();
+    expect(
+      section.getByRole('link', { name: t('settings.limits.loopWatchDuties') }).getAttribute('href'),
+    ).toBe('/p/AC/settings#settings-duties');
     // Two quick changes in a row are saved one after the other and keep each other's value.
-    fireEvent.change(count, { target: { value: '6' } });
+    fireEvent.change(count, { target: { value: '8' } });
     fireEvent.blur(count);
-    fireEvent.change(minutes, { target: { value: '30' } });
+    fireEvent.change(minutes, { target: { value: '45' } });
     fireEvent.blur(minutes);
     await waitFor(() =>
-      expect(project.backend.config.team.limits.messageBurst).toEqual({ count: 6, minutes: 30 }),
+      expect(project.backend.config.team.limits.loopWatch).toEqual({ enabled: true, count: 8, minutes: 45 }),
     );
     expect(lastConfigPatch(project.requests).limits).toMatchObject({
-      messageBurst: { count: 6, minutes: 30 },
+      loopWatch: { enabled: true, count: 8, minutes: 45 },
     });
 
     // One field changed keeps the other.
-    fireEvent.change(section.getByLabelText(t('settings.limits.messageBurstCount')), {
+    fireEvent.change(section.getByLabelText(t('settings.limits.loopWatchCount')), {
       target: { value: '4' },
     });
-    fireEvent.blur(section.getByLabelText(t('settings.limits.messageBurstCount')));
+    fireEvent.blur(section.getByLabelText(t('settings.limits.loopWatchCount')));
     await waitFor(() =>
-      expect(project.backend.config.team.limits.messageBurst).toEqual({ count: 4, minutes: 30 }),
+      expect(project.backend.config.team.limits.loopWatch).toEqual({ enabled: true, count: 4, minutes: 45 }),
+    );
+
+    // Switched off, the numbers and the line go; the switch keeps the numbers.
+    fireEvent.click(section.getByRole('checkbox', { name: t('settings.limits.loopWatch') }));
+    await waitFor(() =>
+      expect(project.backend.config.team.limits.loopWatch).toEqual({ enabled: false, count: 4, minutes: 45 }),
+    );
+    expect(section.queryByLabelText(t('settings.limits.loopWatchCount'))).toBeNull();
+  });
+
+  it('names the member who is told when a member holds the scheduling duty (PM-261)', async () => {
+    const project = mockProject();
+    const devops = project.backend.config.team.members.find((member) => member.handle === 'devops');
+    if (devops?.kind === 'ai') devops.role = 'project_manager';
+    project.render(<SettingsPage />);
+    const section = await limitsSection();
+    await waitFor(() =>
+      expect(
+        section.getByText(t('settings.limits.loopWatchTo', { name: 'Devops' }), { exact: false }),
+      ).toBeTruthy(),
     );
   });
 

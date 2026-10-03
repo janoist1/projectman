@@ -109,10 +109,15 @@ import {
   validateProjectConfig,
   mergeTokenUsage,
   ALERT_SEEN_OPTION,
-  alertPayloadOf,
   limitTokens,
-  messageBurstAlertFor,
-  messageBurstOf,
+  LOOP_LET_RUN_OPTION,
+  LOOP_STOP_OPTION,
+  countsForLoop,
+  findLoop,
+  loopDecisionOf,
+  loopDeciders,
+  loopWatchers,
+  loopWatchOf,
   usageTotal,
   closedCardsSince,
   countCardRounds,
@@ -122,6 +127,9 @@ import {
 } from '@projectman/shared';
 import type {
   Actor,
+  LoopDecisionPayload,
+  LoopTalk,
+  TaskLoop,
   BoundaryGrant,
   AiMemberConfig,
   ApprovalRequirement,
@@ -567,54 +575,191 @@ export class MockBackend {
     };
     this.timeline.push(event);
     this.emit({ type: 'timeline_appended', projectKey: event.projectKey, event: clone(event) });
-    if (taskKey && (type === 'team_message' || type === 'task_note')) this.checkMessageBurst(taskKey, who);
+    if (taskKey && type === 'team_message') this.checkLoop(taskKey);
+    if (taskKey && type === 'task_stage_changed') this.endLoop(taskKey, 'stage');
+    if (taskKey && type === 'task_labels_changed') this.endLoop(taskKey, 'label');
     return event;
   }
 
-  /** The message storm rule (PM-186) on the card's conversation: one alert per storm, as the server. */
-  private checkMessageBurst(taskKey: string, who: string | null): void {
-    const burst = messageBurstOf(this.config.team.limits);
-    const now = new Date(nowIso());
-    const alerts = this.inbox.flatMap((item) => {
-      const payload = item.taskKey === taskKey ? alertPayloadOf(item) : null;
-      return payload?.alert === 'message_burst' ? [{ open: item.state === 'open', at: payload.at }] : [];
+  /** The counted messages of a card for the loop watch (PM-261), by the shared rule the server uses. */
+  private loopTalk(taskKey: string, ignore: readonly string[]): LoopTalk[] {
+    return this.timeline.flatMap((event) => {
+      const from = event.actor.handle;
+      const to = Array.isArray(event.data.to) ? (event.data.to as string[]) : [];
+      return event.taskKey === taskKey &&
+        event.type === 'team_message' &&
+        from &&
+        countsForLoop(this.config, { from, to }, ignore)
+        ? [{ at: event.createdAt, from, to }]
+        : [];
     });
-    const payload = messageBurstAlertFor({
-      taskKey,
-      burst,
-      now,
-      earlier: alerts,
-      entries: this.timeline
+  }
+
+  /** The last progress on a card: its creation, a stage or label change, the end of an earlier loop. */
+  private loopProgressAt(task: Task): string {
+    return this.timeline
+      .filter(
+        (event) =>
+          event.taskKey === task.key &&
+          (event.type === 'task_stage_changed' ||
+            event.type === 'task_labels_changed' ||
+            (event.type === 'task_loop' && event.data.phase === 'ended')),
+      )
+      .reduce((latest, event) => (event.createdAt > latest ? event.createdAt : latest), task.createdAt);
+  }
+
+  /** The loop watch (PM-261) on a card's team messages: raise a loop, or escalate one that went on. */
+  private checkLoop(taskKey: string): void {
+    const task = this.findTask(taskKey);
+    if (!task) return;
+    const watch = loopWatchOf(this.config.team.limits);
+    const now = nowIso();
+    const open = task.loop;
+    if (open) {
+      if (open.phase !== 'notified') return;
+      const raisedAt = this.timeline
         .filter(
-          (event) =>
-            event.taskKey === taskKey &&
-            (event.type === 'team_message' || event.type === 'task_note') &&
-            event.data.importedAuthor === undefined &&
-            event.data.importedAt === undefined,
+          (event) => event.taskKey === taskKey && event.type === 'task_loop' && event.data.phase === 'raised',
         )
-        .map((event) => ({
-          createdAt: event.createdAt,
-          actor: event.actor.handle,
-          to: Array.isArray(event.data.to) ? (event.data.to as string[]) : [],
-        }))
-        .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+        .reduce((latest, event) => (event.createdAt > latest ? event.createdAt : latest), open.startedAt);
+      const again = findLoop(
+        this.loopTalk(taskKey, open.notified ? [open.notified] : []),
+        raisedAt,
+        now,
+        watch,
+      );
+      if (again) this.escalateLoop(task, open, 'continued', watch.minutes);
+      return;
+    }
+    const found = findLoop(this.loopTalk(taskKey, []), this.loopProgressAt(task), now, watch);
+    if (!found) return;
+    const watcher = loopWatchers(this.config, found.members)[0] ?? null;
+    const loop: TaskLoop = {
+      id: mockId('loop'),
+      members: found.members,
+      count: found.count,
+      startedAt: found.startedAt,
+      lastMessageAt: found.lastMessageAt,
+      notified: watcher,
+      phase: watcher ? 'notified' : 'owner',
+      ownerReason: watcher ? null : 'no_watcher',
+      deciders: watcher ? [] : loopDeciders(this.config, boundaryOwners(this.config)),
+      letRunBy: null,
+    };
+    this.updateTask(taskKey, { loop });
+    this.addTimeline(taskKey, null, 'task_loop', {
+      loopId: loop.id,
+      phase: 'raised',
+      members: loop.members,
+      count: loop.count,
+      minutes: watch.minutes,
+      notified: watcher,
+      ...(watcher ? {} : { deciders: loop.deciders }),
     });
-    if (!payload) return;
+    if (!watcher) this.askLoopDecision(task, loop, 'no_watcher', watch.minutes);
+  }
+
+  /** The loop went on after the member was told: it goes to the people. */
+  private escalateLoop(task: Task, loop: TaskLoop, reason: 'continued', minutes: number): void {
+    const deciders = loopDeciders(this.config, boundaryOwners(this.config));
+    const next: TaskLoop = { ...loop, phase: 'owner', ownerReason: reason, deciders };
+    this.updateTask(task.key, { loop: next });
+    this.addTimeline(task.key, null, 'task_loop', {
+      loopId: loop.id,
+      phase: 'escalated',
+      members: loop.members,
+      count: loop.count,
+      minutes,
+      deciders,
+      reason,
+    });
+    this.askLoopDecision(task, next, reason, minutes);
+  }
+
+  private askLoopDecision(
+    task: Task,
+    loop: TaskLoop,
+    reason: 'no_watcher' | 'continued',
+    minutes: number,
+  ): void {
+    const payload: LoopDecisionPayload = {
+      loopId: loop.id,
+      taskKey: task.key,
+      members: loop.members,
+      count: loop.count,
+      minutes,
+      startedAt: loop.startedAt,
+      reason,
+      watcher: loop.notified,
+    };
     this.upsertInbox({
       id: mockId('inb'),
       projectKey: fixtures.PROJECT_KEY,
-      kind: 'alert',
-      assignees: boundaryOwners(this.config),
-      source: who ?? 'system',
+      kind: 'decision',
+      assignees: loop.deciders,
+      source: 'system',
       sessionId: null,
-      taskKey,
-      title: `${payload.count} messages and notes on ${taskKey} in ${payload.minutes} minutes`,
+      taskKey: task.key,
+      title: `Loop on ${task.key}`,
       body: null,
-      payload,
-      options: [ALERT_SEEN_OPTION],
+      payload: { loop: payload },
+      options: [LOOP_STOP_OPTION, LOOP_LET_RUN_OPTION],
       state: 'open',
       resolution: null,
       createdAt: nowIso(),
+    });
+  }
+
+  /** The loop is over (progress, quiet, stopped): the mark goes, and the decision about it closes itself. */
+  private endLoop(
+    taskKey: string,
+    endReason: NonNullable<TimelineEventData['task_loop']['endReason']>,
+    by?: string,
+  ): void {
+    const task = this.findTask(taskKey);
+    const loop = task?.loop;
+    if (!task || !loop) return;
+    this.updateTask(taskKey, { loop: undefined });
+    for (const item of this.inbox) {
+      if (item.state !== 'open' || loopDecisionOf(item)?.loopId !== loop.id) continue;
+      this.upsertInbox({
+        ...item,
+        state: 'resolved',
+        resolution: { optionId: 'ended', by: 'system', at: nowIso(), note: null, rule: 'loop_ended' },
+      });
+    }
+    this.addTimeline(taskKey, null, 'task_loop', {
+      loopId: loop.id,
+      phase: 'ended',
+      members: loop.members,
+      count: loop.count,
+      minutes: loopWatchOf(this.config.team.limits).minutes,
+      endReason,
+      ...(by ? { by } : {}),
+    });
+  }
+
+  /** What a person decided about a loop: stop the card's work, or let it run. */
+  private afterLoopDecision(item: InboxItem): void {
+    const optionId = item.resolution?.optionId;
+    const by = item.resolution?.by ?? this.viewerHandle;
+    const task = item.taskKey ? this.findTask(item.taskKey) : undefined;
+    if (!task?.loop) return;
+    if (optionId === 'stop_work') {
+      for (const session of this.sessions)
+        if (session.workItem.type === 'task' && session.workItem.taskKey === task.key && this.isLive(session))
+          this.updateSession(session.id, { state: 'exited', activity: null });
+      this.endLoop(task.key, 'stopped', by);
+      return;
+    }
+    this.updateTask(task.key, { loop: { ...task.loop, phase: 'let_run', letRunBy: by } });
+    this.addTimeline(task.key, by, 'task_loop', {
+      loopId: task.loop.id,
+      phase: 'let_run',
+      members: task.loop.members,
+      count: task.loop.count,
+      minutes: loopWatchOf(this.config.team.limits).minutes,
+      by,
     });
   }
 
@@ -3438,6 +3583,10 @@ export class MockBackend {
   private afterResolve(item: InboxItem): void {
     const resolution = item.resolution!;
     const sessionId = item.sessionId;
+    if (loopDecisionOf(item)) {
+      this.afterLoopDecision(item);
+      return;
+    }
     if (item.kind === 'permission') {
       const allowed = resolution.optionId !== 'deny';
       this.addTimeline(

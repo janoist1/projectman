@@ -156,6 +156,8 @@ export interface SourceHead {
   changes: number;
   /** The developer's working directory the head was read from. */
   path: string;
+  /** When the commit was made (ISO time, the committer date); null when git did not say. */
+  committedAt: string | null;
 }
 
 export interface WorktreeManager {

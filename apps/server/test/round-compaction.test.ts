@@ -283,6 +283,7 @@ describe('end-of-round compaction', () => {
       dirty: false,
       changes: 0,
       path: worktree,
+      committedAt: null,
     });
     const reviewer = () => h.repos.sessions.findByWorkItem('AR', 'cr', task)!;
     h.worktrees.heads.set(worktree, head('c1'));

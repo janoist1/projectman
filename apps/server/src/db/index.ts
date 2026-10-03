@@ -13,6 +13,7 @@ import { createReviewPinRepository } from './review-pins';
 import { createScheduleRepository } from './schedules';
 import { createSessionRepository } from './sessions';
 import { createTaskCoverRepository } from './task-covers';
+import { createTaskLoopRepository } from './task-loops';
 import { createTaskRepository } from './tasks';
 import { createTimelineRepository } from './timeline';
 import { createTokenUsageRepository } from './token-usage';
@@ -26,6 +27,7 @@ export type { DeferredStartRecord } from './deferred-starts';
 export type { MemberWorkspaceRecord, TaskWorkspaceBinding, WorkspaceHolder } from './member-workspaces';
 export type { ReviewPinRecord } from './review-pins';
 export type { TaskCoverRecord } from './task-covers';
+export type { TaskLoopRecord } from './task-loops';
 export type { UserRecord, AuthSessionRecord } from './users';
 export type { ProjectRecord } from './projects';
 export type { MemberStateRecord } from './member-state';
@@ -48,6 +50,7 @@ export function createRepositories(db: Db) {
     tokenUsage: createTokenUsageRepository(db),
     reviewPins: createReviewPinRepository(db),
     taskCovers: createTaskCoverRepository(db),
+    taskLoops: createTaskLoopRepository(db),
     schedules: createScheduleRepository(db),
     deferredStarts: createDeferredStartRepository(db),
     memberWorkspaces: createMemberWorkspaceRepository(db),

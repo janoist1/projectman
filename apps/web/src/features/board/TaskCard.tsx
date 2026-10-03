@@ -9,6 +9,7 @@ import { Icon } from '../../components/Icon';
 import { StageProgress } from '../../components/StageProgress';
 import { formatAge } from '../../i18n/format';
 import { t } from '../../i18n/t';
+import { loopSummary } from '../../lib/loop';
 import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
@@ -132,8 +133,18 @@ export function TaskCard({
       <span className={styles.titleRow}>
         <span className={styles.title}>{task.title}</span>
       </span>
-      {task.parentKey || subtasks.length || prerequisite ? (
+      {task.parentKey || subtasks.length || prerequisite || task.loop ? (
         <span className={styles.meta}>
+          {task.loop ? (
+            <span
+              className={clsx(styles.label, styles.loop)}
+              title={loopSummary(task.loop, members, myHandle, new Date())}
+              aria-label={`${t('loop.mark')}. ${loopSummary(task.loop, members, myHandle, new Date())}`}
+            >
+              <Icon name="loop" size={12} strokeWidth={2.4} />
+              <span>{t('loop.mark')}</span>
+            </span>
+          ) : null}
           {task.parentKey ? (
             <span className={styles.label}>{t('task.parentChip', { key: task.parentKey })}</span>
           ) : null}

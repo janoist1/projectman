@@ -60,6 +60,14 @@ export const StartSpec = z.discriminatedUnion('kind', [
     workItem: WorkItemRef,
     stageId: z.string().nullable(),
   }),
+  /** The notice of a loop (PM-261) to the member who holds the scheduling duty, which admission made wait. */
+  z.object({
+    kind: z.literal('loop_notice'),
+    projectKey: z.string(),
+    taskKey: TaskKey,
+    loopId: z.string(),
+    watcher: MemberHandle,
+  }),
 ]);
 export type StartSpec = z.infer<typeof StartSpec>;
 

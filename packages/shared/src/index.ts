@@ -12,7 +12,7 @@ export * from './domain/event';
 export * from './domain/attachment';
 export * from './domain/message';
 export * from './domain/inbox';
-export * from './domain/message-burst';
+export * from './domain/loop-watch';
 export * from './domain/boundary';
 export * from './domain/permission-category';
 export * from './domain/permission-delegation';

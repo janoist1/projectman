@@ -133,10 +133,22 @@
   min-width: 0;
 }
 
-.prerequisite span {
+.prerequisite span,
+.loop span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* "Körbe fut": AI members write to each other without progress (PM-261); not a status, a thing to look at. */
+.loop {
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+  background: var(--c-needs-bg);
+  color: var(--c-needs-text);
+  box-shadow: inset 0 0 0 1px var(--c-needs-border);
+  animation: pm-fade-in 160ms ease-out;
 }
 
 .stageRows {

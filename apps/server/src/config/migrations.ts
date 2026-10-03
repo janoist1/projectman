@@ -182,6 +182,18 @@ function migrateShadowingRoles(raw: unknown, { projectKey, logger }: MigrationCo
 }
 
 /**
+ * The `team.limits.messageBurst` threshold (PM-186) is gone (PM-261): it counted traffic, and the loop
+ * watch that replaced it counts something else, so the value is not carried over.
+ */
+function dropMessageBurst(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
+  const limits = asRecord(asRecord(asRecord(raw)?.team)?.limits);
+  if (!limits || !('messageBurst' in limits)) return raw;
+  delete limits.messageBurst;
+  logger.warn({ projectKey }, 'Dropped the removed message storm threshold from the team limits');
+  return raw;
+}
+
+/**
  * Upgrades a merged, not yet validated project configuration of an older shape, in memory: the
  * customization files keep their content until the next save. Used wherever the store reads
  * a configuration (the working tree and earlier versions alike).
@@ -191,14 +203,18 @@ function migrateShadowingRoles(raw: unknown, { projectKey, logger }: MigrationCo
  *   - gate conditions from before labels (check_passed, pr_merged, human_approval) become label
  *     conditions with the labels they need (`migrateLegacyConfig`, @projectman/templates);
  *   - a label a release gate requires that more than the release approval duty's holders may set
- *     is narrowed to that duty (above), after the conversion of legacy gates.
+ *     is narrowed to that duty (above), after the conversion of legacy gates;
+ *   - the removed message storm threshold (`messageBurst`) is dropped (above).
  * Stage kinds from before decision 18 (review, deploy, …) are read by the pipeline schema
  * itself (packages/shared/src/domain/pipeline.ts).
  */
 export function migrateProjectConfig(raw: unknown, context: MigrationContext): unknown {
   return migrateReleaseApproval(
     migrateLegacyConfig(
-      migrateCodexBypass(migrateScheduledRole(migrateShadowingRoles(raw, context), context), context),
+      migrateCodexBypass(
+        migrateScheduledRole(dropMessageBurst(migrateShadowingRoles(raw, context), context), context),
+        context,
+      ),
     ),
     context,
   );

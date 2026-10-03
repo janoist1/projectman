@@ -282,6 +282,8 @@
 
 .hideNarrow {
   display: inline-flex;
+  /* The search field gives way first, the meters and the presence never overlap. */
+  flex-shrink: 0;
 }
 
 @media (max-width: 1180px) {

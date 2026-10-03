@@ -1,7 +1,12 @@
 .wrap {
   position: relative;
   flex-shrink: 0;
-  /* Over the page content and under the dialogs. */
+  /* Over the page content, under the card drawer (30), which covers the bar with the rest of the page. */
+  z-index: 25;
+}
+
+/* The open details float over the drawer too, so the panel is never cut off. Under the dialogs. */
+.wrapOpen {
   z-index: 45;
 }
 

@@ -183,7 +183,7 @@ export function PauseBar({
   }
 
   return (
-    <div className={styles.wrap}>
+    <div className={open ? `${styles.wrap} ${styles.wrapOpen}` : styles.wrap}>
       <div className={styles.bar}>
         <BarText pause={pause} />
         <span className={styles.actions}>

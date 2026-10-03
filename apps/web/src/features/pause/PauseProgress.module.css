@@ -39,10 +39,11 @@
 }
 
 .row {
+  /* Avatar, member and state on the first line, the task under the member (the panel is narrow). */
   display: grid;
-  grid-template-columns: auto minmax(0, 9rem) minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px 10px;
+  gap: 2px 10px;
   padding: 8px 0;
   border-top: 1px solid var(--c-line-soft);
   font-size: var(--text-sm);
@@ -61,6 +62,8 @@
 }
 
 .work {
+  grid-column: 2 / -1;
+  grid-row: 2;
   display: flex;
   gap: 6px;
   min-width: 0;
@@ -84,6 +87,8 @@
 }
 
 .state {
+  grid-column: 3;
+  grid-row: 1;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -123,6 +128,14 @@
   .state {
     grid-column: 1 / -1;
     text-align: left;
+  }
+
+  .work {
+    grid-row: 2;
+  }
+
+  .state {
+    grid-row: 3;
   }
 
   .force {

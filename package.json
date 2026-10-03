@@ -16,6 +16,7 @@
     "dev:web": "npm run dev -w @projectman/web",
     "build": "npm run build -w @projectman/web && npm run build -w @projectman/server",
     "smoke:prod": "node scripts/smoke-prod.mjs",
+    "control": "node --import tsx scripts/control/cli.ts",
     "migrate": "node --import tsx scripts/migrate/cli.ts",
     "start": "npm run start -w @projectman/server",
     "typecheck": "npm run typecheck --workspaces --if-present",

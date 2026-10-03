@@ -84,6 +84,28 @@ export const PauseRequest = z.object({
 });
 export type PauseRequest = z.infer<typeof PauseRequest>;
 
+/** The control socket's file name inside PROJECTMAN_HOME (the server opens it, the control command and the session policy name it). */
+export const CONTROL_SOCKET_NAME = 'control.sock';
+
+/**
+ * The control socket's requests (PM-219), one JSON object per line. Always about the instance, with
+ * no person behind them: the socket is the deploy script's, not a login.
+ */
+export const ControlRequest = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('pause') }).extend(PauseRequest.shape),
+  z.object({ op: z.literal('resume') }),
+  z.object({ op: z.literal('force') }),
+  z.object({ op: z.literal('status') }),
+]);
+export type ControlRequest = z.infer<typeof ControlRequest>;
+
+/** One JSON line back: the instance's pause as it is after the request (null: none is open). */
+export const ControlResponse = z.discriminatedUnion('ok', [
+  z.object({ ok: z.literal(true), pause: PauseStatus.nullable() }),
+  z.object({ ok: z.literal(false), error: z.object({ code: z.string(), message: z.string() }) }),
+]);
+export type ControlResponse = z.infer<typeof ControlResponse>;
+
 /** What decides whether work may run: the scope of an open pause. */
 export interface OpenPause {
   scope: PauseScopeKind;

@@ -1,5 +1,6 @@
 import path from 'node:path';
 import {
+  CONTROL_SOCKET_NAME,
   effectiveRepo,
   repoOf,
   roleSessionAccess,
@@ -300,7 +301,16 @@ export function sensitivePaths(input: { userHome: string; appHome?: string }): s
   ];
   // `logs` is not created by the server itself: the owner's live home has it (the process logs of
   // `npm start`). A name that does not exist denies nothing.
-  const app = ['db.sqlite*', 'secret', 'logs', 'customization', 'memory', 'github-publish', 'spool'];
+  const app = [
+    'db.sqlite*',
+    'secret',
+    'logs',
+    'customization',
+    'memory',
+    'github-publish',
+    'spool',
+    CONTROL_SOCKET_NAME,
+  ];
   return [
     ...user.map((name) => path.join(input.userHome, name)),
     ...(input.appHome ? app.map((name) => path.join(input.appHome!, name)) : []),

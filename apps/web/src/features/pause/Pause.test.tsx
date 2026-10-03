@@ -9,7 +9,9 @@ import { ProjectLayout } from '../../app/ProjectLayout';
 import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
+import { BoardPage } from '../board/BoardPage';
 import { TaskDrawer } from '../board/TaskDrawer';
+import { TeamPage } from '../team/TeamPage';
 import { SessionPage } from '../session/SessionPage';
 import { CreateProjectPage } from '../projects/CreateProjectPage';
 
@@ -245,6 +247,38 @@ describe('the details and the page', () => {
     expect(
       screen.getByRole('button', { name: t('pause.banner.details') }).getAttribute('aria-expanded'),
     ).toBe('false');
+  });
+
+  it.each([
+    ['the board', '/p/AC'],
+    ['the team page', '/p/AC/team'],
+  ])('opens the details on the first click on %s, a while after it loaded', async (_name, path) => {
+    const project = mockProject();
+    project.backend.pauses.pauseProject();
+    const me = {
+      ...project.context.me,
+      projects: [{ key: 'AC', name: 'Acme webshop', access: 'owner' as const, roles: [] }],
+    };
+    project.render(
+      <MeContext.Provider value={me}>
+        <ToastProvider>
+          <Routes>
+            <Route path="/p/:projectKey" element={<ProjectLayout />}>
+              <Route index element={<BoardPage />} />
+              <Route path="team" element={<TeamPage />} />
+            </Route>
+          </Routes>
+        </ToastProvider>
+      </MeContext.Provider>,
+      path,
+    );
+    const details = await screen.findByRole('button', { name: t('pause.banner.details') });
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    fireEvent.click(details);
+    expect(
+      screen.getByRole('button', { name: t('pause.banner.details') }).getAttribute('aria-expanded'),
+    ).toBe('true');
+    expect(await screen.findByRole('list', { name: t('pause.progress.table') })).toBeTruthy();
   });
 });
 

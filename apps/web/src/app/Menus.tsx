@@ -1,5 +1,6 @@
 import clsx from 'clsx';
-import { useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useLogout, useProjects } from '../api/queries';
 import { Avatar } from '../components/Avatar';
@@ -85,11 +86,13 @@ export function AccountMenu({
 }: {
   settingsPath: string | null;
   placement?: 'right' | 'below';
-  /** The phone's way to pause the team (PM-220); the desktop has the top bar's button. */
+  /** Pause the team (PM-220): in this menu at every width; the top bar has the button on wide windows too. */
   onPause?: (() => void) | undefined;
 }) {
   const me = useMeContext();
   const [open, setOpen] = useState(false);
+  // The rail clips what it holds (it scrolls), so the menu beside it is fixed to the window at the trigger.
+  const [anchor, setAnchor] = useState<CSSProperties | undefined>(undefined);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const refs = useMemo(() => [triggerRef, panelRef], []);
@@ -97,6 +100,19 @@ export function AccountMenu({
   const logout = useLogout();
   const navigate = useNavigate();
   useDismiss(open, () => setOpen(false), refs, triggerRef);
+  useEffect(() => {
+    if (!open || placement !== 'right') return;
+    const close = () => setOpen(false);
+    window.addEventListener('resize', close);
+    return () => window.removeEventListener('resize', close);
+  }, [open, placement]);
+  const toggle = () => {
+    const box = triggerRef.current?.getBoundingClientRect();
+    if (!open && placement === 'right' && box) {
+      setAnchor({ left: box.right + 10, bottom: window.innerHeight - box.bottom });
+    }
+    setOpen((value) => !value);
+  };
 
   return (
     <div className={styles.wrap}>
@@ -107,7 +123,7 @@ export function AccountMenu({
         aria-expanded={open}
         aria-controls={panelId}
         aria-label={t('nav.account', { name: me.name })}
-        onClick={() => setOpen((value) => !value)}
+        onClick={toggle}
       >
         <Avatar
           member={{ handle: 'me', displayName: me.name, kind: 'human', role: 'owner' }}
@@ -120,6 +136,7 @@ export function AccountMenu({
           ref={panelRef}
           id={panelId}
           className={clsx(styles.panel, placement === 'right' ? styles.panelRight : styles.panelBelow)}
+          style={placement === 'right' ? anchor : undefined}
         >
           <div className={styles.account}>
             <span className={styles.accountName}>{me.name}</span>

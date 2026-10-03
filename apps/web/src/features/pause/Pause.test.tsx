@@ -131,8 +131,14 @@ describe('who may pause', () => {
   it('has the pause in the account menu on a desktop too, at every width', async () => {
     const project = mockProject();
     project.render(app(project, 'owner'), '/p/AC');
-    fireEvent.click(await screen.findByRole('button', { name: /^Fiók/ }));
-    fireEvent.click(await screen.findByRole('button', { name: t('pause.menuItem') }));
+    const account = await screen.findByRole('button', { name: /^Fiók/ });
+    fireEvent.click(account);
+    const row = await screen.findByRole('button', { name: t('pause.menuItem') });
+    // The rail scrolls and would clip the menu: it is placed against the window, beside the trigger.
+    const panel = document.getElementById(account.getAttribute('aria-controls')!)!;
+    expect(panel.style.left).not.toBe('');
+    expect(panel.style.bottom).not.toBe('');
+    fireEvent.click(row);
     expect(await screen.findByRole('dialog', { name: t('pause.confirm.title') })).toBeTruthy();
   });
 

@@ -91,10 +91,12 @@
   animation: pm-fade-in 120ms ease-out;
 }
 
+/* Fixed to the window: the scrolling rail would clip an absolute panel. The code sets left and bottom. */
 .panelRight {
+  position: fixed;
   top: auto;
-  bottom: 0;
-  left: calc(100% + 10px);
+  bottom: 12px;
+  left: 90px;
 }
 
 .panelBelow {

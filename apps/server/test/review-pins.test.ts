@@ -282,6 +282,7 @@ describe('review at a pinned commit, in task worktrees (old mode)', () => {
     dirty,
     changes,
     path: '/fake/worktree',
+    committedAt: null,
   });
 
   async function setup() {

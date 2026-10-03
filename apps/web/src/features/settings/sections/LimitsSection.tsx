@@ -1,9 +1,13 @@
 import {
   DEFAULT_AUTO_COMPACT_WINDOW_TOKENS,
+  DEFAULT_LOOP_WATCH,
   DEFAULT_MIN_FREE_DISK_GB,
-  messageBurstOf,
+  loopWatchOf,
+  loopWatchers,
 } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
+import clsx from 'clsx';
+import { Link } from 'react-router';
 import { isApiError } from '../../../api/client';
 import { useRoles } from '../../../api/queries';
 import { useProject } from '../../../app/contexts';
@@ -23,6 +27,19 @@ const DEFAULT_MAX_CONCURRENT_AI_CHOICE = 3;
 /** The number the token warning field starts at when the owner turns "no warning" off (PM-187). */
 const DEFAULT_TOKEN_WARNING_CHOICE = 5_000_000;
 
+/** Who is told when a loop is found: the AI holder of the scheduling duty, or the viewer when nobody is. */
+function LoopWatcherLine({ config }: { config: ProjectConfig }) {
+  const { key } = useProject();
+  const watcher = loopWatchers(config, [])[0];
+  const name = config.team.members.find((member) => member.handle === watcher)?.displayName ?? watcher ?? '';
+  return (
+    <p className={clsx(shared.help, !watcher && shared.warning)}>
+      {watcher ? t('settings.limits.loopWatchTo', { name }) : t('settings.limits.loopWatchToNobody')}{' '}
+      <Link to={`/p/${key}/team`}>{t('settings.limits.loopWatchDuties')}</Link>
+    </p>
+  );
+}
+
 /**
  * The limits as controls that save as soon as they change; no edit mode, no save button. The most
  * used ones come first (the AI switch is most of the saves), and a setting that depends on a switch
@@ -33,7 +50,7 @@ function LimitsControls({ config }: { config: ProjectConfig }) {
   const roles = useRoles(key);
   const { shown, saving, commit, error, locked } = useInstantLimits(config);
   const { limits } = shown.team;
-  const messageBurst = messageBurstOf(limits);
+  const loopWatch = loopWatchOf(limits);
   const boundaryEnabled = shown.team.boundary?.enabled ?? false;
   return (
     <fieldset className={shared.controls} disabled={locked} aria-busy={saving}>
@@ -180,34 +197,52 @@ function LimitsControls({ config }: { config: ProjectConfig }) {
           })
         }
       />
-      <p className={shared.help}>{t('settings.limits.messageBurstHelp')}</p>
-      <div className={shared.fieldRow}>
-        <InstantNumber
-          label={t('settings.limits.messageBurstCount')}
-          min={3}
-          max={100}
-          value={messageBurst.count}
-          onCommit={(count) =>
-            commit((draft) => {
-              draft.team.limits.messageBurst = { ...messageBurstOf(draft.team.limits), count: count ?? 10 };
-            })
-          }
-        />
-        <InstantNumber
-          label={t('settings.limits.messageBurstMinutes')}
-          min={1}
-          max={240}
-          value={messageBurst.minutes}
-          onCommit={(minutes) =>
-            commit((draft) => {
-              draft.team.limits.messageBurst = {
-                ...messageBurstOf(draft.team.limits),
-                minutes: minutes ?? 15,
-              };
-            })
-          }
-        />
-      </div>
+      <h3 className={shared.groupTitle}>{t('settings.limits.loopWatchGroup')}</h3>
+      <ToggleField
+        label={t('settings.limits.loopWatch')}
+        help={t('settings.limits.loopWatchHelp')}
+        checked={loopWatch.enabled}
+        onChange={(enabled) =>
+          commit((draft) => {
+            draft.team.limits.loopWatch = { ...loopWatchOf(draft.team.limits), enabled };
+          })
+        }
+      />
+      {loopWatch.enabled ? (
+        <>
+          <div className={shared.fieldRow}>
+            <InstantNumber
+              label={t('settings.limits.loopWatchCount')}
+              min={3}
+              max={50}
+              value={loopWatch.count}
+              onCommit={(count) =>
+                commit((draft) => {
+                  draft.team.limits.loopWatch = {
+                    ...loopWatchOf(draft.team.limits),
+                    count: count ?? DEFAULT_LOOP_WATCH.count,
+                  };
+                })
+              }
+            />
+            <InstantNumber
+              label={t('settings.limits.loopWatchMinutes')}
+              min={5}
+              max={240}
+              value={loopWatch.minutes}
+              onCommit={(minutes) =>
+                commit((draft) => {
+                  draft.team.limits.loopWatch = {
+                    ...loopWatchOf(draft.team.limits),
+                    minutes: minutes ?? DEFAULT_LOOP_WATCH.minutes,
+                  };
+                })
+              }
+            />
+          </div>
+          <LoopWatcherLine config={shown} />
+        </>
+      ) : null}
       <ToggleField
         label={t('settings.limits.boundaryEnabled')}
         help={t('settings.limits.boundaryHelp')}
@@ -319,8 +354,12 @@ export function LimitsSection({ config }: { config: ProjectConfig }) {
             </dd>
           </div>
           <div>
-            <dt>{t('settings.limits.messageBurst')}</dt>
-            <dd>{t('settings.limits.messageBurstValue', messageBurstOf(limits))}</dd>
+            <dt>{t('settings.limits.loopWatch')}</dt>
+            <dd>
+              {loopWatchOf(limits).enabled
+                ? t('settings.limits.loopWatchValue', loopWatchOf(limits))
+                : t('settings.limits.loopWatchOff')}
+            </dd>
           </div>
           <div>
             <dt>{t('settings.limits.tempWorkers')}</dt>

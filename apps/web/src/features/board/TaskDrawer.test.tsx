@@ -996,6 +996,57 @@ describe('the Kidolgozás button and the refused Start (decision 31)', () => {
   });
 });
 
+describe('task drawer loop box (PM-261)', () => {
+  /** Three messages between two AI members of the fake team start a loop on the card. */
+  function startLoop(project: ReturnType<typeof mockProject>) {
+    project.backend.config.team.limits.loopWatch = { enabled: true, count: 3, minutes: 30 };
+    for (let i = 0; i < 3; i++) {
+      const [from, to] = i % 2 === 0 ? ['fe-1', 'code-review'] : ['code-review', 'fe-1'];
+      project.backend.addTimeline('AC-21', from!, 'team_message', { messageId: `m${i}`, from, to: [to] });
+    }
+  }
+
+  it('shows the decision, not the box, to the person who is asked to decide', async () => {
+    const project = mockProject();
+    startLoop(project);
+    // The fake team has nobody on the scheduling duty: the owner decides, so the drawer shows
+    // the decision itself and no box next to it.
+    project.render(drawer, '/p/AC/tasks/AC-21');
+    await screen.findByRole('heading', { name: t('inbox.loop.heading'), level: 3 });
+    expect(screen.queryByRole('heading', { name: t('loop.box.title') })).toBeNull();
+  });
+
+  it('shows the box when someone else holds the loop, and drops it when the loop is over', async () => {
+    const project = mockProject();
+    const devops = project.backend.config.team.members.find((member) => member.handle === 'devops');
+    if (devops?.kind === 'ai') devops.role = 'project_manager';
+    startLoop(project);
+    expect(project.backend.findTask('AC-21')?.loop).toMatchObject({ phase: 'notified', notified: 'devops' });
+    project.render(drawer, '/p/AC/tasks/AC-21');
+
+    const box = (await screen.findByRole('heading', { name: t('loop.box.title') })).closest('section')!;
+    expect(box.textContent).toContain('3');
+    expect(box.textContent).toContain(t('loop.who.notified', { name: 'Devops' }));
+    expect(
+      within(box)
+        .getByRole('link', { name: t('loop.box.messages') })
+        .getAttribute('href'),
+    ).toBe('/p/AC/messages/all');
+    expect(screen.queryByRole('heading', { name: t('inbox.loop.heading') })).toBeNull();
+  });
+
+  it('shows no box once the loop is over', async () => {
+    const project = mockProject();
+    const devops = project.backend.config.team.members.find((member) => member.handle === 'devops');
+    if (devops?.kind === 'ai') devops.role = 'project_manager';
+    startLoop(project);
+    project.backend.addTimeline('AC-21', 'owner', 'task_labels_changed', { added: ['qa-ok'], removed: [] });
+    project.render(drawer, '/p/AC/tasks/AC-21');
+    await screen.findByText('Rendelés-visszaigazoló e-mail');
+    expect(screen.queryByRole('heading', { name: t('loop.box.title') })).toBeNull();
+  });
+});
+
 describe('task drawer questions', () => {
   it('shows a plain-language question of the task with its recommendation and folded details', async () => {
     const project = mockProject();

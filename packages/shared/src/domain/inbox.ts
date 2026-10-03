@@ -40,7 +40,11 @@ export type InboxState = z.infer<typeof InboxState>;
  * `command_policy` is the automatic command policy (no publishing from a local-only
  * repository, lockfile installs in a task worktree). The UI names the rule via i18n.
  */
-export const InboxResolutionRule = z.enum(['command_policy']);
+export const InboxResolutionRule = z.enum([
+  'command_policy',
+  /** The loop a decision was about ended by itself (PM-261): nothing is left to decide. */
+  'loop_ended',
+]);
 export type InboxResolutionRule = z.infer<typeof InboxResolutionRule>;
 
 export const InboxItem = z.object({
@@ -101,6 +105,35 @@ export function gateRequestOf(item: Pick<InboxItem, 'payload'>): GateRequestPayl
   const parsed = GateRequestPayload.safeParse(item.payload.gate);
   return parsed.success ? parsed.data : null;
 }
+
+/**
+ * `payload.loop` of a `decision` item (PM-261): AI members on card `taskKey` wrote to each other
+ * `count` times within `minutes` minutes (since `startedAt`) without progress. `reason`: `no_watcher`
+ * nobody holds the scheduling duty as an AI member (or the admission refused it), `continued` the loop
+ * went on after `watcher` was told. The item is closed by the system when the loop ends.
+ */
+export const LoopDecisionPayload = z.object({
+  loopId: z.string(),
+  taskKey: TaskKey,
+  members: z.array(MemberHandle),
+  count: z.number().int().positive(),
+  minutes: z.number().int().positive(),
+  startedAt: z.string(),
+  reason: z.enum(['no_watcher', 'continued']),
+  watcher: MemberHandle.nullable(),
+});
+export type LoopDecisionPayload = z.infer<typeof LoopDecisionPayload>;
+
+/** The loop a decision item is about, or null when it is about none (or an unreadable one). */
+export function loopDecisionOf(item: Pick<InboxItem, 'kind' | 'payload'>): LoopDecisionPayload | null {
+  if (item.kind !== 'decision') return null;
+  const parsed = LoopDecisionPayload.safeParse(item.payload.loop);
+  return parsed.success ? parsed.data : null;
+}
+
+/** The options of a loop decision: stop the card's AI work, or let the loop run. The web app translates the ids. */
+export const LOOP_STOP_OPTION: InboxOption = { id: 'stop_work', label: 'stop_work', style: 'danger' };
+export const LOOP_LET_RUN_OPTION: InboxOption = { id: 'let_run', label: 'let_run', style: 'primary' };
 
 /** The one option of an `alert` item: the owner has seen it. The web app translates the id. */
 export const ALERT_SEEN_OPTION: InboxOption = { id: 'seen', label: 'seen', style: 'primary' };

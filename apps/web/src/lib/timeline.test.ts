@@ -340,3 +340,45 @@ describe('the refinement line', () => {
     expect(text(turn({ label: null, member: null, reason: 'done' }))).toBe(t('timeline.refinement.done'));
   });
 });
+
+describe('the loop watch on the timeline (PM-261)', () => {
+  const loop = (data: Record<string, unknown>): TimelineEvent => ({
+    ...creation,
+    actor: { kind: 'system', handle: null },
+    type: 'task_loop',
+    data: { loopId: 'loop_1', ...data },
+  });
+  const text = (data: Record<string, unknown>) => describeEvent(loop(data), context).text;
+
+  it('says who wrote, how much, and who was told, or that it went to people straight away', () => {
+    const found = { phase: 'raised', members: ['a', 'b'], count: 6, minutes: 30 };
+    expect(text({ ...found, notified: 'pm' })).toBe(
+      t('loop.events.raised', { pair: 'a és b', minutes: 30, count: 6, name: 'pm' }),
+    );
+    expect(text({ ...found, notified: null, deciders: ['owner'] })).toBe(
+      t('loop.events.raisedToPeople', { pair: 'a és b', minutes: 30, count: 6 }),
+    );
+  });
+
+  it('words the escalation by its reason, the let-run decision and the end', () => {
+    expect(text({ phase: 'escalated', reason: 'continued', deciders: ['owner'] })).toBe(
+      t('loop.events.escalated.continued', { decides: t('loop.youDecide') }),
+    );
+    expect(text({ phase: 'escalated', reason: 'no_watcher', deciders: ['owner'] })).toBe(
+      t('loop.events.escalated.no_watcher', { decides: t('loop.youDecide') }),
+    );
+    expect(text({ phase: 'let_run', by: 'owner' })).toBe(t('loop.events.let_run', { name: t('common.you') }));
+    expect(text({ phase: 'ended', endReason: 'quiet' })).toBe(
+      t('loop.events.ended', { reason: t('loop.endReasons.quiet') }),
+    );
+    expect(text({ phase: 'ended', endReason: 'stopped' })).toBe(
+      t('loop.events.ended', { reason: t('loop.endReasons.stopped') }),
+    );
+  });
+
+  it('keeps an end reason this build does not know as it is', () => {
+    expect(text({ phase: 'ended', endReason: 'something_new' })).toBe(
+      t('loop.events.ended', { reason: 'something_new' }),
+    );
+  });
+});

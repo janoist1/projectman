@@ -554,5 +554,35 @@ export const migrations: Migration[] = [
         WHERE ranked.id = tasks.id;
       CREATE INDEX tasks_board_order ON tasks(project_key, stage_id, board_rank);`,
   },
+  {
+    version: 29,
+    name: 'task loops',
+    // PM-261: the loops found on cards (AI members writing to each other without progress), one row per
+    // loop, open until `ended_at`. At most one is open per card (the loop watch looks for the next one
+    // only after the end of the last). `members` and `deciders` are JSON arrays of handles; `head_commit`
+    // is the card's branch head when the loop was found, so a later commit ends it; `notified_count` is
+    // the number of counted messages when the member was told, so a loop that goes on is told apart.
+    sql: `CREATE TABLE task_loops (
+        id              TEXT NOT NULL PRIMARY KEY,
+        project_key     TEXT NOT NULL REFERENCES projects(key),
+        task_key        TEXT NOT NULL REFERENCES tasks(key),
+        started_at      TEXT NOT NULL,
+        raised_at       TEXT NOT NULL,
+        last_message_at TEXT NOT NULL,
+        members         TEXT NOT NULL,
+        count           INTEGER NOT NULL,
+        notified        TEXT,
+        notified_count  INTEGER NOT NULL DEFAULT 0,
+        phase           TEXT NOT NULL CHECK (phase IN ('notified', 'owner', 'let_run')),
+        owner_reason    TEXT,
+        deciders        TEXT NOT NULL,
+        inbox_item_id   TEXT,
+        head_commit     TEXT,
+        ended_at        TEXT,
+        end_reason      TEXT,
+        let_run_by      TEXT
+      );
+      CREATE INDEX task_loops_task ON task_loops(project_key, task_key, ended_at);`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

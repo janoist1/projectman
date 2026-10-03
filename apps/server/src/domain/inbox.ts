@@ -16,6 +16,7 @@ import type {
   InboxItem,
   InboxKind,
   InboxOption,
+  InboxResolutionRule,
   InboxState,
   ProjectConfig,
   Session,
@@ -413,6 +414,24 @@ export class InboxService {
       });
       return updated;
     });
+  }
+
+  /**
+   * The system resolves an open item by a rule, because what it asked about is over (`loop_ended`);
+   * null when it is not open. No decision was made, so `inbox_resolved` is not emitted.
+   */
+  resolveByRule(id: string, optionId: string, rule: InboxResolutionRule): InboxItem | null {
+    const at = isoNow(this.ctx);
+    const resolved = this.ctx.repos.inbox.close(
+      id,
+      'resolved',
+      { optionId, by: 'system', at, note: null, rule },
+      at,
+    );
+    if (!resolved) return null;
+    this.publish(resolved);
+    this.waiters.get(id)?.(resolved);
+    return resolved;
   }
 
   /** Closes an open item without a decision (e.g. a stale gate request); returns null if not open. */

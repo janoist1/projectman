@@ -1,6 +1,7 @@
 import {
   alertPayloadOf,
   BoundaryRequest,
+  loopDecisionOf,
   permissionDelegationOf,
   questionPayloadOf,
 } from '@projectman/shared';
@@ -11,12 +12,23 @@ import { toolPresentationFor } from './chat';
 import { labelName } from './labels';
 import { nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
+import { pairText, watcherName } from './loop';
 import type { PipelineIndex } from './pipeline';
 
 /** Option id used for a free-text answer to a question (the text goes in `note`). */
 export const FREE_ANSWER_OPTION_ID = 'answer';
 
-const BUILT_IN_OPTIONS = ['allow', 'allow_session', 'deny', 'approve', 'reject', 'answer', 'seen'] as const;
+const BUILT_IN_OPTIONS = [
+  'allow',
+  'allow_session',
+  'deny',
+  'approve',
+  'reject',
+  'answer',
+  'seen',
+  'stop_work',
+  'let_run',
+] as const;
 type BuiltInOption = (typeof BUILT_IN_OPTIONS)[number];
 
 function isBuiltIn(id: string): id is BuiltInOption {
@@ -34,6 +46,7 @@ export function optionLabel(option: InboxOption): string {
  */
 export function inboxHeading(item: InboxItem): string {
   if (item.kind === 'boundary') return t('boundary.heading');
+  if (loopDecisionOf(item)) return t('inbox.loop.heading');
   if (item.kind === 'alert') {
     const alert = alertPayloadOf(item);
     return alert ? t(`inbox.alerts.${alert.alert}.heading`) : t('inbox.alerts.unknown');
@@ -142,6 +155,39 @@ export function alertText(
   });
 }
 
+/**
+ * What a loop decision says (PM-261): the card, who wrote to each other, how many messages in how
+ * long, and why it came to the viewer. Null for an item that is no loop decision.
+ */
+export function loopDecisionText(
+  item: InboxItem,
+  members: MemberIndex,
+  myHandle: string | null,
+): string | null {
+  const loop = loopDecisionOf(item);
+  if (!loop) return null;
+  return t('inbox.loop.body', {
+    key: loop.taskKey,
+    pair: pairText(loop.members, members, myHandle),
+    minutes: loop.minutes,
+    count: loop.count,
+    reason:
+      loop.reason === 'continued'
+        ? t('inbox.loop.reasons.continued', { name: watcherName(loop.watcher, members, myHandle) })
+        : t('inbox.loop.reasons.no_watcher'),
+  });
+}
+
+/** The options of a loop decision with what each one leads to; other items keep their options. */
+export function withLoopConsequences(item: InboxItem, options: readonly InboxOption[]): InboxOption[] {
+  if (!loopDecisionOf(item)) return [...options];
+  return options.map((option) =>
+    option.id === 'stop_work' || option.id === 'let_run'
+      ? { ...option, consequence: t(`inbox.loop.consequence.${option.id}`) }
+      : option,
+  );
+}
+
 interface GatePayload {
   fromStageId?: unknown;
   toStageId?: unknown;
@@ -158,6 +204,8 @@ export function gateMoveText(item: InboxItem, pipeline: PipelineIndex | null | u
 /** Short text of what was decided, for history lists. */
 export function decisionSubject(item: InboxItem): string {
   if (item.kind === 'permission') return permissionCommand(item) ?? item.title;
+  const loop = loopDecisionOf(item);
+  if (loop) return t('inbox.loop.subject', { key: loop.taskKey });
   return item.title;
 }
 
@@ -274,6 +322,7 @@ export function isAutomaticDecision(item: InboxItem): boolean {
 export function resolutionLabel(item: InboxItem): string {
   if (item.state === 'expired') return t('inbox.resolutions.expired');
   if (item.state === 'cancelled') return t('inbox.resolutions.cancelled');
+  if (item.resolution?.rule === 'loop_ended') return t('inbox.resolutions.loop_ended');
   const optionId = item.resolution?.optionId;
   if (!optionId) return t('inbox.resolutions.answer');
   if (isAutomaticDecision(item) && (optionId === 'allow' || optionId === 'deny'))
@@ -285,6 +334,9 @@ export function resolutionLabel(item: InboxItem): string {
 
 /** The short notice after the viewer's own decision went through: "Engedélyezve", "Válasz: B". */
 export function decisionToast(item: InboxItem, optionId: string, myHandle: string | null): string {
+  const loop = loopDecisionOf(item);
+  if (loop && (optionId === 'stop_work' || optionId === 'let_run'))
+    return t(`inbox.loop.toast.${optionId}`, { key: loop.taskKey });
   return resolutionLabel({
     ...item,
     state: 'resolved',

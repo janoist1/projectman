@@ -98,6 +98,27 @@ export const TaskReviewPin = z.object({
 export type TaskReviewPin = z.infer<typeof TaskReviewPin>;
 
 /**
+ * An open loop on a card (PM-261): AI members writing to each other without progress (`findLoop`).
+ * Present only while it is open; the board shows it as a mark. `notified` is the member told (null when
+ * nobody was), `phase` where it stands: `notified` the member was told, `owner` a person decides
+ * (`ownerReason`: nobody holds the duty, or it went on after the member was told), `let_run` that person
+ * let it run (`letRunBy`) and nothing more is said about this loop. `deciders` are the people it goes to.
+ */
+export const TaskLoop = z.object({
+  id: z.string(),
+  members: z.array(MemberHandle),
+  count: z.number().int().nonnegative(),
+  startedAt: z.string(),
+  lastMessageAt: z.string(),
+  notified: MemberHandle.nullable(),
+  phase: z.enum(['notified', 'owner', 'let_run']),
+  ownerReason: z.enum(['no_watcher', 'continued']).nullable(),
+  deciders: z.array(MemberHandle),
+  letRunBy: MemberHandle.nullable(),
+});
+export type TaskLoop = z.infer<typeof TaskLoop>;
+
+/**
  * What a card is (PM-192): a `task` goes through the pipeline; a `theme` groups cards (an epic): it has a
  * key, a title, a description and a timeline, but no stage to move through, no assignee, no work and no
  * session, and it is only open or closed.
@@ -118,6 +139,8 @@ export const Task = z.object({
   parentKey: TaskKey.nullable().optional(),
   startWaiting: TaskStartWaiting.optional(),
   reviewPin: TaskReviewPin.optional(),
+  /** The loop open on the card (PM-261); absent when there is none. Hidden from clients. */
+  loop: TaskLoop.optional(),
   /**
    * The attachment whose thumbnail is the card's cover (`coverAttachmentId` in `domain/attachment`):
    * the task's first image. Null or absent when the task has no image. A plain string here, as

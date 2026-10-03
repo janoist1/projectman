@@ -137,17 +137,23 @@ export const DEFAULT_MIN_FREE_DISK_GB = 10;
 export const WarnAboveSessionTokens = z.number().int().min(10_000).max(1_000_000_000);
 
 /**
- * The message storm threshold of a card (PM-186): `count` team messages and notes within `minutes`
- * minutes raise one warning to the owners.
+ * The loop watch of a card (PM-261): AI members writing to each other without progress. `count`
+ * messages between AI members within `minutes` minutes, with no commit, stage change or label change
+ * since the first of them, are a loop; `enabled` turns the watch off for the project.
  */
-export const MessageBurst = z.object({
-  count: z.number().int().min(3).max(100),
-  minutes: z.number().int().min(1).max(240),
+export const LoopWatch = z.object({
+  enabled: z.boolean(),
+  count: z.number().int().min(3).max(50),
+  minutes: z.number().int().min(5).max(240),
 });
-export type MessageBurst = z.infer<typeof MessageBurst>;
+export type LoopWatch = z.infer<typeof LoopWatch>;
 
-/** The threshold of a project that does not set one: 10 messages and notes in 15 minutes. */
-export const DEFAULT_MESSAGE_BURST: MessageBurst = { count: 10, minutes: 15 };
+/**
+ * The watch of a project that does not set one: on, 6 messages in 30 minutes. In ordinary work 6
+ * messages between AI members are followed by progress (a review ends with a label, a question and
+ * its answer are 2 to 4 messages); 30 minutes still catches a slow loop.
+ */
+export const DEFAULT_LOOP_WATCH: LoopWatch = { enabled: true, count: 6, minutes: 30 };
 
 export const TeamLimits = z.object({
   /**
@@ -180,11 +186,8 @@ export const TeamLimits = z.object({
    * re-reads; Codex members are not affected.
    */
   autoCompactWindowTokens: AutoCompactWindowTokens.optional(),
-  /**
-   * How many team messages and notes on one card within how long make a message storm that is
-   * warned about (PM-186). Absent: `DEFAULT_MESSAGE_BURST`.
-   */
-  messageBurst: MessageBurst.optional(),
+  /** When AI members writing to each other on a card count as a loop (PM-261). Absent: `DEFAULT_LOOP_WATCH`. */
+  loopWatch: LoopWatch.optional(),
   tempWorkers: z
     .object({
       enabled: z.boolean().default(false),

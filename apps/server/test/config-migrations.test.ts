@@ -32,6 +32,21 @@ describe('project configuration migrations', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it('drops the removed message storm threshold without carrying its value over (PM-261)', () => {
+    const legacy = raw();
+    Object.assign((legacy.team as { limits?: object }).limits ?? {}, {
+      messageBurst: { count: 3, minutes: 5 },
+    });
+    const { migrated, config, warn } = migrate(legacy);
+    expect(JSON.stringify(migrated)).not.toContain('messageBurst');
+    expect(config.team.limits.loopWatch).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(
+      { projectKey: 'AR' },
+      'Dropped the removed message storm threshold from the team limits',
+    );
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
   it('turns members of the removed scheduled role into maintainers with the daily schedule', () => {
     const legacy = raw();
     legacy.team.members[1] = { ...legacy.team.members[1], role: 'scheduled' };

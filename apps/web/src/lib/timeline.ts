@@ -2,6 +2,7 @@ import { BoundaryAuditReason, BoundaryState, LabelChangeReason, TaskRelationKind
 import type { LabelView, TimelineEvent } from '@projectman/shared';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { labelName } from './labels';
+import { decidesText, pairText } from './loop';
 import { nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
 import type { PipelineIndex } from './pipeline';
@@ -116,6 +117,40 @@ function labelsChanged(d: Record<string, unknown>, ctx: TimelineContext): string
   const reason = LabelChangeReason.safeParse(d.reason);
   const why = reason.success ? ` (${t(`timeline.labelReasons.${reason.data}`)})` : '';
   return `${parts.join('; ')}${why}`;
+}
+
+const LOOP_END_REASONS = ['label', 'stage', 'commit', 'quiet', 'stopped', 'disabled', 'closed'] as const;
+
+/** A loop on the card (PM-261): found, escalated to people, let run, or over. */
+function loopEventText(d: Record<string, unknown>, ctx: TimelineContext): string {
+  const decides = () => decidesText(strings(d.deciders), ctx.members, ctx.myHandle);
+  switch (d.phase) {
+    case 'escalated':
+      return t(
+        d.reason === 'continued' ? 'loop.events.escalated.continued' : 'loop.events.escalated.no_watcher',
+        {
+          decides: decides(),
+        },
+      );
+    case 'let_run':
+      return t('loop.events.let_run', { name: nameOf(str(d.by), ctx.members, ctx.myHandle) });
+    case 'ended': {
+      const reason = (LOOP_END_REASONS as readonly string[]).includes(str(d.endReason))
+        ? t(`loop.endReasons.${str(d.endReason) as (typeof LOOP_END_REASONS)[number]}`)
+        : str(d.endReason);
+      return t('loop.events.ended', { reason });
+    }
+    default: {
+      const found = {
+        pair: pairText(strings(d.members), ctx.members, ctx.myHandle),
+        minutes: Number(d.minutes) || 0,
+        count: Number(d.count) || 0,
+      };
+      return d.notified
+        ? t('loop.events.raised', { ...found, name: nameOf(str(d.notified), ctx.members, ctx.myHandle) })
+        : t('loop.events.raisedToPeople', found);
+    }
+  }
 }
 
 /** Attributed, translated text of a timeline event. Free text (notes, messages) stays as written. */
@@ -234,6 +269,8 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         }),
       );
     }
+    case 'task_loop':
+      return normal(loopEventText(d, ctx));
     case 'task_link_added':
       return normal(
         t('timeline.events.task_link_added', {

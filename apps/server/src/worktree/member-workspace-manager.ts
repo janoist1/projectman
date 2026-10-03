@@ -11,7 +11,7 @@ import type {
   WorkspaceSource,
 } from '../contracts';
 import { isTaskBranch } from './branch-name';
-import { git, GitCommandError } from './git';
+import { git, GitCommandError, isoOrNull } from './git';
 import { canonical, createKeyedLock, isInside } from './paths';
 import { localWorkspaceAccess, SAFE_GIT_SETTINGS } from './workspace-access';
 import type { WorkspaceAccess } from './workspace-access';
@@ -309,7 +309,10 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
         ? await gitIn(info.path, ['status', '--porcelain', '--untracked-files=normal'])
         : '';
       const changes = porcelain.split('\n').filter(Boolean).length;
-      return { commit, branch, dirty: changes > 0, changes, path: info.path };
+      const committedAt = isoOrNull(
+        await gitIn(info.path, ['log', '-1', '--format=%cI', commit]).catch(() => null),
+      );
+      return { commit, branch, dirty: changes > 0, changes, path: info.path, committedAt };
     });
   }
 

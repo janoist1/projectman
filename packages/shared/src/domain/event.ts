@@ -42,6 +42,7 @@ export const TimelineEventType = z.enum([
   'question_asked',
   'question_answered',
   'refinement_turn',
+  'task_loop',
   'member_hired',
   'member_retired',
   'config_changed',
@@ -228,6 +229,24 @@ export interface TimelineEventData {
     label: string | null;
     member: string | null;
     reason: 'started' | 'label_set' | 'label_removed' | 'done';
+  };
+  /**
+   * A loop on the card (PM-261, actor system): `raised` it was found and `notified` was told (null when
+   * nobody was; `deciders` are the people it went to then); `escalated` it went to the `deciders` for
+   * `reason`; `let_run` `by` let it run; `ended` for `endReason` (`stopped`: `by` stopped the card's work;
+   * `closed`: the card closed). `count` messages in `minutes` minutes among `members`.
+   */
+  task_loop: {
+    loopId: string;
+    phase: 'raised' | 'escalated' | 'let_run' | 'ended';
+    members: string[];
+    count: number;
+    minutes: number;
+    notified?: string | null;
+    deciders?: string[];
+    reason?: 'no_watcher' | 'continued';
+    endReason?: 'commit' | 'stage' | 'label' | 'quiet' | 'stopped' | 'disabled' | 'closed';
+    by?: string;
   };
   member_hired: { handle: string; role: string; temp: boolean; sponsor: string };
   member_retired: { handle: string; handoverTo: string | null };

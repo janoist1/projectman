@@ -519,6 +519,7 @@ const DUTY_STEPS: Partial<Record<DutyId, StepRule>> = {
     'Check where the task stands against its dates: who has to act next, and whether anything has waited too long.',
     'Remind whoever has to act with send_message (the task key, what is due and by when) and record agreed dates as a note with update_task.',
     `If a deadline is at risk or priorities conflict, ask ${codeList(humansWithDuty(input, 'prioritization'))} with ask_human; do not reorder the work yourself.`,
+    'When projectman tells you that members keep writing to each other on a card without progress, read the conversation and write once to the participants: what the next step is and who decides it. Do not write to people about it.',
   ],
 
   retro_facilitation: () => [

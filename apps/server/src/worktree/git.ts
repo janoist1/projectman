@@ -88,6 +88,12 @@ export async function tryGit(args: string[]): Promise<string | null> {
   }
 }
 
+/** An ISO time (UTC) from git's output of a date, or null when it holds none. */
+export function isoOrNull(output: string | null): string | null {
+  const time = Date.parse((output ?? '').trim());
+  return Number.isNaN(time) ? null : new Date(time).toISOString();
+}
+
 /** Whether a git probe like `rev-parse --verify` succeeds. */
 export async function gitSucceeds(args: string[]): Promise<boolean> {
   return (await tryGit(args)) !== null;

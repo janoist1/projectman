@@ -17,10 +17,12 @@ import {
   delegationNote,
   gateMoveText,
   inboxHeading,
+  loopDecisionText,
   optionLabel,
   payloadCode,
   permissionTool,
   questionExtras,
+  withLoopConsequences,
 } from '../../lib/inbox';
 import { toolPresentationFor } from '../../lib/chat';
 import { nameOf, namesOf } from '../../lib/members';
@@ -71,7 +73,10 @@ export function InboxCard({
   headingLevel = 2,
 }: InboxCardProps) {
   const answerOption = item.options.find((option) => option.id === FREE_ANSWER_OPTION_ID);
-  const choices = item.options.filter((option) => option.id !== FREE_ANSWER_OPTION_ID);
+  const choices = withLoopConsequences(
+    item,
+    item.options.filter((option) => option.id !== FREE_ANSWER_OPTION_ID),
+  );
   const allowsFreeAnswer =
     item.kind === 'question' && (answerOption !== undefined || item.options.length === 0);
   const [answering, setAnswering] = useState(allowsFreeAnswer && choices.length === 0);
@@ -92,13 +97,15 @@ export function InboxCard({
   const extras = questionExtras(item);
   const boundary = boundaryOf(item);
   const delegation = delegationNote(item, members, myHandle);
-  const alert = alertText(item, members, myHandle, labels);
+  const loopText = loopDecisionText(item, members, myHandle);
+  const alert = alertText(item, members, myHandle, labels) ?? loopText;
   const [boundaryReason, setBoundaryReason] = useState<BoundaryReason>('scope_verified');
   // A question that recommends an option or describes what each one does lists its options with
-  // that text; every other item keeps its row of buttons.
+  // that text, and so does a loop decision; every other item keeps its row of buttons.
   const describesChoices =
-    item.kind === 'question' &&
-    (extras.recommendedOptionId !== null || choices.some((option) => option.consequence));
+    loopText !== null ||
+    (item.kind === 'question' &&
+      (extras.recommendedOptionId !== null || choices.some((option) => option.consequence)));
 
   const submitAnswer = () => {
     if (!answer.trim()) {
@@ -160,7 +167,7 @@ export function InboxCard({
         </div>
       ) : null}
       {alert ? <p className={styles.body}>{alert}</p> : null}
-      {item.body ? (
+      {item.body && loopText === null ? (
         item.kind === 'approval' ? (
           <blockquote className={styles.preview}>{item.body}</blockquote>
         ) : (
@@ -221,6 +228,9 @@ export function InboxCard({
             </span>
           ) : null}
         </div>
+      ) : null}
+      {loopText !== null && !assignedToOthers ? (
+        <p className={styles.others}>{t('inbox.loop.footer')}</p>
       ) : null}
       {assignedToOthers ? null : (
         <div className={clsx(styles.actions, item.kind === 'permission' && styles.actionsTop)}>

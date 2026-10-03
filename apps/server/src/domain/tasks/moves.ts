@@ -245,14 +245,12 @@ export class TaskMoves {
       return { task: requested.task, moved: false, pendingApproval: requested.items };
     }
     const head = opts.handover?.head;
-    const extra: Pick<
-      TimelineEventData['task_stage_changed'],
-      'reviewPin' | 'branchMoved' | 'testsFailed'
-    > = {
-      ...(head ? { reviewPin: { commit: head.commit, branch: head.branch } } : {}),
-      ...(opts.branchMoved ? { branchMoved: opts.branchMoved } : {}),
-      ...(opts.testsFailed ? { testsFailed: opts.testsFailed } : {}),
-    };
+    const extra: Pick<TimelineEventData['task_stage_changed'], 'reviewPin' | 'branchMoved' | 'testsFailed'> =
+      {
+        ...(head ? { reviewPin: { commit: head.commit, branch: head.branch } } : {}),
+        ...(opts.branchMoved ? { branchMoved: opts.branchMoved } : {}),
+        ...(opts.testsFailed ? { testsFailed: opts.testsFailed } : {}),
+      };
     const board: BoardPlace = { placement: opts.placement, reranked: [] };
     return {
       // Only a person can accept the warning: an AI actor's flag is ignored.

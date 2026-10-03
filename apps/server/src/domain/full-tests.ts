@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { effectiveRepo, isOpenTask, isTheme, repoOf, stageOf, stageOwners } from '@projectman/shared';
 import type {
@@ -32,21 +32,21 @@ export function reviewTestOf(config: ProjectConfig, task: Pick<Task, 'repo'>): R
 }
 
 /**
- * The shared git directory a checkout's commits live in: the `.git` directory itself, or for a linked
- * worktree the common directory its `.git` file points to. Undefined when it cannot be told.
+ * The shared git directory the checkout's commits live in: the `.git` directory of the configured
+ * repository (the checkout is a linked worktree of it). It comes from the project's configuration and
+ * not from the checkout's own `.git` file, which the developer can write. Undefined when the
+ * repository has no such directory.
  */
-export async function gitCommonDir(checkout: string): Promise<string | undefined> {
+export async function repoGitDir(
+  config: ProjectConfig,
+  task: Pick<Task, 'repo'>,
+): Promise<string | undefined> {
+  const repo = repoOf(config, effectiveRepo(config, task));
+  if (!repo) return undefined;
   try {
-    const dotGit = path.join(checkout, '.git');
-    const content = (await readFile(dotGit, 'utf8')).trim();
-    const match = /^gitdir:\s*(.+)$/m.exec(content);
-    if (!match) return undefined;
-    const gitDir = path.resolve(checkout, match[1]!.trim());
-    const common = (await readFile(path.join(gitDir, 'commondir'), 'utf8').catch(() => '')).trim();
-    return common ? path.resolve(gitDir, common) : gitDir;
-  } catch (err) {
-    // `.git` is a directory (an own clone): it is the git directory.
-    if ((err as NodeJS.ErrnoException).code === 'EISDIR') return path.join(checkout, '.git');
+    const gitDir = await realpath(path.join(path.resolve(config.project.workspacePath, repo.path), '.git'));
+    return (await stat(gitDir)).isDirectory() ? gitDir : undefined;
+  } catch {
     return undefined;
   }
 }
@@ -315,7 +315,7 @@ export class FullTestRuns {
           timeoutMs: reviewTest.timeoutMinutes * 60_000,
           sandbox: fullTestSandbox({
             checkout: head.path,
-            gitDir: await gitCommonDir(head.path),
+            gitDir: await repoGitDir(config, task),
             userHome: this.userHome,
             appHome: this.appHome,
           }),

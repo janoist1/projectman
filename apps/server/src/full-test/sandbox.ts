@@ -5,6 +5,27 @@ import type { FullTestSpec } from '../contracts';
 export const FULL_TEST_GIT_CONFIG =
   '[user]\n\tname = projectman full test\n\temail = full-test@projectman.invalid\n[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n';
 
+/**
+ * The longest Unix socket path the sandbox can open, a little below macOS's limit (104 bytes with the
+ * terminating NUL), and the longest socket name `srt` makes in the sandbox's TMPDIR
+ * (`srt-mux-<pid>-<n>.sock`, a pid of up to 7 digits).
+ */
+const SOCKET_PATH_MAX = 100;
+const SOCKET_NAME_MAX = 'srt-mux-9999999-99.sock'.length;
+
+/**
+ * The directory of a run: `<root>/pmft-<end of the run id>`, short, because the sandbox's TMPDIR below it
+ * holds a Unix socket and a long path makes the sandbox fail ("listen EINVAL"). The root is `tmpRoot`;
+ * when the socket path would be too long there (a deep temporary directory), it is the short
+ * system-wide `shortRoot`.
+ */
+export function runDirOf(tmpRoot: string, shortRoot: string, runId: string): string {
+  const name = `pmft-${runId.replace(/[^A-Za-z0-9]/g, '').slice(-8)}`;
+  const socketPath = (root: string) =>
+    path.join(runPaths(path.join(root, name)).tmp, 'x'.repeat(SOCKET_NAME_MAX));
+  return path.join(socketPath(tmpRoot).length <= SOCKET_PATH_MAX ? tmpRoot : shortRoot, name);
+}
+
 /** The directories of one run: only `sandbox` is writable for the command. */
 export function runPaths(runDir: string) {
   const sandbox = path.join(runDir, 'sandbox');

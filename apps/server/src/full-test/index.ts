@@ -8,12 +8,14 @@ import { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import type { FullTestErrorReason } from '@projectman/shared';
 import type { FullTestExecutor, FullTestResult, FullTestSpec } from '../contracts';
 import { failedFiles, outputTail, OutputTail } from './output';
-import { FULL_TEST_GIT_CONFIG, fullTestEnv, niceCommand, runPaths, srtSettings } from './sandbox';
+import { FULL_TEST_GIT_CONFIG, fullTestEnv, niceCommand, runDirOf, runPaths, srtSettings } from './sandbox';
 import type { RunPaths } from './sandbox';
 
 export { failedFiles, outputTail, stripAnsi } from './output';
-export { fullTestEnv, niceCommand, runPaths, srtSettings } from './sandbox';
+export { fullTestEnv, niceCommand, runDirOf, runPaths, srtSettings } from './sandbox';
 
+/** A short temporary root for when `tmpDir` is too deep for the sandbox's socket (macOS: `/tmp` is a link to this). */
+const SHORT_ROOT = process.platform === 'darwin' ? '/private/tmp' : '/tmp';
 /** How long a stopped run gets to end on its own before the process group is killed. */
 const KILL_GRACE_MS = 10_000;
 /** The probes (a sandbox start each) must be quick. */
@@ -38,7 +40,7 @@ interface Ended {
 
 /**
  * Runs the full test in the Anthropic Sandbox Runtime (`srt`, pinned in package.json) as a child
- * process (PM-217): macOS (Seatbelt) only. The run directory (`<tmp>/projectman-full-test-<runId>`)
+ * process (PM-217): macOS (Seatbelt) only. The run directory (`<tmp>/pmft-<end of the run id>`)
  * holds `settings.json`, which the command cannot write, and `sandbox/` (home, tmp, npm cache, git
  * configuration), the only place it writes. It is removed after every run.
  */
@@ -143,9 +145,13 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
 
     async run(spec, signal) {
       const started = Date.now();
-      const paths = runPaths(path.join(tmpRoot, `projectman-full-test-${spec.runId}`));
+      const paths = runPaths(runDirOf(tmpRoot, SHORT_ROOT, spec.runId));
+      // Not recursive: a directory or a link someone made at that name beforehand is an error, never
+      // reused, and never removed below.
+      let created = false;
       try {
-        await mkdir(paths.runDir, { recursive: true, mode: 0o700 });
+        await mkdir(paths.runDir, { mode: 0o700 });
+        created = true;
         await mkdir(paths.home, { recursive: true });
         await mkdir(paths.tmp, { recursive: true });
         await mkdir(paths.npmCache, { recursive: true });
@@ -153,7 +159,7 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
         await writeFile(paths.settings, JSON.stringify(srtSettings(spec, paths), null, 2), { mode: 0o600 });
       } catch (err) {
         logger.warn({ err, runId: spec.runId }, 'could not prepare the full test run directory');
-        await rm(paths.runDir, { recursive: true, force: true }).catch(() => undefined);
+        if (created) await rm(paths.runDir, { recursive: true, force: true }).catch(() => undefined);
         return failure('sandbox_unavailable', started);
       }
       try {

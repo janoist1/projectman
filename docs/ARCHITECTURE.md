@@ -757,8 +757,10 @@ commit pinned at the hand-over, run by the server.
   `repinned`, `stage_left`; `branch_moved`, `interrupted` at a restart, `shutdown` at a stop). One run runs at a
   time in the whole installation, first in first out, under `nice -n 10`.
 - **Executor.** `src/full-test` (`FullTestExecutor` in `contracts/full-test.ts`) writes the srt settings
-  (`fullTestSandbox`: reads the checkout and its git directory only, writes its run directory
-  `<tmp>/projectman-full-test-<runId>/`, no network except listening on local ports, `allowPty`), runs `/bin/sh -c <command>` there with
+  (`fullTestSandbox`: reads the checkout and the configured repository's git directory only, writes its run
+  directory `<tmp>/pmft-<end of the run id>/`, no network except listening on local ports, `allowPty`; the
+  directory is short, and under `/private/tmp` when `<tmp>` is too deep, because srt's socket in the
+  sandbox's TMPDIR must stay below macOS's 104-byte socket path limit), runs `/bin/sh -c <command>` there with
   `VITEST_MAX_FORKS` and `VITEST_MAX_THREADS` set to `maxWorkers`, kills the process group at the time limit
   and reads vitest's failed files and "Failed Tests" section from the output. Without macOS or `srt` the
   executor is not available and the feature is off. The managed VM profile leaves it out.

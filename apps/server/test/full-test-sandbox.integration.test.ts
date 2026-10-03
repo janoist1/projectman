@@ -143,6 +143,23 @@ describe.runIf(process.platform === 'darwin')('the full test sandbox', () => {
   );
 
   it(
+    'runs when the temporary directory is too deep for the socket of the sandbox, and leaves nothing behind',
+    { timeout: 180_000 },
+    async () => {
+      const deep = join(root, 'a'.repeat(40), 'b'.repeat(40), 'c'.repeat(40));
+      mkdirSync(deep, { recursive: true });
+      const result = await createFullTestExecutor({
+        logger,
+        tmpDir: deep,
+        env: { PATH: process.env.PATH },
+      }).run(spec('ftr_deepdir', 'echo deep'), new AbortController().signal);
+      expect(result).toMatchObject({ outcome: 'passed', exitCode: 0 });
+      expect(readdirSync(deep)).toEqual([]);
+      expect(readdirSync('/private/tmp').filter((name) => name === 'pmft-deepdir')).toEqual([]);
+    },
+  );
+
+  it(
     'tells a failing command from one that could not run, and stops a run',
     { timeout: 180_000 },
     async () => {

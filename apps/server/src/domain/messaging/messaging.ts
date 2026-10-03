@@ -65,7 +65,10 @@ export class Messaging {
   private readonly refinement: Pick<RefinementSteps, 'turnMember'>;
   private fixLimit: { heldFor(task: Task, config: ProjectConfig): boolean } | undefined;
   private fullTests:
-    | { holds(task: Task, config: ProjectConfig): boolean; sync(projectKey: string, taskKey: string): Promise<void> }
+    | {
+        holds(task: Task, config: ProjectConfig): boolean;
+        sync(projectKey: string, taskKey: string): Promise<void>;
+      }
     | undefined;
 
   constructor(deps: {

@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { fullTestSandbox } from '../domain';
 import {
@@ -8,7 +9,7 @@ import {
   OUTPUT_TAIL_CHARS,
   stripAnsi,
 } from './output';
-import { fullTestEnv, niceCommand, runPaths, shellQuote, srtSettings } from './sandbox';
+import { fullTestEnv, niceCommand, runDirOf, runPaths, shellQuote, srtSettings } from './sandbox';
 
 describe('the output of a full test', () => {
   it('removes ANSI sequences', () => {
@@ -48,6 +49,25 @@ describe('the output of a full test', () => {
     tail.push('END');
     expect(tail.value().length).toBeLessThanOrEqual(OUTPUT_LIMIT_BYTES);
     expect(tail.value().endsWith('END')).toBe(true);
+  });
+});
+
+describe('the directory of a full test run', () => {
+  // A Unix socket path must stay below macOS's 104 bytes: the sandbox's TMPDIR holds srt's socket.
+  const socketPathOf = (runDir: string) => path.join(runPaths(runDir).tmp, 'srt-mux-9999999-99.sock');
+
+  it('is short, under the temporary directory, named by the end of the run id', () => {
+    const tmp = '/var/folders/4w/d7bbmg9x6_53p3cstdbcv4b40000gn/T';
+    const dir = runDirOf(tmp, '/private/tmp', 'ftr_mgabc12345ef01234567');
+    expect(dir).toBe(`${tmp}/pmft-01234567`);
+    expect(socketPathOf(dir).length).toBeLessThanOrEqual(103);
+  });
+
+  it('moves to the short root when the temporary directory is too deep for the socket', () => {
+    const deep = `/private/var/folders/4w/d7bbmg9x6_53p3cstdbcv4b40000gn/T/pm-full-test-eusHub/runs`;
+    const dir = runDirOf(deep, '/private/tmp', 'ftr_mgabc12345ef01234567');
+    expect(dir).toBe('/private/tmp/pmft-01234567');
+    expect(socketPathOf(dir).length).toBeLessThanOrEqual(103);
   });
 });
 

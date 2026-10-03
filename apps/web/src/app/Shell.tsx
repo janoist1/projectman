@@ -20,7 +20,7 @@ import { useProject } from './contexts';
 import styles from './Shell.module.css';
 
 /** The top bar's step as the window narrows: the meters lose their labels (they are gone at 1180). */
-const TIGHT_METERS_QUERY = '(max-width: 1439px)';
+const TIGHT_METERS_QUERY = '(max-width: 1279px)';
 
 interface NavItem {
   to: string;

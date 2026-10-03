@@ -768,8 +768,10 @@ and the count are `team.limits.loopWatch` (`enabled`, `count` 3..50, `minutes` 5
 A loop is a row of `task_loops` (migration 29) with the phase `notified` → `owner` → `let_run`, and the card
 carries it as `Task.loop` (a "Körbe fut" mark; clients do not see it). The first notice is a system message to the
 AI holder of the `scheduling` duty (not stored as a team message). People get an inbox decision (`stop_work` or
-`let_run`) only when nobody holds the duty, admission refuses the holder, or the loop went on after the notice.
-A loop closes itself when the card moves on, its labels change, a commit lands, nobody wrote for a whole window,
+`let_run`) only when nobody holds the duty, admission refuses the holder for good, or the loop went on after the
+notice. A refusal that can clear (the AI limit, the holder's capacity, paused plan usage, low disk space) only makes
+the notice wait: it is an automatic start (`StartSpec` kind `loop_notice`) kept and retried like the others, the loop
+stays `notified` with `notified_count` 0, and the "went on" count starts from the delivery. A loop closes itself when the card moves on, its labels change, a commit lands, nobody wrote for a whole window,
 or the watch is switched off; its decision then closes with the `loop_ended` rule. The timeline event is
 `task_loop` (`raised`, `escalated`, `let_run`, `ended`).
 

@@ -25,7 +25,7 @@ import type {
 } from '@projectman/shared';
 import type { TaskLoopRecord } from '../db';
 import { ownerHandles } from './access';
-import type { Admission } from './admission';
+import type { Admission, AutomaticStart, StartSpec } from './admission';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
 import type { InboxService } from './inbox';
@@ -47,8 +47,10 @@ type EndReason = NonNullable<TimelineEventData['task_loop']['endReason']>;
  * other on a card with no progress in between (no stage change, label change or commit) are a loop
  * (`findLoop` in `packages/shared`). The first to hear of it is the AI member who holds the
  * scheduling duty: it gets a system message (not stored as a team message) asking it to read the
- * conversation and tell the participants the next step and who decides. When nobody holds the duty,
- * or admission refuses it, or the loop goes on after it was told (as many counted messages again),
+ * conversation and tell the participants the next step and who decides. A notice that admission only
+ * makes wait (the AI limit, the member's capacity, ...) is kept and retried like any automatic start,
+ * and the loop counts a going-on from its delivery. When nobody holds the duty, or admission refuses
+ * the notice for good, or the loop goes on after it was told (as many counted messages again),
  * the people who decide get a decision item: stop the card's AI work, or let it run. A loop closes
  * itself when it is over: the card moved on, its labels changed, its branch got a commit, nobody
  * wrote for a whole window, or the watch was switched off; its item then closes by the system.
@@ -187,7 +189,12 @@ export class LoopWatch {
       members: [...new Set([...loop.members, talk.from, ...talk.to])].sort(),
     };
     const watch = loopWatchOf(config.team.limits);
-    if (grown.phase === 'notified' && grown.count - grown.notifiedCount >= watch.count) {
+    // Counted from the delivery of the notice: while admission keeps it waiting, nothing was told yet.
+    if (
+      grown.phase === 'notified' &&
+      grown.notifiedCount > 0 &&
+      grown.count - grown.notifiedCount >= watch.count
+    ) {
       this.escalate(config, task, grown, 'continued');
       return;
     }
@@ -249,6 +256,7 @@ export class LoopWatch {
     headCommit: string | null,
   ): Promise<void> {
     const watcher = loopWatchers(config, finding.members)[0];
+    const told = watcher && memberOf(config, watcher)?.kind === 'ai' ? watcher : null;
     const record: TaskLoopRecord = {
       id: newId('loop'),
       projectKey: task.projectKey,
@@ -258,8 +266,8 @@ export class LoopWatch {
       lastMessageAt: finding.lastMessageAt,
       members: finding.members,
       count: finding.count,
-      notified: watcher ?? null,
-      notifiedCount: finding.count,
+      notified: told,
+      notifiedCount: 0,
       phase: 'notified',
       ownerReason: null,
       deciders: [],
@@ -270,44 +278,101 @@ export class LoopWatch {
       letRunBy: null,
     };
     this.ctx.repos.taskLoops.create(record);
-    if (watcher && (await this.notify(config, task, watcher, record))) {
-      this.record(task, record, 'raised', { notified: watcher });
-      this.tasks.publish(task);
-      return;
-    }
-    this.escalate(config, task, record, 'no_watcher');
+    this.tasks.publish(task);
+    if (told) await this.deliver(record.id);
+    else this.escalate(config, task, record, 'no_watcher');
   }
 
-  /** The watcher gets a system message; false when it could not be told (admission refused it). */
-  private async notify(
-    config: ProjectConfig,
-    task: Task,
-    watcher: string,
-    loop: TaskLoopRecord,
-  ): Promise<boolean> {
-    const member = memberOf(config, watcher);
-    if (member?.kind !== 'ai') return false;
-    const workItem = { type: 'task', taskKey: task.key } as const;
-    const text = noticeText(task.key, loop, loopWatchOf(config.team.limits).minutes);
+  /**
+   * The watcher of a loop whose notice is still to be delivered gets it. Admission may make the
+   * start wait (the AI limit, the member's capacity, paused plan usage, low disk space): the loop
+   * stays with the watcher then, and the notice is retried like any automatic start. Only a refusal
+   * that no retry can overcome sends the loop to the people, as if nobody held the duty.
+   * Runs under the card's lock.
+   */
+  private async deliver(loopId: string): Promise<void> {
+    const loop = this.ctx.repos.taskLoops.get(loopId);
+    const task = loop && this.tasks.find(loop.projectKey, loop.taskKey);
+    if (!loop || !task || !isOpenTask(task) || !noticePending(loop)) return;
+    let told = false;
+    const start = this.noticeStart(loop, () => {
+      told = true;
+    });
     try {
-      const running = this.sessions.findRunning(task.projectKey, watcher, workItem);
-      if (running) {
-        this.delivery.notice(running, 'projectman', text, task.key);
-        return true;
-      }
-      await this.delivery.startAndDeliver(task.projectKey, watcher, workItem, (messages) =>
-        this.admission.start({
-          config,
-          member: member as AiMemberConfig,
-          workItem,
-          messages: [...messages, formatInjectedTeamMessage('projectman', text, task.key)],
-        }),
-      );
-      return true;
+      await this.admission.attempt(start);
     } catch (err) {
-      this.ctx.logger.warn({ err, taskKey: task.key, watcher }, 'could not tell the loop watcher');
-      return false;
+      this.ctx.logger.warn(
+        { err, taskKey: task.key, watcher: loop.notified },
+        'could not tell the loop watcher',
+      );
+      const config = this.projects.cachedConfig(loop.projectKey);
+      if (config) this.escalate(config, task, { ...loop, notified: null }, 'no_watcher');
+      return;
     }
+    if (told) this.told(task, loopId);
+  }
+
+  /** The notice reached its watcher: the loop counts a going-on from here. */
+  private told(task: Task, loopId: string): void {
+    const loop = this.ctx.repos.taskLoops.get(loopId);
+    if (!loop || loop.endedAt) return;
+    const notified: TaskLoopRecord = { ...loop, notifiedCount: loop.count };
+    this.ctx.repos.taskLoops.save(notified);
+    this.record(task, notified, 'raised', { notified: notified.notified });
+    this.tasks.publish(task);
+  }
+
+  /** A notice that was deferred when the server stopped, made again from what was stored. */
+  rebuild(spec: Extract<StartSpec, { kind: 'loop_notice' }>): AutomaticStart | null {
+    const loop = this.ctx.repos.taskLoops.get(spec.loopId);
+    return loop && !loop.endedAt ? this.noticeStart(loop, () => undefined) : null;
+  }
+
+  /** The automatic start that tells the watcher; `onTold` is called once it was delivered. */
+  private noticeStart(loop: TaskLoopRecord, onTold: () => void): AutomaticStart {
+    const { projectKey, taskKey, id: loopId } = loop;
+    const watcher = loop.notified ?? '';
+    return {
+      key: `loop:${loopId}`,
+      projectKey,
+      taskKey,
+      spec: () => ({ kind: 'loop_notice', projectKey, taskKey, loopId, watcher }),
+      stillValid: (task) => {
+        const current = this.ctx.repos.taskLoops.get(loopId);
+        return task !== null && isOpenTask(task) && current !== null && noticePending(current);
+      },
+      waitsFor: () => watcher,
+      retry: () => this.cards.run(taskKey, () => this.deliver(loopId)),
+      log: {
+        deferred: 'loop notice start deferred',
+        retryFailed: 'loop notice start retry failed',
+        fields: () => ({ taskKey, watcher }),
+      },
+      run: async () => {
+        const current = this.ctx.repos.taskLoops.get(loopId);
+        const task = this.tasks.find(projectKey, taskKey);
+        if (!current || !noticePending(current) || !task || !isOpenTask(task)) return;
+        const config = await this.projects.config(projectKey);
+        const member = memberOf(config, watcher);
+        if (member?.kind !== 'ai') throw new Error(`loop watcher ${watcher} is not an AI member`);
+        const workItem = { type: 'task', taskKey } as const;
+        const text = noticeText(taskKey, current, loopWatchOf(config.team.limits).minutes);
+        const running = this.sessions.findRunning(projectKey, watcher, workItem);
+        if (running) {
+          this.delivery.notice(running, 'projectman', text, taskKey);
+        } else {
+          await this.delivery.startAndDeliver(projectKey, watcher, workItem, (messages) =>
+            this.admission.start({
+              config,
+              member: member as AiMemberConfig,
+              workItem,
+              messages: [...messages, formatInjectedTeamMessage('projectman', text, taskKey)],
+            }),
+          );
+        }
+        onTold();
+      },
+    };
   }
 
   /** The loop goes to the people who decide: one decision item, stop the work or let it run. */
@@ -425,6 +490,11 @@ export class LoopWatch {
       },
     });
   }
+}
+
+/** Whether the watcher of a loop is still to be told (admission may keep the notice waiting). */
+function noticePending(loop: TaskLoopRecord): boolean {
+  return !loop.endedAt && loop.phase === 'notified' && loop.notified !== null && loop.notifiedCount === 0;
 }
 
 /** A team message of a card as the rule reads it. */

@@ -187,15 +187,63 @@ describe('loop watch', () => {
       expect(h.runner.started).toEqual([]);
     });
 
-    it('goes to the owner when admission refuses the scheduler', async () => {
+    it('goes to the owner when admission refuses the scheduler for good, and says nobody was told', async () => {
       await prepare();
-      await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
-        config.team.limits.aiEnabled = false;
-        return 'Switch AI off';
-      });
+      vi.spyOn(h.domain.admission, 'start').mockRejectedValue(new Error('the session cannot start'));
       await goRound();
       await vi.waitFor(() => expect(items()).toHaveLength(1));
-      expect(loopDecisionOf(items()[0]!)).toMatchObject({ reason: 'no_watcher', watcher: 'pm' });
+      expect(loopDecisionOf(items()[0]!)).toMatchObject({ reason: 'no_watcher', watcher: null });
+      expect(loop()).toMatchObject({ phase: 'owner', ownerReason: 'no_watcher', notified: null });
+      expect(loopEvents().map((event) => event.data)).toMatchObject([{ phase: 'raised', notified: null }]);
+      expect(h.domain.tasks.get('AR', 'AR-1').loop).toMatchObject({ phase: 'owner', notified: null });
+    });
+  });
+
+  describe('when admission only makes the scheduler wait', () => {
+    const switchAi = (aiEnabled: boolean) =>
+      h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+        config.team.limits.aiEnabled = aiEnabled;
+        return 'Switch AI';
+      });
+
+    it('keeps the loop with the scheduler, raises no item, and tells it once there is room', async () => {
+      await prepare();
+      await switchAi(false);
+      await goRound();
+      await vi.waitFor(() => expect(loop()).not.toBeNull());
+      await settle();
+      // Not told yet: no decision, no "raised" event, and the loop still belongs to the scheduler.
+      expect(items()).toEqual([]);
+      expect(loop()).toMatchObject({ phase: 'notified', notified: 'pm', notifiedCount: 0 });
+      expect(loopEvents()).toEqual([]);
+      expect(h.runner.started).toEqual([]);
+
+      // Messages meanwhile do not count as "went on after the notice".
+      await talk('dev-1', ['cr']);
+      await talk('cr', ['dev-1']);
+      await talk('dev-1', ['cr']);
+      await talk('cr', ['dev-1']);
+      expect(items()).toEqual([]);
+      expect(loop()).toMatchObject({ phase: 'notified', count: 7 });
+
+      await switchAi(true);
+      await vi.waitFor(() => expect(h.runner.started.some((spec) => spec.member === 'pm')).toBe(true));
+      await vi.waitFor(() => expect(loop()).toMatchObject({ notified: 'pm', notifiedCount: 7 }));
+      expect(items()).toEqual([]);
+      expect(loopEvents().map((event) => event.data)).toMatchObject([{ phase: 'raised', notified: 'pm' }]);
+    });
+
+    it('drops the waiting notice when the loop ends first', async () => {
+      await prepare();
+      await switchAi(false);
+      await goRound();
+      await vi.waitFor(() => expect(loop()).not.toBeNull());
+      await h.domain.tasks.update('AR', 'AR-1', { addLabels: ['tag'] }, OWNER_ACTOR);
+      await vi.waitFor(() => expect(loop()).toBeNull());
+      await switchAi(true);
+      await settle();
+      expect(h.runner.started).toEqual([]);
+      expect(items()).toEqual([]);
     });
   });
 

@@ -15,9 +15,12 @@ export interface TaskLoopRecord {
   members: string[];
   /** Counted messages so far. */
   count: number;
-  /** The member told first; null when nobody was. */
+  /** The member to tell first (told once `notifiedCount` is set); null when nobody was or could be. */
   notified: string | null;
-  /** The count when that member was told: the loop is said to go on after as many messages again. */
+  /**
+   * The count when that member was told: the loop is said to go on after as many messages again.
+   * 0 until the notice was delivered (a loop has at least 3 messages), as admission may make it wait.
+   */
   notifiedCount: number;
   phase: 'notified' | 'owner' | 'let_run';
   ownerReason: 'no_watcher' | 'continued' | null;
@@ -84,7 +87,7 @@ export function createTaskLoopRepository(db: Db) {
   );
   const update = db.prepare(
     `UPDATE task_loops SET last_message_at = @lastMessageAt, members = @members, count = @count,
-       phase = @phase, owner_reason = @ownerReason, deciders = @deciders, inbox_item_id = @inboxItemId,
+       notified = @notified, notified_count = @notifiedCount, phase = @phase, owner_reason = @ownerReason, deciders = @deciders, inbox_item_id = @inboxItemId,
        let_run_by = @letRunBy
      WHERE id = @id AND ended_at IS NULL`,
   );

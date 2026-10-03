@@ -561,7 +561,7 @@ export const migrations: Migration[] = [
     // loop, open until `ended_at`. At most one is open per card (the loop watch looks for the next one
     // only after the end of the last). `members` and `deciders` are JSON arrays of handles; `head_commit`
     // is the card's branch head when the loop was found, so a later commit ends it; `notified_count` is
-    // the number of counted messages when the member was told, so a loop that goes on is told apart.
+    // the number of counted messages when the member was told (0 until then), so a loop that goes on is told apart.
     sql: `CREATE TABLE task_loops (
         id              TEXT NOT NULL PRIMARY KEY,
         project_key     TEXT NOT NULL REFERENCES projects(key),

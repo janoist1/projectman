@@ -482,6 +482,8 @@ export function createDomain(opts: DomainOptions) {
         return refinement.rebuild(spec);
       case 'message_wake':
         return messageStarts.rebuild(spec);
+      case 'loop_notice':
+        return loopWatch.rebuild(spec);
     }
   };
 

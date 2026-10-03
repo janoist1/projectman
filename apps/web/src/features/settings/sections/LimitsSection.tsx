@@ -206,18 +206,6 @@ function LimitsControls({ config }: { config: ProjectConfig }) {
           })
         }
       />
-      <InstantNumber
-        label={t('settings.limits.maxFixRounds')}
-        hint={t('settings.limits.maxFixRoundsHelp')}
-        min={1}
-        max={10}
-        value={maxFixRoundsOf(limits)}
-        onCommit={(rounds) =>
-          commit((draft) => {
-            draft.team.limits.maxFixRounds = rounds ?? DEFAULT_MAX_FIX_ROUNDS;
-          })
-        }
-      />
       <ToggleField
         label={t('settings.limits.boundaryEnabled')}
         help={t('settings.limits.boundaryHelp')}
@@ -295,6 +283,18 @@ function LimitsControls({ config }: { config: ProjectConfig }) {
           <LoopWatcherLine config={shown} />
         </>
       ) : null}
+      <InstantNumber
+        label={t('settings.limits.maxFixRounds')}
+        hint={t('settings.limits.maxFixRoundsHelp')}
+        min={1}
+        max={10}
+        value={maxFixRoundsOf(limits)}
+        onCommit={(rounds) =>
+          commit((draft) => {
+            draft.team.limits.maxFixRounds = rounds ?? DEFAULT_MAX_FIX_ROUNDS;
+          })
+        }
+      />
       {roles.isError ? <p role="alert">{errorMessage(roles.error)}</p> : null}
       {error ? (
         <p role="alert" className={shared.validation}>
@@ -375,16 +375,16 @@ export function LimitsSection({ config }: { config: ProjectConfig }) {
             </dd>
           </div>
           <div>
-            <dt>{t('settings.limits.maxFixRounds')}</dt>
-            <dd>{t('settings.limits.maxFixRoundsValue', { count: maxFixRoundsOf(limits) })}</dd>
-          </div>
-          <div>
             <dt>{t('settings.limits.loopWatch')}</dt>
             <dd>
               {loopWatchOf(limits).enabled
                 ? t('settings.limits.loopWatchValue', loopWatchOf(limits))
                 : t('settings.limits.loopWatchOff')}
             </dd>
+          </div>
+          <div>
+            <dt>{t('settings.limits.maxFixRounds')}</dt>
+            <dd>{t('settings.limits.maxFixRoundsValue', { count: maxFixRoundsOf(limits) })}</dd>
           </div>
           <div>
             <dt>{t('settings.limits.tempWorkers')}</dt>

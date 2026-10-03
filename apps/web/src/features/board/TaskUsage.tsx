@@ -30,11 +30,6 @@ export function TaskRounds({
     [t('tokenUsage.changeRequests'), rounds.changeRequests],
     [t('tokenUsage.designChangeRequests'), rounds.designChangeRequests],
     [t('tokenUsage.sendBacks'), rounds.sendBacks],
-    ...(fixRounds
-      ? ([[t('tokenUsage.fixRounds'), t('tokenUsage.fixRoundsValue', fixRounds)]] as Array<
-          [string, number | string]
-        >)
-      : []),
   ];
   return (
     <section className={drawer.section} aria-labelledby="task-rounds">
@@ -42,6 +37,14 @@ export function TaskRounds({
         {t('tokenUsage.roundsTitle')}
       </h3>
       <dl className={styles.rounds}>
+        {fixRounds ? (
+          <div
+            className={`${styles.round} ${styles.fixRound} ${fixRounds.rounds >= fixRounds.limit ? styles.atLimit : ''}`}
+          >
+            <dt>{t('tokenUsage.fixRounds')}</dt>
+            <dd className={styles.count}>{t('tokenUsage.fixRoundsValue', fixRounds)}</dd>
+          </div>
+        ) : null}
         {counts.map(([label, count]) => (
           <div key={label} className={styles.round}>
             <dt>{label}</dt>

@@ -199,8 +199,7 @@ export function fixLimitDecisionText(
   return t('inbox.fixLimit.body', {
     key: limit.taskKey,
     rounds: limit.rounds,
-    limit: limit.limit,
-    parts: fixRoundParts(limit, 'inbox.fixLimit.parts'),
+    parts: fixRoundParts(limit),
     reason:
       limit.reason === 'passed_on'
         ? t('inbox.fixLimit.reasons.passed_on', {

@@ -1278,27 +1278,27 @@ export const hu = {
       seen: 'Láttam',
       stop_work: 'Leállítom a munkát',
       let_run: 'Hadd fusson',
-      replan: 'Pontosabb tervet kérek',
-      reassign: 'Másik megvalósító',
-      another_round: 'Még egy kör',
+      replan: 'Pontosabb terv kell',
+      reassign: 'Más fejlesztő vigye',
+      another_round: 'Még egy kör mehet',
     },
     /** A card held at its fix round limit (PM-262): a decision for the people. */
     fixLimit: {
       heading: 'Megállt egy kártya a javítási körök határánál',
       subject: 'Javítási körök határa: {key}',
-      body: 'A(z) {key} kártya {rounds} javítási kört futott ({parts}); a határ {limit}. {reason}',
-      parts: '{changes} kódátnézési, {design} UI/UX és {sendBacks} visszaküldés',
+      body: 'A(z) {key} {rounds} javítási kör után sem ment át ({parts}). {reason}',
       reasons: {
-        no_ai_decider: 'Nincs AI-tag, aki dönthetne róla (műszaki irányítás és kódátnézés).',
-        passed_on: '{name} tovább adta neked.{note}',
+        no_ai_decider: 'Nincs AI-tag, aki dönthetne róla (Műszaki irányítás és Kódellenőrzés).',
+        passed_on: '{name} továbbadta neked.{note}',
         again: 'Még egy kör után újra elérte a határt.',
       },
       note: ' Indoka: „{note}”',
       consequence: {
-        replan: 'Egy másik műszaki vezető pontosabb tervet ír, és a kártya számlálása újrakezdődik.',
+        replan:
+          'A Műszaki irányítás egy másik AI-tagja pontosítja a tervet vagy bontja a kártyát; ha elengedi, a számlálás újraindul.',
         reassign:
-          'A kártyát egy másik fejlesztő kapja, friss munkamenettel; a számlálás újrakezdődik. Az első megvalósító munkamenete leáll.',
-        another_round: 'A megvalósító megkapja a várakozó üzeneteket, és eggyel több kört kap.',
+          'A kártyát egy másik fejlesztő kapja, friss munkamenettel; a számlálás újrakezdődik. Az eddigi fejlesztő munkamenete leáll.',
+        another_round: 'A fejlesztő megkapja a várakozó üzeneteket, és eggyel több kört kap.',
       },
       footer:
         'Ha közben másképp folytatódik a kártya (másik megvalósító, lezárás), ez a tétel magától lezárul.',
@@ -1384,7 +1384,7 @@ export const hu = {
       loop_ended: 'Magától lezárult: elcsitult',
       fix_limit_ended: 'Magától lezárult: a kártya másként folytatódott',
       replan: 'Pontosabb terv kérve',
-      reassign: 'Másik megvalósító',
+      reassign: 'Más fejlesztő kapta',
       another_round: 'Még egy kör',
     },
     /** Rules by which the system decided an item itself. */
@@ -1612,34 +1612,41 @@ export const hu = {
   fixLimit: {
     box: {
       title: 'Megállt a javítási körök határánál',
-      text: '{rounds} javítási kör futott ({parts}); a határ {limit}. A kártya megvalósítójának szóló gépi üzenetek várakoznak, amíg döntés nem születik.',
+      count: '{rounds} / {limit}',
+      text: '{parts} után nem megy vissza magától a fejlesztőhöz.',
       lead: '{name} dönt, hogy mehet-e tovább.',
       replan: '{name} pontosabb tervet ír, utána megy tovább.',
-      people: '{decides} róla.',
+      people: {
+        no_ai_decider: 'Nincs AI vezető fejlesztő, ezért {decides} róla.',
+        passed_on: 'A vezető fejlesztő továbbadta, ezért {decides} róla.',
+        again: 'Még egy kör után újra elérte a határt, ezért {decides} róla.',
+      },
     },
-    parts: '{changes} kódátnézési, {design} UI/UX, {sendBacks} visszaküldés',
-    reasons: {
-      no_ai_decider: 'nincs AI-tag, aki dönthetne',
-      passed_on: 'a vezető fejlesztő továbbadta',
-      again: 'még egy kör után újra elérte a határt',
+    /** The rounds a count is made of; only the ones that are not zero are named. */
+    part: {
+      changes: '{count} kódátnézés',
+      design: '{count} UI/UX átnézés',
+      sendBacks: '{count} visszaküldés',
     },
     decisions: {
       continue: 'még egy kör',
       another_round: 'még egy kör',
       replan: 'pontosabb terv',
-      reassign: 'másik megvalósító',
+      reassign: 'más fejlesztő viszi',
     },
     endReasons: {
       decided: 'döntés született',
-      assignee_changed: 'másik megvalósító kapta',
+      assignee_changed: 'más fejlesztő kapta',
       closed: 'a kártya lezárult',
     },
     events: {
-      reached: 'A kártya elérte a javítási körök határát: {rounds} kör, a határ {limit} ({parts}). {who}',
+      reached: 'A kártya elérte a javítási körök határát: {rounds} kör ({parts}). {who}',
+      reachedLimit:
+        'A kártya elérte a javítási körök határát: {rounds} kör, a határ {limit} ({parts}). {who}',
       who: '{name} dönt.',
       people: '{names} dönt.',
-      passed_on: '{name} továbbadta a döntést az embereknek.{note}',
-      decided: '{name}: {decision}.{note}',
+      passed_on: 'Továbbadta a döntést: {decides}.{note}',
+      decided: 'Döntött: {decision}.{note}',
       ended: 'A javítási körök határa nem tartja vissza többé: {reason}.',
       note: ' Indoka: „{note}”',
     },

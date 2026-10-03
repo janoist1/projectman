@@ -11,13 +11,16 @@ export interface FixRoundParts {
   sendBacks: number;
 }
 
-/** "2 kódátnézési, 1 UI/UX és 0 visszaküldés": what the rounds were. */
-export function fixRoundParts(counts: FixRoundParts, key: 'inbox.fixLimit.parts' | 'fixLimit.parts'): string {
-  return t(key, {
-    changes: counts.changeRequests,
-    design: counts.designChangeRequests,
-    sendBacks: counts.sendBacks,
-  });
+/** "2 kódátnézés és 1 visszaküldés": what the rounds were; the kinds that did not happen are left out. */
+export function fixRoundParts(counts: FixRoundParts): string {
+  const parts = [
+    counts.changeRequests > 0 ? t('fixLimit.part.changes', { count: counts.changeRequests }) : null,
+    counts.designChangeRequests > 0
+      ? t('fixLimit.part.design', { count: counts.designChangeRequests })
+      : null,
+    counts.sendBacks > 0 ? t('fixLimit.part.sendBacks', { count: counts.sendBacks }) : null,
+  ].filter((part): part is string => part !== null);
+  return joinNames(parts.length > 0 ? parts : [t('fixLimit.part.sendBacks', { count: 0 })]);
 }
 
 /** Whether the viewer is among those who decide a held card now. */
@@ -36,10 +39,12 @@ export function fixLimitStatus(limit: TaskFixLimit, members: MemberIndex, myHand
   return t('taskStatus.fixLimit', { who, rounds: limit.rounds });
 }
 
-/** Who has the held card, as a sentence for the drawer's box. */
+/** Who has the held card and, when it went to the people, why, as a sentence for the drawer's box. */
 export function fixLimitWho(limit: TaskFixLimit, members: MemberIndex, myHandle: string | null): string {
-  if (limit.phase === 'owner')
-    return t('fixLimit.box.people', { decides: decidesText(limit.deciders, members, myHandle) });
+  if (limit.phase === 'owner') {
+    const decides = decidesText(limit.deciders, members, myHandle);
+    return t(`fixLimit.box.people.${limit.reason ?? 'no_ai_decider'}`, { decides });
+  }
   return t(limit.phase === 'lead' ? 'fixLimit.box.lead' : 'fixLimit.box.replan', {
     name: nameOf(limit.decider, members, myHandle),
   });

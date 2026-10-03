@@ -163,8 +163,9 @@ function fixLimitEventText(d: Record<string, unknown>, ctx: TimelineContext): st
   const withNote = note ? t('fixLimit.events.note', { note }) : '';
   switch (d.phase) {
     case 'passed_on':
+      // The row's header names who did it, so the text does not.
       return t('fixLimit.events.passed_on', {
-        name: nameOf(str(d.decider) || null, ctx.members, ctx.myHandle),
+        decides: decidesText(strings(d.deciders), ctx.members, ctx.myHandle),
         note: withNote,
       });
     case 'decided': {
@@ -172,7 +173,6 @@ function fixLimitEventText(d: Record<string, unknown>, ctx: TimelineContext): st
         ? t(`fixLimit.decisions.${str(d.decision) as (typeof FIX_LIMIT_DECISIONS)[number]}`)
         : str(d.decision);
       return t('fixLimit.events.decided', {
-        name: nameOf(str(d.by) || null, ctx.members, ctx.myHandle),
         decision,
         note: withNote,
       });
@@ -190,19 +190,17 @@ function fixLimitEventText(d: Record<string, unknown>, ctx: TimelineContext): st
         : t('fixLimit.events.people', {
             names: joinNames(namesOf(deciders, ctx.members, ctx.myHandle)),
           });
-      return t('fixLimit.events.reached', {
-        rounds: Number(d.rounds) || 0,
-        limit: Number(d.limit) || 0,
-        parts: fixRoundParts(
-          {
-            changeRequests: Number(d.changeRequests) || 0,
-            designChangeRequests: Number(d.designChangeRequests) || 0,
-            sendBacks: Number(d.sendBacks) || 0,
-          },
-          'fixLimit.parts',
-        ),
-        who,
+      const rounds = Number(d.rounds) || 0;
+      const limit = Number(d.limit) || 0;
+      const parts = fixRoundParts({
+        changeRequests: Number(d.changeRequests) || 0,
+        designChangeRequests: Number(d.designChangeRequests) || 0,
+        sendBacks: Number(d.sendBacks) || 0,
       });
+      // The limit is named only when it is not the number of rounds itself.
+      return rounds === limit
+        ? t('fixLimit.events.reached', { rounds, parts, who })
+        : t('fixLimit.events.reachedLimit', { rounds, limit, parts, who });
     }
   }
 }

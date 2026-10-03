@@ -154,9 +154,14 @@ describe('a held card on screen', () => {
 
     const box = (await screen.findByRole('heading', { name: t('fixLimit.box.title') })).closest('section')!;
     expect(box.textContent).toContain(t('fixLimit.box.lead', { name: 'Code review' }));
-    expect(box.textContent).toContain(t('fixLimit.parts', { changes: 2, design: 0, sendBacks: 0 }));
-    expect(screen.getByText(t('tokenUsage.fixRounds'))).toBeTruthy();
-    expect(screen.getByText(t('tokenUsage.fixRoundsValue', { rounds: 2, limit: 2 }))).toBeTruthy();
+    // Only the kinds of round that happened are named, and the count stands at the right.
+    expect(box.textContent).toContain(t('fixLimit.part.changes', { count: 2 }));
+    expect(box.textContent).not.toContain('UI/UX');
+    expect(box.textContent).toContain(t('fixLimit.box.count', { rounds: 2, limit: 2 }));
+    // The first row of the rounds, at the limit.
+    const row = screen.getByText(t('tokenUsage.fixRounds')).closest('div')!;
+    expect(row.textContent).toContain(t('tokenUsage.fixRoundsValue', { rounds: 2, limit: 2 }));
+    expect(row.parentElement?.firstElementChild).toBe(row);
   });
 
   it('shows the decision, not the box, to the person who is asked to decide', async () => {
@@ -198,7 +203,7 @@ describe('the decision of a held card in the inbox', () => {
     expect(within(card).getByText(t('common.system'))).toBeTruthy();
     expect(card.textContent).toContain('AC-21');
     expect(card.textContent).toContain(t('inbox.fixLimit.reasons.no_ai_decider'));
-    expect(card.textContent).toContain(t('inbox.fixLimit.parts', { changes: 2, design: 0, sendBacks: 0 }));
+    expect(card.textContent).toContain(t('fixLimit.part.changes', { count: 2 }));
     expect(within(card).getByText(t('inbox.fixLimit.consequence.reassign'))).toBeTruthy();
     expect(within(card).getByText(t('inbox.fixLimit.consequence.another_round'))).toBeTruthy();
     // Nobody can write a plan in this team, so there is no such button.

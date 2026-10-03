@@ -41,21 +41,15 @@ export function SignalBox({
       {fixLimit ? (
         <section className={styles.box} aria-labelledby={`fix-limit-${task.key}`}>
           <div className={styles.head}>
-            <Icon name="loop" size={14} strokeWidth={2.4} />
+            <Icon name="undo" size={14} strokeWidth={2.4} />
             <h3 id={`fix-limit-${task.key}`} className={styles.title}>
               {t('fixLimit.box.title')}
             </h3>
-            <time className={styles.age} dateTime={fixLimit.heldAt}>
-              {formatAgo(fixLimit.heldAt)}
-            </time>
+            <span className={styles.age}>
+              {t('fixLimit.box.count', { rounds: fixLimit.rounds, limit: fixLimit.limit })}
+            </span>
           </div>
-          <p className={styles.text}>
-            {t('fixLimit.box.text', {
-              rounds: fixLimit.rounds,
-              limit: fixLimit.limit,
-              parts: fixRoundParts(fixLimit, 'fixLimit.parts'),
-            })}
-          </p>
+          <p className={styles.text}>{t('fixLimit.box.text', { parts: fixRoundParts(fixLimit) })}</p>
           <p className={styles.text}>{fixLimitWho(fixLimit, members, myHandle)}</p>
         </section>
       ) : null}

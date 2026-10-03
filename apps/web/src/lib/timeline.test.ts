@@ -393,11 +393,19 @@ describe('fix round limit timeline rows (PM-262)', () => {
   const text = (data: Record<string, unknown>) => describeEvent(fixLimit(data), context).text;
 
   it('says what the rounds were and who decides, the lead or the people', () => {
-    const parts = t('fixLimit.parts', { changes: 2, design: 1, sendBacks: 0 });
+    // Only the kinds of round that happened are named, and the limit only when it is not the rounds.
+    const parts = `${t('fixLimit.part.changes', { count: 2 })}${t('common.and')}${t('fixLimit.part.design', { count: 1 })}`;
     expect(text({ phase: 'reached', decider: 'lead' })).toBe(
       t('fixLimit.events.reached', {
         rounds: 3,
-        limit: 3,
+        parts,
+        who: t('fixLimit.events.who', { name: 'lead' }),
+      }),
+    );
+    expect(text({ phase: 'reached', decider: 'lead', limit: 2 })).toBe(
+      t('fixLimit.events.reachedLimit', {
+        rounds: 3,
+        limit: 2,
         parts,
         who: t('fixLimit.events.who', { name: 'lead' }),
       }),
@@ -408,15 +416,15 @@ describe('fix round limit timeline rows (PM-262)', () => {
   });
 
   it('words the hand-over to the people, the decision with its note and the end', () => {
-    expect(text({ phase: 'passed_on', decider: 'lead', note: 'Wrong plan' })).toBe(
+    // The row's header names who did it, so the text has no name.
+    expect(text({ phase: 'passed_on', decider: 'lead', deciders: ['owner'], note: 'Wrong plan' })).toBe(
       t('fixLimit.events.passed_on', {
-        name: 'lead',
+        decides: t('loop.youDecide'),
         note: t('fixLimit.events.note', { note: 'Wrong plan' }),
       }),
     );
     expect(text({ phase: 'decided', decision: 'another_round', by: 'owner' })).toBe(
       t('fixLimit.events.decided', {
-        name: t('common.you'),
         decision: t('fixLimit.decisions.another_round'),
         note: '',
       }),

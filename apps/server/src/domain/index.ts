@@ -499,7 +499,7 @@ export function createDomain(opts: DomainOptions) {
     askHuman: (toolContext, args) => teamTools.askHuman(toolContext, args),
   });
   // Read models and flows over the services above.
-  const board = new BoardService({ projects, tasks, members, inbox, planUsage });
+  const board = new BoardService({ projects, tasks, members, inbox, planUsage, pauses });
   const profiles = new MemberProfiles({ ctx, projects, members, tasks, inbox, sessions, admission });
   const invitations = new InvitationService({ ctx, projects, members, accounts: opts.accounts });
   const cardMeasure = new CardMeasure({

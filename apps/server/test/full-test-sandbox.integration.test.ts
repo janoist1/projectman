@@ -9,10 +9,10 @@ import {
   readdirSync,
 } from 'node:fs';
 import os from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { fullTestSandbox } from '../src/domain';
-import { createFullTestExecutor } from '../src/full-test';
+import { createFullTestExecutor, runDirOf } from '../src/full-test';
 import { silentLogger } from '../src/runner/test-helpers';
 
 /**
@@ -155,7 +155,10 @@ describe.runIf(process.platform === 'darwin')('the full test sandbox', () => {
       }).run(spec('ftr_deepdir', 'echo deep'), new AbortController().signal);
       expect(result).toMatchObject({ outcome: 'passed', exitCode: 0 });
       expect(readdirSync(deep)).toEqual([]);
-      expect(readdirSync('/private/tmp').filter((name) => name === 'pmft-deepdir')).toEqual([]);
+      // The fallback directory (the name comes from the run id) is gone too.
+      const fallback = basename(runDirOf('/private/tmp', '/private/tmp', 'ftr_deepdir'));
+      expect(fallback).toBe('pmft-rdeepdir');
+      expect(readdirSync('/private/tmp').filter((name) => name === fallback)).toEqual([]);
     },
   );
 

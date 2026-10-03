@@ -35,7 +35,15 @@ export interface AppHarnessOptions {
   /** Modules that stay real instead of being replaced by the fakes the harness returns. */
   real?: { context?: boolean; memory?: boolean; worktrees?: boolean; mcp?: boolean; templates?: boolean };
   /** Further buildApp options. */
-  app?: Pick<BuildAppOptions, 'doneCleanupDelayMs' | 'doneTurnLimitMs' | 'clientIpHeader' | 'freeDiskBytes'>;
+  app?: Pick<
+    BuildAppOptions,
+    | 'doneCleanupDelayMs'
+    | 'doneTurnLimitMs'
+    | 'clientIpHeader'
+    | 'freeDiskBytes'
+    | 'controlSocket'
+    | 'shutdownPauseMs'
+  >;
 }
 
 /**
@@ -147,6 +155,8 @@ export async function createAppHarness(
       doneCleanupDelayMs: 0,
       // The tests must not depend on how full the disk they run on is.
       freeDiskBytes: async () => null,
+      // Only the tests of the control command open the socket (PM-219).
+      controlSocket: false,
       ...opts.app,
       ...(cli
         ? {

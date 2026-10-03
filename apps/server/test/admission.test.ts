@@ -85,6 +85,7 @@ function admissionFor(world: World = {}) {
   const log = capturingLogger();
   const ctx = {
     repos: {
+      pauses: { open: () => [] },
       tasks: {
         get: (key: string) => tasks.get(key) ?? null,
         listByAssignee: (_projectKey: string, handle: string) =>

@@ -153,6 +153,48 @@ describe('fix round limit', () => {
       await vi.waitFor(() => expect(typed('The branch moved')).toBe(true));
     });
 
+    it('lets a paused assignee whose process ended stay stopped while held, with the nudge waiting for the hold', async () => {
+      await prepare();
+      await round('First fix');
+      await round('Second fix');
+      const by = { userId: null, source: 'system' } as const;
+      const session = h.domain.sessions.findRunning('AR', 'dev-1', TASK)!;
+      h.runner.pauseOutcomes.set(session.id, { point: 'after_tool', tool: 'Bash' });
+      await h.domain.pauses.pause({ scope: 'project', projectKey: 'AR' }, by);
+      await vi.waitFor(() => expect(h.domain.sessions.get('AR', session.id).pause?.point).toBe('after_tool'));
+      h.runner.emit({ type: 'exit', sessionId: session.id, exitCode: 0, signal: null });
+      const starts = h.runner.started.length;
+      await h.domain.pauses.resume({ scope: 'project', projectKey: 'AR' }, by);
+      await settle();
+      // Nothing started, and the held notice was not typed in by a restart that skipped admission.
+      expect(h.runner.started).toHaveLength(starts);
+      expect(waiting()).toEqual(['Code review: changes\n\nSecond fix', 'Nudge after_tool restarted']);
+      await tool('lead', 'continue');
+      await vi.waitFor(() => expect(h.runner.started).toHaveLength(starts + 1));
+      const input = h.runner.started.at(-1)!.initialMessage ?? '';
+      expect(input).toContain('Second fix');
+      expect(input).toContain('Nudge after_tool restarted');
+    });
+
+    it('does not type the held notice into a paused assignee that is still running when the pause ends', async () => {
+      await prepare();
+      await round('First fix');
+      await round('Second fix');
+      const by = { userId: null, source: 'system' } as const;
+      const session = h.domain.sessions.findRunning('AR', 'dev-1', TASK)!;
+      h.runner.pauseOutcomes.set(session.id, { point: 'idle', tool: null });
+      await h.domain.pauses.pause({ scope: 'project', projectKey: 'AR' }, by);
+      await vi.waitFor(() => expect(h.domain.sessions.get('AR', session.id).pause?.point).toBe('idle'));
+      const starts = h.runner.started.length;
+      await h.domain.pauses.resume({ scope: 'project', projectKey: 'AR' }, by);
+      await settle();
+      expect(typed('Second fix')).toBe(false);
+      expect(waiting()).toEqual(['Code review: changes\n\nSecond fix']);
+      expect(h.runner.started).toHaveLength(starts);
+      await tool('lead', 'continue');
+      await vi.waitFor(() => expect(typed('Second fix')).toBe(true));
+    });
+
     it('does not hold a card whose assignee is a person', async () => {
       await prepare();
       h.domain.tasks.assign('AR', 'AR-1', 'owner', OWNER_ACTOR);
@@ -309,6 +351,23 @@ describe('fix round limit', () => {
       expect(waiting()).toEqual(['Code review: changes\n\nSecond fix']);
       const config = await h.domain.projects.config('AR');
       expect(h.domain.fixLimit.fixRounds(task(), config)).toEqual({ rounds: 0, limit: 2 });
+    });
+
+    it('puts a reassign decision made while paused off until the team is resumed (PM-219)', async () => {
+      await owned();
+      const by = { userId: null, source: 'system' } as const;
+      await h.domain.pauses.pause({ scope: 'project', projectKey: 'AR' }, by);
+      await resolve('reassign');
+      await settle();
+      // Nobody is stopped or started while the team is paused: the card stays with its holder.
+      expect(task().assignee).toBe('dev-1');
+      expect(h.runner.started.some((spec) => spec.member === 'dev-2')).toBe(false);
+      expect(record()).toMatchObject({ holdPhase: 'owner' });
+      await h.domain.pauses.resume({ scope: 'project', projectKey: 'AR' }, by);
+      await settle();
+      expect(task().assignee).toBe('dev-2');
+      expect(record()).toMatchObject({ holdPhase: null, extraRounds: 0 });
+      expect(h.runner.started.some((spec) => spec.member === 'dev-2')).toBe(true);
     });
 
     it('closes the item by itself when the assignee changes, and when the card is cancelled', async () => {

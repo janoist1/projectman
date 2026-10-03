@@ -240,6 +240,63 @@ describe('Refinement line', () => {
     expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBe('ana');
   });
 
+  describe('a pause of the team (PM-219)', () => {
+    const PAUSED_PROJECT = { scope: 'project', projectKey: 'AR' } as const;
+    const BY = { userId: null, source: 'system' } as const;
+
+    it('waits for the pause to end, and starts the member once the team is resumed', async () => {
+      await prepare();
+      await h.domain.pauses.pause(PAUSED_PROJECT, BY);
+      await label({ add: ['refine'] });
+      await vi.waitFor(() =>
+        expect(h.repos.deferredStarts.list().map((record) => record.spec)).toEqual([
+          {
+            kind: 'refinement_turn',
+            projectKey: 'AR',
+            taskKey: 'AR-1',
+            stageId: 'backlog',
+            label: 'scope-ok',
+          },
+        ]),
+      );
+      expect(members()).toEqual([]);
+      await h.domain.pauses.resume(PAUSED_PROJECT, BY);
+      await vi.waitFor(() => expect(members()).toEqual(['ana']));
+      expect(h.repos.deferredStarts.list()).toEqual([]);
+    });
+
+    it('tells no stall for a turn the pause cut short, neither during the pause nor after it', async () => {
+      await prepare();
+      await label({ add: ['refine'] });
+      await vi.waitFor(() => expect(members()).toEqual(['ana']));
+      const id = sessionsOf()[0]!.id;
+      h.runner.pauseOutcomes.set(id, { point: 'after_tool', tool: 'Bash' });
+      await h.domain.pauses.pause(PAUSED_PROJECT, BY);
+      // The session stops, which ends its turn as far as the runner's state goes.
+      endTurn('ana');
+      await flush();
+      expect(alerts('stalled')).toEqual([]);
+      await h.domain.pauses.resume(PAUSED_PROJECT, BY);
+      await flush();
+      expect(alerts('stalled')).toEqual([]);
+      expect(h.runner.releases).toEqual([{ sessionId: id, nudge: 'Nudge after_tool' }]);
+    });
+
+    it('looks at a turn that ended between turns before the pause, once the team is resumed', async () => {
+      await prepare();
+      await label({ add: ['refine'] });
+      await vi.waitFor(() => expect(members()).toEqual(['ana']));
+      const id = sessionsOf()[0]!.id;
+      h.runner.pauseOutcomes.set(id, { point: 'idle', tool: null });
+      await h.domain.pauses.pause(PAUSED_PROJECT, BY);
+      endTurn('ana');
+      await flush();
+      expect(alerts('stalled')).toEqual([]);
+      await h.domain.pauses.resume(PAUSED_PROJECT, BY);
+      await vi.waitFor(() => expect(alerts('stalled')).toHaveLength(1));
+    });
+  });
+
   describe('an open question of the member (PM-264)', () => {
     const ask = (member = 'ana') =>
       h.domain.teamTools.askHuman(

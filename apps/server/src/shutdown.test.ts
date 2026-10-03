@@ -50,6 +50,52 @@ describe('createShutdown', () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
+  it('pauses the team before it closes (PM-219)', async () => {
+    const order: string[] = [];
+    const exit = vi.fn();
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const shutdown = createShutdown({
+      pause: () => Promise.resolve().then(() => void order.push('pause')),
+      close: () => Promise.resolve().then(() => void order.push('close')),
+      exit,
+      log,
+    });
+    shutdown('SIGTERM');
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0));
+    expect(order).toEqual(['pause', 'close']);
+  });
+
+  it('closes anyway when the pause fails', async () => {
+    const close = vi.fn().mockResolvedValue(undefined);
+    const exit = vi.fn();
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const shutdown = createShutdown({ pause: () => Promise.reject(new Error('boom')), close, exit, log });
+    shutdown('SIGTERM');
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0));
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(log.warn).toHaveBeenCalled();
+  });
+
+  it('forces the exit on a second signal while the pause is still waiting', () => {
+    let time = 0;
+    const close = vi.fn().mockResolvedValue(undefined);
+    const exit = vi.fn();
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const shutdown = createShutdown({
+      pause: () => new Promise<void>(() => {}),
+      close,
+      exit,
+      log,
+      now: () => time,
+      graceMs: 3000,
+    });
+    shutdown('SIGINT');
+    time = 3000;
+    shutdown('SIGINT');
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(close).not.toHaveBeenCalled();
+  });
+
   it('exits 1 when closing fails', async () => {
     const { shutdown, exit, log } = setup(() => Promise.reject(new Error('boom')));
     shutdown('SIGTERM');

@@ -56,6 +56,8 @@ export const TaskStartWaiting = z.object({
     // Too little free disk space (PM-243): the start continues once there is room again.
     'disk_low',
     'ai_disabled',
+    // The team is paused (PM-219): the start continues when it is resumed.
+    'team_paused',
     'member_at_capacity',
     'member_on_leave',
     'repo_required',

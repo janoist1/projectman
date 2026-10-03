@@ -11,6 +11,7 @@ import {
   isOpenTask,
   isTheme,
   isWorkingOnTask,
+  isWorkPaused,
   memberOf,
   messageRoute,
   repoOf,
@@ -25,7 +26,9 @@ import type {
   Attachment,
   ChatItem,
   ExecutionProfile,
+  MemberConfig,
   MemberStatus,
+  PausePoint,
   ProjectConfig,
   Session,
   SessionDetail,
@@ -62,7 +65,7 @@ import type {
 } from '../contracts';
 import { encodeWorkItem } from '../db';
 import { requireAiMember } from './access';
-import { assertAiEnabled, assertNotOnLeave, assertRepoChosen } from './admission/rules';
+import { assertAiEnabled, assertNotOnLeave, assertNotPaused, assertRepoChosen } from './admission/rules';
 import { isoNow } from './context';
 import { userExcludesFile } from './git-excludes';
 import type { DomainContext } from './context';
@@ -144,6 +147,12 @@ export interface EnsureSessionOptions {
    * the caller, which types it after the session started.
    */
   messages?: string[];
+  /**
+   * What a pause that ended tells a resumed conversation (PM-219, `ContextPackBuilder.pauseNudge`): the
+   * first thing in its first input, before the messages, or in place of the continue message when there
+   * are none. A new conversation ignores it.
+   */
+  nudge?: string;
 }
 
 /**
@@ -424,6 +433,8 @@ export class SessionOrchestrator {
       this.inputWaits.delete(session.id);
       // The wait may have ended some other way than a state event: nothing to say then.
       if (this.ctx.repos.sessions.get(session.id)?.state !== 'waiting_input') return;
+      // A pause held the session: nobody is to blame for the wait, and `afterPause` watches it again.
+      if (this.isPaused(session)) return;
       try {
         const item = alerts.raise(session.id, since, Math.max(1, Math.round(delay / 60_000)));
         if (item) this.ctx.logger.warn({ sessionId: session.id, since }, 'session waits for input unseen');
@@ -568,10 +579,21 @@ export class SessionOrchestrator {
             firstInput: Promise.resolve(true),
           };
         // Its review round is over: no live process while the workspace moves to the new commit.
+        // Not while paused: the start would be refused after the stop.
+        assertNotPaused(this.ctx.repos.pauses, projectKey);
         await this.deps.runner.stop(existing.id);
         this.markEnded(existing.id, null);
       }
-      return this.start(config, member, workItem, task, existing, messagesForFirstInput(opts.messages));
+      return this.start(
+        config,
+        member,
+        workItem,
+        task,
+        existing,
+        messagesForFirstInput(opts.messages),
+        null,
+        opts.nudge ?? null,
+      );
     });
   }
 
@@ -589,7 +611,7 @@ export class SessionOrchestrator {
       if (!session || !this.isRunning(session.id)) return false;
       const config = await this.deps.projects.config(projectKey);
       const member = memberOf(config, session.member);
-      if (member?.kind !== 'ai' || isOnLeave(member) || !config.team.limits.aiEnabled) return false;
+      if (!this.mayWorkNow(config, member)) return false;
       const task =
         session.workItem.type === 'task' ? this.deps.tasks.get(projectKey, session.workItem.taskKey) : null;
       await this.deps.runner.stop(session.id);
@@ -728,11 +750,14 @@ export class SessionOrchestrator {
         !this.deps.runner.hasPendingInput?.(s.id),
       );
     if (!ready(this.find(sessionId))) return;
+    // Paused: the restart stays due, and `afterPause` takes it up again on resume.
+    if (this.workPaused(projectKey)) return;
     const config = await this.deps.projects.config(projectKey);
     const session = this.find(sessionId);
     if (!ready(session)) return;
     const member = memberOf(config, session.member);
-    if (member?.kind !== 'ai' || isOnLeave(member) || !config.team.limits.aiEnabled) {
+    if (this.workPaused(projectKey)) return;
+    if (!this.mayWorkNow(config, member)) {
       const released = this.ctx.repos.sessions.update(session.id, { permissionRestartPending: false })!;
       this.publishSession(released);
       void this.ctx.events.emit('session_input_released', released);
@@ -743,6 +768,33 @@ export class SessionOrchestrator {
     await this.deps.runner.stop(session.id);
     this.markEnded(session.id, null);
     await this.start(config, member, session.workItem, task, this.find(sessionId), [], { grantsLost });
+  }
+
+  /**
+   * Whether a session of `member` may be stopped and started again now: AI work is on, the member is
+   * not on leave and the team is not paused. Checked before the stop, so that a refused restart
+   * leaves the running session alone.
+   */
+  private mayWorkNow(config: ProjectConfig, member: MemberConfig | undefined): member is AiMemberConfig {
+    return (
+      member?.kind === 'ai' &&
+      !isOnLeave(member) &&
+      config.team.limits.aiEnabled &&
+      !this.workPaused(config.project.key)
+    );
+  }
+
+  /** The project's work is paused: its own pause or the instance's (PM-219). */
+  private workPaused(projectKey: string): boolean {
+    return isWorkPaused(this.ctx.repos.pauses.open(), projectKey);
+  }
+
+  /**
+   * The session is held by a pause: it has an open pause row, or its project's work is paused (PM-219).
+   * Nothing is typed into it, and it does not restart, compact or wake for a new round meanwhile.
+   */
+  isPaused(session: Pick<Session, 'id' | 'projectKey'>): boolean {
+    return this.workPaused(session.projectKey) || this.ctx.repos.pauses.openSession(session.id) !== null;
   }
 
   /** A person allowed something "for this session" since the session's process started. */
@@ -771,8 +823,46 @@ export class SessionOrchestrator {
 
   async stop(projectKey: string, sessionId: string): Promise<Session> {
     const session = this.get(projectKey, sessionId);
+    this.dropPause(session);
     if (this.isRunning(session.id)) await this.deps.runner.stop(session.id);
     return this.markEnded(session.id, null) ?? this.get(projectKey, sessionId);
+  }
+
+  /**
+   * A stop somebody meant (`stop`, `stopTask`, `stopMember`) lets a pause go of the session, also while
+   * it is open: it is not started again on resume. Before the runner stops it, so that its exit is
+   * not read as the process of a paused session ending.
+   */
+  private dropPause(session: Pick<Session, 'id' | 'projectKey'>): void {
+    if (this.ctx.repos.pauses.closeSession(session.id, isoNow(this.ctx)))
+      this.pauseDropped?.(session.projectKey);
+  }
+
+  private pauseDropped: ((projectKey: string) => void) | undefined;
+
+  /** Tells the pause service that a stop closed a session's pause row (see `dropPause`). */
+  onPauseDropped(listener: (projectKey: string) => void): void {
+    this.pauseDropped = listener;
+  }
+
+  /**
+   * A pause ended for the session (PM-219): what its idle moments held back while it lasted (a review
+   * round to wake for, a restart into a new permission mode, a compaction, the watch of an input
+   * wait) runs now.
+   */
+  afterPause(session: Session): void {
+    const current = this.find(session.id);
+    if (!current || ENDED.has(current.state) || !this.isRunning(current.id)) return;
+    this.watchInputWait(current);
+    this.wakeForNewRound(current);
+    if (current.state !== 'idle') return;
+    if (current.permissionRestartPending) this.restartWhenIdle(current);
+    if (this.ctx.repos.sessions.compaction(current.id).pending) this.compactWhenIdle(current);
+  }
+
+  /** What a session that was cut at `point` is told when the pause ends (undefined: the builder has no text). */
+  pauseNudge(point: PausePoint, tool: string | null, restarted: boolean): string | undefined {
+    return this.deps.contextBuilder.pauseNudge?.({ point, tool, restarted });
   }
 
   /** Stops all live sessions for a cancelled task without cleaning up its worktrees. */
@@ -786,6 +876,7 @@ export class SessionOrchestrator {
 
   async stopMember(projectKey: string, handle: string): Promise<void> {
     for (const session of this.ctx.repos.sessions.list(projectKey, { member: handle })) {
+      this.dropPause(session);
       try {
         if (this.isRunning(session.id)) await this.deps.runner.stop(session.id);
       } catch (err) {
@@ -967,12 +1058,13 @@ export class SessionOrchestrator {
     existing: Session | null,
     messages: string[],
     restart: PermissionRestart | null = null,
+    nudge: string | null = null,
   ): Promise<EnsureSessionResult> {
     // A theme is not worked on: its description is written from the member's general chat.
     if (task && isTheme(task)) throw themeRefused(task.key, 'have a session');
     const sessionId = existing?.id ?? newId('ses');
     try {
-      return await this.launch(config, member, workItem, task, existing, messages, sessionId, restart);
+      return await this.launch(config, member, workItem, task, existing, messages, sessionId, restart, nudge);
     } catch (err) {
       this.workspaces?.ended(sessionId);
       throw err;
@@ -988,6 +1080,7 @@ export class SessionOrchestrator {
     messages: string[],
     sessionId: string,
     restart: PermissionRestart | null,
+    nudge: string | null,
   ): Promise<EnsureSessionResult> {
     // A standby copy (PM-143) never works: only one copy of an installation may start AI sessions.
     if (this.deps.standby)
@@ -996,6 +1089,7 @@ export class SessionOrchestrator {
         'this instance is a standby copy: AI work runs only in the active one',
       );
     assertAiEnabled(config);
+    assertNotPaused(this.ctx.repos.pauses, config.project.key);
     assertNotOnLeave(member);
     // A role that changes files works in the task's worktree: without a repository to make it in, it
     // would run in the workspace root, so the start is refused until a person chooses one.
@@ -1217,6 +1311,7 @@ export class SessionOrchestrator {
     // task's repository: no live session holds it in place before the session is recorded below.
     const latestConfig = await this.deps.projects.config(projectKey);
     assertAiEnabled(latestConfig);
+    assertNotPaused(this.ctx.repos.pauses, projectKey);
     assertNotOnLeave(memberOf(latestConfig, member.handle));
     if (task) {
       const latestTask = this.deps.tasks.get(projectKey, task.key);
@@ -1294,12 +1389,12 @@ export class SessionOrchestrator {
     this.processProviders.set(session.id, provider);
     // Before the process starts: Codex reports its first input as it starts.
     const firstInput = messages.length > 0 ? this.awaitFirstInput(session.id) : Promise.resolve(true);
+    // A pause's nudge (PM-219) goes first on a resumed conversation: before the messages, or in place of
+    // the continue message. A new conversation has nothing to be nudged about.
     const initialMessage = resume
       ? messages.length > 0
-        ? messages.join(MESSAGE_SEPARATOR)
-        : restart
-          ? null
-          : pack.continueMessage
+        ? [...(nudge ? [nudge] : []), ...messages].join(MESSAGE_SEPARATOR)
+        : (nudge ?? (restart ? null : pack.continueMessage))
       : newConversationInput(pack.initialMessage, messages);
     if (initialMessage?.trim()) this.awaitingFirstTurn.add(session.id);
 
@@ -1846,6 +1941,7 @@ export class SessionOrchestrator {
    */
   private wakeForNewRound(session: Session): void {
     if (session.workItem.type !== 'task' || !this.workspaces?.isStale(session)) return;
+    if (this.isPaused(session)) return;
     const workItem = session.workItem;
     const [first] = this.ctx.repos.messages
       .pending(session.projectKey, session.member)
@@ -1861,6 +1957,7 @@ export class SessionOrchestrator {
 
   /** A session that waits for a new permission mode finished its turn: it restarts into it now. */
   private restartWhenIdle(session: Session): void {
+    if (this.isPaused(session)) return;
     this.locks
       .run(sessionLockKey(session.projectKey, session.member, session.workItem), () =>
         this.restartForPermissions(session.projectKey, session.id),
@@ -1902,7 +1999,7 @@ export class SessionOrchestrator {
 
   /** Compacts the session now if it is idle, else its next idle moment does (`handleRunnerEvent`). */
   private compactWhenIdle(session: Session): void {
-    if (session.state !== 'idle') return;
+    if (session.state !== 'idle' || this.isPaused(session)) return;
     this.locks
       .run(sessionLockKey(session.projectKey, session.member, session.workItem), () =>
         this.compactIdle(session.id),

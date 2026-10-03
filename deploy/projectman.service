@@ -24,8 +24,12 @@ Environment=DISABLE_AUTOUPDATER=1
 ExecStart=/usr/local/bin/node /srv/projectman/apps/server/dist/index.js
 Restart=on-failure
 RestartSec=5
-TimeoutStopSec=45
-KillMode=control-group
+# A stop first pauses the team (PM-219): the sessions get PROJECTMAN_SHUTDOWN_PAUSE_MS (default 60 s)
+# plus a few seconds to come to a safe point, then the server closes. The signal goes to the server
+# alone (`mixed`) so that the sessions are not stopped under it; what is left when the timeout ends is
+# killed with the rest of the control group.
+TimeoutStopSec=90
+KillMode=mixed
 UMask=0077
 StandardOutput=journal
 StandardError=journal

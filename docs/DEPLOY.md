@@ -376,6 +376,35 @@ review, provider adapters, hook isolation (PM-49), disposable copies and the fin
 matrix must pass before activation. The documented local-port exception is decision 24.
 Changing the owner's live instance still requires approval for that exact update.
 
+## Pausing the team for an update (PM-219)
+
+A stop of the service pauses the team first: every session comes to a safe point (the tool that runs is
+finished, then the session is held), the server closes, and after the start the sessions go on by themselves.
+The pause waits `PROJECTMAN_SHUTDOWN_PAUSE_MS` (default 60 000; 0 stops without pausing, as before) and a few
+seconds more. [projectman.service](../deploy/projectman.service) therefore has `TimeoutStopSec=90` and
+`KillMode=mixed`: the stop signal goes to the server alone, so the sessions are not stopped under it. Keep both
+when you change the unit; with the old `control-group` the CLIs would get the signal at once and the pause would
+be worth nothing. A crash does not pause, and neither does a second Ctrl-C.
+
+To update without losing the sessions' place, pause by hand, and wait for it, before the switch:
+
+```sh
+npm run control -- pause --wait --reason "update"   # returns when every session has stopped; exit 0
+# ... build, switch, restart the service (the restart's own pause finds the pause open and leaves it) ...
+npm run control -- resume                          # the sessions go on, with a nudge where they were cut
+```
+
+`--force-after <s>` is how long a session may take before it is cut with one Esc (default 300 s), `--timeout <s>`
+how long `--wait` waits (default: that plus 30 s). `status` prints the pause and the sessions still working,
+`force` cuts them now, and `--json` prints the answer for a script. Exit status: 0 done, 1 refused, failed or timed
+out, 2 the server does not run. The command talks to `PROJECTMAN_HOME/control.sock` (`--home` or the
+`PROJECTMAN_HOME` variable names the home; mode 0600, so run it as the service user): it has no login, and
+whoever may open the file may pause the team. The people can pause and resume from the app too (a project's
+admins, the instance's owners).
+
+A pause made by hand survives a restart and is not lifted by the start: the team waits until someone resumes
+it. Only the pause of the stop itself ends with the start.
+
 ## Backups and updates
 
 For a consistent backup, stop the service and archive **all of `PROJECTMAN_HOME`**,
@@ -406,4 +435,5 @@ sudo systemctl status projectman
 
 Repeat the HTTPS curl checks after updating; inspect logs with `journalctl -u projectman`.
 If the build fails, restore the previous checkout/build before restarting. A restart stops
-active PTYs; stored conversations remain resumable.
+active PTYs after pausing the team (above); stored conversations remain resumable, and the
+sessions that were working go on after the start.

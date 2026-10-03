@@ -130,6 +130,30 @@ export class ScheduleService {
     }
   }
 
+  /**
+   * Makes up the runs a pause (or a stop) of the project swallowed (PM-219): each scheduled AI member
+   * runs at most once when its schedule came due in `(since, until]`, however many occurrences that were.
+   * Counted from the times alone, nothing stored. The run is scheduled for `until` (the occurrences it
+   * stands for were skipped with `team_paused`, or lost with the stop), and counts as a run asked for by hand:
+   * the minute of the clock and the occurrence of a minute do not apply to it.
+   */
+  async catchUp(projectKey: string, since: Date, until: Date): Promise<void> {
+    const config = await this.deps.projects.config(projectKey);
+    for (const member of config.team.members) {
+      if (member.kind !== 'ai' || !member.schedule) continue;
+      try {
+        const missed = nextCronRun(member.schedule.cron, since, config.project.timezone);
+        if (!missed || Date.parse(missed) > until.getTime()) continue;
+        await this.run(projectKey, member.handle, until.toISOString(), false);
+      } catch (err) {
+        this.deps.ctx.logger.warn(
+          { err, projectKey, member: member.handle },
+          'could not make up a missed schedule',
+        );
+      }
+    }
+  }
+
   async view(projectKey: string): Promise<SchedulesView> {
     const config = await this.deps.projects.config(projectKey);
     const timezone = config.project.timezone;

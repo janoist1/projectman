@@ -288,7 +288,8 @@
 
 /* Below 1500px the top bar has no room for it: the account menu has the same action. */
 @media (max-width: 1499px) {
-  .pauseButton {
+  /* Under .topbar so it beats Button's display whatever the load order. */
+  .topbar .pauseButton {
     display: none;
   }
 }

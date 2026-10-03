@@ -39,6 +39,20 @@ function phone() {
   }));
 }
 
+/** A desktop window of the given width: the max-width queries from it up match, the phone's does not. */
+function widthOf(width: number) {
+  vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+    matches: Number(/max-width:\s*(\d+)px/.exec(query)?.[1] ?? 0) >= width,
+    media: query,
+    onchange: null,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+    dispatchEvent: () => false,
+  }));
+}
+
 function Page() {
   return <output data-testid="page">page</output>;
 }
@@ -126,6 +140,18 @@ describe('who may pause', () => {
     const project = mockProject();
     project.render(app(project, access), '/p/AC');
     expect(await screen.findByRole('button', { name: t('pause.button') })).toBeTruthy();
+  });
+
+  it('shows the pause icon alone, still named, where the top bar is crowded', async () => {
+    widthOf(1400);
+    const project = mockProject();
+    project.render(app(project, 'owner'), '/p/AC');
+    const button = await screen.findByRole('button', { name: t('pause.menuItem') });
+    expect(button.getAttribute('title')).toBe(t('pause.button'));
+    expect(button.textContent).toBe('');
+    expect(screen.queryByRole('button', { name: t('pause.button') })).toBeNull();
+    fireEvent.click(button);
+    expect(await screen.findByRole('dialog', { name: t('pause.confirm.title') })).toBeTruthy();
   });
 
   it.each<Access>(['developer', 'viewer'])('does not offer it to %s', async (access) => {

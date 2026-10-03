@@ -21,8 +21,8 @@ import {
   pointExplanation,
   pointText,
   reasonText,
-  runningText,
   sortRows,
+  toolLabel,
 } from './pauseView';
 import styles from './PauseProgress.module.css';
 
@@ -75,15 +75,15 @@ function Row({ row, now, lookups }: { row: PausedSession; now: number; lookups: 
         {row.point === null ? (
           <>
             <StatusDot status="working" pulse />
-            <span>
-              {runningText(row.waitingFor)}
-              <span className={styles.elapsed}> · {elapsed}</span>
+            <span className={styles.stateText}>
+              {t('pause.progress.stillRunning', { tool: toolLabel(row.waitingFor) })}
             </span>
+            <span className={styles.elapsed}>{elapsed}</span>
           </>
         ) : (
           <>
             <Icon name="check" size={14} strokeWidth={2.4} className={styles.check} />
-            <span>{pointText(row.point, row.tool)}</span>
+            <span className={styles.stateText}>{pointText(row.point, row.tool)}</span>
           </>
         )}
       </span>

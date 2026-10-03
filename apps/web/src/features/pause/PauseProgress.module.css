@@ -39,9 +39,9 @@
 }
 
 .row {
-  /* Avatar, member and state on the first line, the task under the member (the panel is narrow). */
+  /* Avatar and member on the first line, the task and the state under the member (the panel is narrow). */
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 2px 10px;
   padding: 8px 0;
@@ -62,7 +62,7 @@
 }
 
 .work {
-  grid-column: 2 / -1;
+  grid-column: 2;
   grid-row: 2;
   display: flex;
   gap: 6px;
@@ -86,17 +86,32 @@
   white-space: nowrap;
 }
 
+/* The state on its own line under the task: the text wraps, the elapsed time stays on the right. */
 .state {
-  grid-column: 3;
-  grid-row: 1;
-  display: inline-flex;
-  align-items: center;
+  grid-column: 2;
+  grid-row: 3;
+  display: flex;
+  align-items: flex-start;
   gap: 6px;
+  min-width: 0;
   color: var(--c-ink-2, var(--c-ink));
-  text-align: right;
+}
+
+.state > svg,
+.state > :first-child {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.stateText {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .elapsed {
+  flex-shrink: 0;
+  margin-left: auto;
   font-variant-numeric: tabular-nums;
   color: var(--c-ink-3);
 }
@@ -119,25 +134,6 @@
 }
 
 @media (max-width: 767px) {
-  .row {
-    /* Avatar and member on the first line, the task and the state under them. */
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .work,
-  .state {
-    grid-column: 1 / -1;
-    text-align: left;
-  }
-
-  .work {
-    grid-row: 2;
-  }
-
-  .state {
-    grid-row: 3;
-  }
-
   .force {
     flex-direction: column;
     align-items: stretch;

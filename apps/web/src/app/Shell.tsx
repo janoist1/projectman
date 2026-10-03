@@ -12,11 +12,15 @@ import type { IconName } from '../components/Icon';
 import { openPauses } from '../features/pause/pauseView';
 import { joinNames, t } from '../i18n/t';
 import { nameOf } from '../lib/members';
+import { useMediaQuery } from '../lib/hooks';
 import type { MemberIndex } from '../lib/members';
 import { AccountMenu, ProjectSwitcher } from './Menus';
 import { PlanUsageBadge, PlanUsageMeter } from './PlanUsageMeter';
 import { useProject } from './contexts';
 import styles from './Shell.module.css';
+
+/** Below this width the top bar is crowded: Szünet shows the icon alone (the search field gives way first). */
+const COMPACT_PAUSE_QUERY = '(max-width: 1599px)';
 
 interface NavItem {
   to: string;
@@ -269,6 +273,8 @@ export function TopBar({
 }) {
   const { key, openNewTask, openPause, can } = useProject();
   const canPause = can.pauseTeam && board !== undefined && openPauses(board.pause).length === 0;
+  // Where the meters, the presence and the buttons leave little room, Szünet is the pause icon alone.
+  const compactPause = useMediaQuery(COMPACT_PAUSE_QUERY);
   return (
     <header className={styles.topbar}>
       <ProjectSwitcher currentKey={key} currentName={board?.project.name ?? key} />
@@ -283,9 +289,20 @@ export function TopBar({
         <Presence board={board} members={members} />
       </span>
       {canPause ? (
-        <Button variant="secondary" icon="pause" onClick={openPause}>
-          {t('pause.button')}
-        </Button>
+        compactPause ? (
+          <Button
+            variant="secondary"
+            icon="pause"
+            iconOnly
+            aria-label={t('pause.menuItem')}
+            title={t('pause.button')}
+            onClick={openPause}
+          />
+        ) : (
+          <Button variant="secondary" icon="pause" onClick={openPause}>
+            {t('pause.button')}
+          </Button>
+        )
       ) : null}
       <InboxPill count={inboxCount} />
       {can.createTasks ? (

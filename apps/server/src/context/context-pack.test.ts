@@ -1697,6 +1697,21 @@ describe('the designer round on a UI card (PM-235)', () => {
     expect(steps).not.toContain('Move the task to');
   });
 
+  it('has the designer add design-review-changes with a note when the project has the label (PM-262)', () => {
+    const project = uiProject();
+    const task = makeTask({ stageId: 'dev', assignee: 'fe-1', labels: ['ui', 'design-ok'] });
+    expect(stepsOf({ project, handle: 'ux', task })).not.toContain('design-review-changes');
+    project.pipeline.labels.push({
+      id: 'design-review-changes',
+      name: 'Design review: changes',
+      setBy: { duties: ['ux_design'] },
+      requiresComment: true,
+    });
+    const steps = stepsOf({ project, handle: 'ux', task });
+    expect(steps).toContain('`design-review-changes`');
+    expect(steps).toContain('with update_task and a note');
+  });
+
   it('keeps the building steps for a card the designer is assigned to', () => {
     const steps = stepsOf({
       project: uiProject(),

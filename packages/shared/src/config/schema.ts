@@ -155,6 +155,9 @@ export type LoopWatch = z.infer<typeof LoopWatch>;
  */
 export const DEFAULT_LOOP_WATCH: LoopWatch = { enabled: true, count: 6, minutes: 30 };
 
+/** The fix rounds a card gets when the project sets no limit (PM-262). */
+export const DEFAULT_MAX_FIX_ROUNDS = 3;
+
 export const TeamLimits = z.object({
   /**
    * When false, no AI session starts or resumes in this project: automatic hand-overs,
@@ -188,6 +191,12 @@ export const TeamLimits = z.object({
   autoCompactWindowTokens: AutoCompactWindowTokens.optional(),
   /** When AI members writing to each other on a card count as a loop (PM-261). Absent: `DEFAULT_LOOP_WATCH`. */
   loopWatch: LoopWatch.optional(),
+  /**
+   * How many fix rounds a card gets (PM-262): the change requests of the code review and of the UI/UX
+   * review, and the send-backs into a work stage, counted together. Past the limit the next round does not
+   * go to the implementer by itself: the lead developer, then a person decides. Absent: `DEFAULT_MAX_FIX_ROUNDS`.
+   */
+  maxFixRounds: z.number().int().min(1).max(10).optional(),
   tempWorkers: z
     .object({
       enabled: z.boolean().default(false),

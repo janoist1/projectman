@@ -26,6 +26,8 @@ export interface DomainEventMap {
   permission_delegated: InboxItem;
   /** A task entered another stage (after the change committed). */
   task_stage_changed: StageChange;
+  /** A task's assignee changed (PM-262), after the change committed. `previous` is the one it had. */
+  task_assigned: { task: Task; previous: string | null; actor: Actor };
   /** A task was cancelled. */
   task_cancelled: Task;
   /** A prerequisite relation of this task was removed (PM-204): its start may no longer have to wait. */

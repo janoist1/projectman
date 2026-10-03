@@ -62,6 +62,11 @@ export interface StartTaskOptions {
    * by a person, the gate refuses the start.
    */
   startSetters?: boolean;
+  /**
+   * Members who are not chosen when the start picks the developer (PM-262: the implementer the card was
+   * taken from). Internal, not a contract; an explicit `assignee` is not filtered.
+   */
+  excludeMembers?: string[];
 }
 
 export interface StartTaskResult {
@@ -95,6 +100,12 @@ export interface LabelWait {
   awaitLabels(wait: LabelWaitRequest): void;
 }
 
+/** What a person's Start needs of the fix round limit (PM-262): to end the hold, then let the waiting messages through. */
+export interface FixLimitStart {
+  humanStart(task: Task, actor: Actor): boolean;
+  releaseMessages(task: Task): void;
+}
+
 /** The task's work stage: the one it is in, else the pipeline's first. */
 function workStageOf(config: ProjectConfig, task: Task): Stage | undefined {
   const current = stageOf(config, task.stageId);
@@ -124,6 +135,7 @@ export class TaskStarts {
   private readonly sessions: SessionOrchestrator;
   private readonly admission: Admission;
   private labelWait: LabelWait | undefined;
+  private fixLimit: FixLimitStart | undefined;
 
   constructor(deps: {
     projects: ProjectService;
@@ -180,7 +192,13 @@ export class TaskStarts {
       if (waiting) return { ...skipped, task: this.tasks.get(projectKey, taskKey), awaiting: waiting };
     }
 
-    let member: MemberConfig | null = this.chooseMember(config, task, workStage, opts.assignee);
+    let member: MemberConfig | null = this.chooseMember(
+      config,
+      task,
+      workStage,
+      opts.assignee,
+      opts.excludeMembers ?? [],
+    );
     opts.onChosen?.(member);
     const workItem = { type: 'task', taskKey } as const;
     const alreadyRunning =
@@ -225,6 +243,11 @@ export class TaskStarts {
         );
       return skipped;
     }
+    // A person's Start of a card held by its fix round limit (PM-262) is one more round for its assignee.
+    const anotherRound =
+      opts.actor.kind === 'human' &&
+      task.assignee === member.handle &&
+      !!this.fixLimit?.humanStart(task, opts.actor);
     if (task.assignee !== member.handle) {
       task = this.tasks.assign(projectKey, taskKey, member.handle, opts.actor);
       opts.onAssigned?.(member.handle);
@@ -237,12 +260,18 @@ export class TaskStarts {
     if (member.kind === 'ai') {
       session = (await this.sessions.ensureSession(projectKey, member.handle, workItem)).session;
     }
+    if (anotherRound) this.fixLimit?.releaseMessages(task);
     return { task: this.tasks.get(projectKey, taskKey), session, hired };
   }
 
   /** Binds what keeps the start that waits for labels (it needs this class to run, so it is bound after). */
   useLabelWait(labelWait: LabelWait): void {
     this.labelWait = labelWait;
+  }
+
+  /** Binds the fix round limit (PM-262), which starts cards through this class and is built after it. */
+  useFixLimit(fixLimit: FixLimitStart): void {
+    this.fixLimit = fixLimit;
   }
 
   /**
@@ -341,9 +370,12 @@ export class TaskStarts {
     task: Task,
     stage: Stage,
     assignee: string | undefined,
+    exclude: string[],
   ): MemberConfig | null {
     const projectKey = config.project.key;
-    const eligible = stageOwners(config, stage);
+    const eligible = stageOwners(config, stage).filter(
+      (handle) => assignee === handle || !exclude.includes(handle),
+    );
     if (assignee) {
       const member = memberOf(config, assignee);
       if (!member) throw notFound('member', assignee);

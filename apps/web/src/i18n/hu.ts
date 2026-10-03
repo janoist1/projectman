@@ -284,6 +284,9 @@ export const hu = {
     roundsTitle: 'Körök és súlyozott token',
     reviewRounds: 'Átnézési körök',
     changeRequests: 'Javítást kérő átnézések',
+    designChangeRequests: 'Javítást kérő UI/UX átnézések',
+    fixRounds: 'Javítási körök',
+    fixRoundsValue: '{rounds} / {limit}',
     sendBacks: 'Visszaküldések',
     weighted: 'Súlyozott token modellenként',
     weightedTotal: 'Súlyozva összesen: {total} token',
@@ -341,6 +344,9 @@ export const hu = {
       subtask_parent_is_subtask: 'Egy alfeladatnak nem lehetnek további alfeladatai.',
       subtask_has_children: 'Az alfeladatokat tartalmazó feladat nem válhat alfeladattá.',
       relation_self: 'A kártya nem kapcsolódhat önmagához.',
+      fix_limit_not_held: 'A kártyát most nem tartja vissza a javítási körök határa.',
+      fix_limit_not_decider: 'Erről most nem te döntesz.',
+      fix_limit_no_planner: 'Nincs, aki pontosabb tervet készíthetne.',
       relation_target_not_found: 'A másik kártya nem található.',
       relation_target_project: 'Kapcsolat csak ugyanannak a projektnek a kártyái között jöhet létre.',
       relation_cycle: 'Ezzel körkörös előfeltétel jönne létre: a kártya közvetve önmagára várna.',
@@ -737,6 +743,9 @@ export const hu = {
     workersMore: '+{more}',
     workersMoreLabel: 'és még {more} tag dolgozik rajta',
     waitingOn: 'Másra vár: {who}',
+    /** A card held at its fix round limit (PM-262). */
+    fixLimit: '{who} dönt · {rounds} javítási kör után',
+    fixLimitYou: 'Rád vár: döntés · {rounds} javítási kör után',
     queuedFor: 'Sorra kerül: {stage}',
     ready: 'Indítható',
     prerequisite: 'Előfeltételre vár',
@@ -1269,6 +1278,35 @@ export const hu = {
       seen: 'Láttam',
       stop_work: 'Leállítom a munkát',
       let_run: 'Hadd fusson',
+      replan: 'Pontosabb tervet kérek',
+      reassign: 'Másik megvalósító',
+      another_round: 'Még egy kör',
+    },
+    /** A card held at its fix round limit (PM-262): a decision for the people. */
+    fixLimit: {
+      heading: 'Megállt egy kártya a javítási körök határánál',
+      subject: 'Javítási körök határa: {key}',
+      body: 'A(z) {key} kártya {rounds} javítási kört futott ({parts}); a határ {limit}. {reason}',
+      parts: '{changes} kódátnézési, {design} UI/UX és {sendBacks} visszaküldés',
+      reasons: {
+        no_ai_decider: 'Nincs AI-tag, aki dönthetne róla (műszaki irányítás és kódátnézés).',
+        passed_on: '{name} tovább adta neked.{note}',
+        again: 'Még egy kör után újra elérte a határt.',
+      },
+      note: ' Indoka: „{note}”',
+      consequence: {
+        replan: 'Egy másik műszaki vezető pontosabb tervet ír, és a kártya számlálása újrakezdődik.',
+        reassign:
+          'A kártyát egy másik fejlesztő kapja, friss munkamenettel; a számlálás újrakezdődik. Az első megvalósító munkamenete leáll.',
+        another_round: 'A megvalósító megkapja a várakozó üzeneteket, és eggyel több kört kap.',
+      },
+      footer:
+        'Ha közben másképp folytatódik a kártya (másik megvalósító, lezárás), ez a tétel magától lezárul.',
+      toast: {
+        replan: 'Pontosabb tervet kértünk a {key} kártyához.',
+        reassign: 'A {key} kártyát másik fejlesztő kapja.',
+        another_round: 'A {key} kártya kap még egy kört.',
+      },
     },
     /** A card whose AI members write to each other without progress (PM-261): a decision only when needed. */
     loop: {
@@ -1344,11 +1382,16 @@ export const hu = {
       stop_work: 'Leállítva',
       let_run: 'Hadd fusson',
       loop_ended: 'Magától lezárult: elcsitult',
+      fix_limit_ended: 'Magától lezárult: a kártya másként folytatódott',
+      replan: 'Pontosabb terv kérve',
+      reassign: 'Másik megvalósító',
+      another_round: 'Még egy kör',
     },
     /** Rules by which the system decided an item itself. */
     resolutionRules: {
       command_policy: 'Automatikus: szabály szerint',
       loop_ended: 'Automatikus',
+      fix_limit_ended: 'Automatikus',
     },
     /** The folded row of the history for what the system decided by a rule. */
     automaticDecisions: '{count} automatikus döntés',
@@ -1562,6 +1605,43 @@ export const hu = {
       stopped: 'leállítva',
       disabled: 'kikapcsolva',
       closed: 'a kártya lezárult',
+    },
+  },
+
+  /** A card held at its fix round limit (PM-262): the lead developer, then the people decide. */
+  fixLimit: {
+    box: {
+      title: 'Megállt a javítási körök határánál',
+      text: '{rounds} javítási kör futott ({parts}); a határ {limit}. A kártya megvalósítójának szóló gépi üzenetek várakoznak, amíg döntés nem születik.',
+      lead: '{name} dönt, hogy mehet-e tovább.',
+      replan: '{name} pontosabb tervet ír, utána megy tovább.',
+      people: '{decides} róla.',
+    },
+    parts: '{changes} kódátnézési, {design} UI/UX, {sendBacks} visszaküldés',
+    reasons: {
+      no_ai_decider: 'nincs AI-tag, aki dönthetne',
+      passed_on: 'a vezető fejlesztő továbbadta',
+      again: 'még egy kör után újra elérte a határt',
+    },
+    decisions: {
+      continue: 'még egy kör',
+      another_round: 'még egy kör',
+      replan: 'pontosabb terv',
+      reassign: 'másik megvalósító',
+    },
+    endReasons: {
+      decided: 'döntés született',
+      assignee_changed: 'másik megvalósító kapta',
+      closed: 'a kártya lezárult',
+    },
+    events: {
+      reached: 'A kártya elérte a javítási körök határát: {rounds} kör, a határ {limit} ({parts}). {who}',
+      who: '{name} dönt.',
+      people: '{names} dönt.',
+      passed_on: '{name} továbbadta a döntést az embereknek.{note}',
+      decided: '{name}: {decision}.{note}',
+      ended: 'A javítási körök határa nem tartja vissza többé: {reason}.',
+      note: ' Indoka: „{note}”',
     },
   },
 
@@ -2108,6 +2188,10 @@ export const hu = {
       minFreeDisk: 'Legalább ennyi szabad lemezhely kell (GB)',
       minFreeDiskHelp:
         'Ha a szabad hely ez alá esik, figyelmeztetést kapsz a Rád vár listában, és új AI-munkamenet nem indul, amíg nincs elég hely. A futók befejezhetik a lépésüket. 0: kikapcsolva.',
+      maxFixRounds: 'Javítási körök felső határa',
+      maxFixRoundsHelp:
+        'Ennyi javítási kör (javítást kérő kódátnézés, UI/UX átnézés, visszaküldés) után a kártya megáll: előbb a vezető fejlesztő, ha ő nem tudja, akkor te döntesz, mi legyen vele. 1 és 10 közötti szám.',
+      maxFixRoundsValue: '{count} kör',
       minFreeDiskValue: '{count} GB',
       minFreeDiskOff: 'Kikapcsolva',
       noTokenWarning: 'Nincs tokenfigyelmeztetés',

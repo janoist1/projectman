@@ -15,17 +15,26 @@ import styles from './TaskUsage.module.css';
  */
 export function TaskRounds({
   rounds,
+  fixRounds,
   sessions,
 }: {
   rounds: CardRounds | undefined;
+  /** The fix rounds since the count began against the limit (PM-262); absent without the server's counts. */
+  fixRounds?: { rounds: number; limit: number };
   sessions: readonly Session[];
 }) {
   if (!rounds) return null;
   const models = weightedTokensByModel(sessions.flatMap((session) => session.usage?.rows ?? []));
-  const counts: Array<[string, number]> = [
+  const counts: Array<[string, number | string]> = [
     [t('tokenUsage.reviewRounds'), rounds.reviewRounds],
     [t('tokenUsage.changeRequests'), rounds.changeRequests],
+    [t('tokenUsage.designChangeRequests'), rounds.designChangeRequests],
     [t('tokenUsage.sendBacks'), rounds.sendBacks],
+    ...(fixRounds
+      ? ([[t('tokenUsage.fixRounds'), t('tokenUsage.fixRoundsValue', fixRounds)]] as Array<
+          [string, number | string]
+        >)
+      : []),
   ];
   return (
     <section className={drawer.section} aria-labelledby="task-rounds">

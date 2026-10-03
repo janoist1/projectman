@@ -382,3 +382,50 @@ describe('the loop watch on the timeline (PM-261)', () => {
     );
   });
 });
+
+describe('fix round limit timeline rows (PM-262)', () => {
+  const fixLimit = (data: Record<string, unknown>): TimelineEvent => ({
+    ...creation,
+    actor: { kind: 'system', handle: null },
+    type: 'task_fix_limit',
+    data: { rounds: 3, limit: 3, changeRequests: 2, designChangeRequests: 1, sendBacks: 0, ...data },
+  });
+  const text = (data: Record<string, unknown>) => describeEvent(fixLimit(data), context).text;
+
+  it('says what the rounds were and who decides, the lead or the people', () => {
+    const parts = t('fixLimit.parts', { changes: 2, design: 1, sendBacks: 0 });
+    expect(text({ phase: 'reached', decider: 'lead' })).toBe(
+      t('fixLimit.events.reached', {
+        rounds: 3,
+        limit: 3,
+        parts,
+        who: t('fixLimit.events.who', { name: 'lead' }),
+      }),
+    );
+    expect(text({ phase: 'reached', decider: null, deciders: ['owner'] })).toContain(
+      t('fixLimit.events.people', { names: t('common.you') }),
+    );
+  });
+
+  it('words the hand-over to the people, the decision with its note and the end', () => {
+    expect(text({ phase: 'passed_on', decider: 'lead', note: 'Wrong plan' })).toBe(
+      t('fixLimit.events.passed_on', {
+        name: 'lead',
+        note: t('fixLimit.events.note', { note: 'Wrong plan' }),
+      }),
+    );
+    expect(text({ phase: 'decided', decision: 'another_round', by: 'owner' })).toBe(
+      t('fixLimit.events.decided', {
+        name: t('common.you'),
+        decision: t('fixLimit.decisions.another_round'),
+        note: '',
+      }),
+    );
+    expect(text({ phase: 'ended', endReason: 'assignee_changed' })).toBe(
+      t('fixLimit.events.ended', { reason: t('fixLimit.endReasons.assignee_changed') }),
+    );
+    expect(text({ phase: 'ended', endReason: 'something_new' })).toBe(
+      t('fixLimit.events.ended', { reason: 'something_new' }),
+    );
+  });
+});

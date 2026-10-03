@@ -1,5 +1,6 @@
 import path from 'node:path';
 import {
+  DESIGN_REVIEW_CHANGES_LABEL,
   DUTIES,
   dutyMembers,
   effectiveRepo,
@@ -317,6 +318,14 @@ function designReview(c: StepContext): string[] {
   const { input, s, task, author, localOnly } = c;
   const mine = gateLabelsFor(c, s.next, (_label, setters) => setters.includes(input.member.handle));
   const labels = input.project.pipeline.labels;
+  // The label counts the card's UI/UX fix rounds (PM-262); only a project that defines it, and lets this member set it, gets the line.
+  const changes = labels.find(
+    (label) =>
+      label.id === DESIGN_REVIEW_CHANGES_LABEL &&
+      typeof label.setBy === 'object' &&
+      !isHumanOnlyLabel(label) &&
+      labelHolders(input.project, label).includes(input.member.handle),
+  );
   return [
     'Do one complete review round when asked, in this order: first the images, the attachments and the plan on the card, then the finished interface and the code.',
     localOnly
@@ -324,6 +333,11 @@ function designReview(c: StepContext): string[] {
       : 'Read the pull requests linked to the task; do not edit, commit or push.',
     "Write no code, edit no tracked file and do not commit: the working directory is the builder's.",
     `Send everything to fix to ${author} in one message with send_message (where it is, what you expect), not piece by piece.`,
+    ...(changes
+      ? [
+          `When there is something to fix, also add ${labelRef(changes.id, labels)} with update_task and a note saying what; the team counts the fix rounds of a card with it.`,
+        ]
+      : []),
     mine.length > 0
       ? `When it follows the design, add ${mine.map((id) => labelRef(id, labels)).join(' and ')} with update_task and a note saying what you checked, and tell ${author} with send_message that the review is done.`
       : `When it follows the design, record that as a note with update_task and tell ${author} with send_message.`,

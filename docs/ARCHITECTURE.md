@@ -775,6 +775,30 @@ stays `notified` with `notified_count` 0, and the "went on" count starts from th
 or the watch is switched off; its decision then closes with the `loop_ended` rule. The timeline event is
 `task_loop` (`raised`, `escalated`, `let_run`, `ended`).
 
+### Fix round limit
+
+`FixLimitWatch` (`apps/server/src/domain/fix-limit.ts`, PM-262) puts an upper limit on a card's fix rounds. The
+rules are pure and live in `packages/shared/src/domain/fix-limit.ts` (`countFixRounds`, `fixLimitReached`,
+`fixLimitLead`, `fixLimitPlanner`, `fixLimitDeciders`), also used by the web's fake backend. A round is a
+`code-review-changes` label put on the card, a `design-review-changes` label (the project's label list gets it
+when the owner adds it; the designer's review step names it only when it exists and the member may set it), or a
+send-back into a work stage (the counter of PM-222, `countCardRounds`), counted from the card's `counted_from`.
+The limit is `team.limits.maxFixRounds` (1..10, default 3) plus the rounds people let the card have
+(`extra_rounds`); a card is held when `rounds >= limit` and its assignee is an AI member.
+
+While a card is held, what AI members write to its assignee is stored as waiting and does not wake it
+(`Messaging.send` with `held`), and the hand-over into the work stage does not tell it; people's messages pass,
+and a person's Start is "one more round". Who decides: the lead developer first (an AI member who holds
+`technical_direction` and `code_review`, is not on leave and is not the assignee) with the MCP tool
+`decide_fix_limit` (`continue`, `replan` to another `technical_direction` holder, or `to_owner` with a reason);
+the planner then lets it start with a fresh count. The people decide (an inbox decision with `replan`, `reassign`
+and `another_round`, only the options that can be carried out) when no AI member can, when the lead passed it
+on (`passed_on`), or when the card reaches the limit again after one more round (`again`). The state is a row of
+`task_fix_limits` (migration 30); the card carries it as `Task.fixLimit` (clients do not see it) and
+`TaskDetail.fixRounds`. The hold ends with a decision, a change of the assignee (the count then starts anew) or
+the card's closing; its inbox decision closes itself with the `fix_limit_ended` rule. The timeline event is
+`task_fix_limit` (`reached`, `passed_on`, `decided`, `ended`).
+
 ## GitHub
 
 Tasks live in our database (decision 9); GitHub is used for pull requests, reviews, checks

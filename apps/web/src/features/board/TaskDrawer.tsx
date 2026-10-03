@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { canSeeAllTeamMessages, isOnLeave, isTheme, loopDecisionOf } from '@projectman/shared';
+import {
+  canSeeAllTeamMessages,
+  fixLimitDecisionOf,
+  isOnLeave,
+  isTheme,
+  loopDecisionOf,
+} from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import {
   useConfig,
@@ -242,14 +248,14 @@ export function TaskDrawer() {
         )}
 
         <div className={styles.scroll}>
-          {task.loop && !myItems.some((item) => loopDecisionOf(item)) ? (
-            <SignalBox
-              task={task}
-              members={members}
-              myHandle={myHandle}
-              messagesHref={seesAllMessages ? `/p/${key}/messages/all?task=${task.key}` : null}
-            />
-          ) : null}
+          <SignalBox
+            task={task}
+            members={members}
+            myHandle={myHandle}
+            messagesHref={seesAllMessages ? `/p/${key}/messages/all?task=${task.key}` : null}
+            decidingLoop={myItems.some((item) => loopDecisionOf(item))}
+            decidingFixLimit={myItems.some((item) => fixLimitDecisionOf(item))}
+          />
           {myItems.length > 0 ? (
             <section className={drawer.section}>
               {myItems.map((item) => (
@@ -386,7 +392,7 @@ export function TaskDrawer() {
           ) : null}
 
           <TaskUsage sessions={sessions} members={members} myHandle={myHandle} />
-          <TaskRounds rounds={detail.data?.rounds} sessions={sessions} />
+          <TaskRounds rounds={detail.data?.rounds} fixRounds={detail.data?.fixRounds} sessions={sessions} />
         </div>
       </>
     );

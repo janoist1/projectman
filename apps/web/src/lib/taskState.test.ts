@@ -199,6 +199,50 @@ describe('who works on a card (PM-237)', () => {
   });
 });
 
+describe('a card held at its fix round limit (PM-262)', () => {
+  const held = (patch: Partial<NonNullable<Task['fixLimit']>>): Task => ({
+    ...card('AC-20'),
+    fixLimit: {
+      phase: 'lead',
+      rounds: 3,
+      limit: 3,
+      changeRequests: 2,
+      designChangeRequests: 1,
+      sendBacks: 0,
+      decider: 'fe-1',
+      deciders: [],
+      reason: null,
+      heldAt: '2026-10-01T10:00:00.000Z',
+      ...patch,
+    },
+  });
+
+  it('names who decides, and tells the one who decides that it is theirs', () => {
+    const ctx = contextWith([{ handle: 'be-1', taskKey: 'AC-20', since: '2026-10-01T09:00:00.000Z' }]);
+    const state = deriveTaskState(held({}), ctx);
+    expect(state.phase).toBe('waiting');
+    expect(state.label).toBe(t('taskStatus.fixLimit', { who: name(ctx, 'fe-1'), rounds: 3 }));
+    expect(state.since).toBe('2026-10-01T10:00:00.000Z');
+
+    const mine = deriveTaskState(held({}), { ...ctx, myHandle: 'fe-1' });
+    expect(mine.phase).toBe('needs_you');
+    expect(mine.label).toBe(t('taskStatus.fixLimitYou', { rounds: 3 }));
+  });
+
+  it('names the people when it waits for them, and asks the owner among them', () => {
+    const ctx = contextWith([]);
+    const state = deriveTaskState(held({ phase: 'owner', decider: null, deciders: ['owner'] }), ctx);
+    expect(state.phase).toBe('needs_you');
+    expect(state.label).toBe(t('taskStatus.fixLimitYou', { rounds: 3 }));
+    const other = deriveTaskState(held({ phase: 'owner', decider: null, deciders: ['owner'] }), {
+      ...ctx,
+      myHandle: 'kata',
+    });
+    expect(other.phase).toBe('waiting');
+    expect(other.label).toBe(t('taskStatus.fixLimit', { who: name(ctx, 'owner'), rounds: 3 }));
+  });
+});
+
 describe('what a worker says they do (PM-239)', () => {
   const early = '2026-10-01T10:00:00.000Z';
   const mid = '2026-10-01T10:05:00.000Z';

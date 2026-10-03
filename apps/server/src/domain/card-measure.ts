@@ -5,9 +5,15 @@ import {
   isClosedSince,
   measureClosedCard,
 } from '@projectman/shared';
-import type { CardRounds, ClosedCardsMeasure, ProjectConfig, TaskDetail } from '@projectman/shared';
+import type { CardRounds, ClosedCardsMeasure, ProjectConfig, Task, TaskDetail } from '@projectman/shared';
 import type { DomainContext } from './context';
 import type { ProjectService } from './projects';
+
+/** A card's fix rounds and the limit that holds it now (PM-262). */
+export interface FixRoundsMeasure {
+  rounds: number;
+  limit: number;
+}
 
 /** A card's review rounds and send-backs, counted from its whole timeline (PM-222). */
 export function cardRounds(
@@ -27,17 +33,33 @@ export function cardRounds(
 export class CardMeasure {
   private readonly ctx: DomainContext;
   private readonly projects: ProjectService;
+  private readonly fixRounds: ((task: Task, config: ProjectConfig) => FixRoundsMeasure) | undefined;
 
-  constructor(deps: { ctx: DomainContext; projects: ProjectService }) {
+  constructor(deps: {
+    ctx: DomainContext;
+    projects: ProjectService;
+    /** The rounds against the fix round limit of a card (PM-262). */
+    fixRounds?: (task: Task, config: ProjectConfig) => FixRoundsMeasure;
+  }) {
     this.ctx = deps.ctx;
     this.projects = deps.projects;
+    this.fixRounds = deps.fixRounds;
   }
 
-  /** The card's detail with its rounds, for members who see the card's sessions (not for clients). */
+  /**
+   * The card's detail with its rounds and its fix rounds against the limit, for members who see the
+   * card's sessions (not for clients).
+   */
   withRounds(detail: TaskDetail): TaskDetail {
     const { projectKey, key } = detail.task;
     const config = this.projects.cachedConfig(projectKey);
-    return config ? { ...detail, rounds: cardRounds(this.ctx, config, projectKey, key) } : detail;
+    if (!config) return detail;
+    const fixRounds = this.fixRounds?.(detail.task, config);
+    return {
+      ...detail,
+      rounds: cardRounds(this.ctx, config, projectKey, key),
+      ...(fixRounds ? { fixRounds } : {}),
+    };
   }
 
   /** The cards closed (done, not cancelled) in the last `days` days, the most recently closed first. */

@@ -43,6 +43,7 @@ import type { DomainContext, TemplateRegistry } from './context';
 import { createEventBus } from './event-bus';
 import { GithubSync } from './github-sync';
 import { InboxService, delegatedPermissionPrompt } from './inbox';
+import { FixLimitWatch } from './fix-limit';
 import { LoopWatch } from './loop-watch';
 import { OpenQuestionLabel } from './open-question-label';
 import { InvitationService } from './invitations';
@@ -108,6 +109,7 @@ export type { EgressDecision, EgressIdentity, EgressSession, EgressSettings } fr
 export { GithubSync } from './github-sync';
 export { InboxService, PERMISSION_OPTIONS, DECISION_OPTIONS, ANSWER_OPTION } from './inbox';
 export { CardMeasure } from './card-measure';
+export { FixLimitWatch } from './fix-limit';
 export { InvitationService } from './invitations';
 export { MemberProfiles, MemberService } from './members';
 export { MessageDelivery, MessageService, Messaging } from './messaging';
@@ -272,6 +274,8 @@ export function createDomain(opts: DomainOptions) {
     startWaiting: deferredStarts,
     // `sessions` is built below; the callback only runs when a task is handed over for review.
     sourceHead: (config, task) => sessions.sourceHead(config, task),
+    // `fixLimit` is built below; the callback only runs when a task is read.
+    fixLimit: (task) => fixLimit.view(task),
   });
   const attachments = new AttachmentService({
     ctx,
@@ -409,6 +413,21 @@ export function createDomain(opts: DomainOptions) {
   // The start that waits for the labels an AI member sets runs as a work start, which needs the starts.
   taskStarts.useLabelWait(workStarts);
   const handOver = new StageHandOver({ projects, tasks, sessions, admission, delivery });
+  // A card at its fix round limit holds back its assignee's messages and hand-over notice (PM-262); the
+  // hold needs the classes it binds to, which are built first.
+  const fixLimit = new FixLimitWatch({
+    ctx,
+    projects,
+    tasks,
+    sessions,
+    inbox,
+    timeline,
+    messaging,
+    starts: taskStarts,
+  });
+  messaging.useFixLimit(fixLimit);
+  taskStarts.useFixLimit(fixLimit);
+  handOver.useFixLimit(fixLimit);
   const messageStarts = new MessageStarts({ projects, tasks, admission, messages, delivery });
   const schedules = new ScheduleService({
     ctx,
@@ -439,6 +458,7 @@ export function createDomain(opts: DomainOptions) {
   const openQuestionLabel = new OpenQuestionLabel({ ctx, projects, tasks, inbox });
   const teamTools = new TeamToolsService({
     openQuestionLabel,
+    fixLimit,
     boundary,
     egress,
     publishing,
@@ -464,7 +484,11 @@ export function createDomain(opts: DomainOptions) {
   const board = new BoardService({ projects, tasks, members, inbox, planUsage });
   const profiles = new MemberProfiles({ ctx, projects, members, tasks, inbox, sessions, admission });
   const invitations = new InvitationService({ ctx, projects, members, accounts: opts.accounts });
-  const cardMeasure = new CardMeasure({ ctx, projects });
+  const cardMeasure = new CardMeasure({
+    ctx,
+    projects,
+    fixRounds: (task, config) => fixLimit.fixRounds(task, config),
+  });
 
   const retryDeferredStarts = () =>
     background.run(
@@ -532,6 +556,16 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_cancelled', (task) => loopWatch.progressed(task, 'closed'));
   events.on('config_changed', (change) => loopWatch.configChanged(change));
   events.on('inbox_resolved', (item) => (item.kind === 'decision' ? loopWatch.decided(item) : undefined));
+  // A card that reached its fix round limit is held back until its decider decides (PM-262). A round may
+  // reach the limit when its label is set or its card moved back; the hold ends with the assignee or the card.
+  events.on('task_labels_changed', ({ task }) => fixLimit.check(task));
+  events.on('task_stage_changed', (change) => {
+    if (change.task.status === 'done') fixLimit.closed(change.task);
+    else fixLimit.check(change.task);
+  });
+  events.on('task_assigned', (change) => fixLimit.assigned(change));
+  events.on('task_cancelled', (task) => fixLimit.closed(task));
+  events.on('inbox_resolved', (item) => (item.kind === 'decision' ? fixLimit.decided(item) : undefined));
   // Cancelled tasks stop their sessions; moves and closures drop the starts they made obsolete.
   events.on('task_cancelled', (task) => sessions.stopTask(task.projectKey, task.key));
   events.on('task_cancelled', (task) => admission.discardStale(task));
@@ -685,6 +719,7 @@ export function createDomain(opts: DomainOptions) {
     githubSync,
     reviewWatch,
     loopWatch,
+    fixLimit,
     disk,
     worktreeSweep,
     teamTools,

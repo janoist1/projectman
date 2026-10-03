@@ -2,6 +2,7 @@ import { DEFAULT_AGENT_PROVIDER, openPrerequisites } from '@projectman/shared';
 import type { InboxItem, LabelView, MemberView, Task, WorkDoing } from '@projectman/shared';
 import { formatAge } from '../i18n/format';
 import { joinNames, t } from '../i18n/t';
+import { decidesFixLimit, fixLimitStatus } from './fixLimit';
 import { isAssignedTo, newestFirst, openItems, permissionCommand, shortCommand } from './inbox';
 import { labelName } from './labels';
 import { nameOf } from './members';
@@ -301,6 +302,16 @@ function deriveOpenState(task: Task, ctx: TaskStateContext, wait: PrerequisiteWa
 
   if (task.status === 'blocked') {
     return { phase: 'blocked', label: t('taskStatus.statuses.blocked'), since: task.updatedAt, worker: null };
+  }
+
+  // A card held at its fix round limit waits for a decision, whoever else is on it (PM-262).
+  if (task.fixLimit) {
+    return {
+      phase: decidesFixLimit(task.fixLimit, myHandle) ? 'needs_you' : 'waiting',
+      label: fixLimitStatus(task.fixLimit, members, myHandle),
+      since: task.fixLimit.heldAt,
+      worker: null,
+    };
   }
 
   const workers = findWorkers(task, ctx);

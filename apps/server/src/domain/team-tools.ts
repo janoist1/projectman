@@ -46,6 +46,7 @@ import type { BoundaryService } from './boundary';
 import type { EgressService } from './egress';
 import { DomainError } from './errors';
 import type { ApprovalRequirement, UnmetCondition } from '@projectman/shared';
+import type { FixLimitDecision, FixLimitWatch } from './fix-limit';
 import type { GithubSync } from './github-sync';
 import { ANSWER_OPTION, sponsorOrOwners } from './inbox';
 import type { InboxService } from './inbox';
@@ -201,6 +202,17 @@ export class TeamToolsService implements TeamToolsHandler {
       throw toToolError(err);
     }
   }
+  async decideFixLimit(
+    ctx: ToolContext,
+    args: { taskKey: string; decision: FixLimitDecision; reason: string },
+  ) {
+    try {
+      await this.caller(ctx);
+      return await this.fixLimit.decide(ctx.member, ctx.projectKey, args.taskKey, args.decision, args.reason);
+    } catch (err) {
+      throw toToolError(err);
+    }
+  }
   async listNetworkDenials(ctx: ToolContext): Promise<NetworkDenial[]> {
     try {
       await this.caller(ctx);
@@ -234,6 +246,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly messaging: Messaging;
   private readonly inbox: InboxService;
   private readonly openQuestionLabel: OpenQuestionLabel;
+  private readonly fixLimit: Pick<FixLimitWatch, 'decide'>;
   private readonly timeline: TimelineService;
   private readonly memory: MemberMemoryStore;
   private readonly github: GithubService;
@@ -255,6 +268,8 @@ export class TeamToolsService implements TeamToolsHandler {
     messaging: Messaging;
     inbox: InboxService;
     openQuestionLabel: OpenQuestionLabel;
+    /** The fix round limit (PM-262): `decide_fix_limit` goes to it. */
+    fixLimit: Pick<FixLimitWatch, 'decide'>;
     timeline: TimelineService;
     memory: MemberMemoryStore;
     github: GithubService;
@@ -274,6 +289,7 @@ export class TeamToolsService implements TeamToolsHandler {
     this.messaging = deps.messaging;
     this.inbox = deps.inbox;
     this.openQuestionLabel = deps.openQuestionLabel;
+    this.fixLimit = deps.fixLimit;
     this.timeline = deps.timeline;
     this.memory = deps.memory;
     this.github = deps.github;

@@ -43,6 +43,7 @@ export const TimelineEventType = z.enum([
   'question_answered',
   'refinement_turn',
   'task_loop',
+  'task_fix_limit',
   'member_hired',
   'member_retired',
   'config_changed',
@@ -247,6 +248,28 @@ export interface TimelineEventData {
     reason?: 'no_watcher' | 'continued';
     endReason?: 'commit' | 'stage' | 'label' | 'quiet' | 'stopped' | 'disabled' | 'closed';
     by?: string;
+  };
+  /**
+   * The fix round limit of the card (PM-262, actor system unless `by`): `reached` the card was held at
+   * `rounds` of `limit` (`decider` the AI member who decides, `deciders` the people, `reason` why people
+   * decide); `passed_on` the lead gave it to the people; `decided` `by` chose `decision` (`continue` the
+   * card goes on, `replan` the planner makes the plan more exact, `another_round` one more round,
+   * `reassign` another implementer; `note` is the reason); `ended` the hold is over for `endReason`.
+   */
+  task_fix_limit: {
+    phase: 'reached' | 'passed_on' | 'decided' | 'ended';
+    rounds: number;
+    limit: number;
+    changeRequests: number;
+    designChangeRequests: number;
+    sendBacks: number;
+    decider?: string | null;
+    deciders?: string[];
+    reason?: 'no_ai_decider' | 'passed_on' | 'again';
+    decision?: 'continue' | 'replan' | 'another_round' | 'reassign';
+    by?: string;
+    note?: string;
+    endReason?: 'decided' | 'assignee_changed' | 'closed';
   };
   member_hired: { handle: string; role: string; temp: boolean; sponsor: string };
   member_retired: { handle: string; handoverTo: string | null };

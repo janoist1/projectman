@@ -121,12 +121,24 @@ import {
   usageTotal,
   closedCardsSince,
   countCardRounds,
+  countFixRounds,
+  fixLimitDecisionOf,
+  fixLimitDeciders,
+  fixLimitLead,
+  fixLimitPlanner,
+  fixLimitReached,
+  maxFixRoundsOf,
+  FIX_ANOTHER_ROUND_OPTION,
+  FIX_REASSIGN_OPTION,
+  FIX_REPLAN_OPTION,
   DEFAULT_CLOSED_CARDS_DAYS,
   isClosedSince,
   measureClosedCard,
 } from '@projectman/shared';
 import type {
   Actor,
+  FixRounds,
+  TaskFixLimit,
   LoopDecisionPayload,
   LoopTalk,
   TaskLoop,
@@ -317,6 +329,8 @@ export class MockBackend {
   tasks: Task[] = clone(fixtures.tasks).map((task) => withPrMergedLabel(task, this.config));
   members: MemberView[] = clone(fixtures.members);
   timeline: TimelineEvent[] = clone(fixtures.timeline);
+  /** Where each card's fix rounds are counted from and the rounds people let it have (PM-262). */
+  private fixLimitState = new Map<string, { countedFrom: string | null; extraRounds: number }>();
   scheduleRuns: ScheduleRun[] = [];
   attachments: Attachment[] = [];
   /** A person's cover choice per task (PM-224); a task without one has the automatic cover. */
@@ -578,6 +592,20 @@ export class MockBackend {
     if (taskKey && type === 'team_message') this.checkLoop(taskKey);
     if (taskKey && type === 'task_stage_changed') this.endLoop(taskKey, 'stage');
     if (taskKey && type === 'task_labels_changed') this.endLoop(taskKey, 'label');
+    if (taskKey && (type === 'task_labels_changed' || type === 'task_stage_changed')) {
+      const task = this.findTask(taskKey);
+      if (
+        task?.status === 'done' ||
+        task?.status === 'cancelled' ||
+        stageOf(this.config, task?.stageId ?? '')?.kind === 'done'
+      )
+        this.endFixLimit(taskKey, 'closed');
+      else this.checkFixLimit(taskKey);
+    }
+    if (taskKey && type === 'task_assigned' && (data.previous || this.findTask(taskKey)?.fixLimit)) {
+      this.endFixLimit(taskKey, 'assignee_changed');
+      this.fixLimitState.set(taskKey, { countedFrom: nowIso(), extraRounds: 0 });
+    }
     return event;
   }
 
@@ -761,6 +789,240 @@ export class MockBackend {
       minutes: loopWatchOf(this.config.team.limits).minutes,
       by,
     });
+  }
+
+  // ---- The fix round limit (PM-262), by the shared rules the server uses.
+
+  private fixState(taskKey: string): { countedFrom: string | null; extraRounds: number } {
+    const state = this.fixLimitState.get(taskKey) ?? { countedFrom: null, extraRounds: 0 };
+    this.fixLimitState.set(taskKey, state);
+    return state;
+  }
+
+  private fixRoundsOf(taskKey: string): FixRounds {
+    return countFixRounds(
+      this.timeline.filter(
+        (event) =>
+          event.taskKey === taskKey &&
+          (event.type === 'task_stage_changed' || event.type === 'task_labels_changed'),
+      ),
+      this.config,
+      this.fixState(taskKey).countedFrom,
+    );
+  }
+
+  /** The limit the card is held at: the configured one and the rounds people let it have. */
+  private fixLimitOf(taskKey: string): number {
+    return maxFixRoundsOf(this.config.team.limits) + this.fixState(taskKey).extraRounds;
+  }
+
+  private fixLimitData(taskKey: string, rounds: FixRounds) {
+    return {
+      rounds: rounds.rounds,
+      limit: this.fixLimitOf(taskKey),
+      changeRequests: rounds.changeRequests,
+      designChangeRequests: rounds.designChangeRequests,
+      sendBacks: rounds.sendBacks,
+    };
+  }
+
+  /** A card whose rounds reached the limit is held: the lead decides, or the people when nobody can. */
+  private checkFixLimit(taskKey: string): void {
+    const task = this.findTask(taskKey);
+    if (!task || task.fixLimit || task.status === 'done' || task.status === 'cancelled') return;
+    if (!task.assignee || this.findMember(task.assignee)?.kind !== 'ai') return;
+    const stage = stageOf(this.config, task.stageId);
+    if (!stage || stage.kind === 'queue' || stage.kind === 'done') return;
+    const rounds = this.fixRoundsOf(taskKey);
+    const state = this.fixState(taskKey);
+    if (!fixLimitReached(rounds.rounds, maxFixRoundsOf(this.config.team.limits), state.extraRounds)) return;
+    const lead = fixLimitLead(this.config, [task.assignee]);
+    if (!lead || state.extraRounds > 0) {
+      this.holdForPeople(task, rounds, lead ? 'again' : 'no_ai_decider', null, null);
+      return;
+    }
+    this.updateTask(taskKey, {
+      fixLimit: {
+        ...this.fixLimitData(taskKey, rounds),
+        phase: 'lead',
+        decider: lead,
+        deciders: [],
+        reason: null,
+        heldAt: nowIso(),
+      },
+    });
+    this.addTimeline(taskKey, null, 'task_fix_limit', {
+      phase: 'reached',
+      ...this.fixLimitData(taskKey, rounds),
+      decider: lead,
+    });
+  }
+
+  /** The card goes to the people: one decision item with the buttons that apply. */
+  private holdForPeople(
+    task: Task,
+    rounds: FixRounds,
+    reason: NonNullable<TaskFixLimit['reason']>,
+    decider: string | null,
+    note: string | null,
+  ): void {
+    const assignee = task.assignee ? [task.assignee] : [];
+    const deciders = fixLimitDeciders(this.config, boundaryOwners(this.config));
+    const workStage = this.config.pipeline.stages.find((stage) => stage.kind === 'work');
+    const others = workStage
+      ? stageOwners(this.config, workStage).filter(
+          (handle) => handle !== task.assignee && this.findMember(handle)?.kind === 'ai',
+        )
+      : [];
+    const options = [
+      ...(fixLimitPlanner(this.config, assignee) ? [FIX_REPLAN_OPTION] : []),
+      ...(others.length > 0 ? [FIX_REASSIGN_OPTION] : []),
+      FIX_ANOTHER_ROUND_OPTION,
+    ];
+    const data = this.fixLimitData(task.key, rounds);
+    const passedOn = task.fixLimit !== undefined;
+    this.updateTask(task.key, {
+      fixLimit: {
+        ...data,
+        phase: 'owner',
+        decider: null,
+        deciders,
+        reason,
+        heldAt: task.fixLimit?.heldAt ?? nowIso(),
+      },
+    });
+    this.upsertInbox({
+      id: mockId('inb'),
+      projectKey: fixtures.PROJECT_KEY,
+      kind: 'decision',
+      assignees: deciders,
+      source: 'system',
+      sessionId: null,
+      taskKey: task.key,
+      title: `Fix round limit on ${task.key}: ${rounds.rounds} rounds`,
+      body: null,
+      payload: { fixLimit: { taskKey: task.key, ...data, reason, decider, note } },
+      options,
+      state: 'open',
+      resolution: null,
+      createdAt: nowIso(),
+    });
+    this.addTimeline(
+      task.key,
+      decider,
+      'task_fix_limit',
+      passedOn
+        ? { phase: 'passed_on', ...data, decider, deciders, reason, ...(note ? { note } : {}) }
+        : { phase: 'reached', ...data, deciders, reason },
+    );
+  }
+
+  /** The hold is over: the card goes on, and the decision about it closes itself. */
+  private endFixLimit(
+    taskKey: string,
+    endReason: NonNullable<TimelineEventData['task_fix_limit']['endReason']>,
+  ): void {
+    const task = this.findTask(taskKey);
+    if (!task?.fixLimit) return;
+    const data = this.fixLimitData(taskKey, this.fixRoundsOf(taskKey));
+    this.updateTask(taskKey, { fixLimit: undefined });
+    for (const item of this.inbox) {
+      if (item.state !== 'open' || fixLimitDecisionOf(item)?.taskKey !== taskKey) continue;
+      this.upsertInbox({
+        ...item,
+        state: 'resolved',
+        resolution: { optionId: 'ended', by: 'system', at: nowIso(), note: null, rule: 'fix_limit_ended' },
+      });
+    }
+    this.addTimeline(taskKey, null, 'task_fix_limit', { phase: 'ended', ...data, endReason });
+  }
+
+  /** The held card goes on: one more round, or a fresh count. */
+  private releaseFixLimit(
+    task: Task,
+    by: string,
+    decision: NonNullable<TimelineEventData['task_fix_limit']['decision']>,
+    note: string | null,
+    fresh: boolean,
+  ): void {
+    const state = this.fixState(task.key);
+    this.addTimeline(task.key, by, 'task_fix_limit', {
+      phase: 'decided',
+      ...this.fixLimitData(task.key, this.fixRoundsOf(task.key)),
+      decision,
+      by,
+      ...(note ? { note } : {}),
+    });
+    if (fresh) this.fixLimitState.set(task.key, { countedFrom: nowIso(), extraRounds: 0 });
+    else state.extraRounds += 1;
+    this.endFixLimit(task.key, 'decided');
+  }
+
+  /** What a person decided about a held card: a more exact plan, another implementer, or one more round. */
+  private afterFixLimitDecision(item: InboxItem): void {
+    const optionId = item.resolution?.optionId;
+    const by = item.resolution?.by ?? this.viewerHandle;
+    const note = item.resolution?.note ?? null;
+    const task = item.taskKey ? this.findTask(item.taskKey) : undefined;
+    if (!task?.fixLimit) return;
+    if (optionId === 'another_round') {
+      this.releaseFixLimit(task, by, 'another_round', note, false);
+    } else if (optionId === 'replan') {
+      const planner = fixLimitPlanner(this.config, task.assignee ? [task.assignee] : []);
+      if (!planner) return;
+      this.addTimeline(task.key, by, 'task_fix_limit', {
+        phase: 'decided',
+        ...this.fixLimitData(task.key, this.fixRoundsOf(task.key)),
+        decision: 'replan',
+        by,
+      });
+      this.updateTask(task.key, {
+        fixLimit: { ...task.fixLimit, phase: 'replan', decider: planner, deciders: [] },
+      });
+    } else if (optionId === 'reassign') {
+      const workStage = this.config.pipeline.stages.find((stage) => stage.kind === 'work');
+      const next = workStage
+        ? stageOwners(this.config, workStage).find(
+            (handle) => handle !== task.assignee && this.findMember(handle)?.kind === 'ai',
+          )
+        : undefined;
+      if (!next) return;
+      this.releaseFixLimit(task, by, 'reassign', note, true);
+      this.updateTask(task.key, { assignee: next });
+      this.addTimeline(task.key, null, 'task_assigned', { assignee: next, previous: task.assignee });
+    }
+  }
+
+  /**
+   * The AI member who decides a held card (the tool `decide_fix_limit`): the lead lets it have one more
+   * round, asks for a more exact plan or passes it on; the planner then lets it start anew.
+   */
+  decideFixLimit(taskKey: string, decision: 'continue' | 'replan' | 'to_owner', reason: string): void {
+    const task = this.findTask(taskKey);
+    const held = task?.fixLimit;
+    if (!task || !held || held.phase === 'owner' || !held.decider) return;
+    if (decision === 'continue') {
+      this.releaseFixLimit(
+        task,
+        held.decider,
+        held.phase === 'lead' ? 'another_round' : 'continue',
+        reason,
+        held.phase === 'replan',
+      );
+    } else if (decision === 'replan' && held.phase === 'lead') {
+      const planner = fixLimitPlanner(this.config, [held.decider, ...(task.assignee ? [task.assignee] : [])]);
+      if (!planner) return;
+      this.addTimeline(task.key, held.decider, 'task_fix_limit', {
+        phase: 'decided',
+        ...this.fixLimitData(taskKey, this.fixRoundsOf(taskKey)),
+        decision: 'replan',
+        by: held.decider,
+        note: reason,
+      });
+      this.updateTask(taskKey, { fixLimit: { ...held, phase: 'replan', decider: planner } });
+    } else if (decision === 'to_owner') {
+      this.holdForPeople(task, this.fixRoundsOf(taskKey), 'passed_on', held.decider, reason);
+    }
   }
 
   setMemberState(handle: string, status: MemberView['status'], activity: string | null): void {
@@ -1994,7 +2256,12 @@ export class MockBackend {
       pullRequests: this.taskPullRequests(task),
       timeline: clone(this.timeline.filter((event) => event.taskKey === task.key)),
       sessions: clone(this.taskSessions(task.key)),
-      ...(this.findMember(this.viewerHandle)?.role === 'client' ? {} : { rounds: this.cardRounds(task.key) }),
+      ...(this.findMember(this.viewerHandle)?.role === 'client'
+        ? {}
+        : {
+            rounds: this.cardRounds(task.key),
+            fixRounds: { rounds: this.fixRoundsOf(task.key).rounds, limit: this.fixLimitOf(task.key) },
+          }),
     };
   }
 
@@ -3585,6 +3852,10 @@ export class MockBackend {
     const sessionId = item.sessionId;
     if (loopDecisionOf(item)) {
       this.afterLoopDecision(item);
+      return;
+    }
+    if (fixLimitDecisionOf(item)) {
+      this.afterFixLimitDecision(item);
       return;
     }
     if (item.kind === 'permission') {

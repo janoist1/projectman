@@ -1,5 +1,5 @@
 import { isOnLeave, isRefinementStage, memberOf, stageOf, stageOwners } from '@projectman/shared';
-import type { AiMemberConfig, Stage } from '@projectman/shared';
+import type { AiMemberConfig, ProjectConfig, Stage, Task } from '@projectman/shared';
 import type { MessageDelivery } from '../messaging';
 import type { ProjectService } from '../projects';
 import type { SessionOrchestrator } from '../sessions';
@@ -22,6 +22,7 @@ export class StageHandOver {
   private readonly sessions: SessionOrchestrator;
   private readonly admission: Admission;
   private readonly delivery: MessageDelivery;
+  private fixLimit: { heldFor(task: Task, config: ProjectConfig): boolean } | undefined;
 
   constructor(deps: {
     projects: ProjectService;
@@ -35,6 +36,11 @@ export class StageHandOver {
     this.sessions = deps.sessions;
     this.admission = deps.admission;
     this.delivery = deps.delivery;
+  }
+
+  /** Binds the fix round limit (PM-262), which is built after the hand-over. */
+  useFixLimit(fixLimit: { heldFor(task: Task, config: ProjectConfig): boolean }): void {
+    this.fixLimit = fixLimit;
   }
 
   /** Stage change listener (also the retry of a refused hand-over). */
@@ -84,7 +90,9 @@ export class StageHandOver {
         // A stage for refinement has its own line: one member per step, never the whole stage's owners.
         if (isRefinementStage(stage)) return;
         if (stage.kind === 'work') {
-          if (task.assignee) this.notify(current, stage, task.assignee);
+          // A card held by its fix round limit (PM-262) tells its assignee nothing: its decider's decision does.
+          if (task.assignee && !this.fixLimit?.heldFor(task, config))
+            this.notify(current, stage, task.assignee);
           return;
         }
         const owners = stageOwners(config, stage)

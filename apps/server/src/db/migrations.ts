@@ -584,5 +584,25 @@ export const migrations: Migration[] = [
       );
       CREATE INDEX task_loops_task ON task_loops(project_key, task_key, ended_at);`,
   },
+  {
+    version: 30,
+    name: 'task fix limits',
+    // PM-262: the fix round limit of a card, one row per card that was ever held or let go on. The rounds
+    // are counted from the timeline after counted_from (NULL: from the start) plus extra_rounds that
+    // people allowed. hold_phase is set while the card is held ('lead', 'replan' or 'owner'); decider is
+    // the AI member who decides, deciders (a JSON array of handles) the people.
+    sql: `CREATE TABLE task_fix_limits (
+        task_key      TEXT NOT NULL PRIMARY KEY REFERENCES tasks(key),
+        project_key   TEXT NOT NULL REFERENCES projects(key),
+        counted_from  TEXT,
+        extra_rounds  INTEGER NOT NULL DEFAULT 0,
+        hold_phase    TEXT CHECK (hold_phase IN ('lead', 'replan', 'owner')),
+        held_at       TEXT,
+        decider       TEXT,
+        deciders      TEXT NOT NULL DEFAULT '[]',
+        reason        TEXT,
+        inbox_item_id TEXT
+      );`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

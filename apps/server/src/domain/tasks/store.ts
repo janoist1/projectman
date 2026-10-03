@@ -14,6 +14,7 @@ import type {
   ProjectConfig,
   Stage,
   Task,
+  TaskFixLimit,
   TaskLoop,
   TaskReviewPin,
   TaskStartWaiting,
@@ -50,31 +51,44 @@ export class TaskStore {
   readonly timeline: TimelineService;
   readonly projects: ProjectService;
   private readonly startWaiting: StartWaitingReader;
+  private readonly fixLimit: ((task: Task) => TaskFixLimit | undefined) | undefined;
 
   constructor(deps: {
     ctx: DomainContext;
     timeline: TimelineService;
     projects: ProjectService;
     startWaiting: StartWaitingReader;
+    /** The fix round limit hold on a card (PM-262), shown on it. */
+    fixLimit?: (task: Task) => TaskFixLimit | undefined;
   }) {
     this.ctx = deps.ctx;
     this.timeline = deps.timeline;
     this.projects = deps.projects;
     this.startWaiting = deps.startWaiting;
+    this.fixLimit = deps.fixLimit;
   }
 
   view(task: Task): Task {
-    const { startWaiting: _, reviewPin: __, coverAttachmentId: ___, loop: ____, ...rest } = task;
+    const {
+      startWaiting: _,
+      reviewPin: __,
+      coverAttachmentId: ___,
+      loop: ____,
+      fixLimit: _____,
+      ...rest
+    } = task;
     const startWaiting = this.startWaiting.waitingFor(task) ?? this.repoWaiting(task);
     const reviewPin = this.reviewPin(task);
     const cover = this.cover(task);
     const loop = this.loop(task);
+    const fixLimit = this.fixLimit?.(task);
     return {
       ...rest,
       ...(startWaiting ? { startWaiting } : {}),
       ...(reviewPin ? { reviewPin } : {}),
       ...(cover ? { coverAttachmentId: cover } : {}),
       ...(loop ? { loop } : {}),
+      ...(fixLimit ? { fixLimit } : {}),
     };
   }
 

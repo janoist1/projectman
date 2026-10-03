@@ -1,11 +1,13 @@
 import {
   DEFAULT_AUTO_COMPACT_WINDOW_TOKENS,
   DEFAULT_LOOP_WATCH,
+  DEFAULT_MAX_FIX_ROUNDS,
   DEFAULT_MIN_FREE_DISK_GB,
   boundaryOwners,
   loopDeciders,
   loopWatchOf,
   loopWatchers,
+  maxFixRoundsOf,
 } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import clsx from 'clsx';
@@ -204,6 +206,18 @@ function LimitsControls({ config }: { config: ProjectConfig }) {
           })
         }
       />
+      <InstantNumber
+        label={t('settings.limits.maxFixRounds')}
+        hint={t('settings.limits.maxFixRoundsHelp')}
+        min={1}
+        max={10}
+        value={maxFixRoundsOf(limits)}
+        onCommit={(rounds) =>
+          commit((draft) => {
+            draft.team.limits.maxFixRounds = rounds ?? DEFAULT_MAX_FIX_ROUNDS;
+          })
+        }
+      />
       <ToggleField
         label={t('settings.limits.boundaryEnabled')}
         help={t('settings.limits.boundaryHelp')}
@@ -359,6 +373,10 @@ export function LimitsSection({ config }: { config: ProjectConfig }) {
                 count: formatTokens(limits.autoCompactWindowTokens ?? DEFAULT_AUTO_COMPACT_WINDOW_TOKENS),
               })}
             </dd>
+          </div>
+          <div>
+            <dt>{t('settings.limits.maxFixRounds')}</dt>
+            <dd>{t('settings.limits.maxFixRoundsValue', { count: maxFixRoundsOf(limits) })}</dd>
           </div>
           <div>
             <dt>{t('settings.limits.loopWatch')}</dt>

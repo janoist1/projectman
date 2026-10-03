@@ -149,6 +149,14 @@ export interface TeamToolsHandler {
     ctx: ToolContext,
     args: { requestId: string; decision: 'allow' | 'deny' | 'escalate'; reason: string },
   ): Promise<{ requestId: string; decision: 'allow' | 'deny' | 'escalate'; outcome: string }>;
+  /**
+   * decide_fix_limit (PM-262): the AI member who decides (the lead, or the planner it asked) decides how a
+   * card that reached its fix round limit goes on. The reason is required.
+   */
+  decideFixLimit(
+    ctx: ToolContext,
+    args: { taskKey: string; decision: 'continue' | 'replan' | 'to_owner'; reason: string },
+  ): Promise<{ phase: 'released' | 'replan' | 'owner' }>;
   /** list_network_denials: destinations the egress proxy refused this session (PM-140), newest first. */
   listNetworkDenials(ctx: ToolContext): Promise<NetworkDenial[]>;
   /** list_tasks: visible board tasks, newest update first. */

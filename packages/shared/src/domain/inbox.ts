@@ -44,6 +44,8 @@ export const InboxResolutionRule = z.enum([
   'command_policy',
   /** The loop a decision was about ended by itself (PM-261): nothing is left to decide. */
   'loop_ended',
+  /** The fix round limit hold a decision was about ended by itself (PM-262): nothing is left to decide. */
+  'fix_limit_ended',
 ]);
 export type InboxResolutionRule = z.infer<typeof InboxResolutionRule>;
 
@@ -134,6 +136,48 @@ export function loopDecisionOf(item: Pick<InboxItem, 'kind' | 'payload'>): LoopD
 /** The options of a loop decision: stop the card's AI work, or let the loop run. The web app translates the ids. */
 export const LOOP_STOP_OPTION: InboxOption = { id: 'stop_work', label: 'stop_work', style: 'danger' };
 export const LOOP_LET_RUN_OPTION: InboxOption = { id: 'let_run', label: 'let_run', style: 'secondary' };
+
+/**
+ * `payload.fixLimit` of a `decision` item (PM-262): card `taskKey` reached the limit of `limit` fix rounds
+ * (`rounds`: `changeRequests` of the code review, `designChangeRequests` of the UI/UX review, `sendBacks`)
+ * and a person decides how it goes on. `reason`: `no_ai_decider` no AI lead developer could be asked,
+ * `passed_on` the lead (`decider`) gave it to a person (`note` is its reason), `again` it reached the limit
+ * again after one more round. The item is closed by the system when the hold ends otherwise.
+ */
+export const FixLimitDecisionPayload = z.object({
+  taskKey: TaskKey,
+  rounds: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  changeRequests: z.number().int().nonnegative(),
+  designChangeRequests: z.number().int().nonnegative(),
+  sendBacks: z.number().int().nonnegative(),
+  reason: z.enum(['no_ai_decider', 'passed_on', 'again']),
+  decider: MemberHandle.nullable(),
+  note: z.string().nullable(),
+});
+export type FixLimitDecisionPayload = z.infer<typeof FixLimitDecisionPayload>;
+
+/** The fix round limit a decision item is about, or null when it is about none (or an unreadable one). */
+export function fixLimitDecisionOf(
+  item: Pick<InboxItem, 'kind' | 'payload'>,
+): FixLimitDecisionPayload | null {
+  if (item.kind !== 'decision') return null;
+  const parsed = FixLimitDecisionPayload.safeParse(item.payload.fixLimit);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
+ * The options of a fix limit decision: a more exact plan first (only when someone can make it), another
+ * implementer (only when another AI member owns the work stage), one more round (always). The web app
+ * translates the ids.
+ */
+export const FIX_REPLAN_OPTION: InboxOption = { id: 'replan', label: 'replan', style: 'secondary' };
+export const FIX_REASSIGN_OPTION: InboxOption = { id: 'reassign', label: 'reassign', style: 'secondary' };
+export const FIX_ANOTHER_ROUND_OPTION: InboxOption = {
+  id: 'another_round',
+  label: 'another_round',
+  style: 'primary',
+};
 
 /** The one option of an `alert` item: the owner has seen it. The web app translates the id. */
 export const ALERT_SEEN_OPTION: InboxOption = { id: 'seen', label: 'seen', style: 'primary' };

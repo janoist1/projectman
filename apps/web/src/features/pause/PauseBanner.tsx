@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router';
 import type { InstancePauseView, PauseStatus } from '@projectman/shared';
 import { useBoard, useInstancePause, useResumeInstance, useResumeProject } from '../../api/queries';
 import { useProject } from '../../app/contexts';
@@ -134,6 +135,14 @@ export function PauseBar({
   useEffect(() => {
     if (autoOpen) setOpen(true);
   }, [autoOpen, pause.id]);
+  // The details belong to the page they were opened on: a link in them, or any navigation, closes them.
+  const { pathname } = useLocation();
+  const openedAt = useRef(pathname);
+  useEffect(() => {
+    if (openedAt.current === pathname) return;
+    openedAt.current = pathname;
+    setOpen(false);
+  }, [pathname]);
   const { resume, resuming } = usePauseResume(pause);
   const mayResume = canManage && !isShutdownPause(pause);
   const resumeLabel = resuming ? t('pause.banner.resuming') : t('pause.banner.resume');

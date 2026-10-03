@@ -207,6 +207,23 @@ describe('asking for the pause', () => {
   });
 });
 
+describe('the details and the page', () => {
+  it('closes the details when a link in them leads to another page', async () => {
+    const project = mockProject();
+    project.backend.pauses.pauseProject();
+    project.render(app(project), '/p/AC');
+    const details = await screen.findByRole('button', { name: t('pause.banner.details') });
+    fireEvent.click(details);
+    expect(details.getAttribute('aria-expanded')).toBe('true');
+    const list = await screen.findByRole('list', { name: t('pause.progress.table') });
+    fireEvent.click(within(list).getAllByRole('link')[0]!);
+    await waitFor(() => expect(screen.queryByRole('list', { name: t('pause.progress.table') })).toBeNull());
+    expect(
+      screen.getByRole('button', { name: t('pause.banner.details') }).getAttribute('aria-expanded'),
+    ).toBe('false');
+  });
+});
+
 describe('Megállítás most', () => {
   async function pausing() {
     const project = mockProject();

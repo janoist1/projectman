@@ -72,8 +72,11 @@ export function SessionHeader({
 
   const liveStatus = (
     <span className={styles.live} data-status={live.status} role="status">
-      <StatusDot status={live.status} pulse={live.status === 'working'} size={9} />
-      {live.status === 'paused' ? <Icon name="pause" size={13} strokeWidth={2.4} /> : null}
+      {live.status === 'paused' ? (
+        <Icon name="pause" size={13} strokeWidth={2.4} />
+      ) : (
+        <StatusDot status={live.status} pulse={live.status === 'working'} size={9} />
+      )}
       <span>{live.label}</span>
     </span>
   );

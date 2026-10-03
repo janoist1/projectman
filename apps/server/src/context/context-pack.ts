@@ -1,7 +1,7 @@
 import type { ContextPack, ContextPackBuilder, ContextPackInput } from '../contracts';
 import { buildBrief } from './brief';
 import { COMPACT_INSTRUCTION } from './compact-instruction';
-import { buildContinueMessage } from './continue-message';
+import { buildContinueMessage, buildPauseNudge } from './continue-message';
 import { cheapSubagent } from './subagents';
 import { buildSystemPrompt } from './system-prompt';
 import { assess } from './work-item';
@@ -33,6 +33,7 @@ import { assess } from './work-item';
 export function createContextPackBuilder(): ContextPackBuilder {
   return {
     compactInstruction: COMPACT_INSTRUCTION,
+    pauseNudge: buildPauseNudge,
     build(input: ContextPackInput): ContextPack {
       const situation = assess(input);
       return {

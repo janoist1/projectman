@@ -5,6 +5,7 @@ import {
   isOpenTask,
   isTheme,
   isWorkingOnTask,
+  isWorkPaused,
   openPrerequisites,
 } from '@projectman/shared';
 import type { AiMemberConfig, ProjectConfig, Task, TaskStartWaiting, WorkItemRef } from '@projectman/shared';
@@ -19,7 +20,14 @@ import type { EnsureSessionResult, SessionOrchestrator } from '../sessions';
 import type { TaskService } from '../tasks';
 import { KeyedMutex } from '../util';
 import type { AutomaticStart, DeferredStarts, StartSpec } from './deferred-starts';
-import { assertAiEnabled, assertNotOnLeave, assertRepoChosen, isDeferrable, waitingOf } from './rules';
+import {
+  assertAiEnabled,
+  assertNotOnLeave,
+  assertNotPaused,
+  assertRepoChosen,
+  isDeferrable,
+  waitingOf,
+} from './rules';
 
 export interface AdmissionRequest {
   config: ProjectConfig;
@@ -39,7 +47,7 @@ export interface AdmissionRequest {
 /**
  * Admission: every AI session start that no person asked for directly (task start, stage
  * hand-over, message wake-up, schedule run) passes the same checks, in this order: the
- * project's AI master switch; that the member is not on leave (`member_on_leave`, decision 23);
+ * project's AI master switch; that the team is not paused (`team_paused`, PM-219); that the member is not on leave (`member_on_leave`, decision 23);
  * for a task, that a role which changes files has a repository to
  * work in (`repo_required`: a person has to choose it, so waiting does not help); for a scheduled
  * run, the member's previous run has ended; the member's capacity (open tasks it has a running session for plus its
@@ -119,6 +127,7 @@ export class Admission {
     const { config, member, workItem } = request;
     const projectKey = config.project.key;
     assertAiEnabled(config);
+    assertNotPaused(this.ctx.repos.pauses, projectKey);
     assertNotOnLeave(member);
     if (workItem?.type === 'task') {
       // A temp worker yet to be hired has the role the limits name for it.
@@ -257,6 +266,8 @@ export class Admission {
         continue;
       }
       const { reason, member } = entry.waiting;
+      // Nothing starts while the project is paused: resuming retries them.
+      if (reason === 'team_paused' && isWorkPaused(this.ctx.repos.pauses.open(), start.projectKey)) continue;
       if (reason === 'ai_disabled' || reason === 'member_on_leave') {
         const config = await this.configOf(start.projectKey, configs);
         if (

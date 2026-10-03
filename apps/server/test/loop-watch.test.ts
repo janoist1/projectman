@@ -104,6 +104,20 @@ describe('loop watch', () => {
       expect(h.domain.tasks.get('AR', 'AR-2').loop).toBeUndefined();
     });
 
+    it('holds the notice while the team is paused (PM-219), and tells the scheduler once it is resumed', async () => {
+      const by = { userId: null, source: 'system' } as const;
+      await h.domain.pauses.pause({ scope: 'project', projectKey: 'AR' }, by);
+      await goRound();
+      await vi.waitFor(() =>
+        expect(
+          h.repos.deferredStarts.list().map((record) => (record.spec as { kind: string }).kind),
+        ).toContain('loop_notice'),
+      );
+      expect(h.runner.started).toEqual([]);
+      await h.domain.pauses.resume({ scope: 'project', projectKey: 'AR' }, by);
+      await vi.waitFor(() => expect(h.runner.started.some((spec) => spec.member === 'pm')).toBe(true));
+    });
+
     it('does not count notes, people, messages to people or one member writing alone', async () => {
       await talk('owner', ['dev-1']);
       await talk('dev-1', ['owner']);

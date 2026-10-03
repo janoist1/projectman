@@ -93,6 +93,9 @@ export class RefinementSteps {
   /** Listener of a session that went idle or ended: its member's turn on the card may be over. */
   async turnEnded(session: Session): Promise<void> {
     if (session.workItem.type !== 'task') return;
+    // A pause cut the turn (or the session ended with the process held): not a stalled turn. After the
+    // resume `PauseService` calls this again for the sessions that stopped between turns (PM-219).
+    if (this.sessions.isPaused(session)) return;
     await this.advance(session.projectKey, session.workItem.taskKey, session.member);
   }
 

@@ -424,6 +424,8 @@ describe('provider-neutral session policy', () => {
         '/Users/anna/.projectman/logs',
         '/Users/anna/.projectman/customization',
         '/Users/anna/.projectman/memory',
+        // The control socket pauses the whole team (PM-219): not for the members.
+        '/Users/anna/.projectman/control.sock',
       ]),
     );
     // The whole home is not denied: worktrees, workspaces and attachments live there.

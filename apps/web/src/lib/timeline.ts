@@ -522,5 +522,13 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       );
     case 'config_changed':
       return normal(t('timeline.events.config_changed', { message: str(d.message) }));
+    case 'team_paused':
+      return normal(
+        t(d.scope === 'instance' ? 'timeline.events.team_paused_instance' : 'timeline.events.team_paused'),
+      );
+    case 'team_resumed':
+      return normal(
+        t(d.scope === 'instance' ? 'timeline.events.team_resumed_instance' : 'timeline.events.team_resumed'),
+      );
   }
 }

@@ -122,6 +122,8 @@ export const ERROR_CODES = [
   'ai_disabled',
   'ai_limit_reached',
   'plan_usage_paused',
+  // The team is paused (PM-219): no work starts, and a message waits, until it is resumed.
+  'team_paused',
   // Too little free disk space (PM-243): no new session starts until there is room again.
   'disk_low',
   'member_at_capacity',

@@ -20,6 +20,7 @@ import {
 } from '../domain/member';
 import { TeamMessage } from '../domain/message';
 import { LabelDefinition, LabelId } from '../domain/label';
+import { ProjectPauseView } from '../domain/pause';
 import { BoardColumn, GateCondition, Stage, StageId } from '../domain/pipeline';
 import { CustomRoleDefinition, RoleHolders, RoleId } from '../domain/role';
 import { ScheduleRun } from '../domain/schedule';
@@ -292,6 +293,8 @@ export const BoardView = z.object({
   planUsage: PlanUsage.nullable(),
   /** Usage snapshots for the providers used by this project. */
   planUsageByProvider: z.partialRecord(AgentProvider, PlanUsage.nullable()).default({}),
+  /** The open pauses touching the project (PM-219); absent for a client member. */
+  pause: ProjectPauseView.optional(),
 });
 export type BoardView = z.infer<typeof BoardView>;
 

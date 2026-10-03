@@ -1,8 +1,9 @@
-import { isOnLeave, openPrerequisites, repoRequired } from '@projectman/shared';
+import { isOnLeave, isWorkPaused, openPrerequisites, repoRequired } from '@projectman/shared';
 import type {
   AgentProvider,
   ErrorCode,
   MemberConfig,
+  OpenPause,
   ProjectConfig,
   Task,
   TaskStartWaiting,
@@ -12,6 +13,16 @@ import { conflict, DomainError } from '../errors';
 /** The project's AI master switch: while it is off, no AI session starts or resumes. */
 export function assertAiEnabled(config: ProjectConfig): void {
   if (!config.team.limits.aiEnabled) throw conflict('ai_disabled', 'AI work is switched off in this project');
+}
+
+/**
+ * While the project's work is paused (its own pause or the instance's, PM-219) no session starts or
+ * resumes: a start that no person asked for waits (`DEFERRABLE`), a person's is refused. `pauses` is
+ * the repository, read directly so that no service depends on the pause service.
+ */
+export function assertNotPaused(pauses: { open(): readonly OpenPause[] }, projectKey: string): void {
+  if (isWorkPaused(pauses.open(), projectKey))
+    throw conflict('team_paused', 'the team is paused: no work starts until it is resumed', { projectKey });
 }
 
 /**
@@ -79,6 +90,7 @@ const DEFERRABLE = new Set<ErrorCode>([
   'plan_usage_paused',
   'disk_low',
   'ai_disabled',
+  'team_paused',
   'member_at_capacity',
   'member_on_leave',
   // The member's workspace (PM-138): held by another task's session, holding unfinished work, or

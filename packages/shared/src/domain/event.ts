@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { FullTestErrorReason } from './full-test';
 import type { LabelChangeReason } from './label';
 import { MemberHandle } from './member';
+import type { PauseScopeKind, PauseSource } from './pause';
 import type { GateCondition } from './pipeline';
 import { TaskKey } from './task';
 
@@ -49,6 +50,8 @@ export const TimelineEventType = z.enum([
   'member_hired',
   'member_retired',
   'config_changed',
+  'team_paused',
+  'team_resumed',
 ]);
 export type TimelineEventType = z.infer<typeof TimelineEventType>;
 
@@ -171,6 +174,19 @@ export interface TimelineEventData {
   attachment_deleted: { attachmentId: string; fileName: string; size: number; mediaType: string };
   schedule_started: { runId: string; member: string; scheduledFor: string };
   schedule_skipped: { runId: string; member: string; scheduledFor: string; reason: string };
+  /**
+   * The team was paused (PM-219, project-level, internal): `scope` the instance or this project,
+   * `source` where the request came from. The actor is the person in this project, or the system for
+   * the control command. A `shutdown` pause writes no event.
+   */
+  team_paused: {
+    pauseId: string;
+    scope: PauseScopeKind;
+    source: PauseSource;
+    reason: string | null;
+    forceAfterMs: number;
+  };
+  team_resumed: { pauseId: string; scope: PauseScopeKind; source: PauseSource };
   session_started: { member: string; resumed: boolean };
   /** `reason`: why the session ended when known (e.g. a lost login). */
   session_ended: { member: string; exitCode: number | null; reason?: string };

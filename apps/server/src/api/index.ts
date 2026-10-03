@@ -11,6 +11,7 @@ import { registerInvitationRoutes } from './invitations';
 import { registerMemberRoutes } from './members';
 import { registerProjectRoutes } from './projects';
 import { registerRoleRoutes } from './roles';
+import { registerPauseRoutes } from './pause';
 import { registerScheduleRoutes } from './schedules';
 import { registerSessionRoutes } from './sessions';
 import { registerTaskRoutes } from './tasks';
@@ -37,6 +38,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
   registerRoleRoutes(app, domain);
   registerSessionRoutes(app, domain);
   registerScheduleRoutes(app, domain);
+  registerPauseRoutes(app, domain);
   registerInboxRoutes(app, domain);
   registerBoundaryRoutes(app, domain);
   registerRuntimeBoundaryRoutes(app, domain);

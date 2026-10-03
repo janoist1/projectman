@@ -5,6 +5,7 @@ import { TimelineEvent } from '../domain/event';
 import { InboxItem } from '../domain/inbox';
 import { AgentProvider, MemberHandle, MemberStatus } from '../domain/member';
 import { TeamMessage } from '../domain/message';
+import { ProjectPauseView } from '../domain/pause';
 import { Session } from '../domain/session';
 import { Task, TaskKey } from '../domain/task';
 
@@ -14,6 +15,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('task_upserted'), projectKey: z.string(), task: Task }),
   z.object({ type: z.literal('timeline_appended'), projectKey: z.string(), event: TimelineEvent }),
   z.object({ type: z.literal('session_upserted'), projectKey: z.string(), session: Session }),
+  /** The open pauses touching the project changed (PM-219); internal members only. */
+  z.object({ type: z.literal('pause_changed'), projectKey: z.string(), pause: ProjectPauseView }),
   z.object({
     type: z.literal('member_state'),
     projectKey: z.string(),

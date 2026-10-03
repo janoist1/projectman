@@ -37,6 +37,9 @@ import { createShutdown } from './shutdown';
  *   limiters then count per that address instead of the proxy's, but only for requests from
  *   loopback whose header holds exactly one IP; unset (and always behind `tailscale serve`, which
  *   sets no such header) the connection's address counts. X-Forwarded-For is never read.
+ *   PROJECTMAN_SHUTDOWN_PAUSE_MS (60000): how long stopping the server (SIGTERM, SIGINT) lets the
+ *   sessions come to a safe point before it closes (PM-219); 0 turns the pause off. The service unit's
+ *   TimeoutStopSec must exceed it by about 20 seconds.
  * The agent CLIs start with this environment, minus billing and host-session variables (the
  * runner removes them); the git and gh commands the server runs inherit it.
  * Remote access goes through Tailscale (`tailscale serve`), not by binding publicly.
@@ -76,6 +79,14 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
     throw new Error(
       `invalid PROJECTMAN_CLIENT_IP_HEADER: ${env.PROJECTMAN_CLIENT_IP_HEADER} (one header name, not x-forwarded-for)`,
     );
+  // How long stopping the server lets the sessions come to a safe point (PM-219); 0 is off.
+  const shutdownPauseMs = env.PROJECTMAN_SHUTDOWN_PAUSE_MS
+    ? Number(env.PROJECTMAN_SHUTDOWN_PAUSE_MS)
+    : undefined;
+  if (shutdownPauseMs !== undefined && !(Number.isInteger(shutdownPauseMs) && shutdownPauseMs >= 0))
+    throw new Error(
+      `invalid PROJECTMAN_SHUTDOWN_PAUSE_MS: ${env.PROJECTMAN_SHUTDOWN_PAUSE_MS} (milliseconds; 0 turns it off)`,
+    );
   // apps/web/dist, from src/index.ts (tsx) as well as from dist/index.js (bundle).
   const webDist = fileURLToPath(new URL('../../web/dist', import.meta.url));
   return {
@@ -102,6 +113,7 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
       vmReadinessReport: env.PROJECTMAN_VM_READINESS_REPORT || undefined,
       vmReadinessMaxAgeMs: reportMinutes > 0 ? reportMinutes * 60_000 : undefined,
       githubPublishTokenFile: env.PROJECTMAN_GITHUB_PUBLISH_TOKEN_FILE || undefined,
+      shutdownPauseMs,
     },
   };
 }
@@ -124,6 +136,7 @@ async function main(): Promise<void> {
     app.log.info('the full test before review is off: the managed VM profile has no sandbox for it');
 
   const shutdown = createShutdown({
+    pause: () => app.projectman.pauseForShutdown(),
     close: () => app.close(),
     exit: (code) => process.exit(code),
     log: {

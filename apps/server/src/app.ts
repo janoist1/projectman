@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { EXECUTION_PROFILES } from '@projectman/shared';
+import { CONTROL_SOCKET_NAME, EXECUTION_PROFILES } from '@projectman/shared';
 import type { ExecutionProfile } from '@projectman/shared';
 import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
@@ -12,6 +12,8 @@ import { AuthService, loadOrCreateSecret, registerAuth } from './auth';
 import { serializeRequest } from './auth/request-logging';
 import { createConfigStore } from './config';
 import type { GitConfigStore } from './config';
+import { startControlSocket } from './control';
+import type { ControlPause, ControlSocket } from './control';
 import { createContextPackBuilder, createMemberMemoryStore } from './context';
 import type {
   AttachmentStorage,
@@ -108,6 +110,7 @@ export const APP_DEFAULTS = {
   logLevel: 'info',
   permissionTimeoutMs: 10 * 60_000,
   githubPollIntervalMs: 60_000,
+  shutdownPauseMs: 60_000,
 } as const;
 
 export interface BuildAppOptions {
@@ -190,11 +193,20 @@ export interface BuildAppOptions {
    * session. Without it (and without `modules.githubPublisher`) nothing is published.
    */
   githubPublishTokenFile?: string;
+  /**
+   * How long stopping the server (a signal) lets the sessions come to a safe point before it closes
+   * (PM-219): the team is paused first. Default `APP_DEFAULTS.shutdownPauseMs`; 0 switches the pause off.
+   */
+  shutdownPauseMs?: number;
+  /** Opens `${home}/control.sock` for the control command (PM-219); default true, never for a standby copy. */
+  controlSocket?: boolean;
 }
 
 /** What `app.projectman` exposes (tests and tooling reach the services through it). */
 export interface AppContext {
   home: string;
+  /** Pauses the team before the server closes (`shutdownPauseMs`); nothing when that is 0 or this is a standby copy. */
+  pauseForShutdown: () => Promise<void>;
   repos: Repositories;
   configStore: GitConfigStore;
   domain: Domain;
@@ -476,8 +488,17 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     mcpModule.registerRoutes(app);
     if (webDistDir) await app.register(fastifyStatic, { root: webDistDir, index: ['index.html'] });
 
+    const shutdownPauseMs = options.shutdownPauseMs ?? APP_DEFAULTS.shutdownPauseMs;
     app.decorate('projectman', {
       home,
+      pauseForShutdown: async () => {
+        if (shutdownPauseMs <= 0 || standby) return;
+        app.log.info(
+          { seconds: Math.round(shutdownPauseMs / 1000) },
+          'pausing the team before shutdown (up to this many seconds; press Ctrl-C again to skip)',
+        );
+        await domain.pauses.pauseForShutdown(shutdownPauseMs);
+      },
       repos,
       configStore,
       domain,
@@ -485,8 +506,37 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       runnerModule: domain.runnerModule,
     });
 
+    // The deploy script pauses the instance over a local socket (PM-219); no person is behind it.
+    const controlPause: ControlPause = {
+      pause: async (request) => {
+        await domain.pauses.pause({ scope: 'instance' }, { userId: null, source: 'control' }, request);
+        return controlPause.status();
+      },
+      resume: async () => {
+        await domain.pauses.resume({ scope: 'instance' }, { userId: null, source: 'control' });
+        return controlPause.status();
+      },
+      force: async () => {
+        await domain.pauses.force({ scope: 'instance' }, { userId: null, source: 'control' });
+        return controlPause.status();
+      },
+      status: () =>
+        domain.pauses.instanceView(
+          domain.projects.summaries().map((project) => project.key),
+          false,
+        ).pause,
+    };
+    let controlSocket: ControlSocket | undefined;
     app.addHook('onReady', async () => {
       await domain.start();
+      // A standby copy (PM-143) is paused by nobody: the active instance's socket is the one that counts.
+      if ((options.controlSocket ?? true) && !standby) {
+        controlSocket = await startControlSocket({
+          path: join(home, CONTROL_SOCKET_NAME),
+          pause: controlPause,
+          log: log.child({ module: 'control' }),
+        });
+      }
       // A standby copy (PM-143) opens no way out for anyone: the proxy's port belongs to the active instance.
       if (egressProxy && !standby) {
         const proxy = egressProxy;
@@ -504,6 +554,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     });
     const db = repos.db;
     app.addHook('onClose', async () => {
+      await controlSocket?.close();
       await egressProxy?.close();
       await bridges?.close();
       await domain.stop();

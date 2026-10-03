@@ -237,3 +237,8 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     next; development starts only on a card that is worked out. Whether a card needs the designer
     is decided by the architect when they plan it, otherwise by whoever opens it, with a reason
     (answer: „Architekt vagy a nyitó, indokkal”). PM-252 designs the flow.
+32. **The team pauses as the instance or as a project, and every stop of the server pauses it.**
+    Decided by the owner on 2026-10-01 (PM-198, the pause and resume of the team). A pause covers the
+    whole instance or one project, not a single member; and every stop of the server pauses the team
+    first and the next start resumes it, so that an update loses no session's place. PM-219 builds it
+    on the server (`PauseService`, the control socket), PM-220 the app.

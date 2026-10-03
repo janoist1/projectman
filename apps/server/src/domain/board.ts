@@ -2,6 +2,7 @@ import { DEFAULT_AGENT_PROVIDER, labelHolders, resolvedStages } from '@projectma
 import type { BoardView } from '@projectman/shared';
 import type { InboxService } from './inbox';
 import type { MemberService } from './members';
+import type { PauseService } from './pause';
 import type { PlanUsageCache } from './plan-usage';
 import type { ProjectService } from './projects';
 import type { TaskService } from './tasks';
@@ -15,6 +16,7 @@ export class BoardService {
   private readonly members: MemberService;
   private readonly inbox: InboxService;
   private readonly planUsage: Pick<PlanUsageCache, 'peek'>;
+  private readonly pauses: Pick<PauseService, 'projectView'>;
 
   constructor(deps: {
     projects: ProjectService;
@@ -22,7 +24,9 @@ export class BoardService {
     members: MemberService;
     inbox: InboxService;
     planUsage: Pick<PlanUsageCache, 'peek'>;
+    pauses: Pick<PauseService, 'projectView'>;
   }) {
+    this.pauses = deps.pauses;
     this.projects = deps.projects;
     this.tasks = deps.tasks;
     this.members = deps.members;
@@ -59,6 +63,8 @@ export class BoardService {
       openInboxCount: this.inbox.countOpenFor(projectKey, viewer.handle),
       planUsage: planUsageByProvider.claude ?? null,
       planUsageByProvider,
+      // Which sessions are held is the team's business: a client sees none of it.
+      ...(isClient(viewer) ? {} : { pause: this.pauses.projectView(projectKey) }),
     };
   }
 }

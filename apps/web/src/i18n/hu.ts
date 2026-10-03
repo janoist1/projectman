@@ -132,6 +132,7 @@ export const hu = {
       plan_usage_paused: 'A szolgáltató előfizetésének használata túl magas.',
       disk_low: 'Kevés a szabad lemezhely, ezért új munkamenet most nem indul.',
       ai_disabled: 'Az AI-munka ki van kapcsolva ebben a projektben.',
+      team_paused: 'A csapat munkája szünetel.',
       provider_not_logged_in: 'A szolgáltatónál nincs aktív bejelentkezés.',
       managed_vm_unavailable: 'A kérdésmentes VM-profil határa nincs igazolva.',
       session_start_failed: 'A munkamenetet nem sikerült elindítani.',
@@ -441,6 +442,7 @@ export const hu = {
       plan_usage_paused: 'A szolgáltatói keret magas, ezért új AI-munka most nem indul.',
       disk_low: 'Kevés a szabad lemezhely, ezért új AI-munka most nem indul.',
       ai_disabled: 'Ebben a projektben ki van kapcsolva az AI-munka (Beállítások → Keretek).',
+      team_paused: 'A csapat munkája szünetel; folytatás után indul.',
       instance_standby:
         'Ez a példány készenléti másolat: az AI-munka csak az éles (aktív) példányban indul, itt csak az adatok láthatók.',
       managed_vm_unavailable:
@@ -686,6 +688,7 @@ export const hu = {
       plan_usage_paused: 'Indulásra vár: a {provider}-keret {percent}% fölött szünetel',
       disk_low: 'Indulásra vár: kevés a szabad lemezhely',
       ai_disabled: 'Indulásra vár: az AI-munka ki van kapcsolva',
+      team_paused: 'Indulásra vár: a csapat munkája szünetel',
       member_at_capacity: 'Indulásra vár: {name} tele van',
       member_on_leave: 'Indulásra vár: {name} szabadságon van',
       repo_required: 'Válassz repót a feladathoz',
@@ -705,6 +708,7 @@ export const hu = {
       disk_low:
         'Szabadíts fel lemezhelyet (például töröld a régi munkafákat és buildeket), vagy csökkentsd a határt a Beállítások → Keretek alatt.',
       ai_disabled: 'Kapcsold be a Beállítások → Keretek alatt.',
+      team_paused: 'A csapat munkája a folytatáskor indul tovább.',
       member_at_capacity: 'Szabadíts fel egy tagot: fejezd be vagy add át a többi feladatát.',
       member_on_leave: 'Hívd vissza a tagot a szabadságról a Csapat oldalon, vagy add át a feladatot másnak.',
       repo_required:
@@ -1770,6 +1774,10 @@ export const hu = {
       member_retired: 'Elbocsátva: {handle}',
       member_retired_handover: 'Elbocsátva: {handle}, a munkái átkerültek: {to}',
       config_changed: 'Beállítás módosítva: {message}',
+      team_paused: 'A csapat munkája szünetel ebben a projektben',
+      team_paused_instance: 'A csapat munkája szünetel (az egész példányon)',
+      team_resumed: 'A csapat folytatta a munkát ebben a projektben',
+      team_resumed_instance: 'A csapat folytatta a munkát (az egész példányon)',
       gate_requested: 'Jóváhagyást kért: {from} → {to}',
       gate_rejected: 'A jóváhagyást elutasították: {to}',
       gate_blocked: 'A kapu nem engedte tovább: {to}',

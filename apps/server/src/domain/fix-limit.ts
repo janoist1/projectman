@@ -11,6 +11,7 @@ import {
   fixLimitPlannerForOwner,
   fixLimitReached,
   isOpenTask,
+  isWorkPaused,
   isTheme,
   maxFixRoundsOf,
   memberOf,
@@ -254,10 +255,30 @@ export class FixLimitWatch {
           break;
         }
         case FIX_REASSIGN_OPTION.id:
+          // Paused: another implementer would start and the first one stop. The card stays held with its
+          // item answered, and `afterResume` makes the decision then.
+          if (isWorkPaused(this.ctx.repos.pauses.open(), task.projectKey)) return;
           await this.reassign(task, { ...record, inboxItemId: null }, by, note);
           break;
       }
     });
+  }
+
+  /**
+   * The team is resumed (PM-219): the reassignments people decided while it was paused are made now. They
+   * stay stored as a held card whose decision item is answered, so a restart does not lose them.
+   */
+  async afterResume(projectKey: string): Promise<void> {
+    for (const record of this.ctx.repos.taskFixLimits.listHeld(projectKey)) {
+      if (record.holdPhase !== 'owner' || !record.inboxItemId) continue;
+      const item = this.ctx.repos.inbox.get(record.inboxItemId);
+      if (item?.resolution?.optionId !== FIX_REASSIGN_OPTION.id) continue;
+      try {
+        await this.decided(item);
+      } catch (err) {
+        this.ctx.logger.warn({ err, taskKey: record.taskKey }, 'could not reassign a card after the resume');
+      }
+    }
   }
 
   /** Whether the hold rule is for this card at all: an AI assignee on an open card that is past the queue. */
@@ -604,7 +625,8 @@ export class FixLimitWatch {
   private async notify(task: Task, handle: string, text: string): Promise<void> {
     const workItem = { type: 'task', taskKey: task.key } as const;
     const running = this.sessions.findRunning(task.projectKey, handle, workItem);
-    if (running) {
+    // A paused session takes nothing in: the notice is stored below (admission refuses with `team_paused`).
+    if (running && !this.sessions.isPaused(running)) {
       this.delivery.notice(running, 'projectman', text, task.key);
       return;
     }

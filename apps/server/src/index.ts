@@ -120,6 +120,8 @@ async function main(): Promise<void> {
             createFullTestExecutor: ({ logger }) => createFullTestExecutor({ logger, env: process.env }),
           },
   });
+  if (config.app.executionProfile === 'managed_vm')
+    app.log.info('the full test before review is off: the managed VM profile has no sandbox for it');
 
   const shutdown = createShutdown({
     close: () => app.close(),

@@ -2,6 +2,7 @@ import {
   mkdirSync,
   mkdtempSync,
   realpathSync,
+  readFileSync,
   rmSync,
   writeFileSync,
   existsSync,
@@ -32,9 +33,18 @@ import { join } from 'node:path';
 const problems = [];
 const mustFail = (what, fn) => { try { fn(); problems.push(what + ' worked'); } catch {} };
 const mustWork = (what, fn) => { try { fn(); } catch (err) { problems.push(what + ' failed: ' + err.message); } };
+// The sandbox refuses with EPERM or EACCES: any other error (a missing file, a bad path) proves nothing.
+const mustBeRefused = (what, fn) => {
+  try { fn(); problems.push(what + ' worked'); }
+  catch (err) { if (err.code !== 'EPERM' && err.code !== 'EACCES') problems.push(what + ' failed with ' + err.code + ', not a refusal'); }
+};
 
-mustFail('writing into the checkout', () => writeFileSync('written-by-the-run.txt', 'x'));
-mustFail('reading the secret below the home', () => readFileSync(process.env.SECRET_FILE, 'utf8'));
+// The environment allow list leaves the server's variables out, so the secret's path comes as an argument.
+const secretFile = process.argv[2];
+if (!secretFile) problems.push('the secret path was not given');
+
+mustBeRefused('writing into the checkout', () => writeFileSync('written-by-the-run.txt', 'x'));
+mustBeRefused('reading the secret below the home', () => readFileSync(secretFile, 'utf8'));
 mustWork('writing into TMPDIR', () => writeFileSync(join(process.env.TMPDIR, 'ok.txt'), 'x'));
 mustWork('reading the checkout', () => readFileSync('package.json', 'utf8'));
 mustWork('opening a PTY', () => execFileSync('/usr/bin/script', ['-q', '/dev/null', '/usr/bin/true']));
@@ -70,6 +80,7 @@ describe.runIf(process.platform === 'darwin')('the full test sandbox', () => {
   let userHome: string;
   let checkout: string;
   let tmpDir: string;
+  let secretFile: string;
 
   const spec = (runId: string, command: string, timeoutMs = 120_000) => ({
     runId,
@@ -92,7 +103,6 @@ describe.runIf(process.platform === 'darwin')('the full test sandbox', () => {
         NPM_TOKEN: 'token',
         SSH_AUTH_SOCK: '/nonexistent',
         ANTHROPIC_API_KEY: 'key',
-        SECRET_FILE: join(userHome, 'secret.txt'),
       },
     });
 
@@ -103,7 +113,8 @@ describe.runIf(process.platform === 'darwin')('the full test sandbox', () => {
     tmpDir = join(root, 'runs');
     mkdirSync(checkout, { recursive: true });
     mkdirSync(tmpDir);
-    writeFileSync(join(userHome, 'secret.txt'), 'secret');
+    secretFile = join(userHome, 'secret.txt');
+    writeFileSync(secretFile, 'secret');
     writeFileSync(join(checkout, 'package.json'), '{}');
     writeFileSync(join(checkout, 'probe.mjs'), PROBE);
   });
@@ -117,7 +128,12 @@ describe.runIf(process.platform === 'darwin')('the full test sandbox', () => {
     'runs the command with a PTY, a read-only checkout, a closed home, no outside network and a clean environment',
     { timeout: 180_000 },
     async () => {
-      const result = await executor().run(spec('ftr_probe', 'node probe.mjs'), new AbortController().signal);
+      // The file exists, so a refusal below is the sandbox's and not a missing file.
+      expect(readFileSync(secretFile, 'utf8')).toBe('secret');
+      const result = await executor().run(
+        spec('ftr_probe', `node probe.mjs '${secretFile}'`),
+        new AbortController().signal,
+      );
       expect(result.outputTail).toBe('');
       expect(result).toMatchObject({ outcome: 'passed', exitCode: 0 });
       expect(existsSync(join(checkout, 'written-by-the-run.txt'))).toBe(false);

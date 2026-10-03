@@ -336,6 +336,15 @@ describe('review pins on the timeline (PM-183)', () => {
         reason: t('timeline.events.task_full_test_reason.timeout'),
       }),
     );
+    // The output of a run that failed or could not run is folded behind "Részletek"; a green run has none.
+    expect(describeEvent(result({ outcome: 'failed', outputTail: 'Failed Tests 1' }), context).detail).toBe(
+      'Failed Tests 1',
+    );
+    expect(
+      describeEvent(result({ outcome: 'error', reason: 'timeout', outputTail: 'slow' }), context).detail,
+    ).toBe('slow');
+    expect(describeEvent(result({ outcome: 'failed' }), context).detail).toBeUndefined();
+    expect(describeEvent(result({ outcome: 'passed' }), context).detail).toBeUndefined();
   });
 
   it('describes a new review round of the developer that pins the new head', () => {

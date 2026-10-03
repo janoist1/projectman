@@ -232,6 +232,18 @@ describe('the full test before review', () => {
     expect(h.log.errors).toEqual([]);
   });
 
+  it('ends a run that threw before it ran as an error with its event, and lets the reviewer start', async () => {
+    await setup();
+    vi.spyOn(h.repos.fullTestRuns, 'start').mockImplementationOnce(() => {
+      throw new Error('database is locked');
+    });
+    await handOver();
+    await vi.waitFor(() => expect(reviewerStarted()).toBe(true));
+    expect(executor.specs).toHaveLength(0);
+    expect(runs()).toMatchObject([{ status: 'error', reason: 'spawn_failed' }]);
+    expect(events().map((e) => e.data)).toMatchObject([{ outcome: 'error', reason: 'spawn_failed' }]);
+  });
+
   describe('a checkout that changed while the run waited in the queue', () => {
     async function queuedSecond() {
       await setup();

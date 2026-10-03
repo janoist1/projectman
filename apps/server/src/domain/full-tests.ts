@@ -180,7 +180,8 @@ export class FullTestRuns {
     for (const run of runs.forTask(taskKey)) {
       if (run.status !== 'queued' && run.status !== 'running') continue;
       if (wanted && wanted.pin.commit === run.commit && run.createdAt >= wanted.pin.pinnedAt) continue;
-      this.cancel(run, !task || !pin || pin.stageId !== task.stageId ? 'stage_left' : 'repinned');
+      // A run of a pin that no longer applies (the stage left, the card closed or paused): "repinned" is only a newer commit.
+      this.cancel(run, wanted ? 'repinned' : 'stage_left');
     }
     if (
       wanted &&
@@ -248,15 +249,33 @@ export class FullTestRuns {
         await this.execute(next);
       } catch (err) {
         this.ctx.logger.warn({ err, runId: next.id }, 'a full test run failed to go through');
-        const row = this.ctx.repos.fullTestRuns.get(next.id);
-        if (row && (row.status === 'queued' || row.status === 'running'))
-          this.ctx.repos.fullTestRuns.finish(next.id, {
-            status: 'error',
-            reason: 'spawn_failed',
-            finishedAt: isoNow(this.ctx),
-          });
+        await this.failToRun(next.id);
       }
     }
+  }
+
+  /**
+   * A run that threw before it ended: it ends as "could not run" like any other, so the card gets its
+   * event and its reviewers are not held for a result that never comes.
+   */
+  private async failToRun(runId: string): Promise<void> {
+    const row = this.ctx.repos.fullTestRuns.get(runId);
+    if (!row || (row.status !== 'queued' && row.status !== 'running')) return;
+    const task = this.tasks.find(row.projectKey, row.taskKey);
+    const config = task ? await this.projects.config(row.projectKey).catch(() => null) : null;
+    try {
+      if (task && config)
+        return await this.end(row, task, config, { outcome: 'error', reason: 'spawn_failed' }, '');
+    } catch (err) {
+      this.ctx.logger.warn({ err, runId }, 'could not record a full test run that failed to go through');
+    }
+    const left = this.ctx.repos.fullTestRuns.get(runId);
+    if (left && (left.status === 'queued' || left.status === 'running'))
+      this.ctx.repos.fullTestRuns.finish(runId, {
+        status: 'error',
+        reason: 'spawn_failed',
+        finishedAt: isoNow(this.ctx),
+      });
   }
 
   /** One run, from the checks before it to what follows its result. */
@@ -266,13 +285,16 @@ export class FullTestRuns {
     const task = this.tasks.find(projectKey, taskKey);
     const pin = this.ctx.repos.reviewPins.get(taskKey);
     const config = task ? await this.projects.config(projectKey) : null;
-    if (!task || !config || !pin || pin.commit !== run.commit || !this.pinApplies(task, config, pin)) {
-      this.cancel(run, !task || !pin || pin.stageId !== task.stageId ? 'stage_left' : 'repinned');
+    const applies = !!task && !!config && !!pin && this.pinApplies(task, config, pin);
+    if (!task || !config || !pin || !applies || pin.commit !== run.commit) {
+      this.cancel(run, applies ? 'repinned' : 'stage_left');
       return;
     }
     const reviewTest = reviewTestOf(config, task)!;
     const head = await this.sessions.sourceHead(config, task);
     if (runs.get(run.id)?.status !== 'queued') return;
+    // The server stopped while the checkout was read: nothing starts after the shutdown.
+    if (this.stopped) return this.cancel(run, 'shutdown');
     if (!head)
       return this.end(run, task, config, { outcome: 'error', reason: 'spawn_failed' }, 'no checkout to test');
     if (head.commit !== run.commit) return this.cancel(run, 'branch_moved');

@@ -307,22 +307,30 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
     case 'task_full_test': {
       const commit = shortCommit(str(d.commit));
       if (d.outcome === 'passed') return normal(t('timeline.events.task_full_test_passed', { commit }));
+      // The run's output is raw (English) text: it goes behind "Részletek".
+      const output = str(d.outputTail);
+      const withOutput = (described: DescribedEvent): DescribedEvent =>
+        output ? { ...described, detail: output } : described;
       if (d.outcome === 'error') {
         const reason = FullTestErrorReason.safeParse(d.reason);
-        return normal(
-          t('timeline.events.task_full_test_error', {
-            commit,
-            reason: reason.success
-              ? t(`timeline.events.task_full_test_reason.${reason.data}`)
-              : str(d.reason),
-          }),
+        return withOutput(
+          normal(
+            t('timeline.events.task_full_test_error', {
+              commit,
+              reason: reason.success
+                ? t(`timeline.events.task_full_test_reason.${reason.data}`)
+                : str(d.reason),
+            }),
+          ),
         );
       }
       const files = strings(d.failedFiles).join(t('common.listSeparator'));
-      return normal(
-        files
-          ? t('timeline.events.task_full_test_failed_files', { commit, files })
-          : t('timeline.events.task_full_test_failed', { commit }),
+      return withOutput(
+        normal(
+          files
+            ? t('timeline.events.task_full_test_failed_files', { commit, files })
+            : t('timeline.events.task_full_test_failed', { commit }),
+        ),
       );
     }
     case 'task_assigned': {

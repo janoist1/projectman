@@ -88,6 +88,19 @@ export function fixLimitPlanner(
 }
 
 /**
+ * Who makes the more exact plan when a person asks for one: the planner that is not the card's assignee
+ * and not the lead who would have decided (the lead has already passed the card on); null when there is none.
+ */
+export function fixLimitPlannerForOwner(
+  config: Pick<ProjectConfig, 'team'>,
+  assignee: string | null,
+): string | null {
+  const exclude = assignee ? [assignee] : [];
+  const lead = fixLimitLead(config, exclude);
+  return fixLimitPlanner(config, lead ? [...exclude, lead] : exclude);
+}
+
+/**
  * The people who decide when it reaches a person: the owners and admins who hold the technical direction
  * duty; when there is none, `owners`.
  */

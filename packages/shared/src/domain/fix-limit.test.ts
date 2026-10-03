@@ -5,6 +5,7 @@ import {
   fixLimitDeciders,
   fixLimitLead,
   fixLimitPlanner,
+  fixLimitPlannerForOwner,
   fixLimitReached,
   maxFixRoundsOf,
 } from './fix-limit';
@@ -137,6 +138,11 @@ describe('who decides', () => {
   it('picks the planner among the others with technical direction', () => {
     expect(fixLimitPlanner(config(), ['dev', 'lead'])).toBe('arch');
     expect(fixLimitPlanner(config(), ['dev', 'lead', 'arch'])).toBeNull();
+  });
+
+  it('asks for the more exact plan of a person from the planner, not the lead who passed the card on', () => {
+    expect(fixLimitPlannerForOwner(config(), 'dev')).toBe('arch');
+    expect(fixLimitPlannerForOwner(config(), 'arch')).toBeNull();
   });
 
   it('sends the people decision to the owners with the duty, else to the owners', () => {

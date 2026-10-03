@@ -786,12 +786,15 @@ send-back into a work stage (the counter of PM-222, `countCardRounds`), counted 
 The limit is `team.limits.maxFixRounds` (1..10, default 3) plus the rounds people let the card have
 (`extra_rounds`); a card is held when `rounds >= limit` and its assignee is an AI member.
 
-While a card is held, what AI members write to its assignee is stored as waiting and does not wake it
-(`Messaging.send` with `held`), and the hand-over into the work stage does not tell it; people's messages pass,
-and a person's Start is "one more round". Who decides: the lead developer first (an AI member who holds
+While a card is held, what AI members and the system (the review watch's send-back) write to its assignee is
+stored as waiting and does not wake it (`Messaging.send` with `held`), and the hand-over into the work stage
+does not tell it; only people's messages pass, and a person's Start is "one more round". When the card goes to
+another implementer (`reassign`) the waiting messages stay with the first one and do not wake it. Who decides: the lead developer first (an AI member who holds
 `technical_direction` and `code_review`, is not on leave and is not the assignee) with the MCP tool
 `decide_fix_limit` (`continue`, `replan` to another `technical_direction` holder, or `to_owner` with a reason);
-the planner then lets it start with a fresh count. The people decide (an inbox decision with `replan`, `reassign`
+the planner then lets it start with a fresh count (`fixLimitPlannerForOwner`: when a person asks for the plan,
+the planner is not the lead who passed the card on either; if none is left by then, it is one more round). The
+people decide (an inbox decision with `replan`, `reassign`
 and `another_round`, only the options that can be carried out) when no AI member can, when the lead passed it
 on (`passed_on`), or when the card reaches the limit again after one more round (`again`). The state is a row of
 `task_fix_limits` (migration 30); the card carries it as `Task.fixLimit` (clients do not see it) and

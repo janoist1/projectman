@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InboxItem, ProjectConfig } from '@projectman/shared';
-import { aiActor } from '../src/domain';
+import { SYSTEM_ACTOR, aiActor } from '../src/domain';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { settle } from './helpers/fakes';
@@ -136,6 +136,23 @@ describe('fix round limit', () => {
       expect(record()?.holdPhase).toBe('lead');
     });
 
+    it("holds the system's message (a send-back) as well, and lets it through with the hold's end", async () => {
+      await prepare();
+      await round('First fix');
+      await round('Second fix');
+      await h.domain.messaging.send(
+        'AR',
+        'system',
+        { to: ['dev-1'], text: 'The branch moved', taskKey: 'AR-1' },
+        { actor: SYSTEM_ACTOR },
+      );
+      await settle();
+      expect(typed('The branch moved')).toBe(false);
+      expect(waiting()).toContain('The branch moved');
+      await tool('lead', 'continue');
+      await vi.waitFor(() => expect(typed('The branch moved')).toBe(true));
+    });
+
     it('does not hold a card whose assignee is a person', async () => {
       await prepare();
       h.domain.tasks.assign('AR', 'AR-1', 'owner', OWNER_ACTOR);
@@ -258,17 +275,28 @@ describe('fix round limit', () => {
       ]);
     });
 
-    it('replan gives the card to the first technical direction holder, who releases it', async () => {
+    it('replan gives the card to another technical direction holder than the lead who passed it on', async () => {
       await owned();
       await resolve('replan');
       await settle();
-      expect(record()).toMatchObject({ holdPhase: 'replan', decider: 'lead' });
-      await tool('lead', 'continue', 'Done.');
+      expect(record()).toMatchObject({ holdPhase: 'replan', decider: 'arch' });
+      await expect(tool('lead', 'continue')).rejects.toMatchObject({ code: 'fix_limit_not_decider' });
+      await tool('arch', 'continue', 'Done.');
       expect(record()).toMatchObject({ holdPhase: null, extraRounds: 0 });
+    });
+
+    it('replan is not offered when only the lead could plan', async () => {
+      await prepare({ planner: false });
+      await round('First fix');
+      await round('Second fix');
+      await tool('lead', 'to_owner', 'Your call.');
+      expect(items()[0]?.options).toMatchObject([{ id: 'reassign' }, { id: 'another_round' }]);
     });
 
     it('reassign stops the first implementer and starts another one with a fresh count', async () => {
       await owned();
+      const startsOf = (member: string) => h.runner.started.filter((spec) => spec.member === member).length;
+      const before = startsOf('dev-1');
       const stop = vi.spyOn(h.domain.sessions, 'stopTask');
       await resolve('reassign');
       await settle();
@@ -276,6 +304,9 @@ describe('fix round limit', () => {
       expect(task().assignee).toBe('dev-2');
       expect(record()).toMatchObject({ holdPhase: null, extraRounds: 0 });
       expect(h.runner.started.some((spec) => spec.member === 'dev-2')).toBe(true);
+      // What waited stays with the first implementer and does not wake it on a card it no longer has.
+      expect(startsOf('dev-1')).toBe(before);
+      expect(waiting()).toEqual(['Code review: changes\n\nSecond fix']);
       const config = await h.domain.projects.config('AR');
       expect(h.domain.fixLimit.fixRounds(task(), config)).toEqual({ rounds: 0, limit: 2 });
     });

@@ -8,6 +8,7 @@ import {
   fixLimitDecisionOf,
   fixLimitLead,
   fixLimitPlanner,
+  fixLimitPlannerForOwner,
   fixLimitReached,
   isOpenTask,
   isTheme,
@@ -246,8 +247,10 @@ export class FixLimitWatch {
           await this.tellAssignee(task, by, note);
           break;
         case FIX_REPLAN_OPTION.id: {
-          const planner = fixLimitPlanner(config, task.assignee ? [task.assignee] : []);
+          const planner = this.plannerFor(config, task);
           if (planner) this.toPlanner(task, { ...record, inboxItemId: null }, planner, actor, note);
+          // The planner is gone (the configuration changed since the item was made): one more round instead.
+          else this.anotherRound(task, { ...record, inboxItemId: null }, actor, note);
           break;
         }
         case FIX_REASSIGN_OPTION.id:
@@ -342,10 +345,9 @@ export class FixLimitWatch {
     decider: string | null,
     note: string | null,
   ): void {
-    const assignee = task.assignee ? [task.assignee] : [];
     const deciders = fixLimitDeciders(config, ownerHandles(config));
     const options: InboxOption[] = [];
-    if (fixLimitPlanner(config, assignee)) options.push(FIX_REPLAN_OPTION);
+    if (this.plannerFor(config, task)) options.push(FIX_REPLAN_OPTION);
     if (this.otherDevelopers(config, task).length > 0) options.push(FIX_REASSIGN_OPTION);
     options.push(FIX_ANOTHER_ROUND_OPTION);
     const limit = maxFixRoundsOf(config.team.limits) + base.extraRounds;
@@ -395,6 +397,11 @@ export class FixLimitWatch {
       );
     });
     this.tasks.publish(this.tasks.get(task.projectKey, task.key));
+  }
+
+  /** Who makes a more exact plan when a person asks for one: not the implementer and not the lead who passed the card on. */
+  private plannerFor(config: ProjectConfig, task: Task): string | null {
+    return fixLimitPlannerForOwner(config, task.assignee);
   }
 
   /** The AI members who own the work stage and are not the card's assignee. */
@@ -473,14 +480,20 @@ export class FixLimitWatch {
     actor: Actor,
     decision: 'continue' | 'reassign',
     reason: string | null,
+    wake = true,
   ): void {
-    this.release(task, record, actor, decision, reason, {
-      ...this.cleared(record),
-      countedFrom: isoNow(this.ctx),
-      extraRounds: 0,
-    });
+    this.release(
+      task,
+      record,
+      actor,
+      decision,
+      reason,
+      { ...this.cleared(record), countedFrom: isoNow(this.ctx), extraRounds: 0 },
+      wake,
+    );
   }
 
+  /** `wake` is false when the messages that waited stay where they are (the card goes to another assignee). */
   private release(
     task: Task,
     record: TaskFixLimitRecord,
@@ -488,6 +501,7 @@ export class FixLimitWatch {
     decision: NonNullable<FixLimitEvent['decision']>,
     reason: string | null,
     next: TaskFixLimitRecord,
+    wake = true,
   ): void {
     const config = this.projects.cachedConfig(task.projectKey);
     const rounds = config ? this.roundsOf(task, config, record) : null;
@@ -503,7 +517,7 @@ export class FixLimitWatch {
         });
     });
     this.tasks.publish(this.tasks.get(task.projectKey, task.key));
-    this.releaseMessages(task);
+    if (wake) this.releaseMessages(task);
   }
 
   /** The hold ended without a decision: its item closes by the system. */
@@ -535,7 +549,8 @@ export class FixLimitWatch {
     const previous = task.assignee;
     const actor = humanActor(by);
     await this.sessions.stopTask(task.projectKey, task.key);
-    this.freshStart(task, record, actor, 'reassign', note);
+    // The messages that waited stay with the first implementer: waking it would start a session on a card it no longer has.
+    this.freshStart(task, record, actor, 'reassign', note, false);
     this.tasks.assign(task.projectKey, task.key, null, actor, { reason: 'handover' });
     try {
       await this.starts.start(task.projectKey, task.key, {

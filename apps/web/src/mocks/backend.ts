@@ -126,6 +126,7 @@ import {
   fixLimitDeciders,
   fixLimitLead,
   fixLimitPlanner,
+  fixLimitPlannerForOwner,
   fixLimitReached,
   maxFixRoundsOf,
   FIX_ANOTHER_ROUND_OPTION,
@@ -866,7 +867,6 @@ export class MockBackend {
     decider: string | null,
     note: string | null,
   ): void {
-    const assignee = task.assignee ? [task.assignee] : [];
     const deciders = fixLimitDeciders(this.config, boundaryOwners(this.config));
     const workStage = this.config.pipeline.stages.find((stage) => stage.kind === 'work');
     const others = workStage
@@ -875,7 +875,7 @@ export class MockBackend {
         )
       : [];
     const options = [
-      ...(fixLimitPlanner(this.config, assignee) ? [FIX_REPLAN_OPTION] : []),
+      ...(fixLimitPlannerForOwner(this.config, task.assignee) ? [FIX_REPLAN_OPTION] : []),
       ...(others.length > 0 ? [FIX_REASSIGN_OPTION] : []),
       FIX_ANOTHER_ROUND_OPTION,
     ];
@@ -968,8 +968,11 @@ export class MockBackend {
     if (optionId === 'another_round') {
       this.releaseFixLimit(task, by, 'another_round', note, false);
     } else if (optionId === 'replan') {
-      const planner = fixLimitPlanner(this.config, task.assignee ? [task.assignee] : []);
-      if (!planner) return;
+      const planner = fixLimitPlannerForOwner(this.config, task.assignee);
+      if (!planner) {
+        this.releaseFixLimit(task, by, 'another_round', note, false);
+        return;
+      }
       this.addTimeline(task.key, by, 'task_fix_limit', {
         phase: 'decided',
         ...this.fixLimitData(task.key, this.fixRoundsOf(task.key)),

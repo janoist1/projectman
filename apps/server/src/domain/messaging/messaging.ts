@@ -345,12 +345,12 @@ export class Messaging {
   }
 
   /**
-   * Whether an AI member's message to a card's AI assignee waits because the card reached its fix round
-   * limit (PM-262): it is stored and not typed in, and wakes nobody until the hold ends. A person's
-   * message and the system's pass.
+   * Whether a message to a card's AI assignee waits because the card reached its fix round limit
+   * (PM-262): it is stored and not typed in, and wakes nobody until the hold ends. Only a person's
+   * message passes; AI members' and the system's (the review watch's send-back) wait.
    */
   private heldForFixLimit(config: ProjectConfig, task: Task | null, from: string, handle: string): boolean {
-    if (!task || task.assignee !== handle || memberOf(config, from)?.kind !== 'ai') return false;
+    if (!task || task.assignee !== handle || memberOf(config, from)?.kind === 'human') return false;
     return this.fixLimit?.heldFor(task, config) ?? false;
   }
 

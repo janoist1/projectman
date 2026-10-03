@@ -365,7 +365,8 @@ claude | codex ── transcript JSONL ────────────▶ r
 - Messages are typed into the PTY with bracketed paste only while the session is idle;
   otherwise they queue.
 - Sessions do not survive a server restart; conversations do (the CLI's transcript), and a
-  later message resumes them. A resumed task session gets a first input so that it does not
+  later message resumes them. A stop pauses the team first and the start resumes it, so the
+  sessions that were working go on with a nudge (the pause section below, PM-219). A resumed task session gets a first input so that it does not
   sit at its prompt: the messages that caused the resume, else a short continue message (it was
   restarted; the task and its stage; check where it left off). A new conversation gets the
   messages that woke it after its brief, in full: typed in later they would wait for the end of
@@ -804,6 +805,58 @@ the card's closing; its inbox decision closes itself with the `fix_limit_ended` 
 running assignee are not stored team messages (the timeline would show their English text): a `delivery.notice`
 into the member's running session of the card, or the first input of a new one, like the loop watch's; only
 when admission cannot start the session now is the notice stored as a message from `system`.
+
+## Pause and resume (PM-219, part of PM-198)
+
+The team's work can be paused so that every session stops at a safe point and goes on from there (a quicker
+deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` / `release` (PM-218,
+[PROVIDERS.md](PROVIDERS.md)); `PauseService` (`apps/server/src/domain/pause.ts`) is the team's.
+
+- **Scope and storage.** A pause covers the instance or one project, never one member (decision 32). It is a row of
+  `pauses` (migration 31; at most one open per scope), and `session_pauses` holds one open row for every session
+  it stops (point, tool, what it still waits for, `needs_restart`), so it survives a restart. `Session.pause`
+  carries that row, `BoardView.pause` the open pauses of the project (`ProjectPauseView`; clients see neither),
+  `pause_changed` and `session_upserted` keep the app current. The rules are pure and in
+  `packages/shared/src/domain/pause.ts` (`isWorkPaused`, `canManageInstancePause`, `pauseStateOf`).
+- **Pausing.** Under the admission lock only the rows and the timeline event (`team_paused`; project-level,
+  internal) are written; then every running session gets `runner.pause(id, { forceAfterMs })`. The pause is
+  `pausing` until every session has a point, then `paused`. `force` writes the deadline as now and cuts the
+  rest with one Esc. A session that starts during a pause (a race) is stopped too.
+- **What waits.** `assertNotPaused` in admission (right after `assertAiEnabled`) makes `team_paused` a deferrable
+  refusal: hand-overs, work starts, refinement rounds, message wake-ups and the loop notice go to
+  `deferred_starts` and are retried on resume. A person's Start, a write into a stopped session and the PM-170
+  restart are refused with 409 (nothing is recorded). A message to a running paused session is stored and
+  held in `MessageDelivery.pauseHeld` (in memory); the restart for new permissions, the PM-170 restart and the
+  compaction do not stop a paused session. A fix limit's `reassign` decision is left until resume
+  (`FixLimitWatch.afterResume`), a refinement turn that the pause cut is not "stalled", and a scheduled run
+  is skipped with `team_paused` and made up once on resume (`ScheduleService.catchUp`, from the pause's own times).
+- **Resuming.** Closing the row and the timeline event (`team_resumed`) are under the lock, the rest after it.
+  A session goes on only when its project is no longer paused by anything (the instance's and the project's
+  pauses are independent). A live session is released (`runner.release`), with a nudge when it was cut in the middle
+  of a turn (`NUDGE_POINTS`: the tool ran, the call did not run, or the tool was interrupted; text from
+  `ContextPackBuilder.pauseNudge`), then gets its held messages and its idle work back (`sessions.afterPause`). A
+  session whose process is gone, stopped at a `RESTART_POINTS` point, is started again with `--resume`
+  (`ensureSession` with `nudge`, which stands before the waiting messages); one that stopped idle is not.
+  Last come `fixLimit.afterResume`, `schedules.catchUp` and `admission.retryDeferred`. A deliberate stop
+  closes the session's row: it is not restarted.
+- **Stopping the server.** Every stop pauses first (`ShutdownOptions.pause`, before `close`, because the hooks
+  and the MCP reach the server over its HTTP and Fastify's `close` answers 503): `pauseForShutdown` opens an
+  instance pause of kind `shutdown` (source `system`; it writes no timeline event) and waits for the sessions up
+  to `PROJECTMAN_SHUTDOWN_PAUSE_MS` (default 60 s, 0 turns it off) plus 10 s, then the server closes as before.
+  After the start `resumeAfterStartup` (in the background, after `restoreDeferred`) ends the `shutdown`
+  pauses, so the sessions start again with a nudge that says their process is new; a pause a person made stays.
+  A crash and a second Ctrl-C after 3 s do not pause. Under systemd this needs `KillMode=mixed` and
+  `TimeoutStopSec=90` ([DEPLOY.md](DEPLOY.md)).
+- **Access.** `GET` of a project's pause: an internal member; changing it: admin or owner. The instance's pause
+  may be seen by anyone who is internal in some project, with only the sessions of the viewer's projects, and
+  changed by an owner of every project (`canManageInstancePause`).
+- **Control socket.** `PROJECTMAN_HOME/control.sock` (mode 0600; `apps/server/src/control`, not opened for a standby
+  copy) takes one JSON line per request (`ControlRequest`: `pause`, `resume`, `force`, `status`) and answers one
+  (`ControlResponse`); the requests are the instance's, source `control`, with no person behind them, and there is
+  no login: whoever may open the file may pause the team, like whoever may stop the service. A file nobody
+  answers on is replaced; one somebody answers on is left alone and logged. The members' sessions may not touch it
+  (`sensitivePaths`). `npm run control -- pause --wait | resume | force | status`
+  (`scripts/control`) is its client ([DEPLOY.md](DEPLOY.md)).
 
 ## GitHub
 

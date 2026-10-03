@@ -19,8 +19,10 @@ import { PlanUsageBadge, PlanUsageMeter } from './PlanUsageMeter';
 import { useProject } from './contexts';
 import styles from './Shell.module.css';
 
-/** Below this width the top bar is crowded: Szünet shows the icon alone (the search field gives way first). */
+/** The top bar's steps as the window narrows (the plan usage and presence are gone altogether at 1180). */
 const COMPACT_PAUSE_QUERY = '(max-width: 1599px)';
+const TIGHT_METERS_QUERY = '(max-width: 1519px)';
+const HIDE_PRESENCE_QUERY = '(max-width: 1279px)';
 
 interface NavItem {
   to: string;
@@ -273,21 +275,32 @@ export function TopBar({
 }) {
   const { key, openNewTask, openPause, can } = useProject();
   const canPause = can.pauseTeam && board !== undefined && openPauses(board.pause).length === 0;
-  // Where the meters, the presence and the buttons leave little room, Szünet is the pause icon alone.
+  // The bar sheds width in steps, so nothing overlaps: the search field gives way first, then Szünet is
+  // the pause icon alone, the meters lose their labels and last the presence goes.
   const compactPause = useMediaQuery(COMPACT_PAUSE_QUERY);
+  const tightMeters = useMediaQuery(TIGHT_METERS_QUERY);
+  const hidePresence = useMediaQuery(HIDE_PRESENCE_QUERY);
   return (
     <header className={styles.topbar}>
       <ProjectSwitcher currentKey={key} currentName={board?.project.name ?? key} />
       <SearchBox />
       <span className={styles.spacer} />
-      <span className={styles.hideNarrow}>
+      <span className={clsx(styles.hideNarrow, tightMeters && styles.metersTight)}>
         {planUsages(board).map(({ provider, usage }) => (
-          <PlanUsageMeter key={provider} provider={provider} usage={usage} pauseAbove={pauseAbove} />
+          <PlanUsageMeter
+            key={provider}
+            provider={provider}
+            usage={usage}
+            pauseAbove={pauseAbove}
+            compact={tightMeters}
+          />
         ))}
       </span>
-      <span className={styles.hideNarrow}>
-        <Presence board={board} members={members} />
-      </span>
+      {hidePresence ? null : (
+        <span className={styles.hideNarrow}>
+          <Presence board={board} members={members} />
+        </span>
+      )}
       {canPause ? (
         compactPause ? (
           <Button

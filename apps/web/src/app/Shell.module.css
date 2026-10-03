@@ -286,6 +286,11 @@
   flex-shrink: 0;
 }
 
+/* The labelless meters have no frame to tell them apart. */
+.metersTight {
+  gap: 14px;
+}
+
 @media (max-width: 1180px) {
   .hideNarrow {
     display: none;

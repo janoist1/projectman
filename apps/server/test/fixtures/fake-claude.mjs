@@ -49,6 +49,11 @@
  *     in order and in this one turn, each after its delay: tool_use mcp__team__<tool>, the same
  *     permission flow, then a real tools/call to the "team" server of --mcp-config; its answer
  *     (or the HTTP error) is the tool_result.
+ *   - contains "LONGTOOL": tool_use Bash {command:"sleep 60"}, the same permission flow, then a call
+ *     that takes FAKE_CLAUDE_TOOL_MS (default 1000) before its result and PostToolUse.
+ *   - A PreToolUse answer with `continue: false` (a pause, PM-218) turns the call away: it does not
+ *     run, its tool_result is an error with the `stopReason`, and the turn ends with a Stop hook. A
+ *     PostToolUse answer with `continue: false` ends the turn after the result, also with a Stop.
  *   - contains "ASK": tool_use AskUserQuestion, PreToolUse, waits for a key in the terminal (a
  *     PreToolUse hook that answers permissionDecision "deny" turns the call away: no dialog).
  *   - contains "SUBAGENT": a subagent's own transcript
@@ -656,6 +661,26 @@ async function interactive() {
     showPrompt();
   }
 
+  /** A hook told the turn to end (`continue: false`): the Stop hook follows, like in Claude Code 2.1.284. */
+  async function haltTurn(reason) {
+    const myTurn = turn;
+    line(`● ${reason}`);
+    await runHooks('Stop', { stop_hook_active: false, last_assistant_message: reason });
+    if (turn !== myTurn) return;
+    busy = false;
+    progress(false);
+    line();
+    showPrompt();
+  }
+
+  /** After a PostToolUse hook: true when its answer ended the turn (the result is already in). */
+  async function haltedAfterTool(outputs) {
+    const halt = outputs.find((o) => o.continue === false);
+    if (!halt) return false;
+    await haltTurn(halt.stopReason ?? 'Stopped by a hook');
+    return true;
+  }
+
   /**
    * One tool call: tool_use, PreToolUse, the permission flow, then the result (PostToolUse) or the
    * denial. `run`, when given, does the call once it is allowed and answers `{ text, isError }`.
@@ -664,7 +689,23 @@ async function interactive() {
     const toolUseId = `toolu_fake_${turn}_${name}`;
     assistantEntry([{ type: 'tool_use', id: toolUseId, name, input: toolInput }]);
     line(`● ${name}(${JSON.stringify(toolInput).slice(0, 60)})`);
-    await runHooks('PreToolUse', { tool_name: name, tool_input: toolInput, tool_use_id: toolUseId }, name);
+    const preOutputs = await runHooks(
+      'PreToolUse',
+      { tool_name: name, tool_input: toolInput, tool_use_id: toolUseId },
+      name,
+    );
+    // A halting answer (`continue: false`, a pause): the call does not run, its result is an error
+    // with the reason, and the turn ends.
+    const preHalt = preOutputs.find((o) => o.continue === false);
+    if (preHalt) {
+      const message = preHalt.stopReason ?? 'Stopped by a hook';
+      userEntry([{ type: 'tool_result', tool_use_id: toolUseId, content: message, is_error: true }], {
+        toolUseResult: `Error: ${message}`,
+      });
+      line(`  ⎿ ${message}`);
+      await haltTurn(message);
+      return false;
+    }
     // bypassPermissions asks nothing (FAKE_CLAUDE_FORCE_PERMISSION_REQUEST asks anyway, to test a
     // request that arrives where none is expected).
     let allowed =
@@ -706,6 +747,7 @@ async function interactive() {
     if (!busy) return false; // interrupted meanwhile
     if (allowed && run) {
       const result = await run();
+      if (!busy) return false; // interrupted while the call ran
       userEntry(
         [{ type: 'tool_result', tool_use_id: toolUseId, content: result.text, is_error: result.isError }],
         {
@@ -714,22 +756,24 @@ async function interactive() {
       );
       line(`  ⎿ ${result.text}`);
       if (!result.isError) {
-        await runHooks(
+        const outputs = await runHooks(
           'PostToolUse',
           { tool_name: name, tool_input: toolInput, tool_use_id: toolUseId, tool_response: result.text },
           name,
         );
+        if (await haltedAfterTool(outputs)) return false;
       }
     } else if (allowed) {
       userEntry([{ type: 'tool_result', tool_use_id: toolUseId, content: okResult, is_error: false }], {
         toolUseResult: toolResponse,
       });
       line(`  ⎿ ${okResult}`);
-      await runHooks(
+      const outputs = await runHooks(
         'PostToolUse',
         { tool_name: name, tool_input: toolInput, tool_use_id: toolUseId, tool_response: toolResponse },
         name,
       );
+      if (await haltedAfterTool(outputs)) return false;
     } else {
       userEntry([{ type: 'tool_result', tool_use_id: toolUseId, content: denyMessage, is_error: true }], {
         toolUseResult: `Error: ${denyMessage}`,
@@ -789,6 +833,14 @@ async function interactive() {
           isImage: false,
         },
       );
+      if (!ok || !busy || turn !== myTurn) return;
+    }
+    if (text.includes('LONGTOOL')) {
+      // A Bash call that takes FAKE_CLAUDE_TOOL_MS (default 1000): a pause waits for its end.
+      const ok = await toolCall('Bash', { command: 'sleep 60' }, '', null, async () => {
+        await sleep(Number(process.env.FAKE_CLAUDE_TOOL_MS ?? 1000));
+        return { text: 'slept', isError: false };
+      });
       if (!ok || !busy || turn !== myTurn) return;
     }
     if (text.includes('TEAM')) {

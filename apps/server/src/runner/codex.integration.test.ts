@@ -406,6 +406,66 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
     await assistantSaid(s.sessionId, 'Echo: after the interrupt');
   });
 
+  describe('pausing (PM-218)', () => {
+    const toolCalls = (id: string) => chatOf(id).filter((i) => i.kind === 'tool_call');
+
+    it('stops an idle session at once, and holds the input until the release, the nudge first', async () => {
+      await setup();
+      const s = spec();
+      await runner.runner.start(s);
+      await waitState(s.sessionId, 'idle');
+      await expect(runner.runner.pause(s.sessionId)).resolves.toEqual({ point: 'idle', tool: null });
+
+      void runner.runner.sendUserMessage(s.sessionId, 'queued during the pause').catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect(chatOf(s.sessionId).some((i) => i.kind === 'user_text')).toBe(false);
+
+      expect(runner.runner.release(s.sessionId, { nudge: 'Carry on.' })).toBe(true);
+      await assistantSaid(s.sessionId, 'Echo: Carry on.');
+      await assistantSaid(s.sessionId, 'Echo: queued during the pause');
+    });
+
+    it('lets a running tool finish, then ends the turn with one Esc, confirmed by the Interrupt hook', async () => {
+      process.env.FAKE_CODEX_TOOL_MS = '1500';
+      await setup();
+      const s = spec();
+      await runner.runner.start(s);
+      await waitState(s.sessionId, 'idle');
+
+      await runner.runner.sendUserMessage(s.sessionId, 'LONGTOOL go');
+      await waitFor(() => toolCalls(s.sessionId).length > 0, { what: 'the tool call' });
+      await expect(runner.runner.pause(s.sessionId)).resolves.toEqual({ point: 'after_tool', tool: 'Bash' });
+      expect(chatOf(s.sessionId).some((i) => i.kind === 'tool_result')).toBe(true);
+      expect(chatOf(s.sessionId).some((i) => i.kind === 'assistant_text')).toBe(false);
+
+      expect(runner.runner.release(s.sessionId, { nudge: 'Carry on.' })).toBe(true);
+      await assistantSaid(s.sessionId, 'Echo: Carry on.');
+    });
+
+    it('interrupts a long tool when the deadline passes or forcePause is called', async () => {
+      process.env.FAKE_CODEX_TOOL_MS = '20000';
+      await setup();
+      const s = spec();
+      await runner.runner.start(s);
+      await waitState(s.sessionId, 'idle');
+
+      await runner.runner.sendUserMessage(s.sessionId, 'LONGTOOL go');
+      await waitFor(() => toolCalls(s.sessionId).length > 0, { what: 'the tool call' });
+      await expect(runner.runner.pause(s.sessionId, { forceAfterMs: 500 })).resolves.toEqual({
+        point: 'interrupted',
+        tool: 'Bash',
+      });
+      await waitState(s.sessionId, 'idle');
+      expect(runner.runner.release(s.sessionId)).toBe(true);
+
+      await runner.runner.sendUserMessage(s.sessionId, 'LONGTOOL again');
+      await waitFor(() => toolCalls(s.sessionId).length > 1, { what: 'the second tool call' });
+      const pause = runner.runner.pause(s.sessionId);
+      await runner.runner.forcePause(s.sessionId);
+      await expect(pause).resolves.toEqual({ point: 'interrupted', tool: 'Bash' });
+    });
+  });
+
   it('reports the token usage of each turn from token_count, also after a resume (PM-178)', async () => {
     await setup();
     const s = spec({ initialMessage: 'first run' });

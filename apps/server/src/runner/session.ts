@@ -4,9 +4,17 @@ import { posix as posixPath } from 'node:path';
 import * as pty from '@lydell/node-pty';
 import type { FastifyBaseLogger } from 'fastify';
 import { COMPACTING_PROVIDERS, MANAGED_VM_NO_LOCAL_APPROVAL } from '../contracts';
-import type { PermissionBroker, RunnerEvent, RunningSessionInfo, StartSessionSpec } from '../contracts';
+import type {
+  PauseOptions,
+  PauseOutcome,
+  PermissionBroker,
+  RunnerEvent,
+  RunningSessionInfo,
+  StartSessionSpec,
+} from '../contracts';
 import type { HookPayload } from './hook-payload';
 import { InputQueue } from './input-queue';
+import { PAUSED_AFTER_TOOL, PAUSED_BEFORE_TOOL, PauseState } from './pause';
 import { PermissionGate } from './permission-gate';
 import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from './providers/types';
 import { nextState, type SessionSignal, type StateSnapshot } from './state';
@@ -21,6 +29,12 @@ const DIALOG_ROWS = 15;
 /** What the agent is told when its terminal question was sent to the humans' inbox instead (PM-199). */
 const QUESTION_FORWARDED =
   'Nobody reads this terminal, so the question was sent to the humans in the team inbox. The answer arrives later as a team message. Do not ask it again and do not wait here: carry on with what does not depend on the answer, or finish your turn. Next time ask with the ask_human tool.';
+
+/** The key that interrupts a turn in both CLIs. */
+const ESC = '\x1b';
+
+/** What a pause reports for a session that is not running. */
+const EXITED: PauseOutcome = { point: 'exited', tool: null };
 
 /** A conversation id of the agent CLIs (both use UUIDs). */
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -126,6 +140,16 @@ export class AgentSession {
   private readonly forwardedQuestions = new Set<string>();
   private watchTimer: NodeJS.Timeout | null = null;
 
+  /** The pause asked for, until it is released (PM-218). */
+  private pauseState: PauseState | null = null;
+  /** The main agent's running tools, by call id: what a pause waits for. */
+  private readonly runningTools = new Map<string, string>();
+  private toolSeq = 0;
+  /** The main agent's tool the session last waited for an approval or an answer on. */
+  private waitingTool: string | null = null;
+  /** Callers of `interrupt` awaiting the confirmation of the Esc. */
+  private readonly interruptWaiters = new Set<(confirmed: boolean) => void>();
+
   constructor(args: {
     spec: StartSessionSpec;
     hookToken: string;
@@ -160,6 +184,7 @@ export class AgentSession {
         !this.hasExited && this.ready && this.current.state === 'idle' && this.compaction?.phase !== 'typed',
       checkBeforeTyping: () => this.checkBeforeTyping(),
       write: (data) => this.write(data),
+      onChange: () => this.evaluatePause(),
     });
     this.permissions = new PermissionGate({
       sessionId: this.id,
@@ -379,6 +404,222 @@ export class AgentSession {
       this.apply({ kind: 'compact_end', idle: true });
     }
     this.input.pump();
+    this.evaluatePause();
+  }
+
+  // ---------------------------------------------------------------- pausing
+
+  /**
+   * Pauses the session (PM-218): its input is held back at once, and it stops at the next safe
+   * point (see `pause.ts` and docs/PROVIDERS.md). Resolves with where it stopped, or null when the
+   * pause was released first. A repeated call gets the same answer.
+   */
+  async pause(opts: PauseOptions = {}): Promise<PauseOutcome | null> {
+    if (this.hasExited) return EXITED;
+    const p = this.pauseState ?? this.startPause(opts);
+    this.evaluatePause();
+    return p.result();
+  }
+
+  /** Pauses the session and forces it to stop now: one Esc, then the confirmation of it. */
+  async forcePause(): Promise<PauseOutcome | null> {
+    if (this.hasExited) return EXITED;
+    const p = this.pauseState ?? this.startPause({});
+    if (p.phase === 'stopped') return p.result();
+    p.forceRequested = true;
+    this.evaluatePause();
+    return p.result();
+  }
+
+  /**
+   * Ends the pause: the held input flows again, `nudge` (if any) first. A pause that has not
+   * stopped the session yet is taken back: the hooks stop answering with a halt, the pending
+   * `pause` calls resolve with null. If a halting answer or an Esc went out already the turn is
+   * ending anyway, so the nudge stays. False when there is no pause.
+   */
+  release(opts: { nudge?: string } = {}): boolean {
+    const p = this.pauseState;
+    if (!p) return false;
+    this.pauseState = null;
+    this.clearPauseTimers(p);
+    if (p.phase === 'stopping') p.cancel();
+    this.input.unhold(p.phase === 'stopped' || p.turnEnding ? opts.nudge : undefined);
+    return true;
+  }
+
+  /**
+   * Sends one Esc and waits for the CLI to confirm the interruption (Codex: its Interrupt hook; Claude
+   * Code: the transcript's `interruptedAt`; a Stop closes it as well). `prompt`: no confirmation came
+   * in `interruptConfirmMs`, but the prompt is on screen, so the session is taken as interrupted;
+   * `unconfirmed`: neither. No second Esc is ever sent.
+   */
+  async interrupt(): Promise<'confirmed' | 'prompt' | 'unconfirmed'> {
+    if (this.hasExited) return 'unconfirmed';
+    const confirmed = await new Promise<boolean>((resolve) => {
+      const t = this.timer(() => waiter(false), this.timing.interruptConfirmMs);
+      const waiter = (value: boolean) => {
+        clearTimeout(t);
+        this.timers.delete(t);
+        this.interruptWaiters.delete(waiter);
+        resolve(value);
+      };
+      this.interruptWaiters.add(waiter);
+      this.write(ESC);
+    });
+    if (confirmed) return 'confirmed';
+    if (this.hasExited) return 'unconfirmed';
+    if (this.adapter.promptVisible(this.screen.screenText(DIALOG_ROWS))) {
+      this.log.warn(
+        { sessionId: this.id },
+        'the Esc was not confirmed, but the prompt is up: taken as interrupted',
+      );
+      this.input.schedule(this.timing.stopSettleMs);
+      this.apply({ kind: 'interrupted' });
+      return 'prompt';
+    }
+    this.log.warn({ sessionId: this.id }, 'the Esc was not confirmed and the prompt is not up');
+    return 'unconfirmed';
+  }
+
+  private startPause({ forceAfterMs }: PauseOptions): PauseState {
+    const p = new PauseState();
+    this.pauseState = p;
+    this.input.hold();
+    this.deps.emit({ type: 'session_pausing', sessionId: this.id, waitingFor: this.runningToolName() });
+    if (forceAfterMs === 0) p.forceRequested = true;
+    else if (forceAfterMs !== undefined && forceAfterMs > 0) {
+      p.deadline = this.timer(() => {
+        p.deadline = null;
+        p.forceRequested = true;
+        this.evaluatePause();
+      }, forceAfterMs);
+    }
+    return p;
+  }
+
+  private runningToolName(): string | null {
+    return [...this.runningTools.values()].at(-1) ?? null;
+  }
+
+  private noteToolStart(payload: HookPayload, name: string): void {
+    this.runningTools.set(payload.tool_use_id ?? `call-${++this.toolSeq}`, name);
+  }
+
+  /** Forgets the finished tool; returns its name. */
+  private noteToolEnd(payload: HookPayload): string {
+    const id = payload.tool_use_id;
+    let name = payload.tool_name ?? 'tool';
+    if (id && this.runningTools.has(id)) {
+      name = this.runningTools.get(id)!;
+      this.runningTools.delete(id);
+    } else if (!id) {
+      const key = [...this.runningTools].find(([, running]) => running === name)?.[0];
+      if (key) this.runningTools.delete(key);
+    }
+    return name;
+  }
+
+  /**
+   * The answer that ends the main agent's turn at a tool hook while a pause is stopping the session
+   * (Claude Code); undefined when the hook is answered the usual way. The first such answer is where
+   * the session stopped.
+   */
+  private haltingAnswer(payload: HookPayload, point: 'before_tool' | 'after_tool', tool: string): unknown {
+    const p = this.pauseState;
+    if (!p || p.phase !== 'stopping' || !this.adapter.haltOutput || payload.agent_id) return undefined;
+    p.noteHalt({ point, tool });
+    p.turnEnding = true;
+    p.stopCheck ??= this.timer(() => this.checkHaltedTurnEnded(p), this.timing.haltStopMs);
+    return this.adapter.haltOutput(point === 'before_tool' ? PAUSED_BEFORE_TOOL : PAUSED_AFTER_TOOL);
+  }
+
+  /** The Stop hook should have followed the halting answer; if it did not but the prompt is up, close the turn. */
+  private checkHaltedTurnEnded(p: PauseState): void {
+    p.stopCheck = null;
+    if (this.pauseState !== p || p.phase !== 'stopping' || this.hasExited) return;
+    if (this.current.state === 'idle') return;
+    if (this.adapter.promptVisible(this.screen.screenText(DIALOG_ROWS))) {
+      this.log.warn(
+        { sessionId: this.id },
+        'no Stop hook followed the halting answer: the prompt is up, closing the turn',
+      );
+      this.input.schedule(this.timing.stopSettleMs);
+      this.apply({ kind: 'stop' });
+    } else {
+      this.log.warn(
+        { sessionId: this.id },
+        'no Stop hook followed the halting answer; waiting for the session to stop',
+      );
+    }
+  }
+
+  /** Whether the session has stopped: it waits (or idles) with nothing typed, awaiting submission or compacting. */
+  private isStopped(): boolean {
+    const { state } = this.current;
+    if (state !== 'idle' && state !== 'waiting_permission' && state !== 'waiting_input') return false;
+    if (this.input.isTyping || this.input.isAwaitingSubmit) return false;
+    return this.compaction?.phase !== 'typed' && this.compaction?.phase !== 'started';
+  }
+
+  /** Re-checks the pause; called after every state change and when typing or a submission ends. */
+  private evaluatePause(): void {
+    const p = this.pauseState;
+    if (!p || this.hasExited) return;
+    const stopped = this.isStopped();
+    if (p.phase === 'stopped') {
+      // The stopped session works again (an approval was answered, someone typed): stop once more.
+      if (stopped || this.current.state !== 'working') return;
+      p.restart();
+      this.deps.emit({ type: 'session_pausing', sessionId: this.id, waitingFor: this.runningToolName() });
+    } else if (stopped) {
+      this.settlePause(p);
+      return;
+    }
+    this.driveStop(p);
+  }
+
+  private settlePause(p: PauseState): void {
+    const { state } = this.current;
+    const outcome: PauseOutcome =
+      state === 'waiting_permission' || state === 'waiting_input'
+        ? { point: state, tool: this.waitingTool }
+        : (p.halt ?? { point: 'idle', tool: null });
+    this.clearPauseTimers(p);
+    this.deps.emit({ type: 'session_paused', sessionId: this.id, point: outcome.point, tool: outcome.tool });
+    p.settle(outcome);
+  }
+
+  private clearPauseTimers(p: PauseState): void {
+    for (const t of [p.deadline, p.stopCheck]) {
+      if (!t) continue;
+      clearTimeout(t);
+      this.timers.delete(t);
+    }
+    p.deadline = null;
+    p.stopCheck = null;
+  }
+
+  /** A working session is being stopped: sends the Esc where the way needs one. */
+  private driveStop(p: PauseState): void {
+    if (this.current.state !== 'working' || this.input.isTyping) return;
+    if (this.compaction && this.compaction.phase !== 'queued') return;
+    if (p.forceRequested && !p.forced) {
+      p.forced = true;
+      p.turnEnding = true;
+      p.halt = { point: 'interrupted', tool: this.runningToolName() };
+      void this.interrupt();
+      return;
+    }
+    // Codex has no halting answer: Esc once nothing runs (after the tool, or before the next one).
+    if (!this.adapter.haltOutput && !p.regularEsc && !p.forced && this.runningTools.size === 0) {
+      p.regularEsc = true;
+      p.turnEnding = true;
+      p.noteHalt({ point: 'before_tool', tool: null });
+      // After the hook's response went out, which the hook that brought us here still has to give.
+      this.timer(() => {
+        if (this.pauseState === p && this.current.state === 'working') void this.interrupt();
+      }, 0);
+    }
   }
 
   // ---------------------------------------------------------------- hooks
@@ -421,11 +662,21 @@ export class AgentSession {
         return null;
       case 'PreToolUse': {
         const name = payload.tool_name ?? 'tool';
+        // A pause stopping the session turns the call away before anything else looks at it.
+        const halted = this.haltingAnswer(payload, 'before_tool', name);
+        if (halted !== undefined) return halted;
         const needsInput = this.adapter.inputTools.has(name);
         if (needsInput) {
           const refusal = await this.forwardQuestion(payload, 'PreToolUse');
           if (refusal !== undefined) return refusal;
           this.noteInputWait(payload);
+          if (!payload.agent_id) this.waitingTool = name;
+        }
+        if (!payload.agent_id) {
+          this.noteToolStart(payload, name);
+          // Codex: the Esc went out before this call, which now runs; it is where the Esc stopped it.
+          const p = this.pauseState;
+          if (p?.phase === 'stopping' && p.regularEsc) p.halt = { point: 'interrupted', tool: name };
         }
         this.apply({
           kind: 'pre_tool',
@@ -435,9 +686,18 @@ export class AgentSession {
         return null;
       }
       case 'PostToolUse':
-      case 'PostToolUseFailure':
+      case 'PostToolUseFailure': {
+        const main = !payload.agent_id;
+        const name = main ? this.noteToolEnd(payload) : (payload.tool_name ?? 'tool');
+        const halted = this.haltingAnswer(payload, 'after_tool', name);
+        const p = this.pauseState;
+        if (halted === undefined && main && p?.phase === 'stopping' && this.runningTools.size === 0) {
+          // No halting answer (Codex): the Esc follows once the last tool has finished.
+          if (!this.adapter.haltOutput) p.noteHalt({ point: 'after_tool', tool: name });
+        }
         this.apply({ kind: 'post_tool' });
-        return null;
+        return halted ?? null;
+      }
       case 'PermissionRequest':
         return this.permissionRequest(payload, withdrawn);
       case 'PermissionDenied':
@@ -582,6 +842,7 @@ export class AgentSession {
       if (refusal !== undefined) return refusal;
       // A question for whoever is at the terminal: the CLI shows its own dialog.
       this.noteInputWait(payload);
+      if (!payload.agent_id) this.waitingTool = toolName;
       this.apply({ kind: 'pre_tool', activity, needsInput: true });
       return null;
     }
@@ -592,6 +853,7 @@ export class AgentSession {
       this.log.warn({ sessionId: this.id, toolName }, 'managed VM session asked for a local approval');
       return this.adapter.denyOutput(MANAGED_VM_NO_LOCAL_APPROVAL);
     }
+    if (!payload.agent_id) this.waitingTool = toolName;
     return this.permissions.request(payload, activity, withdrawn);
   }
 
@@ -824,6 +1086,12 @@ export class AgentSession {
         'agent CLI exited before it was ready',
       );
     this.apply({ kind: 'exit', failed });
+    // A pause still stopping the session ends with it.
+    const p = this.pauseState;
+    if (p?.phase === 'stopping') {
+      this.deps.emit({ type: 'session_paused', sessionId: this.id, point: 'exited', tool: null });
+      p.settle(EXITED);
+    }
     this.deps.emit({ type: 'exit', sessionId: this.id, exitCode, signal: signal || null });
     this.proc = null;
     this.resolveExited();
@@ -839,11 +1107,45 @@ export class AgentSession {
   private apply(signal: SessionSignal): void {
     // Once the process is gone only the final exit transition may change the state.
     if (this.hasExited && signal.kind !== 'exit') return;
+    this.notePauseSignal(signal);
     const next = nextState(this.current, signal);
-    if (next.state === this.current.state && next.activity === this.current.activity) return;
-    this.current = next;
-    this.emitState();
-    if (next.state === 'idle') this.input.pump();
+    if (next.state !== 'waiting_permission' && next.state !== 'waiting_input') this.waitingTool = null;
+    if (next.state !== this.current.state || next.activity !== this.current.activity) {
+      this.current = next;
+      this.emitState();
+      if (next.state === 'idle') this.input.pump();
+    }
+    this.evaluatePause();
+  }
+
+  /** What a signal means for the running tools, the Esc awaited and the pause stopping the session. */
+  private notePauseSignal(signal: SessionSignal): void {
+    switch (signal.kind) {
+      case 'stop':
+      case 'stop_failure':
+      case 'interrupted': {
+        const p = this.pauseState;
+        const { state } = this.current;
+        if (p?.phase === 'stopping' && state !== 'idle' && state !== 'starting') {
+          p.noteHalt(
+            signal.kind === 'interrupted'
+              ? { point: 'interrupted', tool: this.runningToolName() }
+              : { point: 'turn_end', tool: null },
+          );
+        }
+        this.runningTools.clear();
+        for (const confirmed of [...this.interruptWaiters]) confirmed(true);
+        return;
+      }
+      case 'prompt_submit':
+        this.runningTools.clear();
+        return;
+      case 'exit':
+        this.runningTools.clear();
+        for (const confirmed of [...this.interruptWaiters]) confirmed(false);
+        return;
+      default:
+    }
   }
 
   private emitState(): void {

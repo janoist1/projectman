@@ -27,6 +27,11 @@ export interface InputQueueHost {
    */
   checkBeforeTyping(): number | null;
   write(data: string): void;
+  /**
+   * Typing ended, or a typed message stopped being awaited as submitted (its time ran out): the
+   * session may re-check whether it has stopped (PM-218).
+   */
+  onChange?(): void;
 }
 
 interface QueuedMessage {
@@ -55,9 +60,30 @@ export class InputQueue {
   private pumpTimer: NodeJS.Timeout | null = null;
   private readonly timers = new Set<NodeJS.Timeout>();
   private closed = false;
+  /** Nothing new is typed while held (a pause, PM-218); what is being typed is finished. */
+  private held = false;
 
   constructor(host: InputQueueHost) {
     this.host = host;
+  }
+
+  /** A message is being typed (or its Enter is still to come). */
+  get isTyping(): boolean {
+    return this.typing;
+  }
+
+  /** Types nothing new until `unhold`: a message already being typed, its Enter and Enter repeats go on. */
+  hold(): void {
+    this.held = true;
+  }
+
+  /** Ends the hold; a non-empty `first` is queued ahead of the waiting messages. Then it pumps. */
+  unhold(first?: string): void {
+    this.held = false;
+    if (first?.trim() && !this.closed) {
+      this.queue.unshift({ text: first, resolve: () => undefined, reject: () => undefined });
+    }
+    this.pump();
   }
 
   /** Messages waiting to be typed. */
@@ -86,7 +112,7 @@ export class InputQueue {
 
   /** Types the next message if the session can take it now. */
   pump(): void {
-    if (this.closed || this.typing || this.queue.length === 0) return;
+    if (this.closed || this.held || this.typing || this.queue.length === 0) return;
     if (this.awaitingSubmit || !this.host.isIdle()) return;
     const now = Date.now();
     if (now < this.notBefore) return this.schedule(this.notBefore - now);
@@ -160,6 +186,7 @@ export class InputQueue {
       message.reject(err instanceof Error ? err : new Error(String(err)));
     } finally {
       this.typing = false;
+      this.host.onChange?.();
     }
   }
 
@@ -180,6 +207,7 @@ export class InputQueue {
       );
       this.awaitingSubmit = null;
       this.pump();
+      this.host.onChange?.();
       return;
     }
     if (!pending.command && pending.retries < timing.maxEnterRetries && this.host.isIdle()) {

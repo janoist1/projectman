@@ -68,6 +68,10 @@ export interface SessionTiming {
   compactStartTimeoutMs: number;
   /** A compaction that started and never produced PostCompact is given up after this (PM-213). */
   compactTimeoutMs: number;
+  /** Esc must be confirmed (Interrupt hook, transcript, Stop) within this long, or the screen decides (PM-218). */
+  interruptConfirmMs: number;
+  /** After a halting hook answer the CLI should end the turn with a Stop within this long (PM-218). */
+  haltStopMs: number;
 }
 
 /** Result of parsing transcript lines. */
@@ -135,6 +139,12 @@ export interface ProviderAdapter {
    * PreToolUse or PermissionRequest hook it came with. Absent: the CLI's questions stay at its terminal.
    */
   refuseQuestionOutput?(event: 'PreToolUse' | 'PermissionRequest', message: string): unknown;
+  /**
+   * The answer to a PreToolUse, PostToolUse or PostToolUseFailure hook that makes the CLI end the
+   * turn there (PM-218), with `reason` as its message. Absent: the CLI has no such answer, and a
+   * pause stops it with Esc instead.
+   */
+  haltOutput?(reason: string): unknown;
   /** A login failure a hook reports (e.g. Claude's StopFailure), or null. */
   hookAuthError(payload: HookPayload): string | null;
   /** A dialog that blocks the session (trust, login, ...) in the given screen text, or null. */

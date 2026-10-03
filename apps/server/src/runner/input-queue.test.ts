@@ -170,6 +170,72 @@ describe('InputQueue', () => {
     expect(typed()).toEqual({ pastes: ['a'], enters: 0 });
   });
 
+  describe('hold (PM-218)', () => {
+    it('types nothing new while held, and counts what waits as pending', async () => {
+      const { queue, typed } = setup();
+      queue.hold();
+      void queue.enqueue('waiting');
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(typed()).toEqual({ pastes: [], enters: 0 });
+      expect(queue.hasPending).toBe(true);
+      expect(queue.length).toBe(1);
+
+      queue.unhold();
+      await vi.advanceTimersByTimeAsync(TYPE_MS);
+      expect(typed()).toEqual({ pastes: ['waiting'], enters: 1 });
+    });
+
+    it('lets a message that is being typed finish, with its Enter and the Enter repeats', async () => {
+      const onChange = vi.fn();
+      const { queue, typed, state } = setup({ onChange });
+      const typing = queue.enqueue('in flight');
+      void queue.enqueue('later');
+      await vi.advanceTimersByTimeAsync(timing.stepDelayMs / 2);
+      expect(queue.isTyping).toBe(true);
+      queue.hold();
+      await vi.advanceTimersByTimeAsync(TYPE_MS);
+      await typing;
+      expect(queue.isTyping).toBe(false);
+      expect(typed()).toEqual({ pastes: ['in flight'], enters: 1 });
+      expect(onChange).toHaveBeenCalledTimes(1);
+
+      // The CLI stays idle: Enter is pressed again, and nothing else is typed.
+      state.idle = true;
+      await vi.advanceTimersByTimeAsync(timing.enterRetryMs);
+      expect(typed().enters).toBe(2);
+      expect(typed().pastes).toEqual(['in flight']);
+    });
+
+    it('queues the first message ahead of the waiting ones on unhold', async () => {
+      const { queue, typed } = setup();
+      queue.hold();
+      void queue.enqueue('waiting');
+      queue.unhold('Carry on.');
+      await vi.advanceTimersByTimeAsync(TYPE_MS);
+      expect(typed().pastes).toEqual(['Carry on.']);
+      queue.submitted();
+      queue.pump();
+      await vi.advanceTimersByTimeAsync(TYPE_MS);
+      expect(typed().pastes).toEqual(['Carry on.', 'waiting']);
+    });
+
+    it('ignores a blank first message, and reports the end of a submission nobody confirmed', async () => {
+      const onChange = vi.fn();
+      const { queue, typed } = setup({ onChange });
+      queue.hold();
+      queue.unhold('  ');
+      expect(queue.length).toBe(0);
+      queue.unhold();
+      void queue.enqueue('one');
+      await vi.advanceTimersByTimeAsync(TYPE_MS);
+      expect(typed().pastes).toEqual(['one']);
+      onChange.mockClear();
+      await vi.advanceTimersByTimeAsync(timing.submitTimeoutMs);
+      expect(queue.isAwaitingSubmit).toBe(false);
+      expect(onChange).toHaveBeenCalled();
+    });
+  });
+
   it('resolves a message that is empty once sanitised without typing anything', async () => {
     const { queue, typed } = setup();
     await expect(queue.enqueue(' \u001b ')).resolves.toBeUndefined();

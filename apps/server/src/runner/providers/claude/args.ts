@@ -39,6 +39,17 @@ export const HTTP_HOOK_EVENTS = [
  */
 const QUESTION_HOOK_TIMEOUT_S = 30;
 
+/**
+ * The hooks whose answer the CLI reads: a permission decision, a refused question tool call
+ * (PM-199) and a pause's end of the turn (PM-218). A sandboxed session forwards their answers.
+ */
+const DECIDING_EVENTS: ReadonlySet<string> = new Set([
+  'PermissionRequest',
+  'PreToolUse',
+  'PostToolUse',
+  'PostToolUseFailure',
+]);
+
 /** SessionEnd hooks share a small budget; this raises it slightly (max 60s). */
 const SESSION_END_TIMEOUT_S = 3;
 
@@ -283,8 +294,9 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
           : event === 'SessionEnd'
             ? SESSION_END_TIMEOUT_S
             : FAST_HOOK_TIMEOUT_S;
-    // A PreToolUse answer turns a question tool's call away (PM-199); every other one is empty.
-    hooks[event] = [{ hooks: [handler(timeout, event === 'PermissionRequest' || event === 'PreToolUse')] }];
+    // A PreToolUse answer turns a question tool's call away (PM-199); the tool hooks' answers can
+    // also end the turn for a pause (PM-218); every other one is empty.
+    hooks[event] = [{ hooks: [handler(timeout, DECIDING_EVENTS.has(event))] }];
   }
   // Rules pass through unchanged: both the server-level "mcp__team" and "mcp__team__*" are
   // valid allow rules for every tool of the team MCP server.

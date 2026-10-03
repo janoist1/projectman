@@ -286,6 +286,13 @@
   flex-shrink: 0;
 }
 
+/* Below 1500px the top bar has no room for it: the account menu has the same action. */
+@media (max-width: 1499px) {
+  .pauseButton {
+    display: none;
+  }
+}
+
 /* The labelless meters have no frame to tell them apart. */
 .metersTight {
   gap: 14px;

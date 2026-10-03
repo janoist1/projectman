@@ -358,7 +358,8 @@ export class LoopWatch {
         const workItem = { type: 'task', taskKey } as const;
         const text = noticeText(taskKey, current, loopWatchOf(config.team.limits).minutes);
         const running = this.sessions.findRunning(projectKey, watcher, workItem);
-        if (running) {
+        // A paused session takes nothing in: admission refuses with `team_paused` and the notice waits.
+        if (running && !this.sessions.isPaused(running)) {
           this.delivery.notice(running, 'projectman', text, taskKey);
         } else {
           await this.delivery.startAndDeliver(projectKey, watcher, workItem, (messages) =>

@@ -975,6 +975,15 @@ describe('pausing (PM-218)', () => {
     await expect(paused).resolves.toEqual({ point: 'interrupted', tool: 'Bash' });
   });
 
+  it('does not count a call the auto mode refused as a running tool', async () => {
+    const s = await ready();
+    await submit(s);
+    await pre(s, 't1');
+    await s.hook({ hook_event_name: 'PermissionDenied', ...BASH, tool_use_id: 't1', denial_reason: 'no' });
+    void s.session.pause();
+    expect(log(s.events)).toEqual(['pausing(null)']);
+  });
+
   it('holds the brief of a starting session back, and stops idle once it is ready', async () => {
     const s = start({ spec: { initialMessage: 'The brief' } });
     const paused = s.session.pause();

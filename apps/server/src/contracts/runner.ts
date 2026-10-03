@@ -338,6 +338,7 @@ export interface SessionRunner {
   /**
    * Stops the session at once with one Esc (PM-218): starts the pause when there is none, and
    * forces a pause that is still stopping; a stopped one is left alone and its outcome returned.
+   * A compaction asked for that is running is not waited for: the Esc cancels it and it is given up.
    */
   forcePause(sessionId: string): Promise<PauseOutcome | null>;
   /**

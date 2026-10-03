@@ -729,7 +729,9 @@ export class AgentSession {
       case 'PermissionRequest':
         return this.permissionRequest(payload, withdrawn);
       case 'PermissionDenied':
-        // The agent's auto mode refused a tool call on its own: recorded, nothing to answer.
+        // The agent's auto mode refused a tool call on its own: recorded, nothing to answer. No
+        // PostToolUse follows a refused call, so it is not a running tool (a pause must not wait for it).
+        if (!payload.agent_id) this.noteToolEnd(payload);
         this.deps.broker.refused?.({
           sessionId: this.id,
           toolName: payload.tool_name ?? 'unknown',

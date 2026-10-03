@@ -14,7 +14,7 @@ import type { MessageService } from './messages';
  */
 export class MessageDelivery {
   private readonly ctx: DomainContext;
-  private readonly sessions: Pick<SessionOrchestrator, 'typeInto'>;
+  private readonly sessions: Pick<SessionOrchestrator, 'typeInto' | 'isPaused'>;
   private readonly messages: MessageService;
   /** Messages being typed, by message and recipient. */
   private readonly claims = new Set<string>();
@@ -25,10 +25,16 @@ export class MessageDelivery {
    * recipient: typed as they were written once it runs, like the ones that reach it at once.
    */
   private readonly asWritten = new Set<string>();
+  /**
+   * Messages kept back because their recipient's running session is paused (PM-219), by message and
+   * recipient, with the session they are for. Memory only: a restart leaves the session without a
+   * process, and the messages wait like any that wait for a start (the resume starts it with them).
+   */
+  private readonly pauseHeld = new Map<string, { sessionId: string; messageId: string; member: string }>();
 
   constructor(deps: {
     ctx: DomainContext;
-    sessions: Pick<SessionOrchestrator, 'typeInto'>;
+    sessions: Pick<SessionOrchestrator, 'typeInto' | 'isPaused'>;
     messages: MessageService;
   }) {
     this.ctx = deps.ctx;
@@ -120,12 +126,46 @@ export class MessageDelivery {
     this.asWritten.add(`${message.id}:${session.member}`);
   }
 
+  /**
+   * The session is paused (PM-219): the message waits, stored, and goes in when the pause is over
+   * (`deliverPauseHeld`). Not `deliverWaiting`'s business: that one would also type what other holds
+   * keep back (the fix round limit, a refinement turn).
+   */
+  holdForPause(session: Session, message: TeamMessage): void {
+    this.pauseHeld.set(`${message.id}:${session.member}`, {
+      sessionId: session.id,
+      messageId: message.id,
+      member: session.member,
+    });
+  }
+
+  /** The messages kept back for the session's pause go in now, in the order they came. */
+  deliverPauseHeld(session: Session): void {
+    for (const [claim, held] of [...this.pauseHeld]) {
+      if (held.sessionId !== session.id) continue;
+      this.pauseHeld.delete(claim);
+      const message = this.messages.get(held.messageId);
+      const receipt = message?.receipts?.find((r) => r.handle === held.member);
+      // Taken in by another way meanwhile (a restart's first input): not typed twice.
+      if (message && !receipt?.deliveredAt) this.deliver(session, message);
+    }
+  }
+
+  /** The session's held messages are not typed in any more: its restart takes them as waiting ones. */
+  dropPauseHeld(sessionId: string): void {
+    for (const [claim, held] of [...this.pauseHeld])
+      if (held.sessionId === sessionId) this.pauseHeld.delete(claim);
+  }
+
   /** Types the messages waiting for the session's member and work item (after it started). */
   deliverWaiting(session: Session): void {
     // The start that is under way delivers them (`startAndDeliver`), in order.
     if (this.starting.has(recipientKey(session.projectKey, session.member, session.workItem))) return;
-    for (const message of this.messages.waiting(session.projectKey, session.member, session.workItem))
-      this.deliver(session, message);
+    const paused = this.sessions.isPaused(session);
+    for (const message of this.messages.waiting(session.projectKey, session.member, session.workItem)) {
+      if (paused) this.holdForPause(session, message);
+      else if (!this.pauseHeld.has(`${message.id}:${session.member}`)) this.deliver(session, message);
+    }
   }
 
   /** Types a notice with the team prefix that is not stored as a message. */

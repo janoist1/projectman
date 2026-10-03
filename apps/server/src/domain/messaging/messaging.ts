@@ -198,7 +198,11 @@ export class Messaging {
       delivered: false,
     });
     if (held) this.delivery.holdAsWritten(session, message);
-    else if (started && sentAsFirstInput)
+    else if (running && this.sessions.isPaused(session)) {
+      // Typed as it was written, once the pause is over (PM-219).
+      this.delivery.holdAsWritten(session, message);
+      this.delivery.holdForPause(session, message);
+    } else if (started && sentAsFirstInput)
       this.delivery.deliverWithFirstInput(session.member, [message], started.firstInput);
     else this.delivery.deliver(started?.session ?? session, message, body);
     return message;
@@ -395,7 +399,9 @@ export class Messaging {
     // and so does a session that waits for its restart into a new permission mode (PM-170).
     if (running && (this.sessions.reviewRoundDue(running) || this.sessions.permissionRestartDue(running)))
       return;
-    if (running) this.delivery.deliver(running, message);
+    // A paused session takes it when the pause is over (PM-219); the message is stored meanwhile.
+    if (running && this.sessions.isPaused(running)) this.delivery.holdForPause(running, message);
+    else if (running) this.delivery.deliver(running, message);
     else
       void this.ctx.events.emit('message_waiting', { projectKey, handle, workItem, messageId: message.id });
   }

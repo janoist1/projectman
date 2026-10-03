@@ -57,6 +57,7 @@ import { ReviewWatch } from './review-watch';
 import { RoleService } from './roles';
 import { ScheduleService } from './schedules';
 import type { ScheduleTimer } from './schedules';
+import { PauseService } from './pause';
 import { SessionOrchestrator } from './sessions';
 import { PrerequisiteClosures, TaskService } from './tasks';
 import { TeamToolsService } from './team-tools';
@@ -115,6 +116,8 @@ export { MemberProfiles, MemberService } from './members';
 export { MessageDelivery, MessageService, Messaging } from './messaging';
 export { RoleService, roleUsage, roleViews } from './roles';
 export { defaultMemberHandle, defaultMemberName } from './naming';
+export { PauseService } from './pause';
+export type { PauseOptions, PauseRequester, PauseTarget } from './pause';
 export { PlanUsageCache, PlanUsageMonitor, highestUsagePercent } from './plan-usage';
 export { PresenceService } from './presence';
 export { ProjectService, OWNER_HANDLE } from './projects';
@@ -350,6 +353,15 @@ export function createDomain(opts: DomainOptions) {
     disk,
   });
   const delivery = new MessageDelivery({ ctx, sessions, messages });
+  const pauses = new PauseService({
+    ctx,
+    projects,
+    sessions,
+    admission,
+    runner: runnerModule.runner,
+    delivery,
+    timeline,
+  });
   const refinement = new RefinementSteps({ projects, tasks, sessions, admission, delivery, inbox, timeline });
   const messaging = new Messaging({ ctx, projects, tasks, sessions, messages, delivery, refinement });
   // The network gate's egress operations are one registry of the protected adapter; another
@@ -674,6 +686,8 @@ export function createDomain(opts: DomainOptions) {
   // A changed description reaches the sessions working the card; a reviewer restarts on it (PM-184).
   events.on('task_description_changed', (change) => messaging.descriptionNotice(change));
   // A started session gets the messages waiting for it; waiting messages wake their recipient.
+  // A session that started while the team is paused is held at once (a start that passed admission before the pause).
+  events.on('session_started', (session) => pauses.sessionStarted(session));
   events.on('session_started', (session) => delivery.deliverWaiting(session));
   events.on('session_input_released', (session) => delivery.deliverWaiting(session));
   events.on('message_waiting', ({ projectKey, handle, workItem, messageId }) => {
@@ -712,6 +726,7 @@ export function createDomain(opts: DomainOptions) {
     sessions,
     planUsage,
     admission,
+    pauses,
     taskStarts,
     handOver,
     workStarts,
@@ -821,6 +836,7 @@ export function createDomain(opts: DomainOptions) {
       const drained = schedules.stop();
       githubSync.stop();
       await background.stop();
+      pauses.dispose();
       sessions.dispose();
       await drained;
     },

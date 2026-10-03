@@ -1,0 +1,477 @@
+import { DEFAULT_PAUSE_FORCE_AFTER_MS, isWorkPaused, pauseStateOf, RESTART_POINTS } from '@projectman/shared';
+import type {
+  Actor,
+  InstancePauseView,
+  PausedSession,
+  PauseKind,
+  PauseSource,
+  PauseStatus,
+  ProjectPauseView,
+  Session,
+  SessionPause,
+} from '@projectman/shared';
+import type { PauseOutcome, RunnerEvent, SessionRunner } from '../contracts';
+import type { PauseRecord, SessionPauseRecord } from '../db';
+import type { Admission } from './admission';
+import { findHumanByEmail } from './access';
+import { isoNow } from './context';
+import type { DomainContext } from './context';
+import type { MessageDelivery } from './messaging';
+import type { ProjectService } from './projects';
+import type { SessionOrchestrator } from './sessions';
+import type { AppendTimelineInput, TimelineService } from './timeline';
+import { humanActor, newId, SYSTEM_ACTOR } from './util';
+
+/** What a pause covers: the whole instance, or one project. */
+export type PauseTarget = { scope: 'instance' } | { scope: 'project'; projectKey: string };
+
+/** Who asks: a person (the app), the control command or the system; a person has a user id. */
+export interface PauseRequester {
+  userId: string | null;
+  source: PauseSource;
+}
+
+export interface PauseOptions {
+  kind?: PauseKind;
+  /** How long a session may take to stop before it is cut with one Esc (default `DEFAULT_PAUSE_FORCE_AFTER_MS`). */
+  forceAfterMs?: number;
+  reason?: string;
+}
+
+/**
+ * Durable pause of the team's work (PM-219), of the instance or of one project: no session starts
+ * or is written to meanwhile, the sessions that work stop at a safe point (the runner's `pause`,
+ * PM-218), and resuming lets everything go on from where it stopped. A pause and the sessions it
+ * holds are stored, so a restart does not lose them. A session is held by one open row (`session_pauses`)
+ * for as long as any pause covers its project; the row says where it stopped and whether a session
+ * whose process is gone restarts on resume.
+ *
+ * What waits is decided elsewhere, from the stored pauses: admission and the session launch refuse
+ * with `team_paused`, messages wait (`MessageDelivery.holdForPause`), idle-time actions of sessions
+ * do not run (`SessionOrchestrator.isPaused`). This service makes the pauses, follows the runner,
+ * and on resume lets the sessions and the waiting work go on.
+ */
+export class PauseService {
+  private readonly ctx: DomainContext;
+  private readonly projects: Pick<ProjectService, 'config' | 'summaries'>;
+  private readonly sessions: SessionOrchestrator;
+  private readonly admission: Pick<Admission, 'exclusive' | 'retryDeferred'>;
+  private readonly runner: SessionRunner;
+  private readonly delivery: MessageDelivery;
+  private readonly timeline: TimelineService;
+  private readonly unsubscribe: () => void;
+
+  constructor(deps: {
+    ctx: DomainContext;
+    projects: Pick<ProjectService, 'config' | 'summaries'>;
+    sessions: SessionOrchestrator;
+    admission: Pick<Admission, 'exclusive' | 'retryDeferred'>;
+    runner: SessionRunner;
+    delivery: MessageDelivery;
+    timeline: TimelineService;
+  }) {
+    this.ctx = deps.ctx;
+    this.projects = deps.projects;
+    this.sessions = deps.sessions;
+    this.admission = deps.admission;
+    this.runner = deps.runner;
+    this.delivery = deps.delivery;
+    this.timeline = deps.timeline;
+    this.unsubscribe = deps.runner.onEvent((event) => this.handleRunnerEvent(event));
+    // A stop somebody meant closed a session's row: its progress changed.
+    deps.sessions.onPauseDropped((projectKey) => this.publishChanged([projectKey]));
+  }
+
+  dispose(): void {
+    this.unsubscribe();
+  }
+
+  /** The project's work is paused: its own pause or the instance's. */
+  isPaused(projectKey: string): boolean {
+    return isWorkPaused(this.ctx.repos.pauses.open(), projectKey);
+  }
+
+  /** What holds the session, or undefined. */
+  sessionPause(sessionId: string): SessionPause | undefined {
+    const row = this.ctx.repos.pauses.openSession(sessionId);
+    return row ? { since: row.since, point: row.point, tool: row.tool } : undefined;
+  }
+
+  // ---------------------------------------------------------------- views
+
+  /** The open pauses that touch the project: its own and the instance's, with the project's sessions. */
+  projectView(projectKey: string): ProjectPauseView {
+    const { pauses } = this.ctx.repos;
+    const project = pauses.findOpen('project', projectKey);
+    const instance = pauses.findOpen('instance', null);
+    return {
+      project: project ? this.statusOf(project, [projectKey]) : null,
+      instance: instance ? this.statusOf(instance, [projectKey]) : null,
+    };
+  }
+
+  /** The instance's pause with the sessions of `viewerProjects` (the viewer's internal projects). */
+  instanceView(viewerProjects: readonly string[], canManage: boolean): InstancePauseView {
+    const pause = this.ctx.repos.pauses.findOpen('instance', null);
+    return { pause: pause ? this.statusOf(pause, viewerProjects) : null, canManage };
+  }
+
+  /** The pause as the app shows it, with the sessions it holds in `projectKeys`. */
+  private statusOf(pause: PauseRecord, projectKeys: readonly string[]): PauseStatus {
+    const sessions = this.heldBy(pause)
+      .filter((row) => projectKeys.includes(row.projectKey))
+      .map((row) => this.pausedSession(row))
+      .filter((s): s is PausedSession => s !== null);
+    const requester = pause.requestedBy ? this.ctx.repos.users.get(pause.requestedBy) : null;
+    return {
+      id: pause.id,
+      scope: pause.scope,
+      projectKey: pause.projectKey,
+      kind: pause.kind,
+      state: pauseStateOf(sessions),
+      source: pause.source,
+      requestedBy: requester?.name ?? null,
+      requestedAt: pause.requestedAt,
+      reason: pause.reason,
+      forceAt: new Date(Date.parse(pause.requestedAt) + pause.forceAfterMs).toISOString(),
+      sessions,
+    };
+  }
+
+  /** The open rows of the sessions a pause covers. */
+  private heldBy(pause: Pick<PauseRecord, 'scope' | 'projectKey'>): SessionPauseRecord[] {
+    const { pauses } = this.ctx.repos;
+    return pause.scope === 'instance'
+      ? pauses.openSessions()
+      : pauses.openSessionsOfProject(pause.projectKey!);
+  }
+
+  private pausedSession(row: SessionPauseRecord): PausedSession | null {
+    const session = this.ctx.repos.sessions.get(row.sessionId);
+    if (!session) return null;
+    return {
+      sessionId: row.sessionId,
+      projectKey: row.projectKey,
+      member: session.member,
+      workItem: session.workItem,
+      since: row.since,
+      point: row.point,
+      tool: row.tool,
+      waitingFor: row.waitingFor,
+      pausedAt: row.pausedAt,
+      stopped: !this.sessions.isRunning(row.sessionId),
+    };
+  }
+
+  // ---------------------------------------------------------------- pause
+
+  /**
+   * Pauses the target: stores the pause, holds the sessions that run, and asks each to stop at a safe
+   * point. A target that is paused already stays as it is (the first request's reason and deadline).
+   */
+  async pause(target: PauseTarget, by: PauseRequester, opts: PauseOptions = {}): Promise<void> {
+    const kind = opts.kind ?? 'manual';
+    const forceAfterMs = opts.forceAfterMs ?? DEFAULT_PAUSE_FORCE_AFTER_MS;
+    const { pauses } = this.ctx.repos;
+    const projectKeys = this.coveredProjects(target);
+    const actors = await this.actors(projectKeys, by);
+    // Only the rows and the timeline are written under the admission lock: no start slips in between.
+    const caught = await this.admission.exclusive(async () => {
+      if (pauses.findOpen(target.scope, keyOf(target))) return null;
+      const at = isoNow(this.ctx);
+      const record = {
+        id: newId('pau'),
+        scope: target.scope,
+        projectKey: keyOf(target),
+        kind,
+        source: by.source,
+        reason: opts.reason ?? null,
+        requestedBy: by.userId,
+        requestedAt: at,
+        forceAfterMs,
+      };
+      const rows = this.ctx.unitOfWork(() => {
+        pauses.insert(record);
+        const held: SessionPauseRecord[] = [];
+        for (const projectKey of projectKeys)
+          for (const session of this.ctx.repos.sessions.list(projectKey)) {
+            if (!this.sessions.isRunning(session.id) || pauses.openSession(session.id)) continue;
+            const row = {
+              sessionId: session.id,
+              pauseId: record.id,
+              projectKey,
+              since: at,
+              point: null,
+              tool: null,
+              waitingFor: null,
+              pausedAt: null,
+              needsRestart: false,
+            };
+            pauses.insertSession(row);
+            held.push({ ...row, resumedAt: null });
+          }
+        for (const projectKey of projectKeys)
+          this.record(kind, {
+            projectKey,
+            actor: actors.get(projectKey) ?? SYSTEM_ACTOR,
+            type: 'team_paused',
+            data: {
+              pauseId: record.id,
+              scope: record.scope,
+              source: record.source,
+              reason: record.reason,
+              forceAfterMs,
+            },
+          });
+        return held;
+      });
+      return { record, rows };
+    });
+    if (!caught) return;
+    this.ctx.logger.info(
+      {
+        pauseId: caught.record.id,
+        scope: target.scope,
+        projectKey: keyOf(target),
+        kind,
+        sessions: caught.rows.length,
+      },
+      'the team is paused',
+    );
+    this.publishChanged(projectKeys);
+    for (const row of caught.rows) this.stopSession(row.sessionId, forceAfterMs);
+  }
+
+  /** Asks the runner to stop the session at its next safe point; the outcome is recorded when it comes. */
+  private stopSession(sessionId: string, forceAfterMs: number): void {
+    this.runner.pause(sessionId, { forceAfterMs }).then(
+      (outcome) => this.settled(sessionId, outcome),
+      (err: unknown) => this.ctx.logger.warn({ err, sessionId }, 'could not pause the session'),
+    );
+  }
+
+  /** The runner answered a pause with where the session stopped (no event came, or it came first). */
+  private settled(sessionId: string, outcome: PauseOutcome | null): void {
+    const row = this.ctx.repos.pauses.openSession(sessionId);
+    // `null`: the pause was taken back. A row that has a point had its events already.
+    if (!outcome || !row || row.point !== null) return;
+    this.stopped(row, outcome);
+  }
+
+  /** A session that started while the team is paused (a start that passed admission before the pause). */
+  sessionStarted(session: Session): void {
+    const { pauses } = this.ctx.repos;
+    if (pauses.openSession(session.id) || !this.isPaused(session.projectKey)) return;
+    const covering = pauses
+      .open()
+      .filter((p) => p.scope === 'instance' || p.projectKey === session.projectKey);
+    const first = covering[0];
+    if (!first) return;
+    const at = isoNow(this.ctx);
+    pauses.insertSession({
+      sessionId: session.id,
+      pauseId: first.id,
+      projectKey: session.projectKey,
+      since: at,
+      point: null,
+      tool: null,
+      waitingFor: null,
+      pausedAt: null,
+      needsRestart: false,
+    });
+    const left = Math.max(0, Date.parse(first.requestedAt) + first.forceAfterMs - this.ctx.now().getTime());
+    this.publishSession(session.id);
+    this.publishChanged([session.projectKey]);
+    this.stopSession(session.id, left);
+  }
+
+  // ---------------------------------------------------------------- force
+
+  /** Cuts the sessions still stopping with one Esc, and writes the deadline as now. */
+  async force(target: PauseTarget, _by: PauseRequester): Promise<void> {
+    const { pauses } = this.ctx.repos;
+    const pause = pauses.findOpen(target.scope, keyOf(target));
+    if (!pause) return;
+    const elapsed = Math.max(0, this.ctx.now().getTime() - Date.parse(pause.requestedAt));
+    pauses.setForceAfter(pause.id, Math.min(pause.forceAfterMs, elapsed));
+    this.publishChanged(this.coveredProjects(target));
+    for (const row of this.heldBy(pause)) {
+      if (row.point !== null || !this.sessions.isRunning(row.sessionId)) continue;
+      this.runner.forcePause(row.sessionId).then(
+        (outcome) => this.settled(row.sessionId, outcome),
+        (err: unknown) =>
+          this.ctx.logger.warn({ err, sessionId: row.sessionId }, 'could not force the pause'),
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------- the runner's events
+
+  private handleRunnerEvent(event: RunnerEvent): void {
+    if (event.type !== 'session_pausing' && event.type !== 'session_paused') return;
+    try {
+      const row = this.ctx.repos.pauses.openSession(event.sessionId);
+      if (!row) return;
+      if (event.type === 'session_pausing') {
+        // A stopped session works again (an approval answered, typing in the terminal): stopping once more.
+        this.ctx.repos.pauses.updateSession(row.sessionId, {
+          point: null,
+          tool: null,
+          waitingFor: event.waitingFor,
+          pausedAt: null,
+          needsRestart: false,
+        });
+        this.publishSession(row.sessionId);
+        this.publishChanged([row.projectKey]);
+        return;
+      }
+      this.stopped(row, { point: event.point, tool: event.tool });
+    } catch (err) {
+      this.ctx.logger.error(
+        { err, sessionId: event.sessionId, type: event.type },
+        'pause event handling failed',
+      );
+    }
+  }
+
+  /** The session stopped at `outcome`. A process that exits after it stopped keeps where it stopped. */
+  private stopped(row: SessionPauseRecord, outcome: PauseOutcome): void {
+    if (outcome.point === 'exited' && row.point !== null && row.point !== 'exited') {
+      this.publishSession(row.sessionId);
+      this.publishChanged([row.projectKey]);
+      return;
+    }
+    this.ctx.repos.pauses.updateSession(row.sessionId, {
+      point: outcome.point,
+      tool: outcome.tool,
+      waitingFor: null,
+      pausedAt: isoNow(this.ctx),
+      needsRestart: RESTART_POINTS.includes(outcome.point),
+    });
+    this.publishSession(row.sessionId);
+    this.publishChanged([row.projectKey]);
+  }
+
+  // ---------------------------------------------------------------- resume
+
+  /**
+   * Ends the target's pause: its row closes, and the sessions it held, but not those another pause still
+   * holds (the instance's and a project's are independent), go on from where they stopped; what waited
+   * is tried again. Resuming what is not paused changes nothing.
+   */
+  async resume(target: PauseTarget, by: PauseRequester): Promise<void> {
+    const { pauses } = this.ctx.repos;
+    const projectKeys = this.coveredProjects(target);
+    const actors = await this.actors(projectKeys, by);
+    const closed = await this.admission.exclusive(async () => {
+      const pause = pauses.findOpen(target.scope, keyOf(target));
+      if (!pause) return null;
+      this.ctx.unitOfWork(() => {
+        pauses.close(pause.id, isoNow(this.ctx), by.userId);
+        for (const projectKey of projectKeys)
+          this.record(pause.kind, {
+            projectKey,
+            actor: actors.get(projectKey) ?? SYSTEM_ACTOR,
+            type: 'team_resumed',
+            data: { pauseId: pause.id, scope: pause.scope, source: pause.source },
+          });
+      });
+      return pause;
+    });
+    if (!closed) return;
+    this.ctx.logger.info(
+      { pauseId: closed.id, scope: closed.scope, projectKey: closed.projectKey },
+      'the team is resumed',
+    );
+    this.publishChanged(projectKeys);
+    await this.release(closed);
+    this.afterResume(closed);
+  }
+
+  /** The sessions of the resumed pause whose project no pause covers any more go on. */
+  private async release(pause: PauseRecord): Promise<void> {
+    const { pauses } = this.ctx.repos;
+    const stillPaused = pauses.open();
+    for (const row of this.heldBy(pause)) {
+      if (isWorkPaused(stillPaused, row.projectKey)) continue;
+      pauses.closeSession(row.sessionId, isoNow(this.ctx));
+      const session = this.ctx.repos.sessions.get(row.sessionId);
+      if (!session) continue;
+      try {
+        if (this.sessions.isRunning(session.id)) this.letGo(session, row);
+        else this.delivery.dropPauseHeld(session.id);
+      } catch (err) {
+        this.ctx.logger.warn({ err, sessionId: session.id }, 'could not resume the session');
+      }
+      this.publishSession(session.id);
+    }
+    this.publishChanged(this.coveredProjects(targetOf(pause)));
+  }
+
+  /** A session whose process runs goes on: released (with a nudge where it was cut mid-turn), its held messages typed in. */
+  private letGo(session: Session, row: SessionPauseRecord): void {
+    this.runner.release(session.id);
+    this.delivery.deliverPauseHeld(session);
+    const current = this.ctx.repos.sessions.get(session.id);
+    if (current) this.sessions.afterPause(current);
+  }
+
+  /** What waited for the pause to end is tried again. */
+  private afterResume(_pause: PauseRecord): void {
+    void this.admission.retryDeferred().catch((err: unknown) => {
+      this.ctx.logger.warn({ err }, 'deferred start retry after the resume failed');
+    });
+  }
+
+  // ---------------------------------------------------------------- helpers
+
+  /** The projects a pause of the target covers. */
+  private coveredProjects(target: PauseTarget): string[] {
+    return target.scope === 'project' ? [target.projectKey] : this.projects.summaries().map((p) => p.key);
+  }
+
+  private publishSession(sessionId: string): void {
+    const session = this.ctx.repos.sessions.get(sessionId);
+    if (session) this.ctx.bus.publish({ type: 'session_upserted', projectKey: session.projectKey, session });
+  }
+
+  private publishChanged(projectKeys: readonly string[]): void {
+    for (const projectKey of new Set(projectKeys))
+      this.ctx.bus.publish({ type: 'pause_changed', projectKey, pause: this.projectView(projectKey) });
+  }
+
+  /**
+   * The timeline entry of a pause or a resume, in the project, by the person who asked (their member
+   * there) or the system. The pause before a shutdown writes none: it would be noise at every restart.
+   */
+  private record(kind: PauseKind, event: AppendTimelineInput): void {
+    if (kind === 'shutdown') return;
+    this.timeline.append(event);
+  }
+
+  /** The requester as a member of each project (the config is read before the admission lock is taken). */
+  private async actors(projectKeys: readonly string[], by: PauseRequester): Promise<Map<string, Actor>> {
+    const user = by.userId ? this.ctx.repos.users.get(by.userId) : null;
+    const actors = new Map<string, Actor>();
+    if (!user) return actors;
+    for (const projectKey of projectKeys) {
+      try {
+        const member = findHumanByEmail(await this.projects.config(projectKey), user.email);
+        if (member) actors.set(projectKey, humanActor(member.handle));
+      } catch {
+        // A project whose config cannot be read has the system as the actor.
+      }
+    }
+    return actors;
+  }
+}
+
+function keyOf(target: PauseTarget): string | null {
+  return target.scope === 'project' ? target.projectKey : null;
+}
+
+function targetOf(pause: Pick<PauseRecord, 'scope' | 'projectKey'>): PauseTarget {
+  return pause.scope === 'project' && pause.projectKey
+    ? { scope: 'project', projectKey: pause.projectKey }
+    : { scope: 'instance' };
+}

@@ -19,6 +19,9 @@ import type { TokenUsage } from './token-usage';
 /** The label a code review sets when it asks for changes (the standard template's label id). */
 export const CODE_REVIEW_CHANGES_LABEL = 'code-review-changes';
 
+/** The label the UI/UX review sets when it asks for changes (PM-262): a fix round too. */
+export const DESIGN_REVIEW_CHANGES_LABEL = 'design-review-changes';
+
 /** How many days back the comparison of closed cards looks by default, and at most. */
 export const DEFAULT_CLOSED_CARDS_DAYS = 14;
 export const MAX_CLOSED_CARDS_DAYS = 365;
@@ -30,6 +33,8 @@ export const CardRounds = z.object({
   reviewRounds: Count,
   /** How many times the `code-review-changes` label was put on it. */
   changeRequests: Count,
+  /** How many times the `design-review-changes` label was put on it (PM-262). */
+  designChangeRequests: Count.default(0),
   /** How many times it went back into a work stage from a later stage (also by hand or after a failed merge). */
   sendBacks: Count,
 });
@@ -42,7 +47,7 @@ export function countCardRounds(
 ): CardRounds {
   const stages = config.pipeline.stages;
   const indexOf = (id: unknown) => (typeof id === 'string' ? stages.findIndex((s) => s.id === id) : -1);
-  const rounds: CardRounds = { reviewRounds: 0, changeRequests: 0, sendBacks: 0 };
+  const rounds: CardRounds = { reviewRounds: 0, changeRequests: 0, designChangeRequests: 0, sendBacks: 0 };
   for (const event of events) {
     if (event.type === 'task_stage_changed') {
       const from = indexOf(event.data.from);
@@ -53,7 +58,9 @@ export function countCardRounds(
       if (target.kind === 'work' && from > to) rounds.sendBacks += 1;
     } else if (event.type === 'task_labels_changed') {
       const added = event.data.added;
-      if (Array.isArray(added) && added.includes(CODE_REVIEW_CHANGES_LABEL)) rounds.changeRequests += 1;
+      if (!Array.isArray(added)) continue;
+      if (added.includes(CODE_REVIEW_CHANGES_LABEL)) rounds.changeRequests += 1;
+      if (added.includes(DESIGN_REVIEW_CHANGES_LABEL)) rounds.designChangeRequests += 1;
     }
   }
   return rounds;

@@ -119,6 +119,29 @@ export const TaskLoop = z.object({
 export type TaskLoop = z.infer<typeof TaskLoop>;
 
 /**
+ * A card held back at the fix round limit (PM-262): its fix rounds reached the project's limit, so the next
+ * round does not go to its implementer by itself. Present only while it is held; the board shows it. `phase`:
+ * `lead` the lead developer `decider` decides, `replan` the planner `decider` is to make the plan more exact
+ * and lets the card go, `owner` the people in `deciders` decide (`reason`: nobody could be asked, the lead
+ * passed it on, or it reached the limit again after one more round). A client never sees it.
+ */
+export const TaskFixLimit = z.object({
+  phase: z.enum(['lead', 'replan', 'owner']),
+  rounds: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  changeRequests: z.number().int().nonnegative(),
+  designChangeRequests: z.number().int().nonnegative(),
+  sendBacks: z.number().int().nonnegative(),
+  /** `lead` and `replan`: the AI member who decides. */
+  decider: MemberHandle.nullable(),
+  /** `owner`: the people who decide. */
+  deciders: z.array(MemberHandle),
+  reason: z.enum(['no_ai_decider', 'passed_on', 'again']).nullable(),
+  heldAt: z.string(),
+});
+export type TaskFixLimit = z.infer<typeof TaskFixLimit>;
+
+/**
  * What a card is (PM-192): a `task` goes through the pipeline; a `theme` groups cards (an epic): it has a
  * key, a title, a description and a timeline, but no stage to move through, no assignee, no work and no
  * session, and it is only open or closed.
@@ -141,6 +164,8 @@ export const Task = z.object({
   reviewPin: TaskReviewPin.optional(),
   /** The loop open on the card (PM-261); absent when there is none. Hidden from clients. */
   loop: TaskLoop.optional(),
+  /** The fix round limit that holds the card back (PM-262); absent when it is not held. Hidden from clients. */
+  fixLimit: TaskFixLimit.optional(),
   /**
    * The attachment whose thumbnail is the card's cover (`coverAttachmentId` in `domain/attachment`):
    * the task's first image. Null or absent when the task has no image. A plain string here, as

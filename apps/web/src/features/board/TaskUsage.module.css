@@ -49,6 +49,15 @@
   margin: 0;
 }
 
+/* The fix rounds against their limit come first (PM-262), and turn to the "needs you" colour at it. */
+.fixRound {
+  font-weight: 700;
+}
+
+.atLimit {
+  color: var(--c-needs-text);
+}
+
 .note {
   margin: 0;
   font-size: var(--text-xs);

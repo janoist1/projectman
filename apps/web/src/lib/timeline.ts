@@ -1,6 +1,7 @@
 import { BoundaryAuditReason, BoundaryState, LabelChangeReason, TaskRelationKind } from '@projectman/shared';
 import type { LabelView, TimelineEvent } from '@projectman/shared';
 import { joinNames, t, tDynamic } from '../i18n/t';
+import { fixRoundParts } from './fixLimit';
 import { labelName } from './labels';
 import { decidesText, pairText } from './loop';
 import { nameOf, namesOf } from './members';
@@ -153,6 +154,55 @@ function loopEventText(d: Record<string, unknown>, ctx: TimelineContext): string
   }
 }
 
+const FIX_LIMIT_DECISIONS = ['continue', 'another_round', 'replan', 'reassign'] as const;
+const FIX_LIMIT_END_REASONS = ['decided', 'assignee_changed', 'closed'] as const;
+
+/** A card held at its fix round limit (PM-262): reached, passed on to the people, decided, or over. */
+function fixLimitEventText(d: Record<string, unknown>, ctx: TimelineContext): string {
+  const note = str(d.note).trim();
+  const withNote = note ? t('fixLimit.events.note', { note }) : '';
+  switch (d.phase) {
+    case 'passed_on':
+      // The row's header names who did it, so the text does not.
+      return t('fixLimit.events.passed_on', {
+        decides: decidesText(strings(d.deciders), ctx.members, ctx.myHandle),
+        note: withNote,
+      });
+    case 'decided': {
+      const decision = (FIX_LIMIT_DECISIONS as readonly string[]).includes(str(d.decision))
+        ? t(`fixLimit.decisions.${str(d.decision) as (typeof FIX_LIMIT_DECISIONS)[number]}`)
+        : str(d.decision);
+      return t('fixLimit.events.decided', {
+        decision,
+        note: withNote,
+      });
+    }
+    case 'ended': {
+      const reason = (FIX_LIMIT_END_REASONS as readonly string[]).includes(str(d.endReason))
+        ? t(`fixLimit.endReasons.${str(d.endReason) as (typeof FIX_LIMIT_END_REASONS)[number]}`)
+        : str(d.endReason);
+      return t('fixLimit.events.ended', { reason });
+    }
+    default: {
+      const deciders = strings(d.deciders);
+      const who = d.decider
+        ? t('fixLimit.events.who', { name: nameOf(str(d.decider), ctx.members, ctx.myHandle) })
+        : t('fixLimit.events.people', { decides: decidesText(deciders, ctx.members, ctx.myHandle) });
+      const rounds = Number(d.rounds) || 0;
+      const limit = Number(d.limit) || 0;
+      const parts = fixRoundParts({
+        changeRequests: Number(d.changeRequests) || 0,
+        designChangeRequests: Number(d.designChangeRequests) || 0,
+        sendBacks: Number(d.sendBacks) || 0,
+      });
+      // The limit is named only when it is not the number of rounds itself.
+      return rounds === limit
+        ? t('fixLimit.events.reached', { rounds, parts, who })
+        : t('fixLimit.events.reachedLimit', { rounds, limit, parts, who });
+    }
+  }
+}
+
 /** Attributed, translated text of a timeline event. Free text (notes, messages) stays as written. */
 export function describeEvent(event: TimelineEvent, ctx: TimelineContext): DescribedEvent {
   const d = event.data;
@@ -271,6 +321,8 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
     }
     case 'task_loop':
       return normal(loopEventText(d, ctx));
+    case 'task_fix_limit':
+      return normal(fixLimitEventText(d, ctx));
     case 'task_link_added':
       return normal(
         t('timeline.events.task_link_added', {

@@ -286,6 +286,19 @@ describe('settings section editors', () => {
     await waitFor(() => expect(project.backend.config.team.limits.minFreeDiskGb).toBe(0));
   });
 
+  it('sets the limit of the fix rounds, from 1 to 10 (PM-262)', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    const section = await limitsSection();
+    const field = section.getByLabelText(t('settings.limits.maxFixRounds')) as HTMLInputElement;
+    expect(field.value).toBe('3');
+    fireEvent.change(field, { target: { value: '5' } });
+    fireEvent.blur(field);
+    await saved(section);
+    expect(project.backend.config.team.limits.maxFixRounds).toBe(5);
+    expect(lastConfigPatch(project.requests).limits).toMatchObject({ maxFixRounds: 5 });
+  });
+
   it("sets and removes the warning limit of a session's tokens (PM-187)", async () => {
     const project = mockProject();
     project.render(<SettingsPage />);

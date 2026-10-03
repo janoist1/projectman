@@ -1,6 +1,7 @@
 import {
   alertPayloadOf,
   BoundaryRequest,
+  fixLimitDecisionOf,
   loopDecisionOf,
   permissionDelegationOf,
   questionPayloadOf,
@@ -12,6 +13,7 @@ import { toolPresentationFor } from './chat';
 import { labelName } from './labels';
 import { nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
+import { fixRoundParts } from './fixLimit';
 import { pairText, watcherName } from './loop';
 import type { PipelineIndex } from './pipeline';
 
@@ -28,6 +30,9 @@ const BUILT_IN_OPTIONS = [
   'seen',
   'stop_work',
   'let_run',
+  'replan',
+  'reassign',
+  'another_round',
 ] as const;
 type BuiltInOption = (typeof BUILT_IN_OPTIONS)[number];
 
@@ -47,6 +52,7 @@ export function optionLabel(option: InboxOption): string {
 export function inboxHeading(item: InboxItem): string {
   if (item.kind === 'boundary') return t('boundary.heading');
   if (loopDecisionOf(item)) return t('inbox.loop.heading');
+  if (fixLimitDecisionOf(item)) return t('inbox.fixLimit.heading');
   if (item.kind === 'alert') {
     const alert = alertPayloadOf(item);
     return alert ? t(`inbox.alerts.${alert.alert}.heading`) : t('inbox.alerts.unknown');
@@ -178,12 +184,46 @@ export function loopDecisionText(
   });
 }
 
-/** The options of a loop decision with what each one leads to; other items keep their options. */
-export function withLoopConsequences(item: InboxItem, options: readonly InboxOption[]): InboxOption[] {
-  if (!loopDecisionOf(item)) return [...options];
+/**
+ * What a fix round limit decision says (PM-262): the card, the rounds and what they were, and why it
+ * came to the viewer. Null for an item that is no such decision.
+ */
+export function fixLimitDecisionText(
+  item: InboxItem,
+  members: MemberIndex,
+  myHandle: string | null,
+): string | null {
+  const limit = fixLimitDecisionOf(item);
+  if (!limit) return null;
+  const note = limit.note?.trim();
+  return t('inbox.fixLimit.body', {
+    key: limit.taskKey,
+    rounds: limit.rounds,
+    parts: fixRoundParts(limit),
+    reason:
+      limit.reason === 'passed_on'
+        ? t('inbox.fixLimit.reasons.passed_on', {
+            name: nameOf(limit.decider, members, myHandle),
+            note: note ? t('inbox.fixLimit.note', { note }) : '',
+          })
+        : t(`inbox.fixLimit.reasons.${limit.reason}`),
+  });
+}
+
+const LOOP_OPTIONS = ['stop_work', 'let_run'];
+const FIX_LIMIT_OPTIONS = ['replan', 'reassign', 'another_round'];
+
+/** The options of a loop or fix round limit decision with what each one leads to; other items keep theirs. */
+export function withConsequences(item: InboxItem, options: readonly InboxOption[]): InboxOption[] {
+  const group = loopDecisionOf(item)
+    ? { ids: LOOP_OPTIONS, scope: 'loop' }
+    : fixLimitDecisionOf(item)
+      ? { ids: FIX_LIMIT_OPTIONS, scope: 'fixLimit' }
+      : null;
+  if (!group) return [...options];
   return options.map((option) =>
-    option.id === 'stop_work' || option.id === 'let_run'
-      ? { ...option, consequence: t(`inbox.loop.consequence.${option.id}`) }
+    group.ids.includes(option.id)
+      ? { ...option, consequence: tDynamic(`inbox.${group.scope}.consequence.${option.id}`, '') }
       : option,
   );
 }
@@ -206,12 +246,16 @@ export function decisionSubject(item: InboxItem): string {
   if (item.kind === 'permission') return permissionCommand(item) ?? item.title;
   const loop = loopDecisionOf(item);
   if (loop) return t('inbox.loop.subject', { key: loop.taskKey });
+  const fixLimit = fixLimitDecisionOf(item);
+  if (fixLimit) return t('inbox.fixLimit.subject', { key: fixLimit.taskKey });
   return item.title;
 }
 
 /** One line of a history list: what was decided · who asked · for which task ("Engedélyezve · Senior Fejlesztő · PM-141"). */
 export function decisionLine(item: InboxItem, members: MemberIndex, myHandle: string | null): string {
-  return [resolutionLabel(item), nameOf(item.source, members, myHandle), item.taskKey]
+  // The system raised some items itself (a loop, a fix round limit): its source is no member's handle.
+  const source = item.source === 'system' ? null : item.source;
+  return [resolutionLabel(item), nameOf(source, members, myHandle), item.taskKey]
     .filter((part): part is string => Boolean(part))
     .join(' · ');
 }
@@ -323,6 +367,7 @@ export function resolutionLabel(item: InboxItem): string {
   if (item.state === 'expired') return t('inbox.resolutions.expired');
   if (item.state === 'cancelled') return t('inbox.resolutions.cancelled');
   if (item.resolution?.rule === 'loop_ended') return t('inbox.resolutions.loop_ended');
+  if (item.resolution?.rule === 'fix_limit_ended') return t('inbox.resolutions.fix_limit_ended');
   const optionId = item.resolution?.optionId;
   if (!optionId) return t('inbox.resolutions.answer');
   if (isAutomaticDecision(item) && (optionId === 'allow' || optionId === 'deny'))
@@ -337,6 +382,11 @@ export function decisionToast(item: InboxItem, optionId: string, myHandle: strin
   const loop = loopDecisionOf(item);
   if (loop && (optionId === 'stop_work' || optionId === 'let_run'))
     return t(`inbox.loop.toast.${optionId}`, { key: loop.taskKey });
+  const fixLimit = fixLimitDecisionOf(item);
+  if (fixLimit && FIX_LIMIT_OPTIONS.includes(optionId))
+    return t(`inbox.fixLimit.toast.${optionId as 'replan' | 'reassign' | 'another_round'}`, {
+      key: fixLimit.taskKey,
+    });
   return resolutionLabel({
     ...item,
     state: 'resolved',

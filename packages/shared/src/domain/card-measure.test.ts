@@ -43,6 +43,8 @@ const labels = (added: string[], removed: string[] = []) => ({
   data: { added, removed },
 });
 
+const NO_ROUNDS = { reviewRounds: 0, changeRequests: 0, designChangeRequests: 0, sendBacks: 0 };
+
 describe('countCardRounds (PM-222)', () => {
   it('counts two reviews, one change request and one send-back of a card', () => {
     const events: Pick<TimelineEvent, 'type' | 'data'>[] = [
@@ -55,17 +57,22 @@ describe('countCardRounds (PM-222)', () => {
       labels(['code-review-ok']),
       move('cr', 'done'),
     ];
-    expect(countCardRounds(events, config)).toEqual({ reviewRounds: 2, changeRequests: 1, sendBacks: 1 });
+    expect(countCardRounds(events, config)).toEqual({
+      reviewRounds: 2,
+      changeRequests: 1,
+      designChangeRequests: 0,
+      sendBacks: 1,
+    });
   });
 
   it('counts a send-back from any later stage, by hand or after the merge, and not the first start', () => {
     const events = [move('queue', 'dev'), move('test', 'dev'), move('done', 'dev'), move('dev', 'test')];
-    expect(countCardRounds(events, config)).toEqual({ reviewRounds: 0, changeRequests: 0, sendBacks: 2 });
+    expect(countCardRounds(events, config)).toEqual({ ...NO_ROUNDS, sendBacks: 2 });
   });
 
   it('goes by the stage kind and duty, not the stage name, and skips stages the pipeline no longer has', () => {
     const events = [move('dev', 'test'), move('dev', 'gone'), move('gone', 'dev'), move('dev', 'cr')];
-    expect(countCardRounds(events, config)).toEqual({ reviewRounds: 1, changeRequests: 0, sendBacks: 0 });
+    expect(countCardRounds(events, config)).toEqual({ ...NO_ROUNDS, reviewRounds: 1 });
   });
 
   it('counts only the change-request label, whatever else is added or removed', () => {
@@ -75,7 +82,16 @@ describe('countCardRounds (PM-222)', () => {
       labels(['qa-ok']),
     ];
     expect(countCardRounds(events, config).changeRequests).toBe(1);
-    expect(countCardRounds([], config)).toEqual({ reviewRounds: 0, changeRequests: 0, sendBacks: 0 });
+    expect(countCardRounds([], config)).toEqual(NO_ROUNDS);
+  });
+
+  it('counts the change-request label of the UI/UX review apart (PM-262)', () => {
+    const events = [labels(['design-review-changes']), labels(['code-review-changes', 'design-review-ok'])];
+    expect(countCardRounds(events, config)).toEqual({
+      ...NO_ROUNDS,
+      changeRequests: 1,
+      designChangeRequests: 1,
+    });
   });
 
   it('survives events of an old or odd shape', () => {
@@ -83,7 +99,7 @@ describe('countCardRounds (PM-222)', () => {
       { type: 'task_stage_changed' as const, data: {} },
       { type: 'task_labels_changed' as const, data: {} },
     ];
-    expect(countCardRounds(events, config)).toEqual({ reviewRounds: 0, changeRequests: 0, sendBacks: 0 });
+    expect(countCardRounds(events, config)).toEqual(NO_ROUNDS);
   });
 });
 
@@ -113,7 +129,7 @@ describe('weightedTokensByModel (PM-222)', () => {
 });
 
 describe('measureClosedCard (PM-222)', () => {
-  const rounds = { reviewRounds: 2, changeRequests: 1, sendBacks: 1 };
+  const rounds = { reviewRounds: 2, changeRequests: 1, designChangeRequests: 0, sendBacks: 1 };
   const row = (model: string, scope: TokenUsage['scope'], input: number): TokenUsage => ({
     model,
     scope,
@@ -194,7 +210,7 @@ describe('sortClosedCards (PM-222)', () => {
     implementerModels: [],
     tokens,
     byModel: [],
-    rounds: { reviewRounds, changeRequests: 0, sendBacks: 0 },
+    rounds: { ...NO_ROUNDS, reviewRounds },
     unmeasuredSessions: 0,
   });
   const cards = [

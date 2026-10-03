@@ -317,6 +317,10 @@ export const TaskDetail = z.object({
   sessions: z.array(Session),
   /** Review rounds and send-backs counted from the whole timeline (PM-222); not shared with clients. */
   rounds: CardRounds.optional(),
+  /** The fix rounds since the count began and the project's limit (PM-262); not shared with clients. */
+  fixRounds: z
+    .object({ rounds: z.number().int().nonnegative(), limit: z.number().int().positive() })
+    .optional(),
 });
 export type TaskDetail = z.infer<typeof TaskDetail>;
 

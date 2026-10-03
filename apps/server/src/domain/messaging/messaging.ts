@@ -63,6 +63,7 @@ export class Messaging {
   private readonly messages: MessageService;
   private readonly delivery: MessageDelivery;
   private readonly refinement: Pick<RefinementSteps, 'turnMember'>;
+  private fixLimit: { heldFor(task: Task, config: ProjectConfig): boolean } | undefined;
 
   constructor(deps: {
     ctx: DomainContext;
@@ -80,6 +81,11 @@ export class Messaging {
     this.messages = deps.messages;
     this.delivery = deps.delivery;
     this.refinement = deps.refinement;
+  }
+
+  /** Binds the fix round limit (PM-262); it sends messages itself, so it is built after this class. */
+  useFixLimit(fixLimit: { heldFor(task: Task, config: ProjectConfig): boolean }): void {
+    this.fixLimit = fixLimit;
   }
 
   /**
@@ -133,7 +139,7 @@ export class Messaging {
     const placed = recipients
       .filter((handle) => !humans.includes(handle))
       .map((handle) => {
-        if (this.heldForTurn(config, task, handle, opts))
+        if (this.heldForTurn(config, task, handle, opts) || this.heldForFixLimit(config, task, from, handle))
           return { handle, held: true, workItem: routeFor(taskKey), running: null };
         return { handle, held: false, ...this.place(projectKey, config, handle, workItem) };
       });
@@ -339,6 +345,28 @@ export class Messaging {
   }
 
   /**
+   * Whether a message to a card's AI assignee waits because the card reached its fix round limit
+   * (PM-262): it is stored and not typed in, and wakes nobody until the hold ends. Only a person's
+   * message passes; AI members' and the system's (the review watch's send-back) wait.
+   */
+  private heldForFixLimit(config: ProjectConfig, task: Task | null, from: string, handle: string): boolean {
+    if (!task || task.assignee !== handle || memberOf(config, from)?.kind === 'human') return false;
+    return this.fixLimit?.heldFor(task, config) ?? false;
+  }
+
+  /**
+   * The messages that wait for `handle` on a card (held back by its fix round limit) reach it: typed into
+   * its running session, or one wake-up for all of them.
+   */
+  releaseWaiting(projectKey: string, taskKey: string, handle: string): void {
+    const workItem = routeFor(taskKey);
+    const waiting = this.messages.waiting(projectKey, handle, workItem);
+    const running = this.sessions.findRunning(projectKey, handle, workItem);
+    for (const message of running ? waiting : waiting.slice(0, 1))
+      this.deliverOrWake(projectKey, handle, workItem, running, message);
+  }
+
+  /**
    * A card that is no longer being refined (`refine` taken off, or moved out of the refinement
    * stages): every AI member with messages waiting for it is woken the usual way, or gets them typed
    * into its running session (PM-255). `before` is the card as it was before the change: only a card
@@ -350,14 +378,9 @@ export class Messaging {
     const config = await this.projects.config(projectKey);
     if (!projectRefines(config) || !isRefining(before, config) || isRefining(task, config)) return;
     const workItem = routeFor(taskKey);
-    for (const member of config.team.members) {
-      if (member.kind !== 'ai') continue;
-      const waiting = this.messages.waiting(projectKey, member.handle, workItem);
-      const running = this.sessions.findRunning(projectKey, member.handle, workItem);
-      // One wake-up covers all of a member's messages, which the session it starts takes together.
-      for (const message of running ? waiting : waiting.slice(0, 1))
-        this.deliverOrWake(projectKey, member.handle, workItem, running, message);
-    }
+    // One wake-up covers all of a member's messages, which the session it starts takes together.
+    for (const member of config.team.members)
+      if (member.kind === 'ai') this.releaseWaiting(projectKey, taskKey, member.handle);
   }
 
   /** A running recipient gets the message typed in; otherwise it waits for a wake-up. */

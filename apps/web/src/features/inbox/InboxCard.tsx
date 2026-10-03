@@ -15,6 +15,7 @@ import {
   alertText,
   boundaryOf,
   delegationNote,
+  fixLimitDecisionText,
   gateMoveText,
   inboxHeading,
   loopDecisionText,
@@ -22,7 +23,7 @@ import {
   payloadCode,
   permissionTool,
   questionExtras,
-  withLoopConsequences,
+  withConsequences,
 } from '../../lib/inbox';
 import { toolPresentationFor } from '../../lib/chat';
 import { nameOf, namesOf } from '../../lib/members';
@@ -73,7 +74,7 @@ export function InboxCard({
   headingLevel = 2,
 }: InboxCardProps) {
   const answerOption = item.options.find((option) => option.id === FREE_ANSWER_OPTION_ID);
-  const choices = withLoopConsequences(
+  const choices = withConsequences(
     item,
     item.options.filter((option) => option.id !== FREE_ANSWER_OPTION_ID),
   );
@@ -100,12 +101,14 @@ export function InboxCard({
   // The system is no member (disk space, loops): it shows as the timeline shows it.
   const fromSystem = item.source === 'system';
   const loopText = loopDecisionText(item, members, myHandle);
-  const alert = alertText(item, members, myHandle, labels) ?? loopText;
+  const fixLimitText = fixLimitDecisionText(item, members, myHandle);
+  const alert = alertText(item, members, myHandle, labels) ?? loopText ?? fixLimitText;
   const [boundaryReason, setBoundaryReason] = useState<BoundaryReason>('scope_verified');
   // A question that recommends an option or describes what each one does lists its options with
-  // that text, and so does a loop decision; every other item keeps its row of buttons.
+  // that text, and so do a loop and a fix round limit decision; every other item keeps its row of buttons.
   const describesChoices =
     loopText !== null ||
+    fixLimitText !== null ||
     (item.kind === 'question' &&
       (extras.recommendedOptionId !== null || choices.some((option) => option.consequence)));
 
@@ -177,7 +180,7 @@ export function InboxCard({
         </div>
       ) : null}
       {alert ? <p className={styles.body}>{alert}</p> : null}
-      {item.body && loopText === null ? (
+      {item.body && loopText === null && fixLimitText === null ? (
         item.kind === 'approval' ? (
           <blockquote className={styles.preview}>{item.body}</blockquote>
         ) : (
@@ -243,6 +246,9 @@ export function InboxCard({
       ) : null}
       {loopText !== null && !assignedToOthers ? (
         <p className={styles.others}>{t('inbox.loop.footer')}</p>
+      ) : null}
+      {fixLimitText !== null && !assignedToOthers ? (
+        <p className={styles.others}>{t('inbox.fixLimit.footer')}</p>
       ) : null}
       {assignedToOthers ? null : (
         <div className={clsx(styles.actions, item.kind === 'permission' && styles.actionsTop)}>

@@ -13,6 +13,7 @@ import { createReviewPinRepository } from './review-pins';
 import { createScheduleRepository } from './schedules';
 import { createSessionRepository } from './sessions';
 import { createTaskCoverRepository } from './task-covers';
+import { createTaskFixLimitRepository } from './fix-limits';
 import { createTaskLoopRepository } from './task-loops';
 import { createTaskRepository } from './tasks';
 import { createTimelineRepository } from './timeline';
@@ -27,6 +28,7 @@ export type { DeferredStartRecord } from './deferred-starts';
 export type { MemberWorkspaceRecord, TaskWorkspaceBinding, WorkspaceHolder } from './member-workspaces';
 export type { ReviewPinRecord } from './review-pins';
 export type { TaskCoverRecord } from './task-covers';
+export type { TaskFixLimitRecord } from './fix-limits';
 export type { TaskLoopRecord } from './task-loops';
 export type { UserRecord, AuthSessionRecord } from './users';
 export type { ProjectRecord } from './projects';
@@ -51,6 +53,7 @@ export function createRepositories(db: Db) {
     reviewPins: createReviewPinRepository(db),
     taskCovers: createTaskCoverRepository(db),
     taskLoops: createTaskLoopRepository(db),
+    taskFixLimits: createTaskFixLimitRepository(db),
     schedules: createScheduleRepository(db),
     deferredStarts: createDeferredStartRepository(db),
     memberWorkspaces: createMemberWorkspaceRepository(db),

@@ -15,16 +15,20 @@ import styles from './TaskUsage.module.css';
  */
 export function TaskRounds({
   rounds,
+  fixRounds,
   sessions,
 }: {
   rounds: CardRounds | undefined;
+  /** The fix rounds since the count began against the limit (PM-262); absent without the server's counts. */
+  fixRounds?: { rounds: number; limit: number };
   sessions: readonly Session[];
 }) {
   if (!rounds) return null;
   const models = weightedTokensByModel(sessions.flatMap((session) => session.usage?.rows ?? []));
-  const counts: Array<[string, number]> = [
+  const counts: Array<[string, number | string]> = [
     [t('tokenUsage.reviewRounds'), rounds.reviewRounds],
     [t('tokenUsage.changeRequests'), rounds.changeRequests],
+    [t('tokenUsage.designChangeRequests'), rounds.designChangeRequests],
     [t('tokenUsage.sendBacks'), rounds.sendBacks],
   ];
   return (
@@ -33,6 +37,14 @@ export function TaskRounds({
         {t('tokenUsage.roundsTitle')}
       </h3>
       <dl className={styles.rounds}>
+        {fixRounds ? (
+          <div
+            className={`${styles.round} ${styles.fixRound} ${fixRounds.rounds >= fixRounds.limit ? styles.atLimit : ''}`}
+          >
+            <dt>{t('tokenUsage.fixRounds')}</dt>
+            <dd className={styles.count}>{t('tokenUsage.fixRoundsValue', fixRounds)}</dd>
+          </div>
+        ) : null}
         {counts.map(([label, count]) => (
           <div key={label} className={styles.round}>
             <dt>{label}</dt>

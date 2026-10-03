@@ -143,7 +143,7 @@ describe('rounds on the card detail', () => {
   it('counts them from the whole timeline for members, and leaves them out for clients', async () => {
     const key = await closedCard('Login page', '2026-10-01T10:00:00.000Z');
     await domain().tasks.update('AR', key, { visibility: 'shared' }, owner);
-    const rounds = { reviewRounds: 2, changeRequests: 1, sendBacks: 1 };
+    const rounds = { reviewRounds: 2, changeRequests: 1, designChangeRequests: 0, sendBacks: 1 };
     const detail = TaskDetail.parse((await get('owner', routes.task('AR', key))).json());
     expect(detail.rounds).toEqual(rounds);
     const seen = TaskDetail.parse((await get('client', routes.task('AR', key))).json());

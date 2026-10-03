@@ -12,6 +12,7 @@ import type {
   Session,
   Task,
   TaskDetail,
+  TaskFixLimit,
   TaskLink,
   TimelineEventData,
   Visibility,
@@ -124,6 +125,8 @@ export class TaskService {
     startWaiting: StartWaitingReader;
     /** The head of the developer's branch, read when a task is handed over for review (PM-183). */
     sourceHead: SourceHeadReader;
+    /** The fix round limit hold on a card (PM-262), shown on it. */
+    fixLimit?: (task: Task) => TaskFixLimit | undefined;
   }) {
     this.ctx = deps.ctx;
     this.timeline = deps.timeline;
@@ -593,7 +596,7 @@ export class TaskService {
         effects.push(() => this.ctx.events.emit('task_description_changed', { task: next, actor }));
       if (labelsChanged)
         this.labels.record(config, next, labels, actor, { comment: note, sessionId }, effects);
-      if (patch.assignee !== undefined)
+      if (patch.assignee !== undefined) {
         this.timeline.append({
           projectKey: task.projectKey,
           taskKey: task.key,
@@ -601,6 +604,12 @@ export class TaskService {
           type: 'task_assigned',
           data: { assignee: next.assignee, previous: task.assignee },
         });
+        // Whoever listens to a change of assignee (a held fix round limit ends with it) hears this one too.
+        const assigned = next;
+        effects.push(() =>
+          this.ctx.events.emit('task_assigned', { task: assigned, previous: task.assignee, actor }),
+        );
+      }
       if (patch.parentKey !== undefined)
         this.recordParentChange(next, task.parentKey ?? null, actor, sessionId);
       // A card that became a subtask, or left its collecting card, shows another theme now, which only a
@@ -843,10 +852,14 @@ export class TaskService {
     actor: Actor,
     extra: Pick<TimelineEventData['task_assigned'], 'reason' | 'from'> = {},
   ): Task {
-    return this.ctx.unitOfWork(() => {
+    let previous: string | null = null;
+    let changed = false;
+    const assigned = this.ctx.unitOfWork(() => {
       const task = this.get(projectKey, taskKey);
       if (task.assignee === assignee) return task;
       if (isTheme(task)) throw themeRefused(taskKey, 'have an assignee');
+      previous = task.assignee;
+      changed = true;
       const next = this.store.write(task, { assignee, updatedAt: isoNow(this.ctx) });
       this.timeline.append({
         projectKey,
@@ -858,6 +871,9 @@ export class TaskService {
       this.publish(next);
       return next;
     });
+    // Only the listeners that run before the first asynchronous one are done when this returns.
+    if (changed) void this.ctx.events.emit('task_assigned', { task: assigned, previous, actor });
+    return assigned;
   }
 
   addLink(

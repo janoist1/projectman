@@ -220,6 +220,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('decidePermissionRequest', ctx, args);
       throw new TeamToolError('not_found', 'Unknown permission request.');
     },
+    async decideFixLimit(ctx, args) {
+      await enter('decideFixLimit', ctx, args);
+      throw new TeamToolError('not_found', 'Unknown fix round limit hold.');
+    },
     async listNetworkDenials(ctx) {
       await enter('listNetworkDenials', ctx, {});
       return [];

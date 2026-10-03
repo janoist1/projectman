@@ -55,8 +55,9 @@ export function teamMessageParticipant(viewer: Viewer): string | undefined {
  */
 export function withVisibleCardLinks(viewer: Viewer, task: Task, canSeeKey: (key: string) => boolean): Task {
   if (!isClient(viewer)) return task;
-  // The loop mark (PM-261) is the team's, as the rounds of a card are: a client never sees it.
-  const { loop: _loop, ...visible } = task;
+  // The loop mark (PM-261) and the fix round limit hold (PM-262) are the team's, as the rounds of a card
+  // are: a client never sees them.
+  const { loop: _loop, fixLimit: _fixLimit, ...visible } = task;
   const hideTheme = !!visible.themeKey && !canSeeKey(visible.themeKey);
   if (!hideTheme && !visible.links.some(isCardLink)) return visible;
   const { themeKey: _theme, ...shown } = visible;

@@ -149,6 +149,10 @@ export const ERROR_CODES = [
   'workspace_source_missing',
   // The VM boundary (PM-140): its readiness or a part of it failed, so no session starts.
   'runtime_boundary_not_ready',
+  // The fix round limit (PM-262): the card is not held, the caller does not decide it, nobody can plan.
+  'fix_limit_not_held',
+  'fix_limit_not_decider',
+  'fix_limit_no_planner',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

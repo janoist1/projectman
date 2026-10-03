@@ -382,3 +382,56 @@ describe('the loop watch on the timeline (PM-261)', () => {
     );
   });
 });
+
+describe('fix round limit timeline rows (PM-262)', () => {
+  const fixLimit = (data: Record<string, unknown>): TimelineEvent => ({
+    ...creation,
+    actor: { kind: 'system', handle: null },
+    type: 'task_fix_limit',
+    data: { rounds: 3, limit: 3, changeRequests: 2, designChangeRequests: 1, sendBacks: 0, ...data },
+  });
+  const text = (data: Record<string, unknown>) => describeEvent(fixLimit(data), context).text;
+
+  it('says what the rounds were and who decides, the lead or the people', () => {
+    // Only the kinds of round that happened are named, and the limit only when it is not the rounds.
+    const parts = `${t('fixLimit.part.changes', { count: 2 })}${t('common.and')}${t('fixLimit.part.design', { count: 1 })}`;
+    expect(text({ phase: 'reached', decider: 'lead' })).toBe(
+      t('fixLimit.events.reached', {
+        rounds: 3,
+        parts,
+        who: t('fixLimit.events.who', { name: 'lead' }),
+      }),
+    );
+    expect(text({ phase: 'reached', decider: 'lead', limit: 2 })).toBe(
+      t('fixLimit.events.reachedLimit', {
+        rounds: 3,
+        limit: 2,
+        parts,
+        who: t('fixLimit.events.who', { name: 'lead' }),
+      }),
+    );
+    expect(text({ phase: 'reached', decider: null, deciders: ['owner'] })).toContain('); te döntesz.');
+  });
+
+  it('words the hand-over to the people, the decision with its note and the end', () => {
+    // The row's header names who did it, so the text has no name.
+    expect(text({ phase: 'passed_on', decider: 'lead', deciders: ['owner'], note: 'Wrong plan' })).toBe(
+      t('fixLimit.events.passed_on', {
+        decides: t('loop.youDecide'),
+        note: t('fixLimit.events.note', { note: 'Wrong plan' }),
+      }),
+    );
+    expect(text({ phase: 'decided', decision: 'another_round', by: 'owner' })).toBe(
+      t('fixLimit.events.decided', {
+        decision: t('fixLimit.decisions.another_round'),
+        note: '',
+      }),
+    );
+    expect(text({ phase: 'ended', endReason: 'assignee_changed' })).toBe(
+      t('fixLimit.events.ended', { reason: t('fixLimit.endReasons.assignee_changed') }),
+    );
+    expect(text({ phase: 'ended', endReason: 'something_new' })).toBe(
+      t('fixLimit.events.ended', { reason: 'something_new' }),
+    );
+  });
+});

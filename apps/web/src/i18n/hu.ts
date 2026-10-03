@@ -1286,7 +1286,7 @@ export const hu = {
     fixLimit: {
       heading: 'Megállt egy kártya a javítási körök határánál',
       subject: 'Javítási körök határa: {key}',
-      body: 'A(z) {key} {rounds} javítási kör után sem ment át ({parts}). {reason}',
+      body: 'A(z) {key} kártya {rounds} javítási kör után sem ment át ({parts}). {reason}',
       reasons: {
         no_ai_decider: 'Nincs AI-tag, aki dönthetne róla (Műszaki irányítás és Kódellenőrzés).',
         passed_on: '{name} továbbadta neked.{note}',

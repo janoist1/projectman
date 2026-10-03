@@ -57,6 +57,13 @@ export function formatAgo(value: string | Date, now: Date = new Date()): string 
   return formatStamp(value, now);
 }
 
+/** A running clock: "0:07", "5:00", "12:03" (minutes unbounded); a negative span reads "0:00". */
+export function formatClock(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const seconds = String(total % 60).padStart(2, '0');
+  return `${Math.floor(total / 60)}:${seconds}`;
+}
+
 /** Day heading for grouped lists: "Ma", "Tegnap", "szeptember 28., hétfő". */
 export function formatDayHeading(value: string | Date, now: Date = new Date()): string {
   const days = daysBetween(value, now);

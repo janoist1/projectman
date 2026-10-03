@@ -9,6 +9,7 @@ import { ProviderBadge } from '../../components/ProviderBadge';
 import { t } from '../../i18n/t';
 import { aiSponsors, memberStatusView, nameOf } from '../../lib/members';
 import { aiRoleView, humanRoleName } from '../../lib/roles';
+import { usePausedRows } from '../pause/usePause';
 import { MemberScheduleControl } from './ScheduledRuns';
 import styles from './Roster.module.css';
 
@@ -171,6 +172,7 @@ function useSponsorNote(members: readonly MemberView[]) {
 /** The roster as a table (desktop and tablet). */
 export function RosterTable({ members, inbox, roles, titles, actions }: RosterProps) {
   const { myHandle } = useProject();
+  const pausedRows = usePausedRows();
   const sponsor = useSponsorNote(members);
   return (
     <div className={styles.tableWrap}>
@@ -192,7 +194,7 @@ export function RosterTable({ members, inbox, roles, titles, actions }: RosterPr
         </thead>
         <tbody>
           {members.map((member) => {
-            const view = memberStatusView(member, inbox, myHandle);
+            const view = memberStatusView(member, inbox, myHandle, pausedRows);
             return (
               <tr key={member.handle}>
                 <td>
@@ -226,11 +228,12 @@ export function RosterTable({ members, inbox, roles, titles, actions }: RosterPr
 /** The roster as cards (phones). */
 export function RosterCards({ members, inbox, roles, titles, actions }: RosterProps) {
   const { myHandle } = useProject();
+  const pausedRows = usePausedRows();
   const sponsor = useSponsorNote(members);
   return (
     <ul className={styles.cards}>
       {members.map((member) => {
-        const view = memberStatusView(member, inbox, myHandle);
+        const view = memberStatusView(member, inbox, myHandle, pausedRows);
         const note = sponsor.note(member);
         const menu = actions(member);
         return (

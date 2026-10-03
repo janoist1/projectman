@@ -81,9 +81,12 @@ export function ProjectSwitcher({
 export function AccountMenu({
   settingsPath,
   placement = 'right',
+  onPause,
 }: {
   settingsPath: string | null;
   placement?: 'right' | 'below';
+  /** The phone's way to pause the team (PM-220); the desktop has the top bar's button. */
+  onPause?: (() => void) | undefined;
 }) {
   const me = useMeContext();
   const [open, setOpen] = useState(false);
@@ -123,6 +126,22 @@ export function AccountMenu({
             <span className={styles.accountEmail}>{me.email}</span>
           </div>
           <div className={styles.separator} />
+          {onPause ? (
+            <>
+              <button
+                type="button"
+                className={styles.item}
+                onClick={() => {
+                  setOpen(false);
+                  onPause();
+                }}
+              >
+                <Icon name="pause" size={16} />
+                <span className={styles.itemText}>{t('pause.menuItem')}</span>
+              </button>
+              <div className={styles.separator} />
+            </>
+          ) : null}
           {settingsPath ? (
             <Link to={settingsPath} className={styles.item} onClick={() => setOpen(false)}>
               <Icon name="settings" size={16} />

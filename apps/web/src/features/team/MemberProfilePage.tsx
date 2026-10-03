@@ -43,6 +43,7 @@ import { useDocumentTitle } from '../../lib/hooks';
 import { describeCron } from '../../lib/schedules';
 import { MessageComposer } from '../messages/MessageComposer';
 import { MessageList } from '../messages/MessageList';
+import { usePausedRows, useHeldStart, useTeamPaused } from '../pause/usePause';
 import { ChatView } from '../session/ChatView';
 import { EditMemberDialog } from './EditMemberDialog';
 import { LeaveButton } from './LeaveButton';
@@ -115,6 +116,8 @@ export function MemberProfilePage() {
   const canSend = access !== undefined && ['owner', 'admin', 'developer', 'client'].includes(access);
   const memory = useMemberMemories(key, handle, internal && profile.data?.member.kind === 'ai');
   const schedules = useSchedules(key, internal && profile.data?.member.kind === 'ai');
+  const pausedRows = usePausedRows();
+  const held = useHeldStart(useTeamPaused(), t('pause.disabled.newWork'));
   useDocumentTitle(profile.data?.member.displayName ?? t('profile.title'), board.data?.project.name);
   if (profile.error) return <ErrorState error={profile.error} onRetry={() => void profile.refetch()} />;
   if (!profile.data) return <LoadingState />;
@@ -123,7 +126,7 @@ export function MemberProfilePage() {
   const ai = member.kind === 'ai';
   const cheapSubagent = cheapSubagentOf(member);
   const ownConfig = config.data?.config.team.members.find((entry) => entry.handle === handle);
-  const status = memberStatusView(member, data.inbox, myHandle);
+  const status = memberStatusView(member, data.inbox, myHandle, pausedRows);
   const live = data.sessions.filter(isLiveSession);
   const pastSessions = data.sessions.filter((s) => !live.includes(s)).slice(0, 10);
   const schedule = schedules.data?.members.find((entry) => entry.member === handle);
@@ -164,19 +167,23 @@ export function MemberProfilePage() {
         <div className={styles.actions}>
           {ai && member.onLeave && can.manageTeam ? <LeaveButton member={member} variant="primary" /> : null}
           {ai && !member.onLeave && can.workInSessions ? (
-            <Button
-              variant="primary"
-              loading={start.isPending}
-              onClick={() =>
-                start.mutate(handle, {
-                  onSuccess: (session) => {
-                    void navigate(`/p/${key}/sessions/${session.id}`);
-                  },
-                })
-              }
-            >
-              {t('profile.conversation')}
-            </Button>
+            <span className={styles.heldStart}>
+              <Button
+                variant="primary"
+                loading={start.isPending}
+                {...held.buttonProps}
+                onClick={() =>
+                  start.mutate(handle, {
+                    onSuccess: (session) => {
+                      void navigate(`/p/${key}/sessions/${session.id}`);
+                    },
+                  })
+                }
+              >
+                {t('profile.conversation')}
+              </Button>
+              {held.note}
+            </span>
           ) : null}
           {can.manageTeam ? (
             <MemberMenu

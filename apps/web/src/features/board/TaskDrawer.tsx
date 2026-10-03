@@ -57,6 +57,7 @@ import { canMoveTask } from './moveTask';
 import drawer from './drawer.module.css';
 import styles from './TaskDrawer.module.css';
 import { TaskHeader } from './TaskHeader';
+import { useHeldStart, useTeamPaused } from '../pause/usePause';
 import { ThemeCards, ThemeHeader, ThemeSummary } from './ThemeDrawer';
 
 function StartPanel({
@@ -75,6 +76,8 @@ function StartPanel({
   const labels = useLabels(key);
   const start = useStartTask(key);
   const toast = useToast();
+  // A pause holds the start: the button stays in its place but does nothing, and says why (PM-220).
+  const held = useHeldStart(useTeamPaused(), t('pause.disabled.start'));
   const [assignee, setAssignee] = useState('');
   // The open prerequisites the person is warned about before the start goes ahead (PM-204).
   const [warning, setWarning] = useState<string[] | null>(null);
@@ -136,10 +139,12 @@ function StartPanel({
         size="md"
         icon="play"
         loading={start.isPending}
+        {...held.buttonProps}
         onClick={() => (openKeys.length > 0 ? setWarning(openKeys) : send(false))}
       >
         {start.isPending ? t('task.starting') : t('task.start')}
       </Button>
+      {held.note}
       <PrerequisiteWarning
         keys={warning}
         tasks={tasks}

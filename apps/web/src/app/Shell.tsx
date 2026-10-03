@@ -9,6 +9,7 @@ import { AvatarStack } from '../components/Avatar';
 import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
 import type { IconName } from '../components/Icon';
+import { openPauses } from '../features/pause/pauseView';
 import { joinNames, t } from '../i18n/t';
 import { nameOf } from '../lib/members';
 import type { MemberIndex } from '../lib/members';
@@ -266,7 +267,8 @@ export function TopBar({
   inboxCount: number;
   pauseAbove: number | undefined;
 }) {
-  const { key, openNewTask, can } = useProject();
+  const { key, openNewTask, openPause, can } = useProject();
+  const canPause = can.pauseTeam && board !== undefined && openPauses(board.pause).length === 0;
   return (
     <header className={styles.topbar}>
       <ProjectSwitcher currentKey={key} currentName={board?.project.name ?? key} />
@@ -280,6 +282,11 @@ export function TopBar({
       <span className={styles.hideNarrow}>
         <Presence board={board} members={members} />
       </span>
+      {canPause ? (
+        <Button variant="secondary" icon="pause" onClick={openPause}>
+          {t('pause.button')}
+        </Button>
+      ) : null}
       <InboxPill count={inboxCount} />
       {can.createTasks ? (
         <Button variant="primary" icon="plus" onClick={() => openNewTask()}>
@@ -301,8 +308,9 @@ export function MobileHeader({
   board: BoardView | undefined;
   pauseAbove?: number | undefined;
 }) {
-  const { key, openNewTask, can, search, setSearch } = useProject();
+  const { key, openNewTask, openPause, can, search, setSearch } = useProject();
   const [searching, setSearching] = useState(search !== '');
+  const canPause = can.pauseTeam && board !== undefined && openPauses(board.pause).length === 0;
   if (searching) {
     return (
       <header className={styles.mobileHeader}>
@@ -349,7 +357,11 @@ export function MobileHeader({
           aria-label={t('topbar.newTask')}
         />
       ) : null}
-      <AccountMenu settingsPath={`/p/${key}/settings`} placement="below" />
+      <AccountMenu
+        settingsPath={`/p/${key}/settings`}
+        placement="below"
+        onPause={canPause ? openPause : undefined}
+      />
     </header>
   );
 }

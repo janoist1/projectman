@@ -23,9 +23,11 @@ export interface ProjectContextValue {
   myHandle: string | null;
   isOwner: boolean;
   /** Allowed actions by access level (the server enforces them too). */
-  can: { createTasks: boolean; manageTeam: boolean; workInSessions: boolean };
+  can: { createTasks: boolean; manageTeam: boolean; workInSessions: boolean; pauseTeam: boolean };
   search: string;
   setSearch: (value: string) => void;
+  /** Opens the dialog that asks to pause the project's team (PM-220). */
+  openPause: () => void;
   /** Opens the new-card dialog; `kind: 'theme'` opens it for a theme (PM-192). */
   openNewTask: (options?: { kind?: 'theme' }) => void;
   /** The theme the board is filtered to (PM-192), kept here so the board, a theme's card and the new-card dialog agree. */

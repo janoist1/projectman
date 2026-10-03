@@ -12,6 +12,7 @@ import { t, tDynamic } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { useDocumentTitle } from '../../lib/hooks';
 import { AuthLayout } from '../auth/AuthLayout';
+import { InstancePauseBar } from '../pause/PauseBanner';
 import { KEY_RE, newRepo, reposPayload, suggestKey, validateRepos } from './projectForm';
 import type { RepoErrors, RepoRow } from './projectForm';
 import styles from './CreateProjectPage.module.css';
@@ -74,148 +75,151 @@ export function CreateProjectPage() {
   };
 
   return (
-    <AuthLayout
-      wide
-      title={isFirst ? t('projects.emptyTitle') : t('projects.create.title')}
-      subtitle={
-        isFirst ? `${t('projects.emptyBody')} ${t('projects.create.intro')}` : t('projects.create.intro')
-      }
-    >
-      <form className={styles.form} onSubmit={onSubmit} noValidate>
-        <TextField
-          label={t('projects.create.name')}
-          placeholder={t('projects.create.namePlaceholder')}
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          error={errors.name}
-          autoFocus
-        />
-        <TextField
-          label={t('projects.create.key')}
-          hint={t('projects.create.keyHint', { example: `${effectiveKey || 'AC'}-1` })}
-          value={effectiveKey}
-          onChange={(event) => {
-            setKeyTouched(true);
-            setKey(event.target.value.toUpperCase());
-          }}
-          error={errors.key}
-          maxLength={10}
-          spellCheck={false}
-          autoCapitalize="characters"
-        />
-        <TextField
-          label={t('projects.create.workspace')}
-          hint={t('projects.create.workspaceHint')}
-          placeholder={t('projects.create.workspacePlaceholder')}
-          value={workspace}
-          onChange={(event) => setWorkspace(event.target.value)}
-          error={errors.workspace}
-          spellCheck={false}
-        />
-        <fieldset className={styles.fieldset}>
-          <legend className={styles.legend}>{t('projects.create.repos')}</legend>
-          <p className={styles.muted}>{t('projects.create.reposHint')}</p>
-          {repos.map((row, index) => (
-            <div
-              key={row.id}
-              className={styles.repo}
-              role="group"
-              aria-label={t('projects.create.repoLabel', { index: index + 1 })}
-            >
-              <div className={styles.repoGrid}>
-                <TextField
-                  label={t('projects.create.repoName')}
-                  value={row.name}
-                  onChange={(event) => updateRepo(row.id, { name: event.target.value.toLowerCase() })}
-                  error={repoErrors[row.id]?.name}
-                  spellCheck={false}
-                />
-                <TextField
-                  label={t('projects.create.repoPath')}
-                  value={row.path}
-                  onChange={(event) => updateRepo(row.id, { path: event.target.value })}
-                  error={repoErrors[row.id]?.path}
-                  spellCheck={false}
-                />
-                <TextField
-                  label={t('projects.create.repoGithub')}
-                  value={row.github}
-                  onChange={(event) => updateRepo(row.id, { github: event.target.value })}
-                  error={repoErrors[row.id]?.github}
-                  optional
-                  spellCheck={false}
-                />
-                <TextField
-                  label={t('projects.create.repoBranch')}
-                  value={row.defaultBranch}
-                  onChange={(event) => updateRepo(row.id, { defaultBranch: event.target.value })}
-                  spellCheck={false}
+    <>
+      <InstancePauseBar />
+      <AuthLayout
+        wide
+        title={isFirst ? t('projects.emptyTitle') : t('projects.create.title')}
+        subtitle={
+          isFirst ? `${t('projects.emptyBody')} ${t('projects.create.intro')}` : t('projects.create.intro')
+        }
+      >
+        <form className={styles.form} onSubmit={onSubmit} noValidate>
+          <TextField
+            label={t('projects.create.name')}
+            placeholder={t('projects.create.namePlaceholder')}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            error={errors.name}
+            autoFocus
+          />
+          <TextField
+            label={t('projects.create.key')}
+            hint={t('projects.create.keyHint', { example: `${effectiveKey || 'AC'}-1` })}
+            value={effectiveKey}
+            onChange={(event) => {
+              setKeyTouched(true);
+              setKey(event.target.value.toUpperCase());
+            }}
+            error={errors.key}
+            maxLength={10}
+            spellCheck={false}
+            autoCapitalize="characters"
+          />
+          <TextField
+            label={t('projects.create.workspace')}
+            hint={t('projects.create.workspaceHint')}
+            placeholder={t('projects.create.workspacePlaceholder')}
+            value={workspace}
+            onChange={(event) => setWorkspace(event.target.value)}
+            error={errors.workspace}
+            spellCheck={false}
+          />
+          <fieldset className={styles.fieldset}>
+            <legend className={styles.legend}>{t('projects.create.repos')}</legend>
+            <p className={styles.muted}>{t('projects.create.reposHint')}</p>
+            {repos.map((row, index) => (
+              <div
+                key={row.id}
+                className={styles.repo}
+                role="group"
+                aria-label={t('projects.create.repoLabel', { index: index + 1 })}
+              >
+                <div className={styles.repoGrid}>
+                  <TextField
+                    label={t('projects.create.repoName')}
+                    value={row.name}
+                    onChange={(event) => updateRepo(row.id, { name: event.target.value.toLowerCase() })}
+                    error={repoErrors[row.id]?.name}
+                    spellCheck={false}
+                  />
+                  <TextField
+                    label={t('projects.create.repoPath')}
+                    value={row.path}
+                    onChange={(event) => updateRepo(row.id, { path: event.target.value })}
+                    error={repoErrors[row.id]?.path}
+                    spellCheck={false}
+                  />
+                  <TextField
+                    label={t('projects.create.repoGithub')}
+                    value={row.github}
+                    onChange={(event) => updateRepo(row.id, { github: event.target.value })}
+                    error={repoErrors[row.id]?.github}
+                    optional
+                    spellCheck={false}
+                  />
+                  <TextField
+                    label={t('projects.create.repoBranch')}
+                    value={row.defaultBranch}
+                    onChange={(event) => updateRepo(row.id, { defaultBranch: event.target.value })}
+                    spellCheck={false}
+                  />
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon="close"
+                  onClick={() => setRepos((rows) => rows.filter((entry) => entry.id !== row.id))}
+                  aria-label={t('projects.create.removeRepo', {
+                    name: row.name || t('projects.create.repoLabel', { index: index + 1 }),
+                  })}
                 />
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                icon="close"
-                onClick={() => setRepos((rows) => rows.filter((entry) => entry.id !== row.id))}
-                aria-label={t('projects.create.removeRepo', {
-                  name: row.name || t('projects.create.repoLabel', { index: index + 1 }),
-                })}
-              />
-            </div>
-          ))}
-          <Button
-            variant="secondary"
-            size="md"
-            icon="plus"
-            onClick={() => setRepos((rows) => [...rows, newRepo()])}
-          >
-            {t('projects.create.addRepo')}
-          </Button>
-        </fieldset>
-        <fieldset className={styles.fieldset}>
-          <legend className={styles.legend}>{t('projects.create.template')}</legend>
-          {templates.isPending ? <LoadingState compact /> : null}
-          {templates.isError ? (
-            <ErrorState compact error={templates.error} onRetry={() => void templates.refetch()} />
-          ) : null}
-          {templates.data && templates.data.length === 0 ? (
-            <p className={styles.muted}>{t('projects.create.noTemplates')}</p>
-          ) : null}
-          <div className={styles.templates}>
-            {(templates.data ?? []).map((template) => (
-              <ChoiceCard
-                key={template.id}
-                name="template"
-                value={template.id}
-                checked={selectedTemplate === template.id}
-                onChange={setTemplateId}
-                title={tDynamic(template.nameKey, template.id)}
-                description={[
-                  tDynamic(template.descriptionKey, ''),
-                  t('projects.create.templateCounts', {
-                    humans: template.memberCount.human,
-                    ai: template.memberCount.ai,
-                    stages: template.stageCount,
-                  }),
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
-              />
             ))}
+            <Button
+              variant="secondary"
+              size="md"
+              icon="plus"
+              onClick={() => setRepos((rows) => [...rows, newRepo()])}
+            >
+              {t('projects.create.addRepo')}
+            </Button>
+          </fieldset>
+          <fieldset className={styles.fieldset}>
+            <legend className={styles.legend}>{t('projects.create.template')}</legend>
+            {templates.isPending ? <LoadingState compact /> : null}
+            {templates.isError ? (
+              <ErrorState compact error={templates.error} onRetry={() => void templates.refetch()} />
+            ) : null}
+            {templates.data && templates.data.length === 0 ? (
+              <p className={styles.muted}>{t('projects.create.noTemplates')}</p>
+            ) : null}
+            <div className={styles.templates}>
+              {(templates.data ?? []).map((template) => (
+                <ChoiceCard
+                  key={template.id}
+                  name="template"
+                  value={template.id}
+                  checked={selectedTemplate === template.id}
+                  onChange={setTemplateId}
+                  title={tDynamic(template.nameKey, template.id)}
+                  description={[
+                    tDynamic(template.descriptionKey, ''),
+                    t('projects.create.templateCounts', {
+                      humans: template.memberCount.human,
+                      ai: template.memberCount.ai,
+                      stages: template.stageCount,
+                    }),
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                />
+              ))}
+            </div>
+            {errors.template ? (
+              <span className={styles.error} role="alert">
+                {errors.template}
+              </span>
+            ) : null}
+          </fieldset>
+          <div className={styles.bar}>
+            {create.isError ? <ErrorBanner>{errorMessage(create.error)}</ErrorBanner> : null}
+            <Button type="submit" variant="primary" size="md" loading={create.isPending}>
+              {create.isPending ? t('projects.create.submitting') : t('projects.create.submit')}
+            </Button>
           </div>
-          {errors.template ? (
-            <span className={styles.error} role="alert">
-              {errors.template}
-            </span>
-          ) : null}
-        </fieldset>
-        <div className={styles.bar}>
-          {create.isError ? <ErrorBanner>{errorMessage(create.error)}</ErrorBanner> : null}
-          <Button type="submit" variant="primary" size="md" loading={create.isPending}>
-            {create.isPending ? t('projects.create.submitting') : t('projects.create.submit')}
-          </Button>
-        </div>
-      </form>
-    </AuthLayout>
+        </form>
+      </AuthLayout>
+    </>
   );
 }

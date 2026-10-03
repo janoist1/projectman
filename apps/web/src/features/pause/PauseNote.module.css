@@ -1,0 +1,15 @@
+.note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  color: var(--c-ink-3);
+}
+
+.note svg {
+  flex-shrink: 0;
+  /* The icon sits on the first line's centre. */
+  margin-top: 2px;
+}

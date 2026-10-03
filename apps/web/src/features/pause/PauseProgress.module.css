@@ -1,0 +1,132 @@
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 800;
+  color: var(--c-ink);
+}
+
+.meta {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
+.empty {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 9rem) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--c-line-soft);
+  font-size: var(--text-sm);
+}
+
+.row:first-child {
+  border-top: 0;
+}
+
+.member {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  color: var(--c-ink);
+}
+
+.work {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  color: var(--c-ink-2, var(--c-ink));
+  text-decoration: none;
+}
+
+.work:hover {
+  text-decoration: underline;
+}
+
+.workKey {
+  flex-shrink: 0;
+  font-weight: 700;
+}
+
+.workTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--c-ink-2, var(--c-ink));
+  text-align: right;
+}
+
+.elapsed {
+  font-variant-numeric: tabular-nums;
+  color: var(--c-ink-3);
+}
+
+.check {
+  color: var(--c-ok-text);
+  flex-shrink: 0;
+}
+
+.force {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--c-line-soft);
+  font-size: var(--text-sm);
+  color: var(--c-ink-2);
+}
+
+@media (max-width: 767px) {
+  .row {
+    /* Avatar and member on the first line, the task and the state under them. */
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .work,
+  .state {
+    grid-column: 1 / -1;
+    text-align: left;
+  }
+
+  .force {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

@@ -78,10 +78,14 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
     children,
     type = 'button',
     disabled,
+    onClick,
     ...rest
   },
   ref,
 ) {
+  // `aria-disabled` keeps the button focusable (a touch screen and the keyboard still reach its
+  // explanation) but does nothing on a click.
+  const blocked = rest['aria-disabled'] === true || rest['aria-disabled'] === 'true';
   return (
     <button
       ref={ref}
@@ -89,6 +93,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       className={buttonClass({ variant, size, fullWidth, iconOnly, className })}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
+      onClick={blocked ? (event) => event.preventDefault() : onClick}
       {...rest}
     >
       <Content icon={icon} iconRight={iconRight} size={size} loading={loading}>

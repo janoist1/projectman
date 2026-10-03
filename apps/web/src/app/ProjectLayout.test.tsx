@@ -36,7 +36,7 @@ describe('project access from Me', () => {
       '/p/AC',
     );
     expect(JSON.parse((await screen.findByTestId('access')).textContent!)).toEqual({
-      can: { createTasks: false, manageTeam: false, workInSessions: false },
+      can: { createTasks: false, manageTeam: false, workInSessions: false, pauseTeam: false },
       isOwner: false,
     });
     await screen.findByText('Acme webshop');

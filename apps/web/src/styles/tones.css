@@ -73,6 +73,12 @@
   --status-text: var(--c-needs-text);
   --status-bg: var(--c-needs-bg);
 }
+/* a paused member or session (PM-220): quiet, no pulse */
+[data-status='paused'] {
+  --status-dot: var(--c-ink-3);
+  --status-text: var(--c-ink-3);
+  --status-bg: var(--c-muted);
+}
 [data-status='idle'] {
   --status-dot: var(--c-mark-idle);
   --status-text: var(--c-ink-3);

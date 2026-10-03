@@ -1,0 +1,15 @@
+.details {
+  margin-top: 6px;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
+.details summary {
+  cursor: pointer;
+}
+
+.details span {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}

@@ -172,6 +172,13 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       );
       return;
     }
+    case 'pause_changed': {
+      const { projectKey: key, pause } = event;
+      client.setQueryData<BoardView>(queryKeys.board(key), (board) => (board ? { ...board, pause } : board));
+      // The instance's pause view is read again only where it is on screen (the right to resume comes with it).
+      void client.invalidateQueries({ queryKey: queryKeys.instancePause });
+      return;
+    }
     case 'member_changed': {
       const { projectKey: key, handle, member } = event;
       const change = (members: readonly MemberView[]) =>

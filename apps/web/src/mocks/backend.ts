@@ -192,6 +192,7 @@ import {
   roleViews,
 } from '@projectman/templates';
 import * as fixtures from './fixtures';
+import { MockPauses } from './pauses';
 import { mockId, mockUuid, nowIso } from './time';
 
 export type MockAuthState = 'ready' | 'setup' | 'login';
@@ -342,6 +343,27 @@ export class MockBackend {
   chats: Record<string, ChatItem[]> = clone(fixtures.chats);
   /** The developer's starts that wait for labels an AI member sets (PM-236), by task key. */
   private readonly labelWaits = new Map<string, { input: StartTaskRequest; workStageId: string }>();
+  /** The pauses of the team (PM-220); tests settle and release them through here. */
+  readonly pauses: MockPauses = new MockPauses({
+    projectKey: fixtures.PROJECT_KEY,
+    // Read when used: a test may swap the viewer or the lists.
+    sessions: () => this.sessions,
+    tasks: () => this.tasks,
+    viewer: () => ({
+      name: this.user.name,
+      handle: this.viewerHandle,
+      role: this.findMember(this.viewerHandle)?.role ?? '',
+    }),
+    isLive: (session) => this.isLive(session),
+    isAiMember: (handle) => this.findMember(handle)?.kind === 'ai',
+    emit: (event) => this.emit(event),
+    addTimeline: (taskKey, who, type, data) => void this.addTimeline(taskKey, who, type, data),
+    updateSession: (id, patch) => this.updateSession(id, patch),
+    updateTask: (key, patch) => this.updateTask(key, patch),
+    flushHeldMessages: () => {
+      for (const session of this.sessions) if (this.isLive(session)) this.flushTeamMessages(session);
+    },
+  });
   inbox: InboxItem[] = clone(fixtures.inbox);
   boundaryGrants = new Map<string, BoundaryGrant>();
   messages: TeamMessage[] = clone(fixtures.teamMessages);
@@ -1210,6 +1232,8 @@ export class MockBackend {
         (item) => item.state === 'open' && item.assignees.includes(this.owner),
       ).length,
       aiEnabled: this.config.team.limits.aiEnabled,
+      // A client member does not see it (like the server).
+      ...(this.findMember(this.viewerHandle)?.role === 'client' ? {} : { pause: this.pauses.projectView() }),
       planUsage: { ...this.planUsage, fetchedAt: nowIso() },
       planUsageByProvider: Object.fromEntries(
         [
@@ -1271,6 +1295,7 @@ export class MockBackend {
     if (this.auth !== 'ready') return error(401, 'unauthorized', 'Login required');
 
     if (path === '/api/me') return ok(this.me());
+    if (/^\/api\/pause(\/resume|\/force)?$/.test(path)) return this.instancePause(method, path);
     if (path === '/api/providers' && method === 'GET') {
       return ok({
         providers: AgentProvider.options.map((provider) => ({
@@ -1372,6 +1397,7 @@ export class MockBackend {
     const scheduleMatch = /^\/members\/([\w-]+)\/schedule\/run$/.exec(rest);
     if (scheduleMatch && method === 'POST') return this.runSchedule(scheduleMatch[1]!);
     if (rest === '/board') return ok(this.board());
+    if (/^\/pause(\/resume|\/force)?$/.test(rest)) return this.projectPause(method, rest);
     if (rest === '/measure/closed-cards' && method === 'GET') {
       if (viewer.role === 'client') return error(403, 'insufficient_access', 'Internal access required');
       return ok(this.closedCardsMeasure(Number(query.get('days') ?? DEFAULT_CLOSED_CARDS_DAYS)));
@@ -3133,6 +3159,8 @@ export class MockBackend {
     );
     if (this.findMember(assignee)?.kind === 'ai' && !running && !this.config.team.limits.aiEnabled)
       return error(409, 'ai_disabled', 'AI work is switched off in this project');
+    if (this.findMember(assignee)?.kind === 'ai' && !running && this.pauses.isPaused())
+      return error(409, 'team_paused', 'The team is paused');
     const from = task.stageId;
     this.updateTask(task.key, { assignee, stageId: workStage?.id ?? task.stageId, status: 'active' });
     this.addTimeline(task.key, null, 'task_assigned', { assignee });
@@ -3321,10 +3349,15 @@ export class MockBackend {
     const taskKey = session.workItem.type === 'task' ? session.workItem.taskKey : null;
     if (!this.isLive(session) && !this.config.team.limits.aiEnabled)
       return error(409, 'ai_disabled', 'AI work is switched off in this project');
+    // A stopped session is not started while the team is paused; a live one takes the message and holds it.
+    if (!this.isLive(session) && this.pauses.isPaused())
+      return error(409, 'team_paused', 'The team is paused');
     if (taskKey && this.findTask(taskKey) && !isOpenTask(this.findTask(taskKey)!))
       return error(409, 'task_closed', 'Task is closed');
     this.appendChat(sessionId, [this.chatItem('user_text', { origin: 'human', text })]);
-    this.updateSession(sessionId, { state: 'working', activity: null, endedAt: null });
+    // A paused session holds the message: it goes through, and the session works on, after the resume.
+    if (!this.pauses.isPaused())
+      this.updateSession(sessionId, { state: 'working', activity: null, endedAt: null });
     return { status: 202 };
   }
 
@@ -3426,6 +3459,7 @@ export class MockBackend {
     const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
     const plan = this.planUsageFor(provider);
     if (!limits.aiEnabled) return 'ai_disabled';
+    if (this.pauses.isPaused()) return 'team_paused';
     if (isOnLeave(member)) return 'member_on_leave';
     if (opts.scheduleRun && live.some((s) => s.member === member.handle && s.workItem.type === 'schedule'))
       return 'previous_run_live';
@@ -3461,6 +3495,8 @@ export class MockBackend {
 
   private flushTeamMessages(session: Session): void {
     if (!['idle', 'waiting_input'].includes(session.state)) return;
+    // Held while the team is paused; the resume flushes them.
+    if (this.pauses.isPaused()) return;
     for (const message of this.messages) {
       const receipt = message.receipts?.find(
         (r) => r.handle === session.member && r.kind === 'ai' && !r.deliveredAt,
@@ -3667,6 +3703,33 @@ export class MockBackend {
       ...(restart ? { permissionRestartPending: true as const } : {}),
     })!;
     return ok(clone(updated));
+  }
+
+  /** The project's pause routes (PM-219): anyone internal reads it, an owner or an admin changes it. */
+  private projectPause(method: string, rest: string): MockResponse {
+    const viewer = this.findMember(this.viewerHandle);
+    if (viewer?.role === 'client') return error(403, 'insufficient_access', 'Internal access required');
+    if (method === 'GET') return ok(this.pauses.projectView());
+    if (!this.pauses.mayManageProject()) return error(403, 'insufficient_access', 'Admin access required');
+    if (rest === '/pause/resume') this.pauses.resume('project');
+    else if (rest === '/pause/force') this.pauses.force('project');
+    else this.pauses.pauseProject();
+    return ok(this.pauses.projectView());
+  }
+
+  /** The instance's pause routes: an owner of every project changes it. */
+  private instancePause(method: string, path: string): MockResponse {
+    const viewer = this.findMember(this.viewerHandle);
+    if (!viewer || viewer.role === 'client')
+      return error(403, 'insufficient_access', 'Internal access required');
+    if (method === 'POST') {
+      if (!this.pauses.instanceView().canManage)
+        return error(403, 'insufficient_access', 'Only an owner of every project may pause the instance');
+      if (path === '/api/pause/resume') this.pauses.resume('instance');
+      else if (path === '/api/pause/force') this.pauses.force('instance');
+      else this.pauses.pauseInstance({ source: 'app', requestedBy: this.user.name });
+    }
+    return ok(this.pauses.instanceView());
   }
 
   private stopSession(sessionId: string): MockResponse {

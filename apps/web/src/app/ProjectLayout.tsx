@@ -8,6 +8,8 @@ import { AttachmentUploadsProvider } from '../features/board/attachmentUploads';
 import { noBoardFilters } from '../features/board/boardFilters';
 import type { BoardFilters } from '../features/board/boardFilters';
 import { NewTaskDialog } from '../features/board/NewTaskDialog';
+import { ProjectPauseBar } from '../features/pause/PauseBanner';
+import { PauseConfirmDialog } from '../features/pause/PauseConfirmDialog';
 import { t } from '../i18n/t';
 import { useIsMobile, writeStorage } from '../lib/hooks';
 import { ProjectContext, useMeContext, useMyOpenInbox, useProjectIndexes } from './contexts';
@@ -40,6 +42,9 @@ export function ProjectLayout() {
   const inboxCount = inbox.data ? myOpen.length : (board.data?.openInboxCount ?? 0);
   const [search, setSearch] = useState('');
   const [newTask, setNewTask] = useState<{ kind: 'task' | 'theme' } | null>(null);
+  const [pauseOpen, setPauseOpen] = useState(false);
+  // The pause this viewer asked for: its details open by themselves.
+  const [requestedPauseId, setRequestedPauseId] = useState<string | null>(null);
   const [themeFilter, setThemeFilter] = useState<string | null>(null);
   const [boardFilters, setBoardFilters] = useState<BoardFilters>(noBoardFilters);
   const access = me.projects.find((project) => project.key === projectKey)?.access;
@@ -51,6 +56,7 @@ export function ProjectLayout() {
       createTasks: internal,
       manageTeam: access === 'owner' || access === 'admin',
       workInSessions: internal,
+      pauseTeam: access === 'owner' || access === 'admin',
     }),
     [access, internal],
   );
@@ -60,6 +66,7 @@ export function ProjectLayout() {
     setSearch('');
     setThemeFilter(null);
     setBoardFilters(noBoardFilters);
+    setRequestedPauseId(null);
   }, [projectKey]);
 
   const value = useMemo<ProjectContextValue>(
@@ -71,6 +78,7 @@ export function ProjectLayout() {
       can,
       search,
       setSearch,
+      openPause: () => setPauseOpen(true),
       openNewTask: (options) => setNewTask({ kind: options?.kind ?? 'task' }),
       themeFilter,
       setThemeFilter,
@@ -114,6 +122,7 @@ export function ProjectLayout() {
               />
             )}
             <ConnectionBanner />
+            <ProjectPauseBar requestedPauseId={requestedPauseId} />
             <main id="main" tabIndex={-1} className={clsx(styles.main, fixedBoard && styles.boardMain)}>
               <Outlet />
             </main>
@@ -124,6 +133,11 @@ export function ProjectLayout() {
           open={newTask !== null}
           initialKind={newTask?.kind ?? 'task'}
           onClose={() => setNewTask(null)}
+        />
+        <PauseConfirmDialog
+          open={pauseOpen}
+          onClose={() => setPauseOpen(false)}
+          onRequested={setRequestedPauseId}
         />
       </AttachmentUploadsProvider>
     </ProjectContext.Provider>

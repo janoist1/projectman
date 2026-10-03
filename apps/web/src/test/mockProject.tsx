@@ -55,9 +55,10 @@ export function mockProject(backend = new MockBackend()) {
         },
       ],
     },
-    can: { createTasks: true, manageTeam: true, workInSessions: true },
+    can: { createTasks: true, manageTeam: true, workInSessions: true, pauseTeam: true },
     search: '',
     setSearch: () => {},
+    openPause: () => {},
     openNewTask: () => {},
     themeFilter: null,
     setThemeFilter: () => {},
@@ -68,14 +69,26 @@ export function mockProject(backend = new MockBackend()) {
     backend,
     requests,
     context,
-    render: (ui: ReactElement, route = '/', overrides: Partial<ProjectContextValue> = {}) =>
+    render: (ui: ReactElement, route = '/', overrides: ContextOverrides = {}) =>
       renderUi(
-        <StatefulProject value={{ ...context, ...overrides }}>
+        <StatefulProject value={{ ...context, ...overrides, can: { ...context.can, ...canOf(overrides) } }}>
           <AttachmentUploadsProvider>{ui}</AttachmentUploadsProvider>
         </StatefulProject>,
         { route },
       ),
   };
+}
+
+/** A test names the permissions it cares about; the rest keep the owner's. */
+type ContextOverrides = Omit<Partial<ProjectContextValue>, 'can'> & {
+  can?: Partial<ProjectContextValue['can']>;
+};
+
+/** Pausing the team follows managing it (the same roles), unless a test says otherwise. */
+function canOf(overrides: ContextOverrides): Partial<ProjectContextValue['can']> {
+  const { can } = overrides;
+  if (!can) return {};
+  return { ...can, pauseTeam: can.pauseTeam ?? can.manageTeam ?? true };
 }
 
 /** The project context with the theme and board filters keeping their state, as the project layout does. */

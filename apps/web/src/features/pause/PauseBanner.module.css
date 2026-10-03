@@ -1,0 +1,184 @@
+.wrap {
+  position: relative;
+  flex-shrink: 0;
+  /* Over the page content and under the dialogs. */
+  z-index: 45;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  padding: 0 24px;
+  background: var(--c-primary);
+  color: var(--c-on-primary);
+  font-size: var(--text-sm);
+  animation: pause-bar-in 160ms ease-out;
+}
+
+@keyframes pause-bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar,
+  .phoneBar {
+    animation: none;
+  }
+}
+
+.text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  /* One line: the meta text gives way. */
+  white-space: nowrap;
+}
+
+.text svg {
+  flex-shrink: 0;
+}
+
+.label {
+  flex-shrink: 0;
+  font-weight: 800;
+}
+
+.meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.78;
+}
+
+.spinner {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: pm-spin 0.9s linear infinite;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.resume {
+  border: 1px solid transparent;
+  background: var(--c-on-primary);
+  color: var(--c-primary);
+}
+
+.resume:hover:not(:disabled) {
+  opacity: 0.88;
+}
+
+.detailsButton {
+  border: 1px solid color-mix(in srgb, var(--c-on-primary) 45%, transparent);
+  background: transparent;
+  color: var(--c-on-primary);
+}
+
+.detailsButton:hover:not(:disabled),
+.detailsButton[aria-expanded='true'] {
+  background: color-mix(in srgb, var(--c-on-primary) 16%, transparent);
+}
+
+.button:focus-visible,
+.phoneBar:focus-visible {
+  outline: 2px solid var(--c-on-primary);
+  outline-offset: 2px;
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 16px;
+  width: 430px;
+  max-width: calc(100vw - 32px);
+  max-height: 60vh;
+  overflow: auto;
+  padding: 16px;
+  border-radius: var(--radius-xl);
+  background: var(--c-surface);
+  color: var(--c-ink);
+  border: 1px solid var(--c-line-strong);
+  box-shadow: var(--shadow-pop);
+  animation: pm-fade-in 120ms ease-out;
+}
+
+.other {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin: 12px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--c-line-soft);
+  font-size: var(--text-sm);
+  color: var(--c-ink-2);
+}
+
+/* Phone: the whole bar is one button that opens the details as a sheet. */
+.phoneBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  background: var(--c-primary);
+  color: var(--c-on-primary);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+  animation: pause-bar-in 160ms ease-out;
+}
+
+.phoneBar .text {
+  gap: 6px;
+}
+
+@media (max-width: 767px) {
+  .bar {
+    padding: 0 16px;
+  }
+}

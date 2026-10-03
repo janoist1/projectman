@@ -4,6 +4,7 @@ import {
   describeAttachment,
   describeEvent,
   describeLink,
+  eventFullText,
   formatBytes,
   describeRepo,
   formatTimestamp,
@@ -99,6 +100,37 @@ describe('describeEvent', () => {
     expect(describeEvent(event('task_labels_changed', { added: [], removed: [] }), 100)).toBe(
       'changed the labels',
     );
+  });
+
+  it("words the server's full test and the send-back it causes (PM-217)", () => {
+    const commit = 'a'.repeat(40);
+    const run = { runId: 'ftr_1', repo: 'web', branch: 'task/AR-1', commit, durationMs: 5, exitCode: 0 };
+    expect(describeEvent(event('task_full_test', { ...run, outcome: 'passed' }), 100)).toBe(
+      `the full test passed on commit ${'a'.repeat(12)}`,
+    );
+    expect(
+      describeEvent(event('task_full_test', { ...run, outcome: 'failed', failedFiles: ['a.test.ts'] }), 100),
+    ).toBe(`the full test failed on commit ${'a'.repeat(12)}: a.test.ts`);
+    expect(describeEvent(event('task_full_test', { ...run, outcome: 'failed', failedFiles: [] }), 100)).toBe(
+      `the full test failed on commit ${'a'.repeat(12)}`,
+    );
+    expect(describeEvent(event('task_full_test', { ...run, outcome: 'error', reason: 'timeout' }), 100)).toBe(
+      `the full test could not run on commit ${'a'.repeat(12)} (timeout)`,
+    );
+    expect(
+      describeEvent(
+        event('task_stage_changed', {
+          from: 'qa',
+          to: 'dev',
+          testsFailed: { runId: 'ftr_1', branch: 'b', commit },
+        }),
+        100,
+      ),
+    ).toBe('moved it from qa to dev (the full test failed)');
+    // The output is read whole with get_task, not in the line.
+    expect(
+      eventFullText(event('task_full_test', { ...run, outcome: 'failed', outputTail: ' FAIL a ' })),
+    ).toBe('FAIL a');
   });
 
   it('still words legacy check events', () => {

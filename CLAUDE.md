@@ -41,14 +41,14 @@ made. A choice of your own that the owner should confirm goes to them as a quest
 
 ## Module ownership (parallel workstreams)
 
-| Workstream | Owns                                                                                                                            |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| runner     | `apps/server/src/runner/**`, `apps/server/test/fixtures/fake-{claude,codex,tui}.mjs`                                            |
-| mcp        | `apps/server/src/mcp/**`                                                                                                        |
-| core       | `apps/server/src/{db,domain,api,auth,config,ws,http}/**`, `apps/server/src/{app,index}.ts`, `apps/server/test/**`, `scripts/**` |
-| web        | `apps/web/**`                                                                                                                   |
-| github     | `apps/server/src/github/**`                                                                                                     |
-| context    | `packages/templates/**`, `apps/server/src/{context,worktree,agent-text}/**`                                                     |
+| Workstream | Owns                                                                                                                                      |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| runner     | `apps/server/src/runner/**`, `apps/server/test/fixtures/fake-{claude,codex,tui}.mjs`                                                      |
+| mcp        | `apps/server/src/mcp/**`                                                                                                                  |
+| core       | `apps/server/src/{db,domain,api,auth,config,ws,http,full-test}/**`, `apps/server/src/{app,index}.ts`, `apps/server/test/**`, `scripts/**` |
+| web        | `apps/web/**`                                                                                                                             |
+| github     | `apps/server/src/github/**`                                                                                                               |
+| context    | `packages/templates/**`, `apps/server/src/{context,worktree,agent-text}/**`                                                               |
 
 `packages/shared` is everyone's contract: change it additively, and name the change in your
 report. Stay inside your paths otherwise. Each module exposes the factory declared in its

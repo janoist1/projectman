@@ -1,3 +1,4 @@
+import os from 'node:os';
 import { isOnLeave, memberOf, permissionDelegationOf, stageOf } from '@projectman/shared';
 import type { ExecutionProfile, Me } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
@@ -8,6 +9,7 @@ import type {
   ConfigStore,
   ContextPackBuilder,
   EventBus,
+  FullTestExecutor,
   GithubPublisher,
   GithubService,
   ManagedVmBoundary,
@@ -44,6 +46,7 @@ import { createEventBus } from './event-bus';
 import { GithubSync } from './github-sync';
 import { InboxService, delegatedPermissionPrompt } from './inbox';
 import { FixLimitWatch } from './fix-limit';
+import { FullTestRuns } from './full-tests';
 import { LoopWatch } from './loop-watch';
 import { OpenQuestionLabel } from './open-question-label';
 import { InvitationService } from './invitations';
@@ -110,6 +113,7 @@ export { GithubSync } from './github-sync';
 export { InboxService, PERMISSION_OPTIONS, DECISION_OPTIONS, ANSWER_OPTION } from './inbox';
 export { CardMeasure } from './card-measure';
 export { FixLimitWatch } from './fix-limit';
+export { FullTestRuns } from './full-tests';
 export { InvitationService } from './invitations';
 export { MemberProfiles, MemberService } from './members';
 export { MessageDelivery, MessageService, Messaging } from './messaging';
@@ -218,6 +222,11 @@ export interface DomainOptions {
   handOffRetryMs?: number;
   /** How often the branch of a task in review is compared with its pinned commit (default 30 s). */
   reviewWatchMs?: number;
+  /**
+   * Runs the server's full test of a pinned commit before review (PM-217) in its own sandbox. Absent
+   * (tests, the managed VM, a platform without the sandbox), the feature is off.
+   */
+  fullTestExecutor?: FullTestExecutor;
   /** How often the open loops of cards are looked at for an end (default 60 s, PM-261). */
   loopWatchMs?: number;
   /**
@@ -439,6 +448,21 @@ export function createDomain(opts: DomainOptions) {
     timer: opts.scheduleTimer,
   });
   const reviewWatch = new ReviewWatch({ ctx, projects, tasks, sessions, messaging });
+  // The server's full test of the pinned commit (PM-217) holds the reviewers back until its result is in.
+  const fullTests = new FullTestRuns({
+    ctx,
+    projects,
+    tasks,
+    sessions,
+    messaging,
+    timeline,
+    executor: opts.fullTestExecutor,
+    userHome: opts.userHome ?? os.homedir(),
+    appHome: opts.appHome,
+    released: () => retryDeferredStarts(),
+  });
+  messaging.useFullTests(fullTests);
+  handOver.useFullTests(fullTests);
   const githubSync = new GithubSync({
     ctx,
     github: opts.github,
@@ -568,6 +592,19 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_assigned', (change) => fixLimit.assigned(change));
   events.on('task_cancelled', (task) => fixLimit.closed(task));
   events.on('inbox_resolved', (item) => (item.kind === 'decision' ? fixLimit.decided(item) : undefined));
+  // A card entering review gets its pinned commit tested, and one that left or got a new pin drops its
+  // old run (PM-217); the pin is saved with the move, so it is there when this runs.
+  const syncFullTest = (task: { projectKey: string; key: string }) =>
+    background.run(
+      () => fullTests.sync(task.projectKey, task.key),
+      (err) => opts.logger.warn({ err, taskKey: task.key }, 'could not queue the full test'),
+    );
+  events.on('task_stage_changed', (change) => {
+    syncFullTest(change.task);
+  });
+  events.on('task_cancelled', (task) => {
+    syncFullTest(task);
+  });
   // Cancelled tasks stop their sessions; moves and closures drop the starts they made obsolete.
   events.on('task_cancelled', (task) => sessions.stopTask(task.projectKey, task.key));
   events.on('task_cancelled', (task) => admission.discardStale(task));
@@ -720,6 +757,7 @@ export function createDomain(opts: DomainOptions) {
     schedules,
     githubSync,
     reviewWatch,
+    fullTests,
     loopWatch,
     fixLimit,
     disk,
@@ -750,6 +788,9 @@ export function createDomain(opts: DomainOptions) {
       background.start();
       usage.start();
       schedules.start();
+      // The server's full test (PM-217): the sandbox is checked, the runs the last server left are ended
+      // and the pins that still need one are queued, before the hand-overs that wait for them come back.
+      await fullTests.init();
       // What admission refused before the server stopped waits again and is retried now, as usual
       // (under admission, and not while its master switch is off)...
       if (admission.restoreDeferred(rebuildDeferredStart) > 0) retryDeferredStarts();
@@ -772,7 +813,11 @@ export function createDomain(opts: DomainOptions) {
       reviewWatchTimer = setInterval(
         () =>
           background.run(
-            () => reviewWatch.check(),
+            async () => {
+              await reviewWatch.check();
+              // A pin that has no run yet (the server stopped between the move and the queueing) gets one.
+              await fullTests.syncAll();
+            },
             (err) => opts.logger.warn({ err }, 'review commit check failed'),
           ),
         opts.reviewWatchMs ?? 30_000,
@@ -820,6 +865,7 @@ export function createDomain(opts: DomainOptions) {
       if (sweepTimer) clearInterval(sweepTimer);
       const drained = schedules.stop();
       githubSync.stop();
+      await fullTests.stop();
       await background.stop();
       sessions.dispose();
       await drained;

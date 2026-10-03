@@ -305,6 +305,39 @@ describe('review pins on the timeline (PM-183)', () => {
     );
   });
 
+  it('describes a send-back after a failed full test and the full test results (PM-217)', () => {
+    expect(
+      describeEvent(move({ testsFailed: { runId: 'ftr_1', branch: 'b', commit: commitA } }), context).text,
+    ).toBe(
+      t('timeline.events.task_stage_changed_tests_failed', {
+        from: 'dev',
+        to: 'review',
+        commit: shortCommit(commitA),
+      }),
+    );
+    const result = (data: Record<string, unknown>): TimelineEvent => ({
+      ...creation,
+      type: 'task_full_test',
+      data: { runId: 'ftr_1', repo: 'web', branch: 'b', commit: commitA, ...data },
+    });
+    const commit = shortCommit(commitA);
+    expect(describeEvent(result({ outcome: 'passed' }), context).text).toBe(
+      t('timeline.events.task_full_test_passed', { commit }),
+    );
+    expect(describeEvent(result({ outcome: 'failed', failedFiles: [] }), context).text).toBe(
+      t('timeline.events.task_full_test_failed', { commit }),
+    );
+    expect(
+      describeEvent(result({ outcome: 'failed', failedFiles: ['a.test.ts', 'b.test.ts'] }), context).text,
+    ).toBe(t('timeline.events.task_full_test_failed_files', { commit, files: 'a.test.ts, b.test.ts' }));
+    expect(describeEvent(result({ outcome: 'error', reason: 'timeout' }), context).text).toBe(
+      t('timeline.events.task_full_test_error', {
+        commit,
+        reason: t('timeline.events.task_full_test_reason.timeout'),
+      }),
+    );
+  });
+
   it('describes a new review round of the developer that pins the new head', () => {
     const event: TimelineEvent = {
       ...creation,

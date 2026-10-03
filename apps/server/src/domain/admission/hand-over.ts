@@ -1,5 +1,6 @@
 import { isOnLeave, isRefinementStage, memberOf, stageOf, stageOwners } from '@projectman/shared';
 import type { AiMemberConfig, ProjectConfig, Stage, Task } from '@projectman/shared';
+import { conflict } from '../errors';
 import type { MessageDelivery } from '../messaging';
 import type { ProjectService } from '../projects';
 import type { SessionOrchestrator } from '../sessions';
@@ -23,6 +24,7 @@ export class StageHandOver {
   private readonly admission: Admission;
   private readonly delivery: MessageDelivery;
   private fixLimit: { heldFor(task: Task, config: ProjectConfig): boolean } | undefined;
+  private fullTests: { holds(task: Task, config: ProjectConfig): boolean } | undefined;
 
   constructor(deps: {
     projects: ProjectService;
@@ -41,6 +43,11 @@ export class StageHandOver {
   /** Binds the fix round limit (PM-262), which is built after the hand-over. */
   useFixLimit(fixLimit: { heldFor(task: Task, config: ProjectConfig): boolean }): void {
     this.fixLimit = fixLimit;
+  }
+
+  /** Binds the server's full test before review (PM-217), which is built after the hand-over. */
+  useFullTests(fullTests: { holds(task: Task, config: ProjectConfig): boolean }): void {
+    this.fullTests = fullTests;
   }
 
   /** Stage change listener (also the retry of a refused hand-over). */
@@ -74,6 +81,8 @@ export class StageHandOver {
       }),
       stillValid: (task) => task !== null && task.stageId === change.to && task.status === 'active',
       waitsFor: () => waitsFor,
+      defers: ['full_test_pending'],
+      blocked: (task, config) => this.fullTests?.holds(task, config) ?? false,
       retry: () => this.handOff(change),
       log: {
         deferred: 'stage hand-over deferred',
@@ -95,6 +104,11 @@ export class StageHandOver {
             this.notify(current, stage, task.assignee);
           return;
         }
+        // The reviewers wait for the server's full test of the pinned commit (PM-217).
+        if (this.fullTests?.holds(task, config))
+          throw conflict('full_test_pending', `task ${taskKey} waits for the full test of its commit`, {
+            taskKey,
+          });
         const owners = stageOwners(config, stage)
           .map((handle) => memberOf(config, handle))
           .filter((m): m is AiMemberConfig => m?.kind === 'ai' && m.handle !== task.assignee);

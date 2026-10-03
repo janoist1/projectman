@@ -95,6 +95,12 @@ export function createFullTestRunRepository(db: Db) {
     forCommit(taskKey: string, commit: string): FullTestRunRecord[] {
       return (forTaskCommit.all(taskKey, commit) as RunRow[]).map(toRecord);
     },
+    /** The runs made for a review pin (its commit, since it was taken), newest first. */
+    forPin(pin: { taskKey: string; commit: string; pinnedAt: string }): FullTestRunRecord[] {
+      return (forTaskCommit.all(pin.taskKey, pin.commit) as RunRow[])
+        .map(toRecord)
+        .filter((run) => run.createdAt >= pin.pinnedAt);
+    },
     /** The runs of a card, newest first. */
     forTask(taskKey: string): FullTestRunRecord[] {
       return (forTask.all(taskKey) as RunRow[]).map(toRecord);

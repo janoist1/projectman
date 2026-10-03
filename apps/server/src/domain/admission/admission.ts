@@ -274,8 +274,9 @@ export class Admission {
           continue;
       }
       // A start that waits for labels is retried once the gate lets the card through (the labels are
-      // on, or the gate no longer asks for them).
-      if (reason === 'label_missing' && task && start.blocked) {
+      // on, or the gate no longer asks for them), and one that waits for the full test of the pinned
+      // commit (PM-217) once its result is in.
+      if ((reason === 'label_missing' || reason === 'full_test_pending') && task && start.blocked) {
         const config = await this.configOf(start.projectKey, configs);
         if (config && start.blocked(task, config)) continue;
       }

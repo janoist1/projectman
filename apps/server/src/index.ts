@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { parseExecutionProfile } from '@projectman/shared';
 import { APP_DEFAULTS, buildApp, isLoopbackHost, loopbackBaseUrl } from './app';
 import type { BuildAppOptions, LoopbackHost } from './app';
+import { createFullTestExecutor } from './full-test';
 import { loadBoundaryConfig } from './runtime-boundary';
 import { createShutdown } from './shutdown';
 
@@ -107,7 +108,18 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
 
 async function main(): Promise<void> {
   const config = configFromEnv(process.env);
-  const app = await buildApp(config.app);
+  // The server's full test before review (PM-217) runs in the Anthropic Sandbox Runtime on the Mac. The
+  // managed VM profile leaves it out: its members have no CLI sandbox and run the full test themselves.
+  const app = await buildApp({
+    ...config.app,
+    modules:
+      config.app.executionProfile === 'managed_vm'
+        ? config.app.modules
+        : {
+            ...config.app.modules,
+            createFullTestExecutor: ({ logger }) => createFullTestExecutor({ logger, env: process.env }),
+          },
+  });
 
   const shutdown = createShutdown({
     close: () => app.close(),

@@ -743,6 +743,37 @@ commits, and the developer's message to the stage's reviewers is a new round (PM
 `TaskService.repinReview` answers by pinning the new head. An approved or not yet judged branch that moves is
 sent back.
 
+## Full test before review (PM-217)
+
+The developer's sandbox cannot open a pseudo-terminal, so the server's PTY tests (`*.integration.test.ts`,
+`golden-path-*`) never run before a review. A repository that sets `reviewTest` (`{command, maxWorkers = 2,
+timeoutMinutes = 15}` in the project's configuration; absent: nothing below happens) gets a **full test** of the
+commit pinned at the hand-over, run by the server.
+
+- **Queue.** `FullTestRuns` (`domain/full-tests.ts`) queues a run (`full_test_runs`, migration 32) when the
+  review pin is saved (the stage change) or a new round re-pins (`repinReview`, on the developer's message to a
+  reviewer), and drops the queued or running run of an older pin or of a stage the card left (`cancelled`:
+  `repinned`, `stage_left`; `branch_moved`, `interrupted` at a restart, `shutdown` at a stop). One run runs at a
+  time in the whole installation, first in first out, under `nice -n 10`.
+- **Executor.** `src/full-test` (`FullTestExecutor` in `contracts/full-test.ts`) writes the srt settings
+  (`fullTestSandbox`: reads the checkout and its git directory only, writes its run directory
+  `<tmp>/projectman-full-test-<runId>/`, no network except listening on local ports, `allowPty`), runs `/bin/sh -c <command>` there with
+  `VITEST_MAX_FORKS` and `VITEST_MAX_THREADS` set to `maxWorkers`, kills the process group at the time limit
+  and reads vitest's failed files and "Failed Tests" section from the output. Without macOS or `srt` the
+  executor is not available and the feature is off. The managed VM profile leaves it out.
+- **The hold.** While the current pin has no result (`FullTestRuns.holds`) the reviewers do not start (the
+  hand-over's deferred start waits with `full_test_pending`) and the developer's messages to them are stored
+  (`Messaging.heldForFullTest`); a person's message is not held. `TaskReviewPin.fullTest` shows the state.
+- **Green.** The reviewers start; their brief and resume message say the full test passed, so they need not run
+  the tests or the type check again. **Error** (could not run: timeout, no sandbox, no PTY, dirty checkout, …):
+  nothing is sent back, and the brief says the reviewer must run the checks itself. **Failed:** the card goes
+  back to the work stage before its stage (`task_stage_changed.testsFailed`, a fix round in the round count),
+  the reviewers' sessions stop and the developer gets a system message with the failed files and the output.
+  Every result is a `task_full_test` timeline event. A branch that moves or a dirty checkout while the run
+  waits or runs never produces a verdict (`branch_moved`, `checkout_dirty`).
+- **Tests.** The domain logic is tested with a fake executor (`test/full-tests.test.ts`); the real sandbox
+  only in `test/full-test-sandbox.integration.test.ts` (macOS), which the integrating session runs.
+
 ## Housekeeping: worktrees of closed cards and free disk space (PM-243)
 
 `WorktreeSweep` (at start and every 6 h, `DomainOptions.worktreeSweepMs`) goes over the done and cancelled cards

@@ -2452,6 +2452,32 @@ describe('member workspaces (PM-138)', () => {
       expect(section(prompt, '# Review round')).toContain('sends the task back to development');
     });
 
+    it("says in the reviewer's brief and resume message what the server's full test found (PM-217)", () => {
+      const project = buildLocalOnlyProject('.');
+      project.project.repos.find((r) => r.name === 'app')!.reviewTest = {
+        command: 'npm run typecheck && npm test',
+        maxWorkers: 2,
+        timeoutMinutes: 15,
+      };
+      const at = '2026-10-01T10:05:00.000Z';
+      const pack = (fullTest?: NonNullable<Task['reviewPin']>['fullTest']) => {
+        const task = makeTask({ repo: 'app', reviewPin: { ...pin, ...(fullTest ? { fullTest } : {}) } });
+        return builder.build(input({ project, handle: 'code-review', task }));
+      };
+      const passed = pack({ status: 'passed', at });
+      expect(passed.initialMessage).toContain(
+        `- The full test (\`npm run typecheck && npm test\`, PTY tests included) passed on this commit at ${at}: you need not run the tests or the type check again.`,
+      );
+      expect(passed.continueMessage).toContain('you need not run the tests or the type check again.');
+      const error = pack({ status: 'error', at, reason: 'timeout' });
+      expect(error.initialMessage).toContain(
+        'The full test could not run on this commit (`timeout`): run the checks yourself as usual; your sandbox leaves out the PTY tests.',
+      );
+      // No result (not asked for, queued, running, failed and sent back): no line.
+      for (const none of [undefined, { status: 'running' as const, at }, { status: 'failed' as const, at }])
+        expect(pack(none).initialMessage).not.toContain('full test');
+    });
+
     it("tells the task's developer nothing about it", () => {
       const project = buildLocalOnlyProject('.');
       const task = makeTask({ reviewPin: pin, assignee: 'fe-1' });

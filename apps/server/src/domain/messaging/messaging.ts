@@ -64,6 +64,9 @@ export class Messaging {
   private readonly delivery: MessageDelivery;
   private readonly refinement: Pick<RefinementSteps, 'turnMember'>;
   private fixLimit: { heldFor(task: Task, config: ProjectConfig): boolean } | undefined;
+  private fullTests:
+    | { holds(task: Task, config: ProjectConfig): boolean; sync(projectKey: string, taskKey: string): Promise<void> }
+    | undefined;
 
   constructor(deps: {
     ctx: DomainContext;
@@ -86,6 +89,14 @@ export class Messaging {
   /** Binds the fix round limit (PM-262); it sends messages itself, so it is built after this class. */
   useFixLimit(fixLimit: { heldFor(task: Task, config: ProjectConfig): boolean }): void {
     this.fixLimit = fixLimit;
+  }
+
+  /** Binds the server's full test before review (PM-217); it sends messages itself, so it is built after this class. */
+  useFullTests(fullTests: {
+    holds(task: Task, config: ProjectConfig): boolean;
+    sync(projectKey: string, taskKey: string): Promise<void>;
+  }): void {
+    this.fullTests = fullTests;
   }
 
   /**
@@ -130,6 +141,10 @@ export class Messaging {
             'could not pin the commit of the new review round',
           );
         });
+      // A new commit pinned: its full test is queued before the reviewers get this message (PM-217).
+      await this.fullTests?.sync(projectKey, task.key).catch((err: unknown) => {
+        this.ctx.logger.warn({ err, taskKey: task.key }, 'could not queue the full test of the new round');
+      });
     }
     // Where each AI recipient gets it is decided before it is recorded: the receipt keeps the
     // route when it is not the default place, so the message is found there while it waits.
@@ -139,7 +154,11 @@ export class Messaging {
     const placed = recipients
       .filter((handle) => !humans.includes(handle))
       .map((handle) => {
-        if (this.heldForTurn(config, task, handle, opts) || this.heldForFixLimit(config, task, from, handle))
+        if (
+          this.heldForTurn(config, task, handle, opts) ||
+          this.heldForFixLimit(config, task, from, handle) ||
+          this.heldForFullTest(config, task, from, handle)
+        )
           return { handle, held: true, workItem: routeFor(taskKey), running: null };
         return { handle, held: false, ...this.place(projectKey, config, handle, workItem) };
       });
@@ -355,7 +374,19 @@ export class Messaging {
   }
 
   /**
-   * The messages that wait for `handle` on a card (held back by its fix round limit) reach it: typed into
+   * Whether a message to a reviewer of the card's stage waits for the server's full test of the pinned
+   * commit (PM-217): it is stored and wakes nobody until the result is in (`releaseWaiting`). A person's
+   * message passes, and so does one to the card's developer.
+   */
+  private heldForFullTest(config: ProjectConfig, task: Task | null, from: string, handle: string): boolean {
+    if (!task || task.assignee === handle || memberOf(config, from)?.kind === 'human') return false;
+    const stage = stageOf(config, task.stageId);
+    if (!stage || !stageOwners(config, stage).includes(handle)) return false;
+    return this.fullTests?.holds(task, config) ?? false;
+  }
+
+  /**
+   * The messages that wait for `handle` on a card (held back by its fix round limit or its full test) reach it: typed into
    * its running session, or one wake-up for all of them.
    */
   releaseWaiting(projectKey: string, taskKey: string, handle: string): void {

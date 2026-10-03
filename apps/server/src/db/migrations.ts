@@ -605,7 +605,7 @@ export const migrations: Migration[] = [
       );`,
   },
   {
-    version: 31,
+    version: 32,
     name: 'full test runs',
     // PM-217: the server's full test of a card's pinned commit before it is reviewed, one row per run.
     // `status` is queued, running, passed, failed, error or cancelled; `reason` is the error reason or

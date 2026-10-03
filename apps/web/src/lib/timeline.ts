@@ -1,4 +1,10 @@
-import { BoundaryAuditReason, BoundaryState, LabelChangeReason, TaskRelationKind } from '@projectman/shared';
+import {
+  BoundaryAuditReason,
+  BoundaryState,
+  FullTestErrorReason,
+  LabelChangeReason,
+  TaskRelationKind,
+} from '@projectman/shared';
 import type { LabelView, TimelineEvent } from '@projectman/shared';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { fixRoundParts } from './fixLimit';
@@ -283,12 +289,41 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             head: shortCommit(str(moved.head)),
           }),
         );
+      const testsFailed = record(d.testsFailed);
+      if (testsFailed)
+        return normal(
+          t('timeline.events.task_stage_changed_tests_failed', {
+            ...names,
+            commit: shortCommit(str(testsFailed.commit)),
+          }),
+        );
       const pin = record(d.reviewPin);
       if (pin)
         return normal(
           t('timeline.events.task_stage_changed_pinned', { ...names, commit: shortCommit(str(pin.commit)) }),
         );
       return normal(t('timeline.events.task_stage_changed', names));
+    }
+    case 'task_full_test': {
+      const commit = shortCommit(str(d.commit));
+      if (d.outcome === 'passed') return normal(t('timeline.events.task_full_test_passed', { commit }));
+      if (d.outcome === 'error') {
+        const reason = FullTestErrorReason.safeParse(d.reason);
+        return normal(
+          t('timeline.events.task_full_test_error', {
+            commit,
+            reason: reason.success
+              ? t(`timeline.events.task_full_test_reason.${reason.data}`)
+              : str(d.reason),
+          }),
+        );
+      }
+      const files = strings(d.failedFiles).join(t('common.listSeparator'));
+      return normal(
+        files
+          ? t('timeline.events.task_full_test_failed_files', { commit, files })
+          : t('timeline.events.task_full_test_failed', { commit }),
+      );
     }
     case 'task_assigned': {
       const assignment = d.assignee

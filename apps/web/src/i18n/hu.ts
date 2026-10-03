@@ -1281,12 +1281,12 @@ export const hu = {
       },
       consequence: {
         stop_work: 'A kártyán futó AI-munkamenetek leállnak; a kártya ott marad, ahol van.',
-        let_run: 'Erről a viharról nem szólunk többet; a jelölés addig marad, amíg el nem csitul.',
+        let_run: 'Erről többet nem szólunk; a jelölés addig marad, amíg el nem csitul.',
       },
       footer: 'Ha közben elcsitul, ez a tétel magától lezárul.',
       toast: {
         stop_work: 'Leállítottuk a {key} AI-munkameneteit.',
-        let_run: 'Rendben, erről a viharról nem szólunk többet.',
+        let_run: 'Rendben, erről többet nem szólunk.',
       },
     },
     /** Alerts: something to notice, with nothing to decide. */
@@ -2128,8 +2128,7 @@ export const hu = {
       loopWatchValue: '{count} üzenet {minutes} perc alatt, haladás nélkül',
       loopWatchOff: 'Kikapcsolva',
       loopWatchTo: 'Jelzést kap: {name} (Ütemezés).',
-      loopWatchToNobody: 'Jelzést kap: senki nem tölti be az Ütemezést, ezért te.',
-      loopWatchDuties: 'Feladatok',
+      loopWatchDuties: 'Feladatkörök',
       tempWorkers: 'Beugrók',
       tempWorkersOn: 'be · legfeljebb {max} · {role}',
       tempWorkersOff: 'ki',

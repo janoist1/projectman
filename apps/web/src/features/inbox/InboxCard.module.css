@@ -24,6 +24,18 @@
   min-width: 0;
 }
 
+.systemIcon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--role-system-bg);
+  color: var(--role-system-fg);
+}
+
 .source {
   font-size: var(--text-sm);
   font-weight: 800;

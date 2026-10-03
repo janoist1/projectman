@@ -2,6 +2,8 @@ import {
   DEFAULT_AUTO_COMPACT_WINDOW_TOKENS,
   DEFAULT_LOOP_WATCH,
   DEFAULT_MIN_FREE_DISK_GB,
+  boundaryOwners,
+  loopDeciders,
   loopWatchOf,
   loopWatchers,
 } from '@projectman/shared';
@@ -10,11 +12,12 @@ import clsx from 'clsx';
 import { Link } from 'react-router';
 import { isApiError } from '../../../api/client';
 import { useRoles } from '../../../api/queries';
-import { useProject } from '../../../app/contexts';
+import { useProject, useProjectIndexes } from '../../../app/contexts';
 import { SelectField } from '../../../components/Field';
 import { formatTokens } from '../../../i18n/format';
 import { t } from '../../../i18n/t';
 import { errorMessage } from '../../../lib/errors';
+import { decidesText } from '../../../lib/loop';
 import { aiRoleView } from '../../../lib/roles';
 import { InstantNumber, InstantRange, ToggleField } from '../InstantFields';
 import { useInstantLimits } from '../SettingsEditor';
@@ -29,13 +32,17 @@ const DEFAULT_TOKEN_WARNING_CHOICE = 5_000_000;
 
 /** Who is told when a loop is found: the AI holder of the scheduling duty, or the viewer when nobody is. */
 function LoopWatcherLine({ config }: { config: ProjectConfig }) {
-  const { key } = useProject();
+  const { key, myHandle } = useProject();
+  const { members } = useProjectIndexes(key);
   const watcher = loopWatchers(config, [])[0];
   const name = config.team.members.find((member) => member.handle === watcher)?.displayName ?? watcher ?? '';
+  const deciders = loopDeciders(config, boundaryOwners(config));
   return (
     <p className={clsx(shared.help, !watcher && shared.warning)}>
-      {watcher ? t('settings.limits.loopWatchTo', { name }) : t('settings.limits.loopWatchToNobody')}{' '}
-      <Link to={`/p/${key}/team`}>{t('settings.limits.loopWatchDuties')}</Link>
+      {watcher
+        ? t('settings.limits.loopWatchTo', { name })
+        : t('loop.who.no_watcher', { decides: decidesText(deciders, members, myHandle) })}{' '}
+      <Link to={`/p/${key}/settings#settings-duties`}>{t('settings.limits.loopWatchDuties')}</Link>
     </p>
   );
 }
@@ -197,6 +204,37 @@ function LimitsControls({ config }: { config: ProjectConfig }) {
           })
         }
       />
+      <ToggleField
+        label={t('settings.limits.boundaryEnabled')}
+        help={t('settings.limits.boundaryHelp')}
+        disabled={!isOwner}
+        checked={boundaryEnabled}
+        onChange={(enabled) =>
+          commit((draft) => {
+            draft.team.boundary = {
+              enabled,
+              leadTimeoutSeconds: draft.team.boundary?.leadTimeoutSeconds ?? 120,
+            };
+          })
+        }
+      />
+      {boundaryEnabled ? (
+        <InstantNumber
+          label={t('settings.limits.boundaryTimeout')}
+          min={1}
+          max={600}
+          disabled={!isOwner}
+          value={shown.team.boundary?.leadTimeoutSeconds ?? 120}
+          onCommit={(seconds) =>
+            commit((draft) => {
+              draft.team.boundary = {
+                enabled: draft.team.boundary?.enabled ?? false,
+                leadTimeoutSeconds: seconds ?? 120,
+              };
+            })
+          }
+        />
+      ) : null}
       <h3 className={shared.groupTitle}>{t('settings.limits.loopWatchGroup')}</h3>
       <ToggleField
         label={t('settings.limits.loopWatch')}
@@ -242,37 +280,6 @@ function LimitsControls({ config }: { config: ProjectConfig }) {
           </div>
           <LoopWatcherLine config={shown} />
         </>
-      ) : null}
-      <ToggleField
-        label={t('settings.limits.boundaryEnabled')}
-        help={t('settings.limits.boundaryHelp')}
-        disabled={!isOwner}
-        checked={boundaryEnabled}
-        onChange={(enabled) =>
-          commit((draft) => {
-            draft.team.boundary = {
-              enabled,
-              leadTimeoutSeconds: draft.team.boundary?.leadTimeoutSeconds ?? 120,
-            };
-          })
-        }
-      />
-      {boundaryEnabled ? (
-        <InstantNumber
-          label={t('settings.limits.boundaryTimeout')}
-          min={1}
-          max={600}
-          disabled={!isOwner}
-          value={shown.team.boundary?.leadTimeoutSeconds ?? 120}
-          onCommit={(seconds) =>
-            commit((draft) => {
-              draft.team.boundary = {
-                enabled: draft.team.boundary?.enabled ?? false,
-                leadTimeoutSeconds: seconds ?? 120,
-              };
-            })
-          }
-        />
       ) : null}
       {roles.isError ? <p role="alert">{errorMessage(roles.error)}</p> : null}
       {error ? (

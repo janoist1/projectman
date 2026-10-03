@@ -172,7 +172,7 @@ describe('loop watch', () => {
         taskKey: 'AR-1',
         options: [
           { id: 'stop_work', style: 'danger' },
-          { id: 'let_run', style: 'primary' },
+          { id: 'let_run', style: 'secondary' },
         ],
       });
       expect(loopDecisionOf(item!)).toMatchObject({

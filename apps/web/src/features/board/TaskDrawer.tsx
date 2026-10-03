@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
-import { isOnLeave, isTheme, loopDecisionOf } from '@projectman/shared';
+import { canSeeAllTeamMessages, isOnLeave, isTheme, loopDecisionOf } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import {
   useConfig,
@@ -147,7 +147,9 @@ function StartPanel({
 
 export function TaskDrawer() {
   const { taskKey = '' } = useParams();
-  const { key, myHandle, can, isOwner } = useProject();
+  const { key, myHandle, can, me } = useProject();
+  const access = me.projects.find((project) => project.key === key)?.access;
+  const seesAllMessages = access ? canSeeAllTeamMessages({ access }) : false;
   const navigate = useNavigate();
   const { board, members, pipeline, model } = useBoardModel();
   const detail = useTaskDetail(key, taskKey);
@@ -245,7 +247,7 @@ export function TaskDrawer() {
               task={task}
               members={members}
               myHandle={myHandle}
-              messagesHref={isOwner ? `/p/${key}/messages/all` : null}
+              messagesHref={seesAllMessages ? `/p/${key}/messages/all?task=${task.key}` : null}
             />
           ) : null}
           {myItems.length > 0 ? (

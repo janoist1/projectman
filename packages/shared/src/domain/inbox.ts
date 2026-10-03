@@ -133,7 +133,7 @@ export function loopDecisionOf(item: Pick<InboxItem, 'kind' | 'payload'>): LoopD
 
 /** The options of a loop decision: stop the card's AI work, or let the loop run. The web app translates the ids. */
 export const LOOP_STOP_OPTION: InboxOption = { id: 'stop_work', label: 'stop_work', style: 'danger' };
-export const LOOP_LET_RUN_OPTION: InboxOption = { id: 'let_run', label: 'let_run', style: 'primary' };
+export const LOOP_LET_RUN_OPTION: InboxOption = { id: 'let_run', label: 'let_run', style: 'secondary' };
 
 /** The one option of an `alert` item: the owner has seen it. The web app translates the id. */
 export const ALERT_SEEN_OPTION: InboxOption = { id: 'seen', label: 'seen', style: 'primary' };

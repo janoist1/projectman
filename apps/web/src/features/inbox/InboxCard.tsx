@@ -97,6 +97,8 @@ export function InboxCard({
   const extras = questionExtras(item);
   const boundary = boundaryOf(item);
   const delegation = delegationNote(item, members, myHandle);
+  // The system is no member (disk space, loops): it shows as the timeline shows it.
+  const fromSystem = item.source === 'system';
   const loopText = loopDecisionText(item, members, myHandle);
   const alert = alertText(item, members, myHandle, labels) ?? loopText;
   const [boundaryReason, setBoundaryReason] = useState<BoundaryReason>('scope_verified');
@@ -123,8 +125,16 @@ export function InboxCard({
     >
       <div className={styles.head}>
         <Chip tone="kind">{t(`inbox.kinds.${item.kind}`)}</Chip>
-        <Avatar member={source} handle={item.source} size="sm" isMe={item.source === myHandle} />
-        <span className={styles.source}>{nameOf(item.source, members, myHandle)}</span>
+        {fromSystem ? (
+          <span className={styles.systemIcon} aria-hidden="true">
+            <Icon name="layers" size={13} strokeWidth={2} />
+          </span>
+        ) : (
+          <Avatar member={source} handle={item.source} size="sm" isMe={item.source === myHandle} />
+        )}
+        <span className={styles.source}>
+          {fromSystem ? t('common.system') : nameOf(item.source, members, myHandle)}
+        </span>
         <span className={styles.spacer} />
         <time className={styles.time} dateTime={item.createdAt}>
           {formatAgo(item.createdAt)}
@@ -200,7 +210,9 @@ export function InboxCard({
           size={buttonSize}
           mobile={mobile}
           disabled={pending}
-          variantOf={(option) => (answering ? 'secondary' : variantFor[option.style])}
+          variantOf={(option) =>
+            answering ? 'secondary' : option.style === 'danger' ? 'dangerSolid' : variantFor[option.style]
+          }
           onPick={(option) => onResolve(item, { optionId: option.id })}
         />
       ) : null}

@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+import { useLocation } from 'react-router';
 import { useConfig } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Chip } from '../../components/Chip';
@@ -25,6 +27,13 @@ export function SettingsPage() {
   const { key, isOwner } = useProject();
   const config = useConfig(key);
   useDocumentTitle(t('settings.title'), config.data?.config.project.name);
+  // A link such as "#settings-duties" points at a section that exists only once the configuration is in.
+  const { hash } = useLocation();
+  const loaded = Boolean(config.data);
+  useEffect(() => {
+    if (loaded && hash.length > 1)
+      document.getElementById(hash.slice(1))?.scrollIntoView?.({ block: 'start' });
+  }, [loaded, hash]);
 
   return (
     <div className={styles.page}>

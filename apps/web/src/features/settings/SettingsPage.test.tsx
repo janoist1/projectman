@@ -324,7 +324,10 @@ describe('settings section editors', () => {
     const minutes = section.getByLabelText(t('settings.limits.loopWatchMinutes')) as HTMLInputElement;
     expect([count.value, minutes.value]).toEqual(['6', '30']);
     // The fake team has no AI member who holds the scheduling duty: the line says so, as a warning.
-    expect(section.getByText(new RegExp(t('settings.limits.loopWatchToNobody')))).toBeTruthy();
+    expect(section.getByText(/Az Ütemezést senki nem tölti be, ezért .* róla\./)).toBeTruthy();
+    expect(
+      section.getByRole('link', { name: t('settings.limits.loopWatchDuties') }).getAttribute('href'),
+    ).toBe('/p/AC/settings#settings-duties');
     // Two quick changes in a row are saved one after the other and keep each other's value.
     fireEvent.change(count, { target: { value: '8' } });
     fireEvent.blur(count);

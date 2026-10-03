@@ -130,6 +130,8 @@ describe('a loop on screen', () => {
 
     const card = (await screen.findByRole('heading', { name: t('inbox.loop.heading') })).closest('article')!;
     expect(within(card).getByText(t('inbox.kinds.decision'))).toBeTruthy();
+    // It comes from the system, not from a member: the head says so instead of showing an empty avatar.
+    expect(within(card).getByText(t('common.system'))).toBeTruthy();
     expect(card.textContent).toContain('AC-21');
     expect(card.textContent).toContain(t('inbox.loop.reasons.no_watcher'));
     expect(within(card).getByText(t('inbox.loop.consequence.stop_work'))).toBeTruthy();

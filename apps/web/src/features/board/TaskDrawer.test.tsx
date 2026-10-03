@@ -1031,7 +1031,7 @@ describe('task drawer loop box (PM-261)', () => {
       within(box)
         .getByRole('link', { name: t('loop.box.messages') })
         .getAttribute('href'),
-    ).toBe('/p/AC/messages/all');
+    ).toBe('/p/AC/messages/all?task=AC-21');
     expect(screen.queryByRole('heading', { name: t('inbox.loop.heading') })).toBeNull();
   });
 

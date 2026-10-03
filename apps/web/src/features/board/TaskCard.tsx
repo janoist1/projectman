@@ -135,9 +135,6 @@ export function TaskCard({
       </span>
       {task.parentKey || subtasks.length || prerequisite || task.loop ? (
         <span className={styles.meta}>
-          {task.parentKey ? (
-            <span className={styles.label}>{t('task.parentChip', { key: task.parentKey })}</span>
-          ) : null}
           {task.loop ? (
             <span
               className={clsx(styles.label, styles.loop)}
@@ -147,6 +144,9 @@ export function TaskCard({
               <Icon name="loop" size={12} strokeWidth={2.4} />
               <span>{t('loop.mark')}</span>
             </span>
+          ) : null}
+          {task.parentKey ? (
+            <span className={styles.label}>{t('task.parentChip', { key: task.parentKey })}</span>
           ) : null}
           {prerequisite ? (
             <span

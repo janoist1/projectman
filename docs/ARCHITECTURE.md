@@ -165,6 +165,16 @@ Documentation map:
   repositories and none chosen it does not start (`repo_required`). Roles that only read run in
   the workspace root. A conversation belongs to the directory it ran in: when the task's
   worktree is elsewhere (its repo changed since), the session starts a new conversation there.
+  **Dependencies in a new worktree** (PM-332, `PROJECTMAN_CLONE_DEPENDENCIES`, on by default; macOS only):
+  after `ensureForTask` made the worktree (or found one without `node_modules`) it clones `node_modules`, the
+  root's and every workspace's, with `cp -c -R` (APFS `clonefile`: seconds, and the blocks are shared) from
+  the first checkout of the repository (the repo path, then its other worktrees) whose `package-lock.json` is
+  byte-identical and whose hidden `node_modules/.package-lock.json` is not older than it, i.e. installed after
+  the lockfile's last change. Only on one APFS volume, only where git ignores `node_modules`; `.vite`,
+  `.vite-temp` and `.cache` are left out of the copy. The server never runs `npm install`/`npm ci` outside the
+  sandbox (install scripts). Whatever fails or does not apply (`worktree/dependencies.ts` names the reasons)
+  is a log line, never a failed worktree: the member installs as before. Members' own workspaces and review
+  copies are not cloned.
 - **Member workspace** (PM-138, server option `memberWorkspaces`, `PROJECTMAN_WORKSPACES=member`;
   off by default until the switch-over, PM-143) — in place of a worktree per task, every AI member
   gets one durable workspace per repository, `workspaces/<KEY>/<handle>/<repo>/`: an independent
@@ -773,7 +783,10 @@ commit pinned at the hand-over, run by the server.
   hand-over's deferred start waits with `full_test_pending`) and the developer's messages to them are stored
   (`Messaging.heldForFullTest`); a person's message is not held. `TaskReviewPin.fullTest` shows the state.
 - **Green.** The reviewers start; their brief and resume message say the full test passed, so they need not run
-  the tests or the type check again. **Error** (could not run: timeout, no sandbox, no PTY, dirty checkout, …):
+  the tests or the type check again. On another hand-over of the same commit, the latest earlier verdict is
+  reused if it passed: no new run or `task_full_test` event is made, reviewers do not wait, and
+  `reviewPin.fullTest` keeps the original result time. Earlier failed or error verdicts are retried;
+  a new commit gets a new run. **Error** (could not run: timeout, no sandbox, no PTY, dirty checkout, …):
   nothing is sent back, and the brief says the reviewer must run the checks itself. **Failed:** the card goes
   back to the work stage before its stage (`task_stage_changed.testsFailed`, a fix round in the round count),
   the reviewers' sessions stop and the developer gets a system message with the failed files and the output.
@@ -781,6 +794,13 @@ commit pinned at the hand-over, run by the server.
   waits or runs never produces a verdict (`branch_moved`, `checkout_dirty`).
 - **Tests.** The domain logic is tested with a fake executor (`test/full-tests.test.ts`); the real sandbox
   only in `test/full-test-sandbox.integration.test.ts` (macOS), which the integrating session runs.
+
+When the executor is available and the task's repository sets `reviewTest`, `FullTestRuns.runsFor`
+sets `ContextPackInput.serverFullTest` in the session brief. Implementation and maintenance steps
+then ask only for targeted tests and the type check of touched parts while working: the server runs
+the configured full command on the handed-over commit, PTY tests included. Otherwise the steps ask
+for targeted tests while working and one full test and type check on the handed-over commit.
+Dependencies are installed only when missing from the working directory.
 
 ## Housekeeping: worktrees of closed cards and free disk space (PM-243)
 

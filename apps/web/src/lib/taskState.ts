@@ -1,5 +1,20 @@
-import { DEFAULT_AGENT_PROVIDER, fixLimitDecisionOf, openPrerequisites } from '@projectman/shared';
-import type { InboxItem, LabelView, MemberView, PausedSession, Task, WorkDoing } from '@projectman/shared';
+import {
+  DEFAULT_AGENT_PROVIDER,
+  fixLimitDecisionOf,
+  labelDefinition,
+  openPrerequisites,
+  startBlock,
+} from '@projectman/shared';
+import type {
+  InboxItem,
+  LabelView,
+  MemberView,
+  PausedSession,
+  ProjectConfig,
+  StartBlock,
+  Task,
+  WorkDoing,
+} from '@projectman/shared';
 import { formatAge } from '../i18n/format';
 import { joinNames, t } from '../i18n/t';
 import { decidesFixLimit, fixLimitStatus } from './fixLimit';
@@ -43,6 +58,11 @@ export interface TaskState {
   prerequisite?: PrerequisiteWait;
   /** The blocking labels the state's label names: the card shows them once, not again as chips. */
   holdingLabels?: string[];
+  /**
+   * Why a person's Start of the card is refused now (PM-291), from the shared rule; absent when the card
+   * can be started, and when the context has no configuration (a client, or the configuration still loads).
+   */
+  startBlock?: StartBlock;
 }
 
 export interface TaskStateContext {
@@ -56,6 +76,8 @@ export interface TaskStateContext {
   labels?: readonly LabelView[];
   /** The sessions a team pause holds (PM-220), by session id: their workers read "szünetel" / "megáll…". */
   pausedSessions?: ReadonlyMap<string, PausedSession>;
+  /** The team and the pipeline, for the shared start rule (PM-291); missing for a client and while it loads. */
+  config?: Pick<ProjectConfig, 'team' | 'pipeline'>;
 }
 
 /** Done and cancelled tasks are closed: they no longer move or start. */
@@ -264,14 +286,80 @@ function startWaitingLabel(task: Task, ctx: TaskStateContext): string {
  */
 export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
   const wait = prerequisiteWait(task, ctx.tasksByKey);
-  const { workers = [], ...state } = deriveOpenState(task, ctx, wait);
-  return { ...state, workers, ...(wait && !state.prerequisite ? { prerequisite: wait } : {}) };
+  const block = ctx.config ? startBlock(task, ctx.config) : null;
+  const { workers = [], ...state } = deriveOpenState(task, ctx, wait, block);
+  return {
+    ...state,
+    workers,
+    ...(wait && !state.prerequisite ? { prerequisite: wait } : {}),
+    ...(block ? { startBlock: block } : {}),
+  };
+}
+
+/** A label's name in a status line, in quotes; several read as a list. */
+function quotedLabels(ids: readonly string[], ctx: TaskStateContext): string {
+  return joinNames(ids.map((id) => t('taskStatus.quoted', { name: labelName(id, ctx.labels ?? []) })));
+}
+
+/**
+ * The main line of a card a person cannot start yet (PM-291), who or what it waits for: the part of
+ * the shared start rule the viewer reads. Null when the rule does not hold the card back, or when an
+ * earlier line (someone works on it, a blocking label holds it) already says it.
+ */
+function startBlockState(
+  task: Task,
+  block: StartBlock,
+  ctx: TaskStateContext,
+): Omit<TaskState, 'workers'> | null {
+  const { members, myHandle, config } = ctx;
+  const waiting = (label: string, phase: TaskPhase = 'waiting'): Omit<TaskState, 'workers'> => ({
+    phase,
+    label,
+    since: task.updatedAt,
+    worker: null,
+  });
+  switch (block.kind) {
+    case 'refining': {
+      const { turn } = block.refinement;
+      if (turn.kind === 'done') return waiting(t('taskStatus.refinement.moving'), 'done');
+      if (turn.kind === 'blocked') {
+        const system = config && labelDefinition(config, turn.label)?.setBy === 'system';
+        return system
+          ? waiting(t('taskStatus.refinement.system', { label: quotedLabels([turn.label], ctx) }))
+          : waiting(joinNames([labelName(turn.label, ctx.labels ?? [])]));
+      }
+      const label = quotedLabels([turn.label], ctx);
+      if (turn.aiSetters.length === 0 && myHandle && turn.humanSetters.includes(myHandle))
+        return waiting(t('taskStatus.refinement.yourStep', { label }), 'needs_you');
+      const setters = turn.aiSetters.length > 0 ? turn.aiSetters : turn.humanSetters;
+      if (setters.length === 0) return waiting(t('taskStatus.refinement.nobody', { label }), 'blocked');
+      const who = joinNames(setters.map((handle) => nameOf(handle, members, myHandle)));
+      return waiting(t('taskStatus.waitingOn', { who }));
+    }
+    case 'approval': {
+      const label = quotedLabels([block.label], ctx);
+      return myHandle && block.approvers.includes(myHandle)
+        ? waiting(t('taskStatus.approvalMissingYou', { label }), 'needs_you')
+        : waiting(t('taskStatus.approvalMissing', { label }));
+    }
+    case 'unmet':
+      return block.refines
+        ? { ...waiting(t('taskStatus.notRefined'), 'ready'), since: task.createdAt }
+        : waiting(t('taskStatus.labelsMissing', { labels: quotedLabels(block.labels, ctx) }));
+    case 'held':
+      return waiting(joinNames(block.labels.map((id) => labelName(id, ctx.labels ?? []))));
+  }
 }
 
 /** A state before `workers` is filled in: every phase but `working` has none. */
 type DerivedState = Omit<TaskState, 'workers'> & { workers?: TaskWorker[] };
 
-function deriveOpenState(task: Task, ctx: TaskStateContext, wait: PrerequisiteWait | null): DerivedState {
+function deriveOpenState(
+  task: Task,
+  ctx: TaskStateContext,
+  wait: PrerequisiteWait | null,
+  block: StartBlock | null,
+): DerivedState {
   const { pipeline, members, myHandle } = ctx;
   const stage = pipeline.stageById.get(task.stageId);
   const open = ctx.openInboxByTask.get(task.key) ?? [];
@@ -364,6 +452,10 @@ function deriveOpenState(task: Task, ctx: TaskStateContext, wait: PrerequisiteWa
       worker: null,
     };
   }
+
+  // A card that cannot be started yet says what it waits for, before the queue's "ready" (PM-291).
+  const blocked = block ? startBlockState(task, block, ctx) : null;
+  if (blocked) return blocked;
 
   if (stage?.kind === 'queue') {
     if (task.status === 'waiting' || wait) return standingOnPrerequisite(wait, task.updatedAt);

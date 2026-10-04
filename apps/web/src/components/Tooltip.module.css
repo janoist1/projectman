@@ -1,0 +1,31 @@
+.anchor {
+  display: inline-flex;
+  border-radius: var(--radius-sm);
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  max-width: 340px;
+  width: max-content;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--c-primary);
+  color: var(--c-on-primary);
+  box-shadow: var(--shadow-pop);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+  white-space: normal;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 120ms ease-out,
+    visibility 120ms;
+}
+
+.open {
+  opacity: 1;
+  visibility: visible;
+}

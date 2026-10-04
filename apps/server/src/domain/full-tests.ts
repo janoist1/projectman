@@ -127,6 +127,11 @@ export class FullTestRuns {
     await this.syncAll();
   }
 
+  /** Whether a full test runs on the task's handed-over commits: the feature is on and its repository asks for one. */
+  runsFor(task: Task, config: ProjectConfig): boolean {
+    return this.available && reviewTestOf(config, task) !== undefined;
+  }
+
   /** Server stop: the running run ends (`shutdown`) and nothing new starts. */
   async stop(): Promise<void> {
     this.stopped = true;

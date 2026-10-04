@@ -18,6 +18,7 @@ import type {
   InboxItem,
   ProjectConfig,
   Stage,
+  StartBlock,
   Task,
   TimelineEventData,
 } from '@projectman/shared';
@@ -85,10 +86,11 @@ export interface MoveOptions {
 /** Reads the head of the branch a task's developer hands over, null when there is none to read. */
 export type SourceHeadReader = (config: ProjectConfig, task: Task) => Promise<SourceHead | null>;
 
-export function gateBlockedError(evaluation: GateEvaluation) {
+export function gateBlockedError(evaluation: GateEvaluation, block?: StartBlock) {
   return conflict('gate_blocked', 'the gate conditions of the target stage are not met', {
     unmet: evaluation.unmet,
     approvals: evaluation.approvals,
+    ...(block ? { block } : {}),
   });
 }
 

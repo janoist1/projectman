@@ -389,6 +389,8 @@ function workItemLabel(item: WorkItemRef, member: AiMemberConfig): string {
  */
 export class SessionOrchestrator {
   private readonly deps: SessionOrchestratorDeps;
+  private fullTests: { runsFor(task: Task, config: ProjectConfig): boolean } | undefined;
+
   private readonly ctx: DomainContext;
   private readonly locks = new KeyedMutex();
   private readonly tokens = new Map<string, ToolContext>();
@@ -449,6 +451,11 @@ export class SessionOrchestrator {
         })
       : null;
     this.unsubscribe = deps.runner.onEvent((event) => this.handleRunnerEvent(event));
+  }
+
+  /** Wire the full-test policy into every session brief, including resumes. */
+  useFullTests(fullTests: { runsFor(task: Task, config: ProjectConfig): boolean }): void {
+    this.fullTests = fullTests;
   }
 
   dispose(): void {
@@ -1466,6 +1473,7 @@ export class SessionOrchestrator {
             readerDenyWrite: [config.project.workspacePath, ...(this.deps.readerDenyWrite ?? [])],
           });
     const pack = this.deps.contextBuilder.build({
+      ...(task && this.fullTests?.runsFor(task, config) ? { serverFullTest: true } : {}),
       project: config,
       // The settings that apply to this session: the system prompt tells the agent who answers.
       member: acting,

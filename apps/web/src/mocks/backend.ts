@@ -101,6 +101,7 @@ import {
   stageIndex,
   stageOf,
   stageOwners,
+  startBlock,
   subtaskParentRefusal,
   isTheme,
   themeRefusal,
@@ -178,6 +179,7 @@ import type {
   SessionStop,
   SessionTokensAlert,
   Stage,
+  StartBlock,
   Task,
   TeamMessage,
   TokenUsage,
@@ -293,10 +295,11 @@ const NO_APPROVER_CODES: ReadonlySet<string> = new Set([
   'missing_duty_holder',
 ]);
 
-function gateBlockedError(evaluation: GateEvaluation): MockResponse {
+function gateBlockedError(evaluation: GateEvaluation, block?: StartBlock): MockResponse {
   return error(409, 'gate_blocked', 'Gate conditions are not met', {
     unmet: evaluation.unmet,
     approvals: evaluation.approvals,
+    ...(block ? { block } : {}),
   });
 }
 
@@ -3092,13 +3095,16 @@ export class MockBackend {
     if (!task || !input) return error(404, 'not_found', 'Unknown task');
     if (isTheme(task)) return error(409, 'task_is_theme', 'A theme is not started');
     if (!isOpenTask(task)) return error(409, 'task_closed', 'Task is closed');
+    const workStage = this.config.pipeline.stages.find((stage) => stage.kind === 'work');
+    // Like the server: a person's Start of a card that is not ready to start is refused first (PM-291).
+    const block = workStage ? startBlock(task, this.config) : null;
+    if (workStage && block) return gateBlockedError(evaluateStart(task, this.config, workStage.id), block);
     // A person's start of a card with an open prerequisite needs the warning accepted (PM-204).
     const open = openPrerequisites(task, this.tasks).map((card) => card.key);
     if (open.length > 0 && !input.despitePrerequisites)
       return error(409, 'prerequisite_open', `Task ${task.key} waits for ${open.join(', ')}`, {
         prerequisites: open,
       });
-    const workStage = this.config.pipeline.stages.find((stage) => stage.kind === 'work');
     // Like the server: a gate that lacks only labels AI members set starts them, and the developer waits (PM-236).
     if (
       workStage &&

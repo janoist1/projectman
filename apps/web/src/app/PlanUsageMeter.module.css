@@ -1,90 +1,19 @@
-.box {
-  height: 40px;
-  box-sizing: border-box;
-  padding: 0 12px;
-  border-radius: 11px;
-  border: 1px solid var(--c-line-strong);
-  background: var(--c-surface);
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
+/* One provider: its name and meters, no frame. The tooltip's anchor. */
+.provider {
+  gap: 8px;
   flex-shrink: 0;
+  align-items: flex-start;
+  /* Only as wide as its meters, whether the parent is a flex column or a grid. */
+  align-self: flex-start;
+  justify-self: start;
+  width: max-content;
 }
 
-.paused {
-  border-color: var(--c-needs-border);
-}
-
-.label {
+.name {
   font-size: 11.5px;
   font-weight: 800;
   color: var(--c-ink-2);
-}
-
-.unknown {
-  font-size: var(--text-xs);
-  color: var(--c-ink-4);
-}
-
-.meter {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: 84px;
-}
-
-.row {
-  display: flex;
-  justify-content: space-between;
-  font-size: var(--text-2xs);
-  color: var(--c-ink-4);
-}
-
-.value {
-  color: var(--c-ink);
-  font-weight: 800;
-}
-
-.track {
-  display: block;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--c-line);
-  overflow: hidden;
-}
-
-.fill {
-  display: block;
-  height: 4px;
-  border-radius: 2px;
-}
-
-.ok {
-  background: var(--c-accent);
-}
-
-.high {
-  background: var(--c-needs);
-}
-
-.critical {
-  background: var(--c-blocked);
-}
-
-.compact {
-  height: auto;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  gap: 10px;
-}
-
-.compact .label {
-  display: none;
-}
-
-.compact .meter {
-  width: 64px;
+  line-height: 14px;
 }
 
 /* The link is a 40px touch target; the pill inside is smaller. */

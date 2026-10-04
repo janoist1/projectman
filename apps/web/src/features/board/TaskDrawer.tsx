@@ -11,6 +11,7 @@ import {
 } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import {
+  useBoard,
   useConfig,
   useInbox,
   useLabels,
@@ -81,7 +82,10 @@ function StartPanel({
   const start = useStartTask(key);
   const toast = useToast();
   // A pause holds the start: the button stays in its place but does nothing, and says why (PM-220).
-  const held = useHeldStart(useTeamPaused(), t('pause.disabled.start'));
+  // So does switched-off AI work (PM-291); the pause's reason comes first.
+  const paused = useTeamPaused();
+  const aiOff = useBoard(key).data?.aiEnabled === false;
+  const held = useHeldStart(paused || aiOff, paused ? t('pause.disabled.start') : t('task.aiOffStart'));
   const [assignee, setAssignee] = useState('');
   // The open prerequisites the person is warned about before the start goes ahead (PM-204).
   const [warning, setWarning] = useState<string[] | null>(null);
@@ -192,7 +196,8 @@ export function TaskDrawer() {
   const { board, members, pipeline, model } = useBoardModel();
   const detail = useTaskDetail(key, taskKey);
   const labels = useLabels(key);
-  const config = useConfig(key, can.createTasks).data?.config;
+  const configQuery = useConfig(key, can.readConfig);
+  const config = configQuery.data?.config;
   const inbox = useInbox(key);
   const resolve = useResolveInbox(key, myHandle);
   const toast = useToast();
@@ -293,8 +298,15 @@ export function TaskDrawer() {
     // A person who may put the `refine` label on a card that is not being refined can start it with a button.
     const canRefine =
       !theme && can.createTasks && config && myHandle ? canStartRefinement(task, config, myHandle) : false;
+    // The Start is offered only when the shared rule lets a person start the card (PM-291); what it waits for
+    // is on the status line. While the rule's data loads a bar holds its place; if it never comes, the
+    // Start shows as before and the server decides.
+    const startBlock = entry?.state.startBlock;
+    const startLoading = can.readConfig && configQuery.isPending;
+    const startOffered = isQueued && can.createTasks && !startBlock;
+    const refineFirst = canRefine && startBlock?.kind === 'unmet' && startBlock.refines;
     const hasActions =
-      (isQueued && can.createTasks) ||
+      startOffered ||
       canRefine ||
       Boolean(session && can.workInSessions) ||
       canMoveTask(task, can.createTasks);
@@ -344,10 +356,14 @@ export function TaskDrawer() {
       <div key="side" className={clsx(styles.group, styles.side)}>
         {task.startWaiting ? <p className={drawer.section}>{startWaitingHint(task)}</p> : null}
         <div className={styles.actions} hidden={!hasActions}>
-          {canRefine ? <RefineButton task={task} /> : null}
-          {isQueued && can.createTasks ? (
+          {canRefine ? <RefineButton task={task} primary={refineFirst} /> : null}
+          {startOffered && startLoading ? (
+            <div className={styles.startLoading} role="status">
+              <span className="visually-hidden">{t('task.startLoading')}</span>
+            </div>
+          ) : startOffered ? (
             <StartPanel task={task} members={members} tasks={board.data?.tasks ?? []} canRefine={canRefine} />
-          ) : session && can.workInSessions ? (
+          ) : isQueued && can.createTasks ? null : session && can.workInSessions ? (
             <>
               <ButtonLink
                 to={`/p/${key}/sessions/${session.id}`}
@@ -476,6 +492,8 @@ export function TaskDrawer() {
             parent={parent}
             state={entry.state}
             pipeline={pipeline}
+            members={members}
+            labels={labels}
             headingRef={headingRef}
             size={size}
             onToggleSize={toggleSize}

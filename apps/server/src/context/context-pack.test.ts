@@ -431,9 +431,9 @@ describe('token economy (PM-181)', () => {
   // The prompt and the kick-off brief together may not grow from the size they had before PM-181
   // (measured on the snapshots of that time, in characters). The developer's allowance grew once,
   // to make room for the structural decision rule of PM-223, and again for the rule of working on the
-  // same card as others (PM-249).
+  // same card as others (PM-249), then by 205 characters for the targeted check instructions (PM-335).
   it.each([
-    { name: 'developer', handle: 'fe-1', system: 13202, brief: 862 },
+    { name: 'developer', handle: 'fe-1', system: 13407, brief: 862 },
     { name: 'code reviewer', handle: 'code-review', system: 11832, brief: 1900 },
   ])('does not grow the system prompt and brief of the $name', ({ handle, system, brief }) => {
     const pack =
@@ -1308,6 +1308,44 @@ describe('kick-off brief', () => {
 });
 
 describe('expected steps', () => {
+  it.each(['developer', 'maintainer'])(
+    'asks %s for targeted checks when the server runs the full test',
+    (role) => {
+      const project = buildProject();
+      const handle = role === 'developer' ? 'fe-1' : 'maintainer';
+      if (role === 'maintainer') {
+        addMember(project, handle, role);
+        (project.pipeline.stages.find((stage) => stage.id === 'dev')!.owners ??= []).push(handle);
+      }
+      project.project.repos[0]!.reviewTest = {
+        command: 'custom-check --all',
+        maxWorkers: 2,
+        timeoutMinutes: 15,
+      };
+      const source = input({ project, handle, task: makeTask({ stageId: 'dev', assignee: handle }) });
+      const steps = doneSteps(builder.build({ ...source, serverFullTest: true }).appendSystemPrompt);
+      expect(steps).toContain('Install the dependencies only if they are missing');
+      expect(steps).toContain(
+        "run only the tests that cover your change (single test files, or your test runner's related or changed mode) and the type check of the parts you touched",
+      );
+      expect(steps).toContain(
+        'Do not run the whole test suite: the server runs `custom-check --all` once on the commit you hand over, PTY tests included',
+      );
+      const fallback = doneSteps(builder.build(source).appendSystemPrompt);
+      expect(fallback).toContain(
+        "run the project's full tests and type check once, on the commit you hand over",
+      );
+      expect(fallback).not.toContain('Do not run the whole test suite');
+    },
+  );
+
+  it('keeps code review steps unchanged by the server full test flag', () => {
+    const source = input({ handle: 'code-review', task: makeTask({ stageId: 'code_review' }) });
+    expect(doneSteps(builder.build({ ...source, serverFullTest: true }).appendSystemPrompt)).toBe(
+      doneSteps(builder.build(source).appendSystemPrompt),
+    );
+  });
+
   const stepsOf = (overrides: Parameters<typeof input>[0]) =>
     doneSteps(builder.build(input(overrides)).appendSystemPrompt);
 
@@ -1323,7 +1361,7 @@ describe('expected steps', () => {
     for (const repo of ['app', null]) {
       const steps = stepsOf({ handle: 'fe-1', task: makeTask({ stageId: 'dev', repo }) });
       expect(steps, String(repo)).toContain(
-        "2. Implement the change in your working directory (the task's own worktree and branch) and run the project's tests.",
+        "2. Install the dependencies only if they are missing from your working directory: they are often in place already. Implement the change in your working directory (the task's own worktree and branch). While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.",
       );
     }
   });
@@ -1335,7 +1373,9 @@ describe('expected steps', () => {
       handle: 'fe-1',
       task: makeTask({ stageId: 'dev', repo: null }),
     });
-    expect(steps).toContain("2. Implement the change in your working directory and run the project's tests.");
+    expect(steps).toContain(
+      "Implement the change in your working directory. While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.",
+    );
   });
 
   it('sends feedback work back to the assignee', () => {
@@ -1444,7 +1484,7 @@ describe('expected steps', () => {
       task: makeTask({ stageId: 'dev', assignee: 'maintainer' }),
     });
     expect(steps).toContain(
-      "1. Make the maintenance change the task describes in your working directory (the task's own worktree and branch), small and focused, and run the project's tests.",
+      "1. Install the dependencies only if they are missing from your working directory: they are often in place already. Make the maintenance change the task describes in your working directory (the task's own worktree and branch), small and focused. While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.",
     );
     expect(steps).toContain('2. Commit, push, open a pull request and attach it with link_pull_request.');
     expect(steps).toContain(
@@ -1924,7 +1964,7 @@ describe('repositories without GitHub', () => {
       expect(steps).toBe(
         [
           '1. Read the task, its links and relations to other cards; ask with ask_human if the goal or a decision is unclear.',
-          "2. Implement the change in your working directory (the task's own worktree and branch) and run the project's tests.",
+          "2. Install the dependencies only if they are missing from your working directory: they are often in place already. Implement the change in your working directory (the task's own worktree and branch). While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.",
           "3. Commit the work on the task's own branch in your worktree. Never push and never open a pull request: the repository is local-only (the owner has not allowed publishing from it). Before you hand over, make sure everything is committed: `git status` shows nothing left to commit.",
           '4. Move the task to Code review (`code_review`) with update_task and hand over to `code-review` with send_message: the facts they need (the branch and its last commit, what changed, what to check).',
         ].join('\n'),
@@ -1936,7 +1976,7 @@ describe('repositories without GitHub', () => {
       expect(steps).toBe(
         [
           '1. Read the task, its links and relations to other cards; ask with ask_human if the goal or a decision is unclear.',
-          "2. Implement the change in your working directory (the task's own worktree and branch) and run the project's tests.",
+          "2. Install the dependencies only if they are missing from your working directory: they are often in place already. Implement the change in your working directory (the task's own worktree and branch). While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.",
           '3. Commit, push, open a pull request and attach it with link_pull_request.',
           '4. Move the task to Code review (`code_review`) with update_task and hand over to `code-review` with send_message: the facts they need (links, what changed, what to check).',
         ].join('\n'),

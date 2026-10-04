@@ -95,11 +95,19 @@ export function createFullTestRunRepository(db: Db) {
     forCommit(taskKey: string, commit: string): FullTestRunRecord[] {
       return (forTaskCommit.all(taskKey, commit) as RunRow[]).map(toRecord);
     },
-    /** The runs made for a review pin (its commit, since it was taken), newest first. */
+    /**
+     * The runs of the pin's commit since it was taken, newest first, followed by the latest
+     * earlier verdict (passed, failed or error) only when that verdict passed.
+     */
     forPin(pin: { taskKey: string; commit: string; pinnedAt: string }): FullTestRunRecord[] {
-      return (forTaskCommit.all(pin.taskKey, pin.commit) as RunRow[])
-        .map(toRecord)
-        .filter((run) => run.createdAt >= pin.pinnedAt);
+      const runs = (forTaskCommit.all(pin.taskKey, pin.commit) as RunRow[]).map(toRecord);
+      const current = runs.filter((run) => run.createdAt >= pin.pinnedAt);
+      const previous = runs.find(
+        (run) =>
+          run.createdAt < pin.pinnedAt &&
+          (run.status === 'passed' || run.status === 'failed' || run.status === 'error'),
+      );
+      return previous?.status === 'passed' ? [...current, previous] : current;
     },
     /** The runs of a card, newest first. */
     forTask(taskKey: string): FullTestRunRecord[] {

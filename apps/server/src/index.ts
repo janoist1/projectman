@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseExecutionProfile } from '@projectman/shared';
-import { APP_DEFAULTS, buildApp, isLoopbackHost, loopbackBaseUrl } from './app';
+import { APP_DEFAULTS, buildApp, isLoopbackHost, loopbackBaseUrl, parseTerminalMode } from './app';
 import type { BuildAppOptions, LoopbackHost } from './app';
 import { createFullTestExecutor } from './full-test';
 import { loadBoundaryConfig } from './runtime-boundary';
@@ -32,6 +32,10 @@ import { createShutdown } from './shutdown';
  *   PROJECTMAN_GITHUB_PUBLISH_TOKEN_FILE: the VM's separate GitHub identity for publishing task
  *   branches (PM-142, docs/GITHUB.md): a file only the service can read, holding that identity's token.
  *   Only the managed VM profile accepts it; without it nothing is published.
+ *   PROJECTMAN_TERMINAL (pty): `pipe` starts the agent CLIs with pipes instead of a pseudo-terminal
+ *   (PM-267), for a development instance whose sandbox has no PTY, with the fake CLIs. The real
+ *   `claude` and `codex` are not interactive without a terminal, so it needs PROJECTMAN_HOME set to
+ *   a development home, CLAUDE_BIN and CODEX_BIN set, no boundary configuration and no managed VM profile.
  *   PROJECTMAN_CLIENT_IP_HEADER (unset): the header the public entrance sets to the real client's
  *   address (`cf-connecting-ip` behind Cloudflare, PM-211, docs/DEPLOY.md). The login and invitation
  *   limiters then count per that address instead of the proxy's, but only for requests from
@@ -101,6 +105,14 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
       codexHome: env.CODEX_HOME || undefined,
       claudeConfigPath: env.CLAUDE_CONFIG_DIR ? join(env.CLAUDE_CONFIG_DIR, '.claude.json') : undefined,
       agentEnv: env,
+      terminal: parseTerminalMode(env.PROJECTMAN_TERMINAL, {
+        home: env.PROJECTMAN_HOME,
+        liveHome: join(homedir(), '.projectman'),
+        claudeBin: env.CLAUDE_BIN,
+        codexBin: env.CODEX_BIN,
+        boundaryConfig: boundaryFile,
+        executionProfile,
+      }),
       ghBin: env.GH_BIN,
       ghHost: env.GH_HOST || undefined,
       logger: env.LOG_LEVEL === undefined ? undefined : { level: env.LOG_LEVEL },

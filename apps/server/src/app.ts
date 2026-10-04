@@ -30,6 +30,7 @@ import type {
   RunnerModule,
   RunnerModuleOptions,
   RuntimeBoundary,
+  TerminalMode,
   WorktreeManager,
 } from './contracts';
 import { createRepositories, openDatabase } from './db';
@@ -60,6 +61,46 @@ export type LoopbackHost = (typeof LOOPBACK_HOSTS)[number];
 
 export function isLoopbackHost(host: string): host is LoopbackHost {
   return (LOOPBACK_HOSTS as readonly string[]).includes(host);
+}
+
+/** What `parseTerminalMode` checks before it allows sessions without a terminal (PM-267). */
+export interface TerminalModeGuard {
+  /** The raw PROJECTMAN_HOME. */
+  home: string | undefined;
+  /** The live instance's home (`~/.projectman`). */
+  liveHome: string;
+  /** CLAUDE_BIN. */
+  claudeBin: string | undefined;
+  /** CODEX_BIN. */
+  codexBin: string | undefined;
+  /** PROJECTMAN_BOUNDARY_CONFIG. */
+  boundaryConfig: string | undefined;
+  executionProfile: ExecutionProfile;
+}
+
+/**
+ * PROJECTMAN_TERMINAL: `pty` (default) or `pipe`, which starts the CLIs without a terminal. `pipe` is
+ * only for a development instance with the fake CLIs, so it is refused for the live home, without
+ * both CLI paths set explicitly, with the managed VM boundary or the managed VM profile.
+ */
+export function parseTerminalMode(value: string | undefined, guard: TerminalModeGuard): TerminalMode {
+  if (!value) return 'pty';
+  if (value !== 'pty' && value !== 'pipe')
+    throw new Error(`invalid PROJECTMAN_TERMINAL: ${value} (pty or pipe)`);
+  if (value === 'pty') return 'pty';
+  const liveHome = resolve(guard.liveHome);
+  if (
+    !guard.home ||
+    resolve(guard.home) === liveHome ||
+    !guard.claudeBin ||
+    !guard.codexBin ||
+    guard.boundaryConfig ||
+    guard.executionProfile === 'managed_vm'
+  )
+    throw new Error(
+      'PROJECTMAN_TERMINAL=pipe is only for development instances with the fake CLIs: set PROJECTMAN_HOME to a development home, CLAUDE_BIN and CODEX_BIN to the fake CLIs, and no managed VM setting',
+    );
+  return 'pipe';
 }
 
 /**
@@ -131,6 +172,8 @@ export interface BuildAppOptions {
    * variables); index.ts passes the server's. Default: the runner's own default.
    */
   agentEnv?: NodeJS.ProcessEnv;
+  /** How the agent CLIs are started (default `pty`); `pipe` only through `parseTerminalMode` (PM-267). */
+  terminal?: TerminalMode;
   /**
    * PROJECTMAN_CLIENT_IP_HEADER: the header the public entrance (e.g. `cf-connecting-ip` behind
    * Cloudflare) sets to the real client's address. Only the attempt limiters read it, and only
@@ -402,6 +445,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           codexHome: options.codexHome,
           claudeConfigPath: options.claudeConfigPath,
           env: options.agentEnv,
+          terminal: options.terminal,
           managedVm: verifiedManagedVm,
           publicBaseUrl,
           broker,

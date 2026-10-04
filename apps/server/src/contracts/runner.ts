@@ -437,7 +437,16 @@ export interface PlanUsageProvider {
   get(): Promise<PlanUsage | null>;
 }
 
+/** How the runner starts the agent CLI's process: in a pseudo-terminal, or with plain pipes. */
+export type TerminalMode = 'pty' | 'pipe';
+
 export interface RunnerModuleOptions {
+  /**
+   * `pipe` starts the CLI with pipes instead of a pseudo-terminal (PM-267): for the fake CLIs in a
+   * development instance that has no PTY (a member's sandbox). Default `pty`. It has no effect on
+   * sessions that start through the launcher.
+   */
+  terminal?: TerminalMode;
   /** Path or name of the Claude Code CLI (default "claude"). Tests pass a fake CLI. */
   claudeBin: string;
   /** Base URL the CLI calls for HTTP hooks, e.g. http://127.0.0.1:4700 (the runner adds /hooks/<token>). */

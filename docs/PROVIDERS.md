@@ -213,6 +213,18 @@ ARCHITECTURE.md). Its settings come from `fullTestSandbox` in `domain/session-po
 the checkout and its git directory below the home, writes only its own run directory in the temp
 directory, no network (but listening on local ports), and a small allow list of environment variables.
 
+A development instance started in such a sandbox has no PTY for its own sessions either, so
+`PROJECTMAN_TERMINAL=pipe` (PM-267) makes the runner start the CLIs with plain pipes
+(`runner/pipe-spawn.ts`) instead of node-pty. This works only with the fake CLIs
+(`test/fixtures/fake-claude.mjs`, `fake-codex.mjs`, which also exit when their standard input
+closes): the real `claude` and `codex` are not interactive without a terminal, and the live instance
+and the managed VM never run this way. `parseTerminalMode` (`app.ts`, called by `index.ts`) refuses
+`pipe` when `PROJECTMAN_HOME` is unset or is the live home (`~/.projectman`; a directory below it,
+like a member's `member-caches/…/projectman-dev`, is fine), when `CLAUDE_BIN` or `CODEX_BIN` is not
+set explicitly, when `PROJECTMAN_BOUNDARY_CONFIG` is set, or with the `managed_vm` profile. Whether
+the two binaries are really fakes cannot be checked; requiring them explicitly only rules out an
+accidental default. Sessions started through the launcher are not affected.
+
 Every other legacy session reads only (PM-167, decision 28: „Homokozó, a CLI-k saját kerítése”):
 the reviewer, QA, the security reviewer, the analyst, the architect, the designer, devops, chats,
 meetings and scheduled runs, any session whose placement is `read_only` or a review copy without

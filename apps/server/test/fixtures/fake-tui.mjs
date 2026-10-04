@@ -223,5 +223,7 @@ export function exitOnSignals({ sessionEnd, restore }) {
   }
   process.on('SIGTERM', () => void exit('other'));
   process.on('SIGHUP', () => void exit('other'));
+  // Without a terminal (pipe mode, PM-267) a dead server only closes the standard input: no SIGHUP.
+  if (!process.stdin.isTTY) process.stdin.on('end', () => void exit('other'));
   return exit;
 }

@@ -60,6 +60,11 @@ export default async ({ instance, open, shoot, snapshot, step, log }) => {
 };
 ```
 
+A scenario may also export `fakeEnv`, an object of `FAKE_CLAUDE_*` / `FAKE_CODEX_*` variables for the
+fake CLIs of its instance (for example `{ FAKE_CLAUDE_LOGGED_OUT: '1' }`:
+`scripts/scenarios/provider-not-logged-in.mjs`). Variables of the shell running `npm run shots` never
+reach the fake CLIs.
+
 - `instance` is the running disposable instance: `instance.api(path, { method, body, as })`,
   `invite`, `startSession`, `say`, `waitIdle`, `setFakeCalls` and the rest of PM-269's API. Use it
   to prepare the state (a card, a question, an invited user) before the browser looks at it.

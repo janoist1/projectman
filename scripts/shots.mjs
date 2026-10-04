@@ -26,7 +26,8 @@ async function loadScenario(file) {
   }
   if (typeof module.default !== 'function')
     throw new UsageError(`The scenario ${file} must export a default async function.`);
-  return module.default;
+  // A scenario may also export `fakeEnv`: FAKE_CLAUDE_*, FAKE_CODEX_* variables for the fake CLIs (PM-324).
+  return { run: module.default, fakeEnv: module.fakeEnv ?? {} };
 }
 
 /** Rejects when a signal arrives or the time is up; `cancel()` drops the timer and the handlers. */
@@ -63,7 +64,7 @@ async function within(promise, ms) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const scenario = await loadScenario(options.scenario);
+  const { run: scenario, fakeEnv } = await loadScenario(options.scenario);
   const out = outputDirectory({ out: options.out, scenario: options.scenario });
   const stopper = interruption(options.timeoutSeconds);
   let browser;
@@ -74,7 +75,7 @@ async function main() {
     const dir = options.keepData ? mkdtempSync(join(tmpdir(), 'projectman-shots-data-')) : undefined;
     // This script handles SIGINT/SIGTERM itself (below): the browser stops first, then the instance,
     // and the exit code is 1, not the signal's.
-    starting = startInstance({ seed: options.seed, handleSignals: false, ...(dir ? { dir } : {}) });
+    starting = startInstance({ seed: options.seed, handleSignals: false, fakeEnv, ...(dir ? { dir } : {}) });
     instance = await Promise.race([starting, stopper.promise]);
     if (dir) console.log(`data kept in ${instance.dir}`);
     const api = createScenarioApi({ ...options, browser, instance, out });

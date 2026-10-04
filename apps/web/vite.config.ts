@@ -5,6 +5,8 @@ const serverUrl = process.env.PROJECTMAN_SERVER_URL ?? 'http://127.0.0.1:4700';
 
 export default defineConfig({
   plugins: [react()],
+  // A throwaway development instance (scripts/lib/instance.mjs) keeps it outside the checkout.
+  cacheDir: process.env.PROJECTMAN_VITE_CACHE_DIR,
   server: {
     port: 5173,
     proxy: {

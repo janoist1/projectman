@@ -91,9 +91,12 @@ import {
   SANDBOX_GIT_CONFIG,
   SANDBOX_GIT_CONFIG_FILE,
   sensitivePaths,
+  sessionFolderToolRules,
   sessionSandbox,
   usesWorktree,
 } from './session-policy';
+import { SESSION_DIR_VARIABLE } from './session-folders';
+import type { SessionFolders } from './session-folders';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
 import type { InputStallAlerts } from './input-stall-alert';
@@ -252,6 +255,13 @@ export interface SessionOrchestratorDeps {
    * checkout. The project's workspace is added per session.
    */
   readerDenyWrite?: string[];
+  /**
+   * The session folders (PM-268; their root is checked by `prepareSessionFoldersRoot`): each Claude
+   * session of the legacy profile gets its own writable folder, new at every start. Absent, none is made.
+   */
+  sessionFolders?: SessionFolders;
+  /** Playwright's browsers (PM-268): handed to Claude sessions read-only in `PLAYWRIGHT_BROWSERS_PATH`. */
+  browsersDir?: string;
   /** The user's home, where the credentials are (default: the operating system's). */
   userHome?: string;
   /**
@@ -1050,6 +1060,15 @@ export class SessionOrchestrator {
         doing: null,
       });
     }
+    // No process of an earlier run survives: what is left of the session folders is removed (PM-268).
+    const folders = this.deps.sessionFolders;
+    if (!folders) return;
+    try {
+      const removed = folders.sweep((id) => this.isRunning(id));
+      if (removed.length > 0) this.ctx.logger.info({ count: removed.length }, 'removed old session folders');
+    } catch (err) {
+      this.ctx.logger.warn({ err, dir: folders.root }, 'could not sweep the session folders');
+    }
   }
 
   /**
@@ -1095,6 +1114,8 @@ export class SessionOrchestrator {
       );
     } catch (err) {
       this.workspaces?.ended(sessionId);
+      // A start that failed leaves no folder behind (PM-268).
+      this.removeSessionFolderOf(sessionId);
       throw err;
     }
   }
@@ -1308,12 +1329,21 @@ export class SessionOrchestrator {
         ? this.prepareMemberSandboxDir(this.deps.appHome, projectKey, member.handle)
         : undefined;
     const excludesFile = userExcludesFile(userHome);
+    // A Claude session of the legacy profile gets its own folder and the browsers (PM-268); Codex and
+    // the managed VM neither.
+    const ownFolders = !vm && !this.managed && provider === 'claude';
+    // A new path at every start: what an earlier run left running cannot use or pre-empt it.
+    const sessionDir =
+      ownFolders && this.deps.sessionFolders ? this.deps.sessionFolders.allocate(sessionId) : undefined;
+    const browsersDir = ownFolders ? this.deps.browsersDir : undefined;
     const sandbox =
       vm || this.managed
         ? undefined
         : sessionSandbox(policy, {
             userHome,
             ...(this.deps.appHome ? { appHome: this.deps.appHome } : {}),
+            ...(sessionDir ? { sessionDir } : {}),
+            ...(browsersDir ? { browsersDir } : {}),
             ...(repoName ? { defaultBranch: repoOf(config, repoName)?.defaultBranch } : {}),
             ...(memberDir ? { memberDir } : {}),
             ...(excludesFile ? { excludesFile } : {}),
@@ -1369,6 +1399,10 @@ export class SessionOrchestrator {
         );
       }
     }
+    // Made now, before the process: Claude Code may not handle a write path that does not exist. A
+    // failed start removes it (`start`); a restart's old folder was removed when its process ended.
+    const sessionFolder = sandbox?.env?.[SESSION_DIR_VARIABLE];
+    if (sessionFolder) this.prepareSessionFolder(sessionId, sessionFolder);
     const at = isoNow(this.ctx);
     // A conversation whose round ended while its session did not run is compacted before anything
     // else is typed (PM-213), if it is big: the wake-up messages and the continue message follow it.
@@ -1474,7 +1508,13 @@ export class SessionOrchestrator {
         policy,
         // The managed VM profile (PM-141) hands the CLI no tool rules, no denied tools and no sandbox of
         // its own: the legacy ones below would put inner limits back (PM-134's sandbox included).
-        allowedTools: vm ? [] : [...allowedToolsFor(member.role, config), ...attachmentRules.allow],
+        allowedTools: vm
+          ? []
+          : [
+              ...allowedToolsFor(member.role, config),
+              ...attachmentRules.allow,
+              ...sessionFolderToolRules(sessionFolder ?? null).allow,
+            ],
         deniedTools: vm ? [] : [...deniedToolsFor(config, task), ...attachmentRules.deny],
         additionalDirectories,
         // The CLI's own sandbox (decision 28): a developer's in its worktree, a reader's that writes
@@ -1731,6 +1771,31 @@ export class SessionOrchestrator {
     return dir;
   }
 
+  /** The session's own folder (PM-268), made before its process starts. */
+  private prepareSessionFolder(sessionId: string, dir: string): void {
+    try {
+      this.deps.sessionFolders!.make(sessionId, dir);
+    } catch (err) {
+      throw new DomainError(
+        'session_start_failed',
+        `could not prepare the session folder: ${(err as Error).message}`,
+        { status: 502, details: { stage: 'session_folder', reason: errorCode(err) } },
+      );
+    }
+  }
+
+  /**
+   * Removes the session's folder (PM-268). Synchronous, so a restart's new folder is made after
+   * it; a failure is logged and never stops the caller.
+   */
+  private removeSessionFolderOf(sessionId: string): void {
+    try {
+      this.deps.sessionFolders?.remove(sessionId);
+    } catch (err) {
+      this.ctx.logger.warn({ err, sessionId }, 'could not remove the session folder');
+    }
+  }
+
   private async workerSessionDir(handle: string, projectKey: string): Promise<string> {
     const boundary = this.deps.runtimeBoundary!;
     const layout = boundary.layout!;
@@ -1840,6 +1905,7 @@ export class SessionOrchestrator {
     this.settleFirstInput(sessionId, false);
     this.awaitingFirstTurn.delete(sessionId);
     this.revokeToken(sessionId);
+    this.removeSessionFolderOf(sessionId);
     this.processProviders.delete(sessionId);
     this.processModes.delete(sessionId);
     this.processGrants.delete(sessionId);

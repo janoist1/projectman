@@ -191,6 +191,16 @@ export interface BuildAppOptions {
   webDistDir?: string | null;
   /** The checkout the server runs from: reading sessions never change it (PM-188). */
   installDir?: string;
+  /**
+   * The root of the session folders (PM-268): each Claude session gets its own writable folder
+   * below it, for screenshots and other files its commands make. Absent (tests): no folders.
+   */
+  sessionFoldersDir?: string;
+  /**
+   * Playwright's browsers (PM-268), read-only for the members' commands in `PLAYWRIGHT_BROWSERS_PATH`.
+   * Absent (tests): the variable is not set.
+   */
+  browsersDir?: string;
   /** How long a permission request waits for a human (default 10 minutes). */
   permissionTimeoutMs?: number;
   /** How often linked pull requests are polled (default 1 minute). */
@@ -465,6 +475,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       worktreesRootDir: join(home, 'worktrees'),
       appHome: home,
       installDir: options.installDir,
+      sessionFoldersDir: options.sessionFoldersDir,
+      browsersDir: options.browsersDir,
       memberWorkspaces,
       workspacesRootDir: workspacesDir,
       // Behind the boundary a session's pid is the launcher's (root's) process, and the launcher

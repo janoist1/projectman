@@ -1,5 +1,6 @@
 import type { AgentSandbox } from '../contracts';
 import { isWithin } from './command-paths';
+import { BROWSERS_PATH_VARIABLE, SESSION_DIR_VARIABLE } from './session-folders';
 import { GIT_SETTINGS_VARIABLE, PTY_SKIP_VARIABLE } from './session-policy';
 import { SHELL_REDIRECTIONS } from './shell-words';
 import {
@@ -83,16 +84,22 @@ export function describeSandbox(input: {
   const extra = (sandbox.denyWrite ?? []).filter((dir) => dir !== cwd);
   const denyRead = sandbox.denyRead ?? [];
   const ownDirectories = Object.entries(sandbox.env ?? {}).filter(
-    ([name]) => name !== PTY_SKIP_VARIABLE && name !== GIT_SETTINGS_VARIABLE,
+    ([name]) =>
+      name !== PTY_SKIP_VARIABLE &&
+      name !== GIT_SETTINGS_VARIABLE &&
+      name !== SESSION_DIR_VARIABLE &&
+      name !== BROWSERS_PATH_VARIABLE,
   );
   const gitSettings = sandbox.env?.[GIT_SETTINGS_VARIABLE];
+  const sessionFolder = sandbox.env?.[SESSION_DIR_VARIABLE];
+  const browsers = sandbox.env?.[BROWSERS_PATH_VARIABLE];
   const skipsPtyTests = sandbox.env?.[PTY_SKIP_VARIABLE] === '1';
   // The directories closed as a whole (the user's home, the app home), not the paths inside them.
   const closed = denyRead.filter((dir) => !denyRead.some((other) => other !== dir && isWithin(other, dir)));
   const lines = [
     "Your shell commands run in Claude Code's own sandbox, in your own permission mode: what the sandbox allows runs without asking, and no particular form of command is needed.",
     readOnly
-      ? `- Writing: only the temp directory (${code('$TMPDIR')}). Your working directory ${code(cwd)}${extra.length > 0 ? ` and ${extra.map(code).join(', ')}` : ''} are read-only, for the shell (the sandbox) and for the file tools (deny rules). Read, query git, run the tests and the type checks there, but change nothing. Send caches and output files to ${code('$TMPDIR')}; a Vite or Vitest configuration loads with ${code('--configLoader runner')} (the project's ${code('npm test')} may already pass it).`
+      ? `- Writing: only the temp directory (${code('$TMPDIR')})${sessionFolder ? ` and your session folder` : ''}. Your working directory ${code(cwd)}${extra.length > 0 ? ` and ${extra.map(code).join(', ')}` : ''} are read-only, for the shell (the sandbox) and for the file tools (deny rules). Read, query git, run the tests and the type checks there, but change nothing. Send caches and output files to ${code('$TMPDIR')}; a Vite or Vitest configuration loads with ${code('--configLoader runner')} (the project's ${code('npm test')} may already pass it).`
       : `- Writing: your working directory ${code(cwd)} with its git metadata (not its hooks or configuration), the temp directory (${code('$TMPDIR')})${sandbox.allowWrite.length > 0 ? ` and ${sandbox.allowWrite.map(code).join(', ')}` : ''}.${
           extra.length > 0
             ? ` Never these paths of the shared git directory (the default branch, the integrating checkout, replacements and grafts): ${extra
@@ -111,6 +118,17 @@ export function describeSandbox(input: {
             .join(
               ', ',
             )}. Leave them set: npm, ${code('npx')} and ${code('npm run dev')} use them, and the user's ${code('~/.npm')} and ${code('~/.projectman-dev')} are not writable.`,
+        ]
+      : []),
+    // PM-268: the member's own folder for what it attaches, and the shared browsers.
+    ...(sessionFolder
+      ? [
+          `- Your session folder: ${code(sessionFolder)} (${code(`$${SESSION_DIR_VARIABLE}`)}), yours alone: put screenshots and other files to attach there; ${code('attach_file')} takes their absolute path. It is deleted when this session's process stops (a stop, a restart), so attach what should stay before you end your turn.`,
+        ]
+      : []),
+    ...(browsers
+      ? [
+          `- Browsers: Playwright's are in ${code(browsers)} (${code(BROWSERS_PATH_VARIABLE)}), read-only; a human installs them (${code('npm run browsers -- install')}).`,
         ]
       : []),
     // PM-216: git's settings and the one message that stays after a commit.

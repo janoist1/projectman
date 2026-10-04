@@ -18,3 +18,7 @@ export function stageOf(config: Pick<ProjectConfig, 'pipeline'>, stageId: string
 export function memberRoles(member: MemberConfig): string[] {
   return member.kind === 'ai' ? [member.role] : member.roles;
 }
+
+export function ownerHandles(config: Pick<ProjectConfig, 'team'>): string[] {
+  return config.team.members.filter((m) => m.kind === 'human' && m.access === 'owner').map((m) => m.handle);
+}

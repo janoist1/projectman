@@ -17,6 +17,15 @@ export type MemberKind = z.infer<typeof MemberKind>;
 export const HumanAccess = z.enum(['owner', 'admin', 'developer', 'client', 'viewer']);
 export type HumanAccess = z.infer<typeof HumanAccess>;
 
+/** viewer and client can read; developer can work on tasks; admin changes the team; owner everything. */
+const ACCESS_RANK: Record<HumanAccess, number> = { viewer: 0, client: 0, developer: 1, admin: 2, owner: 3 };
+
+export function hasAccess(access: HumanAccess, minimum: HumanAccess): boolean {
+  return ACCESS_RANK[access] >= ACCESS_RANK[minimum];
+}
+
+export const TASK_CREATE_MIN_ACCESS: HumanAccess = 'developer';
+
 /** Claude Code permission modes (passed to `claude --permission-mode`). */
 export const PermissionMode = z.enum(['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions']);
 export type PermissionMode = z.infer<typeof PermissionMode>;

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { AI_BUILT_IN_ROLE_IDS, DUTIES, DUTY_IDS } from '@projectman/shared';
+import {
+  AI_BUILT_IN_ROLE_IDS,
+  DUTIES,
+  DUTY_IDS,
+  LabelDefinition,
+  TEAM_RULE_IDS,
+  teamRules,
+} from '@projectman/shared';
 import type {
   Actor,
   AiMemberConfig,
@@ -20,8 +27,39 @@ import { createContextPackBuilder } from './context-pack';
 import { stageLabel } from './format';
 import { formatMemoryEntry, MEMORY_LIMIT_BYTES } from './memory';
 import { roleLabel } from './system-prompt';
+import { describeTeamRule } from './team-rules';
 
 const builder = createContextPackBuilder();
+
+describe('team rules in the system prompt', () => {
+  it('describes every applicable rule immediately after labels without duplicate guardrails', () => {
+    const project = buildProject();
+    project.pipeline.labels.push(LabelDefinition.parse({ id: 'refine', name: 'Refine' }));
+    const prompt = builder.build(input({ project })).appendSystemPrompt;
+    const rules = teamRules(project);
+    expect(rules.map((rule) => rule.id)).toEqual([...TEAM_RULE_IDS]);
+    expect(prompt.indexOf('# Team rules')).toBeGreaterThan(prompt.indexOf('# Labels'));
+    expect(section(prompt, '# Labels')).not.toContain('# Team rules');
+    for (const rule of rules)
+      expect(section(prompt, '# Team rules')).toContain(`- ${describeTeamRule(rule, project)}`);
+    expect(prompt.match(/Approvals:/g)).toHaveLength(1);
+    expect(prompt.match(/Nobody approves their own work:/g)).toHaveLength(1);
+    expect(prompt).not.toContain('Approvals are labels only humans may set; the app asks them.');
+    expect(prompt).not.toContain('Never set a label marked "not on your own work"');
+  });
+
+  it('renders the configured fix limit and human fallback', () => {
+    const project = buildProject();
+    project.team.limits.maxFixRounds = 5;
+    expect(section(builder.build(input({ project })).appendSystemPrompt, '# Team rules')).toContain(
+      'reaches 5 rounds',
+    );
+    const rule = teamRules(project).find((entry) => entry.id === 'fix_limit')!;
+    expect(describeTeamRule({ ...rule, labels: [], lead: null, deciders: ['owner'] }, project)).toContain(
+      'a human decides in their inbox (`owner`)',
+    );
+  });
+});
 
 /** Adds an AI member of the role with the role's defaults to the project. */
 function addMember(
@@ -431,10 +469,10 @@ describe('token economy (PM-181)', () => {
   // The prompt and the kick-off brief together may not grow from the size they had before PM-181
   // (measured on the snapshots of that time, in characters). The developer's allowance grew once,
   // to make room for the structural decision rule of PM-223, and again for the rule of working on the
-  // same card as others (PM-249), then by 205 characters for the targeted check instructions (PM-335).
+  // same card as others (PM-249), then for targeted checks (PM-335) and shared team rules (PM-289).
   it.each([
-    { name: 'developer', handle: 'fe-1', system: 13407, brief: 862 },
-    { name: 'code reviewer', handle: 'code-review', system: 11832, brief: 1900 },
+    { name: 'developer', handle: 'fe-1', system: 14800, brief: 862 },
+    { name: 'code reviewer', handle: 'code-review', system: 12891, brief: 1900 },
   ])('does not grow the system prompt and brief of the $name', ({ handle, system, brief }) => {
     const pack =
       handle === 'fe-1'
@@ -457,7 +495,7 @@ describe('token economy (PM-181)', () => {
   });
 
   it('does not grow the system prompt of a custom role', () => {
-    expect(customRolePack().appendSystemPrompt.length).toBeLessThanOrEqual(7553);
+    expect(customRolePack().appendSystemPrompt.length).toBeLessThanOrEqual(8822);
   });
 });
 
@@ -700,6 +738,7 @@ describe('system prompt', () => {
       '# Token economy',
       '# The pipeline',
       '# Labels',
+      '# Team rules',
       '# Current work item',
       '# Commands that run without asking',
       '# Guardrails',
@@ -902,10 +941,10 @@ describe('system prompt', () => {
   });
 
   it('forbids self-review through the labels marked for it', () => {
-    const rule =
-      '- Never set a label marked "not on your own work" on a task you are assigned to or whose pull request you authored.';
     const project = buildProject();
-    expect(section(builder.build(input({ project })).appendSystemPrompt, '# Guardrails')).toContain(rule);
+    expect(section(builder.build(input({ project })).appendSystemPrompt, '# Team rules')).toContain(
+      'Nobody approves their own work: never set',
+    );
     project.pipeline.labels = project.pipeline.labels.map((label) => ({ ...label, notByAuthor: false }));
     expect(builder.build(input({ project })).appendSystemPrompt).not.toContain('not on your own work');
   });

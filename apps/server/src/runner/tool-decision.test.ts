@@ -290,6 +290,10 @@ describe('row 2: denied operations', () => {
     'git --git-dir=x/.git push',
     'git --git-dir x/.git --no-pager push',
     "git -c 'alias.p=push' p",
+    'git --config-env=alias.p=PUSH_ALIAS p',
+    'git --config-env alias.p=PUSH_ALIAS p',
+    'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.p GIT_CONFIG_VALUE_0=push git p',
+    "env GIT_CONFIG_PARAMETERS='alias.p=push' git p",
     'bash -c "git push"',
     "bash -c 'git push'",
     "sh -c 'cd x && git push'",
@@ -418,6 +422,18 @@ describe('row 3: denied hosts', () => {
         '0.0.0.0',
         'app.localhost',
         '127.1.2.3',
+        '127.1',
+        '127.0.1',
+        '2130706433',
+        '0x7f000001',
+        '0x7f.0.0.1',
+        '0177.0.0.1',
+        '0',
+        '[::ffff:127.0.0.1]',
+        '[::ffff:7f00:1]',
+        '[0:0:0:0:0:0:0:1]',
+        '[0::1]',
+        '[::]:4800',
       ])('denies the web tool and the browser for %s', (host) => {
         expect(decide(policy, web(host))).toEqual(denied('denied_host'));
         expect(decide(policy, web(host, 'browser'))).toEqual(denied('denied_host'));
@@ -433,6 +449,13 @@ describe('row 3: denied hosts', () => {
       it('does not mistake a host that only ends like a denied one', () => {
         expect(decide(policy, web('notlocalhost.example.com'))).toEqual(ASK);
       });
+
+      it.each(['128.0.0.1', '1.2.3.4', '10.0.0.1', '[::ffff:8.8.8.8]', '[::2]', '4294967296', '1.2.3.4.5'])(
+        'does not mistake %s for the machine itself',
+        (host) => {
+          expect(decide(policy, web(host))).toEqual(ASK);
+        },
+      );
     });
   }
 });
@@ -479,6 +502,26 @@ describe('row 4: read', () => {
     });
     expect(decide(policy, read(join(extra, 'a.ts')))).toEqual(ALLOW);
     expect(decide(policy, read(join(link, 'a.ts')))).toEqual(ALLOW);
+  });
+});
+
+describe('the macOS firmlink prefix', () => {
+  const data = '/System/Volumes/Data';
+  it('reads a root through the prefix', () => {
+    expect(decide(policyFor('default'), read(`${data}${work}/src/a.ts`))).toEqual(ALLOW);
+  });
+
+  it('denies a denied path through the prefix', () => {
+    expect(decide(policyFor('default'), read(`${data}${home}/.ssh/id_ed25519`))).toEqual(
+      denied('denied_path'),
+    );
+    expect(decide(policyFor('acceptEdits'), edit(`${data}${home}/.config/gh/hosts.yml`))).toEqual(
+      denied('denied_path'),
+    );
+  });
+
+  it('keeps a protected path protected through the prefix', () => {
+    expect(decide(policyFor('acceptEdits'), edit(`${data}${work}/.git/config`))).toEqual(ASK);
   });
 });
 
@@ -558,6 +601,19 @@ describe('row 6: edit', () => {
       it('asks for an edit that names no path', () => {
         expect(decide(policy, edit())).toEqual(expectedHere(ASK));
       });
+
+      it('compares protected and read-only paths without case on a case-insensitive filesystem', () => {
+        expect(decide(policy, edit(join(work, '.GIT', 'config')), true)).toEqual(expectedHere(ASK));
+        expect(decide(policy, edit(join(root, 'ATTACHMENTS', 'a.pdf')), true)).toEqual(
+          mode === 'plan' ? denied('plan_mode') : denied('read_only_placement'),
+        );
+      });
+
+      it('keeps the case when the filesystem tells names apart by case', () => {
+        expect(decide(policy, edit(join(work, '.GIT', 'config')), false)).toEqual(
+          mode === 'acceptEdits' || mode === 'auto' ? ALLOW : expectedHere(ASK),
+        );
+      });
     });
   }
 
@@ -587,17 +643,36 @@ describe('row 7: command', () => {
     for (const mode of MODES) {
       describe(mode, () => {
         const policy = policyFor(mode);
-        it('allows a simple command that matches a prefix rule, with or without arguments', () => {
-          for (const sandboxed of [true, false, undefined]) {
-            expect(decide(policy, command('git status', sandboxed))).toEqual(ALLOW);
-            expect(decide(policy, command('git status -sb', sandboxed))).toEqual(ALLOW);
-            expect(decide(policy, command('  npm   test   -- --run ', sandboxed))).toEqual(ALLOW);
-            expect(decide(policy, command('git status "src/a b.ts"', sandboxed))).toEqual(ALLOW);
+        it('allows a sandboxed simple command that matches a prefix rule, with or without arguments', () => {
+          expect(decide(policy, command('git status', true))).toEqual(ALLOW);
+          expect(decide(policy, command('git status -sb', true))).toEqual(ALLOW);
+          expect(decide(policy, command('  npm   test   -- --run ', true))).toEqual(ALLOW);
+          expect(decide(policy, command('git status "src/a b.ts"', true))).toEqual(ALLOW);
+        });
+
+        it('lets a rule-matching command outside the sandbox fall through like any other', () => {
+          for (const line of ['git status', 'git status -sb', 'npm test -- --run', 'npm install']) {
+            for (const sandboxed of [false, undefined]) {
+              expect(decide(policy, command(line, sandboxed))).toEqual(
+                decide(policy, command('make build', sandboxed)),
+              );
+            }
+          }
+        });
+
+        it('denies a rule-matching command outside the sandbox when outside the sandbox is denied', () => {
+          if (mode === 'plan') return;
+          const strict = policyFor(mode, { outsideSandbox: 'deny' });
+          for (const line of ['git status', 'npm test', 'git status --output=x', 'npm install']) {
+            for (const sandboxed of [false, undefined]) {
+              expect(decide(strict, command(line, sandboxed))).toEqual(denied('not_granted'));
+            }
+            expect(decide(strict, command(line, true))).toEqual(ALLOW);
           }
         });
 
         it('allows an exact rule only without arguments', () => {
-          expect(decide(policy, command('npm install'))).toEqual(ALLOW);
+          expect(decide(policy, command('npm install', true))).toEqual(ALLOW);
           if (mode !== 'auto')
             expect(decide(policy, command('npm install left-pad', true))).not.toEqual(ALLOW);
           expect(decide(policy, command('npm install left-pad', false))).not.toEqual(ALLOW);
@@ -639,13 +714,14 @@ describe('row 7: command', () => {
             },
           });
           expect(decide(withPush, command('git push'))).toEqual(denied('denied_operation'));
-          expect(decide(withPush, command('git log'))).toEqual(ALLOW);
+          expect(decide(withPush, command('git log', true))).toEqual(ALLOW);
         });
       });
     }
 
-    it('allows a matching rule in plan mode too', () => {
-      expect(decide(policyFor('plan'), command('git status', false))).toEqual(ALLOW);
+    it('allows a sandboxed matching rule in plan mode too, and denies it outside the sandbox', () => {
+      expect(decide(policyFor('plan'), command('git status', true))).toEqual(ALLOW);
+      expect(decide(policyFor('plan'), command('git status', false))).toEqual(denied('plan_mode'));
     });
   });
 
@@ -783,7 +859,7 @@ describe('a shell rule and what the shell expands by itself', () => {
         'git status',
         'npm test -- --run',
       ])('keeps %j a plain command a rule can allow', (line) => {
-        expect(decide(policy, command(line, false))).toEqual(ALLOW);
+        expect(decide(policy, command(line, true))).toEqual(ALLOW);
       });
 
       it('does not take a pattern that cannot reach a denied path for a denied one', () => {

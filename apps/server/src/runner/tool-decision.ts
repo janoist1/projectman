@@ -131,7 +131,14 @@ function globPattern(pattern: string, caseInsensitive: boolean): RegExp {
   return new RegExp(`^${source}(?:/|$)`, caseInsensitive ? 'i' : '');
 }
 
-function isUnder(path: string, root: string, caseInsensitive = false): boolean {
+/** macOS shows the same file under `/System/Volumes/Data/Users/…` and `/Users/…`. */
+function withoutFirmlink(path: string): string {
+  return path.replace(/^\/System\/Volumes\/Data(?=\/|$)/, '') || '/';
+}
+
+function isUnder(rawPath: string, rawRoot: string, caseInsensitive = false): boolean {
+  const path = withoutFirmlink(rawPath);
+  const root = withoutFirmlink(rawRoot);
   if (hasGlob(root)) return globPattern(root, caseInsensitive).test(path);
   const base = root.length > 1 ? root.replace(/\/+$/, '') : root;
   const [left, right] = caseInsensitive ? [path.toLowerCase(), base.toLowerCase()] : [path, base];
@@ -220,7 +227,9 @@ const isDynamic = (word: string): boolean => word === '' || word.includes('$') |
  * sandbox: a pattern that names an ancestor of a denied path (`ls ~/*`) or goes through a symlink,
  * a script file (`bash run.sh`), another interpreter (`python -c`, `node -e`), a variable
  * assigned in one place and run in another when the line never spells the denied words, and
- * `git` aliases or `gh` extensions set outside the line.
+ * `git` aliases or `gh` extensions set outside the line. A pull request made by `gh api graphql
+ * --input file` or by `curl` against the pulls endpoint is also beyond a line scan: the sandbox's
+ * network deny is what stops it.
  */
 function parseShell(line: string, state: ParsedCommand, depth: number): void {
   if (depth > MAX_NESTING) {
@@ -392,8 +401,10 @@ function expandNested(state: ParsedCommand): void {
 const GIT_PUSH_SUBCOMMANDS = new Set(['push', 'send-pack']);
 
 /** Whether `args` (after `git`) push: the subcommand after the global options, or an alias for it. */
-function gitPushes(args: string[]): boolean {
-  let aliasedPush = false;
+function gitPushes(args: string[], aliasedByEnvironment = false): boolean {
+  // An alias set on the command line or in the environment may stand for `push`; its value
+  // can come from a variable, so any such alias counts.
+  let aliasedPush = aliasedByEnvironment;
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i]!;
     if (!arg.startsWith('-')) {
@@ -405,6 +416,8 @@ function gitPushes(args: string[]): boolean {
       return aliasedPush;
     }
     if (arg === '-c' && /^alias\.[^=]*=.*\bpush\b/.test(args[i + 1] ?? '')) aliasedPush = true;
+    if (arg === '--config-env' && /^alias\./.test(args[i + 1] ?? '')) aliasedPush = true;
+    if (/^--config-env=alias\./.test(arg)) aliasedPush = true;
     if (GIT_VALUE_OPTIONS.has(arg)) i += 1;
   }
   return aliasedPush;
@@ -457,7 +470,10 @@ function unitOperations(words: string[]): Set<DeniedSessionOperation> {
     const name = basename(word);
     const rest = words.slice(i + 1);
     if (name === 'git') {
-      if (gitPushes(rest)) found.add('git_push');
+      const environmentAlias = words
+        .slice(0, i)
+        .some((before) => /^GIT_CONFIG_(KEY_\d+|PARAMETERS)=.*alias\./.test(before));
+      if (gitPushes(rest, environmentAlias)) found.add('git_push');
     } else if (name === 'gh') {
       const [group, action] = ghSubcommands(rest);
       if (group === 'api') {
@@ -678,15 +694,45 @@ function normalizeHost(host: string): string {
   return bare.replace(/\.$/, '');
 }
 
+// One part of an IPv4 address in the forms a resolver accepts: decimal, 0x hex or leading-0 octal.
+function ipv4Part(part: string): number | undefined {
+  if (/^0x[0-9a-f]+$/.test(part)) return Number.parseInt(part.slice(2), 16);
+  if (/^0[0-7]+$/.test(part)) return Number.parseInt(part, 8);
+  if (/^\d+$/.test(part)) return Number.parseInt(part, 10);
+  return undefined;
+}
+
+// `127.1`, `2130706433`, `0x7f.1` and `0177.0.0.1` all reach 127.0.0.1: the last part fills the
+// bytes the address leaves out.
+function ipv4Value(host: string): number | undefined {
+  const parts = host.split('.');
+  if (parts.length > 4) return undefined;
+  const numbers = parts.map(ipv4Part);
+  if (numbers.some((n) => n === undefined)) return undefined;
+  const values = numbers as number[];
+  const last = values[values.length - 1] ?? 0;
+  const head = values.slice(0, -1);
+  if (head.some((n) => n > 255) || last >= 256 ** (4 - head.length)) return undefined;
+  return head.reduce((sum, n, i) => sum + n * 256 ** (3 - i), 0) + last;
+}
+
 function isLoopbackHost(host: string): boolean {
-  return (
-    host === 'localhost' ||
-    host.endsWith('.localhost') ||
-    host === '::1' ||
-    host === '::' ||
-    host === '0.0.0.0' ||
-    /^127(\.\d{1,3}){3}$/.test(host)
-  );
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  if (host === '::' || /^(?:0{1,4}(?::0{1,4})*)?::(?:0{1,4}:)*0{0,3}[01]$/.test(host)) return true;
+  if (/^(?:0{1,4}:){7}0{0,3}[01]$/.test(host)) return true;
+  // An IPv4 address inside IPv6: `::ffff:127.0.0.1` or `::ffff:7f00:1`.
+  const mapped = /^(?:(?:0{1,4}:)+:?|::)ffff:(.+)$/.exec(host);
+  if (mapped !== null) {
+    const rest = mapped[1] ?? '';
+    const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(rest);
+    if (hex !== null) {
+      const value = Number.parseInt(hex[1] ?? '0', 16) * 65536 + Number.parseInt(hex[2] ?? '0', 16);
+      return value === 0 || value >>> 24 === 127;
+    }
+    return isLoopbackHost(rest);
+  }
+  const value = ipv4Value(host);
+  return value !== undefined && (value === 0 || value >>> 24 === 127);
 }
 
 function hostIsDenied(policy: SessionPolicy, rawHost: string | undefined): boolean {
@@ -778,17 +824,21 @@ export function decideToolCall(
         mode: policy.reviewCopyMode,
         enforcement: policy.enforcement,
       });
-      if (reading || paths.some((path) => underAny(path, readOnly))) return deny('read_only_placement');
+      if (reading || paths.some((path) => underAny(path, readOnly, caseInsensitive))) {
+        return deny('read_only_placement');
+      }
       const writable = rootForms(cwd, policy.filesystem.writableRoots, home);
       const protectedRoots = rootForms(cwd, policy.filesystem.protectedPaths, home);
       const free =
         paths.length > 0 &&
-        paths.every((path) => underAny(path, writable) && !underAny(path, protectedRoots));
+        paths.every((path) => underAny(path, writable) && !underAny(path, protectedRoots, caseInsensitive));
       return free && (mode === 'acceptEdits' || mode === 'auto') ? ALLOW : ASK;
     }
     case 'command': {
       // 7. Shell commands.
-      if (matchesShellRule(policy, call.command ?? '')) return ALLOW;
+      // A rule only vouches for a command the sandbox contains: outside it, the rule's own
+      // options (`--output=`, `--write`) can still reach anything, so the command falls through.
+      if (call.sandboxed === true && matchesShellRule(policy, call.command ?? '')) return ALLOW;
       if (mode === 'plan') return deny('plan_mode');
       if (mode === 'auto' && call.sandboxed === true) return ALLOW;
       if (call.sandboxed !== true && policy.outsideSandbox === 'deny') return deny('not_granted');

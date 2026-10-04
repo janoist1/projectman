@@ -27,7 +27,7 @@ import { silentLogger } from '../src/runner/test-helpers';
 const PROBE = `
 import { execFileSync } from 'node:child_process';
 import { createServer, connect } from 'node:net';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const problems = [];
@@ -47,6 +47,11 @@ if (!expectedTmp) problems.push('the expected TMPDIR was not given');
 
 mustBeRefused('writing into the checkout', () => writeFileSync('written-by-the-run.txt', 'x'));
 mustBeRefused('reading the secret below the home', () => readFileSync(secretFile, 'utf8'));
+// srt's default temporary directory is shared with the members' sandboxes: the run may not write there
+// (creating it is a write too, when it does not exist).
+for (const dir of ['/tmp/claude', '/private/tmp/claude']) {
+  mustBeRefused('writing into ' + dir, () => mkdirSync(dir + '/pm-full-test', { recursive: true }));
+}
 mustWork('writing into TMPDIR', () => writeFileSync(join(process.env.TMPDIR, 'ok.txt'), 'x'));
 mustWork('reading the checkout', () => readFileSync('package.json', 'utf8'));
 // Node's default 'pipe' input is a socket pair on macOS, which \`script\` cannot use: the input is ignored.

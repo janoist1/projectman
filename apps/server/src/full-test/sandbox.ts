@@ -41,10 +41,14 @@ export function runPaths(runDir: string) {
 }
 export type RunPaths = ReturnType<typeof runPaths>;
 
+/** The default temporary directory of srt (`SANDBOX_OWN_WRITE_PATHS`, srt 0.0.78), as `/tmp` and as its target. */
+export const SRT_DEFAULT_TMP = ['/tmp/claude', '/private/tmp/claude'] as const;
+
 /**
  * The `srt` settings of a run (Anthropic Sandbox Runtime, the Seatbelt layer Claude Code uses):
  * - reading: nothing of `spec.sandbox.denyRead`, except `allowRead` and the run's own directory;
- * - writing: only the run's `sandbox` directory (the checkout is read-only);
+ * - writing: only the run's `sandbox` directory (the checkout is read-only; srt's default temporary
+ *   directory, which srt would open on its own, is denied);
  * - network: nothing outward, local ports open (decision 24); PTYs allowed (macOS only).
  */
 export function srtSettings(spec: FullTestSpec, paths: RunPaths) {
@@ -54,7 +58,9 @@ export function srtSettings(spec: FullTestSpec, paths: RunPaths) {
       denyRead: [...new Set(spec.sandbox.denyRead)],
       allowRead: [...new Set([...spec.sandbox.allowRead, paths.sandbox])],
       allowWrite: [paths.sandbox],
-      denyWrite: [] as string[],
+      // srt always makes its own default temporary directory writable, outside `allowWrite`: it is shared
+      // with the members' sandboxes and outlives the run, so a run may not write there.
+      denyWrite: [...SRT_DEFAULT_TMP],
     },
     allowPty: true,
   };

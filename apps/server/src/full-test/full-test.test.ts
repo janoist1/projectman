@@ -89,7 +89,7 @@ describe('the sandbox of a full test run', () => {
         denyRead: ['/Users/anna', '/Users/anna/.ssh'],
         allowRead: ['/work/checkout', '/tmp/projectman-full-test-ftr_1/sandbox'],
         allowWrite: ['/tmp/projectman-full-test-ftr_1/sandbox'],
-        denyWrite: [],
+        denyWrite: ['/tmp/claude', '/private/tmp/claude'],
       },
       allowPty: true,
     });

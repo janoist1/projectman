@@ -5,10 +5,11 @@
  *
  *   npm run shots -- <scenario.mjs> [--out <dir>] [--widths 1512,800,390,375] [--full-page]
  *                    [--scale 1|2] [--timeout <seconds>] [--seed demo|none] [--keep-data]
+ *                    [--machine <file>]
  *
  * Exit code: 0 done, 1 the scenario (or the instance) failed, 2 wrong use or no browser.
  */
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -27,6 +28,18 @@ async function loadScenario(file) {
   if (typeof module.default !== 'function')
     throw new UsageError(`The scenario ${file} must export a default async function.`);
   return module.default;
+}
+
+/** The JSON text of the fixed machine the display shows (PM-320); the server checks its shape at start. */
+function readMachineFixture(file) {
+  let text;
+  try {
+    text = readFileSync(resolve(file), 'utf8');
+    JSON.parse(text);
+  } catch (err) {
+    throw new UsageError(`Cannot read the machine fixture ${file}: ${err.message}`);
+  }
+  return text;
 }
 
 /** Rejects when a signal arrives or the time is up; `cancel()` drops the timer and the handlers. */
@@ -64,6 +77,7 @@ async function within(promise, ms) {
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const scenario = await loadScenario(options.scenario);
+  const machine = options.machine === undefined ? undefined : readMachineFixture(options.machine);
   const out = outputDirectory({ out: options.out, scenario: options.scenario });
   const stopper = interruption(options.timeoutSeconds);
   let browser;
@@ -74,7 +88,12 @@ async function main() {
     const dir = options.keepData ? mkdtempSync(join(tmpdir(), 'projectman-shots-data-')) : undefined;
     // This script handles SIGINT/SIGTERM itself (below): the browser stops first, then the instance,
     // and the exit code is 1, not the signal's.
-    starting = startInstance({ seed: options.seed, handleSignals: false, ...(dir ? { dir } : {}) });
+    starting = startInstance({
+      seed: options.seed,
+      handleSignals: false,
+      ...(machine === undefined ? {} : { machine }),
+      ...(dir ? { dir } : {}),
+    });
     instance = await Promise.race([starting, stopper.promise]);
     if (dir) console.log(`data kept in ${instance.dir}`);
     const api = createScenarioApi({ ...options, browser, instance, out });

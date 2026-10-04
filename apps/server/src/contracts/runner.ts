@@ -484,6 +484,12 @@ export interface RunnerModuleOptions {
    */
   env?: NodeJS.ProcessEnv;
   /**
+   * The tag of this instance (PM-320): set as `PROJECTMAN_INSTANCE` in the environment of every
+   * local session, so a process that outlives its session can be recognised as this instance's.
+   * The launcher's sessions run as another user and do not get it.
+   */
+  instanceTag?: string;
+  /**
    * The protected launcher of the managed VM (PM-140). When set, every session starts through it
    * as its member's worker account, in a sandboxed unit, with the provider's pinned CLI; nothing
    * is spawned locally, and a session without a member or egress token is refused. Workspace

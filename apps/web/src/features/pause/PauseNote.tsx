@@ -1,5 +1,6 @@
 import clsx from 'clsx';
 import { Icon } from '../../components/Icon';
+import type { IconName } from '../../components/Icon';
 import styles from './PauseNote.module.css';
 
 /**
@@ -11,14 +12,17 @@ export function PauseNote({
   id,
   children,
   className,
+  icon = 'pause',
 }: {
   id?: string;
   children: string;
   className?: string;
+  /** The pause's own icon by default; the closed-session line (PM-296) shows the history icon. */
+  icon?: IconName;
 }) {
   return (
     <p id={id} className={clsx(styles.note, className)}>
-      <Icon name="pause" size={14} strokeWidth={2.2} />
+      <Icon name={icon} size={14} strokeWidth={2.2} />
       <span>{children}</span>
     </p>
   );

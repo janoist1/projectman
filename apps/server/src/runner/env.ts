@@ -123,13 +123,15 @@ const MANAGED_VM_REMOVED_VARS = new Set([
 export function buildSessionEnv(
   base: NodeJS.ProcessEnv,
   sessionId: string,
-  opts: { managedVm?: boolean } = {},
+  opts: { managedVm?: boolean; instanceTag?: string } = {},
 ): Record<string, string> {
   const env = withLocalNoProxy(
     buildChildEnv(base, {
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
       PROJECTMAN_SESSION_ID: sessionId,
+      // With the session id it marks every process of the session as this instance's (PM-320).
+      ...(opts.instanceTag ? { PROJECTMAN_INSTANCE: opts.instanceTag } : {}),
     }),
   );
   if (opts.managedVm) for (const name of MANAGED_VM_REMOVED_VARS) delete env[name];

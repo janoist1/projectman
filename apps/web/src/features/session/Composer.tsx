@@ -16,6 +16,8 @@ interface ComposerProps {
   placeholder?: string;
   /** The team pause's line above the box (PM-220): why a message waits or cannot start the session. */
   pauseNote?: string;
+  /** Why the session rests and that a message continues it (PM-296); never together with `pauseNote`. */
+  closedNote?: string;
 }
 
 /** The field stops growing here (about five lines on a phone, so the chat keeps room beside the keyboard). */
@@ -34,6 +36,7 @@ export function Composer({
   label = t('session.composer.label'),
   placeholder = t('session.composer.placeholder'),
   pauseNote,
+  closedNote,
 }: ComposerProps) {
   const [text, setText] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -89,7 +92,13 @@ export function Composer({
       <label htmlFor={id} className="visually-hidden">
         {label}
       </label>
-      {pauseNote ? <PauseNote id={`${id}-pause`}>{pauseNote}</PauseNote> : null}
+      {pauseNote ? (
+        <PauseNote id={`${id}-pause`}>{pauseNote}</PauseNote>
+      ) : closedNote ? (
+        <PauseNote id={`${id}-pause`} icon="history" className={styles.closedNote}>
+          {closedNote}
+        </PauseNote>
+      ) : null}
       <div className={styles.row}>
         <textarea
           ref={ref}
@@ -101,8 +110,9 @@ export function Composer({
           onChange={(event) => setText(event.target.value)}
           onKeyDown={onKeyDown}
           aria-describedby={
-            [pauseNote ? `${id}-pause` : null, touch ? null : `${id}-hint`].filter(Boolean).join(' ') ||
-            undefined
+            [pauseNote || closedNote ? `${id}-pause` : null, touch ? null : `${id}-hint`]
+              .filter(Boolean)
+              .join(' ') || undefined
           }
         />
         <Button

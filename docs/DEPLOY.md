@@ -26,7 +26,7 @@ removes them.
 
 Claude members in the legacy profile also get a session folder for the files they attach, such as
 screenshots (PM-268; PROVIDERS.md has the details). It is `projectman-sessions/<hash of
-PROJECTMAN_HOME>/<session id>` in the server's temp directory, made at each session's start and
+PROJECTMAN_HOME>/<session id>.<random>` in the server's temp directory, made at each session's start and
 removed when it ends and at the server's start. With the unit's `PrivateTmp=true` that is the
 service's own `/tmp`, private to it and emptied when the service stops; without it, the root must
 be a real directory of the service user's, not a link, which the server checks (otherwise it

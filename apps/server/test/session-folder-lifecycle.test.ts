@@ -1,5 +1,6 @@
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -12,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ProjectConfig } from '@projectman/shared';
+import { SessionFolders } from '../src/domain/session-folders';
 import { createDomainHarness, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
@@ -41,7 +43,8 @@ describe('the session folder of a session (PM-268)', () => {
   });
 
   const mode = (path: string) => statSync(path).mode & 0o777;
-  const folderOf = (sessionId: string) => join(h!.sessionFoldersDir!, sessionId);
+  /** The session folder of the latest start, as its sandbox names it. */
+  const folderOf = () => h!.runner.lastStarted().sandbox!.env!.PROJECTMAN_SESSION_DIR!;
   const withFolders = (adjust?: (config: ProjectConfig) => void, persistent = false) =>
     createDomainHarness({
       userHome: home,
@@ -56,7 +59,8 @@ describe('the session folder of a session (PM-268)', () => {
     h = await withFolders();
     await h.domain.tasks.create('AR', { title: 'Login page', repo: 'web' }, OWNER_ACTOR);
     const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
-    const dir = folderOf(session.id);
+    const dir = folderOf();
+    expect(dir).toMatch(new RegExp(`^${h.sessionFoldersDir}/${session.id}\\.[0-9a-f]{16}$`));
     expect(existsSync(dir)).toBe(true);
     expect(mode(dir)).toBe(0o700);
     expect(mode(h.sessionFoldersDir!)).toBe(0o700);
@@ -75,8 +79,8 @@ describe('the session folder of a session (PM-268)', () => {
     h = await withFolders();
     await h.domain.tasks.create('AR', { title: 'Login page', repo: 'web' }, OWNER_ACTOR);
     await h.domain.sessions.ensureSession('AR', 'dev-1', task);
-    const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
-    const dir = folderOf(session.id);
+    await h.domain.sessions.ensureSession('AR', 'cr', task);
+    const dir = folderOf();
     expect(existsSync(dir)).toBe(true);
     const spec = h.runner.lastStarted();
     expect(spec.policy!.access).toBe('read_only');
@@ -112,11 +116,13 @@ describe('the session folder of a session (PM-268)', () => {
     h = await withFolders();
     await h.domain.tasks.create('AR', { title: 'Login page', repo: 'web' }, OWNER_ACTOR);
     const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
-    const dir = folderOf(session.id);
+    const dir = folderOf();
     mkdirSync(join(dir, 'shots'));
     writeFileSync(join(dir, 'shots', '1.png'), 'png');
     await h.runner.stop(session.id);
     expect(existsSync(dir)).toBe(false);
+    // Nothing is left of it, not even the name it was renamed to for the removal.
+    expect(readdirSync(h.sessionFoldersDir!)).toEqual([]);
   });
 
   it('removes the folder of a start that fails', async () => {
@@ -135,15 +141,65 @@ describe('the session folder of a session (PM-268)', () => {
     await h.domain.tasks.create('AR', { title: 'Login page', repo: 'web' }, OWNER_ACTOR);
     const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
     h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: '/fake/transcript.jsonl' });
-    const dir = folderOf(session.id);
-    writeFileSync(join(dir, 'old.png'), 'png');
+    const old = folderOf();
+    writeFileSync(join(old, 'old.png'), 'png');
     await h.domain.sessions.updatePermissions('AR', session.id, { permissionMode: 'plan' }, OWNER_ACTOR);
     h.runner.setState(session.id, 'idle');
     await flush();
     expect(h.runner.started).toHaveLength(2);
-    expect(h.runner.lastStarted().sandbox!.env).toMatchObject({ PROJECTMAN_SESSION_DIR: dir });
+    const dir = folderOf();
+    // A new path for the new process: the old run's sandbox does not name it.
+    expect(dir).not.toBe(old);
+    expect(dir.startsWith(`${h.sessionFoldersDir}/${session.id}.`)).toBe(true);
     expect(existsSync(dir)).toBe(true);
-    expect(existsSync(join(dir, 'old.png'))).toBe(false);
+    expect(readdirSync(dir)).toEqual([]);
+    expect(existsSync(old)).toBe(false);
+    expect(readdirSync(h.sessionFoldersDir!)).toEqual([dir.slice(h.sessionFoldersDir!.length + 1)]);
+  });
+
+  it('does not take an old run’s path, or what a survivor of it put there, into the new sandbox', async () => {
+    h = await withFolders((config) => {
+      const dev = config.team.members.find((m) => m.handle === 'dev-1');
+      if (dev?.kind === 'ai') dev.permissionMode = 'auto';
+    });
+    await h.domain.tasks.create('AR', { title: 'Login page', repo: 'web' }, OWNER_ACTOR);
+    const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+    h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: '/fake/transcript.jsonl' });
+    const old = folderOf();
+    const target = join(base, 'target');
+    mkdirSync(target);
+    writeFileSync(join(target, 'precious.txt'), 'keep me');
+    await h.domain.sessions.updatePermissions('AR', session.id, { permissionMode: 'plan' }, OWNER_ACTOR);
+    h.runner.setState(session.id, 'idle');
+    await flush();
+    // A command of the old run that outlived it puts a link at the old path (and a plain folder at the
+    // id's former, predictable path) before the next start.
+    symlinkSync(target, old);
+    mkdirSync(join(h.sessionFoldersDir!, session.id));
+    const first = folderOf();
+    h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: '/fake/transcript.jsonl' });
+    await h.domain.sessions.updatePermissions('AR', session.id, { permissionMode: 'auto' }, OWNER_ACTOR);
+    h.runner.setState(session.id, 'idle');
+    await flush();
+    const next = folderOf();
+    expect(next).not.toBe(old);
+    expect(next).not.toBe(first);
+    expect(lstatSync(next).isDirectory()).toBe(true);
+    expect(lstatSync(next).isSymbolicLink()).toBe(false);
+    const spec = h.runner.lastStarted();
+    expect(spec.sandbox!.allowWrite).toEqual(expect.arrayContaining([next]));
+    expect(spec.sandbox!.allowWrite).not.toContain(old);
+    // The survivor's link and its target are not touched by the new start.
+    expect(existsSync(join(target, 'precious.txt'))).toBe(true);
+  });
+
+  it('refuses a folder that is already there when it is made', async () => {
+    h = await withFolders();
+    const folders = new SessionFolders(h.sessionFoldersDir!);
+    const dir = folders.allocate('ses_one');
+    mkdirSync(dir);
+    expect(() => folders.make('ses_one', dir)).toThrow(/EEXIST/);
+    expect(folders.of('ses_one')).toBeUndefined();
   });
 
   it('removes what a dead server left, when the server starts', async () => {

@@ -95,13 +95,8 @@ import {
   sessionSandbox,
   usesWorktree,
 } from './session-policy';
-import {
-  makeSessionFolder,
-  removeSessionFolder,
-  SESSION_DIR_VARIABLE,
-  sessionFolderOf,
-  sweepSessionFolders,
-} from './session-folders';
+import { SESSION_DIR_VARIABLE } from './session-folders';
+import type { SessionFolders } from './session-folders';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
 import type { InputStallAlerts } from './input-stall-alert';
@@ -261,10 +256,10 @@ export interface SessionOrchestratorDeps {
    */
   readerDenyWrite?: string[];
   /**
-   * The root of the session folders (PM-268; checked by `prepareSessionFoldersRoot`): each Claude
-   * session of the legacy profile gets its own writable folder below it. Absent, none is made.
+   * The session folders (PM-268; their root is checked by `prepareSessionFoldersRoot`): each Claude
+   * session of the legacy profile gets its own writable folder, new at every start. Absent, none is made.
    */
-  sessionFoldersDir?: string;
+  sessionFolders?: SessionFolders;
   /** Playwright's browsers (PM-268): handed to Claude sessions read-only in `PLAYWRIGHT_BROWSERS_PATH`. */
   browsersDir?: string;
   /** The user's home, where the credentials are (default: the operating system's). */
@@ -1066,13 +1061,13 @@ export class SessionOrchestrator {
       });
     }
     // No process of an earlier run survives: what is left of the session folders is removed (PM-268).
-    const root = this.deps.sessionFoldersDir;
-    if (!root) return;
+    const folders = this.deps.sessionFolders;
+    if (!folders) return;
     try {
-      const removed = sweepSessionFolders(root, (id) => this.isRunning(id));
+      const removed = folders.sweep((id) => this.isRunning(id));
       if (removed.length > 0) this.ctx.logger.info({ count: removed.length }, 'removed old session folders');
     } catch (err) {
-      this.ctx.logger.warn({ err, dir: root }, 'could not sweep the session folders');
+      this.ctx.logger.warn({ err, dir: folders.root }, 'could not sweep the session folders');
     }
   }
 
@@ -1337,10 +1332,9 @@ export class SessionOrchestrator {
     // A Claude session of the legacy profile gets its own folder and the browsers (PM-268); Codex and
     // the managed VM neither.
     const ownFolders = !vm && !this.managed && provider === 'claude';
+    // A new path at every start: what an earlier run left running cannot use or pre-empt it.
     const sessionDir =
-      ownFolders && this.deps.sessionFoldersDir
-        ? sessionFolderOf(this.deps.sessionFoldersDir, sessionId)
-        : undefined;
+      ownFolders && this.deps.sessionFolders ? this.deps.sessionFolders.allocate(sessionId) : undefined;
     const browsersDir = ownFolders ? this.deps.browsersDir : undefined;
     const sandbox =
       vm || this.managed
@@ -1408,7 +1402,7 @@ export class SessionOrchestrator {
     // Made now, before the process: Claude Code may not handle a write path that does not exist. A
     // failed start removes it (`start`); a restart's old folder was removed when its process ended.
     const sessionFolder = sandbox?.env?.[SESSION_DIR_VARIABLE];
-    if (sessionFolder) this.prepareSessionFolder(sessionFolder);
+    if (sessionFolder) this.prepareSessionFolder(sessionId, sessionFolder);
     const at = isoNow(this.ctx);
     // A conversation whose round ended while its session did not run is compacted before anything
     // else is typed (PM-213), if it is big: the wake-up messages and the continue message follow it.
@@ -1778,9 +1772,9 @@ export class SessionOrchestrator {
   }
 
   /** The session's own folder (PM-268), made before its process starts. */
-  private prepareSessionFolder(dir: string): void {
+  private prepareSessionFolder(sessionId: string, dir: string): void {
     try {
-      makeSessionFolder(dir);
+      this.deps.sessionFolders!.make(sessionId, dir);
     } catch (err) {
       throw new DomainError(
         'session_start_failed',
@@ -1795,10 +1789,8 @@ export class SessionOrchestrator {
    * it; a failure is logged and never stops the caller.
    */
   private removeSessionFolderOf(sessionId: string): void {
-    const root = this.deps.sessionFoldersDir;
-    if (!root) return;
     try {
-      removeSessionFolder(sessionFolderOf(root, sessionId));
+      this.deps.sessionFolders?.remove(sessionId);
     } catch (err) {
       this.ctx.logger.warn({ err, sessionId }, 'could not remove the session folder');
     }

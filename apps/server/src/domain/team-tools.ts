@@ -60,7 +60,7 @@ import type { MemberService } from './members';
 import type { Messaging } from './messaging';
 import type { OpenQuestionLabel } from './open-question-label';
 import type { ProjectService } from './projects';
-import { sessionFolderOf } from './session-folders';
+import type { SessionFolders } from './session-folders';
 import type { SessionOrchestrator } from './sessions';
 import type { PublishingGate } from './publishing';
 import type { TaskService } from './tasks';
@@ -266,7 +266,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly githubSync: GithubSync;
   private readonly attachments: AttachmentOperations;
   private readonly attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
-  private readonly sessionFoldersDir: string | undefined;
+  private readonly sessionFolders: Pick<SessionFolders, 'of'> | undefined;
 
   constructor(deps: {
     boundary: BoundaryService;
@@ -293,10 +293,10 @@ export class TeamToolsService implements TeamToolsHandler {
     attachments: AttachmentOperations;
     /** The attachment directory of a task (`AttachmentStorage.taskDirectory`). */
     attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
-    /** The root of the session folders (PM-268): `attach_file` takes files from the caller's own folder too. */
-    sessionFoldersDir?: string;
+    /** The session folders (PM-268): `attach_file` takes files from the caller's own folder too. */
+    sessionFolders?: Pick<SessionFolders, 'of'>;
   }) {
-    this.sessionFoldersDir = deps.sessionFoldersDir;
+    this.sessionFolders = deps.sessionFolders;
     this.boundary = deps.boundary;
     this.egress = deps.egress ?? null;
     this.publishing = deps.publishing;
@@ -487,11 +487,11 @@ export class TeamToolsService implements TeamToolsHandler {
       const actor = aiActor(ctx.member);
       await this.attachments.assertCanUpload(ctx.projectKey, taskKey, actor);
       // The directories are the ones the server started the session with; the caller never names
-      // them. The session folder counts only while it exists: the server made it for this process.
+      // them. The session folder is the one the server made for this process (it remembers it; the
+      // path is never derived from the id) and counts only while it exists.
       const session = this.callerSession(ctx);
-      const root = this.sessionFoldersDir;
-      const folder =
-        root && isRealDirectory(sessionFolderOf(root, session.id)) ? sessionFolderOf(root, session.id) : null;
+      const recorded = this.sessionFolders?.of(session.id);
+      const folder = recorded && isRealDirectory(recorded) ? recorded : null;
       const inFolder =
         folder !== null && path.isAbsolute(args.path) && isWithin(folder, path.resolve(args.path));
       const place = inFolder

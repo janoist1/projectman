@@ -712,11 +712,17 @@ developer gets no writable directory outside its worktree and the temp directory
 
 **The session folder and the browsers (PM-268).** A Claude session in the legacy profile, a
 writer or a reader, gets its own writable folder for what its commands produce (screenshots,
-reports): `<tmp>/projectman-sessions/<hash of the app home>/<session id>`, outside every
-checkout and the app home. Only the server computes the path (`PROJECTMAN_SESSION_DIR` in the
-session's `env`); it makes the folder (mode 0700) before the process starts, removes it when the
-process ends (an exit, a stop, a restart, a failed start; the restart's new folder is made after
-the old one is removed) and sweeps the whole root when the server starts. A Codex session and the
+reports): `<tmp>/projectman-sessions/<hash of the app home>/<session id>.<random>`, outside every
+checkout and the app home. The name is new at every start (a restart too), so a command of an
+earlier run that outlived its process, with the old path in its sandbox, can neither use the new
+folder nor put a link at its path. Only the server computes the path (`PROJECTMAN_SESSION_DIR` in
+the session's `env`) and remembers which folder is the session's; it makes the folder (mode 0700,
+exclusively: a path that exists is an error, then it checks a real directory of its own user)
+before the process starts. It removes the folder when the process ends (an exit, a stop, a
+restart, a failed start; the restart's new folder is made after the old one is removed): the
+folder is renamed to a `.trash-<random>` name inside the root first, then removed, so the old
+run's rule no longer reaches it while it is removed. The whole root is swept when the server
+starts. A Codex session and the
 managed VM profile get none. The sandbox writes only that folder; a developer reads no other
 session's folder (the root is in `denyRead`, the narrower own folder re-opened by `allowRead`).
 Claude Code's file tools get `Read` and `Edit` rules for it, since they are outside the sandbox.

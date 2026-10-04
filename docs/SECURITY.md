@@ -98,7 +98,8 @@ frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site c
   blocking), sockets and devices, and checks the opened handle afterwards: its real location
   must still be inside and be the very file opened, so a path swapped between the checks and the
   open is refused. The session folder (PM-268; the server computes it, the caller never names
-  it) is a second root for an absolute path: only the calling session's own folder, and only
+  it) is a second root for an absolute path: only the folder the server made for the calling
+  session's current process (it remembers it; an older folder of the same session is not it), and only
   while the folder is its own real path (the sandbox lets a session empty its folder and put a
   symbolic link in its place, so a folder or a directory above it that is a link is refused, and
   so is a folder swapped for one before the file is read); every check above applies to it
@@ -217,10 +218,17 @@ version must be checked again (SANDBOX-PROBE.md). A local-only repository gets n
 
 **The session folder (PM-268).** A Claude session in the legacy profile, a reader too, writes one
 more place: its own session folder, for the screenshots and reports it attaches. It is outside
-every checkout and the app home (`<tmp>/projectman-sessions/<hash of the app home>/<session id>`),
+every checkout and the app home (`<tmp>/projectman-sessions/<hash of the app home>/<session id>.<random>`),
 nothing outside a sandbox runs or loads from it, and it is removed with the process (and the whole
 root when the server starts). Only the server computes the path; the session gets it in
-`PROJECTMAN_SESSION_DIR` and names no other. The root is checked before use: a real directory (not
+`PROJECTMAN_SESSION_DIR` and names no other. The name is new at every start: a command that
+outlived an earlier run (a detached one is not killed with the process) holds the old path in its
+sandbox, may empty the old folder, and could try to leave a symbolic link there for the next start
+to write through; the next start has another, unpredictable path, made exclusively and checked
+(a real directory of the server's user), so the old rule never covers it. The old folder is
+renamed to a `.trash-<random>` name before it is removed, so a survivor cannot swap a directory
+in it for a link while the removal walks it. A process group left running is not killed (the
+runner stops the main process only; a separate card). The root is checked before use: a real directory (not
 a symbolic link, nor below one), the server user's, mode 0700, else the folders are off and the
 server logs the reason and runs on (the sweep must never empty a directory somebody else pointed
 the predictable path at; a symbolic link in it is removed as a link). A developer's sandbox reads

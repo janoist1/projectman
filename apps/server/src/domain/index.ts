@@ -62,7 +62,7 @@ import { RoleService } from './roles';
 import { ScheduleService } from './schedules';
 import type { ScheduleTimer } from './schedules';
 import { PauseService } from './pause';
-import { prepareSessionFoldersRoot } from './session-folders';
+import { prepareSessionFoldersRoot, SessionFolders } from './session-folders';
 import { SessionOrchestrator } from './sessions';
 import { PrerequisiteClosures, TaskService } from './tasks';
 import { TeamToolsService } from './team-tools';
@@ -310,11 +310,12 @@ export function createDomain(opts: DomainOptions) {
   const members = new MemberService({ ctx, projects, timeline, presence, inbox });
   const cardQuestions = new CardQuestions({ ctx });
   const roles = new RoleService({ projects });
-  let sessionFoldersDir: string | undefined;
+  let sessionFolders: SessionFolders | undefined;
   if (opts.sessionFoldersDir && opts.runtimeBoundary?.mode !== 'managed_vm') {
     try {
       prepareSessionFoldersRoot(opts.sessionFoldersDir);
-      sessionFoldersDir = opts.sessionFoldersDir;
+      // One registry for the sessions (which make the folders) and the team tools (which attach from them).
+      sessionFolders = new SessionFolders(opts.sessionFoldersDir);
     } catch (err) {
       opts.logger.error(
         { err, dir: opts.sessionFoldersDir },
@@ -347,7 +348,7 @@ export function createDomain(opts: DomainOptions) {
     standby: opts.standby,
     appHome: opts.appHome,
     userHome: opts.userHome,
-    sessionFoldersDir,
+    sessionFolders,
     browsersDir: opts.browsersDir,
     readerDenyWrite: [opts.appHome, opts.worktreesRootDir, opts.workspacesRootDir, opts.installDir].filter(
       (dir): dir is string => !!dir,
@@ -546,7 +547,7 @@ export function createDomain(opts: DomainOptions) {
     githubSync,
     attachments,
     attachmentDirectory,
-    sessionFoldersDir,
+    sessionFolders,
   });
   const agentQuestions = new AgentQuestions({
     ctx,

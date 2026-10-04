@@ -35,7 +35,7 @@ describe('attach_file from the session folder (PM-268)', () => {
     const started = await h.domain.taskStarts.start('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
     dev = { sessionId: started.session!.id, projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1' };
     cwd = started.session!.cwd;
-    folder = join(h.sessionFoldersDir!, started.session!.id);
+    folder = h.runner.lastStarted().sandbox!.env!.PROJECTMAN_SESSION_DIR!;
     mkdirSync(join(folder, 'shots', 'x'), { recursive: true });
     writeFileSync(join(folder, 'shots', 'x', '1512.png'), pngBytes(300));
   });
@@ -94,6 +94,20 @@ describe('attach_file from the session folder (PM-268)', () => {
       h.domain.teamTools.attachFile(dev, { taskKey: 'AR-1', path: join(folder, '..', 'x', 'y.png') }),
     );
     expect(climb.code).toBe('forbidden');
+    expect(stored()).toEqual([]);
+  });
+
+  it('refuses a folder of the same session that is not the one of the current process', async () => {
+    // What an earlier run (or a survivor of it) left: by the id alone, or an older random name.
+    for (const name of [dev.sessionId, `${dev.sessionId}.0123456789abcdef`]) {
+      const stale = join(h.sessionFoldersDir!, name);
+      mkdirSync(stale);
+      writeFileSync(join(stale, 'old.png'), pngBytes(120));
+      const err = await toolError(
+        h.domain.teamTools.attachFile(dev, { taskKey: 'AR-1', path: join(stale, 'old.png') }),
+      );
+      expect(err.code, name).toBe('forbidden');
+    }
     expect(stored()).toEqual([]);
   });
 

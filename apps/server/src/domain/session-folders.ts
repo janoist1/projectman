@@ -1,4 +1,5 @@
-import { chmodSync, lstatSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { chmodSync, lstatSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
 /**
@@ -18,15 +19,12 @@ export const BROWSERS_PATH_VARIABLE = 'PLAYWRIGHT_BROWSERS_PATH';
 
 const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
-/** `<root>/<sessionId>`; throws when the id could leave the root. */
-export function sessionFolderOf(root: string, sessionId: string): string {
-  if (!SESSION_ID.test(sessionId)) throw new Error(`Not a session id: ${JSON.stringify(sessionId)}`);
-  return path.join(root, sessionId);
-}
-
-function assertOwnDirectory(dir: string): void {
+function assertOwnDirectory(dir: string, mustExist = false): void {
   const stat = lstatSync(dir, { throwIfNoEntry: false });
-  if (!stat) return;
+  if (!stat) {
+    if (mustExist) throw new Error(`${dir} is gone`);
+    return;
+  }
   if (stat.isSymbolicLink()) throw new Error(`${dir} is a symbolic link`);
   if (!stat.isDirectory()) throw new Error(`${dir} is not a directory`);
   if (typeof process.getuid === 'function' && stat.uid !== process.getuid())
@@ -49,26 +47,86 @@ export function prepareSessionFoldersRoot(root: string): void {
   if ((lstatSync(root).mode & 0o077) !== 0) chmodSync(root, 0o700);
 }
 
-/** Makes one session's folder (0700; the root is already checked). */
-export function makeSessionFolder(dir: string): void {
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-}
-
-/** Removes one session's folder with everything in it; a link inside goes as a link. */
-export function removeSessionFolder(dir: string): void {
-  rmSync(dir, { recursive: true, force: true });
-}
+const code = (err: unknown): string | undefined => (err as NodeJS.ErrnoException | undefined)?.code;
 
 /**
- * Removes every entry of the root (a symbolic link as a link, never its target) except the
- * folders of the sessions `keep` returns true for; returns the removed names.
+ * The session folders below one checked root. A folder lives for one process: every start gets a
+ * new, unpredictable name (`<sessionId>.<random>`) and the server remembers which folder belongs to
+ * which session. A command of an earlier run of the session that outlived its process (a detached
+ * one) still holds the old path in its sandbox; it can neither reach the new folder nor put
+ * anything at the new path, which it never learns, and the old path is gone with its folder.
  */
-export function sweepSessionFolders(root: string, keep: (sessionId: string) => boolean): string[] {
-  const removed: string[] = [];
-  for (const name of readdirSync(root)) {
-    if (SESSION_ID.test(name) && keep(name)) continue;
-    rmSync(path.join(root, name), { recursive: true, force: true });
-    removed.push(name);
+export class SessionFolders {
+  private readonly folders = new Map<string, string>();
+  readonly root: string;
+
+  constructor(root: string) {
+    this.root = root;
   }
-  return removed;
+
+  /** A path no folder has had: `<root>/<sessionId>.<random>`; nothing is made. Throws for an id that could leave the root. */
+  allocate(sessionId: string): string {
+    if (!SESSION_ID.test(sessionId)) throw new Error(`Not a session id: ${JSON.stringify(sessionId)}`);
+    return path.join(this.root, `${sessionId}.${randomBytes(8).toString('hex')}`);
+  }
+
+  /**
+   * Makes the folder `allocate` gave out (0700; not recursive, so a path that exists is an error),
+   * checks it is a real directory of the server's user, and records it as the session's folder. The
+   * folder the session had before is removed first.
+   */
+  make(sessionId: string, dir: string): void {
+    if (path.dirname(dir) !== this.root || !path.basename(dir).startsWith(`${sessionId}.`))
+      throw new Error(`${dir} is not a folder of session ${sessionId}`);
+    this.remove(sessionId);
+    mkdirSync(dir, { mode: 0o700 });
+    // Recorded before the check: a folder that fails it is removed with the session's end.
+    this.folders.set(sessionId, dir);
+    assertOwnDirectory(dir, true);
+  }
+
+  /** The folder the session's current process has, if it has one. */
+  of(sessionId: string): string | undefined {
+    return this.folders.get(sessionId);
+  }
+
+  /**
+   * Removes the session's folder with everything in it (a link inside goes as a link); nothing
+   * when it has none. The folder is renamed away first, inside the root and to a name that is no
+   * session's, so a command of the old run that is still writing in it cannot swap a directory for
+   * a link while the removal walks it; its sandbox rule does not reach the new name.
+   */
+  remove(sessionId: string): void {
+    const dir = this.folders.get(sessionId);
+    if (!dir) return;
+    this.folders.delete(sessionId);
+    const trash = path.join(this.root, `.trash-${randomBytes(8).toString('hex')}`);
+    try {
+      renameSync(dir, trash);
+    } catch (err) {
+      if (code(err) === 'ENOENT') return;
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    }
+    rmSync(trash, { recursive: true, force: true });
+  }
+
+  /**
+   * Removes every entry of the root (a symbolic link as a link, never its target) except the
+   * folders of the sessions `keep` returns true for; returns the removed names.
+   */
+  sweep(keep: (sessionId: string) => boolean): string[] {
+    const kept = new Set<string>();
+    for (const [sessionId, dir] of this.folders) {
+      if (keep(sessionId)) kept.add(path.basename(dir));
+      else this.folders.delete(sessionId);
+    }
+    const removed: string[] = [];
+    for (const name of readdirSync(this.root)) {
+      if (kept.has(name)) continue;
+      rmSync(path.join(this.root, name), { recursive: true, force: true });
+      removed.push(name);
+    }
+    return removed;
+  }
 }

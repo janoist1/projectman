@@ -2467,7 +2467,7 @@ export const hu = {
     problems: {
       title: 'Javítandó a beállításokban',
       intro:
-        'A projekt így is használható, de a beállítások módosítását a szerver addig elutasítja, amíg ezek ki nem javulnak.',
+        '{n} hiba van a mentett beállításokban. Amíg nincs kijavítva, csak olyan módosítás menthető, amely nem ront rajta.',
     },
     unavailable: 'A projekt beállításai most nem érhetők el.',
   },

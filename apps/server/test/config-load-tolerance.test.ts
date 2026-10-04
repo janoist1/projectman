@@ -10,7 +10,7 @@ import type { AppHarness } from './helpers/app-harness';
 
 /**
  * Real installations hold configurations written before a rule existed (decisions 16 and 19). The
- * project must load and stay in its owner's list; changes to it are refused until it is repaired.
+ * project must load and stay in its owner's list; changes may preserve but never worsen its errors.
  */
 describe('projects whose stored configuration predates a rule', () => {
   let h: AppHarness;
@@ -38,7 +38,7 @@ describe('projects whose stored configuration predates a rule', () => {
       .filter((issue) => issue.severity !== 'warning')
       .map((issue) => issue.code);
 
-  it('keeps a project with repository names and column ids used twice, and refuses changes until they are gone', async () => {
+  it('allows edits with existing duplicate repositories and columns but refuses only introduced errors', async () => {
     handEdit('project.yaml', (document) => document.project.repos.push({ name: 'web', path: 'web-copy' }));
     handEdit('pipeline.yaml', (document) => document.columns.push({ id: 'todo', name: 'To do again' }));
     await restart();
@@ -50,24 +50,38 @@ describe('projects whose stored configuration predates a rule', () => {
     expect(loaded.project.repos.map((repo) => repo.name)).toEqual(['web', 'web']);
     expect(loaded.pipeline.columns.filter((column) => column.id === 'todo')).toHaveLength(2);
 
-    // Every change is refused, whichever way it is made.
+    // Unrelated changes persist despite the existing errors.
     const view = (await inject(h.app, 'GET', '/api/projects/AR/config', cookie)).json<ConfigView>();
     const patched = await inject(h.app, 'PATCH', '/api/projects/AR/config', cookie, {
       baseVersion: view.version,
       limits: { maxConcurrentAi: 2 },
     });
-    expect([patched.statusCode, patched.json().error.code]).toEqual([400, 'config_invalid']);
-    expect(errorsOf(patched)).toEqual(['duplicate_repo', 'duplicate_column']);
+    expect(patched.statusCode, patched.body).toBe(200);
+    expect((await h.app.projectman.configStore.load('AR')).config.team.limits.maxConcurrentAi).toBe(2);
     const added = await inject(h.app, 'POST', '/api/projects/AR/members', cookie, { role: 'qa' });
-    expect([added.statusCode, added.json().error.code]).toEqual([422, 'invalid_config']);
+    expect(added.statusCode, added.body).toBe(201);
+
+    const current = (await inject(h.app, 'GET', '/api/projects/AR/config', cookie)).json<ConfigView>();
+    const pipeline = structuredClone(current.config.pipeline);
+    pipeline.columns.push({ id: 'todo', name: 'Third copy' });
+    const refused = await inject(h.app, 'PATCH', '/api/projects/AR/config', cookie, {
+      baseVersion: current.version,
+      pipeline,
+    });
+    expect([refused.statusCode, refused.json().error.code]).toEqual([400, 'config_invalid']);
+    expect(errorsOf(refused)).toEqual(['duplicate_column']);
+    expect(refused.json().error.details.issues).toEqual([
+      { code: 'duplicate_column', path: 'pipeline.columns[5].id', detail: 'todo' },
+    ]);
+    expect((await h.app.projectman.configStore.load('AR')).version).toBe(current.version);
 
     // The repaired configuration is accepted, and the project carries on.
-    const repaired: ProjectConfig = structuredClone(loaded);
+    const repaired: ProjectConfig = structuredClone(current.config);
     repaired.project.repos.pop();
     repaired.pipeline.columns.pop();
     const saved = await inject(h.app, 'PUT', '/api/projects/AR/config', cookie, {
       config: repaired,
-      baseVersion: view.version,
+      baseVersion: current.version,
     });
     expect(saved.statusCode, saved.body).toBe(200);
     const hired = await inject(h.app, 'POST', '/api/projects/AR/members', cookie, { role: 'qa' });

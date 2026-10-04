@@ -15,6 +15,44 @@ function errorCode(response: { body?: unknown }) {
   return (response.body as { error: { code: string } }).error.code;
 }
 
+describe('mock configuration error tolerance', () => {
+  it('saves unrelated edits with existing errors and reports only additional errors', () => {
+    const backend = new MockBackend();
+    const column = backend.config.pipeline.columns[0]!;
+    backend.config.pipeline.columns.push({ ...column, name: 'Duplicate' });
+    const saved = backend.handle('PATCH', `${base}/config`, {
+      baseVersion: backend.configVersion,
+      limits: { maxConcurrentAi: 2 },
+    });
+    expect(saved.status).toBe(200);
+    expect(backend.config.team.limits.maxConcurrentAi).toBe(2);
+    const pipeline = structuredClone(backend.config.pipeline);
+    pipeline.columns.push({ ...column, name: 'Third copy' });
+    const refused = backend.handle('PATCH', `${base}/config`, {
+      baseVersion: backend.configVersion,
+      pipeline,
+    });
+    expect(refused).toMatchObject({
+      status: 400,
+      body: {
+        error: {
+          code: 'config_invalid',
+          details: {
+            issues: [
+              {
+                code: 'duplicate_column',
+                path: `pipeline.columns[${pipeline.columns.length - 1}].id`,
+                detail: column.id,
+              },
+            ],
+          },
+        },
+      },
+    });
+    expect(backend.config.pipeline.columns).toHaveLength(pipeline.columns.length - 1);
+  });
+});
+
 describe('mock role catalogue and member mutations', () => {
   it('rejects invalid roles, holder mismatches and member kinds without changing data', () => {
     const backend = new MockBackend();

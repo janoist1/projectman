@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AI_BUILT_IN_ROLE_IDS, BUILT_IN_ROLE_IDS, holdersAllow, roleHolders, RoleId } from '../domain/role';
-import { isToleratedOnLoad, validateProjectConfig } from './invariants';
+import { introducedErrors, isToleratedOnLoad, validateProjectConfig } from './invariants';
 import { AiMemberConfig, ProjectConfig, type ProjectConfigInput } from './schema';
 
 function configInput(): ProjectConfigInput {
@@ -44,6 +44,93 @@ function build(change: (input: ProjectConfigInput) => void = () => {}): ProjectC
 function members(input: ProjectConfigInput) {
   return input.team.members as Array<Record<string, unknown>>;
 }
+
+describe('introduced configuration errors', () => {
+  it('preserves an unapproved release error when the stage moves', () => {
+    const previous = build();
+    previous.pipeline.stages.splice(
+      1,
+      0,
+      {
+        id: 'release',
+        name: 'Release',
+        kind: 'release',
+        columnId: 'todo',
+        owners: [],
+      },
+      {
+        id: 'work',
+        name: 'Work',
+        kind: 'work',
+        columnId: 'todo',
+        owners: [],
+      },
+    );
+    const next = structuredClone(previous);
+    next.pipeline.stages.splice(2, 0, next.pipeline.stages.splice(1, 1)[0]!);
+    expect(validateProjectConfig(previous)).toContainEqual({
+      code: 'release_without_human_approval',
+      path: 'pipeline.stages[1]',
+    });
+    expect(introducedErrors(previous, next)).toEqual([]);
+  });
+
+  it('allows a label edit alongside duplicate columns and counts an additional duplicate', () => {
+    const previous = build();
+    previous.pipeline.columns.push({ id: 'todo', name: 'Duplicate' });
+    const next = structuredClone(previous);
+    next.pipeline.labels.push({ id: 'example', name: 'Example', setBy: 'anyone' });
+    expect(introducedErrors(previous, next)).toEqual([]);
+    next.pipeline.columns.unshift({ id: 'todo', name: 'Third copy' });
+    expect(introducedErrors(previous, next)).toEqual([
+      { code: 'duplicate_column', path: 'pipeline.columns[2].id', detail: 'todo' },
+    ]);
+  });
+
+  it('never counts warnings and returns all errors without a previous configuration', () => {
+    const next = build();
+    expect(validateProjectConfig(next).some((issue) => issue.severity === 'warning')).toBe(true);
+    expect(introducedErrors(null, next)).toEqual([]);
+    next.pipeline.columns.push({ id: 'todo', name: 'Duplicate' });
+    expect(introducedErrors(null, next)).toEqual(
+      validateProjectConfig(next).filter((issue) => issue.severity !== 'warning'),
+    );
+  });
+
+  it('matches reordered element identities and nested anonymous lists', () => {
+    const previous = build();
+    previous.project.repos = [
+      { name: 'web', path: 'web' },
+      { name: 'web', path: 'copy' },
+    ];
+    previous.team.roles[0]!.id = 'developer';
+    const owner = previous.team.members[0]!;
+    if (owner.kind === 'human') owner.roles = ['operator', 'missing', 'operator'];
+    previous.pipeline.labels = [{ id: 'broken', name: 'Broken', setBy: { members: ['missing'] } }];
+    previous.pipeline.stages[1]!.gate = {
+      conditions: [
+        { type: 'has_label', label: 'missing' },
+        { type: 'lacks_label', label: 'other' },
+      ],
+    };
+    const next = structuredClone(previous);
+    next.project.repos.reverse();
+    next.team.roles.reverse();
+    next.team.members.reverse();
+    const nextOwner = next.team.members.find((member) => member.handle === 'owner')!;
+    if (nextOwner.kind === 'human') nextOwner.roles.reverse();
+    next.pipeline.labels.unshift({ id: 'valid', name: 'Valid', setBy: 'anyone' });
+    next.pipeline.stages[1]!.gate!.conditions.reverse();
+    expect(introducedErrors(previous, next)).toEqual([]);
+    next.project.repos = [
+      { name: 'renamed', path: 'web' },
+      { name: 'renamed', path: 'copy' },
+    ];
+    expect(introducedErrors(previous, next)).toEqual([
+      { code: 'duplicate_repo', path: 'project.repos[1].name', detail: 'renamed' },
+    ]);
+  });
+});
 
 describe('role catalogue', () => {
   it('lets AI members hold every built-in role except the human-only ones', () => {

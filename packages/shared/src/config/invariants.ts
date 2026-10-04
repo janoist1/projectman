@@ -231,6 +231,50 @@ function manualRefinementSteps(config: ProjectConfig): ConfigIssue[] {
   return issues;
 }
 
+/**
+ * The errors of next absent from previous (all errors when previous is null). Warnings never
+ * count. Compare code, detail and path as a multiset, replacing element list indices with their
+ * identity in each configuration and other list indices with * so reordering preserves errors.
+ */
+export function introducedErrors(previous: ProjectConfig | null, next: ProjectConfig): ConfigIssue[] {
+  function issueKeyFor(config: ProjectConfig): (issue: ConfigIssue) => string {
+    const identities: Record<string, string[]> = {
+      'pipeline.stages': config.pipeline.stages.map((stage) => stage.id),
+      'pipeline.columns': config.pipeline.columns.map((column) => column.id),
+      'pipeline.labels': config.pipeline.labels.map((label) => label.id),
+      'team.members': config.team.members.map((member) => member.handle),
+      'team.roles': config.team.roles.map((role) => role.id),
+      'project.repos': config.project.repos.map((repo) => repo.name),
+    };
+    return (issue) => {
+      const path = issue.path.replace(/([\w.]+)\[(\d+)\]/g, (_, list: string, index: string) => {
+        const identity = identities[list]?.[Number(index)];
+        return `${list}[${identity === undefined ? '*' : JSON.stringify(identity)}]`;
+      });
+      return JSON.stringify([issue.code, issue.detail, path]);
+    };
+  }
+
+  const remaining = new Map<string, number>();
+  if (previous) {
+    const previousKey = issueKeyFor(previous);
+    for (const issue of validateProjectConfig(previous)) {
+      if (issue.severity === 'warning') continue;
+      const key = previousKey(issue);
+      remaining.set(key, (remaining.get(key) ?? 0) + 1);
+    }
+  }
+  const nextKey = issueKeyFor(next);
+  return validateProjectConfig(next).filter((issue) => {
+    if (issue.severity === 'warning') return false;
+    const key = nextKey(issue);
+    const count = remaining.get(key) ?? 0;
+    if (count === 0) return true;
+    remaining.set(key, count - 1);
+    return false;
+  });
+}
+
 const TOLERATED_ON_LOAD: ReadonlySet<ConfigIssue['code']> = new Set([
   'duplicate_repo',
   'duplicate_column',
@@ -245,7 +289,8 @@ const TOLERATED_ON_LOAD: ReadonlySet<ConfigIssue['code']> = new Set([
  * A custom role that shadows a built-in role (the app ships more built-in roles over time) is
  * tolerated too: the built-in role wins everywhere, so the shadowing definition is only ignored.
  * A stored configuration that breaks one still loads (the project stays usable and its owner can
- * repair it), and every change refuses it like any other error. Every other error stops a load.
+ * repair it); changes may preserve existing errors but cannot introduce more. Every other error
+ * stops a load.
  */
 export function isToleratedOnLoad(issue: Pick<ConfigIssue, 'code'>): boolean {
   return TOLERATED_ON_LOAD.has(issue.code);

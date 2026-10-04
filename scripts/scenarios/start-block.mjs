@@ -17,6 +17,7 @@
 const TEXT = {
   notRefined: 'Még nincs kidolgozva',
   progress: 'Kidolgozás: 1/2 lépés kész',
+  progressAny: /Kidolgozás: \d+\/\d+ lépés kész/,
   steps: 'Lépések',
   start: 'Indítás',
   aiOff: 'Az AI-munka ki van kapcsolva',
@@ -32,17 +33,23 @@ export default async ({ instance, open, shoot, step, log }) => {
     });
   };
 
-  // The refinement: people set the labels, so no AI member starts working on the cards.
+  // The refinement: people set the first two steps, so no AI member starts working on those cards. Only the
+  // third step, `plan-ok` on cards with `needs-plan`, is a member's (state e).
   await patchConfig((config) => {
     const person = config.team.members.find((member) => member.kind === 'human').handle;
+    const planner = config.team.members.find(
+      (member) => member.kind === 'ai' && member.role === 'developer',
+    ).handle;
     const labels = config.pipeline.labels.filter(
-      (label) => !['refine', 'ui', 'scope-ok', 'design-ok'].includes(label.id),
+      (label) => !['refine', 'ui', 'needs-plan', 'scope-ok', 'design-ok', 'plan-ok'].includes(label.id),
     );
     labels.push(
       { id: 'refine', name: 'Kidolgozásra vár', setBy: 'anyone' },
       { id: 'ui', name: 'Felületi', setBy: 'anyone' },
+      { id: 'needs-plan', name: 'Műszaki terv kell', setBy: 'anyone' },
       { id: 'scope-ok', name: 'Kidolgozás eldöntve', setBy: { members: [person] } },
       { id: 'design-ok', name: 'UI/UX terv kész', setBy: { members: [person] } },
+      { id: 'plan-ok', name: 'Műszaki terv kész', setBy: { members: [planner] } },
     );
     const stages = config.pipeline.stages.map((stage) =>
       stage.kind === 'work'
@@ -52,6 +59,7 @@ export default async ({ instance, open, shoot, step, log }) => {
               conditions: [
                 { type: 'has_label', label: 'scope-ok' },
                 { type: 'has_label', label: 'design-ok', when: 'ui' },
+                { type: 'has_label', label: 'plan-ok', when: 'needs-plan' },
               ],
             },
           }
@@ -98,11 +106,21 @@ export default async ({ instance, open, shoot, step, log }) => {
   // A member working on a card that is being refined: the worker's sentence has a detail line, and the
   // refinement row stands under it (the narrow width is where the status line wrapped, PM-291 UI/UX review).
   await step('e. a member works on the card being refined, narrow', async () => {
-    const worker = (await instance.api('/api/projects/AC/members')).find(
-      (member) => member.kind === 'ai' && member.role === 'developer',
-    );
-    const working = await card('Show stock levels', ['ui', 'refine', 'scope-ok']);
-    const sessionId = await instance.startSession('AC', working, worker.handle);
+    // Nobody starts the card (a person's Start of a card that is being refined is refused): the member whose turn
+    // it is to set `plan-ok` starts working on it by itself, as in a real refinement.
+    const working = await card('Show stock levels', ['ui', 'needs-plan', 'scope-ok', 'design-ok']);
+    // The refinement goes on at a change of the card's labels, so the label is put on afterwards.
+    await instance.api(`/api/projects/AC/tasks/${working}/labels`, {
+      method: 'POST',
+      body: { add: ['refine'] },
+    });
+    let sessionId;
+    for (let attempt = 0; attempt < 100 && !sessionId; attempt++) {
+      const detail = await instance.api(`/api/projects/AC/tasks/${working}`);
+      sessionId = detail.sessions?.at(-1)?.id;
+      if (!sessionId) await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    if (!sessionId) throw new Error(`No member started working on ${working} within 30 seconds.`);
     await instance.waitIdle('AC', sessionId);
     await instance.setFakeCalls([
       {
@@ -116,7 +134,7 @@ export default async ({ instance, open, shoot, step, log }) => {
     await instance.say('AC', sessionId, 'CALLS please');
     await instance.waitIdle('AC', sessionId);
     const page = await open({ path: `/p/AC/tasks/${working}`, width: 390 });
-    await text(page, TEXT.progress);
+    await text(page, TEXT.progressAny);
     await toggle(page).click();
     await shoot(page, 'e-working-steps', { widths: [390] });
   });

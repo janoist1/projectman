@@ -142,10 +142,23 @@ export default async ({ instance, open, shoot, step, log }) => {
     const dana = (await instance.api('/api/projects/AC/config')).config.team.members.find(
       (member) => member.displayName === 'Dana Dev',
     );
-    await instance.api('/api/projects/AC/messages', {
-      method: 'POST',
-      body: { to: [dana.handle], text: 'Dana, a kártyán te nézed át a mobil nézetet.', taskKey: CARD },
-    });
+    // Enough messages for the log to scroll: it opens at its end, so the limited line must stay in sight.
+    const notes = [
+      'Dana, a kártyán te nézed át a mobil nézetet.',
+      'Először a kosár oldalt, utána a pénztárat.',
+      'A képernyőképeket tedd a kártyára.',
+      'Ha kérdésed van, itt írd meg, nem külön üzenetben.',
+      'A szállítási díj sorát külön nézd meg, ott volt hiba.',
+      'A keskeny telefonon (360 px) is próbáld ki.',
+      'A végén írd meg, mi maradt nyitva.',
+      'Holnap délig kellene, hogy átadhassuk.',
+    ];
+    for (const text of notes) {
+      await instance.api('/api/projects/AC/messages', {
+        method: 'POST',
+        body: { to: [dana.handle], text, taskKey: CARD },
+      });
+    }
     const page = await open({ as: colleague, path: `/p/AC/tasks/${CARD}/thread` });
     await page.getByText(TEXT.limited, { exact: true }).waitFor();
     await shoot(page, 'thread-limited', { widths: [1512, 390] });

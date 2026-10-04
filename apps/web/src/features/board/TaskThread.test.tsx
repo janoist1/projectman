@@ -209,7 +209,9 @@ describe('the card conversation (PM-273)', () => {
     const { project, overrides } = asDeveloper();
     project.render(card, '/p/AC/tasks/AC-21/thread', overrides);
     const panel = await thread();
-    await within(panel).findByText(t('task.thread.limited'));
+    const limited = await within(panel).findByText(t('task.thread.limited'));
+    // The line is pinned above the messages, not part of the log that opens at its end.
+    expect(within(panel).getByRole('log').contains(limited)).toBe(false);
     // Only what was sent to Kata or by Kata shows: the owner's question row is not among it.
     expect(within(panel).queryByRole('group', { name: t('task.thread.qa') })).toBeNull();
     await within(panel).findByRole('heading', { name: t('task.thread.emptyLimitedTitle') });

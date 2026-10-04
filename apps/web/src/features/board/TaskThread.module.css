@@ -57,7 +57,9 @@
 .limited {
   flex: none;
   align-self: stretch;
-  padding: 10px var(--thread-pad-x, 22px) 0;
+  padding: 8px var(--thread-pad-x, 22px);
+  background: var(--c-subtle);
+  border-bottom: 1px solid var(--c-line-soft);
 }
 
 .day {

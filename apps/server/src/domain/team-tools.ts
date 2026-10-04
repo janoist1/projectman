@@ -71,12 +71,12 @@ const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 const ATTACHMENTS_IN_TASK = 20;
 const MAX_ATTACHMENT_PAGE = 200;
 
-/** Explains a blocked stage move to the agent in plain English. */
 /** A directory that is not a symbolic link (the server made the session folder as one). */
 function isRealDirectory(dir: string): boolean {
   return lstatSync(dir, { throwIfNoEntry: false })?.isDirectory() ?? false;
 }
 
+/** Explains a blocked stage move to the agent in plain English. */
 function describeGateBlock(err: DomainError): string {
   const details = (err.details ?? {}) as { unmet?: UnmetCondition[]; approvals?: ApprovalRequirement[] };
   const reasons = (details.unmet ?? []).map((u) => {
@@ -492,6 +492,8 @@ export class TeamToolsService implements TeamToolsHandler {
       const file = await openWorkspaceFile(inFolder ? folder : session.cwd, args.path, {
         maxBytes: MAX_ATTACHMENT_BYTES,
         place,
+        // The sandbox lets the session empty and replace its own folder, so it must be its own real path.
+        exactRoot: inFolder,
       }).catch((err: unknown) => {
         throw toFileToolError(err, args.path);
       });

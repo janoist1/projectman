@@ -90,21 +90,30 @@ export async function openWorkspaceFile(
      * the other place the caller may attach from (PM-268: the session folder).
      */
     place?: { name: string; other?: { name: string; path: string } };
+    /**
+     * `root` must be its own real path: it is refused (`unreadable`) when it, or a directory above
+     * it, is a symbolic link. For a root a sandboxed member could have replaced by a link (the
+     * session folder, PM-268); the final check then also catches a replacement made later.
+     */
+    exactRoot?: boolean;
   },
 ): Promise<WorkspaceFile> {
   if (!requested.trim() || requested.includes('\0'))
     throw new WorkspaceFileRefusal('invalid', 'The path is empty or not a valid path.');
   const placeName = opts.place?.name ?? 'your working directory';
+  const recordedRoot = path.resolve(root);
+  const unavailable = () =>
+    new WorkspaceFileRefusal(
+      'unreadable',
+      `${placeName.charAt(0).toUpperCase()}${placeName.slice(1)} is not available.`,
+    );
   let realRoot: string;
   try {
     realRoot = await realpath(root);
   } catch {
-    throw new WorkspaceFileRefusal(
-      'unreadable',
-      `${placeName.charAt(0).toUpperCase()}${placeName.slice(1)} is not available.`,
-    );
+    throw unavailable();
   }
-  const recordedRoot = path.resolve(root);
+  if (opts.exactRoot && realRoot !== recordedRoot) throw unavailable();
   const relative =
     relativeInside(recordedRoot, path.resolve(recordedRoot, requested)) ??
     relativeInside(realRoot, path.resolve(realRoot, requested));

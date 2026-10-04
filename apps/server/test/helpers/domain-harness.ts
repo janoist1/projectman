@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ExecutionProfile, ProjectConfig } from '@projectman/shared';
@@ -134,7 +134,8 @@ export async function createDomainHarness(
     typeof opts.sessionFolders === 'string'
       ? opts.sessionFolders
       : opts.sessionFolders
-        ? join(dir, 'session-folders', 'root')
+        ? // Canonical, as the real root is (it comes from realpathSync(tmpdir())); on macOS tmpdir() is a link.
+          join(realpathSync(dir), 'session-folders', 'root')
         : undefined;
 
   const domain: Domain = createDomain({

@@ -99,7 +99,9 @@ frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site c
   must still be inside and be the very file opened, so a path swapped between the checks and the
   open is refused. The session folder (PM-268; the server computes it, the caller never names
   it) is a second root for an absolute path: only the calling session's own folder, and only
-  while it exists as a real directory (not a symbolic link); every check above applies to it
+  while the folder is its own real path (the sandbox lets a session empty its folder and put a
+  symbolic link in its place, so a folder or a directory above it that is a link is refused, and
+  so is a folder swapped for one before the file is read); every check above applies to it
   unchanged, and a relative path still means the working directory. The content is streamed from that handle and refused when its size or time
   changes meanwhile. A task session may read (never edit) only its own task's attachment
   directory without asking: Claude Code gets `Read(//…/**)` allowed and `Edit(//…/**)` denied for

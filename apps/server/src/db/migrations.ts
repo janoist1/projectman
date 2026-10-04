@@ -668,5 +668,14 @@ export const migrations: Migration[] = [
       );
       CREATE INDEX full_test_runs_task_commit ON full_test_runs(task_key, commit_sha);`,
   },
+  {
+    // 33 is PM-295's (in review); the next free one is taken here.
+    version: 34,
+    name: 'team message answers',
+    // PM-249: the message that carries a person's answer to an AI member's question points at it
+    // (JSON `{ inboxItemId, question, answer }`), so that the card thread shows a question and its
+    // answer. NULL for every other message and for the answers sent before this.
+    sql: 'ALTER TABLE team_messages ADD COLUMN answer TEXT;',
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

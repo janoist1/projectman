@@ -18,6 +18,17 @@ export const MessageReceipt = z.object({
 });
 export type MessageReceipt = z.infer<typeof MessageReceipt>;
 
+/** What an answer message answers (PM-249): the card thread shows it as a question and its answer. */
+export const TeamMessageAnswer = z.object({
+  /** The `ask_human` inbox item. */
+  inboxItemId: z.string(),
+  /** The question as asked (`payload.question`, else the item's title). */
+  question: z.string(),
+  /** `answerText(item)`. */
+  answer: z.string(),
+});
+export type TeamMessageAnswer = z.infer<typeof TeamMessageAnswer>;
+
 /** A message between team members (human or AI), optionally about a task. */
 export const TeamMessage = z.object({
   id: z.string(),
@@ -29,6 +40,8 @@ export const TeamMessage = z.object({
   createdAt: z.string(),
   deliveredAt: z.string().nullable(),
   receipts: z.array(MessageReceipt).optional(),
+  /** Set on the message that carries a person's answer to an AI member's question (PM-249); older answers have none. The asker is `to[0]`, the one who answered is `from`. */
+  answer: TeamMessageAnswer.optional(),
 });
 export type TeamMessage = z.infer<typeof TeamMessage>;
 
@@ -42,6 +55,34 @@ export function canSeeTeamMessage(viewer: TaskViewer, message: Pick<TeamMessage,
   return (
     canSeeAllTeamMessages(viewer) || message.from === viewer.handle || message.to.includes(viewer.handle)
   );
+}
+
+export type CardThreadRecipientBasis = 'workers' | 'assignee' | 'stage_owners' | 'none';
+
+/**
+ * Who a message written on a card's thread goes to by default (PM-249): the members working on the card,
+ * else its assignee, else its stage's owners; never the writer, only members who may get messages.
+ */
+export function cardThreadRecipients(input: {
+  /** Members of `cardWorkerSessions(...)`, in its order. */
+  workers: readonly string[];
+  assignee: string | null;
+  /** The resolved owners of the card's stage (`BoardView.stages`). */
+  stageOwners: readonly string[];
+  writer: string;
+  /** An active member of the project (not retired) other than a client. */
+  canReceive: (handle: string) => boolean;
+}): { basis: CardThreadRecipientBasis; to: string[] } {
+  const usable = (handles: readonly string[]) => [
+    ...new Set(handles.filter((handle) => handle !== input.writer && input.canReceive(handle))),
+  ];
+  const workers = usable(input.workers);
+  if (workers.length > 0) return { basis: 'workers', to: workers };
+  const assignee = usable(input.assignee ? [input.assignee] : []);
+  if (assignee.length > 0) return { basis: 'assignee', to: assignee };
+  const owners = usable(input.stageOwners);
+  if (owners.length > 0) return { basis: 'stage_owners', to: owners };
+  return { basis: 'none', to: [] };
 }
 
 /** Whether the message was sent to `handle` and `handle` has not read it yet. */

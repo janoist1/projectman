@@ -39,6 +39,22 @@ made. A choice of your own that the owner should confirm goes to them as a quest
   migrations in `apps/server/src/db/migrations.ts`; timeline events are append-only, so old
   event types keep rendering.
 
+## Machine-dependent assumptions
+
+These rules apply to every member, including Codex:
+
+- When adding or changing a machine-dependent part (local paths, processes, sockets,
+  accounts, OS features or a shared-host assumption), update the **Machine-dependent parts**
+  inventory in `docs/ARCHITECTURE.md` in the same change. Record what it does, its code
+  location, the machine assumption, what a remote engine needs and the related task.
+- Every technical plan must answer **"Does this work on a remote engine?"** Refer to the
+  affected inventory entries and state what must run on the engine, what must cross the
+  server/engine boundary, or why no machine-dependent part is affected. An unresolved
+  boundary choice is a planning question, not an implicit local assumption.
+- Codex reads `CLAUDE.md` through `project_doc_fallback_filenames` when there is no
+  `AGENTS.md` (`apps/server/src/runner/providers/codex/args.ts`). If an `AGENTS.md` is added
+  to this repository, include these rules there too so they still reach Codex.
+
 ## Module ownership (parallel workstreams)
 
 | Workstream | Owns                                                                                                                                      |

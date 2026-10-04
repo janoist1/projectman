@@ -112,6 +112,14 @@ describe('splitQuestion', () => {
     expect(splitQuestion(code)).toEqual({ title: null, body: code });
   });
 
+  it('treats a short one-line question that starts with a list mark as a list', () => {
+    expect(splitQuestion('- Maradhat így?')).toEqual({ title: null, body: '- Maradhat így?' });
+  });
+
+  it('treats a short one-line question that starts with a heading mark as a heading', () => {
+    expect(splitQuestion('# Indítás')).toEqual({ title: 'Indítás', body: null });
+  });
+
   it('gives the question a fallback heading when it has no title', () => {
     const entry: InboxItem = { ...item, kind: 'question', title: '- Egy\n- Kettő\n\nMaradhat?' };
     expect(inboxHeading(entry)).toBe(t('inbox.question.untitled'));

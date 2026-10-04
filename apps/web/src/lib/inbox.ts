@@ -165,13 +165,14 @@ export function splitQuestion(text: string): { title: string | null; body: strin
   const source = text.replace(/\r\n/g, '\n').trim();
   const lines = source.split('\n');
   const first = lines[0] ?? '';
-  if (lines.length === 1 && plainMarkdown(source).length <= SHORT_QUESTION_LIMIT) {
-    return { title: plainMarkdown(source) || null, body: null };
-  }
   const rest = lines.slice(1).join('\n');
+  // A list, a code block or a heading line is checked first: a short one-line question may be one too.
   if (LIST_OR_CODE.test(first)) return { title: null, body: source };
   const heading = /^#{1,4}\s+(.*)$/.exec(first);
   if (heading) return { title: plainMarkdown(heading[1] ?? '') || null, body: rest.trim() || null };
+  if (lines.length === 1 && plainMarkdown(source).length <= SHORT_QUESTION_LIMIT) {
+    return { title: plainMarkdown(source) || null, body: null };
+  }
   const cut = sentenceEnd(first);
   const title = plainMarkdown(first.slice(0, cut));
   if (!title) return { title: null, body: source };

@@ -81,6 +81,22 @@ describe('full test runs migration', () => {
       queue('after', 'c1', '2026-01-04T00:00:00.000Z');
       const pin = { taskKey: 'AR-1', commit: 'c1', pinnedAt: '2026-01-03T12:00:00.000Z' };
       expect(repos.fullTestRuns.forPin(pin).map((run) => run.id)).toEqual(['after']);
+      repos.fullTestRuns.finish('before', { status: 'passed', finishedAt: '2026-01-02T00:01:00.000Z' });
+      expect(repos.fullTestRuns.forPin(pin).map((run) => run.id)).toEqual(['after', 'before']);
+      queue('cancelled', 'c1', '2026-01-03T00:00:00.000Z');
+      repos.fullTestRuns.finish('cancelled', {
+        status: 'cancelled',
+        reason: 'interrupted',
+        finishedAt: '2026-01-03T00:01:00.000Z',
+      });
+      expect(repos.fullTestRuns.forPin(pin).map((run) => run.id)).toEqual(['after', 'before']);
+      for (const status of ['failed', 'error'] as const) {
+        queue(status, 'c1', '2026-01-03T01:00:00.000Z');
+        repos.fullTestRuns.finish(status, { status, finishedAt: '2026-01-03T01:01:00.000Z' });
+        expect(repos.fullTestRuns.forPin(pin).map((run) => run.id)).toEqual(['after']);
+      }
+      queue('at-pin', 'c1', pin.pinnedAt);
+      expect(repos.fullTestRuns.forPin(pin).map((run) => run.id)).toEqual(['after', 'at-pin']);
     } finally {
       db.close();
     }

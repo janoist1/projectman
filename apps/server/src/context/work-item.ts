@@ -219,7 +219,7 @@ function reviewBeforeHandover(c: StepContext, target: Stage | null): string[] {
  * task's branch and hands the branch over, and the fixes are new commits on it. `ownerReview` is
  * what an owner of a later stage does (the designer's check).
  */
-function building(work: (where: string) => string[], ownerReview?: StepRule): StepRule {
+function building(work: (where: string, tests: string) => string[], ownerReview?: StepRule): StepRule {
   return (c) => {
     const { input, s, current, inQueue, localOnly } = c;
     if ((inQueue || current.kind === 'work') && (s.ownsStage || s.isAssignee || inQueue)) {
@@ -232,7 +232,7 @@ function building(work: (where: string) => string[], ownerReview?: StepRule): St
         ...(inQueue && working
           ? [`Move the task to ${stageLabel(working)} with update_task as you start.`]
           : []),
-        ...work(where),
+        ...work(where, developerTests(input, c.task)),
         localOnly
           ? `Commit the work on the task's own branch in your worktree. Never push and never open a pull request: ${LOCAL_ONLY_REASON}. Before you hand over, make sure everything is committed: \`git status\` shows nothing left to commit.`
           : input.sessionPolicy?.execution?.profile === 'managed_vm'
@@ -413,6 +413,17 @@ function technicalWork({ localOnly }: StepContext): string[] {
   ];
 }
 
+/** The checks a developer runs depend on whether the server owns the full test. */
+function developerTests(input: ContextPackInput, task: Task): string {
+  const reviewTest = repoOf(input.project, effectiveRepo(input.project, task))?.reviewTest;
+  return input.serverFullTest && reviewTest
+    ? `While you work, run only the tests that cover your change (single test files, or your test runner's related or changed mode) and the type check of the parts you touched. Do not run the whole test suite: the server runs ${code(reviewTest.command)} once on the commit you hand over, PTY tests included, and sends the task back if it fails.`
+    : "While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.";
+}
+
+const INSTALL_DEPENDENCIES =
+  'Install the dependencies only if they are missing from your working directory: they are often in place already.';
+
 /**
  * What finishing the current stage looks like for each duty with concrete steps. A member gets the
  * steps of the current stage's duty when its role bundle holds it, else of the first duty of its
@@ -420,12 +431,12 @@ function technicalWork({ localOnly }: StepContext): string[] {
  * lists them in. Other duties fall back to the generic owner steps.
  */
 const DUTY_STEPS: Partial<Record<DutyId, StepRule>> = {
-  implementation: building((where) => [
+  implementation: building((where, tests) => [
     'Read the task, its links and relations to other cards; ask with ask_human if the goal or a decision is unclear.',
-    `Implement the change ${where} and run the project's tests.`,
+    `${INSTALL_DEPENDENCIES} Implement the change ${where}. ${tests}`,
   ]),
-  maintenance: building((where) => [
-    `Make the maintenance change the task describes ${where}, small and focused, and run the project's tests.`,
+  maintenance: building((where, tests) => [
+    `${INSTALL_DEPENDENCIES} Make the maintenance change the task describes ${where}, small and focused. ${tests}`,
   ]),
   docs: building((where) => [`Update the documentation the task affects ${where}.`]),
   content: building((where) => [

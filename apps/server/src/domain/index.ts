@@ -522,6 +522,7 @@ export function createDomain(opts: DomainOptions) {
     released: () => retryDeferredStarts(),
   });
   messaging.useFullTests(fullTests);
+  sessions.useFullTests(fullTests);
   handOver.useFullTests(fullTests);
   const githubSync = new GithubSync({
     ctx,

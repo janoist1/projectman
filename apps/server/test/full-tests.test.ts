@@ -148,6 +148,45 @@ describe('the full test before review', () => {
     await vi.waitFor(() => expect(reviewerStarted()).toBe(true));
   });
 
+  it('reuses a green verdict on another hand-over, but runs again for a new commit', async () => {
+    const worktree = await setup();
+    await handOver();
+    await vi.waitFor(() => expect(executor.specs).toHaveLength(1));
+    executor.finish(passed);
+    await vi.waitFor(() => expect(reviewerStarted()).toBe(true));
+    const result = task().reviewPin!.fullTest;
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+    await handOver();
+    await h.domain.fullTests.syncAll();
+    expect(executor.specs).toHaveLength(1);
+    expect(runs()).toHaveLength(1);
+    expect(events()).toHaveLength(1);
+    expect(task().reviewPin!.fullTest).toEqual(result);
+    expect(h.domain.fullTests.holds(task(), await h.domain.projects.config('AR'))).toBe(false);
+
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+    h.worktrees.heads.set(worktree, head('c2'));
+    await handOver();
+    await vi.waitFor(() => expect(executor.specs).toHaveLength(2));
+    expect(task().reviewPin).toMatchObject({ commit: 'c2', fullTest: { status: 'running' } });
+    executor.finish(passed);
+    await vi.waitFor(() => expect(task().reviewPin?.fullTest?.status).toBe('passed'));
+  });
+
+  it.each(['enabled', 'no-review-test', 'unavailable'] as const)(
+    'sets the session brief flag only when full tests run: %s',
+    async (mode) => {
+      const fake = new FakeExecutor();
+      if (mode === 'unavailable') fake.available_ = { ok: false, reason: 'no sandbox' };
+      await setup({ executor: fake, reviewTest: mode !== 'no-review-test' });
+      const brief = h.contextBuilder.inputs.find((input) => input.member.handle === 'dev-1')!;
+      if (mode === 'enabled') expect(brief.serverFullTest).toBe(true);
+      else expect(brief).not.toHaveProperty('serverFullTest');
+      await h.domain.sessions.ensureSession('AR', 'cr', { type: 'general' });
+      expect(h.contextBuilder.inputs.at(-1)).not.toHaveProperty('serverFullTest');
+    },
+  );
+
   it('sends the task back to the work stage when the run fails, as a fix round', async () => {
     await setup();
     await handOver();

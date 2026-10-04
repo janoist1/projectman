@@ -429,7 +429,7 @@ describe('team tools', () => {
     expect(out).toContain('Links: Branch: ar-21-login-validation in web');
     expect(out).toContain('Show an error message when the email address is invalid.');
     expect(out).toContain('Repo: web · Visibility: internal · Priority: 2');
-    expect(out).toContain('Sessions: fe-1 (working)');
+    expect(out).toContain('Other sessions: fe-1 (working)');
     expect(out).toContain('- 2026-09-29 09:00 UTC · owner: moved it from ready to dev');
   });
 

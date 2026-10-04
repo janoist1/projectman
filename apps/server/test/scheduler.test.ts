@@ -310,7 +310,8 @@ describe('scheduler', () => {
     expect(h.runner.lastStarted()).toMatchObject({
       sessionId: review.id,
       resume: true,
-      initialMessage: 'Continue AR-1: Login page',
+      // dev-1 still works on the card: the resumed reviewer is told so first (PM-249).
+      initialMessage: 'Standing AR-1: workers dev-1; questions 0\n\nContinue AR-1: Login page',
     });
     expect(notice.text).toContain('Task AR-1 is now in stage Code review');
   });

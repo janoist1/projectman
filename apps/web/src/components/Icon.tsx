@@ -64,6 +64,22 @@ const icons = {
       <path d="M17.5 6.5l-11 11" />
     </>
   ),
+  expand: (
+    <>
+      <path d="M14 4.5h5.5V10" />
+      <path d="M19.5 4.5L13.5 10.5" />
+      <path d="M10 19.5H4.5V14" />
+      <path d="M4.5 19.5l6-6" />
+    </>
+  ),
+  collapse: (
+    <>
+      <path d="M19.5 10H14V4.5" />
+      <path d="M14 10l6-6" />
+      <path d="M4.5 14H10v5.5" />
+      <path d="M10 14l-6 6" />
+    </>
+  ),
   bell: (
     <>
       <path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15z" />

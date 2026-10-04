@@ -1,7 +1,8 @@
 .select {
   box-sizing: border-box;
   min-height: 30px;
-  max-width: 100%;
+  /* The large card window (PM-283) keeps the select from stretching across the wide column. */
+  max-width: min(100%, var(--card-select-max, 100%));
   border: 1px solid var(--c-line-strong);
   border-radius: var(--radius-sm);
   padding: 0 6px;

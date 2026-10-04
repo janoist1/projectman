@@ -1,5 +1,6 @@
 .head {
-  padding: 18px 22px 16px;
+  /* The large card window (PM-283) widens the sides. */
+  padding: 18px var(--card-pad-x, 22px) 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;

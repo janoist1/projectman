@@ -4,6 +4,7 @@ import path from 'node:path';
 import {
   approverBlocker,
   autoCompactWindowOf,
+  cardWorkerSessions,
   DEFAULT_AGENT_PROVIDER,
   effectiveRepo,
   effectiveSessionPermissions,
@@ -18,6 +19,7 @@ import {
   routes,
   sameWorkItem,
   stageOf,
+  stageOwners,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -47,6 +49,7 @@ import {
 import type {
   AttachmentOperations,
   CardRelation,
+  CardWorker,
   ContextPackBuilder,
   ManagedVmAttestation,
   ManagedVmBoundary,
@@ -64,8 +67,11 @@ import type {
   WorktreeManager,
 } from '../contracts';
 import { encodeWorkItem } from '../db';
+import { roleLabel } from '../agent-text';
 import { requireAiMember } from './access';
 import { assertAiEnabled, assertNotOnLeave, assertNotPaused, assertRepoChosen } from './admission/rules';
+import { QUESTION_LIMIT } from './card-questions';
+import type { CardQuestions } from './card-questions';
 import { isoNow } from './context';
 import { userExcludesFile } from './git-excludes';
 import type { DomainContext } from './context';
@@ -209,6 +215,8 @@ export interface SessionOrchestratorDeps {
   runner: SessionRunner;
   transcripts: TranscriptReader;
   contextBuilder: ContextPackBuilder;
+  /** The questions asked on a card, listed in the brief and in a resumed session's first message (PM-249). */
+  cardQuestions: Pick<CardQuestions, 'list'>;
   memory: MemberMemoryStore;
   worktrees: WorktreeManager;
   /** Base URL the claude CLI reaches this server at, e.g. http://127.0.0.1:4700. */
@@ -583,6 +591,9 @@ export class SessionOrchestrator {
       const member = requireAiMember(config, handle);
       const task = workItem.type === 'task' ? this.deps.tasks.get(projectKey, workItem.taskKey) : null;
       const existing = this.ctx.repos.sessions.findByWorkItem(projectKey, handle, workItem);
+      // A resumed conversation is told first who works on the card and what was asked (PM-249), except
+      // a review session that restarts on a new commit: its message is the new round's.
+      let announce = true;
       if (existing && this.isRunning(existing.id)) {
         if (!this.workspaces?.isStale(existing))
           return {
@@ -598,6 +609,7 @@ export class SessionOrchestrator {
         assertNotPaused(this.ctx.repos.pauses, projectKey);
         await this.deps.runner.stop(existing.id);
         this.markEnded(existing.id, null);
+        announce = false;
       }
       return this.start(
         config,
@@ -606,6 +618,7 @@ export class SessionOrchestrator {
         task,
         existing,
         messagesForFirstInput(opts.messages),
+        announce,
         null,
         opts.nudge ?? null,
       );
@@ -638,6 +651,7 @@ export class SessionOrchestrator {
         task,
         this.find(sessionId),
         messagesForFirstInput(messages),
+        false,
       );
       return true;
     });
@@ -782,7 +796,9 @@ export class SessionOrchestrator {
     const grantsLost = this.grantedForSession(session);
     await this.deps.runner.stop(session.id);
     this.markEnded(session.id, null);
-    await this.start(config, member, session.workItem, task, this.find(sessionId), [], { grantsLost });
+    await this.start(config, member, session.workItem, task, this.find(sessionId), [], false, {
+      grantsLost,
+    });
   }
 
   /**
@@ -1081,6 +1097,7 @@ export class SessionOrchestrator {
     task: Task | null,
     existing: Session | null,
     messages: string[],
+    announce: boolean,
     restart: PermissionRestart | null = null,
     nudge: string | null = null,
   ): Promise<EnsureSessionResult> {
@@ -1088,7 +1105,18 @@ export class SessionOrchestrator {
     if (task && isTheme(task)) throw themeRefused(task.key, 'have a session');
     const sessionId = existing?.id ?? newId('ses');
     try {
-      return await this.launch(config, member, workItem, task, existing, messages, sessionId, restart, nudge);
+      return await this.launch(
+        config,
+        member,
+        workItem,
+        task,
+        existing,
+        messages,
+        announce,
+        sessionId,
+        restart,
+        nudge,
+      );
     } catch (err) {
       this.workspaces?.ended(sessionId);
       // A start that failed leaves no folder behind (PM-268).
@@ -1104,6 +1132,7 @@ export class SessionOrchestrator {
     task: Task | null,
     existing: Session | null,
     messages: string[],
+    announce: boolean,
     sessionId: string,
     restart: PermissionRestart | null,
     nudge: string | null,
@@ -1263,6 +1292,20 @@ export class SessionOrchestrator {
       task,
     );
     const relatedSessions = task ? this.relatedSessions(projectKey, member.handle, task) : [];
+    // Resume only a conversation that exists (the runner reported its transcript), that belongs to
+    // the member's current provider and that ran where the session runs now.
+    const resume =
+      !relocated &&
+      Boolean(existing?.transcriptPath && (existing.provider ?? DEFAULT_AGENT_PROVIDER) === provider);
+    // Who else works on the card and what was asked on it (PM-249): a new conversation gets the latest
+    // questions, a resumed one those since it last ran.
+    const cardWorkers = task ? this.cardWorkersFor(config, task, member.handle) : [];
+    const cardQuestions = task
+      ? this.deps.cardQuestions.list(projectKey, task.key, {
+          limit: QUESTION_LIMIT,
+          ...(resume && existing ? { since: existing.lastActivityAt } : {}),
+        })
+      : [];
     const relations = task ? this.deps.tasks.relationsOf(projectKey, task.key) : [];
     const themeCard = task?.themeKey ? this.deps.tasks.find(projectKey, task.themeKey) : null;
     // What a returning reviewer reviewed last (PM-213), named in the message that wakes it.
@@ -1329,6 +1372,8 @@ export class SessionOrchestrator {
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(parentAttachments ? { parentAttachments } : {}),
       ...(relatedSessions.length > 0 ? { relatedSessions } : {}),
+      ...(cardWorkers.length > 0 ? { cardWorkers } : {}),
+      ...(cardQuestions.length > 0 ? { cardQuestions } : {}),
       ...(relations.length > 0 ? { relations } : {}),
       ...(themeCard
         ? {
@@ -1365,11 +1410,6 @@ export class SessionOrchestrator {
     const sessionFolder = sandbox?.env?.[SESSION_DIR_VARIABLE];
     if (sessionFolder) this.prepareSessionFolder(sessionFolder);
     const at = isoNow(this.ctx);
-    // Resume only a conversation that exists (the runner reported its transcript), that belongs to
-    // the member's current provider and that ran where the session runs now.
-    const resume =
-      !relocated &&
-      Boolean(existing?.transcriptPath && (existing.provider ?? DEFAULT_AGENT_PROVIDER) === provider);
     // A conversation whose round ended while its session did not run is compacted before anything
     // else is typed (PM-213), if it is big: the wake-up messages and the continue message follow it.
     const owed = resume && existing ? this.ctx.repos.sessions.compaction(existing.id) : null;
@@ -1431,10 +1471,17 @@ export class SessionOrchestrator {
     const firstInput = messages.length > 0 ? this.awaitFirstInput(session.id) : Promise.resolve(true);
     // A pause's nudge (PM-219) goes first on a resumed conversation: before the messages, or in place of
     // the continue message. A new conversation has nothing to be nudged about.
-    const initialMessage = resume
+    const resumedInput = resume
       ? messages.length > 0
         ? [...(nudge ? [nudge] : []), ...messages].join(MESSAGE_SEPARATOR)
         : (nudge ?? (restart ? null : pack.continueMessage))
+      : null;
+    // A resumed conversation is told first about the card now (PM-249): who else works on it, and the
+    // questions asked or answered since it last ran.
+    const initialMessage = resume
+      ? announce && pack.standing
+        ? [pack.standing, resumedInput].filter((part) => part?.trim()).join(MESSAGE_SEPARATOR)
+        : resumedInput
       : newConversationInput(pack.initialMessage, messages);
     if (initialMessage?.trim()) this.awaitingFirstTurn.add(session.id);
 
@@ -1557,6 +1604,35 @@ export class SessionOrchestrator {
       messagesSent: messages.length,
       firstInput,
     };
+  }
+
+  /**
+   * The running sessions that work on the card now (PM-249): see `cardWorkerSessions` for who counts and
+   * in which order.
+   */
+  cardWorkers(projectKey: string, task: Task, config: ProjectConfig): Session[] {
+    const stage = stageOf(config, task.stageId);
+    return cardWorkerSessions(
+      stage && { kind: stage.kind, owners: stageOwners(config, stage) },
+      task,
+      this.ctx.repos.sessions.list(projectKey, { taskKey: task.key }),
+    ).filter((s) => this.isRunning(s.id));
+  }
+
+  /** The other members working on the card, as the member's brief names them (PM-249). */
+  private cardWorkersFor(config: ProjectConfig, task: Task, self: string): CardWorker[] {
+    return this.cardWorkers(config.project.key, task, config)
+      .filter((s) => s.member !== self)
+      .map((s) => {
+        const worker = memberOf(config, s.member);
+        return {
+          handle: s.member,
+          displayName: worker?.displayName ?? s.member,
+          role: worker?.kind === 'ai' ? roleLabel(worker.role, config.team.roles) : s.member,
+          state: s.state,
+          ...(s.doing ? { doing: s.doing } : {}),
+        };
+      });
   }
 
   /**

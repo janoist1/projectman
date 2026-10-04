@@ -45,8 +45,9 @@
  *     "Tool", "Tool(exact)", "Tool(glob*)", "Tool(prefix:*)", "mcp__server", "mcp__server__*".
  *   - contains "TEAM": tool_use mcp__team__send_message {to:["qa"], text:"Ready for review"}
  *     (same permission flow; `permissions.allow` "mcp__team" or "mcp__team__*" pre-allows it).
- *   - contains "CALLS": the calls in FAKE_CLAUDE_MCP_CALLS (JSON: [{tool, arguments, delayMs?}]),
- *     in order and in this one turn, each after its delay: tool_use mcp__team__<tool>, the same
+ *   - contains "CALLS": the calls in the JSON file FAKE_CLAUDE_MCP_CALLS_FILE, read again at every
+ *     turn (a missing file: none), or else in FAKE_CLAUDE_MCP_CALLS (JSON: [{tool, arguments,
+ *     delayMs?}]), in order and in this one turn, each after its delay: tool_use mcp__team__<tool>, the same
  *     permission flow, then a real tools/call to the "team" server of --mcp-config; its answer
  *     (or the HTTP error) is the tool_result.
  *   - contains "LONGTOOL": tool_use Bash {command:"sleep 60"}, the same permission flow, then a call
@@ -853,7 +854,7 @@ async function interactive() {
       if (!ok || !busy || turn !== myTurn) return;
     }
     if (text.includes('CALLS')) {
-      for (const call of JSON.parse(process.env.FAKE_CLAUDE_MCP_CALLS ?? '[]')) {
+      for (const call of mcpCalls()) {
         await sleep(call.delayMs ?? 0);
         if (!busy || turn !== myTurn) return;
         const ok = await toolCall(`mcp__team__${call.tool}`, call.arguments, '', null, () =>
@@ -1029,6 +1030,22 @@ async function interactive() {
     out('\x1b[3A\x1b[J');
   }
   showPrompt();
+}
+
+/**
+ * The calls of a "CALLS" turn: read again from FAKE_CLAUDE_MCP_CALLS_FILE at every turn, so a
+ * running instance can be given new ones (a missing file is an empty list); without that variable,
+ * FAKE_CLAUDE_MCP_CALLS holds them.
+ */
+function mcpCalls() {
+  const file = process.env.FAKE_CLAUDE_MCP_CALLS_FILE;
+  if (!file) return JSON.parse(process.env.FAKE_CLAUDE_MCP_CALLS ?? '[]');
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'));
+  } catch (err) {
+    if (err.code === 'ENOENT') return [];
+    throw err;
+  }
 }
 
 function loadSettings(value) {

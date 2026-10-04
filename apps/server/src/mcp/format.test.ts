@@ -117,6 +117,58 @@ describe('formatTaskDetail', () => {
     expect(out).toContain('qa: removed the relation: this card has as duplicates AR-23');
   });
 
+  it('names who works on the card now, the other sessions and the questions asked on it (PM-249)', () => {
+    const detail = sampleTaskDetail();
+    const session = (id: string, member: string, state: 'working' | 'idle' | 'waiting_input' | 'exited') => ({
+      ...detail.sessions[0]!,
+      id,
+      member,
+      state,
+    });
+    detail.sessions = [
+      session('ses_a', 'designer', 'working'),
+      session('ses_b', 'fe-1', 'waiting_input'),
+      session('ses_c', 'analyst', 'idle'),
+    ];
+    const out = formatTaskDetail({
+      ...detail,
+      workingSessionIds: ['ses_a', 'ses_b'],
+      cardQuestions: [
+        {
+          inboxItemId: 'inb_1',
+          asker: 'analyst',
+          question: 'Which export format?',
+          askedAt: '2026-10-03T11:20:00.000Z',
+          askedEventId: 'evt_q1',
+          state: 'answered',
+          answer: { by: 'owner', text: 'CSV', at: '2026-10-03T12:00:00.000Z', eventId: 'evt_a1' },
+        },
+        {
+          inboxItemId: 'inb_2',
+          asker: 'designer',
+          question: 'x'.repeat(300),
+          askedAt: '2026-10-03T11:54:00.000Z',
+          askedEventId: 'evt_q2',
+          state: 'open',
+        },
+      ],
+    });
+    expect(out).toContain(
+      '\nWorking on it now: designer (working), fe-1 (waiting input)\nOther sessions: analyst (idle)\n',
+    );
+    expect(out).not.toContain('Sessions: designer');
+    expect(out).toContain(
+      [
+        'Questions to people on this card:',
+        '- analyst asked (2026-10-03 11:20 UTC): "Which export format?" → owner answered: "CSV"',
+        `- designer asked (2026-10-03 11:54 UTC): "${'x'.repeat(159)}… (read it whole: get_task task_key AR-21, event_id evt_q2)" → open`,
+      ].join('\n'),
+    );
+    // Nothing on the card: none of the lines.
+    const quiet = formatTaskDetail({ ...detail, sessions: [], workingSessionIds: [], cardQuestions: [] });
+    expect(quiet).not.toMatch(/Working on it now|Other sessions|Questions to people/);
+  });
+
   it('lists the labels once, on the status line', () => {
     const detail = sampleTaskDetail();
     detail.task.labels = ['frontend', 'qa-ok'];

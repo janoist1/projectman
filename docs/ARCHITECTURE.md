@@ -165,6 +165,16 @@ Documentation map:
   repositories and none chosen it does not start (`repo_required`). Roles that only read run in
   the workspace root. A conversation belongs to the directory it ran in: when the task's
   worktree is elsewhere (its repo changed since), the session starts a new conversation there.
+  **Dependencies in a new worktree** (PM-332, `PROJECTMAN_CLONE_DEPENDENCIES`, on by default; macOS only):
+  after `ensureForTask` made the worktree (or found one without `node_modules`) it clones `node_modules`, the
+  root's and every workspace's, with `cp -c -R` (APFS `clonefile`: seconds, and the blocks are shared) from
+  the first checkout of the repository (the repo path, then its other worktrees) whose `package-lock.json` is
+  byte-identical and whose hidden `node_modules/.package-lock.json` is not older than it, i.e. installed after
+  the lockfile's last change. Only on one APFS volume, only where git ignores `node_modules`; `.vite`,
+  `.vite-temp` and `.cache` are left out of the copy. The server never runs `npm install`/`npm ci` outside the
+  sandbox (install scripts). Whatever fails or does not apply (`worktree/dependencies.ts` names the reasons)
+  is a log line, never a failed worktree: the member installs as before. Members' own workspaces and review
+  copies are not cloned.
 - **Member workspace** (PM-138, server option `memberWorkspaces`, `PROJECTMAN_WORKSPACES=member`;
   off by default until the switch-over, PM-143) — in place of a worktree per task, every AI member
   gets one durable workspace per repository, `workspaces/<KEY>/<handle>/<repo>/`: an independent

@@ -1,0 +1,66 @@
+.meter {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 56px;
+  flex-shrink: 0;
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.label {
+  color: var(--c-ink-4);
+}
+
+.value {
+  color: var(--c-ink);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.value_high {
+  color: var(--c-needs-text);
+}
+
+.value_critical {
+  color: var(--c-blocked-text);
+}
+
+.unknown .value {
+  color: var(--c-ink-4);
+  font-weight: 600;
+}
+
+.track {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--c-line);
+  overflow: hidden;
+}
+
+.fill {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  transition: width 300ms ease-out;
+}
+
+.fill_ok {
+  background: var(--c-accent);
+}
+
+.fill_high {
+  background: var(--c-needs);
+}
+
+.fill_critical {
+  background: var(--c-blocked);
+}

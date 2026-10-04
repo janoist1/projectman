@@ -1,54 +1,11 @@
 import clsx from 'clsx';
 import { Link } from 'react-router';
 import type { AgentProvider, PlanUsage } from '@projectman/shared';
+import { MiniMeter, meterLevel } from '../components/MiniMeter';
+import { Tooltip } from '../components/Tooltip';
 import { formatPercent, formatStamp } from '../i18n/format';
 import { t } from '../i18n/t';
 import styles from './PlanUsageMeter.module.css';
-
-function level(value: number | null, pauseAbove: number): 'ok' | 'high' | 'critical' {
-  if (value === null) return 'ok';
-  if (value >= 95) return 'critical';
-  if (value >= pauseAbove) return 'high';
-  return 'ok';
-}
-
-function Bar({
-  label,
-  value,
-  pauseAbove,
-  resetsAt,
-}: {
-  label: string;
-  value: number | null;
-  pauseAbove: number;
-  resetsAt: string | null;
-}) {
-  const display = value === null ? t('planUsage.unknown') : formatPercent(value);
-  return (
-    <span className={styles.meter}>
-      <span className={styles.row}>
-        <span>{label}</span>
-        <span className={styles.value}>{display}</span>
-      </span>
-      <span
-        className={styles.track}
-        role="meter"
-        aria-label={label}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={value ?? undefined}
-        aria-valuetext={
-          resetsAt ? `${display}, ${t('planUsage.resets', { time: formatStamp(resetsAt) })}` : display
-        }
-      >
-        <span
-          className={clsx(styles.fill, styles[level(value, pauseAbove)])}
-          style={{ width: `${Math.min(100, value ?? 0)}%` }}
-        />
-      </span>
-    </span>
-  );
-}
 
 /**
  * Phone header: one small figure, the highest plan usage across providers and both windows,
@@ -72,7 +29,7 @@ export function PlanUsageBadge({
   return (
     <Link
       to={to}
-      className={clsx(styles.badge, styles[`badge_${level(peak, pauseAbove)}`])}
+      className={clsx(styles.badge, styles[`badge_${meterLevel(peak, pauseAbove)}`])}
       aria-label={t('planUsage.badgeLabel', { percent })}
     >
       <span className={styles.badgeValue} aria-hidden="true">
@@ -82,48 +39,74 @@ export function PlanUsageBadge({
   );
 }
 
-/** Subscription usage for one provider, with both plan windows. */
+/** "27% (visszaáll: 21:40)", or just "n. a." when the usage is unknown. */
+function valueWithReset(value: number | null, resetsAt: string | null): string {
+  if (value === null) return t('planUsage.unknown');
+  const percent = formatPercent(value);
+  return resetsAt ? t('planUsage.withReset', { value: percent, time: formatStamp(resetsAt) }) : percent;
+}
+
+/**
+ * Subscription usage for one provider. `full` shows both plan windows; `peak` one meter with the
+ * higher of the two. Either way the tooltip (hover, focus) has both windows and when they reset.
+ */
 export function PlanUsageMeter({
   usage,
   provider = 'claude',
   pauseAbove = 80,
-  compact = false,
+  variant = 'full',
 }: {
   usage: PlanUsage | null | undefined;
   provider?: AgentProvider;
   pauseAbove?: number;
-  compact?: boolean;
+  variant?: 'full' | 'peak';
 }) {
+  const name = t(`providers.${provider}`);
   const five = usage?.fiveHourPercent ?? null;
   const week = usage?.weeklyPercent ?? null;
   const paused = (five ?? 0) >= pauseAbove || (week ?? 0) >= pauseAbove;
-  const title = [
+  const tip = [
     t('planUsage.title', {
-      provider: t(`providers.${provider}`),
-      fiveHour: five === null ? t('planUsage.unknown') : formatPercent(five),
-      weekly: week === null ? t('planUsage.unknown') : formatPercent(week),
+      provider: name,
+      fiveHour: valueWithReset(five, usage?.fiveHourResetsAt ?? null),
+      weekly: valueWithReset(week, usage?.weeklyResetsAt ?? null),
     }),
     paused ? t('planUsage.paused', { limit: pauseAbove }) : null,
   ]
     .filter(Boolean)
     .join(' · ');
+  const known = [five, week].filter((value): value is number => value !== null);
+  const peak = known.length > 0 ? Math.max(...known) : null;
+  const resetText = (value: number | null, resetsAt: string | null | undefined) => {
+    const percent = value === null ? t('planUsage.unknown') : formatPercent(value);
+    return resetsAt ? `${percent}, ${t('planUsage.resets', { time: formatStamp(resetsAt) })}` : percent;
+  };
   return (
-    <span className={clsx(styles.box, compact && styles.compact, paused && styles.paused)} title={title}>
-      <span className={styles.label}>
-        {t('planUsage.providerLabel', { provider: t(`providers.${provider}`) })}
-      </span>
-      <Bar
-        label={t('planUsage.fiveHour')}
-        value={five}
-        pauseAbove={pauseAbove}
-        resetsAt={usage?.fiveHourResetsAt ?? null}
-      />
-      <Bar
-        label={t('planUsage.weekly')}
-        value={week}
-        pauseAbove={pauseAbove}
-        resetsAt={usage?.weeklyResetsAt ?? null}
-      />
-    </span>
+    <Tooltip label={name} content={tip} className={styles.provider}>
+      {variant === 'full' ? (
+        <>
+          <span className={styles.name}>{name}</span>
+          <MiniMeter
+            label={t('planUsage.fiveHour')}
+            value={five}
+            pauseAbove={pauseAbove}
+            valueText={resetText(five, usage?.fiveHourResetsAt)}
+          />
+          <MiniMeter
+            label={t('planUsage.weekly')}
+            value={week}
+            pauseAbove={pauseAbove}
+            valueText={resetText(week, usage?.weeklyResetsAt)}
+          />
+        </>
+      ) : (
+        <MiniMeter
+          label={name}
+          value={peak}
+          pauseAbove={pauseAbove}
+          valueText={`${peak === null ? t('planUsage.unknown') : formatPercent(peak)} · ${tip}`}
+        />
+      )}
+    </Tooltip>
   );
 }

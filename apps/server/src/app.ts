@@ -161,6 +161,8 @@ export interface BuildAppOptions {
   publicBaseUrl?: string;
   /** Claude Code CLI (default "claude"). */
   claudeBin?: string;
+  /** PM-332: clone node_modules into new task worktrees from an installed checkout (default false; index.ts turns it on). */
+  cloneDependencies?: boolean;
   /** OpenAI Codex CLI (default "codex"). */
   codexBin?: string;
   /** Codex's home, where it keeps transcripts (default: the runner's, ~/.codex). */
@@ -379,7 +381,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const memory = modules.memberMemory ?? createMemberMemoryStore({ rootDir: join(home, 'memory') });
     const worktrees =
       modules.worktrees ??
-      createWorktreeManager({ rootDir: join(home, 'worktrees'), logger: log.child({ module: 'worktree' }) });
+      createWorktreeManager({
+        rootDir: join(home, 'worktrees'),
+        logger: log.child({ module: 'worktree' }),
+        cloneDependencies: options.cloneDependencies ?? false,
+      });
     // The VM boundary (PM-140): fail closed. Its proxy is the workers' only way out; the status
     // reports it down until it listens, and no session starts meanwhile.
     const boundaryConfig = options.runtimeBoundary;

@@ -227,6 +227,8 @@ export interface WorktreeManagerOptions {
   /** Where worktrees are created, e.g. ~/.projectman/worktrees. */
   rootDir: string;
   logger: FastifyBaseLogger;
+  /** PM-332: clone node_modules into a task worktree from an installed checkout with the same lockfile (APFS clonefile, macOS). Default false. */
+  cloneDependencies?: boolean;
 }
 
 /* ---------- member workspaces (PM-138) ---------- */

@@ -422,7 +422,7 @@ async function rebundle(h: Harness, j: Journey) {
 
 async function refuseOrphan(h: Harness, j: Journey, member: string, duty: string, path: string) {
   const before = await h.configView();
-  const running = runningSessions(h, j);
+  const running = await runningSessions(h, j);
   const timeline = h.domain.timeline.list(projectKey);
   const task = h.domain.tasks.get(projectKey, j.task.key);
   const failed = await h.server.inject({
@@ -448,15 +448,23 @@ async function refuseOrphan(h: Harness, j: Journey, member: string, duty: string
   expect(h.domain.timeline.list(projectKey)).toEqual(timeline);
   expect(h.domain.tasks.get(projectKey, j.task.key)).toEqual(task);
   // A refused change stops nothing (some sessions may have closed by themselves before it).
-  expect(runningSessions(h, j)).toEqual(running);
+  expect(await runningSessions(h, j)).toEqual(running);
   await j.assertState(task.stageId);
 }
 
-/** The ids of the journey's sessions whose process runs. */
-function runningSessions(h: Harness, j: Journey): string[] {
-  return [...j.sessions.values()]
-    .filter((sessionId) => h.server.projectman.runnerModule.runner.isRunning(sessionId))
-    .sort();
+/**
+ * The ids of the journey's sessions whose process runs, once none of them is marked to close: a session
+ * whose member's step ended while it was in a turn (the QA that moved the card on) closes at its next
+ * idle moment, by itself and in the background, so a look before that would race the close.
+ */
+async function runningSessions(h: Harness, j: Journey): Promise<string[]> {
+  const { runner } = h.server.projectman.runnerModule;
+  await waitFor(
+    () =>
+      [...j.sessions.values()].every((id) => !runner.isRunning(id) || !h.domain.sessions.pendingClose(id)),
+    { what: 'the sessions marked to close to close' },
+  );
+  return [...j.sessions.values()].filter((id) => runner.isRunning(id)).sort();
 }
 
 async function throughQuality(h: Harness, j: Journey, rebundled = false) {
@@ -569,7 +577,7 @@ async function finish(h: Harness, j: Journey) {
 
 async function cleanupTask(h: Harness, j: Journey) {
   await j.assertState('done', 'done');
-  const running = runningSessions(h, j);
+  const running = await runningSessions(h, j);
   await h.domain.sessions.cleanupDoneTask(projectKey, j.task.key);
   const ended = await j.assertState('done', 'done');
   expect(ended.sessions.every((session) => session.state === 'exited')).toBe(true);

@@ -32,12 +32,16 @@ export function formatDate(value: string | Date, now: Date = new Date()): string
   return d.getFullYear() === now.getFullYear() ? dateFormat.format(d) : dateYearFormat.format(d);
 }
 
-/** Timeline stamp: "14:02" today, "tegnap 14:02", otherwise "szept. 28. 14:02". */
+/**
+ * Timeline stamp: "14:02" today, "tegnap 14:02", "holnap 08:00", otherwise "szept. 28. 14:02"
+ * (also for a time further ahead).
+ */
 export function formatStamp(value: string | Date, now: Date = new Date()): string {
   const days = daysBetween(value, now);
   const time = formatTime(value);
-  if (days <= 0) return time;
+  if (days === 0) return time;
   if (days === 1) return t('time.yesterdayAt', { time });
+  if (days === -1) return t('time.tomorrowAt', { time });
   return t('time.dateAt', { date: formatDate(value, now), time });
 }
 

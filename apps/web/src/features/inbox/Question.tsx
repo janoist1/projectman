@@ -127,7 +127,11 @@ export function QuestionBody({ text, mobile = false }: { text: string; mobile?: 
         )
         .map((block) => {
           const box = block.getBoundingClientRect();
-          return { top: box.top - top, bottom: box.bottom - top };
+          return {
+            top: box.top - top,
+            bottom: box.bottom - top,
+            leadIn: /:\s*$/.test(block.textContent ?? '') || /^H[1-6]$/.test(block.tagName),
+          };
         });
       const fold = foldHeight(blocks, lineHeight);
       setFoldedHeight(fold.height);

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { routes } from '@projectman/shared';
 import type { AgentProvider, ChatItem, Task, TaskDetail } from '@projectman/shared';
@@ -24,6 +24,62 @@ const PROVIDERS: Array<[AgentProvider, string]> = [
   ['claude', 'dev-1'],
   ['codex', 'dev-2'],
 ];
+
+it(
+  'starts a new conversation when the transcript of a stopped claude session was never written (PM-340)',
+  {
+    timeout: 90_000,
+  },
+  async () => {
+    h = await createAppHarness({ runner: 'fake-cli', real: { context: true } });
+    const { app, home } = h;
+    const argsFile = join(home, 'claude-args.json');
+    vi.stubEnv('FAKE_CLAUDE_ARGS_FILE', argsFile);
+    const argv = (): string[] => JSON.parse(readFileSync(argsFile, 'utf8')).argv;
+    const cookie = await setupOwner(app);
+    await createProject(h, cookie);
+    const { domain } = app.projectman;
+    const created = await app.inject({
+      method: 'POST',
+      url: routes.tasks('AR'),
+      headers: { cookie },
+      payload: { title: 'Acme checkout' },
+    });
+    const { key } = created.json<Task>();
+    const start = async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: routes.startTask('AR', key),
+        headers: { cookie },
+        payload: { assignee: 'dev-1' },
+      });
+      expect(res.statusCode).toBe(200);
+      return res.json<TaskDetail>().sessions[0]!;
+    };
+    const idle = (id: string) =>
+      waitFor(() => domain.sessions.get('AR', id).state === 'idle', { what: 'idle' });
+
+    const first = await start();
+    const transcript = await waitFor(() => domain.sessions.get('AR', first.id).transcriptPath, {
+      what: 'a transcript',
+    });
+    await idle(first.id);
+    const conversation = domain.sessions.get('AR', first.id).claudeSessionId;
+    await domain.sessions.stop('AR', first.id);
+    await waitFor(() => !app.projectman.runnerModule.runner.isRunning(first.id), {
+      what: 'the session to stop',
+    });
+    // The CLI had not written its conversation: the path is known, the file is not there.
+    rmSync(transcript);
+
+    const again = await start();
+    expect(again.id).toBe(first.id);
+    await idle(first.id);
+    expect(argv()).not.toContain('--resume');
+    expect(argv()).not.toContain(conversation);
+    expect(domain.sessions.get('AR', first.id).state).toBe('idle');
+  },
+);
 
 const userTexts = (chat: ChatItem[]) => chat.flatMap((i) => (i.kind === 'user_text' ? [i.text] : []));
 

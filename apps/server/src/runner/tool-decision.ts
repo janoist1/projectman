@@ -1,4 +1,4 @@
-import { lstatSync, readlinkSync, realpathSync } from 'node:fs';
+import { lstatSync, readlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, normalize, resolve } from 'node:path';
 import { placementReadsOnly, type DeniedSessionOperation } from '@projectman/shared';
@@ -39,7 +39,14 @@ export type ToolDecision =
 export interface ToolDecisionOptions {
   /** The user's home directory, for `~` and `$HOME`; defaults to the process user's. */
   home?: string;
+  /**
+   * Whether the filesystem treats `~/.SSH` and `~/.ssh` as one place (macOS, Windows); the denied
+   * paths are then compared without regard to case. Defaults to the platform's.
+   */
+  caseInsensitive?: boolean;
 }
+
+const CASE_INSENSITIVE_FILESYSTEM = process.platform === 'darwin' || process.platform === 'win32';
 
 const ALLOW: ToolDecision = { decision: 'allow' };
 const ASK: ToolDecision = { decision: 'ask' };
@@ -53,28 +60,35 @@ const SYMLINK_LIMIT = 40;
 // ---------------------------------------------------------------------------------------------
 
 /** The real path of an absolute, normalized path; a missing tail is kept as written. */
-function realPathOf(path: string, depth = 0): string {
-  const tail: string[] = [];
-  let current = path;
-  for (;;) {
+function physicalPath(absolute: string, depth = 0): string {
+  let current = '/';
+  const parts = absolute.split('/').filter((part) => part !== '' && part !== '.');
+  for (let i = 0; i < parts.length; i += 1) {
+    const part = parts[i]!;
+    // The kernel steps up from where it really is, after it followed the symlinks before the "..".
+    if (part === '..') {
+      current = dirname(current);
+      continue;
+    }
+    const next = join(current, part);
+    let link: string | null = null;
     try {
-      return join(realpathSync(current), ...tail.reverse());
+      const stat = lstatSync(next);
+      if (stat.isSymbolicLink()) link = readlinkSync(next);
     } catch {
-      // Missing (or unreadable): a dangling symlink still points somewhere a write would create.
-      try {
-        if (depth < SYMLINK_LIMIT && lstatSync(current).isSymbolicLink()) {
-          const target = resolve(dirname(current), readlinkSync(current));
-          return join(realPathOf(target, depth + 1), ...tail.reverse());
-        }
-      } catch {
-        // Not there at all: look at its parent.
-      }
-      const parent = dirname(current);
-      if (parent === current) return join(current, ...tail.reverse());
-      tail.push(basename(current));
-      current = parent;
+      // Missing (or unreadable): nothing below it exists; the rest stays as written.
+      return join(current, ...parts.slice(i));
+    }
+    if (link === null) {
+      current = next;
+    } else if (depth >= SYMLINK_LIMIT) {
+      return join(next, ...parts.slice(i + 1));
+    } else {
+      // A dangling symlink still points somewhere a write would create.
+      current = physicalPath(isAbsolute(link) ? link : `${current}/${link}`, depth + 1);
     }
   }
+  return current;
 }
 
 function expandHome(raw: string, home: string): string {
@@ -84,18 +98,44 @@ function expandHome(raw: string, home: string): string {
 }
 
 /**
- * Resolves a tool path against the session's cwd: absolute, normalized ("..", "~"), with the
- * realpath of its deepest existing ancestor (symlinks).
+ * Resolves a tool path against the session's cwd the way the kernel opens it: absolute, "~"
+ * expanded, symlinks followed component by component, so a ".." after a symlink steps up from
+ * the symlink's target; the part that does not exist yet is kept as written ("..", "." taken out).
  */
 export function resolveToolPath(cwd: string, raw: string, home: string): string {
   const expanded = expandHome(raw, home);
-  const absolute = isAbsolute(expanded) ? normalize(expanded) : resolve(cwd, expanded);
-  return realPathOf(absolute);
+  return physicalPath(isAbsolute(expanded) ? expanded : `${cwd}/${expanded}`);
 }
 
-function isUnder(path: string, root: string): boolean {
+/**
+ * Every place a raw path may mean: where the kernel opens it (`resolveToolPath`), and where it
+ * lands when the CLI took the ".." out as text before it opened anything. They differ only for a
+ * ".." behind a symlink. Put all of them in `NormalizedToolCall.paths`: a deny follows when any is
+ * denied, an allow needs every one inside the roots.
+ */
+export function toolPathForms(cwd: string, raw: string, home: string): string[] {
+  const expanded = expandHome(raw, home);
+  const textual = physicalPath(isAbsolute(expanded) ? normalize(expanded) : resolve(cwd, expanded));
+  return [...new Set([resolveToolPath(cwd, raw, home), textual])];
+}
+
+const hasGlob = (root: string): boolean => /[*?]/.test(root);
+
+/** `*` and `?` of a path pattern as a regular expression, the whole path or a directory above it. */
+function globPattern(pattern: string, caseInsensitive: boolean): RegExp {
+  const source = pattern
+    .replace(/\/+$/, '')
+    .split(/([*?])/)
+    .map((piece) => (piece === '*' ? '[^/]*' : piece === '?' ? '[^/]' : escapeRegExp(piece)))
+    .join('');
+  return new RegExp(`^${source}(?:/|$)`, caseInsensitive ? 'i' : '');
+}
+
+function isUnder(path: string, root: string, caseInsensitive = false): boolean {
+  if (hasGlob(root)) return globPattern(root, caseInsensitive).test(path);
   const base = root.length > 1 ? root.replace(/\/+$/, '') : root;
-  return path === base || path.startsWith(base === '/' ? '/' : `${base}/`);
+  const [left, right] = caseInsensitive ? [path.toLowerCase(), base.toLowerCase()] : [path, base];
+  return left === right || left.startsWith(right === '/' ? '/' : `${right}/`);
 }
 
 /** A root as the policy names it and as the filesystem resolves it (a symlinked root). */
@@ -109,8 +149,8 @@ function rootForms(cwd: string, roots: readonly string[], home: string): string[
   return [...forms];
 }
 
-const underAny = (path: string, roots: readonly string[]): boolean =>
-  roots.some((root) => isUnder(path, root));
+const underAny = (path: string, roots: readonly string[], caseInsensitive = false): boolean =>
+  roots.some((root) => isUnder(path, root, caseInsensitive));
 
 // ---------------------------------------------------------------------------------------------
 // Shell command lines
@@ -129,6 +169,8 @@ interface ParsedCommand {
   redirects: string[];
   /** Nesting went deeper than the scan follows: the line is not trusted. */
   overflow: boolean;
+  /** A shell that reads its script from the input (`… | sh`, `sh <<< '…'`): not seen by the scan. */
+  stdinShell: boolean;
 }
 
 /** The index of the parenthesis that closes the one before `start`, quotes and nesting aware. */
@@ -163,10 +205,21 @@ function matchBacktick(line: string, start: number): number {
   return line.length;
 }
 
+/** Stands in a word for what a substitution (`$( )`, backticks) will put there. */
+const DYNAMIC = '\u0000';
+/** A word whose value the line does not say: a variable, a substitution or an empty word. */
+const isDynamic = (word: string): boolean => word === '' || word.includes('$') || word.includes(DYNAMIC);
+
 /**
  * Splits a shell line into simple commands (words with the quotes and escapes taken off), and
- * adds the commands inside `$( )`, backticks and `<( )` as commands of their own. It over-reads
- * rather than under-reads: a line it cannot follow is never taken for harmless.
+ * adds the commands inside `$( )`, backticks and `<( )` as commands of their own; `sh -c`, `eval`
+ * and a shell that reads its script from the input are followed afterwards (`expandNested`).
+ *
+ * It leans to deny, not to allow: a word that is a variable or a substitution where a git or gh
+ * subcommand belongs counts as the denied one. What it cannot follow, and leaves to the CLI's own
+ * sandbox: a script file (`bash run.sh`), another interpreter (`python -c`, `node -e`), a variable
+ * assigned in one place and run in another when the line never spells the denied words, and
+ * `git` aliases or `gh` extensions set outside the line.
  */
 function parseShell(line: string, state: ParsedCommand, depth: number): void {
   if (depth > MAX_NESTING) {
@@ -195,6 +248,7 @@ function parseShell(line: string, state: ParsedCommand, depth: number): void {
   };
   const substitution = (inner: string): void => {
     parseShell(inner, state, depth + 1);
+    word += DYNAMIC;
     inWord = true;
   };
 
@@ -271,7 +325,39 @@ const GIT_VALUE_OPTIONS = new Set([
 ]);
 const GH_VALUE_OPTIONS = new Set(['-R', '--repo', '--hostname', '-H']);
 
-/** Follows `sh -c '…'` and `eval …` into the script they run, as commands of their own. */
+const SHELL_VALUE_OPTIONS = new Set(['-o', '+o', '-O', '+O', '--rcfile', '--init-file']);
+const WRAPPERS = new Set([
+  'env',
+  'command',
+  'exec',
+  'sudo',
+  'doas',
+  'nohup',
+  'nice',
+  'time',
+  'xargs',
+  'builtin',
+  'setsid',
+  'stdbuf',
+]);
+
+/** Whether every word before `index` only prepares the command at `index` (a wrapper, its options). */
+function atCommandPosition(words: string[], index: number): boolean {
+  return words
+    .slice(0, index)
+    .every(
+      (word) =>
+        WRAPPERS.has(basename(word)) ||
+        word.startsWith('-') ||
+        /^[A-Za-z_]\w*=/.test(word) ||
+        /^\d+$/.test(word),
+    );
+}
+
+/**
+ * Follows `sh -c '…'` and `eval …` into the script they run, as commands of their own, and notes
+ * a shell that takes its script from the input instead: the scan cannot see that script.
+ */
 function expandNested(state: ParsedCommand): void {
   for (let index = 0; index < state.units.length; index += 1) {
     const { words, depth } = state.units[index]!;
@@ -280,29 +366,47 @@ function expandNested(state: ParsedCommand): void {
       if (name === 'eval') {
         parseShell(words.slice(i + 1).join(' '), state, depth + 1);
       } else if (SHELLS.has(name)) {
+        let readsInput = true;
         for (let j = i + 1; j < words.length; j += 1) {
           const arg = words[j]!;
-          if (!arg.startsWith('-')) break;
-          if (!arg.startsWith('--') && arg.includes('c')) {
+          if (arg === '-') break;
+          if (!arg.startsWith('-')) {
+            readsInput = false;
+            break;
+          }
+          if (SHELL_VALUE_OPTIONS.has(arg)) {
+            j += 1;
+          } else if (!arg.startsWith('--') && arg.includes('c')) {
             parseShell(words[j + 1] ?? '', state, depth + 1);
+            readsInput = false;
             break;
           }
         }
+        if (readsInput && atCommandPosition(words, i)) state.stdinShell = true;
       }
     }
   }
 }
 
-/** Which git subcommand `args` (after `git`) run, with the global options left out. */
-function gitSubcommand(args: string[]): { subcommand: string | null; aliasedPush: boolean } {
+const GIT_PUSH_SUBCOMMANDS = new Set(['push', 'send-pack']);
+
+/** Whether `args` (after `git`) push: the subcommand after the global options, or an alias for it. */
+function gitPushes(args: string[]): boolean {
   let aliasedPush = false;
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i]!;
-    if (!arg.startsWith('-')) return { subcommand: arg, aliasedPush };
+    if (!arg.startsWith('-')) {
+      if (isDynamic(arg) || GIT_PUSH_SUBCOMMANDS.has(arg)) return true;
+      if (arg === 'subtree') {
+        const action = args.slice(i + 1).find((word) => !word.startsWith('-'));
+        if (action !== undefined && (action === 'push' || isDynamic(action))) return true;
+      }
+      return aliasedPush;
+    }
     if (arg === '-c' && /^alias\.[^=]*=.*\bpush\b/.test(args[i + 1] ?? '')) aliasedPush = true;
     if (GIT_VALUE_OPTIONS.has(arg)) i += 1;
   }
-  return { subcommand: null, aliasedPush };
+  return aliasedPush;
 }
 
 /** The first two words of a gh command (`pr create`), with the options left out. */
@@ -316,26 +420,64 @@ function ghSubcommands(args: string[]): string[] {
   return found;
 }
 
+/** What `gh api …` does to pull requests: a write to the pulls endpoint, or the GraphQL mutation. */
+function ghApiOperations(args: string[]): DeniedSessionOperation[] {
+  let method: string | undefined;
+  let fields = false;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]!;
+    if (arg === '-X' || arg === '--method') method = args[i + 1];
+    else if (arg.startsWith('--method=')) method = arg.slice('--method='.length);
+    else if (/^-X./.test(arg)) method = arg.slice(2);
+    else if (/^(-[fF]|--(raw-)?field|--input)/.test(arg)) fields = true;
+  }
+  // A field makes the request a POST unless the method is named.
+  const writes = method === undefined ? fields : /^(post|put|patch)$/i.test(method) || isDynamic(method);
+  const found = new Set<DeniedSessionOperation>();
+  for (const arg of args) {
+    if (/createPullRequest/.test(arg)) found.add('pull_request_create');
+    if (/mergePullRequest|enablePullRequestAutoMerge/.test(arg)) found.add('pull_request_merge');
+    if (writes && /(^|\/)pulls(\/|\?|$)/.test(arg)) {
+      found.add(/\/merge(\?|$)/.test(arg) ? 'pull_request_merge' : 'pull_request_create');
+    }
+    if (writes && isDynamic(arg)) {
+      found.add('pull_request_create');
+      found.add('pull_request_merge');
+    }
+  }
+  return [...found];
+}
+
 function unitOperations(words: string[]): Set<DeniedSessionOperation> {
   const found = new Set<DeniedSessionOperation>();
   // Every word may start the command a wrapper runs (`env A=1 git push`, `xargs git push`).
   for (let i = 0; i < words.length; i += 1) {
-    const name = basename(words[i]!);
+    const word = words[i]!;
+    const name = basename(word);
     const rest = words.slice(i + 1);
     if (name === 'git') {
-      const { subcommand, aliasedPush } = gitSubcommand(rest);
-      if (subcommand === 'push' || aliasedPush) found.add('git_push');
+      if (gitPushes(rest)) found.add('git_push');
     } else if (name === 'gh') {
       const [group, action] = ghSubcommands(rest);
-      if (group === 'pr' && action === 'create') found.add('pull_request_create');
-      if (group === 'pr' && action === 'merge') found.add('pull_request_merge');
+      if (group === 'api') {
+        for (const operation of ghApiOperations(rest)) found.add(operation);
+      } else if (group === 'pr' || (group !== undefined && isDynamic(group))) {
+        const unknown = action !== undefined && isDynamic(action);
+        if (action === 'create' || unknown) found.add('pull_request_create');
+        if (action === 'merge' || unknown) found.add('pull_request_merge');
+      }
+    } else if (isDynamic(word)) {
+      // A variable in the command's place (`$GIT push`) may be git or gh.
+      if (rest.includes('push')) found.add('git_push');
+      if (rest.includes('pr') && rest.includes('create')) found.add('pull_request_create');
+      if (rest.includes('pr') && rest.includes('merge')) found.add('pull_request_merge');
     }
   }
   return found;
 }
 
 function parseCommand(line: string): ParsedCommand {
-  const state: ParsedCommand = { units: [], redirects: [], overflow: false };
+  const state: ParsedCommand = { units: [], redirects: [], overflow: false, stdinShell: false };
   parseShell(line, state, 0);
   expandNested(state);
   return state;
@@ -344,7 +486,7 @@ function parseCommand(line: string): ParsedCommand {
 /** Whether the line runs something the policy denies (publishing operations), disguised or not. */
 function runsDeniedOperation(policy: SessionPolicy, parsed: ParsedCommand): boolean {
   if (policy.deniedOperations.length === 0) return false;
-  if (parsed.overflow) return true;
+  if (parsed.overflow || parsed.stdinShell) return true;
   return parsed.units.some(({ words }) =>
     [...unitOperations(words)].some((operation) => policy.deniedOperations.includes(operation)),
   );
@@ -379,31 +521,67 @@ function deniedSpellings(denied: string, home: string): string[] {
   return spellings;
 }
 
+/** A spelling as a regular expression: `*` and `?` of a pattern stand for the characters of a name. */
+function spellingPattern(spelling: string, caseInsensitive: boolean): RegExp {
+  const name = '[\\w.@+-]';
+  const source = spelling
+    .split(/([*?])/)
+    .map((piece) => (piece === '*' ? `${name}*` : piece === '?' ? name : escapeRegExp(piece)))
+    .join('');
+  return new RegExp(`${source}(?!${name})`, caseInsensitive ? 'i' : '');
+}
+
+const MAX_BASES = 16;
+
+/** The path words of a command: the word itself and the parts an option or a list joins. */
+function pathCandidates(word: string, home: string): string[] {
+  return [...new Set([word, ...word.split(/[=:,]/)])]
+    .filter((part) => part !== '')
+    .map((part) => part.replace(/^\$\{?HOME\}?(?=\/|$)/, home));
+}
+
+const isPathLike = (candidate: string): boolean =>
+  candidate.includes('/') || candidate.startsWith('~') || candidate.startsWith('.');
+
 function commandTouchesDenied(
-  policy: SessionPolicy,
   cwd: string,
   home: string,
   denied: string[],
   line: string,
   parsed: ParsedCommand,
+  caseInsensitive: boolean,
 ): boolean {
   // The line's own text first: it also holds paths inside a quoted script the parse does not open.
   for (const root of denied) {
     for (const spelling of deniedSpellings(root, home)) {
-      if (new RegExp(`${escapeRegExp(spelling)}(?![\\w.@+-])`).test(line)) return true;
+      if (spellingPattern(spelling, caseInsensitive).test(line)) return true;
     }
   }
-  const words = [...parsed.units.flatMap((unit) => unit.words), ...parsed.redirects];
-  for (const word of words) {
-    for (const part of new Set([word, ...word.split(/[=:,]/)])) {
-      if (part === '') continue;
-      const candidate = part.replace(/^\$\{?HOME\}?(?=\/|$)/, home);
-      const pathLike = candidate.includes('/') || candidate.startsWith('~') || candidate.startsWith('.');
-      const path = pathLike ? resolveToolPath(cwd, candidate, home) : resolve(cwd, candidate);
-      if (underAny(path, denied)) return true;
+  // A `cd` moves the relative words after it; where the line really stands is not known, so a
+  // relative word is read from the working directory and from every directory a `cd` named.
+  const bases = [cwd];
+  const touches = (word: string): boolean =>
+    pathCandidates(word, home).some((candidate) =>
+      bases.some((base) =>
+        (isPathLike(candidate) ? toolPathForms(base, candidate, home) : [resolve(base, candidate)]).some(
+          (path) => underAny(path, denied, caseInsensitive),
+        ),
+      ),
+    );
+  for (const { words } of parsed.units) {
+    if (words.some(touches)) return true;
+    if (basename(words[0]!) === 'cd' || basename(words[0]!) === 'pushd') {
+      const target = words.slice(1).find((word) => !word.startsWith('-')) ?? '~';
+      for (const base of [...bases]) {
+        for (const candidate of pathCandidates(target, home).slice(0, 1)) {
+          for (const form of toolPathForms(base, candidate, home)) {
+            if (!bases.includes(form) && bases.length < MAX_BASES) bases.push(form);
+          }
+        }
+      }
     }
   }
-  return false;
+  return parsed.redirects.some(touches);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -461,16 +639,18 @@ export function decideToolCall(
   const home = options.home ?? homedir();
   const cwd = policy.placement.path;
   const mode = policy.permissions.claude;
-  const paths = call.paths.map((path) => resolveToolPath(cwd, path, home));
+  const caseInsensitive = options.caseInsensitive ?? CASE_INSENSITIVE_FILESYSTEM;
+  // Each path in every place it may mean (see `toolPathForms`): a deny needs one, an allow all.
+  const paths = call.paths.flatMap((path) => toolPathForms(cwd, path, home));
 
   // 1. A denied path, in every mode.
   const denied = rootForms(cwd, policy.filesystem.deniedPaths ?? [], home);
-  if (paths.some((path) => underAny(path, denied))) return deny('denied_path');
+  if (paths.some((path) => underAny(path, denied, caseInsensitive))) return deny('denied_path');
   const parsed = call.category === 'command' ? parseCommand(call.command ?? '') : null;
   if (
     parsed &&
     denied.length > 0 &&
-    commandTouchesDenied(policy, cwd, home, denied, call.command ?? '', parsed)
+    commandTouchesDenied(cwd, home, denied, call.command ?? '', parsed, caseInsensitive)
   ) {
     return deny('denied_path');
   }

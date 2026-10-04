@@ -3,7 +3,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { SessionPolicy } from '../contracts';
-import { decideToolCall, resolveToolPath, type NormalizedToolCall, type ToolDecision } from './tool-decision';
+import {
+  decideToolCall,
+  resolveToolPath,
+  toolPathForms,
+  type NormalizedToolCall,
+  type ToolDecision,
+} from './tool-decision';
 
 type Mode = SessionPolicy['permissions']['claude'];
 const MODES: Mode[] = ['default', 'acceptEdits', 'plan', 'auto'];
@@ -19,6 +25,9 @@ const outside = join(root, 'outside');
 beforeAll(() => {
   for (const dir of [
     join(home, '.ssh'),
+    join(home, '.config', 'foo'),
+    join(home, '.config', 'gh'),
+    join(home, '.projectman'),
     join(work, '.git'),
     join(work, 'src'),
     extra,
@@ -32,6 +41,13 @@ beforeAll(() => {
   symlinkSync(join(home, '.ssh'), join(work, 'ssh-link'));
   symlinkSync(join(home, '.ssh', 'new-key'), join(work, 'dangling'));
   symlinkSync(outside, join(work, 'outside-link'));
+  writeFileSync(join(home, '.config', 'gh', 'hosts.yml'), 'token');
+  writeFileSync(join(home, '.projectman', 'db.sqlite'), 'db');
+  // A ".." behind these steps up from the target, not from the link.
+  symlinkSync(join(home, '.config', 'foo'), join(work, 'lnk'));
+  symlinkSync(extra, join(work, 'up'));
+  mkdirSync(join(work, 'deep', 'dir'), { recursive: true });
+  symlinkSync(join(work, 'deep', 'dir'), join(work, 'lnk-in'));
 });
 
 afterAll(() => {
@@ -58,7 +74,12 @@ function policyFor(mode: Mode, patch: Partial<SessionPolicy> = {}): SessionPolic
       writableRoots: [work],
       protectedPaths: [join(work, '.git')],
       readOnlyPaths: [attachments],
-      deniedPaths: [join(home, '.ssh'), join(home, 'credentials.json')],
+      deniedPaths: [
+        join(home, '.ssh'),
+        join(home, 'credentials.json'),
+        join(home, '.config', 'gh'),
+        join(home, '.projectman', 'db.sqlite*'),
+      ],
     },
     deniedOperations: ['git_push', 'pull_request_create', 'pull_request_merge'],
     network: {
@@ -88,8 +109,8 @@ const reader = (mode: Mode): SessionPolicy =>
     },
   });
 
-const decide = (policy: SessionPolicy, call: NormalizedToolCall): ToolDecision =>
-  decideToolCall(policy, call, { home });
+const decide = (policy: SessionPolicy, call: NormalizedToolCall, caseInsensitive = false): ToolDecision =>
+  decideToolCall(policy, call, { home, caseInsensitive });
 const command = (line: string, sandboxed?: boolean): NormalizedToolCall => ({
   category: 'command',
   paths: [],
@@ -133,6 +154,27 @@ describe('resolveToolPath', () => {
   it('keeps a path that does not exist at all as written', () => {
     expect(resolveToolPath(work, 'nothing/here.txt', home)).toBe(join(work, 'nothing', 'here.txt'));
   });
+
+  it('steps up from where a symlink points when a ".." follows it, as the kernel does', () => {
+    // work/lnk -> home/.config/foo, so work/lnk/../gh is home/.config/gh, not work/gh.
+    expect(resolveToolPath(work, 'lnk/../gh/hosts.yml', home)).toBe(join(home, '.config', 'gh', 'hosts.yml'));
+    // `join` would take the ".." out as text before the call.
+    expect(resolveToolPath(work, `${work}/lnk/../gh`, home)).toBe(join(home, '.config', 'gh'));
+  });
+});
+
+describe('toolPathForms', () => {
+  it('gives the one place a path without a ".." behind a symlink means', () => {
+    expect(toolPathForms(work, 'src/a.ts', home)).toEqual([join(work, 'src', 'a.ts')]);
+    expect(toolPathForms(work, 'ssh-link/id_ed25519', home)).toEqual([join(home, '.ssh', 'id_ed25519')]);
+  });
+
+  it('gives both places when the CLI may take the ".." out as text first', () => {
+    expect(toolPathForms(work, 'lnk/../gh/hosts.yml', home)).toEqual([
+      join(home, '.config', 'gh', 'hosts.yml'),
+      join(work, 'gh', 'hosts.yml'),
+    ]);
+  });
 });
 
 describe('row 1: denied paths, in every mode', () => {
@@ -156,6 +198,35 @@ describe('row 1: denied paths, in every mode', () => {
         ['a command through a symlink', command('cat ssh-link/id_ed25519', true)],
         ['a command through ".."', command('cat ../home/.ssh/id_ed25519', true)],
         ['a command that is allowed by a shell rule', command('git status ~/.ssh/id_ed25519')],
+        ['read behind a symlink and a ".."', read('lnk/../gh/hosts.yml')],
+        ['read behind a symlink and a ".." (absolute)', read(`${work}/lnk/../gh/hosts.yml`)],
+        ['edit behind a symlink and a ".."', edit('lnk/../gh/hosts.yml')],
+        ['a command behind a symlink and a ".."', command('cat lnk/../gh/hosts.yml', true)],
+        ['a command behind a symlink and a ".." (shell rule)', command('git status lnk/../gh/hosts.yml')],
+        ['read of the first pattern match', read(join(home, '.projectman', 'db.sqlite'))],
+        [
+          'read of a name the pattern ends with a star for (-wal)',
+          read(join(home, '.projectman', 'db.sqlite-wal')),
+        ],
+        [
+          'read of a name the pattern ends with a star for (-shm)',
+          read(join(home, '.projectman', 'db.sqlite-shm')),
+        ],
+        ['edit of a pattern match', edit(join(home, '.projectman', 'db.sqlite-wal'))],
+        ['a command opening the database', command('sqlite3 ~/.projectman/db.sqlite', true)],
+        [
+          'a command opening the database (absolute)',
+          command(`sqlite3 ${join(home, '.projectman', 'db.sqlite-wal')}`, true),
+        ],
+        ['a command opening the database ($HOME)', command('cp $HOME/.projectman/db.sqlite-shm x', true)],
+        [
+          'a command opening the database (quoted script)',
+          command(`sh -c "sqlite3 ~/.projectman/db.sqlite"`, true),
+        ],
+        ['a command after a cd to the home', command('cd ~ && cat .ssh/id_ed25519', true)],
+        ['a command after a cd to a relative directory', command('cd ../home && cat .ssh/id_ed25519', true)],
+        ['a command after a pushd', command('pushd ~; cat .ssh/id_ed25519', true)],
+        ['a command after a bare cd', command('cd; cat .ssh/id_ed25519', true)],
         [
           'the MCP team tool path',
           { category: 'team_mcp', paths: [join(home, '.ssh', 'x')], mcpTool: 'mcp__team__get_task' },
@@ -173,6 +244,33 @@ describe('row 1: denied paths, in every mode', () => {
         expect(decide(policy, command(`cat ${join(home, '.ssh-other')}`, true))).not.toEqual(
           denied('denied_path'),
         );
+        expect(decide(policy, read(join(home, '.projectman', 'other.sqlite')))).toEqual(ASK);
+        expect(decide(policy, command('sqlite3 ~/.projectman/other.sqlite', true))).not.toEqual(
+          denied('denied_path'),
+        );
+      });
+
+      it('does not deny a command that stays in the working tree after a cd', () => {
+        expect(decide(policy, command('cd src && cat a.ts', true))).not.toEqual(denied('denied_path'));
+      });
+
+      it('denies on the physical or the textual place of a ".." behind a symlink, allows on both', () => {
+        // work/up -> extra: work/up/../x is root/x for the kernel and work/x as text.
+        expect(decide(policy, read('up/../x'))).toEqual(ASK);
+        expect(decide(policy, edit('up/../x'))).toEqual(mode === 'plan' ? denied('plan_mode') : ASK);
+        // work/lnk-in -> work/deep/dir: both places are inside the working tree.
+        expect(decide(policy, read('lnk-in/../x'))).toEqual(ALLOW);
+      });
+
+      it('compares the denied paths with regard to case where the filesystem does not', () => {
+        const upper = read(join(home, '.SSH', 'id_ed25519'));
+        expect(decide(policy, upper, true)).toEqual(denied('denied_path'));
+        expect(decide(policy, read('~/.Config/GH/hosts.yml'), true)).toEqual(denied('denied_path'));
+        expect(decide(policy, command('cat ~/.SSH/id_ed25519', true), true)).toEqual(denied('denied_path'));
+        expect(decide(policy, command('cat ~/.PROJECTMAN/DB.SQLITE', true), true)).toEqual(
+          denied('denied_path'),
+        );
+        expect(decide(policy, upper, false)).toEqual(ASK);
       });
     });
   }
@@ -215,8 +313,38 @@ describe('row 2: denied operations', () => {
     'eval git push',
     'git pu""sh',
     'echo hi\ngit push',
+    // The words the line does not spell: a variable or a substitution where the subcommand belongs.
+    'GIT=git; $GIT push',
+    'git $x',
+    "git $'\\x70ush'",
+    'git p$(echo ush)',
+    'git $(echo push) origin',
+    // A shell that takes its script from the input.
+    "echo 'git push' | sh",
+    "echo 'git push' | bash -",
+    "echo 'git push' | bash -s",
+    "sh <<< 'git push'",
+    'bash < script.sh',
+    'cat x | env A=1 sh',
+    // Other ways to push.
+    'git subtree push --prefix x origin main',
+    'git -C x subtree push x y',
+    'git send-pack x',
   ];
   const publishing = [
+    'gh api -X POST repos/o/r/pulls',
+    'gh api -XPOST repos/o/r/pulls',
+    'gh api --method POST repos/o/r/pulls',
+    'gh api --method=post repos/o/r/pulls',
+    'gh api repos/o/r/pulls -f title=x',
+    'gh api repos/o/r/pulls --input body.json',
+    'gh api -X PUT repos/o/r/pulls/1/merge',
+    "gh api graphql -f query='mutation { createPullRequest(input: {}) { clientMutationId } }'",
+    "gh api graphql -f query='mutation { mergePullRequest(input: {}) { clientMutationId } }'",
+    'gh api -X POST $URL',
+    'gh $x create',
+    'gh pr $x',
+    '$GH pr create',
     'gh pr create --title x',
     'gh pr merge 12',
     'gh -R owner/repo pr create',
@@ -244,6 +372,17 @@ describe('row 2: denied operations', () => {
         'git pull',
         'git -C x status',
         'npm run push',
+        'git subtree add --prefix x y z',
+        'git status $x',
+        'git commit -m "$message"',
+        "bash -c 'git status'",
+        'bash script.sh',
+        'echo bash',
+        'ls sh',
+        'gh api repos/o/r/pulls',
+        'gh api -X GET repos/o/r/pulls -f state=open',
+        'gh api repos/o/r/pulls/1',
+        'gh api -X POST repos/o/r/issues -f title=x',
       ])('does not take %j for a denied operation', (line) => {
         expect(decide(policy, command(line, true))).not.toEqual(denied('denied_operation'));
       });

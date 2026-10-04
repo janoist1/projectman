@@ -434,7 +434,7 @@ export class ProjectService {
   ): Promise<LoadedProject> {
     this.assertCommitAllowed(key, current.config, next, meta);
     const { version } = await this.configStore
-      .save(key, next, { author: meta.author, message: meta.message })
+      .save(key, next, { author: meta.author, message: meta.message, previous: current.config })
       .catch(fromConfigError);
     const loaded: LoadedProject = { config: ProjectConfig.parse(next), version };
     this.cache.set(key, loaded);

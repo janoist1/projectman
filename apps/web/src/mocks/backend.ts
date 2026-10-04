@@ -107,7 +107,7 @@ import {
   themeRefusal,
   taskSeq,
   taskWorkOf,
-  validateProjectConfig,
+  introducedErrors,
   mergeTokenUsage,
   ALERT_SEEN_OPTION,
   limitTokens,
@@ -1707,10 +1707,8 @@ export class MockBackend {
           tasks: count,
         });
     }
-    const issues = validateProjectConfig(next);
-    return issues.some((i) => i.severity !== 'warning')
-      ? error(400, 'config_invalid', 'Invalid configuration', { issues })
-      : null;
+    const issues = introducedErrors(this.config, next);
+    return issues.length > 0 ? error(400, 'config_invalid', 'Invalid configuration', { issues }) : null;
   }
 
   private patchConfig(body: unknown): MockResponse {

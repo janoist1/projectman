@@ -2,7 +2,12 @@ import { existsSync } from 'node:fs';
 import { lstat, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
-import { isToleratedOnLoad, ProjectConfig, validateProjectConfig } from '@projectman/shared';
+import {
+  introducedErrors,
+  isToleratedOnLoad,
+  ProjectConfig,
+  validateProjectConfig,
+} from '@projectman/shared';
 import type { ConfigIssue, ConfigVersionEntry } from '@projectman/shared';
 import type { ConfigStore } from '../contracts';
 import { ConfigStoreError } from './errors';
@@ -59,12 +64,13 @@ function assertKey(key: string): void {
  * Parses and validates a merged configuration object (schema + invariants). A configuration that
  * is read back from storage reports the errors it may still carry (`isToleratedOnLoad`, rules
  * added after it was written) to `tolerated` instead of failing; a change (a save, a revert) may
- * carry none.
+ * carry none unless a previous configuration is supplied, in which case only introduced errors fail.
  */
 function validate(
   raw: unknown,
   expectedKey: string,
   tolerated?: (issue: ConfigIssue) => void,
+  previous?: ProjectConfig,
 ): ProjectConfig {
   const parsed = ProjectConfig.safeParse(raw);
   if (!parsed.success) {
@@ -77,7 +83,8 @@ function validate(
       issues: [{ code: 'invalid_key', path: 'project.key', detail: parsed.data.project.key }],
     });
   }
-  const issues = validateProjectConfig(parsed.data);
+  const issues =
+    previous === undefined ? validateProjectConfig(parsed.data) : introducedErrors(previous, parsed.data);
   const errors = issues.filter((issue) => issue.severity !== 'warning');
   const kept = tolerated ? errors.filter(isToleratedOnLoad) : [];
   if (errors.length > kept.length) {
@@ -271,7 +278,7 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
     async save(projectKey, config, meta) {
       assertKey(projectKey);
       await ensureInit();
-      const valid = validate(config, projectKey);
+      const valid = validate(config, projectKey, undefined, meta.previous);
       return exclusive(async () => {
         await writeProject(projectKey, splitProjectConfig(valid));
         const path = projectPath(projectKey);

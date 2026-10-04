@@ -450,7 +450,7 @@ describe('ConfigStore: configurations that predate a rule', () => {
       .filter((issue) => issue.severity !== 'warning')
       .map((issue) => issue.code);
 
-  it('loads repository names and column ids used twice with a warning, and refuses to write or restore them', async () => {
+  it('loads duplicates, allows preserving them with previous, and keeps strict saves and restores', async () => {
     await store.save('AR', testConfig(), { author, message: 'Create' });
     handEdit('project.yaml', (document) => document.project.repos.push({ name: 'web', path: 'web-copy' }));
     handEdit('pipeline.yaml', (document) => document.columns.push({ id: 'todo', name: 'To do again' }));
@@ -477,7 +477,7 @@ describe('ConfigStore: configurations that predate a rule', () => {
       );
     }
 
-    // Saving what was loaded is a change, and changes refuse what a stored configuration may keep.
+    // Without a previous configuration, saves still reject every error.
     const refused = await expectConfigError(
       store.save('AR', loaded.config, { author, message: 'Save it back' }),
       'invalid_config',
@@ -487,6 +487,20 @@ describe('ConfigStore: configurations that predate a rule', () => {
       'Hand-edited duplicates',
       'Create',
     ]);
+
+    const next = structuredClone(loaded.config);
+    next.project.name = 'Renamed project';
+    await store.save('AR', next, { author, message: 'Rename', previous: loaded.config });
+    expect((await store.load('AR')).config.project.name).toBe('Renamed project');
+    const worsened = structuredClone(next);
+    worsened.pipeline.columns.push({ id: 'todo', name: 'Third copy' });
+    const introduced = await expectConfigError(
+      store.save('AR', worsened, { author, message: 'Worsen', previous: next }),
+      'invalid_config',
+    );
+    expect(introduced.details).toEqual({
+      issues: [{ code: 'duplicate_column', path: 'pipeline.columns[5].id', detail: 'todo' }],
+    });
 
     // Fixed, it saves; restoring the version that had the duplicates is refused like any change.
     const repaired = await store.save('AR', testConfig(), { author, message: 'Remove the duplicates' });

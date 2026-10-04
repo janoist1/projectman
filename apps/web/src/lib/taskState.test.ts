@@ -411,6 +411,32 @@ describe('a card that cannot be started yet (PM-291)', () => {
     expect(state.label).toBe(t('taskStatus.refinement.moving'));
   });
 
+  describe('an approval the card lacks in its own column', () => {
+    /** The queue stage the card stands in asks for `approved`, which only people give. */
+    const approvalCtx = (myHandle: string) => {
+      const ctx = ctxFor('anyone', false);
+      ctx.config.pipeline.labels.push({ id: 'approved', name: 'Jóváhagyva', setBy: 'humans' });
+      ctx.config.pipeline.stages.find((stage) => stage.id === 'ready')!.gate = {
+        conditions: [{ type: 'has_label', label: 'approved' }],
+      };
+      return { ...ctx, myHandle, labels: ctx.config.pipeline.labels.map((l) => ({ ...l, holders: [] })) };
+    };
+    const quoted = t('taskStatus.quoted', { name: 'Jóváhagyva' });
+
+    it('asks the viewer for it when they are one of those who give it', () => {
+      const state = deriveTaskState(queued(['scope-ok']), approvalCtx('owner'));
+      expect(state.label).toBe(t('taskStatus.approvalMissingYou', { label: quoted }));
+      expect(state.phase).toBe('needs_you');
+      expect(state.startBlock).toMatchObject({ kind: 'approval', label: 'approved' });
+    });
+
+    it('only names what it waits for when the viewer is not one of them', () => {
+      const state = deriveTaskState(queued(['scope-ok']), approvalCtx('be-1'));
+      expect(state.label).toBe(t('taskStatus.approvalMissing', { label: quoted }));
+      expect(state.phase).toBe('waiting');
+    });
+  });
+
   it('keeps the old line where the configuration is not known (a client)', () => {
     const { config: _config, ...ctx } = ctxFor('anyone', true);
     const state = deriveTaskState(queued([]), ctx);

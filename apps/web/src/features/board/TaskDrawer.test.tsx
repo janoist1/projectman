@@ -5,7 +5,7 @@ import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
 import { plainLanguageQuestion } from '../../mocks/fixtures';
-import { mockProject } from '../../test/mockProject';
+import { createMockFetch, mockProject } from '../../test/mockProject';
 import { t } from '../../i18n/t';
 import { TaskDrawer } from './TaskDrawer';
 
@@ -976,6 +976,28 @@ describe('the Kidolgozás button and the refused Start (decision 31)', () => {
     expectNoStart();
     // Nothing is being refined yet: no standing of the refinement either.
     expect(screen.queryByText(/Kidolgozás: \d+\/\d+ lépés kész/)).toBeNull();
+  });
+
+  it('holds the Start back while the configuration loads, and never shows it for a card that is not worked out (PM-291)', async () => {
+    const project = gatedProject(true);
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const answer = createMockFetch(project.backend);
+    // The rule of the Start needs the configuration: its request waits until the test lets it through.
+    setFetchImplementation(async (input, init) => {
+      if (String(input).endsWith('/config')) await held;
+      return answer(String(input), init);
+    });
+    project.render(drawer, '/p/AC/tasks/AC-24');
+
+    expect(await screen.findByRole('status')).toBeTruthy();
+    expect(screen.getByText(t('task.startLoading'))).toBeTruthy();
+    expectNoStart();
+
+    release();
+    expect(await refineButton()).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText(t('task.startLoading'))).toBeNull());
+    expectNoStart();
   });
 
   it('offers no Start while the card is being refined, and shows how far it is (PM-291)', async () => {

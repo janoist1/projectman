@@ -63,19 +63,24 @@ export default async ({ instance, open, shoot, snapshot, step, log }) => {
 - `instance` is the running disposable instance: `instance.api(path, { method, body, as })`,
   `invite`, `startSession`, `say`, `waitIdle`, `setFakeCalls` and the rest of PM-269's API. Use it
   to prepare the state (a card, a question, an invited user) before the browser looks at it.
-- `open({ as?, path?, width? })` opens a **new browser context** and returns its `Page`. `as` is an
-  `Account` (the owner by default; `instance.invite(...)` returns one), `path` an instance path such
-  as `/p/AC/tasks/AC-1` (default `/`), `width` the first viewport width (default 1512). The login
-  goes through the API (the session cookie is put into the context), so the page opens logged in.
-  The context is Hungarian (`hu-HU`, `Europe/Budapest`), blocks service workers and downloads.
-  Every `open` is a separate login: that is how one scenario shows two users.
+- `open({ as?, path?, width? })` opens a page and returns its `Page`. `as` is an `Account` (the
+  owner by default; `instance.invite(...)` returns one), `path` an instance path such as
+  `/p/AC/tasks/AC-1` (default `/`), `width` the first viewport width (default 1512). The login goes
+  through the API (the session cookie is put into the browser), so the page opens logged in. The
+  browser is Hungarian (`hu-HU`, `Europe/Budapest`), blocks service workers and downloads.
+  There is **one browser context** for the whole run (the single-process Chromium crashes on a
+  second one, see "Limits"). Pages of the same account live side by side. `open` as **another
+  account** closes every page that is open (popups too), clears the cookies and the page storage,
+  and logs in again: so a scenario shows two users **one after the other**, never at the same time.
 - `shoot(page, name, { widths?, fullPage?, highlight?, mask? })` writes `<out>/<name>-<width>.png`
   for each width and returns the paths. `name` is letters, digits, `.`, `_`, `-`.
   - The viewport heights are fixed per width: 1512×982, 800×900, 390×844, 375×667 (another width
     gets 900).
   - It waits for the fonts and for the network to go quiet, and switches animations and the text
     caret off.
-  - `highlight` is a selector; the first match gets a 3 px outline in the image only.
+  - `highlight` is a selector (a CSS selector, or a Playwright one such as
+    `text=Which colour >> visible=true`); the first match is scrolled into view (a card's drawer
+    scrolls too) and gets a 3 px outline in the image only.
   - `mask` is a list of selectors; their boxes are painted grey. Mask what must not leave the
     instance or what changes between runs (times, ids).
 - `snapshot(page)` returns the page's accessibility tree as text (`ariaSnapshot`) for checks in
@@ -110,10 +115,19 @@ export default async ({ instance, open, shoot, snapshot, step, log }) => {
   });
 
   await step('open the card', async () => {
+    // The account is not the owner: print what it may do in the project (the avatar says only "Te").
+    const me = await instance.api('/api/auth/me', { as: colleague });
+    log(
+      `signed in as ${me.email}: ${JSON.stringify(me.projects.map(({ key, access }) => ({ key, access })))}`,
+    );
     const page = await open({ as: colleague, path: '/p/AC/tasks/AC-1' });
     await page.waitForFunction((text) => document.body.innerText.includes(text), QUESTION);
     log(await snapshot(page));
-    await shoot(page, 'card-question', { widths: [1512, 390] });
+    // The question is in the card's timeline, below the fold: the highlight scrolls it into view.
+    await shoot(page, 'card-question', {
+      widths: [1512, 390],
+      highlight: `text=${QUESTION} >> visible=true`,
+    });
   });
 };
 ```
@@ -158,7 +172,9 @@ under `scripts/lib/child-guard.mjs`) and Chromium ends when its parent's pipe cl
 - **Single-process Chromium.** The browser starts with `--single-process --no-zygote` and without
   Chromium's sandbox, because the macOS Seatbelt sandbox of a member refuses what the normal mode
   needs (`bootstrap_check_in … Permission denied (1100)`; checked with Claude Code 2.1.287). A
-  page that crashes the renderer takes the whole browser with it: the run fails with exit code 1.
+  page that crashes the renderer takes the whole browser with it: the run fails with exit code 1
+  ("The browser exited"). **A second browser context crashes it too** (SIGTRAP, found by the
+  probe on a Mac), so `open` keeps one context and changes the account in it.
 - **The data is fake.** The AI members are the fake CLIs, so a chat shows scripted answers; use
   `instance.setFakeCalls` and `say` to make the card look like the case.
 - **No live data.** Nothing here shows the owner's real project. Reproduce a case with the demo data.
@@ -168,12 +184,12 @@ under `scripts/lib/child-guard.mjs`) and Chromium ends when its parent's pipe cl
 
 ## The probe
 
-Before relying on two users in one run, a popup, the four widths and full-page images in a given
+Before relying on a second account, a popup, the four widths and full-page images in a given
 sandbox, run `scripts/scenarios/probe.mjs` there and put its output on the card:
 
 ```sh
 npm run shots -- scripts/scenarios/probe.mjs
 ```
 
-If two contexts at once crash the browser, a scenario opens one user, shoots, and moves to the
-next one, one `open` at a time (a closed page is enough: `await page.context().close()`).
+It logs in as the owner, as another account and as the owner again, one after the other, then opens
+a popup, then takes the four widths and a full-page image.

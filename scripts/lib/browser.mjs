@@ -233,25 +233,63 @@ export function createScenarioApi({
     });
   }
 
-  /** A new browser context (an own login), the page opened on the web instance. */
+  /**
+   * The one browser context of the run. The single-process Chromium crashes (SIGTRAP) when a second
+   * context is created, so there is only one: another account is a new login in the same context.
+   */
+  let shared; // { context, email }
+
+  async function closePages() {
+    for (const opened of pages) if (!opened.isClosed()) await opened.close().catch(() => {});
+  }
+
+  async function contextFor(account, width) {
+    if (!shared) {
+      const context = await browser.newContext({
+        locale: 'hu-HU',
+        timezoneId: 'Europe/Budapest',
+        serviceWorkers: 'block',
+        acceptDownloads: false,
+        storageState: await instance.storageState(account),
+        viewport: viewportFor(width),
+        deviceScaleFactor: scale,
+      });
+      await fenceContext(context);
+      context.on('page', (opened) => pages.add(opened));
+      shared = { context, email: account.email };
+      return context;
+    }
+    if (shared.email !== account.email) {
+      const { context } = shared;
+      await closePages();
+      await context.clearCookies();
+      // What the previous account left in the browser's storage must not reach the next one.
+      const blank = await context.newPage();
+      await blank.goto(new URL('/', instance.webUrl).href);
+      await blank.evaluate(() => {
+        localStorage.clear();
+        sessionStorage.clear();
+      });
+      await blank.close();
+      await context.addCookies((await instance.storageState(account)).cookies);
+      shared.email = account.email;
+    }
+    return shared.context;
+  }
+
+  /**
+   * A page opened on the web instance, logged in as `as` (the owner by default). Pages of the same
+   * account live side by side; another account closes every open page first (one context only).
+   */
   async function open({ as, path = '/', width = DEFAULT_WIDTHS[0] } = {}) {
     if (typeof path !== 'string' || !path.startsWith('/'))
       throw new Error(`open: path starts with "/", not ${path}.`);
     const target = new URL(path, instance.webUrl);
     if (target.origin !== new URL(instance.webUrl).origin)
       throw new Error(`open: ${path} leaves the instance.`);
-    const context = await browser.newContext({
-      locale: 'hu-HU',
-      timezoneId: 'Europe/Budapest',
-      serviceWorkers: 'block',
-      acceptDownloads: false,
-      storageState: await instance.storageState(as ?? instance.owner),
-      viewport: viewportFor(width),
-      deviceScaleFactor: scale,
-    });
-    await fenceContext(context);
-    context.on('page', (opened) => pages.add(opened));
+    const context = await contextFor(as ?? instance.owner, width);
     const page = await context.newPage();
+    await page.setViewportSize(viewportFor(width));
     await page.goto(target.href);
     return page;
   }
@@ -281,6 +319,8 @@ export function createScenarioApi({
         const element = page.locator(highlight).first();
         await element.evaluate((node, attribute) => node.setAttribute(attribute, ''), HIGHLIGHT_ATTRIBUTE);
         await page.addStyleTag({ content: HIGHLIGHT_CSS });
+        // What is highlighted is what the image is about: scroll it into view (a drawer scrolls too).
+        await element.scrollIntoViewIfNeeded();
       }
       try {
         const file = join(out, `${name}-${width}.png`);

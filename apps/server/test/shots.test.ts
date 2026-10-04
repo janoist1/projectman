@@ -181,6 +181,7 @@ function png(width: number, height: number): Buffer {
 
 function fakePage(calls: string[]) {
   let viewport = { width: 0, height: 0 };
+  let closed = false;
   const page = {
     setViewportSize: async (size: { width: number; height: number }) => {
       viewport = size;
@@ -191,8 +192,18 @@ function fakePage(calls: string[]) {
     addStyleTag: async () => {
       calls.push('style');
     },
+    goto: async (url: string) => {
+      calls.push(`goto ${url}`);
+    },
+    close: async () => {
+      closed = true;
+      calls.push('close');
+    },
     locator: (selector: string) => ({
-      first: () => ({ evaluate: async () => calls.push(`mark ${selector}`) }),
+      first: () => ({
+        evaluate: async () => calls.push(`mark ${selector}`),
+        scrollIntoViewIfNeeded: async () => calls.push(`scroll ${selector}`),
+      }),
       ariaSnapshot: async () => `- text: ${selector}`,
       selector,
     }),
@@ -200,7 +211,7 @@ function fakePage(calls: string[]) {
       calls.push(`screenshot ${options.path} full=${options.fullPage} masks=${options.mask?.length ?? 0}`);
       return png(viewport.width, viewport.height);
     },
-    isClosed: () => false,
+    isClosed: () => closed,
   };
   return page;
 }
@@ -261,6 +272,7 @@ describe('the scenario API', () => {
     expect(calls.filter((call) => call.startsWith('screenshot'))).toHaveLength(4);
     expect(calls).toContain(`screenshot ${out}/basket-390.png full=true masks=2`);
     expect(calls.filter((call) => call === 'mark #buy')).toHaveLength(4);
+    expect(calls.filter((call) => call === 'scroll #buy')).toHaveLength(4);
   });
 
   it('refuses a name that would leave the folder', async () => {
@@ -273,6 +285,67 @@ describe('the scenario API', () => {
     const { scenario } = api([]);
     await expect(scenario.open({ path: 'tasks' })).rejects.toThrow(/starts with "\/"/);
     await expect(scenario.open({ path: '//example.com/x' })).rejects.toThrow(/leaves the instance/);
+  });
+
+  it('uses one browser context for the whole run and logs in again for another account', async () => {
+    const calls: string[] = [];
+    const pages: ReturnType<typeof fakePage>[] = [];
+    let contexts = 0;
+    let onPage: (page: unknown) => void = () => {};
+    const browser = {
+      newContext: async () => {
+        contexts += 1;
+        return {
+          route: async () => {},
+          routeWebSocket: async () => {},
+          on: (_: string, handler: (page: unknown) => void) => (onPage = handler),
+          clearCookies: async () => {
+            calls.push('clear cookies');
+          },
+          addCookies: async (cookies: { value: string }[]) => {
+            calls.push(`add cookies ${cookies.map((cookie) => cookie.value).join(',')}`);
+          },
+          newPage: async () => {
+            const page = fakePage(calls);
+            pages.push(page);
+            onPage(page);
+            return page;
+          },
+        };
+      },
+    };
+    const owner = { email: 'owner@x.test', name: 'Owner' };
+    const dana = { email: 'dana@x.test', name: 'Dana' };
+    const { open } = createScenarioApi({
+      browser,
+      instance: {
+        ...fence,
+        owner,
+        storageState: async (account: { email: string }) => ({
+          cookies: [{ value: account.email }],
+          origins: [],
+        }),
+      } as never,
+      out: '/unused',
+      print: () => {},
+    });
+
+    const first = await open({ path: '/p/AC' });
+    const second = await open({ path: '/p/AC/team' });
+    expect(contexts).toBe(1);
+    expect(first.isClosed()).toBe(false); // the same account: pages live side by side
+    expect(second.isClosed()).toBe(false);
+
+    await open({ as: dana, path: '/p/AC' });
+    expect(contexts).toBe(1);
+    expect(first.isClosed()).toBe(true); // another account: the open pages are closed first
+    expect(second.isClosed()).toBe(true);
+    expect(calls).toContain('clear cookies');
+    expect(calls).toContain('add cookies dana@x.test');
+
+    await open({ path: '/p/AC' });
+    expect(calls).toContain('add cookies owner@x.test');
+    expect(contexts).toBe(1);
   });
 
   it('names the failed step and writes error-<n>.png', async () => {

@@ -300,10 +300,11 @@ credential and no live data:
 
 1. `npm run browsers -- check` prints the browser's version and `installed in <folder>`: the
    session reads the folder through `PLAYWRIGHT_BROWSERS_PATH` (PM-268).
-2. `npm run shots -- scripts/scenarios/probe.mjs`: exit code 0; two contexts at once, a popup, the
-   four widths and a full-page image all print `shot <path> <w>x<h>` lines with the sizes 1512×982,
+2. `npm run shots -- scripts/scenarios/probe.mjs`: exit code 0; two accounts one after the other
+   (one browser context: a second context crashes the single-process Chromium), a popup, the four
+   widths and a full-page image all print `shot <path> <w>x<h>` lines with the sizes 1512×982,
    800×900, 390×844 and 375×667; the PNGs are in `$PROJECTMAN_SESSION_DIR/shots/probe`.
-   Record which of the four probes fails, if one does (the card's fallback: one user at a time).
+   Record which probe fails, if one does.
 3. The fence refuses the live instance. A scenario that does
    `const page = await open({ path: '/' }); await page.evaluate(() => fetch('http://127.0.0.1:4800/api/me').catch(() => 'refused'))`
    gets `refused`, and the run prints `blocked http://127.0.0.1:4800/api/me`; a `page.goto('file:///etc/hosts')`

@@ -25,9 +25,18 @@ export default async ({ instance, open, shoot, snapshot, step, log }) => {
   });
 
   await step('open the card', async () => {
+    // The account is not the owner: print what it may do in the project (the avatar says only "Te").
+    const me = await instance.api('/api/auth/me', { as: colleague });
+    log(
+      `signed in as ${me.email}: ${JSON.stringify(me.projects.map(({ key, access }) => ({ key, access })))}`,
+    );
     const page = await open({ as: colleague, path: '/p/AC/tasks/AC-1' });
     await page.waitForFunction((text) => document.body.innerText.includes(text), QUESTION);
     log(await snapshot(page));
-    await shoot(page, 'card-question', { widths: [1512, 390] });
+    // The question is in the card's timeline, below the fold: the highlight scrolls it into view.
+    await shoot(page, 'card-question', {
+      widths: [1512, 390],
+      highlight: `text=${QUESTION} >> visible=true`,
+    });
   });
 };

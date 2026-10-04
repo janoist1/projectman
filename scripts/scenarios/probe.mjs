@@ -4,8 +4,9 @@
  *
  *   npm run shots -- scripts/scenarios/probe.mjs
  *
- * It tries two contexts at once, a popup (`window.open`), the four widths and a full-page image.
- * If the two contexts crash the browser, shoot one user at a time: close the page, open the next.
+ * It tries a second account (the one browser context logs in again), a popup (`window.open`), the
+ * four widths and a full-page image. A second browser context is not tried: the single-process
+ * Chromium crashes on it (the first probe, PM-270).
  */
 export default async ({ instance, open, shoot, step, log }) => {
   const colleague = await instance.invite({
@@ -15,13 +16,14 @@ export default async ({ instance, open, shoot, step, log }) => {
     access: 'developer',
   });
 
-  await step('two contexts at once', async () => {
+  await step('two accounts, one after the other', async () => {
     const owner = await open({ path: '/p/AC' });
-    const other = await open({ as: colleague, path: '/p/AC' });
-    await Promise.all([owner.reload(), other.reload()]);
     await shoot(owner, 'probe-owner', { widths: [1512] });
+    const other = await open({ as: colleague, path: '/p/AC' });
     await shoot(other, 'probe-colleague', { widths: [1512] });
-    log('two contexts: ok');
+    const again = await open({ path: '/p/AC' });
+    await shoot(again, 'probe-owner-again', { widths: [390] });
+    log('two accounts: ok');
   });
 
   await step('a popup', async () => {

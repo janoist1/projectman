@@ -77,7 +77,12 @@ async function main() {
     if (dir) console.log(`data kept in ${instance.dir}`);
     const api = createScenarioApi({ ...options, browser, instance, out });
     const died = instance.closed.then((err) => (err ? Promise.reject(err) : new Promise(() => {})));
-    await Promise.race([scenario(api), stopper.promise, died]);
+    // A crashed browser fails the run at once, not at the timeout.
+    const crashed = new Promise((_, reject) =>
+      browser.on('disconnected', () => reject(new Error('The browser exited (it crashed).'))),
+    );
+    crashed.catch(() => {});
+    await Promise.race([scenario(api), stopper.promise, died, crashed]);
   } finally {
     stopper.cancel();
     // The browser first, then the instance: the browser talks to its web.

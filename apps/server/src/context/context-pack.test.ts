@@ -14,7 +14,7 @@ import type {
   WorkItemRef,
 } from '@projectman/shared';
 import { aiMemberDefaults, getTemplate } from '@projectman/templates';
-import type { ContextPackInput, SessionPolicy } from '../contracts';
+import type { CardQuestion, CardWorker, ContextPackInput, SessionPolicy } from '../contracts';
 import { buildSessionPolicy, commandVerdict, readableRootsFor, sessionSandbox } from '../domain';
 import { createContextPackBuilder } from './context-pack';
 import { stageLabel } from './format';
@@ -430,9 +430,10 @@ describe('token economy (PM-181)', () => {
 
   // The prompt and the kick-off brief together may not grow from the size they had before PM-181
   // (measured on the snapshots of that time, in characters). The developer's allowance grew once,
-  // to make room for the structural decision rule of PM-223.
+  // to make room for the structural decision rule of PM-223, and again for the rule of working on the
+  // same card as others (PM-249).
   it.each([
-    { name: 'developer', handle: 'fe-1', system: 13002, brief: 862 },
+    { name: 'developer', handle: 'fe-1', system: 13202, brief: 862 },
     { name: 'code reviewer', handle: 'code-review', system: 11832, brief: 1900 },
   ])('does not grow the system prompt and brief of the $name', ({ handle, system, brief }) => {
     const pack =
@@ -1017,6 +1018,104 @@ describe('kick-off brief', () => {
     expect(builder.build(input({ relatedSessions: [] })).initialMessage).not.toContain(
       'Your other running sessions',
     );
+  });
+
+  describe('the card’s thread: other workers and questions (PM-249)', () => {
+    const workers: CardWorker[] = [
+      {
+        handle: 'designer',
+        displayName: 'UI/UX designer',
+        role: 'UI/UX designer',
+        state: 'working',
+        doing: { summary: 'The form layout is being drawn' },
+      },
+      { handle: 'fe-2', displayName: 'Fejlesztő', role: 'developer', state: 'idle' },
+    ];
+    const questions: CardQuestion[] = [
+      {
+        inboxItemId: 'inb_1',
+        asker: 'analyst',
+        question: 'Which export format?',
+        askedAt: '2026-10-03T11:20:00.000Z',
+        askedEventId: 'evt_q1',
+        state: 'answered',
+        answer: { by: 'owner', text: 'CSV', at: '2026-10-03T12:00:00.000Z', eventId: 'evt_a1' },
+      },
+      {
+        inboxItemId: 'inb_2',
+        asker: 'designer',
+        question: 'Should the form keep its draft?',
+        askedAt: '2026-10-03T11:54:00.000Z',
+        askedEventId: 'evt_q2',
+        state: 'open',
+      },
+    ];
+    const workersBlock = [
+      '## Also working on this card',
+      '- `designer` (UI/UX designer, working): The form layout is being drawn',
+      '- `fe-2` (developer, idle)',
+      "Each of you works from your own conversation, and none sees another's. Split the work by send_message with the members it concerns, do not overwrite each other's part (the description above all), and send a message about coordinating to all of them.",
+    ].join('\n');
+    const questionsBlock = [
+      '## Questions to people on this card',
+      '- `analyst` asked (2026-10-03 11:20 UTC): "Which export format?" → `owner` answered: "CSV"',
+      '- `designer` asked (2026-10-03 11:54 UTC): "Should the form keep its draft?" → open',
+      'Before you ask a person, check here (and in get_task) that it was not answered and is not open already.',
+    ].join('\n');
+
+    it('puts both sections after the theme and before the attachments, only when they are not empty', () => {
+      const brief =
+        builder.build(input({ handle: 'fe-1', cardWorkers: workers, cardQuestions: questions }))
+          .initialMessage ?? '';
+      expect(brief).toContain(`\n\n${workersBlock}\n\n${questionsBlock}\n\n## Attachments`);
+      expect(brief.indexOf('## Relations')).toBeLessThan(brief.indexOf('## Also working on this card'));
+      const plain = builder.build(input({ handle: 'fe-1', cardWorkers: [], cardQuestions: [] }));
+      for (const heading of ['## Also working on this card', '## Questions to people on this card'])
+        expect(plain.initialMessage).not.toContain(heading);
+      expect(plain.initialMessage).toBe(builder.build(input({ handle: 'fe-1' })).initialMessage);
+    });
+
+    it('says in the first line of `standing` where the card stands, and only when there is something to say', () => {
+      const standing = builder.build(input({ cardWorkers: workers, cardQuestions: questions })).standing;
+      expect(standing).toBe(`Now on AR-21:\n\n${workersBlock}\n\n${questionsBlock}`);
+      expect(builder.build(input({ cardWorkers: workers })).standing).toBe(
+        `Now on AR-21:\n\n${workersBlock}`,
+      );
+      expect(builder.build(input({ cardQuestions: questions })).standing).toBe(
+        `Now on AR-21:\n\n${questionsBlock}`,
+      );
+      expect(builder.build(input()).standing).toBeNull();
+      expect(builder.build(input({ cardWorkers: [], cardQuestions: [] })).standing).toBeNull();
+      expect(
+        builder.build(input({ workItem: { type: 'general' }, task: null, cardWorkers: workers })).standing,
+      ).toBeNull();
+    });
+
+    it('cuts a long question and answer, and says how to read them whole', () => {
+      const long: CardQuestion = {
+        ...questions[0]!,
+        question: `Q${'q'.repeat(300)}`,
+        answer: {
+          by: 'owner',
+          text: `A${'a'.repeat(400)}`,
+          at: '2026-10-03T12:00:00.000Z',
+          eventId: 'evt_a1',
+        },
+      };
+      const brief = builder.build(input({ cardQuestions: [long] })).initialMessage ?? '';
+      expect(brief).toContain(
+        `"Q${'q'.repeat(158)}… (read it whole: get_task task_key AR-21, event_id evt_q1)"`,
+      );
+      expect(brief).toContain(
+        `"A${'a'.repeat(238)}… (read it whole: get_task task_key AR-21, event_id evt_a1)"`,
+      );
+      expect(brief).not.toContain('q'.repeat(160));
+      // Without an event to read from, the cut says only that.
+      const noEvent = builder.build(
+        input({ cardQuestions: [{ ...long, askedEventId: null }] }),
+      ).initialMessage;
+      expect(noEvent).toContain(`"Q${'q'.repeat(158)}…" → `);
+    });
   });
 
   it('keeps the brief compact', () => {

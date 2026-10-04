@@ -249,6 +249,11 @@ export class FakeContextBuilder implements ContextPackBuilder {
         input.workItem.type === 'task' && input.task
           ? `Continue ${input.task.key}: ${input.task.title}`
           : null,
+      // A short, recognisable text when the card has other workers or questions (PM-249).
+      standing:
+        input.task && (input.cardWorkers?.length || input.cardQuestions?.length)
+          ? `Standing ${input.task.key}: workers ${(input.cardWorkers ?? []).map((w) => w.handle).join(',')}; questions ${(input.cardQuestions ?? []).length}`
+          : null,
       // The real definition: the session start passes it on as it is.
       subagents: [cheapSubagent(input.member)].filter((agent) => agent !== null),
     };

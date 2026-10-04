@@ -40,6 +40,7 @@ import { AttachmentService } from './attachments';
 import { BackgroundTasks } from './background';
 import { BoardService } from './board';
 import { BoundaryService } from './boundary';
+import { CardQuestions } from './card-questions';
 import { createDomainContext, defaultTemplateRegistry } from './context';
 import type { DomainContext, TemplateRegistry } from './context';
 import { createEventBus } from './event-bus';
@@ -108,6 +109,7 @@ export type { WorkspaceFile, WorkspaceFileHooks, WorkspaceFileRefusalReason } fr
 export { BackgroundTasks } from './background';
 export { BoardService } from './board';
 export { BoundaryService } from './boundary';
+export { CardQuestions, QUESTION_LIMIT } from './card-questions';
 export { EgressService } from './egress';
 export type { EgressDecision, EgressIdentity, EgressSession, EgressSettings } from './egress';
 export { GithubSync } from './github-sync';
@@ -297,6 +299,7 @@ export function createDomain(opts: DomainOptions) {
     storage: opts.attachmentStorage,
   });
   const members = new MemberService({ ctx, projects, timeline, presence, inbox });
+  const cardQuestions = new CardQuestions({ ctx });
   const roles = new RoleService({ projects });
   const sessions = new SessionOrchestrator({
     ctx,
@@ -307,6 +310,7 @@ export function createDomain(opts: DomainOptions) {
     runner: runnerModule.runner,
     transcripts: runnerModule.transcripts,
     contextBuilder: opts.contextBuilder,
+    cardQuestions,
     memory: opts.memory,
     worktrees: opts.worktrees,
     publicBaseUrl: opts.publicBaseUrl,
@@ -507,6 +511,7 @@ export function createDomain(opts: DomainOptions) {
     publishing,
     ctx,
     sessions,
+    cardQuestions,
     projects,
     tasks,
     members,
@@ -783,6 +788,7 @@ export function createDomain(opts: DomainOptions) {
     disk,
     worktreeSweep,
     teamTools,
+    cardQuestions,
     board,
     profiles,
     invitations,

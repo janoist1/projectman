@@ -43,6 +43,8 @@ import type {
 import { openWorkspaceFile, WorkspaceFileRefusal } from './attachments';
 import type { DomainContext } from './context';
 import type { BoundaryService } from './boundary';
+import { QUESTION_LIMIT } from './card-questions';
+import type { CardQuestions } from './card-questions';
 import type { EgressService } from './egress';
 import { DomainError } from './errors';
 import type { ApprovalRequirement, UnmetCondition } from '@projectman/shared';
@@ -239,7 +241,8 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly egress: EgressService | null;
   private readonly publishing: PublishingGate;
   private readonly ctx: DomainContext;
-  private readonly sessions: Pick<SessionOrchestrator, 'setDoing'>;
+  private readonly sessions: Pick<SessionOrchestrator, 'setDoing' | 'cardWorkers'>;
+  private readonly cardQuestions: Pick<CardQuestions, 'list'>;
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
   private readonly members: MemberService;
@@ -261,7 +264,9 @@ export class TeamToolsService implements TeamToolsHandler {
     publishing: PublishingGate;
     ctx: DomainContext;
     /** The session service: set_current_work records the sentence on the caller's session. */
-    sessions: Pick<SessionOrchestrator, 'setDoing'>;
+    sessions: Pick<SessionOrchestrator, 'setDoing' | 'cardWorkers'>;
+    /** The questions asked on a card, which get_task lists (PM-249). */
+    cardQuestions: Pick<CardQuestions, 'list'>;
     projects: ProjectService;
     tasks: TaskService;
     members: MemberService;
@@ -283,6 +288,7 @@ export class TeamToolsService implements TeamToolsHandler {
     this.publishing = deps.publishing;
     this.ctx = deps.ctx;
     this.sessions = deps.sessions;
+    this.cardQuestions = deps.cardQuestions;
     this.projects = deps.projects;
     this.tasks = deps.tasks;
     this.members = deps.members;
@@ -399,6 +405,11 @@ export class TeamToolsService implements TeamToolsHandler {
             }
           : {}),
         ...(theme ? { themeCards: theme.cards, themeProgress: theme.progress } : {}),
+        // Who works on the card now and what was asked on it (PM-249), as the brief lists them.
+        workingSessionIds: this.sessions
+          .cardWorkers(ctx.projectKey, detail.task, config)
+          .map((session) => session.id),
+        cardQuestions: this.cardQuestions.list(ctx.projectKey, taskKey, { limit: QUESTION_LIMIT }),
         attachments: {
           attachments: attachments.slice(0, ATTACHMENTS_IN_TASK),
           total: attachments.length,

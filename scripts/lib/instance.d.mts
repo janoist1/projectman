@@ -25,6 +25,8 @@ export interface InstanceOptions {
   terminal?: 'pipe' | 'pty';
   /** Default `files` (`<dir>/logs/server.log`, `vite.log`); `inherit` writes to this process's output. */
   logs?: 'files' | 'inherit';
+  /** For `scripts/shots.mjs`. Default true: SIGINT/SIGTERM stop the instance, then end the process; false: the caller does. */
+  handleSignals?: boolean;
 }
 
 export interface FakeCall {

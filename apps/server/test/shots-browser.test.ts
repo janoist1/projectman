@@ -233,23 +233,34 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
   );
 
   it(
-    'stops everything at the timeout and on SIGTERM',
+    'stops everything at the timeout, on SIGINT and on SIGTERM: exit code 1, no data folder left',
     async () => {
       const before = browserProcesses();
       const hang = scenario(`
   log('urls ' + instance.serverUrl + ' ' + instance.webUrl);
+  log('dir ' + instance.dir);
   await open({ path: '/' });
   log('hanging');
   await new Promise(() => {});`);
-      const timedOut = await run(hang, ['--out', join(temp(), 'out'), '--timeout', '50', '--seed', 'none'], {
-        limitMs: 60_000,
-        onLine: (line, child) => {
-          if (line === 'hanging') setTimeout(() => child.kill('SIGTERM'), 200);
-        },
-      });
-      expect(timedOut.status, why(timedOut)).toBe(1);
-      expect(timedOut.stderr).toContain('Stopped by SIGTERM');
-      await expectNothingLeft(timedOut.stdout, before);
+      for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+        const interrupted = await run(
+          hang,
+          ['--out', join(temp(), 'out'), '--timeout', '50', '--seed', 'none'],
+          {
+            limitMs: 50_000,
+            onLine: (line, child) => {
+              if (line === 'hanging') setTimeout(() => child.kill(signal), 200);
+            },
+          },
+        );
+        // Exit code 1 and the message, not death by the signal (130 for SIGINT, no code for SIGTERM).
+        expect(interrupted.status, why(interrupted)).toBe(1);
+        expect(interrupted.stderr).toContain(`Stopped by ${signal}`);
+        const dir = /^dir (.+)$/m.exec(interrupted.stdout)?.[1];
+        expect(dir).toBeTruthy();
+        expect(existsSync(dir!)).toBe(false);
+        await expectNothingLeft(interrupted.stdout, before);
+      }
 
       const slow = scenario(`
   log('urls ' + instance.serverUrl + ' ' + instance.webUrl);

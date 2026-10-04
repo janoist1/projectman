@@ -164,7 +164,8 @@ browser runs without Chromium's own sandbox, and the member's sandbox is what li
 
 The browser closes first, then the instance stops (server and Vite), and the data folder is removed
 (not with `--keep-data`). This happens after a success, after a failed scenario, at the timeout and on
-SIGINT/SIGTERM. If the process is killed with SIGKILL the instance's children still stop (they run
+SIGINT/SIGTERM; after a signal the exit code is 1 too (`Stopped by SIGINT.`), not the signal's, and
+a second signal during the cleanup changes nothing. If the process is killed with SIGKILL the instance's children still stop (they run
 under `scripts/lib/child-guard.mjs`) and Chromium ends when its parent's pipe closes.
 
 ## Limits

@@ -72,7 +72,9 @@ async function main() {
   try {
     browser = await launchBrowser();
     const dir = options.keepData ? mkdtempSync(join(tmpdir(), 'projectman-shots-data-')) : undefined;
-    starting = startInstance({ seed: options.seed, ...(dir ? { dir } : {}) });
+    // This script handles SIGINT/SIGTERM itself (below): the browser stops first, then the instance,
+    // and the exit code is 1, not the signal's.
+    starting = startInstance({ seed: options.seed, handleSignals: false, ...(dir ? { dir } : {}) });
     instance = await Promise.race([starting, stopper.promise]);
     if (dir) console.log(`data kept in ${instance.dir}`);
     const api = createScenarioApi({ ...options, browser, instance, out });
@@ -84,7 +86,8 @@ async function main() {
     crashed.catch(() => {});
     await Promise.race([scenario(api), stopper.promise, died, crashed]);
   } finally {
-    stopper.cancel();
+    // The signal handlers stay until everything has stopped: a signal during the cleanup must not end
+    // the process by the signal and leave the browser's or the instance's folder behind.
     // The browser first, then the instance: the browser talks to its web.
     await within(
       browser?.close().catch(() => {}),
@@ -93,6 +96,7 @@ async function main() {
     // An interruption during the start leaves the instance still starting: wait for it, then stop it.
     instance ??= await starting?.catch(() => undefined);
     await instance?.stop();
+    stopper.cancel();
   }
 }
 

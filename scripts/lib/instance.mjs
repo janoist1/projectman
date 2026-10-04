@@ -117,6 +117,9 @@ function logTail(file) {
  *   owner      { email, name, password }; a given password is used to log in again to a kept `dir`
  *   terminal   'pipe' (default) or 'pty' (no PROJECTMAN_TERMINAL: the sessions use a terminal)
  *   logs       'files' (default: <dir>/logs) or 'inherit' (the child's output goes to this process's)
+ * and, for scripts/shots.mjs:
+ *   handleSignals  true (default): SIGINT and SIGTERM stop the instance, then end the process as the
+ *              signal would; false: the caller handles the signals and calls `stop()`
  */
 export async function startInstance(options = {}) {
   const {
@@ -127,6 +130,7 @@ export async function startInstance(options = {}) {
     owner: ownerOptions = {},
     terminal = 'pipe',
     logs = 'files',
+    handleSignals = true,
   } = options;
   checkOptions({ dir: options.dir, seed, fakeEnv, ports });
   if (terminal !== 'pipe' && terminal !== 'pty') throw new Error(`Unknown terminal: ${terminal}.`);
@@ -407,7 +411,7 @@ export async function startInstance(options = {}) {
       if (process.listenerCount(signal) === 0) process.kill(process.pid, signal);
     });
   }
-  for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, onSignal);
+  if (handleSignals) for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, onSignal);
 
   const instance = {
     dir,

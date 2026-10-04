@@ -100,8 +100,8 @@ describe('introduced configuration errors', () => {
   it('matches reordered element identities and nested anonymous lists', () => {
     const previous = build();
     previous.project.repos = [
-      { name: 'web', path: 'web' },
-      { name: 'web', path: 'copy' },
+      { name: 'web', path: 'web', defaultBranch: 'main' },
+      { name: 'web', path: 'copy', defaultBranch: 'main' },
     ];
     previous.team.roles[0]!.id = 'developer';
     const owner = previous.team.members[0]!;
@@ -123,8 +123,8 @@ describe('introduced configuration errors', () => {
     next.pipeline.stages[1]!.gate!.conditions.reverse();
     expect(introducedErrors(previous, next)).toEqual([]);
     next.project.repos = [
-      { name: 'renamed', path: 'web' },
-      { name: 'renamed', path: 'copy' },
+      { name: 'renamed', path: 'web', defaultBranch: 'main' },
+      { name: 'renamed', path: 'copy', defaultBranch: 'main' },
     ];
     expect(introducedErrors(previous, next)).toEqual([
       { code: 'duplicate_repo', path: 'project.repos[1].name', detail: 'renamed' },

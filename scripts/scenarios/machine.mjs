@@ -25,7 +25,7 @@ export default async ({ instance, open, shoot, step, log }) => {
       await page.setViewportSize({ width, height: width === 390 ? 844 : 982 });
       await indicator().click();
       await panel().waitFor();
-      await page.getByText('Gazdátlan folyamatok', { exact: true }).waitFor();
+      await page.getByRole('heading', { name: /Gazdátlan folyamatok/ }).waitFor();
       await shoot(page, 'panel', { widths: [width] });
       await page.keyboard.press('Escape');
     }

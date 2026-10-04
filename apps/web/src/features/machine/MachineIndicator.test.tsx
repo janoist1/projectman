@@ -349,6 +349,10 @@ describe('machine display', () => {
     const dialog = await open();
     expect(dialog.tagName).toBe('DIALOG');
     expect(within(dialog).getByRole('group', { name: 'Rendezés' })).toBeTruthy();
+    const expand = within(dialog).getAllByRole('button', { name: /^Folyamatok:/ })[0]!;
+    const row = expand.closest('tr')!;
+    fireEvent.click(row.querySelector('strong')!);
+    expect(expand.getAttribute('aria-expanded')).toBe('true');
     fireEvent.click(within(dialog).getAllByRole('button', { name: /^Leállítás:/ })[0]!);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Bezárás' }));
     expect(screen.queryByRole('dialog')).toBeNull();

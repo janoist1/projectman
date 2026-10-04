@@ -115,6 +115,7 @@ export function SessionRow({
   total,
   onClose,
   leaving,
+  phone,
 }: {
   row: MachineSessionRow;
   controls: Controls;
@@ -123,6 +124,7 @@ export function SessionRow({
   total: number | null;
   onClose: () => void;
   leaving: boolean;
+  phone: boolean;
 }) {
   const stop = useStopSession(row.projectKey);
   const button = useRef<HTMLButtonElement>(null);
@@ -159,6 +161,10 @@ export function SessionRow({
       ) : (
         <tr
           data-session-id={row.sessionId}
+          onClick={(event) => {
+            if (phone && !(event.target instanceof Element && event.target.closest('button,a')))
+              controls.toggle(row.sessionId);
+          }}
           className={leaving ? styles.leaving : stop.isPending ? styles.stopping : undefined}
         >
           <td>
@@ -269,6 +275,7 @@ export function OrphanRow({
   pending,
   stop,
   leaving,
+  phone,
 }: {
   row: OrphanProcessRow;
   controls: Controls;
@@ -279,6 +286,7 @@ export function OrphanRow({
   pending: boolean;
   stop: () => void;
   leaving: boolean;
+  phone: boolean;
 }) {
   const button = useRef<HTMLButtonElement>(null);
   const id = `orphan:${row.pid}:${row.startedAt}`;
@@ -309,7 +317,13 @@ export function OrphanRow({
           </td>
         </tr>
       ) : (
-        <tr className={leaving ? styles.leaving : pending ? styles.stopping : undefined}>
+        <tr
+          className={leaving ? styles.leaving : pending ? styles.stopping : undefined}
+          onClick={(event) => {
+            if (phone && !(event.target instanceof Element && event.target.closest('button,a')))
+              controls.toggle(id);
+          }}
+        >
           <td>
             <div className={styles.who}>
               <button

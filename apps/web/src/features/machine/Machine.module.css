@@ -351,7 +351,7 @@
 }
 .skeleton {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 16px;
   padding: 20px;
 }
@@ -361,6 +361,10 @@
   background: linear-gradient(90deg, var(--c-muted), var(--c-surface), var(--c-muted));
   background-size: 200% 100%;
   animation: shimmer 1200ms infinite;
+}
+.skeleton .skeletonRow {
+  grid-column: 1 / -1;
+  height: 32px;
 }
 .sort {
   margin: 0 16px 12px;
@@ -382,6 +386,9 @@
   }
 }
 @media (max-width: 767px) {
+  .skeleton {
+    grid-template-columns: repeat(2, 1fr);
+  }
   .phoneDialog {
     animation: appear 180ms ease-out;
   }

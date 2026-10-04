@@ -307,6 +307,9 @@ export function MachinePanel({
           <div />
           <div />
           <div />
+          <div className={styles.skeletonRow} />
+          <div className={styles.skeletonRow} />
+          <div className={styles.skeletonRow} />
         </div>
       ) : (
         <>
@@ -413,6 +416,7 @@ export function MachinePanel({
                       delayed={delayed}
                       onClose={onClose}
                       leaving={sessionView.leaving.has(row.sessionId)}
+                      phone={phone}
                     />
                   )),
                   true,
@@ -465,6 +469,7 @@ export function MachinePanel({
                       pending={pending.has(`${row.pid}:${row.startedAt}`)}
                       stop={() => stopRows([row])}
                       leaving={orphanView.leaving.has(orphanKey(row))}
+                      phone={phone}
                     />
                   )),
                 )

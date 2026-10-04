@@ -44,9 +44,30 @@ export default async ({ instance, open, shoot, step, log }) => {
     await page.keyboard.press('Escape');
     const all = panel().getByRole('button', { name: 'Mind leállítása' });
     if (await all.count()) {
+      await page.keyboard.press('Escape');
+      // The supplied busy fixture has two orphans; add a third only for the requested bulk-confirmation image.
+      const threeOrphans = async (route) => {
+        const response = await route.fetch();
+        const data = await response.json();
+        if (data.orphans?.length === 2)
+          data.orphans.push({
+            ...data.orphans[0],
+            pid: data.orphans[0].pid + 10000,
+            name: 'vitest',
+            command: 'vitest run',
+          });
+        await route.fulfill({ response, json: data });
+      };
+      await page.route('**/api/machine*', threeOrphans);
+      await page.reload();
+      await indicator().click();
+      await panel()
+        .getByRole('heading', { name: /Gazdátlan folyamatok.*3/ })
+        .waitFor();
       await all.click();
       await shoot(page, 'orphans-confirmation', { widths: [1512] });
       await page.keyboard.press('Escape');
+      await page.unroute('**/api/machine*', threeOrphans);
     }
     await page.keyboard.press('Escape');
   });

@@ -1,0 +1,136 @@
+/* Under the status line, in its box, in line with its text: the dot (9px) and the gap (10px) come first. */
+.refinement {
+  flex: 0 0 100%;
+  box-sizing: border-box;
+  padding-left: 19px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: pm-fade-in 160ms ease-out;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.progress {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--phase-text);
+}
+
+.segments {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.segment {
+  width: 14px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--phase-text);
+  opacity: 0.25;
+}
+
+.segment[data-state='done'] {
+  opacity: 1;
+}
+
+.segment[data-state='held'] {
+  opacity: 1;
+  background: var(--c-needs);
+}
+
+.toggle {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--phase-text);
+  cursor: pointer;
+}
+
+.toggle:hover {
+  background: color-mix(in srgb, var(--phase-text) 10%, transparent);
+}
+
+.chevron {
+  display: inline-flex;
+  transition: transform 160ms ease-out;
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: pm-fade-in 160ms ease-out;
+}
+
+.steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.step {
+  display: flex;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--c-ink-2);
+}
+
+/* The step on turn (or standing still) is the one to see at a glance. */
+.step[data-state='current'],
+.step[data-state='held'] {
+  font-weight: 700;
+  color: var(--c-ink);
+}
+
+.stepDetail {
+  font-weight: 400;
+}
+
+.mark {
+  width: 12px;
+  flex-shrink: 0;
+  text-align: center;
+  color: var(--c-ink-2);
+}
+
+.step[data-state='done'] .mark {
+  color: var(--c-ok);
+}
+
+.step[data-state='current'] .mark {
+  color: var(--c-accent);
+}
+
+.step[data-state='held'] .mark {
+  color: var(--c-needs);
+}
+
+.next {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--c-ink-2);
+}

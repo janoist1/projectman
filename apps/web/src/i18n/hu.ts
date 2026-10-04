@@ -756,6 +756,29 @@ export const hu = {
     workersMore: '+{more}',
     workersMoreLabel: 'és még {more} tag dolgozik rajta',
     waitingOn: 'Másra vár: {who}',
+    /** A label's name in a status line (PM-291). */
+    quoted: '„{name}”',
+    /** The card is not ready to start (PM-291): what it waits for instead of the Start. */
+    approvalMissing: 'Jóváhagyásra vár: {label}',
+    approvalMissingYou: 'Rád vár: jóváhagyás ({label})',
+    notRefined: 'Még nincs kidolgozva',
+    labelsMissing: 'Címkére vár: {labels}',
+    /** The standing of a card's refinement (PM-291); the steps are the labels the gates ask for. */
+    refinement: {
+      yourStep: 'Rád vár: {label}',
+      nobody: 'Nincs, aki feltehetné: {label}',
+      system: 'A rendszerre vár: {label}',
+      moving: 'Kidolgozva: most lép tovább',
+      progress: 'Kidolgozás: {done}/{total} lépés kész',
+      steps: 'Lépések',
+      stepsList: 'A kidolgozás lépései',
+      stepTurn: 'soron: {names}',
+      stepHeld: 'áll, amíg rajta van: {labels}',
+      stepSystem: 'a rendszerre vár',
+      stepState: { done: 'kész', current: 'soron', held: 'áll', todo: 'hátra' },
+      next: 'Ha minden lépés kész, a kártya magától továbblép: {stage}. Onnan indítható.',
+      nextHere: 'Ha minden lépés kész, indítható.',
+    },
     /** A card held at its fix round limit (PM-262). */
     fixLimit: '{who} dönt · {rounds} javítási kör után',
     fixLimitYou: 'Rád vár: döntés · {rounds} javítási kör után',
@@ -892,6 +915,10 @@ export const hu = {
     },
     assigneeLabel: 'Ki vigye?',
     assigneeAuto: 'Automatikusan: az első szabad fejlesztő',
+    /** The Start while AI work is switched off (PM-291): disabled, with this note. */
+    aiOffStart: 'Az AI-munka ki van kapcsolva, ezért most nem indítható. Bekapcsolás: Beállítások → Keretek.',
+    /** In place of the Start while the card's start is being worked out (PM-291). */
+    startLoading: 'Betöltés…',
     repo: 'Repó: {repo}',
     repoLabel: 'Repó',
     repoNone: 'nincs repó kiválasztva',

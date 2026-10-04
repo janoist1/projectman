@@ -1,5 +1,5 @@
 import { existsSync, writeFileSync } from 'node:fs';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Actor, ServerEvent, TaskStatus } from '@projectman/shared';
 import { aiActor, humanActor, LIVE_SESSION_STATES } from '../src/domain';
 import type { StageChange } from '../src/domain';
@@ -174,10 +174,18 @@ describe('task lifecycle', () => {
     expect(h.runner.isRunning(session!.id)).toBe(true);
     expect(await loadOf('dev-1')).toBe(1);
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
-    expect(h.runner.isRunning(session!.id)).toBe(true);
     expect(await loadOf('dev-1')).toBe(0);
-    // A turn in progress counts wherever the task is.
-    h.repos.sessions.update(session!.id, { state: 'working' });
+    // Its step is done, so the idle session closes by itself (PM-295).
+    await vi.waitFor(() => expect(h.runner.isRunning(session!.id)).toBe(false));
+  });
+
+  it('counts a turn in progress on a task that moved on, wherever the task is', async () => {
+    const { session } = await start(h, 'AR-1');
+    h.runner.setState(session!.id, 'working');
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+    // It does not close in the middle of its turn.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(h.runner.isRunning(session!.id)).toBe(true);
     expect(await loadOf('dev-1')).toBe(1);
     expect(await loadOf('dev-1', 'AR-1')).toBe(0);
   });

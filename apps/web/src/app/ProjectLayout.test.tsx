@@ -36,11 +36,16 @@ describe('project access from Me', () => {
       '/p/AC',
     );
     expect(JSON.parse((await screen.findByTestId('access')).textContent!)).toEqual({
-      can: { createTasks: false, manageTeam: false, workInSessions: false, pauseTeam: false },
+      can: {
+        createTasks: false,
+        manageTeam: false,
+        workInSessions: false,
+        pauseTeam: false,
+        readConfig: true,
+      },
       isOwner: false,
     });
     await screen.findByText('Acme webshop');
-    expect(project.requests.some((request) => request.path.endsWith('/config'))).toBe(false);
   });
 });
 

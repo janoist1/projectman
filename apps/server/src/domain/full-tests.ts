@@ -437,7 +437,7 @@ export class FullTestRuns {
     } catch (err) {
       this.ctx.logger.warn({ err, taskKey }, 'could not send the task back after a failed full test');
     }
-    if (moved) await stopStageReviewers(this.sessions, config, current, stage);
+    if (moved) await stopStageReviewers(this.sessions, config, current, stage, back);
     else this.release(task, config);
     if (!current.assignee) return;
     const command = reviewTestOf(config, current)?.command ?? '';

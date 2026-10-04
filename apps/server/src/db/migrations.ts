@@ -668,5 +668,12 @@ export const migrations: Migration[] = [
       );
       CREATE INDEX full_test_runs_task_commit ON full_test_runs(task_key, commit_sha);`,
   },
+  {
+    version: 33,
+    name: 'session last stop',
+    // PM-288: why the session stopped last, a JSON `SessionStop`; null for a running session and for
+    // a row from before it was kept.
+    sql: `ALTER TABLE sessions ADD COLUMN last_stop TEXT NULL;`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

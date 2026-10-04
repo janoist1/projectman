@@ -1,4 +1,4 @@
-import { isCardLink, refinementTurn } from '@projectman/shared';
+import { isCardLink, refinementSteps, refinementTurn } from '@projectman/shared';
 import type { Attachment, Task } from '@projectman/shared';
 import {
   describeAttachment,
@@ -81,7 +81,7 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
 
   sections.push(['## Description', description(task.description)].join('\n'));
 
-  const refinement = refinementSection(input, task, situation);
+  const refinement = refinementSection(input, task);
   if (refinement) sections.push(refinement);
 
   const links = task.links.filter((l) => !isCardLink(l)).map((l) => `- ${describeLink(l, style)}`);
@@ -127,25 +127,11 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
  * the work stage ask for, the optional ones when the card carries the label that calls for them), which
  * are done and whose turn it is. Only for a card that is being worked out; else null.
  */
-function refinementSection(input: ContextPackInput, task: Task, situation: Situation): string | null {
+function refinementSection(input: ContextPackInput, task: Task): string | null {
   const turn = refinementTurn(task, input.project);
   if (!turn) return null;
   const labels = input.project.pipeline.labels;
-  const upTo = situation.stages.findIndex((stage) => stage.kind === 'work');
-  const from = situation.stages.findIndex((stage) => stage.id === task.stageId);
-  const needed = [
-    ...new Set(
-      situation.stages
-        .slice(Math.max(from, 0), upTo >= 0 ? upTo + 1 : undefined)
-        .flatMap((stage) => stage.gate?.conditions ?? [])
-        .flatMap((condition) =>
-          condition.type === 'has_label' &&
-          (condition.when === undefined || task.labels.includes(condition.when))
-            ? [condition.label]
-            : [],
-        ),
-    ),
-  ];
+  const needed = refinementSteps(task, input.project).map((step) => step.label);
   const setters =
     turn.kind === 'step' ? (turn.aiSetters.length > 0 ? turn.aiSetters : turn.humanSetters) : [];
   const onTurn =

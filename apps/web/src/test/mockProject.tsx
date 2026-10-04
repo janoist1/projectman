@@ -55,7 +55,7 @@ export function mockProject(backend = new MockBackend()) {
         },
       ],
     },
-    can: { createTasks: true, manageTeam: true, workInSessions: true, pauseTeam: true },
+    can: { createTasks: true, manageTeam: true, workInSessions: true, pauseTeam: true, readConfig: true },
     search: '',
     setSearch: () => {},
     openPause: () => {},

@@ -86,7 +86,7 @@ export class ReviewWatch {
       branchMoved: { branch: pin.branch, pinned: pin.commit, head: head.commit },
     });
     // The stage's reviewers stop once the task is back: what they judge is out of date.
-    await stopStageReviewers(this.sessions, config, task, stage);
+    await stopStageReviewers(this.sessions, config, task, stage, back);
     if (task.assignee)
       await this.messaging.send(
         projectKey,

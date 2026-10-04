@@ -34,7 +34,7 @@ import type { ConfigChange, ProjectService } from './projects';
 import type { SessionOrchestrator } from './sessions';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
-import { KeyedMutex, SYSTEM_ACTOR, newId } from './util';
+import { KeyedMutex, SYSTEM_ACTOR, humanActor, newId } from './util';
 
 /** The most entries of a card read at once: far more than a threshold (50 at most) needs. */
 const TALK_LIMIT = 1000;
@@ -127,7 +127,10 @@ export class LoopWatch {
       if (!loop || loop.endedAt) return;
       const by = item.resolution?.by ?? 'system';
       if (item.resolution?.optionId === LOOP_STOP_OPTION.id) {
-        await this.sessions.stopTask(loop.projectKey, loop.taskKey);
+        await this.sessions.stopTask(loop.projectKey, loop.taskKey, {
+          kind: 'loop_stopped',
+          ...(by !== 'system' ? { by: humanActor(by) } : {}),
+        });
         this.end(loop, 'stopped', by);
       } else if (item.resolution?.optionId === LOOP_LET_RUN_OPTION.id) {
         this.letRun(loop, by);

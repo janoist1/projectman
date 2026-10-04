@@ -1,11 +1,12 @@
 import {
   hasStepOnTask,
   isOpenTask,
+  isRefining,
   isSessionAtWork,
   SESSION_IDLE_CLOSE_MINUTES,
   stageIndex,
 } from '@projectman/shared';
-import type { Session, SessionStop, Task } from '@projectman/shared';
+import type { ProjectConfig, Session, SessionStop, Task } from '@projectman/shared';
 import type { DomainContext } from './context';
 import type { MessageDelivery, Messaging } from './messaging';
 import type { ProjectService } from './projects';
@@ -58,7 +59,7 @@ export class SessionCloser {
     const task = this.tasks.find(change.task.projectKey, change.task.key);
     if (!task || !isOpenTask(task)) return;
     const config = await this.projects.config(task.projectKey);
-    const turnMember = this.refinement.turnMember(task.projectKey, task.key);
+    const turnMember = this.turnMemberOf(task, config);
     const wentBack = stageIndex(config.pipeline, change.to) < stageIndex(config.pipeline, change.from);
     const stop: SessionStop = wentBack
       ? { kind: 'sent_back', taskKey: task.key, stageId: change.to }
@@ -139,8 +140,15 @@ export class SessionCloser {
     const task = this.tasks.find(session.projectKey, session.workItem.taskKey);
     if (!task) return false;
     const config = await this.projects.config(task.projectKey);
-    const turnMember = this.refinement.turnMember(task.projectKey, task.key);
-    return hasStepOnTask(config, task, session.member, turnMember);
+    return hasStepOnTask(config, task, session.member, this.turnMemberOf(task, config));
+  }
+
+  /**
+   * The member whose refinement turn it is, while the card is being refined. The last turn event stays
+   * on a card whose refinement ended without a `done` (the label was taken off): that turn is over.
+   */
+  private turnMemberOf(task: Task, config: ProjectConfig): string | null {
+    return isRefining(task, config) ? this.refinement.turnMember(task.projectKey, task.key) : null;
   }
 
   /** Closes a session marked to close, unless its member has the card's step again by now. */

@@ -185,6 +185,28 @@ describe('Refinement line', () => {
     expect(h.runner.isRunning(des.id)).toBe(true);
   });
 
+  it('does not read the turn of a refinement that ended without a done as a step: the developer keeps its session (PM-295)', async () => {
+    await prepare({}, []);
+    await label({ add: ['refine'] });
+    await vi.waitFor(() => expect(members()).toEqual(['ana']));
+    // The owner ends the refinement by hand: no `done` turn is written, ana's stays the latest.
+    await label({ remove: ['refine'], add: ['scope-ok'] });
+    await flush();
+    await h.domain.taskStarts.start('AR', 'AR-1', { assignee: 'dev-1', actor: OWNER_ACTOR, author: OWNER });
+    await vi.waitFor(() => expect(members()).toEqual(['ana', 'dev-1']));
+    expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBe('ana');
+    const dev = sessionsOf().find((s) => s.member === 'dev-1')!;
+    h.runner.setState(dev.id, 'working');
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+    h.runner.setState(dev.id, 'idle');
+    await flush();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(h.runner.isRunning(dev.id)).toBe(true);
+    expect(h.repos.sessions.get(dev.id)?.lastStop).toBeUndefined();
+    expect(h.domain.sessions.pendingClose(dev.id)).toBeUndefined();
+  });
+
   it('removes the label, moves the card and tells who prioritises when the chain ends', async () => {
     await prepare();
     await label({ add: ['refine'] });

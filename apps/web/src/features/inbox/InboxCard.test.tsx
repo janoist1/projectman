@@ -443,7 +443,9 @@ describe('InboxCard: a question that explains itself', () => {
         const body = document.getElementById(toggle.getAttribute('aria-controls')!)!;
         expect(toggle.getAttribute('aria-expanded')).toBe('false');
         expect(body.className).toMatch(/clamped/);
+        expect(body.style.maxHeight).toMatch(/px$/);
         fireEvent.click(toggle);
+        expect(body.style.maxHeight).toBe('');
         expect(body.className).not.toMatch(/clamped/);
         const less = within(card).getByRole('button', { name: t('inbox.question.less') });
         expect(less.getAttribute('aria-expanded')).toBe('true');

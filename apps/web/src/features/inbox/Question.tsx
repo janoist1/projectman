@@ -7,6 +7,7 @@ import { Chip } from '../../components/Chip';
 import { Fold } from '../../components/Fold';
 import { InlineMarkdown, Markdown } from '../../components/Markdown';
 import { t } from '../../i18n/t';
+import { foldHeight } from '../../lib/foldHeight';
 import { optionLabel } from '../../lib/inbox';
 import styles from './Question.module.css';
 
@@ -100,7 +101,9 @@ const BODY_LINE_HEIGHT = 1.55;
  */
 export function QuestionBody({ text, mobile = false }: { text: string; mobile?: boolean }) {
   const [open, setOpen] = useState(false);
-  const [overflowing, setOverflowing] = useState(false);
+  // How tall the folded text is; null while the text is short enough not to fold.
+  const [foldedHeight, setFoldedHeight] = useState<number | null>(null);
+  const [fade, setFade] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
 
@@ -112,7 +115,23 @@ export function QuestionBody({ text, mobile = false }: { text: string; mobile?: 
       const lineHeight = style.lineHeight.endsWith('px')
         ? parseFloat(style.lineHeight)
         : (parseFloat(style.fontSize) || 14) * BODY_LINE_HEIGHT;
-      setOverflowing(element.scrollHeight > lineHeight * BODY_FOLD_ABOVE_LINES + 2);
+      if (element.scrollHeight <= lineHeight * BODY_FOLD_ABOVE_LINES + 2) {
+        setFoldedHeight(null);
+        return;
+      }
+      // The blocks the text is made of: paragraphs, code, and the items of a list one by one.
+      const top = element.getBoundingClientRect().top;
+      const blocks = [...(element.firstElementChild?.children ?? [])]
+        .flatMap((block) =>
+          block.tagName === 'UL' || block.tagName === 'OL' ? [...block.children] : [block],
+        )
+        .map((block) => {
+          const box = block.getBoundingClientRect();
+          return { top: box.top - top, bottom: box.bottom - top };
+        });
+      const fold = foldHeight(blocks, lineHeight);
+      setFoldedHeight(fold.height);
+      setFade(fold.fade);
     };
     measure();
     // The width changes with the window and with a drawer or sidebar opening, not only on resize.
@@ -125,13 +144,15 @@ export function QuestionBody({ text, mobile = false }: { text: string; mobile?: 
     return () => observer.disconnect();
   }, [text, open]);
 
+  const overflowing = foldedHeight !== null;
   const folded = overflowing && !open;
   return (
     <div className={clsx(styles.body, mobile && styles.mobile)}>
       <div
         id={id}
         ref={ref}
-        className={clsx(styles.bodyText, folded && styles.clamped)}
+        className={clsx(styles.bodyText, folded && styles.clamped, folded && fade && styles.faded)}
+        style={folded ? { maxHeight: foldedHeight } : undefined}
         onFocus={() => {
           if (folded) setOpen(true);
         }}

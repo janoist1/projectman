@@ -98,12 +98,18 @@
   color: var(--c-accent-text);
 }
 
-/* Eight lines show; the last two fade out, whatever the colour behind them. */
+/*
+ * At most eight lines show, ending at the bottom of a block (the height is set in the style, from
+ * the measured blocks). Only when the cut falls inside a long paragraph does its last line fade out,
+ * whatever the colour behind it.
+ */
 .clamped {
-  max-height: calc(8 * 1.55em);
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2.4em), transparent);
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 2.4em), transparent);
+}
+
+.faded {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.55em), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 1.55em), transparent);
 }
 
 /* Looks like the "Teljes parancs" button of a command (PermissionParts.module.css). */

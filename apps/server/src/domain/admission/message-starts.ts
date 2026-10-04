@@ -4,7 +4,9 @@ import { encodeWorkItem } from '../../db';
 import { requireAiMember } from '../access';
 import type { MessageDelivery, MessageService } from '../messaging';
 import type { ProjectService } from '../projects';
+import type { SessionStartCause } from '../sessions';
 import type { TaskService } from '../tasks';
+import { unique } from '../util';
 import type { Admission } from './admission';
 import type { AutomaticStart, StartSpec } from './deferred-starts';
 
@@ -88,9 +90,11 @@ export class MessageStarts {
         const task = taskKey ? this.tasks.get(projectKey, taskKey) : null;
         if (task && !isOpenTask(task)) return;
         triedIn = task?.stageId;
-        if (this.messages.waiting(projectKey, handle, workItem).length === 0) return;
+        const waiting = this.messages.waiting(projectKey, handle, workItem);
+        if (waiting.length === 0) return;
+        const cause: SessionStartCause = { kind: 'message', from: unique(waiting.map((m) => m.from)) };
         await this.delivery.startAndDeliver(projectKey, handle, workItem, (messages) =>
-          this.admission.start({ config, member, workItem, messages }),
+          this.admission.start({ config, member, workItem, messages, cause }),
         );
       },
     };

@@ -2,6 +2,7 @@ import { formatInjectedTeamMessage } from '@projectman/shared';
 import type { Session, TeamMessage, WorkItemRef } from '@projectman/shared';
 import { encodeWorkItem } from '../../db';
 import type { DomainContext } from '../context';
+import { MESSAGE_SEPARATOR } from '../sessions';
 import type { EnsureSessionResult, SessionOrchestrator } from '../sessions';
 import type { MessageService } from './messages';
 
@@ -31,6 +32,8 @@ export class MessageDelivery {
    * process, and the messages wait like any that wait for a start (the resume starts it with them).
    */
   private readonly pauseHeld = new Map<string, { sessionId: string; messageId: string; member: string }>();
+  /** Notices kept for idle sessions (PM-249), by session id: typed before the session's next input. */
+  private readonly held = new Map<string, string[]>();
 
   constructor(deps: {
     ctx: DomainContext;
@@ -55,8 +58,11 @@ export class MessageDelivery {
       .then(() =>
         this.sessions.typeInto(
           session,
-          text ??
-            (plain ? message.body : formatInjectedTeamMessage(message.from, message.body, message.taskKey)),
+          this.withHeld(
+            session,
+            text ??
+              (plain ? message.body : formatInjectedTeamMessage(message.from, message.body, message.taskKey)),
+          ),
         ),
       )
       .then(() => {
@@ -171,10 +177,41 @@ export class MessageDelivery {
   /** Types a notice with the team prefix that is not stored as a message. */
   notice(session: Session, from: string, text: string, taskKey: string | null): void {
     Promise.resolve()
-      .then(() => this.sessions.typeInto(session, formatInjectedTeamMessage(from, text, taskKey)))
+      .then(() =>
+        this.sessions.typeInto(
+          session,
+          this.withHeld(session, formatInjectedTeamMessage(from, text, taskKey)),
+        ),
+      )
       .catch((err: unknown) =>
         this.ctx.logger.warn({ err, sessionId: session.id }, 'could not deliver a message'),
       );
+  }
+
+  /**
+   * A notice that must not start a turn (PM-249): a session that is not idle gets it typed now (the
+   * runner queues it until the turn ends); an idle one keeps it, and it goes in front of the next text
+   * typed into the session through `deliver` or `notice`, joined by `MESSAGE_SEPARATOR`. `session` is
+   * read fresh by the caller: its state decides.
+   */
+  noticeOrHold(session: Session, from: string, text: string, taskKey: string | null): void {
+    if (session.state !== 'idle') return this.notice(session, from, text, taskKey);
+    const kept = this.held.get(session.id) ?? [];
+    kept.push(formatInjectedTeamMessage(from, text, taskKey));
+    this.held.set(session.id, kept);
+  }
+
+  /** Drops what was kept for a session that ended (`session_ended`). */
+  dropHeld(sessionId: string): void {
+    this.held.delete(sessionId);
+  }
+
+  /** `text` with the notices kept for the session in front of it; they are taken out. */
+  private withHeld(session: Session, text: string): string {
+    const kept = this.held.get(session.id);
+    if (!kept) return text;
+    this.held.delete(session.id);
+    return [...kept, text].join(MESSAGE_SEPARATOR);
   }
 }
 

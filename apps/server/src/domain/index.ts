@@ -592,6 +592,10 @@ export function createDomain(opts: DomainOptions) {
     item.kind === 'decision' ? tasks.handleDecisionResolved(item) : undefined,
   );
   events.on('inbox_resolved', (item) => (item.kind === 'question' ? messaging.answer(item) : undefined));
+  // The card's other workers learn what was answered, so they do not ask it again (PM-249).
+  events.on('inbox_resolved', (item) =>
+    item.kind === 'question' ? messaging.answeredNotice(item) : undefined,
+  );
   // An open AI question holds its card back with the waiting label; the last one closing frees it.
   events.on('inbox_resolved', (item) => openQuestionLabel.release(item));
   events.on('inbox_cancelled', (item) => openQuestionLabel.release(item));
@@ -736,6 +740,9 @@ export function createDomain(opts: DomainOptions) {
   // A session that started while the team is paused is held at once (a start that passed admission before the pause).
   events.on('session_started', (session) => pauses.sessionStarted(session));
   events.on('session_started', (session) => delivery.deliverWaiting(session));
+  // A member joining a card is told to the card's other workers; a notice kept for an ended session is dropped (PM-249).
+  events.on('task_session_joined', (joined) => messaging.joinedNotice(joined));
+  events.on('session_ended', (session) => delivery.dropHeld(session.id));
   events.on('session_input_released', (session) => delivery.deliverWaiting(session));
   events.on('message_waiting', ({ projectKey, handle, workItem, messageId }) => {
     background.run(

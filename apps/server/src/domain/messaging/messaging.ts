@@ -21,13 +21,14 @@ import type {
   TeamMessage,
   WorkItemRef,
 } from '@projectman/shared';
+import { roleLabel, truncate } from '../../agent-text';
 import type { RefinementSteps } from '../admission';
 import type { DomainContext } from '../context';
 import { DomainError, invalid } from '../errors';
 import type { DomainEventMap } from '../events';
 import { answerText } from '../inbox';
 import type { ProjectService } from '../projects';
-import type { SessionOrchestrator } from '../sessions';
+import type { SessionOrchestrator, SessionStartCause } from '../sessions';
 import type { TaskService } from '../tasks';
 import { actorHandle, humanActor, unique } from '../util';
 import type { MessageDelivery } from './delivery';
@@ -204,7 +205,10 @@ export class Messaging {
     const running = this.sessions.isRunning(session.id);
     const started = running
       ? null
-      : await this.sessions.ensureSession(projectKey, session.member, session.workItem, { messages: [body] });
+      : await this.sessions.ensureSession(projectKey, session.member, session.workItem, {
+          messages: [body],
+          cause: { kind: 'message', from: [from] },
+        });
     const sentAsFirstInput = (started?.messagesSent ?? 0) > 0;
     // A session about to restart into a new permission mode takes it after the restart (PM-170).
     const held = running && this.sessions.permissionRestartDue(session);
@@ -295,6 +299,58 @@ export class Messaging {
       { to: mentions, text: event.data.text as string, taskKey: event.taskKey },
       { actor: event.actor, sessionId: event.sessionId },
     );
+  }
+
+  /**
+   * A member's session started or resumed on a card (PM-249): the card's other workers are told who
+   * came, in which role and why. The notice is not stored as a message and starts no session; an idle
+   * session keeps it until its next input (`MessageDelivery.noticeOrHold`).
+   */
+  async joinedNotice(joined: DomainEventMap['task_session_joined']): Promise<void> {
+    const { session, resumed, cause } = joined;
+    if (session.workItem.type !== 'task') return;
+    const task = this.tasks.find(session.projectKey, session.workItem.taskKey);
+    if (!task || !isOpenTask(task)) return;
+    const config = await this.projects.config(task.projectKey);
+    const member = memberOf(config, session.member);
+    const role = member?.kind === 'ai' ? roleLabel(member.role, config.team.roles) : session.member;
+    const text =
+      `\`${session.member}\` (${role}) ${resumed ? 'is working on' : 'started working on'} ${task.key}` +
+      `${resumed ? ' again' : ' too'}${startReason(config, cause)}. ` +
+      "Coordinate by send_message with the members it concerns, and do not overwrite each other's part.";
+    for (const worker of this.sessions.cardWorkers(task.projectKey, task, config))
+      if (worker.member !== session.member) this.delivery.noticeOrHold(worker, 'projectman', text, task.key);
+  }
+
+  /**
+   * An ask_human question on a card was answered (PM-249): the card's other workers get the question
+   * and the answer, so that they do not ask it again. The asker gets the answer by `answer`. Not
+   * stored as a message, and starts no session.
+   */
+  async answeredNotice(item: InboxItem): Promise<void> {
+    const resolution = item.resolution;
+    if (item.kind !== 'question' || !resolution || !item.taskKey) return;
+    const task = this.tasks.find(item.projectKey, item.taskKey);
+    if (!task || !isOpenTask(task)) return;
+    const config = await this.projects.config(item.projectKey);
+    const workers = this.sessions
+      .cardWorkers(task.projectKey, task, config)
+      .filter((worker) => worker.member !== item.source);
+    if (workers.length === 0) return;
+    const question = typeof item.payload.question === 'string' ? item.payload.question : item.title;
+    const answer = answerText(item);
+    const cut =
+      Array.from(question).length > QUESTION_NOTICE_LIMIT || Array.from(answer).length > ANSWER_NOTICE_LIMIT;
+    const eventId = cut
+      ? this.ctx.repos.timeline
+          .listOfTypes(task.projectKey, task.key, ['question_answered'], 20)
+          .find((event) => event.data.inboxItemId === item.id)?.id
+      : undefined;
+    const text =
+      `On ${task.key}, \`${item.source}\` asked a person: "${truncate(question, QUESTION_NOTICE_LIMIT)}" ` +
+      `\`${resolution.by}\` answered: "${truncate(answer, ANSWER_NOTICE_LIMIT)}". Do not ask it again.` +
+      (eventId ? ` If it is cut, read it whole: get_task task_key ${task.key}, event_id ${eventId}.` : '');
+    for (const worker of workers) this.delivery.noticeOrHold(worker, 'projectman', text, task.key);
   }
 
   /** A human answered an AI member's `ask_human` question: the answer goes back to the asking session. */
@@ -469,5 +525,26 @@ export class Messaging {
     else if (running) this.delivery.deliver(running, message);
     else
       void this.ctx.events.emit('message_waiting', { projectKey, handle, workItem, messageId: message.id });
+  }
+}
+
+/** How much of a question and of its answer the notice to the card's other workers carries. */
+const QUESTION_NOTICE_LIMIT = 200;
+const ANSWER_NOTICE_LIMIT = 500;
+
+/** Why a session joined a card, as the joined notice says it (empty when nothing is known). */
+function startReason(config: ProjectConfig, cause: SessionStartCause | null): string {
+  if (!cause) return '';
+  switch (cause.kind) {
+    case 'message':
+      return cause.from.length > 0
+        ? ` (woken by a team message from ${cause.from.map((handle) => `\`${handle}\``).join(', ')})`
+        : '';
+    case 'stage':
+      return ` (the card entered ${stageOf(config, cause.stageId)?.name ?? cause.stageId}, moved by \`${cause.by}\`)`;
+    case 'refinement':
+      return ` (its refinement step for label \`${cause.label}\`)`;
+    case 'start':
+      return ` (started by \`${cause.by}\`)`;
   }
 }

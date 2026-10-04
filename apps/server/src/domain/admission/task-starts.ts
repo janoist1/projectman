@@ -28,7 +28,7 @@ import type { Author, ProjectService } from '../projects';
 import type { SessionOrchestrator } from '../sessions';
 import { approvalRequestedError, gateBlockedError } from '../tasks';
 import type { StageChange, TaskService } from '../tasks';
-import { SYSTEM_ACTOR, SYSTEM_AUTHOR } from '../util';
+import { actorHandle, SYSTEM_ACTOR, SYSTEM_AUTHOR } from '../util';
 import type { Admission } from './admission';
 import { assertPrerequisitesClosed } from './rules';
 
@@ -258,7 +258,11 @@ export class TaskStarts {
     }
     let session: Session | null = null;
     if (member.kind === 'ai') {
-      session = (await this.sessions.ensureSession(projectKey, member.handle, workItem)).session;
+      session = (
+        await this.sessions.ensureSession(projectKey, member.handle, workItem, {
+          cause: { kind: 'start', by: actorHandle(opts.actor) },
+        })
+      ).session;
     }
     if (anotherRound) this.fixLimit?.releaseMessages(task);
     return { task: this.tasks.get(projectKey, taskKey), session, hired };
@@ -295,7 +299,13 @@ export class TaskStarts {
     );
     if (!setters || !this.labelWait) return null;
     const workItem = { type: 'task', taskKey: task.key } as const;
-    for (const member of setters.members) await this.admission.start({ config, member, workItem });
+    for (const member of setters.members)
+      await this.admission.start({
+        config,
+        member,
+        workItem,
+        cause: { kind: 'start', by: actorHandle(opts.actor) },
+      });
     const members = setters.members.map((m) => m.handle);
     this.labelWait.awaitLabels({
       projectKey,

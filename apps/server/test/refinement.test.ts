@@ -118,6 +118,25 @@ describe('Refinement line', () => {
     expect(h.runner.started).toHaveLength(1);
   });
 
+  it('tells a member working on the card which refinement step the new member came for (PM-249)', async () => {
+    await prepare();
+    const { session: dev } = await h.domain.sessions.ensureSession('AR', 'dev-1', {
+      type: 'task',
+      taskKey: 'AR-1',
+    });
+    h.runner.setState(dev.id, 'working');
+    await label({ add: ['refine'] });
+
+    await vi.waitFor(() => expect(members()).toEqual(['ana', 'dev-1']));
+    await vi.waitFor(() =>
+      expect(h.runner.messages.filter((m) => m.sessionId === dev.id).map((m) => m.text)).toEqual([
+        expect.stringContaining(
+          '`ana` (business analyst) started working on AR-1 too (its refinement step for label `scope-ok`).',
+        ),
+      ]),
+    );
+  });
+
   it('gives the next step to the next member once the previous turn ended', async () => {
     await prepare();
     await label({ add: ['refine'] });

@@ -6,6 +6,7 @@ import { useProject } from '../../app/contexts';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
+import { useCardLink } from './cardSize';
 import { sortedThemes } from './themeModel';
 import drawer from './drawer.module.css';
 import styles from './TaskLifecycle.module.css';
@@ -17,6 +18,7 @@ import styles from './TaskLifecycle.module.css';
  */
 export function TaskTheme({ task, tasks }: { task: Task; tasks: readonly Task[] }) {
   const { key, can } = useProject();
+  const cardLink = useCardLink();
   const update = useUpdateTask(key);
   const toast = useToast();
   const themes = sortedThemes(tasks);
@@ -30,7 +32,7 @@ export function TaskTheme({ task, tasks }: { task: Task; tasks: readonly Task[] 
         <span className={drawer.propLabel}>{t('task.theme')}</span>
         <span>
           {current ? (
-            <Link to={`/p/${key}/tasks/${current.key}`}>{current.title}</Link>
+            <Link to={cardLink(`/p/${key}/tasks/${current.key}`)}>{current.title}</Link>
           ) : (
             <span className={drawer.propMuted}>{t('task.themeNone')}</span>
           )}{' '}
@@ -45,7 +47,7 @@ export function TaskTheme({ task, tasks }: { task: Task; tasks: readonly Task[] 
       <div className={drawer.prop}>
         <span className={drawer.propLabel}>{t('task.theme')}</span>
         {current ? (
-          <Link to={`/p/${key}/tasks/${current.key}`}>{current.title}</Link>
+          <Link to={cardLink(`/p/${key}/tasks/${current.key}`)}>{current.title}</Link>
         ) : (
           <span className={drawer.propMuted}>{t('task.themeNone')}</span>
         )}

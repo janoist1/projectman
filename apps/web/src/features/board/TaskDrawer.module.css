@@ -25,6 +25,39 @@
   }
 }
 
+/* The large window (PM-283): the same box in the middle of the board, over a backdrop that covers the page. */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: var(--c-backdrop);
+  animation: pm-fade-in 160ms ease-out;
+}
+
+.window {
+  --card-pad-x: 40px;
+  --card-title-size: 26px;
+  inset: 32px;
+  width: min(1160px, calc(100vw - 64px));
+  margin: 0 auto;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+  animation: window-in 160ms ease-out;
+}
+
+@keyframes window-in {
+  from {
+    transform: scale(0.985);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
 .scroll {
   flex: 1 1 auto;
   min-height: 0;
@@ -35,9 +68,77 @@
   gap: 20px;
 }
 
+/* The sections sit in four groups that only order the tree: the quick view and the one-column window lay
+   their sections out as if the group were not there. */
+.group {
+  display: contents;
+}
+
+.group:empty {
+  display: none;
+}
+
+/* Only the close button stands above a loading, failed or missing card. */
+.bar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px 16px 0;
+}
+
+/* One column: 760px at most, in the middle of the window. */
+.window .scroll {
+  padding: 28px var(--card-pad-x) 40px;
+  display: grid;
+  grid-template-columns: minmax(0, 760px);
+  justify-content: center;
+  align-content: start;
+}
+
+.window .scroll > *,
+.window .group > * {
+  min-width: 0;
+}
+
 .description {
   font-size: 13.5px;
   color: var(--c-ink-2);
+}
+
+.window .description {
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+/* Two columns: the reading column on the left (the groups in order), the actions, properties on the right.
+   The right column spans every row, so it sets none of their heights; it stays in sight while the left scrolls. */
+.wide .scroll {
+  grid-template-columns: minmax(0, 760px) 320px;
+  grid-template-rows: auto auto 1fr;
+  column-gap: 20px;
+  container-type: size; /* the right column is as tall as the window at most (cqh) */
+}
+
+.wide .group {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  grid-column: 1;
+}
+
+.wide .group:empty {
+  display: none;
+}
+
+.wide .side {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  align-self: start;
+  position: sticky;
+  top: 0;
+  max-height: 100cqh;
+  overflow-y: auto;
+  padding-left: 20px;
+  border-left: 1px solid var(--c-line-soft);
 }
 
 .sessions {
@@ -139,6 +240,15 @@
   .scroll {
     flex: 0 0 auto;
     overflow-y: visible;
+  }
+  /* The window scrolls as a whole, so there is no height for the right column to keep in. */
+  .wide .scroll {
+    container-type: normal;
+  }
+  .wide .side {
+    position: static;
+    max-height: none;
+    overflow: visible;
   }
 }
 

@@ -14,6 +14,8 @@ import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { isTaskClosed } from '../../lib/taskState';
+import { CardSizeToggle, useCardLink } from './cardSize';
+import type { CardSize } from './cardSize';
 import { TaskTitle } from './TaskEdit';
 import { cancelledIn, percentOf, progressOf, themeTree } from './themeModel';
 import type { BoardEntry } from './useBoardModel';
@@ -25,10 +27,14 @@ import styles from './ThemeDrawer.module.css';
 export function ThemeHeader({
   task,
   headingRef,
+  size,
+  onToggleSize,
   onClose,
 }: {
   task: Task;
   headingRef: Ref<HTMLHeadingElement>;
+  size: CardSize;
+  onToggleSize: (() => void) | undefined;
   onClose: () => void;
 }) {
   return (
@@ -39,6 +45,7 @@ export function ThemeHeader({
         </Chip>
         <span className={head.key}>{task.key}</span>
         <span className={head.spacer} />
+        <CardSizeToggle size={size} onToggle={onToggleSize} />
         <Button variant="muted" iconOnly icon="close" onClick={onClose} aria-label={t('common.close')} />
       </div>
       <TaskTitle key={task.key} task={task} headingRef={headingRef} />
@@ -127,11 +134,12 @@ function CardRow({
   byKey: ReadonlyMap<string, BoardEntry>;
 }) {
   const { key } = useProject();
+  const cardLink = useCardLink();
   const closed = isTaskClosed(card);
   return (
     <>
       <StatusDot phase={byKey.get(card.key)?.state.phase} status={card.status} size={9} />
-      <Link to={`/p/${key}/tasks/${card.key}`} className={styles.cardLink}>
+      <Link to={cardLink(`/p/${key}/tasks/${card.key}`)} className={styles.cardLink}>
         <span className={styles.cardKey}>{card.key}</span> {card.title}
       </Link>
       <Chip>

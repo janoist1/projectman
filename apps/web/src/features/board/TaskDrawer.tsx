@@ -1,5 +1,7 @@
+import clsx from 'clsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import type { ReactNode } from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import {
   canSeeAllTeamMessages,
   fixLimitDecisionOf,
@@ -33,13 +35,15 @@ import { decisionToast, openItemIds, openItemsFor } from '../../lib/inbox';
 import { sessionStatus } from '../../lib/sessions';
 import { isTaskClosed } from '../../lib/taskState';
 import { isApiError } from '../../api/client';
-import { useDocumentTitle } from '../../lib/hooks';
+import { useDocumentTitle, useIsMobile, useMediaQuery } from '../../lib/hooks';
 import { nameOf } from '../../lib/members';
 import { canStartRefinement } from '../../lib/refinement';
 import { isDeveloperRole } from '../../lib/roles';
 import type { MemberIndex } from '../../lib/members';
 import { InboxCard } from '../inbox/InboxCard';
 import { openPrerequisiteKeys, PrerequisiteWarning, refusedPrerequisites } from './PrerequisiteWarning';
+import { CardSizeProvider, SIZE_PARAM } from './cardSize';
+import type { CardSize } from './cardSize';
 import { nextStepLine } from './NextStep';
 import { RefineButton } from './RefineButton';
 import { SignalBox } from './SignalBox';
@@ -156,9 +160,32 @@ function StartPanel({
   );
 }
 
+/** The large window has two columns from this width on: its own 1040px (the window is 64px narrower than the screen). */
+const WIDE_QUERY = '(min-width: 1104px)';
+
+/**
+ * The open card (PM-283): the quick view is the drawer on the right of the board, the large window (`?size=large`)
+ * floats in the middle of it over a backdrop, and a phone always has the drawer. The same component and the same
+ * sections show both: they keep their place in the tree (and so a draft) when the size or the number of columns changes.
+ */
 export function TaskDrawer() {
   const { taskKey = '' } = useParams();
   const { key, myHandle, can, me } = useProject();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const mobile = useIsMobile();
+  const size: CardSize = !mobile && searchParams.get(SIZE_PARAM) === 'large' ? 'large' : 'quick';
+  const twoColumns = useMediaQuery(WIDE_QUERY) && size === 'large';
+  const panelRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Replaces the history entry: the browser's Back goes to where the card was opened from.
+  const toggleSize = mobile
+    ? undefined
+    : () => {
+        const next = new URLSearchParams(searchParams);
+        if (size === 'large') next.delete(SIZE_PARAM);
+        else next.set(SIZE_PARAM, 'large');
+        setSearchParams(next, { replace: true });
+      };
   const access = me.projects.find((project) => project.key === key)?.access;
   const seesAllMessages = access ? canSeeAllTeamMessages({ access }) : false;
   const navigate = useNavigate();
@@ -199,19 +226,52 @@ export function TaskDrawer() {
     return () => document.removeEventListener('keydown', onKey);
   }, [key, navigate]);
 
+  // The large window holds the focus and the pointer: all that lies under it (the menu, the bars, the board)
+  // is inert, so Tab stays inside it. Not a modal <dialog>: that would cover the toasts and the popovers.
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (size !== 'large' || !panel) return;
+    const inerted: Element[] = [];
+    for (let node: Element | null = panel; node && node !== document.body; node = node.parentElement) {
+      for (const sibling of node.parentElement?.children ?? []) {
+        if (sibling === node || sibling.hasAttribute('inert') || sibling.hasAttribute('data-inert-exempt'))
+          continue;
+        sibling.setAttribute('inert', '');
+        inerted.push(sibling);
+      }
+    }
+    return () => inerted.forEach((element) => element.removeAttribute('inert'));
+  }, [size]);
+
+  // A window opens at the start of the content.
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [size]);
+
   const openIds = useMemo(() => openItemIds(inbox.data?.items), [inbox.data]);
   const myItems = openItemsFor(inbox.data?.items, myHandle).filter((item) => item.taskKey === taskKey);
 
   const body = (() => {
+    // Until there is a head, the close button stands alone above the state: behind the large window
+    // the board cannot be reached, so Escape must not be the only way out.
+    const closeOnly = (state: ReactNode) => (
+      <>
+        <div className={styles.bar}>
+          <Button variant="muted" iconOnly icon="close" onClick={close} aria-label={t('common.close')} />
+        </div>
+        {state}
+      </>
+    );
     if (!task) {
-      if (detail.isPending || board.isPending) return <LoadingState />;
-      if (detail.isError) return <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />;
-      return <p className={styles.missing}>{t('task.notFound', { key: taskKey })}</p>;
+      if (detail.isPending || board.isPending) return closeOnly(<LoadingState />);
+      if (detail.isError)
+        return closeOnly(<ErrorState error={detail.error} onRetry={() => void detail.refetch()} />);
+      return closeOnly(<p className={styles.missing}>{t('task.notFound', { key: taskKey })}</p>);
     }
-    if (!pipeline) return <LoadingState />;
+    if (!pipeline) return closeOnly(<LoadingState />);
     // A theme is no card of the pipeline: it has its own head, progress and cards, and nothing to start or move.
     const theme = isTheme(task);
-    if (!theme && !entry) return <LoadingState />;
+    if (!theme && !entry) return closeOnly(<LoadingState />);
     const stage = pipeline.stageById.get(task.stageId);
     const parent =
       board.data?.tasks.find((candidate) => candidate.key === task.parentKey) ?? detail.data?.parent;
@@ -237,10 +297,172 @@ export function TaskDrawer() {
       canRefine ||
       Boolean(session && can.workInSessions) ||
       canMoveTask(task, can.createTasks);
+    // The sections come in four groups, in the order of the quick view. The large window with two columns
+    // reads the left one first and the right one (`side`) last, and moves the groups, not the sections:
+    // a group keeps its place under the scroll box, so what is typed in it is not lost.
+    const signals = (
+      <div key="signals" className={styles.group}>
+        <SignalBox
+          task={task}
+          members={members}
+          myHandle={myHandle}
+          messagesHref={seesAllMessages ? `/p/${key}/messages/all?task=${task.key}` : null}
+          decidingLoop={myItems.some((item) => loopDecisionOf(item))}
+          decidingFixLimit={myItems.some((item) => fixLimitDecisionOf(item))}
+        />
+        {myItems.length > 0 ? (
+          <section className={drawer.section}>
+            {myItems.map((item) => (
+              <InboxCard
+                key={item.id}
+                item={item}
+                members={members}
+                myHandle={myHandle}
+                pipeline={pipeline}
+                labels={labels}
+                compact
+                headingLevel={3}
+                pending={resolve.isPending && resolve.variables?.item.id === item.id}
+                onResolve={(target, request) =>
+                  resolve.mutate(
+                    { item: target, body: request },
+                    {
+                      onSuccess: () => toast.show(decisionToast(target, request.optionId, myHandle), 'ok'),
+                      onError: () => toast.show(t('inbox.resolveFailed'), 'error'),
+                    },
+                  )
+                }
+                detailsHref={item.sessionId ? `/p/${key}/sessions/${item.sessionId}` : null}
+              />
+            ))}
+          </section>
+        ) : null}
+      </div>
+    );
+    const side = (
+      <div key="side" className={clsx(styles.group, styles.side)}>
+        {task.startWaiting ? <p className={drawer.section}>{startWaitingHint(task)}</p> : null}
+        <div className={styles.actions} hidden={!hasActions}>
+          {canRefine ? <RefineButton task={task} /> : null}
+          {isQueued && can.createTasks ? (
+            <StartPanel task={task} members={members} tasks={board.data?.tasks ?? []} canRefine={canRefine} />
+          ) : session && can.workInSessions ? (
+            <>
+              <ButtonLink
+                to={`/p/${key}/sessions/${session.id}`}
+                variant="primary"
+                size="md"
+                iconRight="arrowRight"
+                className={styles.grow}
+              >
+                {t('task.openSession')}
+              </ButtonLink>
+              <ButtonLink to={`/p/${key}/sessions/${session.id}?compose=1`} variant="secondary" size="md">
+                {t('task.message')}
+              </ButtonLink>
+            </>
+          ) : null}
+          {canMoveTask(task, can.createTasks) ? (
+            <TaskMove
+              key={`${task.key}:${task.stageId}`}
+              task={task}
+              pipeline={pipeline}
+              tasks={board.data?.tasks ?? []}
+            />
+          ) : null}
+        </div>
+
+        {theme ? (
+          <>
+            <ThemeSummary task={task} tasks={cards} />
+            <section className={drawer.props}>
+              <div className={drawer.prop}>
+                <span className={drawer.propLabel}>{t('newTask.fields.visibility')}</span>
+                <span>{t(`visibility.${task.visibility}`)}</span>
+              </div>
+            </section>
+          </>
+        ) : (
+          <TaskProperties task={task} tasks={cards} phases={phases} members={members} pipeline={pipeline} />
+        )}
+      </div>
+    );
+    const content = (
+      <div key="content" className={styles.group}>
+        <TaskDescription key={`description:${task.key}`} task={task} className={styles.description} />
+
+        {theme && model ? (
+          <ThemeCards task={task} tasks={cards} pipeline={pipeline} byKey={model.byKey} />
+        ) : null}
+
+        <TaskAttachments key={`attachments:${task.key}`} task={task} members={members} />
+
+        <section className={drawer.section}>
+          <h3 className={drawer.sectionTitle}>{t('task.timeline')}</h3>
+          {detail.isPending ? (
+            <LoadingState compact />
+          ) : detail.isError ? (
+            <ErrorState compact error={detail.error} onRetry={() => void detail.refetch()} />
+          ) : (
+            <Timeline
+              events={detail.data.timeline}
+              ctx={{ pipeline, members, labels, myHandle, openInboxIds: openIds }}
+              next={theme ? null : nextStepLine(task, pipeline, members, myHandle)}
+            />
+          )}
+        </section>
+
+        {can.createTasks && myHandle ? (
+          <TaskCommentComposer key={`comments:${task.key}`} taskKey={task.key} members={members} />
+        ) : null}
+      </div>
+    );
+    const more = (
+      <div key="more" className={styles.group}>
+        {sessions.length > 0 ? (
+          <section className={drawer.section}>
+            <h3 className={drawer.sectionTitle}>{t('task.sessions')}</h3>
+            <ul className={styles.sessions}>
+              {[...sessions]
+                .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
+                .map((entrySession) => {
+                  const member = members.get(entrySession.member);
+                  const status = sessionStatus(entrySession, entrySession.state === 'waiting_permission');
+                  return (
+                    <li key={entrySession.id}>
+                      <Link to={`/p/${key}/sessions/${entrySession.id}`} className={styles.sessionRow}>
+                        <Avatar member={member} handle={entrySession.member} size="md" status={status} />
+                        <span className={styles.sessionText}>
+                          <span className={styles.sessionName}>
+                            {nameOf(entrySession.member, members, myHandle)}
+                          </span>
+                          <span className={styles.sessionState} data-status={status}>
+                            {t(`sessionState.${entrySession.state}`)}
+                          </span>
+                        </span>
+                        <Icon name="chevronRight" size={16} />
+                      </Link>
+                    </li>
+                  );
+                })}
+            </ul>
+          </section>
+        ) : null}
+
+        <TaskUsage sessions={sessions} members={members} myHandle={myHandle} />
+        <TaskRounds rounds={detail.data?.rounds} fixRounds={detail.data?.fixRounds} sessions={sessions} />
+      </div>
+    );
     return (
       <>
         {theme || !entry ? (
-          <ThemeHeader task={task} headingRef={headingRef} onClose={close} />
+          <ThemeHeader
+            task={task}
+            headingRef={headingRef}
+            size={size}
+            onToggleSize={toggleSize}
+            onClose={close}
+          />
         ) : (
           <TaskHeader
             task={task}
@@ -248,175 +470,41 @@ export function TaskDrawer() {
             state={entry.state}
             pipeline={pipeline}
             headingRef={headingRef}
+            size={size}
+            onToggleSize={toggleSize}
             onClose={close}
           />
         )}
 
-        <div className={styles.scroll}>
-          <SignalBox
-            task={task}
-            members={members}
-            myHandle={myHandle}
-            messagesHref={seesAllMessages ? `/p/${key}/messages/all?task=${task.key}` : null}
-            decidingLoop={myItems.some((item) => loopDecisionOf(item))}
-            decidingFixLimit={myItems.some((item) => fixLimitDecisionOf(item))}
-          />
-          {myItems.length > 0 ? (
-            <section className={drawer.section}>
-              {myItems.map((item) => (
-                <InboxCard
-                  key={item.id}
-                  item={item}
-                  members={members}
-                  myHandle={myHandle}
-                  pipeline={pipeline}
-                  labels={labels}
-                  compact
-                  headingLevel={3}
-                  pending={resolve.isPending && resolve.variables?.item.id === item.id}
-                  onResolve={(target, request) =>
-                    resolve.mutate(
-                      { item: target, body: request },
-                      {
-                        onSuccess: () => toast.show(decisionToast(target, request.optionId, myHandle), 'ok'),
-                        onError: () => toast.show(t('inbox.resolveFailed'), 'error'),
-                      },
-                    )
-                  }
-                  detailsHref={item.sessionId ? `/p/${key}/sessions/${item.sessionId}` : null}
-                />
-              ))}
-            </section>
-          ) : null}
-
-          {task.startWaiting ? <p className={drawer.section}>{startWaitingHint(task)}</p> : null}
-          <div className={styles.actions} hidden={!hasActions}>
-            {canRefine ? <RefineButton task={task} /> : null}
-            {isQueued && can.createTasks ? (
-              <StartPanel
-                task={task}
-                members={members}
-                tasks={board.data?.tasks ?? []}
-                canRefine={canRefine}
-              />
-            ) : session && can.workInSessions ? (
-              <>
-                <ButtonLink
-                  to={`/p/${key}/sessions/${session.id}`}
-                  variant="primary"
-                  size="md"
-                  iconRight="arrowRight"
-                  className={styles.grow}
-                >
-                  {t('task.openSession')}
-                </ButtonLink>
-                <ButtonLink to={`/p/${key}/sessions/${session.id}?compose=1`} variant="secondary" size="md">
-                  {t('task.message')}
-                </ButtonLink>
-              </>
-            ) : null}
-            {canMoveTask(task, can.createTasks) ? (
-              <TaskMove
-                key={`${task.key}:${task.stageId}`}
-                task={task}
-                pipeline={pipeline}
-                tasks={board.data?.tasks ?? []}
-              />
-            ) : null}
-          </div>
-
-          {theme ? (
-            <>
-              <ThemeSummary task={task} tasks={cards} />
-              <section className={drawer.props}>
-                <div className={drawer.prop}>
-                  <span className={drawer.propLabel}>{t('newTask.fields.visibility')}</span>
-                  <span>{t(`visibility.${task.visibility}`)}</span>
-                </div>
-              </section>
-            </>
-          ) : (
-            <TaskProperties task={task} tasks={cards} phases={phases} members={members} pipeline={pipeline} />
-          )}
-
-          <TaskDescription key={`description:${task.key}`} task={task} className={styles.description} />
-
-          {theme && model ? (
-            <ThemeCards task={task} tasks={cards} pipeline={pipeline} byKey={model.byKey} />
-          ) : null}
-
-          <TaskAttachments key={`attachments:${task.key}`} task={task} members={members} />
-
-          <section className={drawer.section}>
-            <h3 className={drawer.sectionTitle}>{t('task.timeline')}</h3>
-            {detail.isPending ? (
-              <LoadingState compact />
-            ) : detail.isError ? (
-              <ErrorState compact error={detail.error} onRetry={() => void detail.refetch()} />
-            ) : (
-              <Timeline
-                events={detail.data.timeline}
-                ctx={{ pipeline, members, labels, myHandle, openInboxIds: openIds }}
-                next={theme ? null : nextStepLine(task, pipeline, members, myHandle)}
-              />
-            )}
-          </section>
-
-          {can.createTasks && myHandle ? (
-            <TaskCommentComposer key={`comments:${task.key}`} taskKey={task.key} members={members} />
-          ) : null}
-
-          {sessions.length > 0 ? (
-            <section className={drawer.section}>
-              <h3 className={drawer.sectionTitle}>{t('task.sessions')}</h3>
-              <ul className={styles.sessions}>
-                {[...sessions]
-                  .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
-                  .map((entrySession) => {
-                    const member = members.get(entrySession.member);
-                    const status = sessionStatus(entrySession, entrySession.state === 'waiting_permission');
-                    return (
-                      <li key={entrySession.id}>
-                        <Link to={`/p/${key}/sessions/${entrySession.id}`} className={styles.sessionRow}>
-                          <Avatar member={member} handle={entrySession.member} size="md" status={status} />
-                          <span className={styles.sessionText}>
-                            <span className={styles.sessionName}>
-                              {nameOf(entrySession.member, members, myHandle)}
-                            </span>
-                            <span className={styles.sessionState} data-status={status}>
-                              {t(`sessionState.${entrySession.state}`)}
-                            </span>
-                          </span>
-                          <Icon name="chevronRight" size={16} />
-                        </Link>
-                      </li>
-                    );
-                  })}
-              </ul>
-            </section>
-          ) : null}
-
-          <TaskUsage sessions={sessions} members={members} myHandle={myHandle} />
-          <TaskRounds rounds={detail.data?.rounds} fixRounds={detail.data?.fixRounds} sessions={sessions} />
+        <div ref={scrollRef} className={styles.scroll}>
+          {twoColumns ? [signals, content, more, side] : [signals, side, content, more]}
         </div>
       </>
     );
   })();
 
+  const large = size === 'large';
   return (
-    <aside
-      className={styles.drawer}
-      aria-label={t(task && isTheme(task) ? 'theme.drawerLabel' : 'task.drawerLabel')}
-      {...fileDrop.props}
-    >
-      {body}
-      {fileDrop.state && task ? (
-        <div className={styles.dropOverlay} data-state={fileDrop.state} role="status">
-          <Icon name="paperclip" size={28} />
-          <b>{t(fileDrop.state === 'over' ? 'attachments.dropActive' : 'attachments.dropDenied')}</b>
-          <span>{task.title}</span>
-        </div>
-      ) : null}
-    </aside>
+    <CardSizeProvider value={size}>
+      {large ? <div className={styles.backdrop} data-inert-exempt onClick={close} /> : null}
+      {/* One element for both sizes, so the sections below keep their place; only its role tells them apart. */}
+      <div
+        ref={panelRef}
+        className={clsx(styles.drawer, large && styles.window, twoColumns && styles.wide)}
+        role={large ? 'dialog' : 'complementary'}
+        aria-modal={large ? true : undefined}
+        aria-label={t(task && isTheme(task) ? 'theme.drawerLabel' : 'task.drawerLabel')}
+        {...fileDrop.props}
+      >
+        {body}
+        {fileDrop.state && task ? (
+          <div className={styles.dropOverlay} data-state={fileDrop.state} role="status">
+            <Icon name="paperclip" size={28} />
+            <b>{t(fileDrop.state === 'over' ? 'attachments.dropActive' : 'attachments.dropDenied')}</b>
+            <span>{task.title}</span>
+          </div>
+        ) : null}
+      </div>
+    </CardSizeProvider>
   );
 }

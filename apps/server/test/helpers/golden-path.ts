@@ -155,9 +155,14 @@ async function startTask(h: Harness) {
     const businessEvents = detail.timeline.filter((event) => !event.type.startsWith('session_'));
     expect(businessEvents).toHaveLength(events.length);
     events.forEach((event, i) => expect(businessEvents[i]).toMatchObject(event));
-    expect(detail.timeline.filter((event) => event.type === 'session_started')).toHaveLength(sessions.size);
+    // A session closes by itself when its member's step on the card is done (PM-295), and starts again,
+    // resumed, when the member is needed again: so each session has one fresh start, and any number of
+    // resumed ones of the same conversation.
+    const starts = detail.timeline.filter((event) => event.type === 'session_started');
+    const fresh = starts.filter((event) => event.data.resumed === false);
+    expect(fresh).toHaveLength(sessions.size);
     for (const [member, sessionId] of sessions)
-      expect(detail.timeline).toContainEqual(
+      expect(fresh).toContainEqual(
         expect.objectContaining({
           type: 'session_started',
           actor: ai(member),
@@ -165,6 +170,8 @@ async function startTask(h: Harness) {
           data: { member, resumed: false },
         }),
       );
+    for (const event of starts.filter((start) => start.data.resumed === true))
+      expect(sessions.get(event.data.member as string)).toBe(event.sessionId);
     const inboxResponse = await h.server.inject({
       method: 'GET',
       url: `${routes.inbox(projectKey)}?state=all`,
@@ -415,6 +422,7 @@ async function rebundle(h: Harness, j: Journey) {
 
 async function refuseOrphan(h: Harness, j: Journey, member: string, duty: string, path: string) {
   const before = await h.configView();
+  const running = runningSessions(h, j);
   const timeline = h.domain.timeline.list(projectKey);
   const task = h.domain.tasks.get(projectKey, j.task.key);
   const failed = await h.server.inject({
@@ -439,9 +447,16 @@ async function refuseOrphan(h: Harness, j: Journey, member: string, duty: string
   expect(await h.configView()).toEqual(before);
   expect(h.domain.timeline.list(projectKey)).toEqual(timeline);
   expect(h.domain.tasks.get(projectKey, j.task.key)).toEqual(task);
-  for (const sessionId of j.sessions.values())
-    expect(h.server.projectman.runnerModule.runner.isRunning(sessionId)).toBe(true);
+  // A refused change stops nothing (some sessions may have closed by themselves before it).
+  expect(runningSessions(h, j)).toEqual(running);
   await j.assertState(task.stageId);
+}
+
+/** The ids of the journey's sessions whose process runs. */
+function runningSessions(h: Harness, j: Journey): string[] {
+  return [...j.sessions.values()]
+    .filter((sessionId) => h.server.projectman.runnerModule.runner.isRunning(sessionId))
+    .sort();
 }
 
 async function throughQuality(h: Harness, j: Journey, rebundled = false) {
@@ -554,19 +569,27 @@ async function finish(h: Harness, j: Journey) {
 
 async function cleanupTask(h: Harness, j: Journey) {
   await j.assertState('done', 'done');
+  const running = runningSessions(h, j);
   await h.domain.sessions.cleanupDoneTask(projectKey, j.task.key);
   const ended = await j.assertState('done', 'done');
   expect(ended.sessions.every((session) => session.state === 'exited')).toBe(true);
-  expect(ended.timeline.filter((event) => event.type === 'session_ended')).toHaveLength(j.sessions.size);
-  for (const [member, sessionId] of j.sessions)
-    expect(ended.timeline).toContainEqual(
-      expect.objectContaining({
-        type: 'session_ended',
-        actor: ai(member),
-        sessionId,
-        data: { member, exitCode: null },
-      }),
-    );
+  // Every start of a session ended once, and each end says why (PM-295).
+  const endings = ended.timeline.filter((event) => event.type === 'session_ended');
+  expect(endings).toHaveLength(ended.timeline.filter((event) => event.type === 'session_started').length);
+  const stopKind = (event: TimelineEvent) => (event.data.stop as { kind?: string } | undefined)?.kind;
+  for (const [member, sessionId] of j.sessions) {
+    const own = endings.filter((event) => event.sessionId === sessionId);
+    expect(own.length).toBeGreaterThan(0);
+    for (const event of own) expect(event).toMatchObject({ actor: ai(member), data: { member } });
+    // The ones before the last, and the last of a session that had closed already, are closings of a
+    // finished step; the last of a running one is the done card's cleanup.
+    const closedBefore = running.includes(sessionId) ? own.slice(0, -1) : own;
+    for (const event of closedBefore) expect(['step_done', 'sent_back']).toContain(stopKind(event));
+    if (running.includes(sessionId))
+      expect(own.at(-1)).toMatchObject({
+        data: { member, exitCode: null, stop: { kind: 'card_done', taskKey: j.task.key } },
+      });
+  }
   expect(h.server.projectman.runnerModule.runner.list()).toEqual([]);
 }
 

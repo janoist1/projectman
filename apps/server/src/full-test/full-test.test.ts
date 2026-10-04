@@ -9,15 +9,7 @@ import {
   OUTPUT_TAIL_CHARS,
   stripAnsi,
 } from './output';
-import {
-  fullTestEnv,
-  niceSrtCommand,
-  runDirOf,
-  runPaths,
-  sandboxedCommand,
-  shellQuote,
-  srtSettings,
-} from './sandbox';
+import { closedStdin, fullTestEnv, niceSrtCommand, runDirOf, runPaths, srtSettings } from './sandbox';
 
 describe('the output of a full test', () => {
   it('removes ANSI sequences', () => {
@@ -121,6 +113,7 @@ describe('the sandbox of a full test run', () => {
       LANG: 'en_US.UTF-8',
       HOME: '/tmp/projectman-full-test-ftr_1/sandbox/home',
       TMPDIR: '/tmp/projectman-full-test-ftr_1/sandbox/tmp',
+      CLAUDE_CODE_TMPDIR: '/tmp/projectman-full-test-ftr_1/sandbox/tmp',
       npm_config_cache: '/tmp/projectman-full-test-ftr_1/sandbox/npm-cache',
       npm_config_update_notifier: 'false',
       GIT_CONFIG_GLOBAL: '/tmp/projectman-full-test-ftr_1/sandbox/gitconfig',
@@ -132,14 +125,9 @@ describe('the sandbox of a full test run', () => {
     });
   });
 
-  it('closes the standard input and puts TMPDIR right for the whole command, a chain included', () => {
-    const paths = runPaths('/tmp/pmft-abc');
-    expect(sandboxedCommand(paths, 'npm run typecheck && npm test')).toBe(
-      "exec </dev/null; export TMPDIR='/tmp/pmft-abc/sandbox/tmp'; npm run typecheck && npm test",
-    );
-    expect(shellQuote("it's")).toBe(`'it'\\''s'`);
-    expect(sandboxedCommand(runPaths("/tmp/a'b"), 'true')).toContain(
-      `export TMPDIR='/tmp/a'\\''b/sandbox/tmp';`,
+  it('closes the standard input of the whole command, a chain included', () => {
+    expect(closedStdin('npm run typecheck && npm test')).toBe(
+      'exec </dev/null; npm run typecheck && npm test',
     );
   });
 

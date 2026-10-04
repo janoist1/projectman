@@ -259,12 +259,13 @@ export function TaskDrawer() {
         <div className={styles.bar}>
           <Button variant="muted" iconOnly icon="close" onClick={close} aria-label={t('common.close')} />
         </div>
-        {state}
+        <div className={styles.center}>{state}</div>
       </>
     );
     if (!task) {
       if (detail.isPending || board.isPending) return closeOnly(<LoadingState />);
-      if (detail.isError)
+      // A card that does not exist is no failure to retry: it has its own text.
+      if (detail.isError && !(isApiError(detail.error) && detail.error.status === 404))
         return closeOnly(<ErrorState error={detail.error} onRetry={() => void detail.refetch()} />);
       return closeOnly(<p className={styles.missing}>{t('task.notFound', { key: taskKey })}</p>);
     }

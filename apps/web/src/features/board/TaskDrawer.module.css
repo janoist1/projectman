@@ -92,6 +92,18 @@
   padding: 16px 16px 0;
 }
 
+/* What stands under the close button alone (loading, failed, missing): in the middle of the large window. */
+.center {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.window .center {
+  justify-content: center;
+}
+
 /* One column: 760px at most, in the middle of the window. */
 .window .scroll {
   padding: 28px var(--card-pad-x) 40px;
@@ -227,6 +239,10 @@
   padding: 24px;
   font-size: var(--text-md);
   color: var(--c-ink-3);
+}
+
+.window .missing {
+  text-align: center;
 }
 
 @media (max-width: 767px) {

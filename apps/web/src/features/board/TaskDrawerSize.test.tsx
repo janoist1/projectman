@@ -211,4 +211,12 @@ describe('the card in the quick view and in the large window (PM-283)', () => {
     fireEvent.click(await within(window).findByRole('button', { name: t('common.close') }));
     await waitFor(() => expect(where()).toBe('/p/AC'));
   });
+
+  it('says there is no such card for a missing one, without a retry', async () => {
+    renderBoard('/p/AC/tasks/AC-9999?size=large');
+    const window = await largeView();
+    await within(window).findByText(t('task.notFound', { key: 'AC-9999' }));
+    expect(within(window).queryByRole('button', { name: t('app.retry') })).toBeNull();
+    expect(within(window).queryByRole('alert')).toBeNull();
+  });
 });

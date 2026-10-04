@@ -409,6 +409,12 @@ export interface PermissionRefusedInfo {
 
 export interface TranscriptReader {
   /**
+   * Whether the transcript exists and is not empty (PM-340): only such a conversation can be
+   * resumed, the CLI writes the file after its first message. `confineTo` as in `read`. Rejects
+   * when the file cannot be checked (not a regular file in the worker home, no access).
+   */
+  hasContent(path: string, opts?: { confineTo?: string }): Promise<boolean>;
+  /**
    * Parses a whole transcript (Claude Code JSONL or Codex rollout JSONL) into chat items.
    * `provider` is the agent CLI that wrote it (default: guessed from the file name, Codex
    * rollouts are rollout-*.jsonl). `self` is the handle of the session's member (sender of

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { routes } from '@projectman/shared';
 import type { AgentProvider, ChatItem, Task, TaskDetail } from '@projectman/shared';
@@ -24,6 +24,78 @@ const PROVIDERS: Array<[AgentProvider, string]> = [
   ['claude', 'dev-1'],
   ['codex', 'dev-2'],
 ];
+
+it.each(['missing', 'empty'] as const)(
+  'starts a new conversation when the transcript of a stopped claude session is %s (PM-340)',
+  {
+    timeout: 90_000,
+  },
+  async (transcriptState) => {
+    h = await createAppHarness({ runner: 'fake-cli', real: { context: true } });
+    const { app, home } = h;
+    const argsFile = join(home, 'claude-args.json');
+    vi.stubEnv('FAKE_CLAUDE_ARGS_FILE', argsFile);
+    const argv = (): string[] => JSON.parse(readFileSync(argsFile, 'utf8')).argv;
+    const cookie = await setupOwner(app);
+    await createProject(h, cookie);
+    const { domain } = app.projectman;
+    const created = await app.inject({
+      method: 'POST',
+      url: routes.tasks('AR'),
+      headers: { cookie },
+      payload: { title: 'Acme checkout' },
+    });
+    const { key } = created.json<Task>();
+    const start = async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: routes.startTask('AR', key),
+        headers: { cookie },
+        payload: { assignee: 'dev-1' },
+      });
+      expect(res.statusCode).toBe(200);
+      return res.json<TaskDetail>().sessions[0]!;
+    };
+    const idle = (id: string) =>
+      waitFor(() => domain.sessions.get('AR', id).state === 'idle', { what: 'idle' });
+
+    const first = await start();
+    const transcript = await waitFor(() => domain.sessions.get('AR', first.id).transcriptPath, {
+      what: 'a transcript',
+    });
+    // SessionStart is already idle, before the brief is submitted. Wait for the first turn.
+    await vi.waitFor(
+      async () => {
+        const { chat } = await domain.sessions.detail('AR', first.id);
+        expect(chat.some((i) => i.kind === 'assistant_text' && i.text.startsWith('Echo: # AR-1'))).toBe(true);
+      },
+      { timeout: 20_000 },
+    );
+    await idle(first.id);
+    const conversation = domain.sessions.get('AR', first.id).claudeSessionId;
+    await domain.sessions.stop('AR', first.id);
+    await waitFor(() => !app.projectman.runnerModule.runner.isRunning(first.id), {
+      what: 'the session to stop',
+    });
+    // Simulate a reported path whose conversation was never written.
+    if (transcriptState === 'missing') rmSync(transcript);
+    else writeFileSync(transcript, '');
+
+    const again = await start();
+    expect(again.id).toBe(first.id);
+    await vi.waitFor(
+      async () => {
+        const { chat } = await domain.sessions.detail('AR', first.id);
+        expect(chat.some((i) => i.kind === 'assistant_text' && i.text.startsWith('Echo: # AR-1'))).toBe(true);
+      },
+      { timeout: 20_000 },
+    );
+    await idle(first.id);
+    expect(argv()).not.toContain('--resume');
+    expect(argv()).not.toContain(conversation);
+    expect(domain.sessions.get('AR', first.id).state).toBe('idle');
+  },
+);
 
 const userTexts = (chat: ChatItem[]) => chat.flatMap((i) => (i.kind === 'user_text' ? [i.text] : []));
 

@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -45,6 +45,43 @@ describe('whole transcript origins', () => {
       }
     },
   );
+});
+
+describe('whether a transcript was written (PM-340)', () => {
+  async function inTempDir(run: (dir: string) => Promise<void>): Promise<void> {
+    const dir = await mkdtemp(join(tmpdir(), 'pm-written-'));
+    try {
+      await run(dir);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('counts only a file with content', async () => {
+    await inTempDir(async (dir) => {
+      const reader = createTranscriptReader();
+      await writeFile(join(dir, 'empty.jsonl'), '');
+      await writeFile(join(dir, 'written.jsonl'), '{}\n');
+      expect(await reader.hasContent(join(dir, 'missing.jsonl'))).toBe(false);
+      expect(await reader.hasContent(join(dir, 'empty.jsonl'))).toBe(false);
+      expect(await reader.hasContent(join(dir, 'written.jsonl'))).toBe(true);
+      // A directory is no transcript.
+      expect(await reader.hasContent(dir)).toBe(false);
+    });
+  });
+
+  it('counts a file in a worker home only inside it', async () => {
+    await inTempDir(async (dir) => {
+      const reader = createTranscriptReader();
+      const home = join(dir, 'home');
+      await mkdir(home);
+      await writeFile(join(home, 'written.jsonl'), '{}\n');
+      await writeFile(join(dir, 'outside.jsonl'), '{}\n');
+      expect(await reader.hasContent(join(home, 'written.jsonl'), { confineTo: home })).toBe(true);
+      expect(await reader.hasContent(join(home, 'missing.jsonl'), { confineTo: home })).toBe(false);
+      await expect(reader.hasContent(join(dir, 'outside.jsonl'), { confineTo: home })).rejects.toThrow();
+    });
+  });
 });
 
 describe('whole transcript paths', () => {

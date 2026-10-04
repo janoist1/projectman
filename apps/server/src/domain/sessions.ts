@@ -413,6 +413,8 @@ export class SessionOrchestrator {
   >();
   /** The provider each session's current process runs, for the transcript it reports. */
   private readonly processProviders = new Map<string, AgentProvider>();
+  /** Sessions whose current process resumes a conversation: one that exits before it is ready gives it up (PM-340). */
+  private readonly resumingProcesses = new Set<string>();
   /** Sessions whose first input (with messages in it) is not known to have reached them: settles it. */
   private readonly firstInputWaiters = new Map<string, (typed: boolean) => void>();
   /**
@@ -1027,6 +1029,24 @@ export class SessionOrchestrator {
     }
   }
 
+  /**
+   * Whether the session's conversation was written: its transcript is a file with content (PM-340).
+   * Behind the VM boundary the worker owns its transcripts: only a real file in its home counts. A file
+   * that cannot be checked counts as not written, as the CLI could hardly resume it.
+   */
+  private async transcriptWritten(session: Session): Promise<boolean> {
+    if (!session.transcriptPath) return false;
+    const layout = this.managed ? this.deps.runtimeBoundary?.layout : null;
+    try {
+      return await this.deps.transcripts.hasContent(session.transcriptPath, {
+        ...(layout ? { confineTo: layout.home(session.member) } : {}),
+      });
+    } catch (err) {
+      this.ctx.logger.warn({ err, sessionId: session.id }, 'could not check the transcript');
+      return false;
+    }
+  }
+
   /** The session with its chat, read from the transcript as its provider wrote it. */
   async detail(projectKey: string, sessionId: string): Promise<SessionDetail> {
     const session = this.get(projectKey, sessionId);
@@ -1411,10 +1431,14 @@ export class SessionOrchestrator {
     );
     const relatedSessions = task ? this.relatedSessions(projectKey, member.handle, task) : [];
     // Resume only a conversation that exists (the runner reported its transcript), that belongs to
-    // the member's current provider and that ran where the session runs now.
-    const resume =
+    // the member's current provider and that ran where the session runs now. The reported path is not
+    // proof (PM-340): the CLI writes the file after its first message, and cannot resume what it never
+    // wrote. A session that never got its first round starts a new conversation.
+    const resumable =
       !relocated &&
       Boolean(existing?.transcriptPath && (existing.provider ?? DEFAULT_AGENT_PROVIDER) === provider);
+    const conversationLost = resumable && !(await this.transcriptWritten(existing!));
+    const resume = resumable && !conversationLost;
     // Who else works on the card and what was asked on it (PM-249): a new conversation gets the latest
     // questions, a resumed one those since it last ran.
     const cardWorkers = task ? this.cardWorkersFor(config, task, member.handle) : [];
@@ -1548,7 +1572,7 @@ export class SessionOrchestrator {
         lastActivityAt: at,
         endedAt: null,
         lastStop: null,
-        ...(relocated ? { claudeSessionId: newUuid(), transcriptPath: null } : {}),
+        ...(relocated || conversationLost ? { claudeSessionId: newUuid(), transcriptPath: null } : {}),
         // This start takes the session's current mode; the header says when it dropped grants.
         permissionRestartPending: false,
         permissionGrantsLost: restart?.grantsLost ?? false,
@@ -1587,6 +1611,7 @@ export class SessionOrchestrator {
     const token = this.issueToken(session);
     const egressToken = this.managed ? this.issueEgressToken(session) : undefined;
     this.processProviders.set(session.id, provider);
+    if (resume) this.resumingProcesses.add(session.id);
     // Before the process starts: Codex reports its first input as it starts.
     const firstInput = messages.length > 0 ? this.awaitFirstInput(session.id) : Promise.resolve(true);
     // A pause's nudge (PM-219) goes first on a resumed conversation: before the messages, or in place of
@@ -1676,6 +1701,7 @@ export class SessionOrchestrator {
       this.awaitingFirstTurn.delete(session.id);
       this.revokeToken(session.id);
       this.processProviders.delete(session.id);
+      this.resumingProcesses.delete(session.id);
       this.processModes.delete(session.id);
       this.processGrants.delete(session.id);
       const failed = this.ctx.repos.sessions.update(session.id, {
@@ -2038,6 +2064,11 @@ export class SessionOrchestrator {
       stop ??
       this.stopReasons.get(sessionId) ??
       (session && !failed && this.isPaused(session) ? ({ kind: 'pause' } as const) : undefined);
+    // A resumed conversation whose CLI failed before it was ready cannot be resumed (PM-340): the next
+    // start begins a new conversation, so it does not fail again and again with the same resume.
+    const resumeFailed =
+      failed && session?.state === 'starting' && this.resumingProcesses.has(sessionId) && !stop;
+    this.resumingProcesses.delete(sessionId);
     this.stopReasons.delete(sessionId);
     this.closePending.delete(sessionId);
     this.closing.delete(sessionId);
@@ -2065,7 +2096,13 @@ export class SessionOrchestrator {
       permissionRestartPending: false,
       doing: null,
       ...(why ? { lastStop: why } : {}),
+      ...(resumeFailed ? { claudeSessionId: newUuid(), transcriptPath: null } : {}),
     })!;
+    if (resumeFailed)
+      this.ctx.logger.warn(
+        { sessionId, member: ended.member, exitCode },
+        'a resumed conversation exited before it was ready: the next start begins a new one',
+      );
     this.workspaces?.ended(sessionId);
     this.deps.timeline.append({
       projectKey: ended.projectKey,

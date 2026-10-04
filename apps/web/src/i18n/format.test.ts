@@ -11,11 +11,11 @@ describe('formatStamp', () => {
 
   it('names yesterday and tomorrow', () => {
     expect(formatStamp(new Date(2026, 9, 3, 14, 2), now)).toBe('tegnap 14:02');
-    expect(formatStamp(new Date(2026, 9, 5, 8, 0), now)).toBe('holnap 08:00');
+    expect(formatStamp(new Date(2026, 9, 5, 8, 0), now)).toBe('holnap 08:00');
   });
 
   it('gives the date for earlier days and for later days, with the day before the time', () => {
-    expect(formatStamp(new Date(2026, 8, 28, 14, 2), now)).toBe('szept. 28. 14:02');
-    expect(formatStamp(new Date(2026, 9, 9, 8, 0), now)).toBe('okt. 9. 08:00');
+    expect(formatStamp(new Date(2026, 8, 28, 14, 2), now)).toBe('szept. 28. 14:02');
+    expect(formatStamp(new Date(2026, 9, 9, 8, 0), now)).toBe('okt. 9. 08:00');
   });
 });

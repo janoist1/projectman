@@ -211,8 +211,9 @@ export const hu = {
     yesterday: 'tegnap',
     daysAgo: '{count} napja',
     yesterdayAt: 'tegnap {time}',
-    tomorrowAt: 'holnap {time}',
-    dateAt: '{date} {time}',
+    // A no-break space keeps the time with its day when a sentence wraps.
+    tomorrowAt: 'holnap {time}',
+    dateAt: '{date} {time}',
     todayHeading: 'Ma',
     yesterdayHeading: 'Tegnap',
   },

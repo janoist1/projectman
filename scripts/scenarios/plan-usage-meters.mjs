@@ -123,8 +123,13 @@ export default async ({ instance, open, shoot, step, log }) => {
     await page.setViewportSize({ width: 1512, height: 982 });
     await page.goto(new URL(`/p/AC/team/${aiMember.handle}`, page.url()).href);
     await page.locator('summary', { hasText: TEXT.settings }).click();
-    await page.locator('main [role="group"]').first().waitFor();
-    // No highlight: its outline would cover the bars.
+    const meter = page.locator('main [role="group"]').first();
+    await meter.waitFor();
+    // The keyboard focus (a key press first, so that the focus frame shows), to show that the frame only
+    // surrounds the meter and not the whole row.
+    await page.keyboard.press('Shift');
+    await meter.focus();
+    await page.waitForTimeout(250);
     await shoot(page, 'e-profile', { widths: [1512] });
   });
 };

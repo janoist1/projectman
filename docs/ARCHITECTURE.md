@@ -893,6 +893,13 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   not a host-independent engine identity. **Remote engine:** plan instance/engine attribution
   explicitly, including reconnects and moves; equal paths on different hosts must not imply
   equal ownership. Recheck these two pending entries when PM-320 is integrated.
+- **Session process termination** — `runner/session.ts` (`stop`, `kill`),
+  `runner/runner.ts` (PM-341; PM-320). The runner owns a local process handle and sends
+  SIGTERM, then SIGKILL after a timeout (or SIGKILL immediately for a forced stop).
+  In local mode stopping the CLI does not itself prove that detached children are gone.
+  **Remote engine:** execute stop/kill on the engine owning that process, return its exit
+  acknowledgement, and plan descendant cleanup there; a server-side PID or closed transport
+  is not evidence that a remote session has stopped.
 - **Conversation transcripts and resume** — `runner/transcript/{reader,tailer,confined}.ts`,
   `runner/session.ts`, `domain/sessions.ts`, `runner/providers/{claude,codex}/transcript.ts`
   (PM-340). Claude conversations live under `~/.claude/projects`; Codex rollouts under

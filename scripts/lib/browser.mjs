@@ -54,9 +54,14 @@ export function browsersPath(env = process.env, home = homedir()) {
 
 /** What Playwright expects to find, and whether the folder holds it (its completed-install marker). */
 export function browserStatus(env = process.env, home = homedir()) {
-  const { browsers } = JSON.parse(
-    readFileSync(join(repo, 'node_modules/playwright-core/browsers.json'), 'utf8'),
-  );
+  let browsers;
+  try {
+    ({ browsers } = JSON.parse(
+      readFileSync(join(repo, 'node_modules/playwright-core/browsers.json'), 'utf8'),
+    ));
+  } catch {
+    throw new UsageError('The playwright-core package is missing from node_modules: run npm install.');
+  }
   const entry = browsers.find((browser) => browser.name === BROWSER_NAME);
   const path = browsersPath(env, home);
   const directory = join(path, `${BROWSER_NAME.replace(/-/g, '_')}-${entry.revision}`);
@@ -181,6 +186,11 @@ export async function launchBrowser(env = process.env) {
   return chromium.launch({
     headless: true,
     chromiumSandbox: false,
+    // The script handles the signals (scripts/shots.mjs): Playwright's own handlers would close the
+    // browser and exit with the signal's code before the cleanup runs.
+    handleSIGINT: false,
+    handleSIGTERM: false,
+    handleSIGHUP: false,
     args: ['--single-process', '--no-zygote', '--no-proxy-server'],
   });
 }

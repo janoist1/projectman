@@ -12,7 +12,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BROWSER_NAME, browserStatus } from './lib/browser.mjs';
+import { BROWSER_NAME, UsageError, browserStatus } from './lib/browser.mjs';
 
 const cli = fileURLToPath(new URL('../node_modules/playwright-core/cli.js', import.meta.url));
 const USAGE = 'Usage: npm run browsers -- install|check';
@@ -53,5 +53,11 @@ if (command.length !== 1 || !['install', 'check'].includes(command[0])) {
   console.error(USAGE);
   process.exitCode = 2;
 } else {
-  process.exitCode = command[0] === 'install' ? install() : check();
+  try {
+    process.exitCode = command[0] === 'install' ? install() : check();
+  } catch (err) {
+    if (!(err instanceof UsageError)) throw err;
+    console.error(err.message);
+    process.exitCode = 2;
+  }
 }

@@ -181,6 +181,11 @@ under `scripts/lib/child-guard.mjs`) and Chromium ends when its parent's pipe cl
 - **No live data.** Nothing here shows the owner's real project. Reproduce a case with the demo data.
 - **A start costs time** (the server, Vite, the browser): a few seconds to half a minute; the default
   `--timeout` is 240 s. One run per question, with many `shoot` calls, beats many runs.
+- **The web font is not loaded.** The fence also refuses Google Fonts (`blocked
+https://fonts.googleapis.com/css2?family=Bricolage+Grotesque…` in every run: expected, not an
+  error), so the images show the fallback font, not the interface's own. The UI/UX designer should
+  judge letter shapes and line breaks with that in mind. Serving the fonts from the instance is a
+  separate card and the owner's decision.
 - **Chromium only**, headless, no video, no downloads.
 
 ## The probe

@@ -10,7 +10,14 @@ import { browserStatus } from '../../../scripts/lib/browser.mjs';
  * `npm run shots` with the real headless Chromium (PM-270). Skipped, with a note in the output, when
  * the browser is not installed (`npm run browsers -- install`, outside the sandbox).
  */
-const status = browserStatus();
+// Without the playwright-core package (no `npm install`) there is no browser either.
+const status = (() => {
+  try {
+    return browserStatus();
+  } catch {
+    return { installed: false, path: 'node_modules/playwright-core', revision: '?' };
+  }
+})();
 const SLOW = 180_000;
 const QUESTION = 'Which colour should the basket button be?';
 const shotsScript = fileURLToPath(new URL('../../../scripts/shots.mjs', import.meta.url));

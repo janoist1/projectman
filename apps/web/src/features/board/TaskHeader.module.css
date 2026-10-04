@@ -36,7 +36,9 @@
   background: var(--phase-bg);
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  /* The refinement row (PM-291) wraps under the text, in line with it. */
+  flex-wrap: wrap;
+  gap: 6px 10px;
 }
 
 /* The dot and the age stay on the first line when the text under it runs on. */

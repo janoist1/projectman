@@ -350,6 +350,75 @@ describe('what a worker says they do (PM-239)', () => {
   });
 });
 
+describe('a card that cannot be started yet (PM-291)', () => {
+  /** The work stage asks for `scope-ok`; who may set it, and whether the project refines, vary per test. */
+  const ctxFor = (setBy: 'anyone' | { members: string[] }, refines: boolean) => {
+    const project = structuredClone(buildConfig());
+    project.pipeline.labels.push({ id: 'scope-ok', name: 'Kidolgozás eldöntve', setBy });
+    if (refines) project.pipeline.labels.push({ id: 'refine', name: 'Kidolgozásra vár', setBy: 'anyone' });
+    project.pipeline.stages.find((stage) => stage.id === 'dev')!.gate = {
+      conditions: [{ type: 'has_label', label: 'scope-ok' }],
+    };
+    return {
+      ...contextWith([]),
+      config: project,
+      labels: project.pipeline.labels.map((label) => ({ ...label, holders: [] })),
+    };
+  };
+  const queued = (labels: string[]): Task => ({ ...card('AC-24'), labels, stageId: 'ready' });
+
+  it('says the card is not worked out in a project that refines, and is startable by nobody', () => {
+    const state = deriveTaskState(queued([]), ctxFor('anyone', true));
+    expect(state.label).toBe(t('taskStatus.notRefined'));
+    expect(state.phase).toBe('ready');
+    expect(state.startBlock).toMatchObject({ kind: 'unmet', refines: true });
+  });
+
+  it('names the label the card waits for where nothing in the project refines and no AI member sets it', () => {
+    const state = deriveTaskState(queued([]), ctxFor({ members: ['owner'] }, false));
+    expect(state.label).toBe(
+      t('taskStatus.labelsMissing', { labels: t('taskStatus.quoted', { name: 'Kidolgozás eldöntve' }) }),
+    );
+    expect(state.startBlock).toMatchObject({ kind: 'unmet', refines: false });
+  });
+
+  it('asks the viewer for the step when only people set it and they are one of them', () => {
+    const state = deriveTaskState(queued(['refine']), ctxFor({ members: ['owner'] }, true));
+    expect(state.label).toBe(
+      t('taskStatus.refinement.yourStep', { label: t('taskStatus.quoted', { name: 'Kidolgozás eldöntve' }) }),
+    );
+    expect(state.phase).toBe('needs_you');
+    expect(state.startBlock).toMatchObject({ kind: 'refining' });
+  });
+
+  it('names the member who is on turn when an AI member sets the step', () => {
+    const ctx = ctxFor({ members: ['be-1'] }, true);
+    const state = deriveTaskState(queued(['refine']), ctx);
+    expect(state.label).toBe(t('taskStatus.waitingOn', { who: name(ctx, 'be-1') }));
+    expect(state.phase).toBe('waiting');
+  });
+
+  it('says nobody can set the step when no member may', () => {
+    const state = deriveTaskState(queued(['refine']), ctxFor({ members: [] }, true));
+    expect(state.label).toBe(
+      t('taskStatus.refinement.nobody', { label: t('taskStatus.quoted', { name: 'Kidolgozás eldöntve' }) }),
+    );
+    expect(state.phase).toBe('blocked');
+  });
+
+  it('says the card moves on by itself once every step is done', () => {
+    const state = deriveTaskState(queued(['refine', 'scope-ok']), ctxFor({ members: ['owner'] }, true));
+    expect(state.label).toBe(t('taskStatus.refinement.moving'));
+  });
+
+  it('keeps the old line where the configuration is not known (a client)', () => {
+    const { config: _config, ...ctx } = ctxFor('anyone', true);
+    const state = deriveTaskState(queued([]), ctx);
+    expect(state.startBlock).toBeUndefined();
+    expect(state.label).toBe(t('taskStatus.ready'));
+  });
+});
+
 describe('the cards of a member, for the team strip (PM-237)', () => {
   const titles = new Map([
     ['AC-20', 'Napi mentés'],

@@ -427,6 +427,33 @@ describe('Refinement line', () => {
     expect(task()).toMatchObject({ stageId: 'backlog', assignee: null });
   });
 
+  it('refuses the Start of a card that is being worked out, with its progress (PM-291)', async () => {
+    await prepare();
+    await label({ add: ['refine'] });
+    await vi.waitFor(() => expect(members()).toEqual(['ana']));
+    const started = h.runner.started.length;
+
+    await expect(
+      h.domain.taskStarts.start('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER, startSetters: true }),
+    ).rejects.toMatchObject({
+      code: 'gate_blocked',
+      details: {
+        block: {
+          kind: 'refining',
+          refinement: {
+            turn: { kind: 'step', label: 'scope-ok' },
+            steps: [
+              { label: 'scope-ok', done: false },
+              { label: 'design-ok', done: false },
+            ],
+          },
+        },
+      },
+    });
+    expect(h.runner.started).toHaveLength(started);
+    expect(task()).toMatchObject({ stageId: 'backlog', assignee: null });
+  });
+
   it('keeps starting the label setters on a Start in a project without refinement (PM-236)', async () => {
     await prepare({ refine: false });
     const result = await h.domain.taskStarts.start('AR', 'AR-1', {

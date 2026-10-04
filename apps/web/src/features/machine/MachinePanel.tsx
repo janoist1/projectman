@@ -2,7 +2,12 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode, RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { machineLevels } from '@projectman/shared';
-import type { MachineSessionRow, OrphanProcessRow, OrphanStopOutcome } from '@projectman/shared';
+import type {
+  MachineSessionRow,
+  OrphanProcessRow,
+  OrphanStopOutcome,
+  OtherProcessRow,
+} from '@projectman/shared';
 import { useMachine, useStopOrphans } from '../../api/queries';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
@@ -11,7 +16,7 @@ import { SegmentedControl } from '../../components/SegmentedControl';
 import { useToast } from '../../components/toastContext';
 import { formatAgo, formatMemory } from '../../i18n/format';
 import { t } from '../../i18n/t';
-import { holdOrder, isDelayed, percent, sortSessions } from './machineView';
+import { holdKeys, holdOrder, isDelayed, percent, sortSessions } from './machineView';
 import type { MachineSort } from './machineView';
 import { Confirm, Usage, SessionRow, OrphanRow } from './MachineRows';
 import type { Confirmation, Controls } from './MachineRows';
@@ -19,6 +24,15 @@ import styles from './Machine.module.css';
 
 const sessionKey = (row: MachineSessionRow) => row.sessionId;
 const orphanKey = (row: OrphanProcessRow) => `${row.pid}:${row.startedAt}`;
+const otherKey = (row: OtherProcessRow) => `${row.kind}:${row.name}`;
+
+function useFixedOrder<T>(source: T[] | null | undefined, key: (row: T) => string, held: boolean): T[] {
+  const order = useRef<string[]>([]);
+  const byKey = new Map((source ?? []).map((row) => [key(row), row]));
+  const ids = [...byKey.keys()];
+  order.current = held ? holdKeys(order.current, ids) : ids;
+  return order.current.map((id) => byKey.get(id)!);
+}
 
 /** Keep removed rows for one short fade; live measurements still update immediately. */
 function useLeavingRows<T>(source: T[] | null | undefined, key: (row: T) => string) {
@@ -151,6 +165,8 @@ export function MachinePanel({
   }, [data, confirm]);
   const sorted = sortSessions(sessionView.rows, sort, ascending);
   const held = hover || focus || expanded.size > 0 || confirm !== null || pending.size > 0;
+  const orphans = useFixedOrder(orphanView.rows, orphanKey, held);
+  const others = useFixedOrder(data?.others, otherKey, held);
   order.current = held ? holdOrder(order.current, sorted) : sorted.map((row) => row.sessionId);
   const rows = order.current.flatMap((id) => {
     const row = sessionView.rows.find((row) => row.sessionId === id);
@@ -437,7 +453,7 @@ export function MachinePanel({
                 <p className={styles.hint}>{t('machine.noOrphans')}</p>
               ) : (
                 table(
-                  orphanView.rows.map((row) => (
+                  orphans.map((row) => (
                     <OrphanRow
                       key={`${row.pid}:${row.startedAt}`}
                       row={row}
@@ -461,8 +477,8 @@ export function MachinePanel({
               {(data.others !== null || data.rest !== null) &&
                 table(
                   <>
-                    {data.others?.map((row, index) => (
-                      <tr key={index}>
+                    {others.map((row) => (
+                      <tr key={otherKey(row)}>
                         <td>
                           <code>{row.kind === 'server' ? t('machine.server') : row.name}</code>
                           {row.kind === 'server' && <small>{t('machine.instance')}</small>}

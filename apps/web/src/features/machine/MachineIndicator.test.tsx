@@ -144,6 +144,16 @@ describe('machine display', () => {
     first.memoryBytes = 1024 ** 3;
     second.memoryBytes = 2 * 1024 ** 3;
     project.sample.sessions = [first, second];
+    project.sample.orphans = [1, 2].map((pid) => ({
+      pid,
+      startedAt: project.sample.sampledAt!,
+      name: `orphan-${pid}`,
+      command: 'vitest run',
+      cpuPercent: 5,
+      memoryBytes: 1024 ** 3,
+      processCount: 2,
+      origin: null,
+    }));
     const view = project.render(<MachineIndicator />);
     const dialog = await open();
     await waitFor(() =>
@@ -155,12 +165,22 @@ describe('machine display', () => {
     const button = within(dialog).getAllByRole('button', { name: /Folyamatok:/ })[0]!;
     act(() => button.focus());
     first.memoryBytes = 3 * 1024 ** 3;
+    project.sample.orphans.reverse();
+    project.sample.orphans.unshift({ ...project.sample.orphans[0]!, pid: 3, name: 'orphan-3' });
     await act(async () => {
       await view.client.invalidateQueries({ queryKey: ['machine'] });
     });
     expect(ids()).toEqual([second.sessionId, first.sessionId]);
+    const orphanNames = () =>
+      within(dialog)
+        .getAllByRole('button', { name: /^Folyamatok: orphan-/ })
+        .map((button) => button.getAttribute('aria-label'));
+    await waitFor(() =>
+      expect(orphanNames()).toEqual(['Folyamatok: orphan-1', 'Folyamatok: orphan-2', 'Folyamatok: orphan-3']),
+    );
     act(() => screen.getByRole('button', { name: /Gép: processzor/ }).focus());
     await waitFor(() => expect(ids()).toEqual([first.sessionId, second.sessionId]));
+    expect(orphanNames()).toEqual(['Folyamatok: orphan-3', 'Folyamatok: orphan-2', 'Folyamatok: orphan-1']);
     expect(dialog.querySelector('th[aria-sort="descending"]')?.textContent).toContain('Memória');
     fireEvent.click(within(dialog).getByRole('button', { name: /Processzor/ }));
     expect(dialog.querySelector('th[aria-sort="descending"]')?.textContent).toContain('Processzor');

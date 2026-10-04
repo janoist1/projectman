@@ -37,7 +37,14 @@ export function sortSessions(
 }
 
 export function holdOrder(previous: string[], sorted: MachineSessionRow[]): string[] {
-  const live = new Set(sorted.map((row) => row.sessionId));
+  return holdKeys(
+    previous,
+    sorted.map((row) => row.sessionId),
+  );
+}
+
+export function holdKeys(previous: string[], ids: string[]): string[] {
+  const live = new Set(ids);
   const kept = previous.filter((id) => live.has(id));
-  return [...kept, ...sorted.map((row) => row.sessionId).filter((id) => !kept.includes(id))];
+  return [...kept, ...ids.filter((id) => !kept.includes(id))];
 }

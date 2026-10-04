@@ -723,6 +723,17 @@ describe('row 7: command', () => {
       expect(decide(policyFor('plan'), command('git status', true))).toEqual(ALLOW);
       expect(decide(policyFor('plan'), command('git status', false))).toEqual(denied('plan_mode'));
     });
+
+    it.each(['ask', 'deny'] as const)(
+      'in plan mode with outside the sandbox on %s: a matching rule runs only in the sandbox',
+      (outsideSandbox) => {
+        const policy = policyFor('plan', { outsideSandbox });
+        expect(decide(policy, command('npm test', true))).toEqual(ALLOW);
+        for (const sandboxed of [false, undefined]) {
+          expect(decide(policy, command('npm test', sandboxed))).toEqual(denied('plan_mode'));
+        }
+      },
+    );
   });
 
   describe('the other commands', () => {

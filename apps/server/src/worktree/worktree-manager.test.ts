@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -403,3 +403,139 @@ describe('worktree manager', { timeout: 30_000 }, () => {
     await expect(manager.ensureForTask(task('AR-22', 'x'))).rejects.toMatchObject({ code: 'path_taken' });
   });
 });
+
+/* PM-332: node_modules cloned into the worktree from an installed checkout (APFS, macOS). */
+describe.skipIf(process.platform !== 'darwin')(
+  'worktree manager: dependency clone',
+  { timeout: 30_000 },
+  () => {
+    const LOCK = '{"name":"app","lockfileVersion":3}\n';
+
+    function capturingLogger() {
+      const records: { level: string; obj: Record<string, unknown>; msg: string }[] = [];
+      const logger: Record<string, unknown> = { level: 'silent', child: () => logger };
+      for (const level of ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']) {
+        logger[level] = (obj: Record<string, unknown>, msg?: string) => {
+          records.push({ level, obj, msg: msg ?? '' });
+        };
+      }
+      return { logger: logger as unknown as FastifyBaseLogger, records };
+    }
+
+    /** Commits the lockfile and the ignore rule; what the repository needs for a clone. */
+    async function commitPackage(packageJson = '{"name":"app"}\n'): Promise<void> {
+      await writeFile(path.join(clone, '.gitignore'), 'node_modules/\n');
+      await writeFile(path.join(clone, 'package.json'), packageJson);
+      await writeFile(path.join(clone, 'package-lock.json'), LOCK);
+      await git('-C', clone, 'add', '.');
+      await git('-C', clone, 'commit', '--quiet', '-m', 'Add the package');
+    }
+
+    /** An installed checkout: node_modules with the hidden lockfile stamped after the lockfile. */
+    async function install(checkout: string): Promise<void> {
+      await mkdir(path.join(checkout, 'node_modules', 'left-pad'), { recursive: true });
+      await writeFile(path.join(checkout, 'node_modules', 'left-pad', 'index.js'), 'module.exports = 1;\n');
+      await writeFile(path.join(checkout, 'node_modules', '.package-lock.json'), LOCK);
+      const lockTime = new Date('2026-01-01T10:00:00Z');
+      const installTime = new Date('2026-01-01T10:05:00Z');
+      await utimes(path.join(checkout, 'package-lock.json'), lockTime, lockTime);
+      await utimes(path.join(checkout, 'node_modules', '.package-lock.json'), installTime, installTime);
+    }
+
+    it('clones node_modules into a new worktree from the installed repository checkout', async () => {
+      await commitPackage();
+      await install(clone);
+      const { logger, records } = capturingLogger();
+      const manager = createWorktreeManager({ rootDir, logger, cloneDependencies: true });
+
+      const info = await manager.ensureForTask(task('AR-41', 'Install fast'));
+
+      expect(await exists(path.join(info.path, 'node_modules', 'left-pad', 'index.js'))).toBe(true);
+      expect(await git('-C', info.path, 'status', '--porcelain')).toBe('');
+      const cloned = records.find((r) => r.msg === 'dependencies cloned into the worktree');
+      expect(cloned).toMatchObject({
+        level: 'info',
+        obj: { taskKey: 'AR-41', reference: clone, dirs: ['.'] },
+      });
+      expect(typeof cloned?.obj.ms).toBe('number');
+    });
+
+    it('clones into an existing worktree that has no node_modules, and leaves an installed one alone', async () => {
+      await commitPackage();
+      const manager = createWorktreeManager({
+        rootDir,
+        logger: testLogger().logger,
+        cloneDependencies: true,
+      });
+      const info = await manager.ensureForTask(task('AR-42', 'Later install'));
+      expect(await exists(path.join(info.path, 'node_modules'))).toBe(false);
+
+      await install(clone);
+      await manager.ensureForTask(task('AR-42', 'Later install'));
+      expect(await exists(path.join(info.path, 'node_modules', 'left-pad'))).toBe(true);
+
+      await writeFile(path.join(info.path, 'node_modules', 'mine'), 'x');
+      await manager.ensureForTask(task('AR-42', 'Later install'));
+      expect(await exists(path.join(info.path, 'node_modules', 'mine'))).toBe(true);
+    });
+
+    it('does not clone unless it is turned on', async () => {
+      await commitPackage();
+      await install(clone);
+      const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+
+      const info = await manager.ensureForTask(task('AR-43', 'No clone'));
+
+      expect(await exists(path.join(info.path, 'node_modules'))).toBe(false);
+    });
+
+    it('takes another worktree of the repository as the reference when the checkout is not installed', async () => {
+      await commitPackage();
+      const manager = createWorktreeManager({
+        rootDir,
+        logger: testLogger().logger,
+        cloneDependencies: true,
+      });
+      const first = await manager.ensureForTask(task('AR-44', 'First'));
+      await install(first.path);
+      const { logger, records } = capturingLogger();
+
+      const second = await createWorktreeManager({ rootDir, logger, cloneDependencies: true }).ensureForTask(
+        task('AR-45', 'Second'),
+      );
+
+      expect(await exists(path.join(second.path, 'node_modules', 'left-pad'))).toBe(true);
+      expect(records.find((r) => r.msg === 'dependencies cloned into the worktree')?.obj.reference).toBe(
+        first.path,
+      );
+    });
+
+    it('records why nothing was cloned and still creates the worktree', async () => {
+      await commitPackage();
+      const { logger, records } = capturingLogger();
+      const manager = createWorktreeManager({ rootDir, logger, cloneDependencies: true });
+
+      const info = await manager.ensureForTask(task('AR-46', 'Nothing to clone from'));
+
+      expect(await exists(path.join(info.path, 'README.md'))).toBe(true);
+      expect(records.find((r) => r.msg === 'dependencies not cloned into the worktree')).toMatchObject({
+        level: 'debug',
+        obj: { taskKey: 'AR-46', reason: 'no_reference' },
+      });
+    });
+
+    it('creates the worktree even when the clone fails, with a warning and no leftovers', async () => {
+      await commitPackage('{ not json');
+      await install(clone);
+      const { logger, records } = capturingLogger();
+      const manager = createWorktreeManager({ rootDir, logger, cloneDependencies: true });
+
+      const info = await manager.ensureForTask(task('AR-47', 'Broken package'));
+
+      expect(await exists(path.join(info.path, 'README.md'))).toBe(true);
+      expect(await exists(path.join(info.path, 'node_modules'))).toBe(false);
+      expect(records.filter((r) => r.level === 'warn')).toHaveLength(1);
+      expect(await git('-C', info.path, 'status', '--porcelain', '--ignored')).toBe('');
+    });
+  },
+);

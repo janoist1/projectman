@@ -782,6 +782,43 @@ commit pinned at the hand-over, run by the server.
 - **Tests.** The domain logic is tested with a fake executor (`test/full-tests.test.ts`); the real sandbox
   only in `test/full-test-sandbox.integration.test.ts` (macOS), which the integrating session runs.
 
+## Heavy-run queue (PM-332)
+
+Three full test suites at once (2026-10-04) took the load to 81–89 and the swap to 6 GB: every member's vitest
+starts a worker per core, about 150 MB each. So **one heavy run goes at a time on the machine**, and a run's
+workers follow the machine's size.
+
+- **The lock** (`apps/server/src/full-test/heavy-lock.ts`, node built-ins only, because the CLI imports it
+  directly and `full-test/index.ts` loads the sandbox runtime). macOS has no `flock` or `lockf`, so it is a
+  directory in `/tmp/projectman-<uid>/heavy` (`defaultHeavyLockDir()`, `PROJECTMAN_HEAVY_LOCK_DIR`): its parent
+  must be 0700 and ours, or the queue is `heavy_lock_unavailable`. `holder/` is the lock itself (`mkdir` is
+  atomic; `owner.json` inside names the process, its label, checkout and session); `queue/<ticket>.json` is one
+  file per waiter, the ticket sorting by queue time. A waiter and the holder write a heartbeat (`utimes`, every
+  5 s) on their file. The head of the queue removes the tickets and the holder that are stale (heartbeat older
+  than 30 s, or the pid gone) and takes the lock; breaking a holder is a `rename` away, atomic, so one waiter
+  wins. A live holder is never broken, however long it runs. After a sleep a live lock can be broken for a
+  moment (two runs overlap); the holder notices at its next heartbeat and logs it once. `readHeavyQueue` shows
+  who holds it and who waits, for the PM-300 display.
+- **Who queues.** The CLI `npm run heavy -- [--label <text>] [--max-wait <s>] <command>`
+  (`scripts/heavy/cli.ts`) runs the command at its turn; the root `npm test`, `npm run typecheck` and
+  `npm run shots` go through it. It says on stderr who it waits for; `--max-wait` ends with exit status 75; a
+  signal is passed on to the command, and an unusable queue folder only warns, so the lock never holds
+  anything back. `PROJECTMAN_HEAVY_LOCK_HELD=1` (set for everything the CLI runs) makes a nested call run
+  without queueing. Runs inside one workspace (`npm test -w …`, `npx vitest related …`) do not queue.
+- **The server's full test** (`createFullTestExecutor({ heavyLockDir })`) takes the lock before it prepares the
+  run directory; the wait is not part of `durationMs` and `timeoutMs`, and an abort while waiting ends as
+  `killed`. `fullTestEnv` sets `PROJECTMAN_HEAVY_LOCK_HELD=1`, so the scripts inside do not queue again.
+- **The members' sandboxes** (`SandboxPaths.heavyLockDir`): `projectman-<uid>` is writable and
+  `PROJECTMAN_HEAVY_LOCK_DIR` is set, together with `npm_config_prefer_offline` (install from the member's own
+  npm cache when there is no clone). A Codex member gets no sandbox environment, so its commands queue in the
+  default folder, or run without the queue when that is not writable there.
+- **Workers.** `defaultTestWorkers` (`packages/shared/src/config/test-workers.ts`): half the cores, at most 4,
+  one per 4 GiB of memory, at least 1. Every `vitest.config.ts` sets `maxWorkers` to it and `minWorkers` to 1.
+  `VITEST_MAX_FORKS` and `VITEST_MAX_THREADS` (the server's full test sets them from `reviewTest.maxWorkers`)
+  still win: vitest takes `poolOptions.*.max*` before `maxWorkers`.
+- **The integrating session** calls the same CLI from `~/projectman-integrator/merge-test.sh`; it adjusts the
+  script itself.
+
 ## Housekeeping: worktrees of closed cards and free disk space (PM-243)
 
 `WorktreeSweep` (at start and every 6 h, `DomainOptions.worktreeSweepMs`) goes over the done and cancelled cards

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { parseExecutionProfile } from '@projectman/shared';
 import { APP_DEFAULTS, buildApp, isLoopbackHost, loopbackBaseUrl, parseTerminalMode } from './app';
 import type { BuildAppOptions, LoopbackHost } from './app';
-import { createFullTestExecutor } from './full-test';
+import { createFullTestExecutor, defaultHeavyLockDir } from './full-test';
 import { loadBoundaryConfig } from './runtime-boundary';
 import { createShutdown } from './shutdown';
 
@@ -20,6 +20,8 @@ import { createShutdown } from './shutdown';
  *   GH_HOST (github.com): the host whose `gh` login the GitHub module checks,
  *   PROJECTMAN_BROWSERS_PATH (<home>/browsers): Playwright's browsers (PM-268, docs/DEPLOY.md), which
  *   the members' sandboxed commands read and never write, in PLAYWRIGHT_BROWSERS_PATH.
+ *   PROJECTMAN_HEAVY_LOCK_DIR (/tmp/projectman-<uid>/heavy): the machine's heavy-run queue (PM-332),
+ *   shared by the members' sandboxes, the server's full test and `npm run heavy`.
  *   PROJECTMAN_WORKSPACES (task_worktree): `member` gives every AI member a durable workspace per
  *   repository (PM-138) instead of a worktree per task.
  *   PROJECTMAN_BOUNDARY_CONFIG (unset): the managed VM's boundary configuration
@@ -111,6 +113,7 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
         createHash('sha256').update(home).digest('hex').slice(0, 12),
       ),
       browsersDir: resolve(env.PROJECTMAN_BROWSERS_PATH || join(home, 'browsers')),
+      heavyLockDir: env.PROJECTMAN_HEAVY_LOCK_DIR || defaultHeavyLockDir(),
       publicBaseUrl: loopbackBaseUrl(host, port),
       clientIpHeader,
       claudeBin: env.CLAUDE_BIN,
@@ -154,7 +157,8 @@ async function main(): Promise<void> {
         ? config.app.modules
         : {
             ...config.app.modules,
-            createFullTestExecutor: ({ logger }) => createFullTestExecutor({ logger, env: process.env }),
+            createFullTestExecutor: ({ logger }) =>
+              createFullTestExecutor({ logger, env: process.env, heavyLockDir: config.app.heavyLockDir }),
           },
   });
   if (config.app.executionProfile === 'managed_vm')

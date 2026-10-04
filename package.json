@@ -11,7 +11,8 @@
   },
   "scripts": {
     "demo": "node scripts/demo.mjs",
-    "shots": "node scripts/shots.mjs",
+    "shots": "node --import tsx scripts/heavy/cli.ts node scripts/shots.mjs",
+    "heavy": "node --import tsx scripts/heavy/cli.ts",
     "browsers": "node scripts/browsers.mjs",
     "dev": "concurrently -k -n server,web -c blue,magenta \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "npm run dev -w @projectman/server",
@@ -21,8 +22,8 @@
     "control": "node --import tsx scripts/control/cli.ts",
     "migrate": "node --import tsx scripts/migrate/cli.ts",
     "start": "npm run start -w @projectman/server",
-    "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
+    "typecheck": "node --import tsx scripts/heavy/cli.ts npm run typecheck --workspaces --if-present",
+    "test": "node --import tsx scripts/heavy/cli.ts npm run test --workspaces --if-present",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

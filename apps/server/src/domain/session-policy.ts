@@ -73,6 +73,32 @@ export const SANDBOX_DENIED_ENV_VARS = [
 export const PTY_SKIP_VARIABLE = 'PROJECTMAN_SKIP_PTY_TESTS';
 export const SANDBOX_PTY_ENV = { [PTY_SKIP_VARIABLE]: '1' } as const;
 
+/** The machine's heavy-run queue folder (PM-332), named in the sandbox of a session: `scripts/heavy` reads it. */
+export const HEAVY_LOCK_DIR_VARIABLE = 'PROJECTMAN_HEAVY_LOCK_DIR';
+/** Install from the member's own npm cache when there is no clone to copy the dependencies from (PM-332). */
+export const PREFER_OFFLINE_VARIABLE = 'npm_config_prefer_offline';
+
+/**
+ * What a sandboxed session needs for the heavy-run queue: its parent folder (`projectman-<uid>`, made
+ * 0700 by the lock) writable, the folder named in the environment, and npm preferring its cache. Nothing
+ * when the folder is not given, in a denied path, or the parent is the user's or the app's home or above
+ * (never the home or a directory above it, whatever the configuration says).
+ */
+function heavyLockAccess(
+  heavyLockDir: string | undefined,
+  denied: readonly string[],
+  homes: readonly (string | undefined)[],
+): { allowWrite: string[]; env: Record<string, string> } {
+  if (!heavyLockDir) return { allowWrite: [], env: {} };
+  const parent = path.dirname(heavyLockDir);
+  if (isWithinAny(denied, parent) || homes.some((home) => home && isWithin(parent, home)))
+    return { allowWrite: [], env: {} };
+  return {
+    allowWrite: [parent],
+    env: { [HEAVY_LOCK_DIR_VARIABLE]: heavyLockDir, [PREFER_OFFLINE_VARIABLE]: 'true' },
+  };
+}
+
 /**
  * What a developer's sandboxed commands read below the user's home besides their own directories
  * (PM-153): git's own configuration and the shell snapshot Claude Code sources before every command
@@ -170,6 +196,8 @@ export interface SandboxPaths {
   sessionDir?: string;
   /** Playwright's browsers (`PROJECTMAN_BROWSERS_PATH`, PM-268): read-only, in `PLAYWRIGHT_BROWSERS_PATH`. */
   browsersDir?: string;
+  /** The machine's heavy-run queue folder (`PROJECTMAN_HEAVY_LOCK_DIR`, PM-332): its parent is writable. */
+  heavyLockDir?: string;
 }
 
 /**
@@ -186,6 +214,7 @@ export interface SandboxPaths {
  *   checkout's `HEAD` and `index` (`sharedGitDenials`), and nothing the host runs or loads outside a
  *   sandbox. A member workspace is an independent clone with its own `.git`: nothing is shared
  *   there, so nothing is denied.
+ *   The parent of the heavy-run queue folder is writable too (`heavyLockAccess`).
  * - Environment: without `SANDBOX_DENIED_ENV_VARS`, with `SANDBOX_PTY_ENV`.
  * - Network: only the npm registry; the tests may listen on local ports, which also opens every
  *   local port (decision 24).
@@ -203,6 +232,7 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
     !(appHome && isWithin(paths.browsersDir, appHome))
       ? paths.browsersDir
       : undefined;
+  const heavy = heavyLockAccess(paths.heavyLockDir, denied, [userHome, appHome]);
   const gitDir = policy.placement.kind === 'task_worktree' ? policy.placement.gitDir : undefined;
   const own = memberDir
     ? MEMBER_SANDBOX_DIRS.map((dir) => ({ ...dir, path: path.join(memberDir, dir.name) }))
@@ -226,6 +256,7 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
     allowWrite: [
       ...own.map((dir) => dir.path).filter((dir) => !isWithinAny(denied, dir)),
       ...(sessionDir ? [sessionDir] : []),
+      ...heavy.allowWrite,
     ],
     ...(gitDir && defaultBranch ? { denyWrite: sharedGitDenials(gitDir, defaultBranch) } : {}),
     denyRead: [
@@ -242,6 +273,7 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
       ...Object.fromEntries(own.map((dir) => [dir.variable, dir.path])),
       ...(sessionDir ? { [SESSION_DIR_VARIABLE]: sessionDir } : {}),
       ...(browsersDir ? { [BROWSERS_PATH_VARIABLE]: browsersDir } : {}),
+      ...heavy.env,
       ...SANDBOX_PTY_ENV,
       ...(gitConfig ? { [GIT_SETTINGS_VARIABLE]: gitConfig } : {}),
     },
@@ -311,8 +343,9 @@ export function sessionSandbox(
   // Read-only already (the reader reads everything outside `deniedPaths`; the app home is `denyWrite`).
   const browsersDir =
     options.browsersDir && !isWithinAny(denied, options.browsersDir) ? options.browsersDir : undefined;
+  const heavy = heavyLockAccess(options.heavyLockDir, denied, [options.userHome, options.appHome]);
   return {
-    allowWrite: sessionDir ? [sessionDir] : [],
+    allowWrite: [...(sessionDir ? [sessionDir] : []), ...heavy.allowWrite],
     denyWrite,
     ...(policy.filesystem.deniedPaths?.length ? { denyRead: [...policy.filesystem.deniedPaths] } : {}),
     allowedDomains: [...SANDBOX_ALLOWED_DOMAINS],
@@ -321,6 +354,7 @@ export function sessionSandbox(
       ...SANDBOX_PTY_ENV,
       ...(sessionDir ? { [SESSION_DIR_VARIABLE]: sessionDir } : {}),
       ...(browsersDir ? { [BROWSERS_PATH_VARIABLE]: browsersDir } : {}),
+      ...heavy.env,
     },
     ...(options.github ? { excludedCommands: [...READER_UNSANDBOXED_COMMANDS] } : {}),
   };

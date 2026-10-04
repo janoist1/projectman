@@ -9,7 +9,7 @@ import {
   OUTPUT_TAIL_CHARS,
   stripAnsi,
 } from './output';
-import { fullTestEnv, niceSrtCommand, runDirOf, runPaths, srtSettings } from './sandbox';
+import { closedStdin, fullTestEnv, niceSrtCommand, runDirOf, runPaths, srtSettings } from './sandbox';
 
 describe('the output of a full test', () => {
   it('removes ANSI sequences', () => {
@@ -122,6 +122,12 @@ describe('the sandbox of a full test run', () => {
       NO_COLOR: '1',
       FORCE_COLOR: '0',
     });
+  });
+
+  it('closes the standard input of the whole command, a chain included', () => {
+    expect(closedStdin('npm run typecheck && npm test')).toBe(
+      'exec </dev/null; npm run typecheck && npm test',
+    );
   });
 
   it('starts the sandbox at low priority, outside it, with the command as one argument', () => {

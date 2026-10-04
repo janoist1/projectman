@@ -10,6 +10,7 @@ import type { FullTestExecutor, FullTestResult, FullTestSpec } from '../contract
 import { failedFiles, outputTail, OutputTail } from './output';
 import {
   FULL_TEST_GIT_CONFIG,
+  closedStdin,
   fullTestEnv,
   niceSrtCommand,
   runDirOf,
@@ -19,7 +20,7 @@ import {
 import type { RunPaths } from './sandbox';
 
 export { failedFiles, outputTail, stripAnsi } from './output';
-export { fullTestEnv, niceSrtCommand, runDirOf, runPaths, srtSettings } from './sandbox';
+export { closedStdin, fullTestEnv, niceSrtCommand, runDirOf, runPaths, srtSettings } from './sandbox';
 
 /** A short temporary root for when `tmpDir` is too deep for the sandbox's socket (macOS: `/tmp` is a link to this). */
 const SHORT_ROOT = process.platform === 'darwin' ? '/private/tmp' : '/tmp';
@@ -75,7 +76,7 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
       let aborted = false;
       let killTimer: NodeJS.Timeout | undefined;
       let settled = false;
-      const start = niceSrtCommand(process.execPath, srtCli(), paths.settings, command);
+      const start = niceSrtCommand(process.execPath, srtCli(), paths.settings, closedStdin(command));
       const child = spawn(start.file, start.args, {
         cwd: spec.cwd,
         env: fullTestEnv(paths, spec.maxWorkers, baseEnv),

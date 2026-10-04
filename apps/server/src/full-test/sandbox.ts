@@ -90,6 +90,15 @@ export function fullTestEnv(
 }
 
 /**
+ * The command with its standard input closed (`/dev/null`) for all of it, a chain included. Inside the
+ * sandbox, srt hands the command its input through a socket of its own, and a program that asks the
+ * terminal about its input (`script`, so a PTY) fails on a socket ("Operation not supported on socket").
+ */
+export function closedStdin(command: string): string {
+  return `exec </dev/null; ${command}`;
+}
+
+/**
  * The process that starts the sandbox, at low priority: the priority is set outside the sandbox
  * (Seatbelt refuses `setpriority` inside it), and the sandbox and the command below inherit it.
  */

@@ -89,13 +89,21 @@ export function fullTestEnv(
   return env;
 }
 
+/** A text as one shell word. */
+export function shellQuote(text: string): string {
+  return `'${text.replace(/'/g, `'\\''`)}'`;
+}
+
 /**
- * The command with its standard input closed (`/dev/null`) for all of it, a chain included. Inside the
- * sandbox, srt hands the command its input through a socket of its own, and a program that asks the
- * terminal about its input (`script`, so a PTY) fails on a socket ("Operation not supported on socket").
+ * The command with what srt changes in the sandbox put right, for all of it, a chain included:
+ * - its standard input is `/dev/null`: srt hands the command its input through a socket of its own, and a
+ *   program that asks the terminal about its input (`script`, so a PTY) fails on a socket ("Operation not
+ *   supported on socket");
+ * - `TMPDIR` is the run's own temporary directory: srt sets it to `/tmp/claude` (over the environment the
+ *   process was started with), a directory that does not exist and that the command cannot write.
  */
-export function closedStdin(command: string): string {
-  return `exec </dev/null; ${command}`;
+export function sandboxedCommand(paths: RunPaths, command: string): string {
+  return `exec </dev/null; export TMPDIR=${shellQuote(paths.tmp)}; ${command}`;
 }
 
 /**

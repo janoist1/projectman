@@ -12,7 +12,7 @@ import os from 'node:os';
 import { basename, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { fullTestSandbox } from '../src/domain';
-import { createFullTestExecutor, runDirOf } from '../src/full-test';
+import { createFullTestExecutor, runDirOf, runPaths } from '../src/full-test';
 import { silentLogger } from '../src/runner/test-helpers';
 
 /**
@@ -42,12 +42,19 @@ const mustBeRefused = (what, fn) => {
 // The environment allow list leaves the server's variables out, so the secret's path comes as an argument.
 const secretFile = process.argv[2];
 if (!secretFile) problems.push('the secret path was not given');
+const expectedTmp = process.argv[3];
+if (!expectedTmp) problems.push('the expected TMPDIR was not given');
 
 mustBeRefused('writing into the checkout', () => writeFileSync('written-by-the-run.txt', 'x'));
 mustBeRefused('reading the secret below the home', () => readFileSync(secretFile, 'utf8'));
 mustWork('writing into TMPDIR', () => writeFileSync(join(process.env.TMPDIR, 'ok.txt'), 'x'));
 mustWork('reading the checkout', () => readFileSync('package.json', 'utf8'));
-mustWork('opening a PTY', () => execFileSync('/usr/bin/script', ['-q', '/dev/null', '/usr/bin/true']));
+// Node's default 'pipe' input is a socket pair on macOS, which \`script\` cannot use: the input is ignored.
+mustWork('opening a PTY', () =>
+  execFileSync('/usr/bin/script', ['-q', '/dev/null', '/usr/bin/true'], { stdio: ['ignore', 'pipe', 'pipe'] }),
+);
+// srt sets TMPDIR itself: it must be the run's own temporary directory.
+if (process.env.TMPDIR !== expectedTmp) problems.push('TMPDIR is ' + process.env.TMPDIR + ', not ' + expectedTmp);
 
 for (const name of Object.keys(process.env)) {
   if (/^PROJECTMAN_|TOKEN|SSH_AUTH_SOCK|API_KEY/.test(name)) problems.push('environment has ' + name);
@@ -130,8 +137,10 @@ describe.runIf(process.platform === 'darwin')('the full test sandbox', () => {
     async () => {
       // The file exists, so a refusal below is the sandbox's and not a missing file.
       expect(readFileSync(secretFile, 'utf8')).toBe('secret');
+      // The run's own temporary directory, which the probe finds as its TMPDIR.
+      const expectedTmp = runPaths(runDirOf(tmpDir, '/private/tmp', 'ftr_probe')).tmp;
       const result = await executor().run(
-        spec('ftr_probe', `node probe.mjs '${secretFile}'`),
+        spec('ftr_probe', `node probe.mjs '${secretFile}' '${expectedTmp}'`),
         new AbortController().signal,
       );
       expect(result.outputTail).toBe('');

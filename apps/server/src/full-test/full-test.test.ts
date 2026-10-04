@@ -9,7 +9,15 @@ import {
   OUTPUT_TAIL_CHARS,
   stripAnsi,
 } from './output';
-import { closedStdin, fullTestEnv, niceSrtCommand, runDirOf, runPaths, srtSettings } from './sandbox';
+import {
+  fullTestEnv,
+  niceSrtCommand,
+  runDirOf,
+  runPaths,
+  sandboxedCommand,
+  shellQuote,
+  srtSettings,
+} from './sandbox';
 
 describe('the output of a full test', () => {
   it('removes ANSI sequences', () => {
@@ -124,9 +132,14 @@ describe('the sandbox of a full test run', () => {
     });
   });
 
-  it('closes the standard input of the whole command, a chain included', () => {
-    expect(closedStdin('npm run typecheck && npm test')).toBe(
-      'exec </dev/null; npm run typecheck && npm test',
+  it('closes the standard input and puts TMPDIR right for the whole command, a chain included', () => {
+    const paths = runPaths('/tmp/pmft-abc');
+    expect(sandboxedCommand(paths, 'npm run typecheck && npm test')).toBe(
+      "exec </dev/null; export TMPDIR='/tmp/pmft-abc/sandbox/tmp'; npm run typecheck && npm test",
+    );
+    expect(shellQuote("it's")).toBe(`'it'\\''s'`);
+    expect(sandboxedCommand(runPaths("/tmp/a'b"), 'true')).toContain(
+      `export TMPDIR='/tmp/a'\\''b/sandbox/tmp';`,
     );
   });
 

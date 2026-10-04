@@ -761,9 +761,10 @@ commit pinned at the hand-over, run by the server.
   (`fullTestSandbox`: reads the checkout and the configured repository's git directory only, writes its run
   directory `<tmp>/pmft-<end of the run id>/`, no network except listening on local ports, `allowPty`; the
   directory is short, and under `/private/tmp` when `<tmp>` is too deep, because srt's socket in the
-  sandbox's TMPDIR must stay below macOS's 104-byte socket path limit), runs `<command>` there (srt's `-c`,
-  with its standard input closed by `exec </dev/null;`, because srt hands the command its input through a
-  socket, and `script`, so a PTY, fails on a socket) with
+  sandbox's TMPDIR must stay below macOS's 104-byte socket path limit), runs `<command>` there (srt's `-c`, put
+  right by `exec </dev/null; export TMPDIR='<run tmp>';`: srt hands the command its input through a socket,
+  and `script`, so a PTY, fails on a socket; and srt sets `TMPDIR` to a `/tmp/claude` that does not exist)
+  with
   `VITEST_MAX_FORKS` and `VITEST_MAX_THREADS` set to `maxWorkers`, kills the process group at the time limit
   and reads vitest's failed files and "Failed Tests" section from the output. Without macOS or `srt` the
   executor is not available and the feature is off. The managed VM profile leaves it out.

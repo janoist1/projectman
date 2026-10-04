@@ -64,17 +64,28 @@ export class SessionCloser {
       ? { kind: 'sent_back', taskKey: task.key, stageId: change.to }
       : { kind: 'step_done', taskKey: task.key, stageId: change.to };
     for (const session of this.runningOn(task)) {
-      if (hasStepOnTask(config, task, session.member, turnMember)) continue;
+      // A member whose step it is (again) keeps its session, and a mark left by an earlier stage goes.
+      if (hasStepOnTask(config, task, session.member, turnMember)) {
+        this.sessions.cancelClose(session.id);
+        continue;
+      }
       this.sessions.closeWhenIdle(session, stop);
       await this.tryClose(session, stop);
     }
   }
 
-  /** A member's refinement turn on the card is over: its session on the card closes. */
+  /**
+   * A member's refinement turn on the card is over: its session on the card closes, unless the member
+   * has a step on the card in its stage as well.
+   */
   async refinementTurnLeft(task: Task, member: string): Promise<void> {
     const stop: SessionStop = { kind: 'step_done', taskKey: task.key };
     for (const session of this.runningOn(task)) {
       if (session.member !== member) continue;
+      if (await this.stepRemains(session)) {
+        this.sessions.cancelClose(session.id);
+        continue;
+      }
       this.sessions.closeWhenIdle(session, stop);
       await this.tryClose(session, stop);
     }
@@ -87,18 +98,7 @@ export class SessionCloser {
   async sessionIdle(session: Session): Promise<void> {
     const stop = this.sessions.pendingClose(session.id);
     if (!stop) return;
-    if (session.workItem.type === 'task') {
-      const task = this.tasks.find(session.projectKey, session.workItem.taskKey);
-      if (task) {
-        const config = await this.projects.config(task.projectKey);
-        const turnMember = this.refinement.turnMember(task.projectKey, task.key);
-        if (hasStepOnTask(config, task, session.member, turnMember)) {
-          this.sessions.cancelClose(session.id);
-          return;
-        }
-      }
-    }
-    await this.tryClose(session, stop);
+    await this.closeMarked(session, stop);
   }
 
   /**
@@ -114,7 +114,7 @@ export class SessionCloser {
       try {
         const marked = this.sessions.pendingClose(session.id);
         if (marked) {
-          await this.tryClose(session, marked);
+          await this.closeMarked(session, marked);
           continue;
         }
         const silent = Math.floor((now - Date.parse(session.lastActivityAt)) / MINUTE_MS);
@@ -131,6 +131,25 @@ export class SessionCloser {
     return this.sessions
       .list(task.projectKey, { taskKey: task.key })
       .filter((s) => s.workItem.type === 'task' && this.sessions.isRunning(s.id));
+  }
+
+  /** Whether the session's member has a step on the session's card now (a task session only). */
+  private async stepRemains(session: Session): Promise<boolean> {
+    if (session.workItem.type !== 'task') return false;
+    const task = this.tasks.find(session.projectKey, session.workItem.taskKey);
+    if (!task) return false;
+    const config = await this.projects.config(task.projectKey);
+    const turnMember = this.refinement.turnMember(task.projectKey, task.key);
+    return hasStepOnTask(config, task, session.member, turnMember);
+  }
+
+  /** Closes a session marked to close, unless its member has the card's step again by now. */
+  private async closeMarked(session: Session, stop: SessionStop): Promise<void> {
+    if (await this.stepRemains(session)) {
+      this.sessions.cancelClose(session.id);
+      return;
+    }
+    await this.tryClose(session, stop);
   }
 
   /** Whether the session works, or a message that is not held back is on its way to it. */

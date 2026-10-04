@@ -144,6 +144,8 @@ describe('duty bundles', () => {
     // The refinement turn is a step wherever the card stands.
     expect(hasStepOnTask(c, card('queue', null), 'builder', 'builder')).toBe(true);
     expect(hasStepOnTask(c, card('queue', null), 'builder', 'other')).toBe(false);
+    // A card in refinement is worked one member at a time: the other owners of its stage have no step.
+    expect(hasStepOnTask(c, card('work', null), 'builder', 'other')).toBe(false);
     // A card that is not open has no step at all.
     expect(hasStepOnTask(c, card('work', 'builder', 'cancelled'), 'builder', 'builder')).toBe(false);
     expect(hasStepOnTask(c, card('work', 'builder', 'done'), 'builder', null)).toBe(false);

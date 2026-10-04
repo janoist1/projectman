@@ -56,6 +56,19 @@ describe('end-of-round compaction', () => {
     expect(h.runner.compactions).toEqual([]);
   });
 
+  it('owes a small conversation that closed nothing once it resumes: no compaction first, and the debt is gone', async () => {
+    const dev = await setup(undefined, COMPACT_MIN_CONTEXT_TOKENS);
+    h.runner.setState(dev.id, 'working');
+    h.runner.setState(dev.id, 'idle');
+    await handOver();
+    await vi.waitFor(() => expect(h.runner.isRunning(dev.id)).toBe(false));
+    await h.domain.sessions.ensureSession('AR', 'dev-1', task, { messages: ['Please fix the findings.'] });
+    expect(h.runner.lastStarted()).toMatchObject({ sessionId: dev.id, resume: true });
+    expect(h.runner.lastStarted()).not.toHaveProperty('compactFirst');
+    expect(owed(dev.id)).toBe(false);
+    expect(h.runner.compactions).toEqual([]);
+  });
+
   it('does not close or compact a session while the team is paused (PM-219); the next round does after the resume', async () => {
     const dev = await setup();
     const by = { userId: null, source: 'system' } as const;

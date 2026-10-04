@@ -258,6 +258,47 @@ describe('database', () => {
     db.close();
   });
 
+  it('counts the resumable sessions: finished or failed ones of an open card or of a general chat', () => {
+    const repos = createRepositories(openDatabase(':memory:'));
+    repos.projects.insert({
+      key: 'AR',
+      name: 'acme',
+      templateId: null,
+      configVersion: 'v1',
+      createdAt: now,
+      updatedAt: now,
+    });
+    repos.tasks.insert(sampleTask());
+    repos.tasks.insert(sampleTask({ id: 'tsk_2', key: 'AR-2', status: 'done' }));
+    repos.tasks.insert(sampleTask({ id: 'tsk_3', key: 'AR-3', status: 'cancelled' }));
+    const base: Session = {
+      id: 'ses_0',
+      projectKey: 'AR',
+      member: 'dev-1',
+      workItem: { type: 'task', taskKey: 'AR-1' },
+      claudeSessionId: '',
+      cwd: '/tmp/work',
+      branch: null,
+      transcriptPath: null,
+      state: 'exited',
+      activity: null,
+      startedAt: now,
+      lastActivityAt: now,
+      endedAt: now,
+    };
+    const add = (id: string, over: Partial<Session>) =>
+      repos.sessions.insert({ ...base, id, claudeSessionId: `claude-${id}`, ...over });
+    expect(repos.sessions.countResumable()).toBe(0);
+    add('ses_open', {});
+    add('ses_failed', { member: 'dev-2', state: 'failed' });
+    add('ses_chat', { member: 'dev-3', workItem: { type: 'general' } });
+    add('ses_running', { member: 'dev-4', state: 'working', endedAt: null });
+    add('ses_done', { member: 'dev-5', workItem: { type: 'task', taskKey: 'AR-2' } });
+    add('ses_cancelled', { member: 'dev-6', workItem: { type: 'task', taskKey: 'AR-3' } });
+    add('ses_unknown', { member: 'dev-7', workItem: { type: 'task', taskKey: 'AR-9' } });
+    expect(repos.sessions.countResumable()).toBe(3);
+  });
+
   it('maps sessions, timeline, messages, inbox and member state', () => {
     const repos = createRepositories(openDatabase(':memory:'));
     const session: Session = {

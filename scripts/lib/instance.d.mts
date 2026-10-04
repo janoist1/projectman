@@ -15,6 +15,11 @@ export interface InstanceOptions {
   seed?: 'demo' | 'none';
   /** Default true: Vite starts too. */
   web?: boolean;
+  /**
+   * The JSON text of a fixed machine (`scripts/fixtures/machine/*.json`, `PROJECTMAN_MACHINE_FIXTURE`, PM-320):
+   * the machine display shows it, not the real machine. Default: the real machine.
+   */
+  machine?: string;
   /** Only FAKE_CLAUDE_*, FAKE_CODEX_* and FAKE_GH_* names. */
   fakeEnv?: Record<string, string>;
   /** Default: free ports, chosen again up to 3 times on a collision. */

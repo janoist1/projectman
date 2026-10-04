@@ -32,6 +32,8 @@ export interface AppHarnessOptions {
   webDistDir?: string;
   now?: () => Date;
   scheduleTimer?: ScheduleTimer;
+  /** What the machine display measures with (PM-320); default: the real probe of the operating system. */
+  machineProbe?: AppModules['createMachineProbe'];
   /** Modules that stay real instead of being replaced by the fakes the harness returns. */
   real?: { context?: boolean; memory?: boolean; worktrees?: boolean; mcp?: boolean; templates?: boolean };
   /** Further buildApp options. */
@@ -121,6 +123,7 @@ export async function createAppHarness(
     memberMemory: real.memory ? undefined : memory,
     worktrees: real.worktrees ? undefined : worktrees,
     templates: real.templates ? undefined : createTemplateRegistry([testTemplate]),
+    createMachineProbe: opts.machineProbe,
   };
 
   const cli = opts.runner === 'fake-cli';

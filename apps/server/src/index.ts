@@ -7,6 +7,7 @@ import { parseExecutionProfile } from '@projectman/shared';
 import { APP_DEFAULTS, buildApp, isLoopbackHost, loopbackBaseUrl, parseTerminalMode } from './app';
 import type { BuildAppOptions, LoopbackHost } from './app';
 import { createFullTestExecutor } from './full-test';
+import { createFixtureProbe, parseMachineFixture } from './machine';
 import { loadBoundaryConfig } from './runtime-boundary';
 import { createShutdown } from './shutdown';
 
@@ -44,6 +45,9 @@ import { createShutdown } from './shutdown';
  *   limiters then count per that address instead of the proxy's, but only for requests from
  *   loopback whose header holds exactly one IP; unset (and always behind `tailscale serve`, which
  *   sets no such header) the connection's address counts. X-Forwarded-For is never read.
+ *   PROJECTMAN_MACHINE_FIXTURE (unset): the JSON of a fixed machine (PM-320, docs/SCREENSHOTS.md): the
+ *   machine display then shows it instead of the real machine and never signals a process. For
+ *   the screenshots of a disposable instance only; the server logs a warning when it is set.
  *   PROJECTMAN_SHUTDOWN_PAUSE_MS (60000): how long stopping the server (SIGTERM, SIGINT) lets the
  *   sessions come to a safe point before it closes (PM-219); 0 turns the pause off. The service unit's
  *   TimeoutStopSec must exceed it by about 20 seconds.
@@ -56,6 +60,8 @@ interface ServerConfig {
   port: number;
   host: LoopbackHost;
   app: BuildAppOptions;
+  /** The machine display shows fixed data (PROJECTMAN_MACHINE_FIXTURE), not the machine. */
+  machineFixture: boolean;
 }
 
 function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
@@ -97,10 +103,20 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
   // apps/web/dist, from src/index.ts (tsx) as well as from dist/index.js (bundle).
   const webDist = fileURLToPath(new URL('../../web/dist', import.meta.url));
   const home = resolve(env.PROJECTMAN_HOME ?? join(homedir(), '.projectman'));
+  // The screenshot mode's fixed machine (PM-320): invalid JSON stops the start.
+  const machineFixture = env.PROJECTMAN_MACHINE_FIXTURE
+    ? parseMachineFixture(env.PROJECTMAN_MACHINE_FIXTURE)
+    : undefined;
   return {
     port,
     host,
+    machineFixture: machineFixture !== undefined,
     app: {
+      modules: machineFixture
+        ? {
+            createMachineProbe: (opts) => createFixtureProbe(machineFixture, opts),
+          }
+        : undefined,
       home,
       // The session folders (PM-268) below the real temp directory (macOS: /var is /private/var, the
       // path the sandbox sees); the hash keeps a development and the live instance's folders apart,
@@ -159,6 +175,8 @@ async function main(): Promise<void> {
   });
   if (config.app.executionProfile === 'managed_vm')
     app.log.info('the full test before review is off: the managed VM profile has no sandbox for it');
+  if (config.machineFixture)
+    app.log.warn('the machine display shows fixed data (PROJECTMAN_MACHINE_FIXTURE), not the real machine');
 
   const shutdown = createShutdown({
     pause: () => app.projectman.pauseForShutdown(),

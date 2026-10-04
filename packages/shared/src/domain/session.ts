@@ -180,9 +180,14 @@ export type TaskWork = z.infer<typeof TaskWork>;
 /** The states in which a session works on its card (a starting one counts, as for the member's status). */
 const WORKING_SESSION_STATES: ReadonlySet<SessionState> = new Set(['starting', 'working']);
 
+/** Whether a session in this state works (starting or working). */
+export function isWorkingSessionState(state: SessionState): boolean {
+  return WORKING_SESSION_STATES.has(state);
+}
+
 /** The work a session does on its card now; null when it is not a working task session. */
 export function taskWorkOf(session: Session): TaskWork | null {
-  if (session.workItem.type !== 'task' || !WORKING_SESSION_STATES.has(session.state)) return null;
+  if (session.workItem.type !== 'task' || !isWorkingSessionState(session.state)) return null;
   return {
     sessionId: session.id,
     taskKey: session.workItem.taskKey,

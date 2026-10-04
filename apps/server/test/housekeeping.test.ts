@@ -34,7 +34,7 @@ describe('worktrees of closed cards', () => {
     }))!;
     if (how === 'cancelled') await h.domain.tasks.cancel('AR', key, { reason: 'Fictional' }, OWNER_ACTOR);
     else {
-      await h.domain.sessions.stopTask('AR', key);
+      await h.domain.sessions.stopTask('AR', key, { kind: 'card_done', taskKey: key });
       h.repos.tasks.update(h.domain.tasks.get('AR', key).id, { status: 'done' });
     }
     h.repos.tasks.update(h.domain.tasks.get('AR', key).id, {

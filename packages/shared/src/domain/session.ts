@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SessionStop } from './involvement';
 import { AgentProvider, Approver, MemberHandle, SelectablePermissionMode } from './member';
 import { TaskKey } from './task';
 import { UsageSummary } from './token-usage';
@@ -149,8 +150,16 @@ export const Session = z.object({
   doing: WorkDoing.optional(),
   /** A pause holds the session (PM-219); absent: none does. Taken off when the pause is resumed. */
   pause: SessionPause.optional(),
+  /**
+   * Why the session stopped last (PM-288). Cleared when it starts or resumes; absent for a row from
+   * before it was kept.
+   */
+  lastStop: SessionStop.optional(),
 });
 export type Session = z.infer<typeof Session>;
+
+/** Minutes of silence (since `Session.lastActivityAt`) after which an idle session closes by itself (PM-288). */
+export const SESSION_IDLE_CLOSE_MINUTES = 15;
 
 /**
  * A member's work on one card (PM-207): a task session that is working. A member's status and

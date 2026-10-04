@@ -6,6 +6,7 @@ export * from './domain/board-order';
 export * from './domain/relations';
 export * from './domain/theme';
 export * from './domain/session';
+export * from './domain/involvement';
 export * from './domain/pause';
 export * from './domain/token-usage';
 export * from './domain/card-measure';

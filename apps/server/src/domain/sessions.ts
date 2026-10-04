@@ -35,6 +35,7 @@ import type {
   Session,
   SessionDetail,
   SessionState,
+  SessionStop,
   Task,
   UpdateSessionRequest,
   WorkDoing,
@@ -419,6 +420,18 @@ export class SessionOrchestrator {
   private readonly processModes = new Map<string, string | undefined>();
   /** The session's grants "for this session" when its current process started (`sessionGrants`). */
   private readonly processGrants = new Map<string, number>();
+  /**
+   * Sessions marked to close at their next idle moment (PM-288), with the reason. In memory only: the
+   * next sweep finds a session that is still due.
+   */
+  private readonly closePending = new Map<string, SessionStop>();
+  /** Sessions `close` is stopping now: nothing is typed into them (`typeInto`). */
+  private readonly closing = new Set<string>();
+  /**
+   * The reason of a stop in progress, for `markEnded` to record when the runner's own exit event
+   * reaches it first.
+   */
+  private readonly stopReasons = new Map<string, SessionStop>();
   private readonly unsubscribe: () => void;
   /** Member workspaces (PM-138), when the server runs with them. */
   readonly workspaces: MemberWorkspaces | null;
@@ -526,6 +539,11 @@ export class SessionOrchestrator {
    */
   awaitsFirstTurn(sessionId: string): boolean {
     return this.awaitingFirstTurn.has(sessionId);
+  }
+
+  /** Whether text typed into the session has not started a turn yet (the runner still holds it). */
+  hasPendingInput(sessionId: string): boolean {
+    return this.deps.runner.hasPendingInput?.(sessionId) ?? false;
   }
 
   /** Running AI sessions with a turn in progress, across all projects. */
@@ -859,6 +877,8 @@ export class SessionOrchestrator {
 
   /** Types text into a running session (queued by the runner until the session is idle). */
   typeInto(session: Session, text: string): Promise<void> {
+    // The session is being closed (PM-288): the message stays waiting, and its wake-up resumes the session.
+    if (this.closing.has(session.id)) throw new Error(`session ${session.id} is closing`);
     return this.deps.runner.sendUserMessage(session.id, text);
   }
 
@@ -867,11 +887,77 @@ export class SessionOrchestrator {
     return this.deps.memory.read(projectKey, handle);
   }
 
-  async stop(projectKey: string, sessionId: string): Promise<Session> {
+  /** Stops a session; `stop` is why (PM-288), recorded on the session and its `session_ended` event. */
+  async stop(projectKey: string, sessionId: string, stop?: SessionStop): Promise<Session> {
     const session = this.get(projectKey, sessionId);
     this.dropPause(session);
+    // The runner's exit event may end the session before this call does: it takes the reason from here.
+    if (stop) this.stopReasons.set(session.id, stop);
     if (this.isRunning(session.id)) await this.deps.runner.stop(session.id);
-    return this.markEnded(session.id, null) ?? this.get(projectKey, sessionId);
+    return this.markEnded(session.id, null, null, stop) ?? this.get(projectKey, sessionId);
+  }
+
+  // ---------------------------------------------------------------- closing idle sessions (PM-288)
+
+  /**
+   * Marks the session to close at its next idle moment (`SessionCloser.sessionIdle`): the member that
+   * moved the card finishes its round first.
+   */
+  closeWhenIdle(session: Session, stop: SessionStop): void {
+    this.closePending.set(session.id, stop);
+  }
+
+  /** Why the session is marked to close; undefined: it is not. */
+  pendingClose(sessionId: string): SessionStop | undefined {
+    return this.closePending.get(sessionId);
+  }
+
+  /**
+   * The session is not to close after all (its member has a step on the card again). A compaction the
+   * mark held back is looked at now: the session is idle, and it drops the compaction of a card that is
+   * back in a stage its member works it in.
+   */
+  cancelClose(sessionId: string): void {
+    if (!this.closePending.delete(sessionId)) return;
+    const session = this.find(sessionId);
+    if (session && this.ctx.repos.sessions.compaction(session.id).pending) this.compactWhenIdle(session);
+  }
+
+  /**
+   * Closes the session if it does not work now, and says whether it did (null: it did not). Under the
+   * session's lock, and checked again just before the stop: a message or an input that came meanwhile
+   * keeps it open. The conversation stays: the next message, answer or hand-over resumes it.
+   */
+  close(projectKey: string, sessionId: string, stop: SessionStop): Promise<Session | null> {
+    const found = this.find(sessionId);
+    if (!found || found.projectKey !== projectKey) return Promise.resolve(null);
+    return this.locks.run(sessionLockKey(projectKey, found.member, found.workItem), async () => {
+      const session = this.find(sessionId);
+      if (
+        !session ||
+        session.state !== 'idle' ||
+        !this.isRunning(session.id) ||
+        this.isPaused(session) ||
+        this.awaitsFirstTurn(session.id) ||
+        this.hasPendingInput(session.id)
+      )
+        return null;
+      this.closing.add(session.id);
+      this.stopReasons.set(session.id, stop);
+      try {
+        await this.deps.runner.stop(session.id);
+      } catch (err) {
+        this.ctx.logger.warn({ err, sessionId: session.id }, 'could not stop a session to close it');
+      }
+      return this.markEnded(session.id, null, null, stop) ?? this.find(session.id);
+    });
+  }
+
+  /** A team message for the session's member and work item is not typed into it yet, a held one too. */
+  messageWaiting(session: Session): boolean {
+    return this.ctx.repos.messages
+      .pending(session.projectKey, session.member)
+      .some((m) => sameWorkItem(messageRoute(m, session.member), session.workItem));
   }
 
   /**
@@ -912,10 +998,10 @@ export class SessionOrchestrator {
   }
 
   /** Stops all live sessions for a cancelled task without cleaning up its worktrees. */
-  async stopTask(projectKey: string, taskKey: string): Promise<void> {
+  async stopTask(projectKey: string, taskKey: string, stop: SessionStop): Promise<void> {
     for (const session of this.list(projectKey, { taskKey })) {
       if (LIVE_SESSION_STATES.includes(session.state) || this.isRunning(session.id)) {
-        await this.stop(projectKey, session.id);
+        await this.stop(projectKey, session.id, stop);
       }
     }
   }
@@ -997,12 +1083,14 @@ export class SessionOrchestrator {
         finishing = true;
         continue;
       }
+      const stop: SessionStop = { kind: 'card_done', taskKey };
+      this.stopReasons.set(session.id, stop);
       try {
         await this.deps.runner.stop(session.id);
       } catch (err) {
         this.ctx.logger.warn({ err, sessionId: session.id }, 'could not stop a session');
       }
-      this.markEnded(session.id, null);
+      this.markEnded(session.id, null, null, stop);
     }
     // The worktrees go once the finishing session is done with them too.
     if (finishing) return;
@@ -1448,6 +1536,7 @@ export class SessionOrchestrator {
         branch,
         lastActivityAt: at,
         endedAt: null,
+        lastStop: null,
         ...(relocated ? { claudeSessionId: newUuid(), transcriptPath: null } : {}),
         // This start takes the session's current mode; the header says when it dropped grants.
         permissionRestartPending: false,
@@ -1929,8 +2018,18 @@ export class SessionOrchestrator {
     sessionId: string,
     exitCode: number | null,
     reason: string | null = null,
+    stop?: SessionStop,
   ): Session | null {
     const session = this.ctx.repos.sessions.get(sessionId);
+    const failed = exitCode !== null && exitCode !== 0;
+    // A session a pause held ends as paused, unless it failed; the other ends without a reason are PM-274's.
+    const why =
+      stop ??
+      this.stopReasons.get(sessionId) ??
+      (session && !failed && this.isPaused(session) ? ({ kind: 'pause' } as const) : undefined);
+    this.stopReasons.delete(sessionId);
+    this.closePending.delete(sessionId);
+    this.closing.delete(sessionId);
     this.settleFirstInput(sessionId, false);
     this.awaitingFirstTurn.delete(sessionId);
     this.revokeToken(sessionId);
@@ -1944,7 +2043,7 @@ export class SessionOrchestrator {
     this.inputWaits.delete(sessionId);
     if (!session || ENDED.has(session.state)) return null;
     const at = isoNow(this.ctx);
-    const state: SessionState = exitCode !== null && exitCode !== 0 ? 'failed' : 'exited';
+    const state: SessionState = failed ? 'failed' : 'exited';
     const ended = this.ctx.repos.sessions.update(sessionId, {
       state,
       activity: reason,
@@ -1954,6 +2053,7 @@ export class SessionOrchestrator {
       // No process waits for a restart now: the next start takes the session's mode anyway.
       permissionRestartPending: false,
       doing: null,
+      ...(why ? { lastStop: why } : {}),
     })!;
     this.workspaces?.ended(sessionId);
     this.deps.timeline.append({
@@ -1962,7 +2062,7 @@ export class SessionOrchestrator {
       sessionId,
       actor: aiActor(ended.member),
       type: 'session_ended',
-      data: { member: ended.member, exitCode, ...(reason ? { reason } : {}) },
+      data: { member: ended.member, exitCode, ...(reason ? { reason } : {}), ...(why ? { stop: why } : {}) },
     });
     this.publishSession(ended);
     void this.ctx.events.emit('session_ended', ended);
@@ -2164,13 +2264,15 @@ export class SessionOrchestrator {
       if (!this.compactInstruction(session.provider)) continue;
       if (isWorkingOnTask(config, task, session.member, 'idle')) continue;
       this.ctx.repos.sessions.setCompactPending(session.id, true);
-      this.compactWhenIdle(session);
     }
   }
 
-  /** Compacts the session now if it is idle, else its next idle moment does (`handleRunnerEvent`). */
+  /**
+   * Compacts the session now if it is idle, else its next idle moment does (`handleRunnerEvent`). Not
+   * one marked to close (PM-288): its conversation is compacted when it resumes (`compactFirst`).
+   */
   private compactWhenIdle(session: Session): void {
-    if (session.state !== 'idle' || this.isPaused(session)) return;
+    if (session.state !== 'idle' || this.isPaused(session) || this.closePending.has(session.id)) return;
     this.locks
       .run(sessionLockKey(session.projectKey, session.member, session.workItem), () =>
         this.compactIdle(session.id),
@@ -2221,13 +2323,6 @@ export class SessionOrchestrator {
       { sessionId: session.id, taskKey: task.key, asked },
       asked ? 'compacting the conversation at the end of its round' : 'the compaction was not asked for',
     );
-  }
-
-  /** A team message for this session's work item has not been typed into it yet. */
-  private messageWaiting(session: Session): boolean {
-    return this.ctx.repos.messages
-      .pending(session.projectKey, session.member)
-      .some((m) => sameWorkItem(messageRoute(m, session.member), session.workItem));
   }
 
   private publishSession(session: Session): void {

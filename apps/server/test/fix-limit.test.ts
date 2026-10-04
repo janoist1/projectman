@@ -342,7 +342,10 @@ describe('fix round limit', () => {
       const stop = vi.spyOn(h.domain.sessions, 'stopTask');
       await resolve('reassign');
       await settle();
-      expect(stop).toHaveBeenCalledWith('AR', 'AR-1');
+      expect(stop).toHaveBeenCalledWith('AR', 'AR-1', {
+        kind: 'fix_limit_reassign',
+        by: { kind: 'human', handle: 'owner' },
+      });
       expect(task().assignee).toBe('dev-2');
       expect(record()).toMatchObject({ holdPhase: null, extraRounds: 0 });
       expect(h.runner.started.some((spec) => spec.member === 'dev-2')).toBe(true);

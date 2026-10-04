@@ -3,6 +3,7 @@ import { DUTIES } from '../domain/duty';
 import type { DutyId } from '../domain/duty';
 import type { Stage } from '../domain/pipeline';
 import type { Session, SessionState } from '../domain/session';
+import { isOpenTask } from '../domain/task';
 import type { Task } from '../domain/task';
 import { memberRoles, stageOf } from './lookup';
 import type { MemberConfig, ProjectConfig } from './schema';
@@ -100,6 +101,36 @@ export function isWorkingOnTask(
     task,
     handle,
     sessionState,
+  );
+}
+/**
+ * Whether the member has a step on the card (PM-288): it is the member whose turn it is in the
+ * refinement (`turnMember`, `RefinementSteps.turnMember`), or the member works in the stage the card
+ * sits in. A card in refinement is worked one step at a time, one member per step: while it has a turn
+ * member, the other owners of its stage have no step on it. A member with no step on an open card is
+ * done with it.
+ */
+export function hasStepOnTask(
+  config: Pick<ProjectConfig, 'team' | 'pipeline'>,
+  task: Pick<Task, 'status' | 'stageId' | 'assignee'>,
+  handle: string,
+  turnMember: string | null,
+): boolean {
+  if (!isOpenTask(task)) return false;
+  return turnMember !== null ? turnMember === handle : isWorkingOnTask(config, task, handle, 'idle');
+}
+/**
+ * Whether a session works now (PM-288): it is in an engaged state, or it is idle and one of the
+ * signals holds: it awaits its first turn, it has typed input that has not started, or a message
+ * is on its way to it. Such a session is not closed.
+ */
+export function isSessionAtWork(
+  session: Pick<Session, 'state'>,
+  signals: { awaitsFirstTurn: boolean; pendingInput: boolean; messageOnItsWay: boolean },
+): boolean {
+  if (ENGAGED_SESSION_STATES.includes(session.state)) return true;
+  return (
+    session.state === 'idle' && (signals.awaitsFirstTurn || signals.pendingInput || signals.messageOnItsWay)
   );
 }
 /** A stage with its owners resolved (`resolvedStages`; the board's `stages` carry them). */

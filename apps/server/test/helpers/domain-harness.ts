@@ -186,6 +186,8 @@ export async function createDomainHarness(
     // Likewise the disk check and the worktree sweep: tests call `domain.disk` and `domain.worktreeSweep`.
     diskCheckMs: 3_600_000,
     worktreeSweepMs: 3_600_000,
+    // And the idle close sweep: tests call `domain.sessionCloser.sweep()`.
+    idleCloseSweepMs: 3_600_000,
     freeDiskBytes: opts.freeDiskBytes,
     closedWorktreeKeepMs: opts.closedWorktreeKeepMs,
   });

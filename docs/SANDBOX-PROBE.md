@@ -291,6 +291,33 @@ Credential files are only counted (`wc -c`), never printed.
    refuses but the developer needs is a finding: `allowRead` may grow by it, never by the app home,
    `~/.ssh`, `~/.config/gh`, `~/.codex`, another `~/.claude` path or `~/.npmrc`.
 
+## PM-270: the browser of `npm run shots` and its fence
+
+A member's `npm run shots` (SCREENSHOTS.md) runs a single-process Chromium inside the member's
+sandbox against a disposable instance. Check it once in a developer session of the owner's Mac
+(record the Claude Code version; the browser installed with `npm run browsers -- install`), with no
+credential and no live data:
+
+1. `npm run browsers -- check` prints the browser's version and `installed in <folder>`: the
+   session reads the folder through `PLAYWRIGHT_BROWSERS_PATH` (PM-268).
+2. `npm run shots -- scripts/scenarios/probe.mjs`: exit code 0; two accounts one after the other
+   (one browser context: a second context crashes the single-process Chromium), a popup, the four
+   widths and a full-page image all print `shot <path> <w>x<h>` lines with the sizes 1512×982,
+   800×900, 390×844 and 375×667; the PNGs are in `$PROJECTMAN_SESSION_DIR/shots/probe`.
+   Record which probe fails, if one does.
+3. The fence refuses the live instance. A scenario that does
+   `const page = await open({ path: '/' }); await page.evaluate(() => fetch('http://127.0.0.1:4800/api/me').catch(() => 'refused'))`
+   gets `refused`, and the run prints `blocked http://127.0.0.1:4800/api/me`; a `page.goto('file:///etc/hosts')`
+   fails and prints `blocked file:///etc/hosts`. The `blocked` line is the proof: the fence
+   refused the request before it left the browser, whether or not anything listens on 4800.
+   Never start the live instance for this step.
+4. The same command without the browser installed (`PROJECTMAN_BROWSERS_PATH` at an empty folder)
+   exits with code 2 and names `npm run browsers -- install`.
+5. After every run above: `ps -A -o command= | grep -c headless_shell` prints 0, and the ports of the
+   `urls` line the scenario logged (if any) refuse connections. After a SIGTERM during the run
+   (`kill -TERM <pid of node scripts/shots.mjs>`) the same holds and the exit code is 1.
+6. Record each line as `pass`, `fail` or `unverified` with the raw output in the task.
+
 ## Acceptance record and alternatives
 
 Fill one row per CLI version / OS / effective policy. For each capability record `pass`,

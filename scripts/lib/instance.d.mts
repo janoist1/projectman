@@ -25,6 +25,8 @@ export interface InstanceOptions {
   terminal?: 'pipe' | 'pty';
   /** Default `files` (`<dir>/logs/server.log`, `vite.log`); `inherit` writes to this process's output. */
   logs?: 'files' | 'inherit';
+  /** For `scripts/shots.mjs`. Default true: SIGINT/SIGTERM stop the instance, then end the process; false: the caller does. */
+  handleSignals?: boolean;
 }
 
 export interface FakeCall {
@@ -42,6 +44,20 @@ export interface Instance {
   readonly closed: Promise<Error | null>;
   /** `path` is an API path (`/api/projects`); the answer is the parsed JSON (null for 204). */
   api(path: string, init?: { method?: string; body?: unknown; as?: Account }): Promise<any>;
+  /** A Playwright `storageState` holding the account's session cookie (default: the owner's). */
+  storageState(account?: Account): Promise<{
+    cookies: {
+      name: string;
+      value: string;
+      domain: string;
+      path: string;
+      expires: number;
+      httpOnly: boolean;
+      secure: boolean;
+      sameSite: 'Lax';
+    }[];
+    origins: [];
+  }>;
   invite(input: { project: string; email: string; name: string; access: InviteAccess }): Promise<Account>;
   startSession(project: string, taskKey: string, assignee: string): Promise<string>;
   say(project: string, sessionId: string, text: string): Promise<void>;

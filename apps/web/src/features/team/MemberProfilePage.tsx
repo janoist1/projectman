@@ -36,6 +36,7 @@ import { ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { formatStamp } from '../../i18n/format';
 import { errorMessage } from '../../lib/errors';
+import { inboxHeading } from '../../lib/inbox';
 import { memberStatusView } from '../../lib/members';
 import { isLiveSession } from '../../lib/sessions';
 import { aiRoleView, humanRoleName } from '../../lib/roles';
@@ -296,7 +297,9 @@ export function MemberProfilePage() {
             <ul className={styles.list}>
               {data.inbox.map((item) => (
                 <li key={item.id}>
-                  <Link to={`/p/${key}/inbox`}>{item.title}</Link>
+                  <Link to={`/p/${key}/inbox`}>
+                    {item.kind === 'question' ? inboxHeading(item) : item.title}
+                  </Link>
                 </li>
               ))}
             </ul>

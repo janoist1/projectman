@@ -51,9 +51,11 @@ export function parseClaudeAuthStatus(out: CommandOutput, now: Date = new Date()
     checkedAt: now.toISOString(),
   };
   if (!json.loggedIn) {
+    status.problem = 'not_logged_in';
     status.detail = 'Claude Code is not logged in: run `claude` in a terminal and log in with /login';
   } else if ((method && API_KEY_METHOD.test(method)) || (apiProvider && apiProvider !== 'firstParty')) {
     status.loggedIn = false;
+    status.problem = 'not_logged_in';
     status.detail = `Claude Code is logged in with ${method ?? apiProvider}, which bills the API; members run on a Claude subscription only`;
   }
   return status;
@@ -72,6 +74,7 @@ export function parseCodexLoginStatus(out: CommandOutput, now: Date = new Date()
       loggedIn: false,
       method: 'none',
       checkedAt: at,
+      problem: 'not_logged_in',
       detail: 'Codex is not logged in: run `codex login` in a terminal and sign in with ChatGPT',
     };
   }
@@ -84,6 +87,7 @@ export function parseCodexLoginStatus(out: CommandOutput, now: Date = new Date()
       loggedIn: false,
       method,
       checkedAt: at,
+      problem: 'not_logged_in',
       detail: `Codex is logged in with ${what}, not a ChatGPT subscription; members run on a subscription only`,
     };
   }

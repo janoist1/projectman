@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { AiMemberConfig, HireMemberRequest, PermissionMode, UpdateMemberRequest } from '../index';
 import {
   FALLBACK_PERMISSION_MODE,
+  hasPlanUsage,
   modelForProvider,
+  PLAN_USAGE_PROVIDERS,
   PROVIDER_PERMISSION_MODES,
   permissionModeFitsProvider,
 } from './provider-model';
@@ -65,6 +67,13 @@ describe('permission modes per provider', () => {
     for (const mode of PROVIDER_PERMISSION_MODES.codex) {
       expect(permissionModeFitsProvider('codex', mode)).toBe(true);
     }
+  });
+
+  it('measures the plan usage of Claude and Codex (PM-324)', () => {
+    expect(PLAN_USAGE_PROVIDERS).toEqual(['claude', 'codex']);
+    expect(hasPlanUsage('claude')).toBe(true);
+    expect(hasPlanUsage('codex')).toBe(true);
+    expect(hasPlanUsage('fictional' as never)).toBe(false);
   });
 
   it('has a fallback every provider allows', () => {

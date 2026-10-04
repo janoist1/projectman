@@ -27,6 +27,7 @@ import {
   CreateTaskRequest,
   CustomRoleRequest,
   DEFAULT_AGENT_PROVIDER,
+  hasPlanUsage,
   HireMemberRequest,
   INLINE_MEDIA_TYPES,
   InvitationView,
@@ -1248,10 +1249,12 @@ export class MockBackend {
               .filter((member) => member.kind === 'ai' && member.status !== 'retired')
               .map((member) => member.provider ?? DEFAULT_AGENT_PROVIDER),
           ),
-        ].map((provider) => [
-          provider,
-          provider === 'claude' ? { ...this.planUsage, fetchedAt: nowIso() } : this.codexPlanUsage,
-        ]),
+        ]
+          .filter(hasPlanUsage)
+          .map((provider) => [
+            provider,
+            provider === 'claude' ? { ...this.planUsage, fetchedAt: nowIso() } : this.codexPlanUsage,
+          ]),
       ),
     };
   }
@@ -3478,9 +3481,13 @@ export class MockBackend {
       )
     )
       return 'ai_limit_reached';
-    if (Math.max(plan?.fiveHourPercent ?? 0, plan?.weeklyPercent ?? 0) > limits.pauseAbovePlanUsagePercent)
-      return 'plan_usage_paused';
+    // Like the server: after the AI limit, before the plan usage (PM-324).
     if (!this.providerLoggedIn[provider]) return 'provider_not_logged_in';
+    if (
+      hasPlanUsage(provider) &&
+      Math.max(plan?.fiveHourPercent ?? 0, plan?.weeklyPercent ?? 0) > limits.pauseAbovePlanUsagePercent
+    )
+      return 'plan_usage_paused';
     return null;
   }
 

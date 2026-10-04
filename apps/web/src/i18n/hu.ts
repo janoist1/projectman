@@ -701,6 +701,7 @@ export const hu = {
       no_free_member: 'Szabad fejlesztőre vár',
       label_missing: '{name} munkájára vár: {labels}',
       full_test_pending: 'Az átnézés a teljes tesztre vár',
+      provider_not_logged_in: 'Indulásra vár: a {provider} nincs bejelentkezve',
     },
     stageOwners: 'a lépés összes felelőse',
     startHints: {
@@ -729,6 +730,9 @@ export const hu = {
         'A kapu olyan címkét kér, amelyet AI-tag tesz fel; az ő munkamenete elindult a kártyán. A fejlesztő magától indul, amint a címke rákerül.',
       full_test_pending:
         'A szerver lefuttatja az átadott commit teljes tesztjét (a PTY-tesztekkel együtt). Zöld eredménynél az átnéző magától indul; bukásnál a kártya visszamegy a fejlesztőhöz.',
+      // The drawer adds the login command (`providerSettings.loginCommands`) in a code element after it.
+      provider_not_logged_in:
+        'A munka magától elindul, amint belépsz; a szerver félpercenként ellenőrzi. Futtasd a szerveren:',
     },
     needsYou: 'Rád vár: {what}',
     needsYouDetail: '{kind} ({detail})',

@@ -67,6 +67,9 @@ interface Run {
   stderr: string;
 }
 
+/** A finished run, and the temporary directory it had as its own. */
+type Finished = Run & { killed: boolean; tmp: string };
+
 const OUTPUT_LIMIT = 64_000;
 
 /**
@@ -82,10 +85,14 @@ function run(
     limitMs = 120_000,
   }: { onLine?: (line: string, child: ReturnType<typeof spawn>) => void; limitMs?: number } = {},
 ) {
-  return new Promise<Run & { killed: boolean }>((resolve) => {
+  return new Promise<Finished>((resolve) => {
+    // The run's own temporary directory: Playwright puts the browser's profile folder under it, so the
+    // browser's command line names it and no other run's browser does (see `browserProcesses`).
+    const tmp = temp();
     const child = spawn(process.execPath, [shotsScript, file, ...args], {
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: true,
+      env: { ...process.env, TMPDIR: tmp },
     });
     let stdout = '';
     let stderr = '';
@@ -98,7 +105,7 @@ function run(
       clearTimeout(limit);
       child.stdout.destroy();
       child.stderr.destroy();
-      resolve({ status: code, stdout, stderr, killed });
+      resolve({ status: code, stdout, stderr, killed, tmp });
     };
     const limit = setTimeout(() => {
       killed = true;
@@ -124,7 +131,7 @@ function run(
 }
 
 /** A failed run says why, in a short string (never a diff of a huge one). */
-function why(result: Run & { killed: boolean }): string {
+function why(result: Finished): string {
   return `${result.killed ? 'KILLED at the time limit; ' : ''}status ${result.status}\n${result.stderr.slice(0, 2000)}\n${result.stdout.slice(-2000)}`;
 }
 
@@ -139,7 +146,11 @@ async function listening(url: string): Promise<boolean> {
 
 let psWarned = false;
 
-function browserProcesses(): number {
+/**
+ * The headless browsers of one run: those whose command line names the run's temporary directory (its
+ * profile folder). Other members' and other tests' browsers on the machine are not counted.
+ */
+function browserProcesses(tmp: string): number {
   const result = spawnSync('ps', ['-A', '-o', 'command='], { encoding: 'utf8' });
   if (result.error || result.status !== 0 || !result.stdout) {
     // A member's sandbox may not allow `ps`: the process check then cannot say anything.
@@ -148,17 +159,19 @@ function browserProcesses(): number {
     psWarned = true;
     return 0;
   }
-  return result.stdout.split('\n').filter((line) => /headless[-_]shell/.test(line)).length;
+  return result.stdout
+    .split('\n')
+    .filter((line) => /headless[-_]shell/.test(line) && line.includes(`${tmp}/`)).length;
 }
 
-/** Nothing of the run is left: no browser, and the instance's ports are free. */
-async function expectNothingLeft(output: string, browsersBefore: number) {
-  const urls = /^urls (\S+) (\S+)$/m.exec(output);
+/** Nothing of the run is left: no browser of its own, and the instance's ports are free. */
+async function expectNothingLeft(finished: Finished) {
+  const urls = /^urls (\S+) (\S+)$/m.exec(finished.stdout);
   if (urls) {
     expect(await listening(urls[1]!)).toBe(false);
     expect(await listening(urls[2]!)).toBe(false);
   }
-  expect(browserProcesses()).toBeLessThanOrEqual(browsersBefore);
+  expect(browserProcesses(finished.tmp)).toBe(0);
 }
 
 function pngSize(file: string) {
@@ -171,7 +184,6 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
     'opens a card with an open question as a non-admin and writes four images of the given sizes',
     async () => {
       const out = join(temp(), 'out');
-      const before = browserProcesses();
       const file = scenario(`${askQuestion}
   await step('open the card', async () => {
     const page = await open({ as: colleague, path: '/p/AC/tasks/AC-1' });
@@ -190,7 +202,7 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
       ]);
       for (const [path, width, height] of sizes)
         expect(pngSize(path!)).toEqual({ width: Number(width), height: Number(height) });
-      await expectNothingLeft(result.stdout, before);
+      await expectNothingLeft(result);
     },
     SLOW,
   );
@@ -199,7 +211,6 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
     'exits 1 after a failed step, with an error image, and leaves nothing running',
     async () => {
       const out = join(temp(), 'out');
-      const before = browserProcesses();
       const file = scenario(`
   log('urls ' + instance.serverUrl + ' ' + instance.webUrl);
   await step('open the board', async () => {
@@ -210,7 +221,7 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
       expect(result.status, why(result)).toBe(1);
       expect(result.stderr).toContain('Step 1 "open the board" failed');
       expect(existsSync(join(out, 'error-1.png'))).toBe(true);
-      await expectNothingLeft(result.stdout, before);
+      await expectNothingLeft(result);
     },
     SLOW,
   );
@@ -219,7 +230,6 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
     'runs the sample scenario of the documentation: a non-admin sees the card, two images',
     async () => {
       const out = join(temp(), 'out');
-      const before = browserProcesses();
       const sample = fileURLToPath(
         new URL('../../../scripts/scenarios/card-with-question.mjs', import.meta.url),
       );
@@ -228,7 +238,7 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
       expect(result.stdout).toContain('signed in as dana@acme.test: [{"key":"AC","access":"developer"}]');
       for (const width of [1512, 390])
         expect(pngSize(join(out, `card-question-${width}.png`)).width).toBe(width);
-      await expectNothingLeft(result.stdout, before);
+      await expectNothingLeft(result);
     },
     SLOW,
   );
@@ -237,7 +247,6 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
     'logs in again for another account in the same browser and back',
     async () => {
       const out = join(temp(), 'out');
-      const before = browserProcesses();
       const file = scenario(`
   const colleague = await instance.invite({ project: 'AC', email: 'dana@acme.test', name: 'Dana Dev', access: 'developer' });
   log('urls ' + instance.serverUrl + ' ' + instance.webUrl);
@@ -252,7 +261,7 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
       expect(result.status, why(result)).toBe(0);
       for (const name of ['owner', 'colleague', 'owner-again'])
         expect(pngSize(join(out, `${name}-1512.png`))).toEqual({ width: 1512, height: 982 });
-      await expectNothingLeft(result.stdout, before);
+      await expectNothingLeft(result);
     },
     SLOW,
   );
@@ -260,7 +269,6 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
   it(
     'stops everything at the timeout, on SIGINT and on SIGTERM: exit code 1, no data folder left',
     async () => {
-      const before = browserProcesses();
       const hang = scenario(`
   log('urls ' + instance.serverUrl + ' ' + instance.webUrl);
   log('dir ' + instance.dir);
@@ -284,7 +292,7 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
         const dir = /^dir (.+)$/m.exec(interrupted.stdout)?.[1];
         expect(dir).toBeTruthy();
         expect(existsSync(dir!)).toBe(false);
-        await expectNothingLeft(interrupted.stdout, before);
+        await expectNothingLeft(interrupted);
       }
 
       const slow = scenario(`
@@ -295,7 +303,7 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
       });
       expect(expired.status, why(expired)).toBe(1);
       expect(expired.stderr).toContain('--timeout');
-      await expectNothingLeft(expired.stdout, before);
+      await expectNothingLeft(expired);
     },
     SLOW,
   );

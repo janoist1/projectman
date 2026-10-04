@@ -379,6 +379,7 @@ export function sensitivePaths(input: { userHome: string; appHome?: string }): s
     '.claude/hooks',
     '.claude.json',
     '.codex',
+    '.gemini',
     '.npmrc',
   ];
   // `logs` is not created by the server itself: the owner's live home has it (the process logs of
@@ -386,6 +387,9 @@ export function sensitivePaths(input: { userHome: string; appHome?: string }): s
   const app = [
     'db.sqlite*',
     'secret',
+    // The secret store and the providers' own CLI homes (PM-324): the NanoGPT key, the NanoGPT Codex home.
+    'secrets',
+    'providers',
     'logs',
     'customization',
     'memory',

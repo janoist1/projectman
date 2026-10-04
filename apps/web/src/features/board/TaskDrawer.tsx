@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import {
   canSeeAllTeamMessages,
+  DEFAULT_AGENT_PROVIDER,
   fixLimitDecisionOf,
   isOnLeave,
   isTheme,
@@ -354,7 +355,21 @@ export function TaskDrawer() {
     );
     const side = (
       <div key="side" className={clsx(styles.group, styles.side)}>
-        {task.startWaiting ? <p className={drawer.section}>{startWaitingHint(task)}</p> : null}
+        {task.startWaiting ? (
+          <p className={drawer.section}>
+            {startWaitingHint(task)}
+            {task.startWaiting.reason === 'provider_not_logged_in' ? (
+              <>
+                {' '}
+                <code>
+                  {t(
+                    `providerSettings.loginCommands.${task.startWaiting.provider ?? DEFAULT_AGENT_PROVIDER}`,
+                  )}
+                </code>
+              </>
+            ) : null}
+          </p>
+        ) : null}
         <div className={styles.actions} hidden={!hasActions}>
           {canRefine ? <RefineButton task={task} primary={refineFirst} /> : null}
           {startOffered && startLoading ? (

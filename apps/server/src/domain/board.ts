@@ -1,4 +1,4 @@
-import { DEFAULT_AGENT_PROVIDER, labelHolders, resolvedStages } from '@projectman/shared';
+import { DEFAULT_AGENT_PROVIDER, hasPlanUsage, labelHolders, resolvedStages } from '@projectman/shared';
 import type { BoardView } from '@projectman/shared';
 import type { InboxService } from './inbox';
 import type { MemberService } from './members';
@@ -37,7 +37,7 @@ export class BoardService {
   /**
    * Columns with their stages, labels with who may set them, the tasks the viewer may see, the
    * roster, the viewer's open inbox count and the plan usage of every provider the team's AI
-   * members run on (known from earlier probes; hidden from clients).
+   * members run on that has a measurable one (`hasPlanUsage`; known from earlier probes; hidden from clients).
    */
   async view(projectKey: string, viewer: Viewer): Promise<BoardView> {
     const { config } = await this.projects.load(projectKey);
@@ -45,7 +45,7 @@ export class BoardService {
       ...new Set(
         config.team.members.flatMap((m) => (m.kind === 'ai' ? [m.provider ?? DEFAULT_AGENT_PROVIDER] : [])),
       ),
-    ];
+    ].filter(hasPlanUsage);
     const planUsageByProvider = Object.fromEntries(
       providers.map((provider) => [provider, isClient(viewer) ? null : this.planUsage.peek(provider)]),
     );

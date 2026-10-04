@@ -426,6 +426,10 @@ describe('provider-neutral session policy', () => {
         '/Users/anna/.projectman/memory',
         // The control socket pauses the whole team (PM-219): not for the members.
         '/Users/anna/.projectman/control.sock',
+        // The Gemini CLI's login, and the secret store and the providers' CLI homes (PM-324).
+        '/Users/anna/.gemini',
+        '/Users/anna/.projectman/secrets',
+        '/Users/anna/.projectman/providers',
       ]),
     );
     // The whole home is not denied: worktrees, workspaces and attachments live there.
@@ -455,11 +459,32 @@ describe('provider-neutral session policy', () => {
           'Read(//Users/anna/.claude.json)',
           'Edit(//Users/anna/.projectman/db.sqlite*)',
           'Read(//Users/anna/.projectman/secret/**)',
+          'Read(//Users/anna/.gemini/**)',
+          'Read(//Users/anna/.projectman/secrets/**)',
+          'Edit(//Users/anna/.projectman/providers/**)',
           'WebFetch(domain:localhost)',
           'WebFetch(domain:127.0.0.1)',
         ]),
       );
     }
+    // The shell's sandbox closes the same paths (PM-324).
+    const sandbox = sessionSandbox(
+      buildSessionPolicy({
+        config: testConfig(),
+        role: 'developer',
+        task: { repo: 'web' },
+        placement: development().placement,
+        deniedPaths,
+      }),
+      { userHome: '/Users/anna', appHome: '/Users/anna/.projectman' },
+    )!;
+    expect(sandbox.denyRead).toEqual(
+      expect.arrayContaining([
+        '/Users/anna/.gemini',
+        '/Users/anna/.projectman/secrets',
+        '/Users/anna/.projectman/providers',
+      ]),
+    );
   });
 
   it.each([false, true])('renders semantic grants on both providers with resume=%s', (resume) => {

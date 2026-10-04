@@ -1,6 +1,7 @@
 import {
   aiLimitReached,
   DEFAULT_AGENT_PROVIDER,
+  hasPlanUsage,
   isHandleOnLeave,
   isOpenTask,
   isTheme,
@@ -54,8 +55,8 @@ export interface AdmissionRequest {
  * work in (`repo_required`: a person has to choose it, so waiting does not help); for a scheduled
  * run, the member's previous run has ended; the member's capacity (open tasks it has a running session for plus its
  * other running chats); the concurrent AI sessions (`maxConcurrentAi`, when the project sets
- * one: there is no cap otherwise); the plan usage of the
- * member's provider; the free disk space (`disk_low`, PM-243). Decisions and the starts they allow are serialized. An automatic start
+ * one: there is no cap otherwise); that the member's provider is logged in (`provider_not_logged_in`,
+ * PM-324); the plan usage of the member's provider, when the provider has a measurable one; the free disk space (`disk_low`, PM-243). Decisions and the starts they allow are serialized. An automatic start
  * refused for a reason that can clear waits in the deferred-start store, which SQLite backs, and
  * is retried.
  */
@@ -154,14 +155,18 @@ export class Admission {
       throw conflict('ai_limit_reached', `${busy} AI sessions are working (limit ${max})`, { busy, max });
     }
     const provider = member?.provider ?? DEFAULT_AGENT_PROVIDER;
-    const percent = highestUsagePercent(await this.planUsage.get(provider));
-    const threshold = config.team.limits.pauseAbovePlanUsagePercent;
-    if (percent !== null && percent > threshold) {
-      throw conflict(
-        'plan_usage_paused',
-        `${provider} plan usage is ${percent}% (pause above ${threshold}%)`,
-        { percent, threshold, provider },
-      );
+    // A provider that is not logged in cannot run the session (PM-324): the start waits for the login.
+    if (member) await this.sessions.assertProviderReady(provider, member.handle);
+    if (hasPlanUsage(provider)) {
+      const percent = highestUsagePercent(await this.planUsage.get(provider));
+      const threshold = config.team.limits.pauseAbovePlanUsagePercent;
+      if (percent !== null && percent > threshold) {
+        throw conflict(
+          'plan_usage_paused',
+          `${provider} plan usage is ${percent}% (pause above ${threshold}%)`,
+          { percent, threshold, provider },
+        );
+      }
     }
     // Last, because it measures the disk (PM-243).
     await this.disk?.assertRoom(config);

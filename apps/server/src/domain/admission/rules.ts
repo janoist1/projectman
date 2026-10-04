@@ -98,6 +98,8 @@ const DEFERRABLE = new Set<ErrorCode>([
   'workspace_busy',
   'workspace_dirty',
   'workspace_fetch_failed',
+  // The member's provider is not logged in (PM-324): the retry loop starts it once it is.
+  'provider_not_logged_in',
 ] satisfies DeferrableReason[]);
 
 /** `also`: the further refusals the start in question waits for. */
@@ -124,6 +126,7 @@ export function waitingOf(
     ...(err.code === 'plan_usage_paused'
       ? { provider: details?.provider, threshold: details?.threshold }
       : {}),
+    ...(err.code === 'provider_not_logged_in' ? { provider: details?.provider } : {}),
     ...(err.code === 'prerequisite_open' ? { prerequisites: details?.prerequisites } : {}),
     since: opts.previous?.since ?? opts.at,
   };

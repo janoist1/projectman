@@ -416,6 +416,25 @@ describe('the prerequisite on the card (PM-203)', () => {
     expect(within(card).getAllByText(label('AC-17'))).toHaveLength(1);
   });
 
+  it.each(['claude', 'codex'] as const)(
+    'names the provider that is not logged in in the status line (%s, PM-324)',
+    (provider) => {
+      const { task, state } = on('AC-22', {
+        startWaiting: {
+          reason: 'provider_not_logged_in',
+          provider,
+          member: 'be-1',
+          since: '2026-10-01T10:00:00.000Z',
+        },
+      });
+      const text = t('taskStatus.startWaiting.provider_not_logged_in', {
+        provider: t(`providers.${provider}`),
+      });
+      expect(state).toMatchObject({ phase: 'waiting', label: text });
+      expect(within(draw(task, state)).getByText(text)).toBeTruthy();
+    },
+  );
+
   it('says it in the status line for a start that waits for prerequisites in the work stage', () => {
     const { task, state } = on('AC-22', {
       links: links('AC-17'),

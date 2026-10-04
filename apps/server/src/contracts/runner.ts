@@ -5,6 +5,7 @@ import type {
   ChatItem,
   PausePoint,
   PlanUsage,
+  ProviderProblem,
   SessionState,
   TokenUsage,
 } from '@projectman/shared';
@@ -230,6 +231,11 @@ export interface ProviderStatus {
   checkedAt: string;
   /** Why the provider is not usable (English), when `loggedIn` is not true. */
   detail?: string;
+  /** Why the provider is not usable, with `loggedIn === false` (PM-324). */
+  problem?: ProviderProblem;
+  /** The installed CLI's version and the oldest one the adapter works with, when known. */
+  cliVersion?: string;
+  minCliVersion?: string;
 }
 
 /** Error code of a session start refused because the provider is not logged in. */

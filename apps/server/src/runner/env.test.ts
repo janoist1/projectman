@@ -52,6 +52,33 @@ describe('child environment', () => {
     });
   });
 
+  it('removes the Gemini and NanoGPT variables and the Antigravity markers, whatever the server has (PM-324)', () => {
+    const names = [
+      'GEMINI_API_KEY',
+      'GOOGLE_API_KEY',
+      'GOOGLE_GEMINI_BASE_URL',
+      'GOOGLE_GENAI_USE_VERTEXAI',
+      'GOOGLE_GENAI_USE_ENTERPRISE',
+      'GOOGLE_APPLICATION_CREDENTIALS',
+      'GOOGLE_CLOUD_PROJECT',
+      'GOOGLE_CLOUD_LOCATION',
+      'AGY_ADC_AUTH',
+      'AGY_BUSINESS_PAYGO_TIER',
+      'NANOGPT_API_KEY',
+      'GEMINI_CLI',
+      'ANTIGRAVITY_SESSION',
+      'ANTIGRAVITY_CLI_ALPHA',
+    ];
+    const leaking = { ...base, ...Object.fromEntries(names.map((name) => [name, 'fictional'])) };
+    for (const env of [buildChildEnv(leaking), buildSessionEnv(leaking, 'ses_1')])
+      for (const name of names) expect(env).not.toHaveProperty(name);
+    // Only a trusted `extra` brings one back (the NanoGPT adapter's, for its own members).
+    expect(buildChildEnv(leaking, { NANOGPT_API_KEY: 'from-adapter' })).toMatchObject({
+      NANOGPT_API_KEY: 'from-adapter',
+    });
+    expect(buildChildEnv(leaking)).toMatchObject({ PATH: '/usr/bin' });
+  });
+
   it('sets the terminal and session variables for a member session', () => {
     const env = buildSessionEnv(base, 'ses_42');
     expect(env).toMatchObject({

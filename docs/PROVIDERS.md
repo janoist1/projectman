@@ -581,6 +581,15 @@ mid-session (Claude Code: "Login expired · Please run /login"; Codex: a turn fa
 `unauthorized`) emits an `auth_error` runner event, stops the session and leaves it `failed`
 with the message as its activity.
 
+Admission checks the login too (PM-324), after the AI limit and before the plan usage: an
+automatic start of a member whose provider is not logged in waits with the reason
+`provider_not_logged_in` (the card shows the provider) and starts on the next retry (every 30
+seconds) once the login is there; a person's start gets the 409. A provider whose login cannot be
+checked (`loggedIn: null`, or the check failing) holds nothing back. The status carries a `problem`
+(`not_logged_in`, `no_key`, `cli_too_old`, `cli_missing`) with `loggedIn: false`, and optionally the CLI's
+`cliVersion` and `minCliVersion`. Only the providers with a measurable plan (`PLAN_USAGE_PROVIDERS`: Claude and
+Codex) have a plan-usage pause and a usage gauge.
+
 Plan usage is per provider: Claude's from Claude Code's usage probe, ChatGPT's from the rate
 limits Codex records in its transcripts (nothing is spent to read either). New AI work pauses
 above `pauseAbovePlanUsagePercent` of the plan of the member's own provider.
@@ -627,7 +636,18 @@ shows it, sortable by weighted tokens and review rounds.
 
 The runner strips `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`,
 `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CODEX_API_KEY`, `OPENAI_API_KEY` and
-common OpenAI/Azure endpoint overrides from every session's environment.
+common OpenAI/Azure endpoint overrides from every session's environment. For the Gemini
+(Antigravity CLI) and NanoGPT providers (PM-319, PM-324) it also strips `GEMINI_API_KEY`,
+`GOOGLE_API_KEY`, `GOOGLE_GEMINI_BASE_URL`, `GOOGLE_GENAI_USE_VERTEXAI`,
+`GOOGLE_GENAI_USE_ENTERPRISE`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`,
+`GOOGLE_CLOUD_LOCATION`, `AGY_ADC_AUTH`, `AGY_BUSINESS_PAYGO_TIER` and `NANOGPT_API_KEY`, and the
+markers of a parent Gemini session (`GEMINI_CLI`, `ANTIGRAVITY_*`). The list is the same for every
+provider. The NanoGPT key reaches only the sessions of NanoGPT members, handed back by the NanoGPT
+adapter as a trusted `extra` of the child environment.
+
+The file tools and the shell's sandbox also refuse `~/.gemini` and, in the app home, `secrets`
+(the secret store) and `providers` (the providers' own CLI homes, such as the NanoGPT Codex home),
+next to the other credentials (`sensitivePaths`).
 
 ## Sandboxes: what the CLIs enforce (PM-126 probe)
 

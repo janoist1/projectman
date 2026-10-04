@@ -5,8 +5,16 @@
  * no dependencies on other server modules.
  */
 export { describeAttachment, formatBytes } from './attachments';
+export {
+  cardQuestionLines,
+  cardWorkerLines,
+  stateText,
+  type CardQuestionText,
+  type CardWorkerText,
+} from './card-thread';
 export { describeLink, linkTarget, numberedRef } from './links';
 export { describeRelatedCard, relationLines, relationPhrase } from './relations';
+export { roleLabel } from './role';
 export { describeRepo, type TaskRepoInfo } from './repo';
 export { describeTheme, themeCardLines, themeProgressText, themeState } from './theme';
 export { formatTimestamp, oneLine, PLAIN_STYLE, truncate, type TextStyle } from './text';

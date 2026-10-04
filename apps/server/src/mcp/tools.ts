@@ -707,7 +707,9 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       'Ask a human for a decision or information you cannot find or decide yourself (requirements, ' +
       'priorities, approvals, access, trade-offs). The question goes to their inbox; the answer arrives ' +
       'later in this session as a team message. Do not wait or poll for it: continue with work that does ' +
-      'not depend on the answer, or end your turn. Ask one clear question. The human who answers is ' +
+      'not depend on the answer, or end your turn. Before you ask, check the questions already asked on ' +
+      'the card (your brief and get_task list them): do not ask again what was answered or is still open. ' +
+      'Ask one clear question. The human who answers is ' +
       'usually not a specialist and often reads on a phone, so write for them: start the question with ' +
       'one plain sentence that names the decision in everyday words, and keep it short. Describe each ' +
       'option by what happens if it is picked, not by technical names, and always recommend one option ' +

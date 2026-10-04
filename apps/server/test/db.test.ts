@@ -308,6 +308,25 @@ describe('database', () => {
       'evt_2',
       'evt_3',
     ]);
+    repos.timeline.insert({
+      id: 'evt_q',
+      projectKey: 'AR',
+      taskKey: 'AR-1',
+      sessionId: null,
+      actor: { kind: 'human', handle: 'owner' },
+      type: 'question_asked',
+      data: { inboxItemId: 'inb_1' },
+      createdAt: now,
+    });
+    // Only the given types, the most recent `limit` of them, oldest first.
+    expect(
+      repos.timeline.listOfTypes('AR', 'AR-1', ['task_note', 'question_asked'], 3).map((e) => e.id),
+    ).toEqual(['evt_2', 'evt_3', 'evt_q']);
+    expect(repos.timeline.listOfTypes('AR', 'AR-1', ['question_asked'], 5).map((e) => e.id)).toEqual([
+      'evt_q',
+    ]);
+    expect(repos.timeline.listOfTypes('AR', 'AR-2', ['task_note'], 5)).toEqual([]);
+    expect(repos.timeline.listOfTypes('AR', 'AR-1', [], 5)).toEqual([]);
 
     repos.messages.insert({
       id: 'msg_1',

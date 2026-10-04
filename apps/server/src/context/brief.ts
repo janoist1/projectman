@@ -9,6 +9,7 @@ import {
 } from '../agent-text';
 import type { TextStyle } from '../agent-text';
 import type { ContextPackInput, RelatedSession } from '../contracts';
+import { cardQuestionsBlock, cardWorkersBlock } from './card-thread';
 import {
   code,
   codeList,
@@ -95,6 +96,9 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
 
   const related = input.relatedSessions ?? [];
   if (related.length > 0) sections.push(relatedSessionsSection(task.key, related));
+
+  // Who else works on the card and what was asked on it (PM-249); left out when there is none.
+  for (const block of [cardWorkersBlock(input), cardQuestionsBlock(input)]) if (block) sections.push(block);
 
   sections.push(
     attachmentsSection(task.key, input.attachments ?? [], style, input.parentAttachments, task.description),

@@ -2,13 +2,13 @@ import {
   approverOf,
   dutyMembers,
   effectiveRepo,
-  isBuiltInRole,
   repoOf,
   roleBundle,
   roleUsesWorktree,
   roleSessionTools,
 } from '@projectman/shared';
-import type { BuiltInRoleId, CustomRoleDefinition, DutyId } from '@projectman/shared';
+import type { DutyId } from '@projectman/shared';
+import { roleLabel } from '../agent-text';
 import type { ContextPackInput } from '../contracts';
 import { describeSandbox, describeUnattendedCommands } from '../domain';
 import { isHumanOnlyLabel, labelHolders } from '@projectman/shared';
@@ -17,42 +17,8 @@ import { recentMemory } from './memory';
 import { cheapSubagentSection } from './subagents';
 import { dutyPrompt, expectedSteps, type Situation } from './work-item';
 
-/** English names of the built-in roles for prompt text. */
-const ROLE_LABELS: Record<BuiltInRoleId, string> = {
-  operator: 'operator',
-  product_owner: 'product owner',
-  project_manager: 'project manager',
-  business_analyst: 'business analyst',
-  architect: 'architect',
-  designer: 'UI/UX designer',
-  developer: 'developer',
-  lead_developer: 'lead developer',
-  code_review: 'code reviewer',
-  security_review: 'security reviewer',
-  qa: 'QA engineer',
-  devops: 'DevOps engineer',
-  communication: 'communication member',
-  support: 'support member',
-  researcher: 'researcher',
-  maintainer: 'maintainer',
-  coach: 'coach',
-  watchdog: 'watchdog',
-  content: 'content writer',
-  translator: 'translator',
-  docs: 'technical writer',
-};
-
-/**
- * A role for prompt text: the English name of a built-in role, a custom role's own name (in the
- * project's language), else the value as it is.
- */
-export function roleLabel(
-  role: string,
-  customRoles: readonly Pick<CustomRoleDefinition, 'id' | 'name'>[] = [],
-): string {
-  if (isBuiltInRole(role)) return ROLE_LABELS[role];
-  return customRoles.find((r) => r.id === role)?.name ?? role;
-}
+// The role names live in agent-text, which the domain reads too (the card's workers, PM-249).
+export { roleLabel };
 
 /**
  * The member's system prompt (Claude Code: `--append-system-prompt`; Codex:
@@ -189,6 +155,7 @@ function teamworkSection({ project, member }: ContextPackInput): string {
     '- Text you write in your own session reaches nobody: to tell a teammate something, or to answer a team message, use send_message. Team messages arrive in your session as "[team message from <handle> about <task key>]" followed by the text. Messages without that prefix come from the app (like the kick-off brief) or from a human using it.',
     '- Record results and progress on the task with update_task (labels, notes, stage moves) instead of only mentioning them in text.',
     '- Message only when someone has something to do, and send humans only what needs their decision or action.',
+    "- When other members work on the same card (your brief or get_task names them), split the work with them by send_message, addressed to all of them, and do not overwrite each other's part.",
     `- Write messages, notes, questions, task titles and descriptions in ${languageName(language)} (${code(language)}), the project's language. ${rules} decides the language of code, commits and pull requests.`,
     '- Check the primary source (the code, the logs, the task) before you state a fact.',
     '- Other sessions may share a checkout: never switch branches, reset, stash or clean in a working directory that is not your own.',

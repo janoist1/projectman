@@ -263,7 +263,8 @@ describe('end-of-round compaction', () => {
       await resume();
       expect(h.runner.lastStarted()).toMatchObject({
         compactFirst: INSTRUCTION,
-        initialMessage: 'Continue AR-1: Login page',
+        // The reviewer works on the card, and the resumed developer is told so first (PM-249).
+        initialMessage: 'Standing AR-1: workers cr; questions 0\n\nContinue AR-1: Login page',
       });
     });
 

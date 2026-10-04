@@ -225,6 +225,16 @@ set explicitly, when `PROJECTMAN_BOUNDARY_CONFIG` is set, or with the `managed_v
 the two binaries are really fakes cannot be checked; requiring them explicitly only rules out an
 accidental default. Sessions started through the launcher are not affected.
 
+`scripts/lib/instance.mjs` (PM-269) starts such a throwaway development instance for members and
+scripts: `startInstance()` runs the server and Vite on free ports with the data and logs in one
+directory (a new temporary one by default, removed by `stop()`), the fake CLIs and
+`PROJECTMAN_TERMINAL=pipe`, and offers `api`, `invite` (a non-admin account), `startSession`, `say`,
+`waitIdle` and `setFakeCalls` (the calls of a fake Claude "CALLS" turn, in `fake-claude-calls.json`).
+Its children run under `scripts/lib/child-guard.mjs`, so nothing stays running after the parent is
+killed. It refuses a data directory in the live home (`~/.projectman`, except the members' `worktrees`
+and `member-caches`) and port 4800. `npm run demo` is built on it. Its tests are
+`apps/server/test/instance.test.ts`.
+
 Every other legacy session reads only (PM-167, decision 28: „Homokozó, a CLI-k saját kerítése”):
 the reviewer, QA, the security reviewer, the analyst, the architect, the designer, devops, chats,
 meetings and scheduled runs, any session whose placement is `read_only` or a review copy without

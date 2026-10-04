@@ -36,6 +36,9 @@
  *   "[Request interrupted by user]" and sends no Stop hook, like Claude Code).
  * - A submitted prompt: UserPromptSubmit hook (a "block" decision drops it), user entry, then
  *   after FAKE_CLAUDE_WORK_DELAY_MS (default 50; 800 if the prompt contains "SLOW"):
+ *   - "LONGTOOL" test gates: FAKE_CLAUDE_WORK_RELEASE_FILE holds the turn before the tool;
+ *     FAKE_CLAUDE_TOOL_RELEASE_FILE holds the running tool. Each prints a readiness marker
+ *     and waits for the file to exist, or for the turn to be interrupted, instead of a delay.
  *   - contains "PERMISSION": tool_use Bash {command:"git push", or FAKE_CLAUDE_PERMISSION_COMMAND},
  *     PreToolUse, then (unless an
  *     allow rule matches) a PermissionRequest hook with permission_suggestions; "allow" runs
@@ -687,6 +690,7 @@ async function interactive() {
    * denial. `run`, when given, does the call once it is allowed and answers `{ text, isError }`.
    */
   async function toolCall(name, toolInput, okResult, toolResponse, run) {
+    const myTurn = turn;
     const toolUseId = `toolu_fake_${turn}_${name}`;
     assistantEntry([{ type: 'tool_use', id: toolUseId, name, input: toolInput }]);
     line(`● ${name}(${JSON.stringify(toolInput).slice(0, 60)})`);
@@ -748,7 +752,7 @@ async function interactive() {
     if (!busy) return false; // interrupted meanwhile
     if (allowed && run) {
       const result = await run();
-      if (!busy) return false; // interrupted while the call ran
+      if (!busy || turn !== myTurn) return false; // interrupted while the call ran
       userEntry(
         [{ type: 'tool_result', tool_use_id: toolUseId, content: result.text, is_error: result.isError }],
         {
@@ -784,6 +788,11 @@ async function interactive() {
     return true;
   }
 
+  async function waitForRelease(file, marker, myTurn) {
+    line(marker);
+    while (busy && turn === myTurn && !existsSync(file)) await sleep(20);
+  }
+
   async function runTurn(text) {
     turn += 1;
     const myTurn = turn;
@@ -795,7 +804,11 @@ async function interactive() {
     busy = true;
     progress(true);
     userEntry(text, { promptId: randomUUID() });
-    await sleep(text.includes('SLOW') ? 800 : workDelay);
+    if (text.includes('LONGTOOL') && process.env.FAKE_CLAUDE_WORK_RELEASE_FILE) {
+      await waitForRelease(process.env.FAKE_CLAUDE_WORK_RELEASE_FILE, `Waiting before tool: ${text}`, myTurn);
+    } else {
+      await sleep(text.includes('SLOW') ? 800 : workDelay);
+    }
     if (!busy || turn !== myTurn) return;
 
     if (process.env.FAKE_CLAUDE_LOGGED_OUT || text.includes('EXPIRE')) {
@@ -837,9 +850,17 @@ async function interactive() {
       if (!ok || !busy || turn !== myTurn) return;
     }
     if (text.includes('LONGTOOL')) {
-      // A Bash call that takes FAKE_CLAUDE_TOOL_MS (default 1000): a pause waits for its end.
+      // Hold the tool at a test gate, or take FAKE_CLAUDE_TOOL_MS (default 1000).
       const ok = await toolCall('Bash', { command: 'sleep 60' }, '', null, async () => {
-        await sleep(Number(process.env.FAKE_CLAUDE_TOOL_MS ?? 1000));
+        if (process.env.FAKE_CLAUDE_TOOL_RELEASE_FILE) {
+          await waitForRelease(
+            process.env.FAKE_CLAUDE_TOOL_RELEASE_FILE,
+            `Long tool running: ${text}`,
+            myTurn,
+          );
+        } else {
+          await sleep(Number(process.env.FAKE_CLAUDE_TOOL_MS ?? 1000));
+        }
         return { text: 'slept', isError: false };
       });
       if (!ok || !busy || turn !== myTurn) return;

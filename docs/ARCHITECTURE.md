@@ -849,6 +849,13 @@ Keep entries current under the rule in `CLAUDE.md`.
 
 Unless stated otherwise, server paths below are relative to `apps/server/src/`.
 
+- **Fake CLI pause test gates** — `runner/runner.integration.test.ts` and
+  `apps/server/test/fixtures/fake-claude.mjs` (PM-344). Tests hold the fake's work/tool
+  phase until a release file exists in the disposable session workspace; PTY readiness
+  markers confirm the phase before a pause is requested. The test and fake must share
+  that temporary filesystem. Interrupting a turn abandons its gate without a release.
+  **Remote engine:** run this integration harness and its fake together on the engine;
+  these test-only paths never cross the production server/engine boundary.
 - **Dependency clones** — `worktree/dependencies.ts`, `cloneDependencies` (PM-334).
   Copies installed `node_modules` from another checkout with the same lockfile using
   `cp -c -R`; only Darwin and checkouts on the same APFS volume pass the probe.

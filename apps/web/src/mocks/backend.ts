@@ -179,6 +179,7 @@ import type {
   Stage,
   Task,
   TeamMessage,
+  TeamMessageAnswer,
   TokenUsage,
   TimelineEvent,
   TimelineEventData,
@@ -1104,6 +1105,8 @@ export class MockBackend {
     taskKey: string | null,
     text: string,
     sessionId?: string,
+    /** What the message answers: the card thread shows it as a question and its answer (PM-249). */
+    answer?: TeamMessageAnswer,
   ): TeamMessage {
     const refusal = this.teamMessageRefusal(from, recipients, text);
     if (refusal) throw new Error(`The server refuses this team message: ${JSON.stringify(refusal.body)}`);
@@ -1124,6 +1127,7 @@ export class MockBackend {
         deliveredAt: this.findMember(handle)?.kind === 'human' ? nowIso() : null,
         readAt: null,
       })),
+      ...(answer ? { answer } : {}),
     };
     this.messages.push(message);
     this.emit({ type: 'team_message', projectKey: message.projectKey, message: clone(message) });
@@ -1501,6 +1505,11 @@ export class MockBackend {
       const involves = (message: TeamMessage, handle: string) =>
         message.from === handle || message.to.includes(handle);
       const limit = Number(query.get('limit') ?? 200);
+      // Like the server: the conversation of a card the viewer cannot see is not theirs to learn of.
+      if (taskKey) {
+        const card = this.findTask(taskKey);
+        if (card && !this.canSee(card)) return error(404, 'not_found', 'Unknown task');
+      }
       const listed = this.visibleMessages()
         .filter((message) => !peer || threadPeersOf(message, this.viewerHandle).includes(peer))
         .filter((message) => !member || involves(message, member))
@@ -3950,7 +3959,12 @@ export class MockBackend {
         { inboxItemId: item.id, answer },
         sessionId,
       );
-      this.sendTeamMessage(resolution.by, [item.source], item.taskKey, answer);
+      const question = typeof item.payload.question === 'string' ? item.payload.question : item.title;
+      this.sendTeamMessage(resolution.by, [item.source], item.taskKey, answer, undefined, {
+        inboxItemId: item.id,
+        question,
+        answer,
+      });
       return;
     }
     const gate = item.kind === 'decision' ? gateRequestOf(item) : null;

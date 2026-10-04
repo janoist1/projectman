@@ -1,15 +1,16 @@
 import clsx from 'clsx';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import {
-  canSeeAllTeamMessages,
+  canSeeTeamMessage,
+  cardWorkerSessions,
   fixLimitDecisionOf,
   isOnLeave,
   isTheme,
   loopDecisionOf,
 } from '@projectman/shared';
-import type { Task } from '@projectman/shared';
+import type { Task, TimelineEvent } from '@projectman/shared';
 import {
   useConfig,
   useInbox,
@@ -17,6 +18,7 @@ import {
   useResolveInbox,
   useStartTask,
   useTaskDetail,
+  useTaskMessages,
 } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
@@ -24,6 +26,7 @@ import { Button, ButtonLink } from '../../components/Button';
 import { SelectField } from '../../components/Field';
 import { Icon } from '../../components/Icon';
 import { leaveSuffix } from '../../components/LeaveChip';
+import { SegmentedControl } from '../../components/SegmentedControl';
 import { ErrorState, LoadingState } from '../../components/States';
 import { Timeline } from '../../components/Timeline';
 import { useToast } from '../../components/toastContext';
@@ -42,7 +45,7 @@ import { isDeveloperRole } from '../../lib/roles';
 import type { MemberIndex } from '../../lib/members';
 import { InboxCard } from '../inbox/InboxCard';
 import { openPrerequisiteKeys, PrerequisiteWarning, refusedPrerequisites } from './PrerequisiteWarning';
-import { CardSizeProvider, SIZE_PARAM } from './cardSize';
+import { CardSizeProvider, SIZE_PARAM, withCardSize } from './cardSize';
 import type { CardSize } from './cardSize';
 import { nextStepLine } from './NextStep';
 import { RefineButton } from './RefineButton';
@@ -55,6 +58,7 @@ import { TaskAttachments } from './TaskAttachments';
 import { TaskCommentComposer } from './TaskCommentComposer';
 import { TaskDescription } from './TaskEdit';
 import { TaskProperties } from './TaskProperties';
+import { TaskThread } from './TaskThread';
 import { TaskRounds, TaskUsage } from './TaskUsage';
 import { TaskMove } from './TaskMove';
 import { canMoveTask } from './moveTask';
@@ -169,7 +173,7 @@ const WIDE_QUERY = '(min-width: 1104px)';
  * sections show both: they keep their place in the tree (and so a draft) when the size or the number of columns changes.
  */
 export function TaskDrawer() {
-  const { taskKey = '' } = useParams();
+  const { taskKey = '', '*': subPath } = useParams();
   const { key, myHandle, can, me } = useProject();
   const [searchParams, setSearchParams] = useSearchParams();
   const mobile = useIsMobile();
@@ -187,7 +191,6 @@ export function TaskDrawer() {
         setSearchParams(next, { replace: true });
       };
   const access = me.projects.find((project) => project.key === key)?.access;
-  const seesAllMessages = access ? canSeeAllTeamMessages({ access }) : false;
   const navigate = useNavigate();
   const { board, members, pipeline, model } = useBoardModel();
   const detail = useTaskDetail(key, taskKey);
@@ -202,6 +205,16 @@ export function TaskDrawer() {
   const boardTask = board.data?.tasks.find((task) => task.key === taskKey);
   const task = detail.data?.task ?? boardTask;
   const entry = model?.byKey.get(taskKey);
+  // The card's conversation (PM-273): a view of the same open card (`/thread`), not a page. A theme has none.
+  const hasThread = Boolean(task && !isTheme(task) && entry);
+  const thread = hasThread && subPath === 'thread';
+  const taskMessages = useTaskMessages(key, taskKey, hasThread);
+  const messageCount = taskMessages.data?.messages.length ?? 0;
+  const cardScroll = useRef(0);
+  const switchView = (view: 'card' | 'thread') =>
+    navigate(withCardSize(`/p/${key}/tasks/${taskKey}${view === 'thread' ? '/thread' : ''}`, size), {
+      replace: true,
+    });
   // The whole open card takes files: they join the same queue as the files chosen in its list.
   const uploads = useUploadQueue();
   const canAttach = useCanAttach();
@@ -243,10 +256,17 @@ export function TaskDrawer() {
     return () => inerted.forEach((element) => element.removeAttribute('inert'));
   }, [size]);
 
-  // A window opens at the start of the content.
+  // A window opens at the start of the card. The Thread view keeps its own place instead (its end, or the
+  // message a link led to), and the card is at the start when it is shown again.
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+    cardScroll.current = 0;
+    if (scrollRef.current && !thread) scrollRef.current.scrollTop = 0;
   }, [size]);
+
+  // Hiding the card's sections shortens the scroll box and so moves it: showing them puts it back.
+  useLayoutEffect(() => {
+    if (!thread && scrollRef.current) scrollRef.current.scrollTop = cardScroll.current;
+  }, [thread]);
 
   const openIds = useMemo(() => openItemIds(inbox.data?.items), [inbox.data]);
   const myItems = openItemsFor(inbox.data?.items, myHandle).filter((item) => item.taskKey === taskKey);
@@ -293,6 +313,27 @@ export function TaskDrawer() {
     // A person who may put the `refine` label on a card that is not being refined can start it with a button.
     const canRefine =
       !theme && can.createTasks && config && myHandle ? canStartRefinement(task, config, myHandle) : false;
+    const workers = cardWorkerSessions(
+      stage ? { kind: stage.kind, owners: stage.owners ?? [] } : undefined,
+      task,
+      sessions,
+    ).map((worker) => worker.member);
+    // Where a link into the card's conversation leads: the same size as the open card.
+    const threadHref = hasThread ? withCardSize(`/p/${key}/tasks/${task.key}/thread`, size) : null;
+    // A timeline row of a message links to it in the conversation, if the viewer may read that message.
+    const fullMessageHref = (event: TimelineEvent): string | null => {
+      if (!hasThread || event.type !== 'team_message' || !access || !myHandle || !event.actor.handle)
+        return null;
+      const { messageId, to } = event.data;
+      if (typeof messageId !== 'string' || !Array.isArray(to)) return null;
+      const recipients = to.filter((handle): handle is string => typeof handle === 'string');
+      if (!canSeeTeamMessage({ access, handle: myHandle }, { from: event.actor.handle, to: recipients }))
+        return null;
+      return withCardSize(
+        `/p/${key}/tasks/${task.key}/thread?message=${encodeURIComponent(messageId)}`,
+        size,
+      );
+    };
     const hasActions =
       (isQueued && can.createTasks) ||
       canRefine ||
@@ -302,12 +343,12 @@ export function TaskDrawer() {
     // reads the left one first and the right one (`side`) last, and moves the groups, not the sections:
     // a group keeps its place under the scroll box, so what is typed in it is not lost.
     const signals = (
-      <div key="signals" className={styles.group}>
+      <div key="signals" className={styles.group} hidden={thread}>
         <SignalBox
           task={task}
           members={members}
           myHandle={myHandle}
-          messagesHref={seesAllMessages ? `/p/${key}/messages/all?task=${task.key}` : null}
+          messagesHref={threadHref}
           decidingLoop={myItems.some((item) => loopDecisionOf(item))}
           decidingFixLimit={myItems.some((item) => fixLimitDecisionOf(item))}
         />
@@ -341,7 +382,7 @@ export function TaskDrawer() {
       </div>
     );
     const side = (
-      <div key="side" className={clsx(styles.group, styles.side)}>
+      <div key="side" className={clsx(styles.group, styles.side)} hidden={thread && !twoColumns}>
         {task.startWaiting ? <p className={drawer.section}>{startWaitingHint(task)}</p> : null}
         <div className={styles.actions} hidden={!hasActions}>
           {canRefine ? <RefineButton task={task} /> : null}
@@ -389,7 +430,7 @@ export function TaskDrawer() {
       </div>
     );
     const content = (
-      <div key="content" className={styles.group}>
+      <div key="content" className={styles.group} hidden={thread}>
         <TaskDescription key={`description:${task.key}`} task={task} className={styles.description} />
 
         {theme && model ? (
@@ -408,6 +449,7 @@ export function TaskDrawer() {
             <Timeline
               events={detail.data.timeline}
               ctx={{ pipeline, members, labels, myHandle, openInboxIds: openIds }}
+              fullMessageHref={fullMessageHref}
               next={theme ? null : nextStepLine(task, pipeline, members, myHandle)}
             />
           )}
@@ -419,7 +461,7 @@ export function TaskDrawer() {
       </div>
     );
     const more = (
-      <div key="more" className={styles.group}>
+      <div key="more" className={styles.group} hidden={thread}>
         {sessions.length > 0 ? (
           <section className={drawer.section}>
             <h3 className={drawer.sectionTitle}>{t('task.sessions')}</h3>
@@ -477,8 +519,50 @@ export function TaskDrawer() {
           />
         )}
 
-        <div ref={scrollRef} className={styles.scroll}>
-          {twoColumns ? [signals, content, more, side] : [signals, side, content, more]}
+        {hasThread ? (
+          <div className={styles.views}>
+            <SegmentedControl
+              size="sm"
+              label={t('task.view.label')}
+              value={thread ? 'thread' : 'card'}
+              onChange={switchView}
+              options={[
+                { value: 'card', label: t('task.view.card') },
+                {
+                  value: 'thread',
+                  label: t('task.view.thread'),
+                  count: messageCount > 0 ? messageCount : undefined,
+                },
+              ]}
+            />
+          </div>
+        ) : null}
+
+        <div
+          ref={scrollRef}
+          className={clsx(styles.scroll, thread && styles.conversation)}
+          onScroll={(event) => {
+            if (!thread) cardScroll.current = event.currentTarget.scrollTop;
+          }}
+        >
+          {/* Both views stay in the tree: what is typed in the hidden one (a message, a description) is kept. */}
+          {[
+            ...(twoColumns ? [signals, content, more, side] : [signals, side, content, more]),
+            hasThread ? (
+              <div key="thread" className={styles.thread} hidden={!thread}>
+                <TaskThread
+                  task={task}
+                  active={thread}
+                  query={taskMessages}
+                  workers={workers}
+                  stageOwners={stage?.owners ?? []}
+                  members={members}
+                  labels={labels}
+                  messageParam={searchParams.get('message')}
+                />
+              </div>
+            ) : null,
+          ]}
         </div>
       </>
     );

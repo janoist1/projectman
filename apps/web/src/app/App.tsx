@@ -67,7 +67,8 @@ export function AppRoutes() {
         <Route path="/p/:projectKey" element={<ProjectLayout />}>
           <Route element={<BoardPage />}>
             <Route index element={null} />
-            <Route path="tasks/:taskKey" element={<TaskDrawer />} />
+            {/* The splat lets `…/thread` (the card's conversation view) select the same card. */}
+            <Route path="tasks/:taskKey/*" element={<TaskDrawer />} />
           </Route>
           <Route path="sessions/:sessionId" element={sessionPage} />
           <Route path="inbox" element={inboxPage} />

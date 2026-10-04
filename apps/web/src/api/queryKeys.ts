@@ -43,6 +43,8 @@ export const queryKeys = {
   /** One conversation of the viewer with `handle`, up to the server's page limit (PM-78). */
   conversation: (key: string, handle: string) =>
     ['project', key, 'messages', 'conversation', handle] as const,
+  /** The messages of one card, as the viewer may see them (PM-273). */
+  taskMessages: (key: string, taskKey: string) => ['project', key, 'messages', 'task', taskKey] as const,
   /** "All messages" under a filter (PM-78). */
   allMessages: (key: string, filter: AllMessagesFilter) =>
     ['project', key, 'messages', 'all', filter] as const,

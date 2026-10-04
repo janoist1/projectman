@@ -802,6 +802,43 @@ export const hu = {
     editDescription: 'Leírás szerkesztése',
     descriptionNone: 'Nincs még leírás.',
     save: 'Mentés',
+    /** The switch under the head between the card and its conversation (PM-273). */
+    view: {
+      label: 'A kártya nézetei',
+      card: 'Kártya',
+      thread: 'Beszélgetés',
+    },
+    /** The card's conversation: every team message written about the card (PM-273). */
+    thread: {
+      label: 'A kártya beszélgetése',
+      limited: 'Csak a neked szóló és az általad küldött üzeneteket látod.',
+      emptyTitle: 'Még nincs üzenet ezen a kártyán.',
+      emptyBody:
+        'Írj lent: a kártyán dolgozó tagok a munkájuk közben kapják meg. Ha egymásnak írnak erről a kártyáról, az is itt látszik.',
+      emptyLimitedTitle: 'Neked még nem írtak erről a kártyáról.',
+      emptyLimitedBody: 'Ha valaki neked ír erről a kártyáról, vagy te írsz innen, itt látod.',
+      emptyViewerBody: 'Ha valaki neked ír erről a kártyáról, itt látod.',
+      qa: 'Kérdés és válasz',
+      asked: '{name} kérdezte:',
+      answered: '{name} válaszolt: {answer}',
+      youAnswered: 'Te válaszoltál: {answer}',
+      to: 'Címzett',
+      addTo: 'Címzett hozzáadása',
+      recipients: 'Címzettek',
+      remove: 'Kiveszem a címzettek közül: {name}',
+      working: 'A kártyán dolgoznak',
+      others: 'Többi tag',
+      default: {
+        workers: 'A kártyán épp dolgozók.',
+        assignee: 'Most senki nem dolgozik rajta, ezért a felelősének.',
+        stageOwners: 'Most senki nem dolgozik rajta, ezért a szakasz gazdáinak.',
+        none: 'Válaszd ki, kinek írsz.',
+      },
+      edited: 'Te választottad.',
+      reset: 'Vissza az alaphoz',
+      composerLabel: 'Üzenet a(z) {key} kártyáról',
+      placeholder: 'Üzenet a kártyáról…',
+    },
     /** The drawer's "Kapcsolatok" section (PM-203): the cards this card relates to, by kind. */
     relations: {
       title: 'Kapcsolatok',
@@ -1770,6 +1807,8 @@ export const hu = {
 
   timeline: {
     details: 'Részletek',
+    /** The link of a message row to the whole text in the card's conversation (PM-273). */
+    fullMessage: 'Teljes üzenet',
     labelsAdded: 'Rátette: {labels}',
     labelsRemoved: 'Levette: {labels}',
     refinement: {

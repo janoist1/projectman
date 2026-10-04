@@ -146,7 +146,12 @@ function dayKey(iso: string): string {
  * sender, and where the task chip shows (the first message, every change of task, and the first
  * message after a day heading).
  */
-export function layoutThread(items: readonly ThreadItem[], newFromId: string | null): ThreadEntry[] {
+export function layoutThread(
+  items: readonly ThreadItem[],
+  newFromId: string | null,
+  /** Ends a run before `message` though the sender and the time would continue it (the card thread: another set of recipients). */
+  breaksRun?: (previous: TeamMessage, message: TeamMessage) => boolean,
+): ThreadEntry[] {
   let lastDay = '';
   let lastTask: string | null = null;
   let previous: TeamMessage | null = null;
@@ -167,7 +172,8 @@ export function layoutThread(items: readonly ThreadItem[], newFromId: string | n
     const firstOfRun =
       !previous ||
       previous.from !== message.from ||
-      new Date(message.createdAt).getTime() - new Date(previous.createdAt).getTime() > RUN_GAP_MS;
+      new Date(message.createdAt).getTime() - new Date(previous.createdAt).getTime() > RUN_GAP_MS ||
+      breaksRun?.(previous, message) === true;
     const showTask = message.taskKey !== null && message.taskKey !== lastTask;
     previous = message;
     // A message without a task counts as a change too: the task shows again after it.

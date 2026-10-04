@@ -16,6 +16,8 @@ interface ComposerProps {
   placeholder?: string;
   /** The team pause's line above the box (PM-220): why a message waits or cannot start the session. */
   pauseNote?: string;
+  /** Nothing can be sent yet (a card thread without recipients); the text can still be typed. */
+  blocked?: boolean;
 }
 
 /** The field stops growing here (about five lines on a phone, so the chat keeps room beside the keyboard). */
@@ -34,6 +36,7 @@ export function Composer({
   label = t('session.composer.label'),
   placeholder = t('session.composer.placeholder'),
   pauseNote,
+  blocked = false,
 }: ComposerProps) {
   const [text, setText] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -57,7 +60,7 @@ export function Composer({
 
   const submit = () => {
     const value = text.trim();
-    if (!value || disabled) return;
+    if (!value || disabled || blocked) return;
     const sent = onSend(value);
     if (sent instanceof Promise) {
       // The caller shows the failure; the text stays so it can be sent again.
@@ -113,7 +116,7 @@ export function Composer({
           icon="send"
           className={styles.send}
           aria-label={t('common.send')}
-          disabled={disabled || !text.trim()}
+          disabled={disabled || blocked || !text.trim()}
         />
       </div>
       {touch ? null : (

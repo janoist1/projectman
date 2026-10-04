@@ -706,6 +706,15 @@ export function useTeamThreads(key: string) {
   return useQuery({ queryKey: queryKeys.teamThreads(key), queryFn: () => api.teamThreads(key) });
 }
 
+/** The team messages written about one card, as the viewer may see them (PM-273). */
+export function useTaskMessages(key: string, taskKey: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.taskMessages(key, taskKey),
+    queryFn: () => api.teamMessageList(key, { taskKey }),
+    enabled,
+  });
+}
+
 /** One conversation of the viewer with `peer` (every message of the two, up to the page limit). */
 export function useConversation(key: string, peer: string | null) {
   return useQuery({

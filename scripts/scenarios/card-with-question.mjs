@@ -26,7 +26,7 @@ export default async ({ instance, open, shoot, snapshot, step, log }) => {
 
   await step('open the card', async () => {
     // The account is not the owner: print what it may do in the project (the avatar says only "Te").
-    const me = await instance.api('/api/auth/me', { as: colleague });
+    const me = await instance.api('/api/me', { as: colleague });
     log(
       `signed in as ${me.email}: ${JSON.stringify(me.projects.map(({ key, access }) => ({ key, access })))}`,
     );

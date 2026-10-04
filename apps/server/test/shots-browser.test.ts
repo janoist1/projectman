@@ -216,6 +216,24 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
   );
 
   it(
+    'runs the sample scenario of the documentation: a non-admin sees the card, two images',
+    async () => {
+      const out = join(temp(), 'out');
+      const before = browserProcesses();
+      const sample = fileURLToPath(
+        new URL('../../../scripts/scenarios/card-with-question.mjs', import.meta.url),
+      );
+      const result = await run(sample, ['--out', out, '--timeout', '80'], { limitMs: 100_000 });
+      expect(result.status, why(result)).toBe(0);
+      expect(result.stdout).toContain('signed in as dana@acme.test: [{"key":"AC","access":"developer"}]');
+      for (const width of [1512, 390])
+        expect(pngSize(join(out, `card-question-${width}.png`)).width).toBe(width);
+      await expectNothingLeft(result.stdout, before);
+    },
+    SLOW,
+  );
+
+  it(
     'logs in again for another account in the same browser and back',
     async () => {
       const out = join(temp(), 'out');

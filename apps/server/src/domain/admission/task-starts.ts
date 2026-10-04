@@ -10,6 +10,7 @@ import {
   stageIndex,
   stageOf,
   stageOwners,
+  startBlock,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -172,10 +173,16 @@ export class TaskStarts {
     if (opts.stillWanted && !opts.stillWanted(task)) return skipped;
     const workStage = workStageOf(config, task);
     if (!workStage) throw invalid('no_work_stage', 'the pipeline has no work stage');
+    const needsMove = stageIndex(config.pipeline, task.stageId) < stageIndex(config.pipeline, workStage.id);
+    // PM-291: a person's Start of a card that is not ready to start (being refined, held, an approval
+    // of its own column missing, labels missing) is refused with the reason the drawer shows.
+    if (needsMove && opts.actor.kind === 'human') {
+      const block = startBlock(task, config);
+      if (block) throw gateBlockedError(evaluateStart(task, config, workStage.id), block);
+    }
     // Before the developer is chosen: nobody is picked, hired or assigned for a card that waits.
     if (!(opts.despitePrerequisites && opts.actor.kind === 'human'))
       assertPrerequisitesClosed(task, this.tasks.list(projectKey));
-    const needsMove = stageIndex(config.pipeline, task.stageId) < stageIndex(config.pipeline, workStage.id);
     // PM-248: the gate of the stage the card is in holds the Start too; a label only a person
     // sets there is no approval this Start can ask for, so it is refused before anyone is started.
     if (needsMove) refuseOwnStageApproval(task, evaluateStart(task, config, workStage.id));

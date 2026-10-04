@@ -23,7 +23,14 @@ export interface ProjectContextValue {
   myHandle: string | null;
   isOwner: boolean;
   /** Allowed actions by access level (the server enforces them too). */
-  can: { createTasks: boolean; manageTeam: boolean; workInSessions: boolean; pauseTeam: boolean };
+  can: {
+    createTasks: boolean;
+    manageTeam: boolean;
+    workInSessions: boolean;
+    pauseTeam: boolean;
+    /** Whether the viewer gets the project configuration (every member but a client). */
+    readConfig: boolean;
+  };
   search: string;
   setSearch: (value: string) => void;
   /** Opens the dialog that asks to pause the project's team (PM-220). */

@@ -48,7 +48,7 @@ export function SessionHeader({
   member: MemberView | undefined;
   pipeline: PipelineIndex | null;
   taskPhase: TaskPhase | null;
-  live: { status: SessionStatus | 'paused'; label: string };
+  live: { status: SessionStatus | 'paused'; label: string; title?: string };
   /** The row the pause holds this session in: what it still waits for while it stops (PM-220). */
   pauseRow?: PausedSession;
 }) {
@@ -71,7 +71,7 @@ export function SessionHeader({
   };
 
   const liveStatus = (
-    <span className={styles.live} data-status={live.status} role="status">
+    <span className={styles.live} data-status={live.status} role="status" title={live.title}>
       {live.status === 'paused' ? (
         session.pause?.point === null ? (
           <span className={styles.stopping} aria-hidden="true" />

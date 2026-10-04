@@ -32,7 +32,7 @@ import { joinNames, t } from '../../i18n/t';
 import { errorMessage, isApprovalRequested, isGateBlocked } from '../../lib/errors';
 import { unmetGateTexts } from '../../lib/gates';
 import { decisionToast, openItemIds, openItemsFor } from '../../lib/inbox';
-import { sessionStatus } from '../../lib/sessions';
+import { closureTexts, sessionClosure, sessionStatus } from '../../lib/sessions';
 import { isTaskClosed } from '../../lib/taskState';
 import { isApiError } from '../../api/client';
 import { useDocumentTitle, useIsMobile, useMediaQuery } from '../../lib/hooks';
@@ -429,6 +429,7 @@ export function TaskDrawer() {
                 .map((entrySession) => {
                   const member = members.get(entrySession.member);
                   const status = sessionStatus(entrySession, entrySession.state === 'waiting_permission');
+                  const closure = sessionClosure(entrySession);
                   return (
                     <li key={entrySession.id}>
                       <Link to={`/p/${key}/sessions/${entrySession.id}`} className={styles.sessionRow}>
@@ -437,8 +438,13 @@ export function TaskDrawer() {
                           <span className={styles.sessionName}>
                             {nameOf(entrySession.member, members, myHandle)}
                           </span>
-                          <span className={styles.sessionState} data-status={status}>
-                            {t(`sessionState.${entrySession.state}`)}
+                          <span
+                            className={clsx(styles.sessionState, closure && styles.sessionClosed)}
+                            data-status={status}
+                          >
+                            {closure
+                              ? closureTexts(closure, { pipeline, members, myHandle }).list
+                              : t(`sessionState.${entrySession.state}`)}
                           </span>
                         </span>
                         <Icon name="chevronRight" size={16} />

@@ -8,8 +8,9 @@ import type { DomainHarness } from './helpers/domain-harness';
 /*
  * PM-213: when a card leaves the stage a member worked it in, the member's conversation is compacted
  * into a short summary, and the next round goes on from that. The domain decides when (the runner
- * types the command, runner/session.test.ts): at the member's next idle moment, never over a message
- * on its way in, and for a session that was not running, when it resumes and its conversation is big.
+ * types the command, runner/session.test.ts): a session that closes (PM-288) owes it until it resumes
+ * and its conversation is big (`compactFirst`), and one that stays open is never compacted over a
+ * message on its way in.
  */
 
 const INSTRUCTION = 'Keep the card, the decisions and the open bugs.';
@@ -38,78 +39,41 @@ describe('end-of-round compaction', () => {
   }
   const handOver = () => h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1'));
   const owed = (id: string) => h.repos.sessions.compaction(id).pending;
-  const compactionsOf = (id: string) => h.runner.compactions.filter((c) => c.sessionId === id);
   const measured = (id: string, contextTokens: number) =>
     h.runner.emit({ type: 'usage', sessionId: id, entries: [], contextTokens });
 
-  it('types the compaction into the idle session once the card is handed over', async () => {
+  /*
+   * A session whose card moved on closes (PM-288), so a compaction is not typed into it: it is owed, and
+   * done when the conversation resumes (`compactFirst`, see the end of this file).
+   */
+  it('owes the compaction of the idle session that closes once the card is handed over', async () => {
     const dev = await setup();
+    h.runner.setState(dev.id, 'working');
     h.runner.setState(dev.id, 'idle');
     await handOver();
-    await vi.waitFor(() =>
-      expect(h.runner.compactions).toEqual([{ sessionId: dev.id, instruction: INSTRUCTION }]),
-    );
+    await vi.waitFor(() => expect(h.runner.isRunning(dev.id)).toBe(false));
     expect(owed(dev.id)).toBe(true);
-    // The runner reports it started, worked and ended: nothing is owed any more, and the context is
-    // measured again from the next step.
-    measured(dev.id, 150_000);
-    h.runner.emit({
-      type: 'compaction',
-      sessionId: dev.id,
-      phase: 'started',
-      trigger: 'manual',
-      requested: true,
-    });
-    h.runner.setState(dev.id, 'working', 'Compacting the conversation');
-    expect(owed(dev.id)).toBe(true);
-    h.runner.emit({
-      type: 'compaction',
-      sessionId: dev.id,
-      phase: 'finished',
-      trigger: 'manual',
-      requested: true,
-    });
-    h.runner.setState(dev.id, 'idle');
-    expect(owed(dev.id)).toBe(false);
-    expect(h.repos.sessions.compaction(dev.id).contextTokens).toBeNull();
-    expect(compactionsOf(dev.id)).toHaveLength(1);
+    expect(h.runner.compactions).toEqual([]);
   });
 
-  it('does not type the compaction while the team is paused, and does after the resume (PM-219)', async () => {
+  it('does not close or compact a session while the team is paused (PM-219); the next round does after the resume', async () => {
     const dev = await setup();
     const by = { userId: null, source: 'system' } as const;
+    h.runner.setState(dev.id, 'working');
     h.runner.setState(dev.id, 'idle');
     h.runner.pauseOutcomes.set(dev.id, { point: 'idle', tool: null });
     await h.domain.pauses.pause({ scope: 'project', projectKey: 'AR' }, by);
     await handOver();
     await vi.waitFor(() => expect(owed(dev.id)).toBe(true));
-    // An idle moment of the session during the pause does not type it either.
-    h.runner.setState(dev.id, 'working');
-    h.runner.setState(dev.id, 'idle');
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await h.domain.sessionCloser.sweep();
     expect(h.runner.compactions).toEqual([]);
+    expect(h.runner.stopped).not.toContain(dev.id);
 
     await h.domain.pauses.resume({ scope: 'project', projectKey: 'AR' }, by);
-    await vi.waitFor(() =>
-      expect(h.runner.compactions).toEqual([{ sessionId: dev.id, instruction: INSTRUCTION }]),
-    );
+    await h.domain.sessionCloser.sweep();
+    await vi.waitFor(() => expect(h.runner.isRunning(dev.id)).toBe(false));
     expect(owed(dev.id)).toBe(true);
-  });
-
-  it('does not compact a small conversation, nor one that was never measured, and owes nothing for it', async () => {
-    const dev = await setup(undefined, COMPACT_MIN_CONTEXT_TOKENS);
-    h.runner.setState(dev.id, 'idle');
-    await handOver();
-    await vi.waitFor(() => expect(owed(dev.id)).toBe(false));
     expect(h.runner.compactions).toEqual([]);
-    await h.cleanup();
-
-    const unmeasured = await setup(undefined, null);
-    h.runner.setState(unmeasured.id, 'idle');
-    await handOver();
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(h.runner.compactions).toEqual([]);
-    expect(owed(unmeasured.id)).toBe(false);
   });
 
   it('waits for the end of the turn when the card is handed over from inside it', async () => {
@@ -120,13 +84,16 @@ describe('end-of-round compaction', () => {
     // The reviewer's session is started by the hand-over, and works the card: it is not compacted.
     await vi.waitFor(() => expect(h.runner.started).toHaveLength(2));
     expect(h.runner.compactions).toEqual([]);
+    expect(h.runner.isRunning(dev.id)).toBe(true);
 
+    // The turn ends: the session closes, and the compaction stays owed for its resume.
     h.runner.setState(dev.id, 'idle');
-    await vi.waitFor(() => expect(compactionsOf(dev.id)).toHaveLength(1));
-    expect(h.runner.compactions).toHaveLength(1);
+    await vi.waitFor(() => expect(h.runner.isRunning(dev.id)).toBe(false));
+    expect(owed(dev.id)).toBe(true);
+    expect(h.runner.compactions).toEqual([]);
   });
 
-  it('puts the message that waits for the session first, and compacts at its next idle moment', async () => {
+  it('puts the message that waits for the session first, and closes at its next idle moment', async () => {
     const dev = await setup();
     h.runner.setState(dev.id, 'working');
     await handOver();
@@ -136,13 +103,15 @@ describe('end-of-round compaction', () => {
     h.runner.setState(dev.id, 'idle');
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(h.runner.compactions).toEqual([]);
+    expect(h.runner.isRunning(dev.id)).toBe(true);
     expect(owed(dev.id)).toBe(true);
 
-    // The message got through and was worked on; the session idles again: now it is compacted.
+    // The message got through and was worked on; the session idles again: now it closes.
     h.runner.pendingInput.delete(dev.id);
     h.runner.setState(dev.id, 'working');
     h.runner.setState(dev.id, 'idle');
-    await vi.waitFor(() => expect(compactionsOf(dev.id)).toHaveLength(1));
+    await vi.waitFor(() => expect(h.runner.isRunning(dev.id)).toBe(false));
+    expect(owed(dev.id)).toBe(true);
   });
 
   it('does not compact the conversation of a member who works the card in the next stage too', async () => {
@@ -172,9 +141,14 @@ describe('end-of-round compaction', () => {
 
   it('gives it up for good when the runner could not do it', async () => {
     const dev = await setup();
-    h.runner.setState(dev.id, 'idle');
+    await h.domain.sessions.stop('AR', dev.id);
     await handOver();
-    await vi.waitFor(() => expect(compactionsOf(dev.id)).toHaveLength(1));
+    await vi.waitFor(() => expect(owed(dev.id)).toBe(true));
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+    await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+    expect(h.runner.started.filter((s) => s.sessionId === dev.id).at(-1)).toMatchObject({
+      compactFirst: INSTRUCTION,
+    });
     h.runner.emit({
       type: 'compaction',
       sessionId: dev.id,
@@ -186,7 +160,7 @@ describe('end-of-round compaction', () => {
     h.runner.setState(dev.id, 'working');
     h.runner.setState(dev.id, 'idle');
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(h.runner.compactions).toHaveLength(1);
+    expect(h.runner.compactions).toEqual([]);
   });
 
   it('is off without a compaction text', async () => {

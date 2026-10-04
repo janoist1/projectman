@@ -6,6 +6,8 @@ import type { Session, SessionState } from '../domain/session';
 import {
   cardWorkerSessions,
   dutyMembers,
+  hasStepOnTask,
+  isSessionAtWork,
   isWorkingOnTask,
   memberDuties,
   roleBundle,
@@ -126,6 +128,37 @@ describe('duty bundles', () => {
     expect(isWorkingOnTask(c, onTask('queue', 'builder'), 'builder', 'idle')).toBe(false);
     expect(isWorkingOnTask(c, onTask('done', 'builder'), 'builder', 'idle')).toBe(false);
     expect(isWorkingOnTask(c, onTask('missing', 'builder'), 'builder', 'idle')).toBe(false);
+  });
+  it('says whether a member has a step on a card: its refinement turn or its stage (PM-288)', () => {
+    const c = config();
+    const card = (stageId: string, assignee: string | null, status = 'active') =>
+      ({ status, stageId, assignee }) as Parameters<typeof hasStepOnTask>[1];
+    // The work stage: the assignee (or any owner of an unassigned card) has the step.
+    expect(hasStepOnTask(c, card('work', 'builder'), 'builder', null)).toBe(true);
+    expect(hasStepOnTask(c, card('work', 'other'), 'builder', null)).toBe(false);
+    expect(hasStepOnTask(c, card('work', null), 'builder', null)).toBe(true);
+    // A stage the member does not own, a queue and a done stage: no step.
+    expect(hasStepOnTask(c, card('release', 'builder'), 'builder', null)).toBe(false);
+    expect(hasStepOnTask(c, card('queue', 'builder'), 'builder', null)).toBe(false);
+    expect(hasStepOnTask(c, card('done', 'builder'), 'builder', null)).toBe(false);
+    // The refinement turn is a step wherever the card stands.
+    expect(hasStepOnTask(c, card('queue', null), 'builder', 'builder')).toBe(true);
+    expect(hasStepOnTask(c, card('queue', null), 'builder', 'other')).toBe(false);
+    // A card that is not open has no step at all.
+    expect(hasStepOnTask(c, card('work', 'builder', 'cancelled'), 'builder', 'builder')).toBe(false);
+    expect(hasStepOnTask(c, card('work', 'builder', 'done'), 'builder', null)).toBe(false);
+  });
+  it('says whether a session is at work: an engaged state, or idle with a sign of work (PM-288)', () => {
+    const none = { awaitsFirstTurn: false, pendingInput: false, messageOnItsWay: false };
+    for (const state of ['starting', 'working', 'waiting_permission', 'waiting_input'] as const)
+      expect(isSessionAtWork({ state }, none)).toBe(true);
+    expect(isSessionAtWork({ state: 'idle' }, none)).toBe(false);
+    expect(isSessionAtWork({ state: 'idle' }, { ...none, awaitsFirstTurn: true })).toBe(true);
+    expect(isSessionAtWork({ state: 'idle' }, { ...none, pendingInput: true })).toBe(true);
+    expect(isSessionAtWork({ state: 'idle' }, { ...none, messageOnItsWay: true })).toBe(true);
+    // A process that is gone is not at work, whatever the signals say.
+    expect(isSessionAtWork({ state: 'exited' }, { ...none, messageOnItsWay: true })).toBe(false);
+    expect(isSessionAtWork({ state: 'failed' }, { ...none, pendingInput: true })).toBe(false);
   });
   it('lists the sessions that work on a card now, one per member, step owners first (PM-249)', () => {
     const session = (id: string, member: string, state: SessionState, at: string, taskKey = 'EX-1') =>

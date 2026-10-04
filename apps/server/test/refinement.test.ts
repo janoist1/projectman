@@ -123,15 +123,17 @@ describe('Refinement line', () => {
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'plan', OWNER_ACTOR);
     await vi.waitFor(() => expect(members()).toEqual(['ana']));
     const ana = sessionsOf()[0]!;
-    const typed = () => h.runner.messages.filter((m) => m.sessionId === ana.id).map((m) => m.text);
+    h.runner.emit({ type: 'transcript_path', sessionId: ana.id, path: `/tmp/${ana.id}.jsonl` });
     h.runner.setState(ana.id, 'working');
     await label({ add: ['scope-ok'] }, aiActor('ana'));
     h.runner.setState(ana.id, 'idle');
     await vi.waitFor(() => expect(members()).toEqual(['ana', 'des']));
+    // ana's step is done: its session closes (PM-295), and the next message resumes it.
+    await vi.waitFor(() => expect(h.runner.isRunning(ana.id)).toBe(false));
     await flush();
 
-    // ana idles in the stage it owns, so it is told about the designer's step, once its next input comes.
-    const before = typed().length;
+    // ana resumes on the message that wakes it, and is told first who works the card now.
+    const before = h.runner.started.length;
     await h.domain.messaging.send(
       'AR',
       'owner',
@@ -139,12 +141,10 @@ describe('Refinement line', () => {
       // A message for a member who has no turn waits otherwise.
       { duringRefinement: true },
     );
-    await flush();
-    expect(typed().slice(before)).toEqual([
-      expect.stringMatching(
-        /`des` \(UI\/UX designer\) started working on AR-1 too \(its refinement step for label `design-ok`\)\..*Status\?$/s,
-      ),
-    ]);
+    await vi.waitFor(() => expect(h.runner.started.length).toBeGreaterThan(before));
+    expect(h.runner.started.at(-1)).toMatchObject({ sessionId: ana.id });
+    expect(h.runner.started.at(-1)).toMatchObject({ resume: true });
+    expect(h.runner.started.at(-1)?.initialMessage).toMatch(/^Standing AR-1: workers des;.*Status\?$/s);
   });
 
   it('gives the next step to the next member once the previous turn ended', async () => {
@@ -163,6 +163,26 @@ describe('Refinement line', () => {
     expect(turn()?.data).toEqual({ label: 'design-ok', member: 'des', reason: 'label_set' });
     expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBe('des');
     expect(alerts()).toEqual([]);
+  });
+
+  it('closes the session of a member whose turn passed on, once its turn ended (PM-295)', async () => {
+    await prepare();
+    await label({ add: ['refine'] });
+    await vi.waitFor(() => expect(members()).toEqual(['ana']));
+    const ana = sessionsOf()[0]!;
+    h.runner.setState(ana.id, 'working');
+    await label({ add: ['scope-ok'] }, aiActor('ana'));
+    await flush();
+    // Its turn is still going: the session stays.
+    expect(h.runner.isRunning(ana.id)).toBe(true);
+
+    h.runner.setState(ana.id, 'idle');
+    await vi.waitFor(() => expect(members()).toEqual(['ana', 'des']));
+    await vi.waitFor(() => expect(h.runner.isRunning(ana.id)).toBe(false));
+    expect(h.repos.sessions.get(ana.id)?.lastStop).toEqual({ kind: 'step_done', taskKey: 'AR-1' });
+    // The designer, whose turn it is, goes on.
+    const des = sessionsOf().find((s) => s.member === 'des')!;
+    expect(h.runner.isRunning(des.id)).toBe(true);
   });
 
   it('removes the label, moves the card and tells who prioritises when the chain ends', async () => {
@@ -210,9 +230,10 @@ describe('Refinement line', () => {
     await vi.waitFor(() =>
       expect(turn()?.data).toEqual({ label: 'scope-ok', member: 'ana', reason: 'label_removed' }),
     );
-    // The analyst's session was running: it got a notice, not a new session.
-    expect(h.runner.started).toHaveLength(2);
-    expect(h.runner.messages.some((m) => m.text.includes('scope-ok'))).toBe(true);
+    // The analyst's session was closed (PM-295): it is resumed with the notice, not a new session.
+    await vi.waitFor(() => expect(h.runner.started).toHaveLength(3));
+    expect(h.runner.started.at(-1)?.sessionId).toBe(sessionsOf().find((s) => s.member === 'ana')!.id);
+    expect(h.runner.started.at(-1)?.initialMessage).toContain('scope-ok');
   });
 
   it('alerts the people once for a step only they can do, and closes the alert when it is done', async () => {
@@ -610,40 +631,50 @@ describe('Refinement line', () => {
       await vi.waitFor(() => expect(receipt(message.id, 'ana2').deliveredAt).not.toBeNull());
     });
 
-    it('types the held message into a running session when the card is worked out', async () => {
+    it('resumes the member, whose session closed, with the held message when the card is worked out', async () => {
       await refining();
       await label({ add: ['scope-ok'] }, aiActor('ana'));
       endTurn('ana');
       await vi.waitFor(() => expect(members()).toEqual(['ana', 'des']));
+      const ana = sessionsOf().find((s) => s.member === 'ana')!;
+      // The analyst's step is done, so its session closed (PM-295); it is the designer's turn.
+      await vi.waitFor(() => expect(h.runner.isRunning(ana.id)).toBe(false));
 
-      // The analyst's session is running, but it is the designer's turn.
       await send('ana', 'Ana, one more thing about the scope.');
       await flush();
-      expect(typed().some((text) => text.includes('one more thing'))).toBe(false);
+      expect(firstInputs().some((text) => text.includes('one more thing'))).toBe(false);
 
       await label({ add: ['design-ok'] }, aiActor('des'));
       endTurn('des');
-      await vi.waitFor(() => expect(typed().some((text) => text.includes('one more thing'))).toBe(true));
-      expect(h.runner.started).toHaveLength(2);
+      await vi.waitFor(() =>
+        expect(firstInputs().some((text) => text.includes('one more thing'))).toBe(true),
+      );
+      expect(h.runner.started).toHaveLength(3);
+      expect(h.runner.started.at(-1)?.sessionId).toBe(ana.id);
     });
 
-    it('types the held message into the running session when its turn comes', async () => {
+    it('resumes the member, whose session closed, with the held message when its turn comes', async () => {
       await refining();
       await label({ add: ['scope-ok'] }, aiActor('ana'));
       endTurn('ana');
       await vi.waitFor(() => expect(members()).toEqual(['ana', 'des']));
+      const ana = sessionsOf().find((s) => s.member === 'ana')!;
+      await vi.waitFor(() => expect(h.runner.isRunning(ana.id)).toBe(false));
       h.runner.setState(sessionsOf().find((s) => s.member === 'des')!.id, 'working');
 
       await send('ana', 'Ana, the scope changed.');
       await label({ remove: ['scope-ok'] });
       await flush();
-      expect(typed().some((text) => text.includes('the scope changed'))).toBe(false);
+      expect(firstInputs().some((text) => text.includes('the scope changed'))).toBe(false);
 
-      // The designer ends its turn; the turn goes back to the analyst, whose session is running.
+      // The designer ends its turn; the turn goes back to the analyst, whose session resumes.
       h.runner.setState(sessionsOf().find((s) => s.member === 'des')!.id, 'idle');
       await vi.waitFor(() => expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBe('ana'));
-      await vi.waitFor(() => expect(typed().some((text) => text.includes('the scope changed'))).toBe(true));
-      expect(h.runner.started).toHaveLength(2);
+      await vi.waitFor(() =>
+        expect(firstInputs().some((text) => text.includes('the scope changed'))).toBe(true),
+      );
+      expect(h.runner.started).toHaveLength(3);
+      expect(h.runner.started.at(-1)?.sessionId).toBe(ana.id);
     });
 
     it('lets a message for the member whose turn it is through at once', async () => {

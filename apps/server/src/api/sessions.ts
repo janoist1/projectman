@@ -57,8 +57,8 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
 
   app.post<SessionParams>(routes.stopSession(':key', ':sessionId'), async (request): Promise<Session> => {
     const { key, sessionId } = request.params;
-    await requireAccess(domain, request, key, { minimum: 'developer' });
-    return domain.sessions.stop(key, sessionId);
+    const access = await requireAccess(domain, request, key, { minimum: 'developer' });
+    return domain.sessions.stop(key, sessionId, { kind: 'manual', by: actorOf(access) });
   });
 
   app.post<ProjectParams>(routes.sendTeamMessage(':key'), async (request, reply) => {

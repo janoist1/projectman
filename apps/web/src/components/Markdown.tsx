@@ -120,6 +120,11 @@ function withBreaks(text: string, keyPrefix: string): ReactNode[] {
     );
 }
 
+/** Inline markdown only (bold, italics, code, links, line breaks), for a sentence inside another element. */
+export function InlineMarkdown({ text }: { text: string }) {
+  return <>{withBreaks(text, 'i')}</>;
+}
+
 export function Markdown({ text, className }: { text: string; className?: string }) {
   const blocks = parseBlocks(text);
   return (

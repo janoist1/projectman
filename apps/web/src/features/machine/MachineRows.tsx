@@ -171,7 +171,11 @@ export function SessionRow({
               >
                 <Icon name={expanded ? 'chevronDown' : 'chevronRight'} size={14} />
               </button>
-              <Avatar member={row.member} handle={row.memberHandle} size="sm" />
+              <Avatar
+                member={row.member}
+                handle={row.member ? row.memberHandle : row.memberHandle.slice(0, 1)}
+                size="sm"
+              />
               <strong>{name}</strong>
             </div>
             <Work row={row} onClose={onClose} />

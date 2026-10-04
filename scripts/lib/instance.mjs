@@ -422,6 +422,31 @@ export async function startInstance(options = {}) {
     closed,
     api,
 
+    /**
+     * A Playwright `storageState` that logs the account in to the browser (PM-270): the session
+     * cookie only, for 127.0.0.1 (the cookie holds no port, so the web and the server share it).
+     * The password still stays in this module.
+     */
+    async storageState(account = owner) {
+      const cookie = cookies.get(account.email) ?? (await login(account));
+      const separator = cookie.indexOf('=');
+      return {
+        cookies: [
+          {
+            name: cookie.slice(0, separator),
+            value: cookie.slice(separator + 1),
+            domain: '127.0.0.1',
+            path: '/',
+            expires: -1,
+            httpOnly: true,
+            secure: false,
+            sameSite: 'Lax',
+          },
+        ],
+        origins: [],
+      };
+    },
+
     async invite({ project, email, name, access }) {
       if (access === 'owner') throw new Error('An invitation cannot give owner access.');
       const created = await api(`/api/projects/${project}/invites`, {

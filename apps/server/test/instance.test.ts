@@ -116,6 +116,31 @@ describe('startInstance', () => {
   );
 
   it(
+    'gives a browser login as a storageState: the session cookie only, no password',
+    async () => {
+      const instance = await start();
+      const client = await instance.invite({
+        project: 'AC',
+        email: 'cookie@acme.test',
+        name: 'Cora Cookie',
+        access: 'client',
+      });
+      const state = await instance.storageState(client);
+      expect(state.origins).toEqual([]);
+      expect(state.cookies).toHaveLength(1);
+      const [cookie] = state.cookies;
+      expect(cookie).toMatchObject({ name: 'pm_session', domain: '127.0.0.1', path: '/', httpOnly: true });
+      const me = await fetch(`${instance.serverUrl}/api/me`, {
+        headers: { cookie: `${cookie!.name}=${cookie!.value}` },
+      });
+      expect((await me.json()).email).toBe('cookie@acme.test');
+      expect((await instance.storageState()).cookies[0]!.value).not.toBe(cookie!.value);
+      expect(JSON.stringify(state)).not.toMatch(/password/i);
+    },
+    SLOW,
+  );
+
+  it(
     'shows the fake lead’s ask_human question in the inbox',
     async () => {
       const instance = await start();

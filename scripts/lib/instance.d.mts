@@ -42,6 +42,20 @@ export interface Instance {
   readonly closed: Promise<Error | null>;
   /** `path` is an API path (`/api/projects`); the answer is the parsed JSON (null for 204). */
   api(path: string, init?: { method?: string; body?: unknown; as?: Account }): Promise<any>;
+  /** A Playwright `storageState` holding the account's session cookie (default: the owner's). */
+  storageState(account?: Account): Promise<{
+    cookies: {
+      name: string;
+      value: string;
+      domain: string;
+      path: string;
+      expires: number;
+      httpOnly: boolean;
+      secure: boolean;
+      sameSite: 'Lax';
+    }[];
+    origins: [];
+  }>;
   invite(input: { project: string; email: string; name: string; access: InviteAccess }): Promise<Account>;
   startSession(project: string, taskKey: string, assignee: string): Promise<string>;
   say(project: string, sessionId: string, text: string): Promise<void>;

@@ -47,6 +47,8 @@ import { createShutdown } from './shutdown';
  *   PROJECTMAN_SHUTDOWN_PAUSE_MS (60000): how long stopping the server (SIGTERM, SIGINT) lets the
  *   sessions come to a safe point before it closes (PM-219); 0 turns the pause off. The service unit's
  *   TimeoutStopSec must exceed it by about 20 seconds.
+ *   PROJECTMAN_CLONE_DEPENDENCIES (on): `off` stops cloning node_modules into task worktrees from an
+ *   installed checkout with the same lockfile (PM-332, APFS clones on macOS); any other value stops the server.
  * The agent CLIs start with this environment, minus billing and host-session variables (the
  * runner removes them); the git and gh commands the server runs inherit it.
  * Remote access goes through Tailscale (`tailscale serve`), not by binding publicly.
@@ -94,6 +96,10 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
     throw new Error(
       `invalid PROJECTMAN_SHUTDOWN_PAUSE_MS: ${env.PROJECTMAN_SHUTDOWN_PAUSE_MS} (milliseconds; 0 turns it off)`,
     );
+  // Cloning node_modules into task worktrees (PM-332): on unless turned off; anything else stops the start.
+  const cloneDependencies = env.PROJECTMAN_CLONE_DEPENDENCIES || 'on';
+  if (cloneDependencies !== 'on' && cloneDependencies !== 'off')
+    throw new Error(`invalid PROJECTMAN_CLONE_DEPENDENCIES: ${cloneDependencies} (on or off)`);
   // apps/web/dist, from src/index.ts (tsx) as well as from dist/index.js (bundle).
   const webDist = fileURLToPath(new URL('../../web/dist', import.meta.url));
   const home = resolve(env.PROJECTMAN_HOME ?? join(homedir(), '.projectman'));
@@ -113,6 +119,7 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
       browsersDir: resolve(env.PROJECTMAN_BROWSERS_PATH || join(home, 'browsers')),
       publicBaseUrl: loopbackBaseUrl(host, port),
       clientIpHeader,
+      cloneDependencies: cloneDependencies !== 'off',
       claudeBin: env.CLAUDE_BIN,
       codexBin: env.CODEX_BIN,
       codexHome: env.CODEX_HOME || undefined,

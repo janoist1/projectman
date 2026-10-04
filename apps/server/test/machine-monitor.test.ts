@@ -436,6 +436,26 @@ describe('orphan processes', () => {
     expect(w.probe.calls.processes).toBe(2);
     expect(w.probe.calls.envValues).toBe(1);
   });
+
+  it('are looked up again when the environment of a process of ours could not be read, not when it is another user', async () => {
+    const w = world();
+    w.sessions.set('ses_b', session('ses_b', { state: 'exited' }));
+    w.add(
+      proc(310, 1, 'node /old/run.js'),
+      proc(320, 1, '/usr/bin/other-user', { uid: 502, startedAt: T0 + 1 }),
+    );
+    // `ps` gave no answer for 310 (a timeout): no marker is cached for it.
+    expect(orphanNames(await w.monitor.view({ panel: false }))).toEqual([]);
+    expect(w.probe.calls.envValues).toBe(1);
+    w.probe.env.set(310, mark('ses_b'));
+    w.clock.t += 60_000;
+    expect(orphanNames(await w.monitor.view({ panel: false }))).toEqual(['run']);
+    // 310 was asked for again; 320 (not ours) was not.
+    expect(w.probe.calls.envValues).toBe(2);
+    w.clock.t += 60_000;
+    await w.monitor.view({ panel: false });
+    expect(w.probe.calls.envValues).toBe(2);
+  });
 });
 
 describe('the other processes', () => {
@@ -782,6 +802,44 @@ describe('stopping orphans', () => {
     const [result] = await w.monitor.stopOrphans([item(310)], 'usr_1');
     expect(result!.outcome).toBe('stopped');
     expect(w.probe.signals.every((s) => s.signal === 'SIGTERM')).toBe(true);
+  });
+
+  it('looks at the process list again right before SIGTERM: a pid taken since the orphan was recognised is not signalled', async () => {
+    const { w, item } = withOrphan();
+    const listed = w.probe.processes;
+    let calls = 0;
+    // The first list recognises the orphan; the next one (before the signal) has another process on pid 310.
+    w.probe.processes = async () => {
+      const list = await listed();
+      calls++;
+      return calls === 1
+        ? list
+        : list && list.map((record) => (record.pid === 310 ? { ...record, startedAt: T0 + 9999 } : record));
+    };
+    await w.monitor.stopOrphans([item(310)], 'usr_1');
+    expect(w.probe.signals.some((s) => s.pid === 310)).toBe(false);
+  });
+
+  it('is not brought back by a round that began before the stop', async () => {
+    const { w, item } = withOrphan();
+    const listed = w.probe.processes;
+    const stale = [...w.probe.list!];
+    let release!: () => void;
+    const hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let first = true;
+    w.probe.processes = async () => {
+      if (!first) return listed();
+      first = false;
+      await hold;
+      return stale;
+    };
+    const round = w.monitor.view({ panel: true });
+    await settle();
+    expect((await w.monitor.stopOrphans([item(310)], 'usr_1'))[0]!.outcome).toBe('stopped');
+    release();
+    expect((await round).orphans).toEqual([]);
   });
 
   it('runs one request at a time, and the second finds what the first stopped', async () => {

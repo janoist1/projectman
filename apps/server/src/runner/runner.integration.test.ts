@@ -72,6 +72,7 @@ async function setup(
     logger: silentLogger(),
     claudeConfigPath: configFile,
     trustWorkspaces: options.trustWorkspaces,
+    instanceTag: 'tag-of-this-test',
   });
   runner.registerHookRoutes(app);
   await app.listen({ host: '127.0.0.1', port });
@@ -282,6 +283,8 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
       PROJECTMAN_SESSION_ID: s.sessionId,
+      // The marker of the machine display (PM-320): the module hands the instance's tag to the session.
+      PROJECTMAN_INSTANCE: 'tag-of-this-test',
     });
     expect(env.NO_PROXY.split(',')).toEqual(expect.arrayContaining(['127.0.0.1', 'localhost', '::1']));
     expect(env.no_proxy.split(',')).toEqual(expect.arrayContaining(['127.0.0.1', 'localhost', '::1']));

@@ -134,6 +134,8 @@ export class MachineMonitor {
   private lastCpuSeconds = new Map<string, number>();
   private lastProcessesAt: number | null = null;
   private readonly markers = new Map<string, Marker | null>();
+  /** Orphans stopped here (pid and start time): a round that began before the stop must not bring them back. */
+  private readonly stoppedOrphans = new Set<string>();
   private closed: { at: number; count: number } | null = null;
   private stopQueue: Promise<unknown> = Promise.resolve();
 
@@ -251,6 +253,10 @@ export class MachineMonitor {
     const cores = machine.cores;
     const running = this.o.runner.list();
     const classification = processes ? await this.classify(processes, running, { fresh: false }) : null;
+    if (processes) {
+      const present = new Set(processes.map(identity));
+      for (const key of this.stoppedOrphans) if (!present.has(key)) this.stoppedOrphans.delete(key);
+    }
     const usage = this.usageOf(processes, cores, at);
 
     const sessionRows: MachineSessionRow[] = [];
@@ -487,6 +493,12 @@ export class MachineMonitor {
     }
     for (const root of unread) {
       const values = environment.get(root.pid);
+      // No answer for a process of ours (a failed or timed out `ps`) is not a "no marker": ask again
+      // next round. Another user's processes never answer, and cannot be ours.
+      if (!values && root.uid === this.serverUid) {
+        found.set(root.pid, null);
+        continue;
+      }
       const sessionId = values?.[SESSION_ID_VAR];
       const marker: Marker | null =
         values && values[INSTANCE_VAR] === this.o.instanceTag && sessionId?.startsWith('ses_')
@@ -592,6 +604,7 @@ export class MachineMonitor {
   ): Promise<OrphanProcessRow[]> {
     const rows: OrphanProcessRow[] = [];
     for (const orphan of classification.orphans) {
+      if (this.stoppedOrphans.has(identity(orphan.root))) continue;
       rows.push({
         pid: orphan.root.pid,
         startedAt: new Date(orphan.root.startedAt).toISOString(),
@@ -684,11 +697,17 @@ export class MachineMonitor {
     return results;
   }
 
-  /** The panel asks again right after a stop: what is gone leaves the last sample at once, not at the next round. */
+  /**
+   * The panel asks again right after a stop: what is gone leaves the last sample at once, not at the
+   * next round, and a round that was already running does not bring it back (it is remembered until
+   * the process is no longer in the list).
+   */
   private forget(items: Array<{ pid: number; startedAt: string }>): void {
-    const view = this.sample?.view;
-    if (!view?.orphans || items.length === 0) return;
+    if (items.length === 0) return;
     const gone = new Set(items.map((item) => `${item.pid}:${Date.parse(item.startedAt)}`));
+    for (const key of gone) this.stoppedOrphans.add(key);
+    const view = this.sample?.view;
+    if (!view?.orphans) return;
     this.sample = {
       ...this.sample!,
       view: {
@@ -718,8 +737,10 @@ export class MachineMonitor {
       return targets.filter((target) => byPid.get(target.pid)?.startedAt === target.startedAt);
     };
 
-    signalAll('SIGTERM', new Map(orphan.members.map((member) => [member.pid, member])));
-    let latest: ProcessRecord[] | null = null;
+    // The list the orphan was recognised in is older than the environment reads: look again.
+    let latest: ProcessRecord[] | null = await probe.processes();
+    if (!latest) return 'failed';
+    signalAll('SIGTERM', new Map(latest.map((record) => [record.pid, record])));
     for (let waited = 0; waited < STOP_TERM_WAIT_MS; waited += STOP_POLL_MS) {
       await this.sleep(STOP_POLL_MS);
       latest = await probe.processes();

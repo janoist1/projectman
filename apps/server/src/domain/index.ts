@@ -61,6 +61,7 @@ import { RoleService } from './roles';
 import { ScheduleService } from './schedules';
 import type { ScheduleTimer } from './schedules';
 import { PauseService } from './pause';
+import { prepareSessionFoldersRoot } from './session-folders';
 import { SessionOrchestrator } from './sessions';
 import { PrerequisiteClosures, TaskService } from './tasks';
 import { TeamToolsService } from './team-tools';
@@ -195,6 +196,14 @@ export interface DomainOptions {
    * sessions never change it (PM-188).
    */
   installDir?: string;
+  /**
+   * The root of the session folders (PM-268): each Claude session gets its own writable folder below
+   * it. Checked here (`prepareSessionFoldersRoot`); one that is not safe, or the managed VM, turns
+   * the folders off. Absent: no folders.
+   */
+  sessionFoldersDir?: string;
+  /** Playwright's browsers (PM-268): read-only for Claude sessions, in `PLAYWRIGHT_BROWSERS_PATH`. */
+  browsersDir?: string;
   /** Whether a process group still runs (tests replace it): a workspace reservation outlives a restart until it is gone. */
   processExists?: ProcessProbe;
   /**
@@ -298,6 +307,18 @@ export function createDomain(opts: DomainOptions) {
   });
   const members = new MemberService({ ctx, projects, timeline, presence, inbox });
   const roles = new RoleService({ projects });
+  let sessionFoldersDir: string | undefined;
+  if (opts.sessionFoldersDir && opts.runtimeBoundary?.mode !== 'managed_vm') {
+    try {
+      prepareSessionFoldersRoot(opts.sessionFoldersDir);
+      sessionFoldersDir = opts.sessionFoldersDir;
+    } catch (err) {
+      opts.logger.error(
+        { err, dir: opts.sessionFoldersDir },
+        'the session folders are off: their root is not a safe directory',
+      );
+    }
+  }
   const sessions = new SessionOrchestrator({
     ctx,
     projects,
@@ -322,6 +343,8 @@ export function createDomain(opts: DomainOptions) {
     standby: opts.standby,
     appHome: opts.appHome,
     userHome: opts.userHome,
+    sessionFoldersDir,
+    browsersDir: opts.browsersDir,
     readerDenyWrite: [opts.appHome, opts.worktreesRootDir, opts.workspacesRootDir, opts.installDir].filter(
       (dir): dir is string => !!dir,
     ),
@@ -518,6 +541,7 @@ export function createDomain(opts: DomainOptions) {
     githubSync,
     attachments,
     attachmentDirectory,
+    sessionFoldersDir,
   });
   const agentQuestions = new AgentQuestions({
     ctx,

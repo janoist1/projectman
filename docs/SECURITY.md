@@ -97,7 +97,10 @@ frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site c
   links anywhere on the way, files with several hard links, directories, FIFOs (opened without
   blocking), sockets and devices, and checks the opened handle afterwards: its real location
   must still be inside and be the very file opened, so a path swapped between the checks and the
-  open is refused. The content is streamed from that handle and refused when its size or time
+  open is refused. The session folder (PM-268; the server computes it, the caller never names
+  it) is a second root for an absolute path: only the calling session's own folder, and only
+  while it exists as a real directory (not a symbolic link); every check above applies to it
+  unchanged, and a relative path still means the working directory. The content is streamed from that handle and refused when its size or time
   changes meanwhile. A task session may read (never edit) only its own task's attachment
   directory without asking: Claude Code gets `Read(//…/**)` allowed and `Edit(//…/**)` denied for
   it, not an extra working directory, and nothing of the rest of `PROJECTMAN_HOME`; Codex gets
@@ -209,6 +212,19 @@ reader's allow list, because they need the GitHub CLI's login; Claude Code 2.1.2
 a command of their own, so a chain, a pipe, a substitution or a redirection into a file keeps the
 whole command inside. That is the CLI's behaviour, read in its code, not a rule of ours: a later
 version must be checked again (SANDBOX-PROBE.md). A local-only repository gets no exception.
+
+**The session folder (PM-268).** A Claude session in the legacy profile, a reader too, writes one
+more place: its own session folder, for the screenshots and reports it attaches. It is outside
+every checkout and the app home (`<tmp>/projectman-sessions/<hash of the app home>/<session id>`),
+nothing outside a sandbox runs or loads from it, and it is removed with the process (and the whole
+root when the server starts). Only the server computes the path; the session gets it in
+`PROJECTMAN_SESSION_DIR` and names no other. The root is checked before use: a real directory (not
+a symbolic link, nor below one), the server user's, mode 0700, else the folders are off and the
+server logs the reason and runs on (the sweep must never empty a directory somebody else pointed
+the predictable path at; a symbolic link in it is removed as a link). A developer's sandbox reads
+no other session's folder (the root is in `denyRead`, its own folder re-opened). Codex and the
+managed VM profile get none. Playwright's browsers directory is read-only for every sandbox
+(`PLAYWRIGHT_BROWSERS_PATH`); it is left out when it is the user's home or the app home or above.
 
 **A developer reads only its own work (PM-153).** A developer's sandbox reads nothing below the
 user's home and the app home but its worktree, its task's attachments, its own npm cache and

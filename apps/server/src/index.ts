@@ -1,5 +1,6 @@
-import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { createHash } from 'node:crypto';
+import { existsSync, realpathSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseExecutionProfile } from '@projectman/shared';
@@ -17,6 +18,8 @@ import { createShutdown } from './shutdown';
  *   CODEX_HOME (~/.codex): where the runner reads Codex's transcripts and plan usage,
  *   CLAUDE_CONFIG_DIR (~): where the runner finds Claude Code's .claude.json (workspace trust),
  *   GH_HOST (github.com): the host whose `gh` login the GitHub module checks,
+ *   PROJECTMAN_BROWSERS_PATH (<home>/browsers): Playwright's browsers (PM-268, docs/DEPLOY.md), which
+ *   the members' sandboxed commands read and never write, in PLAYWRIGHT_BROWSERS_PATH.
  *   PROJECTMAN_WORKSPACES (task_worktree): `member` gives every AI member a durable workspace per
  *   repository (PM-138) instead of a worktree per task.
  *   PROJECTMAN_BOUNDARY_CONFIG (unset): the managed VM's boundary configuration
@@ -93,11 +96,21 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
     );
   // apps/web/dist, from src/index.ts (tsx) as well as from dist/index.js (bundle).
   const webDist = fileURLToPath(new URL('../../web/dist', import.meta.url));
+  const home = resolve(env.PROJECTMAN_HOME ?? join(homedir(), '.projectman'));
   return {
     port,
     host,
     app: {
-      home: resolve(env.PROJECTMAN_HOME ?? join(homedir(), '.projectman')),
+      home,
+      // The session folders (PM-268) below the real temp directory (macOS: /var is /private/var, the
+      // path the sandbox sees); the hash keeps a development and the live instance's folders apart,
+      // so neither sweeps the other's.
+      sessionFoldersDir: join(
+        realpathSync(tmpdir()),
+        'projectman-sessions',
+        createHash('sha256').update(home).digest('hex').slice(0, 12),
+      ),
+      browsersDir: resolve(env.PROJECTMAN_BROWSERS_PATH || join(home, 'browsers')),
       publicBaseUrl: loopbackBaseUrl(host, port),
       clientIpHeader,
       claudeBin: env.CLAUDE_BIN,

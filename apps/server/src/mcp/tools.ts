@@ -922,9 +922,10 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     title: 'Attach a file',
     readOnly: false,
     description:
-      'Attach a file from your working directory to a task, in your name, for example a screenshot or a ' +
-      'report for the reviewer. Only a regular file inside your working directory (at most 25 MB) can be ' +
-      'attached: no symbolic links, directories or files elsewhere. Do not attach secrets.',
+      'Attach a file from your working directory or your session folder ($PROJECTMAN_SESSION_DIR in your ' +
+      'commands) to a task, in your name, for example a screenshot or a report for the reviewer. Only a ' +
+      'regular file inside one of them (at most 25 MB) can be attached: no symbolic links, directories or ' +
+      'files elsewhere. Do not attach secrets.',
     input: {
       task_key: taskKeyInput,
       path: z
@@ -932,7 +933,9 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         .trim()
         .min(1)
         .max(MAX_PATH_CHARS)
-        .describe('The file: relative to your working directory, or an absolute path inside it.'),
+        .describe(
+          'The file: relative to your working directory, or an absolute path inside it or inside your session folder.',
+        ),
     },
     async run({ ctx, args, handler }) {
       const { attachment } = await handler.attachFile(ctx, { taskKey: args.task_key, path: args.path });

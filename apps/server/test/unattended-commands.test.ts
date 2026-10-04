@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import type { AgentSandbox } from '../src/contracts';
 import { testTemplate } from './helpers/test-template';
 import {
   allowedToolsFor,
   commandVerdict,
+  describeSandbox,
   describeUnattendedCommands,
   preApprovedPrefixes,
   PROJECT_CHECK_COMMANDS,
@@ -276,5 +278,55 @@ describe('commands that run without asking: the section', () => {
         'Bash(git diff:*)',
       ]),
     ).toEqual(['npm run build', 'git diff']);
+  });
+});
+
+/** The sandbox section of the system prompt names the session folder and the browsers (PM-268). */
+describe('describeSandbox: the session folder and the browsers', () => {
+  const sessionDir = '/fictional/tmp/projectman-sessions/abc/ses_one';
+  const browsers = '/fictional/app/browsers';
+  const cache = '/fictional/app/member-caches/AR/dev-1/npm-cache';
+  const base = {
+    allowWrite: [],
+    denyWrite: ['/fictional/work'],
+    allowedDomains: ['registry.npmjs.org'],
+    allowLocalBinding: true,
+  };
+  const text = (sandbox: AgentSandbox) =>
+    describeSandbox({ sandbox, cwd: '/fictional/work', localOnly: false }).join('\n');
+
+  it('tells a reader it writes its folder too, where it is, that it goes away and where the browsers are', () => {
+    const out = text({
+      ...base,
+      env: { PROJECTMAN_SESSION_DIR: sessionDir, PLAYWRIGHT_BROWSERS_PATH: browsers },
+    });
+    expect(out).toContain('only the temp directory (`$TMPDIR`) and your session folder');
+    expect(out).toContain(`Your session folder: \`${sessionDir}\` (\`$PROJECTMAN_SESSION_DIR\`)`);
+    expect(out).toContain('`attach_file` takes their absolute path');
+    expect(out).toContain("deleted when this session's process stops");
+    expect(out).toContain(`Playwright's are in \`${browsers}\` (\`PLAYWRIGHT_BROWSERS_PATH\`), read-only`);
+    expect(out).toContain('npm run browsers -- install');
+  });
+
+  it('keeps the two out of the line about the member’s own npm cache', () => {
+    const out = text({
+      ...base,
+      allowWrite: [sessionDir],
+      env: {
+        npm_config_cache: cache,
+        PROJECTMAN_SESSION_DIR: sessionDir,
+        PLAYWRIGHT_BROWSERS_PATH: browsers,
+      },
+    });
+    const line = out.split('\n').find((l) => l.startsWith('- Your own npm cache'))!;
+    expect(line).toContain('`npm_config_cache`');
+    expect(line).not.toContain('PROJECTMAN_SESSION_DIR');
+    expect(line).not.toContain('PLAYWRIGHT_BROWSERS_PATH');
+  });
+
+  it('says nothing about either without them', () => {
+    const out = text({ ...base, env: { npm_config_cache: cache } });
+    expect(out).not.toContain('session folder');
+    expect(out).not.toContain('Playwright');
   });
 });

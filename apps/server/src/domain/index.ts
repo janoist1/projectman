@@ -207,6 +207,8 @@ export interface DomainOptions {
   sessionFoldersDir?: string;
   /** Playwright's browsers (PM-268): read-only for Claude sessions, in `PLAYWRIGHT_BROWSERS_PATH`. */
   browsersDir?: string;
+  /** The machine's heavy-run queue folder (PM-332): its parent is writable for the members' commands. */
+  heavyLockDir?: string;
   /** Whether a process group still runs (tests replace it): a workspace reservation outlives a restart until it is gone. */
   processExists?: ProcessProbe;
   /**
@@ -353,6 +355,7 @@ export function createDomain(opts: DomainOptions) {
     userHome: opts.userHome,
     sessionFolders,
     browsersDir: opts.browsersDir,
+    heavyLockDir: opts.heavyLockDir,
     readerDenyWrite: [opts.appHome, opts.worktreesRootDir, opts.workspacesRootDir, opts.installDir].filter(
       (dir): dir is string => !!dir,
     ),

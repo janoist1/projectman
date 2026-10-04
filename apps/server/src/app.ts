@@ -203,6 +203,11 @@ export interface BuildAppOptions {
    * Absent (tests): the variable is not set.
    */
   browsersDir?: string;
+  /**
+   * The machine's heavy-run queue folder (PM-332, `full-test/heavy-lock.ts`): the members' sandboxes may
+   * write its parent and name it in `PROJECTMAN_HEAVY_LOCK_DIR`. Absent (tests): neither.
+   */
+  heavyLockDir?: string;
   /** How long a permission request waits for a human (default 10 minutes). */
   permissionTimeoutMs?: number;
   /** How often linked pull requests are polled (default 1 minute). */
@@ -483,6 +488,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       installDir: options.installDir,
       sessionFoldersDir: options.sessionFoldersDir,
       browsersDir: options.browsersDir,
+      heavyLockDir: options.heavyLockDir,
       memberWorkspaces,
       workspacesRootDir: workspacesDir,
       // Behind the boundary a session's pid is the launcher's (root's) process, and the launcher

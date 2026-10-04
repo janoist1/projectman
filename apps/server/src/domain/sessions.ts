@@ -281,6 +281,8 @@ export interface SessionOrchestratorDeps {
   sessionFolders?: SessionFolders;
   /** Playwright's browsers (PM-268): handed to Claude sessions read-only in `PLAYWRIGHT_BROWSERS_PATH`. */
   browsersDir?: string;
+  /** The machine's heavy-run queue folder (PM-332): its parent is writable for the commands of a worktree session. */
+  heavyLockDir?: string;
   /** The user's home, where the credentials are (default: the operating system's). */
   userHome?: string;
   /**
@@ -1465,6 +1467,7 @@ export class SessionOrchestrator {
             ...(this.deps.appHome ? { appHome: this.deps.appHome } : {}),
             ...(sessionDir ? { sessionDir } : {}),
             ...(browsersDir ? { browsersDir } : {}),
+            ...(this.deps.heavyLockDir ? { heavyLockDir: this.deps.heavyLockDir } : {}),
             ...(repoName ? { defaultBranch: repoOf(config, repoName)?.defaultBranch } : {}),
             ...(memberDir ? { memberDir } : {}),
             ...(excludesFile ? { excludesFile } : {}),

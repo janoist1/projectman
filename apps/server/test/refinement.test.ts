@@ -118,6 +118,35 @@ describe('Refinement line', () => {
     expect(h.runner.started).toHaveLength(1);
   });
 
+  it('tells a member working on the card which refinement step the new member came for (PM-249)', async () => {
+    await prepare({ plan: true });
+    await h.domain.tasks.moveToStage('AR', 'AR-1', 'plan', OWNER_ACTOR);
+    await vi.waitFor(() => expect(members()).toEqual(['ana']));
+    const ana = sessionsOf()[0]!;
+    const typed = () => h.runner.messages.filter((m) => m.sessionId === ana.id).map((m) => m.text);
+    h.runner.setState(ana.id, 'working');
+    await label({ add: ['scope-ok'] }, aiActor('ana'));
+    h.runner.setState(ana.id, 'idle');
+    await vi.waitFor(() => expect(members()).toEqual(['ana', 'des']));
+    await flush();
+
+    // ana idles in the stage it owns, so it is told about the designer's step, once its next input comes.
+    const before = typed().length;
+    await h.domain.messaging.send(
+      'AR',
+      'owner',
+      { to: ['ana'], text: 'Status?', taskKey: 'AR-1' },
+      // A message for a member who has no turn waits otherwise.
+      { duringRefinement: true },
+    );
+    await flush();
+    expect(typed().slice(before)).toEqual([
+      expect.stringMatching(
+        /`des` \(UI\/UX designer\) started working on AR-1 too \(its refinement step for label `design-ok`\)\..*Status\?$/s,
+      ),
+    ]);
+  });
+
   it('gives the next step to the next member once the previous turn ended', async () => {
     await prepare();
     await label({ add: ['refine'] });

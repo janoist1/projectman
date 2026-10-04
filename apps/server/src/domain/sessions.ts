@@ -147,7 +147,25 @@ export interface EnsureSessionResult {
   firstInput: Promise<boolean>;
 }
 
+/** Why a task session started (PM-249): the joined notice tells the others. */
+export type SessionStartCause =
+  /** Woken by team messages: their senders, in order, once each. */
+  | { kind: 'message'; from: string[] }
+  /** The card entered a stage it owns (hand-over); `by` is who moved it. */
+  | { kind: 'stage'; stageId: string; by: string }
+  /** Its refinement step for a label (PM-252). */
+  | { kind: 'refinement'; label: string }
+  /** A task start (`TaskStarts`); `by` is who started it. */
+  | { kind: 'start'; by: string };
+
 export interface EnsureSessionOptions {
+  /** Why the session starts; passed on to `task_session_joined`. None: the notice names no reason. */
+  cause?: SessionStartCause;
+  /**
+   * The same session started again after a pause or a shutdown (PM-219): not a joining, no
+   * `task_session_joined`.
+   */
+  pauseRestart?: boolean;
   /**
    * The messages that cause this start (a person writing to a stopped session, the waiting team
    * messages), oldest first, as they are typed in. The session takes them in its first input, in
@@ -173,7 +191,7 @@ export interface EnsureSessionOptions {
 export const MAX_FIRST_INPUT_CHARS = 24_000;
 
 /** Between the messages of a first input, and before the first one after a brief. */
-const MESSAGE_SEPARATOR = '\n\n';
+export const MESSAGE_SEPARATOR = '\n\n';
 
 /** What introduces the messages that wait for a new conversation, after its brief. */
 const WAITING_MESSAGES_HEADER = 'Messages that were waiting for you when this session started:';
@@ -616,6 +634,8 @@ export class SessionOrchestrator {
         announce,
         null,
         opts.nudge ?? null,
+        opts.cause ?? null,
+        opts.pauseRestart ?? false,
       );
     });
   }
@@ -1095,6 +1115,8 @@ export class SessionOrchestrator {
     announce: boolean,
     restart: PermissionRestart | null = null,
     nudge: string | null = null,
+    cause: SessionStartCause | null = null,
+    pauseRestart = false,
   ): Promise<EnsureSessionResult> {
     // A theme is not worked on: its description is written from the member's general chat.
     if (task && isTheme(task)) throw themeRefused(task.key, 'have a session');
@@ -1111,6 +1133,8 @@ export class SessionOrchestrator {
         sessionId,
         restart,
         nudge,
+        cause,
+        pauseRestart,
       );
     } catch (err) {
       this.workspaces?.ended(sessionId);
@@ -1131,6 +1155,8 @@ export class SessionOrchestrator {
     sessionId: string,
     restart: PermissionRestart | null,
     nudge: string | null,
+    cause: SessionStartCause | null,
+    pauseRestart: boolean,
   ): Promise<EnsureSessionResult> {
     // A standby copy (PM-143) never works: only one copy of an installation may start AI sessions.
     if (this.deps.standby)
@@ -1590,6 +1616,9 @@ export class SessionOrchestrator {
     this.publishSession(fresh);
     this.recomputeMemberState(projectKey, member.handle);
     void this.ctx.events.emit('session_started', fresh);
+    // The card's other workers are told who joined (PM-249); a restart is not a joining.
+    if (announce && !pauseRestart && workItem.type === 'task')
+      void this.ctx.events.emit('task_session_joined', { session: fresh, resumed: resume, cause });
     return {
       session: fresh,
       created: !existing,

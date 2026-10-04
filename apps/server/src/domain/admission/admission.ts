@@ -16,7 +16,7 @@ import { conflict } from '../errors';
 import { highestUsagePercent } from '../plan-usage';
 import type { PlanUsageCache } from '../plan-usage';
 import type { ProjectService } from '../projects';
-import type { EnsureSessionResult, SessionOrchestrator } from '../sessions';
+import type { EnsureSessionResult, SessionOrchestrator, SessionStartCause } from '../sessions';
 import type { TaskService } from '../tasks';
 import { KeyedMutex } from '../util';
 import type { AutomaticStart, DeferredStarts, StartSpec } from './deferred-starts';
@@ -42,6 +42,8 @@ export interface AdmissionRequest {
    * in its first input (see `SessionOrchestrator.ensureSession`).
    */
   messages?: string[];
+  /** Why the session starts (PM-249): the card's other workers are told with it. */
+  cause?: SessionStartCause;
 }
 
 /**
@@ -183,6 +185,7 @@ export class Admission {
     await this.check(request);
     return this.sessions.ensureSession(projectKey, request.member.handle, request.workItem, {
       messages: request.messages,
+      cause: request.cause,
     });
   }
 

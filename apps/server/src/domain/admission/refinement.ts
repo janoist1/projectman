@@ -220,6 +220,7 @@ export class RefinementSteps {
             member,
             workItem,
             messages: [...messages, formatInjectedTeamMessage('projectman', text, taskKey)],
+            cause: { kind: 'refinement', label },
           }),
         );
         this.record(this.tasks.get(projectKey, taskKey), label, member.handle);

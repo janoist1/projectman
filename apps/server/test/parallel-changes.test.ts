@@ -33,7 +33,11 @@ describe('a changed description reaches the sessions working the card', () => {
 
   const run = async (member: string, workItem: WorkItemRef): Promise<Session> =>
     (await h.domain.sessions.ensureSession('AR', member, workItem)).session;
-  const typedInto = (session: Session) => h.runner.messages.filter((m) => m.sessionId === session.id);
+  // The notice that a member joined the card (PM-249) is not what these tests look at.
+  const typedInto = (session: Session) =>
+    h.runner.messages.filter(
+      (m) => m.sessionId === session.id && !m.text.includes('Coordinate by send_message'),
+    );
   const rewrite = async (by = 'dev-2', description = 'A new plan.') => {
     await h.domain.tasks.update('AR', 'AR-1', { description }, aiActor(by));
     await flush();

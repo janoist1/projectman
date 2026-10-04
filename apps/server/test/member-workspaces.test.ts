@@ -292,6 +292,13 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     expect(round2.policy?.placement).toMatchObject({ sourceCommit: fixed, roundId: '2' });
     expect(await git(cr, 'rev-parse', 'HEAD')).toBe(fixed);
     expect(await exists(path.join(cr, 'scratch.txt'))).toBe(false);
+    // The reviewer joining the card was told to the developer once; its restart for the new round was not a joining (PM-249).
+    const joinedTold = h.runner.messages.filter(
+      (m) => m.sessionId === h.runner.started[0]!.sessionId && m.text.includes('Coordinate by send_message'),
+    );
+    expect(joinedTold.map((m) => m.text)).toEqual([
+      expect.stringContaining('`cr` (code reviewer) started working on AR-1 too'),
+    ]);
 
     // Continuing the round (a restart, a person's resume) keeps its commit.
     await commitFile(dev1, 'login.txt', 'v3\n');

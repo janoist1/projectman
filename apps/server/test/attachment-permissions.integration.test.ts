@@ -116,6 +116,14 @@ it.each(PROVIDERS)(
 
     const first = await start();
     await waitFor(() => domain.sessions.get('AR', first.id).transcriptPath, { what: 'a transcript' });
+    // The startup idle state precedes the first input. Only a completed turn proves a conversation exists.
+    await vi.waitFor(
+      async () => {
+        const { chat } = await domain.sessions.detail('AR', first.id);
+        expect(chat.some((i) => i.kind === 'assistant_text')).toBe(true);
+      },
+      { timeout: 20_000 },
+    );
     await waitFor(() => domain.sessions.get('AR', first.id).state === 'idle', { what: 'idle' });
     check(false);
 

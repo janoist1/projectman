@@ -1,4 +1,4 @@
-import { readFileSync, rmSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { routes } from '@projectman/shared';
 import type { AgentProvider, ChatItem, Task, TaskDetail } from '@projectman/shared';
@@ -25,12 +25,12 @@ const PROVIDERS: Array<[AgentProvider, string]> = [
   ['codex', 'dev-2'],
 ];
 
-it(
-  'starts a new conversation when the transcript of a stopped claude session was never written (PM-340)',
+it.each(['missing', 'empty'] as const)(
+  'starts a new conversation when the transcript of a stopped claude session is %s (PM-340)',
   {
     timeout: 90_000,
   },
-  async () => {
+  async (transcriptState) => {
     h = await createAppHarness({ runner: 'fake-cli', real: { context: true } });
     const { app, home } = h;
     const argsFile = join(home, 'claude-args.json');
@@ -63,17 +63,33 @@ it(
     const transcript = await waitFor(() => domain.sessions.get('AR', first.id).transcriptPath, {
       what: 'a transcript',
     });
+    // SessionStart is already idle, before the brief is submitted. Wait for the first turn.
+    await vi.waitFor(
+      async () => {
+        const { chat } = await domain.sessions.detail('AR', first.id);
+        expect(chat.some((i) => i.kind === 'assistant_text' && i.text.startsWith('Echo: # AR-1'))).toBe(true);
+      },
+      { timeout: 20_000 },
+    );
     await idle(first.id);
     const conversation = domain.sessions.get('AR', first.id).claudeSessionId;
     await domain.sessions.stop('AR', first.id);
     await waitFor(() => !app.projectman.runnerModule.runner.isRunning(first.id), {
       what: 'the session to stop',
     });
-    // The CLI had not written its conversation: the path is known, the file is not there.
-    rmSync(transcript);
+    // Simulate a reported path whose conversation was never written.
+    if (transcriptState === 'missing') rmSync(transcript);
+    else writeFileSync(transcript, '');
 
     const again = await start();
     expect(again.id).toBe(first.id);
+    await vi.waitFor(
+      async () => {
+        const { chat } = await domain.sessions.detail('AR', first.id);
+        expect(chat.some((i) => i.kind === 'assistant_text' && i.text.startsWith('Echo: # AR-1'))).toBe(true);
+      },
+      { timeout: 20_000 },
+    );
     await idle(first.id);
     expect(argv()).not.toContain('--resume');
     expect(argv()).not.toContain(conversation);

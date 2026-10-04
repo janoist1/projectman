@@ -863,6 +863,10 @@ export const hu = {
       dropTarget: 'Ide helyezhető: {stage}',
     },
     drawerLabel: 'Feladat részletei',
+    size: {
+      large: 'Megnyitás nagy nézetben',
+      quick: 'Vissza a gyorsnézetre',
+    },
     stageChip: '{stage} · {index}/{total}',
     timeline: 'Idővonal',
     timelineEmpty: 'Még nincs esemény.',

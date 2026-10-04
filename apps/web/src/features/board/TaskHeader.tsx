@@ -11,6 +11,8 @@ import { stagePosition } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
 import type { TaskState, TaskWorker } from '../../lib/taskState';
 import { prChip } from './cardModel';
+import { CardSizeToggle, useCardLink } from './cardSize';
+import type { CardSize } from './cardSize';
 import { TaskTitle } from './TaskEdit';
 import { TaskLifecycleMenu } from './TaskLifecycle';
 import styles from './TaskHeader.module.css';
@@ -49,6 +51,8 @@ export function TaskHeader({
   state,
   pipeline,
   headingRef,
+  size,
+  onToggleSize,
   onClose,
 }: {
   task: Task;
@@ -56,9 +60,13 @@ export function TaskHeader({
   state: TaskState;
   pipeline: PipelineIndex;
   headingRef: Ref<HTMLHeadingElement>;
+  size: CardSize;
+  /** Switches between the quick view and the large window; missing where there is no large window (a phone). */
+  onToggleSize: (() => void) | undefined;
   onClose: () => void;
 }) {
   const { key, can } = useProject();
+  const cardLink = useCardLink();
   const stage = pipeline.stageById.get(task.stageId);
   const column = pipeline.columnOfStage.get(task.stageId);
   const position = stagePosition(pipeline, task.stageId);
@@ -75,7 +83,7 @@ export function TaskHeader({
   return (
     <div className={styles.head}>
       {parent ? (
-        <Link to={`/p/${key}/tasks/${parent.key}`}>
+        <Link to={cardLink(`/p/${key}/tasks/${parent.key}`)}>
           {t('task.parent', { key: parent.key, title: parent.title })}
         </Link>
       ) : null}
@@ -93,6 +101,7 @@ export function TaskHeader({
         <span className={styles.key}>{task.key}</span>
         <span className={styles.spacer} />
         {can.manageTeam ? <TaskLifecycleMenu key={task.key} task={task} /> : null}
+        <CardSizeToggle size={size} onToggle={onToggleSize} />
         <Button variant="muted" iconOnly icon="close" onClick={onClose} aria-label={t('common.close')} />
       </div>
       <TaskTitle key={task.key} task={task} headingRef={headingRef} />

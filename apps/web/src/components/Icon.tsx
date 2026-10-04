@@ -2,6 +2,13 @@ import type { ReactNode } from 'react';
 
 /** Stroke icons on a 24×24 grid, drawn after the mockups. Always decorative (aria-hidden). */
 const icons = {
+  alertCircle: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v6M12 17h.01" />
+    </>
+  ),
+  activity: <path d="M2 12h5l3-8 4 16 3-8h5" />,
   logo: (
     <>
       <path d="M6.5 6v12" />

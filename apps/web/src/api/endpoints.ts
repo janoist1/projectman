@@ -1,4 +1,6 @@
 import {
+  MachineView,
+  StopOrphansResult,
   AttachmentListResponse,
   BoardMoveResult,
   BoundaryRequest,
@@ -36,6 +38,7 @@ import {
   routes,
 } from '@projectman/shared';
 import type {
+  StopOrphansRequest,
   BoardMoveRequest,
   SendTeamMessageRequest,
   DecideBoundaryRequest,
@@ -69,6 +72,10 @@ import { apiRequest } from './client';
  * refetch instead of relying on the body.
  */
 export const api = {
+  machine: (panel: boolean, signal?: AbortSignal) =>
+    apiRequest(`${routes.machine()}${panel ? '?panel=1' : ''}`, { schema: MachineView, signal }),
+  stopOrphans: (body: StopOrphansRequest) =>
+    apiRequest(routes.machineOrphansStop(), { method: 'POST', body, schema: StopOrphansResult }),
   boundaryRequest: (key: string, id: string) =>
     apiRequest(routes.boundaryRequest(key, id), { schema: BoundaryRequestView }),
   decideBoundary: (key: string, id: string, body: DecideBoundaryRequest) =>

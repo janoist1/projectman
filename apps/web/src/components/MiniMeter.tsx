@@ -26,6 +26,8 @@ export function MiniMeter({
   valueText,
   decorative = false,
   bar = true,
+  level: explicitLevel,
+  displayValue,
 }: {
   label: string;
   /** Percent 0–100, or null when unknown. */
@@ -37,9 +39,12 @@ export function MiniMeter({
   valueText?: string;
   decorative?: boolean;
   bar?: boolean;
+  /** Shared machine rules can supply their own level and non-percent display. */
+  level?: MeterLevel | null;
+  displayValue?: string;
 }) {
-  const display = value === null ? t('planUsage.unknown') : formatPercent(value);
-  const level = meterLevel(value, pauseAbove);
+  const display = displayValue ?? (value === null ? t('planUsage.unknown') : formatPercent(value));
+  const level = explicitLevel === undefined ? meterLevel(value, pauseAbove) : explicitLevel;
   return (
     <span
       className={clsx(styles.meter, value === null && styles.unknown)}

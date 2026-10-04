@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import type {
+  StopOrphansRequest,
   AttachmentListResponse,
   BoardView,
   InstancePauseView,
@@ -281,7 +282,32 @@ export function useStopSession(key: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (sessionId: string) => api.stopSession(key, sessionId),
-    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.project(key) }),
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.project(key) }),
+        client.invalidateQueries({ queryKey: ['machine'] }),
+      ]);
+    },
+  });
+}
+
+export function useMachine({ panel }: { panel: boolean }) {
+  const me = useMe();
+  return useQuery({
+    queryKey: ['machine'],
+    queryFn: ({ signal }) => api.machine(panel, signal),
+    enabled: me.data?.instanceOwner === true,
+    refetchInterval: panel ? 5000 : 15000,
+    refetchIntervalInBackground: false,
+    retry: false,
+  });
+}
+
+export function useStopOrphans() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: StopOrphansRequest) => api.stopOrphans(body),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['machine'] }),
   });
 }
 

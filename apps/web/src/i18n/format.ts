@@ -95,3 +95,18 @@ export function formatTokens(count: number): string {
 export function formatPercent(value: number): string {
   return t('planUsage.percent', { value: Math.round(value) });
 }
+
+/** Binary memory units, matching Activity Monitor. */
+export function formatMemory(bytes: number | null): string {
+  if (bytes === null) return t('planUsage.unknown');
+  return bytes < 1024 ** 3
+    ? t('machine.megabytes', { value: Math.round(bytes / 1024 ** 2) })
+    : t('machine.gigabytes', { value: sizeFormat.format(bytes / 1024 ** 3) });
+}
+
+export function formatDuration(ms: number): string {
+  const minutes = Math.max(0, Math.floor(ms / 60000));
+  if (minutes >= 1440) return t('machine.days', { count: Math.floor(minutes / 1440) });
+  if (minutes >= 60) return t('machine.hours', { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
+  return t('machine.minutes', { count: minutes });
+}

@@ -18,6 +18,7 @@ import { AccountMenu, ProjectSwitcher } from './Menus';
 import { PlanUsageBadge, PlanUsageMeter } from './PlanUsageMeter';
 import { useProject } from './contexts';
 import styles from './Shell.module.css';
+import { MachineIndicator } from '../features/machine/MachineIndicator';
 
 /*
  * The desktop top bar sheds width in steps, so nothing overlaps (the search field gives way first):
@@ -305,6 +306,7 @@ export function TopBar({
           />
         ))}
       </span>
+      <MachineIndicator />
       <span className={styles.hideNarrow}>
         <Presence board={board} members={members} />
       </span>
@@ -379,6 +381,7 @@ export function MobileHeader({
         pauseAbove={pauseAbove}
         to={`/p/${key}/team`}
       />
+      <MachineIndicator phone />
       {can.createTasks ? (
         <Button
           variant="primary"

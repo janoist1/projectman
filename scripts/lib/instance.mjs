@@ -117,6 +117,9 @@ function logTail(file) {
  *   owner      { email, name, password }; a given password is used to log in again to a kept `dir`
  *   terminal   'pipe' (default) or 'pty' (no PROJECTMAN_TERMINAL: the sessions use a terminal)
  *   logs       'files' (default: <dir>/logs) or 'inherit' (the child's output goes to this process's)
+ * and, for scripts/shots.mjs:
+ *   handleSignals  true (default): SIGINT and SIGTERM stop the instance, then end the process as the
+ *              signal would; false: the caller handles the signals and calls `stop()`
  */
 export async function startInstance(options = {}) {
   const {
@@ -127,6 +130,7 @@ export async function startInstance(options = {}) {
     owner: ownerOptions = {},
     terminal = 'pipe',
     logs = 'files',
+    handleSignals = true,
   } = options;
   checkOptions({ dir: options.dir, seed, fakeEnv, ports });
   if (terminal !== 'pipe' && terminal !== 'pty') throw new Error(`Unknown terminal: ${terminal}.`);
@@ -407,7 +411,7 @@ export async function startInstance(options = {}) {
       if (process.listenerCount(signal) === 0) process.kill(process.pid, signal);
     });
   }
-  for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, onSignal);
+  if (handleSignals) for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, onSignal);
 
   const instance = {
     dir,
@@ -421,6 +425,31 @@ export async function startInstance(options = {}) {
     /** Resolves when the instance has stopped: with an Error when a child died, otherwise with null. */
     closed,
     api,
+
+    /**
+     * A Playwright `storageState` that logs the account in to the browser (PM-270): the session
+     * cookie only, for 127.0.0.1 (the cookie holds no port, so the web and the server share it).
+     * The password still stays in this module.
+     */
+    async storageState(account = owner) {
+      const cookie = cookies.get(account.email) ?? (await login(account));
+      const separator = cookie.indexOf('=');
+      return {
+        cookies: [
+          {
+            name: cookie.slice(0, separator),
+            value: cookie.slice(separator + 1),
+            domain: '127.0.0.1',
+            path: '/',
+            expires: -1,
+            httpOnly: true,
+            secure: false,
+            sameSite: 'Lax',
+          },
+        ],
+        origins: [],
+      };
+    },
 
     async invite({ project, email, name, access }) {
       if (access === 'owner') throw new Error('An invitation cannot give owner access.');

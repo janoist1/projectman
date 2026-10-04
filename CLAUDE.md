@@ -74,6 +74,7 @@ npm install          # once per checkout / worktree
 npm run typecheck    # all workspaces
 npm test             # all workspaces
 npm run dev          # server (4700) + web (5173)
+npm run shots -- <scenario>  # screenshots of a disposable instance (docs/SCREENSHOTS.md)
 ```
 
 `npm run dev` keeps its data in `~/.projectman-dev` unless `PROJECTMAN_HOME` is set. The

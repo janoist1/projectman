@@ -495,8 +495,31 @@ function runsDeniedOperation(policy: SessionPolicy, parsed: ParsedCommand): bool
 /** Characters that make a line more than one plain command. */
 const SHELL_METACHARACTERS = /[;&|<>$`(){}\\\n\r]/;
 
+/**
+ * Whether the shell would turn a word of the line into other words or paths: a pattern (`*`, `?`,
+ * `[`) or a tilde at the start of a word (`~`, `~user`, after `=` or `:` too), unquoted. A rule
+ * names the command as written, so such a line is not the command the rule names (`git diff
+ * ~/.ss?/id`); a tilde inside a word (`HEAD~1`) is only a character.
+ */
+function expandsByItself(line: string): boolean {
+  let quote: string | null = null;
+  for (let i = 0; i < line.length; i += 1) {
+    const c = line.charAt(i);
+    if (quote !== null) {
+      if (c === quote) quote = null;
+    } else if (c === "'" || c === '"') {
+      quote = c;
+    } else if (c === '*' || c === '?' || c === '[') {
+      return true;
+    } else if (c === '~' && (i === 0 || /[\s=:]/.test(line.charAt(i - 1)))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function matchesShellRule(policy: SessionPolicy, line: string): boolean {
-  if (SHELL_METACHARACTERS.test(line)) return false;
+  if (SHELL_METACHARACTERS.test(line) || expandsByItself(line)) return false;
   const command = line.trim().replace(/\s+/g, ' ');
   return policy.tools.shell.some((rule) =>
     rule.arguments === 'exact'
@@ -537,7 +560,59 @@ const MAX_BASES = 16;
 function pathCandidates(word: string, home: string): string[] {
   return [...new Set([word, ...word.split(/[=:,]/)])]
     .filter((part) => part !== '')
-    .map((part) => part.replace(/^\$\{?HOME\}?(?=\/|$)/, home));
+    .map((part) =>
+      part
+        .replace(/^\$\{?HOME\}?(?=\/|$)/, home)
+        // `~name` is another user's home: a sibling of ours, where homes live (`/Users`, `/home`).
+        .replace(/^~(?=[^/+-])([^/]*)/, (_all, name: string) => join(dirname(home), name))
+        .replace(/^~\+(?=\/|$)/, '.'),
+    );
+}
+
+const GLOB_CHARACTERS = /[*?[]/;
+
+/** A name pattern (`*`, `?`, `[a-z]`) as a regular expression over one path component. */
+function componentPattern(pattern: string, caseInsensitive: boolean): RegExp | null {
+  const source = pattern
+    .split(/(\[[^\]]*\]|[*?])/)
+    .map((piece) => {
+      if (piece === '*') return '[^/]*';
+      if (piece === '?') return '[^/]';
+      if (piece.startsWith('[') && piece.endsWith(']') && piece.length > 2) {
+        return piece.replace(/^\[!/, '[^').replace(/\\/g, '\\\\');
+      }
+      return escapeRegExp(piece);
+    })
+    .join('');
+  try {
+    return new RegExp(`^${source}$`, caseInsensitive ? 'i' : '');
+  } catch {
+    return null;
+  }
+}
+
+/** Whether one component of a pattern word may be the component of a denied path. */
+function componentMayMatch(word: string, denied: string, caseInsensitive: boolean): boolean {
+  const wordIsPattern = GLOB_CHARACTERS.test(word);
+  if (!wordIsPattern && !hasGlob(denied)) {
+    return caseInsensitive ? word.toLowerCase() === denied.toLowerCase() : word === denied;
+  }
+  if (wordIsPattern && hasGlob(denied)) return true;
+  if (wordIsPattern) return componentPattern(word, caseInsensitive)?.test(denied) ?? true;
+  return componentPattern(denied, caseInsensitive)?.test(word) ?? true;
+}
+
+/**
+ * Whether a word with a pattern in it (`~/.ss?/id`, `~/.s*`) may name a denied path or something
+ * below it: every component of the denied path matches the word's component at its place.
+ */
+function patternMayReach(word: string, denied: string, caseInsensitive: boolean): boolean {
+  const wordParts = word.split('/').filter((part) => part !== '');
+  const deniedParts = denied.split('/').filter((part) => part !== '');
+  return (
+    wordParts.length >= deniedParts.length &&
+    deniedParts.every((part, i) => componentMayMatch(wordParts[i]!, part, caseInsensitive))
+  );
 }
 
 const isPathLike = (candidate: string): boolean =>
@@ -562,11 +637,17 @@ function commandTouchesDenied(
   const bases = [cwd];
   const touches = (word: string): boolean =>
     pathCandidates(word, home).some((candidate) =>
-      bases.some((base) =>
-        (isPathLike(candidate) ? toolPathForms(base, candidate, home) : [resolve(base, candidate)]).some(
-          (path) => underAny(path, denied, caseInsensitive),
-        ),
-      ),
+      bases.some((base) => {
+        if (GLOB_CHARACTERS.test(candidate)) {
+          // The shell has not expanded the pattern yet: could it name a denied path?
+          const expanded = expandHome(candidate, home);
+          const lexical = isAbsolute(expanded) ? normalize(expanded) : resolve(base, expanded);
+          return denied.some((root) => patternMayReach(lexical, root, caseInsensitive));
+        }
+        return (
+          isPathLike(candidate) ? toolPathForms(base, candidate, home) : [resolve(base, candidate)]
+        ).some((path) => underAny(path, denied, caseInsensitive));
+      }),
     );
   for (const { words } of parsed.units) {
     if (words.some(touches)) return true;

@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DEVELOPMENT_SHELL_TOOLS, REVIEW_SHELL_TOOLS } from '@projectman/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { SessionPolicy } from '../contracts';
 import {
@@ -722,6 +723,75 @@ describe('row 9: other MCP tools and unknown calls', () => {
       expect(decide(policyFor(mode), { category: 'mcp', paths: [], mcpTool: 'mcp__other__do' })).toEqual(ASK);
       expect(decide(policyFor(mode), { category: 'unknown', paths: [] })).toEqual(ASK);
       expect(decide(reader(mode), { category: 'unknown', paths: [] })).toEqual(ASK);
+    });
+  }
+});
+
+describe('a shell rule and what the shell expands by itself', () => {
+  // The rules a real role gets, not the small set of the other tests.
+  const withRealRules = (mode: Mode): SessionPolicy =>
+    policyFor(mode, {
+      tools: {
+        team: { all: true, names: [] },
+        files: ['read', 'grep', 'glob'],
+        shell: [...DEVELOPMENT_SHELL_TOOLS, ...REVIEW_SHELL_TOOLS],
+      },
+    });
+
+  for (const mode of MODES) {
+    describe(mode, () => {
+      const policy = withRealRules(mode);
+
+      it.each([
+        ['a "?" pattern', 'git diff --no-index ~/.ss?/id /dev/null'],
+        ['a bracket pattern', 'git diff --no-index ~/.ss[h]/id /dev/null'],
+        ['a star pattern', 'git diff --no-index ~/.s*/id /dev/null'],
+        ['a star pattern for a file', 'git show ~/cred*.json'],
+        ['a pattern in the database name', 'git diff --no-index ~/.projectman/db.sq?ite /dev/null'],
+        ["another user's home spelling", 'git diff --no-index ~home/.ssh/id /dev/null'],
+        ['a pattern after a cd', 'git status && cd ~ ; git diff --no-index .s?h/id /dev/null'],
+      ])('denies %s that reaches a denied path, whatever the rule says', (_name, line) => {
+        for (const sandboxed of [true, false, undefined]) {
+          expect(decide(policy, command(line, sandboxed))).toEqual(denied('denied_path'));
+        }
+      });
+
+      it.each([
+        'git diff --no-index ~/.ss?/id /dev/null',
+        'git diff ~/notes.txt',
+        'git diff ~other/notes.txt',
+        'git diff --output=~/x',
+        'git diff *.ts',
+        'git diff src/?.ts',
+        'git diff src/[ab].ts',
+        'git status ~',
+        'npm test -- ~/x',
+        'git add *',
+      ])('does not match a rule with the unquoted expansion in %j', (line) => {
+        for (const sandboxed of [false, undefined]) {
+          expect(decide(policy, command(line, sandboxed))).not.toEqual(ALLOW);
+        }
+      });
+
+      it.each([
+        'git diff HEAD~1',
+        'git diff HEAD~1 -- src/a.ts',
+        "git diff -- 'src/*.ts'",
+        'git log --grep="a?b"',
+        "git log --grep='[fix]'",
+        'git log -n 3 --format="%h ~ %s"',
+        'git status',
+        'npm test -- --run',
+      ])('keeps %j a plain command a rule can allow', (line) => {
+        expect(decide(policy, command(line, false))).toEqual(ALLOW);
+      });
+
+      it('does not take a pattern that cannot reach a denied path for a denied one', () => {
+        expect(decide(policy, command('git diff --no-index ~/*.txt /dev/null', false))).not.toEqual(
+          denied('denied_path'),
+        );
+        expect(decide(policy, command('git diff src/*.ts', false))).not.toEqual(denied('denied_path'));
+      });
     });
   }
 });

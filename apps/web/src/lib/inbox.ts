@@ -65,7 +65,122 @@ export function inboxHeading(item: InboxItem): string {
       return t('inbox.permissionHeading', { tool: toolPresentationFor(tool, summary).label });
     }
   }
+  if (item.kind === 'question') return splitQuestion(item.title).title ?? t('inbox.question.untitled');
   return item.title;
+}
+
+/** A one-line question up to this many plain characters stays whole, as the heading. */
+const SHORT_QUESTION_LIMIT = 140;
+/** A question mark later than this in the first line does not end the heading. */
+const QUESTION_MARK_LIMIT = 220;
+const ABBREVIATIONS = [
+  'pl',
+  'kb',
+  'stb',
+  'ill',
+  'vö',
+  'ún',
+  'ld',
+  'dr',
+  'db',
+  'sz',
+  'ti',
+  'max',
+  'min',
+  'ford',
+];
+const LIST_OR_CODE = /^\s*([-*•]|\d+[.)])\s+|^```/;
+const EMPHASIS_OR_LINK = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|\[[^\]]+\]\((https?:\/\/[^)\s]+)\))/g;
+
+/** Text without the inline markdown marks: emphasis and code lose their marks, a link keeps its label. */
+function plainMarkdown(text: string): string {
+  return text
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*\s][^*]*)\*/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+interface InlineSpan {
+  start: number;
+  end: number;
+  /** Code and links: no cut falls inside. Emphasis: a cut inside extends to its end. */
+  opaque: boolean;
+}
+
+function inlineSpans(line: string): InlineSpan[] {
+  return [...line.matchAll(EMPHASIS_OR_LINK)].map((match) => {
+    const start = match.index ?? 0;
+    return {
+      start,
+      end: start + match[0].length,
+      opaque: match[0].startsWith('`') || match[0].startsWith('['),
+    };
+  });
+}
+
+/** Where the heading ends for a sentence mark at `index`; null when the mark is inside code or a link. */
+function cutAfter(line: string, index: number, spans: readonly InlineSpan[]): number | null {
+  const inside = spans.find((span) => index >= span.start && index < span.end);
+  if (inside?.opaque) return null;
+  let cut = inside ? inside.end : index + 1;
+  while (cut < line.length && /[”"')»]/.test(line.charAt(cut))) cut += 1;
+  return cut;
+}
+
+function sentenceEnd(line: string): number {
+  const spans = inlineSpans(line);
+  for (let q = line.indexOf('?'); q >= 0 && q < QUESTION_MARK_LIMIT; q = line.indexOf('?', q + 1)) {
+    const cut = cutAfter(line, q, spans);
+    if (cut !== null && (cut >= line.length || /\s/.test(line.charAt(cut)))) return cut;
+  }
+  for (const match of line.matchAll(/[.!]/g)) {
+    const index = match.index ?? 0;
+    const cut = cutAfter(line, index, spans);
+    if (cut === null) continue;
+    // Not a sentence end: "v1.2", "e-mail.hu".
+    if (cut < line.length && !/\s/.test(line.charAt(cut))) continue;
+    const before = line.slice(0, index);
+    // Dates and numbered items: "2026. október".
+    if (/\d$/.test(before)) continue;
+    const word = /(\p{L}+)$/u.exec(before)?.[1] ?? '';
+    if (ABBREVIATIONS.includes(word.toLowerCase())) continue;
+    const next = line.slice(cut).trimStart().charAt(0);
+    // The next sentence starts with a capital or a mark.
+    if (next && !/[\p{Lu}*`„"\d]/u.test(next)) continue;
+    return cut;
+  }
+  return line.length;
+}
+
+/**
+ * Splits the text of a question into a short plain-text heading and a markdown body. A short
+ * one-line question is all heading. Otherwise the heading is the first line up to its first question
+ * mark (or its first sentence), never cut inside emphasis, code or a link. A question that starts
+ * with a list or a code block has no heading (null): the whole text is the body.
+ */
+export function splitQuestion(text: string): { title: string | null; body: string | null } {
+  const source = text.replace(/\r\n/g, '\n').trim();
+  const lines = source.split('\n');
+  const first = lines[0] ?? '';
+  if (lines.length === 1 && plainMarkdown(source).length <= SHORT_QUESTION_LIMIT) {
+    return { title: plainMarkdown(source) || null, body: null };
+  }
+  const rest = lines.slice(1).join('\n');
+  if (LIST_OR_CODE.test(first)) return { title: null, body: source };
+  const heading = /^#{1,4}\s+(.*)$/.exec(first);
+  if (heading) return { title: plainMarkdown(heading[1] ?? '') || null, body: rest.trim() || null };
+  const cut = sentenceEnd(first);
+  const title = plainMarkdown(first.slice(0, cut));
+  if (!title) return { title: null, body: source };
+  const tail = first.slice(cut).trim();
+  const body = [tail, rest]
+    .filter((part) => part.trim() !== '')
+    .join(tail ? '\n' : '')
+    .trim();
+  return { title, body: body || null };
 }
 
 /** What a question from an AI member shows besides its heading and its options' own text. */

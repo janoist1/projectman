@@ -23,6 +23,7 @@ import {
   payloadCode,
   permissionTool,
   questionExtras,
+  splitQuestion,
   withConsequences,
 } from '../../lib/inbox';
 import { toolPresentationFor } from '../../lib/chat';
@@ -31,7 +32,7 @@ import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
 import styles from './InboxCard.module.css';
 import { FoldedCommand, PermissionActions } from './PermissionParts';
-import { QuestionChoices, QuestionDetails } from './Question';
+import { QuestionBody, QuestionChoices, QuestionDetails } from './Question';
 
 const variantFor: Record<InboxOption['style'], ButtonVariant> = {
   primary: 'primary',
@@ -88,6 +89,8 @@ export function InboxCard({
   const code = payloadCode(item);
   const gateMove = item.kind === 'decision' ? gateMoveText(item, pipeline) : null;
   const heading = gateMove ?? inboxHeading(item);
+  // What follows the short heading of a long question.
+  const questionBody = item.kind === 'question' ? splitQuestion(item.title).body : null;
   // The tool line is redundant when the heading already names the tool.
   const tool = item.kind === 'permission' && heading === item.title ? permissionTool(item) : null;
   // The task the request is about: the most useful background of the decision, under the header row.
@@ -145,6 +148,7 @@ export function InboxCard({
       </div>
       {contextTitle ? <p className={styles.task}>{contextTitle}</p> : null}
       <Heading className={styles.title}>{heading}</Heading>
+      {questionBody ? <QuestionBody text={questionBody} mobile={mobile} /> : null}
       {boundary ? (
         <div>
           <p>

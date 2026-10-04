@@ -1491,8 +1491,11 @@ export const hu = {
     /** Questions from AI members: the recommended option, its reason and the folded background. */
     question: {
       recommended: 'Javasolt',
-      reason: 'Miért: {reason}',
+      reasonLabel: 'Miért:',
       details: 'Részletek',
+      more: 'Teljes kérdés',
+      less: 'Kevesebb',
+      untitled: 'Válaszra vár',
     },
     details: 'Megnyitás',
     tool: 'Eszköz: {tool}',

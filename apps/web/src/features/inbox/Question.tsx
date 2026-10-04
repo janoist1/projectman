@@ -1,11 +1,11 @@
 import clsx from 'clsx';
-import { useId } from 'react';
+import { useId, useLayoutEffect, useRef, useState } from 'react';
 import type { InboxOption } from '@projectman/shared';
 import { Button } from '../../components/Button';
 import type { ButtonSize, ButtonVariant } from '../../components/Button';
 import { Chip } from '../../components/Chip';
 import { Fold } from '../../components/Fold';
-import { Markdown } from '../../components/Markdown';
+import { InlineMarkdown, Markdown } from '../../components/Markdown';
 import { t } from '../../i18n/t';
 import { optionLabel } from '../../lib/inbox';
 import styles from './Question.module.css';
@@ -73,18 +73,83 @@ export function QuestionChoices({
             </div>
             {option.consequence ? (
               <p id={consequenceId} className={styles.consequence}>
-                {option.consequence}
+                <InlineMarkdown text={option.consequence} />
               </p>
             ) : null}
             {reason ? (
               <p id={reasonId} className={styles.reason}>
-                {t('inbox.question.reason', { reason })}
+                {t('inbox.question.reasonLabel')} <InlineMarkdown text={reason} />
               </p>
             ) : null}
           </li>
         );
       })}
     </ul>
+  );
+}
+
+/** A body taller than this many lines folds. */
+const BODY_FOLD_ABOVE_LINES = 10;
+/** The line height of the body, as in the style sheet (em). */
+const BODY_LINE_HEIGHT = 1.55;
+
+/**
+ * The body of a question (what follows its short heading), as markdown. A long one is folded to
+ * eight lines with a button to open it; focus moving into the folded part opens it, and the reader
+ * of a screen reader always gets the whole text, as the fold is only visual.
+ */
+export function QuestionBody({ text, mobile = false }: { text: string; mobile?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const id = useId();
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element || open) return;
+    const measure = () => {
+      const style = getComputedStyle(element);
+      const lineHeight = style.lineHeight.endsWith('px')
+        ? parseFloat(style.lineHeight)
+        : (parseFloat(style.fontSize) || 14) * BODY_LINE_HEIGHT;
+      setOverflowing(element.scrollHeight > lineHeight * BODY_FOLD_ABOVE_LINES + 2);
+    };
+    measure();
+    // The width changes with the window and with a drawer or sidebar opening, not only on resize.
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure);
+      return () => window.removeEventListener('resize', measure);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [text, open]);
+
+  const folded = overflowing && !open;
+  return (
+    <div className={clsx(styles.body, mobile && styles.mobile)}>
+      <div
+        id={id}
+        ref={ref}
+        className={clsx(styles.bodyText, folded && styles.clamped)}
+        onFocus={() => {
+          if (folded) setOpen(true);
+        }}
+      >
+        <Markdown text={text} className={styles.markdown} />
+      </div>
+      {overflowing || open ? (
+        <button
+          type="button"
+          className={styles.more}
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          aria-controls={id}
+        >
+          {open ? t('inbox.question.less') : t('inbox.question.more')}
+        </button>
+      ) : null}
+    </div>
   );
 }
 

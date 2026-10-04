@@ -22,7 +22,7 @@ import { useToast } from '../../components/toastContext';
 import { formatTime } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
-import { optionLabel } from '../../lib/inbox';
+import { inboxHeading, optionLabel } from '../../lib/inbox';
 import { nameOf, namesOf, roleLabel } from '../../lib/members';
 import { useIsMobile } from '../../lib/hooks';
 import { InboxCard } from '../inbox/InboxCard';
@@ -240,7 +240,7 @@ export function ConversationThread({
         ) : (
           <p className={styles.answered}>
             {t('messages.question.answered', {
-              title: item.item.title,
+              title: inboxHeading(item.item),
               answer: answeredText(item.item),
             })}
           </p>

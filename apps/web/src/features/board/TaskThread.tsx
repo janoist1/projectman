@@ -336,6 +336,7 @@ export function TaskThread({
         <ErrorState error={query.error} onRetry={() => void query.refetch()} />
       ) : (
         <div className={styles.logWrap}>
+          {canSeeAll ? null : <p className={styles.limited}>{t('task.thread.limited')}</p>}
           <div
             ref={scroller}
             className={styles.log}
@@ -351,7 +352,6 @@ export function TaskThread({
             }}
           >
             <div className={styles.column}>
-              {canSeeAll ? null : <p className={styles.limited}>{t('task.thread.limited')}</p>}
               {messages.length >= PAGE_LIMIT ? (
                 <p className={styles.limit}>
                   {t('messages.thread.limit', { count: PAGE_LIMIT })}
@@ -637,7 +637,7 @@ function QuestionAndAnswer({
           </>
         ) : null}
       </p>
-      {body ? <QuestionBody text={body} /> : null}
+      {body ? <QuestionBody text={body} closed={Boolean(title)} /> : null}
       <p className={styles.qaAnswer}>
         {message.from === myHandle
           ? t('task.thread.youAnswered', { answer: answer.answer })

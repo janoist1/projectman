@@ -99,7 +99,16 @@ const BODY_LINE_HEIGHT = 1.55;
  * eight lines with a button to open it; focus moving into the folded part opens it, and the reader
  * of a screen reader always gets the whole text, as the fold is only visual.
  */
-export function QuestionBody({ text, mobile = false }: { text: string; mobile?: boolean }) {
+export function QuestionBody({
+  text,
+  mobile = false,
+  closed = false,
+}: {
+  text: string;
+  mobile?: boolean;
+  /** Shows nothing but the button until it is opened (the heading already says the point of the question). */
+  closed?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   // How tall the folded text is; null while the text is short enough not to fold.
   const [foldedHeight, setFoldedHeight] = useState<number | null>(null);
@@ -150,26 +159,29 @@ export function QuestionBody({ text, mobile = false }: { text: string; mobile?: 
 
   const overflowing = foldedHeight !== null;
   const folded = overflowing && !open;
+  const shown = !closed || open;
   return (
     <div className={clsx(styles.body, mobile && styles.mobile)}>
-      <div
-        id={id}
-        ref={ref}
-        className={clsx(styles.bodyText, folded && styles.clamped, folded && fade && styles.faded)}
-        style={folded ? { maxHeight: foldedHeight } : undefined}
-        onFocus={() => {
-          if (folded) setOpen(true);
-        }}
-      >
-        <Markdown text={text} className={styles.markdown} />
-      </div>
-      {overflowing || open ? (
+      {shown ? (
+        <div
+          id={id}
+          ref={ref}
+          className={clsx(styles.bodyText, folded && styles.clamped, folded && fade && styles.faded)}
+          style={folded ? { maxHeight: foldedHeight } : undefined}
+          onFocus={() => {
+            if (folded) setOpen(true);
+          }}
+        >
+          <Markdown text={text} className={styles.markdown} />
+        </div>
+      ) : null}
+      {overflowing || open || closed ? (
         <button
           type="button"
           className={styles.more}
           onClick={() => setOpen((value) => !value)}
           aria-expanded={open}
-          aria-controls={id}
+          aria-controls={shown ? id : undefined}
         >
           {open ? t('inbox.question.less') : t('inbox.question.more')}
         </button>

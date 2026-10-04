@@ -160,10 +160,18 @@
   border-left: 1px solid var(--c-line-soft);
 }
 
-/* The switch between the card and its conversation (PM-273): under the head, on the head's own line. */
+/* The switch between the card and its conversation (PM-273): under the head, on the head's own line. The line
+   under the head is this row's (the head leaves it off), so what scrolls below is cut under the switch. */
 .views {
   flex: none;
-  padding: 10px var(--card-pad-x, 22px) 0;
+  display: flex;
+  padding: 0 var(--card-pad-x, 22px) 12px;
+  border-bottom: 1px solid var(--c-line-soft);
+}
+
+/* As wide as its two buttons; on a phone the halves share the row. */
+.views .switch {
+  flex: none;
 }
 
 /* A hidden group must not show though a layout above makes it a box (display: contents, flex). */
@@ -212,6 +220,7 @@
 .wide .scroll.conversation {
   padding: 0 var(--card-pad-x);
   grid-template-columns: minmax(0, 760px) 320px;
+  column-gap: 20px; /* `.scroll.conversation` zeroes `gap`; this is the room the thread leaves the right column's line */
 }
 
 .wide .conversation .thread {
@@ -342,6 +351,17 @@
   .scroll {
     padding-left: 16px;
     padding-right: 16px;
+  }
+  .views {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .views .switch {
+    flex: 1;
+  }
+  .views .switch button {
+    flex: 1;
+    justify-content: center;
   }
   .scroll.conversation {
     padding: 0;

@@ -1,3 +1,4 @@
+import clsx from 'clsx';
 import type { Ref } from 'react';
 import { Link } from 'react-router';
 import type { LabelView, Task } from '@projectman/shared';
@@ -58,6 +59,7 @@ export function TaskHeader({
   size,
   onToggleSize,
   onClose,
+  rule = true,
 }: {
   task: Task;
   parent: Pick<Task, 'key' | 'title'> | null | undefined;
@@ -70,6 +72,8 @@ export function TaskHeader({
   /** Switches between the quick view and the large window; missing where there is no large window (a phone). */
   onToggleSize: (() => void) | undefined;
   onClose: () => void;
+  /** The line under the head; off where the view switch stands under it and carries the line itself. */
+  rule?: boolean;
 }) {
   const { key, myHandle, can } = useProject();
   const cardLink = useCardLink();
@@ -99,7 +103,7 @@ export function TaskHeader({
     </Chip>
   ) : null;
   return (
-    <div className={styles.head}>
+    <div className={clsx(styles.head, !rule && styles.bare)}>
       {parent ? (
         <Link to={cardLink(`/p/${key}/tasks/${parent.key}`)}>
           {t('task.parent', { key: parent.key, title: parent.title })}

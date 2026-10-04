@@ -170,15 +170,17 @@ describe('the card conversation (PM-273)', () => {
     );
   });
 
-  it('folds the long question and opens it with "Teljes kérdés"', async () => {
-    // jsdom has no layout: pretend the body is tall.
-    vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(500);
+  it('keeps the body of a question with a title closed until "Teljes kérdés" opens it', async () => {
     mockProject().render(card, '/p/AC/tasks/AC-21/thread');
     const row = await within(await thread()).findByRole('group', { name: t('task.thread.qa') });
+    const bodyText = /A sablon ma csak a tételeket listázza/;
+    expect(within(row).queryByText(bodyText)).toBeNull();
     const more = within(row).getByRole('button', { name: t('inbox.question.more') });
     expect(more.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(more);
-    expect(within(row).getByRole('button', { name: t('inbox.question.less') })).toBeTruthy();
+    expect(within(row).getByText(bodyText)).toBeTruthy();
+    fireEvent.click(within(row).getByRole('button', { name: t('inbox.question.less') }));
+    expect(within(row).queryByText(bodyText)).toBeNull();
   });
 
   it('shows the question waiting for the viewer as an inbox card', async () => {

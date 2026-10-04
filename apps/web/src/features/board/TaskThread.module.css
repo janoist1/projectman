@@ -53,6 +53,13 @@
   text-align: center;
 }
 
+/* Pinned above the messages: the log opens at its end, so a line inside it would scroll out of sight. */
+.limited {
+  flex: none;
+  align-self: stretch;
+  padding: 10px var(--thread-pad-x, 22px) 0;
+}
+
 .day {
   align-self: center;
   padding: 14px 0 8px;

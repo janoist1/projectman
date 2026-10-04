@@ -534,12 +534,14 @@ export function TaskDrawer() {
             size={size}
             onToggleSize={toggleSize}
             onClose={close}
+            rule={!hasThread}
           />
         )}
 
         {hasThread ? (
           <div className={styles.views}>
             <SegmentedControl
+              className={styles.switch}
               size="sm"
               label={t('task.view.label')}
               value={thread ? 'thread' : 'card'}

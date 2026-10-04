@@ -1,6 +1,6 @@
 import type { PausePoint } from '@projectman/shared';
 import type { ContextPackInput } from '../contracts';
-import { code, languageName, relationText, stageLabel } from './format';
+import { code, fullTestLine, languageName, relationText, stageLabel } from './format';
 import type { Situation } from './work-item';
 
 /**
@@ -17,6 +17,7 @@ export function buildContinueMessage(input: ContextPackInput, situation: Situati
   const related = input.relatedSessions ?? [];
   const pin = task.reviewPin;
   const reviewed = input.lastReviewedCommit;
+  const testLine = fullTestLine(input.project, task);
   return [
     'Your session was restarted.',
     `You are working on ${task.key} "${task.title}", now in stage ${stage}.`,
@@ -29,6 +30,7 @@ export function buildContinueMessage(input: ContextPackInput, situation: Situati
             : `You last reviewed commit ${code(reviewed)}; the commit handed over now is ${code(pin.commit)} on ${code(pin.branch)}. Review only the change since your last review (git diff ${reviewed} ${pin.commit}) and whether your earlier findings were fixed; do not read the whole change again.`,
         ]
       : []),
+    ...(testLine ? [testLine] : []),
     ...(related.length > 0
       ? [
           `Your other running sessions: ${related.map((s) => `${s.taskKey} (${relationText(s.relation)})`).join(', ')}; the standing is on the cards, so read them before you give direction.`,

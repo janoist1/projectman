@@ -9,7 +9,9 @@ import { configDefaults, defineConfig } from 'vitest/config';
  * for the sandboxed sessions (`SANDBOX_PTY_ENV`, PM-194), and a person can set it too. Without it a
  * PTY that cannot be opened (a broken native module after a Node update, say) fails the run, so a
  * full run outside a sandbox never passes with the 11 files silently missing. The integrating
- * session runs the full suite before a merge.
+ * session runs the full suite before a merge. From PM-217 the server also runs the full suite itself
+ * (`reviewTest`, `src/full-test`) when a card enters review, in its own sandbox that allows PTYs; it
+ * does not set the variable.
  */
 const PTY_TESTS = ['**/*.integration.test.ts', 'test/golden-path-*.test.ts'];
 const SKIP_VARIABLE = 'PROJECTMAN_SKIP_PTY_TESTS';

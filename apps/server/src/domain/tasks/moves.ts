@@ -71,6 +71,8 @@ export interface MoveOptions {
   handover?: Handover | null;
   /** The system sends the task back because its branch moved after the hand-over. */
   branchMoved?: NonNullable<TimelineEventData['task_stage_changed']['branchMoved']>;
+  /** The system sends the task back because the server's full test of the pinned commit failed (PM-217). */
+  testsFailed?: NonNullable<TimelineEventData['task_stage_changed']['testsFailed']>;
   /** A person's move despite open prerequisites (PM-204); carried to the `task_stage_changed` event. */
   despitePrerequisites?: boolean;
   /**
@@ -138,7 +140,7 @@ export class TaskMoves {
     taskKey: string,
     stageId: string,
     actor: Actor,
-    opts: Pick<MoveOptions, 'branchMoved'> = {},
+    opts: Pick<MoveOptions, 'branchMoved' | 'testsFailed'> = {},
   ): Promise<MoveResult> {
     const config = await this.store.projects.config(projectKey);
     const handover = await this.prepareHandover(config, this.store.get(projectKey, taskKey), stageId);
@@ -243,10 +245,12 @@ export class TaskMoves {
       return { task: requested.task, moved: false, pendingApproval: requested.items };
     }
     const head = opts.handover?.head;
-    const extra: Pick<TimelineEventData['task_stage_changed'], 'reviewPin' | 'branchMoved'> = {
-      ...(head ? { reviewPin: { commit: head.commit, branch: head.branch } } : {}),
-      ...(opts.branchMoved ? { branchMoved: opts.branchMoved } : {}),
-    };
+    const extra: Pick<TimelineEventData['task_stage_changed'], 'reviewPin' | 'branchMoved' | 'testsFailed'> =
+      {
+        ...(head ? { reviewPin: { commit: head.commit, branch: head.branch } } : {}),
+        ...(opts.branchMoved ? { branchMoved: opts.branchMoved } : {}),
+        ...(opts.testsFailed ? { testsFailed: opts.testsFailed } : {}),
+      };
     const board: BoardPlace = { placement: opts.placement, reranked: [] };
     return {
       // Only a person can accept the warning: an AI actor's flag is ignored.
@@ -449,7 +453,7 @@ export class TaskMoves {
     actor: Actor,
     extra: Pick<
       TimelineEventData['task_stage_changed'],
-      'approvedBy' | 'inboxItemIds' | 'reviewPin' | 'branchMoved'
+      'approvedBy' | 'inboxItemIds' | 'reviewPin' | 'branchMoved' | 'testsFailed'
     >,
     effects: Effect[],
     pin?: SourceHead,

@@ -51,7 +51,15 @@ export function describeEvent(
     case 'task_updated':
       return describeTaskUpdate(data, text, list, style);
     case 'task_stage_changed':
-      return `moved it from ${stage('from')} to ${stage('to')}`;
+      return `moved it from ${stage('from')} to ${stage('to')}${data.testsFailed ? ' (the full test failed)' : ''}`;
+    case 'task_full_test': {
+      const commit = text('commit')?.slice(0, 12) ?? '?';
+      if (text('outcome') === 'passed') return `the full test passed on commit ${commit}`;
+      if (text('outcome') === 'error')
+        return `the full test could not run on commit ${commit} (${text('reason') ?? 'unknown reason'})`;
+      const files = list('failedFiles');
+      return `the full test failed on commit ${commit}${files.length > 0 ? `: ${oneLine(files.join(', '), textLimit)}` : ''}`;
+    }
     case 'task_assigned':
       return text('assignee') ? `assigned it to ${member('assignee', '')}` : 'unassigned it';
     case 'task_labels_changed': {
@@ -185,6 +193,7 @@ const FULL_TEXT_FIELD: Partial<Record<TimelineEvent['type'], string>> = {
   task_note: 'text',
   question_asked: 'question',
   question_answered: 'answer',
+  task_full_test: 'outputTail',
 };
 
 /**

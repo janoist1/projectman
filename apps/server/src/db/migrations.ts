@@ -644,5 +644,29 @@ export const migrations: Migration[] = [
       CREATE UNIQUE INDEX session_pauses_open ON session_pauses(session_id) WHERE resumed_at IS NULL;
       CREATE INDEX session_pauses_project ON session_pauses(project_key, resumed_at);`,
   },
+  {
+    version: 32,
+    name: 'full test runs',
+    // PM-217: the server's full test of a card's pinned commit before it is reviewed, one row per run.
+    // `status` is queued, running, passed, failed, error or cancelled; `reason` is the error reason or
+    // the cancel reason. `failed_files` is a JSON array of file names.
+    sql: `CREATE TABLE full_test_runs (
+        id           TEXT NOT NULL PRIMARY KEY,
+        project_key  TEXT NOT NULL REFERENCES projects(key),
+        task_key     TEXT NOT NULL REFERENCES tasks(key),
+        repo         TEXT NOT NULL,
+        branch       TEXT NOT NULL,
+        commit_sha   TEXT NOT NULL,
+        status       TEXT NOT NULL CHECK (status IN ('queued', 'running', 'passed', 'failed', 'error', 'cancelled')),
+        reason       TEXT,
+        exit_code    INTEGER,
+        failed_files TEXT,
+        duration_ms  INTEGER,
+        created_at   TEXT NOT NULL,
+        started_at   TEXT,
+        finished_at  TEXT
+      );
+      CREATE INDEX full_test_runs_task_commit ON full_test_runs(task_key, commit_sha);`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

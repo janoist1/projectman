@@ -1,6 +1,7 @@
 import { createAttachmentRepository } from './attachments';
 import { createBoundaryRepository } from './boundary';
 import { createEgressRepository } from './egress';
+import { createFullTestRunRepository } from './full-test-runs';
 import { createInvitationRepository } from './invitations';
 import type { Db } from './database';
 import { createDeferredStartRepository } from './deferred-starts';
@@ -31,6 +32,7 @@ export type { PauseRecord, SessionPauseRecord, SessionPausePatch } from './pause
 export type { ReviewPinRecord } from './review-pins';
 export type { TaskCoverRecord } from './task-covers';
 export type { TaskFixLimitRecord } from './fix-limits';
+export type { FullTestRunRecord } from './full-test-runs';
 export type { TaskLoopRecord } from './task-loops';
 export type { UserRecord, AuthSessionRecord } from './users';
 export type { ProjectRecord } from './projects';
@@ -57,6 +59,7 @@ export function createRepositories(db: Db) {
     taskLoops: createTaskLoopRepository(db),
     taskFixLimits: createTaskFixLimitRepository(db),
     pauses: createPauseRepository(db),
+    fullTestRuns: createFullTestRunRepository(db),
     schedules: createScheduleRepository(db),
     deferredStarts: createDeferredStartRepository(db),
     memberWorkspaces: createMemberWorkspaceRepository(db),

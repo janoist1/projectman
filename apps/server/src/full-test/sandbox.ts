@@ -1,0 +1,115 @@
+import path from 'node:path';
+import type { FullTestSpec } from '../contracts';
+
+/** The git identity and settings of a full test run: neutral, and no automatic maintenance. */
+export const FULL_TEST_GIT_CONFIG =
+  '[user]\n\tname = projectman full test\n\temail = full-test@projectman.invalid\n[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n';
+
+/**
+ * The longest Unix socket path the sandbox can open, a little below macOS's limit (104 bytes with the
+ * terminating NUL), and the longest socket name `srt` makes in the sandbox's TMPDIR
+ * (`srt-mux-<pid>-<n>.sock`, a pid of up to 7 digits).
+ */
+const SOCKET_PATH_MAX = 100;
+const SOCKET_NAME_MAX = 'srt-mux-9999999-99.sock'.length;
+
+/**
+ * The directory of a run: `<root>/pmft-<end of the run id>`, short, because the sandbox's TMPDIR below it
+ * holds a Unix socket and a long path makes the sandbox fail ("listen EINVAL"). The root is `tmpRoot`;
+ * when the socket path would be too long there (a deep temporary directory), it is the short
+ * system-wide `shortRoot`.
+ */
+export function runDirOf(tmpRoot: string, shortRoot: string, runId: string): string {
+  const name = `pmft-${runId.replace(/[^A-Za-z0-9]/g, '').slice(-8)}`;
+  const socketPath = (root: string) =>
+    path.join(runPaths(path.join(root, name)).tmp, 'x'.repeat(SOCKET_NAME_MAX));
+  return path.join(socketPath(tmpRoot).length <= SOCKET_PATH_MAX ? tmpRoot : shortRoot, name);
+}
+
+/** The directories of one run: only `sandbox` is writable for the command. */
+export function runPaths(runDir: string) {
+  const sandbox = path.join(runDir, 'sandbox');
+  return {
+    runDir,
+    settings: path.join(runDir, 'settings.json'),
+    sandbox,
+    home: path.join(sandbox, 'home'),
+    tmp: path.join(sandbox, 'tmp'),
+    npmCache: path.join(sandbox, 'npm-cache'),
+    gitConfig: path.join(sandbox, 'gitconfig'),
+  };
+}
+export type RunPaths = ReturnType<typeof runPaths>;
+
+/** The default temporary directory of srt (`SANDBOX_OWN_WRITE_PATHS`, srt 0.0.78), as `/tmp` and as its target. */
+export const SRT_DEFAULT_TMP = ['/tmp/claude', '/private/tmp/claude'] as const;
+
+/**
+ * The `srt` settings of a run (Anthropic Sandbox Runtime, the Seatbelt layer Claude Code uses):
+ * - reading: nothing of `spec.sandbox.denyRead`, except `allowRead` and the run's own directory;
+ * - writing: only the run's `sandbox` directory (the checkout is read-only; srt's default temporary
+ *   directory, which srt would open on its own, is denied);
+ * - network: nothing outward, local ports open (decision 24); PTYs allowed (macOS only).
+ */
+export function srtSettings(spec: FullTestSpec, paths: RunPaths) {
+  return {
+    network: { allowedDomains: [] as string[], deniedDomains: [] as string[], allowLocalBinding: true },
+    filesystem: {
+      denyRead: [...new Set(spec.sandbox.denyRead)],
+      allowRead: [...new Set([...spec.sandbox.allowRead, paths.sandbox])],
+      allowWrite: [paths.sandbox],
+      // srt always makes its own default temporary directory writable, outside `allowWrite`: it is shared
+      // with the members' sandboxes and outlives the run, so a run may not write there.
+      denyWrite: [...SRT_DEFAULT_TMP],
+    },
+    allowPty: true,
+  };
+}
+
+/**
+ * The environment of a run: an allow list, nothing else comes from the server's environment, so no
+ * `PROJECTMAN_*` (the PTY skip included), token, `SSH_AUTH_SOCK` or billing variable gets in.
+ */
+export function fullTestEnv(
+  paths: RunPaths,
+  maxWorkers: number,
+  base: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  const env: Record<string, string> = {
+    PATH: base.PATH ?? '/usr/bin:/bin:/usr/sbin:/sbin',
+    HOME: paths.home,
+    TMPDIR: paths.tmp,
+    // srt gives the sandboxed command `TMPDIR=$CLAUDE_CODE_TMPDIR`, or a `/tmp/claude` that does not exist.
+    CLAUDE_CODE_TMPDIR: paths.tmp,
+    npm_config_cache: paths.npmCache,
+    npm_config_update_notifier: 'false',
+    GIT_CONFIG_GLOBAL: paths.gitConfig,
+    GIT_CONFIG_NOSYSTEM: '1',
+    VITEST_MAX_FORKS: String(maxWorkers),
+    VITEST_MAX_THREADS: String(maxWorkers),
+    NO_COLOR: '1',
+    FORCE_COLOR: '0',
+  };
+  for (const name of ['LANG', 'LC_ALL'] as const) {
+    const value = base[name];
+    if (value) env[name] = value;
+  }
+  return env;
+}
+
+/**
+ * The command with its standard input closed (`/dev/null`) for all of it, a chain included. Inside the
+ * sandbox, srt hands the command its input through a socket of its own, and a program that asks the
+ * terminal about its input (`script`, so a PTY) fails on a socket ("Operation not supported on socket").
+ */
+export function closedStdin(command: string): string {
+  return `exec </dev/null; ${command}`;
+}
+
+/**
+ * The process that starts the sandbox, at low priority: the priority is set outside the sandbox
+ * (Seatbelt refuses `setpriority` inside it), and the sandbox and the command below inherit it.
+ */
+export function niceSrtCommand(node: string, srtCli: string, settings: string, command: string) {
+  return { file: '/usr/bin/nice', args: ['-n', '10', node, srtCli, '--settings', settings, '-c', command] };
+}

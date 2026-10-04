@@ -6,7 +6,7 @@ import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import Fastify from 'fastify';
-import type { FastifyInstance, FastifyServerOptions } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance, FastifyServerOptions } from 'fastify';
 import { registerApiRoutes, registerErrorHandling } from './api';
 import { AuthService, loadOrCreateSecret, registerAuth } from './auth';
 import { serializeRequest } from './auth/request-logging';
@@ -19,6 +19,7 @@ import type {
   AttachmentStorage,
   BoundaryOperationAdapter,
   ContextPackBuilder,
+  FullTestExecutor,
   GithubPublisher,
   GithubService,
   ManagedVmBoundary,
@@ -91,6 +92,11 @@ export interface AppModules {
   runtimeBoundary?: RuntimeBoundary;
   /** The worker accounts of the boundary (default: /etc/passwd). */
   workerAccounts?: AccountLookup;
+  /**
+   * Makes the executor of the server's full test before review (PM-217). Default: none, so the feature
+   * is off; `index.ts` passes the sandboxed one, except for the managed VM profile.
+   */
+  createFullTestExecutor?: (opts: { logger: FastifyBaseLogger }) => FullTestExecutor;
 }
 
 /** Defaults of the server's options, including those index.ts reads from the environment. */
@@ -384,6 +390,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         ? { egress: { base: boundaryConfig.egress.base, grantHours: boundaryConfig.egress.grantHours } }
         : {}),
       boundaryAdapter: modules.boundaryAdapter,
+      fullTestExecutor: modules.createFullTestExecutor?.({ logger: log.child({ module: 'full-test' }) }),
       repos,
       configStore,
       logger: log.child({ module: 'domain' }),

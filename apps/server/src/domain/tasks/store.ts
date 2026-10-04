@@ -1,6 +1,7 @@
 import {
   commentMentions,
   coverAttachmentId,
+  FullTestErrorReason,
   isOpenTask,
   isTheme,
   memberOf,
@@ -123,9 +124,24 @@ export class TaskStore {
   private reviewPin(task: Task): TaskReviewPin | undefined {
     if (!isOpenTask(task)) return undefined;
     const pin = this.ctx.repos.reviewPins.get(task.key);
-    return pin && pin.stageId === task.stageId
-      ? { commit: pin.commit, branch: pin.branch, pinnedAt: pin.pinnedAt }
-      : undefined;
+    if (!pin || pin.stageId !== task.stageId) return undefined;
+    // The server's full test of the pinned commit (PM-217): the latest run that was not cancelled.
+    const run = this.ctx.repos.fullTestRuns.forPin(pin).find((r) => r.status !== 'cancelled');
+    let fullTest: TaskReviewPin['fullTest'];
+    if (run && run.status !== 'cancelled') {
+      const reason = FullTestErrorReason.safeParse(run.reason);
+      fullTest = {
+        status: run.status,
+        at: run.finishedAt ?? run.startedAt ?? run.createdAt,
+        ...(run.status === 'error' && reason.success ? { reason: reason.data } : {}),
+      };
+    }
+    return {
+      commit: pin.commit,
+      branch: pin.branch,
+      pinnedAt: pin.pinnedAt,
+      ...(fullTest ? { fullTest } : {}),
+    };
   }
 
   /**

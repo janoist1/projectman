@@ -404,6 +404,8 @@ export const hu = {
       label_not_allowed: 'Ezt a címkét nem teheted rá és nem veheted le: a címke szabályai nem engedik.',
       ai_approval_forbidden: 'Jóváhagyást csak ember adhat.',
       release_four_eyes: 'A kiadáshoz független ember jóváhagyása szükséges.',
+      full_test_pending:
+        'A feladat átnézése megvárja az átadott commit teljes tesztjét: az eredmény után az átnéző magától elindul.',
       handover_uncommitted:
         'A fejlesztő munkafájában mentetlen változás van, ezért a feladat nem adható át átnézésre. Az átnéző csak a mentett (commitolt) munkát látja: előbb mentsd el a változásokat egy commitban, utána add át újra.',
       attachment_too_large: 'A csatolmány legfeljebb 25 MB lehet.',
@@ -696,6 +698,7 @@ export const hu = {
       prerequisite_open: 'Előfeltételre vár: {prerequisites}',
       no_free_member: 'Szabad fejlesztőre vár',
       label_missing: '{name} munkájára vár: {labels}',
+      full_test_pending: 'Az átnézés a teljes tesztre vár',
     },
     stageOwners: 'a lépés összes felelőse',
     startHints: {
@@ -722,6 +725,8 @@ export const hu = {
         'Most nincs szabad fejlesztő. A feladat magától elindul, amint felszabadul egy, vagy ha a Beállítások → Keretek alatt engedélyezed a beugrókat; addig kézzel is hozzárendelhetsz valakit.',
       label_missing:
         'A kapu olyan címkét kér, amelyet AI-tag tesz fel; az ő munkamenete elindult a kártyán. A fejlesztő magától indul, amint a címke rákerül.',
+      full_test_pending:
+        'A szerver lefuttatja az átadott commit teljes tesztjét (a PTY-tesztekkel együtt). Zöld eredménynél az átnéző magától indul; bukásnál a kártya visszamegy a fejlesztőhöz.',
     },
     needsYou: 'Rád vár: {what}',
     needsYouDetail: '{kind} ({detail})',
@@ -1725,6 +1730,20 @@ export const hu = {
       task_stage_changed_pinned: 'Továbbvitte: {from} → {to}; átadott commit: {commit}',
       task_stage_changed_branch_moved:
         'Visszaküldte a rendszer: {from} → {to}; az ág elmozdult az átadott commitról ({pinned}) erre: {head}',
+      task_stage_changed_tests_failed:
+        'Visszaküldte a rendszer: {from} → {to}; a teljes teszt megbukott az átadott commiton ({commit})',
+      task_full_test_passed: 'A teljes teszt lefutott és zöld ({commit})',
+      task_full_test_failed: 'A teljes teszt megbukott ({commit})',
+      task_full_test_failed_files: 'A teljes teszt megbukott ({commit}): {files}',
+      task_full_test_error: 'A teljes teszt nem tudott lefutni ({commit}): {reason}',
+      task_full_test_reason: {
+        timeout: 'túllépte az időkorlátot',
+        sandbox_unavailable: 'nincs elérhető homokozó',
+        pty_unavailable: 'nem nyitható pszeudo-terminál',
+        checkout_dirty: 'a munkafában mentetlen változás volt',
+        spawn_failed: 'a parancs nem indult el',
+        killed: 'leállították',
+      },
       review_repinned: 'Új átnézési kör: az átadott commit {previous} helyett {commit}',
       task_assigned: 'Kiosztva: {assignee}',
       task_unassigned: 'Kiosztás visszavonva',

@@ -9,7 +9,16 @@ import {
 } from '../agent-text';
 import type { TextStyle } from '../agent-text';
 import type { ContextPackInput, RelatedSession } from '../contracts';
-import { code, codeList, labelRef, promptStyle, relationText, repoText, stageLabel } from './format';
+import {
+  code,
+  codeList,
+  fullTestLine,
+  labelRef,
+  promptStyle,
+  relationText,
+  repoText,
+  stageLabel,
+} from './format';
 import type { Situation } from './work-item';
 
 /** Timeline entries shown in the brief (the most recent ones). */
@@ -45,6 +54,7 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
 
   const style = promptStyle(input.project);
   const sections: string[] = [];
+  const testLine = fullTestLine(input.project, task);
 
   sections.push(
     [
@@ -59,6 +69,7 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
       ...(task.reviewPin
         ? [
             `- Handed over for review: commit ${code(task.reviewPin.commit)} of branch ${code(task.reviewPin.branch)} (pinned ${task.reviewPin.pinnedAt})`,
+            ...(testLine ? [`- ${testLine}`] : []),
           ]
         : []),
       ...(task.priority !== null ? [`- Priority: ${task.priority}`] : []),

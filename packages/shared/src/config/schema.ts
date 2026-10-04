@@ -219,6 +219,20 @@ export const RepoConfig = z.object({
     .regex(/^[\w.-]+\/[\w.-]+$/)
     .optional(),
   defaultBranch: z.string().default('main'),
+  /**
+   * The full test the server runs on the pinned commit before a task is reviewed (PM-217), in a
+   * sandbox of its own with PTYs. Absent: the feature is off for this repository.
+   */
+  reviewTest: z
+    .object({
+      /** Shell command run at the root of the developer's checkout, e.g. "npm run typecheck && npm test". */
+      command: z.string().min(1).max(500),
+      /** Test workers: VITEST_MAX_FORKS and VITEST_MAX_THREADS. */
+      maxWorkers: z.number().int().min(1).max(8).default(2),
+      /** Wall-clock limit of one run. */
+      timeoutMinutes: z.number().int().min(1).max(60).default(15),
+    })
+    .optional(),
 });
 export type RepoConfig = z.infer<typeof RepoConfig>;
 

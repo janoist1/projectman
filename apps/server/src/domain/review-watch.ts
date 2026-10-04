@@ -1,16 +1,9 @@
-import {
-  isOpenTask,
-  isTheme,
-  reviewReturnedWork,
-  stageIndex,
-  stageOf,
-  stageOwners,
-} from '@projectman/shared';
+import { isOpenTask, isTheme, reviewReturnedWork, stageOf } from '@projectman/shared';
 import type { Messaging } from './messaging';
 import type { DomainContext } from './context';
 import type { ProjectService } from './projects';
-import { LIVE_SESSION_STATES } from './sessions';
 import type { SessionOrchestrator } from './sessions';
+import { stopStageReviewers, workStageBefore } from './stage-reviewers';
 import type { TaskService } from './tasks';
 import { KeyedMutex, SYSTEM_ACTOR } from './util';
 
@@ -80,10 +73,7 @@ export class ReviewWatch {
     if (reviewReturnedWork(config, task)) return false;
 
     const stage = stageOf(config, task.stageId);
-    const back = config.pipeline.stages
-      .slice(0, stageIndex(config.pipeline, task.stageId))
-      .reverse()
-      .find((s) => s.kind === 'work');
+    const back = workStageBefore(config, task.stageId);
     if (!stage || !back) {
       this.ctx.logger.warn({ taskKey }, 'the branch moved in review, but no work stage is before it');
       return false;
@@ -95,14 +85,8 @@ export class ReviewWatch {
     await this.tasks.moveToStage(projectKey, taskKey, back.id, SYSTEM_ACTOR, {
       branchMoved: { branch: pin.branch, pinned: pin.commit, head: head.commit },
     });
-    // The stage's reviewers stop once the task is back: what they judge is out of date. Their
-    // conversations stay; others working on the card (an architect, an analyst) are left alone.
-    const reviewers = stageOwners(config, stage).filter((handle) => handle !== task.assignee);
-    for (const session of this.sessions.list(projectKey, { taskKey })) {
-      if (session.workItem.type !== 'task' || !reviewers.includes(session.member)) continue;
-      if (LIVE_SESSION_STATES.includes(session.state) || this.sessions.isRunning(session.id))
-        await this.sessions.stop(projectKey, session.id);
-    }
+    // The stage's reviewers stop once the task is back: what they judge is out of date.
+    await stopStageReviewers(this.sessions, config, task, stage);
     if (task.assignee)
       await this.messaging.send(
         projectKey,

@@ -155,6 +155,8 @@ export const ERROR_CODES = [
   'fix_limit_not_held',
   'fix_limit_not_decider',
   'fix_limit_no_planner',
+  // The server's full test of the pinned commit (PM-217) has not ended: the review start waits for it.
+  'full_test_pending',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

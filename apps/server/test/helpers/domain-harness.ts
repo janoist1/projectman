@@ -8,6 +8,7 @@ import { createRepositories, openDatabase } from '../../src/db';
 import type {
   AttachmentStorage,
   BoundaryOperationAdapter,
+  FullTestExecutor,
   GithubPublisher,
   ManagedVmBoundary,
   MemberWorkspaceManager,
@@ -96,6 +97,8 @@ export async function createDomainHarness(
     freeDiskBytes?: () => Promise<number | null>;
     /** How long a closed card's worktree stays (default 3 days). */
     closedWorktreeKeepMs?: number;
+    /** The server's full test before review (PM-217); absent, the feature is off. */
+    fullTestExecutor?: FullTestExecutor;
   } = {},
 ) {
   const restarted = opts.directory !== undefined;
@@ -135,6 +138,7 @@ export async function createDomainHarness(
     userHome: opts.userHome,
     appHome: opts.appHome,
     inputStallMs: opts.inputStallMs,
+    fullTestExecutor: opts.fullTestExecutor,
     contextBuilder,
     memory,
     worktrees,

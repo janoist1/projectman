@@ -1,4 +1,4 @@
-import { effectiveRepo, isHumanOnlyLabel, needsRepoChoice } from '@projectman/shared';
+import { effectiveRepo, isHumanOnlyLabel, needsRepoChoice, repoOf } from '@projectman/shared';
 import type { Gate, LabelDefinition, ProjectConfig, Stage, Task } from '@projectman/shared';
 import { describeRepo } from '../agent-text';
 import type { TextStyle } from '../agent-text';
@@ -22,6 +22,21 @@ export function repoText(project: Pick<ProjectConfig, 'project'>, task: Pick<Tas
     { name: effectiveRepo(project, task), choiceNeeded: needsRepoChoice(project, task) },
     { code },
   );
+}
+
+/**
+ * What the server's full test of the handed-over commit found (PM-217), for the reviewer's brief and
+ * its resume message; none while there is no result (not asked for, still queued or running).
+ */
+export function fullTestLine(project: ProjectConfig, task: Pick<Task, 'repo' | 'reviewPin'>): string | null {
+  const test = task.reviewPin?.fullTest;
+  if (!test) return null;
+  const command = repoOf(project, effectiveRepo(project, task))?.reviewTest?.command ?? 'the full test';
+  if (test.status === 'passed')
+    return `The full test (${code(command)}, PTY tests included) passed on this commit at ${test.at}: you need not run the tests or the type check again.`;
+  if (test.status === 'error')
+    return `The full test could not run on this commit (${test.reason ? code(test.reason) : 'unknown reason'}): run the checks yourself as usual; your sandbox leaves out the PTY tests.`;
+  return null;
 }
 
 /** "Code review (`code_review`)" */

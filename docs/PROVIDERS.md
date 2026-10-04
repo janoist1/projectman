@@ -205,7 +205,13 @@ Node update, say) stops the run at the start with a message, so the full run bef
 pass with the 11 files silently missing. With the variable set but a PTY that opens, the tests run:
 it permits the skipping, it does not demand it. Claude Code 2.1.284's sandbox settings have no
 `allowPty` key (the setting exists in its sandbox runtime, but the CLI does not pass it on), so the
-PTY tests cannot run in the sandbox yet; that needs a newer CLI.
+PTY tests cannot run in the sandbox yet; that needs a newer CLI. The server therefore runs them
+itself (PM-217): when a card enters review, `src/full-test` runs the repository's `reviewTest`
+command in its own sandbox, the Anthropic Sandbox Runtime (`@anthropic-ai/sandbox-runtime`, `srt`,
+macOS Seatbelt) with `allowPty`, outside every member's session (see "Full test before review" in
+ARCHITECTURE.md). Its settings come from `fullTestSandbox` in `domain/session-policy.ts`: reads only
+the checkout and its git directory below the home, writes only its own run directory in the temp
+directory, no network (but listening on local ports), and a small allow list of environment variables.
 
 Every other legacy session reads only (PM-167, decision 28: „Homokozó, a CLI-k saját kerítése”):
 the reviewer, QA, the security reviewer, the analyst, the architect, the designer, devops, chats,

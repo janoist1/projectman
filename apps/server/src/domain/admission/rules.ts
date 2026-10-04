@@ -75,11 +75,13 @@ export type WaitingReason = TaskStartWaiting['reason'];
  * instead of waiting (the task shows why, see `TaskStore`). `no_free_member` and
  * `prerequisite_open` are ones only for the start that picks its developer itself and moves a
  * card into work (`AutomaticStart.defers`). `label_missing` is no refusal at all: the start of a
- * person's Start button that waits for a label (PM-236) is kept with it directly.
+ * person's Start button that waits for a label (PM-236) is kept with it directly. `full_test_pending`
+ * is one only for the stage hand-over (`AutomaticStart.defers`), which waits for the server's full test
+ * of the pinned commit (PM-217).
  */
 type DeferrableReason = Exclude<
   WaitingReason,
-  'repo_required' | 'no_free_member' | 'prerequisite_open' | 'label_missing'
+  'repo_required' | 'no_free_member' | 'prerequisite_open' | 'label_missing' | 'full_test_pending'
 >;
 
 /** Admission refusals that a later retry can overcome; an automatic start waits for them. */

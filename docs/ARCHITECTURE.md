@@ -878,21 +878,19 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   and writes images to local output storage.
   **Remote engine:** provision a compatible browser on the engine, preserve the disposable
   instance's network fence and read-only browser access, and return images as artifacts.
-- **Machine display and orphan processes (pending integration)** — verified in PM-320's
-  reviewed commit `06c1c7b`, not present in this checkout: `machine/probe.ts`,
+- **Machine display and orphan processes** — `machine/{probe,parse}.ts`,
   `domain/machine.ts` (`MachineMonitor.stopOrphans`), `api/machine.ts` (PM-320, PM-300).
   OS probes (`ps`, macOS `vm_stat`/`sysctl`, Linux `/proc`) measure the local host; trees,
   ownership checks and signals use its UID and PID namespace, with process start times
   checked against PID reuse. **Remote engine:** measure and stop on the owning engine,
   identify the engine with every process identity, and preserve fresh ownership/orphan
   checks and owner access. A remote PID must never be signalled on the server.
-- **Instance identity for process attribution (pending integration)** — also verified in
-  PM-320 commit `06c1c7b`: `app.ts` derives the first 16 hex characters of
+- **Instance identity for process attribution** — `app.ts` derives the first 16 hex characters of
   `sha256(realpath(home))`; `runner/env.ts` supplies `PROJECTMAN_INSTANCE` alongside
   `PROJECTMAN_SESSION_ID` (PM-320). This identifies a local installation by its home path,
   not a host-independent engine identity. **Remote engine:** plan instance/engine attribution
   explicitly, including reconnects and moves; equal paths on different hosts must not imply
-  equal ownership. Recheck these two pending entries when PM-320 is integrated.
+  equal ownership.
 - **Session process termination** — `runner/session.ts` (`stop`, `kill`),
   `runner/runner.ts` (PM-341; PM-320). The runner owns a local process handle and sends
   SIGTERM, then SIGKILL after a timeout (or SIGKILL immediately for a forced stop).
@@ -947,7 +945,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Remote engine:** build the policy from its filesystem and supported OS/provider
   enforcement, preserve protected paths and fail closed where required; do not copy Mac
   path grants or infer Codex permissions from Claude syntax.
-- **CLI token and plan usage** — `runner/providers/{claude,codex}/{usage,plan-usage}.ts`,
+- **CLI token and plan usage** — `runner/providers/claude/{usage,plan-usage}.ts`,
+  `runner/providers/codex/{transcript,plan-usage}.ts` (`CodexTranscriptParser`),
   `runner/session.ts`, `domain/plan-usage.ts` (PM-341; PM-286, PM-310).
   Token counts come from the running CLI's transcript/hook data. Claude plan usage probes
   the locally logged-in CLI without a conversation; Codex reads local rollout rate-limit

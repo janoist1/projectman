@@ -1496,6 +1496,8 @@ export const hu = {
       more: 'Teljes kérdés',
       less: 'Kevesebb',
       untitled: 'Válaszra vár',
+      /** Abbreviations whose full stop does not end a sentence (the heading of a question), space-separated. */
+      abbreviations: 'pl kb stb ill vö ún ld dr db sz ti max min ford',
     },
     details: 'Megnyitás',
     tool: 'Eszköz: {tool}',

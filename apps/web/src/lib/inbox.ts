@@ -73,22 +73,8 @@ export function inboxHeading(item: InboxItem): string {
 const SHORT_QUESTION_LIMIT = 140;
 /** A question mark later than this in the first line does not end the heading. */
 const QUESTION_MARK_LIMIT = 220;
-const ABBREVIATIONS = [
-  'pl',
-  'kb',
-  'stb',
-  'ill',
-  'vö',
-  'ún',
-  'ld',
-  'dr',
-  'db',
-  'sz',
-  'ti',
-  'max',
-  'min',
-  'ford',
-];
+/** The abbreviations of the UI language, whose full stop does not end a sentence. */
+const abbreviations = () => t('inbox.question.abbreviations').split(' ');
 const LIST_OR_CODE = /^\s*([-*•]|\d+[.)])\s+|^```/;
 const EMPHASIS_OR_LINK = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|\[[^\]]+\]\((https?:\/\/[^)\s]+)\))/g;
 
@@ -146,7 +132,7 @@ function sentenceEnd(line: string): number {
     // Dates and numbered items: "2026. október".
     if (/\d$/.test(before)) continue;
     const word = /(\p{L}+)$/u.exec(before)?.[1] ?? '';
-    if (ABBREVIATIONS.includes(word.toLowerCase())) continue;
+    if (abbreviations().includes(word.toLowerCase())) continue;
     const next = line.slice(cut).trimStart().charAt(0);
     // The next sentence starts with a capital or a mark.
     if (next && !/[\p{Lu}*`„"\d]/u.test(next)) continue;

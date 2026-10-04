@@ -14,6 +14,7 @@ import { nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
 import { reasonText } from './pause';
 import type { PipelineIndex } from './pipeline';
+import { closureTexts, eventClosure } from './sessions';
 
 export interface TimelineContext {
   pipeline: PipelineIndex | null;
@@ -420,8 +421,15 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       );
     case 'session_started':
       return normal(d.resumed ? t('timeline.events.session_resumed') : t('timeline.events.session_started'));
-    case 'session_ended':
-      return normal(t('timeline.events.session_ended'));
+    case 'session_ended': {
+      const closure = eventClosure(d);
+      return normal(
+        closure
+          ? closureTexts(closure, { pipeline: ctx.pipeline, members: ctx.members, myHandle: ctx.myHandle })
+              .event
+          : t('timeline.events.session_ended'),
+      );
+    }
     case 'session_permission_changed': {
       const approver = d.field === 'approver';
       const value = (v: unknown) =>

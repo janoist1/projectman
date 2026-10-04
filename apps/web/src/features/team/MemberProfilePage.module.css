@@ -154,3 +154,8 @@
     margin-left: 0;
   }
 }
+
+/* The reason a past session rests, after its start (PM-296). */
+.closed {
+  color: var(--c-ink-4);
+}

@@ -176,6 +176,7 @@ import type {
   ScheduleRun,
   ServerEvent,
   Session,
+  SessionStop,
   SessionTokensAlert,
   Stage,
   StartBlock,
@@ -1070,6 +1071,8 @@ export class MockBackend {
       lastActivityAt: nowIso(),
       ...(stateChanged ? { stateSince: nowIso() } : {}),
     });
+    // A session that runs again no longer rests: the reason of its last stop goes (PM-288).
+    if (wasEnded && this.isLive(session)) delete session.lastStop;
     if (wasEnded || session.state === 'idle' || session.state === 'waiting_input')
       this.flushTeamMessages(session);
     if (session.workItem.type === 'schedule' && !this.isLive(session)) {
@@ -3741,19 +3744,29 @@ export class MockBackend {
   private stopSession(sessionId: string): MockResponse {
     const session = this.findSession(sessionId);
     if (!session) return error(404, 'not_found', 'Unknown session');
-    this.updateSession(sessionId, { state: 'exited', activity: null, endedAt: nowIso() });
+    this.closeSession(sessionId, { kind: 'manual', by: this.viewerActor() });
+    return ok();
+  }
+
+  /**
+   * Ends a session the way the server does (PM-288, PM-295): the reason is on the session
+   * (`lastStop`) and in the `session_ended` event of its card. The next message continues it.
+   */
+  closeSession(sessionId: string, stop: SessionStop): void {
+    const session = this.findSession(sessionId);
+    if (!session) return;
+    this.updateSession(sessionId, { state: 'exited', activity: null, endedAt: nowIso(), lastStop: stop });
     this.appendChat(sessionId, [this.chatItem('system_note', { text: 'A session leállt.' })]);
     if (session.workItem.type === 'task') {
       this.addTimeline(
         session.workItem.taskKey,
         session.member,
         'session_ended',
-        { member: session.member, exitCode: 0 },
+        { member: session.member, exitCode: 0, stop },
         sessionId,
       );
     }
     this.setMemberState(session.member, 'idle', null);
-    return ok();
   }
 
   private resolve(itemId: string, body: unknown): MockResponse {

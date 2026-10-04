@@ -23,7 +23,7 @@ import type { PlainMessageKey } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile, useMediaQuery } from '../../lib/hooks';
 import { openItemIds, openItemsFor } from '../../lib/inbox';
 import { nameOf } from '../../lib/members';
-import { isLiveSession } from '../../lib/sessions';
+import { closureTexts, isLiveSession, sessionClosure } from '../../lib/sessions';
 import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
 import { nextStepLine } from '../board/NextStep';
 import { openPauses, pausedSessionMap } from '../pause/pauseView';
@@ -108,10 +108,15 @@ function SessionView({ detail }: { detail: SessionDetail }) {
   }, [chat.length, echoes.pending.length, openItems.length, tab]);
 
   const running = isLiveSession(session);
+  const closureContext = { pipeline, members, myHandle };
   const live = liveState(
     session,
     openItems.some((item) => item.kind === 'permission'),
+    closureContext,
   );
+  // A session that rests tells why, and that a message continues it; the pause's line comes first.
+  const closure = sessionClosure(session);
+  const closedNote = closure && !teamPaused ? closureTexts(closure, closureContext).note : undefined;
 
   const taskState =
     task && pipeline
@@ -225,6 +230,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
               : t('session.composer.pausedStopped')
             : undefined
         }
+        closedNote={closedNote}
       />
     </>
   );

@@ -508,7 +508,14 @@ export function MachinePanel({
   );
   if (phone)
     return (
-      <Dialog open title={t('machine.title')} onClose={close} size="lg" className={styles.phoneDialog}>
+      <Dialog
+        open
+        title={t('machine.title')}
+        onClose={onClose}
+        onEscape={close}
+        size="lg"
+        className={styles.phoneDialog}
+      >
         {body}
       </Dialog>
     );

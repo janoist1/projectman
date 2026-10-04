@@ -39,6 +39,8 @@ export function DialogActions({ error, children }: { error?: ReactNode; children
 interface DialogProps {
   open: boolean;
   onClose: () => void;
+  /** A nested confirmation may consume Escape while the close button still closes the dialog. */
+  onEscape?: () => void;
   title: string;
   description?: string;
   children?: ReactNode;
@@ -58,6 +60,7 @@ interface DialogProps {
 export function Dialog({
   open,
   onClose,
+  onEscape,
   title,
   description,
   children,
@@ -70,6 +73,7 @@ export function Dialog({
   return (
     <DialogInner
       onClose={onClose}
+      onEscape={onEscape}
       title={title}
       description={description}
       footer={footer}
@@ -84,6 +88,7 @@ export function Dialog({
 
 function DialogInner({
   onClose,
+  onEscape,
   title,
   description,
   children,
@@ -97,6 +102,8 @@ function DialogInner({
   const descriptionId = useId();
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const onEscapeRef = useRef(onEscape ?? onClose);
+  onEscapeRef.current = onEscape ?? onClose;
   const [errorSlot, setErrorSlot] = useState<HTMLElement | null>(null);
   const [footerSlot, setFooterSlot] = useState<HTMLElement | null>(null);
   const slots = useMemo(() => ({ error: errorSlot, footer: footerSlot }), [errorSlot, footerSlot]);
@@ -124,10 +131,10 @@ function DialogInner({
       aria-describedby={description ? descriptionId : undefined}
       onCancel={(event) => {
         event.preventDefault();
-        onCloseRef.current();
+        onEscapeRef.current();
       }}
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && typeof ref.current?.showModal !== 'function') onCloseRef.current();
+        if (event.key === 'Escape' && typeof ref.current?.showModal !== 'function') onEscapeRef.current();
       }}
       onMouseDown={(event) => {
         if (event.target === ref.current) onCloseRef.current();

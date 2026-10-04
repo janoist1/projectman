@@ -329,6 +329,9 @@ describe('machine display', () => {
     const dialog = await open();
     expect(dialog.tagName).toBe('DIALOG');
     expect(within(dialog).getByRole('group', { name: 'Rendezés' })).toBeTruthy();
+    fireEvent.click(within(dialog).getAllByRole('button', { name: /^Leállítás:/ })[0]!);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Bezárás' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
 

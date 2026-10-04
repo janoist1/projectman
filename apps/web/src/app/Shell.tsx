@@ -19,8 +19,19 @@ import { PlanUsageBadge, PlanUsageMeter } from './PlanUsageMeter';
 import { useProject } from './contexts';
 import styles from './Shell.module.css';
 
-/** The top bar's step as the window narrows: the meters lose their labels (they are gone at 1180). */
-const TIGHT_METERS_QUERY = '(max-width: 1419px)';
+/*
+ * The desktop top bar sheds width in steps, so nothing overlaps (the search field gives way first):
+ *   >= 1600   the Szünet button shows, the plan usage is `full` (two meters per provider)
+ *   1500-1599 the Szünet button is hidden (the account menu has it; CSS in Shell.module.css)
+ *   1280-1499 the plan usage is `peak` (one meter per provider): TIGHT_METERS_QUERY
+ *   1180-1279 as above; the machine meter's button turns into a badge below 1280 (PM-322 adds
+ *             its `(max-width: 1279px)` query here)
+ *   <= 1180   the plan usage and the presence are hidden (CSS)
+ *   <= 900    "Új feladat" is an icon only: COMPACT_NEW_TASK_QUERY
+ *   < 768     the phone header replaces the bar (a plan usage badge, an icon-only new task)
+ */
+const TIGHT_METERS_QUERY = '(max-width: 1499px)';
+const COMPACT_NEW_TASK_QUERY = '(max-width: 900px)';
 
 interface NavItem {
   to: string;
@@ -275,22 +286,22 @@ export function TopBar({
 }) {
   const { key, openNewTask, openPause, can } = useProject();
   const canPause = can.pauseTeam && board !== undefined && openPauses(board.pause).length === 0;
-  // The bar sheds width in steps, so nothing overlaps: the search field gives way first, the Szünet
-  // button leaves (the account menu has it at every width), then the meters lose their labels.
+  // The steps are listed at the top of this file.
   const tightMeters = useMediaQuery(TIGHT_METERS_QUERY);
+  const compactNewTask = useMediaQuery(COMPACT_NEW_TASK_QUERY);
   return (
     <header className={styles.topbar}>
       <ProjectSwitcher currentKey={key} currentName={board?.project.name ?? key} />
       <SearchBox />
       <span className={styles.spacer} />
-      <span className={clsx(styles.hideNarrow, tightMeters && styles.metersTight)}>
+      <span className={clsx(styles.hideNarrow, styles.meters)}>
         {planUsages(board).map(({ provider, usage }) => (
           <PlanUsageMeter
             key={provider}
             provider={provider}
             usage={usage}
             pauseAbove={pauseAbove}
-            compact={tightMeters}
+            variant={tightMeters ? 'peak' : 'full'}
           />
         ))}
       </span>
@@ -304,8 +315,14 @@ export function TopBar({
       ) : null}
       <InboxPill count={inboxCount} />
       {can.createTasks ? (
-        <Button variant="primary" icon="plus" onClick={() => openNewTask()}>
-          {t('topbar.newTask')}
+        <Button
+          variant="primary"
+          icon="plus"
+          iconOnly={compactNewTask}
+          aria-label={compactNewTask ? t('topbar.newTask') : undefined}
+          onClick={() => openNewTask()}
+        >
+          {compactNewTask ? undefined : t('topbar.newTask')}
         </Button>
       ) : null}
     </header>

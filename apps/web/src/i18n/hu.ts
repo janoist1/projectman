@@ -211,6 +211,7 @@ export const hu = {
     yesterday: 'tegnap',
     daysAgo: '{count} napja',
     yesterdayAt: 'tegnap {time}',
+    tomorrowAt: 'holnap {time}',
     dateAt: '{date} {time}',
     todayHeading: 'Ma',
     yesterdayHeading: 'Tegnap',
@@ -245,13 +246,13 @@ export const hu = {
   providers: { claude: 'Claude', codex: 'Codex' },
 
   planUsage: {
-    providerLabel: 'Keret · {provider}',
     fiveHour: '5 óra',
     weekly: 'Hét',
     percent: '{value}%',
     unknown: 'n. a.',
     title: '{provider}-előfizetés: 5 órás keret {fiveHour}, heti keret {weekly}',
     resets: 'Visszaáll: {time}',
+    withReset: '{value} (visszaáll: {time})',
     paused: 'A keret {limit}% fölött van: új AI-munka nem indul.',
     badgeLabel: 'Legmagasabb AI-keret: {percent}. Részletek a Csapat oldalon.',
   },

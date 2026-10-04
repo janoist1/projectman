@@ -249,6 +249,15 @@ describe('member profiles', () => {
     });
     expect(await screen.findByText('Always attach screenshots.')).toBeTruthy();
   });
+  it('shows the plan usage meter of the member in the full variant, without a frame', async () => {
+    const p = mockProject();
+    p.render(page(), '/team/fe-1');
+    const group = await screen.findByRole('group', { name: t('providers.claude') });
+    expect(within(group).getAllByRole('meter')).toHaveLength(2);
+    expect(within(group).getByText(t('planUsage.fiveHour'))).toBeTruthy();
+    expect(within(group).getByText(t('planUsage.weekly'))).toBeTruthy();
+    expect(screen.queryByText(/Keret ·/)).toBeNull();
+  });
   it('starts a general conversation and opens the session', async () => {
     const p = mockProject();
     p.backend.sessions = [];

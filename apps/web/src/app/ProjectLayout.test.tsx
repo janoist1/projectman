@@ -1,5 +1,5 @@
 import styles from './Shell.module.css';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from '../api/client';
@@ -80,6 +80,59 @@ describe('board scroll ownership', () => {
     expect(view.container.querySelector(`.${styles.shell}`)!.classList.contains(styles.boardShell!)).toBe(
       fixed,
     );
+  });
+});
+
+describe('desktop top bar steps', () => {
+  /** A window of this width: every `(max-width: Npx)` query matches when N is at least the width. */
+  function renderAt(width: number) {
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+      matches: Number(/max-width: (\d+)px/.exec(query)?.[1] ?? 0) >= width,
+      media: query,
+      onchange: null,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+      dispatchEvent: () => false,
+    }));
+    const project = mockProject();
+    return project.render(
+      <MeContext.Provider value={project.context.me}>
+        <Routes>
+          <Route path="/p/:projectKey" element={<ProjectLayout />}>
+            <Route index element={<AccessProbe />} />
+          </Route>
+        </Routes>
+      </MeContext.Provider>,
+      '/p/AC',
+    );
+  }
+
+  it.each([
+    [1920, 'full'],
+    [1600, 'full'],
+    [1500, 'full'],
+    [1499, 'peak'],
+    [1280, 'peak'],
+  ] as const)('at %s px the plan usage is %s', async (width, variant) => {
+    renderAt(width);
+    await screen.findAllByRole('group', { name: /Claude|Codex/ });
+    const header = document.querySelector('header')!;
+    const meters = within(header).getAllByRole('meter');
+    const providers = within(header).getAllByRole('group').length;
+    expect(meters).toHaveLength(variant === 'full' ? providers * 2 : providers);
+  });
+
+  it('keeps "Új feladat" with its text above 900 px and shows an icon with the same name at 900 px', async () => {
+    renderAt(901);
+    const labelled = await screen.findByRole('button', { name: t('topbar.newTask') });
+    expect(labelled.textContent).toBe(t('topbar.newTask'));
+    cleanup();
+    renderAt(900);
+    const iconOnly = await screen.findByRole('button', { name: t('topbar.newTask') });
+    expect(iconOnly.textContent).toBe('');
+    expect(iconOnly.getAttribute('aria-label')).toBe(t('topbar.newTask'));
   });
 });
 

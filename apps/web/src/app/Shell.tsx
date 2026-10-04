@@ -24,7 +24,7 @@ import styles from './Shell.module.css';
  *   >= 1600   the Szünet button shows, the plan usage is `full` (two meters per provider)
  *   1500-1599 the Szünet button is hidden (the account menu has it; CSS in Shell.module.css)
  *   1280-1499 the plan usage is `peak` (one meter per provider): TIGHT_METERS_QUERY
- *   1180-1279 as above; the machine meter's button turns into a badge below 1280 (PM-322 adds
+ *   1181-1279 as above; the machine meter's button turns into a badge below 1280 (PM-322 adds
  *             its `(max-width: 1279px)` query here)
  *   <= 1180   the plan usage and the presence are hidden (CSS)
  *   <= 900    "Új feladat" is an icon only: COMPACT_NEW_TASK_QUERY

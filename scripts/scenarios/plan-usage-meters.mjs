@@ -124,6 +124,7 @@ export default async ({ instance, open, shoot, step, log }) => {
     await page.goto(new URL(`/p/AC/team/${aiMember.handle}`, page.url()).href);
     await page.locator('summary', { hasText: TEXT.settings }).click();
     await page.locator('main [role="group"]').first().waitFor();
-    await shoot(page, 'e-profile', { widths: [1512], highlight: 'main [role="group"]' });
+    // No highlight: its outline would cover the bars.
+    await shoot(page, 'e-profile', { widths: [1512] });
   });
 };

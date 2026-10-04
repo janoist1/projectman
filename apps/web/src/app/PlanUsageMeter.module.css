@@ -3,8 +3,10 @@
   gap: 8px;
   flex-shrink: 0;
   align-items: flex-start;
-  /* Only as wide as its meters when the parent is a column. */
+  /* Only as wide as its meters, whether the parent is a flex column or a grid. */
   align-self: flex-start;
+  justify-self: start;
+  width: max-content;
 }
 
 .name {

@@ -39,7 +39,12 @@ export function DialogActions({ error, children }: { error?: ReactNode; children
 interface DialogProps {
   open: boolean;
   onClose: () => void;
-  title: string;
+  title: ReactNode;
+  kicker?: ReactNode;
+  menu?: ReactNode;
+  back?: ReactNode;
+  /** Detail panels focus their heading after showModal, including when the item changes. */
+  focusTitle?: boolean;
   description?: string;
   children?: ReactNode;
   /** The buttons, pinned under the scrolling body: [Cancel] [Primary], the primary one last. */
@@ -65,6 +70,10 @@ export function Dialog({
   error,
   size = 'md',
   className,
+  kicker,
+  menu,
+  back,
+  focusTitle,
 }: DialogProps) {
   if (!open) return null;
   return (
@@ -76,6 +85,10 @@ export function Dialog({
       error={error}
       size={size}
       className={className}
+      kicker={kicker}
+      menu={menu}
+      back={back}
+      focusTitle={focusTitle}
     >
       {children}
     </DialogInner>
@@ -91,11 +104,17 @@ function DialogInner({
   error,
   size = 'md',
   className,
+  kicker,
+  menu,
+  back,
+  focusTitle,
 }: Omit<DialogProps, 'open'>) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const descriptionId = useId();
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const onCloseRef = useRef(onClose);
+  const detailed = focusTitle || kicker !== undefined || menu !== undefined || back !== undefined;
   onCloseRef.current = onClose;
   const [errorSlot, setErrorSlot] = useState<HTMLElement | null>(null);
   const [footerSlot, setFooterSlot] = useState<HTMLElement | null>(null);
@@ -112,9 +131,17 @@ function DialogInner({
     }
     return () => {
       if (typeof dialog.close === 'function' && dialog.open) dialog.close();
-      previous?.focus();
+      if (previous?.isConnected) previous.focus();
+      else
+        document
+          .querySelector<HTMLElement>('[data-settings-content] h2[id^="settings-"]:not(#settings-problems)')
+          ?.focus();
     };
   }, []);
+
+  useEffect(() => {
+    if (focusTitle) titleRef.current?.focus();
+  }, [focusTitle, title]);
 
   return (
     <dialog
@@ -124,9 +151,14 @@ function DialogInner({
       aria-describedby={description ? descriptionId : undefined}
       onCancel={(event) => {
         event.preventDefault();
+        if (focusTitle && ref.current?.querySelector('[role="menu"]')) return;
         onCloseRef.current();
       }}
       onKeyDown={(event) => {
+        if (event.key === 'Escape' && focusTitle && ref.current?.querySelector('[role="menu"]')) {
+          event.preventDefault();
+          return;
+        }
         if (event.key === 'Escape' && typeof ref.current?.showModal !== 'function') onCloseRef.current();
       }}
       onMouseDown={(event) => {
@@ -134,25 +166,42 @@ function DialogInner({
       }}
     >
       <div className={styles.panel}>
-        <header className={styles.header}>
+        <header className={clsx(styles.header, detailed && styles.detailHeader)}>
+          {detailed ? (
+            <div className={styles.detailTop}>
+              <span className={styles.kicker}>{kicker}</span>
+              {menu}
+              <button
+                type="button"
+                className={styles.close}
+                onClick={() => onCloseRef.current()}
+                aria-label={t('common.close')}
+              >
+                <Icon name="close" size={18} />
+              </button>
+            </div>
+          ) : null}
           <div className={styles.titles}>
-            <h2 id={titleId} className={styles.title}>
+            <h2 ref={titleRef} id={titleId} tabIndex={focusTitle ? -1 : undefined} className={styles.title}>
               {title}
             </h2>
+            {back}
             {description ? (
               <p id={descriptionId} className={styles.description}>
                 {description}
               </p>
             ) : null}
           </div>
-          <button
-            type="button"
-            className={styles.close}
-            onClick={() => onCloseRef.current()}
-            aria-label={t('common.close')}
-          >
-            <Icon name="close" size={18} strokeWidth={2} />
-          </button>
+          {!detailed ? (
+            <button
+              type="button"
+              className={styles.close}
+              onClick={() => onCloseRef.current()}
+              aria-label={t('common.close')}
+            >
+              <Icon name="close" size={18} strokeWidth={2} />
+            </button>
+          ) : null}
         </header>
         <SlotsContext.Provider value={slots}>
           {children ? <div className={styles.body}>{children}</div> : null}

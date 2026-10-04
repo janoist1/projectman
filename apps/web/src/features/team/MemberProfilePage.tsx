@@ -273,7 +273,7 @@ export function MemberProfilePage() {
                   t('profile.noInstructions')}
               </pre>
               <p>
-                <Link to={`/p/${key}/settings`}>{t('profile.roleInstructionsEdit')}</Link>
+                <Link to={`/p/${key}/settings/duties`}>{t('profile.roleInstructionsEdit')}</Link>
               </p>
               <h3>{t('profile.ownInstructions')}</h3>
               <pre className={styles.memory}>

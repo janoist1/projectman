@@ -50,6 +50,30 @@
   gap: 4px;
 }
 
+.detailHeader {
+  flex-direction: column;
+  gap: 8px;
+}
+.detailTop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.kicker {
+  flex: 1;
+  min-width: 0;
+  color: var(--c-ink-3);
+  font-size: 12.5px;
+}
+.detailHeader .title {
+  font-size: 19px;
+  overflow-wrap: anywhere;
+}
+.detailHeader .title:focus {
+  outline: none;
+}
+
 .title {
   font-family: var(--font-display);
   font-size: 21px;

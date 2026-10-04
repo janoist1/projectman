@@ -4,7 +4,7 @@ import { getLocale } from '@projectman/templates';
 import { setFetchImplementation } from '../../api/client';
 import { mockProject } from '../../test/mockProject';
 import { t } from '../../i18n/t';
-import { SettingsPage } from './SettingsPage';
+import { SettingsTestRoutes } from './testRoutes';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 async function matrix() {
@@ -14,7 +14,7 @@ async function matrix() {
 describe('duty matrix', () => {
   it('saves a built-in bundle, resets it, and shows coverage by people', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes initialSection="duties" />);
     let region = await matrix();
     const locale = getLocale(project.backend.config.project.language);
     const label = `${locale.duties.research.name}: ${locale.roles.developer.name}`;
@@ -42,7 +42,7 @@ describe('duty matrix', () => {
     project.backend.viewerHandle = 'kata';
     const admin = project.backend.config.team.members.find((m) => m.handle === 'kata')!;
     if (admin.kind === 'human') admin.access = 'admin';
-    project.render(<SettingsPage />, '/', { isOwner: false, myHandle: 'kata' });
+    project.render(<SettingsTestRoutes initialSection="duties" />, '/', { isOwner: false, myHandle: 'kata' });
     const region = await matrix();
     const locale = getLocale(project.backend.config.project.language);
     expect(
@@ -73,7 +73,7 @@ describe('duty matrix', () => {
       duties: ['docs'],
       instructions: '',
     });
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes initialSection="duties" />);
     const region = await matrix();
     const locale = getLocale(project.backend.config.project.language);
     const field = (key: 'summary' | 'notTheirJob' | 'whenToAsk', role: string) =>
@@ -103,7 +103,7 @@ describe('duty matrix', () => {
   });
   it('opens custom role creation from the matrix', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes initialSection="duties" />);
     const region = await matrix();
     fireEvent.click(region.getByRole('button', { name: t('duties.add') }));
     const dialog = within(screen.getByRole('dialog'));
@@ -138,7 +138,7 @@ describe('duty matrix on a phone', () => {
   it('shows one folding card per role and saves the checked duties like the table', async () => {
     onAPhone();
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes initialSection="duties" />);
     const region = await matrix();
     expect(region.queryByRole('table')).toBeNull();
     const locale = getLocale(project.backend.config.project.language);
@@ -163,7 +163,7 @@ describe('duty matrix on a phone', () => {
   it('lists the duties of each person in the people view', async () => {
     onAPhone();
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes initialSection="duties" />);
     const region = await matrix();
     fireEvent.click(region.getByRole('button', { name: t('duties.people') }));
     const owner = project.backend.config.team.members.find((m) => m.handle === 'owner')!;

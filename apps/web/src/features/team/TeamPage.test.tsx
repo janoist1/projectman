@@ -41,7 +41,7 @@ describe('TeamPage role catalogue', () => {
       project.render(<TeamPage />, '/', { can: { manageTeam, createTasks: true, workInSessions: true } });
       expect(await screen.findByText(t('team.aiDisabled'))).toBeTruthy();
       const link = screen.queryByRole('link', { name: t('team.aiDisabledSettings') });
-      if (manageTeam) expect(link?.getAttribute('href')).toBe('/p/AC/settings');
+      if (manageTeam) expect(link?.getAttribute('href')).toBe('/p/AC/settings/limits');
       else expect(link).toBeNull();
     },
   );

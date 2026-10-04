@@ -217,7 +217,8 @@ const isDynamic = (word: string): boolean => word === '' || word.includes('$') |
  *
  * It leans to deny, not to allow: a word that is a variable or a substitution where a git or gh
  * subcommand belongs counts as the denied one. What it cannot follow, and leaves to the CLI's own
- * sandbox: a script file (`bash run.sh`), another interpreter (`python -c`, `node -e`), a variable
+ * sandbox: a pattern that names an ancestor of a denied path (`ls ~/*`) or goes through a symlink,
+ * a script file (`bash run.sh`), another interpreter (`python -c`, `node -e`), a variable
  * assigned in one place and run in another when the line never spells the denied words, and
  * `git` aliases or `gh` extensions set outside the line.
  */

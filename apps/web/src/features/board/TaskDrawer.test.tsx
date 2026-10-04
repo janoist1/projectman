@@ -978,16 +978,21 @@ describe('the Kidolgozás button and the refused Start (decision 31)', () => {
     expect(screen.queryByText(/Kidolgozás: \d+\/\d+ lépés kész/)).toBeNull();
   });
 
-  it('holds the Start back while the configuration loads, and never shows it for a card that is not worked out (PM-291)', async () => {
-    const project = gatedProject(true);
+  /** The rule of the Start needs the configuration: its request waits until the test calls the returned release. */
+  const holdConfig = (project: ReturnType<typeof mockProject>) => {
     let release: () => void = () => {};
     const held = new Promise<void>((resolve) => (release = resolve));
     const answer = createMockFetch(project.backend);
-    // The rule of the Start needs the configuration: its request waits until the test lets it through.
     setFetchImplementation(async (input, init) => {
       if (String(input).endsWith('/config')) await held;
       return answer(String(input), init);
     });
+    return () => release();
+  };
+
+  it('holds the Start back while the configuration loads, and never shows it for a card that is not worked out (PM-291)', async () => {
+    const project = gatedProject(true);
+    const release = holdConfig(project);
     project.render(drawer, '/p/AC/tasks/AC-24');
 
     expect(await screen.findByRole('status')).toBeTruthy();
@@ -998,6 +1003,19 @@ describe('the Kidolgozás button and the refused Start (decision 31)', () => {
     expect(await refineButton()).toBeTruthy();
     await waitFor(() => expect(screen.queryByText(t('task.startLoading'))).toBeNull());
     expectNoStart();
+  });
+
+  it('offers the Start of a card that can be started once the configuration has loaded (PM-291)', async () => {
+    const project = mockProject();
+    const release = holdConfig(project);
+    project.render(drawer, '/p/AC/tasks/AC-24');
+
+    expect(await screen.findByRole('status')).toBeTruthy();
+    expectNoStart();
+
+    release();
+    expect(await screen.findByRole('button', { name: t('task.start') })).toBeTruthy();
+    expect(screen.queryByText(t('task.startLoading'))).toBeNull();
   });
 
   it('offers no Start while the card is being refined, and shows how far it is (PM-291)', async () => {

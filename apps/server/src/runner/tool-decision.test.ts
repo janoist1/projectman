@@ -1,0 +1,588 @@
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { SessionPolicy } from '../contracts';
+import { decideToolCall, resolveToolPath, type NormalizedToolCall, type ToolDecision } from './tool-decision';
+
+type Mode = SessionPolicy['permissions']['claude'];
+const MODES: Mode[] = ['default', 'acceptEdits', 'plan', 'auto'];
+
+// The paths are fixed at load: the describe bodies build their policies before any hook runs.
+const root = realpathSync(mkdtempSync(join(tmpdir(), 'tool-decision-')));
+const home = join(root, 'home');
+const work = join(root, 'work');
+const extra = join(root, 'extra');
+const attachments = join(root, 'attachments');
+const outside = join(root, 'outside');
+
+beforeAll(() => {
+  for (const dir of [
+    join(home, '.ssh'),
+    join(work, '.git'),
+    join(work, 'src'),
+    extra,
+    attachments,
+    outside,
+  ]) {
+    mkdirSync(dir, { recursive: true });
+  }
+  writeFileSync(join(home, '.ssh', 'id_ed25519'), 'secret');
+  writeFileSync(join(home, 'credentials.json'), '{}');
+  symlinkSync(join(home, '.ssh'), join(work, 'ssh-link'));
+  symlinkSync(join(home, '.ssh', 'new-key'), join(work, 'dangling'));
+  symlinkSync(outside, join(work, 'outside-link'));
+});
+
+afterAll(() => {
+  rmSync(root, { recursive: true, force: true });
+});
+
+function policyFor(mode: Mode, patch: Partial<SessionPolicy> = {}): SessionPolicy {
+  return {
+    version: 1,
+    enforcement: 'legacy',
+    access: 'task_worktree',
+    placement: { kind: 'task_worktree', path: work },
+    tools: {
+      team: { all: true, names: [] },
+      files: [],
+      shell: [
+        { command: 'git status', arguments: 'prefix' },
+        { command: 'npm test', arguments: 'prefix' },
+        { command: 'npm install', arguments: 'exact' },
+      ],
+    },
+    filesystem: {
+      readableRoots: [work, extra],
+      writableRoots: [work],
+      protectedPaths: [join(work, '.git')],
+      readOnlyPaths: [attachments],
+      deniedPaths: [join(home, '.ssh'), join(home, 'credentials.json')],
+    },
+    deniedOperations: ['git_push', 'pull_request_create', 'pull_request_merge'],
+    network: {
+      allowedDomains: ['registry.npmjs.org', '*.github.com'],
+      allowLocalBinding: false,
+      deniedHosts: ['localhost', '127.0.0.1'],
+    },
+    outsideSandbox: 'ask',
+    permissions: {
+      claude: mode,
+      sandbox: mode === 'plan' ? 'read-only' : 'workspace-write',
+      approval: mode === 'plan' ? 'never' : 'on-request',
+    },
+    ...patch,
+  };
+}
+
+const reader = (mode: Mode): SessionPolicy =>
+  policyFor(mode, {
+    access: 'review_copy',
+    placement: {
+      kind: 'review_copy',
+      path: work,
+      gitDir: join(root, 'git'),
+      sourceCommit: 'abc',
+      roundId: 'r1',
+    },
+  });
+
+const decide = (policy: SessionPolicy, call: NormalizedToolCall): ToolDecision =>
+  decideToolCall(policy, call, { home });
+const command = (line: string, sandboxed?: boolean): NormalizedToolCall => ({
+  category: 'command',
+  paths: [],
+  command: line,
+  ...(sandboxed === undefined ? {} : { sandboxed }),
+});
+const read = (...paths: string[]): NormalizedToolCall => ({ category: 'read', paths });
+const edit = (...paths: string[]): NormalizedToolCall => ({ category: 'edit', paths });
+const web = (host: string, category: 'web' | 'browser' = 'web'): NormalizedToolCall => ({
+  category,
+  paths: [],
+  host,
+});
+const denied = (reason: string): ToolDecision => ({ decision: 'deny', reason }) as ToolDecision;
+const ALLOW: ToolDecision = { decision: 'allow' };
+const ASK: ToolDecision = { decision: 'ask' };
+
+describe('resolveToolPath', () => {
+  it('makes a relative path absolute and takes ".." out', () => {
+    expect(resolveToolPath(work, 'src/../src/a.ts', home)).toBe(join(work, 'src', 'a.ts'));
+    expect(resolveToolPath(work, '../extra/x', home)).toBe(join(root, 'extra', 'x'));
+  });
+
+  it('expands "~" to the home directory', () => {
+    expect(resolveToolPath(work, '~', home)).toBe(home);
+    expect(resolveToolPath(work, '~/.ssh/id_ed25519', home)).toBe(join(home, '.ssh', 'id_ed25519'));
+  });
+
+  it('follows a symlink in the working tree to where it really points', () => {
+    expect(resolveToolPath(work, 'ssh-link/id_ed25519', home)).toBe(join(home, '.ssh', 'id_ed25519'));
+    // The tail does not exist yet: the deepest existing ancestor is still resolved.
+    expect(resolveToolPath(work, 'ssh-link/not/yet/there', home)).toBe(
+      join(home, '.ssh', 'not', 'yet', 'there'),
+    );
+  });
+
+  it('follows a dangling symlink to the file a write would create', () => {
+    expect(resolveToolPath(work, 'dangling', home)).toBe(join(home, '.ssh', 'new-key'));
+  });
+
+  it('keeps a path that does not exist at all as written', () => {
+    expect(resolveToolPath(work, 'nothing/here.txt', home)).toBe(join(work, 'nothing', 'here.txt'));
+  });
+});
+
+describe('row 1: denied paths, in every mode', () => {
+  for (const mode of MODES) {
+    describe(mode, () => {
+      const policy = policyFor(mode);
+      it.each([
+        ['read', read(join(home, '.ssh', 'id_ed25519'))],
+        ['edit', edit(join(home, '.ssh', 'authorized_keys'))],
+        ['read of the denied file itself', read(join(home, 'credentials.json'))],
+        ['read through "~"', read('~/.ssh/id_ed25519')],
+        ['read through "..""', read(join(work, '..', 'home', '.ssh', 'id_ed25519'))],
+        ['read through a symlink in the working tree', read(join(work, 'ssh-link', 'id_ed25519'))],
+        ['edit through a dangling symlink', edit(join(work, 'dangling'))],
+        ['a command naming the path', command(`cat ${join(home, '.ssh', 'id_ed25519')}`, true)],
+        ['a command naming it with "~"', command('cat ~/.ssh/id_ed25519', true)],
+        ['a command naming it with $HOME', command('cat $HOME/.ssh/id_ed25519', true)],
+        ['a command reading it by redirection', command(`wc -c < ${join(home, '.ssh', 'id_ed25519')}`, true)],
+        ['a command with it in an option value', command(`tar --file=${join(home, '.ssh')} x`, true)],
+        ['a command with it in a quoted script', command(`bash -c 'cat ~/.ssh/id_ed25519'`, true)],
+        ['a command through a symlink', command('cat ssh-link/id_ed25519', true)],
+        ['a command through ".."', command('cat ../home/.ssh/id_ed25519', true)],
+        ['a command that is allowed by a shell rule', command('git status ~/.ssh/id_ed25519')],
+        [
+          'the MCP team tool path',
+          { category: 'team_mcp', paths: [join(home, '.ssh', 'x')], mcpTool: 'mcp__team__get_task' },
+        ],
+      ] as Array<[string, NormalizedToolCall]>)('denies %s', (_name, call) => {
+        expect(decide(policy, call)).toEqual(denied('denied_path'));
+      });
+
+      it('denies it in a reading placement too', () => {
+        expect(decide(reader(mode), read(join(home, '.ssh', 'id_ed25519')))).toEqual(denied('denied_path'));
+      });
+
+      it('does not deny a sibling that only shares the name prefix', () => {
+        expect(decide(policy, read(join(home, '.ssh-other', 'x')))).toEqual(ASK);
+        expect(decide(policy, command(`cat ${join(home, '.ssh-other')}`, true))).not.toEqual(
+          denied('denied_path'),
+        );
+      });
+    });
+  }
+});
+
+describe('row 2: denied operations', () => {
+  const disguised = [
+    'git push',
+    'git push origin main',
+    'cd x && git push',
+    'cd x || git push',
+    'true; git push',
+    'echo a | git push',
+    'git -C x push',
+    'git -c user.name=a -C x push',
+    'git --git-dir=x/.git push',
+    'git --git-dir x/.git --no-pager push',
+    "git -c 'alias.p=push' p",
+    'bash -c "git push"',
+    "bash -c 'git push'",
+    "sh -c 'cd x && git push'",
+    "bash -lc 'git push'",
+    'zsh -c \'bash -c "git push"\'',
+    'echo $(git push)',
+    'echo "$(git push)"',
+    'echo `git push`',
+    'diff <(git push) x',
+    '(git push)',
+    'env A=1 git push',
+    'env -i A=1 git push',
+    'command git push',
+    'exec git push',
+    'sudo git push',
+    'xargs git push',
+    'find . -exec git push {} \\;',
+    '/usr/bin/git push',
+    '"git" push',
+    '\\git push',
+    "eval 'git push'",
+    'eval git push',
+    'git pu""sh',
+    'echo hi\ngit push',
+  ];
+  const publishing = [
+    'gh pr create --title x',
+    'gh pr merge 12',
+    'gh -R owner/repo pr create',
+    'gh --repo owner/repo pr merge 1',
+    'gh pr -R owner/repo create',
+    "bash -c 'gh pr create'",
+    'cd x && env GH_TOKEN=1 gh pr merge 3',
+  ];
+
+  for (const mode of MODES) {
+    describe(mode, () => {
+      const policy = policyFor(mode);
+      it.each([...disguised, ...publishing])('denies %j', (line) => {
+        expect(decide(policy, command(line, true))).toEqual(denied('denied_operation'));
+        expect(decide(policy, command(line, false))).toEqual(denied('denied_operation'));
+      });
+
+      it.each([
+        'git status',
+        'git commit -m "do not git push yet"',
+        "git log --grep='git push'",
+        'echo gh pr',
+        'gh pr view 3',
+        'gh pr list',
+        'git pull',
+        'git -C x status',
+        'npm run push',
+      ])('does not take %j for a denied operation', (line) => {
+        expect(decide(policy, command(line, true))).not.toEqual(denied('denied_operation'));
+      });
+    });
+  }
+
+  it('denies only what the policy denies', () => {
+    const policy = policyFor('default', { deniedOperations: ['pull_request_merge'] });
+    expect(decide(policy, command('git push', true))).not.toEqual(denied('denied_operation'));
+    expect(decide(policy, command('gh pr create', true))).not.toEqual(denied('denied_operation'));
+    expect(decide(policy, command('cd x && gh pr merge 1', true))).toEqual(denied('denied_operation'));
+  });
+
+  it('does not trust a line nested deeper than it follows', () => {
+    let line = 'git status';
+    for (let i = 0; i < 12; i += 1) line = `bash -c '${line.replace(/'/g, `'\\''`)}'`;
+    expect(decide(policyFor('auto'), command(line, true))).toEqual(denied('denied_operation'));
+  });
+});
+
+describe('row 3: denied hosts', () => {
+  for (const mode of MODES) {
+    describe(mode, () => {
+      const policy = policyFor(mode);
+      it.each([
+        'localhost',
+        'LOCALHOST',
+        'localhost:4800',
+        '127.0.0.1',
+        '127.0.0.1:4800',
+        '[::1]:4800',
+        '0.0.0.0',
+        'app.localhost',
+        '127.1.2.3',
+      ])('denies the web tool and the browser for %s', (host) => {
+        expect(decide(policy, web(host))).toEqual(denied('denied_host'));
+        expect(decide(policy, web(host, 'browser'))).toEqual(denied('denied_host'));
+      });
+
+      it('denies a host even when the allowed domains name it', () => {
+        const both = policyFor(mode, {
+          network: { allowedDomains: ['localhost'], allowLocalBinding: true, deniedHosts: ['localhost'] },
+        });
+        expect(decide(both, web('localhost'))).toEqual(denied('denied_host'));
+      });
+
+      it('does not mistake a host that only ends like a denied one', () => {
+        expect(decide(policy, web('notlocalhost.example.com'))).toEqual(ASK);
+      });
+    });
+  }
+});
+
+describe('row 4: read', () => {
+  for (const mode of MODES) {
+    describe(mode, () => {
+      for (const [name, policy] of [
+        ['a working placement', policyFor(mode)],
+        ['a reading placement', reader(mode)],
+      ] as const) {
+        it(`allows paths under the readable, writable and read-only roots (${name})`, () => {
+          expect(decide(policy, read(join(work, 'src', 'a.ts')))).toEqual(ALLOW);
+          expect(decide(policy, read(join(extra, 'a.ts'), join(work, 'b.ts')))).toEqual(ALLOW);
+          expect(decide(policy, read(join(attachments, 'a.pdf')))).toEqual(ALLOW);
+          expect(decide(policy, read('src/a.ts'))).toEqual(ALLOW);
+          expect(decide(policy, read('../extra/a.ts'))).toEqual(ALLOW);
+        });
+
+        it(`asks when any path is outside them (${name})`, () => {
+          expect(decide(policy, read(join(outside, 'a.txt')))).toEqual(ASK);
+          expect(decide(policy, read(join(work, 'a.ts'), join(outside, 'a.txt')))).toEqual(ASK);
+          expect(decide(policy, read(join(work, '..', 'outside', 'a.txt')))).toEqual(ASK);
+          expect(decide(policy, read(join(work, 'outside-link', 'a.txt')))).toEqual(ASK);
+          expect(decide(policy, read('/etc/hosts'))).toEqual(ASK);
+        });
+      }
+
+      it('asks for a read that names no path', () => {
+        expect(decide(policyFor(mode), read())).toEqual(ASK);
+      });
+
+      it('does not read a root that is only a name prefix of the path', () => {
+        expect(decide(policyFor(mode), read(`${work}-copy/a.ts`))).toEqual(ASK);
+      });
+    });
+  }
+
+  it('reads a path inside a root that is itself a symlink', () => {
+    const link = join(root, 'extra-link');
+    symlinkSync(extra, link);
+    const policy = policyFor('default', {
+      filesystem: { readableRoots: [link], writableRoots: [], protectedPaths: [] },
+    });
+    expect(decide(policy, read(join(extra, 'a.ts')))).toEqual(ALLOW);
+    expect(decide(policy, read(join(link, 'a.ts')))).toEqual(ALLOW);
+  });
+});
+
+describe('row 5: team tools', () => {
+  const tool = (name: string): NormalizedToolCall => ({ category: 'team_mcp', paths: [], mcpTool: name });
+  for (const mode of MODES) {
+    describe(mode, () => {
+      it('allows every team tool when the policy grants all', () => {
+        expect(decide(policyFor(mode), tool('mcp__team__send_message'))).toEqual(ALLOW);
+        expect(decide(reader(mode), tool('mcp__team__get_task'))).toEqual(ALLOW);
+      });
+
+      const named = policyFor(mode, {
+        tools: { team: { all: false, names: ['get_task', 'send_message'] }, files: [], shell: [] },
+      });
+      it('allows only the named tools otherwise', () => {
+        expect(decide(named, tool('mcp__team__get_task'))).toEqual(ALLOW);
+        expect(decide(named, tool('mcp__team__send_message'))).toEqual(ALLOW);
+        expect(decide(named, tool('mcp__team__update_task'))).toEqual(denied('not_granted'));
+        expect(decide(named, tool('mcp__team__get_task_extra'))).toEqual(denied('not_granted'));
+      });
+
+      it('does not grant a tool of another server by its name', () => {
+        expect(decide(named, tool('mcp__other__get_task'))).toEqual(denied('not_granted'));
+        expect(decide(named, { category: 'team_mcp', paths: [] })).toEqual(denied('not_granted'));
+      });
+    });
+  }
+});
+
+describe('row 6: edit', () => {
+  const inWork = edit(join(work, 'src', 'a.ts'));
+  it.each([
+    ['default', ASK],
+    ['acceptEdits', ALLOW],
+    ['plan', denied('plan_mode')],
+    ['auto', ALLOW],
+  ] as Array<[Mode, ToolDecision]>)('in %s mode inside the writable roots', (mode, expected) => {
+    expect(decide(policyFor(mode), inWork)).toEqual(expected);
+    expect(decide(policyFor(mode), edit('src/a.ts'))).toEqual(expected);
+    expect(decide(policyFor(mode), edit(join(work, 'new', 'deep', 'a.ts')))).toEqual(expected);
+  });
+
+  for (const mode of MODES) {
+    describe(mode, () => {
+      const policy = policyFor(mode);
+      const expectedHere = (here: ToolDecision) => (mode === 'plan' ? denied('plan_mode') : here);
+
+      it('asks for a path outside the writable roots', () => {
+        expect(decide(policy, edit(join(outside, 'a.txt')))).toEqual(expectedHere(ASK));
+        expect(decide(policy, edit(join(extra, 'a.txt')))).toEqual(expectedHere(ASK));
+        expect(decide(policy, edit(join(work, '..', 'outside', 'a.txt')))).toEqual(expectedHere(ASK));
+        expect(decide(policy, edit(join(work, 'outside-link', 'a.txt')))).toEqual(expectedHere(ASK));
+        expect(decide(policy, edit(join(work, 'a.ts'), join(outside, 'a.txt')))).toEqual(expectedHere(ASK));
+      });
+
+      it('asks for a protected path, even inside the writable roots', () => {
+        expect(decide(policy, edit(join(work, '.git', 'config')))).toEqual(expectedHere(ASK));
+        expect(decide(policy, edit(join(work, 'a.ts'), join(work, '.git', 'hooks', 'x')))).toEqual(
+          expectedHere(ASK),
+        );
+      });
+
+      it('denies a path under the read-only paths', () => {
+        const expected = mode === 'plan' ? denied('plan_mode') : denied('read_only_placement');
+        expect(decide(policy, edit(join(attachments, 'a.pdf')))).toEqual(expected);
+        expect(decide(policy, edit(join(work, 'a.ts'), join(attachments, 'a.pdf')))).toEqual(expected);
+      });
+
+      it('denies every edit in a reading placement, whatever the path', () => {
+        const expected = mode === 'plan' ? denied('plan_mode') : denied('read_only_placement');
+        expect(decide(reader(mode), inWork)).toEqual(expected);
+        expect(decide(reader(mode), edit(join(outside, 'a.txt')))).toEqual(expected);
+        expect(decide(policyFor(mode, { access: 'read_only' }), inWork)).toEqual(expected);
+      });
+
+      it('asks for an edit that names no path', () => {
+        expect(decide(policy, edit())).toEqual(expectedHere(ASK));
+      });
+    });
+  }
+
+  it('treats a review copy with the strict test opt-in as a working placement', () => {
+    const policy = policyFor('acceptEdits', {
+      access: 'review_copy',
+      enforcement: 'strict',
+      reviewCopyMode: 'test',
+      placement: {
+        kind: 'review_copy',
+        path: work,
+        gitDir: join(root, 'git'),
+        sourceCommit: 'abc',
+        roundId: 'r1',
+      },
+    });
+    expect(decide(policy, edit(join(work, 'a.ts')))).toEqual(ALLOW);
+  });
+
+  it('treats bypassPermissions as default', () => {
+    expect(decide(policyFor('bypassPermissions'), inWork)).toEqual(ASK);
+  });
+});
+
+describe('row 7: command', () => {
+  describe('the shell rules', () => {
+    for (const mode of MODES) {
+      describe(mode, () => {
+        const policy = policyFor(mode);
+        it('allows a simple command that matches a prefix rule, with or without arguments', () => {
+          for (const sandboxed of [true, false, undefined]) {
+            expect(decide(policy, command('git status', sandboxed))).toEqual(ALLOW);
+            expect(decide(policy, command('git status -sb', sandboxed))).toEqual(ALLOW);
+            expect(decide(policy, command('  npm   test   -- --run ', sandboxed))).toEqual(ALLOW);
+            expect(decide(policy, command('git status "src/a b.ts"', sandboxed))).toEqual(ALLOW);
+          }
+        });
+
+        it('allows an exact rule only without arguments', () => {
+          expect(decide(policy, command('npm install'))).toEqual(ALLOW);
+          if (mode !== 'auto')
+            expect(decide(policy, command('npm install left-pad', true))).not.toEqual(ALLOW);
+          expect(decide(policy, command('npm install left-pad', false))).not.toEqual(ALLOW);
+        });
+
+        it('does not match a rule at a word boundary it is not on', () => {
+          expect(decide(policy, command('git statusx', false))).not.toEqual(ALLOW);
+          expect(decide(policy, command('git status-all', false))).not.toEqual(ALLOW);
+          expect(decide(policy, command('npm tests', false))).not.toEqual(ALLOW);
+        });
+
+        it.each([
+          'git status && rm -rf x',
+          'git status; rm -rf x',
+          'git status || rm -rf x',
+          'git status | sh',
+          'git status & rm x',
+          'git status > out.txt',
+          'git status < in.txt',
+          'git status $(rm x)',
+          'git status `rm x`',
+          'git status $HOME',
+          'git status\nrm x',
+          'git status (x)',
+          'git status {a,b}',
+          'git status \\; rm',
+          'npm test && npm publish',
+        ])('does not match a rule with %j', (line) => {
+          expect(decide(policy, command(line, false))).not.toEqual(ALLOW);
+          if (mode !== 'auto') expect(decide(policy, command(line, true))).not.toEqual(ALLOW);
+        });
+
+        it('lets the policy denied-operation row win over a rule', () => {
+          const withPush = policyFor(mode, {
+            tools: {
+              team: { all: true, names: [] },
+              files: [],
+              shell: [{ command: 'git', arguments: 'prefix' }],
+            },
+          });
+          expect(decide(withPush, command('git push'))).toEqual(denied('denied_operation'));
+          expect(decide(withPush, command('git log'))).toEqual(ALLOW);
+        });
+      });
+    }
+
+    it('allows a matching rule in plan mode too', () => {
+      expect(decide(policyFor('plan'), command('git status', false))).toEqual(ALLOW);
+    });
+  });
+
+  describe('the other commands', () => {
+    it('plan mode denies', () => {
+      expect(decide(policyFor('plan'), command('make build', true))).toEqual(denied('plan_mode'));
+      expect(decide(policyFor('plan'), command('make build', false))).toEqual(denied('plan_mode'));
+      expect(decide(policyFor('plan'), command('make build'))).toEqual(denied('plan_mode'));
+    });
+
+    it('auto mode allows a sandboxed command', () => {
+      expect(decide(policyFor('auto'), command('make build', true))).toEqual(ALLOW);
+      expect(decide(policyFor('auto'), command('make build && make test', true))).toEqual(ALLOW);
+    });
+
+    it.each(['default', 'acceptEdits'] as Mode[])('%s mode asks about a sandboxed command', (mode) => {
+      expect(decide(policyFor(mode), command('make build', true))).toEqual(ASK);
+    });
+
+    it.each(['default', 'acceptEdits', 'auto'] as Mode[])(
+      '%s mode asks about an unsandboxed command when outside the sandbox may ask',
+      (mode) => {
+        expect(decide(policyFor(mode), command('make build', false))).toEqual(ASK);
+        expect(decide(policyFor(mode), command('make build'))).toEqual(ASK);
+      },
+    );
+
+    it.each(MODES.filter((mode) => mode !== 'plan'))(
+      '%s mode denies an unsandboxed command when outside the sandbox is denied',
+      (mode) => {
+        const strict = policyFor(mode, { outsideSandbox: 'deny' });
+        expect(decide(strict, command('make build', false))).toEqual(denied('not_granted'));
+        expect(decide(strict, command('make build'))).toEqual(denied('not_granted'));
+      },
+    );
+
+    it('still lets a sandboxed command ask or run when outside the sandbox is denied', () => {
+      expect(decide(policyFor('default', { outsideSandbox: 'deny' }), command('make', true))).toEqual(ASK);
+      expect(decide(policyFor('auto', { outsideSandbox: 'deny' }), command('make', true))).toEqual(ALLOW);
+    });
+
+    it('treats a command with no line like an unknown one', () => {
+      expect(decide(policyFor('default'), { category: 'command', paths: [] })).toEqual(ASK);
+    });
+
+    it('treats bypassPermissions as default', () => {
+      expect(decide(policyFor('bypassPermissions'), command('make', true))).toEqual(ASK);
+    });
+  });
+});
+
+describe('row 8: web and browser', () => {
+  for (const mode of MODES) {
+    describe(mode, () => {
+      const policy = policyFor(mode);
+      it.each(['web', 'browser'] as const)('allows an allowed domain (%s)', (category) => {
+        expect(decide(policy, web('registry.npmjs.org', category))).toEqual(ALLOW);
+        expect(decide(policy, web('Registry.NPMJS.org:443', category))).toEqual(ALLOW);
+        expect(decide(policy, web('api.github.com', category))).toEqual(ALLOW);
+      });
+
+      it.each(['web', 'browser'] as const)('asks about any other host (%s)', (category) => {
+        expect(decide(policy, web('example.com', category))).toEqual(ASK);
+        expect(decide(policy, web('evilregistry.npmjs.org.example.com', category))).toEqual(ASK);
+        expect(decide(policy, web('github.com', category))).toEqual(ASK);
+        expect(decide(policy, { category, paths: [] })).toEqual(ASK);
+      });
+    });
+  }
+});
+
+describe('row 9: other MCP tools and unknown calls', () => {
+  for (const mode of MODES) {
+    it(`asks in ${mode} mode`, () => {
+      expect(decide(policyFor(mode), { category: 'mcp', paths: [], mcpTool: 'mcp__other__do' })).toEqual(ASK);
+      expect(decide(policyFor(mode), { category: 'unknown', paths: [] })).toEqual(ASK);
+      expect(decide(reader(mode), { category: 'unknown', paths: [] })).toEqual(ASK);
+    });
+  }
+});

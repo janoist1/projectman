@@ -38,7 +38,6 @@
 
 .segment[data-state='done'] {
   opacity: 1;
-  background: var(--c-ok);
 }
 
 .segment[data-state='held'] {
@@ -63,7 +62,7 @@
 }
 
 .toggle:hover {
-  background: rgba(0, 0, 0, 0.05);
+  background: color-mix(in srgb, var(--phase-text) 10%, transparent);
 }
 
 .chevron {
@@ -96,7 +95,18 @@
   gap: 8px;
   font-size: 12.5px;
   line-height: 18px;
+  color: var(--c-ink-2);
+}
+
+/* The step on turn (or standing still) is the one to see at a glance. */
+.step[data-state='current'],
+.step[data-state='held'] {
+  font-weight: 700;
   color: var(--c-ink);
+}
+
+.stepDetail {
+  font-weight: 400;
 }
 
 .mark {

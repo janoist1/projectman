@@ -8,6 +8,7 @@
  *   b. a card that is being refined: the standing in the status line, the steps closed and open
  *   c. a card that can be started: the Start and "Ki vigye?"
  *   d. the same card while AI work is switched off: the Start is disabled, with a note
+ *   e. a member working on a card that is being refined, narrow (the worker's sentence with its detail line)
  *
  *   npm run shots -- scripts/scenarios/start-block.mjs [--widths 1512,390]
  */
@@ -92,6 +93,32 @@ export default async ({ instance, open, shoot, step, log }) => {
     const page = await open({ path: `/p/AC/tasks/${startable}` });
     await page.getByRole('button', { name: TEXT.start, exact: true }).waitFor();
     await shoot(page, 'c-startable', { widths: WIDTHS });
+  });
+
+  // A member working on a card that is being refined: the worker's sentence has a detail line, and the
+  // refinement row stands under it (the narrow width is where the status line wrapped, PM-291 UI/UX review).
+  await step('e. a member works on the card being refined, narrow', async () => {
+    const worker = (await instance.api('/api/projects/AC/members')).find(
+      (member) => member.kind === 'ai' && member.role === 'developer',
+    );
+    const working = await card('Show stock levels', ['ui', 'refine', 'scope-ok']);
+    const sessionId = await instance.startSession('AC', working, worker.handle);
+    await instance.waitIdle('AC', sessionId);
+    await instance.setFakeCalls([
+      {
+        tool: 'set_current_work',
+        arguments: {
+          summary: 'plans the stock level badges',
+          detail: 'Compares the badge on the product page with the one in the basket.',
+        },
+      },
+    ]);
+    await instance.say('AC', sessionId, 'CALLS please');
+    await instance.waitIdle('AC', sessionId);
+    const page = await open({ path: `/p/AC/tasks/${working}`, width: 390 });
+    await text(page, TEXT.progress);
+    await toggle(page).click();
+    await shoot(page, 'e-working-steps', { widths: [390] });
   });
 
   await step('d. AI work is switched off', async () => {

@@ -1012,6 +1012,22 @@ describe('the Kidolgozás button and the refused Start (decision 31)', () => {
     expect(screen.getByText(t('taskStatus.refinement.nextHere'))).toBeTruthy();
   });
 
+  it('says a step waits for the system when only the system sets its label (PM-291)', async () => {
+    const project = gatedProject(true);
+    project.backend.findTask('AC-24')!.labels = ['refine'];
+    project.backend.config.pipeline.labels = project.backend.config.pipeline.labels.map((label) =>
+      label.id === 'scope-ok' ? { ...label, setBy: 'system' as const } : label,
+    );
+    project.render(drawer, '/p/AC/tasks/AC-24');
+
+    fireEvent.click(await screen.findByRole('button', { name: t('taskStatus.refinement.steps') }));
+
+    const list = await screen.findByRole('list', { name: t('taskStatus.refinement.stepsList') });
+    const [step] = within(list).getAllByRole('listitem');
+    expect(step!.textContent).toContain(t('taskStatus.refinement.stepSystem'));
+    expect(step!.textContent).not.toContain(t('taskStatus.refinement.stepHeld', { labels: '' }).trim());
+  });
+
   it('offers no Start nor a button the viewer may not use: the label is set by the system (PM-291)', async () => {
     const project = gatedProject(true);
     project.backend.config.pipeline.labels = project.backend.config.pipeline.labels.map((label) =>

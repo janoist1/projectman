@@ -53,7 +53,10 @@ export function RefinementRow({
         : null;
     }
     if (state === 'held' && turn.kind === 'blocked')
-      return t('taskStatus.refinement.stepHeld', { labels: quoted(turn.label) });
+      // The step itself waits for a label only the system sets; otherwise a label on the card holds it.
+      return turn.label === steps[index]!.label
+        ? t('taskStatus.refinement.stepSystem')
+        : t('taskStatus.refinement.stepHeld', { labels: quoted(turn.label) });
     return null;
   };
   const targetName = targetStageId ? pipeline.stageById.get(targetStageId)?.name : undefined;
@@ -100,7 +103,7 @@ export function RefinementRow({
                     </span>
                     <span>
                       {quoted(step.label)}
-                      {detail ? ` · ${detail}` : ''}
+                      {detail ? <span className={styles.stepDetail}>{` · ${detail}`}</span> : null}
                       <span className="visually-hidden">{`, ${t(`taskStatus.refinement.stepState.${state}`)}`}</span>
                     </span>
                   </li>

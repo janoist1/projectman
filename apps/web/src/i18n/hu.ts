@@ -773,6 +773,7 @@ export const hu = {
       stepsList: 'A kidolgozás lépései',
       stepTurn: 'soron: {names}',
       stepHeld: 'áll, amíg rajta van: {labels}',
+      stepSystem: 'a rendszerre vár',
       stepState: { done: 'kész', current: 'soron', held: 'áll', todo: 'hátra' },
       next: 'Ha minden lépés kész, a kártya magától továbblép: {stage}. Onnan indítható.',
       nextHere: 'Ha minden lépés kész, indítható.',

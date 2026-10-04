@@ -26,6 +26,7 @@ import {
 } from './managed-vm';
 import type { ProviderAdapter } from './providers/types';
 import { createProviderAdapters, type ProviderAdapters } from './providers';
+import { pipeSpawn } from './pipe-spawn';
 import { AgentSession, UUID_RE } from './session';
 
 /** What pausing a session that is not running reports (nothing to wait for, no event). */
@@ -72,6 +73,10 @@ export class SessionManager implements SessionRunner {
     this.opts = opts;
     this.log = opts.logger;
     this.adapters = adapters;
+    if (opts.terminal === 'pipe')
+      this.log.warn(
+        'sessions run without a terminal (PROJECTMAN_TERMINAL=pipe): only the fake CLIs work this way',
+      );
   }
 
   async start(spec: StartSessionSpec): Promise<RunningSessionInfo> {
@@ -119,6 +124,7 @@ export class SessionManager implements SessionRunner {
         emit: (event) => this.emit(event),
         onExited: (exited) => this.retire(exited),
         onAuthError: () => this.statuses.delete(provider),
+        ...(this.opts.terminal === 'pipe' ? { spawnPty: pipeSpawn } : {}),
       },
     });
 

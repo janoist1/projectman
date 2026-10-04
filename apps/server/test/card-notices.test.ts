@@ -12,6 +12,7 @@ describe('notices to the members working on a card', () => {
   let h: DomainHarness;
   const task = { type: 'task', taskKey: 'AR-1' } as const;
   const OWNER_RESOLVER = { handle: 'owner', access: 'owner' } as const;
+  const PAUSE_BY = { userId: null, source: 'system' } as const;
   const TAIL =
     "Coordinate by send_message with the members it concerns, and do not overwrite each other's part.";
 
@@ -265,6 +266,29 @@ describe('notices to the members working on a card', () => {
           '[team message from owner about AR-1]\nStatus?',
         ].join('\n\n'),
       ]);
+    });
+
+    it('says nothing when a session starts again after a pause that cut it mid-turn', async () => {
+      const { dev1, dev2 } = await threeWorkers();
+      const before = typedInto(dev1).length;
+      const started = h.runner.started.length;
+      h.runner.pauseOutcomes.set(dev2.id, { point: 'before_tool', tool: 'Bash' });
+      await h.domain.pauses.pause({ scope: 'instance' }, PAUSE_BY);
+      // Its process leaves with the pause, as at a shutdown.
+      h.runner.emit({ type: 'transcript_path', sessionId: dev2.id, path: '/fake/transcript.jsonl' });
+      h.runner.emit({ type: 'exit', sessionId: dev2.id, exitCode: 0, signal: null });
+      await flush();
+
+      await h.domain.pauses.resume({ scope: 'instance' }, PAUSE_BY);
+      await flush();
+
+      expect(h.runner.started).toHaveLength(started + 1);
+      expect(h.runner.lastStarted()).toMatchObject({ sessionId: dev2.id, resume: true });
+      expect(
+        typedInto(dev1)
+          .slice(before)
+          .filter((text) => text.includes(TAIL)),
+      ).toEqual([]);
     });
 
     it('says nothing for a question without a card or on a closed card', async () => {

@@ -337,7 +337,11 @@ export class Messaging {
       .cardWorkers(task.projectKey, task, config)
       .filter((worker) => worker.member !== item.source);
     if (workers.length === 0) return;
-    const question = typeof item.payload.question === 'string' ? item.payload.question : item.title;
+    // The same question the card thread shows (`toCardQuestion`): a blank one falls back to the title.
+    const question =
+      typeof item.payload.question === 'string' && item.payload.question.trim()
+        ? item.payload.question
+        : item.title;
     const answer = answerText(item);
     const cut =
       Array.from(question).length > QUESTION_NOTICE_LIMIT || Array.from(answer).length > ANSWER_NOTICE_LIMIT;

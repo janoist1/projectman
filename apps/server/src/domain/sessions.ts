@@ -159,6 +159,11 @@ export interface EnsureSessionOptions {
   /** Why the session starts; passed on to `task_session_joined`. None: the notice names no reason. */
   cause?: SessionStartCause;
   /**
+   * The same session started again after a pause or a shutdown (PM-219): not a joining, no
+   * `task_session_joined`.
+   */
+  pauseRestart?: boolean;
+  /**
    * The messages that cause this start (a person writing to a stopped session, the waiting team
    * messages), oldest first, as they are typed in. The session takes them in its first input, in
    * full: a resumed one in place of the continue message, a new conversation after its brief;
@@ -620,6 +625,7 @@ export class SessionOrchestrator {
         null,
         opts.nudge ?? null,
         opts.cause ?? null,
+        opts.pauseRestart ?? false,
       );
     });
   }
@@ -1091,6 +1097,7 @@ export class SessionOrchestrator {
     restart: PermissionRestart | null = null,
     nudge: string | null = null,
     cause: SessionStartCause | null = null,
+    pauseRestart = false,
   ): Promise<EnsureSessionResult> {
     // A theme is not worked on: its description is written from the member's general chat.
     if (task && isTheme(task)) throw themeRefused(task.key, 'have a session');
@@ -1108,6 +1115,7 @@ export class SessionOrchestrator {
         restart,
         nudge,
         cause,
+        pauseRestart,
       );
     } catch (err) {
       this.workspaces?.ended(sessionId);
@@ -1127,6 +1135,7 @@ export class SessionOrchestrator {
     restart: PermissionRestart | null,
     nudge: string | null,
     cause: SessionStartCause | null,
+    pauseRestart: boolean,
   ): Promise<EnsureSessionResult> {
     // A standby copy (PM-143) never works: only one copy of an installation may start AI sessions.
     if (this.deps.standby)
@@ -1568,7 +1577,7 @@ export class SessionOrchestrator {
     this.recomputeMemberState(projectKey, member.handle);
     void this.ctx.events.emit('session_started', fresh);
     // The card's other workers are told who joined (PM-249); a restart is not a joining.
-    if (announce && workItem.type === 'task')
+    if (announce && !pauseRestart && workItem.type === 'task')
       void this.ctx.events.emit('task_session_joined', { session: fresh, resumed: resume, cause });
     return {
       session: fresh,

@@ -8,6 +8,7 @@ export * from './domain/theme';
 export * from './domain/session';
 export * from './domain/involvement';
 export * from './domain/pause';
+export * from './domain/machine';
 export * from './domain/token-usage';
 export * from './domain/card-measure';
 export * from './domain/event';

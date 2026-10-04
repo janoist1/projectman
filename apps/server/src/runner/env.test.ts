@@ -62,6 +62,16 @@ describe('child environment', () => {
     expect(env).not.toHaveProperty('ANTHROPIC_API_KEY');
   });
 
+  it("marks a session with the instance's tag, and drops the tag a parent instance passed on (PM-320)", () => {
+    const env = buildSessionEnv({ ...base, PROJECTMAN_INSTANCE: 'parent-tag' }, 'ses_42', {
+      instanceTag: '0123456789abcdef',
+    });
+    expect(env.PROJECTMAN_INSTANCE).toBe('0123456789abcdef');
+    expect(buildSessionEnv({ ...base, PROJECTMAN_INSTANCE: 'parent-tag' }, 'ses_42')).not.toHaveProperty(
+      'PROJECTMAN_INSTANCE',
+    );
+  });
+
   it('keeps loopback hosts out of the proxy, preserving existing entries', () => {
     expect(withLocalNoProxy({})).toMatchObject({
       NO_PROXY: '127.0.0.1,localhost,::1',

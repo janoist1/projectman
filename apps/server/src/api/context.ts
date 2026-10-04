@@ -37,6 +37,17 @@ export async function requireAccess(
   return access;
 }
 
+/**
+ * The user who manages the instance as a whole (the owner of every project, as for the instance's
+ * pause): the machine display and its command lines are for them alone.
+ */
+export async function requireInstanceOwner(domain: Domain, request: FastifyRequest): Promise<AuthUser> {
+  const user = currentUser(request);
+  if (!(await domain.instanceOwner(user.email)))
+    throw forbidden('insufficient_access', 'only an owner of every project may see the machine');
+  return user;
+}
+
 export function actorOf(access: ProjectAccess): Actor {
   return humanActor(access.handle);
 }

@@ -1,5 +1,11 @@
 import os from 'node:os';
-import { isOnLeave, memberOf, permissionDelegationOf, stageOf } from '@projectman/shared';
+import {
+  canManageInstancePause,
+  isOnLeave,
+  memberOf,
+  permissionDelegationOf,
+  stageOf,
+} from '@projectman/shared';
 import type { ExecutionProfile, Me } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AuthService } from '../auth';
@@ -12,6 +18,7 @@ import type {
   FullTestExecutor,
   GithubPublisher,
   GithubService,
+  MachineProbe,
   ManagedVmBoundary,
   MemberMemoryStore,
   MemberWorkspaceManager,
@@ -62,6 +69,8 @@ import { RoleService } from './roles';
 import { ScheduleService } from './schedules';
 import type { ScheduleTimer } from './schedules';
 import { PauseService } from './pause';
+import { MachineMonitor } from './machine';
+import { createMachineProbe } from '../machine';
 import { prepareSessionFoldersRoot, SessionFolders } from './session-folders';
 import { SessionCloser } from './session-closer';
 import { SessionOrchestrator } from './sessions';
@@ -125,6 +134,7 @@ export { MessageDelivery, MessageService, Messaging } from './messaging';
 export { RoleService, roleUsage, roleViews } from './roles';
 export { defaultMemberHandle, defaultMemberName } from './naming';
 export { PauseService } from './pause';
+export { MachineMonitor } from './machine';
 export type { PauseOptions, PauseRequester, PauseTarget } from './pause';
 export { PlanUsageCache, PlanUsageMonitor, highestUsagePercent } from './plan-usage';
 export { PresenceService } from './presence';
@@ -259,6 +269,17 @@ export interface DomainOptions {
   closedWorktreeKeepMs?: number;
   /** How often the idle sessions are looked at for a close (default 1 min, PM-295). */
   idleCloseSweepMs?: number;
+  /**
+   * Makes what the machine display measures with (PM-320); default: the operating system's
+   * (`createMachineProbe`). It gets the pids of the running sessions' CLIs, for the fixed-data probe
+   * of the screenshot mode.
+   */
+  machineProbe?: (deps: { runningPids: () => number[] }) => MachineProbe;
+  /**
+   * The tag of this instance (PM-320), set in the environment of every session the runner starts:
+   * only a process that carries it can be an orphan of this instance. Absent: none is recognised.
+   */
+  instanceTag?: string;
 }
 
 export type Domain = ReturnType<typeof createDomain>;
@@ -506,6 +527,28 @@ export function createDomain(opts: DomainOptions) {
     fixLimit,
     schedules,
     refinement,
+  });
+  const machine = new MachineMonitor({
+    probe:
+      opts.machineProbe?.({ runningPids: () => runnerModule.runner.list().map((info) => info.pid) }) ??
+      createMachineProbe(),
+    runner: runnerModule.runner,
+    sessions: opts.repos.sessions,
+    tasks: opts.repos.tasks,
+    memberOf: async (projectKey, handle) => {
+      const member = memberOf(await projects.config(projectKey), handle);
+      if (member?.kind !== 'ai') return null;
+      return {
+        handle: member.handle,
+        displayName: member.displayName,
+        kind: member.kind,
+        role: member.role,
+        specialty: member.specialty ?? null,
+      };
+    },
+    instanceTag: opts.instanceTag,
+    logger: opts.logger.child({ module: 'machine' }),
+    now,
   });
   const reviewWatch = new ReviewWatch({ ctx, projects, tasks, sessions, messaging });
   // The server's full test of the pinned commit (PM-217) holds the reviewers back until its result is in.
@@ -846,6 +889,7 @@ export function createDomain(opts: DomainOptions) {
     planUsage,
     admission,
     pauses,
+    machine,
     taskStarts,
     handOver,
     workStarts,
@@ -984,7 +1028,22 @@ export function createDomain(opts: DomainOptions) {
       await background.stop();
       pauses.dispose();
       sessions.dispose();
+      await machine.stop();
       await drained;
+    },
+
+    /**
+     * Whether the user may manage the instance as a whole: the owner of every project, the same rule
+     * as the instance's pause (`canManageInstancePause`). The machine display is for them alone.
+     */
+    async instanceOwner(email: string): Promise<boolean> {
+      const accesses = await Promise.all(
+        projects.summaries().map(async (project) => {
+          const access = await this.accessFor(project.key, email);
+          return access?.access ?? null;
+        }),
+      );
+      return canManageInstancePause(accesses);
     },
 
     /** The user's membership in a project, or null (unknown project or not a member). */

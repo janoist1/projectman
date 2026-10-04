@@ -114,7 +114,7 @@ export function isAllowedUrl(raw, { webUrl, serverUrl }) {
 
 export const USAGE =
   'Usage: npm run shots -- <scenario.mjs> [--out <dir>] [--widths 1512,800,390,375] [--full-page]\n' +
-  '       [--scale 1|2] [--timeout <seconds>] [--seed demo|none] [--keep-data]';
+  '       [--scale 1|2] [--timeout <seconds>] [--seed demo|none] [--keep-data] [--machine <file>]';
 
 function integer(value, name, min, max) {
   if (!/^\d+$/.test(value ?? '')) throw new UsageError(`${name} needs a whole number.\n${USAGE}`);
@@ -140,6 +140,7 @@ export function parseArgs(argv) {
     timeoutSeconds: DEFAULT_TIMEOUT_S,
     seed: 'demo',
     keepData: false,
+    machine: undefined,
   };
   const args = [...argv];
   const value = (flag) => {
@@ -160,6 +161,7 @@ export function parseArgs(argv) {
       if (options.seed !== 'demo' && options.seed !== 'none')
         throw new UsageError(`--seed is demo or none, not ${options.seed}.`);
     } else if (arg === '--keep-data') options.keepData = true;
+    else if (arg === '--machine') options.machine = value(arg);
     else if (arg.startsWith('--')) throw new UsageError(`Unknown option ${arg}.\n${USAGE}`);
     else if (options.scenario === undefined) options.scenario = arg;
     else throw new UsageError(`Only one scenario is run, not ${options.scenario} and ${arg}.\n${USAGE}`);

@@ -958,6 +958,52 @@ deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` 
   (`sensitivePaths`). `npm run control -- pause --wait | resume | force | status`
   (`scripts/control`) is its client ([DEPLOY.md](DEPLOY.md)).
 
+## The machine and the sessions (PM-320, part of PM-300)
+
+The server shows how loaded the machine is, what each running session's process tree uses, and which
+processes a finished session left behind (orphans), and the owner may stop those. Server side only here; the
+display is PM-322.
+
+- **Probe.** `MachineProbe` (`apps/server/src/contracts/machine.ts`) is the only thing that touches the
+  operating system: `machine()` (processor counters, memory, swap, pressure), `processes()` (one `ps -axww -o
+pid=,ppid=,uid=,rss=,%cpu=,time=,lstart=,args=` line per process), `envValues(pids, names)` and
+  `signal(pid, 'SIGTERM'|'SIGKILL')`. The real one (`apps/server/src/machine`) runs `vm_stat`, `sysctl`, `ps` with
+  `execFile`, a 5 s limit and `LC_ALL=C` on macOS, and reads `/proc` on Linux; elsewhere the process list is
+  unavailable (`null`) and the page says so. A reading that fails is `null`, never an error. The probe
+  never signals a pid below 2.
+- **Identity.** A process is its pid together with its start time (`lstart`), because a pid is reused. Every
+  signal is preceded by a check of both against a fresh process list.
+- **Marks.** The runner puts `PROJECTMAN_SESSION_ID` and `PROJECTMAN_INSTANCE=<tag>` in the environment of
+  every session; the tag is the first 16 hex digits of `sha256(realpath(PROJECTMAN_HOME))`, computed in
+  `app.ts` and given to the runner and to the domain. A process of a session survives a detach (`setsid`,
+  `nohup`) with its environment, so the marks follow it. (A session that is not started by this build has no
+  tag: its leftovers are not recognised.)
+- **Classification** (`MachineMonitor`, `apps/server/src/domain/machine.ts`). From one process list: the
+  tree under each running session's CLI is that session's; the server's own tree is `projectman`; an orphan is a
+  root that has **both** marks (this instance's tag and a `ses_` session id), belongs to the server's user, lies
+  outside every live tree and the server's tree, is not an ancestor of the server, and whose parent is not a
+  candidate itself. Its session must not run, or the root must have started **before** the session's current CLI
+  (a root that started with or after the CLI is that live session's detached child). Everything else is
+  `others`, grouped by short name, with a row only when it uses at least 5 % of a core or 500 MB (8 rows).
+- **Rounds** are driven by demand, never by a permanent timer: while a request with `?panel=1` came within
+  15 s, every 5 s; while any request came within 45 s, every 15 s; else none. One round at a time, shared by
+  the requests that arrive during it; the first round reads the processor twice 500 ms apart; a request
+  waits for a round at most 3 s. The load of a process is its CPU time between two rounds (not the decayed
+  `%cpu` of `ps`, which only the first round uses). `closedSessions` is `countResumable()` cached for 30 s.
+- **Stopping** (`MachineMonitor.stopOrphans`, one request at a time): each item is looked up in a fresh list
+  with a fresh environment, so a stale panel can never stop an unrelated process. Outcomes: `stopped`, `gone`
+  (no such process, or another one with the same pid), `refused` (not an orphan of this instance now),
+  `failed`. SIGTERM goes to the root and its own descendants, then the list is polled every 250 ms for 3 s,
+  SIGKILL goes to what lives, and 1 s later the root decides `stopped` or `failed`. A process that stopped
+  leaves the last sample at once. The log line has the user, pid, short name, session and outcome, never the
+  command line.
+- **Access.** `GET /api/machine[?panel=1]` and `POST /api/machine/orphans/stop` are for an owner of every
+  project (`domain.instanceOwner`, the rule of the instance's pause); `Me.instanceOwner` tells the web.
+  The command lines of the orphans (`OrphanProcessRow.command`, 160 characters at most) leave the server only
+  here; a session's top processes carry the short name only.
+- **Screenshots.** `PROJECTMAN_MACHINE_FIXTURE=<json>` (`npm run shots -- … --machine <file>`,
+  [SCREENSHOTS.md](SCREENSHOTS.md)) swaps the probe for fixed data that never signals; the server warns at start.
+
 ## GitHub
 
 Tasks live in our database (decision 9); GitHub is used for pull requests, reviews, checks

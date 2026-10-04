@@ -51,6 +51,11 @@ export const Me = z.object({
   projects: z
     .array(z.object({ key: z.string(), name: z.string(), access: HumanAccess, roles: z.array(RoleId) }))
     .default([]),
+  /**
+   * The user may manage the instance as a whole (`canManageInstancePause` on every project):
+   * they see the machine display. Absent (an older server): false.
+   */
+  instanceOwner: z.boolean().optional(),
 });
 export type Me = z.infer<typeof Me>;
 

@@ -114,7 +114,8 @@ frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site c
   paths stay inside their workspace; task worktrees stay inside their project
   folder, including resolved symlinks. Shell forwarder arguments are quoted; curl
   ignores user curl configuration and bypasses proxies. Known billing keys and
-  endpoint overrides are stripped for both agent providers.
+  endpoint overrides are stripped for every agent provider (Claude, Codex, and the Gemini,
+  Antigravity and NanoGPT variables); only a trusted `extra` of the adapter brings one back.
 - Customization keys and version IDs are validated; commits name only the project
   path. Symlinked project paths are rejected. Git hooks/signing are disabled for
   customization commits. YAML is limited to 1 MiB per file, 50 levels and no aliases;
@@ -169,9 +170,10 @@ What the server adds, in every mode and on the legacy (Mac) profile:
   `gh pr merge` where the repository has no GitHub; the built-in file tools may not read or change
   the user's credential files (`~/.ssh`, `~/.config/gh`, `~/.claude/.credentials.json`,
   `~/.claude/settings.json`, `~/.claude/settings.local.json`, `~/.claude/hooks`, `~/.claude.json`,
-  `~/.codex`, `~/.npmrc`; the rest of `~/.claude` stays open: saved tool outputs and the plan
-  mode's plan file are there) and the sensitive parts of the app home (database, cookie secret, logs,
-  customization repository, members' memory, publishing identity, spool); `WebFetch` may not reach
+  `~/.codex`, `~/.gemini`, `~/.npmrc`; the rest of `~/.claude` stays open: saved tool outputs and
+  the plan mode's plan file are there) and the sensitive parts of the app home (database, cookie
+  secret, logs, customization repository, members' memory, publishing identity, spool, `secrets`,
+  `providers`); `WebFetch` may not reach
   `localhost` or `127.0.0.1`. The list is `sensitivePaths` and `HARD_DENIED_HOSTS` in
   `domain/session-policy.ts`.
 - **A question the CLI still asks** goes through `commandVerdict`, then to the member's approver.

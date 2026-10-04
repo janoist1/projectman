@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { MouseEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
-import type { MemberView, Session, Task } from '@projectman/shared';
+import type { MemberView, PausedSession, Session, Task } from '@projectman/shared';
 import { useStopSession } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
@@ -21,6 +21,7 @@ import { isLiveSession } from '../../lib/sessions';
 import type { SessionStatus } from '../../lib/sessions';
 import type { TaskPhase } from '../../lib/taskState';
 import { prChip } from '../board/cardModel';
+import { pointExplanation, pointText, runningText } from '../pause/pauseView';
 import styles from './SessionHeader.module.css';
 
 /**
@@ -38,6 +39,7 @@ export function SessionHeader({
   pipeline,
   taskPhase,
   live,
+  pauseRow,
 }: {
   session: Session;
   task: Task | null;
@@ -46,7 +48,9 @@ export function SessionHeader({
   member: MemberView | undefined;
   pipeline: PipelineIndex | null;
   taskPhase: TaskPhase | null;
-  live: { status: SessionStatus; label: string };
+  live: { status: SessionStatus | 'paused'; label: string };
+  /** The row the pause holds this session in: what it still waits for while it stops (PM-220). */
+  pauseRow?: PausedSession;
 }) {
   const { key } = useProject();
   const stop = useStopSession(key);
@@ -68,7 +72,15 @@ export function SessionHeader({
 
   const liveStatus = (
     <span className={styles.live} data-status={live.status} role="status">
-      <StatusDot status={live.status} pulse={live.status === 'working'} size={9} />
+      {live.status === 'paused' ? (
+        session.pause?.point === null ? (
+          <span className={styles.stopping} aria-hidden="true" />
+        ) : (
+          <Icon name="pause" size={13} strokeWidth={2.4} />
+        )
+      ) : (
+        <StatusDot status={live.status} pulse={live.status === 'working'} size={9} />
+      )}
       <span>{live.label}</span>
     </span>
   );
@@ -128,7 +140,21 @@ export function SessionHeader({
       {t('tokenUsage.alertChip')}
     </Chip>
   ) : null;
-  const hasChips = stageChip || prBadge || alertChip;
+  // Where the pause stopped the session (or what it still waits for): the pause holds a live session only.
+  const pauseState = session.pause && isLiveSession(session) ? session.pause : null;
+  const pointChip = pauseState ? (
+    <Chip
+      tone="outline"
+      size="md"
+      icon="pause"
+      title={pauseState.point ? (pointExplanation(pauseState.point) ?? undefined) : undefined}
+    >
+      {pauseState.point
+        ? pointText(pauseState.point, pauseState.tool)
+        : runningText(pauseRow?.waitingFor ?? null)}
+    </Chip>
+  ) : null;
+  const hasChips = stageChip || prBadge || alertChip || pointChip;
 
   return (
     <div className={styles.header}>
@@ -175,6 +201,7 @@ export function SessionHeader({
           {stageChip}
           {prBadge}
           {alertChip}
+          {pointChip}
         </div>
       ) : null}
       <Dialog

@@ -557,13 +557,15 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     });
 
     it('halts the next tool call while the model is still writing it (before_tool)', async () => {
+      // A wide window: on a loaded machine the pause must still arrive before the tool call is written.
+      process.env.FAKE_CLAUDE_WORK_DELAY_MS = '3000';
       answers = [{ behavior: 'allow' }];
       await setup();
       const s = spec();
       await runner.runner.start(s);
       await waitState(s.sessionId, 'idle');
 
-      await runner.runner.sendUserMessage(s.sessionId, 'SLOW LONGTOOL go');
+      await runner.runner.sendUserMessage(s.sessionId, 'LONGTOOL go');
       await waitState(s.sessionId, 'working');
       const outcome = await runner.runner.pause(s.sessionId);
       expect(outcome).toEqual({ point: 'before_tool', tool: 'Bash' });

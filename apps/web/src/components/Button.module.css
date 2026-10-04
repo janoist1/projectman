@@ -20,8 +20,13 @@
   text-decoration: none;
 }
 
-.button:disabled {
+.button:disabled,
+.button[aria-disabled='true'] {
   opacity: 0.55;
+}
+
+.button[aria-disabled='true'] {
+  cursor: default;
 }
 
 .label {

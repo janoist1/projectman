@@ -2,6 +2,7 @@ import clsx from 'clsx';
 import { Suspense, lazy, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { useParams, useSearchParams } from 'react-router';
+import { isWorkPaused } from '@projectman/shared';
 import type { SessionDetail } from '@projectman/shared';
 import {
   useBoard,
@@ -25,6 +26,7 @@ import { nameOf } from '../../lib/members';
 import { isLiveSession } from '../../lib/sessions';
 import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
 import { nextStepLine } from '../board/NextStep';
+import { openPauses, pausedSessionMap } from '../pause/pauseView';
 import { ChatView } from './ChatView';
 import { Composer } from './Composer';
 import { participantsFor } from './participants';
@@ -59,7 +61,10 @@ function SessionView({ detail }: { detail: SessionDetail }) {
       ? schedules.data?.runs.find((run) => run.sessionId === session.id)
       : undefined;
   const taskDetail = useTaskDetail(key, task?.key);
-  const boardTasks = useBoard(key).data?.tasks;
+  const boardData = useBoard(key).data;
+  const boardTasks = boardData?.tasks;
+  const pausedSessions = useMemo(() => pausedSessionMap(boardData?.pause), [boardData?.pause]);
+  const teamPaused = isWorkPaused(openPauses(boardData?.pause), key);
   const inbox = useInbox(key);
   const { members, pipeline } = useProjectIndexes(key);
   const resolve = useResolveInbox(key, myHandle);
@@ -121,6 +126,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
           ]),
           myHandle,
           labels,
+          pausedSessions,
         })
       : null;
   const timeline = taskDetail.data?.timeline ?? [];
@@ -198,6 +204,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
           resolvedItems={resolvedPermissions}
           pending={echoes.pending}
           onRetry={onRetry}
+          paused={teamPaused}
           awaitingPermission={session.state === 'waiting_permission'}
           live={running}
           resolvingId={resolve.isPending ? (resolve.variables?.item.id ?? null) : null}
@@ -206,7 +213,19 @@ function SessionView({ detail }: { detail: SessionDetail }) {
           }
         />
       </div>
-      <Composer onSend={onSend} autoFocus={params.get('compose') === '1'} />
+      <Composer
+        onSend={onSend}
+        autoFocus={params.get('compose') === '1'}
+        // A live session takes the message and holds it; a stopped one would have to start: not now.
+        disabled={teamPaused && !running}
+        pauseNote={
+          teamPaused
+            ? running
+              ? t('session.composer.pausedLive')
+              : t('session.composer.pausedStopped')
+            : undefined
+        }
+      />
     </>
   );
 
@@ -221,6 +240,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
         pipeline={pipeline}
         taskPhase={taskState?.phase ?? null}
         live={live}
+        pauseRow={pausedSessions.get(session.id)}
       />
 
       <div className={styles.body}>
@@ -270,7 +290,9 @@ function SessionView({ detail }: { detail: SessionDetail }) {
                   <TerminalView sessionId={session.id} />
                 </Suspense>
               ) : (
-                <p className={styles.notRunning}>{t('session.terminal.notRunning')}</p>
+                <p className={styles.notRunning}>
+                  {teamPaused ? t('session.terminal.notRunningPaused') : t('session.terminal.notRunning')}
+                </p>
               )
             ) : null}
             {activeTab === 'timeline' ? <div className={styles.panelScroll}>{timelinePanel}</div> : null}

@@ -11,6 +11,8 @@ import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { whenToAsk } from '../../lib/roles';
+import { PauseNote } from '../pause/PauseNote';
+import { useTeamPaused } from '../pause/usePause';
 import styles from './MessageComposer.module.css';
 
 export function MessageComposer({
@@ -30,6 +32,7 @@ export function MessageComposer({
   const board = useBoard(key);
   const roles = useRoles(key);
   const send = useSendTeamMessage(key);
+  const teamPaused = useTeamPaused();
   const toast = useToast();
   const [to, setTo] = useState(initialTo);
   const [text, setText] = useState('');
@@ -107,6 +110,9 @@ export function MessageComposer({
         disabled={send.isPending}
         onChange={(event) => setText(event.target.value)}
       />
+      {teamPaused && selected.some((handle) => recipients.find((m) => m.handle === handle)?.kind === 'ai') ? (
+        <PauseNote>{t('session.composer.pausedLive')}</PauseNote>
+      ) : null}
       <DialogActions error={send.error ? <ErrorBanner>{errorMessage(send.error)}</ErrorBanner> : null}>
         {onCancel ? (
           <Button variant="secondary" size="md" onClick={onCancel}>

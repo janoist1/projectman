@@ -1,7 +1,7 @@
 import type { Session, Task } from '@projectman/shared';
 import { t } from '../../i18n/t';
 import { formatScheduleTime } from '../../lib/schedules';
-import { sessionStatus } from '../../lib/sessions';
+import { isLiveSession, sessionStatus } from '../../lib/sessions';
 import type { SessionStatus } from '../../lib/sessions';
 
 /** When a scheduled session's run was due, in the project's time zone. */
@@ -28,9 +28,15 @@ export function sessionTitle(
 
 /** The live status in the header: a permission waiting for the viewer comes first. */
 export function liveState(
-  session: Pick<Session, 'state'>,
+  session: Pick<Session, 'state' | 'pause'>,
   needsYou: boolean,
-): { status: SessionStatus; label: string } {
+): { status: SessionStatus | 'paused'; label: string } {
+  // A live session a pause holds is quiet: "Szünetel", or "Megáll…" until it has stopped.
+  if (!needsYou && session.pause && isLiveSession(session)) {
+    return session.pause.point === null
+      ? { status: 'paused', label: t('sessionState.pausing') }
+      : { status: 'paused', label: t('sessionState.paused') };
+  }
   return {
     status: sessionStatus(session, needsYou),
     label: needsYou ? t('sessionState.needsYou') : t(`sessionState.${session.state}`),

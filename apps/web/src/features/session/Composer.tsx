@@ -3,6 +3,7 @@ import type { FormEvent, KeyboardEvent } from 'react';
 import { Button } from '../../components/Button';
 import { t } from '../../i18n/t';
 import { useIsMobile, useMediaQuery } from '../../lib/hooks';
+import { PauseNote } from '../pause/PauseNote';
 import styles from './Composer.module.css';
 
 interface ComposerProps {
@@ -13,6 +14,8 @@ interface ComposerProps {
   /** The box's accessible name and its placeholder; a session's by default. */
   label?: string;
   placeholder?: string;
+  /** The team pause's line above the box (PM-220): why a message waits or cannot start the session. */
+  pauseNote?: string;
 }
 
 /** The field stops growing here (about five lines on a phone, so the chat keeps room beside the keyboard). */
@@ -30,6 +33,7 @@ export function Composer({
   disabled = false,
   label = t('session.composer.label'),
   placeholder = t('session.composer.placeholder'),
+  pauseNote,
 }: ComposerProps) {
   const [text, setText] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -85,6 +89,7 @@ export function Composer({
       <label htmlFor={id} className="visually-hidden">
         {label}
       </label>
+      {pauseNote ? <PauseNote id={`${id}-pause`}>{pauseNote}</PauseNote> : null}
       <div className={styles.row}>
         <textarea
           ref={ref}
@@ -95,7 +100,10 @@ export function Composer({
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={onKeyDown}
-          aria-describedby={touch ? undefined : `${id}-hint`}
+          aria-describedby={
+            [pauseNote ? `${id}-pause` : null, touch ? null : `${id}-hint`].filter(Boolean).join(' ') ||
+            undefined
+          }
         />
         <Button
           type="submit"

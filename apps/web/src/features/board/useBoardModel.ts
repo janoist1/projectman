@@ -6,6 +6,7 @@ import { useProject, useProjectIndexes } from '../../app/contexts';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
 import type { TaskState, TaskStateContext } from '../../lib/taskState';
+import { pausedSessionMap } from '../pause/pauseView';
 
 export interface BoardEntry {
   task: Task;
@@ -59,6 +60,7 @@ export function useBoardModel() {
   const tasks = board.data?.tasks;
   const labels = board.data?.labels;
   const items = inbox.data?.items;
+  const pause = board.data?.pause;
 
   const model = useMemo(() => {
     if (!tasks || !pipeline) return null;
@@ -69,6 +71,7 @@ export function useBoardModel() {
       tasksByKey: new Map(tasks.map((task) => [task.key, task])),
       myHandle,
       labels,
+      pausedSessions: pausedSessionMap(pause),
     };
     const subtasksByParent = new Map<string, Task[]>();
     for (const task of tasks) {
@@ -87,7 +90,7 @@ export function useBoardModel() {
       subtasksByParent,
       byKey: new Map(entries.map((entry) => [entry.task.key, entry])),
     };
-  }, [tasks, labels, items, pipeline, members, myHandle]);
+  }, [tasks, labels, items, pipeline, members, myHandle, pause]);
 
   return { board, inbox, members, pipeline, model };
 }

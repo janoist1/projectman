@@ -54,6 +54,8 @@ export interface ChatViewProps {
   pending?: readonly PendingMessage[];
   /** Sends a failed pending message again; without it a failed message has no retry button. */
   onRetry?: (id: string) => void;
+  /** The team pause holds the work: a sent message waits for the resume (PM-220). */
+  paused?: boolean;
 }
 
 const LONG_TEXT = 700;
@@ -354,7 +356,11 @@ export function ChatView(props: ChatViewProps) {
             className={clsx(styles.meta, message.failed && styles.failed)}
             role={message.failed ? 'status' : undefined}
           >
-            {message.failed ? t('session.composer.failed') : t('session.composer.pending')}
+            {message.failed
+              ? t('session.composer.failed')
+              : props.paused
+                ? t('session.composer.pendingPaused')
+                : t('session.composer.pending')}
           </span>
           <div className={styles.userBubble}>
             <Markdown text={message.text} />

@@ -13,6 +13,7 @@ import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
 import { aiSponsors, memberStatusView, nameOf } from '../../lib/members';
 import { MessageList } from '../messages/MessageList';
+import { usePausedRows } from '../pause/usePause';
 import { ClosedCardsComparison } from './ClosedCardsComparison';
 import { MemberMenu } from './MemberMenu';
 import { RecentScheduleRuns } from './ScheduledRuns';
@@ -40,6 +41,7 @@ const statusRank: Record<string, number> = {
   needs_you: 0,
   waiting_for_human: 1,
   working: 2,
+  paused: 2,
   online: 3,
   idle: 4,
   offline: 5,
@@ -56,6 +58,7 @@ export function TeamPage() {
   const isMobile = useIsMobile();
   const membersQuery = useMembers(key);
   const board = useBoard(key);
+  const pausedRows = usePausedRows();
   const inbox = useInbox(key);
   const config = useConfig(key, can.manageTeam);
   const roles = useRoles(key);
@@ -86,8 +89,8 @@ export function TeamPage() {
     if (a.kind !== b.kind) return a.kind === 'human' ? -1 : 1;
     if (a.handle === myHandle || b.handle === myHandle) return a.handle === myHandle ? -1 : 1;
     const rank =
-      (statusRank[memberStatusView(a, inbox.data?.items, myHandle).status] ?? 9) -
-      (statusRank[memberStatusView(b, inbox.data?.items, myHandle).status] ?? 9);
+      (statusRank[memberStatusView(a, inbox.data?.items, myHandle, pausedRows).status] ?? 9) -
+      (statusRank[memberStatusView(b, inbox.data?.items, myHandle, pausedRows).status] ?? 9);
     return rank !== 0 ? rank : a.displayName.localeCompare(b.displayName);
   });
   const activeTaskKeys = new Set(members.flatMap((member) => member.currentTaskKeys));

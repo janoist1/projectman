@@ -3,19 +3,24 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { DEFAULT_AGENT_PROVIDER } from '@projectman/shared';
 import type { BoardView } from '@projectman/shared';
-import { useTeamThreads } from '../api/queries';
+import { useBoard, useTeamThreads } from '../api/queries';
 import { useConnectionStatus } from '../api/socketHooks';
 import { AvatarStack } from '../components/Avatar';
 import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
 import type { IconName } from '../components/Icon';
+import { openPauses } from '../features/pause/pauseView';
 import { joinNames, t } from '../i18n/t';
 import { nameOf } from '../lib/members';
+import { useMediaQuery } from '../lib/hooks';
 import type { MemberIndex } from '../lib/members';
 import { AccountMenu, ProjectSwitcher } from './Menus';
 import { PlanUsageBadge, PlanUsageMeter } from './PlanUsageMeter';
 import { useProject } from './contexts';
 import styles from './Shell.module.css';
+
+/** The top bar's step as the window narrows: the meters lose their labels (they are gone at 1180). */
+const TIGHT_METERS_QUERY = '(max-width: 1419px)';
 
 interface NavItem {
   to: string;
@@ -68,8 +73,10 @@ function BadgeText({ count }: { count: number }) {
 
 /** Left navigation rail (desktop and tablet). */
 export function NavRail({ inboxCount }: { inboxCount: number }) {
-  const { key } = useProject();
+  const { key, openPause, can } = useProject();
   const { main, settings } = useNavItems(inboxCount);
+  const pause = useBoard(key).data?.pause;
+  const canPause = can.pauseTeam && pause !== undefined && openPauses(pause).length === 0;
   return (
     <nav aria-label={t('nav.main')} className={styles.rail}>
       <Link to={`/p/${key}`} className={styles.logo} aria-label={t('app.name')}>
@@ -104,7 +111,7 @@ export function NavRail({ inboxCount }: { inboxCount: number }) {
       >
         <Icon name="settings" size={20} strokeWidth={1.8} />
       </Link>
-      <AccountMenu settingsPath={settings.to} placement="right" />
+      <AccountMenu settingsPath={settings.to} placement="right" onPause={canPause ? openPause : undefined} />
     </nav>
   );
 }
@@ -266,20 +273,35 @@ export function TopBar({
   inboxCount: number;
   pauseAbove: number | undefined;
 }) {
-  const { key, openNewTask, can } = useProject();
+  const { key, openNewTask, openPause, can } = useProject();
+  const canPause = can.pauseTeam && board !== undefined && openPauses(board.pause).length === 0;
+  // The bar sheds width in steps, so nothing overlaps: the search field gives way first, the Szünet
+  // button leaves (the account menu has it at every width), then the meters lose their labels.
+  const tightMeters = useMediaQuery(TIGHT_METERS_QUERY);
   return (
     <header className={styles.topbar}>
       <ProjectSwitcher currentKey={key} currentName={board?.project.name ?? key} />
       <SearchBox />
       <span className={styles.spacer} />
-      <span className={styles.hideNarrow}>
+      <span className={clsx(styles.hideNarrow, tightMeters && styles.metersTight)}>
         {planUsages(board).map(({ provider, usage }) => (
-          <PlanUsageMeter key={provider} provider={provider} usage={usage} pauseAbove={pauseAbove} />
+          <PlanUsageMeter
+            key={provider}
+            provider={provider}
+            usage={usage}
+            pauseAbove={pauseAbove}
+            compact={tightMeters}
+          />
         ))}
       </span>
       <span className={styles.hideNarrow}>
         <Presence board={board} members={members} />
       </span>
+      {canPause ? (
+        <Button variant="secondary" icon="pause" className={styles.pauseButton} onClick={openPause}>
+          {t('pause.button')}
+        </Button>
+      ) : null}
       <InboxPill count={inboxCount} />
       {can.createTasks ? (
         <Button variant="primary" icon="plus" onClick={() => openNewTask()}>
@@ -301,8 +323,9 @@ export function MobileHeader({
   board: BoardView | undefined;
   pauseAbove?: number | undefined;
 }) {
-  const { key, openNewTask, can, search, setSearch } = useProject();
+  const { key, openNewTask, openPause, can, search, setSearch } = useProject();
   const [searching, setSearching] = useState(search !== '');
+  const canPause = can.pauseTeam && board !== undefined && openPauses(board.pause).length === 0;
   if (searching) {
     return (
       <header className={styles.mobileHeader}>
@@ -349,7 +372,11 @@ export function MobileHeader({
           aria-label={t('topbar.newTask')}
         />
       ) : null}
-      <AccountMenu settingsPath={`/p/${key}/settings`} placement="below" />
+      <AccountMenu
+        settingsPath={`/p/${key}/settings`}
+        placement="below"
+        onPause={canPause ? openPause : undefined}
+      />
     </header>
   );
 }

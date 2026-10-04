@@ -1,6 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { QueryClient } from '@tanstack/react-query';
 import type {
   AttachmentListResponse,
+  BoardView,
+  InstancePauseView,
+  ProjectPauseView,
   BoardMoveRequest,
   SendTeamMessageRequest,
   PatchConfigRequest,
@@ -540,6 +544,75 @@ export function useRunSchedule(key: string) {
         client.invalidateQueries({ queryKey: queryKeys.members(key) }),
       ]);
     },
+  });
+}
+
+/* ---------- pause (PM-220) ---------- */
+
+/** The answer of a project's pause route goes straight into the board: every screen shows it at once. */
+function writeProjectPause(client: QueryClient, key: string, pause: ProjectPauseView): void {
+  client.setQueryData<BoardView>(queryKeys.board(key), (board) => (board ? { ...board, pause } : board));
+}
+
+export function usePauseProject(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.pauseProject(key),
+    onSuccess: (pause) => writeProjectPause(client, key, pause),
+  });
+}
+
+export function useResumeProject(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.resumeProject(key),
+    onSuccess: (pause) => writeProjectPause(client, key, pause),
+  });
+}
+
+export function useForcePauseProject(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.forcePauseProject(key),
+    onSuccess: (pause) => writeProjectPause(client, key, pause),
+  });
+}
+
+/**
+ * The instance's pause: the sessions it holds and whether the viewer may resume it. A project page asks
+ * only while the instance is paused (`enabled`); a page outside the projects has no websocket and polls.
+ */
+export function useInstancePause(enabled: boolean, poll = false) {
+  return useQuery({
+    queryKey: queryKeys.instancePause,
+    queryFn: api.instancePause,
+    enabled,
+    retry: false,
+    refetchInterval: poll ? 15_000 : false,
+  });
+}
+
+/** The answer goes into the instance's view; the open boards carry the instance's pause too. */
+function writeInstancePause(client: QueryClient, view: InstancePauseView): void {
+  client.setQueryData<InstancePauseView>(queryKeys.instancePause, view);
+  void client.invalidateQueries({
+    predicate: (query) => query.queryKey[0] === 'project' && query.queryKey[2] === 'board',
+  });
+}
+
+export function useResumeInstance() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: api.resumeInstance,
+    onSuccess: (view) => writeInstancePause(client, view),
+  });
+}
+
+export function useForcePauseInstance() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: api.forcePauseInstance,
+    onSuccess: (view) => writeInstancePause(client, view),
   });
 }
 

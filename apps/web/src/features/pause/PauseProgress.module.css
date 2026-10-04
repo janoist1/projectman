@@ -1,0 +1,141 @@
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 800;
+  color: var(--c-ink);
+}
+
+.meta {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
+.empty {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  /* Avatar and member on the first line, the task and the state under the member (the panel is narrow). */
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 2px 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--c-line-soft);
+  font-size: var(--text-sm);
+}
+
+.row:first-child {
+  border-top: 0;
+}
+
+.member {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  color: var(--c-ink);
+}
+
+.work {
+  grid-column: 2;
+  grid-row: 2;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  color: var(--c-ink-2, var(--c-ink));
+  text-decoration: none;
+}
+
+.work:hover {
+  text-decoration: underline;
+}
+
+.workKey {
+  flex-shrink: 0;
+  font-weight: 700;
+}
+
+.workTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The state on its own line under the task: the text wraps, the elapsed time stays on the right. */
+.state {
+  grid-column: 2;
+  grid-row: 3;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  color: var(--c-ink-2, var(--c-ink));
+}
+
+.state > svg,
+.state > :first-child {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.stateText {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.elapsed {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--c-ink-3);
+}
+
+.check {
+  color: var(--c-ok-text);
+  flex-shrink: 0;
+}
+
+.force {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--c-line-soft);
+  font-size: var(--text-sm);
+  color: var(--c-ink-2);
+}
+
+@media (max-width: 767px) {
+  .force {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

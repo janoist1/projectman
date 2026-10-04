@@ -12,6 +12,7 @@ import { labelName } from './labels';
 import { decidesText, pairText } from './loop';
 import { nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
+import { reasonText } from './pause';
 import type { PipelineIndex } from './pipeline';
 
 export interface TimelineContext {
@@ -522,10 +523,19 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       );
     case 'config_changed':
       return normal(t('timeline.events.config_changed', { message: str(d.message) }));
-    case 'team_paused':
+    case 'team_paused': {
+      if (d.scope !== 'instance') return normal(t('timeline.events.team_paused'));
+      // The reason the instance paused for ("élesítés miatt"), as the bar says it.
+      const reason = reasonText({
+        reason: typeof d.reason === 'string' ? d.reason : null,
+        source: d.source === 'control' ? 'control' : d.source === 'system' ? 'system' : 'app',
+      });
       return normal(
-        t(d.scope === 'instance' ? 'timeline.events.team_paused_instance' : 'timeline.events.team_paused'),
+        reason
+          ? t('timeline.events.team_paused_instance_reason', { reason })
+          : t('timeline.events.team_paused_instance'),
       );
+    }
     case 'team_resumed':
       return normal(
         t(d.scope === 'instance' ? 'timeline.events.team_resumed_instance' : 'timeline.events.team_resumed'),

@@ -1,4 +1,5 @@
-import type { InboxItem, MemberStatus, MemberView, RoleView } from '@projectman/shared';
+import { isOnLeave } from '@projectman/shared';
+import type { InboxItem, MemberStatus, MemberView, PausedSession, RoleView } from '@projectman/shared';
 import type { IconName } from '../components/Icon';
 import { t } from '../i18n/t';
 import { aiRoleView, humanRoleName } from './roles';
@@ -91,12 +92,24 @@ export function isWaitingForMe(
   );
 }
 
-/** Status key for data-status plus its label; "waiting for a human" becomes "Rád vár" when it is you. */
+/** The statuses of an AI member that has work in it: a pause quiets exactly these. */
+const PAUSABLE_STATUSES: readonly MemberStatus[] = ['idle', 'working', 'waiting_for_human'];
+
+/**
+ * Status key for data-status plus its label; "waiting for a human" becomes "Rád vár" when it is you.
+ * With `pausedRows` (the rows of the pause the page shows; an empty list: nobody was working) an AI
+ * member that is not on leave reads "Szünetel", or "Megáll…" while one of its sessions has not stopped.
+ */
 export function memberStatusView(
   member: MemberView,
   inbox: readonly InboxItem[] | undefined,
   myHandle: string | null,
-): { status: MemberStatus | 'needs_you'; label: string } {
+  pausedRows?: readonly Pick<PausedSession, 'member' | 'point'>[],
+): { status: MemberStatus | 'needs_you' | 'paused'; label: string } {
+  if (pausedRows && member.kind === 'ai' && !isOnLeave(member) && PAUSABLE_STATUSES.includes(member.status)) {
+    const stopping = pausedRows.some((row) => row.member === member.handle && row.point === null);
+    return { status: 'paused', label: t(stopping ? 'memberStatus.pausing' : 'memberStatus.paused') };
+  }
   if (member.status === 'waiting_for_human' && isWaitingForMe(member, inbox, myHandle)) {
     return { status: 'needs_you', label: t('memberStatus.needsYou') };
   }

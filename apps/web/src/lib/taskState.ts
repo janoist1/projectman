@@ -1,5 +1,5 @@
 import { DEFAULT_AGENT_PROVIDER, fixLimitDecisionOf, openPrerequisites } from '@projectman/shared';
-import type { InboxItem, LabelView, MemberView, Task, WorkDoing } from '@projectman/shared';
+import type { InboxItem, LabelView, MemberView, PausedSession, Task, WorkDoing } from '@projectman/shared';
 import { formatAge } from '../i18n/format';
 import { joinNames, t } from '../i18n/t';
 import { decidesFixLimit, fixLimitStatus } from './fixLimit';
@@ -54,6 +54,8 @@ export interface TaskStateContext {
   myHandle: string | null;
   /** Label definitions; a blocking label on a task makes it wait under the label's name. */
   labels?: readonly LabelView[];
+  /** The sessions a team pause holds (PM-220), by session id: their workers read "szünetel" / "megáll…". */
+  pausedSessions?: ReadonlyMap<string, PausedSession>;
 }
 
 /** Done and cancelled tasks are closed: they no longer move or start. */
@@ -126,7 +128,10 @@ function workerVerb(member: MemberView, task: Task, pipeline: PipelineIndex): Wo
  * may work on another card), and the command a session runs is never part of this: it lives in the
  * session view.
  */
-function findWorkers(task: Task, ctx: Pick<TaskStateContext, 'members' | 'pipeline'>): TaskWorker[] {
+function findWorkers(
+  task: Task,
+  ctx: Pick<TaskStateContext, 'members' | 'pipeline' | 'pausedSessions'>,
+): TaskWorker[] {
   // A step stage (e.g. review) has the owners who do it; a work stage's owners are the pool the assignee came from.
   const stage = ctx.pipeline.stageById.get(task.stageId);
   const stepOwners = stage?.kind === 'step' ? (stage.owners ?? []) : [];
@@ -139,14 +144,21 @@ function findWorkers(task: Task, ctx: Pick<TaskStateContext, 'members' | 'pipeli
   working.sort((a, b) => rank(a.member) - rank(b.member) || a.work.since.localeCompare(b.work.since));
   return working.map(({ member, work }) => {
     const verb = workerVerb(member, task, ctx.pipeline);
-    const sentence = t(`taskStatus.worker.${verb}`, { name: member.displayName });
+    const paused = ctx.pausedSessions?.get(work.sessionId);
+    // A paused worker says so, not what it was doing: the sentence would read as if it still works.
+    const sentence = paused
+      ? t(paused.point === null ? 'taskStatus.workerPausing' : 'taskStatus.workerPaused', {
+          name: member.displayName,
+        })
+      : t(`taskStatus.worker.${verb}`, { name: member.displayName });
+    const doing = paused ? null : (work.doing ?? null);
     return {
       member,
       verb,
       sentence,
-      doing: work.doing ?? null,
-      line: work.doing
-        ? t('taskStatus.workerDoing', { name: member.displayName, summary: work.doing.summary })
+      doing,
+      line: doing
+        ? t('taskStatus.workerDoing', { name: member.displayName, summary: doing.summary })
         : sentence,
       since: work.since,
       sessionId: work.sessionId,

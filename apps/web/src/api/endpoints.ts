@@ -20,8 +20,10 @@ import {
   BoardView,
   ConfigView,
   InboxView,
+  InstancePauseView,
   Me,
   MemberView,
+  ProjectPauseView,
   ProjectSummary,
   ScheduleRun,
   SchedulesView,
@@ -206,6 +208,19 @@ export const api = {
   schedules: (key: string) => apiRequest(routes.schedules(key), { schema: SchedulesView }),
   runSchedule: (key: string, handle: string) =>
     apiRequest(routes.runSchedule(key, handle), { method: 'POST', schema: ScheduleRun }),
+
+  /** The pause (PM-219): a project's view holds its own and the instance's; the POSTs take an empty body. */
+  pauseProject: (key: string) =>
+    apiRequest(routes.projectPause(key), { method: 'POST', body: {}, schema: ProjectPauseView }),
+  resumeProject: (key: string) =>
+    apiRequest(routes.projectPauseResume(key), { method: 'POST', body: {}, schema: ProjectPauseView }),
+  forcePauseProject: (key: string) =>
+    apiRequest(routes.projectPauseForce(key), { method: 'POST', body: {}, schema: ProjectPauseView }),
+  instancePause: () => apiRequest(routes.instancePause(), { schema: InstancePauseView }),
+  resumeInstance: () =>
+    apiRequest(routes.instancePauseResume(), { method: 'POST', body: {}, schema: InstancePauseView }),
+  forcePauseInstance: () =>
+    apiRequest(routes.instancePauseForce(), { method: 'POST', body: {}, schema: InstancePauseView }),
 
   config: (key: string) => apiRequest(routes.config(key), { schema: ConfigView }),
   patchConfig: (key: string, body: PatchConfigRequest) =>

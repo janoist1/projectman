@@ -72,6 +72,16 @@
   color: var(--c-ink-3);
 }
 
+/* A member the team pause holds: "Szünetel" / "Megáll…" after the name (PM-220). */
+.pauseTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--c-ink-3);
+}
+
 .empty {
   display: flex;
   align-items: center;

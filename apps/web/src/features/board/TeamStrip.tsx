@@ -5,7 +5,8 @@ import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Icon } from '../../components/Icon';
 import { t } from '../../i18n/t';
-import { cardsLine, workingNow } from '../../lib/members';
+import { cardsLine, memberStatusView, workingNow } from '../../lib/members';
+import { usePausedRows } from '../pause/usePause';
 import styles from './TeamStrip.module.css';
 
 interface TeamStripProps {
@@ -18,6 +19,7 @@ interface TeamStripProps {
 export function TeamStrip({ members, titles }: TeamStripProps) {
   const { key } = useProject();
   const labelId = useId();
+  const pausedRows = usePausedRows();
   if (!members.some((member) => member.kind === 'ai' && member.status !== 'retired')) return null;
   const working = workingNow(members, new Set(titles.keys()));
 
@@ -45,16 +47,24 @@ export function TeamStrip({ members, titles }: TeamStripProps) {
           const onlyKey = keys.length === 1 ? keys[0]! : null;
           const cardTitle = onlyKey ? titles.get(onlyKey) : undefined;
           const cards = cardsLine(keys, titles) ?? '';
+          const view = memberStatusView(member, undefined, null, pausedRows);
+          const pauseLabel = view.status === 'paused' ? view.label : null;
           return (
             <li key={member.handle}>
               <Link
                 to={onlyKey ? `/p/${key}/tasks/${onlyKey}` : `/p/${key}/team/${member.handle}`}
                 className={styles.chip}
                 title={keys.map((cardKey) => `${cardKey} ${titles.get(cardKey) ?? ''}`.trim()).join('\n')}
-                aria-label={t('board.workingChip', { name: member.displayName, cards })}
+                aria-label={`${t('board.workingChip', { name: member.displayName, cards })}${pauseLabel ? ` · ${pauseLabel}` : ''}`}
               >
                 <Avatar member={member} size="sm" />
                 <span className={styles.name}>{member.displayName}</span>
+                {pauseLabel ? (
+                  <span className={styles.pauseTag}>
+                    <Icon name="pause" size={12} strokeWidth={2.4} />
+                    {pauseLabel}
+                  </span>
+                ) : null}
                 <span className={styles.key}>{onlyKey ?? cardsLine(keys, new Map())}</span>
                 {cardTitle ? <span className={styles.cardTitle}>{cardTitle}</span> : null}
               </Link>

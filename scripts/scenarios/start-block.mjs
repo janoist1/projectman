@@ -48,7 +48,12 @@ export default async ({ instance, open, shoot, step, log }) => {
       { id: 'ui', name: 'Felületi', setBy: 'anyone' },
       { id: 'needs-plan', name: 'Műszaki terv kell', setBy: 'anyone' },
       { id: 'scope-ok', name: 'Kidolgozás eldöntve', setBy: { members: [person] } },
-      { id: 'design-ok', name: 'UI/UX terv kész', setBy: { members: [person] } },
+      // A long name on purpose: the status line "Rád vár: …" runs over one line on a phone (PM-291 UI/UX review).
+      {
+        id: 'design-ok',
+        name: 'UI/UX terv kész, a nyitott kérdések megválaszolva',
+        setBy: { members: [person] },
+      },
       { id: 'plan-ok', name: 'Műszaki terv kész', setBy: { members: [planner] } },
     );
     const stages = config.pipeline.stages.map((stage) =>

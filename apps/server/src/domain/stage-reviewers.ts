@@ -21,11 +21,16 @@ export async function stopStageReviewers(
   config: ProjectConfig,
   task: Pick<Task, 'projectKey' | 'key' | 'assignee'>,
   stage: Stage,
+  back: Stage,
 ): Promise<void> {
   const reviewers = stageOwners(config, stage).filter((handle) => handle !== task.assignee);
   for (const session of sessions.list(task.projectKey, { taskKey: task.key })) {
     if (session.workItem.type !== 'task' || !reviewers.includes(session.member)) continue;
     if (LIVE_SESSION_STATES.includes(session.state) || sessions.isRunning(session.id))
-      await sessions.stop(task.projectKey, session.id);
+      await sessions.stop(task.projectKey, session.id, {
+        kind: 'sent_back',
+        taskKey: task.key,
+        stageId: back.id,
+      });
   }
 }

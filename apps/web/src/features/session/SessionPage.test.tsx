@@ -216,7 +216,9 @@ describe('token usage of the session (PM-178)', () => {
     project.render(sessionRoute, '/sessions/ses_ac21_fe1');
     fireEvent.click(await screen.findByRole('tab', { name: t('session.tabs.details') }));
     expect(screen.getByText(t('tokenUsage.none'))).toBeTruthy();
-    expect(screen.getByText(t('tokenUsage.since', { time: formatStamp(session.usage.since) }))).toBeTruthy();
+    // Testing Library reads a no-break space (in the stamp) as a plain space.
+    const since = t('tokenUsage.since', { time: formatStamp(session.usage.since) }).replace(/ /g, ' ');
+    expect(screen.getByText(since)).toBeTruthy();
     expect(screen.getByText(t('tokenUsage.codexSubagents'))).toBeTruthy();
   });
 });

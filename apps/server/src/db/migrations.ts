@@ -669,7 +669,13 @@ export const migrations: Migration[] = [
       CREATE INDEX full_test_runs_task_commit ON full_test_runs(task_key, commit_sha);`,
   },
   {
-    // 33 is PM-295's (in review); the next free one is taken here.
+    version: 33,
+    name: 'session last stop',
+    // PM-288: why the session stopped last, a JSON `SessionStop`; null for a running session and for
+    // a row from before it was kept.
+    sql: `ALTER TABLE sessions ADD COLUMN last_stop TEXT NULL;`,
+  },
+  {
     version: 34,
     name: 'team message answers',
     // PM-249: the message that carries a person's answer to an AI member's question points at it

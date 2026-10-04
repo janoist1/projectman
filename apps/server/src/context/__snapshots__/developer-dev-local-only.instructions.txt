@@ -6,7 +6,7 @@ Task AR-21: Fix the booking confirmation email
 
 What done means for you here:
 1. Read the task, its links and relations to other cards; ask with ask_human if the goal or a decision is unclear.
-2. Implement the change in your working directory (the task's own worktree and branch) and run the project's tests.
+2. Install the dependencies only if they are missing from your working directory: they are often in place already. Implement the change in your working directory (the task's own worktree and branch). While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.
 3. Commit the work on the task's own branch in your worktree. Never push and never open a pull request: the repository is local-only (the owner has not allowed publishing from it). Before you hand over, make sure everything is committed: `git status` shows nothing left to commit.
 4. Move the task to Code review (`code_review`) with update_task and hand over to `code-review` with send_message: the facts they need (the branch and its last commit, what changed, what to check).
 

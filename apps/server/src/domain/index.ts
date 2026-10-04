@@ -63,6 +63,7 @@ import { ScheduleService } from './schedules';
 import type { ScheduleTimer } from './schedules';
 import { PauseService } from './pause';
 import { prepareSessionFoldersRoot, SessionFolders } from './session-folders';
+import { SessionCloser } from './session-closer';
 import { SessionOrchestrator } from './sessions';
 import { PrerequisiteClosures, TaskService } from './tasks';
 import { TeamToolsService } from './team-tools';
@@ -206,6 +207,8 @@ export interface DomainOptions {
   sessionFoldersDir?: string;
   /** Playwright's browsers (PM-268): read-only for Claude sessions, in `PLAYWRIGHT_BROWSERS_PATH`. */
   browsersDir?: string;
+  /** The machine's heavy-run queue folder (PM-332): its parent is writable for the members' commands. */
+  heavyLockDir?: string;
   /** Whether a process group still runs (tests replace it): a workspace reservation outlives a restart until it is gone. */
   processExists?: ProcessProbe;
   /**
@@ -254,6 +257,8 @@ export interface DomainOptions {
   worktreeSweepMs?: number;
   /** How long a closed card's worktree stays (default `CLOSED_WORKTREE_KEEP_MS`, 3 days). */
   closedWorktreeKeepMs?: number;
+  /** How often the idle sessions are looked at for a close (default 1 min, PM-295). */
+  idleCloseSweepMs?: number;
 }
 
 export type Domain = ReturnType<typeof createDomain>;
@@ -350,6 +355,7 @@ export function createDomain(opts: DomainOptions) {
     userHome: opts.userHome,
     sessionFolders,
     browsersDir: opts.browsersDir,
+    heavyLockDir: opts.heavyLockDir,
     readerDenyWrite: [opts.appHome, opts.worktreesRootDir, opts.workspacesRootDir, opts.installDir].filter(
       (dir): dir is string => !!dir,
     ),
@@ -392,6 +398,15 @@ export function createDomain(opts: DomainOptions) {
   const delivery = new MessageDelivery({ ctx, sessions, messages });
   const refinement = new RefinementSteps({ projects, tasks, sessions, admission, delivery, inbox, timeline });
   const messaging = new Messaging({ ctx, projects, tasks, sessions, messages, delivery, refinement });
+  const sessionCloser = new SessionCloser({
+    ctx,
+    projects,
+    tasks,
+    sessions,
+    refinement,
+    messaging,
+    delivery,
+  });
   // The network gate's egress operations are one registry of the protected adapter; another
   // adapter (PM-142's publishing) answers the operation ids that are not egress ones.
   const egress = new EgressService({ ctx, projects, timeline, settings: opts.egress });
@@ -507,6 +522,7 @@ export function createDomain(opts: DomainOptions) {
     released: () => retryDeferredStarts(),
   });
   messaging.useFullTests(fullTests);
+  sessions.useFullTests(fullTests);
   handOver.useFullTests(fullTests);
   const githubSync = new GithubSync({
     ctx,
@@ -657,7 +673,9 @@ export function createDomain(opts: DomainOptions) {
     syncFullTest(task);
   });
   // Cancelled tasks stop their sessions; moves and closures drop the starts they made obsolete.
-  events.on('task_cancelled', (task) => sessions.stopTask(task.projectKey, task.key));
+  events.on('task_cancelled', (task) =>
+    sessions.stopTask(task.projectKey, task.key, { kind: 'task_cancelled', taskKey: task.key }),
+  );
   events.on('task_cancelled', (task) => admission.discardStale(task));
   // A card that closes (done or withdrawn) frees the cards that need it first (PM-204).
   const prerequisites = new PrerequisiteClosures({ ctx, timeline });
@@ -678,6 +696,26 @@ export function createDomain(opts: DomainOptions) {
     background.run(
       () => sessions.roundEnded(change.task),
       (err) => opts.logger.warn({ err }, 'end-of-round compaction failed'),
+    );
+  });
+  // A member whose step on the card is over has its session closed (PM-295): at once if it is idle, else
+  // when its turn ends. The conversation stays, and the next message or hand-over resumes it.
+  events.on('task_stage_changed', (change) => {
+    background.run(
+      () => sessionCloser.stageChanged(change),
+      (err) => opts.logger.warn({ err }, 'closing the sessions of a finished step failed'),
+    );
+  });
+  events.on('session_idle', (session) => {
+    background.run(
+      () => sessionCloser.sessionIdle(session),
+      (err) => opts.logger.warn({ err }, 'closing an idle session failed'),
+    );
+  });
+  refinement.onTurnLeft((task, member) => {
+    background.run(
+      () => sessionCloser.refinementTurnLeft(task, member),
+      (err) => opts.logger.warn({ err }, 'closing the session of a finished refinement turn failed'),
     );
   });
   // Done tasks: temp workers leave; sessions stop and clean worktrees go away.
@@ -783,6 +821,7 @@ export function createDomain(opts: DomainOptions) {
   let loopWatchTimer: ReturnType<typeof setInterval> | undefined;
   let diskTimer: ReturnType<typeof setInterval> | undefined;
   let sweepTimer: ReturnType<typeof setInterval> | undefined;
+  let idleCloseTimer: ReturnType<typeof setInterval> | undefined;
 
   return {
     ctx,
@@ -798,6 +837,7 @@ export function createDomain(opts: DomainOptions) {
     presence,
     messages,
     messaging,
+    sessionCloser,
     tasks,
     attachments,
     members,
@@ -917,6 +957,16 @@ export function createDomain(opts: DomainOptions) {
       sweepWorktrees();
       sweepTimer = setInterval(sweepWorktrees, opts.worktreeSweepMs ?? 6 * 60 * 60_000);
       sweepTimer.unref();
+      // Sessions that sat idle for a quarter of an hour close (PM-295).
+      idleCloseTimer = setInterval(
+        () =>
+          background.run(
+            () => sessionCloser.sweep(),
+            (err) => opts.logger.warn({ err }, 'idle session close sweep failed'),
+          ),
+        opts.idleCloseSweepMs ?? 60_000,
+      );
+      idleCloseTimer.unref();
     },
 
     async stop(): Promise<void> {
@@ -927,6 +977,7 @@ export function createDomain(opts: DomainOptions) {
       if (loopWatchTimer) clearInterval(loopWatchTimer);
       if (diskTimer) clearInterval(diskTimer);
       if (sweepTimer) clearInterval(sweepTimer);
+      if (idleCloseTimer) clearInterval(idleCloseTimer);
       const drained = schedules.stop();
       githubSync.stop();
       await fullTests.stop();

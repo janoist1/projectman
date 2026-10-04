@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { parseExecutionProfile } from '@projectman/shared';
 import { APP_DEFAULTS, buildApp, isLoopbackHost, loopbackBaseUrl, parseTerminalMode } from './app';
 import type { BuildAppOptions, LoopbackHost } from './app';
-import { createFullTestExecutor } from './full-test';
+import { createFullTestExecutor, defaultHeavyLockDir } from './full-test';
 import { loadBoundaryConfig } from './runtime-boundary';
 import { createShutdown } from './shutdown';
 
@@ -20,6 +20,8 @@ import { createShutdown } from './shutdown';
  *   GH_HOST (github.com): the host whose `gh` login the GitHub module checks,
  *   PROJECTMAN_BROWSERS_PATH (<home>/browsers): Playwright's browsers (PM-268, docs/DEPLOY.md), which
  *   the members' sandboxed commands read and never write, in PLAYWRIGHT_BROWSERS_PATH.
+ *   PROJECTMAN_HEAVY_LOCK_DIR (/tmp/projectman-<uid>/heavy): the machine's heavy-run queue (PM-332),
+ *   shared by the members' sandboxes, the server's full test and `npm run heavy`.
  *   PROJECTMAN_WORKSPACES (task_worktree): `member` gives every AI member a durable workspace per
  *   repository (PM-138) instead of a worktree per task.
  *   PROJECTMAN_BOUNDARY_CONFIG (unset): the managed VM's boundary configuration
@@ -47,6 +49,8 @@ import { createShutdown } from './shutdown';
  *   PROJECTMAN_SHUTDOWN_PAUSE_MS (60000): how long stopping the server (SIGTERM, SIGINT) lets the
  *   sessions come to a safe point before it closes (PM-219); 0 turns the pause off. The service unit's
  *   TimeoutStopSec must exceed it by about 20 seconds.
+ *   PROJECTMAN_CLONE_DEPENDENCIES (on): `off` stops cloning node_modules into task worktrees from an
+ *   installed checkout with the same lockfile (PM-332, APFS clones on macOS); any other value stops the server.
  * The agent CLIs start with this environment, minus billing and host-session variables (the
  * runner removes them); the git and gh commands the server runs inherit it.
  * Remote access goes through Tailscale (`tailscale serve`), not by binding publicly.
@@ -94,6 +98,10 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
     throw new Error(
       `invalid PROJECTMAN_SHUTDOWN_PAUSE_MS: ${env.PROJECTMAN_SHUTDOWN_PAUSE_MS} (milliseconds; 0 turns it off)`,
     );
+  // Cloning node_modules into task worktrees (PM-332): on unless turned off; anything else stops the start.
+  const cloneDependencies = env.PROJECTMAN_CLONE_DEPENDENCIES || 'on';
+  if (cloneDependencies !== 'on' && cloneDependencies !== 'off')
+    throw new Error(`invalid PROJECTMAN_CLONE_DEPENDENCIES: ${cloneDependencies} (on or off)`);
   // apps/web/dist, from src/index.ts (tsx) as well as from dist/index.js (bundle).
   const webDist = fileURLToPath(new URL('../../web/dist', import.meta.url));
   const home = resolve(env.PROJECTMAN_HOME ?? join(homedir(), '.projectman'));
@@ -111,8 +119,10 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
         createHash('sha256').update(home).digest('hex').slice(0, 12),
       ),
       browsersDir: resolve(env.PROJECTMAN_BROWSERS_PATH || join(home, 'browsers')),
+      heavyLockDir: env.PROJECTMAN_HEAVY_LOCK_DIR || defaultHeavyLockDir(),
       publicBaseUrl: loopbackBaseUrl(host, port),
       clientIpHeader,
+      cloneDependencies: cloneDependencies !== 'off',
       claudeBin: env.CLAUDE_BIN,
       codexBin: env.CODEX_BIN,
       codexHome: env.CODEX_HOME || undefined,
@@ -154,7 +164,8 @@ async function main(): Promise<void> {
         ? config.app.modules
         : {
             ...config.app.modules,
-            createFullTestExecutor: ({ logger }) => createFullTestExecutor({ logger, env: process.env }),
+            createFullTestExecutor: ({ logger }) =>
+              createFullTestExecutor({ logger, env: process.env, heavyLockDir: config.app.heavyLockDir }),
           },
   });
   if (config.app.executionProfile === 'managed_vm')

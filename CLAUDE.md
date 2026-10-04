@@ -71,11 +71,19 @@ report. Stay inside your paths otherwise. Each module exposes the factory declar
 
 ```
 npm install          # once per checkout / worktree
-npm run typecheck    # all workspaces
-npm test             # all workspaces
+npm run typecheck    # all workspaces; waits its turn in the machine's heavy-run queue
+npm test             # all workspaces; waits its turn in the machine's heavy-run queue
 npm run dev          # server (4700) + web (5173)
-npm run shots -- <scenario>  # screenshots of a disposable instance (docs/SCREENSHOTS.md)
+npm run shots -- <scenario>  # screenshots of a disposable instance (docs/SCREENSHOTS.md); queues too
+npm run heavy -- <command>   # any other heavy command, at its turn (--label, --max-wait <s>)
+npx vitest related <files> --run   # while working: the tests of what you changed, in the workspace (no queue)
 ```
+
+One heavy run goes at a time on the machine (PM-332, `docs/ARCHITECTURE.md` "Heavy-run
+queue"): the root `npm test`, `typecheck` and `shots` wait behind the other members' and the
+server's full test, and print who they wait for, so run them in the background. Runs inside
+one workspace (`npm test -w …`, `npx vitest related …`) do not queue; use them while working
+and the full run once before the hand-over.
 
 `npm run dev` keeps its data in `~/.projectman-dev` unless `PROJECTMAN_HOME` is set. The
 owner's live instance is a separate checkout (`~/projectman-live`, `npm start` on port 4800,

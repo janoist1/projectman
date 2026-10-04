@@ -161,6 +161,8 @@ export interface BuildAppOptions {
   publicBaseUrl?: string;
   /** Claude Code CLI (default "claude"). */
   claudeBin?: string;
+  /** PM-332: clone node_modules into new task worktrees from an installed checkout (default false; index.ts turns it on). */
+  cloneDependencies?: boolean;
   /** OpenAI Codex CLI (default "codex"). */
   codexBin?: string;
   /** Codex's home, where it keeps transcripts (default: the runner's, ~/.codex). */
@@ -201,6 +203,11 @@ export interface BuildAppOptions {
    * Absent (tests): the variable is not set.
    */
   browsersDir?: string;
+  /**
+   * The machine's heavy-run queue folder (PM-332, `full-test/heavy-lock.ts`): the members' sandboxes may
+   * write its parent and name it in `PROJECTMAN_HEAVY_LOCK_DIR`. Absent (tests): neither.
+   */
+  heavyLockDir?: string;
   /** How long a permission request waits for a human (default 10 minutes). */
   permissionTimeoutMs?: number;
   /** How often linked pull requests are polled (default 1 minute). */
@@ -374,7 +381,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const memory = modules.memberMemory ?? createMemberMemoryStore({ rootDir: join(home, 'memory') });
     const worktrees =
       modules.worktrees ??
-      createWorktreeManager({ rootDir: join(home, 'worktrees'), logger: log.child({ module: 'worktree' }) });
+      createWorktreeManager({
+        rootDir: join(home, 'worktrees'),
+        logger: log.child({ module: 'worktree' }),
+        cloneDependencies: options.cloneDependencies ?? false,
+      });
     // The VM boundary (PM-140): fail closed. Its proxy is the workers' only way out; the status
     // reports it down until it listens, and no session starts meanwhile.
     const boundaryConfig = options.runtimeBoundary;
@@ -477,6 +488,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       installDir: options.installDir,
       sessionFoldersDir: options.sessionFoldersDir,
       browsersDir: options.browsersDir,
+      heavyLockDir: options.heavyLockDir,
       memberWorkspaces,
       workspacesRootDir: workspacesDir,
       // Behind the boundary a session's pid is the launcher's (root's) process, and the launcher

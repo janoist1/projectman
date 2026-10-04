@@ -302,6 +302,25 @@
   flex: 1 1 100%;
 }
 
+/* Where the Start will stand, while the rule that decides it still loads (PM-291): the size of the button, so it does not jump. */
+.startLoading {
+  width: 104px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: var(--c-line-soft);
+  animation: start-loading 1.2s ease-in-out infinite;
+}
+
+@keyframes start-loading {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 .missing {
   padding: 24px;
   font-size: var(--text-md);

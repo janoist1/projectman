@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { compareBoardOrder, isTheme } from '@projectman/shared';
 import type { RankedCard, Task } from '@projectman/shared';
-import { useBoard, useInbox } from '../../api/queries';
+import { useBoard, useConfig, useInbox } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
@@ -53,9 +53,11 @@ export function sortGroupEntries(entries: BoardEntry[], pipeline: PipelineIndex)
 
 /** Board data plus the derived state of every task, shared by the board, the phone list and the drawer. */
 export function useBoardModel() {
-  const { key, myHandle } = useProject();
+  const { key, myHandle, can } = useProject();
   const board = useBoard(key);
   const inbox = useInbox(key);
+  // The shared start rule reads the team and the pipeline; the state line is the same for every viewer who gets them.
+  const config = useConfig(key, can.readConfig).data?.config;
   const { members, pipeline } = useProjectIndexes(key);
   const tasks = board.data?.tasks;
   const labels = board.data?.labels;
@@ -72,6 +74,7 @@ export function useBoardModel() {
       myHandle,
       labels,
       pausedSessions: pausedSessionMap(pause),
+      config,
     };
     const subtasksByParent = new Map<string, Task[]>();
     for (const task of tasks) {
@@ -90,7 +93,7 @@ export function useBoardModel() {
       subtasksByParent,
       byKey: new Map(entries.map((entry) => [entry.task.key, entry])),
     };
-  }, [tasks, labels, items, pipeline, members, myHandle, pause]);
+  }, [tasks, labels, items, pipeline, members, myHandle, pause, config]);
 
   return { board, inbox, members, pipeline, model };
 }

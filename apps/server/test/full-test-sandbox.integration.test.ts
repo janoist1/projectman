@@ -62,8 +62,11 @@ mustWork('opening a PTY', () =>
 if (process.env.TMPDIR !== expectedTmp) problems.push('TMPDIR is ' + process.env.TMPDIR + ', not ' + expectedTmp);
 
 for (const name of Object.keys(process.env)) {
-  if (/^PROJECTMAN_|TOKEN|SSH_AUTH_SOCK|API_KEY/.test(name)) problems.push('environment has ' + name);
+  // PROJECTMAN_HEAVY_LOCK_HELD is the run's own: the scripts inside do not queue again (PM-336).
+  if (name !== 'PROJECTMAN_HEAVY_LOCK_HELD' && /^PROJECTMAN_|TOKEN|SSH_AUTH_SOCK|API_KEY/.test(name))
+    problems.push('environment has ' + name);
 }
+if (process.env.PROJECTMAN_HEAVY_LOCK_HELD !== '1') problems.push('PROJECTMAN_HEAVY_LOCK_HELD is not 1');
 if (process.env.VITEST_MAX_FORKS !== '2') problems.push('VITEST_MAX_FORKS is ' + process.env.VITEST_MAX_FORKS);
 
 try {

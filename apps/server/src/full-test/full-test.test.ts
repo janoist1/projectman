@@ -122,6 +122,7 @@ describe('the sandbox of a full test run', () => {
       VITEST_MAX_THREADS: '3',
       NO_COLOR: '1',
       FORCE_COLOR: '0',
+      PROJECTMAN_HEAVY_LOCK_HELD: '1',
     });
   });
 

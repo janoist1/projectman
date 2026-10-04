@@ -165,6 +165,16 @@ Documentation map:
   repositories and none chosen it does not start (`repo_required`). Roles that only read run in
   the workspace root. A conversation belongs to the directory it ran in: when the task's
   worktree is elsewhere (its repo changed since), the session starts a new conversation there.
+  **Dependencies in a new worktree** (PM-332, `PROJECTMAN_CLONE_DEPENDENCIES`, on by default; macOS only):
+  after `ensureForTask` made the worktree (or found one without `node_modules`) it clones `node_modules`, the
+  root's and every workspace's, with `cp -c -R` (APFS `clonefile`: seconds, and the blocks are shared) from
+  the first checkout of the repository (the repo path, then its other worktrees) whose `package-lock.json` is
+  byte-identical and whose hidden `node_modules/.package-lock.json` is not older than it, i.e. installed after
+  the lockfile's last change. Only on one APFS volume, only where git ignores `node_modules`; `.vite`,
+  `.vite-temp` and `.cache` are left out of the copy. The server never runs `npm install`/`npm ci` outside the
+  sandbox (install scripts). Whatever fails or does not apply (`worktree/dependencies.ts` names the reasons)
+  is a log line, never a failed worktree: the member installs as before. Members' own workspaces and review
+  copies are not cloned.
 - **Member workspace** (PM-138, server option `memberWorkspaces`, `PROJECTMAN_WORKSPACES=member`;
   off by default until the switch-over, PM-143) — in place of a worktree per task, every AI member
   gets one durable workspace per repository, `workspaces/<KEY>/<handle>/<repo>/`: an independent
@@ -773,7 +783,10 @@ commit pinned at the hand-over, run by the server.
   hand-over's deferred start waits with `full_test_pending`) and the developer's messages to them are stored
   (`Messaging.heldForFullTest`); a person's message is not held. `TaskReviewPin.fullTest` shows the state.
 - **Green.** The reviewers start; their brief and resume message say the full test passed, so they need not run
-  the tests or the type check again. **Error** (could not run: timeout, no sandbox, no PTY, dirty checkout, …):
+  the tests or the type check again. On another hand-over of the same commit, the latest earlier verdict is
+  reused if it passed: no new run or `task_full_test` event is made, reviewers do not wait, and
+  `reviewPin.fullTest` keeps the original result time. Earlier failed or error verdicts are retried;
+  a new commit gets a new run. **Error** (could not run: timeout, no sandbox, no PTY, dirty checkout, …):
   nothing is sent back, and the brief says the reviewer must run the checks itself. **Failed:** the card goes
   back to the work stage before its stage (`task_stage_changed.testsFailed`, a fix round in the round count),
   the reviewers' sessions stop and the developer gets a system message with the failed files and the output.
@@ -781,6 +794,50 @@ commit pinned at the hand-over, run by the server.
   waits or runs never produces a verdict (`branch_moved`, `checkout_dirty`).
 - **Tests.** The domain logic is tested with a fake executor (`test/full-tests.test.ts`); the real sandbox
   only in `test/full-test-sandbox.integration.test.ts` (macOS), which the integrating session runs.
+
+When the executor is available and the task's repository sets `reviewTest`, `FullTestRuns.runsFor`
+sets `ContextPackInput.serverFullTest` in the session brief. Implementation and maintenance steps
+then ask only for targeted tests and the type check of touched parts while working: the server runs
+the configured full command on the handed-over commit, PTY tests included. Otherwise the steps ask
+for targeted tests while working and one full test and type check on the handed-over commit.
+Dependencies are installed only when missing from the working directory.
+
+## Heavy-run queue (PM-332)
+
+Three full test suites at once (2026-10-04) took the load to 81–89 and the swap to 6 GB: every member's vitest
+starts a worker per core, about 150 MB each. So **one heavy run goes at a time on the machine**, and a run's
+workers follow the machine's size.
+
+- **The lock** (`apps/server/src/full-test/heavy-lock.ts`, node built-ins only, because the CLI imports it
+  directly and `full-test/index.ts` loads the sandbox runtime). macOS has no `flock` or `lockf`, so it is a
+  directory in `/tmp/projectman-<uid>/heavy` (`defaultHeavyLockDir()`, `PROJECTMAN_HEAVY_LOCK_DIR`): its parent
+  must be 0700 and ours, or the queue is `heavy_lock_unavailable`. `holder/` is the lock itself (`mkdir` is
+  atomic; `owner.json` inside names the process, its label, checkout and session); `queue/<ticket>.json` is one
+  file per waiter, the ticket sorting by queue time. A waiter and the holder write a heartbeat (`utimes`, every
+  5 s) on their file. The head of the queue removes the tickets and the holder that are stale (heartbeat older
+  than 30 s, or the pid gone) and takes the lock; breaking a holder is a `rename` away, atomic, so one waiter
+  wins. A live holder is never broken, however long it runs. After a sleep a live lock can be broken for a
+  moment (two runs overlap); the holder notices at its next heartbeat and logs it once. `readHeavyQueue` shows
+  who holds it and who waits, for the PM-300 display.
+- **Who queues.** The CLI `npm run heavy -- [--label <text>] [--max-wait <s>] <command>`
+  (`scripts/heavy/cli.ts`) runs the command at its turn; the root `npm test`, `npm run typecheck` and
+  `npm run shots` go through it. It says on stderr who it waits for; `--max-wait` ends with exit status 75; a
+  signal is passed on to the command, and an unusable queue folder only warns, so the lock never holds
+  anything back. `PROJECTMAN_HEAVY_LOCK_HELD=1` (set for everything the CLI runs) makes a nested call run
+  without queueing. Runs inside one workspace (`npm test -w …`, `npx vitest related …`) do not queue.
+- **The server's full test** (`createFullTestExecutor({ heavyLockDir })`) takes the lock before it prepares the
+  run directory; the wait is not part of `durationMs` and `timeoutMs`, and an abort while waiting ends as
+  `killed`. `fullTestEnv` sets `PROJECTMAN_HEAVY_LOCK_HELD=1`, so the scripts inside do not queue again.
+- **The members' sandboxes** (`SandboxPaths.heavyLockDir`): `projectman-<uid>` is writable and
+  `PROJECTMAN_HEAVY_LOCK_DIR` is set, together with `npm_config_prefer_offline` (install from the member's own
+  npm cache when there is no clone). A Codex member gets no sandbox environment, so its commands queue in the
+  default folder, or run without the queue when that is not writable there.
+- **Workers.** `defaultTestWorkers` (`packages/shared/src/config/test-workers.ts`): half the cores, at most 4,
+  one per 4 GiB of memory, at least 1. Every `vitest.config.ts` sets `maxWorkers` to it and `minWorkers` to 1.
+  `VITEST_MAX_FORKS` and `VITEST_MAX_THREADS` (the server's full test sets them from `reviewTest.maxWorkers`)
+  still win: vitest takes `poolOptions.*.max*` before `maxWorkers`.
+- **The integrating session** calls the same CLI from `~/projectman-integrator/merge-test.sh`; it adjusts the
+  script itself.
 
 ## Housekeeping: worktrees of closed cards and free disk space (PM-243)
 

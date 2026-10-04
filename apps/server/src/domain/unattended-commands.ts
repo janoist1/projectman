@@ -1,7 +1,12 @@
 import type { AgentSandbox } from '../contracts';
 import { isWithin } from './command-paths';
 import { BROWSERS_PATH_VARIABLE, SESSION_DIR_VARIABLE } from './session-folders';
-import { GIT_SETTINGS_VARIABLE, PTY_SKIP_VARIABLE } from './session-policy';
+import {
+  GIT_SETTINGS_VARIABLE,
+  HEAVY_LOCK_DIR_VARIABLE,
+  PREFER_OFFLINE_VARIABLE,
+  PTY_SKIP_VARIABLE,
+} from './session-policy';
 import { SHELL_REDIRECTIONS } from './shell-words';
 import {
   NPM_CHECKS,
@@ -88,8 +93,11 @@ export function describeSandbox(input: {
       name !== PTY_SKIP_VARIABLE &&
       name !== GIT_SETTINGS_VARIABLE &&
       name !== SESSION_DIR_VARIABLE &&
-      name !== BROWSERS_PATH_VARIABLE,
+      name !== BROWSERS_PATH_VARIABLE &&
+      name !== HEAVY_LOCK_DIR_VARIABLE &&
+      name !== PREFER_OFFLINE_VARIABLE,
   );
+  const heavyQueue = sandbox.env?.[HEAVY_LOCK_DIR_VARIABLE];
   const gitSettings = sandbox.env?.[GIT_SETTINGS_VARIABLE];
   const sessionFolder = sandbox.env?.[SESSION_DIR_VARIABLE];
   const browsers = sandbox.env?.[BROWSERS_PATH_VARIABLE];
@@ -141,6 +149,12 @@ export function describeSandbox(input: {
     ...(skipsPtyTests
       ? [
           `- Tests: ${code('npm test')} leaves out the server's tests that need a pseudo-terminal (${code('*.integration.test.ts')}, ${code('golden-path-*.test.ts')}), because ${code(`${PTY_SKIP_VARIABLE}=1`)} is set here and the sandbox cannot open one; report the skipped files to the reviewer, and do not unset the variable.`,
+        ]
+      : []),
+    // PM-332: one heavy run at a time on the machine.
+    ...(heavyQueue
+      ? [
+          `- Machine queue: the full test (${code('npm test')} at the root), the full type check (${code('npm run typecheck')}) and ${code('npm run shots')} wait their turn in the machine's heavy-run queue, one at a time across members and the server's full test, so start them in the background; targeted runs inside one workspace do not queue.`,
         ]
       : []),
     ...(sandbox.deniedEnvVars?.length

@@ -1,4 +1,6 @@
+import os from 'node:os';
 import { spawn } from '@lydell/node-pty';
+import { defaultTestWorkers } from '@projectman/shared';
 import { configDefaults, defineConfig } from 'vitest/config';
 
 /**
@@ -51,5 +53,9 @@ export default defineConfig({
     // the test, 1-2.5 s alone.
     testTimeout: 20_000,
     hookTimeout: 20_000,
+    // A worker is about 150 MB and the default is every core: three runs at once took the load to 80
+    // (PM-332). VITEST_MAX_FORKS/THREADS, which the server's full test sets, still win over this.
+    maxWorkers: defaultTestWorkers({ cpus: os.availableParallelism(), memoryBytes: os.totalmem() }),
+    minWorkers: 1,
   },
 });

@@ -18,7 +18,10 @@ import styles from './TaskRepo.module.css';
  */
 export function TaskRepo({ task }: { task: Task }) {
   const { key, can } = useProject();
-  const config = useConfig(key, can.createTasks).data?.config;
+  // The query cache is shared with the status line's rule (PM-291), so the data may be there for a viewer too:
+  // the repositories are shown to whoever may edit the task only.
+  const loaded = useConfig(key, can.createTasks).data?.config;
+  const config = can.createTasks ? loaded : undefined;
   const update = useUpdateTask(key);
   const repos = config?.project.repos ?? [];
 

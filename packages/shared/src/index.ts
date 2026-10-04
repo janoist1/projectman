@@ -36,6 +36,8 @@ export * from './config/session-policy';
 export * from './config/labels';
 export * from './config/gates';
 export * from './config/refinement';
+export * from './config/team-rules';
+export * from './config/team-map';
 export * from './config/start-block';
 export * from './config/lookup';
 export * from './config/leave';

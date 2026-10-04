@@ -1,4 +1,5 @@
-import { memberOf } from '@projectman/shared';
+import { hasAccess, memberOf } from '@projectman/shared';
+export { hasAccess, ownerHandles } from '@projectman/shared';
 import type {
   Actor,
   AiMemberConfig,
@@ -16,13 +17,6 @@ export interface ProjectAccess {
   handle: string;
   access: HumanAccess;
   member: HumanMemberConfig;
-}
-
-/** viewer and client can read; developer can work on tasks; admin changes the team; owner everything. */
-const RANK: Record<HumanAccess, number> = { viewer: 0, client: 0, developer: 1, admin: 2, owner: 3 };
-
-export function hasAccess(access: HumanAccess, minimum: HumanAccess): boolean {
-  return RANK[access] >= RANK[minimum];
 }
 
 /** A refusal other than the default 403 insufficient_access "requires <minimum> access". */
@@ -76,8 +70,4 @@ export function projectAccessFor(config: ProjectConfig, email: string): ProjectA
   const member = findHumanByEmail(config, email);
   if (!member) return null;
   return { projectKey: config.project.key, handle: member.handle, access: member.access, member };
-}
-
-export function ownerHandles(config: ProjectConfig): string[] {
-  return config.team.members.filter((m) => m.kind === 'human' && m.access === 'owner').map((m) => m.handle);
 }

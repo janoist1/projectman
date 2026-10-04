@@ -11,6 +11,7 @@ import {
   ReopenTaskRequest,
   routes,
   StartTaskRequest,
+  TASK_CREATE_MIN_ACCESS,
   UpdateTaskRequest,
 } from '@projectman/shared';
 import type { BoardMoveResult, ClosedCardsMeasure, Task, TaskDetail } from '@projectman/shared';
@@ -34,7 +35,9 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
   });
 
   app.post<ProjectParams>(routes.tasks(':key'), async (request, reply) => {
-    const access = await requireAccess(domain, request, request.params.key, { minimum: 'developer' });
+    const access = await requireAccess(domain, request, request.params.key, {
+      minimum: TASK_CREATE_MIN_ACCESS,
+    });
     const body = parseBody(CreateTaskRequest, request.body);
     const task = await domain.tasks.create(request.params.key, body, actorOf(access));
     return reply.code(201).send(task);

@@ -53,4 +53,15 @@ export default async ({ open, shoot, step }) => {
       await shoot(page, `how-we-work-${name}-panel`, { widths: [1512, 390] });
     });
   }
+
+  // The dark theme follows the browser's colour scheme (styles/tokens.css).
+  await step('dark theme', async () => {
+    const page = await open({ path: PAGE });
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await ready(page);
+    await shoot(page, 'how-we-work-dark-flow', { widths: [1512, 390] });
+    await page.goto(`${page.url().split('?')[0]}?show=label:qa-ok`);
+    await ready(page);
+    await shoot(page, 'how-we-work-dark-label-panel', { widths: [1512, 390] });
+  });
 };

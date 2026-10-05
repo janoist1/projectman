@@ -14,6 +14,7 @@ interface MessageRow {
   body: string;
   created_at: string;
   delivered_at: string | null;
+  answer: string | null;
 }
 
 /** A message without its body: who it is between and who read it. */
@@ -31,14 +32,15 @@ const toMessage = (r: MessageRow): TeamMessage => ({
   createdAt: r.created_at,
   deliveredAt: r.delivered_at,
   ...(r.receipts ? { receipts: parseJson(r.receipts, []) } : {}),
+  ...(r.answer ? { answer: parseJson(r.answer, { inboxItemId: '', question: '', answer: '' }) } : {}),
 });
 
 export function createMessageRepository(db: Db) {
   const statements = {
     get: db.prepare('SELECT * FROM team_messages WHERE id = ?'),
     insert: db.prepare(
-      `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, answer)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     countUnread: db.prepare(
       `SELECT COUNT(*) AS n FROM team_messages WHERE project_key = ?
@@ -80,6 +82,7 @@ export function createMessageRepository(db: Db) {
         m.createdAt,
         m.deliveredAt,
         m.receipts ? toJson(m.receipts) : null,
+        m.answer ? toJson(m.answer) : null,
       );
     },
     /**

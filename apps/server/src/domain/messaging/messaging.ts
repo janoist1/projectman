@@ -19,6 +19,7 @@ import type {
   Session,
   Task,
   TeamMessage,
+  TeamMessageAnswer,
   WorkItemRef,
 } from '@projectman/shared';
 import { roleLabel, truncate } from '../../agent-text';
@@ -46,6 +47,8 @@ export interface SendOptions {
    * the answer to the recipient's own question is not held back. Internal, not a contract.
    */
   duringRefinement?: boolean;
+  /** Marks the message as the answer to an AI member's question (PM-249): the card thread shows it as one. */
+  answer?: TeamMessageAnswer;
 }
 
 /**
@@ -180,6 +183,7 @@ export class Messaging {
       humanRecipients: humans,
       delivered: recipients.every((handle) => humans.includes(handle)),
       routes,
+      answer: opts.answer,
     });
     for (const { handle, workItem: where, running, held } of placed)
       if (!held) this.deliverOrWake(projectKey, handle, where, running, message);
@@ -379,6 +383,7 @@ export class Messaging {
         workItem: session?.member === asker.handle ? session.workItem : routeFor(item.taskKey),
         // The answer to the member's own question is never held back by the refinement line.
         duringRefinement: true,
+        answer: { inboxItemId: item.id, question, answer: answerText(item) },
       },
     );
   }

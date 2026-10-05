@@ -93,6 +93,31 @@ describe('team message visibility over REST and websocket', () => {
     expect(await list('acme', '?unreadOnly=true')).toEqual(['owner-acme']);
   });
 
+  it('gives a card thread the same visibility, and a client a 404 for a card they cannot see', async () => {
+    await h.app.projectman.domain.tasks.create(key, { title: 'Shared work', visibility: 'shared' }, actor);
+    record('owner', ['acme'], 'AR-2', 'owner-acme card');
+    record('qa', ['dev'], 'AR-2', 'qa-dev card');
+    record('dev', ['qa', 'reader'], 'AR-2', 'dev-qa-reader card');
+    const status = async (handle: string, query: string) =>
+      (
+        await h.app.inject({
+          url: `${routes.teamMessages(key)}${query}`,
+          headers: { cookie: cookies[handle]! },
+        })
+      ).statusCode;
+
+    const card = ['qa-dev card', 'dev-qa-reader card', 'owner-acme card'].sort();
+    expect((await list('owner', '?taskKey=AR-2')).sort()).toEqual(card);
+    expect((await list('admin', '?taskKey=AR-2')).sort()).toEqual(card);
+    expect(await list('dev', '?taskKey=AR-2')).toEqual(['qa-dev card', 'dev-qa-reader card']);
+    expect(await list('reader', '?taskKey=AR-2')).toEqual(['dev-qa-reader card']);
+    expect(await list('acme', '?taskKey=AR-2')).toEqual(['owner-acme card']);
+    // The internal card does not exist for the client, whoever wrote on it; an unknown key is an empty list.
+    expect(await status('acme', '?taskKey=AR-1')).toBe(404);
+    expect(await status('dev', '?taskKey=AR-1')).toBe(200);
+    expect(await list('acme', '?taskKey=AR-999')).toEqual([]);
+  });
+
   it('pushes a message only to those it concerns, an owner and an admin', async () => {
     const received: Record<string, ServerEvent[]> = {};
     const sockets = await Promise.all(

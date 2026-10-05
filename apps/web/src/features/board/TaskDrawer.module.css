@@ -160,6 +160,82 @@
   border-left: 1px solid var(--c-line-soft);
 }
 
+/* The switch between the card and its conversation (PM-273): under the head, on the head's own line. The line
+   under the head is this row's (the head leaves it off), so what scrolls below is cut under the switch. */
+.views {
+  flex: none;
+  display: flex;
+  padding: 0 var(--card-pad-x, 22px) 12px;
+  border-bottom: 1px solid var(--c-line-soft);
+}
+
+/* As wide as its two buttons; on a phone the halves share the row. */
+.views .switch {
+  flex: none;
+}
+
+/* A hidden group must not show though a layout above makes it a box (display: contents, flex). */
+.group[hidden],
+.thread[hidden] {
+  display: none !important;
+}
+
+/* The conversation: the card's sections are hidden, so what is left is the thread. It fills the drawer under
+   the switch: the messages scroll in it, and the box to write in stays under them. Both views stay in the
+   tree, so the scroll box below is the card's scroller only while the card shows. */
+.thread {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.scroll.conversation {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+/* How far the messages and the box stand from the sides: the card's own side padding in each layout. */
+.conversation .thread {
+  --thread-pad-x: 22px;
+}
+
+.window .scroll.conversation {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  justify-content: stretch;
+  align-content: stretch;
+}
+
+/* One column: the messages stand in the 760px column of the head, the box's top line runs the window's width. */
+.window .conversation .thread {
+  --thread-pad-x: var(--card-pad-x);
+  grid-column: 1;
+  grid-row: 1;
+}
+
+/* Two columns: only the left one is the conversation. The right one stays, and scrolls on its own. */
+.wide .scroll.conversation {
+  padding: 0 var(--card-pad-x);
+  grid-template-columns: minmax(0, 760px) 320px;
+  column-gap: 20px; /* `.scroll.conversation` zeroes `gap`; this is the room the thread leaves the right column's line */
+}
+
+.wide .conversation .thread {
+  --thread-pad-x: 0px;
+}
+
+.wide .conversation .side {
+  grid-row: 1;
+  align-self: stretch;
+  position: static;
+  max-height: none;
+  padding-top: 28px;
+  padding-bottom: 40px;
+}
+
 .sessions {
   list-style: none;
   margin: 0;
@@ -276,6 +352,23 @@
     padding-left: 16px;
     padding-right: 16px;
   }
+  .views {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .views .switch {
+    flex: 1;
+  }
+  .views .switch button {
+    flex: 1;
+    justify-content: center;
+  }
+  .scroll.conversation {
+    padding: 0;
+  }
+  .conversation .thread {
+    --thread-pad-x: 16px;
+  }
 }
 
 /* Too short for a fixed head around a scrolling body (landscape phones, small
@@ -287,6 +380,15 @@
   .scroll {
     flex: 0 0 auto;
     overflow-y: visible;
+  }
+  /* The conversation scrolls with the drawer too, and its box is no longer pinned. */
+  .scroll.conversation,
+  .window .scroll.conversation {
+    overflow: visible;
+    grid-template-rows: auto;
+  }
+  .thread {
+    flex: 0 0 auto;
   }
   /* The window scrolls as a whole, so there is no height for the right column to keep in. */
   .wide .scroll {

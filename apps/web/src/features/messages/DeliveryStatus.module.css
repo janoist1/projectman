@@ -1,0 +1,42 @@
+/* The delivery state reads as part of the meta line: its trigger is text, not a button. */
+.status {
+  color: var(--c-ink-4);
+}
+
+.status > button,
+.status > button:hover {
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  gap: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 400;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.status > button:hover {
+  color: var(--c-ink-3);
+}
+
+.statusWait {
+  color: var(--c-needs-text);
+}
+
+.statusWait > button:hover {
+  color: var(--c-needs-text);
+}
+
+.receipts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 240px;
+  font-size: 13px;
+}

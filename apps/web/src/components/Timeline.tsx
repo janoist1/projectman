@@ -1,5 +1,6 @@
 import clsx from 'clsx';
 import type { ReactNode } from 'react';
+import { Link } from 'react-router';
 import { mentionTokens } from '@projectman/shared';
 import { Chip } from './Chip';
 import type { TimelineEvent } from '@projectman/shared';
@@ -17,6 +18,8 @@ interface TimelineProps {
   ctx: TimelineContext;
   /** Next-step row: what happens next and who carries it. */
   next?: ReactNode;
+  /** Where a row of a team message links to the whole message (null: the row has no link, the viewer may not read it). */
+  fullMessageHref?: (event: TimelineEvent) => string | null;
   emptyText?: string;
   className?: string;
 }
@@ -44,7 +47,7 @@ function CommentText({ text, ctx }: { text: string; ctx: TimelineContext }) {
 }
 
 /** Attributed history: who did what, when. Oldest first, like a log. */
-export function Timeline({ events, ctx, next, emptyText, className }: TimelineProps) {
+export function Timeline({ events, ctx, next, fullMessageHref, emptyText, className }: TimelineProps) {
   if (events.length === 0 && !next) {
     return <p className={styles.empty}>{emptyText ?? t('task.timelineEmpty')}</p>;
   }
@@ -65,6 +68,7 @@ export function Timeline({ events, ctx, next, emptyText, className }: TimelinePr
         const handle = event.actor.handle;
         const member = handle ? ctx.members.get(handle) : undefined;
         const isMe = Boolean(handle && handle === ctx.myHandle);
+        const fullMessage = fullMessageHref?.(event);
         return (
           <li key={event.id} className={styles.item}>
             <span className={styles.rail}>
@@ -89,6 +93,11 @@ export function Timeline({ events, ctx, next, emptyText, className }: TimelinePr
               >
                 {comment ? <CommentText text={text} ctx={ctx} /> : text}
               </span>
+              {fullMessage ? (
+                <Link to={fullMessage} className={styles.fullMessage}>
+                  {t('timeline.fullMessage')}
+                </Link>
+              ) : null}
               {detail ? (
                 <details className={styles.detail}>
                   <summary>{t('timeline.details')}</summary>
